@@ -10,7 +10,7 @@ A "riff" is one disposable workspace: one branch, one worktree, one tmux window,
 - [`wt`](https://github.com/sahil87/wt) must be on your `PATH`.
 - The launcher (`claude --dangerously-skip-permissions` by default) must be available.
 
-The launcher can be overridden per-project via `agent.spawn_command` in `fab/project/config.yaml`.
+In a fab-kit project, the launcher is resolved per-project through `fab agent` — the `providers` and `agent` tables in `fab/project/config.yaml` — so it can point at any agent CLI, or any command at all. Without fab-kit (or on any resolution failure), riff falls back to the default launcher.
 
 ## Quick start
 

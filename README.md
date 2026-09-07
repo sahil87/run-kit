@@ -6,7 +6,7 @@
 
 **Your tmux, in the browser and on your phone.** run-kit is a remote console for the machine you actually work on — every tmux session and pane as a live terminal, in a sidebar, from your desk or your couch. It's the modern, terminal-native answer to the old server web-console: nothing to configure, no database, state read straight from tmux.
 
-What makes it so good right now is that what tend to run in those panes: **AI coding agents, many at once.** `rk riff` spawns each one in its own [git worktree](https://github.com/sahil87/wt), and the dashboard lets you watch the whole fleet. But run-kit never wraps the agent — a pane is just a pane. It's equally a build, a REPL, an ssh session, `htop`. **The agent is one of the things you run, not the thing run-kit is.** That's the point: when the agent tooling churns underneath you (and it does, monthly), the terminal layer stays put.
+What makes it so good right now is what tends to run in those panes: **AI coding agents, many at once.** `rk riff` spawns each one in its own [git worktree](https://github.com/sahil87/wt), and the dashboard lets you watch the whole fleet. But run-kit never wraps the agent — a pane is just a pane. It's equally a build, a REPL, an ssh session, `htop`. **The agent is one of the things you run, not the thing run-kit is.** That's the point: when the agent tooling churns underneath you (and it does, monthly), the terminal layer stays put.
 
 ## Install
 
@@ -14,68 +14,48 @@ What makes it so good right now is that what tend to run in those panes: **AI co
 curl -fsSL https://shll.ai/install | sh
 ```
 
-Installs the entire shll toolkit via Homebrew, handling tap trust automatically. run-kit relies on its sibling tools (`wt` for the riff worktree flow), so the full-toolkit install is the supported path.
+Installs the entire shll toolkit via Homebrew, handling tap trust automatically. run-kit relies on its sibling tools (`wt` for the riff worktree flow), so the full-toolkit install is the supported path. The formula also installs `rk` as a fully interchangeable short alias of `run-kit` — every command here works with either.
 
-Requires **tmux ≥ 3.4** (checked at runtime; `rk doctor` reports your version) — see the [install & access guide](docs/site/install.md#tmux-version--34) for the upgrade path.
+Requires **tmux ≥ 3.4** (checked at runtime; `rk doctor` reports your version). See the [install & access guide](docs/site/install.md) for prerequisites, upgrades, and troubleshooting.
 
 ## Quick start
 
-From install to a working dashboard with one agent running. Two front doors to the same dashboard — pick one:
-
-**In the browser** (any platform):
+Three commands from install to a guided tour:
 
 ```bash
-run-kit daemon start            # start the dashboard daemon on :3000
-open http://localhost:3000      # open the dashboard in your browser
-```
-
-**Or the desktop app** (macOS):
-
-```bash
-run-kit desktop install         # once: install Run Kit.app to /Applications, quarantine-free
-open -a "Run Kit"               # then click "Start & connect" — the app starts the daemon for you
-```
-
-The app's welcome page detects your local install and starts the daemon in one click — no `daemon start` needed. It can also connect to run-kit on other machines, including bootstrapping one over SSH (see [Desktop app](#desktop-app-macos)).
-
-Either way, spawn your first agent workspace:
-
-```bash
-run-kit agent setup             # optional, once per machine: agent busy/waiting/idle in the dashboard
+rk daemon start                 # start the dashboard daemon on :3000
+open http://localhost:3000      # open the dashboard (xdg-open on Linux)
 
 # in a tmux session (tmux new -s work if you aren't in one):
-run-kit riff                    # spawn an agent workspace (--skill /name picks the slash-command)
+rk tutorial                     # guided first run — an agent walks you through the product, act by act
 ```
 
-`run-kit riff` also needs [`wt`](https://github.com/sahil87/wt) on your `PATH` — included with the full-toolkit install, or `shll install wt` — and your agent CLI available. When something fails, `run-kit doctor` prints per-dependency status.
+Then spawn your first real agent workspace — a git worktree, a tmux window inside it, your agent launched:
 
-The new workspace appears in the sidebar; click into it to drive the agent — or any command — from the dashboard.
+```bash
+rk riff                         # spawn an agent workspace (--skill /name picks the slash-command)
+```
 
-Prefer a guided first run? `run-kit tutorial` (inside a tmux session) opens a `tutorial` tab whose agent walks you through the product, act by act — and re-running it switches back to that tab.
+The new workspace appears in the sidebar; click into it to drive the agent — or any command — from the dashboard, on any device.
 
-The formula also installs `rk` as a fully interchangeable short alias of `run-kit`, so every command here works the same whether you type `run-kit` or `rk`.
+Two optional extras:
 
-To upgrade later, run `run-kit update` — pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately. The desktop app updates separately: `run-kit desktop update`, or the app's **Restart to Update** menu item when it detects a new release.
+- `rk agent setup` (once per machine) makes agent panes report live **busy/waiting/idle** state in the dashboard — see [Agent state](#agent-state--rk-agent-setup).
+- On a Mac, the [desktop app](#desktop-app-macos) is an alternative front door: `rk desktop install`, then one **Start & connect** click replaces the `daemon start` + `open` steps.
 
-> **Coming from the old `rk` formula?** run-kit was originally published as `sahil87/tap/rk`. If brew warns that `sahil87/tap/rk was renamed to sahil87/tap/run-kit`, you have a keg installed under the old name — remove it with a benign `brew uninstall sahil87/tap/rk` (your config and the `rk` command alias are unaffected), then `brew install sahil87/tap/run-kit` if `run-kit` is no longer on your `PATH`.
-
-See the [install & access guide](docs/site/install.md) for prerequisites, `run-kit doctor`, development setup, and driving run-kit from your phone over Tailscale HTTPS.
-
-## What run-kit is (and isn't)
-
-|  | run-kit |
-|--|---------|
-| **It is** | A remote, phone-first **console for your tmux** — agent-agnostic, no database, state derived from tmux + filesystem. A spawner (`run-kit riff`) and a dashboard (`run-kit serve`) that compose. |
-| **It isn't** | An agent wrapper. It doesn't speak any agent's protocol, parse any agent's output, or care what's in the pane. That's deliberate — it's what makes it outlive whichever agent you run. |
+To upgrade later, `rk update` pulls the latest version via Homebrew and restarts the daemon. Coming from the old `rk` Homebrew formula, or something failing? See the [install & access guide](docs/site/install.md) and `rk doctor`.
 
 ## Why run-kit?
 
-- **A remote terminal console, not an agent wrapper** — run-kit exposes your tmux, full stop. Drive an agent in one pane, a dev server in the next, an ssh session in a third. Because it's agent-agnostic, it outlives whatever coding agent you're running this month.
-- **One command per parallel agent** — `run-kit riff` creates a worktree, opens a tmux window in it, and launches your agent. `run-kit riff -N 3` spawns three workspaces in parallel; failures roll back cleanly.
-- **Watch a whole fleet, from anywhere** — every tmux session and pane shows up in a sidebar. Click for a live browser terminal; pin several into a [board](#boards--watch-many-panes-at-once) to watch three agents side-by-side; open the same dashboard on your phone over Tailscale.
+|  | run-kit |
+|--|---------|
+| **It is** | A remote, phone-first **console for your tmux** — agent-agnostic, no database, state derived from tmux + filesystem. A spawner (`rk riff`) and a dashboard (`rk serve`) that compose. |
+| **It isn't** | An agent wrapper. It doesn't speak any agent's protocol, parse any agent's output, or care what's in the pane. That's deliberate — it's what makes it outlive whichever agent you run. |
+
+- **One command per parallel agent** — `rk riff` creates a worktree, opens a tmux window in it, and launches your agent. `rk riff -N 3` spawns three workspaces in parallel; failures roll back cleanly.
+- **Watch a whole fleet, from anywhere** — every tmux session and pane shows up in a sidebar. Click for a live browser terminal; pin several into a [board](#boards--watch-many-panes-at-once); open the same dashboard on your phone over Tailscale.
 - **Mobile-first, keyboard-first** — `Cmd+K` command palette is the primary discovery surface. Touch targets are tuned for mobile so you can steer a session from your phone while away from your desk.
-- **No database, no daemon magic** — state is derived from tmux and the filesystem, the way a good console mirrors the system it manages. Sessions survive `run-kit` restarts because the daemon never touches them.
-- **The dashboard layer over [`fab-kit`](https://github.com/sahil87/fab-kit) and [`wt`](https://github.com/sahil87/wt)** — `run-kit riff --skill /fab-fff` launches a full fab-kit pipeline in an isolated worktree. Reach for run-kit when you have more parallel changes than one terminal can hold.
+- **The dashboard layer over [`fab-kit`](https://github.com/sahil87/fab-kit) and [`wt`](https://github.com/sahil87/wt)** — `rk riff --skill /fab-fff` launches a full fab-kit pipeline in an isolated worktree. Reach for run-kit when you have more parallel changes than one terminal can hold.
 
 ## Screenshots
 
@@ -91,69 +71,49 @@ See the [install & access guide](docs/site/install.md) for prerequisites, `run-k
 
 ## The mental model
 
-run-kit is two independent halves that compose (the command is `run-kit`; `rk` is the fully interchangeable short alias people tend to type):
+run-kit is two independent halves that compose:
 
 ```
-run-kit riff         run-kit serve
+rk riff              rk serve
   ▼                    ▼
 spawns agent        runs the
 workspaces ─────►   browser dashboard
 (tmux + worktree)   (watches tmux)
 ```
 
-You can run either alone. Run `run-kit riff` in any tmux session without ever starting `run-kit serve` — you get the spawning behavior, no dashboard. Run `run-kit serve` and never call `run-kit riff` — you get a tmux browser dashboard for sessions you spawn manually. The two are designed to compose, not depend on each other.
+You can run either alone. Run `rk riff` in any tmux session without ever starting `rk serve` — you get the spawning behavior, no dashboard. Run `rk serve` and never call `rk riff` — you get a tmux browser dashboard for sessions you spawn manually. The two are designed to compose, not depend on each other.
 
-## `run-kit riff` — the spawner
+## `rk riff` — the spawner
 
-One invocation gives you a git worktree, a tmux window inside it, and one or more panes ready to go. The default pane runs your coding agent, but a pane can run anything — `run-kit riff` is a workspace launcher, not an agent launcher.
+One invocation gives you a git worktree, a tmux window inside it, and one or more panes ready to go. The default pane runs your coding agent, but a pane can run anything — `rk riff` is a workspace launcher, not an agent launcher.
 
-**Pane array model.** `--skill` and `--cmd` are repeatable. Each occurrence adds one pane; argv order (left to right) becomes pane order. Bare `--skill` opens a blank agent session; bare `--cmd` drops into `$SHELL`.
-
-**Layouts.** `auto` (default), `tiled`, `even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`. Set with `--layout`.
-
-**Presets.** Common pane/layout combos go in `fab/project/config.yaml` under `riff.presets.<name>`. Invoke as `run-kit riff <name>` or `run-kit riff --preset <name>`.
-
-**Parallel.** `-N <N>` spawns N workspaces in parallel; failures roll back successful ones before exiting.
-
-**wt passthrough.** Flags after `--` go to `wt create` verbatim (e.g. `--base`, `--reuse`, `--worktree-name`).
-
-Examples:
+- **Pane array**: `--skill` and `--cmd` are repeatable; each occurrence adds one pane, in argv order.
+- **Layouts**: `--layout` picks `auto` (default), `tiled`, `even-*`, or `main-*`.
+- **Presets**: common pane/layout combos live in `fab/project/config.yaml` under `riff.presets.<name>`; invoke as `rk riff <name>`.
+- **Parallel**: `-N <N>` spawns N workspaces; failures roll back before exiting.
+- **wt passthrough**: flags after `--` go to `wt create` verbatim (e.g. `--base`, `--worktree-name`).
 
 ```bash
-run-kit riff                                         # 1 pane, default skill (/fab-discuss)
-run-kit riff --skill /fab-fff                        # 1 pane, specific slash-command
-run-kit riff --skill /fab-fff --cmd "just dev"       # 2 panes (agent + dev server)
-run-kit riff --skill /a --cmd x --cmd y --layout main-vertical
-run-kit riff ship                                    # invoke the 'ship' preset
-run-kit riff ship -N 3                               # 3 parallel ship workspaces
-run-kit riff -- --worktree-name pacing-canyon        # name the worktree
+rk riff --skill /fab-fff --cmd "just dev"       # 2 panes (agent + dev server)
+rk riff ship -N 3                               # 3 parallel 'ship' preset workspaces
 ```
 
-**Prerequisites:** must be inside a tmux session, [`wt`](https://github.com/sahil87/wt) on `PATH`, and the launcher (default `claude --dangerously-skip-permissions`) available. Override the launcher per-project via `agent.spawn_command` in `fab/project/config.yaml` — point it at any agent CLI, or any command at all.
+**Prerequisites:** must be inside a tmux session, with [`wt`](https://github.com/sahil87/wt) and the launcher (default `claude --dangerously-skip-permissions`) on `PATH`. In a fab-kit project, the launcher is resolved per-project through `fab agent` (the `providers` / `agent` tables in `fab/project/config.yaml`) — point it at any agent CLI, or any command at all.
 
 See the [riff guide](docs/site/workflows.md) for the full reference.
 
-## `run-kit serve` — the HTTP server
+## `rk serve` — the HTTP server
 
 Start the HTTP server in the foreground. Configurable via `RK_HOST` (default `127.0.0.1`) and `RK_PORT` (default `3000`).
 
 ```bash
-run-kit serve                                # foreground on 127.0.0.1:3000
-RK_HOST=0.0.0.0 RK_PORT=8080 run-kit serve   # bind all interfaces, port 8080
+rk serve                                # foreground on 127.0.0.1:3000
+RK_HOST=0.0.0.0 RK_PORT=8080 rk serve   # bind all interfaces, port 8080
 ```
 
-To run it in the background, use the `run-kit daemon` subcommands:
+To run it in the background, use the `rk daemon` subcommands (`start`, `restart`, `stop`, `status`). The daemon runs in its own dedicated tmux server (`rk-daemon`), completely separate from your sessions; restarts are idempotent kill-and-restart with no polling loop or signal files. Restart the daemon and everything you're running keeps running — the console reconnects automatically.
 
-```bash
-run-kit daemon start                         # background daemon in a tmux session
-run-kit daemon restart                       # stop and start
-run-kit daemon stop                          # graceful shutdown
-run-kit daemon status                        # show daemon state and port owner
-```
-
-The daemon runs in its own dedicated tmux server (`rk-daemon`), completely separate from your sessions. Restart the daemon and everything you're running keeps running — the console reconnects automatically.
-
-The daemon also starts a managed **code-server** beside it (its own `rk-code-server` tmux session on the same socket), powering the dashboard's `code` lens and CODE panel surface — a full editor at the window's git root, served same-origin behind the stable `/code/` route. rk owns the install: on first daemon start with no code-server anywhere, a `code-server-install` window in the `rk-jobs` session downloads the latest digest-verified standalone release into `~/.rk/code-server-bin/` (manual equivalent: `rk code-server install`; `rk code-server update` upgrades, and `rk update` runs that leg automatically); a code-server you installed yourself on PATH is respected and never touched. It binds loopback-only on `RK_PORT+2`; set `RK_CODE_SERVER_PORT` only to point rk at an externally managed instance instead. `run-kit daemon stop` deliberately leaves code-server running; `run-kit doctor` reports its presence and reachability.
+The daemon also manages a **code-server** beside it, powering the dashboard's `code` lens — a full editor at the window's git root, served same-origin behind `/code/`. It installs itself on first daemon start (or `rk code-server install`); a code-server you installed yourself is respected and never touched. Details in the [install & access guide](docs/site/install.md#code-server-the-code-lens).
 
 ## Status dots — read every window at a glance
 
@@ -168,41 +128,28 @@ Each window in the sidebar, dashboard, and pane panel carries a single **status 
 
 See the [status dot reference](docs/site/status-dot.md) for the full legend, the per-state rendering, and the design rationale.
 
-## Agent state — `run-kit agent setup`
+## Agent state — `rk agent setup`
 
 Windows running an AI agent can report a live lifecycle state in the sidebar and pane panel: **active** (turn in progress), **waiting** (blocked on you — a permission prompt or question), or **idle** (turn done, with elapsed duration). `waiting` is the state worth a glance at your phone: the agent isn't working, it's waiting for *you*.
 
 This is opt-in and needs a one-time setup per machine:
 
 ```bash
-run-kit agent setup              # shows the settings diff, asks before writing
-run-kit agent setup --uninstall  # removes exactly the run-kit-owned entries
+rk agent setup              # shows the settings diff, asks before writing
+rk agent setup --uninstall  # removes exactly the run-kit-owned entries
 ```
 
-It installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) that stamp a `@rk_agent_state` tmux pane option on lifecycle events. Each hook is a thin, stable wrapper that delegates to `run-kit agent hook` — a stable interface whose logic (the pid resolution, the value write) lives in the binary. No run-kit **server** is needed at fire time, and because the logic is in the binary, hook fixes track `brew upgrade run-kit` with no settings changes and no session restarts. They work for any session, in any repo, under any workflow. Idempotent: re-running updates run-kit's entries in place (recognizing and replacing older-generation entries too) and never touches your other hooks. Until it's run (and agents are restarted so new sessions pick up the hooks), agent state shows `—`.
+It installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) that stamp a `@rk_pane_agent_state` tmux pane option on lifecycle events. Each hook is a thin wrapper delegating to `rk agent hook`, so hook fixes ship in the binary and track `rk update` — no settings changes, no session restarts. Hooks work for any session, in any repo, under any workflow; re-running the setup is idempotent and never touches your other hooks. Until it's run (and agent sessions are restarted), agent state shows `—`.
 
-> **Upgrading from an earlier run-kit?** Older installs had the hook *logic* inlined in `settings.json`. Run `run-kit agent setup` once more to swap in the new delegating wrapper, then restart your agent sessions (harnesses snapshot hook config at session start). This is the last time a hook *logic* change needs a re-setup — future fixes ship in the binary. (Changes to which events map to which state still need a re-setup, since that mapping lives in the settings entries.)
+The cross-repo convention is documented in [`docs/specs/agent-state.md`](https://github.com/sahil87/run-kit/blob/main/docs/specs/agent-state.md); upgrading from an older hook generation is covered in the [install & access guide](docs/site/install.md#upgrade).
 
-The cross-repo convention is documented in [`docs/specs/agent-state.md`](https://github.com/sahil87/run-kit/blob/main/docs/specs/agent-state.md).
+## The operator — one agent to run the server
+
+`rk operator` opens the **operator** — a per-tmux-server singleton window running the fab-kit operator-tier agent, role-marked so the dashboard pins it. Where `rk riff` spawns workers, the operator is the coordinator you talk to: it watches the fleet, dispatches and unblocks changes, and escalates to your phone when something needs you. Requires fab-kit on `PATH`; re-running switches to the existing tab.
 
 ## Boards — watch many panes at once
 
-A **board** is a named, cross-server pane dashboard. Pin any tmux window from any server into a board, and the board renders all pinned panes side-by-side in a horizontally-scrollable layout — perfect for watching three parallel agent sessions, or comparing a `just dev` server's output against the agent that's editing it.
-
-Three ways to pin a window to a board:
-
-1. **Sidebar pin icon** — every window row in the sidebar has a pin icon. Click it to open a popover listing existing boards (click to pin/unpin), plus a "Pin to new board…" input that creates a new board on first pin.
-2. **Command palette (`Cmd+K`)** — `Board: Pin Current Window`, `Board: Unpin Current Window`, `Board: Switch to <name>`, `Board: Leave Board View`.
-3. **Board pane header** — each pinned pane shows an unpin button in its header for one-click removal.
-
-Inside a board:
-
-- **`Cmd+]` / `Cmd+[`** cycles pane focus to the next / previous pane (wraps).
-- **Click a pane** to focus it; keystrokes route to that pane's terminal.
-- **Drag the pane edge** to resize (desktop only; widths persist per-board in `localStorage`).
-- **On mobile**, panes render as a single-pane swipe carousel.
-
-Pin state lives in tmux (via the `@rk_ses_pin_board` session option on the window's `_rk-pin-*` pin session) so it follows the window, not the browser — open the same board URL on your phone and you see the same panes. Pane widths are intentionally local to each device.
+A **board** is a named, cross-server pane dashboard: pin any tmux window from any server into it, and the board renders all pinned panes side-by-side — perfect for watching three parallel agent sessions next to the `just dev` server they're editing. Pin from the sidebar's pin icon or the `Cmd+K` palette; pin state lives in tmux, so the same board URL shows the same panes on your phone. See the [boards guide](docs/site/boards.md) for pinning, keyboard cycling, resizing, and mobile behavior.
 
 ## Drive it from your phone (HTTPS over Tailscale)
 
@@ -213,81 +160,36 @@ Some browser features (clipboard, secure context) require HTTPS. Accessing run-k
 3. Run `tailscale serve --bg http://localhost:3000`.
 4. Open `https://<machine>.<tailnet>.ts.net` on your phone or another laptop.
 
-For a stable custom hostname or public access via Funnel, see the [Tailscale guide](docs/site/install.md).
+For a stable custom hostname or public access via Funnel, see the [Tailscale guide](docs/site/install.md#tailscale-https).
 
 ## Desktop app (macOS)
 
-A native desktop shell — an Electron window that wraps your dashboard and frees the browser-reserved `⌘` keyboard tier for run-kit itself. Install and update it with the CLI:
+A native desktop shell — an Electron window that wraps your dashboard and frees the browser-reserved `⌘` keyboard tier. Install and update it with the CLI:
 
 ```sh
-run-kit desktop install    # fetch the latest release DMG, install to /Applications
-run-kit desktop update     # same, but a no-op when already current
-run-kit desktop status     # installed vs latest version (read-only)
+rk desktop install    # fetch the latest release DMG, install to /Applications
+rk desktop update     # same, but a no-op when already current
 ```
 
-Installing through the CLI matters: the desktop DMGs are ad-hoc signed (no notarization), so a **browser** download gets stamped with `com.apple.quarantine` and Gatekeeper blocks the app on every install and every update ("Apple could not verify…"). Quarantine is applied by the *downloading application* — command-line tools don't apply it — so `run-kit desktop install` produces a quarantine-free install that opens cleanly, first time and every time. The installer does its own verification instead: it checks the DMG's SHA256 against the GitHub release digest (when available) and runs `codesign --verify --deep --strict` on the app before installing.
-
-Once installed, the app's welcome page replaces the terminal steps for getting connected, in three rungs:
-
-- **This Mac** — detects your local install and daemon state; one **Start & connect** button starts the daemon (when needed) and connects. Afterwards, daemon control lives in the menu under **Hosts → Local Daemon** (Connect / Restart / Stop).
-- **Over SSH** — type `user@host` and the app registers it via [`run-kit remote`](#command-reference), installs run-kit on the machine if missing, starts its daemon, and opens a tunnel — a remote host with zero manual setup on the box.
-- **A URL** — point at any reachable `run-kit serve` instance (e.g. a Tailscale HTTPS endpoint).
-
-The app never starts, stops, or updates anything on its own — every daemon action is an explicit click, and your tmux sessions survive all of them (the daemon layer never touches your sessions).
-
-**Manual fallback** (no run-kit CLI on the machine): download the DMG for your architecture from [GitHub Releases](https://github.com/sahil87/run-kit/releases), drag **Run Kit.app** into Applications, then clear the quarantine flag — via System Settings → Privacy & Security → **Open Anyway**, or:
-
-```sh
-xattr -dr com.apple.quarantine "/Applications/Run Kit.app"
-```
-
-The manual route repeats that dance on every update; the CLI path never needs it.
+The CLI path matters: it produces a quarantine-free, digest-verified install that opens cleanly — a browser-downloaded DMG gets blocked by Gatekeeper on every install and update. The app's welcome page connects three ways: **This Mac** (one-click daemon start), **over SSH** (bootstraps run-kit on the remote box via `rk remote`), or **a URL**. It never starts, stops, or updates anything on its own, and your tmux sessions survive every daemon action. Details and the manual fallback are in the [install & access guide](docs/site/install.md#desktop-app-macos).
 
 ## Push notifications
 
-Any process on the box can push a real OS-level notification to your phone or
-desktop — even when the RunKit PWA tab is **closed** — via Web Push:
+Any process on the box can push a real OS-level notification to your phone or desktop — even when the dashboard tab is **closed** — via Web Push:
 
 ```sh
-run-kit notify "deploy finished" --title "CI"
+rk notify "deploy finished" --title "CI"
 ```
 
-`run-kit notify` POSTs to the local server, which fans the message out to every
-subscribed browser using the Web Push protocol (signed with a server-side VAPID
-key persisted under `~/.rk/`). It is **fail-silent**: if the server is
-unreachable or returns an error it exits 0 and prints nothing, so it never
-stalls a calling script or agent loop.
-
-**Opt in from the browser**: click the **bell icon** in the top bar (or open the
-command palette with `Cmd+K` and run **Notifications: Enable push**). This
-requests notification permission and subscribes the current device. There is no
-settings page — the bell dropdown and the palette are the opt-in gestures. The
-bell dropdown also offers **Send test notification** (a local test that bypasses
-the server) and a **Notifications help** link.
-
-See the [notifications guide](docs/site/notifications.md) for setup and the
-common "it says sent but nothing appears" troubleshooting (almost always an
-OS-level notification block — e.g. macOS Focus mode).
-
-> **Secure-context requirement**: Web Push (service worker + `PushManager`)
-> only works in a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts) —
-> that means **HTTPS or `localhost`**. Hitting run-kit on `localhost:3000` or behind
-> a TLS reverse proxy (e.g. `tailscale serve`, see
-> [Drive it from your phone](#drive-it-from-your-phone-https-over-tailscale))
-> both qualify. Over plain HTTP to a remote host, the browser silently refuses
-> to register the service worker and the **Enable push** command will report
-> that a secure context is required.
+It's **fail-silent**: if the server is unreachable it exits 0 and prints nothing, so it never stalls a calling script or agent loop. Opt in from the browser via the **bell icon** in the top bar or `Cmd+K` → **Notifications: Enable push** (requires HTTPS or `localhost`). See the [notifications guide](docs/site/notifications.md) for setup and troubleshooting.
 
 ## Shell completion
 
-`run-kit shell-init <shell>` emits eval-safe tab-completion for your shell (it registers completion for both `run-kit` and the `rk` alias). Add this line to your rc file:
+`rk shell-init <shell>` emits eval-safe tab-completion for your shell (registered for both `run-kit` and the `rk` alias). Add to your rc file:
 
 ```sh
-eval "$(run-kit shell-init zsh)"   # in ~/.zshrc
-eval "$(run-kit shell-init bash)"  # in ~/.bashrc
+eval "$(rk shell-init zsh)"   # in ~/.zshrc — also: bash, fish, powershell
 ```
-
-Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — run-kit has no shell function wrapper; every subcommand is reached via `run-kit <subcommand>` (or the `rk` alias).
 
 > 💡 Have other shll tools? [`shll shell-install`](https://github.com/sahil87/shll#shll-shell-install--wire-the-rc-file-recommended) handles all of their shell integrations and autocompletions at once.
 
@@ -295,34 +197,34 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — run-kit ha
 
 | Command | What it does |
 |---------|--------------|
-| `run-kit riff` | Create a worktree + tmux window + agent/command pane(s). |
-| `run-kit tutorial` | Open the guided tour — a `tutorial` window in the current tmux session whose agent walks you through run-kit (`--tier` selects the fab role, default `fast`). Re-running switches to the existing tab. |
-| `run-kit operator` | Open the operator — the per-tmux-server singleton `operator` window running the fab operator-tier agent, role-marked so the dashboard pins it (`--workers <provider>` sets `FAB_AGENT_WORKERS`). Requires tmux and fab-kit on `PATH`; re-running switches to the existing tab. |
-| `run-kit serve` | Start the HTTP server (foreground or daemon). |
-| `run-kit status` | Show a tmux session summary. |
-| `run-kit url` | Print the run-kit server URL (config-derived from `RK_HOST`/`RK_PORT`, default `http://127.0.0.1:3000`) — a heuristic for AI agents, not a liveness probe. |
-| `run-kit skill` | Print the agent skill bundle — a static usage briefing for agents operating run-kit (canonical source `docs/site/skill.md`); topic pages are `code`, `display`, `mux`, and `tutorial`. |
-| `run-kit notify` | Send a Web Push notification to your subscribed devices (see [Push notifications](#push-notifications)). Fail-silent. |
-| `run-kit present` | Show a file, directory, `:port`, localhost URL, or external URL to the user as a web tile attached to the current window (`--window` spawns a standalone iframe window, `--notify` pushes). Prints the resolved URL. |
-| `run-kit doctor` | Check runtime dependencies. Run this first when something breaks. |
-| `run-kit agent setup` | Install agent-harness hooks (v1: Claude Code) so panes report busy/waiting/idle state (see [Agent state](#agent-state--run-kit-agent-setup)), plus the tmux guard shim that blocks `tmux kill-server` without an explicit `-L`/`-S` socket. Once per machine; `--uninstall` reverses both. |
-| `run-kit code` | Run VS Code palette commands in the open `code` lens editor from the shell — the shell side of the embedded `rk-code-bridge` code-server extension (`exec`, `hosts`, `commands`; installed by `run-kit code-server install`). |
-| `run-kit mux init-conf` | Scaffold the rk-managed `tmux.conf` (hash-stamped, do not edit) and the `tmux.d/user.conf` override file under `~/.config/run-kit/`. Optional — see [Customizing tmux](docs/site/customizing-tmux.md). |
-| `run-kit update` | Upgrade via Homebrew and restart the daemon. |
-| `run-kit desktop` | Install/update the macOS desktop app from GitHub Releases, quarantine-free (`install`, `update`, `status` — see [Desktop app](#desktop-app-macos)). |
-| `run-kit remote` | Use SSH-only machines as run-kit hosts — register, bootstrap, tunnel, connect (`add`, `connect`, `list`, `status`, `disconnect`, `remove`). |
-| `run-kit completion` | Generate shell completion scripts (or use `run-kit shell-init` for eval-safe output). |
-| `run-kit help` | Help about any command. |
+| `rk riff` | Create a worktree + tmux window + agent/command pane(s). |
+| `rk tutorial` | Open the guided tour — an agent-run `tutorial` tab in this session. |
+| `rk operator` | Open the operator — the server-wide orchestrator agent tab (singleton). |
+| `rk serve` | Start the HTTP server (foreground). |
+| `rk daemon` | Manage the background daemon (`start`, `restart`, `stop`, `status`). |
+| `rk status` | Show a tmux session summary. |
+| `rk url` | Print the run-kit server URL (config-derived; a heuristic for agents, not a liveness probe). |
+| `rk skill` | Print the agent skill bundle — a static usage briefing for agents operating run-kit. |
+| `rk notify` | Send a Web Push notification to your subscribed devices. Fail-silent. |
+| `rk present` | Show a file, directory, `:port`, or URL to the user as a web tile on the current window. |
+| `rk cron` | Scheduled agent prompts (`add`, `list`, `rm`, `mute`, `pin`, `tick`). |
+| `rk doctor` | Check runtime dependencies. Run this first when something breaks. |
+| `rk agent` | Agent instrumentation — `setup` installs the state hooks + tmux guard shim (see [Agent state](#agent-state--rk-agent-setup)). |
+| `rk code` | Run VS Code palette commands in the open `code` lens editor from the shell. |
+| `rk code-server` | Manage the rk-owned code-server install (`install`, `update`). |
+| `rk mux` | Tmux substrate operations — server create/adopt/reap, messaging, pane capture, config scaffold, tmux guard. |
+| `rk tab` | Drive a tab's UI state — layout, web tabs, code root — from the shell. |
+| `rk role` | Mark or unmark the current window as the server's operator. |
+| `rk update` | Upgrade via Homebrew and restart the daemon. |
+| `rk desktop` | Install/update the macOS desktop app, quarantine-free (`install`, `update`, `status`). |
+| `rk remote` | Use SSH-only machines as run-kit hosts (`add`, `connect`, `list`, `status`, `disconnect`, `remove`). |
+| `rk completion` | Generate shell completion scripts (or use `rk shell-init` for eval-safe output). |
 
-Every command is also reachable via the short `rk` alias (e.g. `rk riff`). Run `run-kit <command> --help` for full flag details, or see the [full command reference](https://shll.ai/tools/run-kit/commands/) for every command and flag.
+Run `rk <command> --help` for full flag details, or see the [full command reference](https://shll.ai/run-kit/commands/) for every command and flag.
 
 ## Troubleshooting
 
-- **`run-kit riff` fails with "not in a tmux session"** — riff requires `$TMUX` to be set. Start tmux first (`tmux new -s work`), then run `run-kit riff` inside it.
-- **`run-kit riff` fails with "wt not found"** — install `wt` via `shll install wt`, or install the full toolkit from [https://shll.ai](https://shll.ai).
-- **Agent state shows `—` for every window** — run `run-kit agent setup` once on the machine, then start a fresh agent session (hooks apply to new sessions, not already-running ones). A pane sitting at a plain shell also reads `—` by design — state clears when the agent exits.
-- **Anything else broken** — run `run-kit doctor`. It checks tmux, `wt`, the launcher binary, port availability, and prints per-dependency status.
-
-## Architecture
-
-run-kit's daemon runs in a dedicated tmux server (`rk-daemon`), separate from your sessions (`runkit`). Restarts use kill-and-restart (no polling loop or signal files), are idempotent (`--restart` works whether or not a daemon is running), and never touch your tmux sessions — everything you're running survives daemon restarts unaffected.
+- **`rk riff` fails with "not in a tmux session"** — riff requires `$TMUX` to be set. Start tmux first (`tmux new -s work`), then run `rk riff` inside it.
+- **`rk riff` fails with "wt not found"** — install `wt` via `shll install wt`, or install the full toolkit from [https://shll.ai](https://shll.ai).
+- **Agent state shows `—` for every window** — run `rk agent setup` once on the machine, then start a fresh agent session (hooks apply to new sessions, not already-running ones). A pane sitting at a plain shell also reads `—` by design.
+- **Anything else broken** — run `rk doctor`. It checks tmux, `wt`, the launcher binary, port availability, and prints per-dependency status.

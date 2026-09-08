@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 9
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-09-08T14:13:24Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-08T14:25:00Z"}
     review: {started_at: "2026-09-08T14:25:00Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-08T14:41:39Z"}
     hydrate: {started_at: "2026-09-08T14:41:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T15:03:57Z"}
-    ship: {started_at: "2026-09-08T15:03:57Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-08T15:03:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T15:06:12Z"}
+    review-pr: {started_at: "2026-09-08T15:06:12Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/875
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 613
+    deleted: 330
+    net: 283
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 249
+        deleted: 297
+        net: -48
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-08T15:03:57Z"
-    computed_at_stage: hydrate
+        added: 26
+        deleted: 25
+        net: 1
+    computed_at: "2026-09-08T15:06:12Z"
+    computed_at_stage: ship
 summary: renders surface toggles as a flush segmented control and consolidates the desktop operator affordance and live-state dot into the omnibox
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-08T15:03:57Z
+last_updated: 2026-09-08T15:06:12Z

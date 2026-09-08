@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 4
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-09-08T03:51:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T03:51:50Z"}
     review: {started_at: "2026-09-08T03:51:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T04:14:04Z"}
     hydrate: {started_at: "2026-09-08T04:14:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T04:14:37Z"}
-    ship: {started_at: "2026-09-08T04:14:37Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-08T04:14:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T04:16:07Z"}
+    review-pr: {started_at: "2026-09-08T04:16:07Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/869
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 341
+    deleted: 4
+    net: 337
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 41
+        deleted: 3
+        net: 38
     tests:
         added: 0
         deleted: 0
         net: 0
-    computed_at: "2026-09-08T04:14:37Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-09-08T04:16:07Z"
+    computed_at_stage: ship
 summary: 'Fix operator omnibox top-bar height jitter on focus/blur: box pinned to h-[28px], context-chip dismiss button narrowed for its compact mount'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-08T04:14:37Z
+last_updated: 2026-09-08T04:16:07Z

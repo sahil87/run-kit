@@ -126,6 +126,11 @@ export function ControlGalleryPage() {
               <button type="button" aria-expanded="true" className={`${SEGMENT_PREFIX} ${controlClass({ variant: "segment", open: true })}`}>▾</button>
             </span>
           </Cell>
+          <Cell testid="ctl-segment-flush-pressed" label="flush pressed">
+            <span className={`flex items-center rounded border border-border ${controlClass({ variant: "icon", box: "height", glint: false })}`}>
+              <button type="button" aria-pressed="true" className={`${SEGMENT_PREFIX} ${controlClass({ variant: "segment", flush: true, pressed: true })}`}>▾</button>
+            </span>
+          </Cell>
           <Cell testid="ctl-segment-disabled" label="disabled">
             <span className={`flex items-center rounded border border-border ${controlClass({ variant: "icon", box: "height", glint: false })}`}>
               <button type="button" disabled className={`${SEGMENT_PREFIX} ${controlClass({ variant: "segment", disabled: true })}`}>▾</button>

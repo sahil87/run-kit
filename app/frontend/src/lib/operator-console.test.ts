@@ -120,10 +120,9 @@ describe("shouldShowAskOperatorRow", () => {
 });
 
 describe("isOperatorConsoleRequest", () => {
-  it("accepts all three actions and rejects foreign details", () => {
+  it("accepts both actions and rejects foreign details", () => {
     expect(isOperatorConsoleRequest({ action: "toggle" })).toBe(true);
     expect(isOperatorConsoleRequest({ action: "open", server: "a", send: "hi" })).toBe(true);
-    expect(isOperatorConsoleRequest({ action: "button" })).toBe(true);
     expect(isOperatorConsoleRequest({ action: "close" })).toBe(false);
     expect(isOperatorConsoleRequest(null)).toBe(false);
     expect(isOperatorConsoleRequest("open")).toBe(false);

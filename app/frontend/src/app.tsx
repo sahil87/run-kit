@@ -418,8 +418,8 @@ function AppLayoutContent() {
           <OperatorConsole />
         </Suspense>
         {/* The mobile standing affordance — the tongue hanging under the top
-            bar on every route (desktop's standing affordance is the top-bar
-            ◉ button). Self-gates on isMobile, hides on operator-less servers
+            bar on every route (desktop's standing affordance is the omnibox).
+            Self-gates on isMobile, hides on operator-less servers
             and on the operator window's own route; renders nothing on
             desktop. */}
         <Suspense fallback={null}>

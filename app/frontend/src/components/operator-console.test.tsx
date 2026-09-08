@@ -148,7 +148,7 @@ describe("OperatorConsole", () => {
     expect(getConsoleMachineState()).toBe("rest");
   });
 
-  it.each(["toggle", "open", "button"] as const)(
+  it.each(["toggle", "open"] as const)(
     "keeps the desktop machine at rest and shows a hint for %s on the operator route",
     (action) => {
       mockMatches = [{ params: { server: "srv1", window: "@9" } }];
@@ -166,7 +166,7 @@ describe("OperatorConsole", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
     renderConsole({ withToasts: true });
 
-    for (const action of ["toggle", "open", "button"] as const) {
+    for (const action of ["toggle", "open"] as const) {
       act(() => requestOperatorConsole({ action }));
     }
 
@@ -206,7 +206,7 @@ describe("OperatorConsole", () => {
     expect(mockOperatorRequest).not.toHaveBeenCalled();
   });
 
-  it.each(["toggle", "open", "button"] as const)(
+  it.each(["toggle", "open"] as const)(
     "preserves the desktop %s behavior away from the operator route",
     (action) => {
       mockMatches = [{ params: { server: "srv1", window: "@1" } }];
@@ -250,17 +250,6 @@ describe("OperatorConsole", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByTestId("operator-console")).toBeNull();
-  });
-
-  it("the ◉ button action maps open ⇄ rest", async () => {
-    renderConsole();
-    act(() => requestOperatorConsole({ action: "button" }));
-    expect(getConsoleMachineState()).toBe("open");
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
-
-    act(() => requestOperatorConsole({ action: "button" }));
-    expect(getConsoleMachineState()).toBe("rest");
-    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
   });
 
   it("a click outside the console's DOM collapses the open drawer to rest", async () => {
@@ -665,15 +654,15 @@ describe("OperatorConsole (mobile navigation)", () => {
     expect(getConsoleMachineState()).toBe("rest");
   });
 
-  it("all three actions collapse to the same navigation", () => {
+  it("both actions collapse to the same navigation", () => {
     renderConsole();
-    for (const action of ["toggle", "open", "button"] as const) {
+    for (const action of ["toggle", "open"] as const) {
       act(() => {
         requestOperatorConsole({ action });
       });
     }
 
-    expect(mockNavigate).toHaveBeenCalledTimes(3);
+    expect(mockNavigate).toHaveBeenCalledTimes(2);
     for (const call of mockNavigate.mock.calls) {
       expect(call[0]).toMatchObject({ params: { server: "srv1", window: "@9" }, search: {} });
     }

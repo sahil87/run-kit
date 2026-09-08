@@ -55,19 +55,18 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * available on every route. Mounted ONCE at the persistent root layout
  * (app.tsx, beside the single CommandPalette mount); every entry point — the
  * registry chord, the palette action, the palette's Ask-operator fallback row,
- * the top-bar operator button, the mobile tongue, and the mobile overflow-menu
- * row — reaches it through the OPERATOR_CONSOLE_EVENT
+ * the mobile tongue, and the overflow-menu row — reaches it through the
+ * OPERATOR_CONSOLE_EVENT
  * document seam (lib/operator-console.ts).
  *
  * The seam forks on form factor. Desktop runs the ⌘J two-state machine
  * (lib/operator-console.ts): rest ⇄ open (drawer down, omnibox focused —
  * focus and the expanded drawer are linked, so one chord engages both and the
  * next releases both). Enter in the omnibox sends; Esc releases to rest; the
- * palette action lands on the open+focused state; the ◉ button maps open ⇄
- * rest; a click outside the console's own DOM (the
- * drawer or the omnibox) collapses to rest, same as the header button. The
- * machine is the controlling state — the drawer's internal open flag follows
- * it through the slide machinery.
+ * palette action lands on the open+focused state; a click outside the
+ * console's own DOM (the drawer or the omnibox) collapses to rest, same as the
+ * header button. The machine is the controlling state — the drawer's internal
+ * open flag follows it through the slide machinery.
  *
  * On MOBILE there is no drawer at all: every request resolves the operator
  * window and NAVIGATES to its ordinary terminal route, reusing that route's
@@ -304,14 +303,13 @@ export function OperatorConsole() {
     }
   };
 
-  // Entry-point seam: chord dispatch, palette action, top-bar button, tongue,
-  // overflow-menu row and the palette fallback row all
+  // Entry-point seam: chord dispatch, palette action, tongue, overflow-menu
+  // row and the palette fallback row all
   // dispatch here. Mobile navigates (the arm above); desktop `toggle` steps
-  // the two-state machine, `button` (the top-bar ◉) maps open ⇄ rest (the
-  // same toggle, kept as its own action for the seam's API), and `open`
-  // always opens with the omnibox focused. While the resolved operator route
-  // is already current, every desktop action stops here with one throttled
-  // hint instead of changing any console state.
+  // the two-state machine, and `open` always opens with the omnibox focused.
+  // While the resolved operator route is already current, every desktop
+  // action stops here with one throttled hint instead of changing any console
+  // state.
   useEffect(() => {
     function onRequest(e: Event) {
       const detail = (e as CustomEvent<unknown>).detail;
@@ -331,8 +329,6 @@ export function OperatorConsole() {
       const state = machineRef.current;
       if (detail.action === "toggle") {
         setConsoleMachineState(cycleConsoleMachine(state));
-      } else if (detail.action === "button") {
-        setConsoleMachineState(state === "open" ? "rest" : "open");
       } else {
         setConsoleMachineState("open");
       }
@@ -391,8 +387,8 @@ export function OperatorConsole() {
   // button. Two things a plain "collapse on any outside click" would get
   // wrong, both handled below by DEFERRING the decision rather than acting
   // inline:
-  //   (1) An entry-point trigger outside the console's DOM (the top-bar ◉
-  //       button's own open⇄rest toggle, an opener's retarget) reads and
+  //   (1) An entry-point trigger outside the console's DOM (a palette or menu
+  //       opener's retarget) reads and
   //       re-writes the machine itself in response to the SAME click — the
   //       collapse must never race that write. Capturing
   //       `getConsoleMachineActivity()` in the CAPTURE phase (before the
@@ -406,7 +402,7 @@ export function OperatorConsole() {
   //       command palette) is outside the console's DOM but must NOT
   //       collapse it — the settings dialog in particular needs the console
   //       to stay open so its opacity control can live-apply. The trigger
-  //       button itself carries no marker (it's a plain top-bar button), so
+  //       trigger itself may carry no console marker, so
   //       this checks for ANY currently-open `role="dialog"` at settle time
   //       instead of the clicked target's ancestry — a modal owns the
   //       interaction while open, so the console holding still behind it is
@@ -414,7 +410,7 @@ export function OperatorConsole() {
   //       dialog the click landed.
   // A macrotask (not a microtask) is the settle mechanism: it runs after
   // React has committed and painted the triggering click's own state update
-  // (mounting the settings dialog's DOM, or the top-bar button's own
+  // (mounting the settings dialog's DOM, or the opener's own
   // re-render), which a same-tick microtask cannot reliably guarantee.
   useEffect(() => {
     if (machine !== "open") return;
@@ -756,7 +752,7 @@ export function OperatorConsole() {
 /**
  * The mobile standing affordance for the operator — a centered pull tab
  * hanging under the top bar on every route (the desktop standing affordance
- * is the top-bar ◉ button; there is no bottom-bar chip). Mounted once beside
+ * is the omnibox; there is no bottom-bar chip). Mounted once beside
  * the console in the root layout. The tongue is a TOGGLE: on every other
  * route a tap dispatches through the document-event seam, which on mobile
  * navigates to the operator window's terminal route (amber dot when the

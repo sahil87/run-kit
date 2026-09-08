@@ -19,6 +19,8 @@ const ARM =
   "bg-accent-green/15 border-accent-green text-accent-green hover:bg-accent-green/25";
 const ARM_RINGED =
   "bg-accent-green/15 ring-1 ring-inset ring-accent-green text-accent-green hover:bg-accent-green/25";
+const ARM_FLUSH =
+  "bg-accent-green/15 text-accent-green hover:bg-accent-green/25";
 const CHIP_BASE =
   "rk-glint min-h-[33px] min-w-[35px] coarse:min-h-[40px] coarse:min-w-[40px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded transition-colors active:bg-bg-card";
 const CHIP_REST = "hover:border-text-secondary";
@@ -188,6 +190,33 @@ describe("controlClass — segment variant", () => {
       `${SEGMENT_AXIS_H} ${SEGMENT_OFF} ${OFF_INK}`,
     );
   });
+  it("flush swaps in the wash-only arm for pressed and open states", () => {
+    const expected = `${SEGMENT_AXIS_H} ${ARM_FLUSH}`;
+    expect(controlClass({ variant: "segment", flush: true, pressed: true })).toBe(expected);
+    expect(controlClass({ variant: "segment", flush: true, open: true })).toBe(expected);
+    expect(expected).not.toContain("border-accent-green");
+  });
+  it("flush keeps the rest arm and composes the disabled recipe", () => {
+    expect(controlClass({ variant: "segment", flush: true })).toBe(
+      `${SEGMENT_AXIS_H} ${SEGMENT_OFF}`,
+    );
+    expect(controlClass({ variant: "segment", flush: true, pressed: true, disabled: true })).toBe(
+      `${SEGMENT_AXIS_H} ${ARM_FLUSH} ${OFF_INK}`,
+    );
+  });
+  it("without flush remains byte-identical for existing segment consumers", () => {
+    expect(controlClass({ variant: "segment" })).toBe(`${SEGMENT_AXIS_H} ${SEGMENT_OFF}`);
+    expect(controlClass({ variant: "segment", open: true })).toBe(
+      `${SEGMENT_AXIS_H} ${ARM}`,
+    );
+    expect(
+      controlClass({
+        variant: "segment",
+        rest: "border-transparent text-text-secondary hover:text-text-primary",
+        pressed: true,
+      }),
+    ).toBe(`${SEGMENT_AXIS_H} ${ARM}`);
+  });
 });
 
 describe("controlClass — menu-row variant", () => {
@@ -278,7 +307,7 @@ describe("<Control>", () => {
     const btn = getByRole("button");
     expect(btn.getAttribute("aria-label")).toBe("t");
     expect(btn.getAttribute("data-testid")).toBe("tgl");
-    for (const attr of ["base", "ringed", "onborder", "variant", "glint", "box", "bare", "danger", "size"]) {
+    for (const attr of ["base", "ringed", "flush", "onborder", "variant", "glint", "box", "bare", "danger", "size"]) {
       expect(btn.hasAttribute(attr)).toBe(false);
     }
     expect(btn.className).toBe(`b ${ICON_REST}`);

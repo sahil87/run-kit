@@ -21,7 +21,7 @@ import { urlSegmentToWindowId } from "@/lib/router-url";
  *    or above the length floor (short typo fragments never fire a send).
  *  - `requestOperatorConsole` — the document-event seam every entry point
  *    (chord dispatch, palette action, overflow-menu row, palette fallback row,
- *    top-bar ◉ button, mobile tongue) funnels through
+ *    mobile tongue) funnels through
  *    to the single layout-mounted console, which forks on form factor:
  *    desktop drives the ⌘J machine, mobile navigates to the operator
  *    window's terminal route. An event, not a callback chain: the entry
@@ -45,8 +45,8 @@ import { urlSegmentToWindowId } from "@/lib/router-url";
  *  - Per-viewer persisted preferences (geometry, opacity) — localStorage
  *    stores with the in-module pub/sub idiom (`use-local-storage-enum.ts`).
  *  - The console-origin event predicate and `useOperatorConsoleContext` — the
- *    read-only server/target resolution the top-bar button and mobile tongue
- *    share with the console.
+ *    read-only server/target resolution the omnibox and mobile tongue share
+ *    with the console.
  */
 
 /** Minimum trimmed query length before the palette's Ask-operator row appears. */
@@ -55,12 +55,17 @@ export const ASK_OPERATOR_MIN_QUERY = 3;
 /** Document event name carrying `OperatorConsoleRequest` details. */
 export const OPERATOR_CONSOLE_EVENT = "rk:operator-console";
 
+/** The resolved operator's live state mapped to the shared state-dot color. */
+export const OPERATOR_STATE_DOT: Record<string, string> = {
+  waiting: "bg-signal-yellow",
+  active: "bg-accent-green",
+};
+
 export type OperatorConsoleRequest = {
   /** `toggle` steps the desktop ⌘J machine (rest ⇄ open); `open` always
-   *  opens (desktop: drawer plus omnibox focus); `button` is the top-bar ◉
-   *  click mapping (open ⇄ rest). On mobile all three collapse to navigation
-   *  to the operator window's terminal route. */
-  action: "toggle" | "open" | "button";
+   *  opens (desktop: drawer plus omnibox focus). On mobile both actions
+   *  collapse to navigation to the operator window's terminal route. */
+  action: "toggle" | "open";
   /** Pin the console to this server (for example, the palette fallback passes
    *  its resolved server). Absent = resolve from the route/server list. */
   server?: string;
@@ -81,7 +86,7 @@ export function requestOperatorConsole(req: OperatorConsoleRequest): void {
 export function isOperatorConsoleRequest(detail: unknown): detail is OperatorConsoleRequest {
   if (typeof detail !== "object" || detail === null) return false;
   const d = detail as Record<string, unknown>;
-  return d.action === "toggle" || d.action === "open" || d.action === "button";
+  return d.action === "toggle" || d.action === "open";
 }
 
 /**
@@ -575,8 +580,8 @@ export function isOperatorConsoleTarget(target: EventTarget | null): boolean {
 // ── Shared console-context resolution ────────────────────────────────────────
 
 /**
- * Pure resolution shared by the console's read-only surfaces (the top-bar
- * operator button, the mobile tongue): the console's server rule (route
+ * Pure resolution shared by the console's read-only surfaces (the omnibox and
+ * mobile tongue): the console's server rule (route
  * server wins, then sole/last-viewed/first listed) plus the operator-window
  * lookup on the resolved server's sessions payload.
  */
@@ -598,7 +603,7 @@ export function resolveOperatorConsoleTarget(
  * `lastViewed` is tracked ephemerally per consumer (no persistence —
  * Constitution IV), matching the console's own ref.
  *
- * Tolerant of a missing provider: the button/tongue are chrome that must
+ * Tolerant of a missing provider: console chrome must
  * degrade to "no operator" (never crash) when mounted outside SessionProvider
  * — e.g. isolated component tests (the useUpdateNotification precedent).
  */

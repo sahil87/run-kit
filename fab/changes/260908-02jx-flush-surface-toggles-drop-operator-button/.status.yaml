@@ -1,0 +1,54 @@
+id: 02jx
+name: 260908-02jx-flush-surface-toggles-drop-operator-button
+created: 2026-09-08T11:19:03Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 15
+    acceptance_completed: 15
+confidence:
+    certain: 3
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 70.7
+        reversibility: 84.3
+        competence: 85.7
+        disambiguation: 82.1
+stage_metrics:
+    intake: {started_at: "2026-09-08T11:19:03Z", driver: fab-new, iterations: 1, completed_at: "2026-09-08T13:24:31Z"}
+    apply: {started_at: "2026-09-08T14:13:24Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-08T14:25:00Z"}
+    review: {started_at: "2026-09-08T14:25:00Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-08T14:41:39Z"}
+    hydrate: {started_at: "2026-09-08T14:41:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T15:03:57Z"}
+    ship: {started_at: "2026-09-08T15:03:57Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-08T15:03:57Z"
+    computed_at_stage: hydrate
+summary: renders surface toggles as a flush segmented control and consolidates the desktop operator affordance and live-state dot into the omnibox
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-08T15:03:57Z

@@ -22,7 +22,9 @@
  *    compose-strip history chip) — the arm's border color needs it.
  *  - `segment` — a segment inside a bordered chip wrapper
  *    (`TOP_BAR_SEGMENT_H` — 26/38, the 2px-wrapper-border inset), with the
- *    split/open-chevron rest arm by default.
+ *    split/open-chevron rest arm by default. `flush` selects a wash-only
+ *    state arm for connected segmented controls whose wrapper owns the
+ *    outline.
  *  - `menu-row` — the one menu-row scale (`MENU_ROW_*`, 28/40 floors);
  *    `pressed`/`open` compose the checked arm (`MENU_ROW_CHECKED`); the ✓
  *    mark stays call-site content (`MENU_ROW_CHECK_MARK`). The disabled
@@ -128,6 +130,9 @@ const LATCHED_ARM =
  *  shifts layout. */
 const LATCHED_ARM_RINGED =
   "bg-accent-green/15 ring-1 ring-inset ring-accent-green text-accent-green hover:bg-accent-green/25";
+/** Wash-only latch for connected segments whose wrapper owns the border. */
+const LATCHED_ARM_FLUSH =
+  "bg-accent-green/15 text-accent-green hover:bg-accent-green/25";
 
 /**
  * Dialog wide-button geometry — the floor every dialog button carries: 28px
@@ -258,6 +263,8 @@ export type ControlClassOptions = ControlClassCommon &
         variant: "segment";
         /** Rest-arm override (plain segments, toggle cells). */
         rest?: string;
+        /** Wash-only latch for connected groups whose wrapper owns the outline. */
+        flush?: boolean;
       }
     | {
         variant: "menu-row";
@@ -340,7 +347,8 @@ export function controlClass(options: ControlClassOptions): string {
     }
     case "segment": {
       const rest = options.rest ?? SEGMENT_REST;
-      out = `${TOP_BAR_SEGMENT_H} ${options.pressed || options.open ? LATCHED_ARM : rest}`;
+      const arm = options.flush ? LATCHED_ARM_FLUSH : LATCHED_ARM;
+      out = `${TOP_BAR_SEGMENT_H} ${options.pressed || options.open ? arm : rest}`;
       if (disabled !== undefined) out += ` ${DISABLED_INK}`;
       break;
     }
@@ -377,6 +385,7 @@ interface ControlOwnProps {
   ringed?: boolean;
   base?: string;
   rest?: string;
+  flush?: boolean;
   onBorder?: boolean;
   bare?: boolean;
   danger?: boolean;
@@ -416,7 +425,7 @@ function toOptions(p: ControlOwnProps & { className?: string }): ControlClassOpt
         onBorder: p.onBorder,
       };
     case "segment":
-      return { ...common, variant: "segment", rest: p.rest };
+      return { ...common, variant: "segment", rest: p.rest, flush: p.flush };
     case "menu-row":
       return { ...common, variant: "menu-row", bare: p.bare };
     case "wide":
@@ -444,6 +453,7 @@ export const Control = forwardRef<HTMLButtonElement, ControlProps>(
       ringed,
       base,
       rest: restArm,
+      flush,
       onBorder,
       bare,
       danger,
@@ -453,7 +463,7 @@ export const Control = forwardRef<HTMLButtonElement, ControlProps>(
       ...domProps
     } = props;
     const classes = controlClass(
-      toOptions({ variant, size, pressed, open, disabled, glint, box, ringed, base, rest: restArm, onBorder, bare, danger, className }),
+      toOptions({ variant, size, pressed, open, disabled, glint, box, ringed, base, rest: restArm, flush, onBorder, bare, danger, className }),
     );
     return (
       <button

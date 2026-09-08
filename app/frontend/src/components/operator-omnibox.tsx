@@ -6,6 +6,7 @@ import { formatCombo } from "@/lib/keybindings";
 import { SessionContext } from "@/contexts/session-context";
 import { OperatorContextChip } from "@/components/operator-context-chip";
 import {
+  OPERATOR_STATE_DOT,
   attachOperatorFiles,
   resolveOperatorConsoleTarget,
   sendOperatorMessage,
@@ -24,21 +25,45 @@ const WIDE_RUNG_QUERY = "(min-width: 1024px)";
  *  box takes its full rest width and long placeholder. */
 const EXTRA_WIDE_RUNG_QUERY = "(min-width: 1536px)";
 
+function OperatorStateGlyph({
+  agentState,
+  showDot = true,
+}: {
+  agentState: string | undefined;
+  showDot?: boolean;
+}) {
+  return (
+    <span aria-hidden="true" className="relative inline-flex shrink-0 text-xs text-text-secondary">
+      ◉
+      {showDot && agentState && (
+        <span
+          data-testid="operator-omnibox-state"
+          data-state={agentState}
+          className={`absolute -bottom-0.5 -right-0.5 block h-2 w-2 rounded-full border border-bg-primary ${
+            OPERATOR_STATE_DOT[agentState] ?? "bg-text-secondary"
+          }`}
+        />
+      )}
+    </span>
+  );
+}
+
 /**
  * The operator omnibox — the console's compose relocated into the top bar's
  * center cell (desktop only; on mobile the console's seam arm navigates to
  * the operator window's terminal route and nothing renders here). One
  * component at two widths:
  *
- *  - ≥ lg: a STANDING bordered input (`◉` glyph, a chord keycap) beside the
+ *  - ≥ lg: a STANDING bordered input (`◉` glyph with the resolved operator's
+ *    live state dot, plus a chord keycap) beside the
  *    compact heading. Slim at rest — `12ch` with the short "Ask ◉…"
  *    placeholder, widening to `20ch` + the full "Ask the operator…"
  *    placeholder only at ≥ 2xl, so the standing box never eats the crumbs'
  *    min-useful-width at `lg`/`xl` (the box grows meaning on focus, not at
  *    rest).
- *  - md–lg: a dim `· ◉ ask` ghost that (on click, or when the chord engages
- *    the machine) morphs the center into the same box in place; Esc, the
- *    chord, or an outside click restores the heading.
+ *  - md–lg: a dim `· ◉ ask` ghost carrying the same state dot that (on click,
+ *    or when the chord engages the machine) morphs the center into the same
+ *    box in place; Esc, the chord, or an outside click restores the heading.
  *
  * The box IS the console compose — draft, send, and image-paste upload ride
  * the shared seam in lib/operator-console.ts. Enter (non-empty) sends through
@@ -77,7 +102,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
   const compose = useOperatorCompose();
   // The route server arrives as a prop: the TopBar already carries it, and
   // this component must not pull router hooks the bar's test harness doesn't
-  // mock (the OperatorConsoleButton precedent). Tolerant of a missing
+  // mock. Tolerant of a missing
   // SessionProvider — degrades to "no operator", never crashes.
   const ctx = useContext(SessionContext);
   const lastViewedRef = useRef<string | null>(null);
@@ -94,6 +119,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
       ),
     [routeServer, servers, sessionsByServer],
   );
+  const agentState = target?.window.agentState;
   const { byAction, host } = useKeybindings();
   const inputRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -167,9 +193,11 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
           data-testid="operator-omnibox-ghost"
           aria-label="Ask the operator"
           onClick={() => setConsoleMachineState("open")}
-          className="hidden md:block lg:hidden ml-2 shrink-0 text-xs text-text-secondary hover:text-text-primary transition-colors"
+          className="hidden md:inline-flex lg:hidden ml-2 shrink-0 items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors"
         >
-          · ◉ ask
+          <span aria-hidden="true">·</span>
+          <OperatorStateGlyph agentState={agentState} showDot={!wide} />
+          <span aria-hidden="true">ask</span>
         </button>
       )}
       <div
@@ -192,9 +220,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
           engaged ? "border-accent-green" : "border-border"
         }`}
       >
-        <span aria-hidden="true" className="shrink-0 text-xs text-text-secondary">
-          ◉
-        </span>
+        <OperatorStateGlyph agentState={agentState} showDot={wide || morphed} />
         <input
           ref={inputRef}
           type="text"

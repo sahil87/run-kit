@@ -22,7 +22,6 @@ import {
   TopBarOverflowMenu,
   HelpMenuRow,
   KeyboardMenuRow,
-  OperatorConsoleButton,
   OperatorConsoleMenuRow,
   type OverflowMenuRow,
   type MenuGroup,
@@ -372,8 +371,8 @@ type SurfaceTogglesToggle = Extract<SurfaceToggles, { mode: "toggle" }>;
  * terminal route only. Two modes share the button grammar — one Tip-wrapped
  * button per available surface, in `availableTiles`' shortcut order (⌘1 tty /
  * ⌘2 code / ⌘3 web),
- * glyphs from `SURFACE_GLYPH`, LIT (`aria-pressed`,
- * accent-green border/text on a 10% wash), the corner dot driven by the
+ * glyphs from `SURFACE_GLYPH`, LIT (`aria-pressed`, accent-green text on a
+ * green wash), the corner dot driven by the
  * caller's per-surface `showDot` predicate (web = has-content; others
  * always-on):
  *
@@ -388,10 +387,9 @@ type SurfaceTogglesToggle = Extract<SurfaceToggles, { mode: "toggle" }>;
  *   lit one is a no-op. The disabled-at-3 state does not apply (switching
  *   never adds a fourth tile).
  *
- * Buttons are SEGMENTS inside the group's border (the split-chip precedent):
- * only the LIT one draws a border, so unlit neighbors never double up on the
- * group's. The unlit `border-transparent` keeps the box geometry identical
- * across states — without it the glyph would shift 1px on every toggle.
+ * Buttons are flush segments inside the group's neutral border. Non-first
+ * segments carry a neutral divider, only the outer corners round, and the
+ * wash-only latch changes no border geometry when state flips.
  */
 function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
   // Max 3 tiles (Constitution IV): at 3, further adds are disallowed — the
@@ -405,7 +403,7 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
       <span
         className={`flex items-center rounded border border-border ${controlClass({ variant: "icon", box: "height", glint: false })}`}
       >
-        {shown.map((surface) => {
+        {shown.map((surface, index) => {
           const pressed =
             toggles.mode === "toggle"
               ? toggles.open.includes(surface)
@@ -433,7 +431,7 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
                   disabled={disabled}
                   aria-pressed={pressed}
                   aria-label={`${label} tile`}
-                  className={`rk-glint relative w-[26px] flex items-center justify-center rounded border text-[11px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green disabled:opacity-40 disabled:cursor-not-allowed ${controlClass({ variant: "segment", pressed, rest: "border-transparent text-text-secondary hover:text-text-primary" })}`}
+                  className={`rk-glint relative w-[26px] flex items-center justify-center text-[11px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green disabled:opacity-40 disabled:cursor-not-allowed ${index > 0 ? "border-l border-border" : ""} ${index === 0 ? "rounded-l-[3px]" : ""} ${index === shown.length - 1 ? "rounded-r-[3px]" : ""} ${controlClass({ variant: "segment", flush: true, pressed, rest: "text-text-secondary hover:text-text-primary" })}`}
                 >
                   <span aria-hidden="true">{SURFACE_GLYPH[surface]}</span>
                   {/* Availability/content dot — a collapsed tile may hide
@@ -530,9 +528,6 @@ export function TopBar({
   // registry entry is overflowed into the menu, the version row becomes the
   // update surface and the chevron shows an attention badge (change areas 2–3).
   const { showChip, key: updateKey } = useUpdateNotification();
-  // The ◉ operator button is the DESKTOP standing affordance — on mobile the
-  // tongue under the top bar serves instead (they are complementary: exactly
-  // one standing affordance per form factor).
   const isMobile = useIsMobile();
   // The ⌘J machine, read for the md–lg morph rung: while the machine is
   // engaged (omnibox focused or drawer open) below lg, the center heading
@@ -698,7 +693,7 @@ export function TopBar({
   // fixed-width, terminal-font (Aa), and
   // close-pane/Kill (sticky per-device preferences + the destructive ✕ that
   // sat one slot from Refresh). The terminal-mode bar end state is
-  // ◉ · surface toggles · Open · ▦ Layout · Refresh · Gear · chevron (+ UpdateChip when a qualifying
+  // surface toggles · Open · ▦ Layout · Refresh · Gear · chevron (+ UpdateChip when a qualifying
   // update exists) — the split chip demoted to `menuOnly` in terminal mode in
   // 260813-w1lf (pane verbs moved to the tty tile header). Each entry gates on `modes` (the current mode must be listed) and
   // an optional `hidden` predicate (renders nowhere); `menuGroup` names its
@@ -709,24 +704,6 @@ export function TopBar({
   // + the `Board: Unpin Focused Pane` palette action. The split is absent when
   // the board is empty (no `focusedPane`); the Kill row is disabled then.
   const rightItems: RegistryEntry[] = [
-    // ◉ operator button — the desktop STANDING affordance for the operator
-    // console, at the ABSOLUTE cluster head (left-most, closest to the center
-    // heading — the console drops from the bar's center, so its opener sits
-    // nearest that seam). Head position also makes it the first fit candidate
-    // to drop; overflowed, its function merges into the menu's `Operator
-    // console` row (menuRender: null), so the two never duplicate. A
-    // fixed-size ◉ with the resolved-server operator's live state dot. Hidden
-    // on mobile (the tongue under the top bar serves there). Renders on
-    // operator-less servers — the console's hint line is the answer (the
-    // palette open action's posture).
-    {
-      id: "operator-console-button",
-      modes: ["terminal", "board", "server", "host"],
-      menuGroup: "app",
-      hidden: isMobile,
-      barRender: () => <OperatorConsoleButton routeServer={server || null} />,
-      menuRender: () => null,
-    },
     // Surface-toggle group — terminal-only, at the registry's L1 HEAD (first
     // fit candidate to drop, leftmost in the bar): the retired right rail's
     // open-tile toggles relocated as ONE bordered sub-group. One entry (not
@@ -928,7 +905,7 @@ export function TopBar({
     // right cluster on ALL modes (app-global chrome, not a terminal control).
     // The LAST fit candidate (L3 tail): it survives longest in-bar and, when
     // the cluster can't fit it, degrades to the Settings menu row — never
-    // shrinks or clips. Order in the bar: ◉ · … · Refresh · Gear · chevron ▾.
+    // shrinks or clips. Order in the bar: … · Refresh · Gear · chevron ▾.
     {
       id: "settings",
       modes: ["terminal", "board", "server", "host"],
@@ -1462,7 +1439,7 @@ export function TopBar({
               center cell on desktop (standing at ≥ lg beside the compact
               heading, ghost + in-place morph at md–lg). Renders on every mode;
               self-gates to null on mobile. The route server arrives as a prop
-              (the OperatorConsoleButton pattern — no router hooks here). */}
+              so this center-cell component does not pull router hooks. */}
           <OperatorOmnibox routeServer={server || null} />
         </div>
 

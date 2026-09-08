@@ -1739,6 +1739,44 @@ describe("TopBar", () => {
       expect(dotOf("Terminal tile").every((d) => d !== null)).toBe(true);
       expect(dotOf("Web tile").every((d) => d === null)).toBe(true);
     });
+
+    it.each([
+      ["toggle", toggles({ open: ["tty"] })],
+      [
+        "switch",
+        {
+          mode: "switch" as const,
+          available: ["tty", "web", "code"] as ("tty" | "web" | "code")[],
+          active: "tty" as const,
+          onSwitch: vi.fn(),
+        },
+      ],
+    ])("renders %s mode as one flush segmented control", (_mode, surfaceToggles) => {
+      renderTopBar({ surfaceToggles });
+      const group = screen.getAllByTestId("surface-toggles")[0];
+      const outline = group.firstElementChild as HTMLElement;
+      const buttons = Array.from(outline.querySelectorAll("button"));
+
+      expect(outline.className).toContain("rounded border border-border");
+      expect(outline.className).not.toContain("overflow-hidden");
+      expect(buttons).toHaveLength(3);
+
+      expect(buttons[0].className).toContain("rounded-l-[3px]");
+      expect(buttons[0].className).not.toContain("border-l");
+      expect(buttons[1].className).toContain("border-l border-border");
+      expect(buttons[1].className).not.toContain("rounded-");
+      expect(buttons[2].className).toContain("border-l border-border");
+      expect(buttons[2].className).toContain("rounded-r-[3px]");
+
+      for (const button of buttons) {
+        expect(button.className.split(" ")).not.toContain("border");
+        expect(button.className).not.toContain("border-transparent");
+        expect(button.className).not.toContain("border-accent-green");
+      }
+      expect(buttons[0].className).toContain("bg-accent-green/15");
+      expect(buttons[0].className).toContain("text-accent-green");
+      expect(buttons[1].className).not.toContain("bg-accent-green/15");
+    });
   });
 
   describe("settings gear + App-section chrome rows (260812-d1at)", () => {

@@ -51,10 +51,14 @@ function win(overrides: Partial<WindowInfo>): WindowInfo {
   };
 }
 
-function operatorSessions(): ProjectSession[] {
+function operatorSessions(agentState?: string): ProjectSession[] {
   return [
     { name: "main", windows: [win({ windowId: "@1" })] },
-    { name: "_rk-operator", windows: [win({ windowId: "@9", name: "operator", role: "operator" })], hidden: true },
+    {
+      name: "_rk-operator",
+      windows: [win({ windowId: "@9", name: "operator", role: "operator", agentState })],
+      hidden: true,
+    },
   ];
 }
 
@@ -146,6 +150,47 @@ describe("OperatorOmnibox", () => {
 
     expect(screen.getByTestId("operator-omnibox").className).toContain("2xl:w-[20ch]");
     expect(screen.getByTestId("operator-omnibox-input")).toHaveAttribute("placeholder", "Ask the operator…");
+  });
+
+  it.each([
+    ["waiting", "bg-signal-yellow"],
+    ["active", "bg-accent-green"],
+    ["idle", "bg-text-secondary"],
+  ])("the standing glyph maps %s to its live-state dot color", (agentState, colorClass) => {
+    stubWideDesktop();
+    renderPair(new Map([["srv1", operatorSessions(agentState)]]));
+
+    const dot = screen.getByTestId("operator-omnibox-state");
+    expect(dot).toHaveAttribute("data-state", agentState);
+    expect(dot.className).toContain(colorClass);
+    expect(screen.getByTestId("operator-omnibox")).toContainElement(dot);
+  });
+
+  it("the md–lg ghost carries the same dot and hands it to the morphed box", () => {
+    stubNarrowDesktop();
+    renderPair(new Map([["srv1", operatorSessions("active")]]));
+
+    const ghost = screen.getByTestId("operator-omnibox-ghost");
+    expect(ghost).toContainElement(screen.getByTestId("operator-omnibox-state"));
+    fireEvent.click(ghost);
+    expect(screen.getByTestId("operator-omnibox")).toContainElement(
+      screen.getByTestId("operator-omnibox-state"),
+    );
+  });
+
+  it("renders no state dot when no operator resolves", () => {
+    stubWideDesktop();
+    renderPair(new Map([["srv1", [{ name: "main", windows: [win({})] }]]]));
+
+    expect(screen.queryByTestId("operator-omnibox-state")).toBeNull();
+  });
+
+  it("renders no state dot without SessionContext", () => {
+    stubWideDesktop();
+    render(<OperatorOmnibox routeServer="srv1" />);
+
+    expect(screen.getByTestId("operator-omnibox")).toBeInTheDocument();
+    expect(screen.queryByTestId("operator-omnibox-state")).toBeNull();
   });
 
   it("the ghost click morphs the box in place, focuses it, and opens the drawer", () => {

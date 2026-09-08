@@ -11,7 +11,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // degradation, and inline send-error surfacing. Quake-console v2 carries: the
 // true slide (mounted-through-exit), mouse resize with per-viewer geometry
 // persistence, the glass background + settings-dialog opacity row, the
-// top-bar ◉ standing affordance with the live state dot, and console/omnibox
+// omnibox ◉ live-state dot on both desktop rungs, and console/omnibox
 // image paste (upload to the operator window's session + insert-delivery)
 // with the route terminals' strip-forward guard. On MOBILE there is no
 // sheet: every console entry point navigates to the operator window's
@@ -506,8 +506,8 @@ test.describe("Operator console", () => {
    * Steps:
    * 1. Mock the backend WITHOUT an operator window; land on the terminal
    *    route.
-   * 2. Open the console via the ◉ button; assert the hint line, and no xterm
-   *    or textbox inside the console.
+   * 2. Focus the standing omnibox to open the console; assert the hint line,
+   *    and no xterm or textbox inside the console.
    * 3. Close with one Escape (open → rest), open the palette, type a
    *    floor-length query matching no action; assert no `Ask operator` row.
    */
@@ -517,7 +517,7 @@ test.describe("Operator console", () => {
     await mockBackend(page, false);
     await gotoWindow(page);
 
-    await page.getByRole("button", { name: /^Operator console/ }).click();
+    await omniboxInput(page).click();
     await expect(console_(page)).toBeVisible();
     await expect(page.getByTestId("operator-console-empty")).toHaveText(
       "no operator on this server — run rk operator",
@@ -828,30 +828,30 @@ test.describe("Operator console", () => {
   });
 
   /**
-   * Proves: the desktop top bar carries the ◉ operator button as the standing
-   * affordance — a live state dot (amber for a waiting operator) — and a
-   * click toggles the console through the shared event seam.
+   * Proves: the standing desktop omnibox is the sole top-bar console
+   * affordance, carries the waiting operator's amber state dot on its ◉, and
+   * opens the console when its input receives focus.
    *
    * Steps:
    * 1. Mock the backend with a WAITING operator; land on the terminal route.
-   * 2. Assert the ◉ button renders in the right cluster with the amber dot.
-   * 3. Click it; assert the console opens. Click again; assert it closes.
+   * 2. Assert no dedicated Operator console button renders in the banner.
+   * 3. Assert the omnibox ◉ carries the waiting dot; focus the input and
+   *    assert the console opens.
    */
-  test("the top-bar ◉ button shows the waiting dot and toggles the console", async ({ page }) => {
+  test("the standing omnibox shows the waiting dot and opens the console", async ({ page }) => {
     await mockBackend(page, true, SEND_OK, "waiting");
     await gotoWindow(page);
 
-    // The fit probe renders an aria-hidden duplicate — getByRole excludes it.
-    const button = page.getByRole("button", { name: /^Operator console/ });
-    await expect(button).toBeVisible();
-    const dot = page.getByTestId("operator-console-button-state").first();
+    const banner = page.getByRole("banner");
+    await expect(banner.getByRole("button", { name: /^Operator console/ })).toHaveCount(0);
+    const omnibox = page.getByTestId("operator-omnibox");
+    const dot = page.getByTestId("operator-omnibox-state");
+    await expect(omnibox).toContainText("◉");
     await expect(dot).toHaveAttribute("data-state", "waiting");
     await expect(dot).toHaveClass(/bg-signal-yellow/);
 
-    await button.click();
+    await omniboxInput(page).click();
     await expect(console_(page)).toBeVisible();
-    await button.click();
-    await expect(console_(page)).toHaveCount(0);
   });
 
   test.describe("mobile navigation", () => {
@@ -900,9 +900,9 @@ test.describe("Operator console", () => {
 
   /**
    * Proves: on mobile the tongue under the top bar is a TOGGLE — the standing
-   * affordance with the amber waiting dot while off the operator route (the
-   * desktop ◉ button absent), a tap navigates to the operator window's
-   * terminal route, and ON that route the tongue stays as the return
+   * affordance with the amber waiting dot while off the operator route (with
+   * no dedicated operator button in the banner), a tap navigates to the
+   * operator window's terminal route, and ON that route the tongue stays as the return
    * affordance (`data-tongue-state="return"`, waiting dot suppressed) whose
    * tap navigates back to the `?from=` origin window — a full round trip with
    * no horizontal overflow.
@@ -910,8 +910,8 @@ test.describe("Operator console", () => {
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend with a waiting operator;
    *    land on the @1 terminal route (direct goto + `__rkTerminals` poll).
-   * 2. Assert the tongue is visible with the waiting dot and the ◉ button is
-   *    absent.
+   * 2. Assert the tongue is visible with the waiting dot and no dedicated
+   *    operator button renders in the banner.
    * 3. Tap the tongue; assert the URL becomes the operator route with
    *    `?from=@1`, the tongue REMAINS in the return state, and the waiting
    *    dot is gone.
@@ -929,7 +929,9 @@ test.describe("Operator console", () => {
     const tongue = page.getByTestId("operator-console-tongue");
     await expect(tongue).toBeVisible();
     await expect(page.getByTestId("operator-console-tongue-waiting")).toBeVisible();
-    await expect(page.getByTestId("operator-console-button")).toHaveCount(0);
+    await expect(
+      page.getByRole("banner").getByRole("button", { name: /^Operator console/ }),
+    ).toHaveCount(0);
 
     await tongue.click();
     await expectOperatorRoute(page, "@1");

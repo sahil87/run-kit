@@ -7,7 +7,7 @@
 
 Promptless dispatch (`/fab-proceed` create-new, `{questioning-mode} = promptless-defer`) from a user conversation that walked the tutorial against the current product and confirmed each decision below. The synthesized description:
 
-> Refresh the run-kit guided tutorial — the driver skill `app/backend/cmd/rk/skill/tutorial.md` and its companion page `app/frontend/public/tutorial/tutorial.html` — which predates the operator-console work (PRs #839/#866/#870), plus fix the pager placement and compress the wording. User-confirmed decisions: (1) pager moves to a slim fixed strip at the TOP of the page; (2) Chapter 3 is rewritten around the ⌘J quake console + top-bar omnibox; (3) the operator-less fallback becomes starting the operator via `rk operator`; (4) the operator is framed as the spine — Chapter 5's lasting habit is the pair "⌘J to ask, ⌘K to find", plus one mobile tongue line; (5) every mock's `Tab: <name>` heading becomes `Terminal: <name>`; (6) a compression pass sheds ~30–40% of words from the greeting and chapter beats without losing any user action or signal, and HTML legend items become single-line.
+> Refresh the run-kit guided tutorial — the driver skill `app/backend/cmd/rk/skill/tutorial.md` and its companion page `app/frontend/public/tutorial/tutorial.html` — which predates the operator-console work (PRs #839/#866/#870), plus fix the pager placement and compress the wording. User-confirmed decisions: (1) pager moves to a slim fixed strip at the TOP of the page; (2) Chapter 3 is rewritten around the ⌘J quake console + top-bar omnibox; (3) the operator-less fallback becomes starting the operator via `rk operator`; (4) the operator is framed as the spine — Chapter 5's lasting habit is the pair "⌘J to ask, ⌘K to find", plus one mobile tongue line; (5) every mock's `Tab: <name>` heading becomes `Terminal: <name>` *(superseded in review — live chrome is deliberately `Tab:`, so mocks keep it and the stale `fab/project/context.md` claim was corrected instead; see plan R2)*; (6) a compression pass sheds ~30–40% of words from the greeting and chapter beats without losing any user action or signal, and HTML legend items become single-line.
 
 All decisions were user-confirmed in conversation; no interactive questions were possible in this dispatch mode.
 
@@ -53,9 +53,11 @@ Replace the "no operator — normally you'd ask the operator; I'll hire directly
 - HTML ch5: add a ⌘J row/keycap to the palette mock area (e.g. a sibling row/keycap beside the existing `⌘K / Ctrl+Shift+K` kbd hint — "⌘J ask the operator · ⌘K find any action").
 - One mobile line (skill md ch5, optionally a short ch5 legend line): on phones the **tongue** — the pull tab under the top bar — takes you to the operator (mobile has no drawer; the tab navigates to the operator's own window per the mobile-navigation design).
 
-### 5. Mock accuracy: `Tab:` → `Terminal:` (tutorial.html)
+### 5. Mock accuracy: `Tab:` → `Terminal:` (tutorial.html) — SUPERSEDED
 
-The real top-bar chrome heading is `Terminal: <window>` (`PageType: name` — fab/project/context.md § top bar). Fix all four occurrences of `<span class="prefix">Tab:</span>` (ch1 "tutorial", ch2 "tutorial", ch3 "operator" — superseded by the ch3 rewrite anyway, ch4 "tour-worker") to `Terminal:`.
+> **Superseded during review (plan R2 rework, cycle 1)**: the live heading prefix is deliberately the static `Tab:` (`WINDOW_PREFIX` in top-bar.tsx, change 260714-uco1); this section's premise came from a stale `fab/project/context.md` claim. The shipped change keeps `Tab:` in every mock and corrects context.md instead.
+
+Original (not implemented): the real top-bar chrome heading is `Terminal: <window>` (`PageType: name` — fab/project/context.md § top bar). Fix all four occurrences of `<span class="prefix">Tab:</span>` (ch1 "tutorial", ch2 "tutorial", ch3 "operator" — superseded by the ch3 rewrite anyway, ch4 "tour-worker") to `Terminal:`.
 
 ### 6. Compression pass (both files)
 
@@ -87,7 +89,7 @@ None — promptless dispatch; would-be questions are recorded as Unresolved rows
 | 2 | Certain | Chapter 3 teaches ⌘J + omnibox as the flagship; ch3 mock shows the quake drawer + omnibox over the current route, not a navigated-to operator view | Discussed — user-confirmed; grounded in ui/operator-console.md (⌘J machine, one-input rule) | S:95 R:85 A:90 D:90 |
 | 3 | Certain | Operator-less fallback becomes `rk operator`, with a one-line direct-hire degrade only when fab is absent | Discussed — user-confirmed; verified against operator.go preconditions (tmux + fab hard, exit 1) and the product's empty-state hint | S:95 R:90 A:95 D:90 |
 | 4 | Certain | Chapter 5 habit is the pair "⌘J to ask, ⌘K to find"; ch5 mock gains a ⌘J row/keycap; one mobile tongue line | Discussed — user-confirmed | S:90 R:90 A:90 D:90 |
-| 5 | Certain | All four mock headings `Tab:` → `Terminal:` | Discussed — user-confirmed; real chrome verified in context.md (`Terminal: <window>`) | S:95 R:95 A:100 D:100 |
+| 5 | Certain | All four mock headings `Tab:` → `Terminal:` | Discussed — user-confirmed; context.md claim later found stale: superseded in review (mocks keep `Tab:`, context.md corrected — plan R2) | S:95 R:95 A:100 D:100 |
 | 6 | Certain | Compression: −30–40% words on greeting + beats, single-line legend items; no user action, signal, degradation, or hash contract lost | Discussed — user set the target band and the "less words, more info" bar | S:85 R:85 A:80 D:80 |
 | 7 | Confident | Ch3 preflight probe gains `#{window_name}` in the list-windows format so the exact-name fallback operator.go honors is also detected | Description said "verify against operator.go"; verified — role match already correct, name fallback missing; one-token, easily reversed | S:70 R:85 A:85 D:75 |
 | 8 | Certain | Edit flow: canonical docs/site/skill/tutorial.md first, sync to embed via scripts/sync-skill.sh; five `#chN` references, ≤150 lines, and the `split-h:tty,web` layout literal preserved; skill_test.go untouched | Determined by the drift-guard tests read during intake (TestSkillTopicsMatchCanonical, TestTutorialPagesMatchTopic, TestSkillTopicsWithinLineBudget, TestTutorialLayoutValuesParse) | S:85 R:90 A:100 D:95 |

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 17
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-09-08T19:28:20Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-08T19:41:46Z"}
     review: {started_at: "2026-09-08T19:41:46Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-08T19:48:18Z"}
     hydrate: {started_at: "2026-09-08T19:48:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T19:52:32Z"}
-    ship: {started_at: "2026-09-08T19:52:32Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-08T19:52:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T19:55:31Z"}
+    review-pr: {started_at: "2026-09-08T19:55:31Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/877
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2350
+    deleted: 22
+    net: 2328
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 2037
+        deleted: 7
+        net: 2030
     tests:
-        added: 0
+        added: 562
         deleted: 0
-        net: 0
-    computed_at: "2026-09-08T19:52:32Z"
-    computed_at_stage: hydrate
+        net: 562
+    computed_at: "2026-09-08T19:55:31Z"
+    computed_at_stage: ship
 summary: gates /present on the resolved extension to serve an embedded read-only viewer shell for .md/.markdown/.excalidraw (lazy mermaid, static exportToSvg, fully offline assets) with a ?raw=1 exact-bytes escape hatch, an X-Present-Format resolved-format header, X-Rk-Dev-Proxy dev shell sourcing, and raw as a hidden address-bar plumbing param
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-08T19:52:32Z
+last_updated: 2026-09-08T19:55:31Z

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 24
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-09-08T20:45:34Z", driver: fab-fff, iterations: 4, completed_at: "2026-09-08T20:52:56Z"}
     review: {started_at: "2026-09-08T20:52:56Z", driver: fab-fff, iterations: 4, completed_at: "2026-09-08T20:57:35Z"}
     hydrate: {started_at: "2026-09-08T20:57:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T21:10:12Z"}
-    ship: {started_at: "2026-09-08T21:10:12Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-08T21:10:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T21:13:17Z"}
+    review-pr: {started_at: "2026-09-08T21:13:17Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/878
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 5368
+    deleted: 346
+    net: 5022
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 4265
+        deleted: 254
+        net: 4011
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-08T21:10:12Z"
-    computed_at_stage: hydrate
+        added: 2315
+        deleted: 31
+        net: 2284
+    computed_at: "2026-09-08T21:13:17Z"
+    computed_at_stage: ship
 summary: 'multi-harness agent detection: a seven-provider runtime registry + three installer kinds wire claude/codex/gemini/copilot/kimi/opencode/agy hooks, six transcript adapters (opencode via bounded request-time native export; copilot identity-only) back the new server-derived conversationAvailable gate for transcript-backed operator actions'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-08T21:10:12Z
+last_updated: 2026-09-08T21:13:17Z

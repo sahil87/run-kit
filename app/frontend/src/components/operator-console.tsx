@@ -48,21 +48,23 @@ const NO_OPERATOR_HINT_THROTTLE_MS = 4000;
  *  its hint line, mobile activations toast it. */
 const NO_OPERATOR_HINT = "no operator on this server — run rk operator";
 
+const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to open";
+
 /**
  * The operator chat console — a global pull-down drawer overlay on desktop,
  * available on every route. Mounted ONCE at the persistent root layout
  * (app.tsx, beside the single CommandPalette mount); every entry point — the
  * registry chord, the palette action, the palette's Ask-operator fallback row,
- * the sidebar pinned row, the top-bar operator button, the mobile tongue, the
- * mobile overflow-menu row — reaches it through the OPERATOR_CONSOLE_EVENT
+ * the top-bar operator button, the mobile tongue, and the mobile overflow-menu
+ * row — reaches it through the OPERATOR_CONSOLE_EVENT
  * document seam (lib/operator-console.ts).
  *
  * The seam forks on form factor. Desktop runs the ⌘J two-state machine
  * (lib/operator-console.ts): rest ⇄ open (drawer down, omnibox focused —
  * focus and the expanded drawer are linked, so one chord engages both and the
  * next releases both). Enter in the omnibox sends; Esc releases to rest; the
- * palette action and the pinned row land on the same open+focused state; the
- * ◉ button maps open ⇄ rest; a click outside the console's own DOM (the
+ * palette action lands on the open+focused state; the ◉ button maps open ⇄
+ * rest; a click outside the console's own DOM (the
  * drawer or the omnibox) collapses to rest, same as the header button. The
  * machine is the controlling state — the drawer's internal open flag follows
  * it through the slide machinery.
@@ -154,6 +156,7 @@ export function OperatorConsole() {
   const navigate = useNavigate();
   const toast = useOptionalToast();
   const noOperatorHintAtRef = useRef(0);
+  const alreadyOnOperatorHintAtRef = useRef(0);
 
   const { servers, sessionsByServer } = useSessionContext();
 
@@ -302,17 +305,27 @@ export function OperatorConsole() {
   };
 
   // Entry-point seam: chord dispatch, palette action, top-bar button, tongue,
-  // overflow-menu row, sidebar pinned row, and the palette fallback row all
+  // overflow-menu row and the palette fallback row all
   // dispatch here. Mobile navigates (the arm above); desktop `toggle` steps
   // the two-state machine, `button` (the top-bar ◉) maps open ⇄ rest (the
   // same toggle, kept as its own action for the seam's API), and `open`
-  // always opens with the omnibox focused.
+  // always opens with the omnibox focused. While the resolved operator route
+  // is already current, every desktop action stops here with one throttled
+  // hint instead of changing any console state.
   useEffect(() => {
     function onRequest(e: Event) {
       const detail = (e as CustomEvent<unknown>).detail;
       if (!isOperatorConsoleRequest(detail)) return;
       if (isMobileRef.current) {
         mobileRequestRef.current(detail);
+        return;
+      }
+      if (onOperatorRouteRef.current) {
+        const now = Date.now();
+        if (now - alreadyOnOperatorHintAtRef.current >= NO_OPERATOR_HINT_THROTTLE_MS) {
+          alreadyOnOperatorHintAtRef.current = now;
+          toastRef.current?.addToast(ALREADY_ON_OPERATOR_HINT, "info");
+        }
         return;
       }
       const state = machineRef.current;
@@ -379,14 +392,14 @@ export function OperatorConsole() {
   // wrong, both handled below by DEFERRING the decision rather than acting
   // inline:
   //   (1) An entry-point trigger outside the console's DOM (the top-bar ◉
-  //       button's own open⇄rest toggle, a sidebar row's retarget) reads and
+  //       button's own open⇄rest toggle, an opener's retarget) reads and
   //       re-writes the machine itself in response to the SAME click — the
   //       collapse must never race that write. Capturing
   //       `getConsoleMachineActivity()` in the CAPTURE phase (before the
   //       trigger's own bubble-phase onClick runs) and re-checking it after a
   //       macrotask settle catches this: if the trigger's handler already
-  //       changed activity — even a same-VALUE re-open, e.g. a sidebar
-  //       retarget while already `open`, which is a no-op by value but still
+  //       changed activity — even a same-VALUE re-open while already `open`,
+  //       which is a no-op by value but still
   //       increments activity — this handler backs off and leaves whatever
   //       that handler decided standing.
   //   (2) A click that opens an unrelated modal (the settings dialog, the
@@ -444,6 +457,10 @@ export function OperatorConsole() {
   const onTerminalRoute = routeServer !== null && routeWindow !== null && server === routeServer;
   const onOperatorRoute =
     onTerminalRoute && target !== undefined && routeWindow === target.window.windowId;
+  const onOperatorRouteRef = useRef(onOperatorRoute);
+  onOperatorRouteRef.current = onOperatorRoute;
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
   const fromWindow = useMemo(() => {
     if (!onOperatorRoute || !server) return null;
     return resolveFromOrigin(search.from, routeWindow, sessionsByServer.get(server) ?? []);

@@ -4348,17 +4348,6 @@ function AppShell() {
     },
     [server, navigateToWindow, navigate, isMobile, setSidebarOpen],
   );
-  // The pinned operator row's activation opens the operator console pinned to
-  // the row's server (the event seam reaches the layout-mounted console from
-  // this route shell — on mobile the seam navigates, so the drawer closes as
-  // sibling navigations do). Referentially stable like its siblings above.
-  const handleOpenOperatorConsole = useCallback(
-    (srv: string) => {
-      requestOperatorConsole({ action: "open", server: srv });
-      if (isMobile) setSidebarOpen(false);
-    },
-    [isMobile, setSidebarOpen],
-  );
   const handleSidebarCreateWindow = useCallback(
     (srv: string, sess: string) => {
       if (srv === server) {
@@ -4572,7 +4561,6 @@ function AppShell() {
       onForkWindow={handleForkWindow}
       onFixTabName={handleFixTabName}
       onOperatorCompose={hasOperatorWindow ? handleOperatorCompose : undefined}
-      onOpenOperatorConsole={handleOpenOperatorConsole}
       onCreateServer={openCreateServer}
       onKillServer={requestKillServer}
       onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}

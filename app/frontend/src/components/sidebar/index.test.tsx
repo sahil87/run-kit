@@ -17,6 +17,7 @@ import { getAllServerColors, setServerColor, getAllServerFlairs, setServerFlair,
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { resetFlyoutWarmState } from "./row-flyout-card";
 import { focusSidebarCurrentRow, registerWindowFocusRestorer } from "@/lib/sidebar-events";
+import { OPERATOR_CONSOLE_EVENT } from "@/lib/operator-console";
 import {
   computeRowTints,
   computeRowBorders,
@@ -145,8 +146,6 @@ type RenderOpts = {
   ) => void;
   /** Override the Sidebar's onSelectWindow prop — tests assert the invocation. */
   onSelectWindow?: (server: string, session: string, windowId: string) => void;
-  /** Wire the pinned operator row's open-console activation. */
-  onOpenOperatorConsole?: (server: string) => void;
 };
 
 /** Mounts BoardPage's registration seam inside the provider (260720-zx4i). */
@@ -197,7 +196,6 @@ function sidebarTree(opts: RenderOpts = {}) {
                         onCreateWindow={vi.fn()}
                         onCreateSession={opts.onCreateSession ?? vi.fn()}
                         onWindowMarkerChange={opts.onWindowMarkerChange}
-                        onOpenOperatorConsole={opts.onOpenOperatorConsole}
                         onCreateServer={vi.fn()}
                         onKillServer={opts.onKillServer ?? vi.fn()}
                       />
@@ -3070,20 +3068,24 @@ describe("Sidebar — operator pinned row (260813-ifya)", () => {
     expect(inGroup).toEqual(["alpha:@0"]);
   });
 
-  it("clicking the pinned row opens the operator console for the row's server instead of navigating", () => {
+  it("clicking the pinned row selects its operator window without dispatching the console", () => {
     const onSelectWindow = vi.fn();
-    const onOpenOperatorConsole = vi.fn();
-    renderOperatorSidebar({ onSelectWindow, onOpenOperatorConsole });
+    const onConsoleRequest = vi.fn();
+    renderOperatorSidebar({ onSelectWindow });
+    document.addEventListener(OPERATOR_CONSOLE_EVENT, onConsoleRequest);
 
     fireEvent.click(rowByKey("primary:@1")!.querySelector("button")!);
-    expect(onOpenOperatorConsole).toHaveBeenCalledWith("primary");
-    expect(onSelectWindow).not.toHaveBeenCalled();
+    document.removeEventListener(OPERATOR_CONSOLE_EVENT, onConsoleRequest);
+
+    expect(onSelectWindow).toHaveBeenCalledWith("primary", "main", "@1");
+    expect(onConsoleRequest).not.toHaveBeenCalled();
   });
 
-  it("Enter/Space on the pinned row opens the operator console via the roving identity", () => {
+  it("Enter/Space on the pinned row selects its operator window without dispatching the console", () => {
     const onSelectWindow = vi.fn();
-    const onOpenOperatorConsole = vi.fn();
-    renderOperatorSidebar({ onSelectWindow, onOpenOperatorConsole });
+    const onConsoleRequest = vi.fn();
+    renderOperatorSidebar({ onSelectWindow });
+    document.addEventListener(OPERATOR_CONSOLE_EVENT, onConsoleRequest);
 
     // Walk the roving cursor onto the pinned row (it leads the group's rows,
     // one ArrowUp from the session row).
@@ -3092,20 +3094,15 @@ describe("Sidebar — operator pinned row (260813-ifya)", () => {
     expect(rowByKey("primary:@1")).toHaveAttribute("tabindex", "0");
 
     act(() => { fireEvent.keyDown(tree, { key: "Enter" }); });
-    expect(onOpenOperatorConsole).toHaveBeenCalledWith("primary");
-    expect(onSelectWindow).not.toHaveBeenCalled();
-
-    onOpenOperatorConsole.mockClear();
-    act(() => { fireEvent.keyDown(tree, { key: " " }); });
-    expect(onOpenOperatorConsole).toHaveBeenCalledWith("primary");
-  });
-
-  it("row activation keeps plain navigation when the console seam is unwired", () => {
-    const onSelectWindow = vi.fn();
-    renderOperatorSidebar({ onSelectWindow });
-
-    fireEvent.click(rowByKey("primary:@1")!.querySelector("button")!);
     expect(onSelectWindow).toHaveBeenCalledWith("primary", "main", "@1");
+    expect(onConsoleRequest).not.toHaveBeenCalled();
+
+    onSelectWindow.mockClear();
+    act(() => { fireEvent.keyDown(tree, { key: " " }); });
+    document.removeEventListener(OPERATOR_CONSOLE_EVENT, onConsoleRequest);
+
+    expect(onSelectWindow).toHaveBeenCalledWith("primary", "main", "@1");
+    expect(onConsoleRequest).not.toHaveBeenCalled();
   });
 
   it("renders the note pulse line under the pinned row when @rk_win_note is set", () => {

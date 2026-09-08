@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-08T03:40:48Z"}
+{"args":"Sidebar operator row opens as normal terminal tab (no quake console special-case); quake console + shortcuts remain for reaching operator from other tabs; disable quake openers while already on the operator route","cmd":"fab-new","event":"command","ts":"2026-09-08T03:40:48Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-09-08T03:43:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T03:44:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T04:19:30Z"}
+{"event":"review","result":"failed","ts":"2026-09-08T04:29:29Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T04:29:29Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T04:35:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-08T04:43:01Z"}
+{"event":"review","result":"passed","ts":"2026-09-08T04:43:01Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-08T04:46:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-08T04:59:21Z"}

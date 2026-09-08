@@ -148,6 +148,77 @@ describe("OperatorConsole", () => {
     expect(getConsoleMachineState()).toBe("rest");
   });
 
+  it.each(["toggle", "open", "button"] as const)(
+    "keeps the desktop machine at rest and shows a hint for %s on the operator route",
+    (action) => {
+      mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+      renderConsole({ withToasts: true });
+
+      act(() => requestOperatorConsole({ action }));
+
+      expect(getConsoleMachineState()).toBe("rest");
+      expect(screen.queryByTestId("operator-console")).toBeNull();
+      expect(screen.getByText("already viewing the operator — nothing to open")).toBeVisible();
+    },
+  );
+
+  it("throttles repeated already-on-operator hints to one toast per lifetime", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    renderConsole({ withToasts: true });
+
+    for (const action of ["toggle", "open", "button"] as const) {
+      act(() => requestOperatorConsole({ action }));
+    }
+
+    expect(screen.getAllByText("already viewing the operator — nothing to open")).toHaveLength(1);
+    expect(getConsoleMachineState()).toBe("rest");
+  });
+
+  it("gates explicit server and send details before they mutate console state", async () => {
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    renderConsole({
+      servers: ["srv1", "srv2"],
+      sessionsByServer: new Map([
+        ["srv1", operatorSessions()],
+        [
+          "srv2",
+          [
+            { name: "main", windows: [win({ windowId: "@1" })] },
+            {
+              name: "_rk-operator",
+              hidden: true,
+              windows: [win({ windowId: "@7", name: "operator-b", role: "operator" })],
+            },
+          ],
+        ],
+      ]),
+    });
+
+    act(() => {
+      requestOperatorConsole({ action: "open", server: "srv2", send: "must stay pending nowhere" });
+    });
+    act(() => setConsoleMachineState("open"));
+
+    await screen.findByTestId("operator-console");
+    expect(terminalMounts.at(-1)).toMatchObject({ server: "srv1", windowId: "@9" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockOperatorRequest).not.toHaveBeenCalled();
+  });
+
+  it.each(["toggle", "open", "button"] as const)(
+    "preserves the desktop %s behavior away from the operator route",
+    (action) => {
+      mockMatches = [{ params: { server: "srv1", window: "@1" } }];
+      renderConsole();
+
+      act(() => requestOperatorConsole({ action }));
+
+      expect(getConsoleMachineState()).toBe("open");
+      expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    },
+  );
+
   it("one Esc releases the machine: open → rest", async () => {
     renderConsole();
     openDrawer();
@@ -642,7 +713,7 @@ describe("OperatorConsole (mobile navigation)", () => {
     expect(getComposeDraft("srv1:@9").text).toBe("still broken");
   });
 
-  it("the pinned sidebar row navigates to its own server's operator route", () => {
+  it("an explicit server request navigates to that server's operator route", () => {
     renderConsole({
       servers: ["srv1", "srv2"],
       sessionsByServer: new Map([

@@ -20,8 +20,8 @@ import { urlSegmentToWindowId } from "@/lib/router-url";
  *    action matches + an operator on the resolved server + a trimmed query at
  *    or above the length floor (short typo fragments never fire a send).
  *  - `requestOperatorConsole` — the document-event seam every entry point
- *    (chord dispatch, palette action, overflow-menu row, sidebar pinned row,
- *    palette fallback row, top-bar ◉ button, mobile tongue) funnels through
+ *    (chord dispatch, palette action, overflow-menu row, palette fallback row,
+ *    top-bar ◉ button, mobile tongue) funnels through
  *    to the single layout-mounted console, which forks on form factor:
  *    desktop drives the ⌘J machine, mobile navigates to the operator
  *    window's terminal route. An event, not a callback chain: the entry
@@ -61,8 +61,8 @@ export type OperatorConsoleRequest = {
    *  click mapping (open ⇄ rest). On mobile all three collapse to navigation
    *  to the operator window's terminal route. */
   action: "toggle" | "open" | "button";
-  /** Pin the console to this server (the sidebar pinned row passes its own
-   *  server's name). Absent = resolve from the route/server list. */
+  /** Pin the console to this server (for example, the palette fallback passes
+   *  its resolved server). Absent = resolve from the route/server list. */
   server?: string;
   /** Text to deliver on open, once the operator window resolves (the sessions
    *  slice can lag the open). Never delivered when the resolved server has no
@@ -336,8 +336,7 @@ const machineListeners = new Set<(state: ConsoleMachineState) => void>();
 /** Bumped on every `setConsoleMachineState` call, including a same-value
  *  no-op — the outside-click-collapse effect's "did anything else already
  *  claim this click" signal (a value-equality check alone would miss a
- *  legitimate same-value re-open, e.g. a sidebar retarget while already
- *  `open`). */
+ *  legitimate same-value re-open while already `open`). */
 let machineActivity = 0;
 
 export function getConsoleMachineState(): ConsoleMachineState {

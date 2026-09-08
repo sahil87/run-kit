@@ -65,12 +65,11 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
   /**
    * Proves: marking a window as the operator via the options POST moves its
    * row out of its session group to a pinned slot above all session groups
-   * with a headset identity glyph, and activating the pinned row opens the
-   * operator console overlay for the row's server WITHOUT navigating (the
-   * console is the talk-to-the-operator surface; the user stays on their
-   * tab). Clearing the role demotes the window to its cwd-basename session,
-   * where the ordinary row has no operator glyph and ordinary click-to-
-   * navigate behavior.
+   * with a headset identity glyph, and activating it navigates to the
+   * operator's ordinary terminal route without opening the console overlay.
+   * Clearing the role demotes the window to its cwd-basename session, where
+   * the row loses its operator glyph but keeps the same click-to-navigate
+   * behavior.
    *
    * Steps:
    * 1. Create `worker-<ts>` and `operator-<ts>` windows in the test session —
@@ -82,15 +81,17 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
    * 5. Assert the row is gone from the session group, still renders exactly
    *    once in the sidebar, its bounding box sits ABOVE the session group's
    *    box, is draggable="false", and carries the headset glyph.
-   * 6. Click the pinned row and assert the operator console overlay opens
-   *    (title strip naming the server) with no navigation away from the
-   *    server route; Escape closes it.
+   * 6. Click the pinned row and assert navigation to the operator window's
+   *    terminal route with no console overlay.
    * 7. POST @rk_win_role: null (the partial-merge unset); assert 200.
    * 8. Assert the row reappears inside the DESTINATION session group (the
    *    temp dir's basename), is absent from the original test session's
    *    group, still renders exactly once below the destination group header,
-   *    and no longer carries the headset glyph; clicking it there navigates
-   *    to the window's terminal route.
+   *    and no longer carries the headset glyph.
+   * 9. Navigate away to the bare server route and assert the operator tab
+   *    heading is absent.
+   * 10. Click the demoted row and assert fresh navigation to the same terminal
+   *     route with no console overlay.
    */
   test("marking a window operator pins its row above the session groups and removes it from its own group; unmarking restores", async ({
     page,
@@ -134,19 +135,8 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
     await expect(row).toHaveAttribute("draggable", "false");
 
     await row.click();
-    // Activation opens the operator console overlay for this server — no
-    // navigation (still on the server route).
-    await expect(page.getByTestId("operator-console")).toBeVisible();
-    expect(page.url()).toContain(`/${TMUX_SERVER}`);
-    await expect(
-      page.getByTestId("operator-console").getByText(`· ${TMUX_SERVER}`),
-    ).toBeVisible();
-    // Wait for the omnibox focus handoff before Escape — it guarantees the
-    // console's machine listener has attached (same-frame keypresses can race
-    // the effect). The desktop console's input is the top-bar omnibox; the
-    // drawer is output-only.
-    await expect(page.getByTestId("operator-omnibox-input")).toBeFocused();
-    await page.keyboard.press("Escape");
+    // Pinned activation is ordinary navigation to the operator terminal.
+    await expect(page.getByRole("button", { name: `Rename tab ${opName}` })).toBeVisible();
     await expect(page.getByTestId("operator-console")).toHaveCount(0);
 
     // Unmark (null per the partial-merge contract): demotion moves the window
@@ -169,8 +159,14 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
     expect(restoredRowBox!.y).toBeGreaterThan(restoredGroupBox!.y);
     await expect(row.getByTestId("operator-headset-icon")).toHaveCount(0);
 
-    // Demoted: the row is an ordinary in-group row again — click navigates to
-    // the window's terminal route (no console, no role).
+    // Leave the target route so the second click has to navigate rather than
+    // passing against the route established by the pinned-row click above.
+    await gotoServerReady(page, TMUX_SERVER);
+    await expect(page.getByRole("button", { name: `Rename tab ${opName}` })).toHaveCount(0);
+    await expect(row).toHaveCount(1);
+
+    // Demoted activation is behaviorally identical to the pinned activation,
+    // and this assertion now observes a fresh route transition.
     await row.click();
     await expect(page.getByRole("button", { name: `Rename tab ${opName}` })).toBeVisible();
     await expect(page.getByTestId("operator-console")).toHaveCount(0);

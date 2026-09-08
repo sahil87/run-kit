@@ -923,7 +923,7 @@ func extractRkHookCommands(content string) []string {
 		line = strings.TrimSpace(line)
 		if rest, ok := strings.CutPrefix(line, `const RK = "`); ok {
 			if p, ok := strings.CutSuffix(rest, `";`); ok {
-				cmds = append(cmds, fmt.Sprintf(`; "%s" agent hook`, p))
+				cmds = append(cmds, fmt.Sprintf(`; "%s" agent hook `, p))
 			}
 		}
 	}

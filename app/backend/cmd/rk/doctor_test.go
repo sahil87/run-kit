@@ -1685,6 +1685,15 @@ func TestAgentHooksCheckOpencodePlugin(t *testing.T) {
 	if !c.OK || !strings.Contains(c.Note, "opencode") {
 		t.Errorf("healthy opencode plugin: OK = %v Note = %q", c.OK, c.Note)
 	}
+
+	// A dangling RK path fails — hookRkPath must recover the path from the
+	// plugin's `const RK = "<path>";` line so the dangle is caught.
+	bodies[filepath.Join(home, ".config", "opencode", "plugins", "run-kit.js")] = []byte(opencodePluginFile("/removed/keg/rk"))
+	readFile, stat = agentHooksMapFixture(t, bodies, nil)
+	c = agentHooksCheck(home, readFile, stat)
+	if c.OK || !strings.Contains(c.Hint, "OpenCode") {
+		t.Errorf("dangling opencode rk path: OK = %v Hint = %q, want an OpenCode failure", c.OK, c.Hint)
+	}
 }
 
 func TestAgentHooksCheckAgyNamedDoc(t *testing.T) {

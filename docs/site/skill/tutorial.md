@@ -2,7 +2,7 @@
 
 An agent-run, live first-use tour of run-kit: five chapters in about ten minutes. This is a static topic page (`rk skill tutorial`); the [core bundle](../skill.md) is the general usage briefing.
 
-**Who it serves**: a first-time run-kit user — assume a product manager, not a terminal native. They care about outcomes: delegating work to agents, knowing when one needs them, seeing results, running several at once. Teach through **their** actions, never through command narration. Do not explain internals (tmux, options, state models) unless asked — and if asked, answer briefly and return to the tour.
+**Who it serves**: a first-time run-kit user — assume a product manager, not a terminal native. They care about outcomes: delegating work, knowing when an agent needs them, seeing results, running several at once. Teach through **their** actions, never command narration. Don't explain internals (tmux, options, state models) unless asked — answer briefly, return to the tour.
 
 Gate first:
 
@@ -10,15 +10,15 @@ Gate first:
 command -v rk >/dev/null 2>&1 && [ -n "$TMUX_PANE" ]
 ```
 
-If either check fails, STOP: tell the user to open the run-kit dashboard, create a session/window for this directory, run the agent inside it, then ask for the tutorial again.
+If either check fails, STOP: tell the user to open the run-kit dashboard, create a session/window for this directory, run the agent inside it, then ask again.
 
 ## Pacing and failure posture
 
-- Deliver exactly one chapter per reply. End with: *Say **next** when you're ready, or ask me anything.* Answer questions, then re-offer.
-- `skip` advances one chapter. `stop` or `done` jumps to Cleanup.
-- 2–4 sentences per beat, then the user acts, then one sentence on where to look. **The user does something in every chapter** — if a beat has no user action, cut it.
-- Degrade, never error: no operator, no push permission, code-server down — one line on what the step would show, continue.
-- Shell-side changes repaint on the server poll: allow ~10s, say "give it a few seconds" the first time.
+- One chapter per reply. End with: *Say **next** when ready, or ask me anything.* Answer questions, then re-offer.
+- `skip` advances one chapter; `stop` or `done` jumps to Cleanup.
+- 1–3 sentences per beat, then the user acts, then one line on where to look. **The user does something in every chapter** — a beat with no user action gets cut.
+- Degrade, never error: a missing piece (no operator, no push permission) gets one line on what it would show, then continue.
+- Shell-side changes repaint on the server poll: allow ~10s ("give it a few seconds", first time only).
 
 ## Preflight — run silently, then end the turn
 
@@ -31,10 +31,10 @@ If either check fails, STOP: tell the user to open the run-kit dashboard, create
    rk tab show --json > /tmp/rk-tutorial/original-state.json
    rk tab web ls --json > /tmp/rk-tutorial/original-webtabs.json 2>/dev/null || true
    RK="$(rk url)"
-   tmux list-windows -a -F '#{window_id} #{@rk_win_role}' | grep -w operator || true
+   tmux list-windows -a -f '#{||:#{==:#{@rk_win_role},operator},#{==:#{window_name},operator}}' -F '#{window_id} #{window_name}' || true
    ```
 
-**Greeting** (this is the whole first turn — no mechanics): run-kit is **mission control for AI agents working on your projects** — start them, watch them, unblock them, from any browser including your phone. Promise the outcome: *in ~10 minutes you'll have delegated work to an agent, been interrupted by one that needed you, run two at once, and been pinged when work finished.* Rules: talk in plain language; **next / skip / stop**; nothing here can break anything. Then one setup ask: **enable notifications now** (the bell in the dashboard's top bar) — "that's how agents will reach you in Chapter 4." End the turn.
+**Greeting** (the whole first turn — no mechanics): run-kit is **mission control for AI agents** — start, watch, and unblock them from any browser, phone included; one operator agent can drive all of it. Promise: *delegate, get interrupted only when needed, run two at once, get pinged when done — in ~10 minutes.* **next / skip / stop**; plain language; nothing can break. One ask: **enable notifications now** (the top-bar bell) — how agents reach you in Chapter 4. End the turn.
 
 ## Chapter 1 — You have an agent (`#ch1`)
 
@@ -42,7 +42,7 @@ If either check fails, STOP: tell the user to open the run-kit dashboard, create
 rk present "$RK/tutorial/tutorial.html#ch1"
 ```
 
-The companion shows the roster idea: every sidebar row is an agent (or a plain terminal) working for you; the dot on the row is its state. Then make it real — **have the user ask you something** ("ask me anything — try: what's in this project?"). Answer briefly, and tell them to watch this window's row while you work: busy while I think, idle when I'm done, and a yellow **waiting halo** on its dot when an agent needs a human (the session row above adds a ⚠ count) — that signal is the whole supervision game, and Chapter 4 triggers it for real. One-line orientation: sessions group agents by project; this row is me.
+Every sidebar row is an agent (or plain terminal); the dot is its state. **Have the user ask you something** ("try: what's in this project?") and watch this row — busy, then idle. A yellow **waiting halo** = an agent needs a human (the session row adds a ⚠ count) — the whole game; Chapter 4 triggers it for real. Sessions group by project; this row is me.
 
 ## Chapter 2 — Make it show you things (`#ch2`)
 
@@ -50,7 +50,7 @@ The companion shows the roster idea: every sidebar row is an agent (or a plain t
 rk present "$RK/tutorial/tutorial.html#ch2"
 ```
 
-Teach the phrase on the companion: telling any agent **"…and present it to me"** makes results appear as live pages beside its terminal — reports, mocks, dashboards, not walls of terminal text. Then hands-on: offer three scoped picks — *(a) a one-page brief of this project, (b) a cheat sheet of this tour so far, (c) a small mock KPI dashboard* — and have them ask in their own words, ending with "present it to me". Build it fast (small, dark, monospace, self-contained), `rk present /tmp/rk-tutorial/<name>.html`, point at the new tab in the strip above the page. Then invite one tweak ("make the heading green", "add a row") — edit and re-run the same present command: **asking again is the refresh**. Mention once: the same works for a running dev server (`:port`) or any URL. If the page tile ever gets hidden, `rk tab layout split-h:tty,web` restores the side-by-side.
+Teach the phrase: end any request with **"…and present it to me"** — results arrive as live pages beside the terminal. Offer picks: *project brief · tour cheat sheet · mock KPI dashboard* — they ask in their own words, phrase included. Build it small, dark, self-contained; `rk present /tmp/rk-tutorial/<name>.html`; point at the new tab. Invite one tweak — edit, re-present: **asking again is the refresh**. Also: any URL or dev server (`:port`). Tile hidden? `rk tab layout split-h:tty,web` restores it.
 
 ## Chapter 3 — Hire a second agent (`#ch3`)
 
@@ -58,12 +58,12 @@ Teach the phrase on the companion: telling any agent **"…and present it to me"
 rk present "$RK/tutorial/tutorial.html#ch3"
 ```
 
-The point of run-kit is agents in **parallel** — and the user should feel it, not hear it. The worker's brief (both paths below): *build a one-page visual brief of this project; before writing anything, ask the user ONE question — "who's the audience: exec or engineer?" — and wait for the answer; then present the page and send a notification when done.*
+run-kit is agents in **parallel**, and the operator hires — from anywhere: **⌘J** (⇧Ctrl+J) drops the operator console under the top bar; type into the top-bar box ("Ask ◉…"), Enter sends, the reply streams in the drawer; ⌘J or Esc tucks it away. Everything can start from that box.
 
-- **Operator path (preferred)**: if Preflight found an operator row, point at it (pinned at the top of its server group) and have the **user** click into it and ask, in plain language: *"Start an agent in a new window — call it tour-worker — that builds a one-page brief of this project; have it ask me one question first, then present the result and notify me."* The operator is how you'll start real work every day; today it hires our worker.
-- **Fallback**: no operator — say so ("normally you'd ask the operator; I'll hire directly this time"), then: `rk tab new --name tour-worker`, start the same agent CLI you yourself run in that pane, and give it the brief.
+- **Console path (preferred)**: operator found in Preflight → the **user** presses ⌘J and types: *"Start an agent in a new window — call it tour-worker — that builds a one-page brief of this project; have it ask me ONE question first, then present the result and notify me."*
+- **No operator**: run `rk operator` — it opens the pinned singleton and boots the operator agent; hire via ⌘J as above. If fab is missing it fails — one line, then hire directly: `rk tab new --name tour-worker`, start the same agent CLI, deliver the same brief (one question — "exec or engineer?" — then present + notify).
 
-While it boots, keep talking with the user: **two rows are now busy at once** — have them find both in the sidebar. That's the product.
+While it boots: **two rows busy at once** — have them find both. That's the product.
 
 ## Chapter 4 — It needs you (`#ch4`)
 
@@ -71,7 +71,7 @@ While it boots, keep talking with the user: **two rows are now busy at once** �
 rk present "$RK/tutorial/tutorial.html#ch4"
 ```
 
-Wait for the worker's question to land (watch its pane with `rk mux await` or peek with `rk mux capture`; don't narrate the mechanics). When it does: the worker's dot shows the yellow **waiting halo** (its session row a **⚠ badge**), and — if they enabled notifications — a **push lands on their device**. Walk the loop on the companion, then for real: *click the worker's row, read its question, type your answer right there, come back to me.* When the worker finishes it presents its page and notifies — the full supervision loop, end to end: **delegate → get interrupted only when needed → unblock → receive the result**. Degradations: no push → the badge and row signals carry it; worker never asks → nudge it from its pane; worker died → say so, show its last output, move on.
+Wait for the worker's question (`rk mux await` / `rk mux capture`; don't narrate mechanics). When it lands: the **waiting halo** on its dot, a **⚠ badge** on its session row, and — if enabled — a **push on their device**. For real: *click its row, read the question, answer right there, come back.* It finishes alone, presents, notifies — **delegate → interrupted only when needed → unblock → receive**. Degrade: no push → badge and halo carry it; never asks → nudge from its pane; died → show last output, move on.
 
 ## Chapter 5 — Everywhere, and what's next (`#ch5`)
 
@@ -79,10 +79,10 @@ Wait for the worker's question to land (watch its pane with `rk mux await` or pe
 rk present "$RK/tutorial/tutorial.html#ch5"
 ```
 
-Three closers, all user-driven. **Phone**: the same dashboard address works on any device that can reach it — offer to send it: `rk notify "open me on your phone" --title run-kit` (fail-silent if unsubscribed). **⌘K** (⇧Ctrl+K on Win/Linux): the command palette holds every action in the product — have them open it and type `color`, then `settings`; "when you don't know how, ⌘K and type" is the lasting habit. **The challenge**: have them start one real agent on something they actually want — via the operator if present ("Start a claude session on <repo>") — and remind them of the phrase that gets results as pages. For their engineers: `rk skill` (and its `display`, `mux`, `code` topics) is the always-available agent briefing.
+Three closers, user-driven. **Phone**: same address, any device — offer `rk notify "open me on your phone" --title run-kit` (fail-silent if unsubscribed); the pull-tab **tongue** under the top bar jumps to the operator. **Habit pair**: **⌘J to ask, ⌘K to find** (⇧Ctrl+J / ⇧Ctrl+K) — have them try ⌘K: `color`, then `settings`; every action lives there. **Challenge**: start one real agent on something they actually want — ⌘J the operator ("Start a claude session on <repo>") — phrase included. Engineers: `rk skill` (+ `display`, `mux`, `code`).
 
 ## Cleanup and recap
 
-Ask first: keep or remove the worker window and its brief (it's their first artifact — default keep). Then restore this tab: compare `rk tab web ls --json` with the web-tab capture and remove every tab absent from it, highest index first; restore every `@rk_win_*` key from the original-state capture with `tmux set-option -w <key> <value>`; unset (`tmux set-option -wu <key>`) any current `@rk_win_*` key absent from it; verify with `rk tab show --json`; then `rm -rf /tmp/rk-tutorial`.
+Ask first: keep or remove the worker window and its brief (their first artifact — default keep). Restore this tab: compare `rk tab web ls --json` with the web-tab capture and remove tabs absent from it, highest index first; restore every `@rk_win_*` key from the original-state capture with `tmux set-option -w <key> <value>`; unset (`tmux set-option -wu <key>`) current keys absent from it; verify with `rk tab show --json`; then `rm -rf /tmp/rk-tutorial`.
 
-Recap in their words: **rows are agents; the badge means "needs you"; "present it to me" gets results as pages; the operator hires; ⌘K finds everything; your phone works too.** Invite the solo experiment and end.
+Recap in their words: **rows are agents; the halo means "needs you"; "present it to me" gets pages; ⌘J asks the operator; ⌘K finds everything; your phone works too.** Invite the solo experiment and end.

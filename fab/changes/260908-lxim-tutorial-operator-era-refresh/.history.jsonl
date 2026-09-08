@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-08T10:42:47Z"}
+{"args":"Refresh the run-kit guided tutorial (skill md + tutorial.html) for the operator-console era: move the Back/Next pager to a fixed top strip, rewrite Chapter 3 around the ⌘J quake console + omnibox, replace the operator-less fallback with rk operator, make ⌘J+⌘K the Chapter 5 habit pair, fix Tab:→Terminal: mock headings, and compress wording ~30-40%","cmd":"fab-new","event":"command","ts":"2026-09-08T10:42:47Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-08T10:45:05Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-08T10:46:17Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-08T10:47:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T10:48:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T10:57:36Z"}
+{"event":"review","result":"failed","ts":"2026-09-08T11:09:54Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T11:09:54Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T11:16:02Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-08T11:19:59Z"}
+{"event":"review","result":"failed","ts":"2026-09-08T11:28:36Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T11:28:36Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T11:29:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-08T11:35:39Z"}
+{"event":"review","result":"passed","ts":"2026-09-08T11:35:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-08T11:36:01Z"}

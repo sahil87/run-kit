@@ -1,0 +1,55 @@
+id: lxim
+name: 260908-lxim-tutorial-operator-era-refresh
+created: 2026-09-08T10:42:47Z
+created_by: sahil-noon
+change_type: chore
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 11
+    acceptance_completed: 11
+confidence:
+    certain: 11
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 85.5
+        reversibility: 89.5
+        competence: 90.5
+        disambiguation: 87.3
+stage_metrics:
+    intake: {started_at: "2026-09-08T10:42:47Z", driver: fab-new, iterations: 1, completed_at: "2026-09-08T10:48:05Z"}
+    apply: {started_at: "2026-09-08T11:28:36Z", driver: fab-fff, iterations: 3, completed_at: "2026-09-08T11:29:25Z"}
+    review: {started_at: "2026-09-08T11:29:25Z", driver: fab-fff, iterations: 3, completed_at: "2026-09-08T11:35:39Z"}
+    hydrate: {started_at: "2026-09-08T11:35:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T11:36:01Z"}
+    ship: {started_at: "2026-09-08T11:36:01Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-08T11:36:01Z"
+    computed_at_stage: hydrate
+summary: 'Tutorial refreshed for the operator-console era: pager moved to a fixed top strip (+scroll-margin), ch3 rebuilt around ⌘J console + omnibox with rk operator fallback and exact-match operator probe, ⌘J/⌘K habit pair + mobile tongue in ch5, ~30% copy compression; context.md stale Terminal:-heading claim corrected'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-08T11:36:01Z

@@ -4,10 +4,10 @@
 <style>
   :root{--bg-primary:#0f1117;--bg-card:#171b24;--bg-inset:#0a0c12;--text-primary:#e8eaf0;--text-secondary:#7a8394;--border:#454d66;--accent:#5b8af0;--accent-green:#22c55e;--signal-yellow:#facc15;--signal-blue:#60a5fa;--marker-ink:#f59e0b}
   *{box-sizing:border-box}
-  body{margin:0;padding:22px 22px 76px;background:#07080c;color:var(--text-primary);font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:13px}
+  body{margin:0;padding:76px 22px 22px;background:#07080c;color:var(--text-primary);font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:13px}
   h1{font-size:17px;margin:0 0 4px}
   .sub{color:var(--text-secondary);font-size:12px;margin-bottom:16px}
-  .chapter{display:none}
+  .chapter{display:none;scroll-margin-top:76px}
   .chapter.active{display:block}
   .frame-wrap{overflow-x:auto}
   .callout{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--accent);color:#0f1117;font-size:10px;font-weight:bold;position:absolute;z-index:40;box-shadow:0 0 0 2px #07080c}
@@ -106,7 +106,15 @@
   .pr.on{background:var(--bg-card);color:var(--text-primary)}
   .pr kbd{color:var(--text-secondary);font-size:10px}
   .desk .cap{color:var(--text-secondary);font-size:10px;margin-top:8px;text-align:center}
-  .pager{position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 22px;background:#07080c;border-top:1px solid var(--border)}
+  .omni{display:inline-flex;align-items:center;gap:5px;height:24px;border:1px solid var(--accent);border-radius:4px;padding:0 8px;color:var(--text-primary);font-size:10.5px;white-space:nowrap;overflow:hidden;max-width:320px;vertical-align:-7px}
+  .omni .g{color:var(--accent)}
+  .dim{filter:brightness(.5)}
+  .console{position:absolute;top:41px;left:50%;transform:translateX(-50%);width:66%;border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;background:color-mix(in srgb,var(--bg-primary) 92%,transparent);box-shadow:0 18px 44px rgba(0,0,0,.6);z-index:25;overflow:hidden}
+  .console .c-h{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);color:var(--text-secondary);font-size:10px}
+  .console .c-h b{color:var(--text-primary);letter-spacing:.08em}
+  .console .c-h .hint{margin-left:auto}
+  .p-tongue{width:44px;height:6px;border-radius:0 0 8px 8px;background:var(--border);margin:0 auto}
+  .pager{position:fixed;left:0;right:0;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 22px;background:#07080c;border-bottom:1px solid var(--border)}
   .pg-btn{color:var(--accent);border:1px solid var(--accent);border-radius:6px;padding:6px 14px;text-decoration:none;font-size:12px;user-select:none}
   .pg-btn.inert{opacity:.35;pointer-events:none;border-color:var(--border);color:var(--text-secondary)}
   .pg-mid{display:flex;align-items:center;gap:12px;color:var(--text-secondary);font-size:12px}
@@ -117,7 +125,7 @@
 
 <section class="chapter" id="ch1">
 <h1>Chapter 1 · You have an agent</h1>
-<div class="sub">This is your dashboard. Every row in the sidebar is an agent (or a plain terminal) working for you — the <b>roster</b>.</div>
+<div class="sub">Your dashboard. Every sidebar row is an agent (or a plain terminal) working for you — the <b>roster</b>.</div>
 
 <div class="frame-wrap">
 <div class="app">
@@ -169,18 +177,18 @@
 </div>
 
 <ul class="legend">
-  <li><span class="n">1</span><b>This row is me</b> — the agent you're talking to right now. Highlighted because you're looking at it.</li>
-  <li><span class="n">2</span><b>Idle</b> (gray) — finished, results in its window, ready for the next ask. <b>Working</b> is green.</li>
-  <li><span class="n">3</span><b>Needs you</b> — the yellow halo around the dot: it asked a question and is waiting. The session row above adds <b>1 ⚠</b> — how many windows under it need you. <b>This signal is the whole game</b> — you'll trigger one for real in Chapter 4.</li>
+  <li><span class="n">1</span><b>This row is me</b> — the agent you're talking to right now.</li>
+  <li><span class="n">2</span><b>Idle</b> (gray) — done, ready for the next ask; <b>working</b> is green.</li>
+  <li><span class="n">3</span><b>Needs you</b> — the yellow halo + the session row's <b>1 ⚠</b> count. <b>This signal is the whole game</b> — Chapter 4 triggers one for real.</li>
   <li><span class="n">4</span><b>The conversation</b> — you type here; sessions group agents by project.</li>
 </ul>
 
-<div class="try"><b>Try it now:</b> ask me anything about this project — then glance at my row in your real sidebar: busy while I answer, idle when done.</div>
+<div class="try"><b>Try it now:</b> ask me anything about this project — then watch my row: busy while I answer, idle when done.</div>
 </section>
 
 <section class="chapter" id="ch2">
 <h1>Chapter 2 · Make it show you things</h1>
-<div class="sub">Stop reading agent output in a terminal. End any request with the phrase — results arrive as live pages.</div>
+<div class="sub">End any request with the phrase — results arrive as live pages, not terminal walls.</div>
 <div class="phrase">“…and <b>present it to me</b>”</div>
 
 <div class="frame-wrap">
@@ -235,30 +243,30 @@
 </div>
 
 <ul class="legend">
-  <li><span class="n">1</span><b>You ask in plain words</b> — reports, mocks, dashboards, "chart the test failures", anything visual.</li>
-  <li><span class="n">2</span><b>The page appears beside the agent</b> — a real page, on every device viewing this window.</li>
-  <li><span class="n">3</span><b>Asking again is the refresh</b> — "make the heading bigger" updates the same page in place.</li>
+  <li><span class="n">1</span><b>Ask in plain words</b> — reports, mocks, dashboards, anything visual.</li>
+  <li><span class="n">2</span><b>The page appears beside the agent</b> — live, on every device viewing this window.</li>
+  <li><span class="n">3</span><b>Asking again is the refresh</b> — the same page updates in place.</li>
   <li><span class="n">4</span>Also works for a <b>running dev server</b> ("present localhost:3000 to me") or any URL.</li>
 </ul>
 
-<div class="try"><b>Your turn:</b> pick one — a one-page brief of this project · a cheat sheet of this tour · a mock KPI dashboard — and ask me in your own words. Don't forget the phrase.</div>
+<div class="try"><b>Your turn:</b> pick one — project brief · tour cheat sheet · mock KPI dashboard — and ask in your own words. Don't forget the phrase.</div>
 </section>
 
 <section class="chapter" id="ch3">
 <h1>Chapter 3 · Hire a second agent</h1>
-<div class="sub">One agent is a tool. run-kit is for running a <b>team</b> — and the operator is your hiring manager.</div>
+<div class="sub">One agent is a tool; run-kit runs a <b>team</b>. Press <b>⌘J</b> anywhere — the operator console drops down, and everything can start from it.</div>
 
 <div class="frame-wrap">
 <div class="app">
-  <span class="callout" style="top:92px;left:6px">1</span>
-  <span class="callout" style="top:120px;right:390px">2</span>
-  <span class="callout" style="top:196px;left:6px">3</span>
+  <span class="callout" style="top:2px;right:64px">1</span>
+  <span class="callout" style="top:2px;left:414px">2</span>
+  <span class="callout" style="top:150px;left:156px">3</span>
   <span class="callout" style="top:170px;left:6px">4</span>
 
   <div class="topbar">
     <div class="tb-left"><span class="chip icon">☰</span><span class="chip primary brand"><span class="logo"></span>RunKit</span></div>
-    <div class="heading"><span class="prefix">Tab:</span> <span class="name">operator</span></div>
-    <div class="tb-right"><span class="chip">Open ▾</span><span class="chip icon">⟳</span></div>
+    <div class="heading"><span class="prefix">Tab:</span> <span class="name">tutorial</span>&nbsp; <span class="omni"><span class="g">◉</span> Start an agent — call it tour-worker — that builds…</span></div>
+    <div class="tb-right"><span class="chip">⌘J</span><span class="chip icon">⟳</span></div>
   </div>
 
   <div class="body-row">
@@ -267,7 +275,7 @@
       <div class="srv-h">my-machine</div>
       <div class="op-row">⚙ <span class="wname">operator</span><span class="tag">pinned</span></div>
       <div class="sess-row"><span class="chev">▾</span> my-project</div>
-      <div class="win-row">
+      <div class="win-row selected">
         <div class="well"></div><span class="sdot green"></span><span class="wname">tutorial</span>
       </div>
       <div class="win-row new">
@@ -279,25 +287,27 @@
       <div class="sb-footer"><span class="conn-dot"></span> connected</div>
     </div>
 
-    <div class="center">
+    <div class="center dim">
       <div class="tile">
-        <div class="tile-h"><span class="sdot green"></span> &gt;_ Terminal <span class="meta">operator</span></div>
+        <div class="tile-h"><span class="sdot green"></span> &gt;_ Terminal <span class="meta">tutorial</span></div>
         <div class="tty">
-          <div><span class="p">❯</span> you: Start an agent in a new window — call it</div>
-          <div>&nbsp; tour-worker — that builds a one-page brief of this</div>
-          <div>&nbsp; project; have it ask me one question first, then</div>
-          <div>&nbsp; present the result and notify me</div>
-          <div>&nbsp;</div>
-          <div><span class="y">●</span> Hiring…</div>
-          <div class="d">   opened window tour-worker · started the agent · briefed it</div>
-          <div>&nbsp;</div>
-          <div>Done — tour-worker is on it. It'll ping you with its question.</div>
-          <div>&nbsp;</div>
-          <div class="d">   (other asks that work: "Start a claude session on my-app" ·</div>
-          <div class="d">    "Start a kimi session" · "What's stuck, anything waiting on me?")</div>
-          <div>&nbsp;</div>
-          <div><span class="p">❯</span> <span class="cursor"></span></div>
+          <div class="d">…the page you were on stays put underneath…</div>
         </div>
+      </div>
+    </div>
+
+    <div class="console">
+      <div class="c-h"><span style="color:var(--accent)">◉</span> <b>OPERATOR</b> my-machine <span class="hint">⌘J / Esc closes</span></div>
+      <div class="tty">
+        <div><span class="p">❯</span> <span class="d">from the box above:</span> Start an agent in a new window —</div>
+        <div>&nbsp; call it tour-worker — one-page brief of this project;</div>
+        <div>&nbsp; ask me one question first, then present and notify me</div>
+        <div>&nbsp;</div>
+        <div><span class="y">●</span> Hiring…</div>
+        <div class="d">   opened window tour-worker · started the agent · briefed it</div>
+        <div>&nbsp;</div>
+        <div>Done — tour-worker is on it. It'll ping you with its question.</div>
+        <div class="d">   (also works: "Start a claude session on my-app" · "What's stuck?")</div>
       </div>
     </div>
   </div>
@@ -305,18 +315,18 @@
 </div>
 
 <ul class="legend">
-  <li><span class="n">1</span><b>The operator</b> — pinned at the top of its server. You never set up agents by hand; you click into this row and ask.</li>
-  <li><span class="n">2</span><b>Plain language is the interface</b> — it opens the window, starts the agent, and passes on your brief.</li>
-  <li><span class="n">3</span><b>A new row appears and goes busy</b> — your second agent, hired in one sentence.</li>
-  <li><span class="n">4</span><b>Two green dots at once</b> — the tutorial agent and the worker, in parallel. That's the product.</li>
+  <li><span class="n">1</span><b>⌘J from any page</b> (⇧Ctrl+J) — the console drops down over what you're doing; ⌘J or Esc tucks it away.</li>
+  <li><span class="n">2</span><b>The top-bar box is the input</b> ("Ask ◉…") — plain language in, Enter sends.</li>
+  <li><span class="n">3</span><b>The reply streams in the drawer</b> — window opened, agent hired, your brief passed on.</li>
+  <li><span class="n">4</span><b>Two green dots at once</b> — your team in parallel (the operator lives in the pinned row above). That's the product.</li>
 </ul>
 
-<div class="try"><b>Do it now:</b> click into the operator's row and give it the ask above (or I'll hire directly if there's no operator here). Then scan your real sidebar for the two busy rows.</div>
+<div class="try"><b>Do it now:</b> press ⌘J and give the operator the ask above (no operator on this server? I'll run <b>rk operator</b> first). Then find the two busy rows in your sidebar.</div>
 </section>
 
 <section class="chapter" id="ch4">
 <h1>Chapter 4 · It needs you</h1>
-<div class="sub">The promise of delegation: you're interrupted <b>only</b> when a decision actually needs you — and never by an agent grabbing your screen.</div>
+<div class="sub">Delegation's promise: you're interrupted <b>only</b> when a decision actually needs you — never by an agent grabbing your screen.</div>
 
 <div class="frame-wrap">
 <div class="app">
@@ -369,13 +379,13 @@
 </div>
 
 <ul class="legend">
-  <li><span class="n">1</span><b>The halo lights up</b> — the worker's dot glows yellow, and its session row shows <b>1 ⚠</b>. Agents signal; they can never move your screen.</li>
-  <li><span class="n">2</span><b>The push reaches your device</b> — the bell you enabled at the start. Works when the laptop is closed, too.</li>
+  <li><span class="n">1</span><b>The halo lights up</b> — the worker's dot glows yellow, its session row shows <b>1 ⚠</b>. Agents signal; they never move your screen.</li>
+  <li><span class="n">2</span><b>The push reaches your device</b> — the bell you enabled; works with the laptop closed.</li>
   <li><span class="n">3</span><b>Click the row</b> — the question is right there in its terminal.</li>
-  <li><span class="n">4</span><b>One line unblocks it</b> — then come back to me; it finishes, presents, and notifies on its own.</li>
+  <li><span class="n">4</span><b>One line unblocks it</b> — it finishes, presents, and notifies on its own.</li>
 </ul>
 
-<div class="try"><b>This is the skill:</b> delegate → get interrupted only when needed → unblock in one line → receive the result as a page. When the worker's halo lights up, walk the loop for real.</div>
+<div class="try"><b>This is the skill:</b> delegate → interrupted only when needed → unblock in one line → get the result as a page. When the halo lights up, walk it for real.</div>
 </section>
 
 <section class="chapter" id="ch5">
@@ -388,13 +398,14 @@
     <div class="notch"></div>
     <div class="pscr">
       <div class="p-top"><span class="logo"></span> RunKit</div>
+      <div class="p-tongue"></div>
       <div class="p-sess">▾ my-project <span class="roll-badge">1 ⚠</span></div>
       <div class="p-row"><span class="sdot green"></span> tutorial</div>
       <div class="p-row"><span class="sdot yellow"></span> tour-worker</div>
       <div class="p-row"><span class="sdot gray"></span> feature-x</div>
       <div class="p-toast">🔔 <b>run-kit</b><br><span class="d">tour-worker finished — brief presented</span></div>
     </div>
-    <div class="cap">the same address, on your phone —<br>badges, pages, and answers included</div>
+    <div class="cap">the same address, on your phone — the pull tab<br>under the bar jumps to the operator</div>
   </div>
 
   <div class="desk">
@@ -408,18 +419,19 @@
       <div class="pr on"><span>Settings: Open</span><span>↵</span></div>
       <div class="pr"><span>Session: Sort…</span></div>
       <div class="pr"><span>Window: Rename</span></div>
-      <div class="pr" style="border-top:1px solid var(--border)"><span>every action lives here</span><kbd>⌘K / Ctrl+Shift+K</kbd></div>
+      <div class="pr" style="border-top:1px solid var(--border)"><span>ask the operator</span><kbd>⌘J / Ctrl+Shift+J</kbd></div>
+      <div class="pr"><span>every action lives here</span><kbd>⌘K / Ctrl+Shift+K</kbd></div>
     </div>
-    <div class="cap">⌘K — when you don't know how, open this and type</div>
+    <div class="cap">⌘J to ask · ⌘K to find — when you don't know how, type</div>
   </div>
 </div>
 
 <ul class="legend">
-  <li><span class="n">1</span><b>Your phone works</b> — open the same dashboard address on any device that can reach it; I can send it to you as a notification.</li>
-  <li><span class="n">2</span><b>⌘K finds everything</b> — every action in run-kit is in the palette. Try it now: type <b>color</b>, then <b>settings</b>.</li>
+  <li><span class="n">1</span><b>Your phone works</b> — the same address on any device; the pull-tab <b>tongue</b> under the top bar jumps to the operator.</li>
+  <li><span class="n">2</span><b>⌘J asks, ⌘K finds</b> — every action is in the palette. Try ⌘K now: type <b>color</b>, then <b>settings</b>.</li>
 </ul>
 
-<div class="try"><b>Your challenge — do one real thing:</b> ask the operator to start an agent on something you actually want done this week, end with <b>"…and present it to me"</b>, then close the laptop. The halo — or your phone — will tell you when you're needed.</div>
+<div class="try"><b>Your challenge — one real thing:</b> ⌘J the operator, start an agent on something you actually want done this week, end with <b>"…and present it to me"</b>, then close the laptop. The halo — or your phone — will find you.</div>
 </section>
 
 <div class="pager">

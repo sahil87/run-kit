@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 13
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-08T22:41:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T23:03:59Z"}
     review: {started_at: "2026-09-08T23:03:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T23:10:41Z"}
     hydrate: {started_at: "2026-09-08T23:10:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T23:17:20Z"}
-    ship: {started_at: "2026-09-08T23:17:20Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-08T23:17:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T23:18:39Z"}
+    review-pr: {started_at: "2026-09-08T23:18:39Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/884
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2400
+    deleted: 129
+    net: 2271
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1907
+        deleted: 89
+        net: 1818
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-08T23:17:20Z"
-    computed_at_stage: hydrate
+        added: 1365
+        deleted: 12
+        net: 1353
+    computed_at: "2026-09-08T23:18:39Z"
+    computed_at_stage: ship
 summary: cron session targets (--session flag, role→session→pane auto-capture, created_by.session), orphan TTL GC (7d, pinned-exempt, expired-orphan audit), session respawn via closed-ring plain resume, riff ResumePlain knob, additive orphanedSince/expiresAt
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-08T23:17:20Z
+last_updated: 2026-09-08T23:18:39Z

@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"rk/internal/cron"
 )
 
 // NOTE (tmux safety): list is disk-derived only — it issues ZERO tmux
@@ -123,8 +126,21 @@ func TestCronListJSON(t *testing.T) {
 		!records[0].Muted || records[0].LastFired != 1757002222 {
 		t.Errorf("records[0] = %+v, want the a3f9 row with the last-fired join", records[0])
 	}
+	// a3f9's only log line is failed-class (never resolved evidence), so the
+	// streak runs from it; unpinned ⇒ expires_at = since + OrphanTTL.
+	if records[0].OrphanedSince != 1757002222 {
+		t.Errorf("records[0].OrphanedSince = %d, want 1757002222", records[0].OrphanedSince)
+	}
+	if want := 1757002222 + int64(cron.OrphanTTL/time.Second); records[0].ExpiresAt != want {
+		t.Errorf("records[0].ExpiresAt = %d, want %d", records[0].ExpiresAt, want)
+	}
+	// k7q2 is a role target — never a GC subject, so the streak stays zero.
 	if records[1].ID != "k7q2" || !records[1].Pinned || records[1].LastFired != 0 {
 		t.Errorf("records[1] = %+v, want the k7q2 row, pinned, never fired", records[1])
+	}
+	if records[1].OrphanedSince != 0 || records[1].ExpiresAt != 0 {
+		t.Errorf("records[1] OrphanedSince/ExpiresAt = %d/%d, want 0/0 for a role target",
+			records[1].OrphanedSince, records[1].ExpiresAt)
 	}
 }
 

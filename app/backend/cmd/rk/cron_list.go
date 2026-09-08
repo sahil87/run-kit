@@ -13,8 +13,9 @@ import (
 
 // rk cron list — the disk-derived listing: entry file + delivery log only,
 // ZERO tmux commands (a tmux probe against a dead socket would resurrect the
-// server, so next-fire/rung/orphan derivations stay out of the CLI and belong
-// to the API wave). An absent or empty entry file is an empty listing with
+// server, so next-fire/rung/live-orphan derivations stay out of the CLI and
+// belong to the API wave; the log-derived orphan streak is disk-only and is
+// surfaced here). An absent or empty entry file is an empty listing with
 // exit 0; load diagnostics (corrupt entries) print to stderr without failing
 // the listing — the tolerant-load posture.
 
@@ -53,6 +54,12 @@ type cronListRecord struct {
 	Pinned    bool   `json:"pinned"`
 	Muted     bool   `json:"muted"`
 	LastFired int64  `json:"last_fired"`
+	// OrphanedSince/ExpiresAt are the log-derived orphan streak (unix
+	// seconds; role targets always zero, ExpiresAt zero for pinned). The CLI
+	// gathers no live facts, so a target that re-resolved without a logged
+	// delivery still reports its streak — the API carries the live snapshot.
+	OrphanedSince int64 `json:"orphaned_since"`
+	ExpiresAt     int64 `json:"expires_at"`
 }
 
 func runCronList(cmd *cobra.Command) error {
@@ -94,6 +101,10 @@ func runCronList(cmd *cobra.Command) error {
 		}
 		if last, ok := cron.LastDelivery(log, e.ID); ok {
 			rec.LastFired = last.TS
+		}
+		if e.Target.Kind != cron.TargetRole {
+			rec.OrphanedSince = cron.OrphanedSince(log, e)
+			rec.ExpiresAt = cron.OrphanExpiresAt(rec.OrphanedSince, e.Pinned)
 		}
 		records = append(records, rec)
 	}

@@ -142,10 +142,11 @@ type EffectiveSpec struct {
 	// window-name base (the collision suffixing in resolveWindowName still
 	// applies). Empty = today's derivation. The CLI never sets this.
 	//
-	// There is deliberately NO ResumeSessionRef here: the fork ref is consumed at
-	// the launcher seam in Spawn (folded into Launcher via resumeForkLauncher)
-	// and nothing downstream of the spec reads it, so a spec copy would be
-	// write-only provenance — the same reason Tier lives on Options only.
+	// There is deliberately NO ResumeSessionRef/ResumePlain here: the fork ref is
+	// consumed at the launcher seam in Spawn (folded into Launcher via
+	// resumeForkLauncher) and nothing downstream of the spec reads it, so a spec
+	// copy would be write-only provenance — the same reason Tier lives on Options
+	// only.
 	WindowNameBase string
 }
 
@@ -197,6 +198,12 @@ type Options struct {
 	// and never claude flags handed to another binary. Lives on Options only (no
 	// EffectiveSpec copy) — the Tier precedent for launcher-seam-consumed inputs.
 	ResumeSessionRef string
+	// ResumePlain selects the resume suffix shape when ResumeSessionRef is set:
+	// true composes `--resume <uuid>` alone (the conversation re-attached under
+	// the SAME session id); false/unset composes the fork form `--resume <uuid>
+	// --fork-session`, byte-identical to today. Meaningless without
+	// ResumeSessionRef. Options-only, same seam precedent as ResumeSessionRef.
+	ResumePlain bool
 	// WindowNameBase, when non-empty, replaces the derived `riff-<basename>`
 	// window-name base — the fork endpoint passes `<sourceWindowName>-fork`. The
 	// existing resolveWindowName collision suffixing (-2, -3, …) still applies.
@@ -239,16 +246,17 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, ValidationErr("run-kit riff: repo root is empty")
 	}
 
-	// A non-empty ResumeSessionRef turns this spawn into a conversation FORK: the
-	// resolved launcher gains `--resume <uuid> --fork-session`. Composed once
+	// A non-empty ResumeSessionRef turns this spawn into a conversation RESUME: the
+	// resolved launcher gains `--resume <uuid> --fork-session` (fork form), or
+	// `--resume <uuid>` alone when ResumePlain is set. Composed once
 	// here, at the single seam where the launcher is produced, so every pane of
 	// the window inherits it and the argv builders stay pure functions of the spec.
 	// resumeForkLauncher re-validates the uuid shape, is a no-op on an empty or
 	// malformed ref (constitution §I — the launcher is the unescaped element), and
 	// errors when the resolved launcher is not a claude invocation (the flags are
-	// Claude-only; failing beats a silent unforked spawn — ExitValidation → 400).
+	// Claude-only; failing beats a silent unresumed spawn — ExitValidation → 400).
 	agent := ResolveAgent(ctx, opts.RepoRoot, opts.Tier)
-	launcher, err := resumeForkLauncher(agent.Launcher, opts.ResumeSessionRef)
+	launcher, err := resumeForkLauncher(agent.Launcher, opts.ResumeSessionRef, opts.ResumePlain)
 	if err != nil {
 		return Result{}, err
 	}

@@ -737,13 +737,16 @@ func TestSpawn_WhereModes(t *testing.T) {
 // shell-significant) leaves the launcher untouched — the shape check is the guard
 // keeping such input out of the deliberately-unescaped launcher string
 // (constitution §I) — and a valid uuid with a NON-claude launcher is a
-// ValidationErr rather than either silent alternative.
+// ValidationErr rather than either silent alternative. The plain=true rows lock
+// the plain-resume form (`--resume <uuid>` alone) under the SAME gates; the
+// plain=false rows are the byte-identical fork-form regression lock.
 func TestResumeForkLauncher(t *testing.T) {
 	const validRef = "5d80479e-8f25-46cd-a0d4-e51435508a37"
 	cases := []struct {
 		name     string
 		launcher string
 		ref      string
+		plain    bool
 		want     string
 		wantErr  bool
 	}{
@@ -758,6 +761,41 @@ func TestResumeForkLauncher(t *testing.T) {
 			launcher: "/opt/homebrew/bin/claude --dangerously-skip-permissions",
 			ref:      validRef,
 			want:     "/opt/homebrew/bin/claude --dangerously-skip-permissions --resume " + validRef + " --fork-session",
+		},
+		{
+			name:     "plain mode composes --resume without --fork-session",
+			launcher: "claude --dangerously-skip-permissions",
+			ref:      validRef,
+			plain:    true,
+			want:     "claude --dangerously-skip-permissions --resume " + validRef,
+		},
+		{
+			name:     "plain mode on an absolute claude path",
+			launcher: "/opt/homebrew/bin/claude --dangerously-skip-permissions",
+			ref:      validRef,
+			plain:    true,
+			want:     "/opt/homebrew/bin/claude --dangerously-skip-permissions --resume " + validRef,
+		},
+		{
+			name:     "plain mode keeps the empty-ref no-op",
+			launcher: "claude --dangerously-skip-permissions",
+			ref:      "",
+			plain:    true,
+			want:     "claude --dangerously-skip-permissions",
+		},
+		{
+			name:     "plain mode keeps the malformed-ref degrade",
+			launcher: "claude",
+			ref:      "foo; rm -rf /",
+			plain:    true,
+			want:     "claude",
+		},
+		{
+			name:     "plain mode keeps the claude-only gate",
+			launcher: "codex --yolo",
+			ref:      validRef,
+			plain:    true,
+			wantErr:  true,
 		},
 		{
 			name:     "empty ref leaves the launcher byte-identical",
@@ -835,11 +873,11 @@ func TestResumeForkLauncher(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := resumeForkLauncher(tc.launcher, tc.ref)
+			got, err := resumeForkLauncher(tc.launcher, tc.ref, tc.plain)
 			if tc.wantErr {
 				var ec *ExitCodeError
 				if !errors.As(err, &ec) || ec.Code != ExitValidation {
-					t.Fatalf("resumeForkLauncher(%q, %q) error = %v, want an ExitValidation ExitCodeError", tc.launcher, tc.ref, err)
+					t.Fatalf("resumeForkLauncher(%q, %q, %t) error = %v, want an ExitValidation ExitCodeError", tc.launcher, tc.ref, tc.plain, err)
 				}
 				// The message names the offending launcher so the 400 is actionable.
 				if tc.launcher != "" && !strings.Contains(ec.Msg, tc.launcher) {
@@ -851,10 +889,10 @@ func TestResumeForkLauncher(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("resumeForkLauncher(%q, %q) unexpected error: %v", tc.launcher, tc.ref, err)
+				t.Fatalf("resumeForkLauncher(%q, %q, %t) unexpected error: %v", tc.launcher, tc.ref, tc.plain, err)
 			}
 			if got != tc.want {
-				t.Errorf("resumeForkLauncher(%q, %q) = %q, want %q", tc.launcher, tc.ref, got, tc.want)
+				t.Errorf("resumeForkLauncher(%q, %q, %t) = %q, want %q", tc.launcher, tc.ref, tc.plain, got, tc.want)
 			}
 		})
 	}
@@ -986,6 +1024,47 @@ func TestSpawn_ResumeFork(t *testing.T) {
 	wantFragment := "claude --dangerously-skip-permissions --resume " + ref + " --fork-session"
 	if !strings.Contains(string(logged), wantFragment) {
 		t.Errorf("new-window argv missing the resume suffix %q; got %q", wantFragment, string(logged))
+	}
+}
+
+// TestSpawn_ResumePlain is the end-to-end plain-resume composition: a
+// checkout-mode Spawn carrying ResumeSessionRef + ResumePlain must emit
+// `--resume <uuid>` attached to the launcher with NO `--fork-session` anywhere
+// in the composed argv (a fork would mint a fresh session id; the plain form
+// re-attaches the conversation under the same id).
+func TestSpawn_ResumePlain(t *testing.T) {
+	const ref = "5d80479e-8f25-46cd-a0d4-e51435508a37"
+	dir := t.TempDir()
+	repoRoot := filepath.Join(t.TempDir(), "my-checkout")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatalf("mkdir repoRoot: %v", err)
+	}
+	newWindowLog := filepath.Join(dir, "new-window.log")
+
+	testutil.WriteStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
+	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'claude --dangerously-skip-permissions'\n")
+	t.Setenv("PATH", dir)
+
+	_, err := Spawn(context.Background(), Options{
+		RepoRoot:         repoRoot,
+		Where:            "checkout",
+		ResumeSessionRef: ref,
+		ResumePlain:      true,
+	})
+	if err != nil {
+		t.Fatalf("Spawn(plain resume) error: %v", err)
+	}
+
+	logged, readErr := os.ReadFile(newWindowLog)
+	if readErr != nil {
+		t.Fatalf("read new-window log: %v", readErr)
+	}
+	wantFragment := "claude --dangerously-skip-permissions --resume " + ref
+	if !strings.Contains(string(logged), wantFragment) {
+		t.Errorf("new-window argv missing the plain resume suffix %q; got %q", wantFragment, string(logged))
+	}
+	if strings.Contains(string(logged), "--fork-session") {
+		t.Errorf("new-window argv must not carry --fork-session in plain mode; got %q", string(logged))
 	}
 }
 

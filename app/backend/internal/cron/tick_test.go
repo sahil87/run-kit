@@ -879,6 +879,128 @@ func TestTickIfAbsentRespawnDegradeUnchanged(t *testing.T) {
 	}
 }
 
+// tickOnceS is tickOnceN plus the SessionRespawner seam.
+func tickOnceS(t *testing.T, dir string, T time.Time, fk *fakeTmux, notifier func(context.Context, string, string, string) error, sessionRespawner func(context.Context, Fire) Outcome) TickResult {
+	t.Helper()
+	res, err := Tick(context.Background(), Deps{
+		Dir: dir,
+		Now: func() time.Time { return T },
+		ListServers: func(ctx context.Context) ([]string, error) {
+			return []string{"live1"}, nil
+		},
+		Tmux:             fk,
+		Notifier:         notifier,
+		SessionRespawner: sessionRespawner,
+		OperatorStatePath: func(slug string) (string, error) {
+			return filepath.Join(t.TempDir(), slug+".yaml"), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// TestTickIfAbsentRespawnSessionTarget: a session-target respawn entry with a
+// wired SessionRespawner calls it (no notify, no respawn-unimplemented
+// diagnostic) and logs the returned outcome — both success and failure.
+func TestTickIfAbsentRespawnSessionTarget(t *testing.T) {
+	cases := []struct {
+		name        string
+		outcome     Outcome
+		wantOutcome string
+	}{
+		{"success", Outcome{Status: "respawned"}, "respawned"},
+		{"failure", Outcome{Status: "respawn-failed", Detail: "no closed record"}, "respawn-failed: no closed record"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			T := backoffBase
+			fk := absentRig(t, dir, T, "respawn")
+			rs := &fakeRespawner{outcome: tc.outcome}
+			nt := &fakeNotifier{}
+
+			res := tickOnceS(t, dir, T, fk, nt.notify, rs.respawn)
+			if len(rs.calls) != 1 {
+				t.Fatalf("session respawn calls = %d, want 1", len(rs.calls))
+			}
+			if got := rs.calls[0]; got.Entry.ID != "a3f9" || got.Server != "live1" {
+				t.Errorf("respawn fire = entry %q server %q, want a3f9/live1", got.Entry.ID, got.Server)
+			}
+			if len(nt.calls) != 0 {
+				t.Errorf("notify calls = %d, want 0 (the respawn path never degrades to notify)", len(nt.calls))
+			}
+			if hasDiag(res.Diags, "respawn-unimplemented") {
+				t.Errorf("diags = %v, want no respawn-unimplemented", diagReasons(res.Diags))
+			}
+			lines := ReadLog(filepath.Join(dir, "live1.log"))
+			if len(lines) != 1 || lines[0].Outcome != tc.wantOutcome {
+				t.Fatalf("log = %+v, want one %q line", lines, tc.wantOutcome)
+			}
+		})
+	}
+}
+
+// TestTickIfAbsentRespawnSessionDegradeUnchanged: outside the new branch the
+// notify + respawn-unimplemented degrade is byte-for-byte unchanged — a nil
+// session seam, and a pane target even with the seam wired (pane targets can
+// never respawn) both degrade verbatim and never call the seam.
+func TestTickIfAbsentRespawnSessionDegradeUnchanged(t *testing.T) {
+	t.Run("session target, session respawner nil", func(t *testing.T) {
+		dir := t.TempDir()
+		T := backoffBase
+		fk := absentRig(t, dir, T, "respawn")
+		nt := &fakeNotifier{}
+		res := tickOnceS(t, dir, T, fk, nt.notify, nil)
+		if len(nt.calls) != 1 {
+			t.Errorf("notify calls = %d, want 1 (the degrade path)", len(nt.calls))
+		}
+		if !hasDiag(res.Diags, "respawn-unimplemented") {
+			t.Errorf("diags = %v, want respawn-unimplemented", diagReasons(res.Diags))
+		}
+		lines := ReadLog(filepath.Join(dir, "live1.log"))
+		if len(lines) != 1 || lines[0].Outcome != "notified-absent" {
+			t.Errorf("log = %+v, want one notified-absent line", lines)
+		}
+	})
+
+	t.Run("pane target, session respawner wired but never called", func(t *testing.T) {
+		dir := t.TempDir()
+		T := backoffBase
+		writeEntryFile(t, dir, "live1", fmt.Sprintf(`
+entries:
+  - id: a3f9
+    name: pane sweep
+    schedule: { kind: every, interval: 1h }
+    target: { kind: pane, pane: "%%99" }
+    payload: "sweep"
+    if_absent: respawn
+    created_by: { pane: "%%42", at: %d }
+`, T.Add(-2*time.Hour).Unix()))
+		fk := newFakeTmux()
+		fk.sessions["live1"] = []tmux.SessionInfo{{Name: "work"}}
+		fk.windows["live1"] = map[string][]tmux.WindowInfo{"work": {{WindowID: "@5"}}}
+
+		rs := &fakeRespawner{outcome: Outcome{Status: "respawned"}}
+		nt := &fakeNotifier{}
+		res := tickOnceS(t, dir, T, fk, nt.notify, rs.respawn)
+		if len(rs.calls) != 0 {
+			t.Errorf("session respawn calls = %d, want 0 (pane targets never respawn)", len(rs.calls))
+		}
+		if len(nt.calls) != 1 {
+			t.Errorf("notify calls = %d, want 1 (the degrade path)", len(nt.calls))
+		}
+		if !hasDiag(res.Diags, "respawn-unimplemented") {
+			t.Errorf("diags = %v, want respawn-unimplemented", diagReasons(res.Diags))
+		}
+		lines := ReadLog(filepath.Join(dir, "live1.log"))
+		if len(lines) != 1 || lines[0].Outcome != "notified-absent" {
+			t.Errorf("log = %+v, want one notified-absent line", lines)
+		}
+	})
+}
+
 // TestTickRateCapCountsRespawn: respawned/respawn-failed log lines count
 // toward the per-target rate cap (keyed on the entry id, like every absent
 // disposition) — a persistently-dead operator cannot storm respawns.

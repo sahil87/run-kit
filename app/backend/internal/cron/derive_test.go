@@ -95,6 +95,56 @@ func TestDeriveEntryCronKindNeverFabricates(t *testing.T) {
 	}
 }
 
+// TestDeriveEntryOrphanStreak: the orphan streak surfaces only for a
+// currently-orphaned session/pane entry — zero for a resolved target,
+// ExpiresAt zero for pinned, both zero for role entries (never GC subjects).
+func TestDeriveEntryOrphanStreak(t *testing.T) {
+	T := backoffBase
+	entry := Entry{
+		ID:        "a3f9",
+		Schedule:  Schedule{Kind: ScheduleEvery, Interval: Duration{Duration: time.Hour}},
+		Target:    Target{Kind: TargetSession, Session: "4fe2"},
+		CreatedBy: CreatedBy{At: unix(T, -time.Hour)},
+	}
+	log := []LogLine{
+		orphanLine(unix(T, -30*time.Minute), "delivered"),
+		orphanLine(unix(T, -10*time.Minute), "skipped-absent"),
+	}
+	unresolved := TargetFacts{Unresolved: "no pane carries session 4fe2"}
+	since := unix(T, -10*time.Minute)
+
+	// Orphaned and unpinned: both fields populated.
+	d := DeriveEntry(entry, log, unresolved, T)
+	if !d.Orphaned || d.OrphanedSince != since {
+		t.Errorf("OrphanedSince = %d (orphaned %v), want %d", d.OrphanedSince, d.Orphaned, since)
+	}
+	if want := since + int64(OrphanTTL/time.Second); d.ExpiresAt != want {
+		t.Errorf("ExpiresAt = %d, want %d (OrphanedSince + OrphanTTL)", d.ExpiresAt, want)
+	}
+
+	// Resolved: both zero even with absent-class lines in the log.
+	d = DeriveEntry(entry, log, TargetFacts{PaneID: "%5", AgentState: "idle", StateEpoch: unix(T, 0)}, T)
+	if d.OrphanedSince != 0 || d.ExpiresAt != 0 {
+		t.Errorf("resolved entry OrphanedSince/ExpiresAt = %d/%d, want 0/0", d.OrphanedSince, d.ExpiresAt)
+	}
+
+	// Pinned: the streak still shows, but expiry never fires.
+	pinned := entry
+	pinned.Pinned = true
+	d = DeriveEntry(pinned, log, unresolved, T)
+	if d.OrphanedSince != since || d.ExpiresAt != 0 {
+		t.Errorf("pinned entry OrphanedSince/ExpiresAt = %d/%d, want %d/0", d.OrphanedSince, d.ExpiresAt, since)
+	}
+
+	// Role: never a GC subject — both zero even when unresolved.
+	role := entry
+	role.Target = Target{Kind: TargetRole, Role: RoleOperator}
+	d = DeriveEntry(role, log, unresolved, T)
+	if d.OrphanedSince != 0 || d.ExpiresAt != 0 {
+		t.Errorf("role entry OrphanedSince/ExpiresAt = %d/%d, want 0/0", d.OrphanedSince, d.ExpiresAt)
+	}
+}
+
 // TestDeriveEntryOrphaned: an unresolved target is orphaned, and a backoff
 // entry's next-fire is unknowable without the anchor epoch.
 func TestDeriveEntryOrphaned(t *testing.T) {

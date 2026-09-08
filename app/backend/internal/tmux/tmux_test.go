@@ -1700,6 +1700,37 @@ func TestParseAgentSessionRef(t *testing.T) {
 		if provider != c.wantProvider || ref != c.wantRef {
 			t.Errorf("parseAgentSessionRef(%q) = (%q, %q), want (%q, %q)", c.raw, provider, ref, c.wantProvider, c.wantRef)
 		}
+		// The exported wrappers share the private rule — assert parity on the
+		// same table rather than duplicating cases.
+		if gp, gr := ParseAgentSessionRef(c.raw); gp != provider || gr != ref {
+			t.Errorf("ParseAgentSessionRef(%q) = (%q, %q), want (%q, %q)", c.raw, gp, gr, provider, ref)
+		}
+		if got := ValidAgentSessionRef(c.wantRef); c.wantRef != "" && !got {
+			t.Errorf("ValidAgentSessionRef(%q) = false, want true", c.wantRef)
+		}
+	}
+}
+
+// TestValidAgentSessionRef: the exported shape gate rejects exactly the refs
+// the private rule rejects — empty, whitespace-bearing, control-char-bearing.
+func TestValidAgentSessionRef(t *testing.T) {
+	cases := []struct {
+		ref  string
+		want bool
+	}{
+		{"6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37", true},
+		{"seg1:seg2", true}, // a colon-bearing ref stays opaque
+		{"x", true},
+		{"", false},
+		{"has space", false},
+		{"tab\there", false},
+		{"del\x7fhere", false},
+		{"newline\nhere", false},
+	}
+	for _, c := range cases {
+		if got := ValidAgentSessionRef(c.ref); got != c.want {
+			t.Errorf("ValidAgentSessionRef(%q) = %v, want %v", c.ref, got, c.want)
+		}
 	}
 }
 

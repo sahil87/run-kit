@@ -52,32 +52,39 @@ var sessionUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 // running anything else must not receive them.
 const forkLauncherCommand = "claude"
 
-// resumeForkLauncher appends `--resume <ref> --fork-session` to launcher so the
-// spawned agent forks the conversation named by ref instead of starting fresh
-// (260806-s4av). The flags ride the LAUNCHER half of buildSkillShellString — the
-// one deliberately-unescaped element (see § Single-Quote Escaping) — because
-// they must reach the agent binary as flags, not as a quoted positional
-// argument.
+// resumeForkLauncher appends the resume flags to launcher so the spawned agent
+// resumes the conversation named by ref instead of starting fresh (260806-s4av).
+// plain=false composes the fork form `--resume <ref> --fork-session` — a copy of
+// the conversation under a fresh session id; plain=true composes the plain form
+// `--resume <ref>` — the conversation itself, re-attached under the SAME session
+// id (a fork would mint a new id). The flags ride the LAUNCHER half of
+// buildSkillShellString — the one deliberately-unescaped element (see §
+// Single-Quote Escaping) — because they must reach the agent binary as flags,
+// not as a quoted positional argument.
 //
 // An empty ref returns launcher unchanged (the ordinary-spawn path, byte-identical
 // to pre-fork behavior). A ref failing the strict UUID shape ALSO returns
 // launcher unchanged: the shape check is the guard that keeps shell-significant
 // characters out of the unescaped launcher, so a malformed ref must degrade to a
-// plain spawn rather than compose anything.
+// plain spawn rather than compose anything. Both gates apply to BOTH modes —
+// the mode only selects the suffix shape.
 //
 // A well-formed ref whose launcher is NOT a claude invocation is a
 // ValidationErr (→ 400): ResolveLauncher returns whatever the repo's default fab
 // tier resolves to, which in a mixed-provider repo can be codex/gemini, and the
 // source window's claude gate says nothing about that. Failing loudly beats the
 // two silent alternatives — handing claude-only flags to another binary, or
-// dropping the suffix and spawning an unforked agent that looks like a fork.
+// dropping the suffix and spawning an unresumed agent that looks resumed.
 // Pure apart from the error value.
-func resumeForkLauncher(launcher, ref string) (string, error) {
+func resumeForkLauncher(launcher, ref string, plain bool) (string, error) {
 	if ref == "" || !sessionUUIDRe.MatchString(ref) {
 		return launcher, nil
 	}
 	if cmd := launcherCommandName(launcher); cmd != forkLauncherCommand {
 		return "", ValidationErr("run-kit riff: cannot fork a conversation with launcher %q — --resume/--fork-session require %s", launcher, forkLauncherCommand)
+	}
+	if plain {
+		return fmt.Sprintf("%s --resume %s", launcher, ref), nil
 	}
 	return fmt.Sprintf("%s --resume %s --fork-session", launcher, ref), nil
 }

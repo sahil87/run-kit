@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"rk/internal/cron"
 )
@@ -191,6 +192,57 @@ func TestCronList(t *testing.T) {
 		}
 		if body.Entries[0].NextFire != 0 {
 			t.Errorf("orphaned backoff entry nextFire = %d, want unset (anchor unknowable)", body.Entries[0].NextFire)
+		}
+		// Role entries are never GC subjects: the orphan streak stays zero
+		// even while the entry is orphaned.
+		if body.Entries[0].OrphanedSince != 0 || body.Entries[0].ExpiresAt != 0 {
+			t.Errorf("role entry orphanedSince/expiresAt = %d/%d, want 0/0",
+				body.Entries[0].OrphanedSince, body.Entries[0].ExpiresAt)
+		}
+	})
+
+	t.Run("an orphaned unpinned session entry carries the orphan streak", func(t *testing.T) {
+		dir := setupCronState(t)
+		writeCronEntries(t, dir, "default", `entries:
+  - id: s5jk
+    schedule: {kind: every, interval: 1h}
+    target: {kind: session, session: 4fe2}
+    payload: sweep
+`)
+		log := strings.Join([]string{
+			`{"ts":` + jsonNumber(T) + `,"entry":"s5jk","target":"4fe2","reason":"schedule","outcome":"delivered"}`,
+			`{"ts":` + jsonNumber(T+600) + `,"entry":"s5jk","target":"4fe2","reason":"schedule","outcome":"skipped-absent"}`,
+		}, "\n") + "\n"
+		if err := os.WriteFile(filepath.Join(dir, "default.log"), []byte(log), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		server.cronFactsFn = cronFactsStub(map[string]cron.TargetFacts{
+			"s5jk": {Unresolved: "no pane stamped with session 4fe2"},
+		})
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodGet, "/api/cron?server=default", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d; body=%s", rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Entries []cronEntryJSON `json:"entries"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Entries) != 1 || !body.Entries[0].Orphaned {
+			t.Fatalf("want one orphaned entry, got %+v", body.Entries)
+		}
+		if body.Entries[0].OrphanedSince != T+600 {
+			t.Errorf("orphanedSince = %d, want %d (the oldest line after the newest resolved line)",
+				body.Entries[0].OrphanedSince, T+600)
+		}
+		if want := T + 600 + int64(cron.OrphanTTL/time.Second); body.Entries[0].ExpiresAt != want {
+			t.Errorf("expiresAt = %d, want %d (orphanedSince + OrphanTTL)", body.Entries[0].ExpiresAt, want)
 		}
 	})
 

@@ -17,10 +17,10 @@ func resetCronFlags() {
 	cronAddMin, cronAddMax = time.Minute, 30*time.Minute
 	cronAddName, cronAddDeliver, cronAddIfAbsent = "", cron.DeliverImmediate, cron.IfAbsentSkip
 	cronAddPinned = false
-	cronAddRole, cronAddPane = "", ""
+	cronAddRole, cronAddPane, cronAddSession = "", "", ""
 	cronListJSONFlag = false
 	cronMuteOffFlag, cronPinOffFlag = false, false
-	resetFlagChanged(cronAddCmd, "every", "backoff", "cron", "min", "max", "name", "deliver", "if-absent", "pinned", "role", "pane")
+	resetFlagChanged(cronAddCmd, "every", "backoff", "cron", "min", "max", "name", "deliver", "if-absent", "pinned", "role", "pane", "session")
 	resetFlagChanged(cronListCmd, "json")
 	resetFlagChanged(cronMuteCmd, "off")
 	resetFlagChanged(cronPinCmd, "off")

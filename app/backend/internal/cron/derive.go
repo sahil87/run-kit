@@ -8,7 +8,8 @@ import "time"
 // everyAnchor, LastDelivery) so the projection can never diverge from the
 // tick's math. cron-kind (5-field expression) entries are unevaluated (C9) —
 // they report no next-fire rather than a fabricated one. Orphaned is a live
-// per-call snapshot of target resolution; TTL-based orphan expiry is C8.
+// per-call snapshot of target resolution; OrphanedSince/ExpiresAt surface the
+// orphan.go streak derivation behind the same snapshot.
 
 // DerivedEntry is the live projection of one entry's schedule state.
 type DerivedEntry struct {
@@ -22,6 +23,14 @@ type DerivedEntry struct {
 	Rung int
 	// Orphaned is true when the entry's target failed resolution this call.
 	Orphaned bool
+	// OrphanedSince is the start of the entry's continuous-unresolved streak
+	// (unix seconds), the orphan.go trailing-run derivation. Zero unless the
+	// entry is currently orphaned — and always zero for role entries (never
+	// GC subjects), so consumers can read nonzero as expirable.
+	OrphanedSince int64
+	// ExpiresAt is when the streak reaches OrphanTTL (unix seconds). Zero
+	// whenever OrphanedSince is zero and for pinned entries.
+	ExpiresAt int64
 	// LastFired is the newest delivery-log timestamp for the entry
 	// (unix seconds; 0 = never delivered).
 	LastFired int64
@@ -36,6 +45,10 @@ type DerivedEntry struct {
 func DeriveEntry(e Entry, log []LogLine, facts TargetFacts, now time.Time) DerivedEntry {
 	_ = now
 	d := DerivedEntry{Orphaned: !facts.Resolved()}
+	if d.Orphaned && e.Target.Kind != TargetRole {
+		d.OrphanedSince = OrphanedSince(log, e)
+		d.ExpiresAt = OrphanExpiresAt(d.OrphanedSince, e.Pinned)
+	}
 	if last, ok := LastDelivery(log, e.ID); ok {
 		d.LastFired = last.TS
 	}

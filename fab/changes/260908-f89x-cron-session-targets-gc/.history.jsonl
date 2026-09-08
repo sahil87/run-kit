@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-08T22:35:02Z"}
+{"args":"Wave 4 change C8 'Session targets + GC' from fab/plans/sahil/26-09-06-cron-clock-plan.md: --session flag + creator session auto-capture, orphan marking + TTL expiry (7d, pinned exempt), if_absent: respawn via closed-session resume + readiness composite","cmd":"fab-new","event":"command","ts":"2026-09-08T22:35:02Z"}
+{"delta":"+0.0","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-09-08T22:37:31Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-09-08T22:37:31Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-09-08T22:37:42Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-08T22:40:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T22:41:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T23:03:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-08T23:10:41Z"}
+{"event":"review","result":"passed","ts":"2026-09-08T23:10:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-08T23:17:20Z"}

@@ -59,13 +59,19 @@ type Deps struct {
 	// Notifier backs the if_absent notify disposition. Fail-silent by
 	// contract: a notify failure is a diagnostic, never a tick error.
 	Notifier func(ctx context.Context, title, body, url string) error
-	// Respawner brings a dead role target back (role targets only —
-	// session-target respawn via claude --resume is a later wave). It is
+	// Respawner brings a dead role target back (role targets only). It is
 	// consulted only for an if_absent: respawn entry whose target kind is
 	// role; nil (or a non-role target) keeps the existing notify-degrade
 	// path, byte-for-byte. The returned Outcome is logged as the
 	// disposition (a non-held outcome class — respawned / respawn-failed).
-	Respawner         func(ctx context.Context, fire Fire) Outcome
+	Respawner func(ctx context.Context, fire Fire) Outcome
+	// SessionRespawner brings a dead session target back (session targets
+	// only — pane targets can never respawn). It is consulted only for an
+	// if_absent: respawn entry whose target kind is session; nil (or a pane
+	// target) keeps the existing notify-degrade path, byte-for-byte. The
+	// returned Outcome is logged as the disposition (respawned /
+	// respawn-failed), and the absent-fire rate cap applies as before.
+	SessionRespawner  func(ctx context.Context, fire Fire) Outcome
 	OperatorStatePath func(slug string) (string, error)
 	FreshThreshold    time.Duration
 }
@@ -226,7 +232,7 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 				Detail: "entry file skipped: server not in the live set"})
 			continue
 		}
-		fires, diags := tickServer(ctx, slug, dir, now(), seam, deps.Deliverer, notifier, deps.Respawner, opStatePath, deps.FreshThreshold)
+		fires, diags := tickServer(ctx, slug, dir, now(), seam, deps.Deliverer, notifier, deps.Respawner, deps.SessionRespawner, opStatePath, deps.FreshThreshold)
 		res.Servers++
 		res.Fires += fires
 		res.Diags = append(res.Diags, diags...)
@@ -238,8 +244,8 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 }
 
 // tickServer runs the per-server pipeline: load → facts → Evaluate → deliver →
-// log → cursor. A per-file failure is a diagnostic, never an aborted tick.
-func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxSeam, deliverer Deliverer, notifier func(context.Context, string, string, string) error, respawner func(context.Context, Fire) Outcome, opStatePath func(string) (string, error), freshThreshold time.Duration) (fires int, diags []Diagnostic) {
+// log → GC → cursor. A per-file failure is a diagnostic, never an aborted tick.
+func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxSeam, deliverer Deliverer, notifier func(context.Context, string, string, string) error, respawner, sessionRespawner func(context.Context, Fire) Outcome, opStatePath func(string) (string, error), freshThreshold time.Duration) (fires int, diags []Diagnostic) {
 	entriesPath, err := EntriesPath(dir, slug)
 	if err != nil {
 		return 0, []Diagnostic{{Server: slug, Reason: "path-invalid", Detail: err.Error()}}
@@ -271,6 +277,9 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 	}
 
 	logLines := ReadLog(logPath)
+	// gcLog is the pre-disposition log view the orphan-GC pass derives from.
+	// The capped full-slice keeps the appendLine mirror from writing into it.
+	gcLog := logLines[:len(logLines):len(logLines)]
 	eval := Evaluate(EvalInput{
 		Server:         slug,
 		Now:            now,
@@ -341,6 +350,11 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 	// Due-but-absent fires: apply the entry's if_absent policy. Every
 	// disposition appends one log line, so the anchor advances and a dead
 	// target produces one line per due period, not one per tick.
+	// respawnedThisTick marks entries whose disposition came back
+	// resolved-class (a successful respawn): the gathered facts and gcLog both
+	// predate the respawn, so without this the GC pass below would expire the
+	// entry in the same tick its agent was just revived.
+	respawnedThisTick := map[string]bool{}
 	for _, fire := range eval.Absent {
 		if rateCapped(fire, fire.Entry.ID, false) {
 			continue
@@ -349,10 +363,13 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 		switch {
 		case fire.Entry.IfAbsent == IfAbsentRespawn && fire.Entry.Target.Kind == TargetRole && respawner != nil:
 			// Role-target respawn is real: the seam's returned outcome
-			// (respawned / respawn-failed) is the logged disposition. Session
-			// and pane targets fall through to the notify-degrade — their
-			// respawn is a later wave.
+			// (respawned / respawn-failed) is the logged disposition.
 			line.Outcome = respawner(ctx, fire).String()
+		case fire.Entry.IfAbsent == IfAbsentRespawn && fire.Entry.Target.Kind == TargetSession && sessionRespawner != nil:
+			// Session-target respawn routes to the session seam, same logged-
+			// outcome contract as the role path. A nil seam (and pane targets,
+			// always) falls through to the notify-degrade.
+			line.Outcome = sessionRespawner(ctx, fire).String()
 		case fire.Entry.IfAbsent == IfAbsentNotify || fire.Entry.IfAbsent == IfAbsentRespawn:
 			if fire.Entry.IfAbsent == IfAbsentRespawn {
 				// No respawner wired (or a non-role target): degrade to
@@ -371,7 +388,46 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 		default:
 			line.Outcome = "skipped-absent"
 		}
+		if resolvedOutcome(line.Outcome) {
+			respawnedThisTick[fire.Entry.ID] = true
+		}
 		appendLine(fire.Entry.ID, line)
+	}
+
+	// Orphan GC (R5), after the dispositions under the same flock: expire an
+	// unpinned session/pane entry whose target is unresolved in THIS tick's
+	// facts and whose derived orphan streak reaches the TTL. The streak
+	// derives from gcLog, the PRE-disposition view: a just-appended absent
+	// line would otherwise reset a never-fired entry's streak to now,
+	// defeating the created_by.at fallback. For an entry that already has a
+	// trailing run both views agree — this tick's lines only extend the run's
+	// newest end, and OrphanedSince takes the run's OLDEST timestamp.
+	for _, e := range entries {
+		if e.Pinned || (e.Target.Kind != TargetSession && e.Target.Kind != TargetPane) {
+			continue // pinned never expires; role targets never orphan
+		}
+		if tf, ok := facts.Targets[e.ID]; !ok || tf.Resolved() {
+			continue // resolved this tick is never expired, whatever the history
+		}
+		if respawnedThisTick[e.ID] {
+			continue // a successful respawn is resolution the stale facts can't see
+		}
+		since := OrphanedSince(gcLog, e)
+		if since <= 0 || now.Unix()-since < int64(OrphanTTL/time.Second) {
+			continue
+		}
+		removed, err := Remove(dir, slug, e.ID)
+		if err != nil {
+			diags = append(diags, Diagnostic{Server: slug, EntryID: e.ID, Reason: "orphan-expire-failed", Detail: err.Error()})
+			continue
+		}
+		if !removed {
+			continue
+		}
+		// The expired-orphan line is the audit trail — expiry is never silent,
+		// and never push-notified.
+		slog.Warn("cron entry expired as orphan", "server", slug, "entry", e.ID, "orphaned_since", since)
+		appendLine(e.ID, LogLine{TS: now.Unix(), Entry: e.ID, Outcome: "expired-orphan"})
 	}
 
 	if err := WriteWakeCursor(cursorPath, eval.NextCursor); err != nil {

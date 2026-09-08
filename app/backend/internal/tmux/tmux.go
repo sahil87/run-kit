@@ -568,6 +568,20 @@ func SetPaneOption(ctx context.Context, paneID, server, option, value string) er
 	return err
 }
 
+// GetPaneOption reads a user-defined pane option on the specified server —
+// the read counterpart to SetPaneOption, via `show-options -p -qv`. Returns
+// ("", nil) when the option is unset (tmux prints nothing with -qv). The call
+// is bounded to the 5s short-tmux tier on top of the caller's context.
+func GetPaneOption(ctx context.Context, paneID, server, option string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	raw, err := tmuxExecRawServer(ctx, server, "show-options", "-pqv", "-t", paneID, option)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(raw, "\n"), nil
+}
+
 // shellCommands is the set of plain-shell pane_current_command values that the
 // LEGACY reconciler fallback treats as "no agent" — applied only to
 // two-segment @rk_agent_state values (no pid segment, older writers). A pane
@@ -719,6 +733,20 @@ func isAgentSessionRef(r string) bool {
 		}
 	}
 	return true
+}
+
+// ValidAgentSessionRef is the exported isAgentSessionRef — the ONE session-ref
+// shape gate, shared with packages outside tmux (rk cron add validates
+// --session with it) so the rule is never duplicated.
+func ValidAgentSessionRef(r string) bool {
+	return isAgentSessionRef(r)
+}
+
+// ParseAgentSessionRef is the exported parseAgentSessionRef — the ONE
+// "<provider>:<session-ref>" split+validate rule, shared so no consumer
+// re-splits the raw option value.
+func ParseAgentSessionRef(raw string) (provider, ref string) {
+	return parseAgentSessionRef(raw)
 }
 
 // PaneInfo describes a single tmux pane within a window.

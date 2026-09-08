@@ -21,23 +21,26 @@ import (
 // without the wake the change would wait for the safety tick.
 
 // cronEntryJSON is the wire shape for one entry: the intent fields plus the
-// derived facts (nextFire/rung/orphaned/lastFired), camelCase per the API
-// convention (the on-disk YAML's snake_case never crosses the HTTP edge).
+// derived facts (nextFire/rung/orphaned/orphanedSince/expiresAt/lastFired),
+// camelCase per the API convention (the on-disk YAML's snake_case never
+// crosses the HTTP edge).
 type cronEntryJSON struct {
-	ID        string           `json:"id"`
-	Name      string           `json:"name,omitempty"`
-	Schedule  cronScheduleJSON `json:"schedule"`
-	WakeOn    *cronWakeOnJSON  `json:"wakeOn,omitempty"`
-	Target    cronTargetJSON   `json:"target"`
-	Payload   string           `json:"payload"`
-	Deliver   string           `json:"deliver,omitempty"`
-	IfAbsent  string           `json:"ifAbsent,omitempty"`
-	Pinned    bool             `json:"pinned,omitempty"`
-	Muted     bool             `json:"muted,omitempty"`
-	LastFired int64            `json:"lastFired"` // unix seconds; 0 = never
-	NextFire  int64            `json:"nextFire,omitempty"`
-	Rung      int              `json:"rung,omitempty"`
-	Orphaned  bool             `json:"orphaned,omitempty"`
+	ID            string           `json:"id"`
+	Name          string           `json:"name,omitempty"`
+	Schedule      cronScheduleJSON `json:"schedule"`
+	WakeOn        *cronWakeOnJSON  `json:"wakeOn,omitempty"`
+	Target        cronTargetJSON   `json:"target"`
+	Payload       string           `json:"payload"`
+	Deliver       string           `json:"deliver,omitempty"`
+	IfAbsent      string           `json:"ifAbsent,omitempty"`
+	Pinned        bool             `json:"pinned,omitempty"`
+	Muted         bool             `json:"muted,omitempty"`
+	LastFired     int64            `json:"lastFired"` // unix seconds; 0 = never
+	NextFire      int64            `json:"nextFire,omitempty"`
+	Rung          int              `json:"rung,omitempty"`
+	Orphaned      bool             `json:"orphaned,omitempty"`
+	OrphanedSince int64            `json:"orphanedSince,omitempty"`
+	ExpiresAt     int64            `json:"expiresAt,omitempty"`
 }
 
 type cronScheduleJSON struct {
@@ -89,14 +92,16 @@ func cronEntryToJSON(e cron.Entry, d cron.DerivedEntry) cronEntryJSON {
 			Session: e.Target.Session,
 			Pane:    e.Target.Pane,
 		},
-		Payload:   e.Payload,
-		Deliver:   e.Deliver,
-		IfAbsent:  e.IfAbsent,
-		Pinned:    e.Pinned,
-		Muted:     e.Muted,
-		LastFired: d.LastFired,
-		Rung:      d.Rung,
-		Orphaned:  d.Orphaned,
+		Payload:       e.Payload,
+		Deliver:       e.Deliver,
+		IfAbsent:      e.IfAbsent,
+		Pinned:        e.Pinned,
+		Muted:         e.Muted,
+		LastFired:     d.LastFired,
+		Rung:          d.Rung,
+		Orphaned:      d.Orphaned,
+		OrphanedSince: d.OrphanedSince,
+		ExpiresAt:     d.ExpiresAt,
 	}
 	if e.WakeOn != nil {
 		out.WakeOn = &cronWakeOnJSON{

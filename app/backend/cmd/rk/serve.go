@@ -213,11 +213,15 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		// an early socket removal. Best-effort throughout: a store-dir
 		// resolution failure disables snapshotting with a warning — it must
 		// never block serving.
+		// snapStore is hoisted so the cron ticker's session respawner below
+		// reads the SAME ring the snapshotter writes (nil ⇒ the seam stays
+		// unwired and the notify degrade stands).
+		var snapStore *snapshot.Store
 		if snapDir, err := snapshot.DefaultDir(); err != nil {
 			slog.Warn("layout snapshots disabled: state dir unresolvable", "err", err)
 		} else {
 			snapshot.MigrateLegacyDir(snapDir)
-			snapStore := snapshot.NewStore(snapDir)
+			snapStore = snapshot.NewStore(snapDir)
 			snapshotter := snapshot.NewSnapshotter(supervisor, snapStore)
 			supervisor.OnSocketRemoved = snapshotter.OnServerRemoved
 			apiServer.SetServerKillNotifier(snapshotter.NoteAuditedKill)
@@ -235,7 +239,14 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		if cronDir, err := cron.DefaultDir(); err != nil {
 			slog.Warn("cron ticker disabled: state dir unresolvable", "err", err)
 		} else {
-			cron.NewTicker(cron.Deps{Dir: cronDir, Deliverer: cron.NewEngineDeliverer(), Respawner: rkCronRespawnRole}).Start(ctx)
+			deps := cron.Deps{Dir: cronDir, Deliverer: cron.NewEngineDeliverer(), Respawner: rkCronRespawnRole}
+			if snapStore != nil {
+				// Session respawn needs the recently-closed ring (R8): wire
+				// it only when the store resolved, else the nil-seam notify
+				// degrade stands byte-identical.
+				deps.SessionRespawner = rkCronRespawnSession(snapStore)
+			}
+			cron.NewTicker(deps).Start(ctx)
 		}
 
 		if err := supervisor.Start(ctx); err != nil {

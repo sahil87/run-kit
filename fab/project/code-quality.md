@@ -32,6 +32,8 @@ Before considering a change complete, run these gates in order:
 3. **Smoke check** — `just test` (runs backend + frontend + e2e tests)
 4. **Production build** — `just build`
 
+**Control-gallery screenshot baselines**: the `/__controls` gallery drift guard is enforced by committed PNG baselines — `app/frontend/tests/e2e/control-gallery.spec.ts` compares fine- and coarse-pointer screenshots against `app/frontend/tests/e2e/control-gallery.spec.ts-snapshots/`. Any change to `control-gallery.tsx` or to classes the Control primitive emits is changed surface for that spec: run `just test-e2e "control-gallery"`, regenerate both baselines, and visually review the PNG diff (only the intended cells should change).
+
 ## Test Strategy
 
 ### Go backend (`app/backend/`)

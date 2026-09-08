@@ -81,7 +81,7 @@ func resumeForkLauncher(launcher, ref string, plain bool) (string, error) {
 		return launcher, nil
 	}
 	if cmd := launcherCommandName(launcher); cmd != forkLauncherCommand {
-		return "", ValidationErr("run-kit riff: cannot fork a conversation with launcher %q — --resume/--fork-session require %s", launcher, forkLauncherCommand)
+		return "", ValidationErr("run-kit riff: cannot resume a conversation with launcher %q — --resume modes (plain and --fork-session) require %s", launcher, forkLauncherCommand)
 	}
 	if plain {
 		return fmt.Sprintf("%s --resume %s", launcher, ref), nil

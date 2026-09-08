@@ -246,9 +246,11 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, ValidationErr("run-kit riff: repo root is empty")
 	}
 
-	// A non-empty ResumeSessionRef turns this spawn into a conversation RESUME: the
-	// resolved launcher gains `--resume <uuid> --fork-session` (fork form), or
-	// `--resume <uuid>` alone when ResumePlain is set. Composed once
+	// A non-empty ResumeSessionRef reattaches this spawn to the referenced
+	// conversation: the resolved launcher gains `--resume <uuid> --fork-session`
+	// (fork form, the default — a copy of the conversation under a fresh session
+	// id), or `--resume <uuid>` alone when ResumePlain is set (plain form — the
+	// conversation itself, re-attached under the SAME session id). Composed once
 	// here, at the single seam where the launcher is produced, so every pane of
 	// the window inherits it and the argv builders stay pure functions of the spec.
 	// resumeForkLauncher re-validates the uuid shape, is a no-op on an empty or

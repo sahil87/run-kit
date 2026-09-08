@@ -1094,12 +1094,21 @@ export function TopBar({
     <header
       className={`px-3 ${isShell() ? "" : "pt-[env(safe-area-inset-top)]"} border-b-[3px] border-border`}
     >
-      {/* 3-column grid `1fr auto 1fr`: the center cell is truly centered
-          regardless of asymmetric left/right widths. Left = left cluster
-          (hamburger + breadcrumb nav, 260720-ap63), center = the universal
-          `PageType: name` page heading (all four modes, 260704-pr0p),
-          right = controls. */}
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 py-2">
+      {/* 3-column grid. At ≥ sm it is `1fr auto 1fr`: the center cell is truly
+          centered regardless of asymmetric left/right widths. Left = left
+          cluster (hamburger + breadcrumb nav, 260720-ap63), center = the
+          universal `PageType: name` page heading (all four modes,
+          260704-pr0p), right = controls. BELOW `sm` the columns are
+          `auto auto minmax(0,1fr)` and the heading left-aligns beside the
+          hamburger instead: every crumb is breakpoint-hidden there, so a
+          centered heading wastes the left cell as dead space while the
+          button-heavy right cluster overflows its equal-share `1fr` track and
+          paints over the heading's ▾ switcher. Content-sizing the first two
+          columns hands ALL leftover width to the right cluster, whose
+          `minmax(0,1fr)` track keeps tracking the viewport — the overflow fit
+          machinery needs a track-filling cell to measure (see the right-cell
+          comment below). */}
+      <div className="grid grid-cols-[auto_auto_minmax(0,1fr)] sm:grid-cols-[1fr_auto_1fr] items-center gap-2 py-2">
         {/* Left cluster (260720-ap63): a flex wrapper so the hamburger — a
             drawer toggle, NOT a breadcrumb item — sits FIRST, outside the
             breadcrumb nav landmark, with the nav beside it inside the `1fr`
@@ -1139,22 +1148,25 @@ export function TopBar({
           {/* Breadcrumb nav (260715-q8ey overlap fixes): `overflow-hidden`
               is the clip backstop — any crumb content past the floor clips at
               the nav edge instead of painting over the center heading. The
-              explicit `min-w-[46px] sm:min-w-[150px]` floor guarantees the bare
-              brand icon below `sm` (the hamburger sibling carries its own
-              `shrink-0` + min sizes outside the nav — 260720-ap63 subtracted
-              its 30px from the old 76/180 floor), plus a usable session crumb
-              sliver at `sm+`. `flex-1` makes the nav claim the left cell's
-              leftover width regardless of content size, so the crumb section's
+              `sm:min-w-[150px]` floor guarantees a usable session crumb
+              sliver at `sm+`; below `sm` there is NO floor — every crumb is
+              breakpoint-hidden there (brand, server, session, the collapse
+              rung), so the nav renders empty and a floor would only push the
+              left-aligned heading right (the mobile grid content-sizes this
+              column). `flex-1` makes the nav claim the left cell's leftover
+              width at `sm+` regardless of content size, so the crumb section's
               clientWidth stays the available-space signal even while collapsed
               (a content-sized nav would shrink to the `… ▾` trigger and the
-              collapse measurement would go blind). Degradation ladder: crumbs
-              truncate (floored at 6ch of content + chrome, so the ellipsis
-              reserve can never be squeezed away) → BOTH crumbs collapse into a
-              single `… ▾` crumb (measurement-driven, below) → server crumb
-              hides below `md` → nav clips at its floor. */}
+              collapse measurement would go blind; below `sm` the probe
+              measures 0 and the collapse derivation holds its previous state,
+              as before). Degradation ladder: crumbs truncate (floored at 6ch
+              of content + chrome, so the ellipsis reserve can never be
+              squeezed away) → BOTH crumbs collapse into a single `… ▾` crumb
+              (measurement-driven, below) → server crumb hides below `md` →
+              nav clips at its floor. */}
           <nav
             aria-label="Breadcrumb"
-            className="flex items-center gap-1.5 text-sm overflow-hidden min-w-[46px] sm:min-w-[150px] flex-1"
+            className="flex items-center gap-1.5 text-sm overflow-hidden sm:min-w-[150px] flex-1"
           >
             {/* Brand root crumb — logo + wordmark, links to `/`. The nav's
                 first child (the breadcrumb's root — the `›` separator starts
@@ -1329,23 +1341,25 @@ export function TopBar({
             EVERY mode (260704-pr0p): terminal = editable window heading + ▾
             window switcher; board = display board heading + ▾ board switcher
             (both moved here from the left breadcrumb); root = display server
-            heading; host = solo `Host`. It stays centered under the
-            `auto` middle grid column regardless of left/right widths, and on
-            mobile it is the visible leaf (intermediate crumbs hide below `sm`).
-            At ≥ lg the heading compacts (the prefix span hides) and the standing
-            operator omnibox sits beside it; at md–lg the engaged ⌘J machine
-            morphs the box in place of the heading. */}
+            heading; host = solo `Host`. At ≥ sm it stays centered under the
+            `auto` middle grid column regardless of left/right widths; BELOW
+            `sm` it is the visible leaf (intermediate crumbs hide there) and
+            LEFT-ALIGNS beside the hamburger — its column is content-sized and
+            the leftover width goes to the button-heavy right cluster (see the
+            grid comment above). At ≥ lg the heading compacts (the prefix span
+            hides) and the standing operator omnibox sits beside it; at md–lg
+            the engaged ⌘J machine morphs the box in place of the heading. */}
         {/* No flex `gap` here: the single separator between the page-type prefix
             and the instance name is the boot sweep's own `sp` space cell (the
             cursor visibly crosses it) — a `gap-1` on top of it double-spaced
             them (260704-pr0p rework N4). The ▾ switchers carry their own `ml-1`
             so only the switcher gets separated from the name. */}
-        {/* The OUTER cell stays centered in the `auto` grid column; the INNER
+        {/* The OUTER cell centers at ≥ sm and left-aligns below it (the mobile
+            grid content-sizes this column — see the grid comment); the INNER
             container (260714-uco1) carries a `sm:`-gated min-width with
             left-aligned content so the heading's LEFT EDGE stops drifting as the
             instance name length changes. Below `sm` the min-width is absent
-            (space is scarce at 375px) so current behavior is unchanged. (The
-            history arrows moved to the left cluster, 260731-oiho.)
+            (space is scarce at 375px).
             260715-q8ey: the OUTER cell deliberately has NO `min-w-0` — that let
             the `auto` column compress below the heading's content floor and
             produced center-side overlap. The floor is already bounded (name
@@ -1353,7 +1367,7 @@ export function TopBar({
             `shrink-0` controls + the inner `sm:min-w-[28ch]` anchor), so
             dropping `min-w-0` protects the center without a magic pixel min. Do
             NOT re-add `min-w-0` here. */}
-        <div className="flex items-center justify-center">
+        <div className="flex items-center justify-start sm:justify-center">
           {/* Center heading cluster's warm-tip group (260722-73al): the rename
               heading + window switcher sweep as one cluster (the history arrows
               ride the left cluster's group now, 260731-oiho). */}

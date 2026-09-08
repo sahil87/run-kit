@@ -6,7 +6,8 @@
 // beforeEach sets an iPhone 14-sized viewport (375×812) so every test starts
 // from a mobile baseline.
 import { test, expect } from "@playwright/test";
-import { TMUX_SERVER } from "./_tmux";
+import { TMUX_SERVER, createSession, killSession } from "./_tmux";
+import { resolveWindow } from "./_ready";
 
 // iPhone 14 viewport
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
@@ -125,5 +126,64 @@ test.describe("Mobile layout", () => {
     // Clicking toggle again should close the drawer
     await toggle.click();
     await expect(sidebar).not.toBeVisible();
+  });
+
+  /**
+   * Proves: below `sm` the top-bar heading LEFT-ALIGNS beside the hamburger
+   * (the mobile grid content-sizes the left and center columns — no dead
+   * space where the hidden crumbs would be), and the tab-switcher ▾ never
+   * overlaps the pinned surface-switch group even with a long window name —
+   * the leftover width belongs to the right cluster's `minmax(0,1fr)` track,
+   * so the fit machinery measures a real budget instead of overflowing an
+   * equal-share `1fr` track over the heading.
+   *
+   * Steps:
+   * 1. Create a session whose window carries a name longer than the heading's
+   *    16ch mobile cap; goto its terminal route directly (gotoWindow's
+   *    Connected-dot wait is desktop-sidebar-bound).
+   * 2. Assert the heading (rename button) starts within a hamburger's width
+   *    of the toggle — left-aligned, not centered.
+   * 3. Assert the ▾ switcher's box ends left of the surface-toggle group's
+   *    box (no intersection).
+   * 4. Assert no horizontal page overflow.
+   */
+  test("terminal-route heading left-aligns and the tab ▾ clears the surface switch", async ({
+    page,
+  }) => {
+    const session = `e2e-navbar-${Date.now()}`;
+    const windowName = "riff-amber-tern-navbar-probe";
+    createSession(session, { windows: [windowName] });
+    try {
+      const { windowId } = await resolveWindow(page, TMUX_SERVER, session, windowName);
+      await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`);
+
+      const heading = page.getByRole("button", { name: `Rename tab ${windowName}` });
+      await expect(heading).toBeVisible({ timeout: 10_000 });
+
+      const hamburger = await page
+        .getByRole("button", { name: "Toggle navigation" })
+        .boundingBox();
+      const headingBox = await heading.boundingBox();
+      expect(hamburger).toBeTruthy();
+      expect(headingBox).toBeTruthy();
+      // Left-aligned: the heading starts right after the hamburger (gap-2 grid
+      // gap + the empty nav's gap — allow one hamburger width of slack), not
+      // at the centered position.
+      expect(headingBox!.x - (hamburger!.x + hamburger!.width)).toBeLessThan(40);
+
+      const switcherBox = await page
+        .getByRole("button", { name: "Switch tab" })
+        .boundingBox();
+      const surfaceBox = await page.getByTestId("surface-toggles").boundingBox();
+      expect(switcherBox).toBeTruthy();
+      expect(surfaceBox).toBeTruthy();
+      // The ▾ ends before the surface group begins — no overlap.
+      expect(switcherBox!.x + switcherBox!.width).toBeLessThanOrEqual(surfaceBox!.x);
+
+      const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
+      expect(bodyWidth).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
+    } finally {
+      killSession(session);
+    }
   });
 });

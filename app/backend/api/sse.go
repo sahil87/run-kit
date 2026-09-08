@@ -1480,9 +1480,12 @@ func (h *sseHub) poll() {
 	// invalidates each of those servers' fetch caches so the loop
 	// observes the post-mutation tmux state immediately.
 	eventDrivenServers := map[string]bool{}
-	// resultsOnly marks ticks whose wait ended solely on unit completions:
-	// they fold/sweep/broadcast but do NOT dispatch (dispatching there would
-	// self-perpetuate — see waitForNext's resultsOnly return).
+	// resultsOnly marks ticks whose wait ended solely on unit completions
+	// with no event-driven flags pending: they fold/sweep/broadcast but do
+	// NOT dispatch (dispatching there would self-perpetuate — see
+	// waitForNext's resultsOnly return). A completion with a pending flag is
+	// a full tick: that flag's dispatch was skipped mid-flight and the
+	// completion is its prompt re-dispatch moment.
 	resultsOnly := false
 
 	for {
@@ -1514,6 +1517,25 @@ func (h *sseHub) poll() {
 			servers = append(servers, server)
 		}
 		h.mu.RUnlock()
+
+		// Prune pending event-driven flags for servers that left the poll set
+		// (last client disconnected; the dead-server reap below covers only
+		// IsServerGone results). A stale flag would otherwise be load-bearing
+		// forever: nothing dispatches an absent server, so the flag is never
+		// consumed, and the resultsOnly pending-flag term would turn every
+		// completion tick into a full tick — the self-perpetuation the
+		// fold-only gate exists to prevent. Both maps are poll-goroutine-local.
+		if len(eventDrivenServers) > 0 {
+			inSet := make(map[string]bool, len(servers))
+			for _, server := range servers {
+				inSet[server] = true
+			}
+			for server := range eventDrivenServers {
+				if !inSet[server] {
+					delete(eventDrivenServers, server)
+				}
+			}
+		}
 
 		// Tick shape: fold → sweep → global broadcasts → dispatch → wait.
 		// Per-server work runs as concurrent units (bounded by
@@ -2225,11 +2247,16 @@ func (h *sseHub) consumeResultsWake() bool {
 // poll() invalidates their fetch cache at dispatch.
 //
 // The resultsOnly return reports that the wait ended SOLELY on unit
-// completions (no timer, no subscriber bump, no wake, no membership signal).
-// The caller runs such ticks fold-only — no dispatch — because dispatching on
-// unit completion alone would self-perpetuate (dispatch → complete → results
-// wake → dispatch …); re-poll cadence for completed servers comes from their
-// own wakes and the safety timer, exactly as it did before the fan-out.
+// completions (no timer, no subscriber bump, no wake, no membership signal)
+// AND no event-driven flags are pending in eventDrivenServers. The caller runs
+// such ticks fold-only — no dispatch — because dispatching on unit completion
+// alone would self-perpetuate (dispatch → complete → results wake →
+// dispatch …); re-poll cadence for completed servers comes from their own
+// wakes and the safety timer, exactly as it did before the fan-out. A pending
+// flag is the exception: it marks a bump already consumed (its Wait channel
+// re-armed at the updated generation) whose dispatch was skipped mid-flight,
+// so the completion tick is its only prompt dispatch opportunity — deferring
+// it would be a lost wakeup healed only by the safety timer.
 //
 // Wake cases are built independent of the subscriber snapshot: a wake must wake
 // the loop even when subscriber == nil (unit-test hubs, PTY-unavailable hosts),
@@ -2299,9 +2326,10 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 				case c.isResults:
 					// A poll unit completed mid-wait. results is tracked
 					// separately from woke: a results-ONLY win re-arms the
-					// loop fold-only (see the resultsOnly return), and it
-					// still ends a pending debounce window so the fold is
-					// not delayed.
+					// loop fold-only when no event-driven flags are pending
+					// (see the resultsOnly return — a retained flag makes the
+					// completion tick a full tick), and it still ends a
+					// pending debounce window so the fold is not delayed.
 					if h.consumeResultsWake() {
 						results = true
 					}
@@ -2340,8 +2368,16 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 	// Unit completions alone must not re-arm dispatch: a results-driven tick
 	// that dispatched would self-perpetuate (dispatch → complete → wake →
 	// dispatch …). Anything else in the mix (timer, bump, wake, membership)
-	// runs a normal full tick.
-	resultsOnly = results && !bumped && !woke && !timerFired
+	// runs a normal full tick — and so does a completion while event-driven
+	// flags are still pending: a bump consumed during a unit's flight is
+	// skipped at dispatch (single-flight / pollSem), so the completion is
+	// exactly the moment its retained flag becomes dispatchable. Without the
+	// pending-flag term the flag would wait out the safety timer (a lost
+	// wakeup — its Wait channel is already re-armed at the updated
+	// generation). Self-perpetuation stays impossible: entries are consumed
+	// at dispatch and re-set only by real bumps/wakes, so an empty pending
+	// map keeps the fold-only path.
+	resultsOnly = results && !bumped && !woke && !timerFired && len(eventDrivenServers) == 0
 
 	// Coalesce subscriber-bump-driven passes: a control-mode event burst (e.g.
 	// %window-renamed from cd churn under automatic-rename-format

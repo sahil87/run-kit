@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"strings"
@@ -12,6 +13,112 @@ import (
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 )
+
+// midFlightFetcher scripts FetchSessions per call: call 1 returns baseline
+// (the bootstrap snapshot), call 2 signals `entered` and blocks on `release`
+// before returning baseline (the in-flight unit), and every later call returns
+// changed data. It lets a test hold a poll unit in flight deterministically
+// while a subscriber bump lands.
+type midFlightFetcher struct {
+	mu       sync.Mutex
+	calls    int
+	entered  chan struct{}
+	release  chan struct{}
+	baseline []sessions.ProjectSession
+	changed  []sessions.ProjectSession
+}
+
+func (f *midFlightFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
+	f.mu.Lock()
+	f.calls++
+	call := f.calls
+	f.mu.Unlock()
+	switch call {
+	case 1:
+		return f.baseline, nil
+	case 2:
+		close(f.entered)
+		<-f.release
+		return f.baseline, nil
+	default:
+		return f.changed, nil
+	}
+}
+
+// TestSSE_PendingEventDrivenDispatchSurvivesResultsOnlyTick is the lost-wakeup
+// regression test: a generation bump consumed while the server's poll unit is
+// in flight is skipped at dispatch (single-flight) and its eventDrivenServers
+// flag retained — the completion's results wake must then yield a FULL tick
+// that dispatches the retained flag, so the fresh snapshot broadcasts promptly
+// after the unit completes. On the pre-fix code (resultsOnly ignoring pending
+// flags) the retained flag waits out the safety timer and this test times out.
+func TestSSE_PendingEventDrivenDispatchSurvivesResultsOnlyTick(t *testing.T) {
+	fetcher := &midFlightFetcher{
+		entered:  make(chan struct{}),
+		release:  make(chan struct{}),
+		baseline: []sessions.ProjectSession{{Name: "s1"}},
+		changed:  []sessions.ProjectSession{{Name: "s1"}, {Name: "s2"}},
+	}
+	sub := newStubSubscriber()
+	hub := newSSEHub(fetcher, nil, nil, nil)
+	hub.subscriber = sub
+	// Long enough that a broadcast deferred to the safety timer clearly fails
+	// the prompt-delivery deadline below.
+	hub.safetyInterval = 10 * time.Second
+
+	client := &sseClient{ch: make(chan hubEvent, 64), server: "kits"}
+	hub.addClient(client)
+	t.Cleanup(func() { hub.removeClient(client) })
+
+	// Bootstrap snapshot (fetch call 1).
+	select {
+	case <-client.ch:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no bootstrap snapshot delivered")
+	}
+	// Drain any bootstrap stragglers (board bootstrap etc.) while the loop parks.
+	drainDeadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(drainDeadline) {
+		select {
+		case <-client.ch:
+		default:
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
+	// Bump 1 dispatches the unit that blocks in FetchSessions (call 2).
+	sub.Bump("kits")
+	select {
+	case <-fetcher.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("poll unit never entered the blocking fetch")
+	}
+
+	// Bump 2 lands while the unit is in flight: the loop consumes it, marks the
+	// server event-driven, and the dispatch pass skips it (single-flight). The
+	// sleep lets the parked loop run that tick before the unit is released.
+	sub.Bump("kits")
+	time.Sleep(300 * time.Millisecond)
+
+	// Unit completes (returns baseline — deduped against the bootstrap payload,
+	// so only a post-completion re-dispatch can deliver the changed data).
+	close(fetcher.release)
+
+	// The results wake must trigger a full tick that dispatches the retained
+	// flag: fetch call 3 returns the changed data. Far below the 10s safety
+	// interval — a deferred-to-safety-timer broadcast fails here.
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-client.ch:
+			if ev.typ == "sessions" && strings.Contains(ev.String(), "s2") {
+				return
+			}
+		case <-deadline:
+			t.Fatal("changed snapshot not delivered promptly after unit completion — pending event-driven dispatch was lost to a results-only tick")
+		}
+	}
+}
 
 // TestSSE_RacePollVsHandlerCacheAccess is the race-detector regression test for
 // the sseHub cache synchronization: the poll goroutine's h.cache map operations

@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-08T22:07:43Z"}
+{"args":"Fix SSE hub lost-wakeup: pending event-driven dispatch swallowed by results-only tick — waitForNext peek consumes the generation bump while the server's poll unit is in flight; the retained eventDrivenServers flag is never re-dispatched because the unit-completion results wake is fold-only, so the sidebar/URL stall up to the 12s safety timer after rk riff / external tmux window switches","cmd":"fab-new","event":"command","ts":"2026-09-08T22:07:43Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-09-08T22:08:40Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-08T22:09:59Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-08T22:11:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T22:11:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T22:17:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-08T22:26:58Z"}
+{"event":"review","result":"passed","ts":"2026-09-08T22:26:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-08T22:27:38Z"}

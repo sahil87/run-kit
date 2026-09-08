@@ -46,7 +46,7 @@ Add a small pure renderer in `internal/riff` (near `launcherCommandName`), mirro
 
 ```go
 // RenderSkillRef re-renders a skill invocation for the receiving provider:
-// a value matching ^/[a-z0-9][a-z0-9-]*( .*)?$ is a skill invocation — its
+// a value matching ^/[a-z0-9][a-z0-9_-]*( .*)?$ is a skill invocation — its
 // leading "/" is replaced by prefix (arguments preserved verbatim). Any other
 // value (free prose, already-$-prefixed, empty) passes through unchanged.
 func RenderSkillRef(prefix, value string) string
@@ -101,7 +101,7 @@ Constants stay written as `/fab-discuss` / `/fab-operator` (canonical slash form
 |---|-------|----------|-----------|--------|
 | 1 | Certain | Consume `skill_prefix` from `fab agent -o yaml`; no rk-local provider→prefix table | Discussed — user directed linking to fab-kit #650's solution; Constitution III (Wrap, Don't Reinvent); verified live against fab 2.24.1 | S:90 R:80 A:95 D:90 |
 | 2 | Certain | Launcher continuity: YAML `command` ≡ `--print` output | Verified byte-identical for default and operator tiers during discussion | S:85 R:90 A:100 D:95 |
-| 3 | Confident | Slash-shaped-value rewrite rule (`RenderSkillRef`): values matching `^/[a-z0-9][a-z0-9-]*( .*)?$` get the prefix swapped; all else verbatim | Discussion converged on rendering at the seam; the shape-detection variant (over bare-name constants) transparently fixes user presets and `--skill` values with zero config migration, and free prose can never match the shape | S:65 R:80 A:75 D:60 |
+| 3 | Confident | Slash-shaped-value rewrite rule (`RenderSkillRef`): values matching `^/[a-z0-9][a-z0-9_-]*( .*)?$` get the prefix swapped; all else verbatim | Discussion converged on rendering at the seam; the shape-detection variant (over bare-name constants) transparently fixes user presets and `--skill` values with zero config migration, and free prose can never match the shape | S:65 R:80 A:75 D:60 |
 | 4 | Confident | Fallback prefix is always `/` (fab absent, YAML unparseable, key missing) | `DefaultLauncher` is claude; fab-kit's own rule defaults every non-codex provider to `/`; matches the resolver's existing silent-fallback contract | S:70 R:85 A:85 D:80 |
 | 5 | Confident | `rk tutorial` unchanged | Its kickoff is provider-neutral prose by prior design (260903-7ajq) — already the conformant pattern | S:75 R:90 A:90 D:85 |
 | 6 | Confident | Free-text lanes (mux send, window send API, cron payloads, prose riff tasks) stay verbatim | Discussed — translating user text is out of scope; only run-kit-composed/skill-shaped invocations are rendered | S:70 R:85 A:80 D:75 |

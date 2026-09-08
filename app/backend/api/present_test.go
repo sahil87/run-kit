@@ -513,3 +513,226 @@ func TestPresentLegacyArmVerbatim(t *testing.T) {
 		t.Errorf("tmux reads on bad windowId = %v, want none", reads)
 	}
 }
+
+// viewerShellStub is the shell-bytes marker tests install through the
+// presentViewerShellFn seam.
+const viewerShellStub = "<!doctype html><title>viewer-shell-stub</title>"
+
+// stubViewerShell installs a shell seam returning the given bytes (or err) and
+// restores the production default on cleanup — the same seam discipline as
+// stubWindowOption.
+func stubViewerShell(t *testing.T, shell []byte, err error) {
+	t.Helper()
+	presentViewerShellFn = func() ([]byte, error) { return shell, err }
+	t.Cleanup(func() { presentViewerShellFn = loadPresentViewerShell })
+}
+
+// presentViewerFixture builds a serve root exercising the extension gate:
+//
+//	root/
+//	  notes.md / spec.markdown / sketch.excalidraw / page.html / plain.txt
+//	  upper.MD                       (case-insensitive gate)
+//	  alias-md.txt  → ./real.md      (resolved ext .md → shell)
+//	  alias-txt.md  → ./real.txt     (resolved ext .txt → raw bytes)
+//	  real.md / real.txt
+func presentViewerFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string]string{
+		"notes.md":          "# Notes\n",
+		"spec.markdown":     "# Spec\n",
+		"sketch.excalidraw": `{"type":"excalidraw","elements":[]}`,
+		"page.html":         "<html>page</html>",
+		"plain.txt":         "plain text\n",
+		"upper.MD":          "# Upper\n",
+		"real.md":           "# Real\n",
+		"real.txt":          "real text\n",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("./real.md", filepath.Join(root, "alias-md.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("./real.txt", filepath.Join(root, "alias-txt.md")); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// TestPresentViewerShellGate is the sniff table: extensions × raw param × both
+// arms. A gated extension (.md/.markdown/.excalidraw, case-insensitive) gets
+// the viewer shell unless raw=1 is present; every other extension serves file
+// bytes; the gate keys on the RESOLVED file's extension through symlinks.
+func TestPresentViewerShellGate(t *testing.T) {
+	root := presentViewerFixture(t)
+	stubViewerShell(t, []byte(viewerShellStub), nil)
+	stubWindowOption(t, root)
+	stubDeclaredRoots(t, []string{root})
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	hash := rootHash(root)
+	tests := []struct {
+		name      string
+		path      string
+		wantShell bool   // shell stub vs file bytes
+		wantBody  string // expected file bytes when !wantShell
+		wantCode  int
+	}{
+		// Legacy arm.
+		{"legacy md gets shell", "/present/@7/notes.md?server=dev", true, "", 200},
+		{"legacy md raw=1 serves bytes", "/present/@7/notes.md?server=dev&raw=1", false, "# Notes", 200},
+		{"legacy markdown gets shell", "/present/@7/spec.markdown?server=dev", true, "", 200},
+		{"legacy excalidraw gets shell", "/present/@7/sketch.excalidraw?server=dev", true, "", 200},
+		{"legacy excalidraw raw=1 serves bytes", "/present/@7/sketch.excalidraw?server=dev&raw=1", false, `"type":"excalidraw"`, 200},
+		{"legacy html untouched", "/present/@7/page.html?server=dev", false, "<html>page</html>", 200},
+		{"legacy txt untouched", "/present/@7/plain.txt?server=dev", false, "plain text", 200},
+		{"legacy uppercase MD gets shell", "/present/@7/upper.MD?server=dev", true, "", 200},
+		{"legacy raw other value still shells", "/present/@7/notes.md?server=dev&raw=2", true, "", 200},
+		{"legacy missing md is 404", "/present/@7/ghost.md?server=dev", false, "", 404},
+		// Content-keyed arm.
+		{"content-keyed md gets shell", "/present/dev/" + hash + "/notes.md", true, "", 200},
+		{"content-keyed md raw=1 serves bytes", "/present/dev/" + hash + "/notes.md?raw=1", false, "# Notes", 200},
+		{"content-keyed md raw=1 with v preserves bytes", "/present/dev/" + hash + "/notes.md?raw=1&v=3", false, "# Notes", 200},
+		{"content-keyed excalidraw gets shell", "/present/dev/" + hash + "/sketch.excalidraw", true, "", 200},
+		{"content-keyed html untouched", "/present/dev/" + hash + "/page.html", false, "<html>page</html>", 200},
+		// The gate reads the RESOLVED extension, not the requested one.
+		{"symlink .txt → .md resolves to shell", "/present/dev/" + hash + "/alias-md.txt", true, "", 200},
+		{"symlink .md → .txt resolves to bytes", "/present/dev/" + hash + "/alias-txt.md", false, "real text", 200},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := getPresent(t, router, tc.path)
+			if rec.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d (body: %q)", rec.Code, tc.wantCode, rec.Body.String())
+			}
+			if tc.wantCode != 200 {
+				return
+			}
+			body := rec.Body.String()
+			if tc.wantShell {
+				if !strings.Contains(body, "viewer-shell-stub") {
+					t.Errorf("body = %q, want the viewer shell", body)
+				}
+				if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+					t.Errorf("Content-Type = %q, want text/html; charset=utf-8", ct)
+				}
+				if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+					t.Errorf("Cache-Control = %q, want no-cache", cc)
+				}
+				return
+			}
+			if !strings.Contains(body, tc.wantBody) {
+				t.Errorf("body = %q, want file bytes containing %q", body, tc.wantBody)
+			}
+			if strings.Contains(body, "viewer-shell-stub") {
+				t.Error("shell leaked into a raw-bytes response")
+			}
+		})
+	}
+}
+
+// TestPresentViewerShellUnavailableDegrades: when the shell asset cannot be
+// sourced (a build without the viewer entry), a gated extension degrades to
+// the pre-shell behavior — file bytes — instead of failing the document.
+func TestPresentViewerShellUnavailableDegrades(t *testing.T) {
+	root := presentViewerFixture(t)
+	stubViewerShell(t, nil, os.ErrNotExist)
+	stubDeclaredRoots(t, []string{root})
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := getPresent(t, router, "/present/dev/"+rootHash(root)+"/notes.md")
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "# Notes") {
+		t.Errorf("body = %q, want the raw markdown bytes", body)
+	}
+}
+
+// TestPresentDevProxyShellSource: a request arriving through the Vite dev
+// proxy (X-Rk-Dev-Proxy header, set by the vite.config /present entry) always
+// gets the inline source shell — even when the built shell exists in the
+// embed FS / dist (post-`just build` dev rigs), where its hashed /assets/*
+// references would die on Vite's SPA fallback. Non-proxied requests use the
+// sourcing seam.
+func TestPresentDevProxyShellSource(t *testing.T) {
+	root := presentViewerFixture(t)
+	// The seam ERRORS here: if the proxied path consulted it (embed/dist), the
+	// response would degrade to file bytes instead of the source shell.
+	stubViewerShell(t, nil, os.ErrNotExist)
+	stubDeclaredRoots(t, []string{root})
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	url := "/present/dev/" + rootHash(root) + "/notes.md"
+
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("X-Rk-Dev-Proxy", "1")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("proxied status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "/src/viewer/main.ts") {
+		t.Errorf("proxied body = %q, want the inline source shell", body)
+	}
+
+	// Same URL without the header: seam consulted, error → raw-byte degrade.
+	rec = getPresent(t, router, url)
+	if rec.Code != 200 {
+		t.Fatalf("direct status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "# Notes") {
+		t.Errorf("direct body = %q, want degraded raw bytes (seam error)", body)
+	}
+}
+
+// TestPresentFormatHeader: gated responses carry X-Present-Format keyed on the
+// RESOLVED file's extension — on both the shell and the raw=1 forms — so the
+// shell's renderer choice matches the backend gate even through cross-format
+// symlink aliases. Ungated extensions carry no header.
+func TestPresentFormatHeader(t *testing.T) {
+	root := presentViewerFixture(t)
+	// Cross-format aliases: the header must follow the RESOLVED file.
+	if err := os.Symlink("./sketch.excalidraw", filepath.Join(root, "alias-scene.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("./notes.md", filepath.Join(root, "alias-doc.excalidraw")); err != nil {
+		t.Fatal(err)
+	}
+	stubViewerShell(t, []byte(viewerShellStub), nil)
+	stubDeclaredRoots(t, []string{root})
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	hash := rootHash(root)
+	tests := []struct {
+		name       string
+		path       string
+		wantFormat string
+	}{
+		{"md shell", "/present/dev/" + hash + "/notes.md", "markdown"},
+		{"md raw", "/present/dev/" + hash + "/notes.md?raw=1", "markdown"},
+		{"markdown shell", "/present/dev/" + hash + "/spec.markdown", "markdown"},
+		{"excalidraw shell", "/present/dev/" + hash + "/sketch.excalidraw", "excalidraw"},
+		{"excalidraw raw", "/present/dev/" + hash + "/sketch.excalidraw?raw=1", "excalidraw"},
+		{"uppercase MD raw", "/present/dev/" + hash + "/upper.MD?raw=1", "markdown"},
+		{"alias .txt → .excalidraw resolves excalidraw", "/present/dev/" + hash + "/alias-scene.txt?raw=1", "excalidraw"},
+		{"alias .excalidraw → .md resolves markdown", "/present/dev/" + hash + "/alias-doc.excalidraw?raw=1", "markdown"},
+		{"alias .txt → .md resolves markdown", "/present/dev/" + hash + "/alias-md.txt?raw=1", "markdown"},
+		{"html carries none", "/present/dev/" + hash + "/page.html", ""},
+		{"txt carries none", "/present/dev/" + hash + "/plain.txt", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := getPresent(t, router, tc.path)
+			if rec.Code != 200 {
+				t.Fatalf("status = %d, want 200 (body: %q)", rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("X-Present-Format"); got != tc.wantFormat {
+				t.Errorf("X-Present-Format = %q, want %q", got, tc.wantFormat)
+			}
+		})
+	}
+}

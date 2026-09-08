@@ -1,0 +1,115 @@
+/* Present viewer shell — minimal chrome, the document is the page. Theming is
+ * prefers-color-scheme only: the iframe cannot see the app's three-mode
+ * toggle state. */
+
+:root {
+  color-scheme: light dark;
+  --viewer-bg: #ffffff;
+  --viewer-fg: #1a1a1a;
+  --viewer-muted: #666666;
+  --viewer-border: #e0e0e0;
+  --viewer-code-bg: #f5f5f5;
+  --viewer-link: #0b5cad;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --viewer-bg: #121417;
+    --viewer-fg: #e4e4e4;
+    --viewer-muted: #9a9a9a;
+    --viewer-border: #2c3138;
+    --viewer-code-bg: #1c2025;
+    --viewer-link: #6cb2f5;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--viewer-bg);
+  color: var(--viewer-fg);
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  line-height: 1.6;
+}
+
+#viewer-root {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+}
+
+#viewer-root pre,
+#viewer-root code {
+  font-family:
+    ui-monospace,
+    "SF Mono",
+    Menlo,
+    Consolas,
+    monospace;
+}
+
+#viewer-root pre {
+  background: var(--viewer-code-bg);
+  border: 1px solid var(--viewer-border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+}
+
+#viewer-root code {
+  background: var(--viewer-code-bg);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+}
+
+#viewer-root pre code {
+  background: none;
+  padding: 0;
+}
+
+#viewer-root img {
+  max-width: 100%;
+}
+
+#viewer-root a {
+  color: var(--viewer-link);
+}
+
+#viewer-root table {
+  border-collapse: collapse;
+}
+
+#viewer-root th,
+#viewer-root td {
+  border: 1px solid var(--viewer-border);
+  padding: 0.35rem 0.75rem;
+}
+
+#viewer-root blockquote {
+  margin-left: 0;
+  padding-left: 1rem;
+  border-left: 3px solid var(--viewer-border);
+  color: var(--viewer-muted);
+}
+
+/* Diagrams and scene exports render at full column width, transparent
+ * background so the page theme shows through. */
+#viewer-root .viewer-diagram svg,
+#viewer-root .viewer-scene svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.viewer-error {
+  border: 1px solid var(--viewer-border);
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+}
+
+.viewer-error pre {
+  color: var(--viewer-muted);
+  white-space: pre-wrap;
+}

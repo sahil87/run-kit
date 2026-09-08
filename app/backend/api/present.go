@@ -42,6 +42,8 @@ package api
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -197,7 +199,10 @@ func (s *Server) handlePresentContentKeyed(w http.ResponseWriter, r *http.Reques
 // servePresentFile resolves rel under root with containment and serves the
 // file (or its directory's index.html) — the shared tail of both /present/
 // arms. Every miss, escape, or error is a 404 without touching files outside
-// the root.
+// the root. A resolved .md/.markdown/.excalidraw file answers with the
+// read-only viewer shell instead of its bytes, unless the request carries
+// the explicit ?raw=1 escape hatch (no content negotiation — the raw form is
+// byte-for-byte the pre-shell behavior).
 func servePresentFile(w http.ResponseWriter, r *http.Request, root, rel string) {
 	file, err := resolvePresentFile(root, rel)
 	if err != nil {
@@ -211,9 +216,128 @@ func servePresentFile(w http.ResponseWriter, r *http.Request, root, rel string) 
 		http.NotFound(w, r)
 		return
 	}
+	// The gate keys on the RESOLVED name (file.Name() is the symlink-evaluated
+	// path): a link.md → real.txt symlink serves raw text, a link.txt →
+	// real.md symlink gets the shell.
+	if format := presentResolvedFormat(file.Name()); format != "" {
+		// The shell reads this off its raw=1 fetch to pick the renderer that
+		// matches this gate even when a contained symlink's URL extension
+		// disagrees with the resolved file's.
+		w.Header().Set(presentFormatHeader, format)
+	}
+	if wantsPresentViewerShell(r, file.Name()) {
+		shell, shellErr := presentShellForRequest(r)
+		if shellErr == nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", spaHTMLCacheControl)
+			w.Write(shell)
+			return
+		}
+		// A build without the viewer entry degrades to the pre-shell behavior:
+		// serve the file bytes rather than failing the document.
+	}
 	// ServeContent derives MIME from the name's extension (stdlib serving).
 	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
 }
+
+// presentRawParam is the explicit opt-out of the viewer shell: ?raw=1 serves
+// the file bytes on any present target.
+const presentRawParam = "raw"
+
+// presentFormatHeader carries the RESOLVED file's viewer format (markdown /
+// excalidraw) on gated responses.
+const presentFormatHeader = "X-Present-Format"
+
+// presentDevProxyHeader marks requests arriving through the Vite dev server's
+// /present proxy entry (vite.config.ts sets it there). It is the topology
+// signal that the browser's origin is Vite: root-relative module URLs then
+// resolve to Vite, so the shell must boot the viewer from the dev module
+// graph — serving the built shell there would reference hashed /assets/*
+// chunks Vite answers with its SPA fallback (blank frame), even after
+// `just build` has populated dist and the embed directory. A client forging
+// the header against a production binary gets the source shell, whose module
+// URL falls through to the SPA — odd rendering, no boundary crossed.
+const presentDevProxyHeader = "X-Rk-Dev-Proxy"
+
+// presentViewerExtensions is the gated extension set that answers with the
+// viewer shell instead of file bytes. Everything else (.html included) is
+// untouched.
+var presentViewerExtensions = map[string]bool{".md": true, ".markdown": true, ".excalidraw": true}
+
+// presentResolvedFormat maps the resolved file's extension to the viewer
+// format, or "" for ungated extensions.
+func presentResolvedFormat(resolvedName string) string {
+	switch strings.ToLower(filepath.Ext(resolvedName)) {
+	case ".md", ".markdown":
+		return "markdown"
+	case ".excalidraw":
+		return "excalidraw"
+	default:
+		return ""
+	}
+}
+
+// wantsPresentViewerShell reports whether this request should get the viewer
+// shell: a gated extension on the resolved file, without the raw escape hatch.
+func wantsPresentViewerShell(r *http.Request, resolvedName string) bool {
+	if r.URL.Query().Get(presentRawParam) == "1" {
+		return false
+	}
+	return presentViewerExtensions[strings.ToLower(filepath.Ext(resolvedName))]
+}
+
+// presentShellForRequest picks the shell bytes for a gated request: through
+// the Vite dev proxy, always the inline source shell (see
+// presentDevProxyHeader); otherwise the built shell via the sourcing seam.
+func presentShellForRequest(r *http.Request) ([]byte, error) {
+	if r.Header.Get(presentDevProxyHeader) != "" {
+		return []byte(devPresentViewerShell), nil
+	}
+	return presentViewerShellFn()
+}
+
+// presentViewerShellFn is the shell-bytes seam, stubbed by tests.
+var presentViewerShellFn = loadPresentViewerShell
+
+// loadPresentViewerShell sources the viewer shell HTML for non-proxied
+// requests: the embedded frontend build in production (the same embed.FS the
+// SPA rides), dist/viewer.html in filesystem mode when a build exists, and the
+// inline source shell when no build exists.
+func loadPresentViewerShell() ([]byte, error) {
+	if useEmbeddedSPA {
+		sub, err := embeddedSPASub()
+		if err != nil {
+			return nil, err
+		}
+		return fs.ReadFile(sub, "viewer.html")
+	}
+	data, err := os.ReadFile(filepath.Join(spaDir, "viewer.html"))
+	if err == nil {
+		return data, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return []byte(devPresentViewerShell), nil
+	}
+	return nil, err
+}
+
+// devPresentViewerShell mirrors app/frontend/viewer.html (the Vite entry
+// source): served for requests arriving through the Vite dev proxy (see
+// presentDevProxyHeader) and as the no-build fallback, where
+// /src/viewer/main.ts resolves through the Vite dev server's module graph.
+const devPresentViewerShell = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Viewer</title>
+  </head>
+  <body>
+    <div id="viewer-root"></div>
+    <script type="module" src="/src/viewer/main.ts"></script>
+  </body>
+</html>
+`
 
 // resolvePresentFile resolves rel under root with containment: both sides are
 // symlink-evaluated and the result must stay under the resolved root. A path

@@ -14,6 +14,13 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      // Multi-entry: viewer.html is the /present document shell (served by the
+      // Go backend from the embedded FS); its mermaid/excalidraw code stays in
+      // lazy chunks loaded only for the formats that need it.
+      input: {
+        main: resolve(__dirname, "index.html"),
+        viewer: resolve(__dirname, "viewer.html"),
+      },
       output: {
         manualChunks(id) {
           if (id.includes("@xterm/")) return "xterm";
@@ -60,9 +67,13 @@ export default defineConfig({
       // the one-release legacy /present/{windowId}/* form) — forwarded to the
       // Go backend, which serves files from a declared @rk_win_web_<n>_root.
       // Plain GETs; without this the dev server answers the SPA fallback and
-      // presented tiles render run-kit inside themselves.
+      // presented tiles render run-kit inside themselves. The header marks the
+      // request as dev-proxied so the backend's viewer shell boots from this
+      // dev server's module graph, never built assets (which may exist after
+      // `just build` but are only servable by the Go origin).
       "/present": {
         target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
+        headers: { "X-Rk-Dev-Proxy": "1" },
       },
       // PWA identity assets — served dynamically by the Go backend so the
       // instance accent can tint the manifest/icons in dev too. `server.proxy`

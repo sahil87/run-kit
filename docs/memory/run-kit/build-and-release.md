@@ -20,7 +20,7 @@ description: "Version management (VERSION file + ldflags), build pipeline (Vite 
 
 `scripts/build.sh` encapsulates the full production build (frontend-first for embed):
 
-1. `cd app/frontend && pnpm build` — produces `app/frontend/dist/` (with vendor chunk splitting: `xterm` chunk for `@xterm/xterm`, `@xterm/addon-fit`, `@xterm/addon-web-links`; `router` chunk for `@tanstack/react-router`; plus lazy-loaded component chunks for `CommandPalette`, `ThemeSelector`, `CreateSessionDialog`). `zustand` is bundled as a production dependency.
+1. `cd app/frontend && pnpm build` — produces `app/frontend/dist/` from two Vite entries: `index.html` (the SPA) and `viewer.html` (the `/present` document viewer shell — `app/frontend/src/viewer/`, served by the Go backend from the embedded FS; see [api-and-sockets](/run-kit/api-and-sockets.md) § API Layer → `/present/{server}/{roothash}/*`). Chunk splitting: `xterm` chunk for `@xterm/xterm`, `@xterm/addon-fit`, `@xterm/addon-web-links`; `router` chunk for `@tanstack/react-router`; plus lazy-loaded component chunks for `CommandPalette`, `ThemeSelector`, `CreateSessionDialog`. The viewer's format code stays in lazy chunks — markdown rendering (markdown-it) with mermaid loaded only when a document carries a ` ```mermaid ` fence, and the excalidraw renderer on the pinned `@excalidraw/utils@0.1.4` utility-only package (exact pin; no editor/React code in its import graph) loaded only for `.excalidraw` URLs. Every viewer asset is same-origin embedded build output — no CDN, no remote fonts: the utils bundle inlines every font family (including the CJK Xiaolai subsets) as base64 woff2 data URIs, which is what makes that lazy chunk ~19.6MB (§ Design Decisions). `zustand` is bundled as a production dependency. (260908-krov-present-viewer-shell)
 2. Copy `app/frontend/dist/` → `app/backend/build/frontend/` (Go embed cannot reference `../` paths)
 3. Build + package the code-bridge extension (`pnpm install --frozen-lockfile && pnpm run build && pnpm run package -- <version>` in `app/code-bridge/`) and copy the VSIX + a `VERSION` sidecar into `app/backend/build/codebridge/` (see [code-bridge](/run-kit/code-bridge.md) § Distribution)
 4. Read version from the latest git tag (`git describe --tags`, fallback `0.0.0-dev`)
@@ -117,6 +117,18 @@ Install flow: `brew install sahil87/tap/run-kit` (fully qualified — the shll m
 **Why**: Go's `//go:embed` cannot reference files outside the package directory. Simple build-time operation.
 **Rejected**: Colocating frontend output with Go source (breaks dev workflow).
 *Introduced by*: 260317-ukyz-homebrew-deployment
+
+### Static `exportToSvg` over the interactive excalidraw viewer
+**Decision**: `.excalidraw` documents render to a static SVG via the pinned `@excalidraw/utils@0.1.4` `exportToSvg` export in a lazy chunk; the compile-time contract is a locally declared typed adapter (`ExcalidrawUtils`/`ExcalidrawSceneInput`) because the package's own d.ts references unresolvable sibling type packages.
+**Why**: The viewer is read-only; the editor bundle is heavy and adds interactivity nobody asked for, and the exact-version pin plus local adapter keep the runtime signature fixed. The built graph contains zero editor code (no React/radix), and the upgrade path to an interactive viewer stays open.
+**Rejected**: The full `@excalidraw/excalidraw` editor/viewer embed — weight and scope. (The registry `latest` dist-tag points at a test build; 0.1.4 is the pinned stable.)
+*Introduced by*: 260908-krov-present-viewer-shell
+
+### Viewer assets fully embedded — inlined fonts, no CDN
+**Decision**: Everything the viewer loads is same-origin embedded build output; the excalidraw utils bundle's fonts (including CJK Xiaolai unicode-range subsets) ride as base64 woff2 data URIs inside the lazy chunk, making it ~19.6MB.
+**Why**: Remote hosts and the desktop shell must work offline, and the intake's all-assets-same-origin constraint admits no CDN fallback. The size is acceptable because the chunk loads only for `.excalidraw` URLs via dynamic import — markdown and the SPA never pay it.
+**Rejected**: CDN font fallbacks (violates the offline contract); shipping font files through `public/` copies plus an asset-path mechanism (extra build wiring for assets the bundle already carries); a hard bundle-size budget (none exists).
+*Introduced by*: 260908-krov-present-viewer-shell
 
 ### VERSION file + ldflags over Go constant
 **Decision**: Version sourced from the `VERSION` file, injected via `-X main.version=...`.

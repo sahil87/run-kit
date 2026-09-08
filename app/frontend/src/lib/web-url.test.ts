@@ -57,6 +57,11 @@ describe("displayForm (260819-v6y4 R3)", () => {
     expect(displayForm("/present/@320/doc.html?server=a&v=1#section")).toBe("doc.html#section");
   });
 
+  it("present: the viewer shell's raw param is plumbing too (both forms)", () => {
+    expect(displayForm("/present/runKit/3f9a2c8e1b77/notes.md?raw=1&v=2")).toBe("notes.md");
+    expect(displayForm("/present/@320/notes.md?server=runKit&raw=1")).toBe("notes.md");
+  });
+
   it("proxy: localhost:{port}{path} — the /proxy/ plumbing never shows", () => {
     expect(displayForm("/proxy/3000/board/runKit")).toBe("localhost:3000/board/runKit");
     expect(displayForm("/proxy/3000/")).toBe("localhost:3000/");

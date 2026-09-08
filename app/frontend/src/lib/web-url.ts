@@ -9,7 +9,7 @@
  *    loopback dev server riding `/proxy/{port}`), `external` (any other
  *    absolute http(s) URL), `relative` (any other root-relative path).
  * 2. `displayForm` — the pretty REST form the address bar and header show:
- *    plumbing hidden (`/proxy/` prefix, the `?server=…&v=…` params), never
+ *    plumbing hidden (`/proxy/` prefix, the `?server=…&v=…&raw=…` params), never
  *    throwing (unparseable input degrades to the raw string).
  * 3. `normalizeAddressInput` — the submit-time normalization: bare loopback
  *    `host:port` → `/proxy/{port}/…`, bare domain → `https://…`, valid
@@ -58,8 +58,9 @@ const BARE_DOMAIN_RE = /^[^\s/:]+\.[^\s/:]+(:\d+)?([/?#][^\s]*)?$/;
 
 /** Plumbing query params hidden from the present-kind display form — the
  *  legacy form's `server` identity param (the NEW form promotes it into the
- *  path, so it lives there now) and `rk present`'s `v` cache-buster. */
-const PRESENT_PLUMBING_PARAMS = new Set(["server", "v"]);
+ *  path, so it lives there now), `rk present`'s `v` cache-buster, and the
+ *  viewer shell's `raw` escape hatch. */
+const PRESENT_PLUMBING_PARAMS = new Set(["server", "v", "raw"]);
 
 /** Parse an absolute http(s) URL, or null for anything else. Never throws. */
 function parseHttpUrl(raw: string): URL | null {
@@ -149,7 +150,7 @@ export function proxyPortOf(url: string): number | null {
 
 /**
  * The pretty REST form of an address, per kind:
- * - present  → the file's basename, plumbing params (`server`, `v`) hidden
+ * - present  → the file's basename, plumbing params (`server`, `v`, `raw`) hidden
  * - proxy    → `localhost:{port}{path}` — the `/proxy/` plumbing never shows
  * - external → `host{path}{?query}` with the scheme omitted
  * - relative → the raw path
@@ -160,7 +161,7 @@ export function displayForm(url: string): string {
   try {
     const kind = classifyAddress(url);
     if (kind === "present") {
-      // Hide only the plumbing params (`server`, `v`) and — for the NEW
+      // Hide only the plumbing params (`server`, `v`, `raw`) and — for the NEW
       // content-keyed form — the server + hash path segments; a presented
       // page's own query params stay visible after the basename. A NEW-form
       // directory present (empty path tail) shows the index.html it serves —

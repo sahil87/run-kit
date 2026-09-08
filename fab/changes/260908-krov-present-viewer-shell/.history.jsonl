@@ -1,3 +1,13 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-08T10:30:09Z"}
 {"args":"viewer shell rendering for .md and .excalidraw present targets (read-only)","cmd":"fab-new","event":"command","ts":"2026-09-08T10:30:09Z"}
 {"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-09-08T10:31:48Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-08T18:22:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T18:23:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T19:16:01Z"}
+{"event":"review","result":"failed","ts":"2026-09-08T19:28:20Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T19:28:20Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T19:41:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-08T19:48:18Z"}
+{"event":"review","result":"passed","ts":"2026-09-08T19:48:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-08T19:52:32Z"}
+{"cmd":"fab-issue","event":"command","ts":"2026-09-08T19:52:32Z"}

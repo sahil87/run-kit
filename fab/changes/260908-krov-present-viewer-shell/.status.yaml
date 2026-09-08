@@ -5,17 +5,17 @@ created_by: sahil-noon
 change_type: refactor
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 17
+    acceptance_count: 26
+    acceptance_completed: 26
 confidence:
     certain: 2
     confident: 6
@@ -29,7 +29,26 @@ confidence:
         competence: 78.8
         disambiguation: 70.6
 stage_metrics:
-    intake: {started_at: "2026-09-08T10:30:09Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-09-08T10:30:09Z", driver: fab-new, iterations: 1, completed_at: "2026-09-08T18:23:02Z"}
+    apply: {started_at: "2026-09-08T19:28:20Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-08T19:41:46Z"}
+    review: {started_at: "2026-09-08T19:41:46Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-08T19:48:18Z"}
+    hydrate: {started_at: "2026-09-08T19:48:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T19:52:32Z"}
+    ship: {started_at: "2026-09-08T19:52:32Z", driver: fab-fff, iterations: 1}
 prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-08T19:52:32Z"
+    computed_at_stage: hydrate
+summary: gates /present on the resolved extension to serve an embedded read-only viewer shell for .md/.markdown/.excalidraw (lazy mermaid, static exportToSvg, fully offline assets) with a ?raw=1 exact-bytes escape hatch, an X-Present-Format resolved-format header, X-Rk-Dev-Proxy dev shell sourcing, and raw as a hidden address-bar plumbing param
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-08T10:31:52Z
+last_updated: 2026-09-08T19:52:32Z

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"rk/internal/gitinfo"
 	"rk/internal/tmux"
 )
 
@@ -53,6 +54,31 @@ type captureFunc func(ctx context.Context, server string) (*Snapshot, error)
 // mark. Production: tmux.IsEphemeralServer. Tests inject a stub.
 type ephemeralFunc func(ctx context.Context, server string) (bool, error)
 
+// listPanesFunc enumerates a server's panes (by owning window id) — the cheap
+// per-tick read behind the git-info stamp. Production: tmux.ListLayoutPanes.
+// Tests inject a stub.
+type listPanesFunc func(ctx context.Context, server string) (map[string][]tmux.LayoutPane, error)
+
+// resolveBranchesFunc resolves each cwd's git branch via the shared TTL-cached
+// resolver. Production: gitinfo.ResolveBranches. Tests inject a stub so the
+// stamp gate can be exercised without a live git tree.
+type resolveBranchesFunc func(ctx context.Context, cwds []string) map[string]string
+
+// setPaneOptionFunc stamps one pane user-option. Production: tmux.SetPaneOption.
+// Tests inject a recorder.
+type setPaneOptionFunc func(ctx context.Context, paneID, server, option, value string) error
+
+// stampedGit is a pane's last-stamped git-info triple — the only-on-change
+// comparison key. The zero value matches an unstamped pane (all three options
+// unset read empty), so a pane whose derived triple is all-empty (an empty-cwd
+// pane) issues no writes. A new no-repo pane still stamps its non-empty pathtail
+// once on first sight, then goes quiet.
+type stampedGit struct {
+	branch   string
+	worktree string
+	pathtail string
+}
+
 // serverState is the per-server debounce/safety bookkeeping. All three fields
 // advance only after a SUCCESSFUL pass (capture ok, write landed or deduped)
 // — a failed capture leaves them untouched so the server is due again on the
@@ -77,6 +103,11 @@ type Snapshotter struct {
 	capture   captureFunc
 	ephemeral ephemeralFunc
 
+	// Git-info stamp seams (production defaults set in NewSnapshotter).
+	listPanes       listPanesFunc
+	resolveBranches resolveBranchesFunc
+	setPaneOption   setPaneOptionFunc
+
 	checkInterval  time.Duration
 	safetyInterval time.Duration
 	auditWindow    time.Duration
@@ -84,6 +115,15 @@ type Snapshotter struct {
 
 	// now is a clock seam for tests.
 	now func() time.Time
+
+	// stampMu guards stamped. The tick goroutine is its only writer, but the
+	// lock keeps the map race-safe against tests that drive stampGitInfo
+	// directly and documents the ownership.
+	stampMu sync.Mutex
+	// stamped is the per-server, per-pane last-stamped git triple behind the
+	// only-on-change write gate. Pruned as panes disappear (in stampGitInfo)
+	// and as servers leave coverage (in tick), so it stays bounded.
+	stamped map[string]map[string]stampedGit
 
 	mu      sync.Mutex
 	servers map[string]*serverState
@@ -110,18 +150,22 @@ type Snapshotter struct {
 // with production intervals.
 func NewSnapshotter(src ServerSource, store *Store) *Snapshotter {
 	return &Snapshotter{
-		src:            src,
-		store:          store,
-		capture:        CaptureServer,
-		ephemeral:      tmux.IsEphemeralServer,
-		checkInterval:  defaultCheckInterval,
-		safetyInterval: defaultSafetyInterval,
-		auditWindow:    defaultAuditWindow,
-		maxHold:        defaultMaxHold,
-		now:            time.Now,
-		servers:        map[string]*serverState{},
-		auditedAt:      map[string]time.Time{},
-		removedEpoch:   map[string]uint64{},
+		src:             src,
+		store:           store,
+		capture:         CaptureServer,
+		ephemeral:       tmux.IsEphemeralServer,
+		listPanes:       tmux.ListLayoutPanes,
+		resolveBranches: gitinfo.ResolveBranches,
+		setPaneOption:   tmux.SetPaneOption,
+		checkInterval:   defaultCheckInterval,
+		safetyInterval:  defaultSafetyInterval,
+		auditWindow:     defaultAuditWindow,
+		maxHold:         defaultMaxHold,
+		now:             time.Now,
+		stamped:         map[string]map[string]stampedGit{},
+		servers:         map[string]*serverState{},
+		auditedAt:       map[string]time.Time{},
+		removedEpoch:    map[string]uint64{},
 	}
 }
 
@@ -199,6 +243,14 @@ func (s *Snapshotter) tick(ctx context.Context) {
 				s.mu.Unlock()
 			}
 		}
+
+		// Stamp per-pane git info EVERY tick, independent of the capture's
+		// debounce/safety gating: a branch checkout moves no tmux generation
+		// counter, so gating stamping on `due` would lag branch changes by up
+		// to the safety interval. The read is cheap (one list-panes plus
+		// TTL-cached, subprocess-free branch resolution) and writes are
+		// only-on-change, so a steady state issues no set-option calls.
+		s.stampGitInfo(ctx, server)
 	}
 
 	// Drop bookkeeping for servers no longer covered (their tombstoning is
@@ -210,6 +262,107 @@ func (s *Snapshotter) tick(ctx context.Context) {
 		}
 	}
 	s.mu.Unlock()
+
+	// Drop the git-stamp cache for servers no longer covered so it stays
+	// bounded (per-pane pruning within a covered server happens in
+	// stampGitInfo).
+	s.stampMu.Lock()
+	for server := range s.stamped {
+		if !covered[server] {
+			delete(s.stamped, server)
+		}
+	}
+	s.stampMu.Unlock()
+}
+
+// stampGitInfo stamps each of the server's panes with its derived git branch,
+// worktree badge, and path tail as pane user-options (PaneGitBranchOption /
+// PaneGitWorktreeOption / PanePathTailOption), so the managed
+// pane-border-format reads those options instead of forking `#()` git jobs at
+// draw time. Values are single-sourced from internal/gitinfo (the sidebar's
+// resolver), so the border shows exactly what the sidebar shows. Writes are
+// only-on-change against the per-pane last-stamped cache, and each is
+// best-effort: a set-option failure is logged and never aborts the tick or the
+// other panes. Every failure degrades to a log line — stamping must never take
+// down or block serving.
+func (s *Snapshotter) stampGitInfo(ctx context.Context, server string) {
+	panesByWindow, err := s.listPanes(ctx, server)
+	if err != nil {
+		if tmux.IsServerGone(err) {
+			slog.Debug("snapshot: git-stamp pane list skipped, server gone", "server", server, "err", err)
+		} else {
+			slog.Warn("snapshot: git-stamp pane list failed", "server", server, "err", err)
+		}
+		return
+	}
+
+	type paneRef struct{ id, cwd string }
+	var panes []paneRef
+	present := make(map[string]bool)
+	var cwds []string
+	for _, ps := range panesByWindow {
+		for _, p := range ps {
+			if p.PaneID == "" {
+				continue
+			}
+			panes = append(panes, paneRef{id: p.PaneID, cwd: p.Cwd})
+			present[p.PaneID] = true
+			if p.Cwd != "" {
+				cwds = append(cwds, p.Cwd)
+			}
+		}
+	}
+	branches := s.resolveBranches(ctx, cwds)
+
+	// Diff against the last-stamped values under the lock, then release it
+	// before issuing tmux writes (subprocess round-trips must not be held under
+	// a lock). The tick goroutine is the sole writer of stamped, so the cache
+	// is stable across the unlocked write phase.
+	type paneWrite struct{ paneID, option, value string }
+	var writes []paneWrite
+
+	s.stampMu.Lock()
+	last := s.stamped[server]
+	if last == nil {
+		last = map[string]stampedGit{}
+		s.stamped[server] = last
+	}
+	for id := range last {
+		if !present[id] {
+			delete(last, id) // pane closed — prune so the cache stays bounded
+		}
+	}
+	for _, p := range panes {
+		want := stampedGit{
+			branch:   branches[p.cwd],
+			pathtail: gitinfo.PathTail(p.cwd),
+		}
+		if gitinfo.IsWorktree(p.cwd) {
+			want.worktree = tmux.PaneGitWorktreeBadge
+		}
+		prev := last[p.id] // zero value == unstamped (all empty)
+		if want == prev {
+			continue
+		}
+		if want.branch != prev.branch {
+			writes = append(writes, paneWrite{p.id, tmux.PaneGitBranchOption, want.branch})
+		}
+		if want.worktree != prev.worktree {
+			writes = append(writes, paneWrite{p.id, tmux.PaneGitWorktreeOption, want.worktree})
+		}
+		if want.pathtail != prev.pathtail {
+			writes = append(writes, paneWrite{p.id, tmux.PanePathTailOption, want.pathtail})
+		}
+		last[p.id] = want
+	}
+	s.stampMu.Unlock()
+
+	for _, w := range writes {
+		if err := s.setPaneOption(ctx, w.paneID, server, w.option, w.value); err != nil {
+			slog.Debug("snapshot: git-stamp set-option failed",
+				"server", server, "pane", w.paneID, "option", w.option, "err", err)
+		}
+	}
 }
 
 // snapshot captures and persists one server, degrading every failure to a log

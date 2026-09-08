@@ -805,6 +805,36 @@ Mirrors the agent-state binary-vs-settings split:
   `active`/`waiting`/`idle` hooks; the SessionStart row only advances *when* the
   first stamp lands (within seconds of start, before any prompt).
 
+## Daemon-Derived Pane Options (`@rk_pane_git_*`)
+
+A third group of `@rk_pane_*` options carries **git info for the tmux pane
+border**, and unlike the agent-state/agent-session tiers it is **written by the
+run-kit daemon, not by an agent harness hook**:
+
+| Option | Const | Value |
+|--------|-------|-------|
+| `@rk_pane_git_branch` | `tmux.PaneGitBranchOption` | the pane cwd's git branch (or the grace/detached last-known branch, or empty) |
+| `@rk_pane_git_worktree` | `tmux.PaneGitWorktreeOption` | the worktree badge glyph string (`tmux.PaneGitWorktreeBadge`) when the pane's git root lies under a `worktrees`/`.worktrees` dir, else empty |
+| `@rk_pane_pathtail` | `tmux.PanePathTailOption` | the last two segments of the pane cwd |
+
+- **Writer**: the snapshotter (`internal/snapshot`) stamps these every tick for
+  every covered server via `tmux.SetPaneOption` (`set-option -p`), **only-on-change**
+  (a per-server→per-pane last-stamped cache; a value equal to the last stamp
+  issues no write; entries are pruned when a pane closes or a server drops out of
+  coverage; a `set-option` error is logged and never aborts the tick). Stamping
+  is on the snapshotter tick, not the SSE poll, so it is **subscriber-independent**
+  — a native-terminal-only pane with no browser watching still gets its border
+  populated.
+- **Derivation**: branch/worktree come from the shared `internal/gitinfo`
+  resolver (the same TTL-cached, subprocess-free `.git/HEAD` reader the web
+  sidebar uses via `gitinfo.ResolveBranches`), so the **border matches the
+  sidebar**; `gitinfo.PathTail` and `gitinfo.IsWorktree` supply the other two.
+- **Reader**: the managed `pane-border-format` reads them directly as
+  `#{@rk_pane_git_branch}` / `#{@rk_pane_git_worktree}` / `#{@rk_pane_pathtail}`;
+  see [configuration](/run-kit/configuration.md) § the embedded conf's
+  `pane-border-format`. There is no backend native-read parse of these — they
+  exist solely to feed the border, replacing per-draw `#()` shell jobs. (s9fw)
+
 ## Design Decisions
 
 ### Reconciler at `parsePanes` time (`internal/tmux`), rollup at `internal/sessions`

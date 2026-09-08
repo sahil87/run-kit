@@ -427,3 +427,31 @@ func TestRefreshSweep(t *testing.T) {
 		}
 	})
 }
+
+// TestDefaultConfigPaneBorderNoShellJobs guards the split-window server-wedge
+// fix: the managed pane-border-format MUST read cached pane options
+// (@rk_pane_git_branch / @rk_pane_git_worktree / @rk_pane_pathtail) instead of
+// forking `#()` shell jobs at draw time. It asserts the embedded managed conf's
+// pane-border-format line contains no `#(` sequence and references the three
+// stamped options.
+func TestDefaultConfigPaneBorderNoShellJobs(t *testing.T) {
+	conf := string(DefaultConfigBytes())
+	var formatLine string
+	for _, line := range strings.Split(conf, "\n") {
+		if strings.Contains(line, "pane-border-format") {
+			formatLine = line
+			break
+		}
+	}
+	if formatLine == "" {
+		t.Fatal("embedded managed conf has no pane-border-format line")
+	}
+	if strings.Contains(formatLine, "#(") {
+		t.Errorf("pane-border-format still forks a #() shell job: %q", formatLine)
+	}
+	for _, opt := range []string{PaneGitBranchOption, PaneGitWorktreeOption, PanePathTailOption} {
+		if !strings.Contains(formatLine, "#{"+opt+"}") {
+			t.Errorf("pane-border-format missing option read #{%s}: %q", opt, formatLine)
+		}
+	}
+}

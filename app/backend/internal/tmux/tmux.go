@@ -534,6 +534,40 @@ const AgentSessionOption = "@rk_pane_agent_session"
 // dual-read for the deprecation window and removed by the follow-up change.
 const LegacyAgentSessionOption = "@rk_pane_chat"
 
+// PaneGitBranchOption / PaneGitWorktreeOption / PanePathTailOption are the
+// PANE-scoped user options the daemon stamps with each pane's derived git info
+// so the managed pane-border-format reads them (#{@rk_pane_*}) instead of
+// forking `#()` git shell-jobs at draw time — the fix for the split-window
+// server wedge. Writer = the snapshotter tick (subscriber-independent,
+// only-on-change); the values are single-sourced from internal/gitinfo so the
+// border shows exactly what the sidebar shows. See docs/specs (configuration /
+// agent-state) and internal/snapshot.
+const (
+	// PaneGitBranchOption carries the branch name (empty for detached-past-grace
+	// or no repo).
+	PaneGitBranchOption = "@rk_pane_git_branch"
+	// PaneGitWorktreeOption carries the worktree badge string
+	// (PaneGitWorktreeBadge) when the pane's git root lies under a
+	// worktrees/.worktrees directory, else empty.
+	PaneGitWorktreeOption = "@rk_pane_git_worktree"
+	// PanePathTailOption carries the last two segments of the pane's cwd.
+	PanePathTailOption = "@rk_pane_pathtail"
+)
+
+// PaneGitWorktreeBadge is the exact string the retired pane-border shell job
+// emitted for a worktree pane (a leading space, the nerd-font worktree glyph,
+// and two trailing spaces). The daemon stamps it verbatim into
+// PaneGitWorktreeOption so the border need only read the option; the border's
+// own `#[bg=…]` style arm still wraps it.
+const PaneGitWorktreeBadge = "   "
+
+// SetPaneOption sets a user-defined pane option on the specified server
+// (`set-option -p`). Mirrors SetWindowOption, pane-scoped.
+func SetPaneOption(ctx context.Context, paneID, server, option, value string) error {
+	_, err := tmuxExecServer(ctx, server, "set-option", "-p", "-t", paneID, option, value)
+	return err
+}
+
 // shellCommands is the set of plain-shell pane_current_command values that the
 // LEGACY reconciler fallback treats as "no agent" — applied only to
 // two-segment @rk_agent_state values (no pid segment, older writers). A pane

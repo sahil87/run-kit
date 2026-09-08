@@ -1,0 +1,55 @@
+id: s9fw
+name: 260908-s9fw-cache-pane-border-git-info
+created: 2026-09-08T19:25:12Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 7
+    acceptance_count: 10
+    acceptance_completed: 0
+confidence:
+    certain: 4
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 79.2
+        reversibility: 79.2
+        competence: 84.2
+        disambiguation: 74.2
+stage_metrics:
+    intake: {started_at: "2026-09-08T19:25:12Z", driver: fab-new, iterations: 1, completed_at: "2026-09-08T19:28:00Z"}
+    apply: {started_at: "2026-09-08T20:06:45Z", driver: fab-ff, iterations: 2, completed_at: "2026-09-08T20:07:59Z"}
+    review: {started_at: "2026-09-08T20:07:59Z", driver: fab-ff, iterations: 2, completed_at: "2026-09-08T20:10:34Z"}
+    hydrate: {started_at: "2026-09-08T20:10:34Z", driver: fab-ff, iterations: 1, completed_at: "2026-09-08T20:12:40Z"}
+    ship: {started_at: "2026-09-08T20:12:40Z", driver: fab-ff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-08T20:12:40Z"
+    computed_at_stage: hydrate
+summary: 'Pane-border git info (branch/worktree/pathtail) is daemon-stamped as @rk_pane_git_* pane options and read by pane-border-format, replacing per-draw #() git shell jobs that wedged tmux on split; resolver extracted to internal/gitinfo'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-08T20:12:40Z

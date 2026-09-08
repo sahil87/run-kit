@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"rk/internal/tmux"
 )
 
 // fakeSource is a mutable ServerSource for snapshotter tests.
@@ -79,6 +81,12 @@ func newTestSnapshotter(t *testing.T, src *fakeSource) (*Snapshotter, *countingC
 	s.capture = cap.fn
 	s.checkInterval = time.Millisecond
 	s.safetyInterval = time.Hour // safety disabled unless a test moves the clock
+	// Neutralize the per-tick git-info stamp for capture-focused tests: no live
+	// tmux exists behind a fakeSource, so return no panes and stamp nothing.
+	// Stamp-specific tests override these seams.
+	s.listPanes = func(context.Context, string) (map[string][]tmux.LayoutPane, error) { return nil, nil }
+	s.resolveBranches = func(context.Context, []string) map[string]string { return nil }
+	s.setPaneOption = func(context.Context, string, string, string, string) error { return nil }
 	return s, cap, store
 }
 
@@ -561,5 +569,122 @@ func TestSnapshotterEphemeralReadErrorDegradesToDurable(t *testing.T) {
 	}
 	if snap, _ := store.LoadLatest("kit"); snap == nil {
 		t.Fatal("read error should degrade to durable — snapshot expected")
+	}
+}
+
+// paneOptionRecorder records SetPaneOption calls behind the snapshotter's
+// setPaneOption seam.
+type paneOptionRecorder struct {
+	mu    sync.Mutex
+	calls []struct{ paneID, option, value string }
+}
+
+func (r *paneOptionRecorder) fn(_ context.Context, paneID, _ /*server*/, option, value string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, struct{ paneID, option, value string }{paneID, option, value})
+	return nil
+}
+
+func (r *paneOptionRecorder) reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = nil
+}
+
+func (r *paneOptionRecorder) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.calls)
+}
+
+// countFor returns how many recorded writes targeted the given option.
+func (r *paneOptionRecorder) countFor(option string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, c := range r.calls {
+		if c.option == option {
+			n++
+		}
+	}
+	return n
+}
+
+// TestSnapshotterStampGitInfoOnlyOnChange proves the only-on-change write gate:
+// a second tick with identical derived values issues zero set-option calls, and
+// a branch change re-stamps only the branch option.
+func TestSnapshotterStampGitInfoOnlyOnChange(t *testing.T) {
+	src := newFakeSource()
+	src.set("kit", 1)
+	s, _, _ := newTestSnapshotter(t, src)
+
+	rec := &paneOptionRecorder{}
+	s.setPaneOption = rec.fn
+	s.listPanes = func(context.Context, string) (map[string][]tmux.LayoutPane, error) {
+		return map[string][]tmux.LayoutPane{"@1": {{PaneID: "%1", Cwd: "/home/user/proj"}}}, nil
+	}
+	branch := "main"
+	s.resolveBranches = func(context.Context, []string) map[string]string {
+		return map[string]string{"/home/user/proj": branch}
+	}
+
+	// First tick stamps the changed (non-empty) options at least once.
+	s.tick(context.Background())
+	if rec.count() == 0 {
+		t.Fatal("first tick issued no set-option calls, want the initial stamp")
+	}
+	if rec.countFor(tmux.PaneGitBranchOption) != 1 {
+		t.Errorf("first tick branch writes = %d, want 1", rec.countFor(tmux.PaneGitBranchOption))
+	}
+
+	// Second tick with identical derived values: only-on-change gate → zero writes.
+	rec.reset()
+	s.tick(context.Background())
+	if got := rec.count(); got != 0 {
+		t.Errorf("identical second tick issued %d set-option calls, want 0", got)
+	}
+
+	// A branch change re-stamps only the branch option.
+	rec.reset()
+	branch = "feat-x"
+	s.tick(context.Background())
+	if rec.count() != 1 || rec.countFor(tmux.PaneGitBranchOption) != 1 {
+		t.Errorf("branch-change tick calls = %d (branch %d), want exactly 1 branch write",
+			rec.count(), rec.countFor(tmux.PaneGitBranchOption))
+	}
+}
+
+// TestSnapshotterStampGitInfoPrunesClosedPanes proves the last-stamped cache
+// drops a pane once it disappears, keeping the cache bounded.
+func TestSnapshotterStampGitInfoPrunesClosedPanes(t *testing.T) {
+	src := newFakeSource()
+	src.set("kit", 1)
+	s, _, _ := newTestSnapshotter(t, src)
+	s.setPaneOption = (&paneOptionRecorder{}).fn
+	s.resolveBranches = func(context.Context, []string) map[string]string { return nil }
+
+	panes := map[string][]tmux.LayoutPane{"@1": {{PaneID: "%1", Cwd: "/a/b"}, {PaneID: "%2", Cwd: "/c/d"}}}
+	s.listPanes = func(context.Context, string) (map[string][]tmux.LayoutPane, error) { return panes, nil }
+	s.tick(context.Background())
+
+	s.stampMu.Lock()
+	n := len(s.stamped["kit"])
+	s.stampMu.Unlock()
+	if n != 2 {
+		t.Fatalf("after first tick, stamped panes = %d, want 2", n)
+	}
+
+	// %2 closes: the next tick sees only %1 and prunes %2.
+	panes = map[string][]tmux.LayoutPane{"@1": {{PaneID: "%1", Cwd: "/a/b"}}}
+	s.tick(context.Background())
+
+	s.stampMu.Lock()
+	_, has1 := s.stamped["kit"]["%1"]
+	_, has2 := s.stamped["kit"]["%2"]
+	n = len(s.stamped["kit"])
+	s.stampMu.Unlock()
+	if !has1 || has2 || n != 1 {
+		t.Errorf("after prune tick: has1=%v has2=%v n=%d, want has1=true has2=false n=1", has1, has2, n)
 	}
 }

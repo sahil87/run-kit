@@ -4,12 +4,17 @@
 // agent's parent process) and derives everything from disk at request time
 // (Constitution II).
 //
-// The registry routes on the provider prefix so Codex/Gemini adapters are
-// backend-only additions; v1 ships the Claude adapter (see claude.go).
+// The registry routes on the provider prefix. Shipped adapters: claude
+// (UUID-guarded projects glob), codex (rollout glob under $CODEX_HOME), gemini
+// (prefix glob + full-id verification), kimi (session_index + bounded glob),
+// agy (deterministic brain/<id> path), and opencode (native `opencode export`
+// materialized to a bounded temp file, with a ConversationChecker for the
+// derive tick). Copilot deliberately has no adapter (identity+lifecycle only).
 package transcript
 
 import (
 	"errors"
+	"regexp"
 	"sync"
 )
 
@@ -39,6 +44,19 @@ type TranscriptLocator interface {
 	TranscriptPath(ref string) (string, error)
 }
 
+// ConversationChecker is an OPTIONAL adapter capability: a CHEAP availability
+// probe the derive tick (internal/sessions) uses in place of a full
+// resolution when resolving is request-priced — opencode's TranscriptPath
+// spawns the native `opencode export` subprocess, which must never run on
+// every dashboard fetch. A checker answers "this provider can produce a
+// conversation for a well-formed ref"; the request path (POST / queue drain)
+// still resolves for real and revalidates.
+type ConversationChecker interface {
+	// ConversationAvailable reports cheaply (no subprocess, no unbounded
+	// scan) whether a conversation for ref is expected to resolve.
+	ConversationAvailable(ref string) bool
+}
+
 // Path resolves provider+ref to the absolute transcript path via the
 // registry: Lookup routes to the provider's adapter, which is type-asserted to
 // TranscriptLocator. An unregistered provider, or one without the capability,
@@ -55,6 +73,11 @@ func Path(provider, ref string) (string, error) {
 	}
 	return loc.TranscriptPath(ref)
 }
+
+// safeTokenRefRe is the shared guard for providers whose session refs are
+// opaque tokens rather than UUIDs (kimi `session_<uuid>`): alphanumerics,
+// dash, underscore — nothing path- or glob-bearing.
+var safeTokenRefRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // registry maps a provider prefix to its Adapter. Guarded by mu so Register
 // (called from adapter init) and Lookup (called per request) are race-free.

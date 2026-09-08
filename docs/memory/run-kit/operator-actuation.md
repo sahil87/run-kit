@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Operator messaging into the server's operator window over three lanes: direct chat (compose-send allow+probe), templated chat (`chatDelivery` templates — source envelope + delimited text, busy gate and queue skipped in the shared core), and templated requests (busy ⇒ enqueue 202, drained on idle). Covers the closed template registry (`chatDelivery ⇒ acceptsText ∧ ¬requiresAgentSessionRef`), fact derivation with best-effort transcript degradation, structured 409s, and auto-name dispatch."
+description: "Operator messaging into the server's operator window over three lanes: direct chat (compose-send allow+probe), templated chat (`chatDelivery` templates — source envelope + delimited text, busy gate and queue skipped in the shared core), and templated requests (busy ⇒ enqueue 202, drained on idle). Covers the closed template registry, fact derivation with best-effort transcript degradation, the server-derived `conversationAvailable` gate, structured 409s, and auto-name dispatch."
 ---
 # Operator Actuation
 
@@ -315,6 +315,24 @@ agent session) leaves it empty and delivery proceeds — the render func omits
 the transcript line, and no transcript-related 404 is reachable on this path
 (the load-bearing difference from the `requiresAgentSessionRef` templates,
 whose 404-class behavior is unchanged).
+
+Resolution spans six provider adapters — every registered provider except
+copilot, which deliberately has none (identity + lifecycle only, so its
+subjects always surface the `ErrNoAdapter` 404 naming the provider) — behind
+the same `transcript.Path` seam, and consumers treat any provider whose
+transcript resolves exactly like claude (nnqu). For opencode no on-disk
+transcript exists: resolution runs the NATIVE
+`opencode export --sanitize -- <sessionID>` and materializes the JSON AT
+REQUEST TIME ONLY — never on the derive tick (nnqu). Every returned artifact
+path stays valid for a 1-hour grace that exceeds the operator queue's
+30-minute TTL, so a queued request's embedded path is still readable when the
+operator acts (nnqu). At the 16-artifact in-grace cap a new materialization is
+REFUSED (`errExportCapacity`) rather than evicting a path already handed out —
+the capacity check counts every in-grace artifact including one for the ref
+being resolved, so re-resolving an already-exported ref at full capacity is
+refused until the grace expires; the facts builder degrades the refusal by
+omission exactly like any unresolvable ref, so no rendered prompt ever embeds
+a dangling path (nnqu).
 
 #### Scenario: Subject without a resolvable transcript
 - **GIVEN** a subject window whose reconciled agent session ref is empty or
@@ -832,14 +850,27 @@ card) and the palette's `Tab: Fix name (ask operator)` / `Operator: Annotate
 tab` entries
 ([ui/keyboard-and-palette](/run-kit/ui/keyboard-and-palette.md) § Command
 Palette Actions) — SHALL render only when (a) the server has an operator window
-(`role === "operator"` present in the sessions payload), (b) the subject window
-carries a non-empty `agentSessionRef` (the template needs its JSONL
-transcript),
+(`role === "operator"` present in the sessions payload), (b) the subject
+window's server-derived `conversationAvailable` capability is `true` — a
+`WindowInfo` field derived once per identified window per fetch (the window
+rollup seam, never per-pane): the window's rolled-up reconciled agent identity
+is present AND its provider has a registered transcript adapter AND the
+provider's bounded availability check succeeds (opencode answers through a
+cheap `ConversationChecker` probe — a well-formed native ref plus `opencode`
+on PATH; every other provider resolves for real via its bounded glob/index
+lookup; every failure class — absent identity, unregistered provider, invalid
+ref, missing transcript — degrades to `false`, and the derive tick never
+spawns a subprocess) (nnqu),
 and (c) the subject is not itself the operator window (the pure
 `canRequestWindowOperatorAction(win, hasOperator)` rule in
 `row-flyout-card.tsx`, ONE predicate serving both actions). All
 three facts already ride the sessions payload; an unavailable action is
-OMITTED, never disabled. The window flyout card carries NO annotate row — the
+OMITTED, never disabled. An identity-only provider (copilot — identity +
+lifecycle, no transcript adapter) never advertises Fix tab name / Annotate
+tab, and a direct POST against such a subject still surfaces the
+`ErrNoAdapter` 404 naming the provider (the fact pre-derivation requirement
+above); request-time revalidation in the POST handler and fresh-`FetchSessions`
+revalidation at queue drain are the backstops behind the gate (nnqu). The window flyout card carries NO annotate row — the
 `annotate-tab` verb is palette-only (the palette is the action registry of
 record, Constitution V); the card keeps only the note DISPLAY line
 (`NoteLine`). The fix-name and annotate client call is
@@ -887,14 +918,15 @@ outcome keeps its existing copy. No new UI surface — no queue badge, no
 inspect/cancel affordance (Constitution IV) — and no SSE payload change.
 
 #### Scenario: Gating and single-flight
-- **GIVEN** a window row on a server with an operator and a subject carrying an
-  agent session
+- **GIVEN** a window row on a server with an operator and a subject whose
+  `conversationAvailable` is `true`
 - **WHEN** the flyout opens and "Fix tab name" is clicked
 - **THEN** exactly one `sendOperatorRequest` fires (re-clicks during flight are
   no-ops) and a success toast appears.
-- **AND GIVEN** no operator on the server, OR a subject without
-  `agentSessionRef`, OR the operator's own row, **THEN** the row and the
-  palette entry are absent (not disabled).
+- **AND GIVEN** no operator on the server, OR a subject whose
+  `conversationAvailable` is `false` (no reconciled identity, no registered
+  adapter, or a failed availability check), OR the operator's own row, **THEN**
+  the row and the palette entry are absent (not disabled).
 - **AND GIVEN** no operator on the server, **THEN** neither
   update-annotations fire surface renders (omitted, not disabled).
 - **AND GIVEN** a busy operator and a tap on "Fix tab name", **WHEN** the
@@ -1070,7 +1102,8 @@ into permission dialogs).
 
 ### Optional `TranscriptLocator` capability, not an Adapter interface change
 **Decision**: the transcript path is exposed as an optional interface the
-claude adapter implements, reached via `Lookup` + type-assert behind the
+transcript-capable providers' adapters implement (six providers — every
+registered provider except copilot), reached via `Lookup` + type-assert behind the
 package-level `transcript.Path`.
 **Why**: the core `Adapter` interface stays provider-neutral (a future
 protocol-based provider may have no on-disk transcript); the guard-bearing
@@ -1079,6 +1112,16 @@ protocol-based provider may have no on-disk transcript); the guard-bearing
 non-file providers); exporting `locateTranscript` bare (loses provider
 routing).
 *Introduced by*: 260822-fih1-operator-request-fix-tab-name
+
+### Capability derived at window rollup, bounded resolution
+**Decision**: `conversationAvailable` derives once per identified window per
+fetch (the window rollup seam, never per-pane); the frontend gates on it; POST
+and queue-drain revalidation stay as-is.
+**Why**: keeps the flyout and palette honest for identity-only providers
+without per-pane unbounded scans.
+**Rejected**: advertising on identity presence alone (predictably fails for
+copilot); caching resolutions (Constitution II — derive at request time).
+*Introduced by*: 260908-nnqu-fix-agent-neutral-detection
 
 ### Mirror waitingPushTracker rather than a new observer framework
 **Decision**: the auto-name tracker is a sibling of `waitingPushTracker` — own

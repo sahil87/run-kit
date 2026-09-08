@@ -376,6 +376,12 @@ measured against the same checks (260815-r2wp-agent-family):
   `agent-hook` appears (the visible root count drops by one net: two verbs
   removed, one family added). The help-dump test asserts the subtree and the
   exclusions dynamically, mirroring the mux assertions.
+- **Surface help enumerates the supported harnesses.** `rk agent setup`'s
+  `Long` help (`agentSetupLong`) names every supported harness and its config
+  target, kept honest by `TestAgentSetupLongListsEveryProvider`; `rk agent
+  hook`'s `--agent` flag help lists the seven providers. Both enumerations live
+  in the `Long:`/flag help the cobra walk already picks up, so the dump's tree
+  shape and alias exclusions stand as asserted above. (nnqu)
 - **Principle 2/9: the deprecation pointer is chatter; the hook is silent.**
   The `agent-setup` alias's cobra `Deprecated` pointer prints to stderr (a
   diagnostic, not data) and the command still runs with unchanged exit codes;
@@ -846,6 +852,13 @@ The remaining relative forms are correct and stay relative: README →
 `README.md` + `docs/site/**` shows zero escapes.
 (260717-c424-toolkit-standards-conformance)
 
+The README agent-state section and `docs/site/install.md` describe the
+multi-harness install reality — `rk agent setup` supports seven agent harnesses —
+and link `docs/site/agent-hooks.md`, the versioned per-harness capability
+matrix. `agent-hooks` is a non-reserved page name inside the published set, and
+its outbound links (vendor documentation) are absolute, so link closure still
+holds. (nnqu)
+
 **Toolkit "shll toolkit" naming.** The toolkit's name is **"shll toolkit"**
 (sahil87/shll#56), and the readme-extraction standard's canonical README
 blockquote is
@@ -864,6 +877,11 @@ byte-identical stdout to canonical, ≤150 lines, static-only, in-genre briefing
 See [architecture](/run-kit/architecture.md) § CLI Subcommands (`skill` row) for
 the embed mechanism and drift guard.
 (260717-agst-rk-skill-agent-setup-hooks-only)
+
+**Setup/skill ownership split.** `shll setup agent` places the shared bootstrap
+skill and delegates hook installation to `rk agent setup`; `rk agent setup`
+installs no skill — the `rk skill` bundle owns usage knowledge. The legacy
+`rk-display` skill cleanup is a one-release courtesy removal. (nnqu)
 
 **Topic pages.** The shll skill standard has **topic pages** (`<tool> skill
 <topic>`, each canonical at `docs/site/skill/<topic>.md`, ≤150 lines, static-only,
@@ -1385,3 +1403,17 @@ its own command); keeping the static prose in BOTH `rk context` and the topic pa
 (it documents `rk context` as carrying the recipes) is a **sibling change** in the
 fab-kit repo, out of scope here.
 *Introduced by*: `260718-icxz-skill-display-topic-url-retire-context`
+
+### Three installer kinds share the existing consent/diff/ownership machinery
+**Decision**: `rk agent setup` installs native hooks/plugins for the seven
+supported harnesses via three installer kinds — jsonHooksMerge, markerFile,
+markerBlock — all sharing the existing consent/diff/dry-run/uninstall machinery.
+**Why**: the verified native config formats fall into exactly these three shapes,
+and sharing the machinery keeps the P1/P5 conformance posture (non-interactive
+consent via `--yes`, visible mutation boundaries via `--dry-run`) uniform across
+every harness.
+**Rejected**: a TOML parser dependency for kimi (only the documented fields are
+emitted; marker blocks preserve user content byte-exactly) and JSON-merging into
+a foreign copilot file (its hooks dir is one-file-per-source — whole-file
+ownership is the native shape).
+*Introduced by*: `260908-nnqu-fix-agent-neutral-detection`

@@ -198,6 +198,15 @@ export type WindowInfo = {
    *  window. */
   agentProvider?: string;
   agentSessionRef?: string;
+  /** Server-derived conversation-access capability (deriveConversationAvailable,
+   *  internal/sessions): true when the window's reconciled agent identity
+   *  resolves to a readable conversation — the provider has a transcript
+   *  adapter AND the bounded lookup succeeded. This is the gate for the
+   *  transcript-backed operator actions (Fix tab name / Annotate tab) in both
+   *  the flyout and the palette, so identity-only providers (no transcript
+   *  adapter) never advertise an action that would predictably 404. Absent =
+   *  false. */
+  conversationAvailable?: boolean;
   /** True when the ACTIVE pane's application is on tmux's alternate screen
    *  (rollup of the pane's `alternate_on`, derived server-side in
    *  FetchSessions). Alt-screen panes have no scrollback, so a server-side

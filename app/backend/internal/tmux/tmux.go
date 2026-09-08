@@ -744,6 +744,15 @@ type WindowInfo struct {
 	// Panes[].AgentProvider/AgentSessionRef. See AgentSessionOption.
 	AgentProvider   string `json:"agentProvider,omitempty"`
 	AgentSessionRef string `json:"agentSessionRef,omitempty"`
+	// ConversationAvailable is the window-level rollup of whether the
+	// window's reconciled agent identity resolves to a READABLE conversation:
+	// the provider has a registered transcript adapter and either its bounded
+	// resolution succeeded or its cheap ConversationChecker probe (opencode,
+	// whose resolution is a request-priced export) says yes. Server-derived
+	// (internal/sessions) so the flyout/palette never advertise a
+	// transcript-backed action that predictably fails for an identity-only
+	// provider. False whenever the identity is absent or unresolvable.
+	ConversationAvailable bool `json:"conversationAvailable,omitempty"`
 	// AltScreen is the window-level rollup of the ACTIVE pane's AltScreen (the
 	// same active-pane rule CaptureWindowHistoryCtx targets), computed rk-side
 	// in FetchSessions. True means tmux holds no scrollback for the window's

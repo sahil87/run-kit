@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Agent-send backend — internal/transcript registry + transcript.Path resolution (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter, Claude UUID-guarded glob) for operator actuation, fork/resume, auto-name — plus the shared pane-typed injection engine (pane-mode guard, sanitized rk-agent-send buffer paste, novelty echo probe, probe-gated Enter, post-Enter observation, gated recovery) behind POST /api/windows/{id}/send (target:\"agent\": broadcast, operator console) and the operator-request routes."
+description: "Agent-send backend — internal/transcript registry + transcript.Path (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter; six adapters — claude, codex, gemini, kimi, agy, opencode request-time export; copilot identity-only) for operator actuation, fork/resume, auto-name — plus the pane-typed injection engine (pane-mode guard, sanitized buffer paste, novelty echo probe, probe-gated Enter, observation/recovery) behind POST /api/windows/{id}/send (target:\"agent\") and the operator-request routes."
 ---
 # Agent Send
 
@@ -10,15 +10,21 @@ description: "Agent-send backend — internal/transcript registry + transcript.P
 
 `internal/transcript` resolves a window's reconciled `@rk_pane_agent_session =
 <provider>:<session-ref>` (from [agent-state](/run-kit/agent-state.md) § Agent
-Session Identity) to the on-disk transcript it names. Its consumers are
+Session Identity) to the conversation it names. Its consumers are
 server-side derivations — the operator-request handlers (transcript fact
 pre-derivation via `transcript.Path`,
 [operator-actuation](/run-kit/operator-actuation.md)), fork/resume,
 closed-resume, and auto-name dispatch. The registry routes on the provider
 prefix and the transcript read sits behind the optional `TranscriptLocator`
-capability, so Codex/Gemini adapters are backend-only additions; the **Claude**
-adapter is the one registered provider. Everything derives from disk at request
-time (Constitution II). (260904-bf1l-agent-session-identity-rename)
+capability; six providers register adapters (`claude`, `codex`, `gemini`,
+`kimi`, `agy`, `opencode` — § per-adapter locators below) while `copilot`
+carries identity + lifecycle with NO adapter. A second optional capability,
+`ConversationChecker`, gives the derive tick a cheap availability probe where
+real resolution is request-priced (`opencode`). The operator facts corpus,
+auto-name on idle, and agent-targeted send treat any provider whose transcript
+resolves exactly like `claude`; fork/resume stays Claude-gated; no
+terminal-scrollback fallback exists. Everything derives from disk at request
+time (Constitution II). (nnqu, 260904-bf1l-agent-session-identity-rename)
 
 The mutating half — the agent-send path — is the shared `internal/inject`
 engine: rk *types into* the pane exactly as a human typist would — the pane
@@ -44,8 +50,10 @@ plus a package-level `map[string]Adapter` registry guarded by a `sync.RWMutex`,
 `Register`/`Lookup`, and the `ErrNoAdapter` sentinel. Lookup is by the
 `@rk_pane_agent_session` provider prefix; a well-formed but unregistered
 provider returns `ErrNoAdapter` (the API layer maps it to a 404-class JSON
-error, so presence-gating stays provider-agnostic and codex/gemini adapters are
-additive). The one registered provider is `claude`, from `claude.go`'s `init()`.
+error, so presence-gating stays provider-agnostic). Six providers register
+adapters, each from its own file's `init()`: `claude`, `codex`, `gemini`,
+`kimi`, `agy`, `opencode` (§ per-adapter locators below); `copilot` registers
+none — identity + lifecycle only (§ Copilot registers no adapter below). (nnqu)
 
 Beside the core interface, `adapter.go` declares the OPTIONAL `TranscriptLocator`
 capability — `TranscriptPath(ref string) (string, error)`, resolving a session
@@ -53,12 +61,23 @@ ref to its transcript's absolute on-disk path — plus a package-level
 `Path(provider, ref)` convenience that routes through `Lookup` and
 type-asserts to the capability, returning `ErrNoAdapter` for an unregistered
 provider or one without it. The capability stays OFF the `Adapter` interface so
-the interface remains provider-neutral (a future protocol-based provider may
-have no on-disk transcript), and the implementing adapter MUST keep the
-ref-format guard in front of every path resolution (§ Claude adapter below).
-Its consumers are the operator-request handler's fact pre-derivation
+the interface remains provider-neutral (an identity-only provider — `copilot` —
+or a future protocol-based provider has no on-disk transcript), and every
+implementing adapter MUST keep its ref-format guard in front of every path
+resolution (§ per-adapter locators below). Its consumers are the
+operator-request handler's fact pre-derivation
 ([operator-actuation](/run-kit/operator-actuation.md)), fork/resume,
-closed-resume, and auto-name dispatch. (260822-fih1)
+closed-resume, and auto-name dispatch — the operator facts corpus, auto-name,
+and agent-targeted send treat any provider whose transcript resolves exactly
+like `claude`, while fork/resume stays Claude-gated and no terminal-scrollback
+fallback exists. (260822-fih1, nnqu)
+
+A second OPTIONAL capability, `ConversationChecker` —
+`ConversationAvailable(ref string) bool` — answers conversation availability
+through a CHEAP probe (no subprocess, no unbounded scan) for the derive tick,
+where real resolution is request-priced; `opencode` implements it as
+well-formed-native-ref + `opencode` binary on PATH, and every provider without
+it resolves for real through its bounded lookups. (nnqu)
 
 #### Scenario: Unregistered provider returns the sentinel
 - **GIVEN** an agent session ref with an unregistered provider
@@ -87,6 +106,83 @@ operator-request seam — [operator-actuation](/run-kit/operator-actuation.md)).
 - **GIVEN** a ref containing `../`, an absolute path, or glob metacharacters
 - **WHEN** the adapter is asked to locate the transcript
 - **THEN** it returns `ErrInvalidRef` with no glob/stat/open performed.
+
+### Requirement: Codex adapter — fixed-depth rollout glob, lowercase fold (`codex.go`)
+The Codex adapter SHALL resolve the transcript root as `$CODEX_HOME` if set,
+else `~/.codex`, guard the ref with a case-insensitive UUID shape check before
+any filesystem use, and locate the file by the FIXED-DEPTH glob
+`sessions/*/*/*/rollout-*-<ref>.jsonl` with the validated ref folded to
+lowercase (Codex writes lowercase-UUID filenames). There is deliberately NO
+case-insensitive or whole-history fallback: a miss is bounded and never rescans
+all history. (nnqu)
+
+### Requirement: Gemini adapter — prefix-8 glob with full-id verification (`gemini.go`)
+The Gemini adapter SHALL use the fixed `~/.gemini` root (no env override), glob
+`tmp/*/chats/session-*-<ref[:8]>.jsonl` (the chat filename carries only the
+first 8 hex chars of the session id), then verify the full session id against
+the candidate file's first record (its `sessionId` field, read under a 1 MiB
+bound). A prefix collision without a full-id match returns
+`ErrTranscriptNotFound` — never a wrong transcript. (nnqu)
+
+#### Scenario: An 8-char prefix collision never resolves the wrong transcript
+- **GIVEN** a candidate chat file whose name matches the ref's first 8 hex
+  chars but whose first record carries a different full `sessionId`
+- **WHEN** the adapter is asked to locate the transcript
+- **THEN** it returns `ErrTranscriptNotFound`.
+
+### Requirement: Kimi adapter — session index honored only under the root (`kimi.go`)
+The Kimi adapter SHALL resolve the root as `$KIMI_CODE_HOME` if set, else
+`~/.kimi-code`, guard the ref to safe tokens (alphanumerics, `-`, `_` — admits
+`session_<uuid>`), and scan `session_index.jsonl` (1 MiB bound) for the ref's
+`sessionDir`, honoring that directory ONLY when it sits under the root's own
+`sessions/` tree — a client-influenced path outside the root is never trusted.
+The fallback is the bounded glob `sessions/*/<ref>/agents/main/wire.jsonl`.
+(nnqu)
+
+### Requirement: agy adapter — deterministic brain-path stat (`agy.go`)
+The agy adapter SHALL resolve the deterministic path
+`~/.gemini/antigravity-cli/brain/<lowercased-uuid>/.system_generated/logs/transcript.jsonl`
+by stat — no scan (verified on the installed 1.1.11). (nnqu)
+
+### Requirement: OpenCode adapter — request-time native export materialization (`opencode.go`)
+OpenCode keeps NO on-disk transcript; the adapter SHALL resolve a ref by
+running the native `opencode export --sanitize -- <sessionID>` (verified
+1.18.25) and materializing the JSON AT REQUEST TIME ONLY — never on the derive
+tick. The ref guard `^ses_[0-9a-f]{12}[A-Za-z0-9]{14}$` matches the native
+mixed-case id shape, and argv carries the `--` end-of-options separator.
+Artifacts land in the user-private `$XDG_STATE_HOME/run-kit/opencode-export/`
+directory (0700; a symlink or foreign-owned dir is refused; too-open perms are
+tightened; writes are CreateTemp O_EXCL 0600 siblings committed by atomic
+rename — a preplaced symlink target is replaced, never followed; 32 MiB stdout
+cap; 15s timeout). Retention is consumer-aware: every returned path stays
+valid for a 1-hour grace (exceeding the operator queue's 30-minute TTL, so a
+queued request never dangles); past-grace artifacts are pruned on write; and at
+the 16-artifact in-grace cap a new materialization is REFUSED with
+`errExportCapacity` rather than evicting a path already handed out — the
+capacity check counts every in-grace artifact INCLUDING one for the ref being
+resolved, so re-resolving an already-exported ref at full capacity is refused
+until its grace expires (accepted corner: 16+ distinct sessions within one
+hour). The prune-check-write critical section is mutex-serialized. An unknown
+session (non-zero export exit or empty output) returns `ErrTranscriptNotFound`;
+an oversized export, unsafe directory, or unstartable binary returns a plain
+500-class error. The operator facts builder degrades a refusal by omission, so
+a rendered prompt never embeds a dangling path. (nnqu)
+
+#### Scenario: A full in-grace cap refuses instead of evicting
+- **GIVEN** 16 in-grace export artifacts in `opencode-export/`
+- **WHEN** a resolution is requested — including a re-resolution of a ref whose
+  artifact is among the 16
+- **THEN** it is refused with `errExportCapacity`; no handed-out path is
+  evicted, and the facts builder omits the transcript fact.
+
+### Requirement: Copilot registers no adapter — identity + lifecycle only
+`copilot` SHALL have no transcript adapter: a session's identity does not
+determine a conversation file — `transcriptPath` rides only the
+agentStop/preCompact/subagent payloads (none hooked), and
+`~/.copilot/session-state/<id>/` holds workspace metadata with no per-session
+transcript file (observed evidence on the verified 1.0.78 install). `Lookup`
+therefore returns `ErrNoAdapter` for `copilot`, and every presence gate treats
+it as identity-only. (nnqu)
 
 ## Send Path
 
@@ -537,8 +633,8 @@ window-targeted `/keys` helper. (260830-s7wp)
 `Provider()`-only `Adapter` interface, `Register`/`Lookup`, `ErrNoAdapter`), the
 optional `TranscriptLocator` capability with the package-level
 `Path(provider, ref)`, the `ErrInvalidRef`/`ErrTranscriptNotFound`
-sentinels, and the Claude adapter's UUID guard + transcript glob — no event
-schema, conversation type, backfill, or offset tail.
+sentinels, and the registered adapters' ref guards + bounded locator lookups —
+no event schema, conversation type, backfill, or offset tail.
 **Why**: the schema/parser/backfill/tail machinery's only consumers were the
 chat backfill endpoint and the state-socket chat subscription, both retired with
 the chat lens; zero production references remained, and dead code invites drift
@@ -546,6 +642,26 @@ while misleading readers of the transcript-resolution path.
 **Rejected**: keeping the read machinery against a possible future transcript UI
 (unreferenced code misleads; git history preserves it if the need returns).
 *Introduced by*: 260904-0mrk-chat-lens-residual-code-trim
+
+### Transcript paths derived, never hook-carried
+**Decision**: adapters resolve transcripts from the session ref via bounded
+filesystem lookups; codex/gemini hook payloads carry `transcript_path` but the
+hook writer ignores it.
+**Why**: Constitution X — hooks carry only the underivable; trusting a
+client-supplied path is the forbidden direction.
+**Rejected**: stamping `transcript_path` into a pane option (contract change;
+unavailable on the copilot events hooked).
+*Introduced by*: 260908-nnqu-fix-agent-neutral-detection
+
+### OpenCode export refusal over eviction
+**Decision**: at the 16-artifact in-grace cap a new materialization is refused
+(`errExportCapacity`, degraded by omission in the facts builder) rather than
+evicting a path already embedded in a rendered prompt.
+**Why**: a handed-out path must stay valid for its full grace (1h > the
+operator queue's 30-min TTL).
+**Rejected**: newest-N eviction (invalidates handed-out paths); an
+authoritative export cache (Constitution II).
+*Introduced by*: 260908-nnqu-fix-agent-neutral-detection
 
 ### Trim before rename
 **Decision**: the Chat Lens residual sweep split into a delete-only trim change

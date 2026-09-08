@@ -180,7 +180,7 @@ func TestConfirmGate(t *testing.T) {
 func TestApplyAgentConfigDeclineDoesNotWrite(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 	var out bytes.Buffer
 	// Decline the confirmation (interactive TTY session simulated by feeding "n").
@@ -198,7 +198,7 @@ func TestApplyAgentConfigDeclineDoesNotWrite(t *testing.T) {
 func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 	var out bytes.Buffer
 	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
@@ -249,7 +249,7 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 func TestApplyAgentConfigYesWritesWithoutPrompt(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 	var out bytes.Buffer
 	// Empty (EOF) stdin — the interactive path declines on EOF; --yes overrides.
@@ -275,7 +275,7 @@ func TestApplyAgentConfigDryRunNeverWrites(t *testing.T) {
 	for _, cons := range []consent{{dryRun: true}, {dryRun: true, yes: true}} {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "settings.json")
-		ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+		ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 		var out bytes.Buffer
 		if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, cons); err != nil {
@@ -303,7 +303,7 @@ func TestApplyAgentConfigDryRunNeverWrites(t *testing.T) {
 func TestApplyAgentConfigNonTTYNoFlagRefuses(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 	var out bytes.Buffer
 	// consent{} → no flags, stdinIsTTY false (the non-TTY default). A write is
@@ -794,7 +794,7 @@ func TestApplyAgentConfigCleansLegacySkillOnInstall(t *testing.T) {
 	dir := t.TempDir()
 	settingsPath := filepath.Join(dir, "settings.json")
 	skillsDir := filepath.Join(dir, "skills")
-	ac := agentConfig{name: "Test", settingsPath: settingsPath, comm: "claude", skillsDir: skillsDir, hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: settingsPath, skillsDir: skillsDir, hooks: claudeHooks()}
 	skillDir, _ := seedLegacySkill(t, skillsDir, legacyMarkerSkill)
 
 	var out bytes.Buffer
@@ -814,7 +814,7 @@ func TestApplyAgentConfigFreshMachineWritesNoSkill(t *testing.T) {
 	dir := t.TempDir()
 	settingsPath := filepath.Join(dir, "settings.json")
 	skillsDir := filepath.Join(dir, "skills")
-	ac := agentConfig{name: "Test", settingsPath: settingsPath, comm: "claude", skillsDir: skillsDir, hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: settingsPath, skillsDir: skillsDir, hooks: claudeHooks()}
 
 	var out bytes.Buffer
 	// Single "y" confirms the hooks write; no skill prompt should ever be reached.
@@ -833,7 +833,7 @@ func TestApplyAgentConfigSkipsSkillWhenSkillsDirEmpty(t *testing.T) {
 	dir := t.TempDir()
 	settingsPath := filepath.Join(dir, "settings.json")
 	// skillsDir empty → the skill artifact must be skipped entirely.
-	ac := agentConfig{name: "NoSkills", settingsPath: settingsPath, comm: "codex", hooks: claudeHooks()}
+	ac := agentConfig{name: "NoSkills", provider: "codex", settingsPath: settingsPath, hooks: claudeHooks()}
 
 	var out bytes.Buffer
 	// Only the hooks artifact prompts; a single "y" confirms it. If a skill prompt
@@ -895,7 +895,7 @@ func TestValidateHookPath(t *testing.T) {
 func TestAgentSetup_SplitChannels(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 	var data, chatter bytes.Buffer
 	sink := newSinkWriters(&data, &chatter)
@@ -922,7 +922,7 @@ func TestAgentSetup_SplitChannels(t *testing.T) {
 func TestAgentSetup_QuietDropsStatusKeepsDiff(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 	var data bytes.Buffer
 	// A quiet sink: data survives, chatter is discarded (what newSink builds when
@@ -954,7 +954,7 @@ func TestAgentSetup_QuietDropsStatusKeepsDiff(t *testing.T) {
 func TestAgentSetup_QuietYesSilentOnSuccess(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 	var data, chatter bytes.Buffer
 	// A quiet --yes sink: data is a real buffer (must stay empty), chatter is
@@ -991,7 +991,7 @@ func TestAgentSetup_QuietYesSilentOnSuccess(t *testing.T) {
 func TestAgentSetup_YesNonQuietShowsDiffOnStderr(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 	var data, chatter bytes.Buffer
 	// Non-quiet: chatter is a live buffer (would be os.Stderr in production).
@@ -1017,7 +1017,7 @@ func TestAgentSetup_InteractiveDryRunDiffOnData(t *testing.T) {
 	t.Run("interactive prompt → diff on data", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "settings.json")
-		ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+		ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 		var data, chatter bytes.Buffer
 		// Decline ("n") on a simulated TTY so nothing is written; the diff must
@@ -1033,7 +1033,7 @@ func TestAgentSetup_InteractiveDryRunDiffOnData(t *testing.T) {
 	t.Run("--dry-run → diff on data", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "settings.json")
-		ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+		ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 		var data, chatter bytes.Buffer
 		if err := applyAgentHooks(newSinkWriters(&data, &chatter), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
@@ -1051,7 +1051,7 @@ func TestAgentSetup_InteractiveDryRunDiffOnData(t *testing.T) {
 func TestAgentSetup_QuietRefusalSurvives(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 	var data bytes.Buffer
 	sink := newSinkWriters(&data, io.Discard)
@@ -1822,7 +1822,7 @@ func TestTmuxShimDeclinedWriteSkipsPathBlock(t *testing.T) {
 
 func TestApplyAgentHooksSummaryFreshInstall(t *testing.T) {
 	dir := t.TempDir()
-	ac := agentConfig{name: "Test", settingsPath: filepath.Join(dir, "settings.json"), comm: "claude", hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: filepath.Join(dir, "settings.json"), hooks: claudeHooks()}
 
 	var out bytes.Buffer
 	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
@@ -1871,7 +1871,7 @@ func TestApplyAgentHooksSummaryReplacementCount(t *testing.T) {
 	if err := writeSettings(path, seed); err != nil {
 		t.Fatal(err)
 	}
-	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 	var out bytes.Buffer
 	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
@@ -1885,7 +1885,7 @@ func TestApplyAgentHooksSummaryReplacementCount(t *testing.T) {
 func TestApplyAgentHooksSummaryUninstall(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 	var out bytes.Buffer
 	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
 		t.Fatalf("install error: %v", err)
@@ -1909,7 +1909,7 @@ func TestApplyAgentHooksSummaryUninstall(t *testing.T) {
 
 func TestApplyAgentHooksDryRunFullBodies(t *testing.T) {
 	dir := t.TempDir()
-	ac := agentConfig{name: "Test", settingsPath: filepath.Join(dir, "settings.json"), comm: "claude", hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", provider: "claude", settingsPath: filepath.Join(dir, "settings.json"), hooks: claudeHooks()}
 
 	var out bytes.Buffer
 	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {

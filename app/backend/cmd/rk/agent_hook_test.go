@@ -483,15 +483,73 @@ func TestParseProcStatusPPID(t *testing.T) {
 	}
 }
 
-func TestAgentCommForNameKnownAndUnknown(t *testing.T) {
-	if c := agentCommForName("", "claude"); c != "claude" {
-		t.Errorf("agentCommForName(claude) = %q, want claude", c)
+func TestAgentRuntimeForNameResolvesComms(t *testing.T) {
+	// The comm literal resolves the same descriptor as the provider token
+	// (legacy installed lines pass the comm).
+	rt, ok := agentRuntimeForName("kimi-code")
+	if !ok || rt.provider != "kimi" {
+		t.Errorf("agentRuntimeForName(kimi-code comm) = %+v, %v, want the kimi descriptor", rt, ok)
 	}
-	if c := agentCommForName("", "Claude Code"); c != "claude" {
-		t.Errorf("agentCommForName(display name) = %q, want claude", c)
+	if _, ok := agentRuntimeForName("nosuchagent"); ok {
+		t.Error("an unregistered name must not resolve")
 	}
-	if c := agentCommForName("", "gemini"); c != "" {
-		t.Errorf("agentCommForName(unregistered) = %q, want empty", c)
+}
+
+func TestAgentRuntimeForNameResolvesEveryRegisteredProvider(t *testing.T) {
+	// Every registry provider resolves by BOTH its provider token and its comm
+	// literal, and gemini's node-bundle comm is the documented exception.
+	wantComm := map[string]string{
+		"claude":   "claude",
+		"codex":    "codex",
+		"gemini":   "node",
+		"copilot":  "copilot",
+		"kimi":     "kimi-code",
+		"opencode": "opencode",
+		"agy":      "agy",
+	}
+	for provider, comm := range wantComm {
+		rt, ok := agentRuntimeForName(provider)
+		if !ok {
+			t.Errorf("provider %q not registered", provider)
+			continue
+		}
+		if rt.provider != provider || rt.comm != comm {
+			t.Errorf("agentRuntimeForName(%q) = %+v, want provider=%q comm=%q", provider, rt, provider, comm)
+		}
+	}
+}
+
+func TestHookSessionIDPerProviderCasing(t *testing.T) {
+	in := hookInput{SessionID: "snake-id", SessionIDCamel: "camel-id"}
+	// snake_case providers read session_id; copilot's camelCase format reads
+	// sessionId — the two never cross.
+	for _, provider := range []string{"claude", "codex", "gemini", "kimi", "opencode"} {
+		rt, _ := agentRuntimeForName(provider)
+		if got := rt.hookSessionID(in); got != "snake-id" {
+			t.Errorf("%s hookSessionID = %q, want snake-id", provider, got)
+		}
+	}
+	rt, _ := agentRuntimeForName("copilot")
+	if got := rt.hookSessionID(in); got != "camel-id" {
+		t.Errorf("copilot hookSessionID = %q, want camel-id", got)
+	}
+}
+
+func TestIsCompactSourcePerProvider(t *testing.T) {
+	// claude and codex withhold the boot idle write for source=compact;
+	// providers with no mid-turn source never match (their SessionStart
+	// matcher set has no compact value at all).
+	for _, provider := range []string{"claude", "codex"} {
+		rt, _ := agentRuntimeForName(provider)
+		if !rt.isCompactSource("compact") {
+			t.Errorf("%s: source=compact must gate the boot write", provider)
+		}
+	}
+	for _, provider := range []string{"gemini", "copilot", "kimi", "opencode"} {
+		rt, _ := agentRuntimeForName(provider)
+		if rt.isCompactSource("compact") {
+			t.Errorf("%s: has no mid-turn compaction source, must never gate", provider)
+		}
 	}
 }
 
@@ -697,4 +755,185 @@ func TestDualWriteNeverFailsOnTmuxError(t *testing.T) {
 	t.Cleanup(func() { agentHookTmuxRun = orig })
 	writeAgentStateImpl(context.Background(), "%3", agentStateActive, 0)
 	writeAgentSessionImpl(context.Background(), "%3", "claude", "abc123")
+}
+
+// --- multi-provider writer coverage (agent_registry.go descriptors) ----------
+
+func TestRunAgentHookCodexStampCompactGate(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%9")
+	// A codex SessionStart with source=compact fires mid-turn: the identity
+	// re-stamps but NO idle write may clobber a live active state.
+	setHookStdin(t, `{"session_id":"1a06319-6a63-7791-84df-86736cd58e2e","source":"compact","hook_event_name":"SessionStart"}`)
+	stateRec := captureWrite(t)
+	sessRec := captureAgentSession(t)
+	runAgentHook(context.Background(), "codex", agentHookStampToken)
+	if stateRec.called {
+		t.Error("source=compact must withhold the boot idle write")
+	}
+	if !sessRec.called || sessRec.provider != "codex" || sessRec.id != "1a06319-6a63-7791-84df-86736cd58e2e" {
+		t.Errorf("stamp = %+v, want codex identity re-stamped", sessRec)
+	}
+}
+
+func TestRunAgentHookCodexStampStartupWritesIdle(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%9")
+	setHookStdin(t, `{"session_id":"1a06319-6a63-7791-84df-86736cd58e2e","source":"startup","hook_event_name":"SessionStart"}`)
+	stateRec := captureWrite(t)
+	sessRec := captureAgentSession(t)
+	origComm := processCommFn
+	processCommFn = func(_ context.Context, _ int) string { return "codex" }
+	t.Cleanup(func() { processCommFn = origComm })
+
+	runAgentHook(context.Background(), "codex", agentHookStampToken)
+	if !stateRec.called || stateRec.state != agentStateIdle {
+		t.Errorf("startup stamp must write the boot idle state, got %+v", stateRec)
+	}
+	if stateRec.pid <= 0 {
+		t.Errorf("pid = %d, want the resolved (>0) codex pid", stateRec.pid)
+	}
+	if !sessRec.called || sessRec.provider != "codex" {
+		t.Errorf("stamp = %+v, want codex provider token", sessRec)
+	}
+}
+
+func TestRunAgentHookCopilotCamelCasePayload(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%11")
+	// Copilot's camelCase event format carries sessionId; the stamp must use
+	// the canonical provider token.
+	setHookStdin(t, `{"sessionId":"0dd0cf59-31dd-4565-9973-3b34f665b354","cwd":"/tmp","timestamp":1788900000000}`)
+	stateRec := captureWrite(t)
+	sessRec := captureAgentSession(t)
+	runAgentHook(context.Background(), "copilot", "active")
+	if !stateRec.called || stateRec.state != agentStateActive {
+		t.Errorf("state write = %+v, want active", stateRec)
+	}
+	if !sessRec.called || sessRec.provider != "copilot" || sessRec.id != "0dd0cf59-31dd-4565-9973-3b34f665b354" {
+		t.Errorf("stamp = %+v, want copilot:<camelCase id>", sessRec)
+	}
+}
+
+func TestRunAgentHookCopilotSnakePayloadNotStamped(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%11")
+	// A snake_case payload under --agent copilot is the wrong casing contract —
+	// no stamp (the state write still proceeds; never-fail, never-guess).
+	setHookStdin(t, `{"session_id":"0dd0cf59-31dd-4565-9973-3b34f665b354"}`)
+	sessRec := captureAgentSession(t)
+	runAgentHook(context.Background(), "copilot", "active")
+	if sessRec.called {
+		t.Errorf("snake_case payload must not stamp for copilot, got %+v", sessRec)
+	}
+}
+
+func TestRunAgentHookKimiStampsProviderTokenNotComm(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%13")
+	// kimi's comm is kimi-code but the identity prefix is the provider token —
+	// the transcript registry keys on `kimi`.
+	setHookStdin(t, `{"session_id":"session_1a06319-6a63-7791-84df-86736cd58e2e","hook_event_name":"SessionStart","source":"startup"}`)
+	sessRec := captureAgentSession(t)
+	origComm := processCommFn
+	processCommFn = func(_ context.Context, _ int) string { return "kimi-code" }
+	t.Cleanup(func() { processCommFn = origComm })
+
+	runAgentHook(context.Background(), "kimi", agentHookStampToken)
+	if !sessRec.called || sessRec.provider != "kimi" {
+		t.Errorf("stamp = %+v, want the kimi provider token (never kimi-code)", sessRec)
+	}
+}
+
+func TestRunAgentHookGeminiWalksToNodeAncestor(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%15")
+	// gemini is a bundled node script: the comm walk matches `node`.
+	rec := captureWrite(t)
+	origComm := processCommFn
+	processCommFn = func(_ context.Context, _ int) string { return "node" }
+	t.Cleanup(func() { processCommFn = origComm })
+
+	runAgentHook(context.Background(), "gemini", "active")
+	if !rec.called || rec.pid <= 0 {
+		t.Errorf("gemini fire = %+v, want active with the resolved node pid", rec)
+	}
+}
+
+func TestRunAgentHookUnknownProviderSilentNoOp(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%17")
+	stateRec := captureWrite(t)
+	sessRec := captureAgentSession(t)
+	setHookStdin(t, `{"session_id":"abc"}`)
+	runAgentHook(context.Background(), "antigravity", "active")
+	runAgentHook(context.Background(), "antigravity", agentHookStampToken)
+	if stateRec.called || sessRec.called {
+		t.Errorf("an unregistered provider must write nothing, got state=%+v session=%+v", stateRec, sessRec)
+	}
+}
+
+// --- agy (Antigravity CLI) writer coverage ------------------------------------
+
+func TestRunAgentHookAgyConversationIDStamp(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%21")
+	// agy's protojson payload carries conversationId; PreInvocation maps to
+	// active and stamps agy:<conversationId>.
+	setHookStdin(t, `{"conversationId":"ec33ebf9-0cba-4100-8142-c61503f6c587","invocationNum":3,"modelName":"auto"}`)
+	stateRec := captureWrite(t)
+	sessRec := captureAgentSession(t)
+	origComm := processCommFn
+	processCommFn = func(_ context.Context, _ int) string { return "agy" }
+	t.Cleanup(func() { processCommFn = origComm })
+
+	runAgentHook(context.Background(), "agy", "active")
+	if !stateRec.called || stateRec.state != agentStateActive {
+		t.Errorf("state write = %+v, want active", stateRec)
+	}
+	if stateRec.pid <= 0 {
+		t.Errorf("pid = %d, want the resolved (>0) agy pid", stateRec.pid)
+	}
+	if !sessRec.called || sessRec.provider != "agy" || sessRec.id != "ec33ebf9-0cba-4100-8142-c61503f6c587" {
+		t.Errorf("stamp = %+v, want agy:<conversationId>", sessRec)
+	}
+}
+
+func TestRunAgentHookAgyStopFullyIdleGate(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%23")
+	// Stop with fullyIdle absent/false must NOT write idle (background tasks
+	// may still be running); fullyIdle=true writes idle. Identity stamps
+	// either way.
+	setHookStdin(t, `{"conversationId":"ec33ebf9-0cba-4100-8142-c61503f6c587","terminationReason":"model_stop"}`)
+	stateRec := captureWrite(t)
+	sessRec := captureAgentSession(t)
+	runAgentHook(context.Background(), "agy", "idle")
+	if stateRec.called {
+		t.Error("Stop without fullyIdle must not write idle")
+	}
+	if !sessRec.called {
+		t.Error("identity must still stamp on a gated idle fire")
+	}
+
+	setHookStdin(t, `{"conversationId":"ec33ebf9-0cba-4100-8142-c61503f6c587","fullyIdle":false}`)
+	stateRec2 := captureWrite(t)
+	runAgentHook(context.Background(), "agy", "idle")
+	if stateRec2.called {
+		t.Error("fullyIdle=false must not write idle")
+	}
+
+	setHookStdin(t, `{"conversationId":"ec33ebf9-0cba-4100-8142-c61503f6c587","fullyIdle":true}`)
+	stateRec3 := captureWrite(t)
+	runAgentHook(context.Background(), "agy", "idle")
+	if !stateRec3.called || stateRec3.state != agentStateIdle {
+		t.Errorf("fullyIdle=true must write idle, got %+v", stateRec3)
+	}
+}
+
+func TestAgentStateHookCommandJSONShape(t *testing.T) {
+	cmd := agentStateHookCommandJSON("/opt/homebrew/bin/rk", "idle", "agy")
+	// Emits {} (a well-formed no-decision result) even outside tmux, and never
+	// fails: the trailing echo is the last command.
+	if !strings.Contains(cmd, `echo "{}"`) {
+		t.Errorf("JSON wrapper must echo {} — agy parses hook stdout as a result object: %s", cmd)
+	}
+	if !strings.HasSuffix(cmd, `; echo "{}"'`) {
+		t.Errorf("the {} echo must be unconditional (not gated on tmux): %s", cmd)
+	}
+	// Never emits a decision field.
+	if strings.Contains(cmd, "decision") || strings.Contains(cmd, "allow") || strings.Contains(cmd, "deny") || strings.Contains(cmd, "force_continue") {
+		t.Errorf("telemetry hook must never emit a decision: %s", cmd)
+	}
 }

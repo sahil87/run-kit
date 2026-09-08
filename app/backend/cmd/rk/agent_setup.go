@@ -20,16 +20,32 @@ import (
 // rk agent setup — install the generic agent-state hooks that write the
 // @rk_agent_state pane user option (see docs/specs/agent-state.md). It registers
 // hook commands in a user-global agent config so any session of that agent, in
-// any directory, under any workflow, reports lifecycle state. v1 targets Claude
-// Code (~/.claude/settings.json); the per-agent registry makes codex/copilot/
-// gemini/opencode additive follow-ups.
+// any directory, under any workflow, reports lifecycle state. One registry row
+// per supported harness (agent_registry.go carries the runtime descriptors);
+// the verified per-harness capability matrix lives in
+// docs/site/agent-hooks.md.
 //
-// The install is a JSON merge that preserves existing (non-rk) hooks and all
-// other config, is idempotent (re-run replaces rk-owned entries in place, never
-// duplicates), shows a diff and asks for confirmation before writing (it mutates
-// user-global config), and supports --uninstall to remove exactly the rk-owned
-// entries. All file writes go through Go; the hook command is a fixed literal per
-// state with nothing user-provided interpolated (Constitution §I).
+// Three installer kinds share the consent/diff/dry-run/uninstall machinery:
+//   - jsonHooksMerge (claude ~/.claude/settings.json, codex
+//     $CODEX_HOME/hooks.json, gemini ~/.gemini/settings.json): a JSON merge
+//     that preserves existing (non-rk) hooks and all other config, is
+//     idempotent (re-run replaces rk-owned entries in place, never
+//     duplicates), and removes exactly the rk-owned entries on --uninstall.
+//   - markerFile (copilot $COPILOT_HOME/hooks/run-kit.json, opencode
+//     ~/.config/opencode/plugins/run-kit.js): a whole marker-owned file rk
+//     creates/replaces/removes — the harness's native one-file-per-source
+//     shape. A foreign marker-less file at the path is never touched.
+//   - markerBlock (kimi $KIMI_CODE_HOME/config.toml): a marker-owned
+//     [[hooks]] block upserted/removed via the same markerBlockBounds
+//     machinery as the tmux guard PATH block — no TOML parser, byte-exact
+//     preservation of user content.
+//
+// Installs are gated on the harness binary being on PATH (wiring a harness the
+// machine does not have is noise); uninstalls are NOT gated — removal must
+// work after the harness itself is gone. The install shows a diff and asks for
+// confirmation before writing (it mutates user-global config). All file writes
+// go through Go; the hook command is a fixed literal per state with nothing
+// user-provided interpolated (Constitution §I).
 //
 // rk agent setup manages two artifact families: the per-agent hooks merge above,
 // and the user-global tmux guard shim (shim file + PATH block — see
@@ -102,7 +118,7 @@ const (
 // until every session was restarted (the #320↔#321 skew). Delegating to the
 // binary lifts that freeze.
 //
-//	/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent hook --agent <comm> <state> 2>/dev/null || true'
+//	/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent hook --agent <provider> <state> 2>/dev/null || true'
 //
 // The interpreter is absolute for the same reason rkPath is (below): hooks fire
 // under the HARNESS's environment, and an agent session launched with a PATH
@@ -114,15 +130,28 @@ const (
 // time (a stable symlink, never the version-pinned Cellar path — see
 // resolveRkPath); it is embedded double-quoted INSIDE the single-quoted sh -c
 // body, so a path containing any of ' " $ ` \ would break out of (or be
-// reinterpreted within) that quoting. state and comm are fixed registry literals
-// (never user input); rkPath is machine-derived and MUST be pre-validated by
-// validateHookPath (the install flow rejects shell-active characters rather than
-// attempting escaping), which together close the interpolation surface
-// (Constitution §I).
-func agentStateHookCommand(rkPath, state, comm string) string {
+// reinterpreted within) that quoting. state and provider are fixed registry
+// literals (never user input); rkPath is machine-derived and MUST be
+// pre-validated by validateHookPath (the install flow rejects shell-active
+// characters rather than attempting escaping), which together close the
+// interpolation surface (Constitution §I).
+func agentStateHookCommand(rkPath, state, provider string) string {
 	return fmt.Sprintf(
 		`/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "%s" agent hook --agent %s %s 2>/dev/null || true'`,
-		rkPath, comm, state,
+		rkPath, provider, state,
+	)
+}
+
+// agentStateHookCommandJSON builds the wrapper variant for harnesses whose
+// hook contract parses stdout as a JSON result object (agy's hooks.json
+// handlers): the rk report runs identically, then `{}` is echoed so the fire
+// is a well-formed NO-DECISION result — an empty object carries no
+// allow/deny/continue field, so native permission and termination behavior is
+// preserved exactly. Always exits 0 (the trailing echo is the last command).
+func agentStateHookCommandJSON(rkPath, state, provider string) string {
+	return fmt.Sprintf(
+		`/bin/sh -c '[ -n "$TMUX_PANE" ] && "%s" agent hook --agent %s %s 2>/dev/null; echo "{}"'`,
+		rkPath, provider, state,
 	)
 }
 
@@ -200,26 +229,74 @@ type agentHook struct {
 	// and also stamps @rk_pane_agent_session when the hook stdin carries a
 	// session id) or agentHookStampToken (the SessionStart row: stamps
 	// @rk_pane_agent_session AND writes @rk_agent_state idle — the boot-ready
-	// signal — unless the payload's source is compact, which fires mid-turn).
+	// signal — unless the payload's source is the provider's mid-turn
+	// compaction source (agentRuntime.compactSource)).
 	state string
 }
 
-// agentConfig is one agent's install target: a display name, the user-global
-// settings file to merge into, the agent process's comm name (for the hook's
-// pid-resolution walk), the ordered event→state hook mapping, and the harness's
-// user-global skills directory.
-//
-// skillsDir locates the LEGACY rk-display skill for one-release cleanup only
-// (as {skillsDir}/rk-display/SKILL.md — see removeLegacySkill). rk agent setup no
-// longer installs any skill; an EMPTY skillsDir means "no legacy skill to clean"
-// — only the hooks merge runs for that agent. v1 sets it only for Claude Code.
-// This field is scheduled for removal one release after this change.
+// installerKind selects HOW an agent's hooks land in its native config (the
+// three verified native shapes — see the file header).
+type installerKind int
+
+const (
+	// kindJSONHooksMerge merges nested hook entries (hooks → <Event> →
+	// [{matcher?, hooks: [{type:"command", command}]}]) into an existing JSON
+	// config, preserving everything non-rk: claude settings.json, codex
+	// hooks.json, and gemini settings.json all share this shape (verified
+	// 2026-09-09 against the vendors' current docs).
+	kindJSONHooksMerge installerKind = iota
+	// kindMarkerFile writes a WHOLE marker-owned file — the native
+	// one-file-per-source shape of copilot ($COPILOT_HOME/hooks/*.json) and
+	// opencode (~/.config/opencode/plugins/*.js). rk never merges into or
+	// removes a foreign marker-less file at the path.
+	kindMarkerFile
+	// kindMarkerBlock upserts a marker-owned region inside a user-owned file
+	// (kimi's config.toml [[hooks]] tables) via the markerBlockBounds
+	// machinery — no TOML parser, byte-exact preservation of surrounding
+	// content.
+	kindMarkerBlock
+)
+
+// agentConfig is one agent's install target: a display name, the runtime
+// registry provider token, the installer kind with its target path(s), the
+// ordered event→state mapping, the harness's user-global skills directory
+// (legacy rk-display cleanup only), and the post-install activation note.
 type agentConfig struct {
-	name         string
+	name     string // display name
+	provider string // agent_registry.go runtime key; the hook wrapper's --agent value
+	kind     installerKind
+	hooks    []agentHook
+	// skillsDir locates the LEGACY rk-display skill for one-release cleanup
+	// only (as {skillsDir}/rk-display/SKILL.md — see removeLegacySkill). rk
+	// agent setup no longer installs any skill; an EMPTY skillsDir means "no
+	// legacy skill to clean". Scheduled for removal one release after this
+	// change.
+	skillsDir string
+
+	// kindJSONHooksMerge: the user-global settings file to merge into.
 	settingsPath string
-	comm         string // process name of the agent binary, e.g. "claude"
-	hooks        []agentHook
-	skillsDir    string // user-global skills dir; empty = no skill install
+	// namedHooksDoc marks the Antigravity hooks.json shape: the document's top
+	// level is a map of NAMED hooks (not a "hooks" event map), and rk owns
+	// exactly one top-level key (rkNamedHookKey) holding flat event handler
+	// arrays. The merge replaces/removes only that key.
+	namedHooksDoc bool
+
+	// kindMarkerFile: the marker-owned file path, its mode, and its full
+	// content builder (rkPath is the validated absolute rk path).
+	filePath    string
+	fileMode    os.FileMode
+	fileContent func(rkPath string) string
+
+	// kindMarkerBlock: the user-owned file and the marker-block builder.
+	blockPath    string
+	blockContent func(rkPath string) (begin, end, block string)
+
+	// postInstallNote names the harness-side activation step the user still
+	// owns after a successful write (codex's /hooks trust review; the other
+	// harnesses load hook/plugin config at process start). Printed after an
+	// install write so a written-but-inactive hook is never represented as
+	// operational.
+	postInstallNote string
 }
 
 // The three agent states are the canonical tokens from internal/tmux — imported,
@@ -235,14 +312,31 @@ const (
 // the home dir.
 var claudeSettingsRelPath = filepath.Join(".claude", "settings.json")
 
-// agentRegistry returns the per-agent install registry. v1: Claude Code only.
-// The event mapping matches docs/specs/agent-state.md § Claude Code.
+// agentRegistry returns the per-agent install registry — one row per supported
+// harness, in display order. Event mappings are verified against current vendor
+// docs (2026-09-09) and the installed versions; the versioned capability
+// matrix with sources lives in docs/site/agent-hooks.md. The runtime
+// descriptors (comm, payload shape) live in agent_registry.go; this table adds
+// only the install-time axes (config placement, format, activation note).
 func agentRegistry(home string) []agentConfig {
+	codexHome := os.Getenv("CODEX_HOME")
+	if codexHome == "" {
+		codexHome = filepath.Join(home, ".codex")
+	}
+	copilotHome := os.Getenv("COPILOT_HOME")
+	if copilotHome == "" {
+		copilotHome = filepath.Join(home, ".copilot")
+	}
+	kimiHome := os.Getenv("KIMI_CODE_HOME")
+	if kimiHome == "" {
+		kimiHome = filepath.Join(home, ".kimi-code")
+	}
 	return []agentConfig{
 		{
 			name:         "Claude Code",
+			provider:     "claude",
+			kind:         kindJSONHooksMerge,
 			settingsPath: filepath.Join(home, claudeSettingsRelPath),
-			comm:         "claude",
 			skillsDir:    filepath.Join(home, ".claude", "skills"),
 			hooks: []agentHook{
 				{event: "UserPromptSubmit", state: agentStateActive},
@@ -258,6 +352,119 @@ func agentRegistry(home string) []agentConfig {
 				// startup/resume/clear/compact).
 				{event: "SessionStart", state: agentHookStampToken},
 			},
+		},
+		{
+			// Codex CLI (0.153.4 verified): hooks are stable and on by default;
+			// hooks.json carries the SAME nested shape as Claude's settings.
+			// SessionEnd fires when the main thread ends (incl. the 30-min idle
+			// timeout) — a genuine idle signal. SubagentStart/SubagentStop are
+			// deliberately NOT mapped: a child event must never replace the root
+			// pane's identity or complete its turn.
+			name:         "Codex",
+			provider:     "codex",
+			kind:         kindJSONHooksMerge,
+			settingsPath: filepath.Join(codexHome, "hooks.json"),
+			hooks: []agentHook{
+				{event: "UserPromptSubmit", state: agentStateActive},
+				{event: "PreToolUse", state: agentStateActive},
+				{event: "PermissionRequest", state: agentStateWaiting},
+				{event: "Stop", state: agentStateIdle},
+				{event: "SessionEnd", state: agentStateIdle},
+				{event: "SessionStart", state: agentHookStampToken},
+			},
+			postInstallNote: "Codex skips non-managed hooks until they are trusted: run `codex`, open /hooks, and review/trust the run-kit entries — until then they are installed but INACTIVE.",
+		},
+		{
+			// Gemini CLI (0.54.4 verified): settings.json hooks share the
+			// nested shape. Notification is observability-only (it cannot
+			// grant permissions) but fires BEFORE the prompt, which is exactly
+			// the waiting signal. Gemini's SessionStart sources are
+			// startup|resume|clear — no mid-turn compact source exists.
+			name:         "Gemini CLI",
+			provider:     "gemini",
+			kind:         kindJSONHooksMerge,
+			settingsPath: filepath.Join(home, ".gemini", "settings.json"),
+			hooks: []agentHook{
+				{event: "BeforeAgent", state: agentStateActive},
+				{event: "BeforeTool", state: agentStateActive},
+				{event: "Notification", matcher: "ToolPermission", state: agentStateWaiting},
+				{event: "AfterAgent", state: agentStateIdle},
+				{event: "SessionEnd", state: agentStateIdle},
+				{event: "SessionStart", state: agentHookStampToken},
+			},
+			postInstallNote: "Gemini CLI reads hooks at session start — restart running gemini sessions to pick them up.",
+		},
+		{
+			// Copilot CLI (1.0.78 verified): one JSON file per source under
+			// hooks/; camelCase event names select the camelCase payload
+			// (sessionId). preToolUse command hooks are fail-closed on non-zero
+			// exits — the never-fail wrapper (always exit 0) is what makes the
+			// active mapping safe there. subagentStart/Stop deliberately NOT
+			// mapped (root-pane identity rule).
+			name:     "GitHub Copilot",
+			provider: "copilot",
+			kind:     kindMarkerFile,
+			filePath: filepath.Join(copilotHome, "hooks", "run-kit.json"),
+			fileMode: 0o600,
+			fileContent: func(rkPath string) string {
+				return copilotHooksFile(rkPath)
+			},
+			hooks:           copilotHooks,
+			postInstallNote: "Copilot CLI loads hook configuration at CLI start — restart running copilot sessions to pick it up.",
+		},
+		{
+			// Kimi Code CLI (0.41.0 verified): [[hooks]] tables in config.toml.
+			// Only the documented fields are emitted — unknown fields fail the
+			// whole config load. SessionStart sources are startup|resume (no
+			// compact source), so the stamp token's compact gate is inert.
+			name:         "Kimi Code",
+			provider:     "kimi",
+			kind:         kindMarkerBlock,
+			blockPath:    filepath.Join(kimiHome, "config.toml"),
+			blockContent: kimiHooksBlock,
+			hooks:           kimiHooks,
+			postInstallNote: "Kimi Code reads hooks at session start — start a new kimi session to pick them up.",
+		},
+		{
+			// OpenCode (1.18.25 verified): a marker-owned JS plugin over the
+			// event stream (the only hook surface; there are no declarative
+			// command hooks). The event→token mapping lives in the plugin
+			// source itself.
+			name:     "OpenCode",
+			provider: "opencode",
+			kind:     kindMarkerFile,
+			filePath: filepath.Join(home, ".config", "opencode", "plugins", "run-kit.js"),
+			fileMode: 0o644,
+			fileContent: func(rkPath string) string {
+				return opencodePluginFile(rkPath)
+			},
+			postInstallNote: "OpenCode loads plugins at startup — restart running opencode sessions to pick it up.",
+		},
+		{
+			// Antigravity CLI (agy 1.1.11 verified against the shipped
+			// agy-customizations hooks.md and antigravity.google/docs/hooks):
+			// hooks.json at the user-global customization root, with NAMED
+			// top-level hooks — rk owns only the "run-kit" key. PreInvocation
+			// (before every model call) is the active + identity signal; Stop
+			// (loop termination) maps to idle, gated on the payload's
+			// fullyIdle so a stop with background tasks running stays honest.
+			// PreToolUse is deliberately NOT hooked: its contract answers
+			// permission decisions, and run-kit never emits allow/deny for
+			// telemetry — so agy has NO waiting signal (documented gap). There
+			// is no SessionStart event either; identity lands on the first
+			// model invocation. agy hook handlers must answer a JSON object on
+			// stdout — the JSON wrapper variant emits {} (a no-decision
+			// result) after reporting.
+			name:          "Antigravity",
+			provider:      "agy",
+			kind:          kindJSONHooksMerge,
+			namedHooksDoc: true,
+			settingsPath:  filepath.Join(home, ".gemini", "config", "hooks.json"),
+			hooks: []agentHook{
+				{event: "PreInvocation", state: agentStateActive},
+				{event: "Stop (fullyIdle)", state: agentStateIdle},
+			},
+			postInstallNote: "Antigravity reads hooks at session start — start a new agy session to pick them up. No permission/waiting event is hooked (tool-permission hooks are decision contracts), so agy panes never report waiting.",
 		},
 	}
 }
@@ -345,16 +552,7 @@ func newAgentSetupCmd(use string, deprecated bool) *cobra.Command {
 	c := &cobra.Command{
 		Use:   use,
 		Short: "Install agent-harness hooks that report agent state to run-kit",
-		Long: "Install (or --uninstall) the hooks that write the " + tmux.AgentStateOption + " tmux " +
-			"pane option so run-kit can show any agent's active/waiting/idle state. " +
-			"v1 targets Claude Code (~/.claude/settings.json). The install is a JSON " +
-			"merge: existing hooks are preserved, re-running is idempotent, and a diff " +
-			"is shown for confirmation before anything is written. Also installs the " +
-			"tmux guard shim (~/.local/share/rk/shims/tmux plus a marker-owned PATH " +
-			"block in the shell startup files) so `tmux kill-server` without an " +
-			"explicit -L/-S socket is blocked via `rk mux guard`. Use --yes to write " +
-			"without prompting (non-interactive), or --dry-run to preview the diff and " +
-			"write nothing.",
+		Long:  agentSetupLong,
 		Args:         usageArgs(cobra.NoArgs),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -371,6 +569,27 @@ func newAgentSetupCmd(use string, deprecated bool) *cobra.Command {
 	}
 	return c
 }
+
+// agentSetupLong is the setup command's Long help. It names every supported
+// harness and its config target (kept honest by TestAgentSetupLongListsEveryProvider)
+// and deliberately repeats that Codex hooks need the native /hooks trust review
+// before they run — a written hook is not an active one.
+const agentSetupLong = "Install (or --uninstall) the hooks that write the " + tmux.AgentStateOption + " tmux " +
+	"pane option so run-kit can show any agent's active/waiting/idle state and its " +
+	"session identity. Supported harnesses: Claude Code (~/.claude/settings.json), " +
+	"Codex ($CODEX_HOME/hooks.json), Gemini CLI (~/.gemini/settings.json), GitHub " +
+	"Copilot CLI ($COPILOT_HOME/hooks/run-kit.json), Kimi Code " +
+	"($KIMI_CODE_HOME/config.toml), OpenCode (~/.config/opencode/plugins/run-kit.js), " +
+	"and Antigravity CLI (~/.gemini/config/hooks.json) " +
+	"— each wired only when its binary is on PATH. Installs preserve existing " +
+	"configuration, re-running is idempotent, and a diff is shown for confirmation " +
+	"before anything is written. Codex skips non-managed hooks until they are " +
+	"trusted — after installing, run `codex` and review them via /hooks. Also " +
+	"installs the tmux guard shim (~/.local/share/rk/shims/tmux plus a marker-owned " +
+	"PATH block in the shell startup files) so `tmux kill-server` without an " +
+	"explicit -L/-S socket is blocked via `rk mux guard`. Use --yes to write " +
+	"without prompting (non-interactive), or --dry-run to preview the diff and " +
+	"write nothing."
 
 var (
 	// agentSetupFamilyCmd is the `rk agent setup` family member.
@@ -412,6 +631,14 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 
 	reader := bufio.NewReader(in)
 	for _, ac := range agentRegistry(home) {
+		// Installs wire only harnesses whose binary is on PATH (writing config
+		// for a tool the machine does not have is noise, mirroring the shll
+		// gated-placement rule). Uninstalls are NOT gated: removal must work
+		// after the harness itself is gone.
+		if !uninstall && !agentBinaryOnPath(ac.provider) {
+			sink.Notef("%s: skipped (the %s binary is not on PATH).\n", ac.name, ac.providerBinary())
+			continue
+		}
 		if err := applyAgentConfig(sink, reader, ac, rkPath, uninstall, cons); err != nil {
 			return err
 		}
@@ -423,17 +650,34 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 	return applyTmuxShim(sink, reader, home, os.Getenv("ZDOTDIR"), rkPath, uninstall, cons)
 }
 
-// applyAgentConfig applies the hooks merge for one agent and, on BOTH the install
-// and uninstall passes, cleans up any stale legacy rk-display skill. The hooks
-// merge is the only artifact rk agent setup still INSTALLS; the legacy cleanup is a
-// one-release courtesy that removes a marker-owned rk-display skill left by an
-// older run-kit. Each step is handled independently — its own tolerant read,
-// diff/prompt, and no-op report — so declining or no-op-ing one does not skip the
-// other. The legacy cleanup is skipped entirely when skillsDir is empty (e.g. a
-// future codex/copilot row with no skills convention).
+// applyAgentConfig applies the agent's installer kind and, on BOTH the install
+// and uninstall passes, cleans up any stale legacy rk-display skill. The legacy
+// cleanup is a one-release courtesy that removes a marker-owned rk-display
+// skill left by an older run-kit. Each step is handled independently — its own
+// tolerant read, diff/prompt, and no-op report — so declining or no-op-ing one
+// does not skip the other. The legacy cleanup is skipped entirely when
+// skillsDir is empty (every non-claude row).
+//
+// On install the agent's postInstallNote is printed (chatter) whenever the
+// harness has an activation step rk cannot perform for it — codex's /hooks
+// trust review, or a session restart to load hook/plugin config — so a
+// written-but-inactive hook is never represented as operational.
 func applyAgentConfig(sink outputSink, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool, cons consent) error {
-	if err := applyAgentHooks(sink, reader, ac, rkPath, uninstall, cons); err != nil {
+	var err error
+	switch ac.kind {
+	case kindMarkerFile:
+		err = applyAgentMarkerFile(sink, reader, ac, rkPath, uninstall, cons)
+	case kindMarkerBlock:
+		err = applyAgentMarkerBlock(sink, reader, ac, rkPath, uninstall, cons)
+	default:
+		err = applyAgentHooks(sink, reader, ac, rkPath, uninstall, cons)
+	}
+	if err != nil {
 		return err
+	}
+	if !uninstall && ac.postInstallNote != "" {
+		// Activation note — chatter (dropped by --quiet).
+		sink.Notef("%s: %s\n", ac.name, ac.postInstallNote)
 	}
 	if ac.skillsDir != "" {
 		if err := removeLegacySkill(sink, reader, ac, cons); err != nil {
@@ -454,9 +698,17 @@ func applyAgentHooks(sink outputSink, reader *bufio.Reader, ac agentConfig, rkPa
 
 	next := cloneJSONMap(current)
 	if uninstall {
-		unmergeHooks(next)
+		if ac.namedHooksDoc {
+			unmergeNamedHook(next)
+		} else {
+			unmergeHooks(next)
+		}
 	} else {
-		mergeHooks(next, ac.hooks, rkPath, ac.comm)
+		if ac.namedHooksDoc {
+			mergeNamedHook(next, rkPath)
+		} else {
+			mergeHooks(next, ac.hooks, rkPath, ac.provider)
+		}
 	}
 
 	beforeJSON := mustMarshalIndent(current)
@@ -496,7 +748,7 @@ func applyAgentHooks(sink outputSink, reader *bufio.Reader, ac agentConfig, rkPa
 	if cons.dryRun {
 		renderArtifactDiff(cons.diffWriter(sink), header, beforeJSON, afterJSON)
 	} else {
-		renderHooksSummary(cons.diffWriter(sink), header, ac.hooks, countRkEntries(current), uninstall)
+		renderHooksSummary(cons.diffWriter(sink), header, ac.hooks, countRkOwned(ac, current), uninstall)
 	}
 
 	dryRunNote := fmt.Sprintf("%s: dry run — no changes written.", ac.name)
@@ -763,10 +1015,11 @@ func writeSettings(path string, m map[string]any) error {
 // removes any existing rk-owned entry (identified by rkHookMarker in a command)
 // from that event's array, then appends the fresh rk entry — so a re-run
 // replaces in place and never duplicates. Non-rk entries and their order are
-// preserved. The Claude hooks shape is:
+// preserved. The shared nested hooks shape (claude settings.json, codex
+// hooks.json, gemini settings.json) is:
 //
 //	hooks → <Event> → [ { matcher?, hooks: [ {type:"command", command} ] } ]
-func mergeHooks(settings map[string]any, hooks []agentHook, rkPath, comm string) {
+func mergeHooks(settings map[string]any, hooks []agentHook, rkPath, provider string) {
 	hooksRoot := asMap(settings["hooks"])
 	if hooksRoot == nil {
 		hooksRoot = map[string]any{}
@@ -788,7 +1041,7 @@ func mergeHooks(settings map[string]any, hooks []agentHook, rkPath, comm string)
 
 	// Now append the fresh rk entries.
 	for _, h := range hooks {
-		hooksRoot[h.event] = append(asSlice(hooksRoot[h.event]), rkHookEntry(h, rkPath, comm))
+		hooksRoot[h.event] = append(asSlice(hooksRoot[h.event]), rkHookEntry(h, rkPath, provider))
 	}
 
 	settings["hooks"] = hooksRoot
@@ -817,14 +1070,14 @@ func unmergeHooks(settings map[string]any) {
 	}
 }
 
-// rkHookEntry builds the Claude hook-entry object for one agentHook: an optional
-// matcher plus a single command handler.
-func rkHookEntry(h agentHook, rkPath, comm string) map[string]any {
+// rkHookEntry builds the nested hook-entry object (claude/codex/gemini shape)
+// for one agentHook: an optional matcher plus a single command handler.
+func rkHookEntry(h agentHook, rkPath, provider string) map[string]any {
 	entry := map[string]any{
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": agentStateHookCommand(rkPath, h.state, comm),
+				"command": agentStateHookCommand(rkPath, h.state, provider),
 			},
 		},
 	}

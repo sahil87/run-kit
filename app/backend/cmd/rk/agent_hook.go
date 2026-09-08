@@ -56,21 +56,18 @@ const agentHookAncestorHops = 5
 // agentHookStampToken is the distinguished positional token of the SessionStart
 // registry row. It stamps @rk_pane_agent_session (the pane→session mapping) on every fire
 // that yields a session id, and — when the stdin payload parses and its source
-// is NOT "compact" — additionally writes @rk_agent_state idle:<epoch>[:<pid>]:
-// SessionStart fires on startup/resume/clear/compact, and source=compact fires
-// MID-TURN, where an idle write would clobber a live `active` state, so that
-// one source is excluded. The startup/resume/clear idle write is the boot-ready
-// signal (state present ⇒ hooks fired ⇒ the TUI is up) and also clears a stale
-// waiting/active left in the pane by a previous agent. An unparseable payload
-// skips both writes: the idle write (fail-safe against the mid-turn clobber)
-// and the agent-session stamp (no session id can be decoded). The three canonical agent
-// states plus this token are the only tokens that write anything; any other is
-// a silent no-op.
+// is NOT the provider's mid-turn compaction source (agentRuntime.compactSource)
+// — additionally writes @rk_agent_state idle:<epoch>[:<pid>]: claude and codex
+// SessionStart hooks fire on startup/resume/clear/compact, and source=compact
+// fires MID-TURN, where an idle write would clobber a live `active` state, so
+// that one source is excluded. The startup/resume/clear idle write is the
+// boot-ready signal (state present ⇒ hooks fired ⇒ the TUI is up) and also
+// clears a stale waiting/active left in the pane by a previous agent. An
+// unparseable payload skips both writes: the idle write (fail-safe against the
+// mid-turn clobber) and the agent-session stamp (no session id can be decoded).
+// The three canonical agent states plus this token are the only tokens that
+// write anything; any other is a silent no-op.
 const agentHookStampToken = "stamp"
-
-// hookSourceCompact is the SessionStart source that fires mid-turn (context
-// compaction): the stamp token's idle write is withheld for it.
-const hookSourceCompact = "compact"
 
 // hookStdinReadLimit bounds the stdin JSON read (~1 MiB). The hook payload is a
 // small JSON object; the bound guards against a pathological/hung producer
@@ -126,7 +123,7 @@ func newAgentHookCmd(use string) *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().StringVar(&agentFlag, "agent", "claude", "Agent harness whose comm literal drives pid resolution (v1: claude)")
+	c.Flags().StringVar(&agentFlag, "agent", "claude", "Agent harness provider whose registry entry drives payload parsing and pid resolution (claude, codex, gemini, copilot, kimi, opencode, agy)")
 	// KNOWN-flag parse errors (e.g. `--agent` present but its value missing) are
 	// returned by pflag BEFORE RunE and are NOT covered by ArbitraryArgs (arg-count
 	// only) or FParseErrWhitelist (unknown flags only). Swallowing them here is the
@@ -190,12 +187,13 @@ func runAgentHook(parent context.Context, agent, token string) {
 		return
 	}
 
-	// Resolve the agent's comm literal from the per-agent registry. An unknown
-	// --agent writes nothing. os.UserHomeDir failure is tolerated — the registry
-	// comm/state mapping does not depend on the home dir, so fall back to "".
-	home, _ := os.UserHomeDir()
-	comm := agentCommForName(home, agent)
-	if comm == "" {
+	// Resolve the provider's runtime descriptor from the shared registry
+	// (agent_registry.go) — by provider token or comm literal. An unknown
+	// --agent writes nothing (never-fail). The descriptor drives the comm
+	// walk, the payload's session-id field shape, and the compact gate, with
+	// NO dependence on any installer entry.
+	rt, ok := agentRuntimeForName(agent)
+	if !ok {
 		return
 	}
 
@@ -206,12 +204,22 @@ func runAgentHook(parent context.Context, agent, token string) {
 	// id) and the stamp token's boot-write gate (source). Every failure mode is
 	// silent — ok=false skips the boot write and the agent-session stamp, while a
 	// state fire's agent-state write below still proceeds.
-	in, ok := readHookInput(hookStdin())
+	in, payloadOK := readHookInput(hookStdin())
+	sessionID := rt.hookSessionID(in)
 
-	// The stamp token's boot write fires on every SessionStart source EXCEPT
-	// compact (the mid-turn source). An unparseable payload withholds it —
+	// A provider whose loop-end event can fire with background tasks still
+	// running (agy's Stop) accepts an idle write only when the payload proves
+	// fullyIdle — anything less stays unknown rather than manufacturing an
+	// at-rest signal. The identity stamp below still proceeds.
+	if writeState && token == agentStateIdle && rt.idleRequiresFullyIdle &&
+		(!payloadOK || in.FullyIdle == nil || !*in.FullyIdle) {
+		writeState = false
+	}
+
+	// The stamp token's boot write fires on every SessionStart source EXCEPT the
+	// provider's mid-turn compaction source. An unparseable payload withholds it —
 	// fail-safe against clobbering a live active state.
-	bootStamp := token == agentHookStampToken && ok && in.Source != hookSourceCompact
+	bootStamp := token == agentHookStampToken && payloadOK && !rt.isCompactSource(in.Source)
 	if writeState || bootStamp {
 		// Resolve the agent pid via the bounded, comm-validated ancestor walk. 0
 		// means "could not validate an ancestor" → the pid segment is omitted (a
@@ -221,26 +229,36 @@ func runAgentHook(parent context.Context, agent, token string) {
 		if bootStamp {
 			state = agentStateIdle
 		}
-		pid := resolveAgentPID(ctx, os.Getppid(), comm)
+		pid := resolveAgentPID(ctx, os.Getppid(), rt.comm)
 		writeAgentState(ctx, pane, state, pid)
 	}
 
 	// Stamp @rk_pane_agent_session from the hook stdin session id, on EVERY fire
 	// that yields one (states and the stamp token alike). Absent/malformed/
 	// oversized stdin → no stamp; the agent-state write above still proceeded.
-	if ok && isValidSessionID(in.SessionID) {
-		writeAgentSession(ctx, pane, comm, in.SessionID)
+	// The stamped prefix is the canonical PROVIDER token (never the comm — kimi's
+	// comm is kimi-code but its provider token is kimi).
+	if payloadOK && isValidSessionID(sessionID) {
+		writeAgentSession(ctx, pane, rt.provider, sessionID)
 	}
 }
 
 // hookInput is the subset of the agent-harness hook stdin JSON the writer reads.
-// All hook events carry session_id (docs re-verified 2026-07-13); SessionStart
-// additionally carries source (startup/resume/clear/compact), which gates the
-// stamp token's boot write. Every other field is ignored. Unknown JSON keys are
-// tolerated by encoding/json.
+// Every supported harness carries the session identity on all hook events;
+// claude, codex, gemini, and kimi use snake_case `session_id`, copilot's
+// camelCase event format uses `sessionId`, and agy's protojson payloads use
+// `conversationId` (the provider's registry descriptor picks the authoritative
+// field). SessionStart events additionally carry source, which gates the stamp
+// token's boot write against the provider's mid-turn compaction source. agy's
+// Stop carries fullyIdle, gating its idle write (background tasks may still be
+// running at loop termination). Every other field is ignored. Unknown JSON
+// keys are tolerated by encoding/json.
 type hookInput struct {
-	SessionID string `json:"session_id"`
-	Source    string `json:"source"`
+	SessionID      string `json:"session_id"`
+	SessionIDCamel string `json:"sessionId"`
+	ConversationID string `json:"conversationId"`
+	Source         string `json:"source"`
+	FullyIdle      *bool  `json:"fullyIdle"`
 }
 
 // hookStdinFn is a package-level seam so runAgentHook can be tested with an
@@ -304,18 +322,6 @@ func isValidSessionID(s string) bool {
 // constants — the reader and writer share one convention (A-021).
 func isAgentState(s string) bool {
 	return s == agentStateActive || s == agentStateWaiting || s == agentStateIdle
-}
-
-// agentCommForName returns the registry comm literal for the named agent, or ""
-// if the agent is not registered. It reuses the same agentRegistry as the
-// installer so the writer's --agent set and the installed hooks never diverge.
-func agentCommForName(home, name string) string {
-	for _, ac := range agentRegistry(home) {
-		if ac.name == name || ac.comm == name {
-			return ac.comm
-		}
-	}
-	return ""
 }
 
 // resolveAgentPID walks up the process ancestry from startPPID, comparing each

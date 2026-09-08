@@ -1,5 +1,5 @@
 ---
-description: "The `@rk_pane_agent_state` pane-option convention: two-tier ownership, three-state value schema, dual-read/dual-write over the retired unscoped name, writer/reader rules, shell reconciler, window rollup. Covers the `rk agent setup` installer (+ hidden aliases), the `rk agent hook` binary indirection, the SessionStart boot stamp (session stamp + `idle` write, the boot-ready signal), and the `@rk_pane_agent_session` agent-session-identity convention sharing its per-pane liveness."
+description: "The `@rk_pane_agent_state` pane-option convention: three-state value schema, dual-read/dual-write over the retired unscoped name, shell reconciler, window rollup. Covers the seven-harness runtime registry (claude, codex, gemini, copilot, kimi, opencode, agy), the `rk agent setup` installer (three installer kinds + hidden aliases), the `rk agent hook` binary indirection, the SessionStart boot stamp, and the `@rk_pane_agent_session` agent-session-identity convention."
 type: memory
 ---
 # Agent-State Tier (`@rk_pane_agent_state`)
@@ -144,10 +144,13 @@ factory-built (`newAgentHookCmd`) off the one `runAgentHook` core with the
 `--agent` flag bound per-instance, and both carry the complete never-fail
 machinery below. (260815-r2wp-agent-family) `<state>` ∈ `active | waiting |
 idle`, `--agent` selects the harness
-whose comm literal drives pid resolution (v1: `claude`, default).
+whose runtime descriptor drives pid resolution and payload parsing (default
+`claude`; the flag help lists all seven providers). (nnqu)
 
 **Never-fail contract — always exit 0.** Claude Code treats hook exit code 2 as
-blocking and other non-zero exits as warnings, and `main`'s `execute()`
+blocking and other non-zero exits as warnings, copilot's preToolUse command hooks
+are fail-closed on non-zero exit (the wrapper's guaranteed exit 0 is what makes
+the active mapping safe there) (nnqu), and `main`'s `execute()`
 `os.Exit(1)`s on any error `rootCmd.Execute()` returns — so the command must
 swallow **every** cobra parse-error class ITSELF, before it can propagate. Cobra
 surfaces four distinct classes before `RunE`, each needing its own neutralizer:
@@ -162,13 +165,34 @@ surfaces four distinct classes before `RunE`, each needing its own neutralizer:
 Plus `SilenceErrors`/`SilenceUsage` so cobra prints nothing on any of these
 paths. (Locked in by `TestAgentHookCmdNeverErrorsOnMalformedInvocation`.)
 
+**Runtime registry** (`cmd/rk/agent_registry.go`, shared by the hook writer, the
+installer, and `rk doctor`): one `agentRuntime` descriptor per provider —
+claude, codex, gemini, copilot, kimi, opencode, agy — carrying `provider` (the
+canonical wire token: the `@rk_pane_agent_session` prefix and the transcript
+registry key), `binary` (the installer's PATH gate), `comm` (the process-name
+literal for the ancestor walk), `sessionIDField`, `compactSource`,
+`needsJSONOutput`, and `idleRequiresFullyIdle`. The comm literal is
+per-provider: gemini's is **`node`** (the CLI runs as a bundled node script) and
+kimi's is **`kimi-code`** (binary `kimi`, process `kimi-code`); the rest equal
+the provider token. The payload's session-identity field is likewise
+per-provider: `session_id` for claude/codex/gemini/kimi/opencode, camelCase
+`sessionId` for copilot, protojson `conversationId` for agy (the descriptor's
+`sessionIDField` picks the authoritative field). `agentRuntimeForName` resolves
+a name by provider token OR comm literal; an unknown `--agent` is a silent
+no-op (exit 0, writes nothing). Runtime handling and installation are
+orthogonal axes: a provider resolves in the runtime registry with **no**
+installer entry. (nnqu)
+
 **Flow** (`runAgentHook`, the testable core): (1) `$TMUX_PANE` guard — unset →
 exit 0 with no subprocess (defense in depth; the wrapper also short-circuits on
 it); (2) validate `<state>` via the aliased `isAgentState` (unknown → no write);
-(3) resolve the agent's comm from the registry via `agentCommForName(home, agent)`
-(unknown `--agent` → no write; it reuses the same `agentRegistry` as the installer
-so the writer's `--agent` set and the installed hooks never diverge); (4) resolve
-the pid via the ancestor walk; (5) write the pane option. Every failure path is
+(3) resolve the agent's runtime descriptor from the shared runtime registry via
+`agentRuntimeForName(agent)` — by provider token or comm literal (unknown
+`--agent` → no write); (4) read the stdin payload once (`readHookInput`) and
+apply the per-provider gates (the agy `idleRequiresFullyIdle` gate and the stamp
+token's `compactSource` gate — see § Agent Session Identity → Writer); (5)
+resolve the pid via the ancestor walk; (6) write the pane option. Every failure
+path is
 silent and returns without error.
 
 **Comm-validated ancestor walk** (`resolveAgentPID(ctx, startPPID, comm)`, bound
@@ -228,8 +252,9 @@ form while running identically with the same flags and exit codes.
 (260815-r2wp-agent-family) Modeled on guppi's explicit
 `agent-setup` command rather than a silent sync ("explicit feels honest").
 
-**Consent flags** (toolkit Principle 1/5): because it mutates
-`~/.claude/settings.json`, the confirmation is
+**Consent flags** (toolkit Principle 1/5): because it mutates user-global
+harness config (`~/.claude/settings.json`, `$CODEX_HOME/hooks.json`, and the
+other registry targets), the confirmation is
 gated through a `consent` struct (`yes` / `dryRun` / `stdinIsTTY`) resolved once
 per run in the `RunE` and threaded through `runAgentSetup` → `applyAgentConfig`
 → `applyAgentHooks` / `removeLegacySkill`. The single decision point is
@@ -261,8 +286,8 @@ terminal, which would make the refusal silently not fire. A non-`*os.File` reade
 non-interactive path unless they set `stdinIsTTY` explicitly. Pinned by
 `TestIsTerminalRejectsNonTTYFiles`.
 
-**It installs TWO artifact families**: the **per-agent settings-hooks merge**
-(described here) and the **user-global tmux guard shim** — a shim script plus a
+**It installs TWO artifact families**: the **per-agent hook/plugin install**
+(three installer kinds, described below) and the **user-global tmux guard shim** — a shim script plus a
 marker-owned `PATH` block that puts `rk mux guard` in front of every
 PATH-resolved `tmux` invocation, so `tmux kill-server` without an explicit
 `-L`/`-S` socket is refused. The shim script is in its **second generation** —
@@ -285,14 +310,55 @@ in `rk agent setup` is a **one-release legacy cleanup** that removes a stale
 `rk-display` copy left by an older run-kit (see § Legacy `rk-display` Cleanup).
 (260717-agst)
 
-**Per-agent registry** (`agentRegistry(home) []agentConfig`): each `agentConfig`
-carries a display `name`, a `settingsPath`, the agent binary's `comm` (process
-name, e.g. `"claude"` — threaded into both the installed wrapper's `--agent` value
-and `agent_hook.go`'s pid-resolution walk), and an ordered
-`[]agentHook` (event + optional matcher + fixed state token). v1 ships **Claude
-Code only** (`~/.claude/settings.json` via `claudeSettingsRelPath`); codex/
-copilot/gemini/opencode are additive registry rows. The Claude event→state
-mapping:
+**Per-agent installer registry** (`agentRegistry(home) []agentConfig`): one entry
+per supported harness — **Claude Code** (`~/.claude/settings.json`), **Codex**
+(`$CODEX_HOME/hooks.json`, default `~/.codex`), **Gemini CLI**
+(`~/.gemini/settings.json`), **GitHub Copilot CLI**
+(`$COPILOT_HOME/hooks/run-kit.json`, default `~/.copilot`), **Kimi Code**
+(`$KIMI_CODE_HOME/config.toml`, default `~/.kimi-code`), **OpenCode**
+(`~/.config/opencode/plugins/run-kit.js`), and **Antigravity CLI** (`agy`,
+`~/.gemini/config/hooks.json`). Each `agentConfig`
+carries a display `name`, the registry provider token, an **installer kind**
+with its target path(s), the agent binary's `comm` (process
+name — threaded into both the installed wrapper's `--agent` value
+and `agent_hook.go`'s pid-resolution walk), an ordered
+`[]agentHook` (event + optional matcher + fixed state token), and a
+`postInstallNote` naming the harness-side activation step (below). Installs are
+**PATH-gated** (a harness whose binary is not on PATH — the `binary` field of its
+runtime descriptor, probed through the `agentBinaryOnPathFn` seam — is skipped
+with a note); uninstalls are **ungated** so removal still works after the harness
+itself is gone. The command's Long help (`agentSetupLong`) names every supported
+harness and its config target (kept honest by
+`TestAgentSetupLongListsEveryProvider`). (nnqu)
+
+**Three installer kinds** (`installerKind`) share the one consent/diff/dry-run/
+uninstall machinery: (nnqu)
+
+- **jsonHooksMerge** — a nested
+  `hooks → <Event> → [{matcher?, hooks:[{type:"command", command}]}]` merge
+  preserving everything non-rk: claude, codex, gemini. The agy variant
+  (`namedHooksDoc`, targeting `~/.gemini/config/hooks.json`) handles a document
+  whose top level is named hooks: rk owns exactly the `run-kit` key, holding
+  flat PreInvocation/Stop handler arrays.
+- **markerFile** — a whole marker-owned file, the native one-file-per-source
+  shape: copilot's hooks file (mode **0600**, flat camelCase entries, matcher on
+  the entry) and opencode's JS plugin (mode **0644** — over opencode's event
+  stream, the only hook surface; the plugin pipes each event payload to
+  `rk agent hook` itself). Ownership is **every-entry**
+  (`markerFileOwned`, `cmd/rk/agent_setup_markers.go`): a managed-by comment
+  marker means rk-authored outright; a JSON hooks file is rk-owned only when it
+  parses AND every hook entry's command carries an rk marker. A mixed user+rk
+  file is never overwritten or removed — install and uninstall both leave it
+  byte-exact with a narrated skip.
+- **markerBlock** — kimi's `$KIMI_CODE_HOME/config.toml`: a marker-owned
+  `[[hooks]]` block upserted/removed via the shared
+  `upsertMarkerBlock`/`markerBlockBounds` machinery (no TOML parser; only the
+  four documented fields `event`/`matcher`/`command`/`timeout` are emitted —
+  unknown fields fail the whole config load; surrounding content is preserved
+  byte-exactly). Dry-run previews render **only the managed block region**,
+  never unrelated config values (credentials never printed).
+
+The Claude event→state mapping:
 
 | Event | Matcher | State |
 |-------|---------|-------|
@@ -302,7 +368,58 @@ mapping:
 | `Notification` | `idle_prompt` | `idle` (backstop — `Stop` doesn't fire on every turn-end path, e.g. Esc-interrupt) |
 | `Stop` | — | `idle` |
 
-**Hook command** (`agentStateHookCommand(rkPath, state, comm)`): a **stable
+The other six harnesses (the verified per-harness capability matrix — versions,
+mechanisms, install targets, identity fields, transcript support, activation —
+lives in [`docs/site/agent-hooks.md`](../../site/agent-hooks.md)): (nnqu)
+
+- **codex**: UserPromptSubmit/PreToolUse→active, PermissionRequest→waiting,
+  Stop/SessionEnd→idle, SessionStart→stamp (sources
+  startup\|resume\|clear\|compact).
+- **gemini**: BeforeAgent/BeforeTool→active, Notification(ToolPermission)→waiting
+  (**observability-only** — Gemini permission prompts cannot be answered by hooks,
+  but the event fires before the prompt), AfterAgent/SessionEnd→idle,
+  SessionStart→stamp (sources startup\|resume\|clear only — no mid-turn compact
+  source).
+- **copilot** (camelCase event names): sessionStart→stamp,
+  userPromptSubmitted/preToolUse→active, permissionRequest and
+  notification(permission_prompt\|elicitation_dialog)→waiting,
+  notification(agent_idle)/agentStop→idle. Identity + lifecycle **only** — no
+  transcript adapter (a session's identity does not determine a conversation
+  file), so transcript-backed actions stay gated off; see
+  [agent-send](/run-kit/agent-send.md).
+- **kimi**: SessionStart→stamp, TurnStarted/PreToolUse→active,
+  PermissionRequest→waiting, Stop→idle.
+- **opencode**: session.created→stamp, session.status busy→active,
+  permission.updated→waiting, session.idle→idle — via the installed JS plugin,
+  which resolves every event's session through the SDK (`client.session.get`)
+  and ignores any with a `parentID` (child/subagent sessions never reach rk;
+  resumed roots work with no new session.created). The plugin no-ops outside
+  tmux (`TMUX_PANE` unset) and swallows every error.
+- **agy**: PreInvocation→active + identity stamp, Stop→idle (fullyIdle-gated).
+  There is **no waiting signal** (PreToolUse/PostToolUse are deliberately not
+  hooked — their contract answers permission decisions, and telemetry must never
+  emit allow/deny) and **no SessionStart event** (identity lands on the first
+  model invocation).
+
+Subagent/child harness events (Codex SubagentStart/Stop, Kimi
+SubagentStart/Stop, Copilot subagentStart/Stop) are registered by **no**
+installer — enforced by a registry-wide assertion test — so a child event can
+never replace the root pane's identity or complete its turn. (nnqu)
+
+**Post-install activation** (`postInstallNote`, printed on install whenever the
+harness has a step rk cannot perform): the native activation steps stay **user
+actions** — Codex skips non-managed hooks until trusted (the user runs `codex`,
+opens `/hooks`, and trusts the run-kit entries; until then the hooks are
+installed but **INACTIVE**); Gemini, Kimi, and agy read hook config at session
+start (restart or new session); Copilot loads hook config at CLI start; OpenCode
+loads plugins at startup. (nnqu)
+
+**Doctor aggregation**: `rk doctor`'s `agent hooks` row (`agentHooksCheck`)
+aggregates across **every** registry agent — per-agent generation
+classification including marker-file/marker-block presence and staleness —
+instead of returning after the first entry. (nnqu)
+
+**Hook command** (`agentStateHookCommand(rkPath, state, provider)`): a **stable
 delegating wrapper** that keeps all logic in the rk binary (see § `rk agent hook`
 above) —
 
@@ -322,11 +439,18 @@ harness's environment, and a bare `sh` fails on sessions whose PATH lacks /bin.
 The `$TMUX_PANE` guard stays in the wrapper as a cheap short-circuit (no binary
 spawn outside tmux); `|| true` preserves the never-fail contract even if the
 binary is missing or moved (silent no-op is acceptable — the PID-liveness
-reconciler clears stranded values). state and comm are fixed registry literals;
+reconciler clears stranded values). state and provider are fixed registry literals;
 the only machine-derived interpolation is `<abs-rk>`, closed by
 `validateHookPath` (below). Delegating to the binary means hook *logic* changes
 ship with the binary on `brew upgrade rk`, no settings churn, no session
 restarts. (260707-qfps)
+
+**agy wrapper variant** (`agentStateHookCommandJSON`): agy's hooks.json handler
+contract parses stdout as a JSON result object, so this variant runs the
+identical report and then echoes `{}` — a well-formed **no-decision** result (an
+empty object carries no allow/deny/continue field, so native permission and
+termination behavior is preserved exactly). It always exits 0 — the trailing
+echo is the last command. (nnqu)
 
 **Install-time path resolution** (`resolveRkPath()`): the `<abs-rk>` embedded in
 the wrapper is resolved once per `runAgentSetup` invocation. It prefers
@@ -349,11 +473,14 @@ nested quoting layers; such paths never occur under Homebrew/conventional
 layouts, so the error is essentially unreachable in practice and a caller — human
 at a TTY or agent passing `--yes` — sees it and acts).
 
-**JSON-merge install** (`mergeHooks`/`unmergeHooks`, pure functions over
+**jsonHooksMerge install** (`mergeHooks`/`unmergeHooks`, pure functions over
 `map[string]any` so tests skip the filesystem/prompt):
 
-- Merges under the Claude shape
-  `hooks → <Event> → [ { matcher?, hooks: [ { type:"command", command } ] } ]`.
+- Merges under the nested shape
+  `hooks → <Event> → [ { matcher?, hooks: [ { type:"command", command } ] } ]`
+  (the claude/codex/gemini targets). The agy `namedHooksDoc` variant merges into
+  a document whose top level is named hooks: rk owns exactly the `run-kit` key,
+  holding flat PreInvocation/Stop handler arrays. (nnqu)
 - **Idempotent**: for each touched event array it **first** strips every existing
   rk-owned entry (once per event — an event may carry multiple rk hooks, e.g.
   `Notification` maps to both `waiting` and `idle`), **then** appends the fresh
@@ -413,7 +540,11 @@ at its boundary (so everything below stays pure over injected paths), then runs:
 
 `applyAgentConfig` is the thin per-agent wrapper, running in order:
 
-1. **`applyAgentHooks`** — the settings-hooks merge (described above). Always runs.
+1. **The installer-kind dispatch** — `applyAgentHooks` (jsonHooksMerge),
+   `applyAgentMarkerFile` (markerFile), or `applyAgentMarkerBlock` (markerBlock),
+   as described above. Always runs. On install, the agent's `postInstallNote` is
+   printed (chatter) whenever the harness has an activation step rk cannot
+   perform. (nnqu)
 2. **`removeLegacySkill`** — the one-release cleanup of the legacy `rk-display`
    skill (below). Runs only when the agent's `skillsDir` is non-empty.
 
@@ -421,8 +552,8 @@ Each step runs **independently** — its own tolerant read, diff/prompt, and no-
 report — so declining or no-op-ing one does not skip the others. `agentConfig`
 carries a `skillsDir string` field; the Claude Code registry row sets it to
 `filepath.Join(home, ".claude", "skills")`, and an **empty `skillsDir` means "no
-legacy skill to clean for that agent"** — only the hooks merge runs (future
-codex/copilot/gemini/opencode rows may leave it empty). `skillsDir` exists
+legacy skill to clean for that agent"** — only the hooks install runs (every
+non-claude row leaves it empty). `skillsDir` exists
 **solely to locate the legacy skill for cleanup**.
 
 ### Legacy `rk-display` Cleanup (`removeLegacySkill`, one release only)
@@ -522,9 +653,11 @@ a new state**. A pane is **boot-ready** when:
   present (any of `idle`/`waiting`/`active`) — presence means the agent's hooks
   fired, so its TUI finished booting. The SessionStart registry row's `idle`
   stamp (see § Installer: SessionStart registry row) is what makes this true at
-  boot for registry agents, with no new state value and no schema change.
-- **Capture-settle** (fallback for hook-less agents — the registry is
-  Claude-only): the pane's captured screen is non-blank and byte-identical
+  boot for registry agents, with no new state value and no schema change (agy,
+  which has no session-start event, reaches state-presence on its first
+  PreInvocation `active` fire). (nnqu)
+- **Capture-settle** (fallback for agents without installed hooks): the pane's
+  captured screen is non-blank and byte-identical
   across two consecutive polls (~600ms apart, bounded by a ~25s deadline).
 
 The primitive lives in `internal/inject` (`AwaitReady` polls both signals,
@@ -572,13 +705,18 @@ hooks.
 | Value | `"<provider>:<session-ref>"` |
 | Example | `claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37` |
 
-- **`<provider>`** — a lowercase token (`[a-z][a-z0-9_-]*`) equal to the
-  `rk agent setup` registry agent name (v1: `claude`; codex/gemini are additive).
-  The backend routes on this prefix; the frontend gates on presence.
+- **`<provider>`** — a lowercase token (`[a-z][a-z0-9_-]*`) equal to the runtime
+  registry's canonical provider token — one of `claude`, `codex`, `gemini`,
+  `copilot`, `kimi`, `opencode`, `agy` (`cmd/rk/agent_registry.go`).
+  The backend routes on this prefix; the frontend gates on presence. (nnqu)
 - **`<session-ref>`** — a provider-defined opaque reference. For `claude` it is
   the **session UUID only** — NOT the transcript path (the path is derivable from
   the UUID by glob, so Principle X says carry only the UUID; a colon-free value
-  also keeps parsing trivial). The value is split on the **first** colon
+  also keeps parsing trivial). Other providers carry their native session
+  identifier (copilot's camelCase `sessionId`, agy's protojson `conversationId`,
+  opencode's `ses_…` id) — the writer stamps whatever the payload's per-provider
+  `sessionIDField` yields; per-provider transcript/conversation resolution is
+  documented in [agent-send](/run-kit/agent-send.md). (nnqu) The value is split on the **first** colon
   (providers never contain a colon; a ref might in principle, so the tail is the
   ref verbatim).
 - `tmux.AgentSessionOption = "@rk_pane_agent_session"` is declared **once** in
@@ -632,21 +770,26 @@ hooks.
 
 ### Writer: `rk agent hook` stdin-JSON seam + session stamp (`cmd/rk/agent_hook.go`)
 
-The hook reads a `session_id` from the harness's hook JSON on stdin, scoped to
+The hook reads the session identity from the harness's hook JSON on stdin (the
+field varies per provider — the runtime descriptor's `sessionIDField` picks the
+authoritative one), scoped to
 session identity only — state still comes from the positional arg and pid from the
-process tree, and state derivation stays in the settings matchers. The stdin seam:
+process tree, and state derivation stays in the installed hook/plugin event
+mappings. The stdin seam:
 
-- **`readHookSessionID(r io.Reader) string`** — the conservative stdin parse:
+- **`readHookInput(r io.Reader) (hookInput, bool)`** — the conservative stdin parse:
   - **TTY guard** — if `r` is an `*os.File` in char-device mode
     (`os.ModeCharDevice`), it is NOT read, so a manual `rk agent hook` invocation
     in a terminal never blocks on stdin.
   - **Bounded** — reads through `io.LimitReader(r, hookStdinReadLimit)` where
     `hookStdinReadLimit = 1 << 20` (~1 MiB), so a hung/pathological producer can't
     stall the agent's turn.
-  - **Single object** — `json.Decoder.Decode` into `hookInput{SessionID string
-    json:"session_id"}` returns after ONE complete JSON object, with no dependence
+  - **Single object** — `json.Decoder.Decode` into `hookInput` (fields
+    `session_id` / `sessionId` / `conversationId` / `source` / `fullyIdle`)
+    returns after ONE complete JSON object, with no dependence
     on stdin EOF (which the harness docs don't guarantee). Unknown JSON keys are
-    tolerated.
+    tolerated. The provider's runtime descriptor picks the authoritative
+    session-identity field (`rt.hookSessionID(in)`). (nnqu)
   - **Validated** — `isValidSessionID` (non-empty, no whitespace/control) mirrors
     the reader's `isAgentSessionRef` so a value the reader would reject is never
     stamped.
@@ -654,7 +797,8 @@ process tree, and state derivation stays in the settings matchers. The stdin sea
     `isAgentSessionRef` is unexported — small and stable, deliberate.)
   - Injected via the `hookStdinFn` package-var seam (`func() io.Reader { return
     os.Stdin }`) so tests supply an in-memory reader.
-  - Every failure path returns `""` (no stamp) — never an error.
+  - Every failure path returns a zero `hookInput` with `false` (no stamp, no boot
+    write) — never an error.
 - **`writeAgentSession` / `writeAgentSessionImpl`** (behind the
   `writeAgentSessionFn` seam, mirroring
   `writeAgentStateFn`): **one** `tmux [-S <socket>]` exec carrying two
@@ -667,7 +811,9 @@ process tree, and state derivation stays in the settings matchers. The stdin sea
   via `exec.CommandContext` + `agentHookCmdTimeout` (5s),
   socket derived from **`tmux.OriginalTMUX`** (not `os.Getenv("TMUX")`, same
   reason as the agent-state write — see § Target the pane's server). `provider` is
-  a fixed registry comm literal and `sessionID` a pre-validated discrete argv
+  the runtime registry's canonical provider token (never the comm literal —
+  kimi's comm is `kimi-code` but its provider token is `kimi`) and `sessionID` a
+  pre-validated discrete argv
   element — nothing user-derived is interpolated into a shell string
   (Constitution I). Errors are swallowed (never-fail).
 - **Token dispatch** — `runAgentHook` takes a **token** param.
@@ -680,16 +826,23 @@ process tree, and state derivation stays in the settings matchers. The stdin sea
      needs to judge agent-session liveness.
   2. **stamp token** (`agentHookStampToken = "stamp"`) → stamp
      `@rk_pane_agent_session`
-     (`@rk_pane_chat`), **and** — when the parsed stdin payload's `source` is NOT
-     `compact` — write `@rk_pane_agent_state idle:<epoch>[:<pid>]` (the
-     boot-ready write: SessionStart fires on `startup`/`resume`/`clear`/`compact`,
+     (`@rk_pane_chat`), **and** — when the parsed stdin payload's `source` does
+     NOT equal the provider's **`compactSource`** — write
+     `@rk_pane_agent_state idle:<epoch>[:<pid>]` (the
+     boot-ready write: claude's SessionStart fires on
+     `startup`/`resume`/`clear`/`compact`,
      and `compact` fires **mid-turn**, where an `idle` write would clobber a live
-     `active`). An unparseable payload withholds both writes: the idle write
+     `active`; providers with no mid-turn source never trip the gate). An
+     unparseable payload withholds both writes: the idle write
      (fail-safe against the mid-turn clobber) and the session stamp (no session id
      can be decoded). This is the token the
      SessionStart row uses; the idle write doubles as a **stale-state clear**,
      overwriting a `waiting`/`active` left in the pane by a previous agent.
   3. anything else → no-op.
+- **agy payload gates** — an `idle` write lands only when the Stop payload
+  carries `fullyIdle: true` (`idleRequiresFullyIdle`: agy's loop termination can
+  leave background tasks running, so anything less stays unknown rather than
+  manufacturing an at-rest signal); the identity stamp still proceeds. (nnqu)
 - **Stamp on EVERY fire that yields a session id** (states and the stamp token
   alike), not SessionStart-only, because **session ids rotate on `/clear` and
   `/compact`** (a one-time stamp goes stale mid-pane-lifetime); every-fire refresh
@@ -702,13 +855,16 @@ process tree, and state derivation stays in the settings matchers. The stdin sea
 
 ### Installer: SessionStart registry row (`cmd/rk/agent_setup.go`)
 
-The Claude `agentRegistry` carries a SessionStart entry:
+Every harness with a session-start event carries a stamp row in its installer
+entry (claude/codex/gemini/kimi `SessionStart`, copilot `sessionStart`, opencode
+`session.created` via the plugin; **agy has no session-start event** — its
+identity lands on the first PreInvocation `active` fire). (nnqu) The claude row:
 
 | Event | Matcher | Writes |
 |-------|---------|--------|
-| `SessionStart` | — | `@rk_pane_agent_session`/`@rk_pane_chat` stamp **plus** `@rk_pane_agent_state idle:<epoch>[:<pid>]` (token `stamp`; the idle write is withheld for `source=compact`) |
+| `SessionStart` | — | `@rk_pane_agent_session`/`@rk_pane_chat` stamp **plus** `@rk_pane_agent_state idle:<epoch>[:<pid>]` (token `stamp`; the idle write is withheld when `source` equals the provider's `compactSource`) |
 
-- The installed command uses the standard `agentStateHookCommand(rkPath, state, comm)`
+- The installed command uses the standard `agentStateHookCommand(rkPath, state, provider)`
   wrapper — the positional-token `state` parameter carries the
   `stamp` literal from `h.state = agentHookStampToken`, producing
   `/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent hook --agent claude stamp 2>/dev/null || true'`.
@@ -720,9 +876,10 @@ The Claude `agentRegistry` carries a SessionStart entry:
   the stamp lands within seconds of session start — **before any prompt is
   submitted** (the acceptance bar) — and re-stamps on every session-id rotation.
   It also **clears a stale `waiting`/`active`** left in the pane by a previous
-  agent. The write is gated on the hook payload's `source` because
-  `source=compact` fires **mid-turn** — an `idle` write there would clobber a
-  live `active` state; the other three sources (`startup`/`resume`/`clear`) all
+  agent. The write is gated on the hook payload's `source` against the provider's
+  `compactSource` because a mid-turn compaction source (claude/codex `compact`)
+  fires **mid-turn** — an `idle` write there would clobber a
+  live `active` state; the other sources (`startup`/`resume`/`clear`) all
   stamp it. The idle write ships inside the `rk agent hook` binary, so it reaches
   running fleets on `brew upgrade rk` with no settings churn (the § Migration
   binary-vs-settings split).
@@ -910,7 +1067,8 @@ repurposed for cleanup by `260717-agst`)
 `tmux.AgentStateOption` +
 `tmux.AgentState*` rather than re-declaring `"@rk_agent_state"` and the state
 literals locally; `cmd/rk/agent_hook.go` (the writer) likewise aliases the same
-`tmux.AgentState*` constants and reuses `agentRegistry`, so writer and reader have
+`tmux.AgentState*` constants and resolves providers through the shared runtime
+registry (`agent_registry.go`), so writer and reader have
 one source per binary. (260707-qfps)
 **Why**: the option name and states are the cross-repo contract; a second copy in
 the installer would let the writer and the reader drift (A-021, resolved at
@@ -941,9 +1099,9 @@ changes still need re-setup + restart (that mapping lives in the settings matche
 ### Event→state mapping stays in settings; state-literal args + `--agent` flag
 **Decision**: the event→state mapping (which harness event installs which
 state, including the two `Notification` matchers) lives in the settings matchers;
-the wrapper passes a fixed state literal + `--agent <comm>`. The binary reads the
-harness's hook JSON on stdin **only** to extract `session_id` for the
-`@rk_pane_agent_session`
+the wrapper passes a fixed state literal + `--agent <provider>`. The binary reads the
+harness's hook JSON on stdin **only** to extract the session-identity field for
+the `@rk_pane_agent_session`
 stamp — NOT to derive state, which stays driven by the settings matchers + the
 positional token (see § Agent Session Identity → Writer). (260713-nh86)
 **Why**: the mapping churns far less than the logic, and matcher changes require a
@@ -1019,10 +1177,11 @@ mid-turn); a new `ready`/`boot` state value or a separate `@rk_pane_boot` option
 *Introduced by*: `260713-nh86-chat-session-identity`; boot-stamp extension `260903-4czh-boot-ready-spawn-inject`
 
 ### Bounded, TTY-guarded, single-object stdin parse; validated before write
-**Decision**: `readHookSessionID` is TTY-guarded (`os.ModeCharDevice` — a manual
+**Decision**: `readHookInput` is TTY-guarded (`os.ModeCharDevice` — a manual
 terminal invocation is never read), bounded (`io.LimitReader`, ~1 MiB), decodes a
 **single** JSON object (`json.Decoder.Decode`, no EOF dependence), and validates
-`session_id` with the same rule the reader applies to a ref before stamping.
+the payload's session-identity field
+with the same rule the reader applies to a ref before stamping.
 Every failure is silent — no stamp — and the agent-state write still proceeds.
 **Why**: the harness docs don't guarantee stdin EOF semantics, so a single-object
 Decode (not `io.ReadAll`) is the correct primitive; the TTY guard keeps a manual
@@ -1141,3 +1300,35 @@ parallel to the option name `@rk_pane_agent_session`.
 **Rejected**: `AgentSessionProvider`/`sessionProvider` — longer without
 disambiguating (exactly one provider/ref pair per pane).
 *Introduced by*: `260904-bf1l-agent-session-identity-rename`
+
+### Runtime registry split from installer shape
+**Decision**: one runtime descriptor per provider in `cmd/rk/agent_registry.go`
+referenced by the hook writer; installer entries add config placement/format on
+top; a provider can exist in the runtime registry without an installer.
+**Why**: hook firing must not depend on whether the harness was installed through
+`rk agent setup` — runtime handling and installation are orthogonal axes, and
+coupling writer resolution to installer entries would reject any provider lacking
+a Claude-shaped config target.
+**Rejected**: a new `internal/harness` package (hook, setup, and doctor all live
+in `cmd/rk`; extraction removes no concrete coupling).
+*Introduced by*: 260908-nnqu-fix-agent-neutral-detection
+
+### Three installer kinds over one Claude-shaped merge
+**Decision**: jsonHooksMerge / markerFile / markerBlock, all sharing the existing
+consent/diff/ownership machinery.
+**Why**: the verified native formats fall into exactly these three shapes.
+**Rejected**: a TOML parser dependency for kimi (only documented fields are
+emitted; marker blocks preserve user content byte-exactly) and JSON-merging into
+a foreign copilot file (its hooks dir is one-file-per-source — whole-file
+ownership is the native shape).
+*Introduced by*: 260908-nnqu-fix-agent-neutral-detection
+
+### agy telemetry never answers decisions
+**Decision**: agy's PreToolUse/PostToolUse are not hooked and Stop's idle write
+requires `fullyIdle`; the wrapper emits `{}` (no-decision JSON).
+**Why**: agy's tool-permission hooks are decision contracts; emitting allow/deny
+for telemetry would hijack user permissions, and a stop with background tasks
+running is not at rest.
+**Rejected**: mapping a permission event to `waiting` (no honest signal exists);
+treating every Stop as idle.
+*Introduced by*: 260908-nnqu-fix-agent-neutral-detection

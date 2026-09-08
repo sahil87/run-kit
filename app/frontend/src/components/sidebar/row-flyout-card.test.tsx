@@ -518,9 +518,10 @@ describe("Fix tab name action row (260822-fih1)", () => {
    *  and resolves either way, so a resolved promise is the faithful stand-in. */
   const fixNameResolved = () => vi.fn<() => Promise<void>>(() => Promise.resolve());
 
-  /** A subject window meeting the availability rule: a reconciled agent
-   *  session ref, no operator role. */
-  const subjectWin = () => makeWindow({ agentProvider: "claude", agentSessionRef: "ref-1" });
+  /** A subject window meeting the availability rule: the server-derived
+   *  conversation capability, no operator role. */
+  const subjectWin = () =>
+    makeWindow({ agentProvider: "claude", agentSessionRef: "ref-1", conversationAvailable: true });
 
   it("renders when the rule holds (operator present + agent session ref + not the operator row)", () => {
     render(<Row win={subjectWin()} hasOperator onFixTabName={fixNameResolved()} />);
@@ -543,10 +544,22 @@ describe("Fix tab name action row (260822-fih1)", () => {
     expect(screen.queryByTestId("row-flyout-fix-name-action")).toBeNull();
   });
 
+  it("is absent for an identity-only subject (no conversation capability)", () => {
+    render(
+      <Row
+        win={makeWindow({ agentProvider: "copilot", agentSessionRef: "ref-1" })}
+        hasOperator
+        onFixTabName={fixNameResolved()}
+      />,
+    );
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-fix-name-action")).toBeNull();
+  });
+
   it("is absent on the operator's own row", () => {
     render(
       <Row
-        win={makeWindow({ agentProvider: "claude", agentSessionRef: "ref-1", role: "operator" })}
+        win={makeWindow({ agentProvider: "claude", agentSessionRef: "ref-1", conversationAvailable: true, role: "operator" })}
         hasOperator
         onFixTabName={fixNameResolved()}
       />,
@@ -610,12 +623,12 @@ describe("Fix tab name action row (260822-fih1)", () => {
   });
 
   it("canRequestWindowOperatorAction pins the three-part availability rule", () => {
-    const subject = makeWindow({ agentSessionRef: "ref-1" });
+    const subject = makeWindow({ agentSessionRef: "ref-1", conversationAvailable: true });
     expect(canRequestWindowOperatorAction(subject, true)).toBe(true);
     expect(canRequestWindowOperatorAction(subject, false)).toBe(false); // no operator
-    expect(canRequestWindowOperatorAction(makeWindow({}), true)).toBe(false); // no agent session ref
-    expect(canRequestWindowOperatorAction(makeWindow({ agentSessionRef: "" }), true)).toBe(false); // empty ref
-    expect(canRequestWindowOperatorAction(makeWindow({ agentSessionRef: "ref-1", role: "operator" }), true)).toBe(false); // operator's own row
+    expect(canRequestWindowOperatorAction(makeWindow({}), true)).toBe(false); // no capability
+    expect(canRequestWindowOperatorAction(makeWindow({ agentSessionRef: "ref-1" }), true)).toBe(false); // identity without conversation access
+    expect(canRequestWindowOperatorAction(makeWindow({ conversationAvailable: true, role: "operator" }), true)).toBe(false); // operator's own row
   });
 });
 

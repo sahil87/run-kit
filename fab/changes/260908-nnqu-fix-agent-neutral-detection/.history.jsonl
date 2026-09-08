@@ -1,0 +1,19 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-08T18:57:11Z"}
+{"args":"Create an intake for agent-neutral run-kit detection, lifecycle hooks, transcript resolution, and Fix tab name availability; preserve Claude, fix the confirmed Codex failure, and cover other harnesses through verified portable contracts and native hook mappings.","cmd":"fab-new","event":"command","ts":"2026-09-08T18:57:11Z"}
+{"delta":"+0.0","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-08T18:59:17Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-08T19:10:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T19:10:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T20:00:37Z"}
+{"event":"review","result":"failed","ts":"2026-09-08T20:07:27Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T20:07:27Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T20:23:34Z"}
+{"event":"review","result":"failed","ts":"2026-09-08T20:31:51Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T20:31:51Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T20:39:20Z"}
+{"event":"review","result":"failed","ts":"2026-09-08T20:45:34Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T20:45:34Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T20:52:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-08T20:57:35Z"}
+{"event":"review","result":"passed","ts":"2026-09-08T20:57:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-08T21:10:12Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-09-08T21:11:30Z"}

@@ -25,10 +25,11 @@ func TestStrictUUIDGuard(t *testing.T) {
 }
 
 // TestLookupUnregistered: a well-formed but unregistered provider returns
-// ErrNoAdapter; claude is registered.
+// ErrNoAdapter (copilot carries identity+lifecycle but deliberately has no
+// transcript adapter — see the capability matrix); claude is registered.
 func TestLookupUnregistered(t *testing.T) {
-	if _, err := Lookup("codex"); err != ErrNoAdapter {
-		t.Errorf("Lookup(codex) err = %v, want ErrNoAdapter", err)
+	if _, err := Lookup("copilot"); err != ErrNoAdapter {
+		t.Errorf("Lookup(copilot) err = %v, want ErrNoAdapter", err)
 	}
 	if _, err := Lookup(""); err != ErrNoAdapter {
 		t.Errorf("Lookup(\"\") err = %v, want ErrNoAdapter", err)
@@ -56,8 +57,8 @@ func TestPathSeam(t *testing.T) {
 			t.Errorf("Path(claude, %q) err = %v, want ErrInvalidRef", ref, err)
 		}
 	}
-	if _, err := Path("codex", "5d80479e-8f25-46cd-a0d4-e51435508a37"); err != ErrNoAdapter {
-		t.Errorf("Path(codex, valid-uuid) err = %v, want ErrNoAdapter", err)
+	if _, err := Path("copilot", "5d80479e-8f25-46cd-a0d4-e51435508a37"); err != ErrNoAdapter {
+		t.Errorf("Path(copilot, valid-uuid) err = %v, want ErrNoAdapter", err)
 	}
 }
 

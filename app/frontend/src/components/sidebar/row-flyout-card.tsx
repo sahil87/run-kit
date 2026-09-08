@@ -442,11 +442,13 @@ export function canForkWindow(win: WindowInfo): boolean {
  * The derived availability rule for the window-scoped operator-request
  * affordance (Fix tab name — 260822-fih1) — degrade to
  * ABSENT, never disabled: the row renders only when (a) the server has an
- * operator window, (b) the subject window carries a reconciled agent session
- * (the template needs its JSONL transcript), and (c) the subject is not
- * itself the operator. All three facts already ride the sessions payload. */
+ * operator window, (b) the subject window's reconciled agent identity resolves
+ * to a readable conversation (the server-derived `conversationAvailable`
+ * capability — an identity-only provider never advertises an action that would
+ * predictably 404), and (c) the subject is not itself the operator. All three
+ * facts already ride the sessions payload. */
 export function canRequestWindowOperatorAction(win: WindowInfo, hasOperator: boolean): boolean {
-  return hasOperator && win.agentSessionRef != null && win.agentSessionRef !== "" && win.role !== "operator";
+  return hasOperator && win.conversationAvailable === true && win.role !== "operator";
 }
 
 /** Shared geometry for the card's sectioned action rows: full-bleed inside

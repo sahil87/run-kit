@@ -1135,3 +1135,51 @@ func TestProjectSessionOperatorStalenessJSON(t *testing.T) {
 		t.Errorf("absent operator-state file must omit both keys: %s", fresh)
 	}
 }
+
+// TestDeriveConversationAvailable: the capability is true only when the
+// identity is present AND the provider has a transcript adapter AND the
+// bounded resolution succeeds. Identity-only providers (copilot) and
+// missing transcripts degrade to false.
+func TestDeriveConversationAvailable(t *testing.T) {
+	// Absent identity.
+	if deriveConversationAvailable("", "") {
+		t.Error("empty identity must be false")
+	}
+	// Identity-only provider: no adapter registered.
+	if deriveConversationAvailable("copilot", "0dd0cf59-31dd-4565-9973-3b34f665b354") {
+		t.Error("copilot (no transcript adapter) must be false")
+	}
+
+	// Claude with a resolvable transcript under an isolated config root.
+	claudeRoot := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeRoot)
+	ref := "5d80479e-8f25-46cd-a0d4-e51435508a37"
+	if deriveConversationAvailable("claude", ref) {
+		t.Error("missing claude transcript must be false")
+	}
+	projDir := filepath.Join(claudeRoot, "projects", "someproj")
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projDir, ref+".jsonl"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !deriveConversationAvailable("claude", ref) {
+		t.Error("resolvable claude transcript must be true")
+	}
+
+	// Codex with a fixture rollout under an isolated CODEX_HOME.
+	codexRoot := t.TempDir()
+	t.Setenv("CODEX_HOME", codexRoot)
+	codexRef := "01a06319-6a63-7791-84df-86736cd58e2e"
+	dayDir := filepath.Join(codexRoot, "sessions", "2026", "09", "09")
+	if err := os.MkdirAll(dayDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dayDir, "rollout-2026-09-09T10-00-00-"+codexRef+".jsonl"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !deriveConversationAvailable("codex", codexRef) {
+		t.Error("resolvable codex rollout must be true")
+	}
+}

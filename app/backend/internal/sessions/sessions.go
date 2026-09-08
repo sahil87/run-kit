@@ -17,6 +17,7 @@ import (
 	"rk/internal/cron"
 	"rk/internal/prstatus"
 	"rk/internal/tmux"
+	"rk/internal/transcript"
 )
 
 // Viewer is one size-arbitrating client attached to a session — the
@@ -638,6 +639,32 @@ func rollupAgentSession(panes []tmux.PaneInfo) (provider, ref string) {
 	return provider, ref
 }
 
+// deriveConversationAvailable reports whether a window's rolled-up agent
+// identity resolves to a READABLE conversation. Providers with a
+// ConversationChecker (opencode, whose resolution is a request-priced export
+// subprocess) answer through the cheap probe; every other provider resolves
+// for real via the bounded glob/index lookups. Every failure class — absent
+// identity, unregistered provider, invalid ref, missing transcript — degrades
+// to false; the derive tick never errors on a conversation lookup and never
+// spawns a subprocess. Called once per identified window per fetch.
+func deriveConversationAvailable(provider, ref string) bool {
+	if provider == "" || ref == "" {
+		return false
+	}
+	a, err := transcript.Lookup(provider)
+	if err != nil {
+		return false
+	}
+	if checker, ok := a.(transcript.ConversationChecker); ok {
+		return checker.ConversationAvailable(ref)
+	}
+	if _, ok := a.(transcript.TranscriptLocator); !ok {
+		return false
+	}
+	_, err = transcript.Path(provider, ref)
+	return err == nil
+}
+
 // rollupAltScreen derives the window-level alt-screen flag from the ACTIVE
 // pane — the same active-pane rule CaptureWindowHistoryCtx targets: an
 // alt-screen active pane means tmux holds no scrollback for the window's
@@ -900,6 +927,13 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			// entries; both ride the existing ProjectSession marshal to
 			// GET /api/sessions and SSE event: sessions.
 			sd.windows[j].AgentProvider, sd.windows[j].AgentSessionRef = rollupAgentSession(sd.windows[j].Panes)
+			// Conversation-access tier: whether the rolled-up identity resolves
+			// to a readable conversation — the provider has a registered
+			// transcript adapter AND the bounded lookup succeeds. Derived ONCE
+			// per identified window (never per pane); every failure degrades to
+			// false. Gates the transcript-backed operator actions (fix-tab-name)
+			// so identity-only providers never advertise them.
+			sd.windows[j].ConversationAvailable = deriveConversationAvailable(sd.windows[j].AgentProvider, sd.windows[j].AgentSessionRef)
 			// Alt-screen tier (260820-4le0): the ACTIVE pane's alternate_on,
 			// rolled up to the window so the export menu's server-capture row
 			// can be honest about panes where tmux holds no scrollback.

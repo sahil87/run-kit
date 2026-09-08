@@ -840,11 +840,11 @@ describe("CmdK Terminal Export Actions (altScreen gate)", () => {
 /** Build the Fix tab name palette entry matching app.tsx's gate. */
 function buildFixTabNameActions(opts: {
   hasOperator: boolean;
-  agentSessionRef?: string;
+  conversationAvailable?: boolean;
   currentRole?: string;
   onFix: () => void;
 }): PaletteAction[] {
-  if (!opts.hasOperator || !opts.agentSessionRef || opts.currentRole === "operator") return [];
+  if (!opts.hasOperator || !opts.conversationAvailable || opts.currentRole === "operator") return [];
   return [{ id: "window-fix-name-operator", label: "Tab: Fix name (ask operator)", onSelect: opts.onFix }];
 }
 
@@ -853,7 +853,7 @@ describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
 
   it("is listed when the rule holds and selecting it fires the fix seam", () => {
     const onFix = vi.fn();
-    const actions = buildFixTabNameActions({ hasOperator: true, agentSessionRef: "ref-1", onFix });
+    const actions = buildFixTabNameActions({ hasOperator: true, conversationAvailable: true, onFix });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
@@ -866,7 +866,7 @@ describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
   });
 
   it("is absent without an operator on the server", () => {
-    const actions = buildFixTabNameActions({ hasOperator: false, agentSessionRef: "ref-1", onFix: vi.fn() });
+    const actions = buildFixTabNameActions({ hasOperator: false, conversationAvailable: true, onFix: vi.fn() });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
@@ -874,7 +874,7 @@ describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
     expect(screen.queryByText("Tab: Fix name (ask operator)")).not.toBeInTheDocument();
   });
 
-  it("is absent when the current window carries no agent session ref", () => {
+  it("is absent when the current window has no conversation capability", () => {
     const actions = buildFixTabNameActions({ hasOperator: true, onFix: vi.fn() });
 
     render(<CommandPalette actions={actions} />);
@@ -886,7 +886,7 @@ describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
   it("is absent on the operator's own window", () => {
     const actions = buildFixTabNameActions({
       hasOperator: true,
-      agentSessionRef: "ref-1",
+      conversationAvailable: true,
       currentRole: "operator",
       onFix: vi.fn(),
     });
@@ -1086,11 +1086,11 @@ describe("CmdK Set Note Action (260824-bb5n)", () => {
 /** Build the Annotate tab palette entry matching app.tsx's gate. */
 function buildAnnotateTabActions(opts: {
   hasOperator: boolean;
-  agentSessionRef?: string;
+  conversationAvailable?: boolean;
   currentRole?: string;
   onAnnotate: () => void;
 }): PaletteAction[] {
-  if (!opts.hasOperator || !opts.agentSessionRef || opts.currentRole === "operator") return [];
+  if (!opts.hasOperator || !opts.conversationAvailable || opts.currentRole === "operator") return [];
   return [{ id: "window-annotate-operator", label: "Operator: Annotate tab", onSelect: opts.onAnnotate }];
 }
 
@@ -1099,7 +1099,7 @@ describe("CmdK Annotate Tab Action (operator-request gate)", () => {
 
   it("is listed when the rule holds and selecting it fires the annotate seam", () => {
     const onAnnotate = vi.fn();
-    const actions = buildAnnotateTabActions({ hasOperator: true, agentSessionRef: "ref-1", onAnnotate });
+    const actions = buildAnnotateTabActions({ hasOperator: true, conversationAvailable: true, onAnnotate });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
@@ -1112,7 +1112,7 @@ describe("CmdK Annotate Tab Action (operator-request gate)", () => {
   });
 
   it("is absent without an operator on the server", () => {
-    const actions = buildAnnotateTabActions({ hasOperator: false, agentSessionRef: "ref-1", onAnnotate: vi.fn() });
+    const actions = buildAnnotateTabActions({ hasOperator: false, conversationAvailable: true, onAnnotate: vi.fn() });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
@@ -1132,7 +1132,7 @@ describe("CmdK Annotate Tab Action (operator-request gate)", () => {
   it("is absent on the operator's own window", () => {
     const actions = buildAnnotateTabActions({
       hasOperator: true,
-      agentSessionRef: "ref-1",
+      conversationAvailable: true,
       currentRole: "operator",
       onAnnotate: vi.fn(),
     });

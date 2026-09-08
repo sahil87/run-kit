@@ -131,6 +131,7 @@ import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { HeadsetIcon } from "@/components/sidebar/icons";
+import { canRequestWindowOperatorAction } from "@/components/sidebar/row-flyout-card";
 import { SurfaceLayout } from "@/components/surface-layout";
 import { CronActivityFeed } from "@/components/cron-activity-feed";
 import { TerminalActivityTabs } from "@/components/terminal-activity-tabs";
@@ -2881,13 +2882,12 @@ function AppShell() {
               },
             },
             // Fix tab name (260822-fih1) — the palette arm of the operator
-            // actuation seam, gated by the same derived availability rule as
-            // the flyout row (omit-not-disable): an operator on the server,
-            // the subject carrying an agent session ref, and the subject not
-            // being the operator itself.
-            ...(hasOperatorWindow &&
-            currentWindow.agentSessionRef &&
-            currentWindow.role !== "operator"
+            // actuation seam, gated by the SAME server-derived capability rule
+            // as the flyout row (canRequestWindowOperatorAction —
+            // omit-not-disable): an operator on the server, the subject's
+            // identity resolving to a readable conversation, and the subject
+            // not being the operator itself.
+            ...(canRequestWindowOperatorAction(currentWindow, hasOperatorWindow)
               ? [
                   {
                     id: "window-fix-name-operator",

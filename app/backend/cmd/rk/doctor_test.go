@@ -1549,3 +1549,165 @@ func TestCronTickerCheckNeverFlipsVerdict(t *testing.T) {
 		t.Error("runDoctorChecks must append the cron ticker row unconditionally")
 	}
 }
+
+// --- agent hooks aggregation across providers --------------------------------
+
+// agentHooksMapFixture builds the (readFile, stat) seams from a path→body map
+// (absent keys read as not-exist) plus a set of executable paths.
+func agentHooksMapFixture(t *testing.T, bodies map[string][]byte, executables map[string]bool) (func(string) ([]byte, error), func(string) (os.FileInfo, error)) {
+	t.Helper()
+	readFile := func(path string) ([]byte, error) {
+		if body, ok := bodies[path]; ok {
+			return body, nil
+		}
+		return nil, os.ErrNotExist
+	}
+	stat := func(path string) (os.FileInfo, error) {
+		if executables[path] {
+			return fakeFileInfo{mode: 0o755}, nil
+		}
+		return nil, os.ErrNotExist
+	}
+	return readFile, stat
+}
+
+func TestAgentHooksCheckAggregatesProviders(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("COPILOT_HOME", "")
+	t.Setenv("KIMI_CODE_HOME", "")
+	// claude gen-3 (healthy) + codex gen-3 (healthy) → one aggregated note
+	// naming both providers.
+	bodies := map[string][]byte{
+		filepath.Join(home, ".claude", "settings.json"): hookSettingsJSON(agentStateHookCommand("/opt/homebrew/bin/rk", "active", "claude")),
+		filepath.Join(home, ".codex", "hooks.json"):     hookSettingsJSON(agentStateHookCommand("/opt/homebrew/bin/rk", "stamp", "codex")),
+	}
+	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{"/opt/homebrew/bin/rk": true})
+	c := agentHooksCheck(home, readFile, stat)
+	if !c.OK {
+		t.Fatalf("OK = false, want true: %s", c.Hint)
+	}
+	if !strings.Contains(c.Note, "claude") || !strings.Contains(c.Note, "codex") {
+		t.Errorf("Note = %q, want both providers listed", c.Note)
+	}
+}
+
+func TestAgentHooksCheckStaleInAnyProviderFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("COPILOT_HOME", "")
+	t.Setenv("KIMI_CODE_HOME", "")
+	// claude healthy gen-3, codex carrying a stale gen-2 entry — the aggregate
+	// must fail regardless of registry order.
+	gen2 := `/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "/opt/homebrew/bin/rk" agent-hook --agent codex stamp 2>/dev/null || true'`
+	bodies := map[string][]byte{
+		filepath.Join(home, ".claude", "settings.json"): hookSettingsJSON(agentStateHookCommand("/opt/homebrew/bin/rk", "active", "claude")),
+		filepath.Join(home, ".codex", "hooks.json"):     hookSettingsJSON(gen2),
+	}
+	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{"/opt/homebrew/bin/rk": true})
+	c := agentHooksCheck(home, readFile, stat)
+	if c.OK {
+		t.Error("OK = true, want false (a stale entry in ANY provider fails the row)")
+	}
+	if !strings.Contains(c.Hint, "Codex") || !strings.Contains(c.Hint, "generation 2") {
+		t.Errorf("Hint = %q, want the codex generation-2 stale hint", c.Hint)
+	}
+}
+
+func TestAgentHooksCheckCopilotMarkerFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("COPILOT_HOME", "")
+	t.Setenv("KIMI_CODE_HOME", "")
+	// A copilot marker file whose embedded rk path dangles fails; a healthy one
+	// reports installed.
+	dangling := copilotHooksFile("/removed/keg/rk")
+	bodies := map[string][]byte{filepath.Join(home, ".copilot", "hooks", "run-kit.json"): []byte(dangling)}
+	readFile, stat := agentHooksMapFixture(t, bodies, nil)
+	c := agentHooksCheck(home, readFile, stat)
+	if c.OK {
+		t.Error("OK = true, want false (dangling embedded rk path)")
+	}
+	if !strings.Contains(c.Hint, "GitHub Copilot") {
+		t.Errorf("Hint = %q, want the copilot prefix", c.Hint)
+	}
+
+	bodies[filepath.Join(home, ".copilot", "hooks", "run-kit.json")] = []byte(copilotHooksFile("/opt/homebrew/bin/rk"))
+	readFile, stat = agentHooksMapFixture(t, bodies, map[string]bool{"/opt/homebrew/bin/rk": true})
+	c = agentHooksCheck(home, readFile, stat)
+	if !c.OK || !strings.Contains(c.Note, "copilot") {
+		t.Errorf("healthy copilot marker file: OK = %v Note = %q", c.OK, c.Note)
+	}
+
+	// A foreign marker-less file at the path is not an rk install.
+	bodies[filepath.Join(home, ".copilot", "hooks", "run-kit.json")] = []byte(`{"version":1,"hooks":{}}`)
+	readFile, stat = agentHooksMapFixture(t, bodies, nil)
+	c = agentHooksCheck(home, readFile, stat)
+	if !c.OK || !strings.Contains(c.Note, "not installed") {
+		t.Errorf("foreign file: OK = %v Note = %q, want not-installed", c.OK, c.Note)
+	}
+}
+
+func TestAgentHooksCheckKimiMarkerBlock(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("COPILOT_HOME", "")
+	t.Setenv("KIMI_CODE_HOME", "")
+	_, _, block := kimiHooksBlock("/opt/homebrew/bin/rk")
+	bodies := map[string][]byte{
+		filepath.Join(home, ".kimi-code", "config.toml"): []byte("model = \"k2\"\n" + block),
+	}
+	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{"/opt/homebrew/bin/rk": true})
+	c := agentHooksCheck(home, readFile, stat)
+	if !c.OK || !strings.Contains(c.Note, "kimi") {
+		t.Errorf("healthy kimi block: OK = %v Note = %q", c.OK, c.Note)
+	}
+
+	// A malformed block (begin without end) fails with the repair hint.
+	bodies[filepath.Join(home, ".kimi-code", "config.toml")] = []byte("model = \"k2\"\n" + kimiHooksBlockBegin + "\n")
+	readFile, stat = agentHooksMapFixture(t, bodies, nil)
+	c = agentHooksCheck(home, readFile, stat)
+	if c.OK || !strings.Contains(c.Hint, "Kimi") {
+		t.Errorf("malformed kimi block: OK = %v Hint = %q, want a kimi failure", c.OK, c.Hint)
+	}
+}
+
+func TestAgentHooksCheckOpencodePlugin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("COPILOT_HOME", "")
+	t.Setenv("KIMI_CODE_HOME", "")
+	bodies := map[string][]byte{
+		filepath.Join(home, ".config", "opencode", "plugins", "run-kit.js"): []byte(opencodePluginFile("/opt/homebrew/bin/rk")),
+	}
+	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{"/opt/homebrew/bin/rk": true})
+	c := agentHooksCheck(home, readFile, stat)
+	if !c.OK || !strings.Contains(c.Note, "opencode") {
+		t.Errorf("healthy opencode plugin: OK = %v Note = %q", c.OK, c.Note)
+	}
+}
+
+func TestAgentHooksCheckAgyNamedDoc(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("COPILOT_HOME", "")
+	t.Setenv("KIMI_CODE_HOME", "")
+	settings := map[string]any{"run-kit": agyNamedHookEntry("/opt/homebrew/bin/rk")}
+	body, _ := json.Marshal(settings)
+	bodies := map[string][]byte{filepath.Join(home, ".gemini", "config", "hooks.json"): body}
+	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{"/opt/homebrew/bin/rk": true})
+	c := agentHooksCheck(home, readFile, stat)
+	if !c.OK || !strings.Contains(c.Note, "agy") {
+		t.Errorf("healthy agy named hook: OK = %v Note = %q", c.OK, c.Note)
+	}
+
+	// Dangling embedded rk path fails.
+	settings["run-kit"] = agyNamedHookEntry("/removed/keg/rk")
+	body, _ = json.Marshal(settings)
+	bodies[filepath.Join(home, ".gemini", "config", "hooks.json")] = body
+	readFile, stat = agentHooksMapFixture(t, bodies, nil)
+	c = agentHooksCheck(home, readFile, stat)
+	if c.OK || !strings.Contains(c.Hint, "Antigravity") {
+		t.Errorf("dangling agy rk path: OK = %v Hint = %q, want an Antigravity failure", c.OK, c.Hint)
+	}
+}

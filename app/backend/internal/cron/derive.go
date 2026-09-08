@@ -9,10 +9,10 @@ import (
 // derive.go — the read-side per-entry derivation the HTTP API wave surfaces
 // (R1): next-fire, backoff rung, orphaned status, and last-fired, computed by
 // CALLING the evaluator's own primitives (JoinAnchor, Ladder.NextFire,
-// everyAnchor, LastDelivery, robfig Schedule.Next) so the projection can never
-// diverge from the tick's math. Orphaned is a live per-call snapshot of target
-// resolution; OrphanedSince/ExpiresAt surface the orphan.go streak derivation
-// behind the same snapshot.
+// everyAnchor, cronScheduleDue, LastDelivery, robfig Schedule.Next) so the
+// projection can never diverge from the tick's math. Orphaned is a live
+// per-call snapshot of target resolution; OrphanedSince/ExpiresAt surface the
+// orphan.go streak derivation behind the same snapshot.
 
 // DerivedEntry is the live projection of one entry's schedule state.
 type DerivedEntry struct {
@@ -43,7 +43,7 @@ type DerivedEntry struct {
 // full delivery log (the entry's own lines are filtered internally); facts is
 // the entry's resolved target facts (unresolved ⇒ orphaned, and a backoff
 // entry's next-fire is unknowable without the anchor epoch). now drives the
-// cron-kind next-fire (the next occurrence after now).
+// cron-kind next-fire (a due occurrence, else the next occurrence after now).
 func DeriveEntry(e Entry, log []LogLine, facts TargetFacts, now time.Time) DerivedEntry {
 	d := DerivedEntry{Orphaned: !facts.Resolved()}
 	if d.Orphaned && e.Target.Kind != TargetRole {
@@ -66,10 +66,16 @@ func DeriveEntry(e Entry, log []LogLine, facts TargetFacts, now time.Time) Deriv
 			d.HasNextFire = true
 		}
 	case ScheduleCron:
-		// An unparseable expression (or one with no occurrence inside robfig's
-		// 5-year horizon) keeps HasNextFire false — never a fabricated time.
+		// A due occurrence reports its own DueAt — past means due now, the
+		// DerivedEntry contract — via the evaluator's due math so a
+		// currently-due entry never shows a future next-fire. An unparseable
+		// expression (or one with no occurrence inside robfig's 5-year
+		// horizon) keeps HasNextFire false — never a fabricated time.
 		if sched, err := robfigcron.ParseStandard(e.Schedule.Expr); err == nil {
-			if next := sched.Next(now); !next.IsZero() {
+			if due, _, dueAt := cronScheduleDue(e, log, now); due {
+				d.NextFire = dueAt
+				d.HasNextFire = true
+			} else if next := sched.Next(now); !next.IsZero() {
 				d.NextFire = next
 				d.HasNextFire = true
 			}

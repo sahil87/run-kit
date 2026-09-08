@@ -153,6 +153,27 @@ func TestDeriveEntryOrphanStreak(t *testing.T) {
 	}
 }
 
+// TestDeriveEntryCronKindDueNow: an occurrence inside its due window projects
+// as the (past) occurrence itself — past next-fire means due now, the
+// DerivedEntry contract — and a stale occurrence past its window (missed, no
+// catch-up) projects the next future occurrence.
+func TestDeriveEntryCronKindDueNow(t *testing.T) {
+	facts := TargetFacts{PaneID: "%5", AgentState: "idle", StateEpoch: backoffBase.Unix()}
+	anchor := localTime(2026, 9, 9, 10, 0, 30)
+	log := own(anchor.Unix())
+
+	e := cronEntry("*/5 * * * *", "", "", anchor)
+	d := DeriveEntry(e, log, facts, localTime(2026, 9, 9, 10, 5, 20))
+	if want := localTime(2026, 9, 9, 10, 5, 0); !d.HasNextFire || !d.NextFire.Equal(want) {
+		t.Errorf("due-now NextFire = %v (has %v), want the due occurrence %v", d.NextFire, d.HasNextFire, want)
+	}
+
+	d = DeriveEntry(e, log, facts, localTime(2026, 9, 9, 10, 9, 0))
+	if want := localTime(2026, 9, 9, 10, 10, 0); !d.HasNextFire || !d.NextFire.Equal(want) {
+		t.Errorf("missed NextFire = %v (has %v), want the next future occurrence %v", d.NextFire, d.HasNextFire, want)
+	}
+}
+
 // TestDeriveEntryOrphaned: an unresolved target is orphaned, and a backoff
 // entry's next-fire is unknowable without the anchor epoch.
 func TestDeriveEntryOrphaned(t *testing.T) {

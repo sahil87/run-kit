@@ -40,7 +40,7 @@ export type DaemonStatus =
       sessions: number | null;
     };
 
-export type DaemonAction = "start" | "restart" | "stop";
+export type DaemonAction = "start" | "restart" | "restart-full" | "stop";
 
 /** Menu-relevant projection of the detected daemon state. */
 export interface DaemonMenuInfo {
@@ -60,11 +60,12 @@ export interface DaemonMenuModel {
   statusLabel: string;
   start: DaemonMenuItemModel;
   restart: DaemonMenuItemModel;
+  restartFull: DaemonMenuItemModel;
   stop: DaemonMenuItemModel;
 }
 
 /**
- * Pure Local Daemon submenu decision. An action in flight overlays the
+ * Pure Daemon menu decision. An action in flight overlays the
  * detected state: its item gets progress copy and every lifecycle verb is
  * disabled until the action settles.
  */
@@ -81,13 +82,18 @@ export function daemonMenuModel(info: DaemonMenuInfo): DaemonMenuModel {
     label: info.action === "restart" ? "Restarting…" : "Restart",
     enabled: false,
   };
+  const restartFull = {
+    label: info.action === "restart-full" ? "Restarting (full)…" : "Restart Full",
+    enabled: false,
+  };
   const stop = { label: info.action === "stop" ? "Stopping…" : "Stop", enabled: false };
   if (info.action === null) {
     start.enabled = info.state === "stopped";
     restart.enabled = true;
+    restartFull.enabled = true;
     stop.enabled = info.state !== "stopped";
   }
-  return { statusLabel: `${status}${versionSuffix}`, start, restart, stop };
+  return { statusLabel: `${status}${versionSuffix}`, start, restart, restartFull, stop };
 }
 
 /**

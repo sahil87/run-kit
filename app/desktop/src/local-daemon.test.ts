@@ -188,6 +188,7 @@ test("daemonMenuModel covers stopped, running, and wedged enablement", () => {
       statusLabel: "○ stopped · v3.18.17",
       start: { label: "Start", enabled: true },
       restart: { label: "Restart", enabled: true },
+      restartFull: { label: "Restart Full", enabled: true },
       stop: { label: "Stop", enabled: false },
     },
   );
@@ -197,6 +198,7 @@ test("daemonMenuModel covers stopped, running, and wedged enablement", () => {
       statusLabel: "● running",
       start: { label: "Start", enabled: false },
       restart: { label: "Restart", enabled: true },
+      restartFull: { label: "Restart Full", enabled: true },
       stop: { label: "Stop", enabled: true },
     },
   );
@@ -206,21 +208,24 @@ test("daemonMenuModel covers stopped, running, and wedged enablement", () => {
       statusLabel: "◐ not responding · v3.18.17",
       start: { label: "Start", enabled: false },
       restart: { label: "Restart", enabled: true },
+      restartFull: { label: "Restart Full", enabled: true },
       stop: { label: "Stop", enabled: true },
     },
   );
 });
 
 test("daemonMenuModel overlays each in-flight action and disables every item", () => {
-  for (const [action, activeLabel] of [
-    ["start", "Starting…"],
-    ["restart", "Restarting…"],
-    ["stop", "Stopping…"],
+  for (const [action, key, activeLabel] of [
+    ["start", "start", "Starting…"],
+    ["restart", "restart", "Restarting…"],
+    ["restart-full", "restartFull", "Restarting (full)…"],
+    ["stop", "stop", "Stopping…"],
   ] as const) {
     const model = daemonMenuModel({ state: "running", version: null, action });
-    assert.equal(model[action].label, activeLabel);
+    assert.equal(model[key].label, activeLabel);
     assert.equal(model.start.enabled, false);
     assert.equal(model.restart.enabled, false);
+    assert.equal(model.restartFull.enabled, false);
     assert.equal(model.stop.enabled, false);
   }
 });

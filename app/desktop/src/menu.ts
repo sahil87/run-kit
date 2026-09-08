@@ -104,9 +104,11 @@ export interface MenuCallbacks {
   onNewWindow: () => void;
   /** mac Window menu's manual per-window list — focus the clicked window. */
   onFocusWindow: (windowId: number) => void;
-  /** Local Daemon submenu — starts the daemon when stopped, then connects. */
+  /** Daemon menu — starts the daemon when stopped, then connects. */
   onDaemonStart: () => void;
   onDaemonRestart: () => void;
+  /** Full restart — kills the whole rk-daemon tmux server (sibling sessions included). */
+  onDaemonRestartFull: () => void;
   onDaemonStop: () => void;
   /** App-menu "Restart to Update" — spawns `rk desktop update` detached. */
   onRestartToUpdate: () => void;
@@ -310,20 +312,24 @@ function viewMenu(): MenuItemConstructorOptions {
 }
 
 /**
- * "Local Daemon" submenu — the persistent post-connect control surface for
- * the machine's own daemon (the welcome page's "This Mac" section covers
- * pre-connect). Every item is accelerator-less by design (like Remove) —
- * the keyboard-tier seam is untouched. Start keeps the existing
- * start-and-connect tail; labels and enablement come from the pure decision
- * in local-daemon.ts so the three-state matrix is node:test covered.
+ * "Daemon" menu — the persistent post-connect control surface for the
+ * machine's own daemon (the welcome page's "This Mac" section covers
+ * pre-connect). A top-level menu beside Hosts; hidden entirely when rk is
+ * not installed (and on win32). Every item is accelerator-less by design
+ * (like Remove) — the keyboard-tier seam is untouched. Start keeps the
+ * existing start-and-connect tail; Restart is a plain `rk daemon restart`,
+ * while Restart Full runs `rk daemon restart --full` (kills the whole
+ * rk-daemon tmux server, sibling sessions included, and reconnects
+ * previously-up remote tunnels). Labels and enablement come from the pure
+ * decision in local-daemon.ts so the state matrix is node:test covered.
  */
-function localDaemonSubmenu(
+function daemonMenu(
   daemon: DaemonMenuInfo,
   callbacks: MenuCallbacks,
 ): MenuItemConstructorOptions {
   const model = daemonMenuModel(daemon);
   return {
-    label: "Local Daemon",
+    label: "Daemon",
     submenu: [
       { label: model.statusLabel, enabled: false },
       separator,
@@ -338,6 +344,11 @@ function localDaemonSubmenu(
         click: () => callbacks.onDaemonRestart(),
       },
       {
+        label: model.restartFull.label,
+        enabled: model.restartFull.enabled,
+        click: () => callbacks.onDaemonRestartFull(),
+      },
+      {
         label: model.stop.label,
         enabled: model.stop.enabled,
         click: () => callbacks.onDaemonStop(),
@@ -350,7 +361,6 @@ function hostsMenu(
   hosts: HostEntry[],
   focusedHostId: string | null,
   callbacks: MenuCallbacks,
-  daemon: DaemonMenuInfo | null,
 ): MenuItemConstructorOptions {
   const switcherItems: MenuItemConstructorOptions[] = hosts.map((host, index) => ({
     label: host.name,
@@ -390,8 +400,6 @@ function hostsMenu(
       ...(switcherItems.length > 0 ? [separator] : []),
       { label: "Add Host…", click: () => callbacks.onAddHost() },
       ...removeItems,
-      // Hidden when rk is not installed (and on win32) — daemon is null then.
-      ...(daemon !== null ? [separator, localDaemonSubmenu(daemon, callbacks)] : []),
     ],
   };
 }
@@ -444,8 +452,8 @@ function macWindowMenu(
  * whenever the focused window's active host or the window set/titles change.
  * `focusedHostId` is the FOCUSED window's active host (switching is
  * per-window — the radio check marks follow focus); `windows` feeds the mac
- * Window menu's manual per-window list. `daemon` null hides the Local Daemon
- * submenu (not installed / win32); `update` null hides the App-menu
+ * Window menu's manual per-window list. `daemon` null hides the Daemon
+ * menu (not installed / win32); `update` null hides the App-menu
  * Restart-to-Update item (non-darwin, rk missing, status failure, or up to
  * date — the item is mac-only by structure, since only `macAppMenu` renders
  * it).
@@ -462,7 +470,9 @@ export function buildMenu(
     isMac ? macAppMenu(update, callbacks) : fileMenu(callbacks),
     ...(isMac ? [macEditMenu()] : []),
     viewMenu(),
-    hostsMenu(hosts, focusedHostId, callbacks, daemon),
+    hostsMenu(hosts, focusedHostId, callbacks),
+    // Hidden when rk is not installed (and on win32) — daemon is null then.
+    ...(daemon !== null ? [daemonMenu(daemon, callbacks)] : []),
     ...(isMac ? [macWindowMenu(windows, callbacks)] : []),
   ];
 

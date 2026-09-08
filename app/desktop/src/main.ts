@@ -23,7 +23,7 @@
  * This shell is a VIEWER (Constitution VI): it loads an existing `rk serve`
  * URL and NEVER spawns or supervises the rk daemon on its own initiative.
  * child_process is used ONLY for explicit user-initiated actions — `rk daemon`
- * start/stop/restart via the welcome card or the Local Daemon menu, and
+ * start/stop/restart via the welcome card or the Daemon menu, and
  * `rk desktop update` via the App menu's Restart-to-Update click — and
  * read-only detection (`rk url`, `rk --version`, `rk desktop status`). There
  * is no auto-start and no auto-update anywhere; the tmux/server layer stays
@@ -947,7 +947,15 @@ function rebuildMenu(): void {
       void (async () => {
         const win = focusedWindow();
         if (!win) return;
-        const result = await restartAndConnectLocal(win);
+        const result = await restartAndConnectLocal(win, false);
+        if (!result.ok) dialog.showErrorBox("Local Daemon", result.error);
+      })();
+    },
+    onDaemonRestartFull: () => {
+      void (async () => {
+        const win = focusedWindow();
+        if (!win) return;
+        const result = await restartAndConnectLocal(win, true);
         if (!result.ok) dialog.showErrorBox("Local Daemon", result.error);
       })();
     },
@@ -1197,7 +1205,7 @@ async function showWedgedDaemonDialog(
     detail: "Restarting briefly interrupts local SSH tunnels; they reconnect automatically.",
   });
   if (response !== 0) return { ok: true, outcome: "declined" };
-  return restartAndConnectLocal(win, true);
+  return restartAndConnectLocal(win, true, true);
 }
 
 let daemonActionInFlight: DaemonAction | null = null;
@@ -1250,17 +1258,25 @@ async function startAndConnectLocal(win: BrowserWindow): Promise<DaemonActionRes
   });
 }
 
-/** Full restart followed by the same health/connect tail as Start. */
+/**
+ * Restart followed by the same health/connect tail as Start. `full` runs
+ * `rk daemon restart --full` — the whole rk-daemon tmux server dies (sibling
+ * sessions included) and previously-up remote tunnels are reconnected by the
+ * CLI. The renderer recovery paths (wedged welcome card, dead-host
+ * interstitial) and the not-responding dialog stay full; the menu's plain
+ * Restart is the non-full daemon-only bounce.
+ */
 async function restartAndConnectLocal(
   win: BrowserWindow,
+  full: boolean,
   replaceAction: boolean = false,
 ): Promise<DaemonActionResult> {
-  return runDaemonAction("restart", async () => {
+  return runDaemonAction(full ? "restart-full" : "restart", async () => {
     const probe = await probeDaemonStatus();
     if (!probe.ok) return probe;
     if (!probe.status.installed) return { ok: false, error: "run-kit is not installed" };
     const restarted = await runRk(
-      ["daemon", "restart", "--full"],
+      full ? ["daemon", "restart", "--full"] : ["daemon", "restart"],
       RK_DAEMON_RESTART_TIMEOUT_MS,
     );
     if (!restarted.ok) return { ok: false, error: restarted.error };
@@ -1272,7 +1288,7 @@ async function restartAndConnectLocal(
 
 /**
  * Confirm-then-stop — ONE path shared by the welcome card's Stop button and
- * the Local Daemon menu item. Cancel is the default (the Remove-host
+ * the Daemon menu item. Cancel is the default (the Remove-host
  * precedent); the copy states that tmux sessions survive (Constitution VI —
  * the tmux layer is independent of the server, so stop is low-stakes).
  */
@@ -1704,7 +1720,9 @@ function registerIpcHandlers(): void {
     if (!await isDaemonSender(event)) return { ok: false, error: "Not allowed" };
     const win = senderWindow(event);
     if (!win) return { ok: false, error: "No window" };
-    return restartAndConnectLocal(win);
+    // The renderer restart is only reached from recovery surfaces (wedged
+    // welcome card, dead-host interstitial) — those want the full bounce.
+    return restartAndConnectLocal(win, true);
   });
 
   ipcMain.handle("daemon:stop", async (event): Promise<DaemonActionResult> => {
@@ -2169,7 +2187,7 @@ void app.whenReady().then(() => {
   rebuildMenu();
   restoreOrOpenInitial();
 
-  // Seed the Local Daemon menu state (read-only detection — never a start),
+  // Seed the Daemon menu state (read-only detection — never a start),
   // and keep it fresh on focus; the welcome page's polls also feed the cache.
   // The desktop-update check rides the same natural events, behind its own
   // 1h throttle (refreshUpdateMenu gates internally).

@@ -59,6 +59,9 @@ type operatorStub struct {
 
 	repoRoot string
 	tier     string
+	// skillPrefix is the resolved agent's skill-invocation prefix the stub
+	// serves ("/" unless a test overrides it).
+	skillPrefix string
 
 	// stampOps records the role write-path sequence in order
 	// (clear/set/demote:<id>/move), so tests can pin the role.go sequence.
@@ -111,11 +114,15 @@ func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 		}
 		return nil, fmt.Errorf("unexpected RunOutput verb %q", args[0])
 	}
-	origResolve := operatorResolveLauncherFn
-	operatorResolveLauncherFn = func(_ context.Context, rr, tr string) string {
+	origResolve := operatorResolveAgentFn
+	operatorResolveAgentFn = func(_ context.Context, rr, tr string) riff.ResolvedAgent {
 		s.repoRoot = rr
 		s.tier = tr
-		return riff.DefaultLauncher
+		prefix := s.skillPrefix
+		if prefix == "" {
+			prefix = "/"
+		}
+		return riff.ResolvedAgent{Launcher: riff.DefaultLauncher, SkillPrefix: prefix}
 	}
 	origDeliver := operatorDeliverFn
 	operatorDeliverFn = func(_ context.Context, _ *inject.Engine, _ inject.Tmux, server, paneID, text string) (inject.Readiness, error) {
@@ -154,7 +161,7 @@ func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 		operatorOriginalTMUXFn = origTMUX
 		operatorLookPathFn = origLookPath
 		operatorRunFn, operatorRunOutputFn = origRun, origOut
-		operatorResolveLauncherFn = origResolve
+		operatorResolveAgentFn = origResolve
 		operatorDeliverFn = origDeliver
 		cronDirFn, cronTmuxPaneFn = origCronDir, origCronPane
 		roleClearExceptFn, roleRunFn = origClear, origRoleRun
@@ -360,14 +367,14 @@ func TestOperatorTierPlumbing(t *testing.T) {
 		t.Fatalf("runOperator() = %v", err)
 	}
 	if s.tier != operatorTier {
-		t.Errorf("ResolveLauncher tier = %q, want %q", s.tier, operatorTier)
+		t.Errorf("ResolveAgent tier = %q, want %q", s.tier, operatorTier)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)
 	}
 	if want := config.FindGitRoot(cwd); s.repoRoot != want {
-		t.Errorf("ResolveLauncher repoRoot = %q, want %q (FindGitRoot of cwd)", s.repoRoot, want)
+		t.Errorf("ResolveAgent repoRoot = %q, want %q (FindGitRoot of cwd)", s.repoRoot, want)
 	}
 }
 
@@ -547,6 +554,47 @@ func TestOperatorDeliveryDegradesToPasteNote(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), operatorKickoffPrompt) {
 		t.Errorf("stderr = %q, want the paste-it-yourself note carrying the kickoff text", errBuf.String())
+	}
+}
+
+// A codex-resolved operator tier (skill_prefix `$`) gets the kickoff rendered
+// for its provider: the typed delivery and the paste-it-yourself degrade note
+// both carry `$fab-operator`. The claude (slash) case is byte-identical to
+// pre-change behavior — covered by TestOperatorCreatesStampsAndDelivers.
+func TestOperatorCodexPrefixRendersKickoff(t *testing.T) {
+	resetOperatorWorkers(t)
+	s := stubOperatorSeams(t, "@3\t\tother\n")
+	s.skillPrefix = "$"
+
+	cmd, _, _ := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v", err)
+	}
+	if len(s.deliverCalls) != 1 {
+		t.Fatalf("deliveries = %v, want exactly one", s.deliverCalls)
+	}
+	if want := "$fab-operator"; s.deliverCalls[0].text != want {
+		t.Errorf("delivered kickoff = %q, want the prefix-rendered %q", s.deliverCalls[0].text, want)
+	}
+}
+
+// The degrade note on a codex-resolved tier shows the RENDERED kickoff, not
+// the canonical slash constant.
+func TestOperatorCodexPrefixDegradeNoteRendered(t *testing.T) {
+	resetOperatorWorkers(t)
+	s := stubOperatorSeams(t, "@3\t\tother\n")
+	s.skillPrefix = "$"
+	s.deliverErr = inject.ErrNotReady
+
+	cmd, _, errBuf := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v, want nil (delivery miss degrades, never errors)", err)
+	}
+	if !strings.Contains(errBuf.String(), "$fab-operator") {
+		t.Errorf("stderr = %q, want the paste-it-yourself note carrying the rendered kickoff $fab-operator", errBuf.String())
+	}
+	if strings.Contains(errBuf.String(), "/fab-operator") {
+		t.Errorf("stderr = %q, must not carry the canonical slash form for a codex operator", errBuf.String())
 	}
 }
 

@@ -143,6 +143,25 @@ func ResolveEffectiveSpec(cliPanes []PaneSpec, layoutExplicit bool, layoutCanoni
 	return spec, nil
 }
 
+// ApplySkillPrefix renders every skill pane's non-empty Value through
+// RenderSkillRef with spec.SkillPrefix, returning the rendered spec. It is the
+// ONE normalization point for provider-specific skill syntax, invoked at the
+// two spec-finalization seams (Spawn after ResolveEffectiveSpec, the CLI after
+// spec assembly) so composition and typed delivery stay pure readers of
+// already-rendered values. An empty SkillPrefix behaves as "/" — a spec
+// constructed without resolution is returned byte-identical. Pure.
+func ApplySkillPrefix(spec EffectiveSpec) EffectiveSpec {
+	out := spec
+	out.Panes = make([]PaneSpec, len(spec.Panes))
+	for i, pane := range spec.Panes {
+		if pane.Kind == PaneKindSkill && pane.Value != "" {
+			pane.Value = RenderSkillRef(spec.SkillPrefix, pane.Value)
+		}
+		out.Panes[i] = pane
+	}
+	return out
+}
+
 // presetPaneToSpec converts an fabconfig.PaneSpec (YAML-layer, separate
 // Skill/Cmd fields) into the engine PaneSpec (single Value dispatched by Kind).
 func presetPaneToSpec(p fabconfig.PaneSpec) PaneSpec {

@@ -170,6 +170,41 @@ func TestSkillPaneCommand(t *testing.T) {
 	}
 }
 
+// TestRenderSkillRef covers the provider-prefix renderer: slash-led
+// skill-shaped values get the prefix swapped (arguments verbatim); everything
+// else — prose, empty, already-$, paths — passes through unchanged; an empty
+// or "/" prefix is the identity.
+func TestRenderSkillRef(t *testing.T) {
+	cases := []struct {
+		name   string
+		prefix string
+		value  string
+		want   string
+	}{
+		{"swap on a bare invocation", "$", "/fab-discuss", "$fab-discuss"},
+		{"arguments preserved verbatim", "$", "/fab-clarify resolve the auth question", "$fab-clarify resolve the auth question"},
+		{"argument whitespace preserved", "$", "/fab-x  double  space", "$fab-x  double  space"},
+		{"underscore is name charset", "$", "/fab_discuss", "$fab_discuss"},
+		{"prose task passes through", "$", "fix the flaky test in internal/tmux", "fix the flaky test in internal/tmux"},
+		{"empty value passes through", "$", "", ""},
+		{"already-$-prefixed passes through", "$", "$fab-discuss", "$fab-discuss"},
+		{"a path is not an invocation", "$", "/tmp/x", "/tmp/x"},
+		{"uppercase fails the name charset", "$", "/Fab-Discuss", "/Fab-Discuss"},
+		{"slash-only is not an invocation", "$", "/", "/"},
+		{"slash prefix is the identity", "/", "/fab-discuss", "/fab-discuss"},
+		{"slash prefix leaves prose untouched", "/", "fix the bug", "fix the bug"},
+		{"empty prefix behaves as slash", "", "/fab-discuss", "/fab-discuss"},
+		{"empty prefix leaves prose untouched", "", "fix the bug", "fix the bug"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RenderSkillRef(tc.prefix, tc.value); got != tc.want {
+				t.Errorf("RenderSkillRef(%q, %q) = %q, want %q", tc.prefix, tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestShellWrap(t *testing.T) {
 	cases := []struct {
 		name string
@@ -262,9 +297,10 @@ func TestResolveWindowName(t *testing.T) {
 	}
 }
 
-// TestParseFabAgentOutput covers the pure post-processing seam for
-// ResolveLauncher's `fab agent --print` call. Pure — no subprocess. A trimmed
-// multi-line result is malformed (a valid session command is one line).
+// TestParseFabAgentOutput covers the pure post-processing seam for the legacy
+// `fab agent --print` retry inside ResolveAgent's fallback ladder. Pure — no
+// subprocess. A trimmed multi-line result is malformed (a valid session command
+// is one line).
 func TestParseFabAgentOutput(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -356,41 +392,185 @@ func TestFabAgentArgs(t *testing.T) {
 	}
 }
 
-// TestResolveLauncher_StubFab exercises ResolveLauncher end-to-end by staging a
-// stub `fab` executable on a temp-dir PATH. Covers the fab-present success path
-// (default AND named tier), the non-zero exit fallback, and the fab-absent
-// fallback. repoRoot is passed as "" so no Dir is set (the stub ignores cwd).
+// TestFabAgentYAMLArgs covers the `-o yaml` argv seam: same positional-tier
+// rule as fabAgentArgs, with the output-format flag pair appended.
+func TestFabAgentYAMLArgs(t *testing.T) {
+	cases := []struct {
+		name string
+		tier string
+		want []string
+	}{
+		{name: "empty tier → no positional", tier: "", want: []string{"agent", "-o", "yaml"}},
+		{name: "named tier → positional", tier: "doing", want: []string{"agent", "doing", "-o", "yaml"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := fabAgentYAMLArgs(tc.tier); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("fabAgentYAMLArgs(%q) = %#v, want %#v", tc.tier, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestParseFabAgentYAML covers the pure post-processing seam for ResolveAgent's
+// `fab agent -o yaml` call: top-level `command`/`skill_prefix` extraction with
+// nested keys ignored and the missing-prefix → "/" default. Pure — no
+// subprocess.
+func TestParseFabAgentYAML(t *testing.T) {
+	cases := []struct {
+		name   string
+		stdout string
+		err    error
+		want   ResolvedAgent
+		wantOK bool
+	}{
+		{
+			name:   "command and skill_prefix parse",
+			stdout: "selector: default\nprovider: codex\ncommand: codex --yolo\nskill_prefix: $\n",
+			want:   ResolvedAgent{Launcher: "codex --yolo", SkillPrefix: "$"},
+			wantOK: true,
+		},
+		{
+			name:   "skill_prefix absent reads as slash (older fab)",
+			stdout: "provider: claude\ncommand: claude --model x\n",
+			want:   ResolvedAgent{Launcher: "claude --model x", SkillPrefix: "/"},
+			wantOK: true,
+		},
+		{
+			name:   "command value is verbatim — quotes and substitution preserved",
+			stdout: `command: claude -n "$(basename "$(pwd)")" --model x --effort high` + "\nskill_prefix: /\n",
+			want:   ResolvedAgent{Launcher: `claude -n "$(basename "$(pwd)")" --model x --effort high`, SkillPrefix: "/"},
+			wantOK: true,
+		},
+		{
+			name: "nested keys are ignored (dispatch.command cannot shadow the top level)",
+			stdout: "command: claude --model x\n" +
+				"dispatch:\n" +
+				"    rung: pane\n" +
+				"    command: nested-must-not-win\n" +
+				"skill_prefix: /\n",
+			want:   ResolvedAgent{Launcher: "claude --model x", SkillPrefix: "/"},
+			wantOK: true,
+		},
+		{
+			name:   "exec error falls back",
+			stdout: "command: claude\n",
+			err:    errTestFail,
+			wantOK: false,
+		},
+		{
+			name:   "empty stdout falls back",
+			stdout: "",
+			wantOK: false,
+		},
+		{
+			name:   "no command key falls back",
+			stdout: "provider: claude\nskill_prefix: /\n",
+			wantOK: false,
+		},
+		{
+			name:   "empty command value falls back",
+			stdout: "command: \nskill_prefix: /\n",
+			wantOK: false,
+		},
+		{
+			name:   "key without a value separator is not a match",
+			stdout: "command:\nskill_prefix: /\n",
+			wantOK: false,
+		},
+		{
+			name:   "empty skill_prefix value keeps the slash default",
+			stdout: "command: claude\nskill_prefix: \n",
+			want:   ResolvedAgent{Launcher: "claude", SkillPrefix: "/"},
+			wantOK: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := parseFabAgentYAML(tc.stdout, tc.err)
+			if ok != tc.wantOK {
+				t.Fatalf("parseFabAgentYAML(%q, %v) ok = %v, want %v", tc.stdout, tc.err, ok, tc.wantOK)
+			}
+			if got != tc.want {
+				t.Errorf("parseFabAgentYAML(%q, %v) = %+v, want %+v", tc.stdout, tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResolveLauncher_StubFab exercises ResolveAgent/ResolveLauncher end-to-end
+// by staging a stub `fab` executable on a temp-dir PATH. Covers the `-o yaml`
+// success path (default AND named tier, with and without skill_prefix), the
+// legacy `--print` retry for a fab that rejects `-o`, the non-zero exit
+// fallback, and the fab-absent fallback. repoRoot is passed as "" so no Dir is
+// set (the stub ignores cwd).
 func TestResolveLauncher_StubFab(t *testing.T) {
-	t.Run("stub fab prints launcher (default tier)", func(t *testing.T) {
-		want := "stub-launcher --effort xhigh"
-		dir := stubFab(t, "#!/bin/sh\nprintf '%s\\n' '"+want+"'\n")
+	t.Run("stub fab prints YAML (default tier)", func(t *testing.T) {
+		dir := stubFab(t, "#!/bin/sh\nprintf 'command: %s\\nskill_prefix: %s\\n' 'stub-launcher --effort xhigh' '/'\n")
 		t.Setenv("PATH", dir)
-		if got := ResolveLauncher(context.Background(), "", ""); got != want {
-			t.Errorf("ResolveLauncher() = %q, want %q", got, want)
+		want := ResolvedAgent{Launcher: "stub-launcher --effort xhigh", SkillPrefix: "/"}
+		if got := ResolveAgent(context.Background(), "", ""); got != want {
+			t.Errorf("ResolveAgent() = %+v, want %+v", got, want)
+		}
+		if got := ResolveLauncher(context.Background(), "", ""); got != want.Launcher {
+			t.Errorf("ResolveLauncher() = %q, want %q", got, want.Launcher)
+		}
+	})
+
+	t.Run("codex YAML carries the $ skill prefix", func(t *testing.T) {
+		dir := stubFab(t, "#!/bin/sh\nprintf 'command: %s\\nskill_prefix: %s\\n' 'codex --yolo' '$'\n")
+		t.Setenv("PATH", dir)
+		want := ResolvedAgent{Launcher: "codex --yolo", SkillPrefix: "$"}
+		if got := ResolveAgent(context.Background(), "", ""); got != want {
+			t.Errorf("ResolveAgent() = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("YAML without skill_prefix reads as slash", func(t *testing.T) {
+		dir := stubFab(t, "#!/bin/sh\nprintf 'command: %s\\n' 'claude --model x'\n")
+		t.Setenv("PATH", dir)
+		want := ResolvedAgent{Launcher: "claude --model x", SkillPrefix: "/"}
+		if got := ResolveAgent(context.Background(), "", ""); got != want {
+			t.Errorf("ResolveAgent() = %+v, want %+v", got, want)
 		}
 	})
 
 	t.Run("named tier passes the positional to fab", func(t *testing.T) {
-		// The stub echoes its args so we can assert the tier positional reaches
-		// fab as `agent <tier> --print`.
-		dir := stubFab(t, "#!/bin/sh\nprintf 'args: %s\\n' \"$*\"\n")
+		// The stub echoes its args as the YAML command so we can assert the tier
+		// positional reaches fab as `agent <tier> -o yaml`.
+		dir := stubFab(t, "#!/bin/sh\nprintf 'command: args: %s\\nskill_prefix: /\\n' \"$*\"\n")
 		t.Setenv("PATH", dir)
-		got := ResolveLauncher(context.Background(), "", "doing")
-		if want := "args: agent doing --print"; got != want {
-			t.Errorf("ResolveLauncher(tier=doing) = %q, want %q", got, want)
+		got := ResolveAgent(context.Background(), "", "doing")
+		if want := "args: agent doing -o yaml"; got.Launcher != want {
+			t.Errorf("ResolveAgent(tier=doing).Launcher = %q, want %q", got.Launcher, want)
+		}
+	})
+
+	t.Run("legacy fab rejecting -o retries --print", func(t *testing.T) {
+		// A fab predating `-o yaml`: non-zero on any -o argv, the resolved
+		// launcher on --print. The ladder must retry --print and keep the
+		// configured launcher rather than degrading to DefaultLauncher.
+		dir := stubFab(t, "#!/bin/sh\nfor a in \"$@\"; do if [ \"$a\" = \"-o\" ]; then exit 1; fi; done\nprintf '%s\\n' 'legacy-launcher --print'\n")
+		t.Setenv("PATH", dir)
+		want := ResolvedAgent{Launcher: "legacy-launcher --print", SkillPrefix: "/"}
+		if got := ResolveAgent(context.Background(), "", "doing"); got != want {
+			t.Errorf("ResolveAgent() = %+v, want %+v", got, want)
 		}
 	})
 
 	t.Run("stub fab exits non-zero falls back", func(t *testing.T) {
 		dir := stubFab(t, "#!/bin/sh\necho boom >&2\nexit 1\n")
 		t.Setenv("PATH", dir)
-		if got := ResolveLauncher(context.Background(), "", ""); got != DefaultLauncher {
-			t.Errorf("ResolveLauncher() = %q, want %q (fallback)", got, DefaultLauncher)
+		if got := ResolveAgent(context.Background(), "", ""); got != defaultResolvedAgent {
+			t.Errorf("ResolveAgent() = %+v, want %+v (fallback)", got, defaultResolvedAgent)
 		}
 	})
 
 	t.Run("fab absent from PATH falls back", func(t *testing.T) {
 		t.Setenv("PATH", t.TempDir())
+		if got := ResolveAgent(context.Background(), "", "doing"); got != defaultResolvedAgent {
+			t.Errorf("ResolveAgent() = %+v, want %+v (fallback)", got, defaultResolvedAgent)
+		}
 		if got := ResolveLauncher(context.Background(), "", "doing"); got != DefaultLauncher {
 			t.Errorf("ResolveLauncher() = %q, want %q (fallback)", got, DefaultLauncher)
 		}
@@ -1138,6 +1318,77 @@ func TestResolveEffectiveSpec(t *testing.T) {
 			t.Errorf("count = %d, want 5", spec.Count)
 		}
 	})
+}
+
+// TestApplySkillPrefix covers the spec-finalization normalization: every skill
+// pane's non-empty value is rendered through the prefix exactly once, cmd panes
+// and bare skill panes are untouched, an empty prefix is the identity, and the
+// input spec's slice is never mutated (copy-on-write).
+func TestApplySkillPrefix(t *testing.T) {
+	cases := []struct {
+		name   string
+		prefix string
+		panes  []PaneSpec
+		want   []PaneSpec
+	}{
+		{
+			name:   "codex prefix renders every skill pane",
+			prefix: "$",
+			panes: []PaneSpec{
+				{Kind: PaneKindSkill, Value: "/fab-discuss"},
+				{Kind: PaneKindCmd, Value: "just dev"},
+				{Kind: PaneKindSkill, Value: "/fab-continue finish it"},
+			},
+			want: []PaneSpec{
+				{Kind: PaneKindSkill, Value: "$fab-discuss"},
+				{Kind: PaneKindCmd, Value: "just dev"},
+				{Kind: PaneKindSkill, Value: "$fab-continue finish it"},
+			},
+		},
+		{
+			name:   "prose tasks and bare skill panes pass through",
+			prefix: "$",
+			panes: []PaneSpec{
+				{Kind: PaneKindSkill, Value: "fix the bug in X"},
+				{Kind: PaneKindSkill, Value: ""},
+			},
+			want: []PaneSpec{
+				{Kind: PaneKindSkill, Value: "fix the bug in X"},
+				{Kind: PaneKindSkill, Value: ""},
+			},
+		},
+		{
+			name:   "empty prefix is the identity",
+			prefix: "",
+			panes:  []PaneSpec{{Kind: PaneKindSkill, Value: "/fab-discuss"}},
+			want:   []PaneSpec{{Kind: PaneKindSkill, Value: "/fab-discuss"}},
+		},
+		{
+			name:   "slash prefix is byte-identical",
+			prefix: "/",
+			panes: []PaneSpec{
+				{Kind: PaneKindSkill, Value: "/fab-discuss"},
+				{Kind: PaneKindCmd, Value: "htop"},
+			},
+			want: []PaneSpec{
+				{Kind: PaneKindSkill, Value: "/fab-discuss"},
+				{Kind: PaneKindCmd, Value: "htop"},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := EffectiveSpec{SkillPrefix: tc.prefix, Panes: tc.panes}
+			orig := append([]PaneSpec(nil), tc.panes...)
+			got := ApplySkillPrefix(spec)
+			if !reflect.DeepEqual(got.Panes, tc.want) {
+				t.Errorf("ApplySkillPrefix() panes = %#v, want %#v", got.Panes, tc.want)
+			}
+			if !reflect.DeepEqual(spec.Panes, orig) {
+				t.Errorf("input spec mutated: %#v (was %#v)", spec.Panes, orig)
+			}
+		})
+	}
 }
 
 // TestComposePanes covers the endpoint's (task, preset) → CLI-pane mapping — in

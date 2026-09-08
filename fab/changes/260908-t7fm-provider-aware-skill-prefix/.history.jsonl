@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-08T19:01:25Z"}
+{"args":"provider-aware skill invocation prefix for injected commands (riff default task, operator kickoff, presets) — consume skill_prefix from fab agent -o yaml per fab-kit #650","cmd":"fab-new","event":"command","ts":"2026-09-08T19:01:25Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-09-08T19:03:36Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-08T19:11:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T19:11:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T19:27:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-08T19:32:05Z"}
+{"event":"review","result":"passed","ts":"2026-09-08T19:32:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-08T19:40:19Z"}

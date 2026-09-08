@@ -22,9 +22,11 @@ import (
 
 // rk operator — open (or switch to) the server's operator: a per-tmux-server
 // singleton window named 'operator' running the operator-tier launcher BARE,
-// with the /fab-operator kickoff TYPED into the booted agent. The launcher is
-// resolved by fab (`fab agent operator --print`) — rk never parses fab config
-// (constitution §III) — and the kickoff is typed, never a positional argument,
+// with the /fab-operator kickoff TYPED into the booted agent. The launcher and
+// the provider's skill-invocation prefix are resolved by fab (`fab agent
+// operator -o yaml`) — rk never parses fab config (constitution §III) — and the
+// kickoff (rendered through riff.RenderSkillRef with the resolved prefix, so a
+// codex operator gets `$fab-operator`) is typed, never a positional argument,
 // because the launcher string is provider-opaque: only claude's CLI accepts a
 // positional prompt (the tutorial.go rationale). Creation is atomic with the
 // role mark: the new window is immediately stamped @rk_win_role=operator via
@@ -48,8 +50,9 @@ import (
 // buffer; the typed text never passes through a shell.
 
 const (
-	// operatorKickoffPrompt is the exact kickoff typed into the operator agent
-	// after it boots.
+	// operatorKickoffPrompt is the canonical kickoff typed into the operator
+	// agent after it boots — slash form; riff.RenderSkillRef translates it for
+	// the resolved provider before delivery.
 	operatorKickoffPrompt = "/fab-operator"
 	// operatorWindowName is the created window's name and the exact-name
 	// singleton fallback — no prefix/substring.
@@ -95,11 +98,12 @@ server switches to the existing operator window instead of opening a
 duplicate. A window carrying the @rk_win_role=operator marker wins over one
 merely named 'operator'.
 
-The agent launcher is resolved via 'fab agent operator --print'; when
+The agent launcher is resolved via 'fab agent operator -o yaml'; when
 resolution fails, the plain default launcher is used. Once the agent has
-booted, the kickoff (/fab-operator) is typed into it and submitted — never
-passed as a positional argument, so any provider's CLI works. If that delivery
-cannot be verified, the command says exactly what to paste instead. A newly
+booted, the kickoff (/fab-operator, re-prefixed for the resolved provider) is
+typed into it and submitted — never passed as a positional argument, so any
+provider's CLI works. If that delivery cannot be verified, the command says
+exactly what to paste instead. A newly
 created window is marked @rk_win_role=operator and promoted into the server's
 operator session atomically — the same end state 'rk role operator' produces.
 The pane drops to an interactive shell when the agent exits.
@@ -156,7 +160,7 @@ var (
 	operatorRunOutputFn = operatorRunOutputFunc(func(ctx context.Context, args, env []string) ([]byte, error) {
 		return tmux.RunOutput(ctx, args, tmux.RunOpts{Env: env})
 	})
-	operatorResolveLauncherFn = riff.ResolveLauncher
+	operatorResolveAgentFn = riff.ResolveAgent
 )
 
 // runOperatorWithExitCode is the cobra RunE. The riff ExitCodeError discipline
@@ -240,11 +244,12 @@ func runOperator(cmd *cobra.Command) error {
 		windowDir = cwd
 	}
 
-	// Launcher resolution never errors — any failure (non-zero, timeout,
-	// malformed output) degrades silently to riff.DefaultLauncher.
-	launcher := operatorResolveLauncherFn(ctx, root, operatorTier)
+	// Agent resolution never errors — any failure (non-zero, timeout,
+	// malformed output) degrades silently to the default launcher with the
+	// claude-syntax prefix.
+	agent := operatorResolveAgentFn(ctx, root, operatorTier)
 	// Bare launcher (empty prompt): the kickoff is typed after boot, below.
-	shellCmd := operatorShellCommand(launcher, operatorWorkersFlag)
+	shellCmd := operatorShellCommand(agent.Launcher, operatorWorkersFlag)
 
 	paneID, err := createMarkedOperatorWindow(ctx, operatorRunOutputFn, env, tmuxSocketArgs(operatorOriginalTMUXFn()), windowDir, shellCmd)
 	if err != nil {
@@ -253,11 +258,15 @@ func runOperator(cmd *cobra.Command) error {
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Opened operator tab (window %q).\n", operatorWindowName)
 
+	// The kickoff rides the provider's invocation syntax — a codex operator
+	// gets `$fab-operator`, claude gets the canonical `/fab-operator`.
+	kickoff := riff.RenderSkillRef(agent.SkillPrefix, operatorKickoffPrompt)
+
 	// Typed-kickoff delivery is best-effort: the window and its agent exist
 	// either way, so a delivery miss degrades to telling the user exactly what
 	// to paste — never a non-zero exit.
-	if deliverErr := deliverAgentKickoff(parent, operatorDeliverFn, operatorOriginalTMUXFn(), paneID, operatorKickoffPrompt, operatorDeliverDeadline, operatorCmdTimeout); deliverErr != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit operator: could not deliver the kickoff prompt (%v) — paste this into the operator agent yourself:\n  %s\n", deliverErr, operatorKickoffPrompt)
+	if deliverErr := deliverAgentKickoff(parent, operatorDeliverFn, operatorOriginalTMUXFn(), paneID, kickoff, operatorDeliverDeadline, operatorCmdTimeout); deliverErr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit operator: could not deliver the kickoff prompt (%v) — paste this into the operator agent yourself:\n  %s\n", deliverErr, kickoff)
 	}
 	return nil
 }

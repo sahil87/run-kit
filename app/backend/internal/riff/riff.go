@@ -19,7 +19,7 @@
 //     target session and calls the engine with a NON-EMPTY server label —
 //     meaning "target that tmux server via a `-L <server>` argv prefix" (the
 //     daemon's cwd is not the target repo, so RepoRoot is passed explicitly and
-//     `wt create` / `fab agent --print` run with their Dir set to it).
+//     `wt create` / `fab agent -o yaml` run with their Dir set to it).
 //
 // Security (constitution §I): every subprocess is an argv-slice
 // exec.CommandContext with an explicit timeout — no shell strings. The only
@@ -46,7 +46,7 @@ import (
 
 // Subprocess timeouts — `wt create` is the slowest step (matches constitution
 // §Process Execution's 30s build-op guidance); tmux and fab operations are
-// cheap. FabTimeout bounds the `fab agent --print` launcher-resolution call.
+// cheap. FabTimeout bounds each `fab agent` launcher-resolution call.
 const (
 	WtTimeout        = 30 * time.Second
 	TmuxTimeout      = 10 * time.Second
@@ -122,8 +122,14 @@ type EffectiveSpec struct {
 	// leaves every call unscoped so the ambient/attached session is targeted —
 	// byte-identical to pre-session behavior.
 	Session      string
-	RepoRoot     string // working dir for `wt create` / `fab agent --print`; may be "" for the CLI (process cwd)
+	RepoRoot     string // working dir for `wt create` / `fab agent -o yaml`; may be "" for the CLI (process cwd)
 	OriginalTMUX string // restored into child env when Server == "" (CLI path)
+	// SkillPrefix is the resolved agent's skill-invocation prefix (`/` or `$`),
+	// consumed exactly once by ApplySkillPrefix at the spec-finalization seam —
+	// composition (taskPaneShellString/paneShellString) and typed delivery read
+	// the already-rendered pane values and never see this field. Empty behaves
+	// as "/" (specs built without resolution stay byte-identical).
+	SkillPrefix string
 	// Where selects isolation: "checkout" opens the window directly in RepoRoot
 	// (no worktree); "worktree" (or "", the default) creates a worktree via wt
 	// first. The CLI never sets this, so it is always the worktree default there.
@@ -171,7 +177,7 @@ type Options struct {
 	// checkout mode.
 	WorktreeName string
 	// Tier is the fab agent tier resolved for the launcher (`fab agent <tier>
-	// --print`). Empty = the default tier (`fab agent --print`, today's path).
+	// -o yaml`). Empty = the default tier (`fab agent -o yaml`, today's path).
 	Tier string
 	// ResumeSessionRef, when non-empty, is the Claude session uuid this spawn
 	// FORKS: the resolved launcher gains `--resume <uuid> --fork-session`, so the
@@ -241,7 +247,8 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 	// malformed ref (constitution §I — the launcher is the unescaped element), and
 	// errors when the resolved launcher is not a claude invocation (the flags are
 	// Claude-only; failing beats a silent unforked spawn — ExitValidation → 400).
-	launcher, err := resumeForkLauncher(ResolveLauncher(ctx, opts.RepoRoot, opts.Tier), opts.ResumeSessionRef)
+	agent := ResolveAgent(ctx, opts.RepoRoot, opts.Tier)
+	launcher, err := resumeForkLauncher(agent.Launcher, opts.ResumeSessionRef)
 	if err != nil {
 		return Result{}, err
 	}
@@ -287,6 +294,12 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 	// fork ref needs no spec field — it was already folded into spec.Launcher
 	// above, which is the only place anything downstream reads it.
 	spec.WindowNameBase = opts.WindowNameBase
+
+	// Skill-prefix normalization is the last spec-finalization step: every skill
+	// pane's value is rendered for the resolved agent's provider exactly once
+	// here, so composition and typed delivery read already-rendered values.
+	spec.SkillPrefix = agent.SkillPrefix
+	spec = ApplySkillPrefix(spec)
 
 	// Checkout mode roots the window directly at the repo checkout (no worktree);
 	// worktree mode creates one first. Everything after — the tmux spawn sequence
@@ -338,38 +351,84 @@ func Run(ctx context.Context, spec EffectiveSpec) error {
 	return runCount(ctx, spec)
 }
 
-// ResolveLauncher resolves the agent launcher by shelling out to
-// `fab agent [tier] --print`, which prints fab-kit's fully-resolved session
-// command for the named tier (empty tier → the default tier, `fab agent
-// --print`, byte-identical to today's path). Delegating to fab means rk never
-// parses fab-kit's tier→provider→session_command schema and can't drift from it
-// (constitution §III). The subprocess Dir is set to repoRoot so fab's cwd-based
-// repo discovery resolves the TARGET project (the daemon's own cwd is not the
-// target repo); the CLI passes its process cwd + an empty tier, preserving
-// today's behavior. Exported so both frontends can resolve the launcher.
-//
-// Best-effort and never errors: on ANY failure (fab absent, non-zero exit,
-// timeout, empty / whitespace-only / multi-line stdout) it falls back silently
-// to DefaultLauncher.
+// ResolvedAgent is fab's fully-resolved agent for a tier: the launcher shell
+// command plus the provider's skill-invocation prefix (`/` for claude-syntax
+// providers, `$` for codex) as exposed on `fab agent [tier] -o yaml`'s
+// `command` / `skill_prefix` keys.
+type ResolvedAgent struct {
+	Launcher    string
+	SkillPrefix string
+}
+
+// defaultResolvedAgent is the never-errors floor: the claude default launcher
+// with the claude-syntax prefix.
+var defaultResolvedAgent = ResolvedAgent{Launcher: DefaultLauncher, SkillPrefix: "/"}
+
+// ResolveLauncher resolves the agent launcher by shelling out to fab (see
+// ResolveAgent). Best-effort and never errors: on ANY failure (fab absent,
+// non-zero exit, timeout, empty / whitespace-only / multi-line stdout) it
+// falls back silently to DefaultLauncher.
 func ResolveLauncher(parent context.Context, repoRoot, tier string) string {
+	return ResolveAgent(parent, repoRoot, tier).Launcher
+}
+
+// ResolveAgent resolves the launcher AND the provider's skill-invocation prefix
+// by shelling out to `fab agent [tier] -o yaml`, which prints fab-kit's
+// fully-resolved agent for the named tier (empty tier → the default tier).
+// Delegating to fab means rk never parses fab-kit's tier→provider schema and
+// can't drift from it (constitution §III); the prefix rule lives in fab
+// (agent.SkillPrefix) so there is a single owner toolkit-wide. The subprocess
+// Dir is set to repoRoot so fab's cwd-based repo discovery resolves the TARGET
+// project (the daemon's own cwd is not the target repo); the CLI passes its
+// process cwd + an empty tier.
+//
+// Best-effort and never errors. The fallback ladder:
+//  1. `-o yaml` parses with a `command` key → {command, skill_prefix}
+//     (skill_prefix absent — an older fab — reads as "/").
+//  2. `-o yaml` fails or carries no command → retry legacy
+//     `fab agent [tier] --print` (fabs predating -o yaml resolved launchers
+//     fine; degrading them to the default would be an unrelated regression) →
+//     {printed, "/"}.
+//  3. both fail → {DefaultLauncher, "/"}.
+func ResolveAgent(parent context.Context, repoRoot, tier string) ResolvedAgent {
+	out, err := runFabAgent(parent, repoRoot, fabAgentYAMLArgs(tier))
+	if agent, ok := parseFabAgentYAML(string(out), err); ok {
+		return agent
+	}
+	out, err = runFabAgent(parent, repoRoot, fabAgentArgs(tier))
+	if launcher, ok := parseFabAgentOutput(string(out), err); ok {
+		return ResolvedAgent{Launcher: launcher, SkillPrefix: "/"}
+	}
+	return defaultResolvedAgent
+}
+
+// runFabAgent runs one `fab` argv with the FabTimeout bound and Dir=repoRoot
+// (when non-empty). Output() (not CombinedOutput()) so stderr can't pollute
+// the parsed fields.
+func runFabAgent(parent context.Context, repoRoot string, argv []string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(parent, FabTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "fab", fabAgentArgs(tier)...)
+	cmd := exec.CommandContext(ctx, "fab", argv...)
 	if repoRoot != "" {
 		cmd.Dir = repoRoot
 	}
-	// Output() (not CombinedOutput()) so stderr can't pollute the launcher.
-	out, err := cmd.Output()
-	if launcher, ok := parseFabAgentOutput(string(out), err); ok {
-		return launcher
-	}
-	return DefaultLauncher
+	return cmd.Output()
 }
 
-// fabAgentArgs builds the `fab` argv for launcher resolution: `agent --print`
-// for an empty tier (today's default-tier path) or `agent <tier> --print` for a
+// fabAgentYAMLArgs builds the `fab` argv for agent resolution: `agent -o yaml`
+// for an empty tier (today's default-tier path) or `agent <tier> -o yaml` for a
 // named tier (the positional-tier form). Pure.
+func fabAgentYAMLArgs(tier string) []string {
+	if tier == "" {
+		return []string{"agent", "-o", "yaml"}
+	}
+	return []string{"agent", tier, "-o", "yaml"}
+}
+
+// fabAgentArgs builds the `fab` argv for legacy launcher resolution: `agent
+// --print` for an empty tier (today's default-tier path) or `agent <tier>
+// --print` for a named tier (the positional-tier form). Pure.
 func fabAgentArgs(tier string) []string {
 	if tier == "" {
 		return []string{"agent", "--print"}
@@ -377,10 +436,49 @@ func fabAgentArgs(tier string) []string {
 	return []string{"agent", tier, "--print"}
 }
 
-// parseFabAgentOutput is the pure post-processing seam for resolveLauncher.
-// Returns (trimmed launcher, true) only when err is nil and stdout trims to a
-// single non-empty line; otherwise ("", false). A trimmed multi-line result is
-// malformed. Pure — no I/O — so the fallback rules are testable in isolation.
+// parseFabAgentYAML is the pure post-processing seam for ResolveAgent's
+// `fab agent -o yaml` call: a tolerant line-based extraction of the two
+// top-level scalar keys `command` and `skill_prefix` (the output is
+// fab-controlled; nested keys like `dispatch.command` carry leading whitespace
+// and are ignored). Each value is everything after the first ": ",
+// unquoted-verbatim — `command` legitimately contains `"` and `$(...)`.
+// Returns (agent, true) only when err is nil and a non-empty top-level
+// `command` parsed; a missing `skill_prefix` (older fab) reads as "/" — the
+// only prefix a pre-skill_prefix fab can need. Pure — no I/O — so the
+// fallback rules are testable in isolation.
+func parseFabAgentYAML(stdout string, err error) (ResolvedAgent, bool) {
+	if err != nil {
+		return ResolvedAgent{}, false
+	}
+	agent := ResolvedAgent{SkillPrefix: "/"}
+	for _, line := range strings.Split(stdout, "\n") {
+		if line == "" || line[0] == ' ' || line[0] == '\t' {
+			continue
+		}
+		key, value, found := strings.Cut(line, ": ")
+		if !found {
+			continue
+		}
+		switch key {
+		case "command":
+			agent.Launcher = strings.TrimSpace(value)
+		case "skill_prefix":
+			if v := strings.TrimSpace(value); v != "" {
+				agent.SkillPrefix = v
+			}
+		}
+	}
+	if agent.Launcher == "" {
+		return ResolvedAgent{}, false
+	}
+	return agent, true
+}
+
+// parseFabAgentOutput is the pure post-processing seam for ResolveAgent's
+// legacy `--print` retry. Returns (trimmed launcher, true) only when err is nil
+// and stdout trims to a single non-empty line; otherwise ("", false). A trimmed
+// multi-line result is malformed. Pure — no I/O — so the fallback rules are
+// testable in isolation.
 func parseFabAgentOutput(stdout string, err error) (string, bool) {
 	if err != nil {
 		return "", false

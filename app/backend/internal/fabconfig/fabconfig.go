@@ -5,8 +5,8 @@
 // RK_* env vars and internal/settings takes for ~/.config/run-kit/config.yaml.
 //
 // The agent launcher is NOT read here: `rk riff` resolves it by shelling out
-// to `fab agent --print` (see cmd/rk/riff.go resolveLauncher), so rk never
-// parses fab-kit's tier→provider→session_command schema itself.
+// to `fab agent -o yaml` (see riff.ResolveAgent), so rk never parses fab-kit's
+// tier→provider→session_command schema itself.
 package fabconfig
 
 import (
@@ -137,7 +137,7 @@ var BuiltinTiers = []string{"default", "doing", "fast", "operator", "review"}
 // Best-effort, same silent-fallback posture as ReadPresets: any read/parse
 // failure yields exactly the built-ins with no error or log. Only the tier NAMES
 // are read — rk never parses the tier profiles (provider/model/effort); those are
-// resolved by shelling out to `fab agent <tier> --print`.
+// resolved by shelling out to `fab agent <tier> -o yaml`.
 func ReadTiers(repoRoot string) []string {
 	tiers := make([]string, 0, len(BuiltinTiers))
 	seen := make(map[string]struct{}, len(BuiltinTiers))

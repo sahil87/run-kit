@@ -82,6 +82,30 @@ func resumeForkLauncher(launcher, ref string) (string, error) {
 	return fmt.Sprintf("%s --resume %s --fork-session", launcher, ref), nil
 }
 
+// skillRefRe matches a slash-led skill invocation: `/` + a skill-name head +
+// an optional argument tail (everything after the first space, verbatim).
+// Anything else — free prose, an already-`$`-prefixed invocation, a path like
+// `/tmp/x` (the second `/` is outside the name charset and is not a space) —
+// is free text, not an invocation.
+var skillRefRe = regexp.MustCompile(`^/[a-z0-9][a-z0-9_-]*( .*)?$`)
+
+// RenderSkillRef re-renders a skill invocation for the receiving provider: a
+// value matching the skill-invocation shape gets its leading "/" swapped for
+// prefix (arguments preserved verbatim); any other value passes through
+// unchanged. An empty prefix behaves as "/" — the identity for slash values,
+// so a spec that never set SkillPrefix renders byte-identical. Constants and
+// preset/flag values stay written in canonical slash form; this renderer owns
+// the translation. Pure.
+func RenderSkillRef(prefix, value string) string {
+	if prefix == "" {
+		prefix = "/"
+	}
+	if !skillRefRe.MatchString(value) {
+		return value
+	}
+	return prefix + value[1:]
+}
+
 // launcherCommandName returns the basename of a launcher string's first
 // whitespace-separated word — `claude` for both `claude --foo` and
 // `/opt/homebrew/bin/claude --foo`. An empty launcher yields "". Pure.

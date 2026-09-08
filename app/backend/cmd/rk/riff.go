@@ -66,9 +66,10 @@ Pane array model:
   --cmd drops into $SHELL (fallback /bin/sh).
 
 Launcher resolution:
-  The launcher is resolved by running 'fab agent --print', which prints
-  fab-kit's fully-resolved default-tier session command. If 'fab' is not on
-  PATH or the call fails, falls back to 'claude --dangerously-skip-permissions'.
+  The launcher is resolved by running 'fab agent -o yaml', which prints
+  fab-kit's fully-resolved default-tier agent (command + skill prefix). If
+  'fab' is not on PATH or the call fails, falls back to
+  'claude --dangerously-skip-permissions' with the '/' skill prefix.
 
 Presets:
   Named invocations like 'run-kit riff ship' or 'run-kit riff --preset ship' pull
@@ -243,11 +244,11 @@ func runRiff(cmd *cobra.Command, args []string) error {
 		repoRoot = config.FindGitRoot(cwd)
 	}
 
-	// Step 5: launcher resolution via the engine helper (rooted at the process
+	// Step 5: agent resolution via the engine helper (rooted at the process
 	// cwd so fab resolves this repo). An empty tier = the default tier (`fab
-	// agent --print`), preserving today's CLI behavior — the per-tier picker is
+	// agent -o yaml`), preserving today's CLI behavior — the per-tier picker is
 	// a web-UI-only affordance. Never errors — falls back to the default.
-	launcher := riff.ResolveLauncher(ctx, repoRoot, "")
+	agent := riff.ResolveAgent(ctx, repoRoot, "")
 
 	// Step 6: preset resolution.
 	presets := readPresetsForRepo()
@@ -267,12 +268,17 @@ func runRiff(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	spec.Launcher = launcher
+	spec.Launcher = agent.Launcher
 	// Empty server label → target the user's current tmux server via the
 	// restored $TMUX (captured before internal/tmux's init() stripped it).
 	spec.Server = ""
 	spec.RepoRoot = repoRoot
 	spec.OriginalTMUX = tmux.OriginalTMUX
+	// Render skill-pane values for the resolved provider exactly once, here at
+	// the CLI's spec-finalization seam (the Spawn daemon path does the same) —
+	// covers the /fab-discuss default-pane fallback and --skill values.
+	spec.SkillPrefix = agent.SkillPrefix
+	spec = riff.ApplySkillPrefix(spec)
 
 	// Step 8: dispatch to the engine.
 	return riff.Run(ctx, spec)

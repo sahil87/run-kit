@@ -216,6 +216,56 @@ func TestSpawnNonClaudeTaskTypedDelivery(t *testing.T) {
 	}
 }
 
+// TestSpawnCodexSkillPrefixRenderedTask: a codex launcher (skill_prefix `$`
+// from `fab agent -o yaml`) gets its slash-shaped task rendered at the spec
+// seam — the typed delivery carries `$fab-discuss` while pane 0 composes BARE
+// (typed delivery path, so the rendered text never enters the shell string).
+func TestSpawnCodexSkillPrefixRenderedTask(t *testing.T) {
+	dir := t.TempDir()
+	repoRoot := t.TempDir()
+	newWindowLog := filepath.Join(dir, "new-window.log")
+
+	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf 'Path: %s\\n' '"+repoRoot+"'\n")
+	testutil.WriteStub(t, dir, "tmux", stubTmuxScriptServerLabel(newWindowLog))
+	// The repo's default tier resolves a codex launcher with the $ prefix.
+	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\nprintf 'command: %s\\nskill_prefix: %s\\n' 'codex --yolo' '$'\n")
+	t.Setenv("PATH", dir)
+
+	calls := stubAsyncDelivery(t)
+
+	res, err := Spawn(context.Background(), Options{
+		Server:   "srv",
+		Session:  "work",
+		RepoRoot: repoRoot,
+		Task:     "/fab-discuss",
+	})
+	if err != nil {
+		t.Fatalf("Spawn() error: %v", err)
+	}
+
+	logged, readErr := os.ReadFile(newWindowLog)
+	if readErr != nil {
+		t.Fatalf("read new-window log: %v", readErr)
+	}
+	if strings.Contains(string(logged), "fab-discuss") {
+		t.Errorf("new-window argv embeds the task: %q (typed delivery composes bare)", string(logged))
+	}
+	if !strings.Contains(string(logged), "codex --yolo") {
+		t.Errorf("new-window argv missing the bare launcher: %q", string(logged))
+	}
+
+	if len(*calls) != 1 {
+		t.Fatalf("async deliveries = %v, want exactly one", *calls)
+	}
+	d := (*calls)[0]
+	if d.task != "$fab-discuss" {
+		t.Errorf("delivered task = %q, want the prefix-rendered %q", d.task, "$fab-discuss")
+	}
+	if d.server != "srv" || d.paneID != res.PaneID || d.window != res.WindowName {
+		t.Errorf("delivery = %+v, want server srv, pane %q, window %q", d, res.PaneID, res.WindowName)
+	}
+}
+
 // TestSpawnClaudeTaskPositionalNoDelivery: a claude launcher keeps the
 // positional composition and triggers ZERO typed-delivery calls.
 func TestSpawnClaudeTaskPositionalNoDelivery(t *testing.T) {

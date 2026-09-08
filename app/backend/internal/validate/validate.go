@@ -351,7 +351,7 @@ func ValidateServerName(name string) string {
 
 // tierNamePattern matches a fab agent tier name: alphanumeric plus hyphen and
 // underscore. A tier flows into a subprocess as a bare positional
-// (`fab agent <tier> --print`), so it is validated against this strict identifier
+// (`fab agent <tier> -o yaml`), so it is validated against this strict identifier
 // shape before use (constitution §I — Security First). Mirrors serverNamePattern.
 // The leading char is constrained to alphanumeric or underscore so a tier can
 // never be interpreted as a flag by `fab agent` — a leading `-` would make the

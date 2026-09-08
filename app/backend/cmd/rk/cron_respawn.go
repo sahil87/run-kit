@@ -15,17 +15,19 @@ import (
 
 // cron_respawn.go — the production cron.Deps.Respawner (wired in serve.go):
 // brings a dead role:operator target back and delivers the launcher kickoff.
-// It lives in cmd/rk because it needs riff.ResolveLauncher and the tmux
+// It lives in cmd/rk because it needs riff.ResolveAgent and the tmux
 // new-window/role-stamp calls that internal/cron cannot import (the
 // cronInjectTmux package-boundary comment). The flow is the spec's
 // spawn-then-deliver composite (docs/specs/agent-messaging.md § Spawn and
 // trust walls): re-probe (defensive — a window may have appeared across the
 // 30s tick boundary, and its creator owns its kickoff), create-and-mark via
 // the helper extracted from runOperator, then inject.DeliverWhenReady with
-// the operatorDeliverDeadline-class bound, delivering the kickoff prompt —
-// NEVER fire.Entry.Payload (a fresh session has no tick convention in
-// context; the bare payload resumes on the entry's next resolved fire, which
-// takes the ordinary Fires branch — no bookkeeping needed).
+// the operatorDeliverDeadline-class bound, delivering the kickoff prompt
+// rendered for the resolved provider (riff.RenderSkillRef — a codex operator
+// gets `$fab-operator`) — NEVER fire.Entry.Payload (a fresh session has no
+// tick convention in context; the bare payload resumes on the entry's next
+// resolved fire, which takes the ordinary Fires branch — no bookkeeping
+// needed).
 //
 // Walls escalate, never retry: any non-ready classification (parked / narrow
 // / gone / readiness timeout) or a send error notifies fail-silently (the
@@ -47,7 +49,7 @@ var (
 	cronRespawnRunOutputFn = operatorRunOutputFunc(func(ctx context.Context, args, env []string) ([]byte, error) {
 		return tmux.RunOutput(ctx, args, tmux.RunOpts{Env: env})
 	})
-	cronRespawnResolveLauncherFn = riff.ResolveLauncher
+	cronRespawnResolveAgentFn = riff.ResolveAgent
 	cronRespawnHomeDirFn         = os.UserHomeDir
 	// cronRespawnDeliverFn mirrors operatorDeliverFn: DeliverWhenReady with
 	// the reconciled state reader under the operatorDeliverDeadline bound.
@@ -100,24 +102,25 @@ func rkCronRespawnRole(ctx context.Context, fire cron.Fire) cron.Outcome {
 
 	// The daemon has no project cwd; the respawned window opens in the home
 	// directory (the neutral default — fab's launcher resolution degrades to
-	// riff.DefaultLauncher on any failure either way).
+	// the default agent on any failure either way).
 	home, err := cronRespawnHomeDirFn()
 	if err != nil {
 		return cronRespawnEscalate(ctx, fire, "home dir: "+err.Error())
 	}
-	launcher := cronRespawnResolveLauncherFn(ctx, "", operatorTier)
-	paneID, err := createMarkedOperatorWindow(ctx, runOutput, nil, prefix, home, operatorShellCommand(launcher, ""))
+	agent := cronRespawnResolveAgentFn(ctx, "", operatorTier)
+	paneID, err := createMarkedOperatorWindow(ctx, runOutput, nil, prefix, home, operatorShellCommand(agent.Launcher, ""))
 	if err != nil {
 		return cronRespawnEscalate(ctx, fire, err.Error())
 	}
 
 	// Spawn-then-deliver: the context outlives the readiness wait by one
 	// command timeout so the engine's bounded subprocesses still fit after a
-	// slow boot (the deliverAgentKickoff shape).
+	// slow boot (the deliverAgentKickoff shape). The kickoff is rendered for
+	// the resolved provider — a codex operator gets `$fab-operator`.
 	dctx, cancel := context.WithTimeout(ctx, operatorDeliverDeadline+operatorCmdTimeout)
 	defer cancel()
 	engine := inject.NewEngine(cronRespawnBuffer)
-	readiness, err := cronRespawnDeliverFn(dctx, engine, awaitReadyTmux{}, server, paneID, operatorKickoffPrompt)
+	readiness, err := cronRespawnDeliverFn(dctx, engine, awaitReadyTmux{}, server, paneID, riff.RenderSkillRef(agent.SkillPrefix, operatorKickoffPrompt))
 	if err != nil {
 		// DeliverWhenReady's contract: a readiness classification error
 		// (parked/narrow/gone/timeout) returns the zero Readiness; a send

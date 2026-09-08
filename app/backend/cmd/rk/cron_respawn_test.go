@@ -26,6 +26,9 @@ type cronRespawnStub struct {
 	created     bool
 	runOutErr   error
 	launcherDir string
+	// skillPrefix is the resolved agent's skill-invocation prefix the stub
+	// serves ("/" unless a test overrides it).
+	skillPrefix string
 
 	stampOps []string
 
@@ -75,10 +78,14 @@ func stubCronRespawnSeams(t *testing.T, listOutput string) *cronRespawnStub {
 		}
 		return nil, errors.New("unexpected tmux argv: " + strings.Join(args, " "))
 	}
-	origLauncher := cronRespawnResolveLauncherFn
-	cronRespawnResolveLauncherFn = func(_ context.Context, repoRoot, tier string) string {
+	origLauncher := cronRespawnResolveAgentFn
+	cronRespawnResolveAgentFn = func(_ context.Context, repoRoot, tier string) riff.ResolvedAgent {
 		s.launcherDir = repoRoot
-		return riff.DefaultLauncher
+		prefix := s.skillPrefix
+		if prefix == "" {
+			prefix = "/"
+		}
+		return riff.ResolvedAgent{Launcher: riff.DefaultLauncher, SkillPrefix: prefix}
 	}
 	origHome := cronRespawnHomeDirFn
 	cronRespawnHomeDirFn = func() (string, error) { return "/home/test", nil }
@@ -115,7 +122,7 @@ func stubCronRespawnSeams(t *testing.T, listOutput string) *cronRespawnStub {
 
 	t.Cleanup(func() {
 		cronRespawnRunOutputFn = origOut
-		cronRespawnResolveLauncherFn = origLauncher
+		cronRespawnResolveAgentFn = origLauncher
 		cronRespawnHomeDirFn = origHome
 		cronRespawnDeliverFn = origDeliver
 		cronRespawnNotifyFn = origNotify
@@ -190,6 +197,25 @@ func TestCronRespawnCreatesMarksAndKicksOff(t *testing.T) {
 	}
 	if len(s.notifyCalls) != 0 {
 		t.Errorf("notify calls = %v, want none on success", s.notifyCalls)
+	}
+}
+
+// TestCronRespawnCodexPrefixRendersKickoff: when the operator tier resolves to
+// a codex provider (skill_prefix `$`), the respawned window's typed kickoff is
+// the rendered `$fab-operator`, not the canonical slash constant.
+func TestCronRespawnCodexPrefixRendersKickoff(t *testing.T) {
+	s := stubCronRespawnSeams(t, "@3\t\tother\n")
+	s.skillPrefix = "$"
+
+	outcome := rkCronRespawnRole(context.Background(), respawnTestFire("work"))
+	if outcome.Status != "respawned" {
+		t.Fatalf("outcome = %+v, want respawned", outcome)
+	}
+	if !s.delivered {
+		t.Fatal("no kickoff delivery")
+	}
+	if want := "$fab-operator"; s.deliverText != want {
+		t.Errorf("delivered text = %q, want the prefix-rendered kickoff %q", s.deliverText, want)
 	}
 }
 

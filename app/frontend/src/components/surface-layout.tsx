@@ -27,7 +27,7 @@ import {
   type LayoutShape,
   type SurfaceKind,
 } from "@/lib/surface-layout";
-import { clampRatio, MIN_PANEL_WIDTH_PX } from "@/lib/right-panel";
+import { clampBoundary } from "@/lib/right-panel";
 import { codeRootFor } from "@/lib/code-folder-latch";
 import {
   disarmGuard,
@@ -142,8 +142,10 @@ import {
  *   surface kind and resets per window — `app.tsx` keys this component by
  *   `${server}:${windowId}` (the RightPanel precedent).
  * - **Dividers (R5; gap-seam sash 260814-011r)**: drag mutates RATIOS only
- *   (never shape/order), clamped via `clampRatio` (280px floor both
- *   sides), persisted per
+ *   (never shape/order), clamped via `clampBoundary` (280px floor both
+ *   sides on the boundary's own axis; sibling chaining on row/col only —
+ *   a main-* shape's two ratios live on different axes and clamp
+ *   independently), persisted per
  *   (window, shape) ON RELEASE ONLY. Tiles stay live mid-drag — no
  *   suspension/unmount (the board pane-resize bug class); tile content gets
  *   `pointer-events: none` so iframes cannot swallow pointermove (the
@@ -455,26 +457,6 @@ function dividerSpecs(shape: LayoutShape, ratios: LayoutRatios): DividerSpec[] {
         { index: 1, axis: "x", style: { left: `${r1}%`, top: `${r0}%`, bottom: 0 } },
       ];
   }
-}
-
-/** Clamp one boundary's raw drag percentage: the 280px floor both sides
- *  (`clampRatio`) AND the neighboring boundaries — a divider adjusts only its
- *  own boundary and may never cross (or strand) its siblings. Shared by the
- *  single-axis divider drag and the intersection's two-axis drag (each axis
- *  clamps independently against the PRE-move ratios). */
-function clampBoundary(
-  cur: LayoutRatios,
-  index: number,
-  rawPct: number,
-  sizePx: number,
-): number {
-  const floorPct = (MIN_PANEL_WIDTH_PX / sizePx) * 100;
-  const prev = index === 0 ? 0 : cur[index - 1];
-  const next = index === cur.length - 1 ? 100 : cur[index + 1];
-  return Math.min(
-    Math.max(clampRatio(rawPct, sizePx), prev + floorPct),
-    Math.max(next - floorPct, prev + floorPct),
-  );
 }
 
 /** The T-junction point of a `main-*` shape, derived from the divider
@@ -1067,7 +1049,7 @@ export function SurfaceLayout({
         sizePx) *
         100);
     const cur = ratiosRef.current;
-    const pct = clampBoundary(cur, drag.index, rawPct, sizePx);
+    const pct = clampBoundary(layout.shape, cur, drag.index, rawPct, sizePx);
     const nextRatios = [...cur];
     nextRatios[drag.index] = pct;
     setRatios(nextRatios);
@@ -1159,12 +1141,14 @@ export function SurfaceLayout({
     const cur = ratiosRef.current;
     const nextRatios = [...cur];
     nextRatios[axes.xIndex] = clampBoundary(
+      layout.shape,
       cur,
       axes.xIndex,
       ((e.clientX - rect.left) / rect.width) * 100,
       rect.width,
     );
     nextRatios[axes.yIndex] = clampBoundary(
+      layout.shape,
       cur,
       axes.yIndex,
       ((e.clientY - rect.top) / rect.height) * 100,

@@ -16,7 +16,12 @@
  */
 
 import type { ViewWindow } from "./window-view";
-import { availableTiles, type SurfaceKind } from "./surface-layout";
+import {
+  availableTiles,
+  type LayoutRatios,
+  type LayoutShape,
+  type SurfaceKind,
+} from "./surface-layout";
 
 /**
  * A named (substrate, lens) pairing rendered in the panel slot (spec § Surface
@@ -100,4 +105,38 @@ export function clampRatio(pct: number, containerPx: number): number {
   const floorPct = containerPx > 0 ? (MIN_PANEL_WIDTH_PX / containerPx) * 100 : 0;
   if (floorPct > 50) return 50;
   return Math.min(Math.max(pct, floorPct), 100 - floorPct);
+}
+
+/**
+ * Clamp one layout-divider boundary's raw drag percentage to its legal band.
+ * The floor band on the boundary's own axis (`clampRatio`) always applies;
+ * whether the OTHER ratio also bounds it depends on the shape. Sibling
+ * chaining — a divider may never cross (or strand below the floor) its
+ * neighbor — is a `row`/`col` property only: those are the shapes whose two
+ * ratios are same-axis dividers. Every other shape's ratios are independent:
+ * `split-*` carries a single ratio, and a `main-*` shape's two ratios live on
+ * DIFFERENT axes (main-left/right: ratio 0 is the x column boundary, ratio 1
+ * the y row boundary; main-top swaps them), so a neighboring ratio is never a
+ * bound there — each clamps to `clampRatio`'s [floor, 100 − floor] band on
+ * its own axis.
+ *
+ * On `row`/`col`, when the sibling band inverts (the container cannot honor
+ * the floor between two boundaries) the boundary collapses to the sibling
+ * side's floor edge (`prev + floor`) rather than crossing it.
+ */
+export function clampBoundary(
+  shape: LayoutShape,
+  cur: LayoutRatios,
+  index: number,
+  rawPct: number,
+  sizePx: number,
+): number {
+  if (shape !== "row" && shape !== "col") return clampRatio(rawPct, sizePx);
+  const floorPct = (MIN_PANEL_WIDTH_PX / sizePx) * 100;
+  const prev = index === 0 ? 0 : cur[index - 1];
+  const next = index === cur.length - 1 ? 100 : cur[index + 1];
+  return Math.min(
+    Math.max(clampRatio(rawPct, sizePx), prev + floorPct),
+    Math.max(next - floorPct, prev + floorPct),
+  );
 }

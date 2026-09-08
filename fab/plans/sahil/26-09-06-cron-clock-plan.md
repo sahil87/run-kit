@@ -14,10 +14,43 @@ the operator's cadence no longer dies with its session — then visibility,
 then generalization to any agent.
 
 **Status (2026-09-09)**: Waves 1–3 merged — C1 #855, C2 #856, C3 #857,
-C4 #858, C5 #862, C6 #863, C7 #864. Wave 4 (C8/C9/C10) remains. The Wave 2
-GATE's four checks have no recorded run (Wave 3 merged regardless); record a
-pass — or an explicit waiver — before C10, whose own gate is the backstop
-holding in daily use.
+C4 #858, C5 #862, C6 #863, C7 #864. Wave 4 (C8/C9/C10) remains.
+
+**GATE run 2026-09-09 (live runKit server): FAIL in production posture —
+one blocking bug, one should-fix, mechanics otherwise proven.**
+
+- **Blocker — server-slug mismatch on the operator state file.** rk resolves
+  `$XDG_STATE_HOME/fab/operator/<slug>.yaml` with slug = socket **name**
+  (`runKit`), but fab's `serverSlug` is `slugify(#{socket_path})`
+  (`tmp-tmux--1001-runKit`). rk therefore always reads an absent file → cold
+  posture → `nothing-tracked` holds forever → **the backstop never fires**
+  (the incident class is NOT killed), and the C5 watchlist/staleness UI
+  (same `FabOperatorStatePath`) is equally blind. Both repos implemented the
+  spec's `<server-slug>` differently. Fix in rk: derive fab's form from the
+  socket path (rk has it at tick time); pin the slug rule in the cross-tool
+  contract. **C10 is hard-blocked until this lands and the gate re-runs.**
+- Check (a) mechanics: **pass** — with a correctly-named state file
+  (stale `last_tick_at`, non-empty `monitored`), the tick delivered to the
+  live operator pane 1s after the rung-1 due time; the operator processed it
+  and re-established its own loop (the designed dead-loop recovery, observed
+  end-to-end).
+- Check (b) guard logic: **pass** — a fresh `last_tick_at` suppressed all
+  fires for 2+ min under active due pressure. Production arbitration still
+  fails via the blocker (a healthy loop's `tick-start` writes are invisible
+  to rk).
+- Check (c): **pass** — `rk cron add/list/rm` from an agent pane, creator
+  auto-capture, no flags beyond the schedule.
+- Check (d): **pass** — a cron file planted on a dead socket (`rkprobe1`)
+  survived ~4 min of ticks with no server resurrection.
+- **Should-fix — wake self-echo.** Delivery makes the target active; that
+  state change is itself a `wake_on` edge, so the entry re-fired once 30s
+  after the first delivery (`reason: wake`). The anchor-join protects the
+  schedule side only; the wake side needs an own-delivery join or cooldown.
+  Bounded (one echo per episode once the guard file works), but it
+  double-ticks every recovery.
+- Noted: on a backoff-only entry, an unresolved target also makes the anchor
+  unknowable, so `if_absent: respawn` can trigger only via wake edges — fine
+  on busy servers, inert on quiet ones.
 
 ---
 

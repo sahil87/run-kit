@@ -1076,6 +1076,11 @@ func TestAgentSetup_QuietRefusalSurvives(t *testing.T) {
 // root form still runs (the diff renders) AND prints a one-line pointer naming
 // `rk agent setup`, while the family form stays warning-free.
 func TestAgentSetup_QuietFlagWiredThroughRoot(t *testing.T) {
+	// The hook diff requires an installed harness, independent of the host PATH.
+	orig := agentBinaryOnPathFn
+	agentBinaryOnPathFn = func(bin string) bool { return bin == "claude" }
+	t.Cleanup(func() { agentBinaryOnPathFn = orig })
+
 	// Hermetic: point HOME at a temp dir so the run never reads the invoking
 	// user's real ~/.claude/settings.json or scans their real skills dir
 	// (os.UserHomeDir reads $HOME on Unix). --dry-run writes nothing regardless;
@@ -1117,6 +1122,11 @@ func TestAgentSetup_QuietFlagWiredThroughRoot(t *testing.T) {
 // contract: the family form `rk agent setup` is the canonical spelling and must
 // NOT carry any deprecation warning.
 func TestAgentSetupFamilyMemberNoDeprecation(t *testing.T) {
+	// The hook diff requires an installed harness, independent of the host PATH.
+	orig := agentBinaryOnPathFn
+	agentBinaryOnPathFn = func(bin string) bool { return bin == "claude" }
+	t.Cleanup(func() { agentBinaryOnPathFn = orig })
+
 	t.Setenv("HOME", t.TempDir())
 
 	var stdout, stderr bytes.Buffer

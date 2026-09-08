@@ -483,6 +483,69 @@ func TestCronCreate(t *testing.T) {
 			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
 		}
 	})
+
+	t.Run("catchUp round-trips through create and GET", func(t *testing.T) {
+		dir := setupCronState(t)
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		server.cronFactsFn = cronFactsStub(nil)
+		router := server.buildRouter()
+
+		req := httptest.NewRequest(http.MethodPost, "/api/cron/create?server=default", strings.NewReader(
+			`{"schedule":{"kind":"cron","expr":"0 9 * * *","catchUp":"once"},"target":{"kind":"role","role":"operator"},"payload":"standup"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+		}
+		var created cronEntryJSON
+		if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
+			t.Fatal(err)
+		}
+		if created.Schedule.CatchUp != cron.CatchUpOnce {
+			t.Errorf("created catchUp = %q, want %q", created.Schedule.CatchUp, cron.CatchUpOnce)
+		}
+		entries := loadCronEntries(t, dir, "default")
+		if len(entries) != 1 || entries[0].Schedule.CatchUp != cron.CatchUpOnce {
+			t.Fatalf("persisted entries = %+v, want one with catch_up: once", entries)
+		}
+
+		req = httptest.NewRequest(http.MethodGet, "/api/cron?server=default", nil)
+		rec = httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var list struct {
+			Entries []cronEntryJSON `json:"entries"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&list); err != nil {
+			t.Fatal(err)
+		}
+		if len(list.Entries) != 1 || list.Entries[0].Schedule.CatchUp != cron.CatchUpOnce {
+			t.Errorf("GET entries = %+v, want the catchUp echoed", list.Entries)
+		}
+		if list.Entries[0].NextFire == 0 {
+			t.Error("GET nextFire = 0, want the cron entry's next occurrence")
+		}
+	})
+
+	t.Run("bad catchUp value is a 400", func(t *testing.T) {
+		dir := setupCronState(t)
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/cron/create?server=default", strings.NewReader(
+			`{"schedule":{"kind":"cron","expr":"0 9 * * *","catchUp":"always"},"target":{"kind":"role","role":"operator"},"payload":"standup"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		if entries := loadCronEntries(t, dir, "default"); len(entries) != 0 {
+			t.Errorf("persisted entries = %d after a rejected create, want 0", len(entries))
+		}
+	})
 }
 
 // seedCronEntry persists one entry via cron.Add and returns it.

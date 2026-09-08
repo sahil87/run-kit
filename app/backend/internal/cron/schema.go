@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	robfigcron "github.com/robfig/cron/v3"
 	"gopkg.in/yaml.v3"
 
 	"rk/internal/tmux"
@@ -19,7 +20,7 @@ import (
 const (
 	ScheduleEvery   = "every"
 	ScheduleBackoff = "backoff"
-	ScheduleCron    = "cron" // recognized, never evaluated in this change (C9)
+	ScheduleCron    = "cron"
 )
 
 // Target kinds.
@@ -54,6 +55,12 @@ const (
 	IfAbsentRespawn = "respawn"
 )
 
+// Catch-up policies (Schedule.CatchUp): how a cron-kind entry treats
+// occurrences that fell due while no tick ran. The empty default skips them
+// (one `missed` log line per gap); "once" fires the latest stale occurrence
+// late, exactly once per gap.
+const CatchUpOnce = "once"
+
 // Duration is a time.Duration that YAML-marshals as a Go duration string
 // ("60s", "30m") per the spec's schema.
 type Duration struct {
@@ -82,7 +89,8 @@ func (d Duration) MarshalYAML() (any, error) {
 
 // Schedule is the entry's timing predicate. every carries Interval; backoff
 // carries Anchor ("operator-idle" — the target pane's idle epoch) + Min + Max;
-// cron carries a 5-field Expr that this change never evaluates.
+// cron carries a 5-field Expr, with CatchUp ("once") opting into one late fire
+// per missed gap.
 type Schedule struct {
 	Kind     string   `yaml:"kind"`
 	Interval Duration `yaml:"interval,omitempty"`
@@ -90,6 +98,7 @@ type Schedule struct {
 	Min      Duration `yaml:"min,omitempty"`
 	Max      Duration `yaml:"max,omitempty"`
 	Expr     string   `yaml:"expr,omitempty"`
+	CatchUp  string   `yaml:"catch_up,omitempty"`
 }
 
 // WakeOn is the edge trigger OR'd with the schedule: fire when the named
@@ -150,11 +159,23 @@ func (e Entry) validate() error {
 			return fmt.Errorf("backoff max must be ≥ min")
 		}
 	case ScheduleCron:
-		// Recognized, unevaluated here — schema-valid.
+		if _, err := robfigcron.ParseStandard(e.Schedule.Expr); err != nil {
+			return fmt.Errorf("cron expression %q does not parse: %w", e.Schedule.Expr, err)
+		}
 	case "":
 		return fmt.Errorf("missing schedule kind")
 	default:
 		return fmt.Errorf("unknown schedule kind %q", e.Schedule.Kind)
+	}
+	// catch_up is cron-kind-only: interval/idle-anchored schedules have no
+	// occurrences to catch up on.
+	if e.Schedule.CatchUp != "" {
+		if e.Schedule.Kind != ScheduleCron {
+			return fmt.Errorf("catch_up only applies to kind cron, got kind %q", e.Schedule.Kind)
+		}
+		if e.Schedule.CatchUp != CatchUpOnce {
+			return fmt.Errorf("unknown catch_up value %q (only %q)", e.Schedule.CatchUp, CatchUpOnce)
+		}
 	}
 	switch e.Target.Kind {
 	case TargetRole:

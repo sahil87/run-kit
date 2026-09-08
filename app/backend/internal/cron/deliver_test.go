@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"rk/internal/inject"
 	"rk/internal/tmux"
@@ -16,10 +17,12 @@ type sendCall struct {
 }
 
 // newTestDeliverer builds an EngineDeliverer over scripted state reads and a
-// recording send seam.
+// recording send seam. The hold-bound clock pins now at backoffBase, and
+// deliverFire anchors DueAt there too — override d.now to age a hold.
 func newTestDeliverer(states map[string]string, stateErr error) (*EngineDeliverer, *[]sendCall) {
 	calls := &[]sendCall{}
 	d := NewEngineDeliverer()
+	d.now = func() time.Time { return backoffBase }
 	d.readState = func(ctx context.Context, paneID, server string) (string, error) {
 		return states[paneID], stateErr
 	}
@@ -34,6 +37,7 @@ func deliverFire(deliver, payload string) Fire {
 	return Fire{
 		Server: "live1",
 		PaneID: "%42",
+		DueAt:  backoffBase,
 		Entry: Entry{
 			ID:      "a3f9",
 			Payload: payload,
@@ -100,6 +104,63 @@ func TestEngineDelivererWhenIdleBusyPredicate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEngineDelivererHoldBound: a when-idle fire held busy past
+// DefaultHoldWindow expires — outcome held-expired with Held UNSET (the tick
+// logs it, the anchor advances, the fire is dropped) and nothing is sent.
+// Within the window the hold is held-busy as before, and a catch-up late fire
+// (DueAt = now) can never expire.
+func TestEngineDelivererHoldBound(t *testing.T) {
+	busy := map[string]string{"%42": tmux.AgentStateActive}
+
+	t.Run("past the window the hold expires", func(t *testing.T) {
+		d, calls := newTestDeliverer(busy, nil)
+		d.now = func() time.Time { return backoffBase.Add(DefaultHoldWindow + time.Minute) }
+		outcome := d.Deliver(context.Background(), deliverFire(DeliverWhenIdle, "sweep"))
+		if outcome.Held || outcome.Status != "held-expired" {
+			t.Errorf("outcome = %+v, want held-expired with Held unset", outcome)
+		}
+		if outcome.Detail != tmux.AgentStateActive {
+			t.Errorf("detail = %q, want the busy state", outcome.Detail)
+		}
+		if len(*calls) != 0 {
+			t.Errorf("sends = %d, want 0 (the bound never force-delivers)", len(*calls))
+		}
+	})
+
+	t.Run("at the window edge the hold stands", func(t *testing.T) {
+		d, _ := newTestDeliverer(busy, nil)
+		d.now = func() time.Time { return backoffBase.Add(DefaultHoldWindow) }
+		outcome := d.Deliver(context.Background(), deliverFire(DeliverWhenIdle, "sweep"))
+		if !outcome.Held || outcome.Status != "held-busy" {
+			t.Errorf("outcome = %+v, want held-busy (the bound is now−DueAt > window)", outcome)
+		}
+	})
+
+	t.Run("catch-up late fires never expire", func(t *testing.T) {
+		d, _ := newTestDeliverer(busy, nil)
+		late := backoffBase.Add(24 * time.Hour)
+		d.now = func() time.Time { return late }
+		fire := deliverFire(DeliverWhenIdle, "sweep")
+		fire.DueAt = late // catch-up construction: DueAt = now
+		outcome := d.Deliver(context.Background(), fire)
+		if !outcome.Held || outcome.Status != "held-busy" {
+			t.Errorf("outcome = %+v, want held-busy (DueAt = now never exceeds the window)", outcome)
+		}
+	})
+
+	t.Run("immediate entries ignore the window", func(t *testing.T) {
+		d, calls := newTestDeliverer(busy, nil)
+		d.now = func() time.Time { return backoffBase.Add(DefaultHoldWindow + time.Minute) }
+		outcome := d.Deliver(context.Background(), deliverFire(DeliverImmediate, "sweep"))
+		if outcome.Held || outcome.Status != "delivered" {
+			t.Errorf("outcome = %+v, want delivered (the bound only gates when-idle)", outcome)
+		}
+		if len(*calls) != 1 {
+			t.Errorf("sends = %d, want 1", len(*calls))
+		}
+	})
 }
 
 func TestEngineDelivererStateReadFailure(t *testing.T) {

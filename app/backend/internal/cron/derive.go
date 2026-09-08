@@ -1,15 +1,18 @@
 package cron
 
-import "time"
+import (
+	"time"
+
+	robfigcron "github.com/robfig/cron/v3"
+)
 
 // derive.go — the read-side per-entry derivation the HTTP API wave surfaces
 // (R1): next-fire, backoff rung, orphaned status, and last-fired, computed by
 // CALLING the evaluator's own primitives (JoinAnchor, Ladder.NextFire,
-// everyAnchor, LastDelivery) so the projection can never diverge from the
-// tick's math. cron-kind (5-field expression) entries are unevaluated (C9) —
-// they report no next-fire rather than a fabricated one. Orphaned is a live
-// per-call snapshot of target resolution; OrphanedSince/ExpiresAt surface the
-// orphan.go streak derivation behind the same snapshot.
+// everyAnchor, LastDelivery, robfig Schedule.Next) so the projection can never
+// diverge from the tick's math. Orphaned is a live per-call snapshot of target
+// resolution; OrphanedSince/ExpiresAt surface the orphan.go streak derivation
+// behind the same snapshot.
 
 // DerivedEntry is the live projection of one entry's schedule state.
 type DerivedEntry struct {
@@ -39,11 +42,9 @@ type DerivedEntry struct {
 // DeriveEntry computes one entry's live schedule facts. log is the server's
 // full delivery log (the entry's own lines are filtered internally); facts is
 // the entry's resolved target facts (unresolved ⇒ orphaned, and a backoff
-// entry's next-fire is unknowable without the anchor epoch). now is accepted
-// for signature stability with due-relative derivations; the next-fire math
-// itself is an absolute anchor computation.
+// entry's next-fire is unknowable without the anchor epoch). now drives the
+// cron-kind next-fire (the next occurrence after now).
 func DeriveEntry(e Entry, log []LogLine, facts TargetFacts, now time.Time) DerivedEntry {
-	_ = now
 	d := DerivedEntry{Orphaned: !facts.Resolved()}
 	if d.Orphaned && e.Target.Kind != TargetRole {
 		d.OrphanedSince = OrphanedSince(log, e)
@@ -63,6 +64,15 @@ func DeriveEntry(e Entry, log []LogLine, facts TargetFacts, now time.Time) Deriv
 			d.Rung = ladder.Rung + 1
 			d.NextFire = ladder.NextFire(e.Schedule.Min.Duration, e.Schedule.Max.Duration)
 			d.HasNextFire = true
+		}
+	case ScheduleCron:
+		// An unparseable expression (or one with no occurrence inside robfig's
+		// 5-year horizon) keeps HasNextFire false — never a fabricated time.
+		if sched, err := robfigcron.ParseStandard(e.Schedule.Expr); err == nil {
+			if next := sched.Next(now); !next.IsZero() {
+				d.NextFire = next
+				d.HasNextFire = true
+			}
 		}
 	}
 	return d

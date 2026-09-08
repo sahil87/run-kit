@@ -14,13 +14,14 @@ import (
 // pattern). Also resets the seams the family shares.
 func resetCronFlags() {
 	cronAddEvery, cronAddBackoff, cronAddCronExpr = 0, false, ""
+	cronAddCatchUp = ""
 	cronAddMin, cronAddMax = time.Minute, 30*time.Minute
 	cronAddName, cronAddDeliver, cronAddIfAbsent = "", cron.DeliverImmediate, cron.IfAbsentSkip
 	cronAddPinned = false
 	cronAddRole, cronAddPane, cronAddSession = "", "", ""
 	cronListJSONFlag = false
 	cronMuteOffFlag, cronPinOffFlag = false, false
-	resetFlagChanged(cronAddCmd, "every", "backoff", "cron", "min", "max", "name", "deliver", "if-absent", "pinned", "role", "pane", "session")
+	resetFlagChanged(cronAddCmd, "every", "backoff", "cron", "catch-up", "min", "max", "name", "deliver", "if-absent", "pinned", "role", "pane", "session")
 	resetFlagChanged(cronListCmd, "json")
 	resetFlagChanged(cronMuteCmd, "off")
 	resetFlagChanged(cronPinCmd, "off")

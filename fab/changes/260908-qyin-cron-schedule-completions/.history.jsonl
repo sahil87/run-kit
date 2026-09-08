@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-08T22:52:41Z"}
+{"args":"Wave 4 change C9 Schedule completions: 5-field cron expression evaluation, catch_up: once, when-idle hold-window bound (resolves spec open question 2)","cmd":"fab-new","event":"command","ts":"2026-09-08T22:52:41Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-09-08T22:55:44Z"}
+{"delta":"+3.6","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-09-08T22:55:44Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-08T22:57:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T22:58:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T23:23:13Z"}
+{"event":"review","result":"failed","ts":"2026-09-08T23:28:09Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-08T23:28:09Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-08T23:31:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-08T23:34:28Z"}
+{"event":"review","result":"passed","ts":"2026-09-08T23:34:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-08T23:38:55Z"}

@@ -166,7 +166,14 @@ every payload must tolerate that (ticks are idempotent by contract).
 
 **Catch-up policy**: a wall-clock `cron` fire missed while no invoker ran
 defaults to **skip** (never fire late); `catch_up: once` is the per-entry
-opt-in for at-most-one late fire.
+opt-in for at-most-one late fire. Landed semantics (C9): an occurrence stays
+due for a grace window of `DefaultCronGrace` (2m — covers tick jitter and
+short daemon restarts), extended to `DefaultHoldWindow` (2h) for
+`deliver: when-idle` entries so a busy-pane hold can outlive the grace; a
+stale occurrence past its window logs exactly one `missed` delivery-log line
+per gap (guard-gated like a fire, target-independent — schedule history, not
+delivery), which advances the anchor past the gap; `catch_up: once` lifts the
+lateness bound and fires the latest stale occurrence exactly once.
 
 ## Targets & Fire-Time Resolution
 
@@ -222,7 +229,10 @@ never a bare `-t _rk-operator` (exact-match targets only).
 
 1. Resolve target → pane (above).
 2. `deliver: when-idle` gates on `@rk_pane_agent_state` (busy ⇒ hold until the
-   state clears, with a bounded hold window); `immediate` sends now.
+   state clears, bounded by `DefaultHoldWindow` — 2h from the fire's scheduled
+   due time: past it the hold expires with a logged `held-expired` outcome
+   that advances the anchor and drops the fire, never force-delivering into a
+   busy pane); `immediate` sends now.
 3. Send through the injection engine (the write channel of the communication
    standard — [`agent-messaging.md`](agent-messaging.md)), inheriting the
    pane-mode guard, paste probe, and submit verification.
@@ -404,7 +414,19 @@ tmux event — the safety-poll lesson).
 1. Server ≈ one operator's domain assumes per-project servers; a multi-repo
    server would need an optional session/cwd scope on entries. Not built until
    the layout is real.
-2. `when-idle` hold window bound (drop vs. deliver-late after N hours).
+2. `when-idle` hold window bound — **decided at Wave 4 (C9,
+   `260908-qyin-cron-schedule-completions`): drop after a 2h hold window
+   (`DefaultHoldWindow`) with a logged `held-expired` outcome.** The bound
+   derives from the fire's scheduled due time (`Fire.DueAt`), keeping
+   evaluation stateless; the expiry is a logged disposition, so it advances
+   the anchor and the next due period fires normally. Drop-with-visible-history
+   won over the alternatives because (a) recurring schedules lose nothing —
+   the next due period fires on its own; (b) unbounded hold delivers a payload
+   that stopped being relevant hours ago, landing mid-context-switch at the
+   worst moment; (c) force-delivering at the bound would interrupt a
+   busy/waiting agent, contradicting what `when-idle` exists for. Catch-up
+   late fires (`DueAt = now`) are exempt by construction — an entry that opted
+   into unbounded lateness is not then dropped for being late.
 3. Mutual watching's second half — **decided at P1.5 (C4,
    `260906-kbbh-operator-tick-seed-respawn`): no reverse loop-side
    cron-staleness check is built.** The loop does not warn when the cron's

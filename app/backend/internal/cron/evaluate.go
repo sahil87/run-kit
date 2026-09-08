@@ -50,7 +50,12 @@ type Fire struct {
 	// Rung is the backoff ladder rung being fired (0 for wake fires and
 	// other schedules).
 	Rung int
-	At   time.Time
+	// DueAt is the scheduled time the fire came due (every: anchor+interval;
+	// backoff: the ladder's next-fire; cron: the occurrence; wake fires and
+	// catch-up late fires: now). It feeds the deliverer's when-idle hold
+	// bound, so a held fire expires on ITS schedule time, not the tick's.
+	DueAt time.Time
+	At    time.Time
 }
 
 // EvalInput is everything the stateless evaluator needs, all disk-derivable:
@@ -79,7 +84,13 @@ type EvalResult struct {
 	// Absent carries due fires whose target did not resolve (empty PaneID),
 	// emitted after guard evaluation exactly like resolved fires — the tick
 	// orchestrator applies the entry's if_absent policy to each.
-	Absent     []Fire
+	Absent []Fire
+	// Missed carries one fire per cron-kind entry whose latest occurrence fell
+	// stale past its window without catch_up — schedule history, not delivery:
+	// emitted through the same muted/guard gating as fires but regardless of
+	// target resolution. The tick appends one `missed` log line per entry,
+	// advancing the anchor past the gap.
+	Missed     []Fire
 	Diags      []Diagnostic
 	NextCursor WakeCursor
 }
@@ -114,12 +125,17 @@ func Evaluate(in EvalInput) EvalResult {
 
 		facts := in.Facts[e.ID]
 
-		// Schedule predicate.
+		// Schedule predicate. dueAt tracks when the due fire came due on its own
+		// schedule; missedAt marks a stale cron occurrence (logged, not fired).
 		schedDue := false
+		missed := false
+		dueAt := in.Now
 		rung := 0
 		switch e.Schedule.Kind {
 		case ScheduleEvery:
-			schedDue, _ = everyDue(e, in.Log, in.Now)
+			var anchor time.Time
+			schedDue, anchor = everyDue(e, in.Log, in.Now)
+			dueAt = anchor.Add(e.Schedule.Interval.Duration)
 		case ScheduleBackoff:
 			switch {
 			case !facts.Resolved():
@@ -132,10 +148,11 @@ func Evaluate(in EvalInput) EvalResult {
 				ladder := JoinAnchor(facts.StateEpoch, OwnDeliveries(in.Log, e.ID),
 					e.Schedule.Min.Duration, e.Schedule.Max.Duration)
 				schedDue = ladder.Due(in.Now, e.Schedule.Min.Duration, e.Schedule.Max.Duration)
+				dueAt = ladder.NextFire(e.Schedule.Min.Duration, e.Schedule.Max.Duration)
 				rung = ladder.Rung + 1
 			}
 		case ScheduleCron:
-			diag("schedule-kind-unsupported", "cron schedule expressions are not yet supported")
+			schedDue, missed, dueAt = cronScheduleDue(e, in.Log, in.Now)
 		default:
 			diag("unknown-schedule-kind", e.Schedule.Kind)
 		}
@@ -156,18 +173,18 @@ func Evaluate(in EvalInput) EvalResult {
 			}
 		}
 
-		if !schedDue && !wakeDue {
+		if !schedDue && !wakeDue && !missed {
 			continue
 		}
 
 		resolved := facts.Resolved()
-		if !resolved {
+		if !resolved && (schedDue || wakeDue) {
 			diag("target-unresolved", facts.Unresolved)
 		}
 
-		// Guards last — before any fire is emitted, never after; they gate
-		// absent fires exactly as resolved ones (a suppressed absent fire is a
-		// silent diagnostic: no emission, no if_absent disposition).
+		// Guards last — before any fire or missed line is emitted, never after;
+		// they gate absent fires exactly as resolved ones (a suppressed absent
+		// fire is a silent diagnostic: no emission, no if_absent disposition).
 		suppressed := false
 		for _, g := range e.SuppressWhile {
 			holds, known := guardHolds(g, in.Operator, in.Now, threshold)
@@ -185,11 +202,28 @@ func Evaluate(in EvalInput) EvalResult {
 			continue
 		}
 
+		if missed {
+			// Schedule history, not delivery: no PaneID, no if_absent
+			// disposition — the tick logs one `missed` line and moves on.
+			res.Missed = append(res.Missed, Fire{
+				Server: in.Server,
+				Entry:  e,
+				Reason: FireSchedule,
+				DueAt:  dueAt,
+				At:     in.Now,
+			})
+		}
+		if !schedDue && !wakeDue {
+			continue
+		}
+
 		reason := FireSchedule
 		if !schedDue {
 			reason = FireWake
-			// A wake fire is not firing the ladder — it carries no rung.
+			// A wake fire is not firing the ladder — it carries no rung, and
+			// its due time is the edge observation, not a schedule point.
 			rung = 0
+			dueAt = in.Now
 		}
 		fire := Fire{
 			Server: in.Server,
@@ -197,6 +231,7 @@ func Evaluate(in EvalInput) EvalResult {
 			Reason: reason,
 			PaneID: facts.PaneID,
 			Rung:   rung,
+			DueAt:  dueAt,
 			At:     in.Now,
 		}
 		if !resolved {

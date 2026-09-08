@@ -171,8 +171,8 @@ func TestCronAddBackoff(t *testing.T) {
 	}
 }
 
-// TestCronAddCronExpr: --cron stores the expression as schema-valid intent and
-// prints the not-evaluated note to stderr (not stdout).
+// TestCronAddCronExpr: --cron stores the expression and prints the id plus the
+// schedule summary on stdout — no stderr note (the expression is live).
 func TestCronAddCronExpr(t *testing.T) {
 	dir := stubCronDir(t)
 	stubCronTMUX(t)
@@ -187,11 +187,79 @@ func TestCronAddCronExpr(t *testing.T) {
 	if len(entries) != 1 || entries[0].Schedule.Kind != cron.ScheduleCron || entries[0].Schedule.Expr != "0 3 * * *" {
 		t.Fatalf("entries = %+v, want one cron entry with the stored expression", entries)
 	}
-	if !strings.Contains(stderr, "not evaluated yet") {
-		t.Errorf("stderr = %q, want the not-evaluated note", stderr)
+	if !strings.Contains(stdout, "cron 0 3 * * *") {
+		t.Errorf("stdout = %q, want the schedule summary", stdout)
 	}
-	if strings.Contains(stdout, "not evaluated yet") {
-		t.Errorf("stdout = %q — the note is chatter, not data", stdout)
+	if strings.Contains(stderr, "not evaluated") || strings.Contains(stderr, "not implemented") {
+		t.Errorf("stderr = %q — cron expressions are live now, no unimplemented note", stderr)
+	}
+}
+
+// TestCronAddCatchUp: --catch-up once persists catch_up on a --cron entry and
+// shows in the summary; without --cron or with another value it's a usage
+// error leaving the state dir untouched.
+func TestCronAddCatchUp(t *testing.T) {
+	t.Run("persists once and renders in the summary", func(t *testing.T) {
+		dir := stubCronDir(t)
+		stubCronTMUX(t)
+		stubCronAddSeams(t, "", nil)
+		t.Setenv("TMUX_PANE", "%12")
+
+		stdout, _, err := runCronCmd(t, "add", "standup", "--cron", "0 9 * * *", "--catch-up", "once", "--role", "operator")
+		if err != nil {
+			t.Fatalf("add: %v", err)
+		}
+		entries := loadCronEntries(t, dir, "work")
+		if len(entries) != 1 || entries[0].Schedule.CatchUp != cron.CatchUpOnce {
+			t.Fatalf("entries = %+v, want catch_up: once", entries)
+		}
+		if !strings.Contains(stdout, "cron 0 9 * * * (catch-up once)") {
+			t.Errorf("stdout = %q, want the catch-up summary", stdout)
+		}
+	})
+
+	cases := []struct {
+		name      string
+		args      []string
+		wantInErr string
+	}{
+		{"catch-up without cron", []string{"add", "x", "--every", "1h", "--catch-up", "once"}, "--catch-up only applies with --cron"},
+		{"catch-up bad value", []string{"add", "x", "--cron", "0 9 * * *", "--catch-up", "always"}, "invalid --catch-up value"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := stubCronDir(t)
+			stubCronAddSeams(t, "", nil)
+			t.Setenv("TMUX_PANE", "%12")
+
+			_, _, err := runCronCmd(t, tc.args...)
+			if err == nil || !strings.Contains(err.Error(), tc.wantInErr) {
+				t.Fatalf("err = %v, want %q", err, tc.wantInErr)
+			}
+			if code := exitCode(err); code != exitUsage {
+				t.Errorf("exit code = %d, want %d", code, exitUsage)
+			}
+			if fis, _ := os.ReadDir(dir); len(fis) != 0 {
+				t.Errorf("state dir gained %v, want untouched", fis)
+			}
+		})
+	}
+}
+
+// TestCronAddCronBadExprRejected: a 5-field expression that ParseStandard
+// rejects fails the add through cron.Add's validate — the file is untouched.
+func TestCronAddCronBadExprRejected(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	stubCronAddSeams(t, "", nil)
+	t.Setenv("TMUX_PANE", "%12")
+
+	_, _, err := runCronCmd(t, "add", "x", "--cron", "61 * * * *")
+	if err == nil || !strings.Contains(err.Error(), "does not parse") {
+		t.Fatalf("err = %v, want the parser's validation error", err)
+	}
+	if fis, _ := os.ReadDir(dir); len(fis) != 0 {
+		t.Errorf("state dir gained %v, want untouched", fis)
 	}
 }
 

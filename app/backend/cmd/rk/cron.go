@@ -109,7 +109,7 @@ func cronDir() (string, error) {
 }
 
 // cronScheduleSummary renders a schedule for the list table and add
-// confirmation ("every 1h" / "backoff 1m→30m" / "cron <expr>").
+// confirmation ("every 1h" / "backoff 1m→30m" / "cron <expr> (catch-up once)").
 func cronScheduleSummary(s cron.Schedule) string {
 	switch s.Kind {
 	case cron.ScheduleEvery:
@@ -117,6 +117,9 @@ func cronScheduleSummary(s cron.Schedule) string {
 	case cron.ScheduleBackoff:
 		return fmt.Sprintf("backoff %s→%s", cronDurationShort(s.Min.Duration), cronDurationShort(s.Max.Duration))
 	case cron.ScheduleCron:
+		if s.CatchUp == cron.CatchUpOnce {
+			return "cron " + s.Expr + " (catch-up once)"
+		}
 		return "cron " + s.Expr
 	}
 	return s.Kind

@@ -57,6 +57,7 @@ const ENTRIES: CronEntry[] = [
     target: { kind: "role", role: "operator" },
     payload: "p",
     lastFired: 0,
+    nextFire: NOW_SEC + 1800,
   },
 ];
 
@@ -131,12 +132,13 @@ describe("CronActivityFeed", () => {
     installFetch();
     renderFeed(SERVER);
     await screen.findByTestId("cron-upcoming-row-soon");
-    // Upcoming: undated entries (orphan, cron-kind) at the far end, then
-    // farthest → soonest; then the divider; then deliveries newest-first.
+    // Upcoming: the undated entry (orphan, unresolved backoff anchor) at the
+    // far end, then farthest → soonest; then the divider; then deliveries
+    // newest-first.
     expect(timelineOrder()).toEqual([
       "cron-upcoming-row-orph",
-      "cron-upcoming-row-crn",
       "cron-upcoming-row-late",
+      "cron-upcoming-row-crn",
       "cron-upcoming-row-soon",
       "cron-upcoming-row-mute",
       "cron-activity-now",
@@ -155,12 +157,13 @@ describe("CronActivityFeed", () => {
     expect(screen.getByTestId("cron-upcoming-row-soon").className).not.toContain("opacity-50");
   });
 
-  it("shows no fabricated next-fire on a cron-kind row, with the not-yet-evaluated note", async () => {
+  it("renders the bare expression and a relative next-fire time on a cron-kind row", async () => {
     installFetch();
     renderFeed(SERVER);
     const row = await screen.findByTestId("cron-upcoming-row-crn");
-    expect(row).toHaveTextContent("0 * * * * — cron expression, not yet evaluated");
-    expect(row).not.toHaveTextContent(/^in /);
+    expect(row).toHaveTextContent("0 * * * *");
+    expect(row).not.toHaveTextContent("not yet evaluated");
+    expect(row).toHaveTextContent(/in (29|30)m/);
   });
 
   it("renders the staleness banner only when a session reports operatorStale", async () => {

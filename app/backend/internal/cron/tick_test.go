@@ -269,6 +269,122 @@ func captureSlog(t *testing.T) *strings.Builder {
 	return &buf
 }
 
+// cronTickEntryYAML is one cron-kind daily-9am entry targeting the resolved
+// pane %42 on live1.
+const cronTickEntryYAML = `
+entries:
+  - id: c909
+    name: standup
+    schedule: { kind: cron, expr: "0 9 * * *" }
+    target: { kind: pane, pane: "%%42" }
+    payload: "standup"
+    created_by: { session: s, pane: "%%42", at: %d }
+`
+
+// cronPaneRig builds the live1 rig for the cron tick tests.
+func cronPaneRig(t *testing.T, dir string, createdAt time.Time) *fakeTmux {
+	t.Helper()
+	writeEntryFile(t, dir, "live1", fmt.Sprintf(cronTickEntryYAML, createdAt.Unix()))
+	fk := newFakeTmux()
+	fk.sessions["live1"] = []tmux.SessionInfo{{Name: "work"}}
+	fk.windows["live1"] = map[string][]tmux.WindowInfo{"work": {{WindowID: "@5"}}}
+	fk.alive["live1"] = map[string]bool{"%42": true}
+	fk.panes["live1"] = map[string]tmux.PaneFacts{"%42": {AgentState: tmux.AgentStateIdle, AgentStateEpoch: createdAt.Unix()}}
+	return fk
+}
+
+// TestTickCronMissedOneLinePerGap: a daemon gap over a cron occurrence logs
+// exactly one `missed` line — the append advances the anchor, so a consecutive
+// tick over the same gap logs nothing, and the next occurrence fires normally.
+func TestTickCronMissedOneLinePerGap(t *testing.T) {
+	dir := t.TempDir()
+	createdAt := localTime(2026, 9, 8, 8, 0, 0)
+	fk := cronPaneRig(t, dir, createdAt)
+	logPath := filepath.Join(dir, "live1.log")
+
+	// Tick at 11:00 — the 9am occurrence is 2h stale, past the grace window.
+	del := &fakeDeliverer{}
+	res := tickOnce(t, dir, localTime(2026, 9, 9, 11, 0, 0), fk, del)
+	if len(del.fires) != 0 {
+		t.Errorf("deliverer got %d fires, want 0 (the stale occurrence is logged, not delivered)", len(del.fires))
+	}
+	lines := ReadLog(logPath)
+	if len(lines) != 1 || lines[0].Outcome != "missed" || lines[0].Entry != "c909" {
+		t.Fatalf("log = %+v, want one missed line for c909", lines)
+	}
+	if lines[0].Target != "" {
+		t.Errorf("missed line target = %q, want empty (schedule history, not delivery)", lines[0].Target)
+	}
+	if res.Fires != 1 {
+		t.Errorf("fires = %d, want 1 (the missed line counts as activity)", res.Fires)
+	}
+
+	// A consecutive tick over the same gap appends nothing — one line per gap,
+	// not per tick.
+	res = tickOnce(t, dir, localTime(2026, 9, 9, 11, 0, 30), fk, del)
+	if lines := ReadLog(logPath); len(lines) != 1 {
+		t.Fatalf("log after the second tick = %+v, want the same one missed line", lines)
+	}
+	if res.Fires != 0 {
+		t.Errorf("second tick fires = %d, want 0", res.Fires)
+	}
+
+	// The next occurrence (tomorrow 9am, in grace) fires and delivers.
+	res = tickOnce(t, dir, localTime(2026, 9, 10, 9, 0, 45), fk, del)
+	if len(del.fires) != 1 {
+		t.Fatalf("deliverer got %d fires, want the 9am fire", len(del.fires))
+	}
+	if want := localTime(2026, 9, 10, 9, 0, 0); !del.fires[0].DueAt.Equal(want) {
+		t.Errorf("fire DueAt = %v, want the occurrence %v", del.fires[0].DueAt, want)
+	}
+	lines = ReadLog(logPath)
+	if len(lines) != 2 || lines[1].Outcome != "delivered" {
+		t.Fatalf("log = %+v, want the missed line plus the delivery", lines)
+	}
+}
+
+// TestTickCronCatchUpFiresOnceLate: with catch_up: once a stale occurrence
+// fires late exactly once (DueAt = now), and the delivery's log line
+// re-anchors the entry — the next tick is quiet until the next occurrence.
+func TestTickCronCatchUpFiresOnceLate(t *testing.T) {
+	dir := t.TempDir()
+	createdAt := localTime(2026, 9, 8, 8, 0, 0)
+	writeEntryFile(t, dir, "live1", fmt.Sprintf(`
+entries:
+  - id: c909
+    name: standup
+    schedule: { kind: cron, expr: "0 9 * * *", catch_up: once }
+    target: { kind: pane, pane: "%%42" }
+    payload: "standup"
+    created_by: { session: s, pane: "%%42", at: %d }
+`, createdAt.Unix()))
+	fk := newFakeTmux()
+	fk.sessions["live1"] = []tmux.SessionInfo{{Name: "work"}}
+	fk.windows["live1"] = map[string][]tmux.WindowInfo{"work": {{WindowID: "@5"}}}
+	fk.alive["live1"] = map[string]bool{"%42": true}
+	fk.panes["live1"] = map[string]tmux.PaneFacts{"%42": {AgentState: tmux.AgentStateIdle, AgentStateEpoch: createdAt.Unix()}}
+
+	now := localTime(2026, 9, 9, 11, 0, 0)
+	del := &fakeDeliverer{}
+	tickOnce(t, dir, now, fk, del)
+	if len(del.fires) != 1 {
+		t.Fatalf("deliverer got %d fires, want the one catch-up fire", len(del.fires))
+	}
+	if !del.fires[0].DueAt.Equal(now) {
+		t.Errorf("catch-up DueAt = %v, want now (%v) — late fires opt out of the hold bound", del.fires[0].DueAt, now)
+	}
+	lines := ReadLog(filepath.Join(dir, "live1.log"))
+	if len(lines) != 1 || lines[0].Outcome != "delivered" {
+		t.Fatalf("log = %+v, want the catch-up delivery", lines)
+	}
+
+	// The gap is closed: a same-day tick fires nothing more.
+	tickOnce(t, dir, localTime(2026, 9, 9, 12, 0, 0), fk, del)
+	if len(del.fires) != 1 {
+		t.Errorf("deliverer got %d fires total, want 1 (at most one late fire per gap)", len(del.fires))
+	}
+}
+
 // TestTickRateCapTrips: at DefaultTargetRatePerHour counted deliveries to the
 // pane within the trailing hour (across ALL entries), the due fire is
 // suppressed — nothing typed, a rate-capped line lands, and a Warn names the
@@ -330,10 +446,11 @@ func TestTickRateCapTrips(t *testing.T) {
 }
 
 // TestTickRateCapOutcomeClasses: only delivery-attempt outcomes count —
-// suppressions (rate-capped) and recorded misses (skipped-absent) do not, and
-// held outcomes never reach the log at all.
+// suppressions (rate-capped), recorded misses (skipped-absent, missed), and
+// expired holds (held-expired) do not, and held outcomes never reach the log
+// at all.
 func TestTickRateCapOutcomeClasses(t *testing.T) {
-	for _, outcome := range []string{"rate-capped", "skipped-absent"} {
+	for _, outcome := range []string{"rate-capped", "skipped-absent", "missed", "held-expired"} {
 		t.Run(outcome+" does not count", func(t *testing.T) {
 			dir := t.TempDir()
 			T := backoffBase

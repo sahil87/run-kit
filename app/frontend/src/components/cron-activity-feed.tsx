@@ -18,8 +18,9 @@ import type { CronDelivery, CronEntry } from "@/api/client";
  * `operatorLastTickAt` — no new fetch), then the scrollable timeline:
  * upcoming fires (every entry, muted/orphaned included but DIMMED, never
  * omitted; farthest at the top so the SOONEST sits adjacent to the divider;
- * entries the evaluator gave no `nextFire` — cron-kind, unresolved — carry no
- * fabricated time), a single "now" divider, then recent deliveries
+ * entries the evaluator gave no `nextFire` — an unresolved-anchor backoff
+ * entry or an invalid one — carry no fabricated time), a single "now"
+ * divider, then recent deliveries
  * (newest-first, so the newest sits adjacent to the divider). Tapping a row
  * opens the entry detail sheet scoped to that entry.
  *

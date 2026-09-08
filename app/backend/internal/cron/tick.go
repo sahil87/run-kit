@@ -323,6 +323,19 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 		return true
 	}
 
+	// Missed cron occurrences: one `missed` line per entry per gap, independent
+	// of target resolution and if_absent (schedule history, not delivery). The
+	// append advances the entry's anchor past the gap, so subsequent ticks log
+	// nothing until the next occurrence.
+	for _, fire := range eval.Missed {
+		appendLine(fire.Entry.ID, LogLine{
+			TS:      now.Unix(),
+			Entry:   fire.Entry.ID,
+			Reason:  string(fire.Reason),
+			Outcome: "missed",
+		})
+	}
+
 	for _, fire := range eval.Fires {
 		if rateCapped(fire, fire.PaneID, true) {
 			continue

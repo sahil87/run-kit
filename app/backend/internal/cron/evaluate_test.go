@@ -77,8 +77,9 @@ func TestEvaluateDeterministic(t *testing.T) {
 	}
 }
 
-// TestEvaluateSkips: muted and cron-kind entries never fire, with distinct
-// diagnostics (R9).
+// TestEvaluateSkips: muted and unknown-kind entries never fire, with distinct
+// diagnostics (R9). Cron-kind entries evaluate — from a zero created_by anchor
+// the latest occurrence is long stale, so c909 surfaces as missed, not fired.
 func TestEvaluateSkips(t *testing.T) {
 	T := backoffBase
 	entries := []Entry{
@@ -99,12 +100,115 @@ func TestEvaluateSkips(t *testing.T) {
 	if len(res.Fires) != 0 {
 		t.Fatalf("fires = %+v, want none", res.Fires)
 	}
+	if len(res.Missed) != 1 || res.Missed[0].Entry.ID != "c909" {
+		t.Errorf("missed = %+v, want the one stale cron entry", res.Missed)
+	}
 	byEntry := map[string]string{}
 	for _, d := range res.Diags {
 		byEntry[d.EntryID] = d.Reason
 	}
-	if byEntry["m11d"] != "muted" || byEntry["c909"] != "schedule-kind-unsupported" || byEntry["u111"] != "unknown-schedule-kind" {
+	if byEntry["m11d"] != "muted" || byEntry["u111"] != "unknown-schedule-kind" {
 		t.Errorf("diags = %v", res.Diags)
+	}
+	if _, ok := byEntry["c909"]; ok {
+		t.Errorf("cron entry carried diagnostic %q — cron-kind evaluates now", byEntry["c909"])
+	}
+}
+
+// TestEvaluateCronFire: a cron occurrence inside its grace window fires with
+// DueAt = the occurrence, reason schedule.
+func TestEvaluateCronFire(t *testing.T) {
+	now := localTime(2026, 9, 9, 10, 5, 20)
+	entry := Entry{
+		ID:        "c909",
+		Schedule:  Schedule{Kind: ScheduleCron, Expr: "*/5 * * * *"},
+		Target:    Target{Kind: TargetPane, Pane: "%2"},
+		Payload:   "x",
+		CreatedBy: CreatedBy{At: localTime(2026, 9, 9, 9, 0, 0).Unix()},
+	}
+	in := EvalInput{
+		Server: "dev", Now: now, Entries: []Entry{entry},
+		Facts: map[string]TargetFacts{"c909": resolvedFacts("idle", now.Unix())},
+		Log:   own(localTime(2026, 9, 9, 10, 0, 30).Unix()),
+	}
+	res := Evaluate(in)
+	if len(res.Fires) != 1 {
+		t.Fatalf("fires = %+v, want the 10:05 fire", res.Fires)
+	}
+	fire := res.Fires[0]
+	if fire.Reason != FireSchedule || fire.PaneID != "%12" {
+		t.Errorf("fire = %+v", fire)
+	}
+	if want := localTime(2026, 9, 9, 10, 5, 0); !fire.DueAt.Equal(want) {
+		t.Errorf("DueAt = %v, want the occurrence %v", fire.DueAt, want)
+	}
+	if len(res.Missed) != 0 {
+		t.Errorf("missed = %+v, want none (the occurrence is in grace)", res.Missed)
+	}
+	if again := Evaluate(in); !reflect.DeepEqual(res, again) {
+		t.Errorf("non-deterministic result:\n first: %+v\nsecond: %+v", res, again)
+	}
+}
+
+// TestEvaluateCronMissedEmission: a stale occurrence surfaces in
+// EvalResult.Missed (target-independent — emitted even when the target fails
+// resolution), never as a fire.
+func TestEvaluateCronMissedEmission(t *testing.T) {
+	now := localTime(2026, 9, 9, 10, 9, 0)
+	entry := Entry{
+		ID:        "c909",
+		Schedule:  Schedule{Kind: ScheduleCron, Expr: "*/5 * * * *"},
+		Target:    Target{Kind: TargetSession, Session: "dead"},
+		Payload:   "x",
+		CreatedBy: CreatedBy{At: localTime(2026, 9, 9, 9, 0, 0).Unix()},
+	}
+	in := EvalInput{
+		Server: "dev", Now: now, Entries: []Entry{entry},
+		Facts: map[string]TargetFacts{"c909": {Unresolved: "no pane carries session dead"}},
+		Log:   own(localTime(2026, 9, 9, 10, 0, 30).Unix()),
+	}
+	res := Evaluate(in)
+	if len(res.Fires) != 0 || len(res.Absent) != 0 {
+		t.Errorf("fires=%+v absent=%+v, want none (the occurrence is stale)", res.Fires, res.Absent)
+	}
+	if len(res.Missed) != 1 {
+		t.Fatalf("missed = %+v, want the one stale occurrence", res.Missed)
+	}
+	m := res.Missed[0]
+	if m.PaneID != "" || m.Reason != FireSchedule || m.Entry.ID != "c909" {
+		t.Errorf("missed fire = %+v, want a target-less schedule record", m)
+	}
+	if want := localTime(2026, 9, 9, 10, 5, 0); !m.DueAt.Equal(want) {
+		t.Errorf("missed DueAt = %v, want the stale occurrence %v", m.DueAt, want)
+	}
+	if again := Evaluate(in); !reflect.DeepEqual(res, again) {
+		t.Errorf("non-deterministic result:\n first: %+v\nsecond: %+v", res, again)
+	}
+}
+
+// TestEvaluateCronMissedGuarded: a holding guard suppresses the missed line
+// silently — same gating as fires, recorded as a suppressed diagnostic.
+func TestEvaluateCronMissedGuarded(t *testing.T) {
+	now := localTime(2026, 9, 9, 10, 9, 0)
+	entry := Entry{
+		ID:            "c909",
+		Schedule:      Schedule{Kind: ScheduleCron, Expr: "*/5 * * * *"},
+		SuppressWhile: []string{GuardNothingTracked},
+		Target:        Target{Kind: TargetPane, Pane: "%2"},
+		Payload:       "x",
+		CreatedBy:     CreatedBy{At: localTime(2026, 9, 9, 9, 0, 0).Unix()},
+	}
+	res := Evaluate(EvalInput{
+		Server: "dev", Now: now, Entries: []Entry{entry},
+		Facts: map[string]TargetFacts{"c909": resolvedFacts("idle", now.Unix())},
+		Log:   own(localTime(2026, 9, 9, 10, 0, 30).Unix()),
+		// Zero OperatorState: nothing tracked ⇒ the guard holds.
+	})
+	if len(res.Missed) != 0 || len(res.Fires) != 0 {
+		t.Errorf("suppressed missed emitted: missed=%+v fires=%+v", res.Missed, res.Fires)
+	}
+	if !hasDiag(res.Diags, "suppressed") {
+		t.Errorf("diags = %v, want suppressed", diagReasons(res.Diags))
 	}
 }
 

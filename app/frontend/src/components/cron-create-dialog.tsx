@@ -153,7 +153,7 @@ export function CronCreateDialog({
             onChange={(e) => setExpr(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             aria-label="Cron expression"
-            placeholder='expression — e.g. "0 * * * *" (not yet evaluated)'
+            placeholder='expression — e.g. "0 * * * *"'
             className={inputClass}
           />
         )}

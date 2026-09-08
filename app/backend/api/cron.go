@@ -50,6 +50,7 @@ type cronScheduleJSON struct {
 	Min      string `json:"min,omitempty"`
 	Max      string `json:"max,omitempty"`
 	Expr     string `json:"expr,omitempty"`
+	CatchUp  string `json:"catchUp,omitempty"`
 }
 
 type cronWakeOnJSON struct {
@@ -85,6 +86,7 @@ func cronEntryToJSON(e cron.Entry, d cron.DerivedEntry) cronEntryJSON {
 			Min:      cronDur(e.Schedule.Min),
 			Max:      cronDur(e.Schedule.Max),
 			Expr:     e.Schedule.Expr,
+			CatchUp:  e.Schedule.CatchUp,
 		},
 		Target: cronTargetJSON{
 			Kind:    e.Target.Kind,
@@ -222,6 +224,7 @@ type cronCreateBody struct {
 		Min      string `json:"min"`
 		Max      string `json:"max"`
 		Expr     string `json:"expr"`
+		CatchUp  string `json:"catchUp"`
 	} `json:"schedule"`
 	Target struct {
 		Kind    string `json:"kind"`
@@ -248,9 +251,10 @@ func (s *Server) handleCronCreate(w http.ResponseWriter, r *http.Request) {
 	entry := cron.Entry{
 		Name: body.Name,
 		Schedule: cron.Schedule{
-			Kind:   body.Schedule.Kind,
-			Anchor: body.Schedule.Anchor,
-			Expr:   body.Schedule.Expr,
+			Kind:    body.Schedule.Kind,
+			Anchor:  body.Schedule.Anchor,
+			Expr:    body.Schedule.Expr,
+			CatchUp: body.Schedule.CatchUp,
 		},
 		Target: cron.Target{
 			Kind:    body.Target.Kind,

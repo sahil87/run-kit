@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"time"
 
 	"rk/internal/inject"
 	"rk/internal/tmux"
@@ -48,14 +49,16 @@ func (cronInjectTmux) PaneSize(ctx context.Context, paneID, server string) (int,
 }
 
 // EngineDeliverer is the production Deliverer: it types the fire's payload
-// into the resolved pane through the injection engine. The readState and send
-// seams exist so tests run without a live tmux.
+// into the resolved pane through the injection engine. The readState, now, and
+// send seams exist so tests run without a live tmux.
 type EngineDeliverer struct {
 	engine *inject.Engine
 	// readState reads the target pane's agent state at delivery time (fresher
 	// than the eval-time facts) for the when-idle gate.
 	readState func(ctx context.Context, paneID, server string) (string, error)
-	send      func(ctx context.Context, t inject.Tmux, server, paneID, text string, submit bool) error
+	// now is the hold-bound clock.
+	now  func() time.Time
+	send func(ctx context.Context, t inject.Tmux, server, paneID, text string, submit bool) error
 }
 
 // NewEngineDeliverer returns the deliverer on its own engine (buffer
@@ -65,6 +68,7 @@ func NewEngineDeliverer() *EngineDeliverer {
 	return &EngineDeliverer{
 		engine:    engine,
 		readState: tmux.PaneAgentState,
+		now:       time.Now,
 		send:      engine.Send,
 	}
 }
@@ -73,10 +77,14 @@ func NewEngineDeliverer() *EngineDeliverer {
 // agent-state read at delivery time: active or waiting (the operator
 // request-lane busy predicate) holds the fire — outcome held-busy with Held
 // set, which the tick never logs, so the hold is realized as cross-tick retry.
-// Idle and unknown ("") states deliver: an unknown-state pane carries no
-// gateable signal. A send error is outcome "failed: <detail>" — the logged
-// failure advances the anchor, so the retry lands next due period, not next
-// tick.
+// The hold is bounded: past DefaultHoldWindow from the fire's DueAt the
+// outcome is held-expired with Held UNSET — a logged disposition that advances
+// the anchor and drops the fire (the next due period fires normally). The
+// bound never force-delivers into a busy pane; catch-up late fires carry
+// DueAt = now and so never expire. Idle and unknown ("") states deliver: an
+// unknown-state pane carries no gateable signal. A send error is outcome
+// "failed: <detail>" — the logged failure advances the anchor, so the retry
+// lands next due period, not next tick.
 func (d *EngineDeliverer) Deliver(ctx context.Context, fire Fire) Outcome {
 	if fire.Entry.Deliver == DeliverWhenIdle {
 		state, err := d.readState(ctx, fire.PaneID, fire.Server)
@@ -84,6 +92,9 @@ func (d *EngineDeliverer) Deliver(ctx context.Context, fire Fire) Outcome {
 			return Outcome{Status: "failed", Detail: "agent-state read: " + err.Error()}
 		}
 		if state == tmux.AgentStateActive || state == tmux.AgentStateWaiting {
+			if d.now().Sub(fire.DueAt) > DefaultHoldWindow {
+				return Outcome{Status: "held-expired", Detail: state}
+			}
 			return Outcome{Status: "held-busy", Detail: state, Held: true}
 		}
 	}

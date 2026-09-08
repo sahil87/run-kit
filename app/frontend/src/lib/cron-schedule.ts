@@ -74,9 +74,8 @@ export function humanizeDuration(raw: string): string {
  * Translate an entry's schedule (and wakeOn, when present) into a plain-words
  * sentence: `{kind:"every", interval:"1h"}` → "every hour"; `{kind:"backoff",
  * min:"60s", max:"30m"}` → "backs off from 1 minute up to 30 minutes since
- * last activity"; `{kind:"cron", expr}` → the raw expression with a "not yet
- * evaluated" note (the evaluator never fires cron-kind entries — matching the
- * CLI's stderr posture). Unknown kinds render their raw kind, never a
+ * last activity"; `{kind:"cron", expr}` → the raw expression ("cron
+ * expression" when empty). Unknown kinds render their raw kind, never a
  * fabricated phrasing.
  */
 export function describeSchedule(entry: CronScheduleLike): string {
@@ -103,9 +102,7 @@ export function describeSchedule(entry: CronScheduleLike): string {
     }
     case "cron": {
       const expr = schedule.expr ?? "";
-      base = expr
-        ? `${expr} — cron expression, not yet evaluated`
-        : "cron expression, not yet evaluated";
+      base = expr || "cron expression";
       break;
     }
     default:

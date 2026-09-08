@@ -17,11 +17,11 @@ import (
 // rk cron add <payload> — record one cron entry in the resolved server's
 // intent file. Exactly one schedule flag is required: --every <dur>, bare
 // --backoff (anchor operator-idle, min/max refinable), or --cron "<expr>"
-// (stored as schema-valid intent — expression evaluation is not implemented
-// yet, so a note prints to stderr). Inside a tmux pane the creator is
-// auto-captured ($TMUX_PANE + now, plus the pane's agent-session ref when one
-// is stamped) and the target defaults down the ladder: role:operator when the
-// caller's window carries the operator role, else the caller pane's agent
+// (a 5-field expression in the daemon's local time, validated at add time;
+// --catch-up once fires once late after a gap). Inside a tmux pane the creator
+// is auto-captured ($TMUX_PANE + now, plus the pane's agent-session ref when
+// one is stamped) and the target defaults down the ladder: role:operator when
+// the caller's window carries the operator role, else the caller pane's agent
 // session, else the caller's own pane; explicit --role/--session/--pane
 // (mutually exclusive) override. Outside tmux an explicit target flag
 // is required — a typed command must not guess a target. The write goes
@@ -35,6 +35,7 @@ var (
 	cronAddEvery    time.Duration
 	cronAddBackoff  bool
 	cronAddCronExpr string
+	cronAddCatchUp  string
 	cronAddMin      time.Duration
 	cronAddMax      time.Duration
 	cronAddName     string
@@ -52,8 +53,9 @@ var cronAddCmd = &cobra.Command{
 	Long: "Add a cron entry delivering <payload> on a schedule. Exactly one schedule " +
 		"flag is required: --every <dur> (a positive Go duration like 1h or 90s), " +
 		"--backoff (an operator-idle anchored ladder, 60s→30m by default; refine " +
-		"with --min/--max), or --cron \"<expr>\" (a 5-field expression, stored as " +
-		"intent — expression evaluation is not implemented yet). Run inside a tmux " +
+		"with --min/--max), or --cron \"<expr>\" (a 5-field expression in the " +
+		"daemon's local time, validated at add time; --catch-up once fires once " +
+		"late after a gap). Run inside a tmux " +
 		"pane, the creator is auto-captured from $TMUX_PANE and the target defaults " +
 		"to role:operator when your window carries the operator role, else your " +
 		"pane's agent session, else your own pane; --role operator, --session <ref>, " +
@@ -75,7 +77,8 @@ func init() {
 	f := cronAddCmd.Flags()
 	f.DurationVar(&cronAddEvery, "every", 0, "Fire on a fixed interval (Go duration, e.g. 1h, 90s)")
 	f.BoolVar(&cronAddBackoff, "backoff", false, "Fire on an operator-idle backoff ladder (default 60s→30m)")
-	f.StringVar(&cronAddCronExpr, "cron", "", "Store a 5-field cron expression as intent (not evaluated yet)")
+	f.StringVar(&cronAddCronExpr, "cron", "", "Fire on a 5-field cron expression (daemon local time, validated at add time)")
+	f.StringVar(&cronAddCatchUp, "catch-up", "", "With --cron: fire once late after a gap (only: once)")
 	f.DurationVar(&cronAddMin, "min", time.Minute, "Backoff ladder minimum gap (with --backoff)")
 	f.DurationVar(&cronAddMax, "max", 30*time.Minute, "Backoff ladder maximum gap (with --backoff)")
 	f.StringVar(&cronAddName, "name", "", "Display name (default: a payload prefix)")
@@ -121,7 +124,7 @@ var (
 const cronAddTimeout = 5 * time.Second
 
 func runCronAdd(cmd *cobra.Command, payload string) error {
-	schedule, cronExprStored, err := cronAddSchedule(cmd)
+	schedule, err := cronAddSchedule(cmd)
 	if err != nil {
 		return err
 	}
@@ -171,18 +174,16 @@ func runCronAdd(cmd *cobra.Command, payload string) error {
 	if err != nil {
 		return err
 	}
-	if cronExprStored {
-		sink.Notef("note: --cron expressions are stored as intent but not evaluated yet; the entry goes live when expression evaluation ships\n")
-	}
 	sink.Dataf("%s %s [%s -> %s]\n", entry.ID, entry.Name, cronScheduleSummary(entry.Schedule), cronTargetSummary(entry.Target))
 	return nil
 }
 
 // cronAddSchedule validates the schedule flag set and builds the schedule.
-// Exactly one of --every/--backoff/--cron must be set; --min/--max are legal
-// only alongside --backoff. The bool reports whether a cron expression was
-// stored (the caller prints the not-evaluated note).
-func cronAddSchedule(cmd *cobra.Command) (cron.Schedule, bool, error) {
+// Exactly one of --every/--backoff/--cron must be set; --min/--max and
+// --catch-up are legal only alongside --backoff and --cron respectively. The
+// 5-field count is a friendlier usage-error pre-check; cron.Add's validate()
+// (ParseStandard) stays the authority on what parses.
+func cronAddSchedule(cmd *cobra.Command) (cron.Schedule, error) {
 	set := 0
 	for _, name := range []string{"every", "backoff", "cron"} {
 		if cmd.Flags().Changed(name) {
@@ -190,31 +191,39 @@ func cronAddSchedule(cmd *cobra.Command) (cron.Schedule, bool, error) {
 		}
 	}
 	if set != 1 {
-		return cron.Schedule{}, false, usageError(fmt.Errorf("exactly one schedule flag is required: --every, --backoff, or --cron"))
+		return cron.Schedule{}, usageError(fmt.Errorf("exactly one schedule flag is required: --every, --backoff, or --cron"))
 	}
 	if cmd.Flags().Changed("min") || cmd.Flags().Changed("max") {
 		if !cmd.Flags().Changed("backoff") {
-			return cron.Schedule{}, false, usageError(fmt.Errorf("--min/--max only apply with --backoff"))
+			return cron.Schedule{}, usageError(fmt.Errorf("--min/--max only apply with --backoff"))
+		}
+	}
+	if cmd.Flags().Changed("catch-up") {
+		if !cmd.Flags().Changed("cron") {
+			return cron.Schedule{}, usageError(fmt.Errorf("--catch-up only applies with --cron"))
+		}
+		if cronAddCatchUp != cron.CatchUpOnce {
+			return cron.Schedule{}, usageError(fmt.Errorf("invalid --catch-up value %q: want %q", cronAddCatchUp, cron.CatchUpOnce))
 		}
 	}
 	switch {
 	case cmd.Flags().Changed("every"):
 		if cronAddEvery <= 0 {
-			return cron.Schedule{}, false, usageError(fmt.Errorf("--every must be a positive duration, got %s", cronAddEvery))
+			return cron.Schedule{}, usageError(fmt.Errorf("--every must be a positive duration, got %s", cronAddEvery))
 		}
-		return cron.Schedule{Kind: cron.ScheduleEvery, Interval: cron.Duration{Duration: cronAddEvery}}, false, nil
+		return cron.Schedule{Kind: cron.ScheduleEvery, Interval: cron.Duration{Duration: cronAddEvery}}, nil
 	case cmd.Flags().Changed("backoff"):
 		return cron.Schedule{
 			Kind:   cron.ScheduleBackoff,
 			Anchor: "operator-idle",
 			Min:    cron.Duration{Duration: cronAddMin},
 			Max:    cron.Duration{Duration: cronAddMax},
-		}, false, nil
+		}, nil
 	default:
 		if len(strings.Fields(cronAddCronExpr)) != 5 {
-			return cron.Schedule{}, false, usageError(fmt.Errorf("--cron must be a 5-field cron expression, got %q", cronAddCronExpr))
+			return cron.Schedule{}, usageError(fmt.Errorf("--cron must be a 5-field cron expression, got %q", cronAddCronExpr))
 		}
-		return cron.Schedule{Kind: cron.ScheduleCron, Expr: cronAddCronExpr}, true, nil
+		return cron.Schedule{Kind: cron.ScheduleCron, Expr: cronAddCronExpr, CatchUp: cronAddCatchUp}, nil
 	}
 }
 

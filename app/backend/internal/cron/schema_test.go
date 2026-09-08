@@ -1,6 +1,8 @@
 package cron
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -142,6 +144,16 @@ func TestEntryValidate(t *testing.T) {
 		{"missing schedule", func(e *Entry) { e.Schedule.Kind = "" }, true},
 		{"unknown schedule kind", func(e *Entry) { e.Schedule.Kind = "bogus" }, true},
 		{"cron kind recognized", func(e *Entry) { e.Schedule = Schedule{Kind: ScheduleCron, Expr: "*/5 * * * *"} }, false},
+		{"cron expr must parse", func(e *Entry) { e.Schedule = Schedule{Kind: ScheduleCron, Expr: "not an expr"} }, true},
+		{"cron expr field out of range", func(e *Entry) { e.Schedule = Schedule{Kind: ScheduleCron, Expr: "61 * * * *"} }, true},
+		{"cron expr empty", func(e *Entry) { e.Schedule = Schedule{Kind: ScheduleCron} }, true},
+		{"catch_up once on cron", func(e *Entry) {
+			e.Schedule = Schedule{Kind: ScheduleCron, Expr: "0 9 * * *", CatchUp: CatchUpOnce}
+		}, false},
+		{"catch_up on non-cron kind", func(e *Entry) { e.Schedule.CatchUp = CatchUpOnce }, true},
+		{"catch_up unknown value", func(e *Entry) {
+			e.Schedule = Schedule{Kind: ScheduleCron, Expr: "0 9 * * *", CatchUp: "always"}
+		}, true},
 		{"every needs interval", func(e *Entry) { e.Schedule.Interval = Duration{} }, true},
 		{"backoff needs min", func(e *Entry) {
 			e.Schedule = Schedule{Kind: ScheduleBackoff, Max: Duration{30 * time.Minute}}
@@ -167,6 +179,38 @@ func TestEntryValidate(t *testing.T) {
 				t.Errorf("validate() = %v, wantErr %v", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// TestLoadEntriesSkipsBadCronExpr: a stored entry whose expression does not
+// parse fails per-entry validation — the tolerant load skips only that entry
+// with an entry-invalid diagnostic; the file's other entries load.
+func TestLoadEntriesSkipsBadCronExpr(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dev.yaml")
+	body := `
+entries:
+  - id: bad1
+    schedule: { kind: cron, expr: "not an expr" }
+    target: { kind: pane, pane: "%1" }
+    payload: x
+  - id: ok22
+    schedule: { kind: cron, expr: "0 9 * * *", catch_up: once }
+    target: { kind: pane, pane: "%2" }
+    payload: y
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entries, diags := LoadEntries(path)
+	if len(entries) != 1 || entries[0].ID != "ok22" {
+		t.Fatalf("entries = %+v, want only ok22 loaded", entries)
+	}
+	if entries[0].Schedule.CatchUp != CatchUpOnce {
+		t.Errorf("catch_up = %q, want %q", entries[0].Schedule.CatchUp, CatchUpOnce)
+	}
+	if len(diags) != 1 || diags[0].Reason != "entry-invalid" || diags[0].EntryID != "bad1" {
+		t.Errorf("diags = %+v, want one entry-invalid for bad1", diags)
 	}
 }
 

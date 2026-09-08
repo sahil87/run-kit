@@ -43,13 +43,11 @@ describe("describeSchedule", () => {
     ).toBe("backs off from 1 minute up to 30 minutes since last activity");
   });
 
-  it("describes a cron-kind entry as the raw expression plus a not-yet-evaluated note", () => {
+  it("describes a cron-kind entry as the raw expression", () => {
     expect(describeSchedule({ schedule: { kind: "cron", expr: "0 * * * *" } })).toBe(
-      "0 * * * * — cron expression, not yet evaluated",
+      "0 * * * *",
     );
-    expect(describeSchedule({ schedule: { kind: "cron" } })).toBe(
-      "cron expression, not yet evaluated",
-    );
+    expect(describeSchedule({ schedule: { kind: "cron" } })).toBe("cron expression");
   });
 
   it("includes wakeOn when present", () => {

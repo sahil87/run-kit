@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 7
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-09-08T11:24:48Z", driver: fab-fff, iterations: 3, completed_at: "2026-09-08T11:25:30Z"}
     review: {started_at: "2026-09-08T11:25:30Z", driver: fab-fff, iterations: 3, completed_at: "2026-09-08T11:33:26Z"}
     hydrate: {started_at: "2026-09-08T11:33:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T11:35:50Z"}
-    ship: {started_at: "2026-09-08T11:35:50Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-08T11:35:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-08T11:37:09Z"}
+    review-pr: {started_at: "2026-09-08T11:37:09Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/872
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 697
+    deleted: 75
+    net: 622
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 434
+        deleted: 55
+        net: 379
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-08T11:35:50Z"
-    computed_at_stage: hydrate
+        added: 188
+        deleted: 2
+        net: 186
+    computed_at: "2026-09-08T11:37:09Z"
+    computed_at_stage: ship
 summary: 'Address bar routes path/port input to the web-tab add verb: repo-relative paths, bare :NNNN, and stat-decided dotted names land as present tabs (append-or-focus), with https:// fallback on 400'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-08T11:35:50Z
+last_updated: 2026-09-08T11:37:09Z

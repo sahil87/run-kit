@@ -132,7 +132,9 @@ export function clampBoundary(
   sizePx: number,
 ): number {
   if (shape !== "row" && shape !== "col") return clampRatio(rawPct, sizePx);
-  const floorPct = (MIN_PANEL_WIDTH_PX / sizePx) * 100;
+  // Same unmeasured-container rule as clampRatio: a non-positive size skips
+  // the floor (sibling bounds still apply).
+  const floorPct = sizePx > 0 ? (MIN_PANEL_WIDTH_PX / sizePx) * 100 : 0;
   const prev = index === 0 ? 0 : cur[index - 1];
   const next = index === cur.length - 1 ? 100 : cur[index + 1];
   return Math.min(

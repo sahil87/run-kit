@@ -36,7 +36,7 @@
     "@types/node": "^24.0.0",
     "@types/vscode": "1.90.0",
     "@vscode/vsce": "^3.6.0",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.1",
     "typescript": "^5.8.0"
   },
   "pnpm": {

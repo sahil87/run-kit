@@ -13,6 +13,12 @@ idle-anchored backoff / edge triggers) with fire-time target resolution, so
 the operator's cadence no longer dies with its session — then visibility,
 then generalization to any agent.
 
+**Status (2026-09-09)**: Waves 1–3 merged — C1 #855, C2 #856, C3 #857,
+C4 #858, C5 #862, C6 #863, C7 #864. Wave 4 (C8/C9/C10) remains. The Wave 2
+GATE's four checks have no recorded run (Wave 3 merged regardless); record a
+pass — or an explicit waiver — before C10, whose own gate is the backstop
+holding in daily use.
+
 ---
 
 ## Change breakdown
@@ -25,7 +31,7 @@ pipeline sizes, not estimates.
 | # | Change | Scope | Size |
 |---|--------|-------|------|
 | C1 | `internal/cron` core + evaluator | Entry-file schema + tolerant load (`$XDG_STATE_HOME/run-kit/cron/<slug>.yaml`); the stateless evaluator (`every` + `backoff` with the **anchor-join rule**; `wake_on` approximated by the poll — state-delta since last eval, debounced; `suppress_while` guards reading the fab operator state file); delivery log (append, size-cap); live-server filter; TMUX scrub; flock. Pure functions unit-tested hard (anchor-join, ladder math, suppression truth table) | M |
-| C2 | `rk cron` CLI | `add` (schedule flags, creator auto-capture from `$TMUX_PANE` → role/pane target; session capture lands in C9), `list [--json]`, `rm`, `mute`, `pin`, and the invoker verb `rk cron tick` (flock-guarded, idempotent) | S |
+| C2 | `rk cron` CLI | `add` (schedule flags, creator auto-capture from `$TMUX_PANE` → role/pane target; session capture lands in C8), `list [--json]`, `rm`, `mute`, `pin`, and the invoker verb `rk cron tick` (flock-guarded, idempotent) | S |
 | C3 | Daemon ticker + delivery | Ticker goroutine invoker (isolated, settings key default ON, doctor row); injection-engine delivery with `deliver: immediate\|when-idle` gating; `if_absent: skip\|notify`; circuit breakers (per-target rate cap — trips visibly, per-server entry cap) | M |
 
 C1 → C2 and C1 → C3; C2 ∥ C3.
@@ -43,9 +49,6 @@ double ticks); (c) `rk cron add/list/rm` from inside an agent pane works
 without flags beyond the schedule; (d) an orphaned socket in the state dir
 spawns no server on the next tick. Zero fab-operator skill changes in this
 wave — the backstop must be invisible to a healthy operator.
-
-Decide open question 3 here (mutual watching: does the loop warn when the
-cron's delivery-log stamp goes stale?).
 
 ### Wave 3 — P2 visibility
 
@@ -69,6 +72,31 @@ own plan when scheduled. The spec's tier-2 mock is its design authority.
 | C10 | **(fab-kit repo)** Replacement posture | `fab-operator.md` §4 rewrite: retire `/loop` + Adaptive cadence in favor of the cron entry's union predicate; ready-line copy; pulse-plan supersession cleanup. Only after C4's gate has held in daily use | M |
 
 C8 ∥ C9; C10 last, gated on lived experience, not tests.
+
+**Off-plan substrate landed 2026-09-09 — narrows C8 and C10:**
+
+- **#878 (agent-neutral detection)**: `rk agent setup` now installs the
+  `@rk_pane_agent_state` hooks for Codex, Gemini CLI, Copilot CLI, Kimi Code,
+  OpenCode, and Antigravity (each wired only when its binary is on PATH) —
+  the claude-only-anchor assumption is dead. A non-Claude operator's backoff
+  anchor, `wake_on: agent-state-change`, and `when-idle` gating all work once
+  `rk agent setup` has run on the box (codex additionally needs its one-time
+  `/hooks` trust step).
+- **#876 (provider-aware skill invocation prefix)**: `rk operator` and the
+  cron respawner render the kickoff through
+  `riff.RenderSkillRef(agent.SkillPrefix, "/fab-operator")` — a codex
+  operator gets `$fab-operator`. C4's "kickoff prompt (`/fab-operator`)"
+  wording predates this; the constant stands, the delivery is prefix-rendered.
+- **C8 is smaller than the row above**: session-target fire-time *resolution*
+  already shipped in the evaluator (`internal/cron/facts.go` resolves by
+  `@rk_pane_agent_session`), and `--cron` expressions are already accepted and
+  stored as intent. C8's remaining scope: `--session` flag + creator session
+  auto-capture, orphan marking + TTL expiry, respawn-via-resume. C9's:
+  expression *evaluation*, `catch_up: once`, the `when-idle` hold bound.
+- **C10 should be drafted provider-neutral**: `/loop` is a Claude Code
+  feature, so for a non-Claude operator the cron entry is not a replacement
+  but the only clock — the rewrite retires the loop for Claude and documents
+  the cron entry as the sole cadence for every provider.
 
 ---
 

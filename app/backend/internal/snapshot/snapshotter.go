@@ -319,7 +319,18 @@ func (s *Snapshotter) stampGitInfo(ctx context.Context, server string) {
 	// a lock). The tick goroutine is the sole writer of stamped, so the cache
 	// is stable across the unlocked write phase.
 	type paneWrite struct{ paneID, option, value string }
+	// A pane whose derived triple changed: its target (want) and the value the
+	// cache held before (prev). The cache is committed AFTER the writes land, per
+	// option, so a failed set-option keeps that option's prev value and the next
+	// tick re-attempts it — rather than optimistically recording a stamp that
+	// never reached tmux (which would go stale until the value next changed or
+	// the daemon restarted).
+	type paneChange struct {
+		id         string
+		want, prev stampedGit
+	}
 	var writes []paneWrite
+	var changes []paneChange
 
 	s.stampMu.Lock()
 	last := s.stamped[server]
@@ -353,15 +364,49 @@ func (s *Snapshotter) stampGitInfo(ctx context.Context, server string) {
 		if want.pathtail != prev.pathtail {
 			writes = append(writes, paneWrite{p.id, tmux.PanePathTailOption, want.pathtail})
 		}
-		last[p.id] = want
+		changes = append(changes, paneChange{id: p.id, want: want, prev: prev})
 	}
 	s.stampMu.Unlock()
 
+	// Issue the writes (subprocess round-trips) outside the lock, recording which
+	// (pane, option) writes FAILED so the commit below skips them.
+	failed := map[string]map[string]bool{}
 	for _, w := range writes {
 		if err := s.setPaneOption(ctx, w.paneID, server, w.option, w.value); err != nil {
 			slog.Debug("snapshot: git-stamp set-option failed",
 				"server", server, "pane", w.paneID, "option", w.option, "err", err)
+			if failed[w.paneID] == nil {
+				failed[w.paneID] = map[string]bool{}
+			}
+			failed[w.paneID][w.option] = true
 		}
+	}
+
+	// Commit the last-stamped cache per option: a field whose write failed keeps
+	// its prev value, so the next tick re-attempts exactly that option. The tick
+	// goroutine is the sole writer of `stamped`, and no pane in `changes` can have
+	// been pruned since the section above (pruning happens only there and in the
+	// tick-level cleanup after this returns), so re-locking is race-free.
+	if len(changes) > 0 {
+		s.stampMu.Lock()
+		if last = s.stamped[server]; last != nil {
+			for _, c := range changes {
+				eff := c.want
+				if f := failed[c.id]; f != nil {
+					if f[tmux.PaneGitBranchOption] {
+						eff.branch = c.prev.branch
+					}
+					if f[tmux.PaneGitWorktreeOption] {
+						eff.worktree = c.prev.worktree
+					}
+					if f[tmux.PanePathTailOption] {
+						eff.pathtail = c.prev.pathtail
+					}
+				}
+				last[c.id] = eff
+			}
+		}
+		s.stampMu.Unlock()
 	}
 }
 

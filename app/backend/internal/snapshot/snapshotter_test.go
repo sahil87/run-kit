@@ -577,13 +577,29 @@ func TestSnapshotterEphemeralReadErrorDegradesToDurable(t *testing.T) {
 type paneOptionRecorder struct {
 	mu    sync.Mutex
 	calls []struct{ paneID, option, value string }
+	// fail: options for which fn returns an error (the attempt is still
+	// recorded). Lets a test drive the failed-write-retries path.
+	fail map[string]bool
 }
 
 func (r *paneOptionRecorder) fn(_ context.Context, paneID, _ /*server*/, option, value string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, struct{ paneID, option, value string }{paneID, option, value})
+	if r.fail[option] {
+		return errors.New("injected set-option failure")
+	}
 	return nil
+}
+
+// setFail toggles injected failure for one option.
+func (r *paneOptionRecorder) setFail(option string, on bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.fail == nil {
+		r.fail = map[string]bool{}
+	}
+	r.fail[option] = on
 }
 
 func (r *paneOptionRecorder) reset() {
@@ -652,6 +668,57 @@ func TestSnapshotterStampGitInfoOnlyOnChange(t *testing.T) {
 	if rec.count() != 1 || rec.countFor(tmux.PaneGitBranchOption) != 1 {
 		t.Errorf("branch-change tick calls = %d (branch %d), want exactly 1 branch write",
 			rec.count(), rec.countFor(tmux.PaneGitBranchOption))
+	}
+}
+
+// TestSnapshotterStampGitInfoRetriesFailedWrite proves a set-option write that
+// fails is NOT recorded as stamped: the next tick re-attempts exactly that
+// option, and once it succeeds the only-on-change gate goes quiet again.
+func TestSnapshotterStampGitInfoRetriesFailedWrite(t *testing.T) {
+	src := newFakeSource()
+	src.set("kit", 1)
+	s, _, _ := newTestSnapshotter(t, src)
+
+	rec := &paneOptionRecorder{}
+	s.setPaneOption = rec.fn
+	s.listPanes = func(context.Context, string) (map[string][]tmux.LayoutPane, error) {
+		return map[string][]tmux.LayoutPane{"@1": {{PaneID: "%1", Cwd: "/home/user/proj"}}}, nil
+	}
+	s.resolveBranches = func(context.Context, []string) map[string]string {
+		return map[string]string{"/home/user/proj": "main"}
+	}
+
+	// Branch writes fail. Tick 1 attempts the branch write (and lands pathtail).
+	rec.setFail(tmux.PaneGitBranchOption, true)
+	s.tick(context.Background())
+	if rec.countFor(tmux.PaneGitBranchOption) != 1 {
+		t.Fatalf("tick 1 branch writes = %d, want 1 (attempted)", rec.countFor(tmux.PaneGitBranchOption))
+	}
+
+	// Tick 2 (still failing): the failed branch is NOT cached, so it retries;
+	// pathtail succeeded on tick 1, so it is NOT rewritten.
+	rec.reset()
+	s.tick(context.Background())
+	if rec.countFor(tmux.PaneGitBranchOption) != 1 {
+		t.Errorf("tick 2 branch retries = %d, want 1", rec.countFor(tmux.PaneGitBranchOption))
+	}
+	if got := rec.countFor(tmux.PanePathTailOption); got != 0 {
+		t.Errorf("tick 2 pathtail writes = %d, want 0 (already stamped ok)", got)
+	}
+
+	// Writes recover: tick 3 lands the branch and commits it.
+	rec.reset()
+	rec.setFail(tmux.PaneGitBranchOption, false)
+	s.tick(context.Background())
+	if rec.countFor(tmux.PaneGitBranchOption) != 1 {
+		t.Errorf("tick 3 branch writes = %d, want 1 (recovered)", rec.countFor(tmux.PaneGitBranchOption))
+	}
+
+	// Tick 4: everything stamped and unchanged → the gate goes quiet.
+	rec.reset()
+	s.tick(context.Background())
+	if got := rec.count(); got != 0 {
+		t.Errorf("tick 4 writes = %d, want 0 (branch now cached)", got)
 	}
 }
 

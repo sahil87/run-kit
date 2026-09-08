@@ -821,7 +821,10 @@ run-kit daemon, not by an agent harness hook**:
   every covered server via `tmux.SetPaneOption` (`set-option -p`), **only-on-change**
   (a per-server→per-pane last-stamped cache; a value equal to the last stamp
   issues no write; entries are pruned when a pane closes or a server drops out of
-  coverage; a `set-option` error is logged and never aborts the tick). Stamping
+  coverage; a `set-option` error is logged and never aborts the tick, and the
+  last-stamped cache is committed **per option only after that write succeeds**,
+  so a failed stamp is re-attempted next tick rather than recorded as done).
+  Stamping
   is on the snapshotter tick, not the SSE poll, so it is **subscriber-independent**
   — a native-terminal-only pane with no browser watching still gets its border
   populated.

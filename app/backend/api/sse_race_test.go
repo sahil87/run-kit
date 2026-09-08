@@ -289,3 +289,119 @@ func TestSSE_RaceSetWindowChangeSubscriberVsPollLoop(t *testing.T) {
 		}
 	}
 }
+
+// pruneScenarioFetcher scripts FetchSessions per server for the stale-flag
+// prune test: the second "kits" call signals `entered` and blocks on `release`
+// (the in-flight unit); every other call returns immediately. Per-server call
+// counts let the test observe dispatch cadence for the surviving server.
+type pruneScenarioFetcher struct {
+	mu      sync.Mutex
+	counts  map[string]int
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (f *pruneScenarioFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
+	f.mu.Lock()
+	f.counts[server]++
+	call := f.counts[server]
+	f.mu.Unlock()
+	if server == "kits" && call == 2 {
+		close(f.entered)
+		<-f.release
+	}
+	return []sessions.ProjectSession{{Name: server + "-s1"}}, nil
+}
+
+func (f *pruneScenarioFetcher) countFor(server string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.counts[server]
+}
+
+// TestSSE_StalePendingFlagPrunedWhenServerLeavesPollSet guards the tick-top
+// prune of eventDrivenServers: a flag set for a server whose unit is in flight
+// is undispatchable once that server's last client disconnects (the key leaves
+// h.clients), and — because pending flags make completion ticks full ticks —
+// a stale entry would otherwise turn every results wake into a dispatching
+// tick, self-perpetuating (dispatch → complete → results wake → dispatch …)
+// against the surviving servers until the loop exits. With the prune, the
+// completion after the disconnect folds quietly: the surviving server sees no
+// runaway re-dispatch ahead of the (deliberately long) safety timer.
+func TestSSE_StalePendingFlagPrunedWhenServerLeavesPollSet(t *testing.T) {
+	fetcher := &pruneScenarioFetcher{
+		counts:  map[string]int{},
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	sub := newStubSubscriber()
+	hub := newSSEHub(fetcher, nil, nil, nil)
+	hub.subscriber = sub
+	hub.safetyInterval = 10 * time.Second
+
+	// Two servers: "other" keeps the poll goroutine alive after "kits" loses
+	// its last client (an empty client set exits the loop entirely).
+	kitsClient := &sseClient{ch: make(chan hubEvent, 64), server: "kits"}
+	otherClient := &sseClient{ch: make(chan hubEvent, 64), server: "other"}
+	hub.addClient(kitsClient)
+	hub.addClient(otherClient)
+	t.Cleanup(func() { hub.removeClient(otherClient) })
+
+	// Drain both clients continuously; the test asserts on fetch counts, not
+	// payloads, so nothing is lost by discarding events.
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for _, c := range []*sseClient{kitsClient, otherClient} {
+		wg.Add(1)
+		go func(ch chan hubEvent) {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-ch:
+				}
+			}
+		}(c.ch)
+	}
+	t.Cleanup(func() { close(stop); wg.Wait() })
+
+	// Let the bootstrap fetches land, then hold the next "kits" unit in flight.
+	deadline := time.After(2 * time.Second)
+	for fetcher.countFor("kits") < 1 {
+		select {
+		case <-deadline:
+			t.Fatal("no bootstrap fetch for kits")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	sub.Bump("kits")
+	select {
+	case <-fetcher.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("kits unit never entered the blocking fetch")
+	}
+
+	// A second bump lands mid-flight (dispatch skipped, flag retained), then
+	// the last "kits" client disconnects — the key leaves the poll set, so the
+	// retained flag can never be consumed by a dispatch.
+	sub.Bump("kits")
+	time.Sleep(300 * time.Millisecond)
+	hub.removeClient(kitsClient)
+	time.Sleep(100 * time.Millisecond)
+
+	baseline := fetcher.countFor("other")
+	close(fetcher.release)
+
+	// Without the prune, the completion tick dispatches "other", whose own
+	// completion re-arms another full tick (the stale flag never clears): the
+	// loop spins in full ticks, re-fetching "other" on every 500ms cache
+	// expiry (~4 fetches in this window; the spin itself is faster but
+	// cache-gated). With the prune, the completion tick folds quietly and the
+	// loop parks until the safety timer — no re-fetch at all in this window.
+	time.Sleep(2 * time.Second)
+	grown := fetcher.countFor("other") - baseline
+	if grown > 1 {
+		t.Fatalf("runaway re-dispatch after stale-flag scenario: %d fetches of surviving server in 2s (want <= 1) — pending-flag prune regressed", grown)
+	}
+}

@@ -24,7 +24,9 @@ The daemon MUST write three pane-scoped user-options per pane from a **subscribe
 background pass (the snapshotter tick, which already enumerates every covered server's panes with
 their cwd):
 
-- `@rk_pane_git_branch` — branch name, or short SHA for detached HEAD, or empty for no repo.
+- `@rk_pane_git_branch` — branch name, or the last-known branch during the detached-HEAD grace
+  window (then empty), or empty for no repo. Semantics come from `internal/gitinfo` and match the
+  sidebar — see R3 (this deliberately supersedes the retired job's short-SHA detached fallback).
 - `@rk_pane_git_worktree` — the badge glyph string when the pane's git root lies under a
   `worktrees`/`.worktrees` directory, else empty.
 - `@rk_pane_pathtail` — the last two path segments of the pane's cwd.

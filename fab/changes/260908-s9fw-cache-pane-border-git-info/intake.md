@@ -63,12 +63,15 @@ and matches run-kit's established `@rk_pane_*` user-option convention (agent-sta
 
 ### 1. Daemon stamps per-pane git info as tmux pane user-options
 
-During the existing session poll (where `gitBranch`/`gitRoot` are already resolved per pane), the
-daemon writes the derived values to the pane as tmux **pane-scoped user options** (`set-option -p`),
+From the daemon's **snapshotter tick** (subscriber-independent — it walks every covered server's
+panes on a 2s/60s cadence regardless of browser subscribers; the final locus decision is in
+plan.md's Design Decisions, which rejected the SSE-poll locus for being browser-gated), the daemon
+writes the derived values to the pane as tmux **pane-scoped user options** (`set-option -p`),
 mirroring the `@rk_pane_agent_state` pattern:
 
-- `@rk_pane_git_branch` — the branch name (or short SHA for detached HEAD), i.e. exactly the string
-  the old `git branch --show-current || git rev-parse --short HEAD | cut -c1-20` job produced.
+- `@rk_pane_git_branch` — the branch name, or the last-known branch during the detached-HEAD grace
+  window (then empty), from the shared `internal/gitinfo` resolver — so it matches the web sidebar.
+  (This supersedes the old `git rev-parse --short HEAD` detached fallback; see plan R3.)
 - `@rk_pane_git_worktree` — a badge flag: `1` (or the badge glyph string) when the pane's `gitRoot`
   path contains `.worktrees`/`worktrees`, else empty — replacing the
   `git rev-parse --show-toplevel | grep -q "\.worktrees\|worktrees"` job.
@@ -97,9 +100,10 @@ gap, never a fork and never a wedge.
 
 ### 3. No behavioral change to the git values themselves
 
-The branch string, detached-HEAD short-SHA fallback, and worktree-badge semantics are unchanged —
-they are lifted from the daemon's existing resolver, which already implements the same intent as the
-old shell jobs. The only observable difference is that the border may lag reality by up to one poll
+The branch string and worktree-badge semantics are lifted verbatim from the daemon's existing
+resolver (`internal/gitinfo`), so the border matches the sidebar. The one deliberate change from the
+old shell jobs: detached HEAD serves the last-known branch during the grace window (then empty)
+rather than a raw short SHA (see plan R3). The other observable difference is that the border may lag reality by up to one poll
 interval / the branch-cache TTL, which is acceptable for a status decoration.
 
 ## Affected Memory
@@ -120,9 +124,9 @@ interval / the branch-cache TTL, which is acceptable for a status decoration.
 - **Code**:
   - `configs/tmux/default.conf` — rewrite `pane-border-format` (also copied to
     `app/backend/build/tmux.conf` at build; `scripts/dev.sh` copies it for dev).
-  - `app/backend/internal/sessions/sessions.go` (or the SSE poll caller in `app/backend/api/sse.go`)
-    — after per-pane git resolution, stamp the three pane options only-on-change; add a small
-    last-stamped cache and the pathtail helper.
+  - `app/backend/internal/snapshot/snapshotter.go` — after per-pane git resolution, stamp the three
+    pane options only-on-change; add a small last-stamped cache. (The final locus is the snapshotter
+    tick, not the SSE poll — see plan.md Design Decisions.)
   - `app/backend/internal/tmux/` — a thin `SetPaneOption`/`set-option -p` helper if one does not
     already exist (agent-state writes pane options, so a writer likely exists to reuse).
 - **APIs/sockets**: none changed. `set-option -p` is invisible to the control-mode parser, so if a
@@ -148,6 +152,6 @@ interval / the branch-cache TTL, which is acceptable for a status decoration.
 | 3 | Confident | Replace all three `#()` jobs (branch, worktree badge, path tail), leaving zero `#(` in the format | The resize storm re-fires every `#()`; the path tail is trivially stampable in Go, so removing all three fully eliminates draw-time forks | S:80 R:80 A:85 D:75 |
 | 4 | Confident | Stamp only-on-change during the existing poll (no new poll loop, no per-tick writes) | Bounds added tmux round-trips; mirrors run-kit's only-on-change option-write discipline | S:75 R:85 A:80 D:75 |
 | 5 | Tentative | Pre-stamp panes render the border with empty branch/badge/path-tail until the next poll fills them | Simplest self-healing degrade; alternative (a one-shot inline fallback) would reintroduce a fork — rejected | S:60 R:80 A:70 D:55 |
-| 6 | Confident | Git-value semantics (branch string, detached short-SHA, worktree badge) are preserved, not redesigned | Lifted from the daemon resolver, which already matches the old shell jobs' intent | S:80 R:75 A:85 D:80 |
+| 6 | Confident | Git-value semantics (branch string, worktree badge) come from the daemon resolver; detached HEAD serves the grace branch (not a short SHA — see plan R3) | Lifted from `internal/gitinfo` so the border matches the sidebar | S:80 R:75 A:85 D:80 |
 
 6 assumptions (1 certain, 4 confident, 1 tentative, 0 unresolved). Run /fab-clarify to review.

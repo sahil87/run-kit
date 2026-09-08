@@ -178,9 +178,17 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
         data-testid="operator-omnibox"
         className={`${
           // Engaged, the box widens to hold the draft plus the capped chip;
-          // at rest it stays the slim standing width.
+          // at rest it stays the slim standing width. Height is fixed at the
+          // shared bar control height (--ctl-h-bar) in both states — the box
+          // must never resize on focus/blur, so mounting the context chip
+          // can't jitter the top bar (the chip's own dismiss button is sized
+          // to fit this budget; see operator-context-chip.tsx). Hand-spelled
+          // rather than `controlClass({ variant: "icon", box: "height" })`:
+          // that recipe's `coarse:h-[40px]` half would need its own
+          // coarse-pointer chip-budget accounting this box doesn't yet do —
+          // fine-only is the deliberate scope of this fix.
           engaged ? "flex w-[34ch]" : "hidden lg:flex w-[12ch] 2xl:w-[20ch]"
-        } ml-2 max-w-[40vw] items-center gap-1.5 rounded border px-2 py-0.5 ${
+        } ml-2 max-w-[40vw] items-center gap-1.5 rounded border px-2 h-[28px] ${
           engaged ? "border-accent-green" : "border-border"
         }`}
       >

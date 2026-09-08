@@ -134,6 +134,9 @@ describe("OperatorOmnibox", () => {
     // Slim at rest below 2xl — the standing box never eats the crumbs'
     // min-useful-width at lg/xl.
     expect(box.className).toContain("w-[12ch]");
+    // Fixed height (matches --ctl-h-bar) — must hold identically once engaged,
+    // so focus/blur never reflows the top bar.
+    expect(box.className).toContain("h-[28px]");
     expect(screen.getByTestId("operator-omnibox-input")).toHaveAttribute("placeholder", "Ask ◉…");
   });
 
@@ -154,6 +157,9 @@ describe("OperatorOmnibox", () => {
     expect(screen.queryByTestId("operator-omnibox-ghost")).toBeNull();
     const box = screen.getByTestId("operator-omnibox");
     expect(box.className).not.toContain("hidden");
+    // Engaged height must match the rest-state height exactly — the box must
+    // never resize on focus/blur.
+    expect(box.className).toContain("h-[28px]");
     expect(screen.getByTestId("operator-omnibox-input")).toHaveFocus();
   });
 
@@ -350,6 +356,24 @@ describe("OperatorOmnibox (templated chat lane)", () => {
     expect(screen.getByTestId("operator-console-context")).toBeInTheDocument();
     fireEvent.click(dismiss);
     expect(screen.queryByTestId("operator-console-context")).toBeNull();
+  });
+
+  it("the chip's dismiss button fits the box's fixed height — no fine-pointer floor in the compact mount", () => {
+    renderPair();
+
+    const input = screen.getByTestId("operator-omnibox-input");
+    fireEvent.focus(input);
+    const box = screen.getByTestId("operator-omnibox");
+    expect(box.className).toContain("h-[28px]");
+
+    const dismiss = screen.getByRole("button", { name: "Detach window context" });
+    // The compact (omnibox) mount drops the 24px fine-pointer floor so the
+    // chip fits inside the box's fixed height without overflow; the coarse
+    // (touch) floor is untouched.
+    expect(dismiss.className).not.toContain("min-h-[24px]");
+    expect(dismiss.className).not.toContain("min-w-[24px]");
+    expect(dismiss.className).toContain("coarse:min-h-[40px]");
+    expect(dismiss.className).toContain("coarse:min-w-[40px]");
   });
 
   it("on a terminal route the engaged box shows the chip and Enter rides the templated lane", async () => {

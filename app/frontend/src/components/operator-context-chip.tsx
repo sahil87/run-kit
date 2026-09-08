@@ -57,7 +57,13 @@ export function OperatorContextChip({
         type="button"
         aria-label="Detach window context"
         onClick={dismissOperatorChatChip}
-        className="shrink-0 px-0.5 min-w-[24px] min-h-[24px] coarse:min-w-[40px] coarse:min-h-[40px] inline-flex items-center justify-center text-text-secondary transition-colors hover:text-text-primary"
+        className={`shrink-0 px-0.5 inline-flex items-center justify-center text-text-secondary transition-colors hover:text-text-primary coarse:min-w-[40px] coarse:min-h-[40px] ${
+          // The compact (omnibox) mount is fixed to the bar's control height
+          // (h-[28px]) — a 24px fine floor here would push the chip taller
+          // than that budget and reintroduce the box's focus/blur jitter.
+          // The full-size compose-strip mount keeps the standard floor.
+          compact ? "" : "min-w-[24px] min-h-[24px]"
+        }`}
       >
         ✕
       </button>

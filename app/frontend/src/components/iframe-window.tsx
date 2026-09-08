@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { INPUT_FOCUS } from "@/components/controls";
-import { checkFrame } from "@/api/client";
+import { ApiError, checkFrame } from "@/api/client";
 import { Tip, TipGroup } from "@/components/tip";
 import { FindBar } from "@/components/find-bar";
 import {
@@ -17,9 +17,8 @@ import {
   WEB_TAB_DRAFT_EVENT,
   classifyAddress,
   displayForm,
-  isAllowedUrl,
-  normalizeAddressInput,
   proxyPortOf,
+  routeAddressSubmit,
   toProxySrc,
   webTabTitle,
   type AddressKind,
@@ -52,10 +51,12 @@ interface IframeWindowProps {
   /** 1-based active slot (the window's `webActive`); 0/undefined with a
    *  non-empty family selects slot 1, out-of-range clamps. */
   active?: number;
-  /** Address-bar write seam: Enter submits the normalized address through
-   *  this callback, which POSTs it to the active web slot's window option.
-   *  The component stays payload-shape agnostic — the caller owns the slot.
-   *  Absent ⇒ the submit is a local no-op. */
+  /** Address-bar slot-write seam: Enter on URL-shaped input (the submit
+   *  ladder's write lane) POSTs the value to the active web slot's window
+   *  option through this callback. Path/port-shaped input never reaches it —
+   *  those lanes submit through `onAddTab` (append-or-focus). The component
+   *  stays payload-shape agnostic — the caller owns the slot. Absent ⇒ the
+   *  write-lane submit is a local no-op. */
   onWriteUrl?: (url: string) => Promise<unknown>;
   /** Strip verbs — absent ⇒ the control is not rendered / the gesture is a
    *  no-op. The caller owns the POSTs; the component re-renders from the
@@ -65,11 +66,12 @@ interface IframeWindowProps {
   /** Move (drag, strip ⌥⇧←/→, or dblclick-free drop) — the optimistic
    *  reorder seam; absent ⇒ drag and the move keys are inert. */
   onMoveTab?: (n: number, to: number) => Promise<unknown>;
-  /** Declared add of the address-bar draft (the `+` button used to live
-   *  here; now the draft-materialize path and the palette's draft seam call
-   *  it). Resolves to the server's {index, existed}; the component then
-   *  calls onSelectTab(index) because the add verb selects only an empty
-   *  family. */
+  /** The add-verb seam: draft materialization, the palette's draft seam, and
+   *  the address bar's path/port lanes (a repo-relative path, a dotted single
+   *  name, bare `:NNNN`) all submit through it — the backend stats path
+   *  targets under the window's worktree cwd. Resolves to the server's
+   *  {index, existed}; the component then calls onSelectTab(index) because
+   *  the add verb selects only an empty family (append-or-focus). */
   onAddTab?: (target: string) => Promise<{ index: number; existed: boolean }>;
   /** Tile-focus seam: fired when a pointerdown/keydown arrives inside the
    *  same-origin contentDocument, or — the cross-origin fallback — when the
@@ -541,7 +543,8 @@ export function IframeWindow({
   const [inputUrl, setInputUrl] = useState(url);
   // Edit mode (R7): at rest the address bar shows the kind-specific DISPLAY
   // form; focus reveals the raw editable value (select-all). Enter is the ONE
-  // write (through `onWriteUrl`); Escape reverts.
+  // submit — routed by the ladder to a slot write (`onWriteUrl`) or an
+  // append-or-focus add (`onAddTab`); Escape reverts.
   const [editing, setEditing] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const addressInputRef = useRef<HTMLInputElement>(null);
@@ -914,56 +917,97 @@ export function IframeWindow({
     window.open(rawAddress, "_blank", "noopener");
   }, [rawAddress]);
 
-  // Materialize a draft: the server assigns the slot; the client selects it
-  // afterwards because the add verb selects only an empty family ("add is not
-  // show"). Keep the draft available until the add resolves so a rejection
-  // does not discard the user's retry point.
-  const materializeDraft = useCallback(
-    (draftId: number, target: string) => {
-      if (!onAddTab) return;
-      onAddTab(target)
-        .then(({ index }) => {
+  // Consume a resolved add: clean up the consumed draft (when the submit came
+  // from one), leave edit mode, and select the returned slot — the client
+  // selects because the add verb selects only an empty family ("add is not
+  // show"), and its idempotent { index } makes the whole flow append-or-focus.
+  const finishAdd = useCallback(
+    (draftId: number | null) =>
+      ({ index }: { index: number }) => {
+        if (draftId !== null) {
           setDrafts((d) => d.filter((x) => x.id !== draftId));
           setSelectedDraft((s) => (s === draftId ? null : s));
-          setEditing(false);
-          addressInputRef.current?.blur();
-          return onSelectTab?.(index);
-        })
+        }
+        setEditing(false);
+        addressInputRef.current?.blur();
+        return onSelectTab?.(index);
+      },
+    [onSelectTab],
+  );
+
+  // Surface an add rejection inline, keeping the submitted value editable —
+  // a selected draft was never consumed, so it remains the retry point.
+  const failAdd = useCallback(
+    (target: string) => (err: unknown) => {
+      addressInputRef.current?.focus();
+      setInputUrl(target);
+      setEditing(true);
+      setSubmitError(err instanceof Error ? err.message : String(err));
+    },
+    [],
+  );
+
+  // Submit through the add verb — draft materialization and the path/port
+  // lanes share it. The backend stats a path target under the window's
+  // worktree cwd and answers with the resolved slot or an honest 400. A 400
+  // on a fallback-bearing route means a dotted single segment stats to
+  // nothing (the README.md-vs-example.com fork): retry once as the https://
+  // bare-domain form — a draft materializes it, a declared tab slot-writes it.
+  const submitViaAdd = useCallback(
+    (target: string, fallback?: string) => {
+      if (!onAddTab) return;
+      const draftId = selectedDraft;
+      onAddTab(target)
+        .then(finishAdd(draftId))
         .catch((err: unknown) => {
-          addressInputRef.current?.focus();
-          setSelectedDraft(draftId);
-          setInputUrl(target);
-          setEditing(true);
-          setSubmitError(err instanceof Error ? err.message : String(err));
+          if (fallback !== undefined && err instanceof ApiError && err.status === 400) {
+            if (draftId !== null) {
+              onAddTab(fallback).then(finishAdd(draftId)).catch(failAdd(fallback));
+              return;
+            }
+            setEditing(false);
+            addressInputRef.current?.blur();
+            if (fallback === url) return;
+            onWriteUrl?.(fallback)?.catch(() => setInputUrl(url));
+            return;
+          }
+          failAdd(target)(err);
         });
     },
-    [onAddTab, onSelectTab],
+    [onAddTab, selectedDraft, finishAdd, failAdd, onWriteUrl, url],
   );
 
   const handleSubmit = useCallback(() => {
-    const normalized = normalizeAddressInput(inputUrl);
-    if (!normalized) return;
-    // Frontend mirror of the backend scheme allowlist (R4): invalid schemes
-    // surface inline and fire NO POST; the backend remains enforcement.
-    if (!isAllowedUrl(normalized)) {
-      setSubmitError("must be an http(s) URL or a /path");
+    if (inputUrl.trim() === "") return;
+    const route = routeAddressSubmit(inputUrl);
+    // Bare words and non-http(s) schemes surface inline and fire NO POST;
+    // path-shaped input now goes to the backend resolver (the stat decides),
+    // so the frontend regex no longer pre-rejects it.
+    if (route.kind === "reject") {
+      setSubmitError("must be an http(s) URL, a path, or :port");
       return;
     }
     setSubmitError(null);
+    if (route.kind === "add") {
+      submitViaAdd(route.target, route.fallback);
+      return;
+    }
+    // Write lane — a selected draft materializes through the add verb (its
+    // submitted value IS the add target); otherwise replace the active slot.
     if (selectedDraft !== null) {
-      materializeDraft(selectedDraft, normalized);
+      submitViaAdd(route.url);
       return;
     }
     setEditing(false);
     addressInputRef.current?.blur();
     // Same-URL submit is a no-op — re-submitting the stored address never
     // POSTs.
-    if (normalized === url) return;
-    onWriteUrl?.(normalized)?.catch(() => {
+    if (route.url === url) return;
+    onWriteUrl?.(route.url)?.catch(() => {
       // Revert input on failure
       setInputUrl(url);
     });
-  }, [inputUrl, selectedDraft, materializeDraft, onWriteUrl, url]);
+  }, [inputUrl, selectedDraft, submitViaAdd, onWriteUrl, url]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

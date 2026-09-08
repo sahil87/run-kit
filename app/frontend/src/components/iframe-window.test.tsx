@@ -3,16 +3,22 @@ import { render, cleanup, fireEvent, screen, waitFor } from "@testing-library/re
 import { IframeWindow } from "./iframe-window";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 
-// Mock the API client. `IframeWindow` reads only `checkFrame` from it (the
-// frame-refusal probe for external URLs — default embeddable so existing tests
-// render the iframe); the URL bar's Enter-commit goes through the `onWriteUrl`
-// prop (a per-test spy — the caller owns the slot write).
-vi.mock("@/api/client", () => ({
-  checkFrame: vi.fn().mockResolvedValue({ reachable: true, embeddable: true, status: 200, reason: "" }),
-  listServers: vi.fn().mockResolvedValue([]),
-}));
+// Mock the API client. `IframeWindow` reads `checkFrame` (the frame-refusal
+// probe for external URLs — default embeddable so existing tests render the
+// iframe) and the real `ApiError` class (the submit ladder's 400-fallback
+// narrows with instanceof, so the class identity must be the real one); the
+// URL bar's Enter-commit goes through the `onWriteUrl`/`onAddTab` props
+// (per-test spies — the caller owns the POSTs).
+vi.mock("@/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/client")>();
+  return {
+    ApiError: actual.ApiError,
+    checkFrame: vi.fn().mockResolvedValue({ reachable: true, embeddable: true, status: 200, reason: "" }),
+    listServers: vi.fn().mockResolvedValue([]),
+  };
+});
 
-import { checkFrame } from "@/api/client";
+import { ApiError, checkFrame } from "@/api/client";
 
 function iframeElement(
   props: React.ComponentProps<typeof IframeWindow>,
@@ -478,6 +484,76 @@ describe("IframeWindow", () => {
       expect(screen.getByRole("alert").textContent).toContain("http");
       // The next keystroke clears the inline rejection.
       fireEvent.change(input, { target: { value: "javascript:alert(2)" } });
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("a repo-relative path submits through the add verb and selects the returned index — never a slot write", async () => {
+      const onAddTab = vi.fn().mockResolvedValue({ index: 2, existed: false });
+      const onSelectTab = vi.fn().mockResolvedValue({ ok: true });
+      renderIframe({ tabs: ["/proxy/8080/docs"], onAddTab, onSelectTab });
+      const input = screen.getByLabelText("URL") as HTMLInputElement;
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: "docs/report.html" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(onSelectTab).toHaveBeenCalledWith(2));
+      expect(onAddTab).toHaveBeenCalledWith("docs/report.html");
+      expect(onWriteUrl).not.toHaveBeenCalled();
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("a dotted single name that EXISTS lands as an add — the README.md fork's present arm", async () => {
+      const onAddTab = vi.fn().mockResolvedValue({ index: 2, existed: false });
+      const onSelectTab = vi.fn().mockResolvedValue({ ok: true });
+      renderIframe({ tabs: ["/proxy/8080/docs"], onAddTab, onSelectTab });
+      const input = screen.getByLabelText("URL") as HTMLInputElement;
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: "README.md" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(onSelectTab).toHaveBeenCalledWith(2));
+      expect(onAddTab).toHaveBeenCalledWith("README.md");
+      expect(onWriteUrl).not.toHaveBeenCalled();
+    });
+
+    it("a dotted single name that does NOT exist (ApiError 400) falls back to the https:// slot write with no error", async () => {
+      const onAddTab = vi
+        .fn()
+        .mockRejectedValue(new ApiError('target "example.com" does not exist', 400));
+      renderIframe({ tabs: ["/proxy/8080/docs"], onAddTab });
+      const input = screen.getByLabelText("URL") as HTMLInputElement;
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: "example.com" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(onWriteUrl).toHaveBeenCalledWith("https://example.com"));
+      expect(onAddTab).toHaveBeenCalledWith("example.com");
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("a path the backend cannot stat surfaces the 400 body inline — no fallback without one", async () => {
+      const onAddTab = vi
+        .fn()
+        .mockRejectedValue(new ApiError('target "docs/nope.html" does not exist', 400));
+      renderIframe({ tabs: ["/proxy/8080/docs"], onAddTab });
+      const input = screen.getByLabelText("URL") as HTMLInputElement;
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: "docs/nope.html" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() =>
+        expect(screen.getByRole("alert").textContent).toContain(
+          'target "docs/nope.html" does not exist',
+        ),
+      );
+      expect(onWriteUrl).not.toHaveBeenCalled();
+    });
+
+    it("blank Enter is a silent no-op — no POST, no inline error (today's behavior preserved)", () => {
+      const onAddTab = vi.fn();
+      renderIframe({ tabs: ["/proxy/8080/docs"], onAddTab });
+      const input = screen.getByLabelText("URL") as HTMLInputElement;
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: "   " } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(onWriteUrl).not.toHaveBeenCalled();
+      expect(onAddTab).not.toHaveBeenCalled();
       expect(screen.queryByRole("alert")).toBeNull();
     });
 

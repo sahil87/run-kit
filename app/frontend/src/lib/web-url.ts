@@ -46,6 +46,16 @@ export const WEB_OPEN_EXTERNAL_EVENT = "web-open-external";
 /** Loopback hostnames whose absolute URLs classify as proxied ports. */
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
+/** Bare loopback `host:port[{path}]` input — no scheme (a scheme-bearing
+ *  value parses as an absolute URL before this shape is consulted). */
+const LOOPBACK_INPUT_RE = /^(localhost|127\.0\.0\.1|\[::1\]):(\d+)([/?#][^\s]*)?$/;
+
+/** Bare domain input: no scheme, no leading slash, a dot in the host,
+ *  optional port and path. Also matches a dotted FILE name (`README.md`) —
+ *  which is why the submit ladder stat-decides this shape via the backend
+ *  instead of eagerly rewriting it to `https://…`. */
+const BARE_DOMAIN_RE = /^[^\s/:]+\.[^\s/:]+(:\d+)?([/?#][^\s]*)?$/;
+
 /** Plumbing query params hidden from the present-kind display form — the
  *  legacy form's `server` identity param (the NEW form promotes it into the
  *  path, so it lives there now) and `rk present`'s `v` cache-buster. */
@@ -243,16 +253,79 @@ export function normalizeAddressInput(input: string): string {
   const trimmed = input.trim();
   // Bare loopback with a port — no scheme (a scheme would have matched the
   // pass-through below).
-  const loopback = trimmed.match(/^(localhost|127\.0\.0\.1|\[::1\]):(\d+)([/?#][^\s]*)?$/);
+  const loopback = trimmed.match(LOOPBACK_INPUT_RE);
   if (loopback) {
     const rest = loopback[3] ?? "/";
     return `/proxy/${loopback[2]}${rest.startsWith("/") ? rest : `/${rest}`}`;
   }
   // Bare domain: no scheme, no leading slash, carries a dot.
-  if (/^[^\s/:]+\.[^\s/:]+(:\d+)?([/?#][^\s]*)?$/.test(trimmed)) {
+  if (BARE_DOMAIN_RE.test(trimmed)) {
     return `https://${trimmed}`;
   }
   return trimmed;
+}
+
+/**
+ * The submit ladder's routing verdict for one address-bar input:
+ * - `write` — URL-shaped input (today's lanes): the value replaces the active
+ *   slot, or materializes a selected draft, exactly as before
+ * - `add` — path/port-shaped input: sent to `POST …/web` (the add verb),
+ *   which stats it under the window's worktree cwd — append-or-focus, never
+ *   in-place navigation. `fallback` carries the `https://…` bare-domain form
+ *   the caller retries on a 400 (dotted single segments only: the backend
+ *   stat is the tiebreaker between `README.md` the file and `example.com`
+ *   the domain)
+ * - `reject` — inline error, no POST (bare words, non-http(s) schemes)
+ */
+export type AddressSubmitRoute =
+  | { kind: "write"; url: string }
+  | { kind: "add"; target: string; fallback?: string }
+  | { kind: "reject" };
+
+/**
+ * Route one submitted address-bar input through the five-lane decision
+ * ladder. Lanes 1–2 preserve today's behavior for URL-shaped input verbatim;
+ * lanes 3–4 send path-shaped input to the backend resolver instead of
+ * pre-rejecting it (frontend regexes stop deciding what only a stat can
+ * decide); lane 5 is today's inline reject.
+ */
+export function routeAddressSubmit(input: string): AddressSubmitRoute {
+  const trimmed = input.trim();
+  if (trimmed === "") return { kind: "reject" };
+  // Lane 1 — absolute http(s) URLs and root-relative paths: today's
+  // allowlist verdict, value passed through untouched.
+  if (parseHttpUrl(trimmed) !== null || trimmed.startsWith("/")) {
+    return isAllowedUrl(trimmed) ? { kind: "write", url: trimmed } : { kind: "reject" };
+  }
+  // Lane 2 — bare loopback host:port rides the same-origin proxy (today's
+  // rewrite); bare :NNNN is a backend port target (the API/CLI already
+  // accept it — the address-bar rejection was an artifact of the old gate).
+  if (LOOPBACK_INPUT_RE.test(trimmed)) {
+    return { kind: "write", url: normalizeAddressInput(trimmed) };
+  }
+  if (/^:\d+$/.test(trimmed)) return { kind: "add", target: trimmed };
+  // An explicit non-http(s) scheme is URL-shaped, not a path — reject it
+  // here (with or without `//`: `ftp://x`, `file:/etc/passwd`, `mailto:a/b`,
+  // `file:1/etc/passwd`) so the slash test below cannot misread it as a file
+  // path. The ONLY colon-bearing shape exempted is the full bare-domain
+  // `host.tld:port[/path]` form (`example.com:8080`) — a dotted host with a
+  // digits-only port — which lanes 3–4 stat-decide (loopback and bare :NNNN
+  // already returned above).
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && !BARE_DOMAIN_RE.test(trimmed)) {
+    return { kind: "reject" };
+  }
+  // Lane 3 — slash-bearing or ./-leading input is always a path; the backend
+  // answers with the resolved slot URL or an honest 400.
+  if (trimmed.startsWith("./") || trimmed.includes("/")) {
+    return { kind: "add", target: trimmed };
+  }
+  // Lane 4 — a dotted single segment (`README.md`, `example.com`) is
+  // stat-decided: path when it exists, else the https:// form via fallback.
+  if (BARE_DOMAIN_RE.test(trimmed)) {
+    return { kind: "add", target: trimmed, fallback: `https://${trimmed}` };
+  }
+  // Lane 5 — bare words and everything else: inline reject, unchanged.
+  return { kind: "reject" };
 }
 
 /**

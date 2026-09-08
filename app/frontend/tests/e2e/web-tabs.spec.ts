@@ -15,10 +15,12 @@
  * legacy-present compat test stamps the LEGACY slot form for the R4 compat
  * row (new-form rows live in web-tile-chrome.spec.ts), reading its
  * `@rk_win_present_root` from the mkdtemp-managed presentDir scrubbed in
- * afterAll.
+ * afterAll. The path-target tests reuse presentDir (seeded with
+ * docs/report.html in beforeAll) as the window's pane cwd — the backend
+ * resolves address-bar path targets against the window's first-pane path.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -84,6 +86,8 @@ test.beforeAll(() => {
   createSession(TEST_SESSION);
   presentDir = mkdtempSync(join(tmpdir(), "rk-e2e-webtabs-present-"));
   writeFileSync(join(presentDir, "legacy-doc.html"), "<!doctype html><html><body><p>legacy</p></body></html>");
+  mkdirSync(join(presentDir, "docs"));
+  writeFileSync(join(presentDir, "docs", "report.html"), "<!doctype html><html><body><p>report</p></body></html>");
 });
 
 test.afterAll(() => {
@@ -494,6 +498,85 @@ test.describe("Web tab strip — drafts, reorder, gestures", () => {
     expect(windowOption(id, "@rk_win_web_2")).toBe(TAB_URLS[1]);
     expect(windowOption(id, "@rk_win_web_3")).toBe(TAB_URLS[2]);
     await expectWindowOption(id, "@rk_win_web_active", "4");
+  });
+
+  /**
+   * Proves: a repo-relative path pasted into the address bar resolves through
+   * the backend stat into an appended present tab (append-or-focus — the
+   * current tab is never navigated in place), and submitting the same path
+   * again focuses the existing tab via the add verb's idempotent identity
+   * match instead of duplicating it.
+   * Steps:
+   * 1. Create a window whose pane cwd is presentDir (carries
+   *    docs/report.html), stamp a one-slot family, navigate.
+   * 2. Fill the address bar with `docs/report.html`, press Enter.
+   * 3. Assert slot 2 stores a /present/ URL for report.html, active repoints
+   *    to 2, and slot 1 is untouched.
+   * 4. Select tab 1, submit the same path again; assert active returns to 2
+   *    with no third slot and still two tabs.
+   */
+  test("a pasted repo-relative path lands as an appended present tab, idempotently", async ({ page }) => {
+    test.setTimeout(45_000);
+    const name = `wt-path-${Date.now()}`;
+    newWindow(TEST_SESSION, name, { cwd: presentDir });
+    const id = await resolveWindow(page, name);
+    stampWebTabs(id, [TAB_URLS[0]], 1);
+    setWindowOption(id, "@rk_win_layout", "single:web");
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
+    await expect(page.getByTestId("status-bar").locator("[aria-label='Connected']")).toBeVisible({
+      timeout: READY_TIMEOUT,
+    });
+
+    await URL_BAR(page).fill("docs/report.html");
+    await URL_BAR(page).press("Enter");
+    await expectWindowOption(id, "@rk_win_web_active", "2");
+    expect(windowOption(id, "@rk_win_web_2")).toContain("/present/");
+    expect(windowOption(id, "@rk_win_web_2")).toContain("report.html");
+    expect(windowOption(id, "@rk_win_web_1")).toBe(TAB_URLS[0]);
+    await expect(tab(page, 2)).toHaveAttribute("aria-selected", "true");
+
+    // Append-or-focus: from tab 1, re-submitting the same path focuses the
+    // existing present tab — the family never grows a duplicate.
+    await tab(page, 1).click();
+    await expectWindowOption(id, "@rk_win_web_active", "1");
+    await URL_BAR(page).fill("docs/report.html");
+    await URL_BAR(page).press("Enter");
+    await expectWindowOption(id, "@rk_win_web_active", "2");
+    expect(windowOption(id, "@rk_win_web_3")).toBe("");
+    await expect(page.getByTestId("web-tab")).toHaveCount(2);
+  });
+
+  /**
+   * Proves: a path target the backend cannot stat surfaces the server's 400
+   * error text verbatim in the address bar's inline alert — no tab is added
+   * and the stored family is untouched.
+   * Steps:
+   * 1. Create a window whose pane cwd is presentDir with a one-slot family;
+   *    navigate.
+   * 2. Fill the address bar with `docs/nope.html` (no such file), press Enter.
+   * 3. Assert the role=alert shows the backend's "does not exist" text, the
+   *    strip still has one tab, and slot 2 stays empty.
+   */
+  test("a nonexistent path target surfaces the backend 400 inline, adding nothing", async ({ page }) => {
+    test.setTimeout(30_000);
+    const name = `wt-path-miss-${Date.now()}`;
+    newWindow(TEST_SESSION, name, { cwd: presentDir });
+    const id = await resolveWindow(page, name);
+    stampWebTabs(id, [TAB_URLS[0]], 1);
+    setWindowOption(id, "@rk_win_layout", "single:web");
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
+    await expect(page.getByTestId("status-bar").locator("[aria-label='Connected']")).toBeVisible({
+      timeout: READY_TIMEOUT,
+    });
+
+    await URL_BAR(page).fill("docs/nope.html");
+    await URL_BAR(page).press("Enter");
+    await expect(page.getByTestId("surface-tile-web").getByRole("alert")).toContainText(
+      "does not exist",
+    );
+    await expect(page.getByTestId("web-tab")).toHaveCount(1);
+    expect(windowOption(id, "@rk_win_web_2")).toBe("");
+    await expectWindowOption(id, "@rk_win_web_active", "1");
   });
 
   /**

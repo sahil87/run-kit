@@ -5,6 +5,7 @@ import {
   isAllowedUrl,
   normalizeAddressInput,
   proxyPortOf,
+  routeAddressSubmit,
   toProxySrc,
   toWebAddTarget,
   webTabTitle,
@@ -166,6 +167,108 @@ describe("isAllowedUrl (frontend mirror of R1)", () => {
     expect(isAllowedUrl("ftp://example.com")).toBe(false);
     expect(isAllowedUrl("example.com")).toBe(false);
     expect(isAllowedUrl("https://")).toBe(false);
+  });
+});
+
+describe("routeAddressSubmit (submit ladder)", () => {
+  it("lane 1: absolute http(s) URLs and root-relative paths write, untouched", () => {
+    expect(routeAddressSubmit("https://example.com/x")).toEqual({
+      kind: "write",
+      url: "https://example.com/x",
+    });
+    expect(routeAddressSubmit("http://localhost:3000/x")).toEqual({
+      kind: "write",
+      url: "http://localhost:3000/x",
+    });
+    expect(routeAddressSubmit("/present/runKit/3f9a2c8e1b77/report.html")).toEqual({
+      kind: "write",
+      url: "/present/runKit/3f9a2c8e1b77/report.html",
+    });
+    expect(routeAddressSubmit("/proxy/3000/")).toEqual({ kind: "write", url: "/proxy/3000/" });
+  });
+
+  it("lane 2: bare loopback host:port keeps today's /proxy rewrite", () => {
+    expect(routeAddressSubmit("localhost:5173")).toEqual({ kind: "write", url: "/proxy/5173/" });
+    expect(routeAddressSubmit("127.0.0.1:3000")).toEqual({ kind: "write", url: "/proxy/3000/" });
+    expect(routeAddressSubmit("localhost:3000/board?x=1")).toEqual({
+      kind: "write",
+      url: "/proxy/3000/board?x=1",
+    });
+  });
+
+  it("lane 2: bare :NNNN becomes a backend port target", () => {
+    expect(routeAddressSubmit(":3000")).toEqual({ kind: "add", target: ":3000" });
+    expect(routeAddressSubmit(":80")).toEqual({ kind: "add", target: ":80" });
+  });
+
+  it("lane 3: slash-bearing and ./-leading input is a backend path target, no fallback", () => {
+    expect(routeAddressSubmit("docs/wiki/foo.html")).toEqual({
+      kind: "add",
+      target: "docs/wiki/foo.html",
+    });
+    expect(routeAddressSubmit("./report.html")).toEqual({ kind: "add", target: "./report.html" });
+    expect(routeAddressSubmit("./x")).toEqual({ kind: "add", target: "./x" });
+    // Slash-bearing input is ALWAYS a path — a bare domain with a path needs
+    // its scheme typed (intake assumption 3).
+    expect(routeAddressSubmit("example.com/path")).toEqual({
+      kind: "add",
+      target: "example.com/path",
+    });
+  });
+
+  it("lane 4: a dotted single segment stat-decides with an https fallback", () => {
+    expect(routeAddressSubmit("README.md")).toEqual({
+      kind: "add",
+      target: "README.md",
+      fallback: "https://README.md",
+    });
+    expect(routeAddressSubmit("example.com")).toEqual({
+      kind: "add",
+      target: "example.com",
+      fallback: "https://example.com",
+    });
+    expect(routeAddressSubmit("example.com:8080")).toEqual({
+      kind: "add",
+      target: "example.com:8080",
+      fallback: "https://example.com:8080",
+    });
+  });
+
+  it("lane 5: bare words, non-http(s) schemes, and degenerate input reject", () => {
+    expect(routeAddressSubmit("")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("   ")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("foo")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("localhost")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("ftp://example.com/x")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("mailto:a@b.com")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("javascript:alert(1)")).toEqual({ kind: "reject" });
+    // Slash-bearing scheme forms WITHOUT `//` must not reach the path lane.
+    expect(routeAddressSubmit("file:/etc/passwd")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("mailto:user/docs")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("javascript:foo/bar")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("ftp:folder/file")).toEqual({ kind: "reject" });
+    // Digit-leading scheme payloads are still schemes, not domain:port — only
+    // the dotted-host `host.tld:port` shape is exempt from the scheme reject.
+    expect(routeAddressSubmit("file:1/etc/passwd")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("mailto:123/docs")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("ftp:21/folder")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("javascript:1/x")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("//evil.com/x")).toEqual({ kind: "reject" });
+    expect(routeAddressSubmit("https://")).toEqual({ kind: "reject" });
+  });
+
+  it("regression: every today-passing input keeps its exact write value", () => {
+    // Scheme-bearing, root-relative, and loopback rows mirror the
+    // normalizeAddressInput/isAllowedUrl suites above; the bare-domain form
+    // reaches the same https:// value through the lane-4 fallback.
+    expect(routeAddressSubmit("  https://example.com  ")).toEqual({
+      kind: "write",
+      url: "https://example.com",
+    });
+    const domain = routeAddressSubmit("shll.ai/rk/skill");
+    expect(domain.kind).toBe("add"); // slash-bearing: now a path target by design
+    const single = routeAddressSubmit("shll.ai");
+    expect(single).toEqual({ kind: "add", target: "shll.ai", fallback: "https://shll.ai" });
   });
 });
 

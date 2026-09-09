@@ -12,10 +12,12 @@ import "time"
 // against the entry's own delivery log: a raw epoch within attributionWindow
 // after the entry's own latest delivery was caused by that delivery and does
 // NOT reset the ladder — the rung continues as the trailing streak of own
-// deliveries consistent with the ladder shape. A non-attributed epoch is
-// genuine activity: the ladder resets to rung 0 with the epoch as anchor.
-// Both inputs (pane option, log) live on disk, so the schedule stays a pure
-// function and a restart at worst re-fires one due tick.
+// deliveries consistent with the ladder shape, seeded from the newest gap as
+// the largest rung that gap can hold (lateness only inflates a gap, never
+// shrinks it). A non-attributed epoch is genuine activity: the ladder resets
+// to rung 0 with the epoch as anchor. Both inputs (pane option, log) live on
+// disk, so the schedule stays a pure function and a restart at worst re-fires
+// one due tick.
 
 // attributionWindow is how long after one of the entry's own deliveries a raw
 // idle epoch is attributed to that delivery (the agent going busy/idle because
@@ -67,20 +69,36 @@ func attributed(rawEpoch int64, lastDeliveryTS int64) bool {
 	return rawEpoch <= lastDeliveryTS+int64(attributionWindow/time.Second)
 }
 
-// smallestRungWithGapAtLeast returns the smallest rung r ≥ 1 whose gapAfter(r)
-// meets threshold. Used to seed the backward streak walk: a gap of size g
+// seedSkew is the invoker jitter the streak-walk seed tolerates: one
+// DefaultTickInterval, because a due fire is observed at most one poll late.
+// Lateness only ever INFLATES an observed gap, so the seed adds the skew to
+// the gap and takes the largest rung the inflated gap can hold. It must never
+// subtract a tolerance: subtracting attributionWindow (one whole rung-1→2 gap
+// at the default min) under-seeds every three-delivery streak and pins the
+// ladder at rungs 2↔3 — a 2·min / 4·min alternation that never decays.
+const seedSkew = DefaultTickInterval
+
+// largestRungWithGapAtMost returns the largest rung r ≥ 1 whose gapAfter(r)
+// is ≤ threshold. Used to seed the backward streak walk: a gap of size g
 // between the two newest streak deliveries means the newer one fired at rung
-// r+1 where r is the first rung whose gap can explain g. Cap-saturated gaps
-// make deep rungs indistinguishable — the smallest consistent rung is chosen
-// (an under-estimated anchor fires early at most once; the next delivery's
-// short gap re-bases the ladder, and fires are idempotent by contract).
-func smallestRungWithGapAtLeast(min, max, threshold time.Duration) int {
-	for r := 1; r <= 60; r++ {
-		if gapAfter(min, max, r) >= threshold {
+// r+1 where r is the largest rung whose gap fits inside g. Returns 0 when even
+// gapAfter(1) exceeds threshold — no rung-to-rung spacing fits, so the newer
+// delivery is rung 1 of a fresh ladder and nothing older can join it.
+// Cap-saturated rungs are indistinguishable; the smallest saturated rung is
+// returned (an under-estimated anchor fires early at most once; the next
+// delivery's gap re-bases the ladder, and fires are idempotent by contract).
+func largestRungWithGapAtMost(min, max, threshold time.Duration) int {
+	r := 0
+	for next := 1; ; next++ {
+		g := gapAfter(min, max, next)
+		if g > threshold {
+			return r
+		}
+		r = next
+		if g >= max {
 			return r
 		}
 	}
-	return 60
 }
 
 // JoinAnchor derives the effective ladder from the raw idle epoch joined
@@ -105,7 +123,10 @@ func JoinAnchor(rawEpoch int64, deliveries []LogLine, min, max time.Duration) La
 	for i := n - 1; i > 0; i-- {
 		gap := time.Duration(deliveries[i].TS-deliveries[i-1].TS) * time.Second
 		if expectRung < 0 {
-			expectRung = smallestRungWithGapAtLeast(min, max, gap-attributionWindow)
+			expectRung = largestRungWithGapAtMost(min, max, gap+seedSkew)
+			if expectRung < 1 {
+				break // no ladder spacing fits: the streak is the newest delivery alone
+			}
 			streak++
 		} else {
 			if gap < gapAfter(min, max, expectRung)-attributionWindow {

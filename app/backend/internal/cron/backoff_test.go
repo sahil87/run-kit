@@ -176,3 +176,92 @@ func TestLadderGapCap(t *testing.T) {
 		ladder.Rung++
 	}
 }
+
+// TestAnchorJoinThreeDeliveryStreak pins the shape the v1 seed got wrong:
+// deliveries at T+1m, T+3m, T+7m (gaps 2m, 4m) are a clean rung-1..3 streak,
+// so the next fire is T+15m (rung 4). A seed that subtracts attributionWindow
+// from the newest gap reads 4m as a rung-1 gap, reconstructs rung 2 with the
+// anchor at T+2m, and answers T+9m — the 2m/4m alternation this test forbids.
+func TestAnchorJoinThreeDeliveryStreak(t *testing.T) {
+	T := backoffBase
+	min, max := 60*time.Second, 30*time.Minute
+	deliveries := own(unix(T, time.Minute), unix(T, 3*time.Minute), unix(T, 7*time.Minute))
+	ladder := JoinAnchor(unix(T, 7*time.Minute+5*time.Second), deliveries, min, max)
+	if ladder.Rung != 3 || !ladder.Anchor.Equal(T) {
+		t.Fatalf("streak: anchor=%v rung=%d, want T rung 3 (an under-seeded walk says T+2m rung 2)", ladder.Anchor, ladder.Rung)
+	}
+	if next := ladder.NextFire(min, max); !next.Equal(T.Add(15 * time.Minute)) {
+		t.Errorf("next fire = %v, want T+15m (rung 4) — an under-seeded walk says T+9m", next)
+	}
+}
+
+// TestAnchorJoinEscapesAlternation replays the observed pathological log
+// forward: an operator ticked at 0, 2m, 6m, 8m, 12m, 14m (the 2m/4m
+// alternation). The newest 2m gap legitimately reads as a rung-1 gap, so the
+// first reconstruction still fires 4m later — but from there the ladder must
+// climb 8m, 16m, 30m, 30m rather than fall back to 2m. The v1 seed produced
+// 4m, 2m, 4m, 2m, … forever.
+func TestAnchorJoinEscapesAlternation(t *testing.T) {
+	T := backoffBase
+	min, max := 60*time.Second, 30*time.Minute
+	deliveries := own(unix(T, 0), unix(T, 2*time.Minute), unix(T, 6*time.Minute),
+		unix(T, 8*time.Minute), unix(T, 12*time.Minute), unix(T, 14*time.Minute))
+	wantGaps := []time.Duration{4 * time.Minute, 8 * time.Minute, 16 * time.Minute, 30 * time.Minute, 30 * time.Minute}
+	for i, want := range wantGaps {
+		last := deliveries[len(deliveries)-1].TS
+		ladder := JoinAnchor(last+3, deliveries, min, max)
+		next := ladder.NextFire(min, max)
+		if got := next.Sub(time.Unix(last, 0)); got != want {
+			t.Fatalf("fire %d: gap after last delivery = %v, want %v (gaps so far %v)", i+1, got, want, wantGaps[:i])
+		}
+		deliveries = append(deliveries, LogLine{TS: next.Unix(), Entry: "a3f9"})
+	}
+}
+
+// TestAnchorJoinSubLadderGap: two deliveries closer than any rung-to-rung
+// spacing (30s apart — e.g. wake fires) cannot be one ladder; the newest is
+// rung 1 of a fresh ladder and the older one does not join.
+func TestAnchorJoinSubLadderGap(t *testing.T) {
+	T := backoffBase
+	min, max := 60*time.Second, 30*time.Minute
+	deliveries := own(unix(T, 0), unix(T, 30*time.Second))
+	ladder := JoinAnchor(unix(T, 32*time.Second), deliveries, min, max)
+	if ladder.Rung != 1 || !ladder.Anchor.Equal(T.Add(30*time.Second-min)) {
+		t.Fatalf("anchor=%v rung=%d, want newest−min rung 1", ladder.Anchor, ladder.Rung)
+	}
+	if next := ladder.NextFire(min, max); !next.Equal(T.Add(2*time.Minute + 30*time.Second)) {
+		t.Errorf("next fire = %v, want newest+2m (T+2m30s)", next)
+	}
+}
+
+func TestLargestRungWithGapAtMost(t *testing.T) {
+	min, max := time.Minute, 30*time.Minute
+	cases := []struct {
+		threshold time.Duration
+		want      int
+	}{
+		{time.Minute, 0},                 // below gapAfter(1)=2m: nothing fits
+		{2*time.Minute - time.Second, 0}, // still below rung 1
+		{2 * time.Minute, 1},             // exactly rung 1
+		{2*time.Minute + 30*time.Second, 1},
+		{4 * time.Minute, 2},
+		{7 * time.Minute, 2}, // between rungs 2 (4m) and 3 (8m): the lower rung
+		{8 * time.Minute, 3},
+		{16 * time.Minute, 4},
+		{30 * time.Minute, 5}, // first saturated rung
+		{3 * time.Hour, 5},    // saturated: deeper rungs are indistinguishable
+	}
+	for _, c := range cases {
+		if got := largestRungWithGapAtMost(min, max, c.threshold); got != c.want {
+			t.Errorf("largestRungWithGapAtMost(%v) = %d, want %d", c.threshold, got, c.want)
+		}
+	}
+	// max < min degenerates to a flat ladder at min (gapAfter clamps); the
+	// loop must terminate at the first (saturated) rung.
+	if got := largestRungWithGapAtMost(time.Hour, time.Minute, 2*time.Hour); got != 1 {
+		t.Errorf("largestRungWithGapAtMost(max<min) = %d, want 1", got)
+	}
+	if got := largestRungWithGapAtMost(time.Hour, time.Minute, time.Minute); got != 0 {
+		t.Errorf("largestRungWithGapAtMost(max<min, below min) = %d, want 0", got)
+	}
+}

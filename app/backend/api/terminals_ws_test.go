@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http/httptest"
 	"os/exec"
 	"strings"
@@ -556,4 +557,155 @@ func TestReloadConfigForAttachLegacySweep(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 		}
 	})
+}
+
+// shortenLivenessTimeout overrides the package-level liveness deadline for one
+// test and restores it on cleanup. Tests using it must not call t.Parallel():
+// the var is read by every handleTerminalsWS in the package.
+func shortenLivenessTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	prev := terminalsLivenessTimeout
+	terminalsLivenessTimeout = d
+	t.Cleanup(func() { terminalsLivenessTimeout = prev })
+}
+
+// readUntilError drains a terminals socket in the background, counting pongs,
+// and reports the first read error on errCh (buffered, so the goroutine never
+// blocks on a caller that stopped listening).
+func readUntilError(conn *websocket.Conn) (errCh chan error, pongs *atomic.Int32) {
+	errCh = make(chan error, 1)
+	pongs = &atomic.Int32{}
+	go func() {
+		for {
+			msgType, raw, err := conn.ReadMessage()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if msgType != websocket.TextMessage {
+				continue
+			}
+			var m struct {
+				Op string `json:"op"`
+			}
+			if json.Unmarshal(raw, &m) == nil && m.Op == "pong" {
+				pongs.Add(1)
+			}
+		}
+	}()
+	return errCh, pongs
+}
+
+// TestTerminals_LivenessDeadlineTearsDownSilentSocket proves the root-cause
+// fix for ghost attach clients: a terminals socket whose peer goes silent is
+// torn down at the liveness deadline and its stream's REAL tmux attach client
+// disappears from list-clients (releasing its sized client from the
+// window-size-smallest computation). Real tmux — the reap is the point.
+func TestTerminals_LivenessDeadlineTearsDownSilentSocket(t *testing.T) {
+	tmuxServer, _, win0ID, _ := withTerminalsTmux(t)
+	shortenLivenessTimeout(t, 300*time.Millisecond)
+	ts := terminalsServerWithProdTmux(t)
+	defer ts.Close()
+
+	conn := dialTerminals(t, ts)
+	defer conn.Close()
+	openStream(t, conn, 1, tmuxServer, win0ID, 80, 24)
+	testutil.MustWaitUntil(t, 5*time.Second, func() bool {
+		return len(listClients(t, tmuxServer)) == 1
+	}, "attach client never appeared on %s", tmuxServer)
+
+	// Go silent: never write again. The server must close the socket on its
+	// own well inside the client-side 3s read bound (deadline 300ms).
+	errCh, _ := readUntilError(conn)
+	select {
+	case err := <-errCh:
+		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			t.Fatalf("client-side timeout, not a server close: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("server never closed the silent socket (liveness deadline did not fire)")
+	}
+
+	testutil.MustWaitUntil(t, 3*time.Second, func() bool {
+		return len(listClients(t, tmuxServer)) == 0
+	}, "attach client survived the liveness teardown")
+}
+
+// TestTerminals_LivenessDeadlinePingsKeepSocketAlive proves the deadline is
+// re-armed by the client heartbeat: a socket that pings more often than the
+// deadline stays open far past it and keeps receiving pongs.
+func TestTerminals_LivenessDeadlinePingsKeepSocketAlive(t *testing.T) {
+	shortenLivenessTimeout(t, 200*time.Millisecond)
+	router := newTestRouter(&slowSessionFetcher{}, &mockTmuxOps{})
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/terminals"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	errCh, pongs := readUntilError(conn)
+
+	// Ping at a quarter of the deadline for four deadlines' worth of time.
+	interval := terminalsLivenessTimeout / 4
+	end := time.Now().Add(4 * terminalsLivenessTimeout)
+	for time.Now().Before(end) {
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"op":"ping"}`)); err != nil {
+			t.Fatalf("write ping: %v", err)
+		}
+		select {
+		case err := <-errCh:
+			t.Fatalf("socket closed while heartbeating: %v", err)
+		case <-time.After(interval):
+		}
+	}
+	if pongs.Load() < 4 {
+		t.Fatalf("expected pongs to keep flowing past the deadline, got %d", pongs.Load())
+	}
+}
+
+// TestTerminals_LivenessDeadlineDataFramesRefresh proves ANY inbound frame is
+// proof of life, not only pings: a socket sending only binary data frames
+// (addressed to an unknown stream — dropped after the deadline re-arm) stays
+// open past the deadline, and a final ping is still answered.
+func TestTerminals_LivenessDeadlineDataFramesRefresh(t *testing.T) {
+	shortenLivenessTimeout(t, 200*time.Millisecond)
+	router := newTestRouter(&slowSessionFetcher{}, &mockTmuxOps{})
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/terminals"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	errCh, pongs := readUntilError(conn)
+
+	frame := make([]byte, 5)
+	binary.BigEndian.PutUint32(frame[:4], 99) // no such stream: dropped, still liveness
+	frame[4] = 'x'
+	interval := terminalsLivenessTimeout / 4
+	end := time.Now().Add(4 * terminalsLivenessTimeout)
+	for time.Now().Before(end) {
+		if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+			t.Fatalf("write data frame: %v", err)
+		}
+		select {
+		case err := <-errCh:
+			t.Fatalf("socket closed while sending data frames: %v", err)
+		case <-time.After(interval):
+		}
+	}
+	if pongs.Load() != 0 {
+		t.Fatalf("no pings were sent, yet %d pongs arrived", pongs.Load())
+	}
+	// Still open: a ping is answered.
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"op":"ping"}`)); err != nil {
+		t.Fatalf("write ping: %v", err)
+	}
+	testutil.MustWaitUntil(t, 2*time.Second, func() bool { return pongs.Load() == 1 },
+		"socket did not answer a ping after the data-frame window")
 }

@@ -155,7 +155,11 @@ export function mountZoomableFigure(holder: HTMLElement, svg: SVGSVGElement, opt
   const apply = (next: ZoomState): void => {
     state = clampTranslation(next, natural, container);
     svg.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`;
-    const zoomed = state.scale > fit0 && !sameScale(state.scale, fit0);
+    // Strict boundary tests: every path lands exactly on the fit (fitState)
+    // or exactly on a clamp bound (clampZoom), so no tolerance is needed here
+    // and one would misreport a real, if tiny, change. `sameScale` is for the
+    // refit-vs-reclamp decision only.
+    const zoomed = state.scale > fit0;
     holder.dataset.zoomed = zoomed ? "true" : "false";
     // At fit the page must still scroll under a finger over an inline diagram;
     // once zoomed the figure owns every touch (drag pan, two-finger pinch).
@@ -163,8 +167,8 @@ export function mountZoomableFigure(holder: HTMLElement, svg: SVGSVGElement, opt
     const pct = formatPercent(state.scale);
     readout.value = pct;
     holder.setAttribute("aria-label", `${opts.label}, zoom ${pct}`);
-    zoomOut.disabled = sameScale(state.scale, minScale(fit0));
-    zoomIn.disabled = sameScale(state.scale, FIGURE_ZOOM_MAX);
+    zoomOut.disabled = state.scale <= minScale(fit0);
+    zoomIn.disabled = state.scale >= FIGURE_ZOOM_MAX;
   };
 
   const refit = (): void => {

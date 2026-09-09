@@ -34,7 +34,9 @@ const maxServerNameBytes = 1 << 20
 // the Keychain password — and reports zero geometry.
 //
 // Dial and banner failures are classified in Info.Reason ("not running",
-// "dial failed: …", "bad banner") with a nil error; protocol failures deeper
+// "dial failed: …", "banner read failed: …" for a timeout/EOF before twelve
+// bytes arrive, "bad banner" for twelve bytes that are not the RFB 3.8
+// version string) with a nil error; protocol failures deeper
 // into the handshake return a non-nil error.
 func Probe(ctx context.Context, network, addr string) (Info, error) {
 	d := net.Dialer{Timeout: probeDialTimeout}
@@ -48,7 +50,10 @@ func Probe(ctx context.Context, network, addr string) (Info, error) {
 	defer conn.Close()
 
 	banner := make([]byte, len(rfbBanner))
-	if err := readFull(conn, banner); err != nil || string(banner) != rfbBanner {
+	if err := readFull(conn, banner); err != nil {
+		return Info{Reason: "banner read failed: " + err.Error()}, nil
+	}
+	if string(banner) != rfbBanner {
 		return Info{Reason: "bad banner"}, nil
 	}
 	if network == "tcp" {

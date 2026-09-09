@@ -40,8 +40,10 @@ type StatusDeps struct {
 // the backend is reachable.
 func Assemble(ctx context.Context, d StatusDeps) Status {
 	st := Status{ID: d.ID, Apps: []App{}}
-	if sock, err := SocketPath(d.ID); err == nil {
-		st.Socket = sock
+	// Socket names the unix endpoint only; the tcp backend (macOS Screen
+	// Sharing) has no host.sock, so the field stays empty there.
+	if network, addr, err := BackendAddr(d.ID); err == nil && network == "unix" {
+		st.Socket = addr
 	}
 	st.Enabled = d.Enabled
 	if !st.Enabled {

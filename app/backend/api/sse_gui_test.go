@@ -227,6 +227,44 @@ func TestSetGUIEnabledSynchronousBroadcast(t *testing.T) {
 	}
 }
 
+func TestSetGUIEnabledDropsStaleProbeState(t *testing.T) {
+	enableGuiSettings(t)
+	hub := newGuiTestHub()
+	// Seed a previously-reachable probe result, then flip the switch: the
+	// flip must not rebroadcast the stale reachable/backend/display until the
+	// next tick re-probes.
+	hub.mu.Lock()
+	hub.guiEnabled = true
+	hub.guiInfo = gui.Info{Reachable: true, Width: 1920, Height: 1080}
+	hub.guiBackend = "Xtigervnc"
+	hub.guiDisplay = ":10"
+	hub.guiProbeAt = time.Now()
+	hub.mu.Unlock()
+	sc := &stateConn{ch: make(chan hubEvent, 16), subs: map[string]*sseClient{}}
+	hub.mu.Lock()
+	hub.stateConns[sc] = true
+	hub.mu.Unlock()
+
+	hub.setGUIEnabled(true)
+
+	select {
+	case ev := <-sc.ch:
+		s := ev.String()
+		for _, stale := range []string{`"reachable":true`, `"backend":"Xtigervnc"`, `"display":":10"`, `"width":1920`} {
+			if strings.Contains(s, stale) {
+				t.Errorf("broadcast %q carries stale %s after the flip", s, stale)
+			}
+		}
+	default:
+		t.Fatal("setGUIEnabled did not broadcast synchronously")
+	}
+	hub.mu.RLock()
+	defer hub.mu.RUnlock()
+	if hub.guiInfo != (gui.Info{}) || hub.guiBackend != "" || hub.guiDisplay != "" {
+		t.Errorf("stale probe state survived the flip: info=%+v backend=%q display=%q", hub.guiInfo, hub.guiBackend, hub.guiDisplay)
+	}
+}
+
 func TestGuiTickSessionAbsent(t *testing.T) {
 	enableGuiSettings(t)
 	stub := &guiProbeStub{info: gui.Info{Reachable: true}}

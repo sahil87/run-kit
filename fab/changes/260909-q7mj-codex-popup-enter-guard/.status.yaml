@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 4
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-09T03:47:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T03:53:47Z"}
     review: {started_at: "2026-09-09T03:53:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T03:57:27Z"}
     hydrate: {started_at: "2026-09-09T03:57:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T04:00:37Z"}
-    ship: {started_at: "2026-09-09T04:00:37Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-09T04:00:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T04:01:59Z"}
+    review-pr: {started_at: "2026-09-09T04:01:59Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/886
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 610
+    deleted: 16
+    net: 594
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 222
+        deleted: 3
+        net: 219
     tests:
-        added: 0
+        added: 151
         deleted: 0
-        net: 0
-    computed_at: "2026-09-09T04:00:37Z"
-    computed_at_stage: hydrate
+        net: 151
+    computed_at: "2026-09-09T04:01:59Z"
+    computed_at_stage: ship
 summary: 'inject engine: composer-popup guard — consume a paste-opened codex skill-autocomplete popup with an evidence-gated extra Enter before the submit Enter (initial + recovery paths)'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-09T04:00:37Z
+last_updated: 2026-09-09T04:01:59Z

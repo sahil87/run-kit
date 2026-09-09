@@ -43,11 +43,23 @@ type fakeCodeHost struct {
 // only on the socket ping.
 func startFakeCodeHost(t *testing.T, stateHome, hostID, folder, extVersion, startedAt string) *fakeCodeHost {
 	t.Helper()
+	return startFakeCodeHostRecord(t, stateHome, codebridge.HostRecord{
+		HostID:     hostID,
+		Folder:     folder,
+		ExtVersion: extVersion,
+		StartedAt:  startedAt,
+	})
+}
+
+// startFakeCodeHostRecord is startFakeCodeHost with the full record, so tests
+// can register hosts carrying a tab identity.
+func startFakeCodeHostRecord(t *testing.T, stateHome string, rec codebridge.HostRecord) *fakeCodeHost {
+	t.Helper()
 	cbDir := filepath.Join(stateHome, "run-kit", "cb")
 	if err := os.MkdirAll(filepath.Join(cbDir, "hosts"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	h := &fakeCodeHost{hostID: hostID, folder: folder, sock: filepath.Join(cbDir, hostID+".sock")}
+	h := &fakeCodeHost{hostID: rec.HostID, folder: rec.Folder, sock: filepath.Join(cbDir, rec.HostID+".sock")}
 	ln, err := net.Listen("unix", h.sock)
 	if err != nil {
 		t.Fatalf("listen %s: %v", h.sock, err)
@@ -56,19 +68,13 @@ func startFakeCodeHost(t *testing.T, stateHome, hostID, folder, extVersion, star
 	go h.serve()
 	t.Cleanup(func() { _ = ln.Close() })
 
-	rec := codebridge.HostRecord{
-		HostID:     hostID,
-		Folder:     folder,
-		PID:        os.Getpid(),
-		Sock:       h.sock,
-		ExtVersion: extVersion,
-		StartedAt:  startedAt,
-	}
+	rec.PID = os.Getpid()
+	rec.Sock = h.sock
 	data, err := json.Marshal(rec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(cbDir, "hosts", hostID+".json"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(cbDir, "hosts", rec.HostID+".json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return h
@@ -806,5 +812,141 @@ func TestCodeCommandsTabArm(t *testing.T) {
 	}
 	if stdout != "only.on.proj\n" {
 		t.Errorf("stdout = %q, want the code-root host's commands", stdout)
+	}
+}
+
+// --- tab identity ---
+
+// Two hosts on one folder (two tabs on one worktree), caller's pane in @5:
+// the no-flag default resolves the caller's own tab and picks the @5 host
+// directly — no folder ambiguity, no using-host note.
+func TestCodeExecOwnTabDefaultPicksCallerTab(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	aa := startFakeCodeHostRecord(t, stateHome, codebridge.HostRecord{
+		HostID: "aa01", Folder: "/wt", Tab: "@3", Server: "dev",
+		ExtVersion: "3.19.0", StartedAt: codeStartedAgo(time.Minute),
+	})
+	bb := startFakeCodeHostRecord(t, stateHome, codebridge.HostRecord{
+		HostID: "bb02", Folder: "/wt", Tab: "@5", Server: "dev",
+		ExtVersion: "3.19.0", StartedAt: codeStartedAgo(time.Minute),
+	})
+	withCodeTargetFolder(t, "/wt")
+	withCodeTabSeams(t, "@5", "dev", "")
+	t.Setenv("TMUX_PANE", "%3")
+
+	stdout, stderr, err := runCodeCmd(t, "exec", "x.y")
+	if err != nil {
+		t.Fatalf("exec error: %v (stderr: %s)", err, stderr)
+	}
+	if stdout != "null\n" {
+		t.Errorf("stdout = %q, want the result", stdout)
+	}
+	if _, ok := bb.commandRequest("x.y"); !ok {
+		t.Error("the @5 host never received the command; want the caller's own tab picked")
+	}
+	if _, ok := aa.commandRequest("x.y"); ok {
+		t.Error("the @3 host answered; want the caller's @5 host")
+	}
+	if strings.Contains(stderr, "using host") {
+		t.Errorf("stderr = %q, want no using-host note (tab-direct is not the fallback)", stderr)
+	}
+}
+
+// The same two hosts from outside tmux with an explicit --folder: no tab hit,
+// two exact folder matches — ambiguous, and the listing carries each tab.
+func TestCodeExecFolderSameFolderHostsAmbiguousListsTabs(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHostRecord(t, stateHome, codebridge.HostRecord{
+		HostID: "aa01", Folder: "/wt", Tab: "@3", Server: "dev",
+		ExtVersion: "3.19.0", StartedAt: codeStartedAgo(time.Minute),
+	})
+	startFakeCodeHostRecord(t, stateHome, codebridge.HostRecord{
+		HostID: "bb02", Folder: "/wt", Tab: "@5", Server: "dev",
+		ExtVersion: "3.19.0", StartedAt: codeStartedAgo(time.Minute),
+	})
+	t.Setenv("TMUX_PANE", "")
+
+	_, stderr, err := runCodeCmd(t, "exec", "__ping", "--folder", "/wt")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v (code %d), want operational exit 1", err, exitCode(err))
+	}
+	for _, want := range []string{"aa01  /wt  @3", "bb02  /wt  @5"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr = %q, want it to list %q", stderr, want)
+		}
+	}
+}
+
+// An explicit --folder skips the own-tab step: the caller's pane is in @5 and
+// a host carries that tab on /other, yet --folder /wt must select the /wt
+// host, not the tab's.
+func TestCodeExecFolderFlagSkipsOwnTab(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	aa := startFakeCodeHost(t, stateHome, "aa01", "/wt", "3.19.0", codeStartedAgo(time.Minute))
+	bb := startFakeCodeHostRecord(t, stateHome, codebridge.HostRecord{
+		HostID: "bb02", Folder: "/other", Tab: "@5", Server: "dev",
+		ExtVersion: "3.19.0", StartedAt: codeStartedAgo(time.Minute),
+	})
+	withCodeTabSeams(t, "@5", "dev", "")
+	t.Setenv("TMUX_PANE", "%3")
+
+	_, _, err := runCodeCmd(t, "exec", "x.y", "--folder", "/wt")
+	if err != nil {
+		t.Fatalf("exec --folder error: %v", err)
+	}
+	if _, ok := aa.commandRequest("x.y"); !ok {
+		t.Error("the /wt host never received the command; want --folder to decide")
+	}
+	if _, ok := bb.commandRequest("x.y"); ok {
+		t.Error("the own-tab host answered; --folder must skip the own-tab step")
+	}
+}
+
+func TestCodeHostsTableTabColumns(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHostRecord(t, stateHome, codebridge.HostRecord{
+		HostID: "aa01", Folder: "/repo", Tab: "@3", Server: "dev",
+		ExtVersion: "3.19.0", StartedAt: codeStartedAgo(3 * time.Minute),
+	})
+	startFakeCodeHost(t, stateHome, "bb02", "/other", "3.19.0", codeStartedAgo(3*time.Minute))
+
+	stdout, _, err := runCodeCmd(t, "hosts")
+	if err != nil {
+		t.Fatalf("hosts error: %v", err)
+	}
+	for _, col := range []string{"TAB", "SERVER"} {
+		if !strings.Contains(stdout, col) {
+			t.Errorf("stdout = %q, want a %s column", stdout, col)
+		}
+	}
+	fieldsOf := func(id string) []string {
+		t.Helper()
+		for _, line := range strings.Split(stdout, "\n") {
+			if strings.HasPrefix(line, id+" ") || strings.HasPrefix(line, id+"\t") {
+				return strings.Fields(line)
+			}
+		}
+		t.Fatalf("no row for host %s in %q", id, stdout)
+		return nil
+	}
+	if f := fieldsOf("aa01"); len(f) < 4 || f[2] != "@3" || f[3] != "dev" {
+		t.Errorf("aa01 row = %v, want tab @3 server dev", f)
+	}
+	if f := fieldsOf("bb02"); len(f) < 4 || f[2] != "-" || f[3] != "-" {
+		t.Errorf("bb02 row = %v, want the - placeholders for a tab-less host", f)
+	}
+
+	// --json carries the fields (omitempty on the record: absent when unset).
+	stdout, _, err = runCodeCmd(t, "hosts", "--json")
+	if err != nil {
+		t.Fatalf("hosts --json error: %v", err)
+	}
+	var records []codebridge.HostRecord
+	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+		t.Fatalf("stdout is not a host-record array: %v (%q)", err, stdout)
+	}
+	if len(records) != 2 || records[0].Tab != "@3" || records[0].Server != "dev" ||
+		records[1].Tab != "" || records[1].Server != "" {
+		t.Errorf("records = %+v, want aa01 with tab/server and bb02 without", records)
 	}
 }

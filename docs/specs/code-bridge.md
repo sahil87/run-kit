@@ -26,9 +26,9 @@ The gap is exactly one thing: a process inside the extension host that calls
 agent shell / tmux pane          unix socket (0600)                      code-server extension host
 rk code exec pr.refreshList ──▶ $XDG_STATE_HOME/run-kit/cb/<hostId>.sock ──▶ rk-code-bridge extension
         │                                                                     net.createServer → executeCommand
-        │  looks up host by folder                                            one per open folder/window
+        │  looks up host by tab, then folder                                  one per open folder/window
         └──────────────▶ $XDG_STATE_HOME/run-kit/cb/hosts/<hostId>.json ◀─── registers on activate
-                         {hostId, folder, pid, sock, extVersion, startedAt}
+                         {hostId, folder, pid, sock, extVersion, startedAt, tab?, server?}
 ```
 
 Two pieces, one contract:
@@ -74,7 +74,7 @@ rk code exec <command> [json-arg…]      # run a command; args are JSON literal
       --all                               # fan out to every live host
       --timeout 30s
       --json                              # raw response envelope on stdout (default prints result only)
-rk code hosts [--json]                    # live hosts: id, folder, pid, age; prunes records whose pid is dead
+rk code hosts [--json]                    # live hosts: id, tab, server, folder, pid, age; prunes records whose pid is dead
 rk code commands [--folder]               # `__commands` — grep-able list of what the palette can do
 ```
 
@@ -85,11 +85,21 @@ suppresses chatter only (Principle 9).
 
 ### Host resolution
 
-1. `--host` wins.
-2. `--folder` (default: git toplevel of cwd) is matched against each record's `folder` — exact first,
-   then longest-prefix (a worktree under a multi-root workspace still resolves).
-3. No match and exactly one live host → use it, with a stderr note. Several → exit 1 listing them.
-   None → exit 1 with the hint to open the `code` lens on that folder.
+1. `--host` wins (exact host-id match).
+2. `--tab [@N]` sets a (tab, server) selector matched **directly** against each record's `tab`+`server`;
+   the tab's `@rk_win_code_root` is still read into the folder selector, so a host registered without a
+   tab on that folder (a user-opened window, or the `?folder=` degrade frame) is still found by the
+   folder fallback.
+3. With no `--host`/`--tab`/`--folder`, a caller inside a tmux pane first tries its **own tab**
+   (best-effort; outside tmux or with a malformed `$TMUX` the step is skipped silently), then falls
+   through to the folder ladder. An explicit `--folder` skips the own-tab step.
+4. The folder — `--folder <path>` or the git toplevel of cwd — is matched against each record's
+   `folder`: exact first, then longest-prefix (a worktree under a multi-root workspace still resolves).
+5. No match and exactly one live host → use it, with a stderr note. Several → exit 1 listing them (the
+   listing includes the tab). None → exit 1 with the hint to open the `code` lens on that folder.
+
+`rk code hosts` renders `TAB` and `SERVER` columns (`-` when a host registered without a tab); `--json`
+carries the fields.
 
 ### No `rk code open` (yet)
 
@@ -104,18 +114,61 @@ the repo when the user first opens the code surface, or ask the user to File > O
 
 - `activationEvents: ["*"]` — deliberately eager; being reachable before any user action is the point,
   and it costs one socket. Fallback to `onStartupFinished` if startup cost ever shows.
-- `hostId` = short hash of (workspace folder, machine id). Deterministic, so a reloaded window reuses
-  its record and socket path instead of leaking one per reload.
+- `hostId` = `sha1(<identityPath>\n<machineId>)[:12]`, where `identityPath` is the workspace file's
+  `fsPath` when the window was opened from a `.code-workspace` carrying a tab identity (see
+  § Tab identity) — two tabs on one folder get distinct hosts — and the first folder's `fsPath`
+  otherwise. Deterministic, so a reloaded window reuses its record and socket path instead of leaking
+  one per reload.
 - Socket at `$XDG_STATE_HOME/run-kit/cb/<hostId>.sock` (default `~/.local/state/run-kit/cb/`) — the
   same state root `layout-snapshots` uses. Not `~/.config/run-kit` (config is user-authored; this is
   runtime state) and not the legacy `~/.rk`. ~50 bytes, under the 104-byte macOS `sun_path` cap.
   Stale socket files are unlinked on activate.
 - Registry record `$XDG_STATE_HOME/run-kit/cb/hosts/<hostId>.json`:
-  `{hostId, folder, pid, sock, extVersion, startedAt}`. The CLI treats a record as live only if
-  `kill -0 pid` succeeds **and** `__ping` answers; otherwise it removes it.
+  `{hostId, folder, pid, sock, extVersion, startedAt}` plus optional `tab`/`server` (present only when
+  the window carries a tab identity; the six existing names unchanged). The CLI treats a record as live
+  only if `kill -0 pid` succeeds **and** `__ping` answers; otherwise it removes it. `__ping`'s `info`
+  gains the same two optional fields (additive protocol).
 - VS Code setting `rk.bridge.enabled` (default `true`) as the off switch, written into the managed
   profile's `settings.json` alongside the existing `chat.disableAIFeatures` etc. No allowlist in v1
   (see Security).
+
+## Tab identity — one derived workspace file per tab
+
+The code lens is keyed by **tab**. rk derives one `.code-workspace` file per (server, tab, code root)
+at `$XDG_STATE_HOME/run-kit/code/<server>/<@N>-<hash6>.code-workspace`, where `hash6` is the first 6
+lowercase hex chars of `sha256(<absolute root>)`. Its `settings` block carries `rk.tab` and `rk.server`
+— the one channel code-server hands an extension host arbitrary per-window key/value data, readable
+through the normal configuration API. The code tile opens `/code/?workspace=<file>` (the primary form,
+replacing `?folder=`, which survives as the degrade path when the workspace GET fails). The file is a
+**derived artifact**, ensured on demand by `GET /api/windows/{windowId}/code-workspace` from the live
+`@rk_win_code_root` — never a state store; deleting it changes nothing but a regeneration.
+
+The extension reads `rk.tab` (`^@\d+$`) and `rk.server` (tmux server-name charset); either failing
+validation means no identity. With an identity present it sets the `rk.hasTab` context key (re-evaluated
+on configuration change), hashes `hostId` from the workspace file (§ Extension lifecycle), and writes
+`tab`/`server` into the host record and `__ping` info. Without one, everything degrades to the
+folder-keyed behavior above and every menu/palette entry below is hidden — a tab-less host shows
+nothing and never errors.
+
+## Editor-side actions
+
+Six commands (all `"category": "run-kit"`), each gated on the `rk.hasTab` context key and each shelling
+out to an existing rk verb via `execFile` argv arrays with a timeout — no shell strings, no new Go
+resolution logic:
+
+| Command | Appears in | Effect |
+|---------|------------|--------|
+| Open in Web Tile | explorer + editor-title context menus (files), palette | `rk tab web add @N <file> --show -L <server>` (15 s timeout) |
+| Open Folder in Web Tile | explorer context menu (folders) | the same verb on a directory target |
+| Open in Web Tile and Notify | with Open in Web Tile | the add, then on exit 0 `rk notify "presenting <basename>" --title run-kit` |
+| Send to Agent | editor context menu (selection), palette | stages `<path>:<N>[-<M>]` plus the selected text via `rk mux send @N - --no-enter -L <server>` (20 s timeout, payload on stdin); a gate refusal warns with a **Force** button that re-runs with `--force` |
+| Copy Reference for Agent | editor context menu (selection), palette | the `path:N[-M]` reference to the clipboard |
+| Open Port in Web Tile | palette only | an InputBox (validates 1–65535), then `rk tab web add @N :<port> --show -L <server>` |
+
+The `rk` binary resolves on a ladder: the `rk.bridge.rkPath` setting (non-empty, absolute) → `$RK_BIN`
+(the daemon's code-server spawn sets it from its own binary path) → `rk` on PATH. An unresolvable
+binary surfaces exactly `run-kit: rk not found — set rk.bridge.rkPath`; other non-zero exits surface
+the first stderr line. Web-tile successes are silent; copy/send confirm on the status bar for 3 s.
 
 ## Security
 

@@ -68,8 +68,9 @@ var codeServerRunJob = func(ctx context.Context, window string, argv []string) (
 }
 
 // codeServerSelfPath resolves this daemon's own on-disk binary path for the
-// install job's shell chain. A package seam (mirroring codeServerUserHomeDir)
-// so tests return a fixed path.
+// spawn argv's RK_BIN env element and the install job's shell chain. A
+// package seam (mirroring codeServerUserHomeDir) so tests return a fixed
+// path.
 var codeServerSelfPath = selfpath.Resolve
 
 // codeServerSeedSettings is the write-once baseline for the rk-owned profile:
@@ -230,15 +231,27 @@ func ensureCodeServerCore(cli bool) (EnsureOutcome, error) {
 		return EnsureInstallJobSpawned, nil
 	}
 
+	// RK_BIN hands the code-server environment the resolved rk binary path (the
+	// bridge extension's $RK_BIN rung). Resolution failure drops the element —
+	// the spawn proceeds without it, matching the home-dir posture.
+	envPrefix := []string{"env", "-u", "VSCODE_IPC_HOOK_CLI"}
+	if self, selfErr := codeServerSelfPath(); selfErr != nil {
+		slog.Warn("code-server spawn: could not resolve the rk binary path; spawning without RK_BIN", "err", selfErr)
+	} else {
+		envPrefix = append(envPrefix, "RK_BIN="+self)
+	}
+
 	args := []string{
 		"new-session", "-d",
 		"-s", CodeServerSessionName,
 		"-n", CodeServerWindowName,
-		"env", "-u", "VSCODE_IPC_HOOK_CLI",
+	}
+	args = append(args, envPrefix...)
+	args = append(args,
 		binary, "--bind-addr", fmt.Sprintf("%s:%d", localhostAddr, port), "--auth", "none",
 		"--disable-telemetry", "--disable-update-check", "--disable-workspace-trust",
 		"--disable-getting-started-override", "--app-name", "run-kit",
-	}
+	)
 	if homeErr == nil {
 		profileDir := codeServerProfileDir(home)
 		if err := migrateCodeServerProfile(home); err != nil {
@@ -308,7 +321,10 @@ func spawnCodeServerInstallJob(ctx context.Context) {
 // The launch strips VSCODE_IPC_HOOK_CLI from the window's environment via
 // `env -u` (inside a VS Code integrated terminal that var flips code-server
 // into `code`-CLI mode — "open in existing instance" → exits with "Please
-// specify at least one file or folder"; the dev.sh lesson). Loopback-only +
+// specify at least one file or folder"; the dev.sh lesson). The same env
+// prefix sets RK_BIN to the daemon's own resolved binary path so the bridge
+// extension can run rk regardless of the window's PATH; an unresolvable
+// self-path omits the element and never blocks the spawn. Loopback-only +
 // --auth none: the rk origin is the trust boundary, same posture as dev.
 // The remaining flags curate the embedded /code lens: telemetry and the
 // update notifier off (updates arrive via rk — `rk code-server update`),

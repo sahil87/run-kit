@@ -535,6 +535,35 @@ export async function fetchWindowHistory(
   return res.text();
 }
 
+/** The typed result of the code-workspace derivation GET. `no-root` is the
+ *  409 shape (the window's `@rk_win_code_root` read empty at request time) —
+ *  a resolved status the caller re-drives on the next payload change, never a
+ *  throw. */
+export type CodeWorkspaceResult =
+  | { status: "ok"; path: string; root: string }
+  | { status: "no-root" };
+
+/**
+ * Derive (on demand) the window's tab-keyed `.code-workspace` file and return
+ * its path: GET /api/windows/{windowId}/code-workspace. The handler is the
+ * single writer of workspace files, so this read-shaped GET fires only when a
+ * code tile is about to mount (or after an editor-initiated folder
+ * navigation). A 409 resolves to `{ status: "no-root" }`; every other non-ok
+ * response throws as usual.
+ */
+export async function fetchCodeWorkspace(
+  server: string,
+  windowId: string,
+): Promise<CodeWorkspaceResult> {
+  const res = await deduplicatedFetch(
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/code-workspace`, server),
+  );
+  if (res.status === 409) return { status: "no-root" };
+  if (!res.ok) await throwOnError(res);
+  const data = (await res.json()) as { path?: string; root?: string };
+  return { status: "ok", path: data.path ?? "", root: data.root ?? "" };
+}
+
 export async function splitWindow(
   server: string,
   windowId: string,

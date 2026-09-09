@@ -1,5 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { plainCodeStubHtml, reserveDeadPort, startCodeStub, type CodeStub, type DeadPort } from "./_ports";
 import { openPalette, READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import {
@@ -23,9 +26,12 @@ import { stubProxyPorts } from "./_web-tile";
  * gitRoot derived (the port resolves by convention — `RK_CODE_SERVER_PORT`
  * preset, else `RK_PORT+2` — and no longer gates), and code-server
  * reachability governing only the surface CONTENT (live iframe vs the
- * not-running empty state). The iframe src is the STABLE
- * `/code/?folder=<git root>` route — the port never appears in a URL. Also
- * covers the `/code` → `/code/` redirect.
+ * not-running empty state). The iframe mounts at the tab-keyed
+ * `/code/?workspace=<path>` URL — `<path>` comes from the test's own
+ * `GET /api/windows/<id>/code-workspace` call (the harness's per-run
+ * XDG_STATE_HOME makes the absolute path run-specific, so it is never
+ * hardcoded) — and the terse `code-surface-pending` state precedes the
+ * iframe on first open. Also covers the `/code` → `/code/` redirect.
  *
  * Shared setup:
  * - `beforeEach`: `stubProxyPorts(page, <derived>)` (`_web-tile.ts`)
@@ -55,12 +61,20 @@ import { stubProxyPorts } from "./_web-tile";
  *   10s budget). `afterAll` kills the session (best-effort); the
  *   stub-listening describe also closes the stub.
  * - `makeWindow(name, {cwd?})`: create a window via `tmux new-window`
- *   (optionally with `-c /tmp` for a non-repo cwd — code-capable via the
- *   cwd fallback, so the code folder is `/tmp` itself). Returns the stable
- *   `@N` id.
+ *   (optionally with `-c <dir>` for a non-repo cwd — code-capable via the
+ *   cwd fallback, so the code root is that dir itself; the dir must live
+ *   under $HOME, the `@rk_win_code_root` write path's constraint). Returns
+ *   the stable `@N` id.
  * - `GIT_ROOT`: `git rev-parse --show-toplevel` from the spec process — the
  *   toplevel every in-repo test window derives (windows inherit the tmux
  *   server's repo-root cwd).
+ * - `fetchWorkspace(page, id)`: the test's own GET of
+ *   `/api/windows/<id>/code-workspace` — the derived workspace file's
+ *   run-specific absolute path (per-run XDG_STATE_HOME, never hardcoded).
+ *   `expectWorkspaceFile(path, root, id)` asserts the on-disk identity
+ *   payload (`folders[0].path`, `rk.tab`, `rk.server`).
+ *   `holdWorkspaceFetch(page)` route-holds the frontend's GET so the
+ *   pending → iframe transition is observable regardless of box load.
  * - `expectWindowLayout(id, expected)`: retrying read of the window's
  *   `@rk_win_layout` tmux option — the SHARED layout the translation / verbs
  *   write (never the URL; the URL stays bare after translation drops the
@@ -78,8 +92,8 @@ const TEST_SESSION = `e2e-codesurface-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
 // The git root every in-repo window derives (windows inherit the tmux server's
-// start cwd — the repo root). FindGitRoot walks to the toplevel, so the
-// expected `?folder=` value is the worktree root.
+// start cwd — the repo root). FindGitRoot walks to the toplevel, so the seeded
+// code root — the workspace file's folders[0].path — is the worktree root.
 const GIT_ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], {
   encoding: "utf-8",
 }).trim();
@@ -128,8 +142,60 @@ const webToggle = (page: Page) =>
 // The panel slot is gone (260812-ab5v) — surfaces render as layout TILES.
 const codeTile = (page: Page) => page.getByTestId("surface-tile-code");
 const codeIframe = (page: Page) => page.getByTitle("Code editor");
+const pending = (page: Page) => page.getByTestId("code-surface-pending");
 const notRunning = (page: Page) => page.getByTestId("code-surface-empty");
 const terminal = (page: Page) => page.locator(".xterm").first();
+
+/** The window's derived workspace file, fetched exactly the way the tile does:
+ *  GET /api/windows/{id}/code-workspace (the route's single writer). The
+ *  harness runs with a per-run temp XDG_STATE_HOME, so the returned absolute
+ *  path is run-specific — the response is the only legitimate source. */
+async function fetchWorkspace(
+  page: Page,
+  windowId: string,
+): Promise<{ path: string; root: string }> {
+  const res = await page.request.get(
+    `/api/windows/${encodeURIComponent(windowId)}/code-workspace?server=${encodeURIComponent(TMUX_SERVER)}`,
+  );
+  expect(res.ok(), `code-workspace GET for ${windowId}: ${res.status()}`).toBe(true);
+  return (await res.json()) as { path: string; root: string };
+}
+
+/** The expected iframe `src` for a derived workspace path. */
+function workspaceSrc(path: string): string {
+  return `/code/?workspace=${encodeURIComponent(path)}`;
+}
+
+/** Read the derived workspace file off disk and assert its identity payload:
+ *  the folder it was derived from, the window id (`rk.tab`), and the tmux
+ *  server (`rk.server`). */
+function expectWorkspaceFile(path: string, root: string, windowId: string): void {
+  expect(existsSync(path), `workspace file exists: ${path}`).toBe(true);
+  const doc = JSON.parse(readFileSync(path, "utf-8")) as {
+    folders: Array<{ path: string }>;
+    settings: Record<string, string>;
+  };
+  expect(doc.folders).toEqual([{ path: root }]);
+  expect(doc.settings["rk.tab"]).toBe(windowId);
+  expect(doc.settings["rk.server"]).toBe(TMUX_SERVER);
+}
+
+/** Route-hold the frontend's code-workspace GET until the returned release
+ *  runs — makes the pending → iframe transition deterministic regardless of
+ *  box load (the pending state's natural lifetime can be shorter than a
+ *  paint). The test's own `fetchWorkspace` goes through `page.request`, which
+ *  page routing does not intercept. */
+async function holdWorkspaceFetch(page: Page): Promise<() => void> {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/windows/*/code-workspace*", async (route) => {
+    await gate;
+    await route.continue();
+  });
+  return release;
+}
 
 /** Assert the shared layout a window carries — its `@rk_win_layout` tmux
  *  option (retrying: a verb's POST and the option tick land asynchronously). */
@@ -196,13 +262,16 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
   });
 
   /**
-   * Proves: availability derives from the SSE `gitRoot` field alone
-   * (Constitution II/X — no client-side declaration; the port is conventional
-   * and does not gate); a non-repo cwd (`/tmp`) is code-capable too — the
-   * backend falls back to the raw cwd, so the code folder is `/tmp` itself.
-   * The `View: Code` lens switch is palette-only — the chevron menu carries no
-   * `View:` rows. The test carries a 30s budget: two window creations plus two
-   * full page loads land marginal at the 10s default under suite load.
+   * Proves: availability derives from the SSE `gitRoot` field alone (no
+   * client-side declaration; the port is conventional and does not gate); a
+   * non-repo cwd (a scratch dir under $HOME) is code-capable too — the
+   * backend falls back to the raw cwd, so the seeded code root is that dir
+   * itself. The `View: Code` lens switch is palette-only — the chevron menu
+   * carries no `View:` rows. On first open the tile shows the terse pending
+   * state until the derived workspace path resolves, then mounts the iframe
+   * at the `?workspace=` URL. The test carries a 30s budget: two window
+   * creations plus two full page loads land marginal at the 10s default
+   * under suite load.
    *
    * Steps:
    * 1. Create a repo-cwd window; navigate; assert the terminal, then the `Code
@@ -210,9 +279,15 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
    * 2. Open the palette with `View: Code`; assert the option is visible;
    *    Escape. Open the "More controls" menu; assert it carries NO `View:`
    *    rows; Escape.
-   * 3. Create a `/tmp`-cwd window; navigate; assert the `Code tile` button IS
-   *    visible, the `View: Code` palette option IS offered, and the tile's
-   *    iframe src is `/code/?folder=%2Ftmp` (the raw cwd, not a git root).
+   * 3. Create a non-repo-cwd window (a scratch dir under $HOME — the
+   *    `@rk_win_code_root` write path rejects outside-home roots); navigate;
+   *    assert the `Code tile` button IS visible and the `View: Code` palette
+   *    option IS offered.
+   * 4. Route-hold the window's code-workspace GET, open the code tile, and
+   *    assert `code-surface-pending` renders before the iframe; release the
+   *    GET, then assert the iframe src is `/code/?workspace=<encoded path>`
+   *    (path from the window's code-workspace GET) and the GET's `root` is
+   *    the raw non-repo cwd (not a git root). Remove the scratch dir.
    */
   test("the Code tile top-bar toggle appears on repo and non-repo windows alike; the non-repo code folder is the raw cwd", async ({
     page,
@@ -242,49 +317,65 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     ).toHaveCount(0);
     await page.keyboard.press("Escape");
 
-    // A non-repo cwd (/tmp) falls back to the raw cwd as its code folder —
-    // both affordances render, keyed on /tmp itself.
-    const offRepo = await makeWindow(page, `cs-tmp-${Date.now()}`, {
-      cwd: "/tmp",
-    });
-    await gotoWindow(page, offRepo);
-    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expect(codeToggle(page)).toBeVisible({ timeout: READY_TIMEOUT });
-    const paletteInput2 = await openPalette(page);
-    await paletteInput2.fill("View: Code");
-    await expect(
-      page.getByRole("option", { name: "View: Code", exact: true }),
-    ).toBeVisible();
-    await page.keyboard.press("Escape");
-    // Open the code tile: the iframe src proves the surfaced folder is the raw
-    // /tmp cwd, not a git root.
-    await codeToggle(page).click();
-    await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
-    await expect(codeIframe(page)).toHaveAttribute(
-      "src",
-      `/code/?folder=${encodeURIComponent("/tmp")}`,
-    );
+    // A non-repo cwd falls back to the raw cwd as its code root — both
+    // affordances render, keyed on that dir itself. The dir lives under $HOME
+    // because the @rk_win_code_root write path validates that constraint (an
+    // outside-home cwd's seed is rejected and the tile never resolves).
+    const offRepoRoot = mkdtempSync(join(homedir(), "rk-e2e-nonrepo-"));
+    try {
+      const offRepo = await makeWindow(page, `cs-nonrepo-${Date.now()}`, {
+        cwd: offRepoRoot,
+      });
+      await gotoWindow(page, offRepo);
+      await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+      await expect(codeToggle(page)).toBeVisible({ timeout: READY_TIMEOUT });
+      const paletteInput2 = await openPalette(page);
+      await paletteInput2.fill("View: Code");
+      await expect(
+        page.getByRole("option", { name: "View: Code", exact: true }),
+      ).toBeVisible();
+      await page.keyboard.press("Escape");
+      // Open the code tile: the pending state renders while the derivation GET
+      // is unresolved (the seed POST must land and the payload must carry the
+      // new code root first — the GET is route-held so the state is observable
+      // under any load); the iframe then mounts at the derived ?workspace=
+      // URL, whose root is the raw non-repo cwd, not a git root.
+      const release = await holdWorkspaceFetch(page);
+      await codeToggle(page).click();
+      await expect(pending(page)).toBeVisible({ timeout: READY_TIMEOUT });
+      release();
+      await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
+      const ws = await fetchWorkspace(page, offRepo);
+      expect(ws.root).toBe(offRepoRoot);
+      await expect(codeIframe(page)).toHaveAttribute("src", workspaceSrc(ws.path));
+    } finally {
+      rmSync(offRepoRoot, { recursive: true, force: true });
+    }
   });
 
   /**
    * Proves: the retired `?panel=code` deep link translates inbound (a bare
    * panel value maps against the tty default slot A → `split-h:tty,code`,
-   * written to `@rk_win_layout` once, params dropped from the URL), and the
-   * tile's renderer iframes the fully derived RELATIVE `/code/` URL (never an
-   * absolute origin; the port never appears) with the sandbox set (incl.
-   * `allow-downloads`); the terminal stays mounted beside the tile (the
-   * layout is additive).
+   * written to `@rk_win_layout` once, params dropped from the URL); the tile's
+   * renderer iframes the derived RELATIVE `/code/?workspace=<path>` URL (never
+   * an absolute origin; the port never appears) with the sandbox set (incl.
+   * `allow-downloads`); and the workspace file behind that path exists on disk
+   * carrying the window's identity (`folders[0].path` = the git root,
+   * `rk.tab` = the window id, `rk.server` = the tmux server). The terminal
+   * stays mounted beside the tile (the layout is additive).
    *
    * Steps:
    * 1. Create a repo-cwd window; navigate with `?panel=code`.
    * 2. Assert the `surface-tile-code` tile and the `Code editor` iframe are
-   *    visible, the option reads `split-h:tty,code`, the URL is bare, the
-   *    iframe `src` attribute is exactly
-   *    `/code/?folder=<url-encoded git root>`, and its sandbox contains
-   *    `allow-downloads`.
-   * 3. Assert the terminal is still visible.
+   *    visible, the option reads `split-h:tty,code`, and the URL is bare.
+   * 3. GET the window's code-workspace; assert the iframe `src` attribute is
+   *    exactly `/code/?workspace=<url-encoded path>`, the GET's `root` is the
+   *    git root, and the sandbox contains `allow-downloads`.
+   * 4. Read the workspace file off disk; assert `folders[0].path` is the git
+   *    root, `rk.tab` is the window id, and `rk.server` is the tmux server.
+   * 5. Assert the terminal is still visible.
    */
-  test("?panel=code opens the code tile (inbound translation); the iframe src is the stable /code/?folder=<git root>", async ({
+  test("?panel=code opens the code tile (inbound translation); the iframe src is the derived /code/?workspace=<path>", async ({
     page,
   }) => {
     const id = await makeWindow(page, `cs-panel-${Date.now()}`);
@@ -293,20 +384,21 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     // The retired ?panel= param translates inbound (bare panel value →
     // split-h:tty,code, one option write). The code TILE renders its iframe
     // (stub reachable) at the fully DERIVED relative src on the STABLE /code/
-    // route (260811-a2bo) — never an absolute origin, and the port never
+    // route — never an absolute origin, and the port never
     // appears (it's a server-side implementation detail).
     await expect(codeTile(page)).toBeVisible({ timeout: 10_000 });
     await expectWindowLayout(id, "split-h:tty,code");
     await expect.poll(() => new URL(page.url()).search, { timeout: 10_000 }).toBe("");
     const iframe = codeIframe(page);
     await expect(iframe).toBeVisible({ timeout: READY_TIMEOUT });
-    await expect(iframe).toHaveAttribute(
-      "src",
-      `/code/?folder=${encodeURIComponent(GIT_ROOT)}`,
-    );
-    // The sandbox carries the k3vp prerequisite set incl. allow-downloads.
+    const ws = await fetchWorkspace(page, id);
+    expect(ws.root).toBe(GIT_ROOT);
+    await expect(iframe).toHaveAttribute("src", workspaceSrc(ws.path));
+    // The sandbox carries the prerequisite set incl. allow-downloads.
     const sandbox = await iframe.getAttribute("sandbox");
     expect(sandbox).toContain("allow-downloads");
+    // The derived workspace file on disk carries the window's identity.
+    expectWorkspaceFile(ws.path, GIT_ROOT, id);
     // The terminal stays mounted beside the code tile (the layout is additive).
     await expect(terminal(page)).toBeVisible();
   });

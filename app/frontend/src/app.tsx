@@ -177,6 +177,7 @@ import {
 import { useSessionContext, useCodeServer, useCurrentServerFromRoute } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useCodeWorkspace } from "@/hooks/use-code-workspace";
 import { useToast } from "@/components/toast";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
@@ -957,28 +958,75 @@ function AppShell() {
   // (that would clobber the editor's own navigation). The per-key ref
   // suppresses a second POST while the first is in flight — the payload still
   // reads empty until the option tick confirms.
+  //
+  // Rejections are recorded per (window, seed VALUE): a refusal is
+  // deterministic (the backend validates the path — e.g. a root outside $HOME
+  // is refused with 400), so the identical value never re-POSTs, while a
+  // CHANGED seed (the pane moved) is a fresh attempt. The set doubles as the
+  // degrade signal for the workspace hook below: a window whose seed was
+  // refused can never gain a substrate codeRoot from it, so its tile mounts
+  // the `?folder=` form instead of pending forever.
   const codeRootSeedInFlightRef = useRef(new Set<string>());
+  const [codeSeedRejections, setCodeSeedRejections] = useState<Set<string>>(new Set());
   useEffect(() => {
     if (!windowParam || !effectiveWindow) return;
     const seed = codeRootSeed(effectiveWindow, layout);
     if (seed === null) return;
     const key = `${server}:${windowParam}`;
     if (codeRootSeedInFlightRef.current.has(key)) return;
+    if (codeSeedRejections.has(`${key}:${seed}`)) return;
     codeRootSeedInFlightRef.current.add(key);
-    setWindowOptions(server, windowParam, { "@rk_win_code_root": seed }).catch(() => {});
-  }, [server, windowParam, effectiveWindow, layout]);
+    setWindowOptions(server, windowParam, { "@rk_win_code_root": seed }).catch(() => {
+      // Only a rejection clears the in-flight mark (a success holds it until
+      // the option tick confirms) — clearing is what lets a later, CHANGED
+      // seed value retry; the rejection set blocks replaying this one.
+      codeRootSeedInFlightRef.current.delete(key);
+      setCodeSeedRejections((prev) =>
+        prev.has(`${key}:${seed}`) ? prev : new Set(prev).add(`${key}:${seed}`),
+      );
+    });
+  }, [server, windowParam, effectiveWindow, layout, codeSeedRejections]);
+
+  // The degrade signal for the workspace hook: the CURRENT seed value has
+  // already been refused by the backend, so the substrate root will never
+  // arrive for it. Flips back to false the moment the root changes (a fresh
+  // attempt) or the payload carries a codeRoot (a retry landed).
+  const pendingCodeRootSeed = codeRootSeed(effectiveWindow, layout);
+  const codeSeedRejected =
+    windowParam != null &&
+    pendingCodeRootSeed !== null &&
+    codeSeedRejections.has(`${server}:${windowParam}:${pendingCodeRootSeed}`);
+
+  // Workspace mount gating (spec right-panel.md § The code lens): the seed
+  // effect above is the only WRITE here; this hook only READS — once the
+  // substrate `@rk_win_code_root` is non-empty it derives the tab-keyed
+  // workspace file and the code tile mounts at the `?workspace=` URL (pending
+  // until then, `?folder=` degrade on a non-409 failure or a refused seed).
+  // `followFolder` is the follow rule's re-derivation half for the handler
+  // below.
+  const { codeSrc, followSrc, followFolder } = useCodeWorkspace(
+    server,
+    windowParam,
+    effectiveWindow,
+    layout.order.includes("code"),
+    codeSeedRejected,
+  );
 
   // Follow write (spec right-panel.md § The code lens): after the seed, the
   // editor's OWN navigation (CodeSurface's load-event seam) is the only writer
-  // of `@rk_win_code_root`. The terminal never moves the code root.
+  // of `@rk_win_code_root`. The terminal never moves the code root. The editor
+  // already navigated itself to the bare `?folder=` URL, so after latching,
+  // the workspace is re-derived and the frame is landed on the `?workspace=`
+  // URL — the one sanctioned parent re-navigation, nonce-gated in CodeSurface.
   const handleCodeFolderNavigated = useCallback(
     (folder: string) => {
       if (!windowParam || !effectiveWindow || folder === codeRootFor(effectiveWindow)) return;
       setWindowOptions(server, windowParam, { "@rk_win_code_root": folder }).catch(
         (err: Error) => addToast(err.message || "Failed to set code folder", "error"),
       );
+      followFolder(folder);
     },
-    [server, windowParam, effectiveWindow, addToast],
+    [server, windowParam, effectiveWindow, addToast, followFolder],
   );
 
   // The ONE layout mutation path (write discipline — user-initiated mutations
@@ -4751,6 +4799,13 @@ function AppShell() {
               // Follow rule: after the seed, the editor's own navigation is
               // the ONLY writer of `@rk_win_code_root`.
               onCodeFolderNavigated={handleCodeFolderNavigated}
+              // Mount gating (the derivation GET lives in this component's
+              // layout-state block): null ⇒ the code tile renders its pending
+              // state until the workspace path resolves.
+              codeWorkspaceSrc={codeSrc}
+              // The follow rule's re-navigation: nonce-keyed, so only an
+              // editor-initiated folder navigation ever moves a live frame.
+              codeFollowSrc={followSrc}
               shouldReclaimChord={reclaimChordForKind}
               onPromote={(surface) => applyLayout(promote(layout, surface))}
               onSwap={(surface) => applyLayout(swapWithNext(layout, surface))}

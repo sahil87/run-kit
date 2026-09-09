@@ -867,6 +867,9 @@ func (s *Server) buildRouter() chi.Router {
 	// api/operator.go.
 	r.Post("/api/operator-request", s.handleServerOperatorRequest)
 	r.Get("/api/windows/{windowId}/history", s.handleWindowHistory)
+	// Derived per-tab .code-workspace file — read-shaped ensure (GET, §IX); the
+	// ONLY daemon-side writer of workspace files. See api/codeworkspace.go.
+	r.Get("/api/windows/{windowId}/code-workspace", s.handleCodeWorkspace)
 	// Conversation fork — a new window in the SAME session + directory, resuming
 	// the window's agent session with --fork-session. See api/fork.go.
 	r.Post("/api/windows/{windowId}/fork", s.handleWindowFork)

@@ -11,6 +11,8 @@ export interface BridgeInfo {
   folder: string;
   pid: number;
   version: string;
+  tab?: string;
+  server?: string;
 }
 
 export interface BridgeDeps {

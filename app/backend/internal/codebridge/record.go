@@ -11,7 +11,9 @@ import (
 // HostRecord is one cb/hosts/<hostId>.json file as written by the extension
 // on activation. Field names are the extension's JSON contract and must not
 // change. StartedAt stays a raw string (RFC 3339 as written by the extension)
-// so a malformed timestamp never breaks enumeration.
+// so a malformed timestamp never breaks enumeration. Tab and Server carry the
+// tab identity and appear only on hosts opened through a tab-keyed workspace
+// file; a folder-opened host has neither.
 type HostRecord struct {
 	HostID     string `json:"hostId"`
 	Folder     string `json:"folder"`
@@ -19,6 +21,8 @@ type HostRecord struct {
 	Sock       string `json:"sock"`
 	ExtVersion string `json:"extVersion"`
 	StartedAt  string `json:"startedAt"`
+	Tab        string `json:"tab,omitempty"`
+	Server     string `json:"server,omitempty"`
 }
 
 // recordPath is the registry file for one host id.

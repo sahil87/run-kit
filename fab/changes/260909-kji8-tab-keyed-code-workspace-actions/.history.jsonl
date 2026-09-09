@@ -1,3 +1,12 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-09T07:49:17Z"}
 {"args":"Tab-keyed code-server workspaces + run-kit context-menu actions in the code bridge extension: derive a per-tab .code-workspace file carrying rk.tab/rk.server so the rk-code-bridge extension knows its tab; hostId keyed by tab; rk code exec --tab direct lookup; Open in Web Tile / Open Folder in Web Tile / Open in Web Tile and Notify / Send to Agent / Copy Reference for Agent / Open Port in Web Tile actions shelling out to rk tab web add, rk notify, rk mux send","cmd":"fab-new","event":"command","ts":"2026-09-09T07:49:17Z"}
 {"delta":"+2.2","event":"confidence","score":2.2,"trigger":"calc-score","ts":"2026-09-09T07:53:37Z"}
+{"delta":"+0.7","event":"confidence","score":2.9,"trigger":"calc-score","ts":"2026-09-09T07:56:01Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-09-09T08:02:04Z"}
+{"delta":"+0.4","event":"confidence","score":3.3,"trigger":"calc-score","ts":"2026-09-09T08:02:04Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-09T08:02:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-09T08:03:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-09T08:46:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-09T08:52:16Z"}
+{"event":"review","result":"passed","ts":"2026-09-09T08:52:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-09T09:02:46Z"}

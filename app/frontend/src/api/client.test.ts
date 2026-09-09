@@ -19,6 +19,7 @@ import {
   sendServerOperatorRequest,
   ApiError,
   fetchWindowHistory,
+  fetchCodeWorkspace,
   getDirectories,
   uploadFile,
   killServer,
@@ -1458,4 +1459,53 @@ describe("fetchWindowHistory (terminal export)", () => {
     expect(body).toBe("line one\nline two\n");
   });
 
+});
+
+describe("fetchCodeWorkspace (tab-keyed workspace derivation)", () => {
+  it("GETs /api/windows/{id}/code-workspace with the server query and resolves ok with path/root", async () => {
+    let capturedUrl = "";
+    mswServer.use(
+      http.get("/api/windows/:windowId/code-workspace", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({
+          path: "/home/u/.local/state/run-kit/code/default/@7-3fa1c9.code-workspace",
+          root: "/home/u/code/x",
+        });
+      }),
+    );
+    const result = await fetchCodeWorkspace("default", "@7");
+    expect(capturedUrl).toContain("/api/windows/%407/code-workspace");
+    expect(capturedUrl).toContain("server=default");
+    expect(result).toEqual({
+      status: "ok",
+      path: "/home/u/.local/state/run-kit/code/default/@7-3fa1c9.code-workspace",
+      root: "/home/u/code/x",
+    });
+  });
+
+  it("a 409 resolves to { status: \"no-root\" } — a typed status, not a throw", async () => {
+    mswServer.use(
+      http.get("/api/windows/:windowId/code-workspace", () =>
+        HttpResponse.json({ error: "window has no code root" }, { status: 409 }),
+      ),
+    );
+    await expect(fetchCodeWorkspace("default", "@7")).resolves.toEqual({ status: "no-root" });
+  });
+
+  it("other non-ok responses throw as usual", async () => {
+    mswServer.use(
+      http.get("/api/windows/:windowId/code-workspace", () =>
+        HttpResponse.json({ error: "ensure failed" }, { status: 500 }),
+      ),
+    );
+    try {
+      await fetchCodeWorkspace("default", "@7");
+      expect.fail("fetchCodeWorkspace should reject");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      if (!(err instanceof ApiError)) return;
+      expect(err.status).toBe(500);
+      expect(err.message).toBe("ensure failed");
+    }
+  });
 });

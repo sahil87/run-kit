@@ -329,16 +329,26 @@ derived git root; afterwards only code-server's own folder navigation (the
 `load`-event seam) or an explicit `rk tab code set <folder>` moves it. The
 terminal never moves it.
 
-The code bridge already keys hosts by `folder` in `cb/hosts/<hostId>.json`.
-With the folder in tmux, `rk code exec` gains a **tab-addressed form**:
+The option also drives the tile's URL. `GET /api/windows/{windowId}/code-workspace`
+reads the live root and derives one `.code-workspace` file per (server, tab,
+root) — `$XDG_STATE_HOME/run-kit/code/<server>/<@N>-<hash6>.code-workspace`,
+its `settings` carrying `rk.tab`/`rk.server` — and the code tile mounts its
+iframe at `/code/?workspace=<file>`. The `?folder=<root>` form survives only
+as the degrade path (GET failure) and as the editor's own File > Open Folder
+navigation, which re-latches and re-derives.
+
+The code bridge registers each host with its tab and server (read from the
+workspace file's settings) alongside the folder in `cb/hosts/<hostId>.json`,
+so `rk code exec` resolves a tab **directly**:
 
 ```
-rk code exec [--tab @N] <command> [args…]     # host = the one whose folder == @N's @rk_win_code_root
+rk code exec [--tab @N] <command> [args…]     # host = the one registered with tab @N on this server
 ```
 
 Default `--tab` is the caller's own tab, so an agent in a pane says
 `rk code exec workbench.action.files.openFile $uri` and hits *its* editor.
-Host resolution by cwd remains the fallback when the tab has no code root.
+Folder matching (the tab's `@rk_win_code_root`, then the cwd toplevel) remains
+the fallback for hosts registered without a tab.
 The bridge is thus the code surface's command channel exactly as
 `set-option` is every other surface's — it is the one surface whose interior
 (open files, cursor) is not tmux state and never will be.

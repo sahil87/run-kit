@@ -97,10 +97,11 @@ is rewritten to a vscode.Uri by the extension), and anything that is not
 valid JSON is sent as a string, so bare words work. A literal '--' ends flag
 parsing, so negative numbers and dash-prefixed strings pass as args.
 
-Host resolution: --host wins; then --tab (the tab's @rk_win_code_root as the
-folder; an empty root falls through to the cwd default with a note); then
---folder (default: the git toplevel of the cwd) matched exact, then
-longest-prefix, against the hosts' folders; then a single live host as
+Host resolution: --host wins; then --tab (a direct match on the tab identity,
+with the tab's @rk_win_code_root as the folder fallback; an empty root falls
+through to the cwd default with a note); then --folder (default: the caller's
+own tab when inside tmux, then the git toplevel of the cwd) matched exact,
+then longest-prefix, against the hosts' folders; then a single live host as
 fallback. --all fans out to every live host (ignoring --tab).
 
 Output: the result JSON on stdout ('null' prints null); --json prints the raw
@@ -116,8 +117,9 @@ matches from the host's command list print as a did-you-mean list on stderr.`,
 var codeHostsCmd = &cobra.Command{
 	Use:   "hosts [--json]",
 	Short: "List live code-bridge hosts",
-	Long: `List the live code-bridge hosts as aligned rows (ID FOLDER PID AGE EXT,
-age humanised from the record's startedAt) on stdout.
+	Long: `List the live code-bridge hosts as aligned rows (ID FOLDER TAB SERVER
+PID AGE EXT; TAB/SERVER are the host's tab identity, '-' for a host opened
+without one, age humanised from the record's startedAt) on stdout.
 
 Liveness is re-derived on every call: a record counts only when its pid is
 alive AND its socket answers a ping within 2s; records failing either check
@@ -132,8 +134,9 @@ var codeCommandsCmd = &cobra.Command{
 	Use:   "commands [--folder <path>]",
 	Short: "List the command ids a code-bridge host can execute",
 	Long: `Resolve a code-bridge host exactly like 'rk code exec' (--host wins, then
---tab — the tab's @rk_win_code_root — then --folder or the git toplevel of the
-cwd, then the single-host fallback), ask
+--tab — a direct tab-identity match plus the tab's @rk_win_code_root — then
+--folder or the default: the caller's own tab inside tmux, else the git
+toplevel of the cwd, then the single-host fallback), ask
 it for the full vscode.commands.getCommands(true) list, and print one command
 id per line, sorted — a grep-able view of what the palette can do.`,
 	Args:         cobra.NoArgs,
@@ -274,23 +277,32 @@ var codeGetWindowOptionFn = func(ctx context.Context, windowID, server, option s
 	return tmux.GetWindowOption(ctx, windowID, server, option)
 }
 
-// resolveCodeHost maps the --host/--tab/--folder flags (and the git-toplevel
-// default) onto codebridge.Resolve, renders the failure classes, and applies
-// the using-host note (single-host fallback) and the version-skew warning to
-// the chosen host. Order: --host wins; --tab resolves the tab's
-// @rk_win_code_root into the folder selector (empty root falls through to the
-// --folder/cwd default with a note); --folder; then the cwd default. tab is
-// "" when the flag is absent, presentFlagAuto for a bare --tab (own tab), or
-// an address.
+// resolveCodeHost maps the --host/--tab/--folder flags (and the own-tab /
+// git-toplevel defaults) onto codebridge.Resolve, renders the failure
+// classes, and applies the using-host note (single-host fallback) and the
+// version-skew warning to the chosen host. Order: --host wins; --tab sets the
+// tab-direct selector from the resolved address AND the tab's
+// @rk_win_code_root as the folder fallback (empty root falls through to the
+// cwd default with a note); an explicit --folder; with no flags at all, a
+// caller inside a tmux pane gets its own tab as the direct selector
+// (best-effort — outside tmux or on any error the step is skipped silently)
+// before the cwd-toplevel folder ladder. tab is "" when the flag is absent,
+// presentFlagAuto for a bare --tab (own tab), or an address.
 func resolveCodeHost(cmd *cobra.Command, sink outputSink, ctx context.Context, live []codebridge.HostRecord, hostID, folder, tab string) (codebridge.HostRecord, error) {
 	sel := codebridge.Selector{HostID: hostID, Folder: folder}
 	if sel.HostID == "" && tab != "" {
-		tabFolder, err := codeTabFolder(ctx, sink, tab)
+		windowID, server, tabFolder, err := codeTabTarget(ctx, sink, tab)
 		if err != nil {
 			return codebridge.HostRecord{}, err
 		}
+		sel.Tab, sel.Server = windowID, server
 		if tabFolder != "" {
 			sel.Folder = tabFolder
+		}
+	}
+	if sel.HostID == "" && tab == "" && sel.Folder == "" {
+		if windowID, server, err := ownWindowID(ctx); err == nil {
+			sel.Tab, sel.Server = windowID, server
 		}
 	}
 	if sel.HostID == "" && sel.Folder == "" {
@@ -311,26 +323,25 @@ func resolveCodeHost(cmd *cobra.Command, sink outputSink, ctx context.Context, l
 	return host, nil
 }
 
-// codeTabFolder resolves the --tab address to the tab's @rk_win_code_root
-// ("" = fall through to the cwd default, with a note). The address is @N,
-// =session:window, or the presentFlagAuto sentinel for the caller's own tab.
-func codeTabFolder(ctx context.Context, sink outputSink, tab string) (string, error) {
+// codeTabTarget resolves the --tab address to the (windowID, server)
+// tab-direct key plus the tab's @rk_win_code_root ("" = fall through to the
+// cwd default, with a note). The address is @N, =session:window, or the
+// presentFlagAuto sentinel for the caller's own tab.
+func codeTabTarget(ctx context.Context, sink outputSink, tab string) (windowID, server, codeRoot string, err error) {
 	addrArg := tab
 	if tab == presentFlagAuto {
 		addrArg = ""
 	}
-	_, windowID, server, err := resolveTabAddr(ctx, addrArg, "")
-	if err != nil {
-		return "", err
+	if _, windowID, server, err = resolveTabAddr(ctx, addrArg, ""); err != nil {
+		return "", "", "", err
 	}
-	codeRoot, err := codeGetWindowOptionFn(ctx, windowID, server, tmux.CodeRootOption)
-	if err != nil {
-		return "", err
+	if codeRoot, err = codeGetWindowOptionFn(ctx, windowID, server, tmux.CodeRootOption); err != nil {
+		return "", "", "", err
 	}
 	if codeRoot == "" {
 		sink.Notef("tab %s has no @rk_win_code_root — falling back to the cwd\n", windowID)
 	}
-	return codeRoot, nil
+	return windowID, server, codeRoot, nil
 }
 
 // codeResolveError prints the resolution failure — the ambiguous case lists
@@ -344,7 +355,7 @@ func codeResolveError(cmd *cobra.Command, sel codebridge.Selector, err error) er
 		fmt.Fprintln(w, "error: multiple live code-bridge hosts — pass --host to pick one:")
 		if errors.As(err, &hle) {
 			for _, h := range hle.Hosts {
-				fmt.Fprintf(w, "  %s  %s\n", h.HostID, h.Folder)
+				fmt.Fprintf(w, "  %s  %s  %s\n", h.HostID, h.Folder, codeColumn(h.Tab))
 			}
 		}
 	case errors.Is(err, codebridge.ErrNoHost):
@@ -570,15 +581,25 @@ func runCodeHosts(cmd *cobra.Command, _ []string) error {
 	}
 	var buf bytes.Buffer
 	tw := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tFOLDER\tPID\tAGE\tEXT")
+	fmt.Fprintln(tw, "ID\tFOLDER\tTAB\tSERVER\tPID\tAGE\tEXT")
 	for _, h := range live {
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\n", h.HostID, h.Folder, h.PID, codeAge(h.StartedAt, time.Now()), h.ExtVersion)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n", h.HostID, h.Folder, codeColumn(h.Tab), codeColumn(h.Server), h.PID, codeAge(h.StartedAt, time.Now()), h.ExtVersion)
 	}
 	if err := tw.Flush(); err != nil {
 		return err
 	}
 	sink.Dataf("%s", buf.String())
 	return nil
+}
+
+// codeColumn renders an optional host field for the hosts table and the
+// ambiguous-hosts listing; an absent field (no tab identity) shows the
+// placeholder.
+func codeColumn(v string) string {
+	if v == "" {
+		return "-"
+	}
+	return v
 }
 
 // codeAge humanises a record's startedAt (RFC 3339) for the hosts table. A

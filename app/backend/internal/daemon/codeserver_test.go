@@ -78,7 +78,7 @@ func TestEnsureCodeServerSpawnsSiblingSession(t *testing.T) {
 	}
 	got := strings.Join((*spawned)[0], " ")
 	want := fmt.Sprintf(
-		"new-session -d -s rk-code-server -n code-server env -u VSCODE_IPC_HOOK_CLI %s --bind-addr 127.0.0.1:%d --auth none --disable-telemetry --disable-update-check --disable-workspace-trust --disable-getting-started-override --app-name run-kit --user-data-dir %s --extensions-dir %s",
+		"new-session -d -s rk-code-server -n code-server env -u VSCODE_IPC_HOOK_CLI RK_BIN=/usr/local/bin/rk %s --bind-addr 127.0.0.1:%d --auth none --disable-telemetry --disable-update-check --disable-workspace-trust --disable-getting-started-override --app-name run-kit --user-data-dir %s --extensions-dir %s",
 		filepath.Join(stubDir, "code-server"), // the ladder's PATH rung resolves absolute
 		port,
 		filepath.Join(home, ".rk", "code-server-profile"),
@@ -86,6 +86,58 @@ func TestEnsureCodeServerSpawnsSiblingSession(t *testing.T) {
 	)
 	if got != want {
 		t.Errorf("spawn argv =\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// --- R3: RK_BIN in the spawn argv ---
+
+func TestEnsureCodeServerSpawnCarriesRkBin(t *testing.T) {
+	stubDir := testutil.StubOnPath(t, "code-server", "#!/bin/sh\nexit 0\n")
+	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
+	spawned, _, _ := withCodeServerSeams(t, false)
+	codeServerSelfPath = func() (string, error) { return "/x/bin/rk", nil }
+
+	ensureCodeServer()
+
+	if len(*spawned) != 1 {
+		t.Fatalf("spawn calls = %d, want 1", len(*spawned))
+	}
+	args := (*spawned)[0]
+	// RK_BIN must sit immediately after `-u VSCODE_IPC_HOOK_CLI` and before the
+	// code-server binary: env assignments precede the command they apply to.
+	i := -1
+	for j, a := range args {
+		if a == "VSCODE_IPC_HOOK_CLI" {
+			i = j
+		}
+	}
+	if i < 0 || i+2 >= len(args) {
+		t.Fatalf("spawn argv = %v, want `-u VSCODE_IPC_HOOK_CLI RK_BIN=… <binary>`", args)
+	}
+	if args[i+1] != "RK_BIN=/x/bin/rk" {
+		t.Errorf("element after VSCODE_IPC_HOOK_CLI = %q, want RK_BIN=/x/bin/rk", args[i+1])
+	}
+	if want := filepath.Join(stubDir, "code-server"); args[i+2] != want {
+		t.Errorf("element after RK_BIN = %q, want the code-server binary %q", args[i+2], want)
+	}
+}
+
+func TestEnsureCodeServerSpawnOmitsRkBinOnSelfPathError(t *testing.T) {
+	testutil.StubOnPath(t, "code-server", "#!/bin/sh\nexit 0\n")
+	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
+	spawned, _, _ := withCodeServerSeams(t, false)
+	codeServerSelfPath = func() (string, error) { return "", fmt.Errorf("no self path") }
+
+	ensureCodeServer()
+
+	// The spawn still runs; only the RK_BIN element is dropped.
+	if len(*spawned) != 1 {
+		t.Fatalf("spawn calls = %d, want 1 (self-path failure must not block the spawn)", len(*spawned))
+	}
+	for _, a := range (*spawned)[0] {
+		if strings.HasPrefix(a, "RK_BIN=") {
+			t.Errorf("spawn argv = %v, want no RK_BIN= element when self-path resolution fails", (*spawned)[0])
+		}
 	}
 }
 

@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The rk-code-bridge code-server extension + the `rk code` CLI family — a same-user Unix-socket channel into the code lens editor's extension host. Covers the socket + registry contract under $XDG_STATE_HOME/run-kit/cb/, the one-request-per-connection NDJSON protocol (error kinds, __ping/__commands, $uri sugar), exec/hosts/commands + exit codes, host resolution + liveness pruning, VSIX embed/install distribution + version skew, the doctor row, rk skill code, and the same-user security stance."
+description: "The rk-code-bridge code-server extension + the `rk code` CLI family — a same-user Unix-socket channel into the code lens editor's extension host. Covers the socket + host registry under $XDG_STATE_HOME/run-kit/cb/, tab-keyed identity via the derived .code-workspace file (rk.tab/rk.server, the rk.hasTab gate) + the six run-kit editor actions, the NDJSON protocol, exec/hosts/commands + exit codes, tab-direct resolution + liveness pruning, VSIX distribution, the doctor row, and the security stance."
 ---
 # Code Bridge
 
@@ -16,23 +16,23 @@ The code bridge is the channel *into* the editor behind the dashboard's `code` l
 agent shell / tmux pane          unix socket (0600)                      code-server extension host
 rk code exec pr.refreshList ──▶ $XDG_STATE_HOME/run-kit/cb/<hostId>.sock ──▶ rk-code-bridge extension
         │                                                                     net.createServer → executeCommand
-        │  looks up host by folder                                            one per open folder/window
+        │  looks up host by tab (+server) or folder                           one per open workbench window
         └──────────────▶ $XDG_STATE_HOME/run-kit/cb/hosts/<hostId>.json ◀─── registers on activate
-                         {hostId, folder, pid, sock, extVersion, startedAt}
+                         {hostId, folder, pid, sock, extVersion, startedAt[, tab, server]}
 ```
 
 Two pieces, one contract:
 
-1. **`rk-code-bridge`** — a VS Code extension at `app/code-bridge/` (TypeScript, pnpm; esbuild bundle → `dist/extension.js`; `vsce package --no-dependencies` → `rk-code-bridge-<version>.vsix`). The runtime dependency set is empty — only the `vscode` API and Node `net`/`fs`/`crypto`/`os`. `activationEvents: ["*"]` (deliberately eager — being reachable before any user action is the point), `engines.vscode: ^1.90.0`, in-tree version `0.0.0-dev` (the release workflow passes the tag version to the package step).
+1. **`rk-code-bridge`** — a VS Code extension at `app/code-bridge/` (TypeScript, pnpm; esbuild bundle → `dist/extension.js`; `vsce package --no-dependencies` → `rk-code-bridge-<version>.vsix`). The runtime dependency set is empty — only the `vscode` API and Node builtins (`net`/`fs`/`crypto`/`os`/`path`/`child_process`). `activationEvents: ["*"]` (deliberately eager — being reachable before any user action is the point), `engines.vscode: ^1.90.0`, in-tree version `0.0.0-dev` (the release workflow passes the tag version to the package step).
 2. **`rk code`** — a cobra command group in `app/backend/cmd/rk/code.go` over the Go client library `internal/codebridge`. The VSIX is embedded in the binary and installed by `rk code-server install` / `update` (§ Distribution).
 
 ## Socket and registry contract
 
 - **State dir**: `$XDG_STATE_HOME/run-kit/cb/` (default `~/.local/state/run-kit/cb/`) — runtime state, not config. The extension and the CLI resolve it independently, so `codebridge.StateDir()` mirrors `snapshot.DefaultDir()`'s rule exactly; the two resolutions may never drift apart.
 - **Permissions**: `cb/` is created `0700`; the extension refuses to start (logs to its output channel, never throws) when an existing `cb/` has group/other access. The socket is `chmod 0600` after listen.
-- **`hostId`**: the first 12 hex chars of `sha1(<workspace folder fsPath> + "\n" + vscode.env.machineId)` — deterministic, so a reloaded window reuses its socket path and record instead of leaking one per reload.
+- **`hostId`**: the first 12 hex chars of `sha1(<identityPath> + "\n" + vscode.env.machineId)` — deterministic, so a reloaded window reuses its socket path and record instead of leaking one per reload. `identityPath` is the workspace file's `fsPath` (`vscode.workspace.workspaceFile`) when the window carries a validated tab identity (§ Tab identity and the run-kit editor actions), else the first workspace folder's `fsPath` — two tabs opened on the same folder register distinct hosts, and a tab-less window (a user-opened code-server window, or a `?folder=` degrade frame) keeps folder-keyed identity.
 - **Socket**: `cb/<hostId>.sock`; a stale socket file is unlinked on activate (liveness is re-derived by the client per call, so a leftover socket is always stale).
-- **Record**: `cb/hosts/<hostId>.json` = `{hostId, folder, pid, sock, extVersion, startedAt}` (RFC 3339), written atomically (temp + rename) so a concurrent reader never sees a partial record. Field names are the extension's JSON contract and must not change.
+- **Record**: `cb/hosts/<hostId>.json` = `{hostId, folder, pid, sock, extVersion, startedAt}` (RFC 3339) plus optional `tab` (`"@7"`) and `server` (`"default"`), present exactly when the host carries a tab identity. Written atomically (temp + rename) so a concurrent reader never sees a partial record. The six long-standing field names are the extension's JSON contract and must not change; `tab`/`server` are `omitempty` additions.
 - **Deactivate**: closes the server and removes both the socket and the record.
 - **Activation gates**: `rk.bridge.enabled` `false` (a `contributes.configuration` boolean, default `true`) or no workspace folder → activation returns with no side effects.
 
@@ -49,10 +49,37 @@ Newline-delimited JSON over the socket, **one request per connection** — the b
 ```
 
 - **Error kinds**: `unknown-command` (not in `getCommands(true)`) · `threw` (executor rejection; message = error message) · `timeout` (exceeding `timeoutMs`, default 30000) · `bad-request` (non-JSON or shape-invalid line; the `id` is echoed when parseable, else `null`).
-- **Internals**: `__ping` → `{folder, pid, version}`; `__commands` → the full `vscode.commands.getCommands(true)` array.
+- **Internals**: `__ping` → `{folder, pid, version}` plus optional `tab`/`server` when the host carries a tab identity (additive protocol); `__commands` → the full `vscode.commands.getCommands(true)` array.
 - **`$uri` sugar**: an object exactly of shape `{"$uri":"<string>"}` at any nesting depth in `args` is rewritten to `vscode.Uri.parse(...)` — `vscode.open` / `vscode.diff` want Uris. No other coercion; plain path-like strings are NOT auto-converted.
 - **Serialisation**: results cross as `JSON.stringify`; a value that fails (cycle/BigInt) degrades to `{"$nonSerializable":true,"type":"<typeof or constructor name>"}` — serialisation never throws.
-- The protocol/server core (`src/bridge.ts` + `src/protocol.ts`) is **`vscode`-free** — it takes injected deps `{executeCommand, getCommands, parseUri, info}` so it is unit-tested with `node --test` over a real Unix socket; `src/extension.ts` is only the vscode glue.
+- The protocol/server core (`src/bridge.ts` + `src/protocol.ts`) is **`vscode`-free** — it takes injected deps `{executeCommand, getCommands, parseUri, info}` so it is unit-tested with `node --test` over a real Unix socket; the tab-identity, rk-runner, and action-builder modules (`src/tab.ts`, `src/rk.ts`, `src/actions.ts`) are likewise pure and `node --test`-tested; `src/extension.ts` is the vscode glue.
+
+## Tab identity and the run-kit editor actions
+
+A code-server window learns which run-kit tab embeds it from a **derived `.code-workspace` file** — the one channel that carries arbitrary per-window key/value data into the extension host (its `settings` block, read through the ordinary configuration API). rk derives one file per (server, tab, code root) via `internal/codeworkspace`; the frontend mount flow lives in [ui/lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § Code Surface, and the GET that writes the file in [api-and-sockets](/run-kit/api-and-sockets.md) § API Layer:
+
+- **Path**: `$XDG_STATE_HOME/run-kit/code/<server>/<windowID>-<hash6>.code-workspace` (`codeworkspace.Path`) — `hash6` is the first 6 lowercase hex chars of `sha256(<absolute root>)` (the `present.RootHash` rule, truncated); the hash separates a root change on a recycled `@N`, and `server`/`windowID` are validated before path composition.
+- **Content**: exactly `{"folders":[{"path":<root>}],"settings":{"rk.tab":"<@N>","rk.server":"<server>"}}` (indented, trailing newline, no other keys); `folders` is single-element by design.
+- **Derived, not stored** (Constitution II's carve-out shape): the GET handler is the only writer (`rk tab code set` never writes one), byte-compares and rewrites only on difference (temp + rename, file `0600`, server dir `0700`); deleting the file changes nothing but a regeneration; there is no GC.
+
+**Settings** (`contributes.configuration`, beside `rk.bridge.enabled`): `rk.tab` and `rk.server` (strings, default `""` — written into the derived workspace file by rk, not user-set) and `rk.bridge.rkPath` (string, default `""` — absolute path of the rk binary; empty resolves `$RK_BIN`, then `rk` on PATH).
+
+**Identity gate**: `readTabIdentity` (`src/tab.ts`, pure) accepts `rk.tab` only when it matches `^@\d+$` and `rk.server` only when it matches the tmux server-name charset `^[A-Za-z0-9_.-]+$`; either failing ⇒ no identity. On activate the extension sets the `rk.hasTab` context key (`setContext`), re-evaluated on `onDidChangeConfiguration` for the `rk` section. Every run-kit menu and palette entry carries a `rk.hasTab`-gated `when` clause, so a host without a tab shows nothing and never errors.
+
+**The `rk` resolution ladder** (`src/rk.ts`): `rk.bridge.rkPath` (non-empty, absolute) → `process.env.RK_BIN` (set by the daemon's code-server spawn — see [daemon-lifecycle](/run-kit/daemon-lifecycle.md)) → the bare name `rk` (PATH search by `execFile`). `runRk(argv, {timeoutMs, stdin?})` runs `child_process.execFile(rkPath, argv, {timeout, maxBuffer})` with argv arrays only — never a shell string — piping `stdin` when given and resolving `{code, stdout, stderr, error?}` (a non-zero exit is a result, not a throw); a spawn `ENOENT` resolves as a distinguishable result and surfaces exactly `run-kit: rk not found — set rk.bridge.rkPath`.
+
+**The six actions** (all `"category": "run-kit"` — the palette renders `run-kit: <Title>`; context-menu titles are unprefixed VS Code-style verbs; the user-facing noun is "Web Tile"):
+
+| Command | Title | Menus (`when`) | Effect |
+|---|---|---|---|
+| `rk.openInWebTile` | Open in Web Tile | `explorer/context` (`rk.hasTab && !explorerResourceIsFolder`), `editor/title/context` (`rk.hasTab`) | `rk tab web add <@N> <file fsPath> --show -L <server>` |
+| `rk.openFolderInWebTile` | Open Folder in Web Tile | `explorer/context` (`rk.hasTab && explorerResourceIsFolder`) | `rk tab web add <@N> <dir fsPath> --show -L <server>` (index.html default) |
+| `rk.openInWebTileAndNotify` | Open in Web Tile and Notify | same as `rk.openInWebTile` | the add, then on exit 0 `rk notify "presenting <basename>" --title run-kit` (two invocations — `rk tab web add` has no `--notify`) |
+| `rk.sendToAgent` | Send to Agent | `editor/context` (`rk.hasTab && editorHasSelection`) | `rk mux send <@N> - --no-enter -L <server>` with the payload on stdin — staged, never submitted |
+| `rk.copyReferenceForAgent` | Copy Reference for Agent | `editor/context` (`rk.hasTab && editorHasSelection`) | `vscode.env.clipboard.writeText(<reference>)` + a 3 s status-bar `Copied <ref>` |
+| `rk.openPortInWebTile` | Open Port in Web Tile | `commandPalette` only (`rk.hasTab`) | `showInputBox` (prompt "Local port", validated `1–65535`) → `rk tab web add <@N> :<port> --show -L <server>` |
+
+Details: resource resolution takes the context-menu `vscode.Uri` (a multi-select invocation acts on the first resource), palette invocations fall back to the active editor's document, and non-`file:` schemes warn `Only local files can be shown in the Web Tile`; paths pass as absolute `fsPath`. The **reference** is `vscode.workspace.asRelativePath(uri, false)` (workspace-relative, forward slashes) with 1-based lines — `path:N` for a single line, `path:N-M` for a range, an end at column 0 of a later line trimmed to the previous line; the send payload is the reference line, a newline, then the selected text verbatim (no fences). A palette Send/Copy with an empty selection uses the cursor line and no text. **Send to Agent** stages the payload (`--no-enter` — the user adds the instruction and presses Enter in the tty): exit 0 ⇒ a 3 s status-bar `Staged in tab <@N>`; exit 1 with a gate refusal ⇒ `showWarningMessage(<stderr first line>, "Force")`, Force re-running the same argv plus `--force`; any other failure ⇒ `showErrorMessage` with stderr's first line. Timeouts: 15 s for web-add and notify, 20 s for send. Web-tile successes are silent — the tile appearing is the feedback.
 
 ## The `rk code` family
 
@@ -65,7 +92,7 @@ rk code commands [--folder <path>] [--host <id>] [--tab [@N]]
 - **`exec`** runs any palette command id on the resolved host. Each positional after the command is parsed as a JSON literal (numbers stay numbers, objects pass verbatim — including the `$uri` marker the extension rewrites); anything not valid JSON is sent as a string, so bare words work. A literal `--` ends flag parsing, so negative numbers and `-`-prefixed strings pass as args. `--host`, `--tab`, and `--folder` are pairwise mutually exclusive. The request carries a fresh random `id` and `timeoutMs` = `--timeout` (default 30s); the Go dial+read deadline adds 2s so the extension's own `timeout` error wins while a hung host stays bounded.
 - **Output contract** (toolkit Principle 9): the result JSON is stdout data (`null` prints `null`); `--json` prints the raw response envelope. Every verb routes through `newSink(cmd)` — results are `Dataf` (survive `--quiet`); the `using host …` fallback note, prune notices, and the version-skew warning are `Notef` (stderr); error lines are ungated `error: <kind>: <message>` on stderr (a dial/read failure prints `error: <message>` with no kind).
 - **Exit codes** (Principle 4): `0` ok; `1` operational (no host, dial failure, `timeout`/`threw`/`unknown-command`/`bad-request`, `--tab` outside tmux without an explicit `@N`); `2` usage (missing command, `--tab`/`--host`/`--folder` flag conflicts, unknown flag, stray arg) — the children re-wrap their `Args` validators with `usageArgs` in `init()`. On `unknown-command` the five closest command ids (prefix, then substring, then edit distance over a best-effort `__commands` fetch) print as a `did you mean:` list on stderr.
-- **`hosts`** prints live hosts as aligned `ID  FOLDER  PID  AGE  EXT` rows (age humanised from `startedAt`; a malformed timestamp renders `unknown`), pruning dead records as a side effect. `--json` prints the record array. Zero hosts prints nothing (`[]` under `--json`) and exits 0.
+- **`hosts`** prints live hosts as aligned `ID  FOLDER  TAB  SERVER  PID  AGE  EXT` rows (`TAB`/`SERVER` render `-` on tab-less hosts; age humanised from `startedAt`; a malformed timestamp renders `unknown`), pruning dead records as a side effect. `--json` prints the record array (carrying the optional `tab`/`server` fields). Zero hosts prints nothing (`[]` under `--json`) and exits 0.
 - **`commands`** resolves a host like `exec`, sends `__commands`, and prints one command id per line, sorted — a grep-able view of what the palette can do.
 - **Version skew**: when a chosen host's `extVersion` is older than the embedded extension version (`codebridge.OlderThan` — numeric component compare, non-numeric tails like `0.0.0-dev` degrade to their numeric prefix), the CLI prints `code bridge extension v<a> is older than the bundled v<b> — run rk code-server update` on stderr, at most once per invocation. A dev build without an embedded VSIX skips silently. The protocol is additive-only, so skew degrades, never breaks.
 - **Registration**: the parent and all three children register unconditionally on `rootCmd` with `Long:` blocks (help-dump platform-stability); the help-dump test pins the `code` subtree at exactly `exec`/`hosts`/`commands`.
@@ -74,12 +101,16 @@ rk code commands [--folder <path>] [--host <id>] [--tab [@N]]
 
 The registry is a **discovery hint only** — liveness is re-derived on every call, never cached (Constitution II). `codebridge.LiveHosts` treats a record as live only if `kill -0` on its pid succeeds (or returns `EPERM` — the process exists, just not signal-able; false-pruning a live host is worse than keeping it) **and** a `__ping` over its socket answers within 2s. A record failing either check is removed (prune notice on stderr) and excluded.
 
-Resolution order for a single-host verb:
+Resolution order for a single-host verb (`codebridge.Resolve`):
 
 1. `--host <id>` — exact match on `hostId`; an unmatched explicit `--host` is an error, never a fallback.
-2. `--tab [@N]` — the tab's `@rk_win_code_root` as the folder source (a `--folder` source, not a new host selector): bare `--tab` resolves the caller's own tab via the shared own-tab resolver (`$TMUX_PANE` → `@N`; outside tmux with no `@N` is exit 1), `@N`/`=session:window` names another tab. The option read is `tmux.GetWindowOption`; a non-empty root feeds the same folder match below. An EMPTY root falls through to the cwd default with a `tab @N has no @rk_win_code_root — falling back to the cwd` note. `--all` ignores `--tab` (the fan-out resolves no tab).
-3. The target folder — `--folder`, or by default the git toplevel of the cwd (`git rev-parse --show-toplevel` via `exec.CommandContext` with a 5s timeout, falling back to the cwd itself outside a repo) — matched against record `folder` by exact path first, then the record whose `folder` is the longest **path-component-aware** prefix of the target (`/repo` matches `/repo/x`, not `/repository`).
-4. No match: exactly one live host → use it with a `using host <id> (<folder>)` note on stderr; several → exit 1 listing them (`id  folder` rows); none → exit 1 with `no code-bridge host — open the code lens on <folder> (or check ` + "`rk doctor`" + `)`.
+2. **Tab+server direct** — when the selector carries both `Tab` and `Server` (set by `--tab`, or by the own-tab default below), a host whose record carries exactly that pair wins; hosts without a tab identity never match this step, and a miss falls through, never errors.
+3. The target folder — `--folder`, `--tab`'s `@rk_win_code_root` read, or by default the git toplevel of the cwd (`git rev-parse --show-toplevel` via `exec.CommandContext` with a 5s timeout, falling back to the cwd itself outside a repo) — matched against record `folder` by exact path first (**unique only**: several exact-folder matches yield `ErrAmbiguous` carrying the colliding hosts), then the record whose `folder` is the longest **path-component-aware** prefix of the target (`/repo` matches `/repo/x`, not `/repository`).
+4. No match: exactly one live host → use it with a `using host <id> (<folder>)` note on stderr; several → exit 1 listing them (`id  folder  tab` rows); none → exit 1 with `no code-bridge host — open the code lens on <folder> (or check ` + "`rk doctor`" + `)`.
+
+**`--tab [@N]`** sets the selector's `Tab`/`Server` directly AND still reads the tab's `@rk_win_code_root` into `Folder` (`tmux.GetWindowOption`), so a host registered without a tab (a user-opened window on that folder, or a `?folder=` degrade frame) is still found by the folder fallback. Bare `--tab` resolves the caller's own tab via the shared own-tab resolver (`$TMUX_PANE` → `@N`; outside tmux with no `@N` is exit 1), `@N`/`=session:window` names another tab. An EMPTY code root falls through to the cwd default with a `tab @N has no @rk_win_code_root — falling back to the cwd` note. `--all` ignores `--tab` (the fan-out resolves no tab).
+
+**Own tab is the default target inside tmux**: with no `--host`/`--tab`/`--folder`, a caller inside a tmux pane resolves its own window best-effort (`ownWindowID` in `owntab.go` — `$TMUX_PANE` + the `$TMUX` socket prefix; outside tmux or with a malformed `$TMUX` the step is skipped silently) and tries the tab-direct match first, then falls through to the cwd-toplevel folder ladder. An explicit `--folder` skips the own-tab step. This removes the ambiguity two same-folder tabbed hosts would otherwise create — a folder-only default would pick one arbitrarily.
 
 `--all` fans out to every live host: default output prints one `<hostId>\t<result JSON>` row per successful host; `--json` prints an array of `{hostId, folder, response}` (a host that failed at the transport layer carries a synthesized not-ok envelope, so the array always has one entry per live host). Exit is `1` when any host errored, else `0`.
 
@@ -111,7 +142,6 @@ The bridge is a same-user, local-only RCE into the editor — that is the featur
 - **Remote exec over `rk remote` tunnels** — local-only; a thin daemon proxy can be added later if cross-machine exec is needed.
 - **A `rk.bridge.deny` allowlist** — see § Security stance.
 - **Marketplace publishing** — distribution is the embedded VSIX only.
-- **Any daemon, `/api/*`, frontend, or `/code/` route change** — the surface/lens topology in [docs/specs/surface-layout.md](../../specs/surface-layout.md) is untouched.
 
 ## Requirements
 
@@ -124,7 +154,7 @@ The bridge state root SHALL be `$XDG_STATE_HOME/run-kit/cb/` (default `~/.local/
 - **THEN** it logs the refusal to its output channel and opens no socket, writes no record, and throws nothing
 
 ### Requirement: Deterministic host identity and clean lifecycle
-`hostId` SHALL be the first 12 hex chars of `sha1(<folder> + "\n" + machineId)`; activation SHALL unlink a stale socket, listen on `cb/<hostId>.sock`, and write `cb/hosts/<hostId>.json` atomically; deactivation MUST remove both the socket and the record. A disabled `rk.bridge.enabled` or a window with no workspace folder MUST produce no side effects.
+`hostId` SHALL be the first 12 hex chars of `sha1(<identityPath> + "\n" + machineId)`, where `<identityPath>` is the workspace file's `fsPath` when the window carries a validated tab identity and the first workspace folder's `fsPath` otherwise; activation SHALL unlink a stale socket, listen on `cb/<hostId>.sock`, and write `cb/hosts/<hostId>.json` atomically (gaining `tab`/`server` exactly when an identity is present); deactivation MUST remove both the socket and the record. A disabled `rk.bridge.enabled` or a window with no workspace folder MUST produce no side effects.
 
 #### Scenario: Window reload reuses the host identity
 - **GIVEN** code-server reloaded a window on folder `/home/u/code/x`
@@ -140,12 +170,30 @@ The bridge SHALL speak NDJSON with exactly one request and one response per conn
 - **THEN** exactly one `{"id":null,"ok":false,"error":{"kind":"bad-request",…}}` line returns and the socket closes
 
 ### Requirement: Live-verified host resolution
-The CLI MUST treat a registry record as live only when `kill -0` (or `EPERM`) and a 2s `__ping` both succeed, pruning failing records; resolution SHALL be `--host` exact → `--tab`'s `@rk_win_code_root` → folder exact → longest path-component-aware prefix → single-live-host fallback with a stderr note → exit 1 (listing candidates when several, the open-the-lens hint when none). `--tab` SHALL fall through to the cwd default with a note when the tab's code root is empty, and MUST be mutually exclusive with `--host` and `--folder`.
+The CLI MUST treat a registry record as live only when `kill -0` (or `EPERM`) and a 2s `__ping` both succeed, pruning failing records; resolution SHALL be `--host` exact → tab+server exact (when both are selected) → folder exact (unique only — several exact matches are ambiguous, listing the colliding hosts with their tabs) → longest path-component-aware prefix → single-live-host fallback with a stderr note → exit 1 (the open-the-lens hint when none). `--tab` SHALL set `Tab`/`Server` directly and still feed the tab's `@rk_win_code_root` into the folder fallback, SHALL fall through to the cwd default with a note when the tab's code root is empty, and MUST be mutually exclusive with `--host` and `--folder`. A flag-less invocation inside tmux SHALL try the caller's own tab first (best-effort, skipped silently outside tmux), and an explicit `--folder` MUST skip the own-tab step.
 
 #### Scenario: Worktree resolves to its own host
 - **GIVEN** live records A (`/repo`), B (`/repo/.worktrees/x`), C (`/other`), cwd `/repo/.worktrees/x/sub`
 - **WHEN** `rk code exec __ping` runs
 - **THEN** B is chosen (git toplevel `/repo/.worktrees/x`, exact match); **AND GIVEN** cwd `/repo/deep/x` with no exact record, **THEN** A wins as the longest component-aware prefix
+
+#### Scenario: Own tab beats a same-folder sibling host
+- **GIVEN** two live hosts on the same folder `/wt` with tabs `@3` and `@5`, and the caller's pane in window `@5`
+- **WHEN** `rk code exec __ping` runs with no flags
+- **THEN** the `@5` host is chosen by the own-tab direct step, with no `using host` note
+
+### Requirement: Gated editor actions over a validated tab identity
+The extension SHALL read its tab identity from the workspace settings `rk.tab` (`^@\d+$`) and `rk.server` (`^[A-Za-z0-9_.-]+$`), set the `rk.hasTab` context key from it (re-evaluated on configuration change), and gate every run-kit menu/palette entry on it — a host without a valid identity MUST show no entries and never error. Every action SHALL shell out to an existing rk verb via `execFile` with an argv array and a timeout (15 s web-add/notify, 20 s send); the rk binary SHALL resolve `rk.bridge.rkPath` → `$RK_BIN` → `rk` on PATH, and an unresolvable binary MUST surface exactly `run-kit: rk not found — set rk.bridge.rkPath`.
+
+#### Scenario: Tab-less host hides the actions
+- **GIVEN** a code-server window opened on a bare folder (no workspace file)
+- **WHEN** the extension activates
+- **THEN** `rk.hasTab` is false, no run-kit entries appear in any menu, and no command errors
+
+#### Scenario: A gate refusal offers Force
+- **GIVEN** Send to Agent with `rk mux send` exiting 1 on stderr `refused: agent active (%3)`
+- **WHEN** the refusal surfaces
+- **THEN** a warning shows that line with a **Force** button that re-runs the same argv plus `--force`
 
 ### Requirement: Best-effort extension install
 `rk code-server install`/`update` SHALL install the embedded VSIX when the installed version differs (scan of `<extensionsDir>/run-kit.rk-code-bridge-*/package.json`), skip when equal, skip with a note when the build carries no VSIX, and MUST NOT fail the verb on an extension-step error; `update` MUST respawn the `rk-code-server` session when only the extension changed.
@@ -193,11 +241,35 @@ The CLI MUST treat a registry record as live only when `kill -0` (or `EPERM`) an
 **Rejected**: A single deadline on both sides (a client-side win surfaces as an unclassified transport error); relying on the extension alone (a wedged extension host blocks the CLI indefinitely).
 *Introduced by*: 260826-83jz-code-bridge-extension
 
-### `--tab` is a `--folder` source, not a new host selector
-**Decision**: `--tab` resolves the tab's `@rk_win_code_root` into `Selector.Folder` and reuses the existing exact/longest-prefix folder match in `codebridge.Resolve`; the tab is resolved through the shared `cmd/rk/owntab.go` resolver (bare `--tab` = own tab via `NoOptDefVal`).
-**Why**: the folder IS the host identity the bridge already matches on, so the tab needs no new selector dimension; an empty root degrades to the ordinary cwd default rather than failing.
-**Rejected**: a new `Selector.WindowID` field with its own matcher (duplicates the folder logic); failing on an empty code root (the tab simply never had `rk tab code set` run).
-*Introduced by*: 260829-c143-rk-tab-cli-present-sugar
+### `--tab` is a direct tab+server selector with a folder fallback
+**Decision**: `--tab` sets `Selector.Tab`/`Selector.Server` and `Resolve` matches a host's recorded `tab`/`server` exactly before any folder step; the tab's `@rk_win_code_root` is still read into `Selector.Folder` so tab-less hosts on that folder stay reachable. A flag-less invocation inside tmux tries the caller's own tab first; an explicit `--folder` skips the own-tab step. The tab is resolved through the shared `cmd/rk/owntab.go` resolver (bare `--tab` = own tab via `NoOptDefVal`).
+**Why**: host identity is the tab once tab keying exists, so the tab needs a first-class selector; the folder read remains as the fallback for hosts registered without an identity. The own-tab default is what makes same-folder tabbed hosts unambiguous — a folder-only default would pick one arbitrarily — and an empty root degrades to the ordinary cwd default rather than failing.
+**Rejected**: exact-folder-first-wins matching (silently picks an arbitrary host among same-folder tabbed hosts — several exact matches yield `ErrAmbiguous` instead); failing on an empty code root (the tab simply never had `rk tab code set` run).
+*Introduced by*: 260909-kji8-tab-keyed-code-workspace-actions
+
+### The workspace file is the tab-identity carrier
+**Decision**: rk derives one `.code-workspace` file per (server, tab, code root) whose `settings` block carries `rk.tab`/`rk.server`; the code tile opens `/code/?workspace=<file>`.
+**Why**: it is the only channel code-server hands an extension host arbitrary per-window key/value data; the frontend already controls the iframe `src`; no protocol change, no daemon dependency for the actions (every action is `rk tab …`/`rk mux …`/`rk notify`, all of which work with `rk serve` down).
+**Rejected**: a per-tab symlink dir as the `?folder=` carrier (fsPath leaks the symlink everywhere, breaks folder matching and git tooling); `?payload=` (workbench-only, `openFile`); a reverse editor→daemon protocol (unneeded once identity is in settings); a multi-window ambiguity ladder (superseded by exact tab keying).
+*Introduced by*: 260909-kji8-tab-keyed-code-workspace-actions
+
+### The code lens is keyed by tab, not by folder
+**Decision**: host identity and editor state (IndexedDB, keyed by workspace identity) follow the tab; two tabs on one worktree get separate editors and distinct bridge hosts.
+**Why**: folder keying addressed the folder-latch problem, which `@rk_win_code_root` solves separately; what remained of it was shared editor state across same-folder tabs, which contradicts "the tile belongs to the tab" and caused the same-folder hostId collision (the second host unlinked the first's socket and overwrote its record).
+**Rejected**: keeping folder keying with a tab hint on the side (still collides on hostId; still cannot target from the editor).
+*Introduced by*: 260909-kji8-tab-keyed-code-workspace-actions
+
+### One GET writes the file at "editor about to open"
+**Decision**: `GET /api/windows/{windowId}/code-workspace` ensures the file and returns its path; the frontend fetches it at code-tile mount; the handler is the only daemon-side writer.
+**Why**: a browser cannot write to the state dir; the SSE derivation tick is a read path and must not gain a write side effect; shipping paths in every window payload would write files for editors never opened; letting `rk tab code set` write it would make the CLI a second writer. One read-shaped GET satisfies Constitution IV/IX.
+**Rejected**: writing inside the SSE tick; embedding the path in the window payload; `rk tab code set` pre-warming the file.
+*Introduced by*: 260909-kji8-tab-keyed-code-workspace-actions
+
+### `RK_BIN` is env-carried; tab identity is not
+**Decision**: the daemon's code-server spawn passes `RK_BIN=<self path>`; the extension resolves `rk.bridge.rkPath` → `$RK_BIN` → `rk` on PATH.
+**Why**: the binary path is per-process (one code-server), so env is the right carrier; tab identity is per-window, so it is not. PATH inheritance alone works only by accident of how `rk serve -d` was launched.
+**Rejected**: relying on PATH inheritance alone.
+*Introduced by*: 260909-kji8-tab-keyed-code-workspace-actions
 
 ### One state-dir resolution rule, mirrored in two runtimes
 **Decision**: `codebridge.StateDir()` mirrors `snapshot.DefaultDir()`'s rule exactly, and the extension implements the same rule in TypeScript.

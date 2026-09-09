@@ -6,16 +6,18 @@ import { useEffect, useRef } from "react";
  * 260811-a2bo; spec docs/specs/right-panel.md § The code lens).
  *
  * Deliberately a NEW lean component, NOT `IframeWindow`: the code-server URL is
- * fully DERIVED (`/code/?folder=<git root>`), so the URL bar — `@rk_win_url`
+ * fully DERIVED (`/code/?workspace=<tab-keyed workspace file>`, with
+ * `/code/?folder=…` as the degrade form), so the URL bar — `@rk_win_url`
  * substrate state — is meaningless here, and IframeWindow reuse would drag in
- * inapplicable chrome. It is exactly an iframe plus the not-running empty
- * state.
+ * inapplicable chrome. It is exactly an iframe plus the pending and
+ * not-running states.
  *
  * - **Availability vs reachability**: availability (gitRoot derived — the git
  *   toplevel, falling back to the raw cwd outside any repo; the port is always
  *   resolvable by convention since a2bo) is computed upstream — this
  *   component renders only when the lens/surface was resolved. REACHABILITY
- *   selects the content: a reachable code-server renders the iframe; an
+ *   selects the content: a reachable code-server renders the iframe once the
+ *   workspace src is resolved (the terse pending state until then); an
  *   unreachable one renders the terse monospace empty state instead of a dead
  *   iframe.
  * - **Relative path discipline**: `codeServerSrc` returns the STABLE
@@ -56,11 +58,38 @@ export function codeServerSrc(gitRoot: string): string {
   return `/code/?folder=${encodeURIComponent(gitRoot)}`;
 }
 
+/**
+ * The relative URL for the window's tab-keyed workspace file, via the same
+ * stable /code/ route and the same relative-path discipline as
+ * `codeServerSrc` — never an origin, never a port, and the pathname stays
+ * constant (code-server keys browser-side workspace state by it). The
+ * `?workspace=` form is the PRIMARY mount src; `?folder=` survives as the
+ * degrade path and the editor's own File > Open Folder navigation.
+ */
+export function codeServerWorkspaceSrc(workspacePath: string): string {
+  return `/code/?workspace=${encodeURIComponent(workspacePath)}`;
+}
+
 interface CodeSurfaceProps {
-  /** The folder the editor opens (absolute path) — the window's LATCHED code
-   *  folder, seeded once from the backend derivation (260813-if5d). Read at
-   *  iframe MOUNT only; a later change never re-navigates a live frame. */
+  /** The window's LATCHED code folder (absolute path) — the comparison
+   *  baseline for the load-seam report below ("the folder we believe the
+   *  editor is in"). Not the mount src: the frame's URL arrives via
+   *  `workspaceSrc`. */
   gitRoot: string;
+  /** The iframe's mount src: the tab-keyed `?workspace=` URL once the
+   *  derivation GET has resolved, or the `?folder=` degrade after a failed
+   *  one. `null` ⇒ pending — the tile renders the pending state instead of
+   *  the iframe. Read at iframe MOUNT only (first non-null value per mount
+   *  generation); a later change never re-navigates a live frame — the
+   *  `followSrc` seam is the one exception. */
+  workspaceSrc: string | null;
+  /** Follow-the-editor override (the one sanctioned parent re-navigation):
+   *  after the editor navigated ITSELF to a new folder (File > Open Folder),
+   *  the parent re-derived the workspace URL and hands it down with a fresh
+   *  nonce. A nonce not seen before overrides the mount-generation src ref
+   *  exactly once; an already-seen nonce (every ordinary payload tick) never
+   *  touches a live frame. Absent ⇒ no override. */
+  followSrc?: { src: string; nonce: number } | null;
   /** The host's TTL-cached code-server reachability probe result. */
   reachable: boolean;
   /** Keyboard spike: return true when the event matches a run-kit registry
@@ -92,6 +121,8 @@ interface CodeSurfaceProps {
 
 export function CodeSurface({
   gitRoot,
+  workspaceSrc,
+  followSrc,
   reachable,
   shouldReclaimChord,
   onInteract,
@@ -115,16 +146,34 @@ export function CodeSurface({
   gitRootRef.current = gitRoot;
 
   // P3: one `src` per iframe MOUNT GENERATION. The iframe mounts only while
-  // `reachable`, so recomputing exactly when that gate flips means a
-  // reachability false→true flip or a window-switch remount boots at the CURRENT
-  // latched folder (fresh workbench, right folder) while a mounted frame is
-  // never parent-navigated — a `src` React re-renders IS a navigation, even to
-  // the URL the frame already sits at. Held in a ref, not `useMemo`: a memo
+  // `reachable` AND the workspace src has resolved (non-null) — a reachability
+  // false→true flip or a window-switch remount boots at the CURRENT src
+  // (fresh workbench, right workspace) while a mounted frame is never
+  // parent-navigated: a `src` React re-renders IS a navigation, even to the
+  // URL the frame already sits at. Held in a ref, not `useMemo`: a memo
   // cache is a performance hint React may drop, and dropping this one would
-  // reload the editor out from under the user.
-  const srcRef = useRef({ mountGen: reachable, src: codeServerSrc(gitRoot) });
+  // reload the editor out from under the user. The pending → resolved
+  // transition adopts the first non-null src of the generation; any later
+  // change is ignored by the live frame.
+  const srcRef = useRef<{ mountGen: boolean; src: string | null }>({
+    mountGen: reachable,
+    src: null,
+  });
   if (srcRef.current.mountGen !== reachable) {
-    srcRef.current = { mountGen: reachable, src: codeServerSrc(gitRoot) };
+    srcRef.current = { mountGen: reachable, src: null };
+  }
+  if (srcRef.current.src === null && workspaceSrc !== null) {
+    srcRef.current.src = workspaceSrc;
+  }
+  // The follow rule's one sanctioned parent navigation: a fresh nonce
+  // overrides the ref exactly once (the editor already moved itself; the
+  // parent only lands it on the derived workspace URL). The seen-nonce ref is
+  // deliberately NOT reset by a mount-generation flip — a remount adopts the
+  // current `workspaceSrc`, which the follow fetch already advanced.
+  const followNonceRef = useRef<number | null>(null);
+  if (followSrc && followSrc.nonce !== followNonceRef.current) {
+    followNonceRef.current = followSrc.nonce;
+    srcRef.current.src = followSrc.src;
   }
   const src = srcRef.current.src;
 
@@ -134,15 +183,17 @@ export function CodeSurface({
   // app's keybinding service sees it and re-dispatched on the PARENT document
   // (bubbling reaches both the document-level listeners — the command
   // palette's chord — and the window-level ones — the keybinding
-  // dispatcher). Keyed on `reachable`: the iframe only MOUNTS when
-  // reachable (the not-running empty state renders otherwise), so a
-  // reachability flip re-runs this effect against the fresh iframe. Cleanup
-  // removes the listener from the document it was attached to. The
+  // dispatcher). Cleanup removes the listener from the document it was
+  // attached to. The
   // capture-phase keydown/pointerdown pair ALSO feeds `onInteract`
   // (260812-wfic): any in-editor interaction reports tile focus. The
   // capture-phase `focusin` feeds `onProgrammaticFocus` (the steal guard) —
   // it is attached to the frame's document because a script `focus()` grab
-  // fires no parent-side event on the iframe element.
+  // fires no parent-side event on the iframe element. Keyed on `reachable`
+  // AND `src`: the iframe only MOUNTS once reachable with a resolved src (the
+  // pending/empty states render no iframe), so the pending → resolved
+  // transition and any reachability flip re-run this effect against the fresh
+  // iframe.
   useEffect(() => {
     const iframe = iframeRef.current;
     if (
@@ -237,7 +288,7 @@ export function CodeSurface({
         /* noop */
       }
     };
-  }, [reachable]);
+  }, [reachable, src]);
 
   if (!reachable) {
     return (
@@ -246,6 +297,21 @@ export function CodeSurface({
         className="flex-1 min-h-0 flex items-center justify-center text-text-secondary text-xs font-mono select-none"
       >
         code-server not running — check rk doctor
+      </div>
+    );
+  }
+
+  // Reachable but the workspace path is not resolved yet (derivation GET in
+  // flight, or a no-root answer awaiting the next payload change): the terse
+  // pending state, same chrome as the empty state. Reachability keeps
+  // precedence — an unreachable host never renders pending.
+  if (src === null) {
+    return (
+      <div
+        data-testid="code-surface-pending"
+        className="flex-1 min-h-0 flex items-center justify-center text-text-secondary text-xs font-mono select-none"
+      >
+        opening…
       </div>
     );
   }

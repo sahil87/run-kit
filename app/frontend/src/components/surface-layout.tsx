@@ -203,6 +203,18 @@ interface SurfaceLayoutProps {
    *  tile's `CodeSurface`, which reports the folder the EDITOR navigated itself
    *  to. The parent latches it — this component only carries the prop. */
   onCodeFolderNavigated?: (folder: string) => void;
+  /** The code tile's mount src (the tab-keyed workspace derivation): null ⇒
+   *  the workspace path is not resolved yet and the tile renders its pending
+   *  state; a string is the mount URL (the `?workspace=` form, or the
+   *  `?folder=` degrade after a failed derivation). The parent (app.tsx's
+   *  layout-state block) owns the fetch — this component only carries the
+   *  prop. Absent ⇒ treated as pending. */
+  codeWorkspaceSrc?: string | null;
+  /** The follow-navigation override: after the editor navigated ITSELF to a
+   *  new folder, the parent re-derived the workspace URL and hands it down
+   *  with a fresh nonce — the one sanctioned parent re-navigation. Carried
+   *  straight to CodeSurface. */
+  codeFollowSrc?: { src: string; nonce: number } | null;
   /** Chord-reclaim predicate FACTORY (260819-ie2i R3): called with a tile's
    *  kind at each iframe mount to bind the kind-aware registry predicate —
    *  `case "code"` passes `shouldReclaimChord("code")` to CodeSurface
@@ -524,6 +536,8 @@ export function SurfaceLayout({
   onSessionNotFound,
   codeReachable,
   onCodeFolderNavigated,
+  codeWorkspaceSrc,
+  codeFollowSrc,
   shouldReclaimChord,
   onProgrammaticFocus,
   onPromote,
@@ -1409,6 +1423,10 @@ export function SurfaceLayout({
         return codeRoot ? (
           <CodeSurface
             gitRoot={codeRoot}
+            // The mount src arrives resolved (or null ⇒ pending) from the
+            // parent's derivation GET; the component never composes it.
+            workspaceSrc={codeWorkspaceSrc ?? null}
+            followSrc={codeFollowSrc ?? null}
             reachable={codeReachable}
             shouldReclaimChord={shouldReclaimChord?.("code")}
             onInteract={

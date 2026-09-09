@@ -22,8 +22,124 @@
           "type": "boolean",
           "default": true,
           "description": "Enable the run-kit code bridge Unix socket. When off, the extension activates with no side effects."
+        },
+        "rk.tab": {
+          "type": "string",
+          "default": "",
+          "description": "The run-kit tab (@N) this window belongs to — written into the derived workspace file by rk; not user-set."
+        },
+        "rk.server": {
+          "type": "string",
+          "default": "",
+          "description": "The run-kit tmux server this window belongs to — written into the derived workspace file by rk; not user-set."
+        },
+        "rk.bridge.rkPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path of the rk binary; empty resolves $RK_BIN, then rk on PATH."
         }
       }
+    },
+    "commands": [
+      {
+        "command": "rk.openInWebTile",
+        "title": "Open in Web Tile",
+        "category": "run-kit"
+      },
+      {
+        "command": "rk.openFolderInWebTile",
+        "title": "Open Folder in Web Tile",
+        "category": "run-kit"
+      },
+      {
+        "command": "rk.openInWebTileAndNotify",
+        "title": "Open in Web Tile and Notify",
+        "category": "run-kit"
+      },
+      {
+        "command": "rk.sendToAgent",
+        "title": "Send to Agent",
+        "category": "run-kit"
+      },
+      {
+        "command": "rk.copyReferenceForAgent",
+        "title": "Copy Reference for Agent",
+        "category": "run-kit"
+      },
+      {
+        "command": "rk.openPortInWebTile",
+        "title": "Open Port in Web Tile",
+        "category": "run-kit"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "rk.openInWebTile",
+          "when": "rk.hasTab && !explorerResourceIsFolder",
+          "group": "navigation"
+        },
+        {
+          "command": "rk.openInWebTileAndNotify",
+          "when": "rk.hasTab && !explorerResourceIsFolder",
+          "group": "navigation"
+        },
+        {
+          "command": "rk.openFolderInWebTile",
+          "when": "rk.hasTab && explorerResourceIsFolder",
+          "group": "navigation"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "rk.openInWebTile",
+          "when": "rk.hasTab",
+          "group": "navigation"
+        },
+        {
+          "command": "rk.openInWebTileAndNotify",
+          "when": "rk.hasTab",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "rk.sendToAgent",
+          "when": "rk.hasTab && editorHasSelection",
+          "group": "navigation"
+        },
+        {
+          "command": "rk.copyReferenceForAgent",
+          "when": "rk.hasTab && editorHasSelection",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "rk.openInWebTile",
+          "when": "rk.hasTab"
+        },
+        {
+          "command": "rk.openFolderInWebTile",
+          "when": "rk.hasTab"
+        },
+        {
+          "command": "rk.openInWebTileAndNotify",
+          "when": "rk.hasTab"
+        },
+        {
+          "command": "rk.sendToAgent",
+          "when": "rk.hasTab"
+        },
+        {
+          "command": "rk.copyReferenceForAgent",
+          "when": "rk.hasTab"
+        },
+        {
+          "command": "rk.openPortInWebTile",
+          "when": "rk.hasTab"
+        }
+      ]
     }
   },
   "scripts": {

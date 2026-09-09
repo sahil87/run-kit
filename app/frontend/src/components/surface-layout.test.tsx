@@ -83,6 +83,8 @@ type LayoutOverrides = {
   onClosePane?: () => void;
   onRatioCommit?: () => void;
   onCodeFolderNavigated?: (folder: string) => void;
+  codeWorkspaceSrc?: string | null;
+  codeFollowSrc?: { src: string; nonce: number } | null;
   zoomToggleRef?: { current: (() => void) | null };
   onZoomChange?: (zoomed: boolean) => void;
   onFocusedKindChange?: (kind: SurfaceKind) => void;
@@ -132,6 +134,8 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       onClosePane={overrides.onClosePane ?? vi.fn()}
       onRatioCommit={overrides.onRatioCommit}
       onCodeFolderNavigated={overrides.onCodeFolderNavigated}
+      codeWorkspaceSrc={overrides.codeWorkspaceSrc}
+      codeFollowSrc={overrides.codeFollowSrc}
       zoomToggleRef={overrides.zoomToggleRef}
       onZoomChange={overrides.onZoomChange}
       onFocusedKindChange={overrides.onFocusedKindChange}
@@ -472,6 +476,27 @@ describe("SurfaceLayout code tile folder (260813-if5d)", () => {
     expect(typeof reported).toBe("function");
     reported("/home/user/other");
     expect(onCodeFolderNavigated).toHaveBeenCalledWith("/home/user/other");
+  });
+
+  it("carries the workspace src and follow override down to the code tile", () => {
+    // Mount gating + the follow rule are parent-orchestrated (app.tsx); the
+    // layout layer only carries the props — null src ⇒ the tile pends.
+    const followSrc = { src: "/code/?workspace=%2Fstate%2F%407-bbbbbb.code-workspace", nonce: 2 };
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "code"] },
+      codeWorkspaceSrc: "/code/?workspace=%2Fstate%2F%407-3fa1c9.code-workspace",
+      codeFollowSrc: followSrc,
+    });
+    const props = codeSpy.mock.calls.at(-1)?.[0];
+    expect(props?.workspaceSrc).toBe("/code/?workspace=%2Fstate%2F%407-3fa1c9.code-workspace");
+    expect(props?.followSrc).toEqual(followSrc);
+  });
+
+  it("hands the code tile a null workspace src when the parent passes none (pending)", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    const props = codeSpy.mock.calls.at(-1)?.[0];
+    expect(props?.workspaceSrc).toBeNull();
+    expect(props?.followSrc).toBeNull();
   });
 });
 

@@ -98,10 +98,21 @@ Both needs share one substrate: a collapsed-by-default right panel.
 full lens — so it is also reachable in the **main** slot via `?view=code` and
 the shared switcher; the panel is merely its natural home.
 
-- **Renderer**: iframe of code-server at `?folder=<latched folder>`,
+- **Renderer**: iframe of code-server at `?workspace=<derived file>`,
   same-origin via the stable relative `/code/` route (`260811-a2bo` — the port
-  is a server-side implementation detail and never appears in a URL).
-- **Keyed by the resolved folder, not window id** — editor state follows the
+  is a server-side implementation detail and never appears in a URL). The
+  `?folder=<latched folder>` form survives as the degrade path and as the
+  editor's own File > Open Folder navigation (`260909-kji8` — see
+  [`code-bridge.md`](code-bridge.md) § Tab identity).
+- **Keyed by the resolved folder, not window id** — **[REVERSED 2026-09-09,
+  change `260909-kji8-tab-keyed-code-workspace-actions`]** — the code lens is
+  now keyed by the **tab** (one derived workspace file per (server, tab, root);
+  see [`code-bridge.md`](code-bridge.md)). The rationale for reversing: the
+  folder-latch problem this keying addressed was solved separately by
+  `@rk_win_code_root` (`260813-if5d`); what remained of folder keying was
+  shared editor state across same-folder tabs, which contradicts "the tile
+  belongs to the tab" and caused the same-folder hostId collision. The original
+  text is kept for design rationale: editor state follows the
   code; agents `cd` constantly. The resolved folder is the git toplevel when
   the cwd sits inside a repo — two windows on one worktree deliberately share
   one editor state — and the raw cwd itself when it doesn't: two non-git

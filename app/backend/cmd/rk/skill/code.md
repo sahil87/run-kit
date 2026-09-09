@@ -16,11 +16,11 @@ If either check fails, skip every bridge step silently — describe the output i
 ## `rk code hosts` — what is listening
 
 ```sh
-rk code hosts                 # aligned rows: ID FOLDER PID AGE EXT
+rk code hosts                 # aligned rows: ID FOLDER TAB SERVER PID AGE EXT
 rk code hosts --json          # the host records as an array
 ```
 
-A host is one open code-server folder with the bridge extension active. Host records live under the run-kit state dir, but liveness is re-derived on every call: a record counts only if its pid is alive AND its socket answers a ping; records failing either check are pruned as a side effect. Zero hosts prints nothing (`[]` under `--json`) and still exits 0 — gate on empty output, not on the exit code.
+A host is one open code-server window with the bridge extension active. Hosts opened from an rk-derived workspace file register their tab and server (`TAB`/`SERVER` columns, `-` when absent); tab-less hosts (user-opened windows, the `?folder=` degrade path) match by folder only. Host records live under the run-kit state dir, but liveness is re-derived on every call: a record counts only if its pid is alive AND its socket answers a ping; records failing either check are pruned as a side effect. Zero hosts prints nothing (`[]` under `--json`) and still exits 0 — gate on empty output, not on the exit code.
 
 ## `rk code commands` — the palette, grep-able
 
@@ -57,7 +57,8 @@ rk code exec vscode.diff '{"$uri":"file:///…/a.ts"}' '{"$uri":"file:///…/b.t
 ### Host resolution
 
 - `--host <id>` wins (ids come from `rk code hosts`).
-- Else `--tab [@N]` — the tab's `@rk_win_code_root` (written by `rk tab code set`) becomes the target folder; bare `--tab` means your own tab. A tab with no code root falls through to the cwd default with a stderr note.
+- Else `--tab [@N]` matches a host by its registered tab+server **directly** (bare `--tab` = your own tab); the folder match — the tab's `@rk_win_code_root` (written by `rk tab code set`), then the cwd default — remains the fallback for hosts registered without a tab.
+- With no flags, a caller inside tmux tries its **own tab** first (skipped silently outside tmux), then the folder ladder below; an explicit `--folder` skips the own-tab step.
 - Else the target folder — `--folder <path>`, or by default the git toplevel of the cwd — is matched against each host's folder: exact match first, then longest-prefix (path-component aware, so a worktree under a registered repo resolves to the repo's host instead of matching nothing).
 - No match and exactly one live host → it is used, with a `using host <id> (<folder>)` note on stderr. Several → exit 1 listing them. None → exit 1 with the open-the-lens hint.
 - `--all` fans out to every live host (ignoring `--tab`): one `<hostId>\t<result JSON>` row per host on stdout (`--json` → an array of `{hostId, folder, response}`); exit is 1 when any host errored, else 0.
@@ -83,7 +84,8 @@ rk notify "PR ready in the code tile" --title review
 
 ## Gotchas
 
-- The code surface's folder is the tab's `@rk_win_code_root` tmux option — set it with `rk tab code set [@N] <folder>` (prints the absolute path); `rk code exec --tab` resolves its host by the same option.
+- The code surface's folder is the tab's `@rk_win_code_root` tmux option — set it with `rk tab code set [@N] <folder>` (prints the absolute path); the tile opens a derived `.code-workspace` file (`?workspace=`) whose settings carry the tab identity into the editor.
+- The editor-side context-menu/palette actions (Open in Web Tile, Send to Agent, Copy Reference, Open Port) exist for **humans** — they shell out to `rk tab web add`/`rk mux send` from the extension host. Agents keep `rk code exec`.
 - Resolution never caches: a stale record that fails the pid+ping check is pruned on every call, and the next call re-enumerates from the sockets (the registry is a discovery hint only).
 - Security posture is **same-user-only**: file sockets (0600, dir 0700) under the user's state dir, never TCP — anything the caller does through the bridge it could already do as the same user. A page in the user's browser cannot reach the socket; a same-user process can.
 - The off switch is the managed profile's VS Code setting `rk.bridge.enabled` (seeded true at install). A host running an extension older than the bundled one draws a version-skew warning on stderr suggesting `rk code-server update`.

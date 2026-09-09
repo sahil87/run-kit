@@ -33,10 +33,16 @@ func (e *HostListError) Error() string { return e.Err.Error() }
 func (e *HostListError) Unwrap() error { return e.Err }
 
 // Selector picks one host out of the live set. HostID is the --host flag
-// (exact match on host id); Folder is the target folder (--folder or the
-// cwd's git toplevel, resolved by the caller).
+// (exact match on host id). Tab and Server are the tab-direct key: both must
+// be set for the tab step to engage, and only hosts registered with a tab
+// identity can match it. Folder is the target folder (--folder, a tab's code
+// root, or the cwd's git toplevel, resolved by the caller); it stays set
+// alongside Tab/Server so a host registered without a tab identity is still
+// found by the folder ladder.
 type Selector struct {
 	HostID string
+	Tab    string
+	Server string
 	Folder string
 }
 
@@ -94,12 +100,15 @@ func folderPrefixMatch(folder, target string) bool {
 
 // Resolve picks the single host a verb should act on, in order: (1) an exact
 // HostID match when given (no fallback — an unmatched explicit --host is an
-// error); (2) exact Folder match, then the record whose folder is the longest
-// path-component-aware prefix of the target; (3) no match and exactly one
-// live host → that host with fallback=true so the caller can print the
-// "using host …" note; several → ErrAmbiguous, none → ErrNoHost, both as a
-// *HostListError carrying the live set. The ctx parameter is reserved; the
-// hosts slice is expected to be pre-verified by LiveHosts.
+// error); (2) an exact Tab+Server match when both selector fields are set
+// (hosts registered without a tab identity never match this step); (3) exact
+// Folder match — several exact matches are ambiguous, carrying the colliding
+// hosts — then the record whose folder is the longest path-component-aware
+// prefix of the target; (4) no match and exactly one live host → that host
+// with fallback=true so the caller can print the "using host …" note;
+// several → ErrAmbiguous, none → ErrNoHost, both as a *HostListError carrying
+// the live set. The ctx parameter is reserved; the hosts slice is expected to
+// be pre-verified by LiveHosts.
 func Resolve(ctx context.Context, hosts []HostRecord, sel Selector) (HostRecord, bool, error) {
 	_ = ctx
 	if sel.HostID != "" {
@@ -110,12 +119,26 @@ func Resolve(ctx context.Context, hosts []HostRecord, sel Selector) (HostRecord,
 		}
 		return HostRecord{}, false, &HostListError{Err: ErrNoHost, Hosts: hosts}
 	}
-	if sel.Folder != "" {
-		target := filepath.Clean(sel.Folder)
+	if sel.Tab != "" && sel.Server != "" {
 		for _, h := range hosts {
-			if filepath.Clean(h.Folder) == target {
+			if h.Tab == sel.Tab && h.Server == sel.Server {
 				return h, false, nil
 			}
+		}
+	}
+	if sel.Folder != "" {
+		target := filepath.Clean(sel.Folder)
+		var exact []HostRecord
+		for _, h := range hosts {
+			if filepath.Clean(h.Folder) == target {
+				exact = append(exact, h)
+			}
+		}
+		switch {
+		case len(exact) == 1:
+			return exact[0], false, nil
+		case len(exact) > 1:
+			return HostRecord{}, false, &HostListError{Err: ErrAmbiguous, Hosts: exact}
 		}
 		best, bestLen := -1, -1
 		for i, h := range hosts {

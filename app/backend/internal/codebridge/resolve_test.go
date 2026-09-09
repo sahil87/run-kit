@@ -2,7 +2,9 @@ package codebridge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 )
 
@@ -109,5 +111,83 @@ func TestResolveEmptySelectorSingleHost(t *testing.T) {
 	h, fallback, err := resolve(t, scenarioHosts[:1], Selector{})
 	if err != nil || h.HostID != "aaa" || !fallback {
 		t.Errorf("Resolve(empty selector) = (%v, %v, %v)", h, fallback, err)
+	}
+}
+
+// Tab-direct beats a folder match on another host: zzz carries the tab
+// identity on /wt while aaa matches the selector's folder — without the tab
+// step the exact folder match would return aaa.
+func TestResolveTabDirectBeatsFolderMatch(t *testing.T) {
+	hosts := []HostRecord{
+		{HostID: "aaa", Folder: "/repo"},
+		{HostID: "zzz", Folder: "/wt", Tab: "@7", Server: "default"},
+	}
+	h, fallback, err := resolve(t, hosts, Selector{Tab: "@7", Server: "default", Folder: "/repo"})
+	if err != nil || h.HostID != "zzz" || fallback {
+		t.Errorf("Resolve(tab @7) = (%v, %v, %v), want host zzz tab-direct", h, fallback, err)
+	}
+}
+
+// No host carries the selector's tab → the tab step misses and the folder
+// match still decides.
+func TestResolveTabMissFallsBackToFolder(t *testing.T) {
+	hosts := []HostRecord{{HostID: "bbb", Folder: "/repo"}}
+	h, fallback, err := resolve(t, hosts, Selector{Tab: "@7", Server: "default", Folder: "/repo"})
+	if err != nil || h.HostID != "bbb" || fallback {
+		t.Errorf("Resolve(tab @7, tab-less host) = (%v, %v, %v), want host bbb via the folder match", h, fallback, err)
+	}
+}
+
+// The tab-direct step engages only when both halves are set: a Tab-only
+// selector falls through to the folder ladder even against a tabbed host.
+func TestResolveTabDirectRequiresBothFields(t *testing.T) {
+	hosts := []HostRecord{{HostID: "aaa", Folder: "/repo", Tab: "@7", Server: "default"}}
+	h, fallback, err := resolve(t, hosts, Selector{Tab: "@7", Folder: "/nope"})
+	if err != nil || h.HostID != "aaa" || !fallback {
+		t.Errorf("Resolve(Tab only) = (%v, %v, %v), want the single-host fallback, not a tab match", h, fallback, err)
+	}
+}
+
+// Two hosts on one folder (two tabs on one worktree) with no tab hit are
+// ambiguous — picking either arbitrarily would target the wrong tab's editor.
+func TestResolveSameFolderHostsAreAmbiguous(t *testing.T) {
+	hosts := []HostRecord{
+		{HostID: "aaa", Folder: "/wt", Tab: "@3", Server: "default"},
+		{HostID: "bbb", Folder: "/wt", Tab: "@5", Server: "default"},
+	}
+	_, _, err := resolve(t, hosts, Selector{Folder: "/wt"})
+	var hl *HostListError
+	if !errors.Is(err, ErrAmbiguous) || !errors.As(err, &hl) || len(hl.Hosts) != 2 {
+		t.Errorf("Resolve(two hosts on /wt) err = %v, want ErrAmbiguous carrying both", err)
+	}
+}
+
+func TestReadRecordsRoundTripsTabAndServer(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rec HostRecord) {
+		t.Helper()
+		data, err := json.Marshal(rec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(recordPath(dir, rec.HostID), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(HostRecord{HostID: "aaa", Folder: "/repo", Tab: "@7", Server: "default"})
+	write(HostRecord{HostID: "bbb", Folder: "/other"})
+
+	recs, err := ReadRecords(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("ReadRecords = %d records, want 2", len(recs))
+	}
+	if recs[0].Tab != "@7" || recs[0].Server != "default" {
+		t.Errorf("tabbed record = %+v, want tab @7 and server default preserved", recs[0])
+	}
+	if recs[1].Tab != "" || recs[1].Server != "" {
+		t.Errorf("tab-less record = %+v, want empty tab/server", recs[1])
 	}
 }

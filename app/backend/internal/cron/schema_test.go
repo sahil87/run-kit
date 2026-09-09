@@ -18,7 +18,7 @@ entries:
   - id: a3f9
     name: operator tick
     schedule: { kind: backoff, min: 60s, max: 30m }
-    wake_on: { event: agent-state-change, scope: server, debounce: 10s }
+    wake_on: { event: agent-state-change, scope: server, debounce: 60s }
     target: { kind: role, role: operator }
     payload: "operator tick"
     deliver: immediate
@@ -64,7 +64,7 @@ func TestSpecExampleRoundTrips(t *testing.T) {
 		t.Errorf("backoff min/max = %v/%v", op.Schedule.Min, op.Schedule.Max)
 	}
 	if op.WakeOn == nil || op.WakeOn.Event != WakeAgentStateChange ||
-		op.WakeOn.Scope != WakeScopeServer || op.WakeOn.Debounce.Duration != 10*time.Second {
+		op.WakeOn.Scope != WakeScopeServer || op.WakeOn.Debounce.Duration != 60*time.Second {
 		t.Errorf("wake_on = %+v", op.WakeOn)
 	}
 	if !reflect.DeepEqual(op.Respawn, []string{"rk", "operator", "-L", "{server}"}) {

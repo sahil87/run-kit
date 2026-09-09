@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Agent-send backend — internal/transcript registry + transcript.Path (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter; six adapters — claude, codex, gemini, kimi, agy, opencode request-time export; copilot identity-only) for operator actuation, fork/resume, auto-name — plus the pane-typed injection engine (pane-mode guard, sanitized buffer paste, novelty echo probe, probe-gated Enter, observation/recovery) behind POST /api/windows/{id}/send (target:\"agent\") and the operator-request routes."
+description: "Agent-send backend — internal/transcript registry + transcript.Path (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter; six adapters — claude, codex, gemini, kimi, agy, opencode request-time export; copilot identity-only) for operator actuation, fork/resume, auto-name — plus the pane-typed injection engine (mode guard, sanitized paste, novelty probe, popup guard, gated Enter, recovery) behind POST /api/windows/{id}/send (target:\"agent\") and the operator-request routes."
 ---
 # Agent Send
 
@@ -29,8 +29,9 @@ time (Constitution II). (nnqu, 260904-bf1l-agent-session-identity-rename)
 The mutating half — the agent-send path — is the shared `internal/inject`
 engine: rk *types into* the pane exactly as a human typist would — the pane
 stays the agent's parent process (Constitution VI) — via a sanitized
-named-buffer bracketed paste, a novelty echo probe, a probe-gated Enter,
-asymmetric post-Enter observation, and evidence-gated recovery. Two API
+named-buffer bracketed paste, a novelty echo probe, a composer-popup guard, a
+probe-gated Enter, asymmetric post-Enter observation, and evidence-gated
+recovery. Two API
 surfaces consume the one engine: `POST /api/windows/{windowId}/send`
 (`api/send.go` — the compose strip's delivery door, plus the selection
 broadcast's `target:"agent"` mode) and the operator-request routes
@@ -366,25 +367,43 @@ child env ([architecture](/run-kit/architecture.md) § tmux Runner Core):
    as one literal block, no per-line submission); `-d` deletes the buffer after
    pasting so the buffer set stays clean.
 5. **Probe** (§ Novelty echo probe) — only on success:
-6. `send-keys -t <paneID> Enter` — the literal `Enter` key, sent ONLY after a
+6. **Composer-popup guard** (`consumePopup`) — submit-only, evidence-gated on
+   the two frames already in hand: when a `composerPopupMarkers` entry (one
+   today — codex's skill-autocomplete footer `Press enter to insert`, opened by
+   pasting a bare skill token like `$fab-operator`) NEWLY appears in the probe's
+   winning capture vs the pre-paste baseline (strict increase through the one
+   `stripForProbe` normalization — a stale marker copy in scrollback is a floor
+   to beat, the novelty probe's discipline), send one Enter to consume the popup
+   (the TUI processes it as popup-insert, not submit), wait one `ProbeSettle`,
+   and re-capture a fresh pre-Enter frame so the observation baselines on the
+   post-popup frame — the popup *closing* would otherwise satisfy the
+   changed-frame no-claim branch and mask a non-submission as success. The pty
+   processes the popup Enter before the submit Enter, so ordering — not the
+   re-capture — carries correctness; a false positive is benign (the extra Enter
+   submits the staged text, the submit Enter no-ops on the emptied composer). No
+   new marker ⇒ zero added calls, captures, or waits. Guard failures classify as
+   `StagedSendFailure` (post-paste, pre-submit). (q7mj)
+7. `send-keys -t <paneID> Enter` — the literal `Enter` key, sent ONLY after a
    successful probe **AND** when `submit` is true.
-7. **Post-Enter observation** — sleep then capture over `SubmitBackoff`
+8. **Post-Enter observation** — sleep then capture over `SubmitBackoff`
    (`40/80/160/320/640ms`), exiting on the first normalized frame change. A
    changed frame makes no claim about submission and returns success. Only a
    frame unchanged through every step with the established paste echo still
    present is evidence of non-submission.
-8. **Evidence-gated recovery** — only on that non-submission verdict, send
+9. **Evidence-gated recovery** — only on that non-submission verdict, send
    pane-scoped `C-u` up to `ClearAttempts = 4` until the normalized frame equals
    the pre-paste baseline (the shared `clearToBaseline` C-u/capture/baseline-compare
    discipline — the readiness sentinel probe in `ready.go` clears through the same
-   helper), then re-paste, re-probe, send Enter, and observe over
-   the first `SubmitRetryBackoffSteps = 3` ladder steps. `SubmitRetries = 1`.
+   helper), then re-paste, re-probe, re-run the composer-popup guard against the
+   cleared frame as its floor (the re-paste can reopen the popup), send Enter,
+   and observe over the first `SubmitRetryBackoffSteps = 3` ladder steps.
+   `SubmitRetries = 1`.
 
 `injectIntoPane(ctx, server, paneID, text, submit bool)` is the thin adapter
 that forwards the resolved boolean to `inject.Engine.Send` (the `/send` route's
 `submit` mode passes `true`, `insert-line` passes `false`; the operator-request
 routes always pass `true`). **`submit:false`
-(insert-without-submit) skips steps 6–8** — the pane-mode guard, baseline
+(insert-without-submit) skips steps 6–9** — the pane-mode guard, baseline
 capture, handler-boundary sanitize, named-buffer set/paste, novelty echo probe (a
 probe failure still returns the structured `409`, Enter irrelevant but the text left
 recoverable in the composer), the engine's per-`(server,paneID)` whole-sequence lock
@@ -401,14 +420,17 @@ CR/CRLF normalized to `\n`; from that point delivery to tmux is verbatim. Newlin
 tmux key names (`Enter`, `C-c`), and leading dashes in the sanitized text are all
 delivered literally — never interpreted as keys/flags nor submitted per-line.
 There SHALL be NO pre-Enter quiescence gate on either the initial or recovery
-path.
+path — the composer-popup guard is not one: it waits for nothing on the
+no-popup path (zero added captures, sends, or sleeps; it reads two frames
+already in hand) and acts only on marker-novelty evidence.
 
 #### Scenario: Key-name / leading-dash text is delivered literally
 - **GIVEN** a resolved pane and text `"--force is broken\necho Enter"`
 - **WHEN** injection runs
 - **THEN** the order is pane-mode guard → baseline → set-buffer (`--`-terminated)
   → paste-buffer →
-  probe → send-keys → observation, the text is one literal argv element (never
+  probe → composer-popup guard (a no-op here — no marker newly appears) →
+  send-keys → observation, the text is one literal argv element (never
   parsed as flags/keys), and Enter is a separate step gated on the probe.
 - **AND GIVEN** `submit:false` with a passing probe, **THEN** set-buffer/paste/probe
   all run against the resolved pane and `SendEnterToPane` is NEVER called (response
@@ -478,6 +500,36 @@ wrapped-error → `500` path: nothing was delivered.)
 - **AND GIVEN** the text (or, for a collapsible paste, its paste-collapse chip in
   either form) newly appears within the retry budget, **THEN** Enter is sent and the
   response is `200 {"ok":true}`.
+
+### Requirement: Composer-popup guard consumes a paste-opened popup before the submit Enter
+On the submit path — initial and recovery — the engine SHALL detect a composer
+popup that the paste itself opened and consume it before the submit Enter.
+Detection is `popupNewlyOpen(frame, floor)`: any `composerPopupMarkers` entry
+(stripped through the one `stripForProbe` site, exact-substring arm of
+`CountOccurrences`) whose count in the probe's winning capture strictly exceeds
+its count in the floor frame (the pre-paste baseline initially; the cleared
+frame on recovery). On detection, `consumePopup` sends one Enter, waits one
+`ProbeSettle`, and re-captures the pre-Enter frame at `ProbeCaptureLines`, and
+the observation compares against that fresh frame. The guard SHALL NOT run when
+`submit` is false (the popup stays open for the human alongside the staged
+text). Guard-internal failures (refused Enter, failed re-capture, ctx
+cancellation in the settle) classify as `StagedSendFailure` — post-paste,
+pre-submit. The marker table carries empirical TUI strings (the
+`CollapseMinRunes`/`imageCollapseRe` class); the sole entry is codex's
+skill-autocomplete footer, which opens when the composer holds exactly a bare
+skill token — token-plus-arguments does not trigger it — and consumes Enter as
+*insert* (verified codex 0.153.4). (q7mj)
+
+#### Scenario: Bare skill token into a codex pane submits
+- **GIVEN** a codex pane and the typed-delivery text `$fab-operator`, whose
+  paste opens the skill-autocomplete popup in the probe frame
+- **WHEN** the submit path proceeds past the successful probe
+- **THEN** exactly one popup-consuming Enter precedes the submit Enter, a fresh
+  frame is captured between them, and the message submits (Enter #1 =
+  popup-insert, Enter #2 = submit — pty ordering)
+- **AND GIVEN** a marker occurrence already present in the baseline (stale
+  scrollback copy) with no new occurrence, **THEN** the guard does not fire and
+  the call sequence is byte-identical to the guardless engine
 
 ### Requirement: Post-Enter observation detects non-submission only
 After each Enter the engine SHALL compare `stripForProbe`-normalized whole-pane
@@ -799,6 +851,27 @@ paste echo also remains present.
 while a ladder-length gate adds about 1.2s to every send); treating any change as
 confirmed submission; treating a churning pane as `SubmitUnverified`.
 *Introduced by*: 260830-nyvm-mux-send-submit-verification
+
+### Composer popups are consumed by an evidence-gated extra Enter, not avoided at composition
+**Decision**: A popup the paste itself opens (codex's skill-autocomplete on a
+bare skill token) is consumed inside the engine's submit path: strict-increase
+marker novelty in the probe frame vs the pre-paste floor triggers one extra
+Enter, one `ProbeSettle`, and a fresh pre-Enter capture; the submit Enter and
+observation then run unchanged. Recovery re-runs the guard against its cleared
+frame — the re-paste can reopen the popup.
+**Why**: The popup consumes Enter as *insert* and its closing is a frame change,
+so the asymmetric observation's no-claim branch reports success over a
+non-submission — a silent false success no recovery can catch. The engine is the
+single seam every typed send crosses (riff typed delivery, operator/tutorial
+kickoffs, cron respawner, agent-send routes), detection reads two frames already
+in hand (the no-popup path adds zero calls), a false positive is benign (the
+extra Enter submits; the follow-up no-ops on the emptied composer — verified
+live), and a false negative degrades to the prior behavior.
+**Rejected**: Appending a trailing space to bare-skill-shaped tasks at
+composition (verified to suppress the popup) — replicates per kickoff call site,
+misses operator→codex sends through the agent-send route, and touches
+composition where the claude byte-identity pins live.
+*Introduced by*: 260909-q7mj-codex-popup-enter-guard
 
 ### Composer clear requires equality with the pre-paste baseline
 **Decision**: Recovery permits a re-paste only when `stripForProbe` makes the

@@ -1261,3 +1261,154 @@ func TestSendImageChipEcho(t *testing.T) {
 		}
 	})
 }
+
+// TestPopupNewlyOpen: the pure strict-increase detection table — a marker is a
+// trigger only when its count rose vs the floor, and matching is
+// whitespace-insensitive through the shared stripForProbe normalization.
+func TestPopupNewlyOpen(t *testing.T) {
+	popup := "› $fab-operator\nPress enter to insert or esc to close"
+	for _, tc := range []struct {
+		name         string
+		frame, floor string
+		want         bool
+	}{
+		{"popup newly visible", popup, "❯ ", true},
+		{"no marker anywhere", "› $fab-operator", "❯ ", false},
+		{"stale marker in floor", popup, "Press enter to insert or esc to close\n❯ ", false},
+		{"wrapped marker still matches", "Press enter\nto insert", "❯ ", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := popupNewlyOpen(tc.frame, tc.floor); got != tc.want {
+				t.Errorf("popupNewlyOpen = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSendPopupGuardConsumesPopup: a paste that opens a composer popup (codex
+// bare-skill-token autocomplete) gets exactly one extra Enter before the submit
+// Enter, and verifySubmit baselines on the fresh post-popup capture — never on
+// the popup frame, whose disappearance would read as submission evidence.
+func TestSendPopupGuardConsumesPopup(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	ft := &fakeTmux{captureResults: []string{
+		"❯ ",
+		"❯ $fab-operator\nPress enter to insert or esc to close",
+		"❯ $fab-operator",
+		"› $fab-operator\n• Working",
+	}}
+	e := NewEngine("rk-popup-1")
+
+	if err := e.Send(context.Background(), ft, "default", "%5", "$fab-operator", true); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	want := []string{
+		"clear-pane-mode", "capture-pane", "set-buffer", "paste-buffer",
+		"capture-pane", // echo probe (popup visible)
+		"send-keys",    // popup-consuming Enter
+		"capture-pane", // fresh preFrame after the popup closed
+		"send-keys",    // submit Enter
+		"capture-pane", // observation (changed frame → no claim)
+	}
+	if got := strings.Join(ft.callStream(), ","); got != strings.Join(want, ",") {
+		t.Errorf("call order = %v, want %v", got, want)
+	}
+}
+
+// TestSendPopupStaleMarkerDoesNotFire: a marker already present in the pre-paste
+// baseline (stale popup copy in scrollback) is a floor to beat — the guard adds
+// nothing and the call sequence stays byte-identical to the guardless engine
+// (TestSendOrderAndEnter pins the same shape for marker-free frames).
+func TestSendPopupStaleMarkerDoesNotFire(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	stale := "Press enter to insert or esc to close\n❯ "
+	ft := &fakeTmux{captureResults: []string{
+		stale,
+		"Press enter to insert or esc to close\n❯ $fab-operator",
+		"› $fab-operator\n• Working",
+	}}
+	e := NewEngine("rk-popup-2")
+
+	if err := e.Send(context.Background(), ft, "default", "%5", "$fab-operator", true); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	want := []string{"clear-pane-mode", "capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
+	if got := strings.Join(ft.callStream(), ","); got != strings.Join(want, ",") {
+		t.Errorf("call order = %v, want %v (guard must not fire)", got, want)
+	}
+}
+
+// TestSendInsertLeavesPopupUntouched: submit=false never runs the guard — the
+// text stays staged and the popup stays open for the human to resolve.
+func TestSendInsertLeavesPopupUntouched(t *testing.T) {
+	fastProbe(t)
+	ft := &fakeTmux{captureResults: []string{
+		"❯ ",
+		"❯ $fab-operator\nPress enter to insert or esc to close",
+	}}
+	e := NewEngine("rk-popup-3")
+
+	if err := e.Send(context.Background(), ft, "default", "%5", "$fab-operator", false); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if ft.enterCalled {
+		t.Error("Enter sent despite submit=false with a popup open")
+	}
+}
+
+// TestSendPopupGuardEnterFailureIsStaged: a refused popup-consuming Enter is a
+// post-paste, pre-submit infrastructure failure — StagedSendFailure, keeping the
+// ProbeFailure / StagedSendFailure / SubmitUnverified taxonomy distinct.
+func TestSendPopupGuardEnterFailureIsStaged(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	ft := &fakeTmux{
+		captureResults: []string{
+			"❯ ",
+			"❯ $fab-operator\nPress enter to insert or esc to close",
+		},
+		enterErrs: []error{errors.New("tmux exploded")},
+	}
+	e := NewEngine("rk-popup-4")
+
+	err := e.Send(context.Background(), ft, "default", "%5", "$fab-operator", true)
+	var staged StagedSendFailure
+	if !errors.As(err, &staged) {
+		t.Fatalf("err = %v, want StagedSendFailure", err)
+	}
+	if got := countCalls(ft.callStream(), "send-keys"); got != 1 {
+		t.Errorf("send-keys calls = %d, want 1 (no submit Enter after a failed popup Enter)", got)
+	}
+}
+
+// TestSendRetryPopupReopenedConsumed: the recovery re-paste can reopen the
+// popup; the retry path consumes it against its own cleared-frame floor before
+// its submit Enter.
+func TestSendRetryPopupReopenedConsumed(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	ft := &fakeTmux{captureResults: []string{
+		"❯ ",              // baseline
+		"❯ $fab-operator", // echo probe, no popup on the first pass
+		// five unchanged observation frames with the needle still present →
+		// non-submission verdict → recovery
+		"❯ $fab-operator", "❯ $fab-operator", "❯ $fab-operator", "❯ $fab-operator", "❯ $fab-operator",
+		"❯ ", // C-u clear back to baseline
+		"❯ $fab-operator\nPress enter to insert or esc to close", // retry probe: popup reopened
+		"❯ $fab-operator",            // fresh preFrame after popup Enter
+		"› $fab-operator\n• Working", // retry observation: changed → no claim
+	}}
+	e := NewEngine("rk-popup-5")
+
+	if err := e.Send(context.Background(), ft, "default", "%5", "$fab-operator", true); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if got := countCalls(ft.callStream(), "send-keys"); got != 3 {
+		t.Errorf("Enter count = %d, want 3 (initial submit, retry popup-consume, retry submit)", got)
+	}
+	if got := countCalls(ft.callStream(), "send-keys C-u"); got != 1 {
+		t.Errorf("C-u count = %d, want 1 (one clear before the re-paste)", got)
+	}
+}

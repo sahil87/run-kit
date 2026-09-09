@@ -245,8 +245,9 @@ func (e *Engine) PressEnter(ctx context.Context, t Tmux, server, paneID string) 
 // Send runs the pane-targeted injection sequence (Constitution I — all argv
 // slices, no shell strings, text as a discrete argv element via the named
 // buffer): pane-mode guard → baseline capture → set-buffer → paste-buffer
-// (-d -p, bracketed) → NOVELTY echo probe → send-keys Enter (only on probe
-// success AND submit) → whole-frame observation with evidence-gated recovery.
+// (-d -p, bracketed) → NOVELTY echo probe → composer-popup guard (consumePopup;
+// submit only) → send-keys Enter (only on probe success AND submit) →
+// whole-frame observation with evidence-gated recovery.
 // Every step targets paneID, never the window, and shares the caller's ctx
 // deadline. submit=false (insert-without-submit) skips ONLY the final
 // SendEnter — baseline, set/paste, probe (a probe failure still returns
@@ -341,8 +342,13 @@ func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, 
 	}
 	if !submit {
 		// Insert-without-submit: the probe verified the paste landed; leave it
-		// staged in the input box and send no Enter.
+		// staged in the input box — and any popup open, for the human — and
+		// send no Enter.
 		return nil
+	}
+	preFrame, err = consumePopup(ctx, t, server, paneID, preFrame, baseline)
+	if err != nil {
+		return StagedSendFailure{Err: err}
 	}
 	if err := t.SendEnter(ctx, paneID, server); err != nil {
 		return StagedSendFailure{Err: fmt.Errorf("send-keys: %w", err)}
@@ -382,6 +388,12 @@ func (e *Engine) retrySubmit(ctx context.Context, t Tmux, server, paneID, text, 
 			if errors.As(err, &probeErr) {
 				return err
 			}
+			return StagedSendFailure{Err: err}
+		}
+		// The recovery re-paste can reopen a composer popup; the retry's floor
+		// is its own cleared frame, not the original baseline.
+		preFrame, err = consumePopup(ctx, t, server, paneID, preFrame, clearedFrame)
+		if err != nil {
 			return StagedSendFailure{Err: err}
 		}
 		if err := t.SendEnter(ctx, paneID, server); err != nil {
@@ -454,6 +466,62 @@ func (e *Engine) probeEcho(ctx context.Context, t Tmux, server, paneID, needle s
 		}
 	}
 	return "", ProbeFailure{}
+}
+
+// composerPopupMarkers are footer lines of known agent-TUI popups that consume
+// the next Enter as a popup action (insert/close) instead of submitting the
+// composer. Empirical TUI strings, the same class as CollapseMinRunes /
+// imageCollapseRe; matched through CountOccurrences' exact-substring arm so
+// markers and captures share the one stripForProbe normalization.
+var composerPopupMarkers = []string{
+	// codex skill-autocomplete footer: "Press enter to insert or esc to close".
+	// Opens when the composer holds exactly a bare skill token ($name); Enter
+	// then inserts instead of submitting (verified codex 0.153.4).
+	"Press enter to insert",
+}
+
+// popupNewlyOpen reports whether a composer popup newly appeared in frame
+// relative to floor: any marker whose occurrence count strictly increased.
+// Strict increase makes a stale marker copy in scrollback a floor to beat,
+// never a trigger — the same discipline as the novelty echo probe.
+func popupNewlyOpen(frame, floor string) bool {
+	for _, m := range composerPopupMarkers {
+		// CountOccurrences strips only the capture; needles arrive pre-stripped
+		// (Needle's contract), so the display-form marker is stripped here.
+		needle := stripForProbe(m)
+		if CountOccurrences(frame, needle, false, false) > CountOccurrences(floor, needle, false, false) {
+			return true
+		}
+	}
+	return false
+}
+
+// consumePopup guards the submit Enter against a composer popup opened by the
+// paste itself (popupNewlyOpen over two frames already in hand — the no-popup
+// path adds no tmux calls and no waits). A detected popup gets one Enter to
+// consume it (the pty processes it before the submit Enter, so ordering — not
+// the re-capture — carries correctness), one ProbeSettle for the TUI to
+// repaint, and a fresh capture so verifySubmit baselines on the post-popup
+// frame rather than reading the popup's disappearance as submission evidence.
+// A false positive is benign: on a popup-less composer the extra Enter submits
+// the staged text and the follow-up Enter no-ops on the emptied composer.
+// Returns the frame verifySubmit should compare against; errors are post-paste
+// pre-submit failures for the caller to classify (staged-text discipline).
+func consumePopup(ctx context.Context, t Tmux, server, paneID, preFrame, floor string) (string, error) {
+	if !popupNewlyOpen(preFrame, floor) {
+		return preFrame, nil
+	}
+	if err := t.SendEnter(ctx, paneID, server); err != nil {
+		return "", fmt.Errorf("send-keys (popup): %w", err)
+	}
+	if err := sleepCtx(ctx, ProbeSettle); err != nil {
+		return "", err
+	}
+	capture, err := t.CapturePane(ctx, paneID, ProbeCaptureLines, server)
+	if err != nil {
+		return "", fmt.Errorf("capture-pane (popup): %w", err)
+	}
+	return capture, nil
 }
 
 // verifySubmit compares complete normalized frames without interpreting a

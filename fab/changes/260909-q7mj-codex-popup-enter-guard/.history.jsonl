@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-09T03:43:10Z"}
+{"args":"rk typed task delivery into codex panes leaves kickoff text staged without submitting and falsely reports success — bare skill token opens codex skill-autocomplete popup which consumes the probe-gated Enter as insert; add evidence-gated popup guard in inject.Engine.send submit path","cmd":"fab-new","event":"command","ts":"2026-09-09T03:43:10Z"}
+{"cmd":"fab-proceed","event":"command","ts":"2026-09-09T03:44:28Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-09T03:44:33Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-09T03:45:36Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-09T03:47:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-09T03:47:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-09T03:53:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-09T03:57:27Z"}
+{"event":"review","result":"passed","ts":"2026-09-09T03:57:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-09T04:00:37Z"}

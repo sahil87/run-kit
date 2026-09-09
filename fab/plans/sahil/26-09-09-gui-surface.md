@@ -49,7 +49,7 @@ Agents: fill your row when you create the change; mark Done when merged.
 |---|------------------|-----------|------|---------------|----|--------|
 | C0 | *(spike — no fab change; written verdict only)* | — | S | — | — | **Done 2026-09-09** — see § C0 verdict |
 | C1 | `gui-spec-and-registry-rename` | — | S | 260909-5nvd-gui-spec-and-registry-rename | https://github.com/sahil87/run-kit/pull/888 | Done |
-| C2 | `gui-backend-switch-and-relay` | C0 verdict, C1 | L | 260909-fkh1-gui-backend-switch-and-relay | | in progress |
+| C2 | `gui-backend-switch-and-relay` | C0 verdict, C1 | L | 260909-fkh1-gui-backend-switch-and-relay | https://github.com/sahil87/run-kit/pull/892 | in review (PR #892) |
 | C3 | `gui-surface-tile` | C2 merged | L | | | not started |
 | C4 | `gui-agent-verbs` | C2 merged (∥ C3) | M | | | not started |
 | C5 | `gui-perf-measure` | C3, C4 merged | S | | | not started |

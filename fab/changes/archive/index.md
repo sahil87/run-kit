@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260909-kji8-tab-keyed-code-workspace-actions** — Tab-keyed code-server workspaces + run-kit context-menu actions in the code bridge extension
 - **260909-fkh1-gui-backend-switch-and-relay** — GUI Backend — the Switch, the Supervisor, the Relay (plan C2)
 - **260909-5nvd-gui-spec-and-registry-rename** — GUI Spec Amendments + Registry Rename (`desktop` → `gui`)
 - **260909-3cp9-pane-split-wedge-sizing-guard** — Pane-split tmux wedge — multi-viewer sizing guard (`window-size smallest`)

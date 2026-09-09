@@ -425,6 +425,11 @@ func startSession(exe string) error {
 	// and NEVER fails daemon start — the dashboard must come up regardless.
 	ensureCodeServer()
 
+	// Bring up the rk-gui supervisor beside the daemon. Same best-effort
+	// posture; the gui.enabled gate inside ensureGUI is the first rung, so a
+	// default install issues zero gui tmux commands.
+	ensureGUI()
+
 	return nil
 }
 

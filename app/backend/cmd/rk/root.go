@@ -76,6 +76,7 @@ func init() {
 	rootCmd.AddCommand(remoteCmd)
 	rootCmd.AddCommand(roleCmd)
 	rootCmd.AddCommand(codeServerCmd)
+	rootCmd.AddCommand(guiCmd)
 	rootCmd.AddCommand(codeCmd)
 	rootCmd.AddCommand(presentCmd)
 	rootCmd.AddCommand(tabCmd)

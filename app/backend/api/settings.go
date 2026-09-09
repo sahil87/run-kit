@@ -83,7 +83,12 @@ func normalizeSettingValue(value any) any {
 // patch contains auto_name (set or null-unset — null resets to the default
 // off), a successful save re-applies the resulting value to the running hub's
 // auto-name tracker through the same seam initSSEHub seeds from, so the live
-// key takes effect without a restart. No other key has a side effect.
+// key takes effect without a restart. When the patch contains gui.enabled
+// (null unsets to the default off), a successful save acts on the rk-gui
+// session — true ⇒ ensure (best-effort: a failure warns and the response is
+// still 200; the stream's reachable/reason fields carry the outcome), false
+// ⇒ kill — then flips the hub's gui slot synchronously via setGUIEnabled.
+// No other key has a side effect.
 func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	var patch map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
@@ -97,6 +102,7 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	current := settings.Load()
 	_, hasBoardOrder := patch["board_order"]
 	_, hasAutoName := patch["auto_name"]
+	_, hasGUIEnabled := patch["gui.enabled"]
 	// Sorted keys, not map order: which validation error a multi-key invalid
 	// patch reports must be deterministic across runs.
 	keys := make([]string, 0, len(patch))
@@ -138,6 +144,23 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	if hasAutoName {
 		s.initSSEHub()
 		s.sseHub.setAutoName(current.AutoName, s.autoNameDeliver())
+	}
+
+	// gui.enabled carries the rk-gui session side effect (the CLI `rk gui
+	// on/off` writes the file directly, so this runs only for the HTTP path):
+	// the session action first, then the hub's synchronous enabled flip.
+	if hasGUIEnabled {
+		s.initSSEHub()
+		if current.GUIEnabled {
+			if _, err := s.guiEnsure(); err != nil {
+				s.logger.Warn("gui.enabled on: ensure failed (the stream reports the not-running state)", "error", err)
+			}
+		} else {
+			if _, err := s.guiKill(); err != nil {
+				s.logger.Warn("gui.enabled off: session kill failed", "error", err)
+			}
+		}
+		s.sseHub.setGUIEnabled(current.GUIEnabled)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

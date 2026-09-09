@@ -474,6 +474,7 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 		"instance_name":  stringValueFixture("my-box", "dev mini", SetInstanceName, GetInstanceName),
 		"auto_name":      registryValueFixture(`true`, true, `false`, false, false),
 		"cron_ticker":    registryValueFixture(`false`, false, `true`, true, true),
+		"gui.enabled":    registryValueFixture(`true`, true, `false`, false, false),
 		"tmux_conf":      registryValueFixture(`"/my/tmux.conf"`, ptr("/my/tmux.conf"), `"/other/tmux.conf"`, ptr("/other/tmux.conf"), (*string)(nil)),
 		"log_level":      registryValueFixture(`"debug"`, ptr("debug"), `"info"`, ptr("info"), ptr("info")),
 		"server_colors": stringValueFixture("6", "1+3", func(v *string) error {
@@ -653,6 +654,89 @@ func TestCronTicker(t *testing.T) {
 		s.CronTicker = true
 		if out := serialize(s); strings.Contains(out, "cron_ticker") {
 			t.Errorf("cron_ticker emitted for the on default — files without the key must serialize byte-identically:\n%s", out)
+		}
+	})
+}
+
+func TestGUIEnabled(t *testing.T) {
+	t.Run("defaults off and is never on by default", func(t *testing.T) {
+		if Default().GUIEnabled {
+			t.Error("Default().GUIEnabled = true, want false")
+		}
+		t.Setenv(ConfigDirEnv, t.TempDir())
+		if Load().GUIEnabled {
+			t.Error("Load() on an empty config dir: GUIEnabled = true, want false")
+		}
+	})
+
+	t.Run("parses ParseBool values, tolerates garbage", func(t *testing.T) {
+		for value, want := range map[string]bool{"true": true, "1": true, "TRUE": true, "false": false, "0": false, "yes-please": false, "\"true\"": true} {
+			if got := parse("gui.enabled: " + value + "\n").GUIEnabled; got != want {
+				t.Errorf("parse gui.enabled: %s → %v, want %v", value, got, want)
+			}
+		}
+	})
+
+	t.Run("round-trips as a flat dotted line, omitted when off", func(t *testing.T) {
+		s := Default()
+		s.GUIEnabled = true
+		out := serialize(s)
+		if !strings.Contains(out, "gui.enabled: true\n") {
+			t.Errorf("serialize(GUIEnabled=true) missing the flat dotted line:\n%s", out)
+		}
+		if got := parse(out); !got.GUIEnabled {
+			t.Error("GUIEnabled lost in serialize/parse round-trip")
+		}
+		s.GUIEnabled = false
+		if out := serialize(s); strings.Contains(out, "gui.enabled") {
+			t.Errorf("gui.enabled emitted for the off default — files without the key must serialize byte-identically:\n%s", out)
+		}
+	})
+
+	t.Run("off after on removes the line byte-identically", func(t *testing.T) {
+		t.Setenv(ConfigDirEnv, t.TempDir())
+		if err := Save(Default()); err != nil {
+			t.Fatalf("Save baseline: %v", err)
+		}
+		p, err := configPath()
+		if err != nil {
+			t.Fatalf("configPath: %v", err)
+		}
+		before, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("ReadFile baseline: %v", err)
+		}
+
+		s := Load()
+		s.GUIEnabled = true
+		if err := Save(s); err != nil {
+			t.Fatalf("Save on: %v", err)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("ReadFile on: %v", err)
+		}
+		if got := strings.Count(string(data), "gui.enabled: true"); got != 1 {
+			t.Errorf("on file contains %d gui.enabled lines, want exactly 1:\n%s", got, data)
+		}
+		if !Load().GUIEnabled {
+			t.Error("Load() after Save(on): GUIEnabled = false, want true")
+		}
+
+		s = Load()
+		s.GUIEnabled = false
+		if err := Save(s); err != nil {
+			t.Fatalf("Save off: %v", err)
+		}
+		after, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("ReadFile off: %v", err)
+		}
+		if string(after) != string(before) {
+			t.Errorf("post-toggle file = %q, want byte-identical to pre-toggle %q", after, before)
+		}
+		if Load().GUIEnabled {
+			t.Error("Load() after Save(off): GUIEnabled = true, want false")
 		}
 	})
 }

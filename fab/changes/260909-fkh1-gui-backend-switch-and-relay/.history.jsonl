@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-09T10:52:05Z"}
+{"args":"gui-backend-switch-and-relay Plan: fab/plans/sahil/26-09-09-gui-surface.md -- implement C2 (backend: the switch, the supervisor, the relay) per the plan's change breakdown and pickup protocol; C0 verdict (Xvnc stands) and C1 (PR #888) done; decision log D1-D10 Certain; fill the C2 tracking-table row in the same PR.","cmd":"fab-new","event":"command","ts":"2026-09-09T10:52:05Z"}
+{"delta":"+2.0","event":"confidence","score":2,"trigger":"calc-score","ts":"2026-09-09T10:56:26Z"}
+{"delta":"+0.9","event":"confidence","score":2.9,"trigger":"calc-score","ts":"2026-09-09T10:57:50Z"}
+{"delta":"+0.7","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-09-09T11:05:26Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-09T11:10:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-09T11:15:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-09T12:20:36Z"}

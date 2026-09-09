@@ -17,6 +17,8 @@ import (
 	"rk/internal/codeserver"
 	"rk/internal/config"
 	"rk/internal/cron"
+	"rk/internal/daemon"
+	"rk/internal/gui"
 	"rk/internal/settings"
 	"rk/internal/tmux"
 
@@ -102,6 +104,11 @@ func runDoctorChecks() doctorReport {
 	// installed by `rk code-server install`/`update`. Always OK-shaped (the
 	// code-server posture): absence is a note, never a verdict flipper.
 	report.Checks = append(report.Checks, codeBridgeCheck(codeserver.ExtensionsDir(home), codeBridgeEmbeddedVersion(), codeBridgeLiveHostCount))
+
+	// gui — the host desktop surface (the rk-gui session + RFB relay).
+	// Always OK-shaped: off is the default and not-running is a state, never
+	// a dependency failure. See guiDoctorCheck.
+	report.Checks = append(report.Checks, guiDoctorCheck())
 
 	// Ephemeral servers — informational hygiene count, always OK-shaped (the
 	// code-server/drift posture): scratch servers are deliberate creator
@@ -391,6 +398,57 @@ func tmuxConfigCheck() doctorCheck {
 		check.Note = "hand-edited — rk leaves it untouched; " + recipe
 	}
 	return check
+}
+
+// guiCheck reports the GUI surface's state: off (the default), on+reachable
+// with the resolved backend/display/geometry/viewer count, or on+not-running
+// with the fixed reason set (gui.NotRunningReason owns the strings). Always
+// OK-shaped — the code-server posture: a missing or down desktop is a note,
+// never a verdict flipper. Pure over the injected inputs so tests never touch
+// tmux, the probe, or PATH.
+func guiCheck(enabled, session bool, display, backend string, probe gui.Info, viewers int, lookPath func(string) (string, error)) doctorCheck {
+	check := doctorCheck{Name: "gui", OK: true}
+	if !enabled {
+		check.Note = "off"
+		return check
+	}
+	if probe.Reachable {
+		bin := backend
+		if bin == "" {
+			bin, _ = gui.ResolveBackend(lookPath)
+		}
+		check.Note = guiOnSummary(bin, display, probe.Width, probe.Height, viewers)
+		return check
+	}
+	check.Note = "on — not running (" + gui.NotRunningReason(session, backend, lookPath) + ")"
+	return check
+}
+
+// guiDoctorCheck gathers the live facts for the gui row. Every tmux read is
+// gated on the daemon running — a has-session probe on a dead rk-daemon
+// socket would birth a tmux server; with the daemon down the row reads as
+// session-absent.
+func guiDoctorCheck() doctorCheck {
+	if !settings.Load().GUIEnabled {
+		return guiCheck(false, false, "", "", gui.Info{}, 0, guiLookPathFn)
+	}
+	if !guiDaemonRunningFn() {
+		return guiCheck(true, false, "", "", gui.Info{}, 0, guiLookPathFn)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), tmux.TmuxTimeout)
+	defer cancel()
+	session := guiSessionExistsFn(ctx)
+	display, backend := "", ""
+	if session {
+		display, backend, _ = guiSessionOptionsFn(ctx)
+	}
+	var info gui.Info
+	if session {
+		if network, addr, err := gui.BackendAddr(daemon.GUIWindowName); err == nil {
+			info, _ = guiProbeFn(ctx, network, addr)
+		}
+	}
+	return guiCheck(true, session, display, backend, info, guiViewersFn(), guiLookPathFn)
 }
 
 // dialTCP is the production reachability probe for the code-server doctor row:

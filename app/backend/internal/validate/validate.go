@@ -475,6 +475,17 @@ func ValidateToolName(name string) string {
 	return ""
 }
 
+// ValidateGUIID validates a GUI surface id. Exactly one GUI session exists per
+// host, so the closed set is the single id "host" — the validator is where a
+// second id lands later. Returns empty string if valid, an error message
+// otherwise.
+func ValidateGUIID(id string) string {
+	if id == "host" {
+		return ""
+	}
+	return `gui id must be "host"`
+}
+
 // ExpandTilde expands a leading ~ to $HOME and resolves the path.
 // Returns the expanded path and an empty error string on success,
 // or an empty path and error message on failure.

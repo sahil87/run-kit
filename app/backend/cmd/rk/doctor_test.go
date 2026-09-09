@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"rk/internal/codeserver"
+	"rk/internal/gui"
 	"rk/internal/settings"
 	"rk/internal/tmux"
 )
@@ -1718,5 +1719,51 @@ func TestAgentHooksCheckAgyNamedDoc(t *testing.T) {
 	c = agentHooksCheck(home, readFile, stat)
 	if c.OK || !strings.Contains(c.Hint, "Antigravity") {
 		t.Errorf("dangling agy rk path: OK = %v Hint = %q, want an Antigravity failure", c.OK, c.Hint)
+	}
+}
+
+// TestGuiCheckStates pins the gui row's six states: the exact Note strings and
+// the always-OK shape (the row reports state, never a verdict).
+func TestGuiCheckStates(t *testing.T) {
+	resolveAll := func(name string) (string, error) { return "/usr/bin/" + name, nil }
+	resolveNone := func(name string) (string, error) { return "", fmt.Errorf("not found: %s", name) }
+	reachable := gui.Info{Reachable: true, Width: 1920, Height: 1080}
+	down := gui.Info{Reason: "not running"}
+
+	cases := []struct {
+		name             string
+		enabled, session bool
+		display, backend string
+		probe            gui.Info
+		viewers          int
+		lookPath         func(string) (string, error)
+		want             string
+	}{
+		{"off", false, false, "", "", gui.Info{}, 0, resolveAll,
+			"off"},
+		{"on reachable", true, true, ":10", "Xtigervnc", reachable, 2, resolveAll,
+			"on (Xtigervnc, :10, 1920x1080, 2 viewers)"},
+		{"on session absent", true, false, "", "", down, 0, resolveAll,
+			"on — not running (rk-gui session absent; the daemon starts it on 'rk daemon start')"},
+		{"on no backend", true, true, "", "", down, 0, resolveNone,
+			"on — not running (no VNC backend: sudo apt install tigervnc-standalone-server openbox)"},
+		{"on backend exited", true, true, ":10", "Xtigervnc", down, 0, resolveAll,
+			"on — not running (Xtigervnc exited — see the rk-gui pane; 'rk gui restart')"},
+		{"on screen sharing off", true, true, "", "screen-sharing", down, 0, resolveAll,
+			"on — not running (Screen Sharing is off: System Settings › General › Sharing › Screen Sharing)"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			check := guiCheck(c.enabled, c.session, c.display, c.backend, c.probe, c.viewers, c.lookPath)
+			if !check.OK {
+				t.Errorf("OK = false, want true — the gui row is never a verdict flipper")
+			}
+			if check.Name != "gui" {
+				t.Errorf("Name = %q, want gui", check.Name)
+			}
+			if check.Note != c.want {
+				t.Errorf("Note = %q, want exactly %q", check.Note, c.want)
+			}
+		})
 	}
 }

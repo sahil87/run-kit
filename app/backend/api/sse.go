@@ -12,11 +12,14 @@ import (
 	"sync"
 	"time"
 
+	"rk/internal/daemon"
+	"rk/internal/gui"
 	"rk/internal/metrics"
 	"rk/internal/ports"
 	"rk/internal/prstatus"
 	"rk/internal/push"
 	"rk/internal/sessions"
+	"rk/internal/settings"
 	"rk/internal/tmux"
 	"rk/internal/updatecheck"
 	"rk/internal/validate"
@@ -288,6 +291,26 @@ type sseHub struct {
 	// payload ({"reachable"}), replayed on connect like
 	// cachedServicesJSON so late-joining clients see the signal immediately.
 	cachedCodeServerJSON string
+	// The guiEnabled/guiProbeAt/guiInfo/guiBackend/guiDisplay/guiViewers/
+	// cachedGuiJSON group implements the host-global `event: gui` slot
+	// (mirroring the code-server slot). guiEnabled is re-read from the
+	// settings file every tick — a CLI-side `rk gui on` writes the file
+	// directly and must surface without a settings POST. guiProbeAt/guiInfo
+	// are the TTL-cached probe result; guiBackend/guiDisplay are the
+	// supervisor's stamped session options from the last probe pass;
+	// guiViewers counts live /ws/gui/{id} relay connections (≥ 1 viewer
+	// skips the probe dial — the live relay is stronger evidence, and each
+	// dial would log accept/close lines into the supervisor pane).
+	// cachedGuiJSON replays to late joiners like cachedCodeServerJSON.
+	// Guarded by h.mu; only the poll loop, setGUIEnabled, and the relay's
+	// viewer bookkeeping write.
+	guiEnabled    bool
+	guiProbeAt    time.Time
+	guiInfo       gui.Info
+	guiBackend    string
+	guiDisplay    string
+	guiViewers    map[string]int
+	cachedGuiJSON string
 	// prStatus, when non-nil, supplies the in-memory PR-status snapshot the
 	// poll path joins onto change-bound windows. nil degrades gracefully (no
 	// PR fields attached) — used by tests and when no collector is wired.
@@ -400,6 +423,21 @@ type sseHub struct {
 	// capturePreviewForWindow (tmux exec); tests override it to exercise the
 	// preview-broadcast path without a live tmux server.
 	captureFn captureFunc
+
+	// guiProbeTTL overrides the package guiProbeTTL per hub. Zero falls back
+	// to the package constant (the safetyInterval override idiom — a per-hub
+	// field, never a global write, so a test shrink can't race another
+	// test's still-running poll loop). Tests set it short; production
+	// callers leave it zero.
+	guiProbeTTL time.Duration
+
+	// guiSessionOptionsFn/guiProbeFn are the injectable seams behind
+	// guiTick: the rk-gui session's stamped option read and the RFB probe.
+	// Production defaults are wired in newSSEHub; tests substitute per-hub
+	// (the captureFn idiom — per-hub, so a stub never leaks into another
+	// test's still-running poll loop).
+	guiSessionOptionsFn func(ctx context.Context) (display, backend string, ok bool)
+	guiProbeFn          func(ctx context.Context, network, addr string) (gui.Info, error)
 }
 
 // getSubscriber returns the hub's current WindowChangeSubscriber under
@@ -495,6 +533,7 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		pollInFlight:           make(map[string]bool),
 		pollSem:                make(chan struct{}, ssePollConcurrency),
 		pollResults:            make(chan pollUnitResult, ssePollConcurrency),
+		guiViewers:             make(map[string]int),
 		fetcher:                fetcher,
 		orderFetcher:           prodSessionOrderFetcher{},
 		metrics:                mc,
@@ -503,6 +542,8 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		operatorQueue:          newOperatorQueueTracker(),
 		autoName:               newAutoNameTracker(),
 		captureFn:              capturePreviewForWindow,
+		guiSessionOptionsFn:    daemon.GUISessionOptions,
+		guiProbeFn:             gui.Probe,
 	}
 	h.waitingPush = newWaitingPushTracker(func(ctx context.Context, title, body, url string) error {
 		// Shell broadcast first: the hub write is immediate, while the Web
@@ -682,6 +723,167 @@ func (h *sseHub) codeServerTick() (int, bool) {
 	return port, reachable
 }
 
+// guiProbeTTL bounds how often the hub re-probes the GUI backend: the probe
+// piggybacks the existing poll cadence and is never a per-request dial (the
+// codeServerProbeTTL shape). Overridable per hub via the guiProbeTTL field
+// (the safetyInterval idiom) — tests shrink the field, never this constant.
+const guiProbeTTL = 5 * time.Second
+
+// guiProbeTTLEffective returns the hub's probe TTL: the per-hub override
+// when set, else the package default.
+func (h *sseHub) guiProbeTTLEffective() time.Duration {
+	if h.guiProbeTTL > 0 {
+		return h.guiProbeTTL
+	}
+	return guiProbeTTL
+}
+
+// guiTickTimeout bounds the per-tick tmux option read + probe context so a
+// hung endpoint can never stall the poll loop past one tick.
+const guiTickTimeout = 5 * time.Second
+
+// guiTick maintains the host-global `event: gui` slot and is invoked on every
+// poll tick beside codeServerTick. It re-reads gui.enabled from the settings
+// file EVERY tick (a CLI-side `rk gui on` writes the file directly and must
+// surface without a settings POST), refreshes the TTL-cached probe when
+// enabled, and broadcasts the always-list-shaped payload. The tmux option
+// read and the probe dial run OUTSIDE h.mu (the codeServerTick discipline).
+// While at least one relay viewer is live the dial is skipped: reachability
+// follows from the live relay and each dial would write accept/close lines
+// into the supervisor pane's log.
+func (h *sseHub) guiTick() {
+	enabled := settings.Load().GUIEnabled
+
+	h.mu.Lock()
+	if enabled != h.guiEnabled {
+		h.guiEnabled = enabled
+		// Force a fresh probe on the flip so a CLI on/off surfaces within one
+		// TTL instead of riding the stale cache.
+		h.guiProbeAt = time.Time{}
+	}
+	probeAt := h.guiProbeAt
+	viewers := h.guiViewers[daemon.GUIWindowName]
+	h.mu.Unlock()
+
+	if enabled && time.Since(probeAt) >= h.guiProbeTTLEffective() {
+		if viewers > 0 {
+			h.mu.Lock()
+			h.guiInfo.Reachable = true
+			h.guiInfo.Reason = ""
+			h.guiProbeAt = time.Now()
+			h.mu.Unlock()
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), guiTickTimeout)
+			display, backend, ok := h.guiSessionOptionsFn(ctx)
+			if ok && display != "" {
+				// An unparsable stamped display reads as "not running".
+				if _, derr := gui.ParseDisplay(display); derr != nil {
+					ok = false
+				}
+			}
+			var info gui.Info
+			switch {
+			case !ok:
+				info = gui.Info{Reason: "session absent"}
+				display, backend = "", ""
+			default:
+				network, addr, aerr := guiBackendAddr()
+				switch {
+				case aerr != nil:
+					info = gui.Info{Reason: aerr.Error()}
+				default:
+					pi, perr := h.guiProbeFn(ctx, network, addr)
+					if perr != nil {
+						info = gui.Info{Reason: perr.Error()}
+					} else {
+						info = pi
+					}
+				}
+			}
+			cancel()
+
+			h.mu.Lock()
+			h.guiDisplay = display
+			h.guiBackend = backend
+			h.guiInfo = info
+			h.guiProbeAt = time.Now()
+			h.mu.Unlock()
+		}
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	str := h.guiPayloadLocked()
+	if str == "" {
+		return
+	}
+	h.cachedGuiJSON = str
+	h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "gui", data: str})
+}
+
+// guiPayloadLocked renders the `event: gui` payload from hub state. The
+// payload is ALWAYS a single-element list; a disabled GUI renders the fixed
+// all-zero entry. Caller MUST hold h.mu.
+func (h *sseHub) guiPayloadLocked() string {
+	entry := gui.StreamEntry{ID: daemon.GUIWindowName, Enabled: h.guiEnabled}
+	if h.guiEnabled {
+		entry.Backend = h.guiBackend
+		entry.Reachable = h.guiInfo.Reachable
+		entry.Display = h.guiDisplay
+		entry.Width = h.guiInfo.Width
+		entry.Height = h.guiInfo.Height
+		entry.Viewers = h.guiViewers[daemon.GUIWindowName]
+	}
+	b, err := json.Marshal([]gui.StreamEntry{entry})
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// setGUIEnabled is the settings-POST apply seam: flips guiEnabled, zeroes the
+// probe age (the next tick re-probes), and re-renders + broadcasts
+// immediately so the POST caller's state socket sees the flip within one
+// state event instead of waiting out the poll cadence. The CLI path (`rk gui
+// on`) never calls this — the tick's per-tick settings re-read covers it.
+func (h *sseHub) setGUIEnabled(enabled bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.guiEnabled = enabled
+	h.guiProbeAt = time.Time{}
+	str := h.guiPayloadLocked()
+	if str == "" {
+		return
+	}
+	h.cachedGuiJSON = str
+	h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "gui", data: str})
+}
+
+// guiViewerAdd / guiViewerRemove track live /ws/gui/{id} relay connections
+// per id — the payload's viewers field and the probe's viewer-skip gate.
+// Removal floors at zero. Called from the relay handler goroutines.
+func (h *sseHub) guiViewerAdd(id string) {
+	h.mu.Lock()
+	h.guiViewers[id]++
+	h.mu.Unlock()
+}
+
+func (h *sseHub) guiViewerRemove(id string) {
+	h.mu.Lock()
+	if h.guiViewers[id] > 0 {
+		h.guiViewers[id]--
+	}
+	h.mu.Unlock()
+}
+
+// guiViewerCount is the current live-viewer count for an id (the relay's
+// bookkeeping assertions in tests).
+func (h *sseHub) guiViewerCount(id string) int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.guiViewers[id]
+}
+
 // replayGlobalSlots sends the cached host-global slots to a state-socket
 // connection ONCE, right after hello. This is the state-socket counterpart of
 // the per-connect global delivery the old SSE addClient performed. Ordering
@@ -698,6 +900,9 @@ func (h *sseHub) replayGlobalSlots(sc *stateConn) {
 	}
 	if h.cachedCodeServerJSON != "" {
 		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "code-server", data: h.cachedCodeServerJSON})
+	}
+	if h.cachedGuiJSON != "" {
+		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "gui", data: h.cachedGuiJSON})
 	}
 	if h.cachedServerOrderJSON != "" {
 		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "server-order", data: h.cachedServerOrderJSON})
@@ -1682,6 +1887,13 @@ func (h *sseHub) poll() {
 				h.mu.Unlock()
 			}
 		}
+
+		// Broadcast the GUI state (host-global, every tick, enabled or not) —
+		// mirrors the code-server broadcast above. The tick re-reads
+		// gui.enabled from the settings file so a CLI-side `rk gui on`
+		// surfaces without a POST, and replays to late joiners via
+		// cachedGuiJSON.
+		h.guiTick()
 
 		// Dispatch this tick's per-server units — skipped on results-only
 		// ticks (see above). Each unit runs on its own goroutine (bounded by

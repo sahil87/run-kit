@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/daemon"
 	"rk/internal/settings"
 )
 
@@ -68,8 +70,8 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	entries := getSettingsList(t, router)
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
-		"instance_name", "auto_name", "cron_ticker", "tmux_conf", "log_level",
-		"server_colors", "server_flairs", "board_order",
+		"instance_name", "auto_name", "cron_ticker", "gui.enabled", "tmux_conf",
+		"log_level", "server_colors", "server_flairs", "board_order",
 	}
 	if len(entries) != len(wantKeys) {
 		t.Fatalf("GET returned %d entries, want %d", len(entries), len(wantKeys))
@@ -108,6 +110,9 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	}
 	if got := byKey["cron_ticker"].Value; got != true {
 		t.Errorf("cron_ticker.value = %v, want true", got)
+	}
+	if got := byKey["gui.enabled"].Value; got != false {
+		t.Errorf("gui.enabled.value = %v, want false", got)
 	}
 	if got := byKey["log_level"].Value; got != "info" {
 		t.Errorf("log_level.value = %v, want %q", got, "info")
@@ -617,5 +622,114 @@ func TestFoldedEndpoints_areGone(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /api/boards/order: status = %d, want 404/405 (endpoint folded)", rec.Code)
+	}
+}
+
+// --- POST /api/settings: gui.enabled side effect ---
+
+// newGuiSideEffectServer builds a routed-capable server with the gui
+// ensure/kill seams stubbed to call counters.
+func newGuiSideEffectServer() (*Server, *int, *int) {
+	ensures, kills := new(int), new(int)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	server := &Server{
+		logger:   logger,
+		sessions: &mockSessionFetcher{},
+		tmux:     &mockTmuxOps{},
+		hostname: "test-host",
+		guiEnsureFn: func() (daemon.GUIEnsureOutcome, error) {
+			*ensures++
+			return daemon.GUIEnsureStarted, nil
+		},
+		guiKillFn: func() (bool, error) { *kills++; return true, nil },
+	}
+	return server, ensures, kills
+}
+
+func TestPostSettings_guiEnabledTrueEnsuresOnce(t *testing.T) {
+	isolateSettings(t)
+	server, ensures, kills := newGuiSideEffectServer()
+	rec := postJSON(t, server.buildRouter(), "/api/settings", `{"gui.enabled": true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if *ensures != 1 || *kills != 0 {
+		t.Errorf("ensures=%d kills=%d, want 1/0", *ensures, *kills)
+	}
+	if !settings.Load().GUIEnabled {
+		t.Error("gui.enabled not persisted")
+	}
+	// The hub's gui slot flips synchronously with the POST (no tick wait).
+	server.sseHub.mu.RLock()
+	enabled := server.sseHub.guiEnabled
+	server.sseHub.mu.RUnlock()
+	if !enabled {
+		t.Error("hub guiEnabled not flipped synchronously by the POST")
+	}
+}
+
+func TestPostSettings_guiEnabledFalseKillsOnce(t *testing.T) {
+	isolateSettings(t)
+	server, ensures, kills := newGuiSideEffectServer()
+	router := server.buildRouter()
+	if rec := postJSON(t, router, "/api/settings", `{"gui.enabled": true}`); rec.Code != http.StatusOK {
+		t.Fatalf("enable: status = %d", rec.Code)
+	}
+	rec := postJSON(t, router, "/api/settings", `{"gui.enabled": false}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if *ensures != 1 || *kills != 1 {
+		t.Errorf("ensures=%d kills=%d, want 1/1", *ensures, *kills)
+	}
+	server.sseHub.mu.RLock()
+	enabled := server.sseHub.guiEnabled
+	server.sseHub.mu.RUnlock()
+	if enabled {
+		t.Error("hub guiEnabled still true after the off POST")
+	}
+}
+
+func TestPostSettings_guiEnabledNullUnsetsAndKills(t *testing.T) {
+	enableGuiSettings(t)
+	server, _, kills := newGuiSideEffectServer()
+	rec := postJSON(t, server.buildRouter(), "/api/settings", `{"gui.enabled": null}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if *kills != 1 {
+		t.Errorf("kills=%d, want 1 (null resets to the default off)", *kills)
+	}
+	if settings.Load().GUIEnabled {
+		t.Error("gui.enabled persisted as true after null unset, want false")
+	}
+}
+
+func TestPostSettings_unrelatedKeysCallNeitherGuiSeam(t *testing.T) {
+	isolateSettings(t)
+	server, ensures, kills := newGuiSideEffectServer()
+	router := server.buildRouter()
+	for _, body := range []string{`{"theme": "dark"}`, `{"auto_name": true}`, `{"board_order": ["reviews"]}`} {
+		if rec := postJSON(t, router, "/api/settings", body); rec.Code != http.StatusOK {
+			t.Fatalf("body %s: status = %d, body=%s", body, rec.Code, rec.Body.String())
+		}
+	}
+	if *ensures != 0 || *kills != 0 {
+		t.Errorf("ensures=%d kills=%d, want 0/0 for unrelated keys", *ensures, *kills)
+	}
+}
+
+func TestPostSettings_guiEnsureFailureIsBestEffort(t *testing.T) {
+	isolateSettings(t)
+	server, _, _ := newGuiSideEffectServer()
+	server.guiEnsureFn = func() (daemon.GUIEnsureOutcome, error) {
+		return daemon.GUIEnsureStateDirFailed, fmt.Errorf("no free display")
+	}
+	rec := postJSON(t, server.buildRouter(), "/api/settings", `{"gui.enabled": true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (best-effort side effect); body=%s", rec.Code, rec.Body.String())
+	}
+	if !settings.Load().GUIEnabled {
+		t.Error("gui.enabled not persisted despite the ensure failure")
 	}
 }

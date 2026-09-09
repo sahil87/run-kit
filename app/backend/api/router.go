@@ -18,6 +18,8 @@ import (
 
 	"rk/internal/config"
 	"rk/internal/cron"
+	"rk/internal/daemon"
+	"rk/internal/gui"
 	"rk/internal/metrics"
 	"rk/internal/ports"
 	"rk/internal/prstatus"
@@ -270,6 +272,21 @@ type Server struct {
 	// router) degrades to no facts: every entry derives orphaned with no
 	// backoff next-fire.
 	cronFactsFn func(ctx context.Context, server string, entries []cron.Entry) cron.ServerFacts
+
+	// The gui*Fn group is the injectable seam layer behind GET /api/gui/{id},
+	// POST /api/gui/{id}/restart, and the gui.enabled settings POST side
+	// effect (see api/gui.go and settings.go). Nil falls back to the
+	// production daemon/gui calls, mirroring the hub's gui seams in sse.go.
+	guiEnsureFn         func() (daemon.GUIEnsureOutcome, error)
+	guiKillFn           func() (bool, error)
+	guiRestartFn        func() error
+	guiDaemonUpFn       func() bool
+	guiSessionExistsFn  func(ctx context.Context) bool
+	guiSessionOptionsFn func(ctx context.Context) (display, backend string, ok bool)
+	guiSessionCreatedFn func(ctx context.Context) (time.Time, bool)
+	guiProbeFn          func(ctx context.Context, network, addr string) (gui.Info, error)
+	guiAppsFn           func(display string) ([]gui.App, error)
+	guiLookPathFn       func(name string) (string, error)
 
 	// tintCacheMu guards tintCache.
 	tintCacheMu sync.Mutex
@@ -923,6 +940,12 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/settings", s.handleGetSettings)
 	r.Post("/api/settings", s.handlePostSettings)
 
+	// GUI surface — the status document (GET, incl. the apps list the
+	// off-confirm renders) and the supervisor restart (POST per §IX). On/off
+	// ride POST /api/settings (the gui.enabled side effect). See api/gui.go.
+	r.Get("/api/gui/{id}", s.handleGuiStatus)
+	r.Post("/api/gui/{id}/restart", s.handleGuiRestart)
+
 	// Web Push: VAPID key (read), subscribe + notify (mutations, POST per §IX)
 	r.Get("/api/push/vapid-public-key", s.handlePushVAPIDPublicKey)
 	r.Post("/api/push/subscribe", s.handlePushSubscribe)
@@ -962,6 +985,10 @@ func (s *Server) buildRouter() chi.Router {
 	// pane relay streams (replaces the retired per-pane GET /relay/{windowId} +
 	// handleRelay; see api/terminals_ws.go).
 	r.Get("/ws/terminals", s.handleTerminalsWS)
+
+	// GUI relay — the raw RFB byte stream of the host desktop over WS (binary
+	// frames only; the backend never listens on TCP itself). See api/gui_ws.go.
+	r.Get("/ws/gui/{id}", s.handleGuiWS)
 
 	// PWA identity assets — explicit GET routes registered BEFORE the SPA
 	// catch-all so the instance accent (config.yaml instance_color, read per

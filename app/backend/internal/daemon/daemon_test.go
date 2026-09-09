@@ -1267,6 +1267,8 @@ func TestStartSession_BirthCwdIsHome(t *testing.T) {
 	}
 	useTestSocket(t)
 	withServerSocket(t, testSocket)
+	withGUISetting(t, false) // fresh settings root: gui.enabled is off
+	rec := withGUISeams(t, false)
 
 	// A fake serve binary that just stays alive: startSession runs `<exe> serve`,
 	// and the session (and with it the birthed server) must survive long enough
@@ -1283,6 +1285,16 @@ func TestStartSession_BirthCwdIsHome(t *testing.T) {
 	want := resolveSymlinks(t, tmux.ServerBirthDir())
 	if got != want {
 		t.Errorf("daemon session_path = %q, want %q (server birth must be anchored to home)", got, want)
+	}
+
+	// The gui boot hook is gated on gui.enabled: with a fresh (disabled)
+	// settings root, startSession must issue zero gui spawn calls (R2's
+	// never-on-by-default invariant).
+	if len(rec.spawnArgs) != 0 {
+		t.Errorf("gui spawn calls = %d, want 0 with gui.enabled off: %v", len(rec.spawnArgs), rec.spawnArgs)
+	}
+	if rec.existsProbes != 0 {
+		t.Errorf("gui session-exists probes = %d, want 0 — the disabled gate fires before any tmux probe", rec.existsProbes)
 	}
 }
 

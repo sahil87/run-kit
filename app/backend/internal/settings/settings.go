@@ -77,6 +77,11 @@ type Settings struct {
 	// default; read by the ticker at every iteration, so a flip takes effect
 	// without a daemon restart.
 	CronTicker bool
+	// GUIEnabled turns the GUI surface on: the daemon runs the host desktop
+	// (the rk-gui sibling session) and the UI shows the 4th tile toggle.
+	// Strictly opt-in (default false) — no code path other than an explicit
+	// user write may set it true. A settings POST applies the flip live.
+	GUIEnabled bool
 	// TmuxConf is the path to the tmux.conf rk passes to tmux. Empty means
 	// "unset": tmux resolution falls back to its built-in default. The user
 	// owns the file — rk performs no ensure/refresh on it. Read at tmux
@@ -377,6 +382,26 @@ var registry = []registryEntry{
 		},
 		read:  func(s *Settings) any { return s.CronTicker },
 		apply: boolValue(func(s *Settings) *bool { return &s.CronTicker }, true),
+	},
+	{
+		key: "gui.enabled", kind: "bool", def: "false",
+		desc:     "Turns the GUI surface on: runs the host desktop (rk-gui session) and shows the 4th tile toggle. Off by default; nothing flips it but you.",
+		category: "behavior", ui: true, live: true,
+		// Tolerant read: any strconv.ParseBool value; anything else keeps the
+		// default (off) — the safe direction for an opt-in surface.
+		parse: func(s *Settings, value string) {
+			if b, err := strconv.ParseBool(strings.Trim(value, "\"")); err == nil {
+				s.GUIEnabled = b
+			}
+		},
+		serialize: func(s *Settings) string {
+			if s.GUIEnabled {
+				return "gui.enabled: true\n"
+			}
+			return ""
+		},
+		read:  func(s *Settings) any { return s.GUIEnabled },
+		apply: boolValue(func(s *Settings) *bool { return &s.GUIEnabled }, false),
 	},
 	{
 		key: "tmux_conf", kind: "path", def: "",

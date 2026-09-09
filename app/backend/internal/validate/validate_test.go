@@ -715,6 +715,30 @@ func TestValidateRemoteTarget(t *testing.T) {
 	}
 }
 
+func TestValidateGUIID(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		valid bool
+	}{
+		{"host", "host", true},
+		{"case-sensitive", "Host", false},
+		{"suffix rejected", "host2", false},
+		{"empty rejected", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ValidateGUIID(tt.input)
+			if tt.valid && got != "" {
+				t.Errorf("ValidateGUIID(%q) = %q, want valid", tt.input, got)
+			}
+			if !tt.valid && got != `gui id must be "host"` {
+				t.Errorf("ValidateGUIID(%q) = %q, want %q", tt.input, got, `gui id must be "host"`)
+			}
+		})
+	}
+}
+
 func TestValidateWebTabURL(t *testing.T) {
 	accepted := []string{
 		"/",

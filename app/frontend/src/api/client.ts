@@ -561,7 +561,10 @@ export async function fetchCodeWorkspace(
   if (res.status === 409) return { status: "no-root" };
   if (!res.ok) await throwOnError(res);
   const data = (await res.json()) as { path?: string; root?: string };
-  return { status: "ok", path: data.path ?? "", root: data.root ?? "" };
+  if (!data.path || !data.root) {
+    throw new Error("Invalid code-workspace response: missing path/root");
+  }
+  return { status: "ok", path: data.path, root: data.root };
 }
 
 export async function splitWindow(

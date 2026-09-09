@@ -138,7 +138,7 @@ function registerActions(
     const target = uri ?? vscode.window.activeTextEditor?.document.uri;
     if (target === undefined) return null;
     if (target.scheme !== 'file') {
-      void vscode.window.showWarningMessage('Only local files can be shown in the Web Tile');
+      void vscode.window.showWarningMessage('Only local files and folders can be shown in the Web Tile');
       return null;
     }
     return target;

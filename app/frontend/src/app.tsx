@@ -158,7 +158,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions } from "@/lib/palette/cron";
 import { CronCreateDialog } from "@/components/cron-create-dialog";
@@ -976,14 +976,18 @@ function AppShell() {
     if (codeRootSeedInFlightRef.current.has(key)) return;
     if (codeSeedRejections.has(`${key}:${seed}`)) return;
     codeRootSeedInFlightRef.current.add(key);
-    setWindowOptions(server, windowParam, { "@rk_win_code_root": seed }).catch(() => {
-      // Only a rejection clears the in-flight mark (a success holds it until
-      // the option tick confirms) — clearing is what lets a later, CHANGED
-      // seed value retry; the rejection set blocks replaying this one.
+    setWindowOptions(server, windowParam, { "@rk_win_code_root": seed }).catch((err: unknown) => {
+      // A deterministic refusal (the backend's 400 path validation) records a
+      // rejection so the identical value never re-POSTs; anything transient
+      // (network, 5xx) only releases the in-flight mark so a later tick can
+      // retry the SAME value. Either way the mark clears — a success holds it
+      // until the option tick confirms.
       codeRootSeedInFlightRef.current.delete(key);
-      setCodeSeedRejections((prev) =>
-        prev.has(`${key}:${seed}`) ? prev : new Set(prev).add(`${key}:${seed}`),
-      );
+      if (err instanceof ApiError && err.status === 400) {
+        setCodeSeedRejections((prev) =>
+          prev.has(`${key}:${seed}`) ? prev : new Set(prev).add(`${key}:${seed}`),
+        );
+      }
     });
   }, [server, windowParam, effectiveWindow, layout, codeSeedRejections]);
 
@@ -1021,10 +1025,11 @@ function AppShell() {
   const handleCodeFolderNavigated = useCallback(
     (folder: string) => {
       if (!windowParam || !effectiveWindow || folder === codeRootFor(effectiveWindow)) return;
-      setWindowOptions(server, windowParam, { "@rk_win_code_root": folder }).catch(
-        (err: Error) => addToast(err.message || "Failed to set code folder", "error"),
-      );
-      followFolder(folder);
+      setWindowOptions(server, windowParam, { "@rk_win_code_root": folder })
+        .then(() => followFolder(folder))
+        .catch((err: Error) =>
+          addToast(err.message || "Failed to set code folder", "error"),
+        );
     },
     [server, windowParam, effectiveWindow, addToast, followFolder],
   );

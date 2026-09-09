@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 3
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-09T20:02:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T20:06:19Z"}
     review: {started_at: "2026-09-09T20:06:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T20:11:02Z"}
     hydrate: {started_at: "2026-09-09T20:11:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T20:11:19Z"}
-    ship: {started_at: "2026-09-09T20:11:19Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-09T20:11:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T20:13:42Z"}
+    review-pr: {started_at: "2026-09-09T20:13:42Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/898
 change_type_source: explicit
 true_impact:
-    added: 3
-    deleted: 3
-    net: 0
+    added: 599
+    deleted: 27
+    net: 572
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 125
+        deleted: 15
+        net: 110
     tests:
-        added: 0
+        added: 89
         deleted: 0
-        net: 0
-    computed_at: "2026-09-09T20:11:19Z"
-    computed_at_stage: hydrate
+        net: 89
+    computed_at: "2026-09-09T20:13:42Z"
+    computed_at_stage: ship
 summary: Backoff streak walk seeds from the largest rung fitting gap+seedSkew (one DefaultTickInterval) instead of the smallest rung ≥ gap−attributionWindow, so a clean own-delivery streak of any length reconstructs to its ladder rung and the operator tick decays 1m→30m instead of alternating 2m/4m
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-09T20:11:19Z
+last_updated: 2026-09-09T20:13:42Z

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -174,5 +175,34 @@ func TestProbeBadBanner(t *testing.T) {
 	}
 	if info.Reachable || info.Reason != "bad banner" {
 		t.Errorf("Probe = %+v, want unreachable with reason %q", info, "bad banner")
+	}
+}
+
+func TestProbeBannerReadFailureIsClassified(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		conn.Close() // EOF before any banner byte
+	}()
+
+	info, err := Probe(context.Background(), "tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("Probe: %v, want a classified Info, not an error", err)
+	}
+	if info.Reachable {
+		t.Error("Probe on a server that closes before the banner: Reachable = true, want false")
+	}
+	if !strings.HasPrefix(info.Reason, "banner read failed: ") {
+		t.Errorf("Probe Reason = %q, want a %q prefix carrying the read error", info.Reason, "banner read failed: ")
+	}
+	if info.Reason == "bad banner" {
+		t.Error("a read error must not be reported as a banner mismatch")
 	}
 }

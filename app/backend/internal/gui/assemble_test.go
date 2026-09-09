@@ -187,3 +187,27 @@ func TestAssembleProbeErrorLeavesUnreachable(t *testing.T) {
 		t.Errorf("status = %+v, want unreachable with the backend-exited reason", st)
 	}
 }
+
+func TestAssembleDarwinOmitsUnixSocket(t *testing.T) {
+	defer func(saved string) { goos = saved }(goos)
+	goos = "darwin"
+	d := assembleDeps(t)
+	st := Assemble(context.Background(), d)
+	if st.Socket != "" {
+		t.Errorf("Socket = %q on darwin, want empty — the tcp backend has no host.sock", st.Socket)
+	}
+}
+
+func TestAssembleLinuxNamesUnixSocket(t *testing.T) {
+	defer func(saved string) { goos = saved }(goos)
+	goos = "linux"
+	d := assembleDeps(t)
+	st := Assemble(context.Background(), d)
+	want, err := SocketPath("host")
+	if err != nil {
+		t.Fatalf("SocketPath: %v", err)
+	}
+	if st.Socket != want {
+		t.Errorf("Socket = %q, want %q", st.Socket, want)
+	}
+}

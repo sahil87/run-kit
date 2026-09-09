@@ -19,15 +19,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	// guiMacBackend is the darwin backend name stamped on the rk-gui session —
-	// Screen Sharing is the substrate; nothing is spawned.
-	guiMacBackend = "screen-sharing"
-	// guiScreenSharingAddr is the macOS Screen Sharing endpoint the darwin
-	// supervisor probes once a minute.
-	guiScreenSharingAddr = "127.0.0.1:5900"
-)
-
 // Supervisor timing budgets. Vars, not consts, so tests shrink them (the
 // codeServerPortFreeTimeout idiom).
 var (
@@ -101,7 +92,7 @@ func guiBackendExitLine(bin string, status int, display string) string {
 
 func guiScreenSharingLine(reachable bool) string {
 	if reachable {
-		return "Screen Sharing: reachable on " + guiScreenSharingAddr
+		return "Screen Sharing: reachable on " + gui.MacScreenSharingAddr
 	}
 	return "Screen Sharing: not reachable — enable System Settings › General › Sharing › Screen Sharing"
 }
@@ -258,9 +249,9 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 // backend name, and log the Screen Sharing probe once a minute until
 // signalled.
 func runGuiSuperviseDarwin(ctx context.Context) error {
-	guiStampSessionOption(daemon.GUIOptionBackend, guiMacBackend)
+	guiStampSessionOption(daemon.GUIOptionBackend, gui.MacBackend)
 	for {
-		info, err := guiSuperviseProbe(ctx, "tcp", guiScreenSharingAddr)
+		info, err := guiSuperviseProbe(ctx, "tcp", gui.MacScreenSharingAddr)
 		guiSuperviseLog(guiScreenSharingLine(err == nil && info.Reachable))
 		select {
 		case <-ctx.Done():

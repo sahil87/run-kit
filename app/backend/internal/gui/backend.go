@@ -12,9 +12,10 @@ var goos = runtime.GOOS
 // substrate; nothing is spawned.
 const MacBackend = "screen-sharing"
 
-// macScreenSharingAddr is the loopback VNC endpoint macOS Screen Sharing
-// serves when enabled.
-const macScreenSharingAddr = "127.0.0.1:5900"
+// MacScreenSharingAddr is the loopback VNC endpoint macOS Screen Sharing
+// serves when enabled — the relay's dial target and the darwin supervisor's
+// probe target share it so the two cannot drift.
+const MacScreenSharingAddr = "127.0.0.1:5900"
 
 // ResolveBackend resolves the GUI backend for the current OS. darwin has no
 // spawned backend — Screen Sharing is the substrate. Linux resolves by name:
@@ -38,7 +39,7 @@ func ResolveBackend(lookPath func(string) (string, error)) (name, path string) {
 // VNC (Screen Sharing) on macOS.
 func BackendAddr(id string) (network, addr string, err error) {
 	if goos == "darwin" {
-		return "tcp", macScreenSharingAddr, nil
+		return "tcp", MacScreenSharingAddr, nil
 	}
 	sock, err := SocketPath(id)
 	if err != nil {

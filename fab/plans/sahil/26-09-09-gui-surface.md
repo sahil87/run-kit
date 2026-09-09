@@ -18,8 +18,8 @@ screenshot, and that exists only when the user has explicitly turned it on.
 
 **Status (2026-09-09)**: C1 (`260909-5nvd-gui-spec-and-registry-rename`) is
 Done (PR #888 merged). C0 verdict is in (Xvnc stands — § C0 verdict). C2
-(`260909-fkh1-gui-backend-switch-and-relay`) is Done (PR #892 merged); C3 ∥ C4
-are in progress.
+(`260909-fkh1-gui-backend-switch-and-relay`, PR #892) is Done. C3 ∥ C4 are
+in progress (C4: `260909-bbv1-gui-agent-verbs`, PR #894).
 
 ---
 

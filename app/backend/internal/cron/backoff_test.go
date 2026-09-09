@@ -199,14 +199,17 @@ func TestAnchorJoinThreeDeliveryStreak(t *testing.T) {
 // forward: an operator ticked at 0, 2m, 6m, 8m, 12m, 14m (the 2m/4m
 // alternation). The newest 2m gap legitimately reads as a rung-1 gap, so the
 // first reconstruction still fires 4m later — but from there the ladder must
-// climb 8m, 16m, 30m, 30m rather than fall back to 2m. The v1 seed produced
-// 4m, 2m, 4m, 2m, … forever.
+// climb 8m, 16m, 30m and then STAY at 30m rather than fall back to 2m. The v1
+// seed produced 4m, 2m, 4m, 2m, … forever; a walk that descends a rung on
+// every capped gap climbs correctly and then collapses to 2m right after the
+// second 30m gap.
 func TestAnchorJoinEscapesAlternation(t *testing.T) {
 	T := backoffBase
 	min, max := 60*time.Second, 30*time.Minute
 	deliveries := own(unix(T, 0), unix(T, 2*time.Minute), unix(T, 6*time.Minute),
 		unix(T, 8*time.Minute), unix(T, 12*time.Minute), unix(T, 14*time.Minute))
-	wantGaps := []time.Duration{4 * time.Minute, 8 * time.Minute, 16 * time.Minute, 30 * time.Minute, 30 * time.Minute}
+	wantGaps := []time.Duration{4 * time.Minute, 8 * time.Minute, 16 * time.Minute,
+		30 * time.Minute, 30 * time.Minute, 30 * time.Minute, 30 * time.Minute, 30 * time.Minute}
 	for i, want := range wantGaps {
 		last := deliveries[len(deliveries)-1].TS
 		ladder := JoinAnchor(last+3, deliveries, min, max)
@@ -263,5 +266,24 @@ func TestLargestRungWithGapAtMost(t *testing.T) {
 	}
 	if got := largestRungWithGapAtMost(time.Hour, time.Minute, time.Minute); got != 0 {
 		t.Errorf("largestRungWithGapAtMost(max<min, below min) = %d, want 0", got)
+	}
+}
+
+// TestAnchorJoinCappedStreak: a streak that has reached the gap cap keeps its
+// full rung count. Deliveries at +1,+3,+7,+15,+31,+61,+91 are rungs 1–7 (the
+// last two gaps capped at 30m); the next fire is +121m. A walk that descends a
+// rung on every capped gap joins only six deliveries, anchors at +2m, and
+// answers +93m — a 2m gap right after reaching the cap.
+func TestAnchorJoinCappedStreak(t *testing.T) {
+	T := backoffBase
+	min, max := 60*time.Second, 30*time.Minute
+	deliveries := own(unix(T, time.Minute), unix(T, 3*time.Minute), unix(T, 7*time.Minute), unix(T, 15*time.Minute),
+		unix(T, 31*time.Minute), unix(T, 61*time.Minute), unix(T, 91*time.Minute))
+	ladder := JoinAnchor(unix(T, 91*time.Minute+4*time.Second), deliveries, min, max)
+	if ladder.Rung != 7 || !ladder.Anchor.Equal(T) {
+		t.Fatalf("capped streak: anchor=%v rung=%d, want T rung 7", ladder.Anchor, ladder.Rung)
+	}
+	if next := ladder.NextFire(min, max); !next.Equal(T.Add(121 * time.Minute)) {
+		t.Errorf("next fire = %v, want T+121m (one more capped gap) — a rung-descending walk says T+93m", next)
 	}
 }

@@ -118,8 +118,11 @@ func JoinAnchor(rawEpoch int64, deliveries []LogLine, min, max time.Duration) La
 	// rung, minus the attribution tolerance — a smaller gap means the older
 	// delivery belongs to a previous ladder that a genuine-activity reset
 	// ended; larger gaps are invoker lateness, which idempotent ticks absorb).
+	if max < min {
+		max = min // gapAfter clamps the same way; keep the cap test below consistent with it
+	}
 	streak := 1
-	expectRung := -1 // gap rung expected between the next older pair; -1: seed from first gap
+	expectRung := -1 // rung whose gap the current pair is expected to show; -1: seed from the newest gap
 	for i := n - 1; i > 0; i-- {
 		gap := time.Duration(deliveries[i].TS-deliveries[i-1].TS) * time.Second
 		if expectRung < 0 {
@@ -127,17 +130,25 @@ func JoinAnchor(rawEpoch int64, deliveries []LogLine, min, max time.Duration) La
 			if expectRung < 1 {
 				break // no ladder spacing fits: the streak is the newest delivery alone
 			}
-			streak++
 		} else {
-			if gap < gapAfter(min, max, expectRung)-attributionWindow {
-				break
+			// Descend one rung per older pair — except at the cap: every capped
+			// rung shows the same max gap, so a further capped gap is one more
+			// rung AT the cap, not the pre-cap rung below it. Descending there
+			// runs the walk out of rungs before it runs out of capped
+			// deliveries, under-counts the streak, and collapses the ladder to a
+			// short gap right after it reaches max.
+			capped := gapAfter(min, max, expectRung) >= max && gap >= max-attributionWindow
+			if !capped {
+				expectRung--
+				if expectRung < 1 {
+					break // the newer delivery of this pair fired at rung 1; nothing older can join
+				}
+				if gap < gapAfter(min, max, expectRung)-attributionWindow {
+					break
+				}
 			}
-			streak++
 		}
-		expectRung--
-		if expectRung < 1 {
-			break // the oldest streak delivery fired at rung 1; nothing older can join
-		}
+		streak++
 	}
 	oldest := deliveries[n-streak]
 	anchor := time.Unix(oldest.TS, 0).Add(-min) // rung-1 fire = anchor + min

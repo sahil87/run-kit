@@ -91,15 +91,20 @@ func LockPath(dir string) string {
 // FabOperatorSlug derives the fab operator state file's stem from a tmux
 // socket path, mirroring fab-kit's slugify exactly (a cross-repo contract —
 // fab owns the file, rk mirrors the name): escape literal `-` as `--` FIRST,
-// strip the leading `/`, replace every `/` with `-`; an empty path slugs to
-// "default". Example: /tmp/tmux-1001/runKit → tmp-tmux--1001-runKit.
+// strip the leading `/`, replace every `/` with `-`; an empty path — or one
+// that slugs to nothing ("/") — slugs to "default" so FabOperatorStatePath
+// never sees an empty stem. Example: /tmp/tmux-1001/runKit → tmp-tmux--1001-runKit.
 func FabOperatorSlug(socketPath string) string {
 	if socketPath == "" {
 		return "default"
 	}
 	s := strings.ReplaceAll(socketPath, "-", "--")
 	s = strings.TrimPrefix(s, "/")
-	return strings.ReplaceAll(s, "/", "-")
+	s = strings.ReplaceAll(s, "/", "-")
+	if s == "" {
+		return "default"
+	}
+	return s
 }
 
 // FabOperatorStatePath resolves the fab-owned operator state file for a fab

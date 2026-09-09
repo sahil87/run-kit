@@ -111,6 +111,7 @@ func TestFabOperatorSlug(t *testing.T) {
 		{"/private/tmp/tmux-501/default", "private-tmp-tmux--501-default"},
 		{"/run/user/1000/tmux.default", "run-user-1000-tmux.default"},
 		{"relative.sock", "relative.sock"},
+		{"/", "default"},
 	}
 	for _, tc := range cases {
 		if got := FabOperatorSlug(tc.socket); got != tc.want {

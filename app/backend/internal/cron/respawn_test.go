@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // TestRespawnArgv: {server} substitutes in EVERY element, the result is a
@@ -47,5 +48,12 @@ func TestRespawnDetail(t *testing.T) {
 	}
 	if tail := got[len("exit status 1: …"):]; len(tail) != respawnOutputTailBytes {
 		t.Errorf("tail = %d bytes, want %d", len(tail), respawnOutputTailBytes)
+	}
+
+	// A 2-byte rune straddling the cut: the truncation must not split it.
+	split := "é" + strings.Repeat("x", respawnOutputTailBytes-1)
+	got = respawnDetail(err, []byte(split))
+	if !utf8.ValidString(got) {
+		t.Errorf("truncated detail is not valid UTF-8: %q", got)
 	}
 }

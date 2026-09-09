@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // respawn.go — the caller-supplied respawn argv (docs/specs/cron.md § Targets,
@@ -48,11 +49,16 @@ func runRespawnExec(ctx context.Context, argv []string, dir string) ([]byte, err
 }
 
 // respawnDetail folds the error and a ≤200-byte output tail into the failure
-// detail (the "respawn-failed: <detail>" log suffix).
+// detail (the "respawn-failed: <detail>" log suffix). The cut lands on a rune
+// boundary — a byte cut could split a UTF-8 rune and emit an invalid string.
 func respawnDetail(err error, output []byte) string {
 	tail := strings.TrimSpace(string(output))
 	if len(tail) > respawnOutputTailBytes {
-		tail = "…" + tail[len(tail)-respawnOutputTailBytes:]
+		start := len(tail) - respawnOutputTailBytes
+		for start < len(tail) && !utf8.RuneStart(tail[start]) {
+			start++
+		}
+		tail = "…" + tail[start:]
 	}
 	if tail == "" {
 		return fmt.Sprintf("%v", err)

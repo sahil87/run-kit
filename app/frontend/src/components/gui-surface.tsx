@@ -4,8 +4,6 @@ import { fetchGuiStatus } from "@/api/client";
 import type { GuiSignal } from "@/contexts/session-context";
 import type { GuiViewMode } from "@/lib/gui-posture";
 
-export type { GuiViewMode };
-
 /**
  * GuiSurface — the renderer for the `gui` lens (spec docs/specs/gui.md § The
  * substrate / § Availability vs reachability), mounted as a tile by
@@ -273,6 +271,9 @@ export default function GuiSurface({
       reconnect: () => {
         backoffAttemptRef.current = 0;
         if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+        // An Escape'd credentials prompt parks the connection until the next
+        // host-signal transition; a user-invoked reconnect reopens it now.
+        setCredEscaped(false);
         setEpoch((e) => e + 1);
       },
     };
@@ -294,6 +295,9 @@ export default function GuiSurface({
     }
     if (reasonFetchedRef.current) return;
     reasonFetchedRef.current = true;
+    // A new unreachable transition starts with no reason: a stale line from an
+    // earlier transition must not survive a failed GET.
+    setReason("");
     let cancelled = false;
     fetchGuiStatus()
       .then((s) => {

@@ -31,11 +31,8 @@ import { clampBoundary } from "@/lib/right-panel";
 import { codeRootFor } from "@/lib/code-folder-latch";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import type { GuiSignal } from "@/contexts/session-context";
-import type {
-  GuiRestartResult,
-  GuiSurfaceCommands,
-  GuiViewMode,
-} from "@/components/gui-surface";
+import type { GuiViewMode } from "@/lib/gui-posture";
+import type { GuiRestartResult, GuiSurfaceCommands } from "@/components/gui-surface";
 
 // noVNC's core is ~150 KB min — the gui tile lazy-loads so tabs that never
 // open it pay nothing.

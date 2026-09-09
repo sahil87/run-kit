@@ -1261,10 +1261,14 @@ function AppShell() {
       void document.exitFullscreen().catch(() => {});
       return;
     }
-    // Refused lock/fullscreen (permission, transient state) must never
-    // surface as an unhandled rejection.
-    void tile.requestFullscreen().catch(() => {});
-    void keyboardLock()?.lock().catch(() => {});
+    // Browsers grant keyboard lock only once fullscreen is established, so
+    // the lock is chained from the fullscreen success. A refused
+    // fullscreen/lock (permission, transient state) must never surface as an
+    // unhandled rejection.
+    void tile
+      .requestFullscreen()
+      .then(() => keyboardLock()?.lock())
+      .catch(() => {});
   }, [toggleZen]);
   // A fullscreen exit the verb didn't initiate (Esc) still releases the
   // keyboard lock.

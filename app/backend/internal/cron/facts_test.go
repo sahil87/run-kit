@@ -150,8 +150,8 @@ func TestGatherFactsResolution(t *testing.T) {
 	}
 }
 
-// TestGatherFactsFingerprint: the server fingerprint covers every pane with a
-// known agent state, sorted and stable.
+// TestGatherFactsFingerprint: the server agent-state map covers every pane
+// with a known agent state; its rendering is sorted and stable.
 func TestGatherFactsFingerprint(t *testing.T) {
 	fk := newFakeTmux()
 	fk.sessions["dev"] = []tmux.SessionInfo{{Name: "work"}}
@@ -166,8 +166,11 @@ func TestGatherFactsFingerprint(t *testing.T) {
 		}},
 	}
 	out := GatherFacts(context.Background(), "dev", nil, fk)
-	if want := "%10=idle\n%11=active\n"; out.Fingerprint != want {
-		t.Errorf("fingerprint = %q, want %q", out.Fingerprint, want)
+	if want := "%10=idle\n%11=active\n"; Fingerprint(out.States) != want {
+		t.Errorf("fingerprint = %q, want %q", Fingerprint(out.States), want)
+	}
+	if _, present := out.States["%12"]; present {
+		t.Error("pane with an unknown state should be absent from States")
 	}
 }
 
@@ -196,8 +199,8 @@ func TestGatherFactsEnumerationFailure(t *testing.T) {
 	// No sessions registered: ListSessions returns nil — the server enumerates
 	// empty. Targets are unresolvable but nothing errors.
 	out := GatherFacts(context.Background(), "dev", factsEntries(), fk)
-	if out.Fingerprint != "" {
-		t.Errorf("fingerprint = %q, want empty", out.Fingerprint)
+	if len(out.States) != 0 {
+		t.Errorf("states = %v, want empty", out.States)
 	}
 	if out.Targets["role"].Resolved() || out.Targets["sess"].Resolved() {
 		t.Errorf("targets resolved on an empty server: %+v", out.Targets)

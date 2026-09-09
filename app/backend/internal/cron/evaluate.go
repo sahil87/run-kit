@@ -60,15 +60,16 @@ type Fire struct {
 
 // EvalInput is everything the stateless evaluator needs, all disk-derivable:
 // the server's entries, per-entry resolved target facts, the server agent-state
-// fingerprint, the parsed delivery log, the previous wake cursor, and now.
+// map (pane id → state; each wake_on entry fingerprints its own view of it),
+// the parsed delivery log, the previous wake cursor, and now.
 type EvalInput struct {
-	Server      string
-	Now         time.Time
-	Entries     []Entry
-	Facts       map[string]TargetFacts
-	Fingerprint string
-	Log         []LogLine
-	Cursor      WakeCursor
+	Server  string
+	Now     time.Time
+	Entries []Entry
+	Facts   map[string]TargetFacts
+	States  map[string]string
+	Log     []LogLine
+	Cursor  WakeCursor
 }
 
 // EvalResult carries the due fires, the due-but-target-unresolved fires, the
@@ -151,14 +152,24 @@ func Evaluate(in EvalInput) EvalResult {
 			diag("unknown-schedule-kind", e.Schedule.Kind)
 		}
 
-		// Wake predicate (OR'd with the schedule).
+		// Wake predicate (OR'd with the schedule). The entry's own target pane
+		// is excluded from its fingerprint: a delivery makes the target busy,
+		// and that flip must never read as the next edge (the wake analogue of
+		// the anchor-join rule). The hold window runs from the entry's newest
+		// own log line — the only moment "our own effect" can date from.
 		wakeDue := false
 		if e.WakeOn != nil {
 			if e.WakeOn.Event != WakeAgentStateChange {
 				diag("unknown-wake-event", e.WakeOn.Event)
 			} else {
 				obs, hasObs := in.Cursor.Entries[e.ID]
-				edge, next, wd := wakeEdge(e.WakeOn.Debounce.Duration, in.Fingerprint, obs, hasObs, in.Now)
+				fp := fingerprintExcluding(in.States, facts.PaneID)
+				var lastDelivery time.Time
+				last, hasDelivery := LastDelivery(in.Log, e.ID)
+				if hasDelivery {
+					lastDelivery = time.Unix(last.TS, 0)
+				}
+				edge, next, wd := wakeEdge(e.WakeOn.Debounce.Duration, fp, obs, hasObs, lastDelivery, hasDelivery, in.Now)
 				res.NextCursor.Entries[e.ID] = next
 				if wd != "" {
 					diag(wd, "wake_on "+WakeAgentStateChange)

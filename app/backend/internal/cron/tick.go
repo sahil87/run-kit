@@ -277,7 +277,7 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 		Now:         now,
 		Entries:     entries,
 		Facts:       facts.Targets,
-		Fingerprint: facts.Fingerprint,
+		States:      facts.States,
 		Log:         logLines,
 		Cursor:      cursor,
 	})

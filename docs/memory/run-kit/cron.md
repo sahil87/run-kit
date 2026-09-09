@@ -94,7 +94,7 @@ Per-entry validation gates id presence, schedule-kind shape (positive interval, 
 
 ## Operator-Tick Seeding
 
-`rk operator` seeds the operator-tick entry on every invocation via `EnsureRoleEntry` — unconditionally, before the command's singleton probe (seeding is disk-only, independent of tmux window state, so it cannot sit behind either early-return branch) and best-effort (a seed failure is one stderr warning, never a non-zero exit and never a skipped window-open — the snapshotter/ticker posture). The seeded spec (`operatorTickEntrySpec`) is the cron spec's own operator-tick example (`docs/specs/cron.md` § Cron State): backoff 60s→30m keyed on the target pane's idle epoch, `wake_on: {agent-state-change, scope: server, debounce: 10s}`, `target: {kind: role, role: operator}`, payload/name `"operator tick"`, `deliver: immediate`, `if_absent: respawn` with `respawn: ["rk", "operator", "-L", "{server}"]` (the `{server}` placeholder resolves to the stamped server at fire time), `pinned: true`, `created_by: {pane: $TMUX_PANE, at: now}` (`pane` empty under `-L`; the seed does not capture `created_by.session`). The server slug is the `-L/--server` value in server mode, else the caller-socket rule (`tmux.OriginalTMUX` → socket basename, the `cliServerLabel` helper) — see [rk-riff](/run-kit/rk-riff.md) § Single-Quote Escaping and Task Injection for the command side (upt2).
+`rk operator` seeds the operator-tick entry on every invocation via `EnsureRoleEntry` — unconditionally, before the command's singleton probe (seeding is disk-only, independent of tmux window state, so it cannot sit behind either early-return branch) and best-effort (a seed failure is one stderr warning, never a non-zero exit and never a skipped window-open — the snapshotter/ticker posture). The seeded spec (`operatorTickEntrySpec`) is the cron spec's own operator-tick example (`docs/specs/cron.md` § Cron State): backoff 60s→30m keyed on the target pane's idle epoch, `wake_on: {agent-state-change, scope: server, debounce: 60s}` (the hold after the entry's own delivery — see § `wake_on` poll approximation), `target: {kind: role, role: operator}`, payload/name `"operator tick"`, `deliver: immediate`, `if_absent: respawn` with `respawn: ["rk", "operator", "-L", "{server}"]` (the `{server}` placeholder resolves to the stamped server at fire time), `pinned: true`, `created_by: {pane: $TMUX_PANE, at: now}` (`pane` empty under `-L`; the seed does not capture `created_by.session`). The server slug is the `-L/--server` value in server mode, else the caller-socket rule (`tmux.OriginalTMUX` → socket basename, the `cliServerLabel` helper) — see [rk-riff](/run-kit/rk-riff.md) § Single-Quote Escaping and Task Injection for the command side (upt2).
 
 ## Tolerant Load
 
@@ -124,7 +124,7 @@ A `cron`-kind entry's due math (`cronexpr.go`, `cronScheduleDue`) is a pure func
 
 ### `wake_on` poll approximation
 
-A `wake_on: agent-state-change` entry fires when the server-scoped agent-state fingerprint (the canonical sorted `pane=state` rendering over panes carrying a state — map order never leaks in) differs from the entry's previous observation, debounced per entry. The rule (`wakeEdge`): no prior observation ⇒ cold start, no edge, the cursor seeds (`wake-cold-start` diagnostic); unchanged ⇒ no edge; changed and the observation is older than `debounce` ⇒ fire and advance the cursor; changed but younger ⇒ HOLD, keep the old observation (`wake-debounced`) — the poll cannot date the change itself, only bound it to after the observation, so holding is the conservative debounce and a burst coalesces into at most one fire. The cursor is keyed by entry id so one entry's fire cannot advance (and thereby swallow) another entry's pending edge.
+A `wake_on: agent-state-change` entry fires when its **per-entry** agent-state fingerprint differs from the entry's previous observation by an **actionable transition**, held for `debounce` after the entry's own newest delivery. The evaluator receives the raw server-scoped map (`EvalInput.States`, pane id → `@rk_pane_agent_state`) and renders one fingerprint per entry with `fingerprintExcluding(states, facts.PaneID)` — the canonical sorted `pane=state` rendering (`Fingerprint`, map order never leaks in; `parseFingerprint` is its lossless inverse) **minus the entry's own resolved target pane**. A delivery makes the target busy; that flip is caused by the clock and never reads as an edge — the wake analogue of the backoff anchor-join rule. An unresolved target has nothing to exclude, so the full fingerprint is compared. The rule (`wakeEdge`), in order: no prior observation ⇒ cold start, no edge, the cursor seeds (`wake-cold-start`); unchanged ⇒ no edge; changed but **no actionable transition** ⇒ no edge, the cursor ADVANCES so the same transition is never re-judged (`wake-ignored-transition`); changed and actionable but `now − lastOwnDelivery < debounce` (`LastDelivery` — the entry's newest own log line, any reason/outcome; no line ⇒ no hold) ⇒ HOLD, keep the old observation so the edge stays pending (`wake-debounced`); otherwise fire and advance. Classification (`classifyDiff`) walks the union of both parsed fingerprints: a pane moving to `waiting` or `idle`, or vanishing, is actionable; a move to `active` — including a pane first appearing as `active` — is not (an agent starting work needs nobody; a completion or a question does); any other value fails open toward firing. A burst still coalesces into one fire, and a held edge is deferred, never dropped. The cursor is keyed by entry id so one entry's fire cannot advance (and thereby swallow) another entry's pending edge. The operator seed carries `debounce: 60s` — an edge landing right after a tick waits for the poll after next.
 
 The cursor persists at `<slug>.cursor.yaml`, written atomically by the tick orchestrator every tick. It is seed-cache class per Constitution II: absent/corrupt/empty degrades to a cold start (no edge fire that tick, cursor rewritten) — at worst one missed or duplicate edge, which tick idempotency absorbs.
 
@@ -199,7 +199,7 @@ Session- and pane-target entries whose target is gone are not immortal (role tar
 
 ## Fact Gathering & Target Resolution
 
-`GatherFacts` resolves every entry's target on one live server in one enumeration pass (sessions → windows + panes; enumeration failures degrade to diagnostics): the server-scoped agent-state fingerprint (the `wake_on` input) comes from the enumerated panes' `@rk_pane_agent_state` values, and each resolved target pane's state + idle epoch (`tmux.PaneFactsCtx` — `StateEpoch` is the `backoff` anchor input) fills its `TargetFacts`. Resolution per target kind: `role` finds the window whose `@rk_win_role` equals the entry's role value — ANY value resolves, not just `operator` (the radio semantics — see [tmux-sessions](/run-kit/tmux-sessions.md); diagnostics read `no window carries role <role>` / `role window %s: %v`) — and resolves its agent pane via `tmux.ResolveAgentPane`, never a bare `-t _rk-operator`; `session` finds the live pane carrying the `@rk_pane_agent_session` id (see [agent-state](/run-kit/agent-state.md)); `pane` checks id validity plus liveness via `tmux.PaneExists`. A target that fails resolution surfaces the entry's due fires in `EvalResult.Absent` for the tick's `if_absent` dispositions (`target-unresolved` diagnostic, never an error).
+`GatherFacts` resolves every entry's target on one live server in one enumeration pass (sessions → windows + panes; enumeration failures degrade to diagnostics): the server-scoped agent-state map (`ServerFacts.States`, pane id → state — the `wake_on` input, from which the evaluator renders each entry's own target-excluded fingerprint) comes from the enumerated panes' `@rk_pane_agent_state` values, and each resolved target pane's state + idle epoch (`tmux.PaneFactsCtx` — `StateEpoch` is the `backoff` anchor input) fills its `TargetFacts`. Resolution per target kind: `role` finds the window whose `@rk_win_role` equals the entry's role value — ANY value resolves, not just `operator` (the radio semantics — see [tmux-sessions](/run-kit/tmux-sessions.md); diagnostics read `no window carries role <role>` / `role window %s: %v`) — and resolves its agent pane via `tmux.ResolveAgentPane`, never a bare `-t _rk-operator`; `session` finds the live pane carrying the `@rk_pane_agent_session` id (see [agent-state](/run-kit/agent-state.md)); `pane` checks id validity plus liveness via `tmux.PaneExists`. A target that fails resolution surfaces the entry's due fires in `EvalResult.Absent` for the tick's `if_absent` dispositions (`target-unresolved` diagnostic, never an error).
 
 ## External Contracts
 
@@ -248,7 +248,24 @@ A `cron`-kind entry SHALL fire when the latest occurrence in (anchor, now] — t
 - **AND GIVEN** the same entry with `catch_up: once`, **THEN** one late fire is emitted with `DueAt = now`, and after its log line the next due is the next future occurrence
 
 ### Requirement: Wake-on delta with cold-start degradation
-A `wake_on: agent-state-change` entry SHALL fire when the server fingerprint differs from its cursor observation older than `debounce`, SHALL hold (not fire) while the change is younger than `debounce`, and MUST treat an absent/corrupt cursor as a cold start — no edge fire that tick, cursor rewritten, never an error.
+A `wake_on: agent-state-change` entry SHALL compare a per-entry fingerprint that excludes its own resolved target pane (the full fingerprint when the target is unresolved), SHALL fire only when the diff contains an actionable transition (a pane moving to `waiting` or `idle`, a pane vanishing, or any state other than `active`), SHALL advance its cursor without firing on a diff of only `→ active` transitions, SHALL hold (not fire, previous observation kept) an actionable edge while `now − lastOwnDelivery < debounce`, and MUST treat an absent/corrupt cursor as a cold start — no edge fire that tick, cursor rewritten, never an error.
+
+#### Scenario: Own target flip is not an edge
+- **GIVEN** an entry whose target resolved to `%683`, cursor observation `%685=active`, states `{%683: active, %685: active}`
+- **WHEN** evaluated
+- **THEN** no fire, no diagnostic, the cursor is unchanged
+
+#### Scenario: Worker completion fires, worker start does not
+- **GIVEN** cursor observation `%685=active`
+- **WHEN** `%685` reads `idle` and the entry's newest own delivery is ≥ `debounce` ago
+- **THEN** one `wake` fire and the cursor advances
+- **AND GIVEN** cursor observation `%685=idle` **WHEN** `%685` reads `active` **THEN** no fire, `wake-ignored-transition`, cursor advances — even inside the hold window
+
+#### Scenario: Hold after own delivery
+- **GIVEN** `debounce: 60s`, the entry's newest own log line at T, an actionable edge
+- **WHEN** evaluated at T+20s
+- **THEN** no fire, `wake-debounced`, the old observation is kept
+- **AND WHEN** evaluated at T+70s **THEN** the edge fires
 
 ### Requirement: Live-server filter before any socket touch
 The tick SHALL derive its server set from the live-socket-probed enumeration and MUST NOT issue any tmux command for a server outside that set; entry files for dead servers are skipped with a diagnostic only. The package MUST NOT construct its own tmux `exec` calls — all tmux interaction routes through `internal/tmux` behind the `TmuxSeam` interface.
@@ -286,13 +303,19 @@ The `respawn` argv SHALL execute as an argument slice via `exec.CommandContext` 
 The production SessionRespawner SHALL source the resume from the server's recently-closed ring — the first (newest) record whose `AgentRef` matches the target session ref — and SHALL escalate (one fail-silent notify naming entry + server, outcome `respawn-failed`, no window created) on no matching record, a non-`claude` provider, a ref failing the strict UUID gate, or a record cwd outside a git repo. The spawn SHALL go through the riff seam in checkout mode at the record cwd with plain resume (`ResumePlain` — `--resume <uuid>`, never `--fork-session`); on success it SHALL re-stamp the record's `@rk_win_*` options and drop the consumed ring record (both best-effort, neither failing the respawn). Delivery SHALL run through `inject.DeliverWhenReady` and SHALL deliver the entry's payload itself (no kickoff); any non-`ready` classification or send error SHALL escalate with a `readiness:`/`send:` phase-prefixed `respawn-failed`, and no keys MUST reach an unclassified pane. The seam is consulted only for a session target with `if_absent: respawn` and no `respawn` command — the default a caller-supplied argv overrides.
 
 ### Requirement: Idempotent role-entry seeding with the narrow upgrade
-`EnsureRoleEntry` SHALL treat an existing entry whose target matches `{kind: role, role: spec.Target.Role}` as already-seeded (returned with `created=false`) and SHALL otherwise add the spec via `Add`. On a hit whose `IfAbsent == respawn`, whose `respawn` argv is empty, and whose spec argv is non-empty, it SHALL fill the argv from the spec and rewrite the file (dropping retired keys as a marshal side effect), touching no other field; it MUST never otherwise mutate an existing entry. `rk operator` SHALL invoke it with the fixed operator-tick spec on every run, before the singleton probe, best-effort — a seed failure MUST warn on stderr without changing the exit code or skipping the window open. (upt2)
+`EnsureRoleEntry` SHALL treat an existing entry whose target matches `{kind: role, role: spec.Target.Role}` as already-seeded (returned with `created=false`) and SHALL otherwise add the spec via `Add`. On a hit it applies at most two narrow upgrades in one file write (dropping retired keys as a marshal side effect), touching no other field: when `IfAbsent == respawn`, the `respawn` argv is empty, and the spec argv is non-empty, it SHALL fill the argv from the spec; when both the entry and the spec carry a `wake_on` with the same `event` and the entry's `debounce` is strictly below the spec's, it SHALL raise it to the spec's — it MUST NOT lower a debounce at or above the spec's. It MUST never otherwise mutate an existing entry. `rk operator` SHALL invoke it with the fixed operator-tick spec on every run, before the singleton probe, best-effort — a seed failure MUST warn on stderr without changing the exit code or skipping the window open. (upt2)
 
 #### Scenario: Already-seeded server gains the respawn argv
 - **GIVEN** an on-disk seeded entry (old shape with `anchor:`/`suppress_while:` keys, `if_absent: respawn`, no `respawn`, user-tuned `max: 45m`, `muted: true`)
 - **WHEN** `EnsureRoleEntry` runs with the current spec
 - **THEN** the file holds `respawn: [rk, operator, -L, "{server}"]`, keeps `max: 45m0s` and `muted: true`, and carries no `anchor`/`suppress_while` keys
 - **AND GIVEN** an entry that already has a `respawn`, **THEN** the file is byte-identical afterwards
+
+#### Scenario: Below-spec debounce is raised, higher is kept
+- **GIVEN** a seeded entry with `wake_on.debounce: 10s` and a spec at `60s`
+- **WHEN** `EnsureRoleEntry` runs
+- **THEN** the file holds `debounce: 1m0s`, `created=false`, and every other field (muted, pinned, min/max) is untouched
+- **AND GIVEN** an entry at `5m`, **THEN** the file is byte-identical afterwards for a spec at `60s` or `5m`
 
 ### Requirement: Any-role targets
 A role target SHALL accept ANY `@rk_win_role` value: resolution SHALL scan for the window whose `Role` equals the entry's role (diagnostics `no window carries role <role>` / `role window %s: %v`), `--role` SHALL accept any non-empty whitespace-free value, and the auto-capture ladder SHALL target `{kind: role, role: <value>}` whenever the caller window carries any non-empty role. `RoleOperator` SHALL remain only where a call site names the operator role literally (the `rk operator` seed). (upt2)
@@ -423,6 +446,24 @@ Inside a tmux pane, `add` SHALL store `created_by: {pane: $TMUX_PANE, at: now}`,
 **Rejected**: fingerprint in the entry file (runtime fact in an intent file); in-memory only (breaks the every-invoker-is-equivalent stateless contract).
 *Introduced by*: 260906-3jtn-cron-core-evaluator
 
+### Wake fingerprint excludes the entry's own target
+**Decision**: `Evaluate` renders a per-entry fingerprint from the shared state map with the entry's resolved target pane removed; the cursor stores that view.
+**Why**: the entry's own delivery makes the target busy, and that flip is caused by the clock — with the target in the fingerprint every tick had a ~30–50 % chance of causing the next one, so ticks arrived in 30 s pairs and quadruples. This is the same principle as the backoff anchor-join rule.
+**Rejected**: one server-wide fingerprint with fires suppressed by the target's state — cannot distinguish "target busy because of us" from "target busy because a worker finished"; a cursor migration for the new rendering — one spurious wake per entry after deploy is absorbed by tick idempotency.
+*Introduced by*: 260909-4gt7-cron-wake-self-exclusion
+
+### Debounce is hold-after-own-delivery
+**Decision**: the wake hold window is measured from the entry's newest own delivery-log line (`LastDelivery`), not from the previous observation's age; classification runs before the hold so an ignored-only diff always advances the cursor.
+**Why**: under a 30 s poll the previous observation is always older than any sub-poll debounce, so an observation-age hold is unreachable and the field in every entry file does nothing; the question the hold answers is "did we just act on this entry".
+**Rejected**: deleting the `debounce` field — it exists in every entry file and hold-after-delivery is genuinely useful once the self-trigger is gone.
+*Introduced by*: 260909-4gt7-cron-wake-self-exclusion
+
+### `→ active` is not a wake edge
+**Decision**: a transition to `waiting` or `idle`, or a pane vanishing, fires; a transition to `active` (including a pane first appearing as `active`) advances the cursor without firing; unknown state values fail open toward firing.
+**Why**: an agent starting work never needs the target's attention; a completion or a question does. With several workers active the operator would otherwise be ticked every poll.
+**Rejected**: fire only on `→ waiting` — the operator's autopilot depends on noticing completions, and the backoff anchor is the operator's own idle epoch, so worker completions would otherwise wait up to the 30 m rung.
+*Introduced by*: 260909-4gt7-cron-wake-self-exclusion
+
 ### `muted` as a schema field
 **Decision**: add `muted: bool` to the entry schema (default false); the evaluator skips muted entries.
 **Why**: the spec fixes mute as a first-class verb (`rk cron mute`, `POST /api/cron/mute`, the UI toggle) and states the file changes on mute — the flag must live in the intent file.
@@ -477,7 +518,7 @@ Inside a tmux pane, `add` SHALL store `created_by: {pane: $TMUX_PANE, at: now}`,
 *Introduced by*: 260906-kl1g-daemon-ticker-cron-delivery
 
 ### Role-target presence as the seed idempotency key
-**Decision**: `EnsureRoleEntry` treats "an entry with `target: {kind: role, role: X}` exists on this server" as the sole seeded/not-seeded signal; a hit is returned unmodified apart from the narrow respawn-argv upgrade (an empty `respawn` filled from the spec when `if_absent: respawn` — without it, every already-seeded server would lose its backstop respawn when the entry schema gained the argv).
+**Decision**: `EnsureRoleEntry` treats "an entry with `target: {kind: role, role: X}` exists on this server" as the sole seeded/not-seeded signal; a hit is returned unmodified apart from two narrow upgrades — an empty `respawn` filled from the spec when `if_absent: respawn` (without it, every already-seeded server would lose its backstop respawn when the entry schema gained the argv), and a `wake_on.debounce` strictly below the spec's raised to it (a sub-poll debounce is a dead knob; a user who tuned it higher keeps their value).
 **Why**: the "one operator per server" radio invariant (`@rk_win_role=operator`) makes role-target presence the unambiguous, drift-proof key — it survives a user renaming, muting, or hand-tuning the entry; entry files are intent that only `rk cron` verbs mutate, so seeding establishes once and never reconciles over a user's edits.
 **Rejected**: a name/payload string match (breaks the moment the display text changes); a reserved fixed entry ID (special-cases outside `Add`'s uniform random-assignment contract for no real gain); a full overwrite upgrade (clobbers user tuning — contradicts this key's never-reconcile posture).
 *Introduced by*: 260906-kbbh-operator-tick-seed-respawn; narrow upgrade 260909-upt2-cron-decoupling-mute-lease

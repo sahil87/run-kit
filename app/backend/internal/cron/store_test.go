@@ -548,3 +548,74 @@ func TestEnsureRoleEntryNoUpgradeWhenRespawnPresent(t *testing.T) {
 		t.Error("re-seed rewrote a file whose entry already carries respawn")
 	}
 }
+
+// roleTickSpecWithDebounce is roleTickSpec carrying a wake_on debounce, the
+// shape the operator seed has.
+func roleTickSpecWithDebounce(d time.Duration) Entry {
+	spec := roleTickSpec()
+	spec.WakeOn = &WakeOn{Event: WakeAgentStateChange, Scope: WakeScopeServer, Debounce: Duration{d}}
+	return spec
+}
+
+// TestEnsureRoleEntryDebounceBackfill: a matched entry whose wake_on debounce
+// is below the spec's is raised to it in one save; every other field survives.
+func TestEnsureRoleEntryDebounceBackfill(t *testing.T) {
+	dir := t.TempDir()
+	if _, created, err := EnsureRoleEntry(dir, "dev", roleTickSpecWithDebounce(10*time.Second)); err != nil || !created {
+		t.Fatalf("seed: created=%v err=%v", created, err)
+	}
+	path := filepath.Join(dir, "dev.yaml")
+	if ok, err := SetMuted(dir, "dev", mustOnlyEntry(t, path).ID, true); err != nil || !ok {
+		t.Fatal("mute the seeded entry (user tuning to survive)")
+	}
+
+	entry, created, err := EnsureRoleEntry(dir, "dev", roleTickSpecWithDebounce(60*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created {
+		t.Error("created = true on an upgrade, want false")
+	}
+	if entry.WakeOn == nil || entry.WakeOn.Debounce.Duration != 60*time.Second {
+		t.Errorf("returned debounce = %+v, want 60s", entry.WakeOn)
+	}
+	got := mustOnlyEntry(t, path)
+	if got.WakeOn == nil || got.WakeOn.Debounce.Duration != 60*time.Second {
+		t.Errorf("persisted debounce = %+v, want 60s", got.WakeOn)
+	}
+	if !got.Muted || got.WakeOn.Event != WakeAgentStateChange || got.WakeOn.Scope != WakeScopeServer || !got.Pinned {
+		t.Errorf("tuning lost: %+v", got)
+	}
+}
+
+// TestEnsureRoleEntryNoDebounceDowngrade: a debounce at or above the spec's is
+// the user's — the file is byte-identical after the call.
+func TestEnsureRoleEntryNoDebounceDowngrade(t *testing.T) {
+	dir := t.TempDir()
+	if _, created, err := EnsureRoleEntry(dir, "dev", roleTickSpecWithDebounce(5*time.Minute)); err != nil || !created {
+		t.Fatalf("seed: created=%v err=%v", created, err)
+	}
+	path := filepath.Join(dir, "dev.yaml")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []time.Duration{60 * time.Second, 5 * time.Minute} {
+		if _, created, err := EnsureRoleEntry(dir, "dev", roleTickSpecWithDebounce(d)); err != nil || created {
+			t.Fatalf("re-seed(%v): created=%v err=%v", d, created, err)
+		}
+		after, _ := os.ReadFile(path)
+		if string(before) != string(after) {
+			t.Errorf("re-seed(%v) rewrote a file whose debounce is already ≥ spec", d)
+		}
+	}
+}
+
+func mustOnlyEntry(t *testing.T, path string) Entry {
+	t.Helper()
+	entries, diags := LoadEntries(path)
+	if len(diags) != 0 || len(entries) != 1 {
+		t.Fatalf("reload: entries=%v diags=%v", entries, diags)
+	}
+	return entries[0]
+}

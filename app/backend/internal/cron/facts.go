@@ -54,16 +54,18 @@ func GatherFactsLive(ctx context.Context, server string, entries []Entry) Server
 	return GatherFacts(ctx, server, entries, realTmux{})
 }
 
-// ServerFacts is one live server's derived state: the agent-state fingerprint
-// (wake_on input), per-entry resolved target facts, and skip diagnostics.
+// ServerFacts is one live server's derived state: the agent-state map (the
+// wake_on input — pane id → state over panes carrying a state; Evaluate
+// renders one fingerprint per entry from it), per-entry resolved target
+// facts, and skip diagnostics.
 type ServerFacts struct {
-	Fingerprint string
-	Targets     map[string]TargetFacts
-	Diags       []Diagnostic
+	States  map[string]string
+	Targets map[string]TargetFacts
+	Diags   []Diagnostic
 }
 
 // GatherFacts resolves every entry's target on one live server and reads each
-// resolved pane's agent-state epoch, plus the server-scoped fingerprint.
+// resolved pane's agent-state epoch, plus the server-scoped agent-state map.
 // Enumeration failures degrade (diagnostics), never abort.
 func GatherFacts(ctx context.Context, server string, entries []Entry, seam TmuxSeam) ServerFacts {
 	out := ServerFacts{Targets: map[string]TargetFacts{}}
@@ -92,7 +94,7 @@ func GatherFacts(ctx context.Context, server string, entries []Entry, seam TmuxS
 		}
 	}
 
-	// Server-scoped agent-state fingerprint from the enumerated panes.
+	// Server-scoped agent-state map from the enumerated panes.
 	states := map[string]string{}
 	for _, wf := range windows {
 		for _, p := range wf.window.Panes {
@@ -101,7 +103,7 @@ func GatherFacts(ctx context.Context, server string, entries []Entry, seam TmuxS
 			}
 		}
 	}
-	out.Fingerprint = Fingerprint(states)
+	out.States = states
 
 	// paneFacts fills the resolved pane's agent-state read.
 	paneFacts := func(entryID, paneID string) TargetFacts {

@@ -59,10 +59,10 @@ func TestEvaluateDeterministic(t *testing.T) {
 			"a3f9": resolvedFacts("idle", T.Add(-time.Minute).Unix()),
 			"k7q2": {PaneID: "%31", AgentState: "active", StateEpoch: T.Add(-time.Hour).Unix()},
 		},
-		Fingerprint: "F1",
-		Log:         own(unix(T, -3*time.Minute), unix(T, -time.Minute)),
+		States: map[string]string{"%12": "idle", "%31": "idle"},
+		Log:    own(unix(T, -3*time.Minute), unix(T, -time.Minute)),
 		Cursor: WakeCursor{Entries: map[string]WakeObservation{
-			"a3f9": {Fingerprint: "F0", ObservedAt: T.Add(-time.Minute).Unix()},
+			"a3f9": {Fingerprint: Fingerprint(map[string]string{"%31": "active"}), ObservedAt: T.Add(-time.Minute).Unix()},
 		}},
 	}
 	first := Evaluate(in)
@@ -70,9 +70,12 @@ func TestEvaluateDeterministic(t *testing.T) {
 	if !reflect.DeepEqual(first, second) {
 		t.Errorf("equal inputs, unequal results:\n%+v\n%+v", first, second)
 	}
-	// The input cursor must not have been mutated.
-	if _, ok := in.Cursor.Entries["a3f9"]; !ok || in.Cursor.Entries["a3f9"].Fingerprint != "F0" {
+	// Neither the input cursor nor the shared states map may be mutated.
+	if _, ok := in.Cursor.Entries["a3f9"]; !ok || in.Cursor.Entries["a3f9"].Fingerprint != "%31=active\n" {
 		t.Errorf("input cursor mutated: %+v", in.Cursor)
+	}
+	if len(in.States) != 2 {
+		t.Errorf("input states mutated: %v", in.States)
 	}
 }
 
@@ -224,14 +227,15 @@ func TestEvaluateMuteLease(t *testing.T) {
 	}
 }
 
-// TestEvaluateWakeUnionAndDebounce: wake fires OR'd with the schedule; a held
-// (debounced) edge does not fire; cold start seeds the cursor without firing.
+// TestEvaluateWakeUnionAndDebounce: wake fires OR'd with the schedule; an
+// edge inside the hold window after the entry's own delivery does not fire;
+// cold start seeds the cursor without firing.
 func TestEvaluateWakeUnionAndDebounce(t *testing.T) {
 	T := backoffBase
 	entry := Entry{
 		ID:       "a3f9",
 		Schedule: Schedule{Kind: ScheduleEvery, Interval: Duration{time.Hour}},
-		WakeOn:   &WakeOn{Event: WakeAgentStateChange, Scope: WakeScopeServer, Debounce: Duration{10 * time.Second}},
+		WakeOn:   &WakeOn{Event: WakeAgentStateChange, Scope: WakeScopeServer, Debounce: Duration{60 * time.Second}},
 		Target:   Target{Kind: TargetPane, Pane: "%12"},
 		Payload:  "tick",
 		CreatedBy: CreatedBy{
@@ -239,38 +243,54 @@ func TestEvaluateWakeUnionAndDebounce(t *testing.T) {
 		},
 	}
 	facts := map[string]TargetFacts{"a3f9": resolvedFacts("idle", T.Unix())}
-	base := EvalInput{Server: "dev", Now: T, Entries: []Entry{entry}, Facts: facts, Fingerprint: "F2"}
+	// %12 is the target and is excluded; %20 is a worker.
+	states := map[string]string{"%12": "idle", "%20": "idle"}
+	workerIdle := Fingerprint(map[string]string{"%20": "idle"})
+	workerActive := Fingerprint(map[string]string{"%20": "active"})
+	base := EvalInput{Server: "dev", Now: T, Entries: []Entry{entry}, Facts: facts, States: states}
 
-	// Cold start: no cursor observation ⇒ no edge fire, fresh cursor seeded.
+	// Cold start: no cursor observation ⇒ no edge fire, fresh cursor seeded
+	// with the per-entry (target-excluded) fingerprint.
 	res := Evaluate(base)
 	if len(res.Fires) != 0 {
 		t.Fatalf("cold start fired: %+v", res.Fires)
 	}
 	obs, ok := res.NextCursor.Entries["a3f9"]
-	if !ok || obs.Fingerprint != "F2" || obs.ObservedAt != T.Unix() {
-		t.Errorf("cold start cursor = %+v", res.NextCursor)
+	if !ok || obs.Fingerprint != workerIdle || obs.ObservedAt != T.Unix() {
+		t.Errorf("cold start cursor = %+v, want %q", res.NextCursor, workerIdle)
 	}
 	if !hasDiag(res.Diags, "wake-cold-start") {
 		t.Errorf("cold start diag missing: %v", diagReasons(res.Diags))
 	}
 
-	// Edge older than debounce ⇒ wake fire with reason wake.
+	// Worker completed (active → idle), last own delivery 2m ago ⇒ wake fire.
 	in := base
-	in.Cursor = WakeCursor{Entries: map[string]WakeObservation{"a3f9": {Fingerprint: "F1", ObservedAt: T.Add(-time.Minute).Unix()}}}
+	in.Log = own(unix(T, -2*time.Minute))
+	in.Cursor = WakeCursor{Entries: map[string]WakeObservation{"a3f9": {Fingerprint: workerActive, ObservedAt: T.Add(-time.Minute).Unix()}}}
 	res = Evaluate(in)
 	if len(res.Fires) != 1 || res.Fires[0].Reason != FireWake {
 		t.Fatalf("wake fire = %+v", res.Fires)
 	}
 
-	// Edge younger than debounce ⇒ held.
-	in.Cursor = WakeCursor{Entries: map[string]WakeObservation{"a3f9": {Fingerprint: "F1", ObservedAt: T.Add(-5 * time.Second).Unix()}}}
+	// Same edge, last own delivery 20s ago ⇒ held, old observation kept.
+	in.Log = own(unix(T, -20*time.Second))
 	res = Evaluate(in)
 	if len(res.Fires) != 0 || !hasDiag(res.Diags, "wake-debounced") {
 		t.Errorf("debounced: fires=%+v diags=%v", res.Fires, diagReasons(res.Diags))
 	}
+	if got := res.NextCursor.Entries["a3f9"].Fingerprint; got != workerActive {
+		t.Errorf("held edge advanced the cursor to %q", got)
+	}
+
+	// No own delivery ever ⇒ no hold, fires.
+	in.Log = nil
+	res = Evaluate(in)
+	if len(res.Fires) != 1 {
+		t.Errorf("no-delivery edge: fires=%+v, want one", res.Fires)
+	}
 
 	// No edge ⇒ no fire.
-	in.Cursor = WakeCursor{Entries: map[string]WakeObservation{"a3f9": {Fingerprint: "F2", ObservedAt: T.Add(-time.Minute).Unix()}}}
+	in.Cursor = WakeCursor{Entries: map[string]WakeObservation{"a3f9": {Fingerprint: workerIdle, ObservedAt: T.Add(-time.Minute).Unix()}}}
 	res = Evaluate(in)
 	if len(res.Fires) != 0 {
 		t.Errorf("no-edge fired: %+v", res.Fires)
@@ -279,9 +299,85 @@ func TestEvaluateWakeUnionAndDebounce(t *testing.T) {
 	// Unknown wake event ⇒ diagnostic, no fire.
 	bad := entry
 	bad.WakeOn = &WakeOn{Event: "bogus"}
-	res = Evaluate(EvalInput{Server: "dev", Now: T, Entries: []Entry{bad}, Facts: facts, Fingerprint: "F2"})
+	res = Evaluate(EvalInput{Server: "dev", Now: T, Entries: []Entry{bad}, Facts: facts, States: states})
 	if len(res.Fires) != 0 || !hasDiag(res.Diags, "unknown-wake-event") {
 		t.Errorf("unknown wake event: fires=%+v diags=%v", res.Fires, diagReasons(res.Diags))
+	}
+}
+
+// TestEvaluateWakeExcludesOwnTarget: the entry's own target pane flipping
+// idle↔active with everything else steady is not an edge — the fingerprint the
+// entry observes never contained it. With the target unresolved there is
+// nothing to exclude, so the same flip is judged on the full fingerprint.
+func TestEvaluateWakeExcludesOwnTarget(t *testing.T) {
+	T := backoffBase
+	entry := Entry{
+		ID:        "a3f9",
+		Schedule:  Schedule{Kind: ScheduleEvery, Interval: Duration{time.Hour}},
+		WakeOn:    &WakeOn{Event: WakeAgentStateChange, Scope: WakeScopeServer, Debounce: Duration{60 * time.Second}},
+		Target:    Target{Kind: TargetPane, Pane: "%12"},
+		Payload:   "tick",
+		CreatedBy: CreatedBy{At: T.Unix()},
+	}
+	cursor := WakeCursor{Entries: map[string]WakeObservation{"a3f9": {
+		Fingerprint: Fingerprint(map[string]string{"%20": "active"}), ObservedAt: T.Add(-time.Minute).Unix(),
+	}}}
+	// Target was idle when observed, is active now; the worker is steady.
+	in := EvalInput{
+		Server: "dev", Now: T, Entries: []Entry{entry},
+		Facts:  map[string]TargetFacts{"a3f9": resolvedFacts("active", T.Unix())},
+		States: map[string]string{"%12": "active", "%20": "active"},
+		Cursor: cursor,
+	}
+	res := Evaluate(in)
+	if len(res.Fires) != 0 {
+		t.Errorf("own-target flip fired: %+v", res.Fires)
+	}
+	if hasDiag(res.Diags, "wake-ignored-transition") || hasDiag(res.Diags, "wake-debounced") {
+		t.Errorf("own-target flip should not even register as a diff: %v", diagReasons(res.Diags))
+	}
+	// And back to idle: still nothing.
+	in.States = map[string]string{"%12": "idle", "%20": "active"}
+	if res = Evaluate(in); len(res.Fires) != 0 {
+		t.Errorf("own-target return to idle fired: %+v", res.Fires)
+	}
+
+	// Unresolved target: the full fingerprint is compared, so %12 appearing
+	// idle is a genuine (absent-target) edge, surfaced in Absent.
+	in.Facts = map[string]TargetFacts{"a3f9": {Unresolved: "pane %12 is dead"}}
+	res = Evaluate(in)
+	if len(res.Absent) != 1 || res.Absent[0].Reason != FireWake {
+		t.Errorf("unresolved target: absent=%+v fires=%+v, want one absent wake fire", res.Absent, res.Fires)
+	}
+}
+
+// TestEvaluateWakeIgnoresActiveTransition: a worker starting work (→ active)
+// advances the cursor without firing; the entry's target is untouched.
+func TestEvaluateWakeIgnoresActiveTransition(t *testing.T) {
+	T := backoffBase
+	entry := Entry{
+		ID:        "a3f9",
+		Schedule:  Schedule{Kind: ScheduleEvery, Interval: Duration{time.Hour}},
+		WakeOn:    &WakeOn{Event: WakeAgentStateChange, Scope: WakeScopeServer, Debounce: Duration{60 * time.Second}},
+		Target:    Target{Kind: TargetPane, Pane: "%12"},
+		Payload:   "tick",
+		CreatedBy: CreatedBy{At: T.Unix()},
+	}
+	workerActive := Fingerprint(map[string]string{"%20": "active"})
+	res := Evaluate(EvalInput{
+		Server: "dev", Now: T, Entries: []Entry{entry},
+		Facts:  map[string]TargetFacts{"a3f9": resolvedFacts("idle", T.Unix())},
+		States: map[string]string{"%12": "idle", "%20": "active"},
+		Log:    own(unix(T, -5*time.Second)), // inside the hold window — must not matter
+		Cursor: WakeCursor{Entries: map[string]WakeObservation{"a3f9": {
+			Fingerprint: Fingerprint(map[string]string{"%20": "idle"}), ObservedAt: T.Add(-time.Minute).Unix(),
+		}}},
+	})
+	if len(res.Fires) != 0 || !hasDiag(res.Diags, "wake-ignored-transition") {
+		t.Errorf("→ active: fires=%+v diags=%v", res.Fires, diagReasons(res.Diags))
+	}
+	if got := res.NextCursor.Entries["a3f9"]; got.Fingerprint != workerActive || got.ObservedAt != T.Unix() {
+		t.Errorf("ignored transition should advance the cursor, got %+v", got)
 	}
 }
 
@@ -301,9 +397,9 @@ func TestEvaluateScheduleWakeBothDue(t *testing.T) {
 	}
 	res := Evaluate(EvalInput{
 		Server: "dev", Now: T, Entries: []Entry{entry},
-		Facts:       map[string]TargetFacts{"a3f9": resolvedFacts("idle", T.Unix())},
-		Fingerprint: "F2",
-		Cursor:      WakeCursor{Entries: map[string]WakeObservation{"a3f9": {Fingerprint: "F1", ObservedAt: T.Add(-time.Minute).Unix()}}},
+		Facts:  map[string]TargetFacts{"a3f9": resolvedFacts("idle", T.Unix())},
+		States: map[string]string{"%20": "idle"},
+		Cursor: WakeCursor{Entries: map[string]WakeObservation{"a3f9": {Fingerprint: "%20=active\n", ObservedAt: T.Add(-time.Minute).Unix()}}},
 	})
 	if len(res.Fires) != 1 || res.Fires[0].Reason != FireSchedule {
 		t.Fatalf("fires = %+v, want one schedule fire", res.Fires)
@@ -327,8 +423,8 @@ func TestEvaluateWakeFireCarriesNoRung(t *testing.T) {
 	facts := map[string]TargetFacts{"a3f9": resolvedFacts("idle", unix(T, 3*time.Minute+5*time.Second))}
 	res := Evaluate(EvalInput{
 		Server: "dev", Now: T.Add(6 * time.Minute), Entries: []Entry{entry}, Facts: facts, Log: log,
-		Fingerprint: "F2",
-		Cursor:      WakeCursor{Entries: map[string]WakeObservation{"a3f9": {Fingerprint: "F1", ObservedAt: T.Add(5 * time.Minute).Unix()}}},
+		States: map[string]string{"%20": "idle"},
+		Cursor: WakeCursor{Entries: map[string]WakeObservation{"a3f9": {Fingerprint: "%20=active\n", ObservedAt: T.Add(5 * time.Minute).Unix()}}},
 	})
 	if len(res.Fires) != 1 || res.Fires[0].Reason != FireWake {
 		t.Fatalf("fires = %+v, want one wake fire", res.Fires)

@@ -663,8 +663,8 @@ func TestOperatorSeedsOperatorTickEntry(t *testing.T) {
 	if e.Schedule != wantSched {
 		t.Errorf("schedule = %+v, want %+v", e.Schedule, wantSched)
 	}
-	if e.WakeOn == nil || e.WakeOn.Event != cron.WakeAgentStateChange || e.WakeOn.Scope != cron.WakeScopeServer || e.WakeOn.Debounce.Duration != 10*time.Second {
-		t.Errorf("wake_on = %+v, want agent-state-change/server/10s", e.WakeOn)
+	if e.WakeOn == nil || e.WakeOn.Event != cron.WakeAgentStateChange || e.WakeOn.Scope != cron.WakeScopeServer || e.WakeOn.Debounce.Duration != 60*time.Second {
+		t.Errorf("wake_on = %+v, want agent-state-change/server/60s", e.WakeOn)
 	}
 	if e.Target != (cron.Target{Kind: cron.TargetRole, Role: cron.RoleOperator}) {
 		t.Errorf("target = %+v, want role:operator", e.Target)

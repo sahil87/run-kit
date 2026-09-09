@@ -109,7 +109,7 @@ entries:
   - id: a3f9                     # 4-char, rk-generated
     name: operator tick
     schedule: { kind: backoff, min: 60s, max: 30m }
-    wake_on: { event: agent-state-change, scope: server, debounce: 10s }
+    wake_on: { event: agent-state-change, scope: server, debounce: 60s }
     target: { kind: role, role: operator }
     payload: "operator tick"
     deliver: immediate           # immediate | when-idle
@@ -155,8 +155,23 @@ every payload must tolerate that (ticks are idempotent by contract).
 **Union predicate** (optional per entry, derivable):
 
 - `wake_on` — an edge trigger OR'd with the schedule: fire when the named
-  transition occurs (v1: `agent-state-change`, server-scoped), debounced so a
-  burst coalesces into one delivery.
+  transition occurs (v1: `agent-state-change`, server-scoped). Three rules
+  keep it from feeding on itself:
+  - **Self-exclusion (the wake analogue of the anchor-join rule):** the
+    entry's own resolved target pane is excluded from the fingerprint the
+    entry observes. A delivery makes the target busy; that flip is caused by
+    the clock and must never read as the next edge. An unresolved target has
+    nothing to exclude.
+  - **Transition filter:** a transition to `waiting` or `idle`, or a pane
+    disappearing, is actionable and fires; a transition to `active`
+    (including a pane first appearing as `active`) advances the observation
+    without firing — an agent starting work never needs the target's
+    attention, a completion or a question does.
+  - **Debounce = hold after own delivery:** an actionable edge inside
+    `debounce` of the entry's own newest delivery is held (kept pending, not
+    dropped) and fires on a later poll; a burst still coalesces into one
+    delivery. The operator tick seeds `60s`, and `rk operator` raises an
+    existing below-spec value to it.
 
 **Catch-up policy**: a wall-clock `cron` fire missed while no invoker ran
 defaults to **skip** (never fire late); `catch_up: once` is the per-entry

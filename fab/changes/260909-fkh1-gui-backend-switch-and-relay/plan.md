@@ -454,15 +454,15 @@ TigerVNC binds TCP 5900+N unless told not to, which would falsify "VNC never on 
 - [x] A-005 R7: on darwin `supervise` spawns nothing, stamps `screen-sharing`, logs the Screen Sharing probe once a minute
 - [x] A-006 R8: `internal/gui` exposes `StateDir`, `SocketPath`, `ValidateSocketPath`, `FreeDisplay`, `ResolveBackend`, `BackendArgv`, `ResolveWM`, `Probe`, `RunningApps`, `Status`, `InstallHint` with no tmux and no `internal/daemon` import
 - [x] A-007 R10: `rk gui on` persists true and prints the right line for started / already running / no backend / daemon down, exit 0
-- [ ] A-008 R11: `rk gui off` prints the exact confirm copy, refuses on non-tty without `--yes`, and with `--yes` kills the session and persists false
-- [ ] A-009 R12: `rk gui status` renders `off` / `on (...)` / `on — not running (<reason>)` and `--json` emits the `gui.Status` document
+- [x] A-008 R11: `rk gui off` prints the exact confirm copy, refuses on non-tty without `--yes`, and with `--yes` kills the session and persists false
+- [x] A-009 R12: `rk gui status` renders `off` / `on (...)` / `on — not running (<reason>)` and `--json` emits the `gui.Status` document
 - [x] A-010 R13: `rk gui env` prints `export DISPLAY=:N` and `export RK_GUI_SOCKET=<path>`, exit 1 with the hint when off or not running
 - [x] A-011 R14: `rk gui restart` composes kill → ensure and refuses when disabled or daemon down
 - [x] A-012 R16: `/ws/gui/{id}` upgrades, gates (4400/4403/4404), dials the OS-appropriate backend, pipes binary frames both ways with deadlines and read limit, and tracks viewers
 - [x] A-013 R19: `event: gui` is broadcast every tick with the list payload, probed with a 5 s TTL, replayed to late joiners, and skips the dial while a viewer is live
 - [x] A-014 R20: `setGUIEnabled` broadcasts synchronously and is called from the settings POST
 - [x] A-015 R21: the settings POST calls ensure on true and kill on false, best-effort, and never for unrelated keys
-- [ ] A-016 R22: `GET /api/gui/{id}` returns the status document; `POST /api/gui/{id}/restart` returns 409 when off, 400 on a bad id, 200 on success
+- [x] A-016 R22: `GET /api/gui/{id}` returns the status document; `POST /api/gui/{id}/restart` returns 409 when off, 400 on a bad id, 200 on success
 - [x] A-017 R23: the doctor `gui` row renders the six exact Notes and is always OK-shaped
 - [x] A-018 R24: `ValidateGUIID` accepts exactly `host` and is used by the relay, both API routes, and `supervise`
 - [x] A-019 R25: the plan's C2 row carries the change folder now and the PR URL after ship
@@ -490,7 +490,7 @@ TigerVNC binds TCP 5900+N unless told not to, which would falsify "VNC never on 
 ### Code Quality
 
 - [x] A-031 Pattern consistency: new code mirrors `codeserver.go` seams/outcome enum, the `terminals_ws.go` relay discipline, the `codeServerTick` probe shape, and the `code-server` cobra family shape
-- [ ] A-032 No unnecessary duplication: reuses `runTmux`, `sessionExistsCtx`, `jobDaemonRunning`, `selfpath.Resolve`, the shared `upgrader`, `writeJSON`/`writeError`, and the XDG state-dir rule
+- [x] A-032 No unnecessary duplication: reuses `runTmux`, `sessionExistsCtx`, `jobDaemonRunning`, `selfpath.Resolve`, the shared `upgrader`, `writeJSON`/`writeError`, and the XDG state-dir rule
 - [x] A-033 Security-first: every subprocess uses `exec.CommandContext` with an argv slice and a timeout (supervise's long-lived backend/WM use `exec.CommandContext` with a cancellable ctx and no shell); no shell strings anywhere
 - [x] A-034 No magic values: session/window names, display start, TTLs, deadlines, close codes, and the WM ladder are named constants/vars
 - [x] A-035 Tests alongside: every new file has a colocated `_test.go`; Go tests pass via `just test-backend`; `tsc --noEmit` passes

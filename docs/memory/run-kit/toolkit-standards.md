@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` + the `mux` (`new`/`reap --ephemeral`/`adopt`/`sessions`) and `cron` families."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator`/`gui` + the `mux` (`new`/`reap --ephemeral`/`adopt`/`sessions`) and `cron` families."
 ---
 # Toolkit Standards Conformance
 
@@ -783,6 +783,13 @@ checks (260906-bi3v-rk-cron-cli):
 - **The `skill` standard is a deliberate no-op here** — no cron topic page
   exists yet; the bundle is a capability briefing, not a command enumeration,
   and the help-dump walk already covers the family.
+
+The `rk gui` family (`gui.go` + `gui_supervise.go` — five visible members: `on`, `off`, `status`, `env`, `restart`, plus the hidden `supervise` pane command; the subsystem contract in [gui](/run-kit/gui.md)) is the twenty-second surface measured against the same checks (260909-fkh1-gui-backend-switch-and-relay):
+
+- **help-dump: five members dump; the pane command doesn't.** `guiCmd` is registered unconditionally on `rootCmd` (`root.go`'s `init()`) and every visible node carries a `Long:` block in the `code-server` family's shape (Use/Short/Long with a Subcommands list), so the cobra tree walk picks the subtree up with no help-dump code change and the dumped contract is identical on every platform — nothing about the family is build- or host-conditional (the macOS sleeper path and the daemon-down lines are run-time outcomes, not registration conditions). `supervise` is `Hidden: true` — the dump's hidden-node rule drops it like the other plumbing commands. The help-dump test asserts the subtree dynamically.
+- **Principle 9: outcome lines and the status document are data; hints are errors.** `on`'s outcome lines (`started (<bin> :N)` / `already running` / the daemon-down and no-backend lines), `off`'s `gui off` confirmation, `restart`'s `restarted (<bin> :N)`, `env`'s two `export` lines, and `status`'s human line / `--json` document are stdout data, surviving `--quiet`; the `off` refusal (`re-run with --yes`), the disabled/not-running hints, and `aborted` ride stderr with non-zero exits.
+- **Exit-code convention (P4)**: 0 success (including the daemon-down `rk gui on` and every `status` state — state, not verdict), 1 operational (refusals without `--yes` on a non-tty, declined confirms, disabled/daemon-down `restart`, `env` when off), 2 usage (arg-count violations via the family's `usageArgs` re-wrap — root's central wrap loop covers only `rootCmd`'s direct children).
+- **The `skill` standard is a deliberate no-op here** — no gui topic page exists; the bundle is a capability briefing, not a command enumeration, and the help-dump walk already covers the family.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

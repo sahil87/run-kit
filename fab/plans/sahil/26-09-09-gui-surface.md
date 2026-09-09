@@ -46,7 +46,7 @@ Agents: fill your row when you create the change; mark Done when merged.
 | # | Slug (suggested) | Depends on | Size | Change folder | PR | Status |
 |---|------------------|-----------|------|---------------|----|--------|
 | C0 | *(spike — no fab change; written verdict only)* | — | S | — | — | not started |
-| C1 | `gui-spec-and-registry-rename` | — | S | 260909-5nvd-gui-spec-and-registry-rename | | in progress |
+| C1 | `gui-spec-and-registry-rename` | — | S | 260909-5nvd-gui-spec-and-registry-rename | https://github.com/sahil87/run-kit/pull/888 | in progress |
 | C2 | `gui-backend-switch-and-relay` | C0 verdict, C1 | L | | | not started |
 | C3 | `gui-surface-tile` | C2 merged | L | | | not started |
 | C4 | `gui-agent-verbs` | C2 merged (∥ C3) | M | | | not started |

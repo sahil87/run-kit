@@ -51,7 +51,7 @@ Agents: fill your row when you create the change; mark Done when merged.
 | C1 | `gui-spec-and-registry-rename` | — | S | 260909-5nvd-gui-spec-and-registry-rename | https://github.com/sahil87/run-kit/pull/888 | Done |
 | C2 | `gui-backend-switch-and-relay` | C0 verdict, C1 | L | 260909-fkh1-gui-backend-switch-and-relay | https://github.com/sahil87/run-kit/pull/892 | Done |
 | C3 | `gui-surface-tile` | C2 merged | L | | | not started |
-| C4 | `gui-agent-verbs` | C2 merged (∥ C3) | M | 260909-bbv1-gui-agent-verbs | (PR pending) | in review |
+| C4 | `gui-agent-verbs` | C2 merged (∥ C3) | M | 260909-bbv1-gui-agent-verbs | https://github.com/sahil87/run-kit/pull/894 | in review |
 | C5 | `gui-perf-measure` | C3, C4 merged | S | | | not started |
 | C6 | `gui-kasm-backend` *(conditional on C5)* | C5 verdict | M | | | not started |
 

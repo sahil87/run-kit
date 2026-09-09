@@ -10,6 +10,7 @@ Depth for a specific job lives in topic pages — pull one at use-time:
 - **agent-to-agent messaging concepts** (which channel for write/read/wait, spawn-then-deliver past trust walls — the `ready`/`parked` readiness standard) → `rk skill messaging`
 - **`rk mux` verb reference** (send/await/capture/kill/process/panes/sessions flags, gates, report words) → `rk skill mux`
 - **act inside the `code` lens editor** (run VS Code palette commands in the open code-server window from the shell) → `rk skill code`
+- **drive and screenshot the host GUI display** (launch apps with DISPLAY set, take a PNG the human also sees in the GUI tile) → `rk skill gui`
 - **guided first-run tour** (when the user asks for a tutorial, tour, or onboarding) → `rk skill tutorial`
 - **drive the tab UI** (layouts, web-tab strip, code folder — `rk tab --help`); works with `rk serve` down
 
@@ -50,6 +51,7 @@ One line each, keyed to the subcommand or tmux option that does it:
 - `rk mux await <target>` — block until a pane's agent state (or a `--file` signal) fires; prints a one-word report. Depth: `rk skill mux`.
 - `rk mux new <name> [--ephemeral]` — create a detached tmux server on socket `<name>`; scratch servers are created with `--ephemeral` and bulk-cleaned with `rk mux reap --ephemeral` (never bare `tmux kill-server`). Depth: `rk skill mux`.
 - `rk code exec <command> [json-arg…]` — act inside the `code` lens editor: run a VS Code palette command in an open code-server window, resolving its host via `--host`/`--tab` (the tab's `@rk_win_code_root`)/`--folder`/the cwd's git toplevel. `rk code hosts` lists live hosts; `rk code commands` grep-lists command ids. Depth: `rk skill code`.
+- `rk gui exec <cmd…>` / `rk gui shot [--out f.png]` — run a command on the host GUI display (DISPLAY set; `--detach` launches and returns) and screenshot it to a PNG whose path prints to stdout. Gated on the user's `gui.enabled` switch — exit 1 with the hint when off; never run `rk gui on` yourself. Depth: `rk skill gui`.
 - `rk skill display` — the visual-display topic page: target forms, attach vs. standalone windows, the proxy, and the canonical Visual Display Recipe, in depth.
 - **Proxy** — reach a local service through the run-kit server:
 

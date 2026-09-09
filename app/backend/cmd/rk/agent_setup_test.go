@@ -2102,3 +2102,200 @@ func TestTmuxShimDryRunFullBodies(t *testing.T) {
 		t.Errorf("--dry-run shim preview should include the script body, got: %q", got)
 	}
 }
+
+// --- gui display block (third managed artifact) --------------------------------
+
+// installGuiDisplayBlock runs the install pass of applyGuiDisplayBlocks into a
+// temp home with non-interactive consent, failing the test on error.
+func installGuiDisplayBlock(t *testing.T, home, rkPath string) {
+	t.Helper()
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", rkPath, false, consent{yes: true}); err != nil {
+		t.Fatalf("applyGuiDisplayBlocks install error: %v", err)
+	}
+}
+
+func TestGuiDisplayBlockText(t *testing.T) {
+	block := guiDisplayBlock("/opt/homebrew/bin/rk")
+	if !strings.HasPrefix(block, guiDisplayBlockBegin+"\n") || !strings.HasSuffix(block, guiDisplayBlockEnd+"\n") {
+		t.Errorf("block is not delimited by its markers: %q", block)
+	}
+	// The three guards are the read-time-derivation contract: pane-scoped,
+	// never overriding a pre-set DISPLAY, stderr discarded so an off GUI is
+	// silent. The block embeds no display number or other GUI state.
+	for _, want := range []string{`[ -n "$TMUX_PANE" ]`, `[ -z "${DISPLAY-}" ]`, `2>/dev/null`, `eval "$("/opt/homebrew/bin/rk" gui env 2>/dev/null)"`} {
+		if !strings.Contains(block, want) {
+			t.Errorf("block missing %q: %q", want, block)
+		}
+	}
+	if strings.Contains(block, "DISPLAY=:") {
+		t.Errorf("block embeds a display number — the value is derived at each shell start: %q", block)
+	}
+	if got := len(strings.Split(strings.TrimSuffix(block, "\n"), "\n")); got != 3 {
+		t.Errorf("block is %d lines, want exactly 3", got)
+	}
+}
+
+func TestGuiDisplayBlockFreshInstall(t *testing.T) {
+	home := t.TempDir()
+	installGuiDisplayBlock(t, home, "/opt/homebrew/bin/rk")
+
+	for _, name := range []string{".zshenv", ".bashrc"} {
+		content := readFileOrEmpty(t, filepath.Join(home, name))
+		if !strings.HasSuffix(content, guiDisplayBlock("/opt/homebrew/bin/rk")) {
+			t.Errorf("%s does not end with the gui display block: %q", name, content)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".bash_profile")); !os.IsNotExist(err) {
+		t.Errorf(".bash_profile must not be created by the install; stat err = %v", err)
+	}
+}
+
+func TestGuiDisplayBlockInstallIntoExistingBashProfile(t *testing.T) {
+	home := t.TempDir()
+	profile := filepath.Join(home, ".bash_profile")
+	if err := os.WriteFile(profile, []byte("# mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	installGuiDisplayBlock(t, home, "/opt/homebrew/bin/rk")
+
+	content := readFileOrEmpty(t, profile)
+	if !strings.Contains(content, "# mine") {
+		t.Errorf("existing .bash_profile content lost: %q", content)
+	}
+	if !strings.Contains(content, guiDisplayBlockBegin) {
+		t.Errorf("existing .bash_profile did not receive the gui display block: %q", content)
+	}
+}
+
+func TestGuiDisplayBlockIdempotentReinstall(t *testing.T) {
+	home := t.TempDir()
+	installGuiDisplayBlock(t, home, "/opt/homebrew/bin/rk")
+	files := []string{filepath.Join(home, ".zshenv"), filepath.Join(home, ".bashrc")}
+	first := make([]string, len(files))
+	for i, f := range files {
+		first[i] = readFileOrEmpty(t, f)
+	}
+
+	// Second run must be a no-op: byte-identical files, an "already present"
+	// note per file, and no prompt (consent{} would refuse on a pending write).
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{}); err != nil {
+		t.Fatalf("idempotent re-run must not need consent, got: %v", err)
+	}
+	if got := strings.Count(out.String(), "block already present"); got != 2 {
+		t.Errorf("re-run reported %d already-present notes, want 2 (one per file): %q", got, out.String())
+	}
+	for i, f := range files {
+		if got := readFileOrEmpty(t, f); got != first[i] {
+			t.Errorf("%s changed on idempotent re-run:\nfirst:  %q\nsecond: %q", f, first[i], got)
+		}
+	}
+}
+
+func TestGuiDisplayBlockUninstallRemovesExactly(t *testing.T) {
+	home := t.TempDir()
+	user := "# my zshenv\nexport EDITOR=vim\n"
+	zshenv := filepath.Join(home, ".zshenv")
+	if err := os.WriteFile(zshenv, []byte(user), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	installGuiDisplayBlock(t, home, "/opt/homebrew/bin/rk")
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if got := readFileOrEmpty(t, zshenv); got != user {
+		t.Errorf(".zshenv after uninstall = %q, want the user content byte-identical %q", got, user)
+	}
+	if got := readFileOrEmpty(t, filepath.Join(home, ".bashrc")); got != "" {
+		t.Errorf(".bashrc after uninstall = %q, want empty (install created it for the block alone)", got)
+	}
+
+	// A second uninstall is silent — absence needs no narration.
+	out.Reset()
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+		t.Fatalf("second uninstall: %v", err)
+	}
+	if strings.Contains(out.String(), "gui display") {
+		t.Errorf("second uninstall should be silent, got: %q", out.String())
+	}
+}
+
+func TestGuiDisplayBlockDryRunWritesNothing(t *testing.T) {
+	home := t.TempDir()
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "gui display: will add the rk gui display block in "+filepath.Join(home, ".zshenv")) ||
+		!strings.Contains(got, "--- current") || !strings.Contains(got, "+++ proposed") {
+		t.Errorf("dry-run output lacks the per-file diff: %q", got)
+	}
+	for _, name := range []string{".zshenv", ".bashrc", ".bash_profile"} {
+		if _, err := os.Stat(filepath.Join(home, name)); !os.IsNotExist(err) {
+			t.Errorf("--dry-run created %s", name)
+		}
+	}
+}
+
+func TestGuiDisplayBlockMalformedRefused(t *testing.T) {
+	home := t.TempDir()
+	zshenv := filepath.Join(home, ".zshenv")
+	malformed := "# user line\n" + guiDisplayBlockBegin + "\n# never closed\n"
+	if err := os.WriteFile(zshenv, []byte(malformed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// .bashrc is well-formed-absent: the malformed file must not stop it.
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if got := readFileOrEmpty(t, zshenv); got != malformed {
+		t.Errorf("malformed .zshenv was modified: %q", got)
+	}
+	if !strings.Contains(out.String(), "leaving the file untouched") {
+		t.Errorf("missing the skip note for the malformed block: %q", out.String())
+	}
+	if got := readFileOrEmpty(t, filepath.Join(home, ".bashrc")); !strings.HasSuffix(got, guiDisplayBlock("/opt/homebrew/bin/rk")) {
+		t.Errorf(".bashrc did not receive the block (the malformed .zshenv must not stop it): %q", got)
+	}
+}
+
+// TestGuiDisplayBlockIndependentOfShim pins the install-gating difference from
+// the PATH block: a foreign marker-less shim (or a declined shim write) leaves
+// the PATH block unwritten, but the gui display block still installs — it
+// embeds the rk path directly and fronts nothing.
+func TestGuiDisplayBlockIndependentOfShim(t *testing.T) {
+	home := t.TempDir()
+	shimPath := tmuxShimPath(home)
+	if err := os.MkdirAll(filepath.Dir(shimPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shimPath, []byte("#!/bin/sh\n# the user's own tmux wrapper\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("applyTmuxShim: %v", err)
+	}
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("applyGuiDisplayBlocks: %v", err)
+	}
+
+	zshenv := readFileOrEmpty(t, filepath.Join(home, ".zshenv"))
+	if strings.Contains(zshenv, tmuxGuardBlockBegin) {
+		t.Errorf("PATH block written in front of a foreign shim: %q", zshenv)
+	}
+	if !strings.Contains(zshenv, guiDisplayBlockBegin) {
+		t.Errorf("gui display block skipped with the PATH block: %q", zshenv)
+	}
+}

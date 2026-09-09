@@ -47,9 +47,11 @@ import (
 // go through Go; the hook command is a fixed literal per state with nothing
 // user-provided interpolated (Constitution §I).
 //
-// rk agent setup manages two artifact families: the per-agent hooks merge above,
-// and the user-global tmux guard shim (shim file + PATH block — see
-// applyTmuxShim below and tmux_guard.go for the guard itself). It used to write
+// rk agent setup manages three artifact families: the per-agent hooks merge above,
+// the user-global tmux guard shim (shim file + PATH block — see applyTmuxShim
+// below and tmux_guard.go for the guard itself), and the user-global gui display
+// block (a marker-owned shell-startup block that evals `rk gui env` inside tmux
+// panes — see applyGuiDisplayBlocks below). It used to write
 // a third managed artifact — a user-global "rk-display" SKILL.md that put
 // run-kit's visual-display capability into an agent's context — but that context-injection
 // responsibility has moved to the `rk skill` bundle (served by the skill
@@ -647,7 +649,13 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 	// per-agent — applied once after the agent loop. $ZDOTDIR is read here at
 	// the call boundary (like home above) so everything below stays pure over
 	// injected paths.
-	return applyTmuxShim(sink, reader, home, os.Getenv("ZDOTDIR"), rkPath, uninstall, cons)
+	if err := applyTmuxShim(sink, reader, home, os.Getenv("ZDOTDIR"), rkPath, uninstall, cons); err != nil {
+		return err
+	}
+	// The gui display block is likewise user-global and runs after the shim.
+	// Unlike the PATH block it does NOT depend on the shim being in place — it
+	// embeds the validated rk path directly and fronts nothing.
+	return applyGuiDisplayBlocks(sink, reader, home, os.Getenv("ZDOTDIR"), rkPath, uninstall, cons)
 }
 
 // applyAgentConfig applies the agent's installer kind and, on BOTH the install
@@ -1546,6 +1554,130 @@ func applyTmuxGuardPathBlocks(sink outputSink, reader *bufio.Reader, home, zdotd
 			return fmt.Errorf("tmux guard: write %s: %w", path, err)
 		}
 		sink.Notef("tmux guard: wrote %s.\n", path)
+	}
+	return nil
+}
+
+// --- gui display block (third managed artifact) --------------------------------
+
+// The gui display block puts DISPLAY (and RK_GUI_SOCKET) into shells started
+// inside tmux panes by eval'ing `rk gui env` at shell start. That is read-time
+// derivation, never a push (Constitution §X): the display is the supervisor's
+// @rk_gui_display stamp, already served by `rk gui env`, so nothing is stored
+// in the file and turning the GUI on later needs no re-setup — the block is
+// inert while off (`rk gui env` prints nothing and exits 1, so eval "" is a
+// no-op). It lives in the SAME startup files as the guard PATH block
+// (tmuxGuardStartupFiles) and reuses the PATH block's entire flow, but it is
+// independent on install: it embeds the validated absolute rk path and fronts
+// nothing, so a declined shim write does not skip it.
+
+// guiDisplayBlockBegin/End delimit the marker-owned gui display block — the
+// ownership contract of the other marker blocks: re-install replaces exactly
+// the region between them, --uninstall removes exactly it, and a malformed
+// region is refused.
+const (
+	guiDisplayBlockBegin = "# >>> rk gui display >>>"
+	guiDisplayBlockEnd   = "# <<< rk gui display <<<"
+)
+
+// guiDisplayBlock is the full marker-owned block. The guards are load-bearing:
+// $TMUX_PANE scopes the eval to tmux panes (the same gate the installed agent
+// hooks use); ${DISPLAY-} keeps a real X session's DISPLAY (desktop Linux,
+// SSH X-forwarding) untouched and skips the exec in nested shells; stderr is
+// discarded so an off/unreachable GUI stays silent. rkPath is the
+// resolveRkPath/validateHookPath-validated absolute binary path — embedded
+// double-quoted so the block is PATH-independent at read time.
+func guiDisplayBlock(rkPath string) string {
+	return guiDisplayBlockBegin + "\n" +
+		fmt.Sprintf(`[ -n "$TMUX_PANE" ] && [ -z "${DISPLAY-}" ] && eval "$("%s" gui env 2>/dev/null)"`, rkPath) + "\n" +
+		guiDisplayBlockEnd + "\n"
+}
+
+// applyGuiDisplayBlocks upserts (install) or strips (uninstall) the
+// marker-owned gui display block in each startup file, one diff + consent per
+// file — the applyTmuxGuardPathBlocks flow verbatim: per-file tolerant read,
+// malformed-block refusal with a skip note, "already present" no-op note on
+// install, silence on uninstall when absent, full diff on --dry-run (a
+// one-line summary plus the block lines otherwise), consent through
+// authorizeWrite, and a mode-preserving write with the parent MkdirAll'd only
+// after consent.
+func applyGuiDisplayBlocks(sink outputSink, reader *bufio.Reader, home, zdotdir, rkPath string, uninstall bool, cons consent) error {
+	block := guiDisplayBlock(rkPath)
+	for _, path := range tmuxGuardStartupFiles(home, zdotdir) {
+		current, err := readSkill(path)
+		if err != nil {
+			sink.Notef("gui display: %s: cannot read (%v) — leaving the file untouched and continuing with the other startup files.\n", path, err)
+			continue
+		}
+		var next string
+		var blockErr error
+		if uninstall {
+			next, blockErr = removeMarkerBlock(current, guiDisplayBlockBegin, guiDisplayBlockEnd)
+		} else {
+			next, blockErr = upsertMarkerBlock(current, guiDisplayBlockBegin, guiDisplayBlockEnd, block)
+		}
+		if blockErr != nil {
+			sink.Notef("gui display: %s: %v — leaving the file untouched (repair or remove the block by hand, then re-run).\n", path, blockErr)
+			continue
+		}
+		if next == current {
+			if !uninstall {
+				sink.Notef("gui display: block already present in %s — nothing to do.\n", path)
+			}
+			continue
+		}
+
+		// The honest unit of change is exactly the marker-owned block: the full
+		// file bodies render only under --dry-run (the requested preview);
+		// elsewhere the summary shows the block and where it lands.
+		if cons.dryRun {
+			action := "add"
+			if uninstall {
+				action = "remove"
+			}
+			header := fmt.Sprintf("gui display: will %s the rk gui display block in %s", action, path)
+			renderArtifactDiff(cons.diffWriter(sink), header, current, next)
+		} else if uninstall {
+			fmt.Fprintf(cons.diffWriter(sink), "gui display: will remove the %d-line rk gui display block from %s.\n", strings.Count(block, "\n"), path)
+		} else {
+			// Placement uses the SAME detection upsertMarkerBlock acts on (see
+			// the PATH block's wording note); the error case is unreachable — a
+			// malformed block already hit blockErr above.
+			placement := "appended at end"
+			if _, _, found, _ := markerBlockBounds(strings.Split(current, "\n"), guiDisplayBlockBegin, guiDisplayBlockEnd); found {
+				placement = "replaced in position"
+			}
+			out := cons.diffWriter(sink)
+			fmt.Fprintf(out, "gui display: will add the rk gui display block in %s (%s):\n", path, placement)
+			for _, line := range strings.Split(strings.TrimSuffix(block, "\n"), "\n") {
+				fmt.Fprintf(out, "  %s\n", line)
+			}
+		}
+		dryRunNote := fmt.Sprintf("gui display: dry run — %s not modified.", path)
+		ok, err := cons.authorizeWrite(sink.data, reader, dryRunNote, "\nWrite these changes? [y/N] ")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			if !cons.dryRun {
+				sink.Notef("gui display: skipped %s (no changes written).\n", path)
+			}
+			continue
+		}
+
+		mode := os.FileMode(0o644)
+		if info, statErr := os.Stat(path); statErr == nil {
+			mode = info.Mode().Perm()
+		}
+		// $ZDOTDIR may name a directory that does not exist yet — created after
+		// consent so dry-run and declined prompts leave the filesystem untouched.
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("gui display: create %s: %w", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(next), mode); err != nil {
+			return fmt.Errorf("gui display: write %s: %w", path, err)
+		}
+		sink.Notef("gui display: wrote %s.\n", path)
 	}
 	return nil
 }

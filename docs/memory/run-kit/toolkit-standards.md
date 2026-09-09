@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator`/`gui` + the `mux` (`new`/`reap --ephemeral`/`adopt`/`sessions`) and `cron` families."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator`/`gui` (incl. `gui exec`/`shot` and the `gui` skill topic) + the `mux` and `cron` families."
 ---
 # Toolkit Standards Conformance
 
@@ -784,12 +784,12 @@ checks (260906-bi3v-rk-cron-cli):
   exists yet; the bundle is a capability briefing, not a command enumeration,
   and the help-dump walk already covers the family.
 
-The `rk gui` family (`gui.go` + `gui_supervise.go` — five visible members: `on`, `off`, `status`, `env`, `restart`, plus the hidden `supervise` pane command; the subsystem contract in [gui](/run-kit/gui.md)) is the twenty-second surface measured against the same checks (260909-fkh1-gui-backend-switch-and-relay):
+The `rk gui` family (`gui.go` + `gui_supervise.go` + `gui_exec.go` + `gui_shot.go` — seven visible members: `on`, `off`, `status`, `env`, `restart`, `exec`, `shot`, plus the hidden `supervise` pane command; the subsystem contract in [gui](/run-kit/gui.md)) is the twenty-second surface measured against the same checks (260909-fkh1-gui-backend-switch-and-relay; `exec`/`shot` audited with 260909-bbv1-gui-agent-verbs):
 
-- **help-dump: five members dump; the pane command doesn't.** `guiCmd` is registered unconditionally on `rootCmd` (`root.go`'s `init()`) and every visible node carries a `Long:` block in the `code-server` family's shape (Use/Short/Long with a Subcommands list), so the cobra tree walk picks the subtree up with no help-dump code change and the dumped contract is identical on every platform — nothing about the family is build- or host-conditional (the macOS sleeper path and the daemon-down lines are run-time outcomes, not registration conditions). `supervise` is `Hidden: true` — the dump's hidden-node rule drops it like the other plumbing commands. The help-dump test asserts the subtree dynamically.
-- **Principle 9: outcome lines and the status document are data; hints are errors.** `on`'s outcome lines (`started (<bin> :N)` / `already running` / the daemon-down and no-backend lines), `off`'s `gui off` confirmation, `restart`'s `restarted (<bin> :N)`, `env`'s two `export` lines, and `status`'s human line / `--json` document are stdout data, surviving `--quiet`; the `off` refusal (`re-run with --yes`), the disabled/not-running hints, and `aborted` ride stderr with non-zero exits.
-- **Exit-code convention (P4)**: 0 success (including the daemon-down `rk gui on` and every `status` state — state, not verdict), 1 operational (refusals without `--yes` on a non-tty, declined confirms, disabled/daemon-down `restart`, `env` when off), 2 usage (arg-count violations via the family's `usageArgs` re-wrap — root's central wrap loop covers only `rootCmd`'s direct children).
-- **The `skill` standard is a deliberate no-op here** — no gui topic page exists; the bundle is a capability briefing, not a command enumeration, and the help-dump walk already covers the family.
+- **help-dump: seven members dump; the pane command doesn't.** `guiCmd` is registered unconditionally on `rootCmd` (`root.go`'s `init()`) and every visible node carries a `Long:` block in the `code-server` family's shape (Use/Short/Long with a Subcommands list), so the cobra tree walk picks the subtree up with no help-dump code change and the dumped contract is identical on every platform — nothing about the family is build- or host-conditional (the macOS refusal on `exec`/`shot` and the daemon-down lines are run-time operational outcomes, not registration conditions). `supervise` is `Hidden: true` — the dump's hidden-node rule drops it like the other plumbing commands. The help-dump test asserts the subtree dynamically.
+- **Principle 9: outcome lines and the status document are data; hints are errors.** `on`'s outcome lines (`started (<bin> :N)` / `already running` / the daemon-down and no-backend lines), `off`'s `gui off` confirmation, `restart`'s `restarted (<bin> :N)`, `env`'s two `export` lines, `status`'s human line / `--json` document, `exec --detach`'s `started <pid> on :N` line, and `shot`'s absolute PNG path are each the verb's one bounded stdout datum (Dataf, surviving `--quiet`); a foreground `exec` replaces the process, so the command's own output contract applies. The `off` refusal (`re-run with --yes`), the disabled/not-running hints, the macOS refusals, `not found on PATH`, and `aborted` ride stderr with non-zero exits.
+- **Exit-code convention (P4)**: 0 success (including the daemon-down `rk gui on` and every `status` state — state, not verdict), 1 operational (refusals without `--yes` on a non-tty, declined confirms, disabled/daemon-down `restart`, `env`/`exec`/`shot` when off or not running, the macOS refusals, an unknown program, a failed or missing screenshot tool), 2 usage (arg-count violations via the family's `usageArgs` re-wrap — root's central wrap loop covers only `rootCmd`'s direct children — including `exec` with no command word).
+- **The `skill` standard covers the `gui` topic page** — canonical `docs/site/skill/gui.md` (≤150 lines), synced to the embedded copy by `scripts/sync-skill.sh`, drift-guarded and budget-tested by the shared `TestSkillTopics*` tables, and registered as `skillTopics["gui"]` so the `Topics:` help line and `rk skill topics` enumerate it; the core bundle carries the topic-index line plus one capability row for `rk gui exec <cmd…>` / `rk gui shot [--out f.png]` (gated on the user's `gui.enabled` switch). (bbv1)
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host
@@ -893,8 +893,8 @@ installs no skill — the `rk skill` bundle owns usage knowledge. The legacy
 **Topic pages.** The shll skill standard has **topic pages** (`<tool> skill
 <topic>`, each canonical at `docs/site/skill/<topic>.md`, ≤150 lines, static-only,
 byte-identical, drift-guarded, rendered at `/<tool>/skill/<topic>` on shll.ai —
-shll PR #47). run-kit ships five topic pages: `code`, `display`, `messaging`,
-`mux`, and `tutorial` (fvpu). Each uses the per-topic embed mechanism and the shared
+shll PR #47). run-kit ships six topic pages: `code`, `display`, `gui`,
+`messaging`, `mux`, and `tutorial` (fvpu) (bbv1). Each uses the per-topic embed mechanism and the shared
 `TestSkillTopicsMatchCanonical` / `TestSkillTopicsWithinLineBudget` guards; the
 command cases in `TestSkillTopicsPrintByteIdentical` pin the stdout contract.
 The tutorial uses a bidirectional page↔companion guard:
@@ -904,7 +904,7 @@ companion page `tutorial/tutorial.html` at each of its five chapter hashes
 `app/frontend/public/tutorial/`, and rejects any other `.html` file there;
 `TestTutorialLayoutValuesParse` checks the tour's layout and surface literals.
 The standard's fail-fast rule holds: an **unknown topic** exits usage-class (2)
-via the `usageError` helper with all five valid topics named on stderr and
+via the `usageError` helper with all six valid topics named on stderr and
 **empty stdout** — never a silent empty document; bare `rk skill` **never
 inlines** a topic page. Topic pages are a clause of the already-passing `skill`
 standard, not a separate standard. (6uu0)

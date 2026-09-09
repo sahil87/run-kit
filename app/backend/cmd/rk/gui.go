@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -41,7 +42,39 @@ var (
 	// production CLI reports 0 — GET /api/gui/{id} carries the live count.
 	guiViewersFn = func() int { return 0 }
 	guiNowFn     = time.Now
+	// guiGOOS is the runtime.GOOS seam — the macOS refusals gate on it so
+	// tests drive the darwin branch without a darwin build.
+	guiGOOS = runtime.GOOS
 )
+
+// The gated verbs (env, exec, shot) share one refusal vocabulary — the hint
+// strings are user-facing copy, so every verb prints the identical sentence
+// for the same state.
+const (
+	guiErrOff        = "gui is off — turn it on with 'rk gui on'"
+	guiErrNotRunning = "gui is on but not running — see 'rk gui status'"
+)
+
+// guiRequireReachable is the shared gate for verbs that act on the live
+// display: enabled and reachable, or the refusal error (exit 1). The status
+// is returned either way so a passing caller needs no second assembly.
+func guiRequireReachable(ctx context.Context) (gui.Status, error) {
+	st := gatherGUIStatus(ctx)
+	if !st.Enabled {
+		return st, errors.New(guiErrOff)
+	}
+	if !st.Reachable {
+		return st, errors.New(guiErrNotRunning)
+	}
+	return st, nil
+}
+
+// guiDarwinRefusal renders the macOS refusal for a gated verb. The macOS
+// backend mirrors the live session view-only — no X display exists to run on
+// or screenshot.
+func guiDarwinRefusal(verb string) error {
+	return fmt.Errorf("gui %s is not supported on macOS in v1 — the GUI mirrors your live session view-only", verb)
+}
 
 // guiStampWaitTimeout bounds the post-ensure poll for the supervisor's
 // @rk_gui_display/@rk_gui_backend stamps (the supervisor stamps them once the
@@ -70,6 +103,8 @@ Subcommands:
   status   Show the GUI state (human-readable or --json)
   env      Print DISPLAY/RK_GUI_SOCKET exports for eval
   restart  Kill and respawn the rk-gui session (recovery for a dead backend)
+  exec     Run a command on the GUI display (DISPLAY set); --detach to launch and return
+  shot     Screenshot the display to a PNG and print its path
 
 See 'run-kit gui <subcommand> --help' for details.`,
 }
@@ -129,6 +164,10 @@ var guiEnvCmd = &cobra.Command{
 	Long: `Print 'export DISPLAY=:N' and 'export RK_GUI_SOCKET=<path>' for
 'eval "$(rk gui env)"' — the shell-side door to the GUI display.
 
+'rk agent setup' installs this eval into your shell startup files (inside tmux
+panes, when DISPLAY is unset), so new shells land on the display with no
+per-shell eval.
+
 Exits 1 when the GUI is off or enabled but not running; 'rk gui status' has
 the reason.`,
 	Args:         cobra.NoArgs,
@@ -153,12 +192,16 @@ daemon is down (a tmux command on a dead socket would birth a server).`,
 func init() {
 	guiOffCmd.Flags().Bool("yes", false, "Skip the running-apps confirmation")
 	guiStatusCmd.Flags().Bool("json", false, "Emit the status document as JSON")
+	guiExecCmd.Flags().BoolP("detach", "d", false, "Start the command as its own session and return immediately")
+	guiShotCmd.Flags().StringP("out", "o", "", "Write the PNG to this path (parent created, existing file overwritten)")
 
 	guiCmd.AddCommand(guiOnCmd)
 	guiCmd.AddCommand(guiOffCmd)
 	guiCmd.AddCommand(guiStatusCmd)
 	guiCmd.AddCommand(guiEnvCmd)
 	guiCmd.AddCommand(guiRestartCmd)
+	guiCmd.AddCommand(guiExecCmd)
+	guiCmd.AddCommand(guiShotCmd)
 
 	// Arg-count violations on the children are usage-class (exit 2) — root.go's
 	// central wrap loop covers only rootCmd's direct children (the code-server
@@ -300,12 +343,9 @@ func runGuiEnv(cmd *cobra.Command, _ []string) error {
 	sink := newSink(cmd)
 	ctx, cancel := context.WithTimeout(guiCmdCtx(cmd), 10*time.Second)
 	defer cancel()
-	st := gatherGUIStatus(ctx)
-	if !st.Enabled {
-		return errors.New("gui is off — turn it on with 'rk gui on'")
-	}
-	if !st.Reachable {
-		return errors.New("gui is on but not running — see 'rk gui status'")
+	st, err := guiRequireReachable(ctx)
+	if err != nil {
+		return err
 	}
 	sink.Dataf("export DISPLAY=%s\n", st.Display)
 	sink.Dataf("export RK_GUI_SOCKET=%s\n", st.Socket)
@@ -315,7 +355,7 @@ func runGuiEnv(cmd *cobra.Command, _ []string) error {
 func runGuiRestart(cmd *cobra.Command, _ []string) error {
 	sink := newSink(cmd)
 	if !guiSettingsLoad().GUIEnabled {
-		return errors.New("gui is off — turn it on with 'rk gui on'")
+		return errors.New(guiErrOff)
 	}
 	if !guiDaemonRunningFn() {
 		return errors.New("rk daemon is not running — start it with 'rk serve -d'")

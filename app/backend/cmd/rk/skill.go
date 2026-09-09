@@ -41,6 +41,14 @@ var skillDisplayTopic []byte
 //go:embed skill/code.md
 var skillCodeTopic []byte
 
+// skillGuiTopic holds the `gui` topic page, canonical at
+// docs/site/skill/gui.md and synced into skill/gui.md alongside the core
+// bundle. Same embed + drift-guard mechanism as the display topic, same
+// static-only rules, independently bounded at ≤150 lines.
+//
+//go:embed skill/gui.md
+var skillGuiTopic []byte
+
 // skillMessagingTopic holds the `messaging` topic page, canonical at
 // docs/site/skill/messaging.md and synced into skill/messaging.md alongside
 // the core bundle. Same embed + drift-guard mechanism as the display topic,
@@ -74,6 +82,7 @@ const tutorialTopicName = "tutorial"
 var skillTopics = map[string][]byte{
 	"code":            skillCodeTopic,
 	"display":         skillDisplayTopic,
+	"gui":             skillGuiTopic,
 	"messaging":       skillMessagingTopic,
 	"mux":             skillMuxTopic,
 	tutorialTopicName: skillTutorialTopic,

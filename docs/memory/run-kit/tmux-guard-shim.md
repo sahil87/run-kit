@@ -260,7 +260,11 @@ under `--dry-run` (the requested preview).
   PATH after a declined write, or in front of a foreign marker-less file, would
   put a non-rk executable — or nothing — in front of every tmux invocation. On
   **uninstall** the two pieces are independent: the block is stripped even when the
-  shim's removal was declined, skipped, or unreadable.
+  shim's removal was declined, skipped, or unreadable. The startup-file set
+  (`tmuxGuardStartupFiles(home, zdotdir)`) is shared with the gui display block
+  (`# >>> rk gui display >>>` — see [gui](/run-kit/gui.md) § Agent verbs), and
+  the two blocks install independently: the gui block does NOT gate on the shim
+  (it embeds the validated rk path directly and fronts nothing). (bbv1)
 - **Per-file resilience**: a file whose marker region is malformed (a begin marker
   with no end, or a second begin before the end) or that cannot be **read** at all
   (unreadable, or a directory occupying the path) is refused with a skip note while

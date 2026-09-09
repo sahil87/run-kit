@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-09T14:39:52Z"}
+{"args":"gui-agent-verbs Plan: fab/plans/sahil/26-09-09-gui-surface.md -- implement C4 (agent verbs: rk gui exec, rk gui shot, rk agent setup DISPLAY export, rk skill gui, docs/memory gui.md hydrate) per the plan's change breakdown and pickup protocol. C2 merged; C3 in parallel — avoid frontend files.","cmd":"fab-new","event":"command","ts":"2026-09-09T14:39:52Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-09-09T14:42:37Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-09-09T14:42:57Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-09T14:49:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-09T14:50:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-09T15:03:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-09T15:07:43Z"}
+{"event":"review","result":"passed","ts":"2026-09-09T15:07:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-09T15:15:21Z"}

@@ -1,5 +1,5 @@
 ---
-description: "The `@rk_pane_agent_state` pane-option convention: three-state value schema, dual-read/dual-write over the retired unscoped name, shell reconciler, window rollup. Covers the seven-harness runtime registry (claude, codex, gemini, copilot, kimi, opencode, agy), the `rk agent setup` installer (three installer kinds + hidden aliases), the `rk agent hook` binary indirection, the SessionStart boot stamp, and the `@rk_pane_agent_session` agent-session-identity convention."
+description: "The `@rk_pane_agent_state` pane-option convention: three-state value schema, dual-read/dual-write over the retired unscoped name, shell reconciler, window rollup. Covers the seven-harness runtime registry, the `rk agent setup` installer (three artifact families — per-agent hooks, the tmux guard shim, the gui display block — over three installer kinds), the `rk agent hook` binary indirection, the SessionStart boot stamp, and the `@rk_pane_agent_session` agent-session-identity convention."
 type: memory
 ---
 # Agent-State Tier (`@rk_pane_agent_state`)
@@ -286,11 +286,15 @@ terminal, which would make the refusal silently not fire. A non-`*os.File` reade
 non-interactive path unless they set `stdinIsTTY` explicitly. Pinned by
 `TestIsTerminalRejectsNonTTYFiles`.
 
-**It installs TWO artifact families**: the **per-agent hook/plugin install**
-(three installer kinds, described below) and the **user-global tmux guard shim** — a shim script plus a
+**It installs THREE artifact families**: the **per-agent hook/plugin install**
+(three installer kinds, described below), the **user-global tmux guard shim** — a shim script plus a
 marker-owned `PATH` block that puts `rk mux guard` in front of every
 PATH-resolved `tmux` invocation, so `tmux kill-server` without an explicit
-`-L`/`-S` socket is refused. The shim script is in its **second generation** —
+`-L`/`-S` socket is refused — and the **user-global gui display block** — a
+marker-owned shell-startup block that evals `rk gui env` inside tmux panes so
+`DISPLAY`/`RK_GUI_SOCKET` reach new shells once the user turns the GUI on
+(full semantics in [gui](/run-kit/gui.md) § Agent verbs). (bbv1)
+The shim script is in its **second generation** —
 `rk agent setup` writes `exec "<abs-rk>" mux guard "$@"`; first-generation
 installs exec'ing the literal `tmux-guard` keep working
 through the permanent hidden root alias and roll over only on the next re-run
@@ -302,7 +306,7 @@ summary-on-consent / full-diff-on-`--dry-run` rendering split, and its
 (260805-blyf-tmux-guard-path-shim)
 
 The command surface is `rk agent setup` / `rk agent setup --uninstall`, and
-`--uninstall` reverses both families. The
+`--uninstall` reverses all three families. The
 visual-display context-injection role belongs to the **`rk skill` bundle** (served
 by the `skill` subcommand, aggregated by the coming `shll agent-setup`), described
 in [architecture](/run-kit/architecture.md) § CLI Subcommands; the only skill trace
@@ -527,7 +531,7 @@ machine). A genuinely malformed (non-empty, non-JSON) file **surfaces an error
 without writing** — anti-clobber: silently treating it as empty would overwrite
 user config.
 
-## Installer Structure — Per-Agent Loop, then the Shim (`runAgentSetup`)
+## Installer Structure — Per-Agent Loop, then the User-Global Blocks (`runAgentSetup`)
 
 `runAgentSetup` resolves the home dir, `$ZDOTDIR`, and the absolute rk path once
 at its boundary (so everything below stays pure over injected paths), then runs:
@@ -537,6 +541,15 @@ at its boundary (so everything below stays pure over injected paths), then runs:
    block, not per agent), applied once **after** the loop. See
    [tmux-guard-shim](/run-kit/tmux-guard-shim.md) § `rk agent setup`
    install/uninstall contract. (260805-blyf-tmux-guard-path-shim)
+3. **`applyGuiDisplayBlocks`** — the user-global gui display block (the
+   marker-owned `# >>> rk gui display >>>` region), applied once **after**
+   `applyTmuxShim` into the same startup-file set
+   (`tmuxGuardStartupFiles(home, zdotdir)`) with the same
+   consent/diff/dry-run/uninstall machinery — but **independent of the shim's
+   outcome** (unlike the PATH block, the gui block fronts nothing: it embeds the
+   validated rk path directly, so a declined shim write does not skip it). On
+   uninstall it runs with `rkPath=""` (removal needs no path). See
+   [gui](/run-kit/gui.md) § Agent verbs. (bbv1)
 
 `applyAgentConfig` is the thin per-agent wrapper, running in order:
 
@@ -1014,7 +1027,8 @@ set and split the rule from its data); computing the rollup in `internal/tmux`
 **Decision**: an explicit installer command that shows a diff and asks for
 confirmation before mutating user-global config, with `--uninstall`. Every artifact
 — the per-agent hooks merge and the cleanup-only `removeLegacySkill` under
-`applyAgentConfig`, and the user-global tmux guard shim under `applyTmuxShim` —
+`applyAgentConfig`, the user-global tmux guard shim under `applyTmuxShim`, and
+the user-global gui display block under `applyGuiDisplayBlocks` —
 runs its own diff-and-confirm through the shared `consent`/`authorizeWrite` seam,
 so declining or no-op-ing one does not skip the others.
 **Why**: it mutates user-global state (`~/.claude/settings.json`, the shims dir,

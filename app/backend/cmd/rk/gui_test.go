@@ -114,7 +114,7 @@ func TestGuiTreeRegistered(t *testing.T) {
 	if parent.Long == "" {
 		t.Error("parent command has no Long block")
 	}
-	want := map[string]bool{"on": false, "off": false, "status": false, "env": false, "restart": false}
+	want := map[string]bool{"on": false, "off": false, "status": false, "env": false, "restart": false, "exec": false, "shot": false}
 	var supervise *cobra.Command
 	for _, c := range parent.Commands() {
 		if c.Name() == "supervise" {

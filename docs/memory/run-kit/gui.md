@@ -1,14 +1,14 @@
 ---
 type: memory
-description: "The backend half of the GUI surface — the gui.enabled registry switch, the rk gui CLI family (on/off/status/env/restart + hidden supervise), the rk-gui supervisor session (display selection, Xvnc argv, WM ladder, @rk_gui_* stamps, stay-idle exit semantics), the /ws/gui/{id} RFB relay (close-code gates, binary-only, macOS view-only filter), the event: gui TTL-probed host-global slot, /api/gui/* routes, the settings-POST side effect, the doctor row, internal/gui (probe, apps scan, Assemble)."
+description: "The GUI surface — the gui.enabled switch, the rk gui CLI family (on/off/status/env/restart/exec/shot + hidden supervise), the rk-gui supervisor session (display selection, Xvnc argv, WM ladder, @rk_gui_* stamps), the /ws/gui/{id} RFB relay (close-code gates, view-only filter), the event: gui slot, /api/gui/* routes, the doctor row, internal/gui (probe, apps scan, Assemble), the agent verbs (exec passthrough/--detach, shot ladder), the rk agent setup gui display block, and the rk skill gui topic."
 ---
-# GUI Surface (Backend)
+# GUI Surface
 
 **Domain**: run-kit
 
 ## Overview
 
-The GUI surface exposes the host's desktop as a fourth tile beside `tty`/`code`/`web`. This file covers the backend half: the `gui.enabled` switch, the `rk gui` CLI family, the `rk-gui` supervisor session, the RFB-over-WebSocket relay, the `event: gui` state slot, the `/api/gui/*` routes, the doctor row, and the `internal/gui` package. The frontend tile and the agent verbs (`rk gui exec`/`shot`) are separate, later surfaces (design targets, not yet shipped — design authority: `docs/specs/gui.md` and the plan `fab/plans/sahil/26-09-09-gui-surface.md`). (fkh1)
+The GUI surface exposes the host's desktop as a fourth tile beside `tty`/`code`/`web`. This file covers the backend half plus the agent half: the `gui.enabled` switch, the `rk gui` CLI family (including the agent verbs `rk gui exec`/`shot`), the `rk-gui` supervisor session, the RFB-over-WebSocket relay, the `event: gui` state slot, the `/api/gui/*` routes, the doctor row, the `internal/gui` package, the `rk agent setup` gui display block, and the `rk skill gui` topic page. The frontend tile is a separate surface (design authority: `docs/specs/gui.md` and the plan `fab/plans/sahil/26-09-09-gui-surface.md`). (fkh1) (bbv1)
 
 ## The `gui.enabled` switch
 
@@ -25,6 +25,8 @@ The GUI surface exposes the host's desktop as a fourth tile beside `tty`/`code`/
 | `rk gui status [--json]` | `gui: off` / `gui: on (<bin>, :N, WxH, k viewers)` / `gui: on — not running (<reason>)`, plus an indented `apps:` line when running; `--json` emits the shared `gui.Status` document | 0 always (state, not verdict) |
 | `rk gui env` | Prints `export DISPLAY=:N` and `export RK_GUI_SOCKET=<path>` for `eval "$(rk gui env)"` when enabled and reachable; otherwise `gui is off — turn it on with 'rk gui on'` or `gui is on but not running — see 'rk gui status'` | 0 / 1 |
 | `rk gui restart` | `daemon.RestartGUI()` (kill → ensure); success prints `restarted (<bin> :N)`; refuses when disabled (`gui is off — turn it on with 'rk gui on'`) or the daemon is down | 0 / 1 |
+| `rk gui exec <cmd> [args…]` | Run a command on the display (§ Agent verbs): foreground = process-replacing `syscall.Exec` passthrough with `DISPLAY`/`RK_GUI_SOCKET` set; `--detach`/`-d` = `Setsid` session, stdio `/dev/null`, prints `started <pid> on :N`; unknown program ⇒ `error: <cmd>: not found on PATH` | 0; 1 gated/not-found; 2 no command |
+| `rk gui shot [--out\|-o <png>]` | Screenshot the display via the tool ladder (§ Agent verbs); stdout carries only the absolute PNG path | 0; 1 gated/no-tool/tool-failure; 2 stray args |
 | `rk gui supervise <id> --display :N` | **Hidden** plumbing — the pane command the ensure ladder spawns (§ The `rk-gui` supervisor session). Rejects `id != host` | the backend's fate |
 
 Arg-count violations exit 2 via the family's `usageArgs` re-wrap; plain operational failures exit 1. The off-confirm copy (exact):
@@ -36,6 +38,28 @@ Continue? [y/N]
 ```
 
 (fkh1)
+
+## Agent verbs
+
+The agent half of the surface — what lets an agent in a pane put an app on the display, see what is on it, and learn the loop at use-time: two gated `rk gui` verbs, the `rk agent setup` gui display block, and the `rk skill gui` topic page. (bbv1)
+
+**The shared gate** (`gui.go`): `exec`, `shot`, and `env` refuse identically before doing anything, in a fixed order — (1) macOS ⇒ `guiDarwinRefusal(<verb>)` renders `gui <verb> is not supported on macOS in v1 — the GUI mirrors your live session view-only` (exit 1, before any status read; no X display exists on the mirror backend); (2) `guiRequireReachable(ctx)` over `gatherGUIStatus` ⇒ the named constants `guiErrOff` (`gui is off — turn it on with 'rk gui on'`) and `guiErrNotRunning` (`gui is on but not running — see 'rk gui status'`), exit 1. `guiGOOS` is the OS test seam. No verb ever writes `gui.enabled` — the switch stays the user's.
+
+**`rk gui exec <cmd> [args…]`** (`gui_exec.go`): the env is the caller's `os.Environ()` with `DISPLAY=<st.Display>` and `RK_GUI_SOCKET=<st.Socket>` set by the pure `guiExecEnv` (an existing `DISPLAY`/`RK_GUI_SOCKET` entry is replaced, never duplicated — the rk display is the point of the verb; cwd inherited; no `XAUTHORITY`). Foreground (default) resolves the program with `exec.LookPath` and replaces the process via `syscall.Exec` behind the `guiExecFn` seam — the `rk mux guard` passthrough idiom: no timeout, no relay code, the command owns the tty, signals, and exit status. A `LookPath` failure prints `error: <cmd>: not found on PATH`, exit 1. `--detach`/`-d` instead starts the command as its own session (`SysProcAttr{Setsid: true}`, stdin/stdout/stderr on `/dev/null`, never waited on — the `guiExecStartFn` seam) and prints `started <pid> on :N` (Dataf, exit 0); a start failure is `error: <cmd>: <reason>`, exit 1. A missing command word is a usage error (exit 2, the family's `usageArgs` re-wrap); a literal `--` ends flag parsing so dash-prefixed program args pass through.
+
+**`rk gui shot [--out|-o <png>]`** (`gui_shot.go`): same gate (the darwin message names `shot`). The screenshot runs through the first tool on PATH in a fixed ladder resolved by the pure `guiShotArgv(lookPath, display, out)`: (1) `import -display :N -window root <out>`; (2) `scrot <out>` with `DISPLAY=:N` in its env (scrot has no display flag); (3) `xwd -display :N -root -silent` piped in Go into `convert xwd:- <out>` (both must be present — an xwd-only host falls through). Every stage runs under `exec.CommandContext` bounded by `guiShotTimeout` (15 s). No tool ⇒ `no screenshot tool found (tried import, scrot, xwd+convert) — sudo apt install imagemagick`; a tool failure ⇒ `error: <tool> failed: <stderr tail>`; both exit 1. Default output is `<os.TempDir()>/rk-gui-shot-<YYYYMMDD-HHMMSS>.png` (clock seam `guiShotNowFn`); `--out` is made absolute, its parent created with `MkdirAll` 0755, an existing file overwritten. Success prints only the absolute PNG path (Dataf — survives `--quiet`); diagnostics ride stderr; exit 0.
+
+**The `rk gui display` shell block** (installed by `rk agent setup` — see [agent-state](/run-kit/agent-state.md) § `rk agent setup`): a marker-owned block (`guiDisplayBlockBegin`/`guiDisplayBlockEnd` = `# >>> rk gui display >>>` / `# <<< rk gui display <<<`) upserted via the shared `upsertMarkerBlock`/`removeMarkerBlock` machinery into the same startup-file set as the tmux guard PATH block (`tmuxGuardStartupFiles(home, zdotdir)` — see [tmux-guard-shim](/run-kit/tmux-guard-shim.md)), with the same per-file tolerant read, malformed-block refusal, in-position replacement, consent/diff/dry-run flow, and absent-is-silent uninstall. Exact body (`<abs-rk>` is the `resolveRkPath`/`validateHookPath`-validated absolute binary path, embedded double-quoted):
+
+```sh
+# >>> rk gui display >>>
+[ -n "$TMUX_PANE" ] && [ -z "${DISPLAY-}" ] && eval "$("<abs-rk>" gui env 2>/dev/null)"
+# <<< rk gui display <<<
+```
+
+The three guards are load-bearing: `$TMUX_PANE` scopes the eval to tmux panes (the same gate the installed agent hooks use); `[ -z "${DISPLAY-}" ]` never overrides a pre-set `DISPLAY` (a desktop X session, SSH X-forwarding) and skips the exec in nested shells; `2>/dev/null` keeps an off or unreachable GUI silent — `rk gui env` then prints nothing to stdout and exits 1, so the eval is a no-op: the block is **inert while off** and starts working the moment someone runs `rk gui on`, with no re-setup. The block is installed regardless of `gui.enabled`, and unlike the PATH block it does not gate on the shim being in place (it embeds the rk path directly and fronts nothing). `DISPLAY` lands in **new** shells — a shell started before `rk gui on` needs `eval "$(rk gui env)"` or `rk gui exec` per command. Cost per shell start with the GUI off: one settings-file read (the assembler's disabled short-circuit, no tmux call), which matters because `.zshenv` runs for every non-interactive `zsh -c` an agent's Bash tool spawns.
+
+**`rk skill gui`** — the topic page (canonical `docs/site/skill/gui.md`, ≤150 lines, synced to the embedded copy `cmd/rk/skill/gui.md` by `scripts/sync-skill.sh`, drift-guarded and line-budgeted by the shared `skill_test.go` tables, registered as `skillTopics["gui"]` so the `Topics:` help line and `rk skill topics` enumerate it): gate first (`rk gui status`; never run `rk gui on` yourself — the switch is the user's), `rk gui env` vs the installed block, `exec` (foreground vs `--detach`, `--` for dash-args), `shot` (default path, `--out`, read the PNG to look), the screenshot loop with `xdotool`, output/exit-code contracts, and gotchas (macOS view-only refusals; `DISPLAY` lands in new shells; the display is shared with the human; apps die on `rk gui off`; no tools are installed for you). The `rk gui --help` `Subcommands:` list carries the `exec`/`shot` rows, and `rk gui env --help` points at the installed block.
 
 ## The `rk-gui` supervisor session
 
@@ -130,6 +154,22 @@ When the backend process exits on its own, the supervisor MUST log the exit line
 ### Requirement: The macOS backend is view-only
 On `GOOS=darwin` the supervisor SHALL spawn nothing (the Screen Sharing mirror is probed, never driven), and the relay MUST drop client→server KeyEvent (type 4) and PointerEvent (type 5) messages after the RFB handshake when the backend is `screen-sharing`.
 
+### Requirement: Agent verbs never flip the switch
+No agent-facing verb (`exec`, `shot`, `env`) SHALL write `gui.enabled`; a gated refusal exits 1 with the shared hint and starts no process and writes no file. The switch remains the user's alone — the "Never on by default" rule extended to the agent surface. (bbv1)
+
+#### Scenario: Off means a refusal, never a flip
+- **GIVEN** `gui.enabled=false`
+- **WHEN** `rk gui exec xterm` or `rk gui shot` runs
+- **THEN** stderr carries `gui is off — turn it on with 'rk gui on'`, the exit code is 1, no process is started, no file is written, and the setting is untouched
+
+### Requirement: One gate, one hint vocabulary
+Every verb that acts on the live display SHALL apply the same gate — the macOS refusal first, then enabled, then reachable — through the shared `guiDarwinRefusal`/`guiRequireReachable` helpers and the named `guiErrOff`/`guiErrNotRunning` constants, so `env`, `exec`, and `shot` print byte-identical refusals for the same state. (bbv1)
+
+#### Scenario: Identical refusals across verbs
+- **GIVEN** the GUI enabled but the backend dead
+- **WHEN** `rk gui env`, `rk gui exec xterm`, and `rk gui shot` each run
+- **THEN** all three print `gui is on but not running — see 'rk gui status'` and exit 1
+
 ## Design Decisions
 
 ### Tmux half in `internal/daemon`, pure half in `internal/gui`
@@ -161,3 +201,27 @@ On `GOOS=darwin` the supervisor SHALL spawn nothing (the Screen Sharing mirror i
 **Why**: the KasmVNC deb hijacks `Xvnc` via `update-alternatives`, and TigerVNC binds TCP 5900+N unless told not to, which would falsify "VNC never on TCP".
 **Rejected**: `Xvnc` alone — proven ambiguous on a host with Kasm installed.
 *Introduced by*: 260909-fkh1-gui-backend-switch-and-relay
+
+### DISPLAY reaches panes through a shell-startup block that evals `rk gui env`
+**Decision**: `rk agent setup` installs a marker-owned block into the guard PATH block's startup files whose body is `[ -n "$TMUX_PANE" ] && [ -z "${DISPLAY-}" ] && eval "$("<abs-rk>" gui env 2>/dev/null)"`; the block is installed regardless of `gui.enabled`.
+**Why**: Constitution X — the display is derivable from the supervisor's `@rk_gui_display` stamp, so panes read it at shell start rather than receive a pushed copy; `rk gui env` already is that read and its disabled path costs one settings-file read, so the block is inert and cheap while off and needs no re-setup when the GUI is turned on later.
+**Rejected**: `tmux set-environment -g DISPLAY` on `rk gui on` (a second source of truth swept across every server and unset on `off`); exporting from agent hooks (subprocesses cannot set a shell's env, and hooks carry only the underivable).
+*Introduced by*: 260909-bbv1-gui-agent-verbs
+
+### Foreground `exec` is a process-replacing passthrough
+**Decision**: `rk gui exec <cmd…>` resolves the command and `syscall.Exec`s it with the display env; no wait, no timeout, the child's exit status is the caller's.
+**Why**: a GUI application runs until the user closes it, so a wait-timeout would be wrong; replacing the process hands the tty and signals to the command with no relay code — the `rk mux guard` passthrough precedent. Constitution I's timeout rule governs subprocesses rk waits on.
+**Rejected**: `cmd.Run()` with a relay of the exit code (adds a signal-forwarding layer for no benefit); a bounded run (kills the app the agent just launched).
+*Introduced by*: 260909-bbv1-gui-agent-verbs
+
+### `--detach` for agent launchers
+**Decision**: `rk gui exec --detach` starts the command as its own session with stdio on `/dev/null`, prints `started <pid> on :N`, and returns.
+**Why**: agents' Bash tools time out on a foreground chromium; the launch-then-screenshot loop needs a launcher that returns. `Setsid` keeps the app alive when the agent's shell exits.
+**Rejected**: leaving it to `nohup … &` (works, but every agent re-derives the incantation, and the output line gives the pid for a later kill).
+*Introduced by*: 260909-bbv1-gui-agent-verbs
+
+### Screenshots default to the OS temp dir, stdout carries only the path
+**Decision**: `rk gui shot` writes `<TempDir>/rk-gui-shot-<ts>.png` unless `--out` is given and prints only the absolute path.
+**Why**: never litters the agent's cwd (usually a repo); the state dir under `$XDG_STATE_HOME` is reserved for rk-owned droppable files and screenshots accumulate without GC; the `rk present` prints-only-the-datum idiom lets an agent pipe the path straight into a file read.
+**Rejected**: cwd default (repo litter); state-dir default (unbounded growth in a tenant with no GC); PNG on stdout (agents read images by path).
+*Introduced by*: 260909-bbv1-gui-agent-verbs

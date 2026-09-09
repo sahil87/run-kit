@@ -3,6 +3,7 @@ import {
   hasWebUrl,
   activeWebUrl,
   hasCode,
+  hasGui,
   availableViews,
   windowViewStorageKey,
   readStoredView,
@@ -72,6 +73,18 @@ describe("hasCode", () => {
   });
 });
 
+describe("hasGui", () => {
+  it("is true only when the host signal's enabled is exactly true", () => {
+    expect(hasGui({ enabled: true })).toBe(true);
+    expect(hasGui({ enabled: false })).toBe(false);
+  });
+
+  it("reads an absent signal as not available (never on by default)", () => {
+    expect(hasGui(null)).toBe(false);
+    expect(hasGui(undefined)).toBe(false);
+  });
+});
+
 describe("availableViews", () => {
   it("always offers web + tty, tabs or not — availability is unconditional; hasWebUrl selects content", () => {
     expect(availableViews(tabsWin)).toEqual(["web", "tty"]);
@@ -102,6 +115,29 @@ describe("availableViews", () => {
       webTabs: ["http://localhost:8080"],
     };
     expect(availableViews(all)).toEqual(["code", "web", "tty"]);
+  });
+
+  // The `gui` lens: a per-host capability keyed off the signal's `enabled`,
+  // never reachability — an unreachable or absent host changes nothing.
+  it("offers gui after code when the host signal is enabled", () => {
+    const codeWin: ViewWindow = { codeRoot: "/repo" };
+    expect(availableViews(codeWin, { enabled: true })).toEqual([
+      "code",
+      "gui",
+      "web",
+      "tty",
+    ]);
+  });
+
+  it("gates gui off when the host is disabled, unreachable-only, or absent", () => {
+    const codeWin: ViewWindow = { codeRoot: "/repo" };
+    expect(availableViews(codeWin, { enabled: false })).toEqual([
+      "code",
+      "web",
+      "tty",
+    ]);
+    expect(availableViews(codeWin, null)).toEqual(["code", "web", "tty"]);
+    expect(availableViews(codeWin)).toEqual(["code", "web", "tty"]);
   });
 });
 

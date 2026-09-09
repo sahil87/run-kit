@@ -7,6 +7,8 @@ import type { WindowInfo } from "@/types";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { makeWindow } from "@/test-utils/fixtures";
 import { entryKey, useWindowStore } from "@/store/window-store";
+import type { GuiSurfaceCommands } from "./gui-surface";
+import { focusMemoryKey, recallFocus, resetFocusMemory } from "@/lib/focus-memory";
 
 // jsdom does not implement matchMedia — Tip's coarse-pointer check needs it.
 // Default to the fine-pointer branch (tooltips enabled).
@@ -36,6 +38,16 @@ vi.mock("@/components/iframe-window", () => ({
   IframeWindow: (props: Record<string, unknown>) => {
     iframeSpy(props);
     return <div data-testid="mock-iframe" />;
+  },
+}));
+// The gui tile is lazy-loaded (noVNC's weight); the mock's default export
+// resolves the dynamic import instantly and records the seam props.
+const guiSpy = vi.hoisted(() => vi.fn());
+vi.mock("@/components/gui-surface", () => ({
+  __esModule: true,
+  default: (props: Record<string, unknown>) => {
+    guiSpy(props);
+    return <div data-testid="mock-gui" />;
   },
 }));
 
@@ -83,6 +95,7 @@ type LayoutOverrides = {
   onClosePane?: () => void;
   onRatioCommit?: () => void;
   onCodeFolderNavigated?: (folder: string) => void;
+  shouldReclaimChord?: (kind: SurfaceKind) => (e: KeyboardEvent) => boolean;
   codeWorkspaceSrc?: string | null;
   codeFollowSrc?: { src: string; nonce: number } | null;
   zoomToggleRef?: { current: (() => void) | null };
@@ -91,6 +104,13 @@ type LayoutOverrides = {
   focusTileRef?: { current: ((kind: SurfaceKind) => void) | null };
   statusWindow?: WindowInfo | null;
   ttyDockContent?: React.ReactNode;
+  gui?: Parameters<typeof SurfaceLayout>[0]["gui"];
+  guiViewMode?: "fit" | "1:1";
+  guiResizeLocked?: boolean;
+  onGuiConnection?: (connected: boolean) => void;
+  onGuiRestart?: () => Promise<{ ok: boolean; disabled?: boolean }>;
+  onGuiOpenLogs?: () => void;
+  guiCommandsRef?: { current: GuiSurfaceCommands | null };
 };
 
 /** The minimal WindowInfo the tty header's StatusDot consumes (260812-wfic
@@ -134,6 +154,7 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       onClosePane={overrides.onClosePane ?? vi.fn()}
       onRatioCommit={overrides.onRatioCommit}
       onCodeFolderNavigated={overrides.onCodeFolderNavigated}
+      shouldReclaimChord={overrides.shouldReclaimChord}
       codeWorkspaceSrc={overrides.codeWorkspaceSrc}
       codeFollowSrc={overrides.codeFollowSrc}
       zoomToggleRef={overrides.zoomToggleRef}
@@ -142,6 +163,13 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       focusTileRef={overrides.focusTileRef}
       statusWindow={overrides.statusWindow}
       ttyDockContent={overrides.ttyDockContent}
+      gui={overrides.gui}
+      guiViewMode={overrides.guiViewMode}
+      guiResizeLocked={overrides.guiResizeLocked}
+      onGuiConnection={overrides.onGuiConnection ?? vi.fn()}
+      onGuiRestart={overrides.onGuiRestart ?? vi.fn()}
+      onGuiOpenLogs={overrides.onGuiOpenLogs ?? vi.fn()}
+      guiCommandsRef={overrides.guiCommandsRef}
       />
     </ToastProvider>
   );
@@ -156,6 +184,8 @@ beforeEach(() => {
   terminalSpy.mockClear();
   codeSpy.mockClear();
   iframeSpy.mockClear();
+  guiSpy.mockClear();
+  resetFocusMemory();
   for (const spy of Object.values(apiSpy)) spy.mockReset();
   useWindowStore.setState({ entries: new Map(), ghosts: [] });
 });
@@ -1656,5 +1686,82 @@ describe("SurfaceLayout web-tab strip wiring", () => {
     expect(result).toEqual({ index: 3, existed: false, url: "/proxy/3003/" });
     expect(storedOverride()).toBeUndefined();
     expect(lastIframeProps().tabs).toEqual(TWO_TABS);
+  });
+});
+
+describe("SurfaceLayout gui tile", () => {
+  const GUI_ON = {
+    id: "host",
+    enabled: true,
+    backend: "Xtigervnc",
+    reachable: true,
+    display: ":10",
+    width: 1920,
+    height: 1080,
+    viewers: 1,
+  };
+  const lastGuiProps = () => guiSpy.mock.calls.at(-1)?.[0];
+
+  it("renders the lazy GuiSurface with glyph [] + label GUI and the seam props", async () => {
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "gui"] },
+      gui: GUI_ON,
+      guiViewMode: "1:1",
+      guiResizeLocked: true,
+      shouldReclaimChord: () => () => true,
+    });
+    expect(await screen.findByTestId("mock-gui")).toBeTruthy();
+    const tile = screen.getByTestId("surface-tile-gui");
+    expect(tile.textContent).toContain("[]");
+    expect(tile.textContent).toContain("GUI");
+    const props = lastGuiProps();
+    expect(props?.gui).toEqual(GUI_ON);
+    expect(props?.viewMode).toBe("1:1");
+    expect(props?.resizeLocked).toBe(true);
+    expect(props?.visible).toBe(true);
+    // Fine-pointer matchMedia stub → coarsePointer false; slot 1 is not the
+    // default focused slot.
+    expect(props?.coarsePointer).toBe(false);
+    expect(props?.focused).toBe(false);
+    expect(typeof props?.onConnectionChange).toBe("function");
+    expect(typeof props?.onRestart).toBe("function");
+    expect(typeof props?.onOpenLogs).toBe("function");
+    expect(typeof props?.shouldReclaimChord).toBe("function");
+  });
+
+  it("renders nothing for the gui kind when the signal has not arrived", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "gui"] }, gui: null });
+    expect(screen.getByTestId("surface-tile-gui")).toBeTruthy();
+    expect(screen.queryByTestId("mock-gui")).toBeNull();
+  });
+
+  it("zooming the tty tile away keeps the gui tile mounted with visible=false", async () => {
+    const zoomToggleRef: { current: (() => void) | null } = { current: null };
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "gui"] },
+      gui: GUI_ON,
+      zoomToggleRef,
+    });
+    expect(await screen.findByTestId("mock-gui")).toBeTruthy();
+    act(() => zoomToggleRef.current?.());
+    // Hide-never-unmount: the tile stays in the DOM, hidden, and the seam
+    // reports visible=false (GuiSurface's 15s hidden-disconnect owns the rest).
+    const tile = screen.getByTestId("surface-tile-gui");
+    expect(tile.className).toContain("hidden");
+    expect(lastGuiProps()?.visible).toBe(false);
+  });
+
+  it("onInteract focuses the slot and records gui in focus memory", async () => {
+    const onFocusedKindChange = vi.fn();
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "gui"] },
+      gui: GUI_ON,
+      onFocusedKindChange,
+    });
+    expect(await screen.findByTestId("mock-gui")).toBeTruthy();
+    act(() => lastGuiProps()?.onInteract?.());
+    expect(onFocusedKindChange).toHaveBeenLastCalledWith("gui");
+    expect(recallFocus(focusMemoryKey("srv", "@1"))).toBe("gui");
+    expect(lastGuiProps()?.focused).toBe(true);
   });
 });

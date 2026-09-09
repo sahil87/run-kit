@@ -98,3 +98,67 @@ describe("useSettingsRegistry write-through", () => {
     expect(addToast).toHaveBeenCalledWith("nope", "error");
   });
 });
+
+describe("useSettingsRegistry — the gui.enabled off interception", () => {
+  const guiEntry = (value: unknown) =>
+    entry("gui.enabled", value, { kind: "bool", category: "behavior" });
+
+  it("the off direction opens the confirm instead of posting; cancel posts nothing and the value stays on", async () => {
+    getSettingsEntries.mockResolvedValue([guiEntry(true)]);
+    postSettings.mockResolvedValue(undefined);
+    const requestGuiOff = vi.fn().mockResolvedValue(false);
+    const { result } = renderHook(() => useSettingsRegistry({ requestGuiOff }));
+    await waitFor(() => expect(result.current.settingValue("gui.enabled")).toBe(true));
+
+    await act(async () => {
+      await result.current.commitSetting("gui.enabled", false);
+    });
+
+    expect(requestGuiOff).toHaveBeenCalledOnce();
+    expect(postSettings).not.toHaveBeenCalled();
+    expect(result.current.settingValue("gui.enabled")).toBe(true);
+  });
+
+  it("a confirm POSTs the off write and updates the entry value", async () => {
+    getSettingsEntries.mockResolvedValue([guiEntry(true)]);
+    postSettings.mockResolvedValue(undefined);
+    const requestGuiOff = vi.fn().mockResolvedValue(true);
+    const { result } = renderHook(() => useSettingsRegistry({ requestGuiOff }));
+    await waitFor(() => expect(result.current.settingValue("gui.enabled")).toBe(true));
+
+    await act(async () => {
+      await result.current.commitSetting("gui.enabled", false);
+    });
+
+    expect(postSettings).toHaveBeenCalledWith({ "gui.enabled": false });
+    expect(result.current.settingValue("gui.enabled")).toBe(false);
+  });
+
+  it("the on direction posts directly without the confirm", async () => {
+    getSettingsEntries.mockResolvedValue([guiEntry(false)]);
+    postSettings.mockResolvedValue(undefined);
+    const requestGuiOff = vi.fn();
+    const { result } = renderHook(() => useSettingsRegistry({ requestGuiOff }));
+    await waitFor(() => expect(result.current.settingValue("gui.enabled")).toBe(false));
+
+    await act(async () => {
+      await result.current.commitSetting("gui.enabled", true);
+    });
+
+    expect(requestGuiOff).not.toHaveBeenCalled();
+    expect(postSettings).toHaveBeenCalledWith({ "gui.enabled": true });
+  });
+
+  it("without the seam the off direction posts directly", async () => {
+    getSettingsEntries.mockResolvedValue([guiEntry(true)]);
+    postSettings.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useSettingsRegistry());
+    await waitFor(() => expect(result.current.settingValue("gui.enabled")).toBe(true));
+
+    await act(async () => {
+      await result.current.commitSetting("gui.enabled", false);
+    });
+
+    expect(postSettings).toHaveBeenCalledWith({ "gui.enabled": false });
+  });
+});

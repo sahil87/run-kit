@@ -27,6 +27,7 @@ const VIEW_ACTION_LABEL: Record<ViewName, string> = {
   tty: "View: Terminal",
   web: "View: Web",
   code: "View: Code",
+  gui: "View: GUI",
 };
 
 /**

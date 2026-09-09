@@ -32,11 +32,19 @@ import { invalidateOpenContext } from "@/hooks/use-open-targets";
  * `useInstanceAccent().setColor`, `instance_name` via
  * `useInstanceName().setInstanceName`); context-less keys (`auto_name`,
  * `ssh_host`, `log_level`, `tmux_conf`) POST via `postSettings` and update the
- * shared list on success. A backend rejection rejects `commitSetting`, so the
+ * shared list on success. The `gui.enabled` off direction detours through the
+ * injected off-confirm seam before its POST. A backend rejection rejects
+ * `commitSetting`, so the
  * row surfaces the 400 inline (the TextSetting contract) without clobbering
  * the stored value.
  */
-export function useSettingsRegistry() {
+export function useSettingsRegistry(options?: {
+  /** The GUI off-confirm seam (app.tsx's GuiOffDialog). When provided, the
+   *  `gui.enabled` off direction (false while currently true) routes through
+   *  it instead of posting directly; a cancel resolves without posting, so
+   *  the toggle's read path never moved and it snaps back to on. */
+  requestGuiOff?: () => Promise<boolean>;
+}) {
   const { preference, themeDark, themeLight } = useTheme();
   const { setTheme } = useThemeActions();
   const accent = useInstanceAccent();
@@ -138,6 +146,20 @@ export function useSettingsRegistry() {
           invalidateOpenContext();
           return;
         }
+        case "gui.enabled": {
+          // The off direction kills the rk-gui session and its apps — it
+          // routes through the off-confirm dialog when the seam is injected;
+          // a cancel resolves without the POST (the toggle snaps back), and a
+          // confirm falls through to the shared write below. The on direction
+          // and the null-unset post directly.
+          if (value === false && settingValue("gui.enabled") === true && options?.requestGuiOff) {
+            const confirmed = await options.requestGuiOff();
+            if (!confirmed) return;
+          }
+          await postSettings({ "gui.enabled": value });
+          updateEntryValue("gui.enabled", value);
+          return;
+        }
         default: {
           // Draft-less controls (toggle, select) must not snap back during
           // the round trip: apply optimistically, roll back on rejection.
@@ -156,7 +178,7 @@ export function useSettingsRegistry() {
         }
       }
     },
-    [setTheme, themeDark, themeLight, accent, setInstanceName, addToast, updateEntryValue],
+    [setTheme, themeDark, themeLight, accent, setInstanceName, addToast, updateEntryValue, settingValue, options?.requestGuiOff],
   );
 
   return { entries: entriesWithMirrors, settingValue, commitSetting };

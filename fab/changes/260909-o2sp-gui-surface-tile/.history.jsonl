@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-09T14:40:39Z"}
+{"args":"gui-surface-tile Plan: fab/plans/sahil/26-09-09-gui-surface.md -- implement C3 (frontend: the tile) per the plan's change breakdown and pickup protocol; C2 (PR #892) merged","cmd":"fab-new","event":"command","ts":"2026-09-09T14:40:39Z"}
+{"delta":"+1.7","event":"confidence","score":1.7,"trigger":"calc-score","ts":"2026-09-09T14:43:52Z"}
+{"delta":"+0.0","event":"confidence","score":1.7,"trigger":"calc-score","ts":"2026-09-09T14:44:05Z"}
+{"delta":"+3.1","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-09T14:50:14Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-09T14:52:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-09T14:53:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-09T16:35:18Z"}
+{"event":"review","result":"failed","ts":"2026-09-09T16:40:05Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-09T16:40:05Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-09T16:44:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-09T16:50:04Z"}
+{"event":"review","result":"passed","ts":"2026-09-09T16:50:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-09T17:06:54Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-09-09T17:09:03Z"}

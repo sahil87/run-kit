@@ -15,7 +15,7 @@
  * Constitution II/X).
  */
 
-import type { ViewWindow } from "./window-view";
+import type { GuiHost, ViewWindow } from "./window-view";
 import {
   availableTiles,
   type LayoutRatios,
@@ -35,8 +35,9 @@ import {
 export type SurfaceName = SurfaceKind;
 
 /**
- * The surfaces a window offers, in shortcut order — `tty`/`code`/`web` (the
- * ⌘1/⌘2/⌘3 positional digits) — per capability (260812-ab5v R8).
+ * The surfaces a window offers, in shortcut order — `tty`/`code`/`web`/`gui`
+ * (the ⌘1/⌘2/⌘3/⌘4 positional digits) — per capability (gui keyed off the
+ * threaded host signal's `enabled`).
  * Delegates to `surface-layout.ts`'s
  * `availableTiles` — the ONE registry rail + layout + switcher share — which
  * in turn keys off `window-view.ts`'s capability helpers (`hasCode` for
@@ -46,8 +47,9 @@ export type SurfaceName = SurfaceKind;
  */
 export function availableSurfaces(
   win: ViewWindow | null | undefined,
+  host?: GuiHost,
 ): SurfaceName[] {
-  return availableTiles(win);
+  return availableTiles(win, host);
 }
 
 /**

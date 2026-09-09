@@ -87,6 +87,10 @@ export type LayoutPaletteOptions = {
    *  stamped on that surface's Add/Close entry. */
   toggleTarget?: SurfaceKind | null;
   toggleShortcut?: string;
+  /** Effective toggle-chord combos by surface kind — the multi-chord form of
+   *  the toggleTarget/toggleShortcut pair (the gui-toggle ⌘4 hint on the
+   *  `Tile: Show/Hide GUI` rows). */
+  toggleHints?: Partial<Record<SurfaceKind, string>>;
   /** Focused-tile palette parity (260812-wfic R10): the currently focused
    *  kind (omitted from the entries) and the focus-by-kind callback (app.tsx
    *  routes it through SurfaceLayout's `focusTileRef` seam). `onFocus`
@@ -106,11 +110,14 @@ export function buildLayoutActions(
   const arity = SHAPE_ARITY[layout.shape];
   const openKinds = [...new Set(order)];
 
-  /** The toggle chord's hint for the chord-target surface's Show/Hide entry. */
-  const toggleHint = (kind: SurfaceKind) =>
-    opts.toggleTarget === kind && opts.toggleShortcut
-      ? { shortcut: opts.toggleShortcut }
-      : {};
+  /** The toggle chord's hint for a chord-target surface's Show/Hide entry. */
+  const toggleHint = (kind: SurfaceKind) => {
+    if (opts.toggleTarget === kind && opts.toggleShortcut) {
+      return { shortcut: opts.toggleShortcut };
+    }
+    const hint = opts.toggleHints?.[kind];
+    return hint ? { shortcut: hint } : {};
+  };
 
   // Shows — available AND not open AND room to grow (max 3 tiles).
   if (order.length < 3) {

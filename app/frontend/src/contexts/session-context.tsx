@@ -270,6 +270,67 @@ export type CodeServerSignal = { reachable: boolean };
 // provider (throw); `null` = no signal yet.
 const CodeServerContext = createContext<CodeServerSignal | null | undefined>(undefined);
 
+/** One entry of the host-global `event: gui` payload (the backend's
+ *  gui.StreamEntry). The payload is a LIST (forward-compat for per-session
+ *  displays); consumers select the `id === "host"` entry. Reachability and
+ *  viewers govern the tile's CONTENT — availability keys off `enabled` only
+ *  (see `hasGui`). */
+export type GuiSignal = {
+  id: string;
+  enabled: boolean;
+  backend: string;
+  reachable: boolean;
+  display: string;
+  width: number;
+  height: number;
+  viewers: number;
+};
+
+// The gui signal lives in its OWN context (the CodeServerContext precedent):
+// host-global, broadcast every tick, so the per-tick repetition does not
+// cascade re-renders into unrelated consumers. `undefined` = outside provider
+// (throw); `null` = no event yet, which reads as DISABLED — the gui surface
+// is never on by default and a late replay must not flash a button (the
+// opposite of useCodeServer's null semantics).
+const GuiContext = createContext<GuiSignal | null | undefined>(undefined);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function guiString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function guiNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/** Narrow one payload entry to a GuiSignal; every field falls back to its
+ *  disabled-shape default (`false`/`""`/`0`) so a malformed payload narrows
+ *  to safe defaults and never throws. */
+function narrowGuiEntry(entry: unknown): GuiSignal {
+  const e = isRecord(entry) ? entry : {};
+  return {
+    id: guiString(e.id),
+    enabled: e.enabled === true,
+    backend: guiString(e.backend),
+    reachable: e.reachable === true,
+    display: guiString(e.display),
+    width: guiNumber(e.width),
+    height: guiNumber(e.height),
+    viewers: guiNumber(e.viewers),
+  };
+}
+
+/** Select the `id === "host"` entry of the `event: gui` list (fallback: the
+ *  first entry); `null` for a non-list or empty payload — read as disabled. */
+function narrowGuiSignal(data: unknown): GuiSignal | null {
+  if (!Array.isArray(data) || data.length === 0) return null;
+  const host = data.find((e) => isRecord(e) && e.id === "host");
+  return narrowGuiEntry(host ?? data[0]);
+}
+
 type SessionProviderProps = {
   children: React.ReactNode;
 };
@@ -338,6 +399,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // now resolves by convention (RK_PORT+2), so the broadcast is always on and
   // `null` means "no signal yet", never "feature off".
   const [codeServer, setCodeServer] = useState<CodeServerSignal | null>(null);
+  // Latest host-global gui signal (the `gui` event) — the `id:"host"` entry of
+  // the payload list, narrowed field-by-field. `null` until the first event.
+  const [gui, setGui] = useState<GuiSignal | null>(null);
   // Running daemon version from the server-global `event: version` (no leading
   // "v"). `null` until the first event. Drives the reload guard + update chip.
   const [daemonVersion, setDaemonVersion] = useState<string | null>(null);
@@ -534,6 +598,15 @@ export function SessionProvider({ children }: SessionProviderProps) {
     if (raw === codeServerPrevRef.current) return;
     codeServerPrevRef.current = raw;
     setCodeServer(signal);
+  }, []);
+
+  // Same raw-payload dedup as `applyCodeServer`, for the every-tick `gui`
+  // broadcast.
+  const guiPrevRef = useRef<string>("");
+  const applyGui = useCallback((raw: string, signal: GuiSignal | null) => {
+    if (raw === guiPrevRef.current) return;
+    guiPrevRef.current = raw;
+    setGui(signal);
   }, []);
 
   // Apply a host-global `server-order` payload: stamp each named server's rank
@@ -845,6 +918,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
           });
           break;
         }
+        case "gui": {
+          applyGui(JSON.stringify(data), narrowGuiSignal(data));
+          break;
+        }
         case "server-order": {
           const d = data as { order?: string[] };
           if (Array.isArray(d.order)) applyServerOrder(d.order);
@@ -918,7 +995,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
           break;
       }
     },
-    [applyHostMetrics, applyHostServices, applyCodeServer, applyServerOrder, fireBoardOrder, fireStatusRefresh, fireNotify, applyVersion, applyUpdateAvailable, updateSlice],
+    [applyHostMetrics, applyHostServices, applyCodeServer, applyGui, applyServerOrder, fireBoardOrder, fireStatusRefresh, fireNotify, applyVersion, applyUpdateAvailable, updateSlice],
   );
 
   // Latest handlers, kept in a ref so the one-time socket-construction effect
@@ -1205,7 +1282,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
         <HostMetricsContext.Provider value={hostMetrics}>
           <HostServicesContext.Provider value={hostServices}>
             <CodeServerContext.Provider value={codeServer}>
-              {children}
+              <GuiContext.Provider value={gui}>
+                {children}
+              </GuiContext.Provider>
             </CodeServerContext.Provider>
           </HostServicesContext.Provider>
         </HostMetricsContext.Provider>
@@ -1429,6 +1508,16 @@ export function useHostServices(): Service[] {
 export function useCodeServer(): CodeServerSignal | null {
   const ctx = useContext(CodeServerContext);
   if (ctx === undefined) throw new Error("useCodeServer must be used within SessionProvider");
+  return ctx;
+}
+
+/** Host-global gui signal from the state socket's `gui` global event — the
+ *  narrowed `id:"host"` entry. Available on EVERY route. Returns `null` before
+ *  the first event, which consumers MUST read as disabled (never-on-by-default;
+ *  availability keys off `enabled` via `hasGui`). */
+export function useGui(): GuiSignal | null {
+  const ctx = useContext(GuiContext);
+  if (ctx === undefined) throw new Error("useGui must be used within SessionProvider");
   return ctx;
 }
 

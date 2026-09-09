@@ -8,6 +8,7 @@ import {
   type MacroPaletteTarget,
 } from "@/components/settings-shortcuts-panel";
 import { useSettingsDialog, type SettingsTab } from "@/contexts/settings-dialog-context";
+import { useGuiOffRequest } from "@/contexts/gui-off-context";
 import { useInstanceName } from "@/contexts/instance-name-context";
 import { useInstanceAccent } from "@/contexts/instance-accent-context";
 import { useSessionContext } from "@/contexts/session-context";
@@ -487,8 +488,9 @@ function SettingsDialogBody({ onClose }: { onClose: () => void }) {
 
   // The ONE registry seam: every settings row in every tab (curated and
   // All-settings table alike) reads/writes through it, so two presentations
-  // of the same key cannot disagree within an open dialog.
-  const registry = useSettingsRegistry();
+  // of the same key cannot disagree within an open dialog. The GUI off-confirm
+  // request reaches the AppLayout-owned dialog through its context.
+  const registry = useSettingsRegistry({ requestGuiOff: useGuiOffRequest()?.request });
 
   return (
     <Dialog title="Settings" onClose={onClose} size="xl">

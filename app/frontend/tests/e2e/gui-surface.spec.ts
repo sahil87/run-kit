@@ -1,0 +1,470 @@
+import { execFileSync, spawn } from "node:child_process";
+import { readFileSync, writeFileSync, rmSync } from "node:fs";
+import { test, expect, type Page } from "@playwright/test";
+import { READY_TIMEOUT, gotoWindow, openPalette, resolveWindow } from "./_ready";
+import { TMUX_SERVER, createSession, killSession } from "./_tmux";
+import { emitGui, mockStateSocket } from "./_state-socket-mock";
+import { SETTINGS_PATH } from "./_settings";
+
+// GUI surface tile e2e (spec docs/specs/gui.md — the gui lens as a 4th surface
+// kind). Two halves:
+//
+// (a) UNGATED, fully mocked (no tmux, no Xvnc): the state-socket mock carries
+// a `gui` global slot (delivered on hello, flipped mid-test via `emitGui`).
+// The sessions payload's `dev` session has two windows — `@1` (a code-capable
+// work window, default layout) and `@2` (code-capable, `layout:
+// "split-h:tty,gui"` — proving the off-degrades/on-restores rule without a
+// settings write). `/ws/terminals` is accepted and held open; the window
+// `/options` POST and `GET /api/gui/host` are route-stubbed; `/ws/gui/` is
+// route-tracked so a test can assert NO relay socket is opened while the host
+// is unreachable. Both desktop (1280px) and mobile (375px, hasTouch) forks
+// run.
+//
+// (b) XVNC-GATED, real rig: skips cleanly when Xtigervnc is not on PATH (CI
+// lacks it). Turns the gui switch on with a real POST /api/settings against
+// the worktree's derived rig (spawns a real rk-gui session + Xtigervnc +
+// openbox on the test daemon socket), opens the tile, zen-zooms it, attaches
+// a coarse 375px viewer (proving a phone never drives SetDesktopSize — the
+// payload width/height stay), and walks the off-confirm → degrade → restore
+// cycle. The settings file at SETTINGS_PATH is snapshotted in beforeAll and
+// restored in afterAll, and cleanup POSTs {"gui.enabled": null} so the rk-gui
+// session is killed and the key unset even when the snapshot held no gui key.
+
+const GUI_OFF = [
+  { id: "host", enabled: false, backend: "", reachable: false, display: "", width: 0, height: 0, viewers: 0 },
+];
+const GUI_ON_UNREACHABLE = [
+  { id: "host", enabled: true, backend: "Xtigervnc", reachable: false, display: ":10", width: 0, height: 0, viewers: 0 },
+];
+const GUI_REASON = "no VNC backend: sudo apt install tigervnc-standalone-server openbox";
+
+const WORK_WINDOW = {
+  windowId: "@1",
+  index: 0,
+  name: "work",
+  worktreePath: "/tmp/wt",
+  activity: "idle",
+  isActiveWindow: true,
+  activityTimestamp: 0,
+  gitRoot: "/repo",
+  panes: [{ paneId: "%1", paneIndex: 0, cwd: "/repo", command: "zsh", isActive: true }],
+};
+const GUI_LAYOUT_WINDOW = {
+  ...WORK_WINDOW,
+  windowId: "@2",
+  index: 1,
+  name: "gui-tab",
+  layout: "split-h:tty,gui",
+};
+
+function sessionsPayload() {
+  return JSON.stringify([{ name: "dev", windows: [WORK_WINDOW, GUI_LAYOUT_WINDOW] }]);
+}
+
+/** The mocked backend for the ungated half; returns the /ws/gui/ dial count. */
+async function mockGuiBackend(page: Page, gui: unknown) {
+  let guiDials = 0;
+  await page.routeWebSocket(/\/ws\/terminals/, () => {});
+  await page.routeWebSocket(/\/ws\/gui\//, () => {
+    guiDials += 1;
+  });
+  await page.route("**/api/servers", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([{ name: "default", sessionCount: 1 }]),
+    }),
+  );
+  await page.route("**/api/windows/*/options*", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
+  );
+  await page.route("**/api/gui/host", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "host",
+        enabled: true,
+        backend: "Xtigervnc",
+        reachable: false,
+        display: ":10",
+        width: 0,
+        height: 0,
+        viewers: 0,
+        socket: "",
+        session: "",
+        reason: GUI_REASON,
+        apps: [],
+        uptime_seconds: 0,
+      }),
+    }),
+  );
+  await mockStateSocket(page, { sessions: sessionsPayload(), gui });
+  return { guiDials: () => guiDials };
+}
+
+/** The surface-toggle buttons by accessible name, scoped to the banner (the
+ *  off-screen measurement probe duplicates every testid — getByRole excludes
+ *  it). */
+const toggleButton = (page: Page, name: string) =>
+  page.getByRole("banner").getByRole("button", { name });
+
+test.describe("gui surface — mocked signal, desktop (1280px)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  /**
+   * Proves: with the gui switch off, a code-capable window route shows exactly
+   * the tty/code/web toggle buttons, the overflow Tiles menu has no GUI row,
+   * the ⌘4-class chord (⇧Ctrl+4 on this Linux rig) is inert, and a window
+   * whose shared layout names gui renders degraded to single:tty.
+   *
+   * Steps:
+   * 1. Mock the backend with `gui: [{enabled:false,…}]` and open @1.
+   * 2. Assert exactly the Terminal/Code/Web tile buttons in the toggle group
+   *    and no GUI row in the overflow menu's Tiles section.
+   * 3. Press Control+Shift+4; assert no gui tile appears.
+   * 4. Open @2 (layout split-h:tty,gui); assert only the tty tile renders.
+   */
+  test("switch off: no 4th button, no Tiles row, the gui chord is inert, a gui layout degrades", async ({
+    page,
+  }) => {
+    await mockGuiBackend(page, GUI_OFF);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    const group = page.getByRole("banner").getByTestId("surface-toggles");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible();
+    await expect(toggleButton(page, "Code tile")).toBeVisible();
+    await expect(toggleButton(page, "Web tile")).toBeVisible();
+    await expect(toggleButton(page, "GUI tile")).toHaveCount(0);
+
+    await page.getByRole("banner").getByLabel("More controls").click();
+    await expect(
+      page.getByRole("menu", { name: "More controls" }).getByRole("menuitemcheckbox", { name: "GUI tile" }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    // ⇧Ctrl+4 with the switch off mounts no handler — nothing happens.
+    await page.keyboard.press("Control+Shift+4");
+    await expect(page.getByTestId("surface-tile-gui")).toHaveCount(0);
+    await expect(page.getByTestId("surface-tile-tty")).toBeVisible();
+
+    // A window whose shared layout names gui degrades to single:tty while off.
+    await page.goto("/default/%402");
+    await expect(page.getByTestId("surface-tile-tty")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(page.getByTestId("surface-tile-gui")).toHaveCount(0);
+  });
+
+  /**
+   * Proves: flipping the mocked gui slot to enabled (unreachable) adds the 4th
+   * button on the open tab without a reload, and toggling it opens the gui
+   * tile into the enabled-but-not-running empty state with the fetched reason
+   * — with NO relay WebSocket dialed while the host is unreachable.
+   *
+   * Steps:
+   * 1. Mock the backend off; open @1; assert no GUI button.
+   * 2. `emitGui` the enabled/unreachable payload; assert the GUI tile button
+   *    appears (no reload).
+   * 3. Click it; assert the gui tile mounts into `gui-surface-empty` carrying
+   *    the reason line, and that no /ws/gui/ socket was dialed.
+   */
+  test("flip on: the button appears without reload; toggling opens the empty state (no relay dial)", async ({
+    page,
+  }) => {
+    const { guiDials } = await mockGuiBackend(page, GUI_OFF);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(toggleButton(page, "GUI tile")).toHaveCount(0);
+
+    emitGui(GUI_ON_UNREACHABLE);
+    await expect(toggleButton(page, "GUI tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await toggleButton(page, "GUI tile").click();
+    await expect(page.getByTestId("gui-surface-empty")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(page.getByTestId("gui-surface-empty")).toContainText("GUI is on but not running");
+    await expect(page.getByTestId("gui-surface-empty")).toContainText(GUI_REASON);
+    expect(guiDials()).toBe(0);
+  });
+});
+
+test.describe("gui surface — mocked signal, mobile (375px)", () => {
+  test.use({ viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
+
+  /**
+   * Proves: on a coarse 375px viewport the pinned switch group shows no GUI
+   * button while the switch is off, and flipping the mocked slot on adds the
+   * button without a reload; tapping it switches the single visible tile to
+   * the gui empty state.
+   *
+   * Steps:
+   * 1. Mock the backend off; open @1 at 375px; assert the switch group shows
+   *    Terminal/Code/Web and no GUI button.
+   * 2. `emitGui` the enabled/unreachable payload; assert the GUI button
+   *    appears.
+   * 3. Tap it; assert the gui tile's empty state renders.
+   */
+  test("mobile switch group follows the mocked gui slot", async ({ page }) => {
+    await mockGuiBackend(page, GUI_OFF);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(toggleButton(page, "Code tile")).toBeVisible();
+    await expect(toggleButton(page, "Web tile")).toBeVisible();
+    await expect(toggleButton(page, "GUI tile")).toHaveCount(0);
+
+    emitGui(GUI_ON_UNREACHABLE);
+    await expect(toggleButton(page, "GUI tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await toggleButton(page, "GUI tile").click();
+    await expect(page.getByTestId("gui-surface-empty")).toBeVisible({ timeout: READY_TIMEOUT });
+  });
+});
+
+// ── Xvnc-gated half (real rig) ──────────────────────────────────────────────
+
+const hasXtigervnc = (() => {
+  try {
+    execFileSync("which", ["Xtigervnc"], { stdio: ["ignore", "pipe", "ignore"] });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+/** The rig's origin, derived exactly like playwright.config.ts (E2E_PORT is
+ *  harness-set; 3333 fails closed). */
+const RIG_ORIGIN = `http://localhost:${process.env.E2E_PORT ?? "3333"}`;
+
+async function postSettingsRaw(body: Record<string, unknown>): Promise<void> {
+  await fetch(`${RIG_ORIGIN}/api/settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).catch(() => {});
+}
+
+async function fetchGuiStatusRaw(): Promise<{
+  reachable: boolean;
+  session: boolean;
+  display: string;
+  width: number;
+  height: number;
+  viewers: number;
+} | null> {
+  try {
+    const res = await fetch(`${RIG_ORIGIN}/api/gui/host`);
+    if (!res.ok) return null;
+    return (await res.json()) as {
+      reachable: boolean;
+      session: boolean;
+      display: string;
+      width: number;
+      height: number;
+      viewers: number;
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Poll the gui status until `pred` holds (or the budget lapses). On
+ *  exhaustion the error carries the LAST observed document — the reason field
+ *  is the difference between "session absent" and "probe failed". */
+async function pollGuiStatus(
+  pred: (s: NonNullable<Awaited<ReturnType<typeof fetchGuiStatusRaw>>>) => boolean,
+  budgetMs = 25_000,
+): Promise<boolean> {
+  const deadline = Date.now() + budgetMs;
+  let last: unknown = null;
+  while (Date.now() < deadline) {
+    const s = await fetchGuiStatusRaw();
+    if (s) {
+      last = s;
+      if (pred(s)) return true;
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  console.log("pollGuiStatus exhausted; last status:", JSON.stringify(last));
+  return false;
+}
+
+/** Read the payload geometry once it is STABLE across two reads ≥1 s apart —
+ *  a focused fine-pointer viewer's SetDesktopSize may still be landing, and
+ *  the phone-fit stage must sample after that settle or it races the desktop
+ *  viewer's own resize. Throws when the geometry never stabilizes. */
+async function stableGuiGeometry(budgetMs = 15_000): Promise<{ width: number; height: number }> {
+  const deadline = Date.now() + budgetMs;
+  let prev: { width: number; height: number } | null = null;
+  while (Date.now() < deadline) {
+    const s = await fetchGuiStatusRaw();
+    if (s && prev && s.width === prev.width && s.height === prev.height) {
+      return { width: s.width, height: s.height };
+    }
+    if (s) prev = { width: s.width, height: s.height };
+    await new Promise((r) => setTimeout(r, 1_200));
+  }
+  throw new Error("gui geometry never stabilized");
+}
+
+test.describe("gui surface — real Xvnc rig", () => {
+  test.skip(!hasXtigervnc, "Xtigervnc not on PATH");
+
+  const SESSION = `e2e-gui-${process.pid}`;
+  let settingsSnapshot: Buffer | null = null;
+  let fakeAppPid: number | null = null;
+
+  test.beforeAll(() => {
+    try {
+      settingsSnapshot = readFileSync(SETTINGS_PATH);
+    } catch {
+      settingsSnapshot = null;
+    }
+    createSession(SESSION, { windows: ["work"] });
+  });
+
+  test.afterAll(async () => {
+    if (fakeAppPid !== null) {
+      try {
+        process.kill(fakeAppPid);
+      } catch {
+        /* already gone */
+      }
+    }
+    killSession(SESSION);
+    // Turn the switch back off (kills rk-gui) and unset the key, then restore
+    // the snapshotted settings file.
+    await postSettingsRaw({ "gui.enabled": null });
+    if (settingsSnapshot !== null) {
+      writeFileSync(SETTINGS_PATH, settingsSnapshot);
+    } else {
+      rmSync(SETTINGS_PATH, { force: true });
+    }
+  });
+
+  /**
+   * Proves: on the real rig the gui switch drives the whole tile lifecycle —
+   * POST {"gui.enabled":true} surfaces the 4th toggle within one state event,
+   * the toggle opens a live noVNC canvas through the relay, zen zooms the
+   * focused tile, a coarse 375px viewer fits WITHOUT changing the payload's
+   * width/height (a phone never drives SetDesktopSize), the off-confirm lists
+   * the running apps, confirming removes the button and degrades the layout,
+   * and `GUI: Turn on` restores the same layout (the option was never
+   * rewritten).
+   *
+   * Steps:
+   * 1. Clean slate (a previous attempt may have left the switch on and rk-gui
+   *    mid-teardown): unset the key, wait for the session to disappear, then
+   *    POST the switch on; open the seeded window's terminal route; assert
+   *    the GUI tile button appears.
+   * 2. Poll /api/gui/host until reachable (Xvnc boot), then click the toggle;
+   *    assert `gui-surface-canvas` mounts with a live noVNC canvas child.
+   * 3. Click the canvas (focus), press ⇧Ctrl+Enter; assert the tty tile is
+   *    display-hidden (zen zoomed the gui tile); exit zen.
+   * 4. Disarm the desktop viewer (focus the tty tile — resizeSession follows
+   *    focus), sample the geometry once stable across two reads; attach a
+   *    coarse 375px context, switch it to the gui tile; assert the canvas
+   *    fits and the payload geometry is unchanged (never toward the phone's
+   *    375px tile) after a settle window.
+   * 5. Spawn a fake app on the display (a sleep carrying DISPLAY in its
+   *    environ); palette `GUI: Turn off`; assert the confirm lists
+   *    `sleep ×1`; confirm.
+   * 6. Assert the button disappears and the gui tile degrades out of the
+   *    render.
+   * 7. Palette `GUI: Turn on`; assert the button and the gui tile return
+   *    (the layout option survived untouched).
+   */
+  test("the gui switch drives button → live canvas → zen → phone fit → off-confirm → restore", async ({
+    page,
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    // Retry clean slate: unset first and wait out any half-torn-down session.
+    await postSettingsRaw({ "gui.enabled": null });
+    expect(await pollGuiStatus((s) => !s.session, 15_000)).toBe(true);
+    const res = await page.request.post("/api/settings", {
+      data: { "gui.enabled": true },
+    });
+    expect(res.ok()).toBe(true);
+
+    const win = await resolveWindow(page, TMUX_SERVER, SESSION, "work");
+    await gotoWindow(page, TMUX_SERVER, win.windowId);
+    await expect(toggleButton(page, "GUI tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    // Xvnc boot takes seconds; reachable flips when the probe succeeds.
+    expect(await pollGuiStatus((s) => s.reachable)).toBe(true);
+    await toggleButton(page, "GUI tile").click();
+    const canvasHost = page.getByTestId("gui-surface-canvas");
+    await expect(canvasHost).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(canvasHost.locator("canvas")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    // Zen: focus the gui tile, then ⇧Ctrl+Enter zooms it (tty tile hides).
+    await canvasHost.click();
+    await page.keyboard.press("Control+Shift+Enter");
+    await expect(page.getByTestId("surface-tile-tty")).toHaveClass(/hidden/, {
+      timeout: READY_TIMEOUT,
+    });
+    await page.keyboard.press("Control+Shift+Enter");
+    await expect(page.getByTestId("surface-tile-tty")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    // Phone fit: a coarse viewer never drives resize — the payload geometry
+    // must not move when it attaches. Disarm the DESKTOP viewer first: focus
+    // the tty tile (resizeSession follows tile focus, so the desktop viewer
+    // stops driving SetDesktopSize), then sample the geometry once it is
+    // stable — from here the phone is the only viewer that could resize, and
+    // it must not.
+    await page.getByTestId("surface-tile-tty").click();
+    const before = await stableGuiGeometry();
+    const phone = await browser.newContext({
+      viewport: { width: 375, height: 812 },
+      hasTouch: true,
+      isMobile: true,
+    });
+    const phonePage = await phone.newPage();
+    await phonePage.goto(`/${TMUX_SERVER}/${encodeURIComponent(win.windowId)}`);
+    await expect(toggleButton(phonePage, "GUI tile")).toBeVisible({ timeout: READY_TIMEOUT });
+    await toggleButton(phonePage, "GUI tile").click();
+    await expect(phonePage.getByTestId("gui-surface-canvas")).toBeVisible({
+      timeout: READY_TIMEOUT,
+    });
+    await phonePage.waitForTimeout(2_000);
+    const after = await fetchGuiStatusRaw();
+    expect(after?.width).toBe(before.width);
+    expect(after?.height).toBe(before.height);
+    // A phone-driven resize would pull the desktop toward its 375px tile.
+    expect(after!.width).toBeGreaterThanOrEqual(500);
+    await phone.close();
+
+    // The off-confirm lists the running apps — spawn one on the display (any
+    // process whose environ carries DISPLAY=:N counts; the supervisor tree is
+    // excluded).
+    const status = await fetchGuiStatusRaw();
+    expect(status?.display).toBeTruthy();
+    const fakeApp = spawn("sleep", ["300"], {
+      env: { ...process.env, DISPLAY: status!.display },
+      detached: true,
+      stdio: "ignore",
+    });
+    fakeAppPid = fakeApp.pid ?? null;
+
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("GUI: Turn off");
+    await page.getByRole("option", { name: "GUI: Turn off" }).click();
+    const dialog = page.getByRole("dialog", { name: "Turn the GUI off?" });
+    await expect(dialog).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(dialog).toContainText("sleep ×1", { timeout: READY_TIMEOUT });
+    await dialog.getByRole("button", { name: "Turn off" }).click();
+
+    // The button is gone on every tab and the gui tile degrades out of the
+    // render (hidden — hide-never-unmount; the option is left as written).
+    await expect(toggleButton(page, "GUI tile")).toHaveCount(0, { timeout: READY_TIMEOUT });
+    await expect(page.getByTestId("surface-tile-gui")).toBeHidden();
+
+    // Turn on restores the same layout — no rewrite happened on either flip.
+    const onInput = await openPalette(page);
+    await onInput.fill("GUI: Turn on");
+    await page.getByRole("option", { name: "GUI: Turn on" }).click();
+    await expect(toggleButton(page, "GUI tile")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(page.getByTestId("surface-tile-gui")).toBeVisible({ timeout: READY_TIMEOUT });
+    // The respawned Xvnc takes seconds to answer the probe again.
+    await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: 30_000 });
+  });
+});

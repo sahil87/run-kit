@@ -23,7 +23,7 @@
  * the onboarding state, so the lens always exists).
  */
 
-import { hasCode, type ViewName, type ViewWindow } from "./window-view";
+import { hasCode, hasGui, type GuiHost, type ViewName, type ViewWindow } from "./window-view";
 
 /**
  * A tileable surface kind. Identical to the window-view lens registry
@@ -107,6 +107,7 @@ export const SURFACE_LABEL: Record<SurfaceKind, string> = {
   tty: "Terminal",
   web: "Web",
   code: "Code",
+  gui: "GUI",
 };
 
 /** Human labels for the preset shapes — the ▦ chip popover rows, the overflow
@@ -124,13 +125,15 @@ export const SHAPE_LABEL: Record<LayoutShape, string> = {
 
 /**
  * Surface icon glyphs (R10 — icons replace the rail's text labels; the
- * intake's approved set): `>_` tty, `://` web, `{}` code. Pure data
+ * intake's approved set): `>_` tty, `://` web, `{}` code, `[]` gui (the
+ * 2-char ASCII window frame). Pure data
  * shared by the surface toggles and the mobile switch group.
  */
 export const SURFACE_GLYPH: Record<SurfaceKind, string> = {
   tty: ">_",
   web: "://",
   code: "{}",
+  gui: "[]",
 };
 
 /** The shape a layout collapses to when a tile leaves (3→2→1, R4/R7):
@@ -142,7 +145,7 @@ const COLLAPSE_SHAPE: Record<1 | 2, LayoutShape> = { 1: "single", 2: "split-h" }
  *  `split-h`, 2→3 is `main-left` (the incumbent slot-A tile stays dominant). */
 const GROWTH_SHAPE: Record<2 | 3, LayoutShape> = { 2: "split-h", 3: "main-left" };
 
-const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "code"];
+const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "code", "gui"];
 
 function isSurfaceKind(value: string): value is SurfaceKind {
   return (SURFACE_KINDS as string[]).includes(value);
@@ -187,18 +190,24 @@ export function serializeLayout(layout: Layout): string {
 /**
  * The surfaces a window can tile (R8 — the shared registry the rail, layout,
  * and switcher all key off). The order is the positional surface digits'
- * order — ⌘1 tty, ⌘2 code, ⌘3 web (`lib/keybindings.ts`) — so the toggle
+ * order — ⌘1 tty, ⌘2 code, ⌘3 web, ⌘4 gui (`lib/keybindings.ts`) — so the
+ * toggle
  * group, switch group, and palette lists always render in shortcut order.
  * Availability reuses the window-view helpers as the single source of truth;
  * reachability is NOT part of availability (it governs a surface's content,
  * not its presence). `web` is unconditional — the lens always exists;
  * `hasWebUrl` selects its content (onboarding vs live iframe), so the
- * degradation ladder never drops a web tile.
+ * degradation ladder never drops a web tile. `gui` is a per-HOST capability:
+ * it lands last, iff the threaded host signal's `enabled` is true.
  */
-export function availableTiles(win: ViewWindow | null | undefined): SurfaceKind[] {
+export function availableTiles(
+  win: ViewWindow | null | undefined,
+  host?: GuiHost,
+): SurfaceKind[] {
   const tiles: SurfaceKind[] = ["tty"];
   if (hasCode(win)) tiles.push("code");
   tiles.push("web");
+  if (hasGui(host)) tiles.push("gui");
   return tiles;
 }
 
@@ -212,8 +221,9 @@ export function availableTiles(win: ViewWindow | null | undefined): SurfaceKind[
 export function degradeLayout(
   layout: Layout,
   win: ViewWindow | null | undefined,
+  host?: GuiHost,
 ): Layout | null {
-  const available = availableTiles(win);
+  const available = availableTiles(win, host);
   const kept = layout.order.filter((kind) => available.includes(kind));
   if (kept.length === 0) return null;
   if (kept.length === layout.order.length) return layout;
@@ -227,10 +237,13 @@ export function degradeLayout(
  * falls back to `single:tty` (`tty` is in every `availableTiles` result).
  * Purely a READ — the option value is never rewritten here.
  */
-export function effectiveLayout(win: ViewWindow | null | undefined): Layout {
+export function effectiveLayout(
+  win: ViewWindow | null | undefined,
+  host?: GuiHost,
+): Layout {
   const parsed = parseLayout(win?.layout);
   if (parsed) {
-    const degraded = degradeLayout(parsed, win);
+    const degraded = degradeLayout(parsed, win, host);
     if (degraded) return degraded;
   }
   return { shape: "single", order: ["tty"] };

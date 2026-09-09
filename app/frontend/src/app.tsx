@@ -56,6 +56,14 @@ import {
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette/move";
 import { buildViewActions } from "@/lib/palette/view";
 import { buildLayoutActions, buildTileSwitchActions } from "@/lib/palette/layout";
+import { buildGuiActions } from "@/lib/palette/gui";
+import {
+  readGuiResizeLocked,
+  readGuiViewMode,
+  writeGuiResizeLocked,
+  writeGuiViewMode,
+  type GuiViewMode,
+} from "@/lib/gui-posture";
 import { buildZenActions } from "@/lib/palette/zen";
 import { resolveZenToggle } from "@/lib/zen-mode";
 import { buildStatusRefreshAction } from "@/lib/palette/status-refresh";
@@ -115,6 +123,10 @@ import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-conte
 import { InstanceAccentProvider, useInstanceAccent } from "@/contexts/instance-accent-context";
 import { InstanceNameProvider, useInstanceName } from "@/contexts/instance-name-context";
 import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
+import { GuiOffRequestProvider, useGuiOffRequest, type GuiOffRequest } from "@/contexts/gui-off-context";
+import { GuiOffDialog } from "@/components/gui-off-dialog";
+import type { GuiSurfaceCommands } from "@/components/gui-surface";
+import { windowIdToUrlSegment } from "@/lib/router-url";
 import { ServerDialogsProvider, useServerDialogs } from "@/contexts/server-dialogs-context";
 import { PaletteActionsProvider, usePaletteActions, usePaletteActionsApi, usePaletteGlobals, useRegisterPaletteActions } from "@/contexts/palette-actions-context";
 import { ServerDialogs } from "@/components/server-dialogs";
@@ -126,6 +138,7 @@ import { useDialogState } from "@/hooks/use-dialog-state";
 import { useRecentlyClosed, buildReopenWindowAction, pushRecentlyClosed, popRecentlyClosed } from "@/hooks/use-recently-closed";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { TopBar, type TopBarMode } from "@/components/top-bar";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { Shell } from "@/components/shell/shell";
@@ -158,7 +171,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions } from "@/lib/palette/cron";
 import { CronCreateDialog } from "@/components/cron-create-dialog";
@@ -174,7 +187,7 @@ import {
   toSafeSessionName,
   toSafeWindowName,
 } from "@/lib/names";
-import { useSessionContext, useCodeServer, useCurrentServerFromRoute } from "@/contexts/session-context";
+import { useSessionContext, useCodeServer, useCurrentServerFromRoute, useGui } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useCodeWorkspace } from "@/hooks/use-code-workspace";
@@ -197,6 +210,15 @@ const OperatorConsole = lazy(() => import("@/components/operator-console").then(
 const OperatorConsoleTongue = lazy(() => import("@/components/operator-console").then(m => ({ default: m.OperatorConsoleTongue })));
 
 const { min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH } = SIDEBAR_WIDTH_BOUNDS;
+
+/** The keyboard-lock capability (Chrome desktop's "all keys to the guest"
+ *  mode for the gui fullscreen verb). Absent everywhere else — the `in` guard
+ *  is the feature detection; the cast bridges the DOM-lib gap. */
+function keyboardLock(): { lock(): Promise<void>; unlock(): void } | undefined {
+  return "keyboard" in navigator
+    ? (navigator as unknown as { keyboard?: { lock(): Promise<void>; unlock(): void } }).keyboard
+    : undefined;
+}
 
 /**
  * Derive a session name from an optional working directory path, falling back
@@ -329,6 +351,30 @@ export function AppLayout() {
 function AppLayoutContent() {
   useShellNotifications();
 
+  // The GUI off-confirm (spec gui.md § The switch): ONE dialog mount at this
+  // every-page layer — opened self-posting by the palette's `GUI: Turn off`
+  // (`open`), or post-deferred by the settings seam's `gui.enabled` off
+  // interception (`request`, which resolves the verdict so the seam's POST
+  // and entry update stay one write). The resolver ref hands the verdict back.
+  const [guiOffOpen, setGuiOffOpen] = useState(false);
+  const guiOffResolveRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const guiOffSelfPostsRef = useRef(true);
+  const guiOff = useMemo<GuiOffRequest>(
+    () => ({
+      open: () => {
+        guiOffSelfPostsRef.current = true;
+        setGuiOffOpen(true);
+      },
+      request: () =>
+        new Promise<boolean>((resolve) => {
+          guiOffResolveRef.current = resolve;
+          guiOffSelfPostsRef.current = false;
+          setGuiOffOpen(true);
+        }),
+    }),
+    [],
+  );
+
   // Instance accent (1etw): a 2px stripe across the top of the persistent top
   // bar plus a subtle wash behind it — the "which run-kit instance is this"
   // color channel (server colors own the sidebar). Both hexes are theme-derived
@@ -380,6 +426,7 @@ function AppLayoutContent() {
   const hideTopBar = zenActive && zenWindowParam !== undefined;
 
   return (
+    <GuiOffRequestProvider value={guiOff}>
     <PaletteActionsProvider globalActions={globalActions}>
     <div
       className="app-root flex flex-col"
@@ -440,7 +487,20 @@ function AppLayoutContent() {
         list: the active route's registered actions first, then the global
         groups built above. The per-route palette mounts are gone. */}
     <LayoutCommandPalette />
+    {/* The ONE GUI off-confirm mount — the palette's `GUI: Turn off` and the
+        settings seam's interception share it via the gui-off context. */}
+    {guiOffOpen && (
+      <GuiOffDialog
+        postOnConfirm={guiOffSelfPostsRef.current}
+        onClose={(confirmed) => {
+          setGuiOffOpen(false);
+          guiOffResolveRef.current?.(confirmed);
+          guiOffResolveRef.current = null;
+        }}
+      />
+    )}
     </PaletteActionsProvider>
+    </GuiOffRequestProvider>
   );
 }
 
@@ -830,9 +890,14 @@ function AppShell() {
   // CodeSurface below); availability is gitRoot-derived (hasCode). `null` = no
   // signal yet (treated as not-running until the first event lands).
   const codeServer = useCodeServer();
+  // The host-global gui signal (spec gui.md): `enabled` is the availability
+  // input threaded into every view/layout derivation below (a null/absent
+  // signal reads as unavailable — never on by default); `reachable` selects
+  // the tile's CONTENT, never its presence.
+  const gui = useGui();
   const currentViews = useMemo(
-    () => availableViews(effectiveWindow),
-    [effectiveWindow],
+    () => availableViews(effectiveWindow, gui),
+    [effectiveWindow, gui],
   );
 
   // The layout the window renders: the payload's `@rk_win_layout` value,
@@ -846,17 +911,17 @@ function AppShell() {
     key: string;
     value: string;
   } | null>(null);
-  const baseLayout = useMemo(() => effectiveLayout(effectiveWindow), [effectiveWindow]);
+  const baseLayout = useMemo(() => effectiveLayout(effectiveWindow, gui), [effectiveWindow, gui]);
   const layout: Layout = useMemo(() => {
     if (
       pendingLayout !== null &&
       pendingLayout.key === `${server}:${windowParam ?? ""}` &&
       pendingLayout.value !== effectiveWindow?.layout
     ) {
-      return effectiveLayout({ ...effectiveWindow, layout: pendingLayout.value });
+      return effectiveLayout({ ...effectiveWindow, layout: pendingLayout.value }, gui);
     }
     return baseLayout;
-  }, [pendingLayout, server, windowParam, effectiveWindow, baseLayout]);
+  }, [pendingLayout, server, windowParam, effectiveWindow, baseLayout, gui]);
   useEffect(() => {
     if (pendingLayout !== null && pendingLayout.value === effectiveWindow?.layout) {
       setPendingLayout(null);
@@ -1091,9 +1156,25 @@ function AppShell() {
   // R8's shared registry), consumed by the top-bar surface-toggle group and
   // the palette gating.
   const panelSurfaces = useMemo(
-    () => availableSurfaces(effectiveWindow),
-    [effectiveWindow],
+    () => availableSurfaces(effectiveWindow, gui),
+    [effectiveWindow, gui],
   );
+
+  // ── gui tile state ───────────────────────────────────────────────────────
+  // The tile's RFB connection report (the R11 seam) — the top-bar toggle dot
+  // for gui. Reset per window/route so a stale "connected" never leaks
+  // across a switch.
+  const [guiConnected, setGuiConnected] = useState(false);
+  useEffect(() => setGuiConnected(false), [server, windowParam]);
+  // Per-viewer render postures (lib/gui-posture.ts — validated localStorage
+  // reads, try/catch-noop writes): the view mode and the viewer-local resize
+  // lock. The ONLY new state the gui surface adds anywhere.
+  const [guiViewMode, setGuiViewMode] = useState<GuiViewMode>(() => readGuiViewMode());
+  const [guiResizeLocked, setGuiResizeLocked] = useState(() => readGuiResizeLocked());
+  // The palette seams into the live RFB (GUI: Paste clipboard / GUI:
+  // Reconnect) — GuiSurface fills it while mounted.
+  const guiCommandsRef = useRef<GuiSurfaceCommands | null>(null);
+  const coarsePointer = useCoarsePointer();
 
   // ⏶ Zoom palette seam (T012/R11): the zoom itself is SurfaceLayout-internal
   // transient state (R6 — no URL/localStorage); the palette's `Layout: Expand`/
@@ -1136,6 +1217,129 @@ function AppShell() {
     setZenZoomed(decision.zenZoomed);
     if (decision.fireZoomToggle) layoutZoomToggleRef.current?.();
   }, [zenActive, zenZoomed, layoutZoomed, layout.order.length, setZenActive, setZenZoomed]);
+
+  // ── gui verbs (spec gui.md) ──────────────────────────────────────────────
+  // Supervisor logs: the rk-gui session's `host` window on the rk-daemon
+  // server, derived from the sessions payload the way the system card finds
+  // rk-code-server. Absent (session not running, or the daemon server's slice
+  // unattached) ⇒ the palette row renders disabled ("supervisor not
+  // running").
+  const rkGuiWindow = useMemo(() => {
+    const session = (ctx.sessionsByServer.get(DAEMON_SERVER) ?? []).find(
+      (s) => s.name === "rk-gui",
+    );
+    if (!session) return null;
+    return (
+      session.windows.find((w) => w.name === "host") ??
+      session.windows.find((w) => w.isActiveWindow) ??
+      session.windows[0] ??
+      null
+    );
+  }, [ctx.sessionsByServer]);
+  const openGuiLogs = useCallback(() => {
+    if (!rkGuiWindow) return;
+    navigate({
+      to: "/$server/$window",
+      params: { server: DAEMON_SERVER, window: windowIdToUrlSegment(rkGuiWindow.windowId) },
+      search: {},
+    });
+  }, [rkGuiWindow, navigate]);
+
+  // The gui fullscreen verb: element fullscreen on the tile + keyboard lock
+  // (Chrome desktop's "all keys to the guest" mode); the second invocation
+  // exits both. Where element fullscreen is absent (iPhone Safari) the verb
+  // runs the zen toggle instead — the palette row's description says so.
+  const guiFullscreen = useCallback(() => {
+    const tile =
+      document.querySelector('[data-testid="gui-surface-canvas"]') ??
+      document.querySelector('[data-testid="gui-surface-empty"]');
+    if (!(tile instanceof HTMLElement) || typeof tile.requestFullscreen !== "function") {
+      toggleZen();
+      return;
+    }
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {});
+      return;
+    }
+    // Refused lock/fullscreen (permission, transient state) must never
+    // surface as an unhandled rejection.
+    void tile.requestFullscreen().catch(() => {});
+    void keyboardLock()?.lock().catch(() => {});
+  }, [toggleZen]);
+  // A fullscreen exit the verb didn't initiate (Esc) still releases the
+  // keyboard lock.
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement) keyboardLock()?.unlock();
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  // The `GUI:` palette family (Constitution V — every GUI verb is
+  // palette-reachable). Terminal-route gated; the per-state gating and labels
+  // live in the pure `buildGuiActions` (lib/palette/gui.ts). The toggle
+  // chord's hint rides the registry-inherited `Tile:` rows (the
+  // `toggleHints` seam in buildLayoutActions).
+  const guiOffRequest = useGuiOffRequest();
+  const guiActions: PaletteAction[] = useMemo(() => {
+    if (!windowParam) return [];
+    const actions = buildGuiActions({
+      enabled: gui?.enabled === true,
+      tileOpen: layout.order.includes("gui"),
+      connected: guiConnected,
+      coarsePointer,
+      viewMode: guiViewMode,
+      resizeLocked: guiResizeLocked,
+      supervisorAvailable: rkGuiWindow !== null,
+      onTurnOn: () => {
+        void postSettings({ "gui.enabled": true }).catch((err: unknown) => {
+          addToast(err instanceof Error && err.message ? err.message : "Failed to save", "error");
+        });
+      },
+      onTurnOff: () => guiOffRequest?.open(),
+      onFullscreen: guiFullscreen,
+      onPaste: () => {
+        navigator.clipboard
+          ?.readText()
+          .then((text) => guiCommandsRef.current?.paste(text))
+          .catch(() => {
+            /* clipboard read needs a permission — skip silently */
+          });
+      },
+      onViewMode: (mode) => {
+        setGuiViewMode(mode);
+        writeGuiViewMode(mode);
+      },
+      onLockChange: (locked) => {
+        setGuiResizeLocked(locked);
+        writeGuiResizeLocked(locked);
+      },
+      onOpenLogs: openGuiLogs,
+      onReconnect: () => guiCommandsRef.current?.reconnect(),
+    });
+    if (typeof document.documentElement.requestFullscreen !== "function") {
+      return actions.map((a) =>
+        a.id === "gui-fullscreen"
+          ? { ...a, description: "Fullscreen (falls back to zen on this device)" }
+          : a,
+      );
+    }
+    return actions;
+  }, [
+    windowParam,
+    gui,
+    layout.order,
+    guiConnected,
+    coarsePointer,
+    guiViewMode,
+    guiResizeLocked,
+    rkGuiWindow,
+    guiOffRequest,
+    guiFullscreen,
+    openGuiLogs,
+    addToast,
+  ]);
 
   // Mobile active tile (spec surface-layout.md § Mobile): below
   // `isMobileViewport()` the center renders ONE tile; the top-bar switch group
@@ -2256,7 +2460,7 @@ function AppShell() {
     // (ui-patterns.md § Window-Switch Slide Transition).
     ungatedIds: new Set(
       flatWindows
-        .filter((fw) => effectiveLayout(fw.window).order[0] !== "tty")
+        .filter((fw) => effectiveLayout(fw.window, gui).order[0] !== "tty")
         .map((fw) => fw.window.windowId),
     ),
     currentWindowId: windowParam ?? "",
@@ -3463,6 +3667,14 @@ function AppShell() {
               const b = bindingByAction.get("code-toggle");
               return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
             })(),
+            // ⌘4/⇧Ctrl+4 gui-toggle: the hint rides the registry-inherited
+            // `Tile: Show/Hide GUI` rows (the code-toggle seam, generalized).
+            toggleHints: {
+              gui: (() => {
+                const b = bindingByAction.get("gui-toggle");
+                return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
+              })(),
+            },
           })
         : []),
       // `View: Enter/Exit Zen Mode` (260820-o8cr R7) — the `zen-toggle`
@@ -4160,11 +4372,11 @@ function AppShell() {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...cronActions, ...macroPaletteActions],
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...guiActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...cronActions, ...macroPaletteActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, cronActions, macroPaletteActions, bindingByAction, bindingHost],
+    [sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, guiActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, cronActions, macroPaletteActions, bindingByAction, bindingHost],
   );
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders
@@ -4331,6 +4543,7 @@ function AppShell() {
       "tty-toggle": tileChord("tty"),
       "code-toggle": tileChord("code"),
       "web-toggle": tileChord("web"),
+      "gui-toggle": tileChord("gui"),
       // ⇧⌘⏎ / ⇧Ctrl+Enter zen (260820-o8cr R6) — the FULL zen toggle (top
       // bar + sidebar + focused-tile zoom at arity > 1), resolved through the
       // same `toggleZen` body as the palette entries and the status-bar exit
@@ -4499,11 +4712,18 @@ function AppShell() {
   );
   // The web toggle's corner dot means "has content" (hasWebUrl), not "exists"
   // — web availability is unconditional (260821-zqlq), so the dot is what
-  // carries the content signal. Every other surface's dot stays always-on
-  // (shown still equals available for them).
+  // carries the content signal. The gui toggle's dot is VNC health: the
+  // tile's RFB connection state while a gui tile is open, falling back to the
+  // signal's `reachable` when none is. Every other surface's dot stays
+  // always-on (shown still equals available for them).
   const surfaceDot = useCallback(
-    (surface: SurfaceKind) => surface !== "web" || hasWebUrl(effectiveWindow),
-    [effectiveWindow],
+    (surface: SurfaceKind) => {
+      if (surface === "gui") {
+        return layout.order.includes("gui") ? guiConnected : gui?.reachable === true;
+      }
+      return surface !== "web" || hasWebUrl(effectiveWindow);
+    },
+    [effectiveWindow, gui, guiConnected, layout.order],
   );
   const topBarSlot = useMemo(
     () => ({
@@ -4567,6 +4787,7 @@ function AppShell() {
       isMobile,
       panelSurfaces,
       togglePanel,
+      surfaceDot,
       mobileActiveTile,
       switchToTile,
       switchTargetDisabled,
@@ -4801,6 +5022,16 @@ function AppShell() {
               scrollLocked={scrollLocked}
               onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
               codeReachable={codeServer?.reachable ?? false}
+              // The gui tile: the host signal (content selection), the
+              // per-viewer postures, the RFB connection report (the toggle
+              // dot), the empty-state verbs, and the palette command seam.
+              gui={gui}
+              guiViewMode={guiViewMode}
+              guiResizeLocked={guiResizeLocked}
+              onGuiConnection={setGuiConnected}
+              onGuiRestart={restartGui}
+              onGuiOpenLogs={openGuiLogs}
+              guiCommandsRef={guiCommandsRef}
               // Follow rule: after the seed, the editor's own navigation is
               // the ONLY writer of `@rk_win_code_root`.
               onCodeFolderNavigated={handleCodeFolderNavigated}

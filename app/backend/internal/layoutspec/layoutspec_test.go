@@ -266,7 +266,7 @@ func TestZeroLayoutReadsAsDefault(t *testing.T) {
 }
 
 func TestIsSurface(t *testing.T) {
-	for _, kind := range []string{"tty", "web", "code"} {
+	for _, kind := range []string{"tty", "web", "code", "gui"} {
 		if !IsSurface(kind) {
 			t.Errorf("IsSurface(%q) = false", kind)
 		}

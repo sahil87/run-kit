@@ -307,10 +307,10 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // The palette action is the guaranteed fallback where a browser eats the
   // chord.
   { actionId: "operator-console", code: "KeyJ", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Operator console", description: "toggle the operator console (open+focus ⇄ closed)", mapLabel: "operator", ignoreInputs: true },
-  // Positional surface digits — ⌘1/2/3 on mac, ⇧Ctrl+1/2/3 on win/linux —
-  // toggle the tty/code/web tiles in tile order. Same demotion class as ⌘B
+  // Positional surface digits — ⌘1/2/3/4 on mac, ⇧Ctrl+1/2/3/4 on win/linux —
+  // toggle the tty/code/web/gui tiles in tile order. Same demotion class as ⌘B
   // (page-interceptable). In a mac BROWSER the cmd-tier
-  // Digit1–9 tab claims (MAC_BROWSER_CMD_CLAIMS below) resolve all three
+  // Digit1–9 tab claims (MAC_BROWSER_CMD_CLAIMS below) resolve all four
   // reserved — palette-reachable only there. The win/linux digits were freed
   // by the shell switcher's move to Alt+1–9, outside every tier (the mac ⌥⌘
   // precedent — Alt is no tier). Terminal scope: the tiles exist only on
@@ -318,6 +318,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   { actionId: "tty-toggle", code: "Digit1", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle terminal", description: "open/close the tty tile", mapLabel: "tty", ignoreInputs: true },
   { actionId: "code-toggle", code: "Digit2", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle code editor", description: "open/close the code tile", mapLabel: "code", ignoreInputs: true },
   { actionId: "web-toggle", code: "Digit3", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle web view", description: "open/close the web tile", mapLabel: "web", ignoreInputs: true },
+  { actionId: "gui-toggle", code: "Digit4", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle GUI", description: "open/close the GUI tile", mapLabel: "gui", ignoreInputs: true },
   // ⇧⌘⏎/⇧Ctrl+Enter zen toggle — shifted on BOTH platforms (no macTier):
   // exact-modifier matching keeps the chord disjoint from the
   // classifier-owned ⌘Enter/Ctrl+Enter compose-submit chords, which never

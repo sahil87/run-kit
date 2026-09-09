@@ -87,6 +87,19 @@ describe("parseLayout / serializeLayout", () => {
     });
     expect(parseLayout("row:tty,code,tty")).not.toBeNull();
   });
+
+  it("accepts gui in any slot and rejects a repeated gui", () => {
+    expect(parseLayout("split-h:tty,gui")).toEqual({
+      shape: "split-h",
+      order: ["tty", "gui"],
+    });
+    expect(parseLayout("single:gui")).toEqual({ shape: "single", order: ["gui"] });
+    expect(parseLayout("row:gui,code,web")).toEqual({
+      shape: "row",
+      order: ["gui", "code", "web"],
+    });
+    expect(parseLayout("split-h:gui,gui")).toBeNull();
+  });
 });
 
 describe("availableTiles", () => {
@@ -95,6 +108,24 @@ describe("availableTiles", () => {
     expect(availableTiles(webWin)).toEqual(["tty", "web"]);
     expect(availableTiles(fullWin)).toEqual(["tty", "code", "web"]);
     expect(availableTiles(null)).toEqual(["tty", "web"]);
+  });
+
+  // gui is a per-HOST capability keyed off the signal's `enabled`, threaded
+  // as the second arg; it lands last (the ⌘4 slot).
+  it("appends gui last iff the host signal is enabled", () => {
+    expect(availableTiles(fullWin, { enabled: true })).toEqual([
+      "tty",
+      "code",
+      "web",
+      "gui",
+    ]);
+    expect(availableTiles(plain, { enabled: true })).toEqual(["tty", "web", "gui"]);
+  });
+
+  it("omits gui when the host is disabled or the signal is absent", () => {
+    expect(availableTiles(fullWin, { enabled: false })).toEqual(["tty", "code", "web"]);
+    expect(availableTiles(fullWin, null)).toEqual(["tty", "code", "web"]);
+    expect(availableTiles(fullWin)).toEqual(["tty", "code", "web"]);
   });
 });
 
@@ -140,6 +171,19 @@ describe("degradeLayout", () => {
       shape: "split-h",
       order: ["tty", "web"],
     });
+  });
+
+  it("drops gui when the host signal is off and keeps it when on", () => {
+    const layout: Layout = { shape: "split-h", order: ["tty", "gui"] };
+    expect(degradeLayout(layout, plain, { enabled: false })).toEqual({
+      shape: "single",
+      order: ["tty"],
+    });
+    expect(degradeLayout(layout, plain, null)).toEqual({
+      shape: "single",
+      order: ["tty"],
+    });
+    expect(degradeLayout(layout, plain, { enabled: true })).toEqual(layout);
   });
 });
 
@@ -190,6 +234,22 @@ describe("effectiveLayout", () => {
   it("falls back to single:tty for a malformed layout string", () => {
     expect(effectiveLayout({ layout: "garbage" })).toEqual({ shape: "single", order: ["tty"] });
     expect(effectiveLayout({ layout: "grid:tty" })).toEqual({ shape: "single", order: ["tty"] });
+  });
+
+  // The gui switch degrades without writing: off collapses the tile, on
+  // renders the same option value again — neither transition issues a write.
+  it("degrades a gui layout when the switch is off and restores it when on", () => {
+    const win: ViewWindow = { layout: "split-h:tty,gui" };
+    expect(effectiveLayout(win, { enabled: false })).toEqual({
+      shape: "single",
+      order: ["tty"],
+    });
+    expect(effectiveLayout(win, null)).toEqual({ shape: "single", order: ["tty"] });
+    expect(effectiveLayout(win, { enabled: true })).toEqual({
+      shape: "split-h",
+      order: ["tty", "gui"],
+    });
+    expect(win.layout).toBe("split-h:tty,gui");
   });
 });
 

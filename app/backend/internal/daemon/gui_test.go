@@ -103,7 +103,10 @@ func TestEnsureGUISpawnsSuperviseSession(t *testing.T) {
 		t.Fatalf("spawn calls = %d, want 1", len(rec.spawnArgs))
 	}
 	got := strings.Join(rec.spawnArgs[0], " ")
-	want := "new-session -d -s rk-gui -n host /usr/local/bin/rk gui supervise host --display :10"
+	// The spawn pins the daemon's XDG_STATE_HOME into the pane (the tmux
+	// server-env fork would otherwise split the socket path between supervise
+	// and the probe/relay).
+	want := "new-session -d -e XDG_STATE_HOME=" + os.Getenv("XDG_STATE_HOME") + " -s rk-gui -n host /usr/local/bin/rk gui supervise host --display :10"
 	if got != want {
 		t.Errorf("spawn argv =\n%s\nwant:\n%s", got, want)
 	}

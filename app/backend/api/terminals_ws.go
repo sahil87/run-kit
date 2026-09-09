@@ -731,19 +731,21 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 	st.ptmx = ptmx
 	st.cancel = cancel
 	st.cmd = cmd
-	// Register immediately at publish; teardown invokes st.unregister BEFORE
-	// killAndReapAttach so a reused pid can never briefly alias the dead
-	// attach. The publish-race branch above never registers (its cmd is
+	// Register immediately at publish, while the publication lock is still
+	// held: teardown invokes st.unregister BEFORE killAndReapAttach, and both
+	// must stay ordered against this registration so a torn-down attach can
+	// never leave a stale registry entry (nor a reused pid briefly alias the
+	// dead attach). The publish-race branch above never registers (its cmd is
 	// reaped there directly).
 	pid := cmd.Process.Pid
 	st.unregister = func() { tc.s.attachRegistry.unregister(pid) }
-	tc.mu.Unlock()
 	tc.s.attachRegistry.register(pid, sessions.AttachMeta{
 		Peer:        tc.peer,
 		Device:      tc.device,
 		ConnectedAt: tc.connectedAt,
 		LastInbound: tc.lastInbound.Load,
 	})
+	tc.mu.Unlock()
 
 	// Enqueue `opened` onto the stream's OWN queue BEFORE starting the PTY reader.
 	// Channel FIFO + the scheduler's short-frame priority guarantees the client

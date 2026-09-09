@@ -583,11 +583,26 @@ func TestWindowPRKey(t *testing.T) {
 // a client attached via a derived group copy (devshell-82) counts against the
 // leader row parseSessions keeps (devshell), ungrouped clients bucket by their
 // own session name, and a client attached to a session outside the payload
-// (e.g. a pin-session) simply lands on a key no ProjectSession reads.
+// (e.g. a pin-session) simply lands on a key no ProjectSession reads. It also
+// pins the identity join: a resolver hit yields kind "rk" with the relay's
+// device/peer and the LastInbound closure's value; a miss, a nil resolver,
+// and PID 0 all stay "tty" with tmux's own times.
 func TestFoldViewers(t *testing.T) {
+	rkResolver := func(pid int) (AttachMeta, bool) {
+		if pid == 4242 {
+			return AttachMeta{
+				Peer:        "100.64.0.12",
+				Device:      "phone",
+				ConnectedAt: time.Unix(1757500000, 0),
+				LastInbound: func() int64 { return 1757500310 },
+			}, true
+		}
+		return AttachMeta{}, false
+	}
 	tests := []struct {
 		name    string
 		clients []tmux.ClientInfo
+		resolve AttachResolver
 		want    map[string][]Viewer
 	}{
 		{
@@ -602,7 +617,7 @@ func TestFoldViewers(t *testing.T) {
 				{Width: 116, Height: 37, SessionName: "runKit"},
 			},
 			want: map[string][]Viewer{
-				"runKit": {{Width: 144, Height: 91}, {Width: 116, Height: 37}},
+				"runKit": {{Width: 144, Height: 91, Kind: "tty"}, {Width: 116, Height: 37, Kind: "tty"}},
 			},
 		},
 		{
@@ -612,7 +627,7 @@ func TestFoldViewers(t *testing.T) {
 				{Width: 116, Height: 37, SessionName: "devshell-82", SessionGroup: "devshell", SessionGroupList: "devshell,devshell-82"},
 			},
 			want: map[string][]Viewer{
-				"devshell": {{Width: 144, Height: 91}, {Width: 116, Height: 37}},
+				"devshell": {{Width: 144, Height: 91, Kind: "tty"}, {Width: 116, Height: 37, Kind: "tty"}},
 			},
 		},
 		{
@@ -623,7 +638,7 @@ func TestFoldViewers(t *testing.T) {
 				{Width: 116, Height: 37, SessionName: "devshell-82", SessionGroup: "0", SessionGroupList: "devshell,devshell-82"},
 			},
 			want: map[string][]Viewer{
-				"devshell": {{Width: 116, Height: 37}},
+				"devshell": {{Width: 116, Height: 37, Kind: "tty"}},
 			},
 		},
 		{
@@ -633,14 +648,73 @@ func TestFoldViewers(t *testing.T) {
 				{Width: 116, Height: 37, SessionName: "beta"},
 			},
 			want: map[string][]Viewer{
-				"alpha": {{Width: 144, Height: 91}},
-				"beta":  {{Width: 116, Height: 37}},
+				"alpha": {{Width: 144, Height: 91, Kind: "tty"}},
+				"beta":  {{Width: 116, Height: 37, Kind: "tty"}},
+			},
+		},
+		{
+			name: "resolver hit yields rk with the meta and the closure's lastInbound",
+			clients: []tmux.ClientInfo{
+				{Width: 116, Height: 37, SessionName: "runKit", PID: 4242, Created: time.Unix(1757500000, 0), Activity: time.Unix(1757500300, 0)},
+				{Width: 144, Height: 91, SessionName: "runKit", PID: 5151, Created: time.Unix(1757490000, 0), Activity: time.Unix(1757500003, 0)},
+			},
+			resolve: rkResolver,
+			want: map[string][]Viewer{
+				"runKit": {
+					{Width: 116, Height: 37, Kind: "rk", PID: 4242, Device: "phone", Peer: "100.64.0.12", CreatedAt: 1757500000, LastActiveAt: 1757500310},
+					{Width: 144, Height: 91, Kind: "tty", PID: 5151, CreatedAt: 1757490000, LastActiveAt: 1757500003},
+				},
+			},
+		},
+		{
+			name: "nil resolver leaves every viewer tty",
+			clients: []tmux.ClientInfo{
+				{Width: 116, Height: 37, SessionName: "runKit", PID: 4242, Created: time.Unix(1757500000, 0), Activity: time.Unix(1757500300, 0)},
+			},
+			want: map[string][]Viewer{
+				"runKit": {{Width: 116, Height: 37, Kind: "tty", PID: 4242, CreatedAt: 1757500000, LastActiveAt: 1757500300}},
+			},
+		},
+		{
+			name: "PID 0 stays tty even when the resolver would match 0",
+			clients: []tmux.ClientInfo{
+				{Width: 116, Height: 37, SessionName: "runKit"},
+			},
+			resolve: func(pid int) (AttachMeta, bool) {
+				return AttachMeta{Device: "phone"}, pid == 0
+			},
+			want: map[string][]Viewer{
+				"runKit": {{Width: 116, Height: 37, Kind: "tty"}},
+			},
+		},
+		{
+			name: "nil LastInbound closure falls back to client_activity",
+			clients: []tmux.ClientInfo{
+				{Width: 116, Height: 37, SessionName: "runKit", PID: 4242, Activity: time.Unix(1757500300, 0)},
+			},
+			resolve: func(pid int) (AttachMeta, bool) {
+				return AttachMeta{Device: "desktop"}, true
+			},
+			want: map[string][]Viewer{
+				"runKit": {{Width: 116, Height: 37, Kind: "rk", PID: 4242, Device: "desktop", LastActiveAt: 1757500300}},
+			},
+		},
+		{
+			name: "zero LastInbound value falls back to client_activity",
+			clients: []tmux.ClientInfo{
+				{Width: 116, Height: 37, SessionName: "runKit", PID: 4242, Activity: time.Unix(1757500300, 0)},
+			},
+			resolve: func(pid int) (AttachMeta, bool) {
+				return AttachMeta{Device: "desktop", LastInbound: func() int64 { return 0 }}, true
+			},
+			want: map[string][]Viewer{
+				"runKit": {{Width: 116, Height: 37, Kind: "rk", PID: 4242, Device: "desktop", LastActiveAt: 1757500300}},
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := foldViewers(tt.clients)
+			got := foldViewers(tt.clients, tt.resolve)
 			if len(got) != len(tt.want) {
 				t.Fatalf("foldViewers() = %v, want %v", got, tt.want)
 			}
@@ -663,8 +737,10 @@ func TestFoldViewers(t *testing.T) {
 }
 
 // TestProjectSessionViewersJSON pins the payload contract: viewers ride the
-// ProjectSession marshal as [{width,height}], and a zero-viewer session omits
-// the key entirely (the sidebar treats absent as "no indicator").
+// ProjectSession marshal, the identity fields are additive omitempty (a
+// zero-valued viewer marshals exactly {width,height}), an rk viewer emits all
+// six keys, and a zero-viewer session omits the key entirely (the sidebar
+// treats absent as "no indicator").
 func TestProjectSessionViewersJSON(t *testing.T) {
 	withViewers, err := json.Marshal(ProjectSession{
 		Name:    "devshell",
@@ -676,6 +752,18 @@ func TestProjectSessionViewersJSON(t *testing.T) {
 	}
 	if !strings.Contains(string(withViewers), `"viewers":[{"width":144,"height":91},{"width":116,"height":37}]`) {
 		t.Errorf("JSON missing viewers payload: %s", withViewers)
+	}
+
+	rkViewer, err := json.Marshal(Viewer{
+		Width: 116, Height: 37, Kind: "rk", PID: 4242, Device: "phone", Peer: "100.64.0.12",
+		CreatedAt: 1757500000, LastActiveAt: 1757500310,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRK := `{"width":116,"height":37,"kind":"rk","pid":4242,"device":"phone","peer":"100.64.0.12","createdAt":1757500000,"lastActiveAt":1757500310}`
+	if string(rkViewer) != wantRK {
+		t.Errorf("rk viewer JSON = %s, want %s", rkViewer, wantRK)
 	}
 
 	without, err := json.Marshal(ProjectSession{Name: "solo", Windows: []tmux.WindowInfo{}})
@@ -865,7 +953,7 @@ func TestFetchSessionsWatchlistSlug(t *testing.T) {
 
 	fetch := func(t *testing.T) []ProjectSession {
 		t.Helper()
-		got, err := FetchSessions(context.Background(), server, nil)
+		got, err := FetchSessions(context.Background(), server, nil, nil)
 		if err != nil {
 			t.Fatalf("FetchSessions() error: %v", err)
 		}

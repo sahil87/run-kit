@@ -8,7 +8,7 @@ import { FlairOverlay } from "@/components/flair-overlay";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { countWaitingWindows } from "@/lib/waiting";
 import { toSafeSessionName } from "@/lib/names";
-import { abbreviateHomePath } from "@/lib/format";
+import { abbreviateHomePath, formatDuration } from "@/lib/format";
 import { PaletteIcon, BotIcon, PlusIcon, CloseIcon, NotePencilIcon, PlugIcon } from "./icons";
 import { PopupTitleBar, PopupTitleBarSecondary } from "./popup-title-bar";
 import {
@@ -158,17 +158,34 @@ function SessionRowInner({
     .filter(Boolean)
     .join(" · ");
 
-  // Attached-viewer signal: the count chip and the card's per-viewer grids
+  // Attached-viewer signal: the count chip and the card's per-viewer rows
   // render only at ≥2 sized viewers — the 1-viewer case is the norm and adds
   // zero chrome. Informational channel, not an attention overlay: the neutral
   // count-chip idiom (no signal-yellow), non-interactive, no new props — the
-  // input is `session.viewers`, already on the row's session prop. The grid
-  // list is the diagnostic payload: it identifies the clamping client.
+  // input is `session.viewers`, already on the row's session prop. Each row
+  // names the viewer: device tag · grid · peer · age · idle · narrowest (the
+  // clamping client, min width, ties all marked). Age/idle derive from
+  // absolute unix-second timestamps at render (no ticker — every sessions
+  // push re-renders); an old-backend payload (width/height only) still
+  // renders the grid rows.
   const viewers = session.viewers ?? [];
   const showViewers = viewers.length >= 2;
-  const viewersLine = showViewers
-    ? `${viewers.length} viewers · ${viewers.map((v) => `${v.width}×${v.height}`).join(" · ")}`
-    : "";
+  const viewerRows: string[] = [];
+  if (showViewers) {
+    const now = Date.now() / 1000;
+    const minWidth = Math.min(...viewers.map((v) => v.width));
+    for (const v of viewers) {
+      const segments: string[] = [];
+      if (v.kind === "rk" && v.device) segments.push(v.device);
+      else if (v.kind === "tty") segments.push("tty");
+      segments.push(`${v.width}×${v.height}`);
+      if (v.peer) segments.push(v.peer);
+      if (v.createdAt) segments.push(formatDuration(now - v.createdAt));
+      if (v.lastActiveAt) segments.push(`idle ${formatDuration(now - v.lastActiveAt)}`);
+      if (v.width === minWidth) segments.push("narrowest");
+      viewerRows.push(segments.join(" · "));
+    }
+  }
 
   // The session card: the SAME shared card shell as the window flyout (one
   // placement/containment/held implementation), on BOTH pointer classes —
@@ -183,9 +200,14 @@ function SessionRowInner({
           {name}
         </PopupTitleBar>
         {factsLine && <span className="text-text-secondary break-words">{factsLine}</span>}
-        {viewersLine && (
-          <span data-testid="row-flyout-viewers" className="text-text-secondary break-words">
-            {viewersLine}
+        {showViewers && (
+          <span data-testid="row-flyout-viewers" className="text-text-secondary break-words flex flex-col">
+            <span>{viewers.length} viewers</span>
+            {viewerRows.map((row, i) => (
+              <span key={i} data-testid="row-flyout-viewer">
+                {row}
+              </span>
+            ))}
           </span>
         )}
         <CardActionList>

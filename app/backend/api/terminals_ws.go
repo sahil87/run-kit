@@ -19,6 +19,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 
+	"rk/internal/sessions"
 	"rk/internal/tmux"
 	"rk/internal/validate"
 )
@@ -192,6 +193,66 @@ type stream struct {
 	cmd     *exec.Cmd
 	cleanup sync.Once
 	closed  chan struct{} // closed by teardown; the PTY reader selects on it
+	// unregister removes the attach's pid from the Server's attach registry.
+	// Set at publish alongside cmd; nil on a placeholder, the control
+	// pseudo-stream, or a failed attach — teardown's call is a no-op then.
+	unregister func()
+}
+
+// attachRegistry maps the pid of each relay-forked attach process to the facts
+// its conn knows (peer, device, live lastInbound). It is NOT a state store
+// (Constitution §II): it annotates only pids `tmux list-clients` already
+// reported, describing processes the daemon itself forked and dying with them
+// — a daemon restart empties it and kills every attach anyway (each is a child
+// PTY of the daemon). All methods are nil-receiver safe so a zero-value Server
+// (tests) needs no registry.
+type attachRegistry struct {
+	mu    sync.Mutex
+	byPID map[int]sessions.AttachMeta
+}
+
+func (r *attachRegistry) register(pid int, m sessions.AttachMeta) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.byPID[pid] = m
+	r.mu.Unlock()
+}
+
+func (r *attachRegistry) unregister(pid int) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	delete(r.byPID, pid)
+	r.mu.Unlock()
+}
+
+// Lookup answers the sessions.AttachResolver question; a nil registry resolves
+// nothing (every viewer stays kind "tty").
+func (r *attachRegistry) Lookup(pid int) (sessions.AttachMeta, bool) {
+	if r == nil {
+		return sessions.AttachMeta{}, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	m, ok := r.byPID[pid]
+	return m, ok
+}
+
+// snapshot returns a read-only copy of the registry for tests.
+func (r *attachRegistry) snapshot() map[int]sessions.AttachMeta {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[int]sessions.AttachMeta, len(r.byPID))
+	for pid, m := range r.byPID {
+		out[pid] = m
+	}
+	return out
 }
 
 // terminalsConn is the per-socket state: the stream registry + the writer's
@@ -219,7 +280,55 @@ type terminalsConn struct {
 	// liveness deadline's — both surface as the same net.Error timeout.
 	writerDead atomic.Bool
 
+	// Per-connection identity facts, captured once at upgrade. Display-only —
+	// see peerFromRequest for the trust boundary.
+	peer        string
+	device      string
+	connectedAt time.Time
+	// lastInbound is the unix-second time of the last inbound frame, stored
+	// where the liveness deadline is re-armed; the attach registry reads it
+	// through a closure so viewer idle is never a copied stale value.
+	lastInbound atomic.Int64
+
 	done chan struct{} // closed on socket teardown; stops the writer + producers
+}
+
+// peerFromRequest derives the display peer for a terminals connection: the
+// first comma-separated hop of X-Forwarded-For when present, else the host
+// half of RemoteAddr (the raw value when it carries no port). X-Forwarded-For
+// is trusted for DISPLAY ONLY — it is client-controlled and never feeds an
+// authorization decision.
+func peerFromRequest(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		return strings.TrimSpace(strings.SplitN(xff, ",", 2)[0])
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// deviceClass classifies a User-Agent into the closed set phone / tablet /
+// desktop / desktop-shell / unknown. Order matters: Electron/ first (the
+// desktop shell does not override Electron's default UA), then tablet, then
+// phone, then desktop. Known limitation: iPadOS Safari sends a Macintosh UA by
+// default, so a default-settings iPad classifies as desktop.
+func deviceClass(ua string) string {
+	switch {
+	case ua == "":
+		return "unknown"
+	case strings.Contains(ua, "Electron/"):
+		return "desktop-shell"
+	case strings.Contains(ua, "iPad") ||
+		(strings.Contains(ua, "Android") && !strings.Contains(ua, "Mobile")) ||
+		strings.Contains(ua, "Tablet"):
+		return "tablet"
+	case strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPod") || strings.Contains(ua, "Mobi"):
+		return "phone"
+	default:
+		return "desktop"
+	}
 }
 
 // streamCount returns the number of registered pane streams, excluding the
@@ -256,6 +365,10 @@ func (s *Server) handleTerminalsWS(w http.ResponseWriter, r *http.Request) {
 		streams: map[uint32]*stream{},
 		wake:    make(chan struct{}, 1),
 		done:    make(chan struct{}),
+		// Identity facts derived once from the upgrade request (display-only).
+		peer:        peerFromRequest(r),
+		device:      deviceClass(r.UserAgent()),
+		connectedAt: time.Now(),
 	}
 	tc.writeFrame = func(f outFrame) error {
 		conn.SetWriteDeadline(time.Now().Add(terminalsWriteWait))
@@ -285,11 +398,12 @@ func (s *Server) handleTerminalsWS(w http.ResponseWriter, r *http.Request) {
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() && !tc.writerDead.Load() {
 				slog.Info("terminals: liveness deadline expired; tearing down",
-					"streams", tc.streamCount(), "peer", r.RemoteAddr)
+					"streams", tc.streamCount(), "peer", tc.peer, "device", tc.device)
 			}
 			break
 		}
 		conn.SetReadDeadline(time.Now().Add(terminalsLivenessTimeout))
+		tc.lastInbound.Store(time.Now().Unix())
 		// The writer may have died between ReadMessage returning and the
 		// re-arm above, in which case its short cleanup deadline was just
 		// overwritten. writerDead is stored BEFORE the writer arms its
@@ -617,7 +731,19 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 	st.ptmx = ptmx
 	st.cancel = cancel
 	st.cmd = cmd
+	// Register immediately at publish; teardown invokes st.unregister BEFORE
+	// killAndReapAttach so a reused pid can never briefly alias the dead
+	// attach. The publish-race branch above never registers (its cmd is
+	// reaped there directly).
+	pid := cmd.Process.Pid
+	st.unregister = func() { tc.s.attachRegistry.unregister(pid) }
 	tc.mu.Unlock()
+	tc.s.attachRegistry.register(pid, sessions.AttachMeta{
+		Peer:        tc.peer,
+		Device:      tc.device,
+		ConnectedAt: tc.connectedAt,
+		LastInbound: tc.lastInbound.Load,
+	})
 
 	// Enqueue `opened` onto the stream's OWN queue BEFORE starting the PTY reader.
 	// Channel FIFO + the scheduler's short-frame priority guarantees the client
@@ -912,6 +1038,12 @@ func (st *stream) teardown() {
 		}
 		if st.ptmx != nil {
 			st.ptmx.Close()
+		}
+		// Unregister BEFORE the kill: the pid stays allocated until the
+		// process is reaped, so removing the registry entry first means a
+		// reused pid can never briefly alias this dead attach.
+		if st.unregister != nil {
+			st.unregister()
 		}
 		killAndReapAttach(st.cmd)
 	})

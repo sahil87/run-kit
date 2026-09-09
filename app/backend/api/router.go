@@ -228,6 +228,10 @@ type Server struct {
 	// The entry is released on a managed-check read failure so a transient
 	// wobble retries on a later attach. See reloadConfigForAttach.
 	attachReloaded sync.Map
+	// attachRegistry annotates relay-forked attach pids with their conn facts
+	// (viewer kind "rk"); prodSessionFetcher reads it through Lookup. Nil on
+	// test-constructed Servers — Lookup is nil-receiver safe.
+	attachRegistry *attachRegistry
 	// version is the running daemon version (ldflags-injected main.version),
 	// seeded once at startup via SetVersion. Read by handleRestart's dev guard
 	// (a "dev" build must not bounce the real daemon out from under `just dev`'s
@@ -403,12 +407,15 @@ func serverFromRequest(r *http.Request) string {
 // provider, when set (after the tmuxctl Supervisor is up — see
 // SetActiveWindowProvider), supplies the Tier-1 event-tracked active window. A
 // nil provider degrades FetchSessions to Tier-2-only (base-pointer) behavior.
+// The resolver joins relay-forked attach pids onto their conn facts (viewer
+// kind "rk"); nil degrades every viewer to kind "tty".
 type prodSessionFetcher struct {
 	provider sessions.ActiveWindowProvider
+	resolver sessions.AttachResolver
 }
 
 func (p *prodSessionFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
-	return sessions.FetchSessions(ctx, server, p.provider)
+	return sessions.FetchSessions(ctx, server, p.provider, p.resolver)
 }
 
 // prodTmuxOps wraps the tmux package for production use.
@@ -748,9 +755,10 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 
 	cfg := config.Load()
 
+	registry := &attachRegistry{byPID: map[int]sessions.AttachMeta{}}
 	s := &Server{
 		logger:          logger,
-		sessions:        &prodSessionFetcher{},
+		sessions:        &prodSessionFetcher{resolver: registry.Lookup},
 		tmux:            &prodTmuxOps{},
 		riff:            prodRiffEngine{},
 		wt:              prodWtOps{},
@@ -762,6 +770,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 		services:        svc,
 		prStatus:        pc,
 		cronFactsFn:     cron.GatherFactsLive,
+		attachRegistry:  registry,
 	}
 	// Wire the two on-demand PR-refresh kicks for POST /api/status/refresh. The
 	// collector kick nil-guards its own pointer (a partially-wired server may

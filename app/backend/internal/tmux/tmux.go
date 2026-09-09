@@ -1155,6 +1155,17 @@ type ClientInfo struct {
 	SessionGroupList string
 	// Flags is #{client_flags} split on commas (attached, focused, UTF-8, …).
 	Flags []string
+	// PID is #{client_pid} — the attach process's pid; for an rk-forked
+	// attach, the daemon's own child. 0 on a tmux too old to report it.
+	PID int
+	// Created is #{client_created} — when the client attached (zero when
+	// absent or unparsable).
+	Created time.Time
+	// Activity is #{client_activity} — the client's last activity (zero when
+	// absent or unparsable).
+	Activity time.Time
+	// TermName is #{client_termname}.
+	TermName string
 }
 
 // SessionKey returns the UI session key this client's attach counts against:
@@ -1187,9 +1198,12 @@ func isNumericGroupID(s string) bool {
 
 // clientFormat is the list-clients format string: client_tty, client_width,
 // client_height, session_name, session_group, session_group_list,
-// client_flags (7 fields). session_group_list rides along because
-// #{session_group} is an opaque numeric id on tmux 3.6a (see baseGroupName) —
-// the member-name list is the cross-version join key.
+// client_flags, client_pid, client_created, client_activity, client_termname
+// (11 fields). session_group_list rides along because #{session_group} is an
+// opaque numeric id on tmux 3.6a (see baseGroupName) — the member-name list is
+// the cross-version join key. client_pid is the attach process — for an
+// rk-forked attach, the daemon's own child. The trailing fields are append-only
+// so a 7-field line from an older tmux still parses (with zero values).
 var clientFormat = strings.Join([]string{
 	"#{client_tty}",
 	"#{client_width}",
@@ -1198,6 +1212,10 @@ var clientFormat = strings.Join([]string{
 	"#{session_group}",
 	"#{session_group_list}",
 	"#{client_flags}",
+	"#{client_pid}",
+	"#{client_created}",
+	"#{client_activity}",
+	"#{client_termname}",
 }, listDelim)
 
 // nonSizingClientFlags are the client_flags tokens whose attach class never
@@ -1210,9 +1228,12 @@ var nonSizingClientFlags = map[string]bool{
 }
 
 // parseClients parses tmux list-clients output lines into ClientInfo structs.
-// Lines are 7-field tab-delimited per clientFormat. A line is dropped when its
-// flags contain a nonSizingClientFlags token or when its width/height parses
-// non-positive (an unsized client cannot arbitrate window size either).
+// Lines are 11-field tab-delimited per clientFormat; the 7-field floor keeps a
+// legacy line from an older tmux (fields 7–10 stay zero — PID 0, zero times,
+// empty TermName — and the viewer still survives). A non-parsable trailing
+// field yields its zero value, never a dropped line. A line is dropped when
+// its flags contain a nonSizingClientFlags token or when its width/height
+// parses non-positive (an unsized client cannot arbitrate window size either).
 // Exported for testing.
 func parseClients(lines []string) []ClientInfo {
 	var clients []ClientInfo
@@ -1237,7 +1258,7 @@ func parseClients(lines []string) []ClientInfo {
 		if excluded {
 			continue
 		}
-		clients = append(clients, ClientInfo{
+		ci := ClientInfo{
 			TTY:              strings.TrimSpace(parts[0]),
 			Width:            width,
 			Height:           height,
@@ -1245,7 +1266,24 @@ func parseClients(lines []string) []ClientInfo {
 			SessionGroup:     parts[4],
 			SessionGroupList: parts[5],
 			Flags:            flags,
-		})
+		}
+		if len(parts) > 7 {
+			ci.PID, _ = strconv.Atoi(strings.TrimSpace(parts[7]))
+		}
+		if len(parts) > 8 {
+			if sec, err := strconv.ParseInt(strings.TrimSpace(parts[8]), 10, 64); err == nil {
+				ci.Created = time.Unix(sec, 0)
+			}
+		}
+		if len(parts) > 9 {
+			if sec, err := strconv.ParseInt(strings.TrimSpace(parts[9]), 10, 64); err == nil {
+				ci.Activity = time.Unix(sec, 0)
+			}
+		}
+		if len(parts) > 10 {
+			ci.TermName = parts[10]
+		}
+		clients = append(clients, ci)
 	}
 	return clients
 }

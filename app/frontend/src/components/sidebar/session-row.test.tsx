@@ -380,7 +380,65 @@ describe("SessionRow", () => {
       expect(chip.className).not.toContain("signal-yellow");
     });
 
-    it("lists each viewer's grid in the row card when the chip shows", () => {
+    it("renders one row per viewer with identity segments when the chip shows", () => {
+      // Pin the fake clock: the row floors Date.now()/1000 at render, after
+      // hoverRow advances the flyout delay, so an unpinned clock can cross a
+      // second boundary between fixture setup and render.
+      const nowSec = 1_757_500_000;
+      vi.setSystemTime(nowSec * 1000);
+      const session = makeSession({
+        name: "shared",
+        viewers: [
+          {
+            width: 116,
+            height: 37,
+            kind: "rk",
+            pid: 4242,
+            device: "phone",
+            peer: "100.64.0.12",
+            createdAt: nowSec - 240,
+            lastActiveAt: nowSec - 31,
+          },
+          {
+            width: 144,
+            height: 91,
+            kind: "tty",
+            pid: 5151,
+            createdAt: nowSec - 7200,
+            lastActiveAt: nowSec - 3,
+          },
+        ],
+      });
+      render(<SessionRow {...rowProps(session)} />);
+      hoverRow();
+      const container = screen.getByTestId("row-flyout-viewers");
+      expect(container).toHaveTextContent("2 viewers");
+      const rows = screen.getAllByTestId("row-flyout-viewer");
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toHaveTextContent("phone · 116×37 · 100.64.0.12 · 4m · idle 31s · narrowest");
+      expect(rows[1]).toHaveTextContent("tty · 144×91 · 2h · idle 3s");
+    });
+
+    it("marks every minimum-width viewer as narrowest (ties included)", () => {
+      const session = makeSession({
+        name: "shared",
+        viewers: [
+          { width: 116, height: 37 },
+          { width: 144, height: 91 },
+          { width: 116, height: 40 },
+        ],
+      });
+      render(<SessionRow {...rowProps(session)} />);
+      hoverRow();
+      const rows = screen.getAllByTestId("row-flyout-viewer");
+      expect(rows).toHaveLength(3);
+      expect(rows[0]).toHaveTextContent("116×37 · narrowest");
+      expect(rows[1]).toHaveTextContent("144×91");
+      expect(rows[1].textContent).not.toContain("narrowest");
+      expect(rows[2]).toHaveTextContent("116×40 · narrowest");
+    });
+
+    it("renders old-backend rows (width/height only) with no identity segments", () => {
       const session = makeSession({
         name: "shared",
         viewers: [
@@ -390,9 +448,10 @@ describe("SessionRow", () => {
       });
       render(<SessionRow {...rowProps(session)} />);
       hoverRow();
-      expect(screen.getByTestId("row-flyout-viewers")).toHaveTextContent(
-        "2 viewers · 144×91 · 116×37",
-      );
+      const rows = screen.getAllByTestId("row-flyout-viewer");
+      expect(rows).toHaveLength(2);
+      expect(rows[0].textContent).toBe("144×91");
+      expect(rows[1].textContent).toBe("116×37 · narrowest");
     });
 
     it("omits the card's viewer line below 2 viewers", () => {

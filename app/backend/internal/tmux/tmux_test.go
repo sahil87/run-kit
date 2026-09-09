@@ -3906,6 +3906,14 @@ func clientLine(tty string, width, height int, session, group, groupList, flags 
 	}, listDelim)
 }
 
+// clientLine11 builds the full 11-field clientFormat line.
+func clientLine11(tty string, width, height int, session, group, groupList, flags, pid, created, activity, termname string) string {
+	return strings.Join([]string{
+		tty, strconv.Itoa(width), strconv.Itoa(height), session, group, groupList, flags,
+		pid, created, activity, termname,
+	}, listDelim)
+}
+
 func TestParseClients(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -3958,6 +3966,42 @@ func TestParseClients(t *testing.T) {
 			name: "skips short lines",
 			lines: []string{
 				strings.Join([]string{"/dev/pts/1", "120", "40"}, listDelim),
+			},
+			want: nil,
+		},
+		{
+			name: "parses the 11-field identity fields",
+			lines: []string{
+				clientLine11("pts/3", 144, 91, "main", "", "", "attached,focused", "4242", "1757500000", "1757500300", "xterm-256color"),
+			},
+			want: []ClientInfo{
+				{TTY: "pts/3", Width: 144, Height: 91, SessionName: "main", Flags: []string{"attached", "focused"}, PID: 4242, Created: time.Unix(1757500000, 0), Activity: time.Unix(1757500300, 0), TermName: "xterm-256color"},
+			},
+		},
+		{
+			// Older tmux without client_pid/created/activity/termname: the
+			// 7-field floor keeps the viewer with zero identity values.
+			name: "7-field legacy line survives with zero identity values",
+			lines: []string{
+				clientLine("/dev/pts/1", 120, 40, "alpha", "", "", "attached"),
+			},
+			want: []ClientInfo{
+				{TTY: "/dev/pts/1", Width: 120, Height: 40, SessionName: "alpha", Flags: []string{"attached"}},
+			},
+		},
+		{
+			name: "non-numeric client_pid yields 0, line kept",
+			lines: []string{
+				clientLine11("/dev/pts/1", 120, 40, "alpha", "", "", "attached", "abc", "1757500000", "1757500300", "xterm-256color"),
+			},
+			want: []ClientInfo{
+				{TTY: "/dev/pts/1", Width: 120, Height: 40, SessionName: "alpha", Flags: []string{"attached"}, PID: 0, Created: time.Unix(1757500000, 0), Activity: time.Unix(1757500300, 0), TermName: "xterm-256color"},
+			},
+		},
+		{
+			name: "control-mode on an 11-field line is still dropped",
+			lines: []string{
+				clientLine11("/dev/pts/11", 80, 24, "runKit", "", "", "attached,control-mode", "4242", "1757500000", "1757500300", "xterm-256color"),
 			},
 			want: nil,
 		},

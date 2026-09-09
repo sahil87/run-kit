@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"os/exec"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 
+	"rk/internal/sessions"
 	"rk/internal/testutil"
 	"rk/internal/tmux"
 )
@@ -708,4 +710,188 @@ func TestTerminals_LivenessDeadlineDataFramesRefresh(t *testing.T) {
 	}
 	testutil.MustWaitUntil(t, 2*time.Second, func() bool { return pongs.Load() == 1 },
 		"socket did not answer a ping after the data-frame window")
+}
+
+// TestDeviceClass pins the closed-set UA classifier: five values, evaluated
+// Electron/ → tablet → phone → desktop, with the ordering cases (Electron
+// beats every other token; Android with Mobile is a phone, without it a
+// tablet).
+func TestDeviceClass(t *testing.T) {
+	tests := []struct {
+		name string
+		ua   string
+		want string
+	}{
+		{"empty is unknown", "", "unknown"},
+		{"iphone is phone", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1", "phone"},
+		{"ipod is phone", "Mozilla/5.0 (iPod touch; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148", "phone"},
+		{"android with Mobile is phone", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36", "phone"},
+		{"android without Mobile is tablet", "Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 Chrome/120.0 Safari/537.36", "tablet"},
+		{"ipad is tablet", "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1", "tablet"},
+		{"explicit Tablet token is tablet", "Mozilla/5.0 (Tablet; rv:121.0) Gecko/121.0 Firefox/121.0", "tablet"},
+		{"electron is desktop-shell", "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 Chrome/120.0 Electron/31.0.0 Safari/537.36", "desktop-shell"},
+		{"electron beats a phone token", "Mozilla/5.0 (Linux; Android 14) Mobile Electron/31.0.0", "desktop-shell"},
+		{"macintosh safari is desktop", "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 Safari/605.1.15", "desktop"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := deviceClass(tt.ua); got != tt.want {
+				t.Errorf("deviceClass(%q) = %q, want %q", tt.ua, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestPeerFromRequest pins the display-only peer derivation: the first
+// X-Forwarded-For hop wins; without the header, RemoteAddr's host half (or the
+// raw value when it carries no port).
+func TestPeerFromRequest(t *testing.T) {
+	tests := []struct {
+		name       string
+		xff        string
+		remoteAddr string
+		want       string
+	}{
+		{"first XFF hop wins", "100.64.0.12, 10.0.0.1", "127.0.0.1:51234", "100.64.0.12"},
+		{"single XFF hop", "100.64.0.12", "127.0.0.1:51234", "100.64.0.12"},
+		{"no XFF falls back to RemoteAddr host", "", "10.0.0.7:51234", "10.0.0.7"},
+		{"RemoteAddr without a port passes through", "", "10.0.0.7", "10.0.0.7"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/ws/terminals", nil)
+			r.RemoteAddr = tt.remoteAddr
+			if tt.xff != "" {
+				r.Header.Set("X-Forwarded-For", tt.xff)
+			}
+			if got := peerFromRequest(r); got != tt.want {
+				t.Errorf("peerFromRequest() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAttachRegistryNilSafe pins the zero-value-Server contract: every method
+// on a nil registry is a no-op, and Lookup resolves nothing (every viewer
+// stays kind "tty").
+func TestAttachRegistryNilSafe(t *testing.T) {
+	var r *attachRegistry
+	if _, ok := r.Lookup(1); ok {
+		t.Error("nil registry Lookup must resolve nothing")
+	}
+	r.register(1, sessions.AttachMeta{}) // must not panic
+	r.unregister(1)                      // must not panic
+	if r.snapshot() != nil {
+		t.Error("nil registry snapshot must be nil")
+	}
+}
+
+// registryTestConn builds a terminalsConn wired to a registry-carrying Server
+// over the real tmux ops — the direct attachStream-drive idiom.
+func registryTestConn(server string, registry *attachRegistry) *terminalsConn {
+	tc := &terminalsConn{
+		s:           &Server{tmux: &prodTmuxOps{}, attachRegistry: registry},
+		streams:     map[uint32]*stream{},
+		wake:        make(chan struct{}, 1),
+		done:        make(chan struct{}),
+		peer:        "100.64.0.12",
+		device:      "phone",
+		connectedAt: time.Now(),
+	}
+	tc.writeFrame = func(f outFrame) error { return nil }
+	return tc
+}
+
+// TestAttachRegistryLifecycle pins the register-at-publish /
+// unregister-at-teardown contract against a real attach: after attachStream
+// publishes, the attach pid resolves to the conn's meta (peer/device/connectedAt
+// plus the live lastInbound closure); after teardown it is gone.
+func TestAttachRegistryLifecycle(t *testing.T) {
+	server, _, win0ID, _ := withTerminalsTmux(t)
+	registry := &attachRegistry{byPID: map[int]sessions.AttachMeta{}}
+	tc := registryTestConn(server, registry)
+	defer close(tc.done)
+
+	st := &stream{id: 7, queue: make(chan outFrame, streamQueueDepth), closed: make(chan struct{})}
+	tc.streams[7] = st
+	tc.attachStream(openOp{Op: "open", ID: 7, Server: server, WindowID: win0ID, Cols: 80, Rows: 24}, st)
+
+	snap := registry.snapshot()
+	if len(snap) != 1 {
+		t.Fatalf("registry after publish = %v, want exactly one pid", snap)
+	}
+	var pid int
+	for p := range snap {
+		pid = p
+	}
+	meta, ok := registry.Lookup(pid)
+	if !ok {
+		t.Fatalf("Lookup(%d) = false after publish", pid)
+	}
+	if meta.Peer != "100.64.0.12" || meta.Device != "phone" {
+		t.Errorf("meta = %+v, want the conn's peer/device", meta)
+	}
+	if meta.LastInbound == nil {
+		t.Error("meta.LastInbound must be the conn's live closure, not nil")
+	}
+
+	st.teardown()
+	if _, ok := registry.Lookup(pid); ok {
+		t.Errorf("Lookup(%d) = true after teardown — the entry must die with the attach", pid)
+	}
+}
+
+// TestAttachStreamPublishRaceNeverRegisters pins the publish-race branch: a
+// stream whose placeholder was removed while the attach was in flight is
+// killed and reaped WITHOUT a registry entry (the never-published cmd's sole
+// owner is the race branch).
+func TestAttachStreamPublishRaceNeverRegisters(t *testing.T) {
+	server, _, win0ID, _ := withTerminalsTmux(t)
+	registry := &attachRegistry{byPID: map[int]sessions.AttachMeta{}}
+	tc := registryTestConn(server, registry)
+	defer close(tc.done)
+
+	// The placeholder is gone from the registry map but the stream is still
+	// live (neither st.closed nor tc.done), so attachStream runs the full
+	// resolve→attach path and only then hits the publish-race branch.
+	st := &stream{id: 7, queue: make(chan outFrame, streamQueueDepth), closed: make(chan struct{})}
+	tc.attachStream(openOp{Op: "open", ID: 7, Server: server, WindowID: win0ID, Cols: 80, Rows: 24}, st)
+
+	if snap := registry.snapshot(); len(snap) != 0 {
+		t.Errorf("publish-race branch registered %v — must never register", snap)
+	}
+}
+
+// TestStreamTeardownUnregistersBeforeKill pins the ordering contract: the
+// registry entry is removed before the attach process is killed and reaped, so
+// a reused pid can never briefly alias the dead attach. ProcessState is
+// populated only by Wait, so a nil ProcessState at unregister time proves the
+// kill+reap has not run yet.
+func TestStreamTeardownUnregistersBeforeKill(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, "sh", "-c", "sleep 30")
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 80, Rows: 24})
+	if err != nil {
+		cancel()
+		t.Skipf("pty start unavailable: %v", err)
+	}
+	var liveAtUnregister bool
+	st := &stream{
+		id:     1,
+		queue:  make(chan outFrame, streamQueueDepth),
+		closed: make(chan struct{}),
+		ptmx:   ptmx,
+		cancel: cancel,
+		cmd:    cmd,
+		unregister: func() {
+			liveAtUnregister = cmd.ProcessState == nil
+		},
+	}
+	st.teardown()
+	if !liveAtUnregister {
+		t.Error("unregister ran after the kill/reap — a reused pid could alias the dead attach")
+	}
+	if cmd.ProcessState == nil {
+		t.Fatal("child not reaped — teardown must still Wait after unregistering")
+	}
 }

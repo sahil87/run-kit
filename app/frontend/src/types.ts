@@ -80,8 +80,23 @@ export type ProjectSession = {
    *  from `tmux list-clients` (control-mode/ignore-size attaches and unsized
    *  clients excluded; group-copy attaches count against the leader row). The
    *  grid is the diagnostic payload — it identifies the clamping client.
-   *  Absent on zero-viewer sessions and on payloads from an older backend. */
-  viewers?: { width: number; height: number }[];
+   *  Absent on zero-viewer sessions and on payloads from an older backend.
+   *  Identity keys are additive and optional: `kind` is "rk" (a relay-forked
+   *  attach, enriched with the closed-set `device` tag and the display-only
+   *  `peer`) or "tty" (tmux-only facts); `createdAt`/`lastActiveAt` are
+   *  absolute unix seconds (never counters — the SSE hub dedups the sessions
+   *  JSON), age/idle derived at render. An old-backend payload carries only
+   *  width/height and must still render. */
+  viewers?: {
+    width: number;
+    height: number;
+    kind?: "rk" | "tty";
+    pid?: number;
+    device?: "phone" | "tablet" | "desktop" | "desktop-shell" | "unknown";
+    peer?: string;
+    createdAt?: number;
+    lastActiveAt?: number;
+  }[];
   /** Per-server operator-watchdog facts, stamped onto every session of the
    *  server by the FetchSessions join (one operator loop per server, so the
    *  value is identical across that server's sessions): `operatorLastTickAt`

@@ -24,7 +24,32 @@ import (
 type Viewer struct {
 	Width  int `json:"width"`
 	Height int `json:"height"`
+	// Additive identity fields, all omitempty — old frontends ignore them, old
+	// backends omit them.
+	Kind         string `json:"kind,omitempty"` // "rk" | "tty"
+	PID          int    `json:"pid,omitempty"`
+	Device       string `json:"device,omitempty"`       // rk only: phone|tablet|desktop|desktop-shell|unknown
+	Peer         string `json:"peer,omitempty"`         // rk only
+	CreatedAt    int64  `json:"createdAt,omitempty"`    // unix seconds, from #{client_created} (both kinds)
+	LastActiveAt int64  `json:"lastActiveAt,omitempty"` // unix seconds: rk → conn lastInbound; tty → #{client_activity}
 }
+
+// AttachMeta is what the relay knows about an attach client it forked. Supplied
+// by the api layer through AttachResolver so this package never imports api.
+type AttachMeta struct {
+	Peer        string
+	Device      string
+	ConnectedAt time.Time
+	// LastInbound reads the conn's last inbound frame time (unix seconds) at
+	// fold time — a closure over the conn's atomic, so the registry never
+	// copies a stale idle value. May be nil.
+	LastInbound func() int64
+}
+
+// AttachResolver answers "is this list-clients pid one of the relay's forked
+// attaches, and what does the relay know about its socket?". nil = every
+// viewer is tty.
+type AttachResolver func(pid int) (AttachMeta, bool)
 
 // ProjectSession is a tmux session with its windows and optional fab enrichment.
 type ProjectSession struct {
@@ -58,7 +83,12 @@ type ProjectSession struct {
 	// and joined by group key (ClientInfo.SessionKey), so a client attached
 	// via a derived group copy counts against the leader row. Absent when the
 	// session has no attached clients (omitempty); the frontend surfaces a
-	// viewer indicator only at ≥2.
+	// viewer indicator only at ≥2. Each viewer carries additive identity
+	// facts: kind "rk" (a relay-forked attach, enriched with device/peer) or
+	// "tty" (tmux-only facts), the attach pid, and absolute unix-second
+	// createdAt/lastActiveAt — never second-counters (the SSE hub dedups the
+	// sessions JSON; a counter would defeat the dedup on every safety
+	// rebuild).
 	Viewers []Viewer `json:"viewers,omitempty"`
 	// OperatorLastTickAt / OperatorStale are the per-server operator-watchdog
 	// staleness facts — the fab operator state file's last_tick_at against
@@ -76,7 +106,15 @@ type ProjectSession struct {
 // rule so a viewer attached via a derived group copy still counts against the
 // UI session). Pure (no I/O) so the join is unit-testable without a live
 // server. Returns nil for no clients.
-func foldViewers(clients []tmux.ClientInfo) map[string][]Viewer {
+//
+// Identity: every surviving client starts as kind "tty" with tmux's own
+// client_created/client_activity; when resolve reports the pid as one of the
+// relay's forked attaches, the viewer becomes kind "rk" with the relay's
+// device/peer and the conn's live lastInbound as lastActiveAt (falling back to
+// client_activity when the closure is nil or reports 0). A pid of 0 (older
+// tmux without client_pid) is always "tty" — identity degrades, nothing
+// breaks.
+func foldViewers(clients []tmux.ClientInfo, resolve AttachResolver) map[string][]Viewer {
 	if len(clients) == 0 {
 		return nil
 	}
@@ -86,7 +124,31 @@ func foldViewers(clients []tmux.ClientInfo) map[string][]Viewer {
 		if key == "" {
 			continue
 		}
-		bySession[key] = append(bySession[key], Viewer{Width: c.Width, Height: c.Height})
+		v := Viewer{
+			Width:  c.Width,
+			Height: c.Height,
+			Kind:   "tty",
+			PID:    c.PID,
+		}
+		if !c.Created.IsZero() {
+			v.CreatedAt = c.Created.Unix()
+		}
+		if !c.Activity.IsZero() {
+			v.LastActiveAt = c.Activity.Unix()
+		}
+		if c.PID > 0 && resolve != nil {
+			if meta, ok := resolve(c.PID); ok {
+				v.Kind = "rk"
+				v.Device = meta.Device
+				v.Peer = meta.Peer
+				if meta.LastInbound != nil {
+					if inbound := meta.LastInbound(); inbound > 0 {
+						v.LastActiveAt = inbound
+					}
+				}
+			}
+		}
+		bySession[key] = append(bySession[key], v)
 	}
 	return bySession
 }
@@ -549,8 +611,10 @@ var (
 // active-window derivation. The provider supplies the event-tracked active
 // window per group (Tier 1); when it is nil or has no entry for a session's
 // group, the base-session `#{window_active}` pointer parsed from tmux (Tier 2)
-// stands. A nil provider therefore degrades to exactly today's behavior.
-func FetchSessions(ctx context.Context, server string, provider ActiveWindowProvider) ([]ProjectSession, error) {
+// stands. A nil provider therefore degrades to exactly today's behavior. The
+// resolver joins relay-forked attach pids onto their conn facts (viewer kind
+// "rk"); a nil resolver degrades every viewer to kind "tty".
+func FetchSessions(ctx context.Context, server string, provider ActiveWindowProvider, resolve AttachResolver) ([]ProjectSession, error) {
 	sessionInfos, err := listSessionsFn(ctx, server)
 	if err != nil {
 		return nil, err
@@ -568,7 +632,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	if err != nil {
 		slog.Warn("list-clients failed; sessions carry no viewers", "server", server, "error", err)
 	}
-	viewers := foldViewers(clients)
+	viewers := foldViewers(clients, resolve)
 
 	// Fetch windows for all sessions in parallel.
 	data := make([]sessionData, len(sessionInfos))

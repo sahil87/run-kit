@@ -95,12 +95,129 @@ body {
   color: var(--viewer-muted);
 }
 
-/* Diagrams and scene exports render at full column width, transparent
- * background so the page theme shows through. */
-#viewer-root .viewer-diagram svg,
-#viewer-root .viewer-scene svg {
-  max-width: 100%;
-  height: auto;
+/* Zoomable figures (diagrams and scene exports). The SVG keeps its natural
+ * layout box; magnification is solely the transform the figure module writes,
+ * clipped by the viewport. No transitions anywhere in the figure, so
+ * prefers-reduced-motion needs no override. */
+.viewer-figure {
+  position: relative;
+  width: 100%;
+  outline: none;
+}
+
+.viewer-figure:focus-visible {
+  outline: 2px solid var(--viewer-link);
+  outline-offset: 2px;
+}
+
+.viewer-figure-viewport {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.viewer-figure-viewport svg {
+  display: block;
+}
+
+.viewer-figure[data-zoomed="true"] .viewer-figure-viewport {
+  cursor: grab;
+}
+
+.viewer-figure[data-zoomed="true"] .viewer-figure-viewport:active {
+  cursor: grabbing;
+}
+
+/* The excalidraw canvas: one scene per document, full-bleed and as tall as
+ * the frame viewport so panning has room. Under tile zoom the frame viewport
+ * is whatever the tile hands the frame, so the two compose. */
+body[data-format="excalidraw"] #viewer-root {
+  max-width: none;
+  padding: 0;
+}
+
+.viewer-figure[data-mode="canvas"] .viewer-figure-viewport {
+  height: 100vh;
+}
+
+/* Inline diagrams keep their fitted height (set by the figure module) and
+ * clip once zoomed; Expand grows the box to the viewport height. */
+.viewer-figure[data-mode="inline"] {
+  margin: 1rem 0;
+}
+
+.viewer-figure-controls {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  background: var(--viewer-bg);
+  border: 1px solid var(--viewer-border);
+  border-radius: 6px;
+  opacity: 0;
+  font-family:
+    ui-monospace,
+    "SF Mono",
+    Menlo,
+    Consolas,
+    monospace;
+  font-size: 0.8rem;
+}
+
+.viewer-figure:hover .viewer-figure-controls,
+.viewer-figure:focus-within .viewer-figure-controls {
+  opacity: 1;
+}
+
+.viewer-figure-controls button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--viewer-fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.viewer-figure-controls button:hover:not(:disabled) {
+  border-color: var(--viewer-border);
+}
+
+.viewer-figure-controls button:disabled {
+  color: var(--viewer-muted);
+  cursor: default;
+}
+
+.viewer-figure-controls button[aria-pressed="true"] {
+  border-color: var(--viewer-link);
+  color: var(--viewer-link);
+}
+
+.viewer-figure-controls button:focus-visible {
+  outline: 2px solid var(--viewer-link);
+  outline-offset: 1px;
+}
+
+.viewer-figure-controls output {
+  min-width: 4ch;
+  text-align: center;
+  color: var(--viewer-muted);
+}
+
+@media (pointer: coarse) {
+  .viewer-figure-controls {
+    opacity: 1;
+  }
+
+  .viewer-figure-controls button {
+    min-width: 36px;
+    min-height: 36px;
+  }
 }
 
 .viewer-error {

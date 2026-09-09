@@ -1,4 +1,5 @@
 import MarkdownIt from "markdown-it";
+import { mountZoomableFigure } from "./zoomable-figure";
 
 // Raw HTML passes through (html: true): sanitization is deliberately not the
 // trust boundary here — /present already serves same-origin-scripting .html
@@ -24,6 +25,7 @@ export async function renderMarkdown(root: HTMLElement, source: string): Promise
     startOnLoad: false,
     theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default",
   });
+  let ordinal = 0;
   for (const code of fences) {
     const pre = code.parentElement;
     if (pre === null) continue;
@@ -38,5 +40,8 @@ export async function renderMarkdown(root: HTMLElement, source: string): Promise
       continue;
     }
     pre.replaceWith(holder);
+    const el = holder.querySelector("svg");
+    // Measured after insertion: the fitted height depends on the column width.
+    if (el !== null) mountZoomableFigure(holder, el, { mode: "inline", label: `Diagram ${++ordinal}` });
   }
 }

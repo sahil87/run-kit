@@ -10,6 +10,8 @@
  *  unresolvable sibling type packages, so its call surface degrades to any —
  *  the compile-time contract lives here instead, and the exact-version pin
  *  keeps the runtime signature fixed. */
+import { mountZoomableFigure } from "./zoomable-figure";
+
 export interface ExcalidrawSceneInput {
   elements: readonly unknown[];
   appState?: { viewBackgroundColor?: string };
@@ -61,4 +63,6 @@ export async function renderExcalidraw(root: HTMLElement, source: string): Promi
   holder.className = "viewer-scene";
   holder.append(svg);
   root.replaceChildren(holder);
+  // Measured after insertion: the fit depends on the live viewport size.
+  mountZoomableFigure(holder, svg, { mode: "canvas", label: "Scene" });
 }

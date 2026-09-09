@@ -222,12 +222,17 @@ type terminalsConn struct {
 	done chan struct{} // closed on socket teardown; stops the writer + producers
 }
 
-// streamCount returns the number of registered streams (the control
-// pseudo-stream included when present).
+// streamCount returns the number of registered pane streams, excluding the
+// reserved control pseudo-stream (registered lazily by the first pong or
+// failed-open `closed`, so it would otherwise inflate the count by one).
 func (tc *terminalsConn) streamCount() int {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	return len(tc.streams)
+	n := len(tc.streams)
+	if _, ok := tc.streams[controlStreamID]; ok {
+		n--
+	}
+	return n
 }
 
 // handleTerminalsWS upgrades a `/ws/terminals` request and runs the mux: a read
@@ -285,6 +290,14 @@ func (s *Server) handleTerminalsWS(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		conn.SetReadDeadline(time.Now().Add(terminalsLivenessTimeout))
+		// The writer may have died between ReadMessage returning and the
+		// re-arm above, in which case its short cleanup deadline was just
+		// overwritten. writerDead is stored BEFORE the writer arms its
+		// deadline, so a false here means the writer's arm is still ahead
+		// and will win; a true means it may have lost — re-arm cleanup.
+		if tc.writerDead.Load() {
+			conn.SetReadDeadline(time.Now().Add(terminalsCleanupWait))
+		}
 		if msgType == websocket.BinaryMessage {
 			tc.handleDataFrame(msg)
 			continue

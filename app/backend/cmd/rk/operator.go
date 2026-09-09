@@ -33,10 +33,14 @@ import (
 // the full rk role write-path (stampOperatorRole), so no window can exist
 // unmarked.
 //
-// Both preconditions are HARD (exit 1): inside tmux, and fab on PATH. Unlike
-// tutorial's fail-open posture there is no default-launcher degrade for a
-// missing fab — an operator without fab-kit is meaningless (the /fab-operator
-// skill would not exist). No tmux subprocess runs before both pass.
+// Both preconditions are HARD (exit 1): fab on PATH always; inside tmux unless
+// -L/--server names the server explicitly (the daemon-invocable form: no $TMUX,
+// every tmux call addressed with -L <name>, the window opened in the home
+// directory, and a singleton hit reported without any switch-client — there is
+// no client to switch). Unlike tutorial's fail-open posture there is no
+// default-launcher degrade for a missing fab — an operator without fab-kit is
+// meaningless (the /fab-operator skill would not exist). No tmux subprocess
+// runs before both pass.
 //
 // The singleton probe is server-WIDE (unlike tutorial's session scope):
 // `list-windows -a` on the current server, matching @rk_win_role=operator first
@@ -85,9 +89,10 @@ var operatorDeliverDeadline = 25 * time.Second
 var operatorWorkersRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 var operatorWorkersFlag string
+var operatorServerFlag string
 
 var operatorCmd = &cobra.Command{
-	Use:   "operator [--workers <provider>]",
+	Use:   "operator [--workers <provider>] [-L <server>]",
 	Short: "Open the operator — the server-wide orchestrator agent tab (singleton)",
 	Long: `Open (or switch to) the run-kit operator: a per-tmux-server singleton
 window named 'operator' running the fab operator-tier agent, role-marked so
@@ -112,8 +117,14 @@ The pane drops to an interactive shell when the agent exits.
 is restricted to letters, digits, '_' and '-' (it enters the launch shell
 string), and an invalid value is a usage error before anything runs.
 
+-L/--server <name> addresses a NAMED tmux server instead of the caller's own:
+the inside-tmux precondition is waived (this is how the cron daemon invokes
+it), every tmux call runs against -L <name>, the window opens in your home
+directory, and an already-present operator tab is reported without switching
+any client.
+
 Prerequisites (both hard — the command refuses without either):
-  - You must be inside a tmux session ($TMUX set).
+  - You must be inside a tmux session ($TMUX set), unless -L/--server is given.
   - fab must be on PATH. The operator is meaningless without fab-kit — the
     companion toolkit that provides the /fab-operator skill and the agent
     profiles — so there is no degraded fallback when it is missing.
@@ -121,10 +132,11 @@ Prerequisites (both hard — the command refuses without either):
 Examples:
   run-kit operator                  # open (or return to) the server operator
   run-kit operator --workers kimi   # run its stage workers on another provider
+  run-kit operator -L runKit        # ensure the operator on server runKit
 
 Exit codes:
   0  success (including a window opened with an undeliverable kickoff)
-  1  precondition failure ($TMUX unset, fab not on PATH)
+  1  precondition failure ($TMUX unset without -L, fab not on PATH)
   2  usage error (invalid --workers value)
   3  subprocess failure (tmux non-zero exit, timeout)`,
 	Args: cobra.NoArgs,
@@ -134,6 +146,8 @@ Exit codes:
 func init() {
 	operatorCmd.Flags().StringVar(&operatorWorkersFlag, "workers", "",
 		"set FAB_AGENT_WORKERS for the launched operator agent (letters, digits, '_' and '-' only)")
+	operatorCmd.Flags().StringVarP(&operatorServerFlag, "server", "L", "",
+		"address the named tmux server (no $TMUX required; the window opens in the home directory; an existing operator tab is reported, not switched to)")
 }
 
 // operator*Fn are package-level seams so runOperator can be tested without a
@@ -145,9 +159,9 @@ func init() {
 // (roleClearExceptFn / roleRunFn / roleDemoteFn / roleMoveInFn) — one
 // implementation of the write path.
 // operatorRunFunc / operatorRunOutputFunc are the tmux-calling shapes the
-// create-and-mark helper is parameterized on, so the CLI ($TMUX-restored env)
-// and the cron respawner (daemon env, -L-addressed args) share one
-// implementation.
+// create-and-mark helper is parameterized on, so the interactive path
+// ($TMUX-restored env, bare args) and the -L/--server path (nil env,
+// -L-addressed args) share one implementation.
 type operatorRunFunc func(ctx context.Context, args, env []string) error
 type operatorRunOutputFunc func(ctx context.Context, args, env []string) ([]byte, error)
 
@@ -182,8 +196,9 @@ func runOperatorWithExitCode(cmd *cobra.Command, _ []string) error {
 }
 
 // runOperator is the testable core: --workers validation → hard preconditions
-// ($TMUX, fab on PATH) → server-wide singleton probe → create-and-mark → typed
-// kickoff delivery. No subprocess runs before the preconditions pass.
+// (fab on PATH always; $TMUX unless -L/--server names the server) →
+// server-wide singleton probe → create-and-mark → typed kickoff delivery. No
+// subprocess runs before the preconditions pass.
 func runOperator(cmd *cobra.Command) error {
 	// The charset gate is pure validation — it runs before ANY subprocess, so a
 	// rejected value never reaches a shell string (constitution §I). An empty
@@ -191,11 +206,24 @@ func runOperator(cmd *cobra.Command) error {
 	if operatorWorkersFlag != "" && !operatorWorkersRe.MatchString(operatorWorkersFlag) {
 		return usageError(fmt.Errorf("invalid --workers value %q: must match %s", operatorWorkersFlag, operatorWorkersRe))
 	}
-	if operatorOriginalTMUXFn() == "" {
-		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit operator: not inside a tmux session ($TMUX unset) — open the run-kit dashboard, create a session/window for this directory, then run `rk operator` inside it"}
+	// -L/--server is the daemon-invocable form: it addresses a named server
+	// outright, so the inside-tmux precondition is waived and no client is
+	// ever switched.
+	serverMode := operatorServerFlag != ""
+	originalTMUX := operatorOriginalTMUXFn()
+	if !serverMode && originalTMUX == "" {
+		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit operator: not inside a tmux session ($TMUX unset) — open the run-kit dashboard, create a session/window for this directory, then run `rk operator` inside it (or pass -L <server> to address a server by name)"}
 	}
 	if _, err := operatorLookPathFn("fab"); err != nil {
 		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit operator: fab not found on PATH — the operator requires fab-kit (the companion toolkit that provides the /fab-operator skill and agent profiles); install it first"}
+	}
+
+	// The server label keys both the cron seed's entry file and the kickoff
+	// delivery's tmux addressing: the -L value in server mode, else the
+	// caller's socket basename.
+	serverLabel := operatorServerFlag
+	if !serverMode {
+		serverLabel = cliServerLabel(originalTMUX)
 	}
 
 	// Idempotent operator-tick seeding: disk-only and independent of tmux
@@ -203,7 +231,7 @@ func runOperator(cmd *cobra.Command) error {
 	// return early) and is best-effort — a seed failure warns on stderr and
 	// never changes the exit code or skips the window open (the
 	// snapshotter/ticker posture).
-	seedOperatorTick(cmd)
+	seedOperatorTick(cmd, serverLabel)
 
 	parent := cmd.Context()
 	if parent == nil {
@@ -212,17 +240,30 @@ func runOperator(cmd *cobra.Command) error {
 	ctx, cancel := context.WithTimeout(parent, operatorCmdTimeout)
 	defer cancel()
 
-	env := cliChildEnv(operatorOriginalTMUXFn())
+	// Server mode prefixes every tmux call with -L <name> and runs with the
+	// process env as-is (there is no $TMUX to restore); the interactive path
+	// restores the caller's $TMUX and lets bare calls find the current server.
+	var env, serverPrefix []string
+	if serverMode {
+		serverPrefix = operatorServerPrefix(operatorServerFlag)
+	} else {
+		env = cliChildEnv(originalTMUX)
+	}
 
-	// Server-wide singleton probe: list-windows -a with $TMUX restored
-	// enumerates every session's windows on the current server. The @N id is
-	// the select target — window-id targeting is exempt from tmux's
-	// prefix/glob name resolution.
-	out, err := operatorRunOutputFn(ctx, []string{"list-windows", "-a", "-F", operatorListFormat}, env)
+	// Server-wide singleton probe: list-windows -a enumerates every session's
+	// windows on the server. The @N id is the select target — window-id
+	// targeting is exempt from tmux's prefix/glob name resolution.
+	out, err := operatorRunOutputFn(ctx, append(serverPrefix, "list-windows", "-a", "-F", operatorListFormat), env)
 	if err != nil {
 		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: fmt.Sprintf("run-kit operator: tmux list-windows failed: %v", err)}
 	}
 	if id := findOperatorWindowID(string(out)); id != "" {
+		if serverMode {
+			// There is no client to switch — the hit alone satisfies the
+			// command (the message must not claim one happened).
+			fmt.Fprintln(cmd.OutOrStdout(), "Operator tab already present.")
+			return nil
+		}
 		if err := operatorRunFn(ctx, []string{"select-window", "-t", id}, env); err != nil {
 			return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: fmt.Sprintf("run-kit operator: tmux select-window failed: %v", err)}
 		}
@@ -234,14 +275,26 @@ func runOperator(cmd *cobra.Command) error {
 		return nil
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("run-kit operator: resolve working directory: %w", err)
-	}
-	root := config.FindGitRoot(cwd)
-	windowDir := root
-	if windowDir == "" {
-		windowDir = cwd
+	// Server mode opens the window in the home directory (the invoker — a cron
+	// daemon — has no project cwd); the interactive path keeps the
+	// git-root-of-cwd rule.
+	var windowDir, root string
+	if serverMode {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("run-kit operator: resolve home directory: %w", err)
+		}
+		windowDir = home
+	} else {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("run-kit operator: resolve working directory: %w", err)
+		}
+		root = config.FindGitRoot(cwd)
+		windowDir = root
+		if windowDir == "" {
+			windowDir = cwd
+		}
 	}
 
 	// Agent resolution never errors — any failure (non-zero, timeout,
@@ -251,7 +304,20 @@ func runOperator(cmd *cobra.Command) error {
 	// Bare launcher (empty prompt): the kickoff is typed after boot, below.
 	shellCmd := operatorShellCommand(agent.Launcher, operatorWorkersFlag)
 
-	paneID, err := createMarkedOperatorWindow(ctx, operatorRunOutputFn, env, tmuxSocketArgs(operatorOriginalTMUXFn()), windowDir, shellCmd)
+	socketPrefix := serverPrefix
+	if !serverMode {
+		socketPrefix = tmuxSocketArgs(originalTMUX)
+	}
+	// Server mode addresses the create-and-mark helper's tmux calls at the
+	// named server too (createMarkedOperatorWindow applies the prefix itself
+	// only to the role stamp).
+	runOutput := operatorRunOutputFn
+	if serverMode {
+		runOutput = func(ctx context.Context, args, env []string) ([]byte, error) {
+			return operatorRunOutputFn(ctx, append(serverPrefix, args...), env)
+		}
+	}
+	paneID, err := createMarkedOperatorWindow(ctx, runOutput, env, socketPrefix, windowDir, shellCmd)
 	if err != nil {
 		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: "run-kit operator: " + err.Error()}
 	}
@@ -265,7 +331,7 @@ func runOperator(cmd *cobra.Command) error {
 	// Typed-kickoff delivery is best-effort: the window and its agent exist
 	// either way, so a delivery miss degrades to telling the user exactly what
 	// to paste — never a non-zero exit.
-	if deliverErr := deliverAgentKickoff(parent, operatorDeliverFn, operatorOriginalTMUXFn(), paneID, kickoff, operatorDeliverDeadline, operatorCmdTimeout); deliverErr != nil {
+	if deliverErr := deliverAgentKickoff(parent, operatorDeliverFn, serverLabel, paneID, kickoff, operatorDeliverDeadline, operatorCmdTimeout); deliverErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit operator: could not deliver the kickoff prompt (%v) — paste this into the operator agent yourself:\n  %s\n", deliverErr, kickoff)
 	}
 	return nil
@@ -275,14 +341,14 @@ func runOperator(cmd *cobra.Command) error {
 // (docs/specs/cron.md § Cron State's operator-tick example) so the cron
 // backstop exists on every server that has ever opened an operator. The
 // idempotency key is the role target — re-seeding after a user's edit (mute,
-// renamed, hand-tuned bounds) leaves the entry untouched. Best-effort: any
-// failure is one stderr warning, never a non-zero exit — opening the operator
-// tab is the command's job.
-func seedOperatorTick(cmd *cobra.Command) {
+// renamed, hand-tuned bounds) leaves the entry untouched apart from the
+// EnsureRoleEntry narrow upgrade (an empty respawn argv is filled from the
+// spec). Best-effort: any failure is one stderr warning, never a non-zero exit
+// — opening the operator tab is the command's job.
+func seedOperatorTick(cmd *cobra.Command, slug string) {
 	warn := func(err error) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit operator: could not seed the operator-tick cron entry: %v\n", err)
 	}
-	slug := cliServerLabel(operatorOriginalTMUXFn())
 	if !cron.ValidSlug(slug) {
 		warn(fmt.Errorf("invalid server slug %q", slug))
 		return
@@ -298,45 +364,56 @@ func seedOperatorTick(cmd *cobra.Command) {
 }
 
 // operatorTickEntrySpec builds the seeded entry with the spec's fixed
-// operator-tick field values (backoff 60s→30m on the operator-idle anchor,
-// wake on server-scoped agent-state-change debounced 10s, suppressed while
-// the loop is fresh or nothing is tracked, role:operator target, immediate
-// delivery, respawn-if-absent, pinned). created_by auto-captures the caller's
-// pane + now, the same inputs `rk cron add` uses inside a pane (session stays
-// empty — agent-session capture is a later wave).
+// operator-tick field values (backoff 60s→30m, wake on server-scoped
+// agent-state-change debounced 10s, role:operator target, immediate delivery,
+// if_absent respawn with the caller-supplied argv `rk operator -L {server}` —
+// the {server} placeholder resolves to the stamped server at fire time —
+// pinned). created_by auto-captures the caller's pane + now, the same inputs
+// `rk cron add` uses inside a pane (session stays empty — agent-session
+// capture is a later wave).
 func operatorTickEntrySpec() cron.Entry {
 	return cron.Entry{
 		Name: "operator tick",
 		Schedule: cron.Schedule{
-			Kind:   cron.ScheduleBackoff,
-			Anchor: "operator-idle",
-			Min:    cron.Duration{Duration: 60 * time.Second},
-			Max:    cron.Duration{Duration: 30 * time.Minute},
+			Kind: cron.ScheduleBackoff,
+			Min:  cron.Duration{Duration: 60 * time.Second},
+			Max:  cron.Duration{Duration: 30 * time.Minute},
 		},
 		WakeOn: &cron.WakeOn{
 			Event:    cron.WakeAgentStateChange,
 			Scope:    cron.WakeScopeServer,
 			Debounce: cron.Duration{Duration: 10 * time.Second},
 		},
-		SuppressWhile: []string{cron.GuardOperatorLoopFresh, cron.GuardNothingTracked},
-		Target:        cron.Target{Kind: cron.TargetRole, Role: cron.RoleOperator},
-		Payload:       "operator tick",
-		Deliver:       cron.DeliverImmediate,
-		IfAbsent:      cron.IfAbsentRespawn,
-		Pinned:        true,
-		CreatedBy:     cron.CreatedBy{Pane: cronTmuxPaneFn(), At: cronNowFn().Unix()},
+		Target:    cron.Target{Kind: cron.TargetRole, Role: cron.RoleOperator},
+		Payload:   "operator tick",
+		Deliver:   cron.DeliverImmediate,
+		IfAbsent:  cron.IfAbsentRespawn,
+		Respawn:   []string{"rk", "operator", "-L", "{server}"},
+		Pinned:    true,
+		CreatedBy: cron.CreatedBy{Pane: cronTmuxPaneFn(), At: cronNowFn().Unix()},
 	}
 }
 
+// operatorServerPrefix addresses tmux calls at a named server: bare for
+// ""/"default", else -L <server> — never "current server" (the -L/--server
+// path's invoker, the cron daemon, has none; internal/tmux's init scrubbed
+// TMUX from the process).
+func operatorServerPrefix(server string) []string {
+	if server == "" || server == "default" {
+		return nil
+	}
+	return []string{"-L", server}
+}
+
 // createMarkedOperatorWindow is the create-and-mark half of the operator
-// launch, shared by `rk operator` (CLI env: $TMUX restored, bare tmux args)
-// and the cron respawner (daemon env: TMUX/TMUX_PANE scrubbed, -L-addressed
-// args): new-window running shellCmd in windowDir → resolve the new window id
-// → atomically stamp the operator role via the full rk role write-path
-// (socketPrefix addresses the stamp's tmux calls), so no window exists
-// unmarked. Returns the new pane's id — the kickoff delivery's target.
-// Error texts are caller-prefixed ("run-kit operator: " / the respawn log
-// detail), so they carry no command name of their own.
+// launch, shared by the interactive path (CLI env: $TMUX restored, bare tmux
+// args, -S socket prefix for the stamp) and the -L/--server path (nil env,
+// -L-addressed args): new-window running shellCmd in windowDir → resolve the
+// new window id → atomically stamp the operator role via the full rk role
+// write-path (socketPrefix addresses the stamp's tmux calls), so no window
+// exists unmarked. Returns the new pane's id — the kickoff delivery's target.
+// Error texts are caller-prefixed ("run-kit operator: "), so they carry no
+// command name of their own.
 func createMarkedOperatorWindow(ctx context.Context, runOutput operatorRunOutputFunc, env, socketPrefix []string, windowDir, shellCmd string) (string, error) {
 	// -P -F captures the new pane's id — the typed delivery's send/capture
 	// target (pane-id targeting, like window-id, is exempt from name

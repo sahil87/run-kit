@@ -203,3 +203,50 @@ func TestGatherFactsEnumerationFailure(t *testing.T) {
 		t.Errorf("targets resolved on an empty server: %+v", out.Targets)
 	}
 }
+
+// TestGatherFactsAnyRole: role targets accept any @rk_win_role value — a
+// window stamped `reviewer` resolves a `role: reviewer` entry to that
+// window's agent pane; a role with no carrier reads unresolved with the
+// role-naming diagnostic.
+func TestGatherFactsAnyRole(t *testing.T) {
+	fk := newFakeTmux()
+	fk.sessions["dev"] = []tmux.SessionInfo{{Name: "work"}}
+	fk.windows["dev"] = map[string][]tmux.WindowInfo{
+		"work": {{
+			WindowID: "@5",
+			Role:     "reviewer",
+			Panes:    []tmux.PaneInfo{{PaneID: "%20", AgentState: tmux.AgentStateIdle}},
+		}},
+	}
+	fk.agent["dev"] = map[string]string{"@5": "%20"}
+	fk.panes["dev"] = map[string]tmux.PaneFacts{
+		"%20": {AgentState: tmux.AgentStateIdle, AgentStateEpoch: 1700000000},
+	}
+
+	entries := []Entry{
+		{ID: "rev", Target: Target{Kind: TargetRole, Role: "reviewer"}},
+		{ID: "none", Target: Target{Kind: TargetRole, Role: "wizard"}},
+	}
+	out := GatherFacts(context.Background(), "dev", entries, fk)
+
+	rev := out.Targets["rev"]
+	if !rev.Resolved() || rev.PaneID != "%20" || rev.StateEpoch != 1700000000 {
+		t.Errorf("reviewer role target = %+v, want %%20 epoch 1700000000", rev)
+	}
+	none := out.Targets["none"]
+	if none.Resolved() {
+		t.Errorf("un-carried role resolved: %+v", none)
+	}
+	if none.Unresolved != "no window carries role wizard" {
+		t.Errorf("unresolved detail = %q, want the role-naming form", none.Unresolved)
+	}
+	var sawDiag bool
+	for _, d := range out.Diags {
+		if d.EntryID == "none" && d.Reason == "target-unresolved" && d.Detail == "no window carries role wizard" {
+			sawDiag = true
+		}
+	}
+	if !sawDiag {
+		t.Errorf("diags = %+v, want the no-window-carries diagnostic for wizard", out.Diags)
+	}
+}

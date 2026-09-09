@@ -149,6 +149,57 @@ describe("ClockPanel", () => {
     expect(live.className).not.toContain("opacity-50");
   });
 
+  it("renders the lease remaining in the muted badge (as-of-fetch, like `in Ns`)", async () => {
+    vi.setSystemTime(new Date("2026-09-07T12:00:00Z"));
+    mockGetCron.mockResolvedValue(
+      asCronResponse([
+        makeEntry({
+          id: "a1b2",
+          name: "leased",
+          muted: true,
+          mutedUntil: Math.floor(Date.now() / 1000) + 240,
+        }),
+      ]),
+    );
+    renderPanel();
+    await flushFetch();
+
+    const row = screen.getByTestId("clock-row");
+    expect(row).toHaveTextContent("muted 4m");
+    expect(row.className).toContain("opacity-50");
+  });
+
+  it("renders the plain muted badge for an indefinite mute (no live mutedUntil)", async () => {
+    mockGetCron.mockResolvedValue(asCronResponse([makeEntry({ id: "a1b2", muted: true })]));
+    renderPanel();
+    await flushFetch();
+
+    const row = screen.getByTestId("clock-row");
+    expect(row).toHaveTextContent("muted");
+    expect(row).not.toHaveTextContent(/muted \d/);
+    expect(row.className).toContain("opacity-50");
+  });
+
+  it("renders no badge for an expired lease — the server already reports muted:false", async () => {
+    vi.setSystemTime(new Date("2026-09-07T12:00:00Z"));
+    mockGetCron.mockResolvedValue(
+      asCronResponse([
+        makeEntry({
+          id: "a1b2",
+          name: "lapsed",
+          muted: false,
+          mutedUntil: Math.floor(Date.now() / 1000) - 60,
+        }),
+      ]),
+    );
+    renderPanel();
+    await flushFetch();
+
+    const row = screen.getByTestId("clock-row");
+    expect(row).not.toHaveTextContent("muted");
+    expect(row.className).not.toContain("opacity-50");
+  });
+
   it("re-fetches when the server's sessions slice changes identity (the SSE tick signal)", async () => {
     const sessions = [makeSession({ name: "main" })];
     sessionsByServer = new Map([["primary", sessions]]);
@@ -190,6 +241,16 @@ describe("ClockPanel", () => {
 
     it("Unmute posts muted:false for an already-muted entry", async () => {
       await renderAndOpen(makeEntry({ id: "a1b2", muted: true }));
+      fireEvent.click(screen.getByTestId("row-flyout-mute-action"));
+      expect(mockMuteCron).toHaveBeenCalledWith("primary", "a1b2", false);
+    });
+
+    it("Unmute posts muted:false for a leased entry (clears flag and lease)", async () => {
+      vi.setSystemTime(new Date("2026-09-07T12:00:00Z"));
+      await renderAndOpen(
+        makeEntry({ id: "a1b2", muted: true, mutedUntil: Math.floor(Date.now() / 1000) + 240 }),
+      );
+      expect(screen.getByTestId("row-flyout-mute-action")).toHaveTextContent("Unmute");
       fireEvent.click(screen.getByTestId("row-flyout-mute-action"));
       expect(mockMuteCron).toHaveBeenCalledWith("primary", "a1b2", false);
     });

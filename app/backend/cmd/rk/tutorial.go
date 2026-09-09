@@ -191,7 +191,7 @@ func runTutorial(cmd *cobra.Command) error {
 	// to paste — never a non-zero exit.
 	deliverErr := errors.New("tmux new-window printed no pane id")
 	if paneID := strings.TrimSpace(string(paneOut)); paneID != "" {
-		deliverErr = deliverAgentKickoff(parent, tutorialDeliverFn, tutorialOriginalTMUXFn(), paneID, tutorialKickoffPrompt, tutorialDeliverDeadline, tutorialCmdTimeout)
+		deliverErr = deliverAgentKickoff(parent, tutorialDeliverFn, cliServerLabel(tutorialOriginalTMUXFn()), paneID, tutorialKickoffPrompt, tutorialDeliverDeadline, tutorialCmdTimeout)
 	}
 	if deliverErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit tutorial: could not deliver the kickoff prompt (%v) — paste this into the tour agent yourself:\n  %s\n", deliverErr, tutorialKickoffPrompt)

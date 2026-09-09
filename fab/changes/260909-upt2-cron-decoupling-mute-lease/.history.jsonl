@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-09T07:17:06Z"}
+{"args":"Cron decoupling — explicit operator control (mute lease), generic roles, schema-less backoff anchor, caller-supplied respawn, fab-file path fix, help clarification","cmd":"fab-new","event":"command","ts":"2026-09-09T07:17:06Z"}
+{"delta":"+3.6","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-09-09T07:22:01Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-09T07:23:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-09T07:25:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-09T08:02:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-09T08:10:14Z"}
+{"event":"review","result":"passed","ts":"2026-09-09T08:10:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-09T08:23:04Z"}

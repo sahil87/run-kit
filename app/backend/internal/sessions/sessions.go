@@ -534,6 +534,16 @@ type sessionData struct {
 	windows []tmux.WindowInfo
 }
 
+// FetchSessions' tmux seams — package-level vars (the internal/tmux sweep-var
+// idiom) so tests drive the fetch path with fakes instead of a live tmux
+// server; production binds the internal/tmux functions verbatim.
+var (
+	listSessionsFn = tmux.ListSessions
+	listClientsFn  = tmux.ListClients
+	listWindowsFn  = tmux.ListWindows
+	socketPathFn   = tmux.SocketPath
+)
+
 // FetchSessions fetches all sessions from the specified server, derives project
 // roots from tmux, enriches with fab state, and applies the two-tier
 // active-window derivation. The provider supplies the event-tracked active
@@ -541,7 +551,7 @@ type sessionData struct {
 // group, the base-session `#{window_active}` pointer parsed from tmux (Tier 2)
 // stands. A nil provider therefore degrades to exactly today's behavior.
 func FetchSessions(ctx context.Context, server string, provider ActiveWindowProvider) ([]ProjectSession, error) {
-	sessionInfos, err := tmux.ListSessions(ctx, server)
+	sessionInfos, err := listSessionsFn(ctx, server)
 	if err != nil {
 		return nil, err
 	}
@@ -554,7 +564,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	// class as the enumeration calls), folded onto sessions by group key. A
 	// failure degrades to no viewers (log-and-continue) — the fetch itself
 	// never fails on it.
-	clients, err := tmux.ListClients(ctx, server)
+	clients, err := listClientsFn(ctx, server)
 	if err != nil {
 		slog.Warn("list-clients failed; sessions carry no viewers", "server", server, "error", err)
 	}
@@ -568,7 +578,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 		wg.Add(1)
 		go func(idx int, si tmux.SessionInfo) {
 			defer wg.Done()
-			windows, _ := tmux.ListWindows(ctx, si.Name, server)
+			windows, _ := listWindowsFn(ctx, si.Name, server)
 			if windows == nil {
 				windows = []tmux.WindowInfo{}
 			}
@@ -599,10 +609,17 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	// state file per fetch (server-scoped — no per-cwd memo needed, unlike the
 	// fab tier), joined onto windows by pane ID via joinWatchlist; its
 	// last_tick_at doubles as the per-server staleness timestamp populated
-	// identically on every ProjectSession below.
+	// identically on every ProjectSession below. The file name is the slugified
+	// SOCKET PATH, not the server name (fab's naming — a cross-repo contract,
+	// see cron.FabOperatorSlug); a failed socket-path query degrades to the
+	// "default" slug, fab's own cold-name fallback, and is never surfaced.
 	var watchlistByPane map[string]cron.WatchlistEntry
 	var operatorLastTickAt int64
-	if opPath, err := cron.FabOperatorStatePath(server); err == nil {
+	slug := "default"
+	if sock, sockErr := socketPathFn(ctx, server); sockErr == nil {
+		slug = cron.FabOperatorSlug(sock)
+	}
+	if opPath, err := cron.FabOperatorStatePath(slug); err == nil {
 		entries, lastTickAt, present := cron.ReadWatchlist(opPath)
 		if present {
 			operatorLastTickAt = lastTickAt

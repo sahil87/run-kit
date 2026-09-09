@@ -17,13 +17,14 @@ func resetCronFlags() {
 	cronAddCatchUp = ""
 	cronAddMin, cronAddMax = time.Minute, 30*time.Minute
 	cronAddName, cronAddDeliver, cronAddIfAbsent = "", cron.DeliverImmediate, cron.IfAbsentSkip
+	cronAddRespawn = nil
 	cronAddPinned = false
 	cronAddRole, cronAddPane, cronAddSession = "", "", ""
 	cronListJSONFlag = false
-	cronMuteOffFlag, cronPinOffFlag = false, false
-	resetFlagChanged(cronAddCmd, "every", "backoff", "cron", "catch-up", "min", "max", "name", "deliver", "if-absent", "pinned", "role", "pane", "session")
+	cronMuteOffFlag, cronMuteForFlag, cronPinOffFlag = false, 0, false
+	resetFlagChanged(cronAddCmd, "every", "backoff", "cron", "catch-up", "min", "max", "name", "deliver", "if-absent", "respawn", "pinned", "role", "pane", "session")
 	resetFlagChanged(cronListCmd, "json")
-	resetFlagChanged(cronMuteCmd, "off")
+	resetFlagChanged(cronMuteCmd, "off", "for")
 	resetFlagChanged(cronPinCmd, "off")
 	// The parent's persistent -L is shared by every cron invocation, so an
 	// explicit `-L x` from one test would otherwise leak into the next.

@@ -17,13 +17,13 @@ const specExampleYAML = `
 entries:
   - id: a3f9
     name: operator tick
-    schedule: { kind: backoff, anchor: operator-idle, min: 60s, max: 30m }
+    schedule: { kind: backoff, min: 60s, max: 30m }
     wake_on: { event: agent-state-change, scope: server, debounce: 10s }
-    suppress_while: [operator-loop-fresh, nothing-tracked]
     target: { kind: role, role: operator }
     payload: "operator tick"
     deliver: immediate
     if_absent: respawn
+    respawn: ["rk", "operator", "-L", "{server}"]
     pinned: true
     created_by: { session: 8c1e, pane: "%12", at: 1788254000 }
   - id: k7q2
@@ -57,7 +57,7 @@ func TestSpecExampleRoundTrips(t *testing.T) {
 	if op.ID != "a3f9" || op.Name != "operator tick" {
 		t.Errorf("entry = %+v", op)
 	}
-	if op.Schedule.Kind != ScheduleBackoff || op.Schedule.Anchor != "operator-idle" {
+	if op.Schedule.Kind != ScheduleBackoff {
 		t.Errorf("schedule = %+v", op.Schedule)
 	}
 	if op.Schedule.Min.Duration != 60*time.Second || op.Schedule.Max.Duration != 30*time.Minute {
@@ -67,8 +67,8 @@ func TestSpecExampleRoundTrips(t *testing.T) {
 		op.WakeOn.Scope != WakeScopeServer || op.WakeOn.Debounce.Duration != 10*time.Second {
 		t.Errorf("wake_on = %+v", op.WakeOn)
 	}
-	if !reflect.DeepEqual(op.SuppressWhile, []string{GuardOperatorLoopFresh, GuardNothingTracked}) {
-		t.Errorf("suppress_while = %v", op.SuppressWhile)
+	if !reflect.DeepEqual(op.Respawn, []string{"rk", "operator", "-L", "{server}"}) {
+		t.Errorf("respawn = %v", op.Respawn)
 	}
 	if op.Target.Kind != TargetRole || op.Target.Role != RoleOperator {
 		t.Errorf("target = %+v", op.Target)
@@ -162,13 +162,16 @@ func TestEntryValidate(t *testing.T) {
 			e.Schedule = Schedule{Kind: ScheduleBackoff, Min: Duration{time.Hour}, Max: Duration{time.Minute}}
 		}, true},
 		{"backoff valid", func(e *Entry) {
-			e.Schedule = Schedule{Kind: ScheduleBackoff, Anchor: "operator-idle", Min: Duration{time.Minute}, Max: Duration{30 * time.Minute}}
+			e.Schedule = Schedule{Kind: ScheduleBackoff, Min: Duration{time.Minute}, Max: Duration{30 * time.Minute}}
 		}, false},
 		{"unknown target kind", func(e *Entry) { e.Target.Kind = "bogus" }, true},
 		{"role target needs role", func(e *Entry) { e.Target = Target{Kind: TargetRole} }, true},
 		{"role target valid", func(e *Entry) { e.Target = Target{Kind: TargetRole, Role: RoleOperator} }, false},
 		{"session target needs id", func(e *Entry) { e.Target = Target{Kind: TargetSession} }, true},
 		{"pane target validates %N", func(e *Entry) { e.Target = Target{Kind: TargetPane, Pane: "12"} }, true},
+		{"respawn argv valid", func(e *Entry) { e.Respawn = []string{"rk", "operator"} }, false},
+		{"respawn present but empty", func(e *Entry) { e.Respawn = []string{} }, true},
+		{"respawn empty argv0", func(e *Entry) { e.Respawn = []string{""} }, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -211,6 +214,72 @@ entries:
 	}
 	if len(diags) != 1 || diags[0].Reason != "entry-invalid" || diags[0].EntryID != "bad1" {
 		t.Errorf("diags = %+v, want one entry-invalid for bad1", diags)
+	}
+}
+
+// TestLoadEntriesToleratesRetiredKeys: a file written by an older rk (carrying
+// the retired anchor: and suppress_while: keys) loads with zero diagnostics —
+// unknown keys are ignored — and a load never rewrites the file.
+func TestLoadEntriesToleratesRetiredKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dev.yaml")
+	body := `
+entries:
+  - id: a3f9
+    name: operator tick
+    schedule: { kind: backoff, anchor: idle, min: 60s, max: 30m }
+    suppress_while: [operator-loop-fresh, nothing-tracked]
+    target: { kind: role, role: operator }
+    payload: "operator tick"
+    deliver: immediate
+    if_absent: respawn
+    pinned: true
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entries, diags := LoadEntries(path)
+	if len(diags) != 0 {
+		t.Errorf("diags = %+v, want none (retired keys are ignored)", diags)
+	}
+	if len(entries) != 1 || entries[0].ID != "a3f9" {
+		t.Fatalf("entries = %+v, want a3f9 loaded", entries)
+	}
+	if entries[0].Schedule.Min.Duration != time.Minute {
+		t.Errorf("backoff min = %v", entries[0].Schedule.Min)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != body {
+		t.Error("a load rewrote the entry file")
+	}
+}
+
+// TestEffectivelyMuted: the flag mutes; a lease mutes while live and lapses on
+// its own once expired.
+func TestEffectivelyMuted(t *testing.T) {
+	now := time.Unix(1788254000, 0)
+	cases := []struct {
+		name string
+		e    Entry
+		want bool
+	}{
+		{"plain", Entry{}, false},
+		{"flag", Entry{Muted: true}, true},
+		{"live lease", Entry{MutedUntil: now.Add(time.Minute).Unix()}, true},
+		{"expired lease", Entry{MutedUntil: now.Add(-time.Minute).Unix()}, false},
+		{"lease expiring exactly now is lapsed", Entry{MutedUntil: now.Unix()}, false},
+		{"zero lease is no lease", Entry{MutedUntil: 0}, false},
+		{"flag plus expired lease", Entry{Muted: true, MutedUntil: now.Add(-time.Minute).Unix()}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.e.EffectivelyMuted(now); got != tc.want {
+				t.Errorf("EffectivelyMuted = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

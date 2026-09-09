@@ -10,6 +10,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/cron"
 	"rk/internal/inject"
+	"rk/internal/push"
 	"rk/internal/riff"
 	"rk/internal/snapshot"
 	"rk/internal/tmux"
@@ -18,10 +19,9 @@ import (
 // cron_respawn_session.go — the production cron.Deps.SessionRespawner (wired
 // in serve.go): brings a dead session target back by resuming the conversation
 // from its recently-closed ring record, then delivers the ENTRY'S PAYLOAD
-// ITSELF (resume restores context, so the role path's never-bare-tick rule
-// does not apply and no kickoff exists for arbitrary sessions). It lives in
-// cmd/rk for the same package-boundary reason as cron_respawn.go (riff.Spawn,
-// the snapshot store).
+// ITSELF (resume restores context, so no kickoff exists for arbitrary
+// sessions). It lives in cmd/rk because internal/cron cannot import riff.Spawn
+// or the snapshot store (the cronInjectTmux package-boundary rule).
 //
 // The respawn source is the server's recently-closed ring (newest-first), the
 // FIRST record whose AgentRef equals the target session ref — without a record
@@ -44,8 +44,9 @@ import (
 // respawn-failed — the clock never auto-answers walls.
 
 // cronSessionRespawnBuffer is the session-respawn delivery's named paste
-// buffer — the cronRespawnBuffer precedent: respawns are serialized by the
-// tick flock, so one fixed name cannot interleave with itself.
+// buffer — a fixed per-client name (the rk-agent-send / rk-cron-send
+// precedent): respawns are serialized by the tick flock, so one fixed name
+// cannot interleave with itself.
 const cronSessionRespawnBuffer = "rk-cron-respawn-session"
 
 // cronSessionSpawnTimeout bounds the whole riff spawn (the api
@@ -66,7 +67,7 @@ const cronSessionResumeProvider = "claude"
 var cronSessionUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // Seams so the respawner is testable without a live tmux server, snapshot
-// store, or push subscription (the cronRespawn* pattern).
+// store, or push subscription (the operator.go pattern).
 var (
 	cronSessionListClosedFn = func(store *snapshot.Store, server string) ([]snapshot.ClosedWindow, error) {
 		return store.ListClosed(server)
@@ -77,15 +78,20 @@ var (
 	cronSessionFindGitRootFn      = config.FindGitRoot
 	cronSessionSpawnFn            = riff.Spawn
 	cronSessionSetWindowOptionsFn = tmux.SetWindowOptions
-	// cronSessionRespawnDeliverFn mirrors cronRespawnDeliverFn:
-	// DeliverWhenReady with the reconciled state reader under the
-	// operatorDeliverDeadline bound.
+	// cronSessionRespawnDeliverFn mirrors operatorDeliverFn: DeliverWhenReady
+	// with the reconciled state reader under the operatorDeliverDeadline bound.
 	cronSessionRespawnDeliverFn = kickoffDeliverFn(func(ctx context.Context, engine *inject.Engine, t inject.Tmux, server, paneID, text string) (inject.Readiness, error) {
 		return inject.DeliverWhenReady(ctx, t, server, paneID, inject.Sanitize(text), true, engine, inject.ReadyOpts{
 			State:    boundedPaneAgentState,
 			Deadline: operatorDeliverDeadline,
 		})
 	})
+	// cronSessionRespawnNotifyFn is the fail-silent escalation seam — the same
+	// production default Deps.Notifier falls back to (push.Notify).
+	cronSessionRespawnNotifyFn = func(ctx context.Context, title, body, url string) error {
+		_, err := push.Notify(ctx, title, body, url)
+		return err
+	}
 )
 
 // rkCronRespawnSession binds the session respawner to the snapshot store —
@@ -178,8 +184,9 @@ func cronRespawnSession(ctx context.Context, store *snapshot.Store, fire cron.Fi
 
 	// Spawn-then-deliver: the context outlives the readiness wait by one
 	// command timeout so the engine's bounded subprocesses still fit after a
-	// slow boot (the cronRespawnRole shape). The text is the entry's payload
-	// itself — resume restores the conversation's context, so no kickoff.
+	// slow boot (the deliverAgentKickoff shape). The text is the entry's
+	// payload itself — resume restores the conversation's context, so no
+	// kickoff.
 	dctx, dcancel := context.WithTimeout(ctx, operatorDeliverDeadline+operatorCmdTimeout)
 	defer dcancel()
 	engine := inject.NewEngine(cronSessionRespawnBuffer)
@@ -198,17 +205,16 @@ func cronRespawnSession(ctx context.Context, store *snapshot.Store, fire cron.Fi
 }
 
 // cronSessionRespawnEscalate notifies fail-silently (naming the entry and
-// server) and returns the respawn-failed outcome — the cronRespawnEscalate
-// contract. windowID is the spawned window on a post-spawn failure (the
-// deep-link target); "" pre-spawn notifies URL-less. A notify failure is
-// logged, never propagated — the outcome (and its anchor advance) stands
-// either way.
+// server) and returns the respawn-failed outcome. windowID is the spawned
+// window on a post-spawn failure (the deep-link target); "" pre-spawn notifies
+// URL-less. A notify failure is logged, never propagated — the outcome (and
+// its anchor advance) stands either way.
 func cronSessionRespawnEscalate(ctx context.Context, fire cron.Fire, windowID, detail string) cron.Outcome {
 	name := fire.Entry.Name
 	if name == "" {
 		name = fire.Entry.ID
 	}
-	if err := cronRespawnNotifyFn(ctx, "cron: "+name, fmt.Sprintf("session respawn failed on %s: %s", fire.Server, detail), cron.PushURL(fire.Server, windowID)); err != nil {
+	if err := cronSessionRespawnNotifyFn(ctx, "cron: "+name, fmt.Sprintf("session respawn failed on %s: %s", fire.Server, detail), cron.PushURL(fire.Server, windowID)); err != nil {
 		slog.Warn("cron session respawn escalation notify failed", "server", fire.Server, "entry", fire.Entry.ID, "err", err)
 	}
 	return cron.Outcome{Status: "respawn-failed", Detail: detail}

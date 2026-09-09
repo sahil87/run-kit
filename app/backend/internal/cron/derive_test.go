@@ -8,7 +8,7 @@ import (
 func backoffEntry() Entry {
 	return Entry{
 		ID:       "a3f9",
-		Schedule: Schedule{Kind: ScheduleBackoff, Anchor: "operator-idle", Min: Duration{Duration: 60 * time.Second}, Max: Duration{Duration: 30 * time.Minute}},
+		Schedule: Schedule{Kind: ScheduleBackoff, Min: Duration{Duration: 60 * time.Second}, Max: Duration{Duration: 30 * time.Minute}},
 		Target:   Target{Kind: TargetRole, Role: RoleOperator},
 	}
 }

@@ -1632,7 +1632,6 @@ export async function getRiffPresets(
 export interface CronSchedule {
   kind: string;
   interval?: string;
-  anchor?: string;
   min?: string;
   max?: string;
   expr?: string;
@@ -1658,7 +1657,13 @@ export interface CronEntry {
   deliver?: string;
   ifAbsent?: string;
   pinned?: boolean;
+  /** Effective mute state — the stored flag OR an unexpired lease, resolved
+   *  server-side. Consumers key dimming on this without knowing about leases. */
   muted?: boolean;
+  /** Mute-lease expiry (unix seconds), present only while a lease is stored —
+   *  check it against the fetch time: an expired value means the entry is
+   *  already unmuted (the server reports `muted: false` then). */
+  mutedUntil?: number;
   lastFired: number;
   nextFire?: number;
   rung?: number;

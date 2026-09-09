@@ -29,7 +29,7 @@ entries:
     created_by: { pane: "%42", at: 1756999999 }
   - id: k7q2
     name: op tick
-    schedule: { kind: backoff, anchor: operator-idle, min: 60s, max: 30m }
+    schedule: { kind: backoff, min: 60s, max: 30m }
     target: { kind: role, role: operator }
     payload: "tick"
     deliver: when-idle
@@ -176,5 +176,64 @@ entries:
 	}
 	if !strings.Contains(stderr, "entry-invalid") {
 		t.Errorf("stderr = %q, want the entry-invalid diagnostic", stderr)
+	}
+}
+
+// TestCronListMuteLease: a live lease renders muted(<remaining>) in FLAGS and
+// reports effective muted + muted_until in --json; an expired lease renders
+// neither (effective muted governs — no flag is needed for the lease form).
+func TestCronListMuteLease(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	origNow := cronNowFn
+	cronNowFn = func() time.Time { return time.Unix(1757000000, 0) }
+	t.Cleanup(func() { cronNowFn = origNow })
+	writeCronFixture(t, dir, "work", `
+entries:
+  - id: l1ve
+    name: leased
+    schedule: { kind: every, interval: 1h }
+    target: { kind: pane, pane: "%42" }
+    payload: "sweep"
+    muted_until: 1757000240
+  - id: xp1r
+    name: expired lease
+    schedule: { kind: every, interval: 1h }
+    target: { kind: pane, pane: "%43" }
+    payload: "sweep"
+    muted_until: 1756999900
+`)
+
+	stdout, _, err := runCronCmd(t, "list")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(stdout, "muted(4m)") {
+		t.Errorf("stdout missing the lease flag \"muted(4m)\":\n%s", stdout)
+	}
+	if strings.Contains(stdout, "xp1r") && strings.Contains(
+		stdout[strings.Index(stdout, "xp1r"):], "muted") {
+		t.Errorf("expired lease row renders a muted flag:\n%s", stdout)
+	}
+
+	stdout, _, err = runCronCmd(t, "list", "--json")
+	if err != nil {
+		t.Fatalf("list --json: %v", err)
+	}
+	var raw []map[string]any
+	if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
+		t.Fatalf("unmarshal: %v (stdout %q)", err, stdout)
+	}
+	if len(raw) != 2 {
+		t.Fatalf("records = %d, want 2", len(raw))
+	}
+	if raw[0]["muted"] != true || raw[0]["muted_until"] != float64(1757000240) {
+		t.Errorf("live lease record = %v, want muted:true muted_until:1757000240", raw[0])
+	}
+	if raw[1]["muted"] != false {
+		t.Errorf("expired lease record muted = %v, want false (the effective state)", raw[1]["muted"])
+	}
+	if _, ok := raw[1]["muted_until"]; ok {
+		t.Errorf("expired lease record carries muted_until: %v", raw[1])
 	}
 }

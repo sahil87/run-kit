@@ -44,7 +44,9 @@ func init() {
 }
 
 // cronListRecord is one list row / --json element. The JSON shape is a fixed
-// key set — unset values serialize as zero values, never as missing keys.
+// key set — unset values serialize as zero values, never as missing keys —
+// with one exception: muted_until is omitempty, emitted only while the lease
+// is live (an expired lease is indistinguishable from no lease).
 type cronListRecord struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -53,6 +55,7 @@ type cronListRecord struct {
 	Deliver   string `json:"deliver"`
 	Pinned    bool   `json:"pinned"`
 	Muted     bool   `json:"muted"`
+	MutedUntil int64 `json:"muted_until,omitempty"`
 	LastFired int64  `json:"last_fired"`
 	// OrphanedSince/ExpiresAt are the log-derived orphan streak (unix
 	// seconds; role targets always zero, ExpiresAt zero for pinned). The CLI
@@ -89,6 +92,7 @@ func runCronList(cmd *cobra.Command) error {
 	log := cron.ReadLog(logPath)
 
 	records := make([]cronListRecord, 0, len(entries))
+	now := cronNowFn()
 	for _, e := range entries {
 		rec := cronListRecord{
 			ID:       e.ID,
@@ -97,7 +101,10 @@ func runCronList(cmd *cobra.Command) error {
 			Target:   cronTargetSummary(e.Target),
 			Deliver:  e.Deliver,
 			Pinned:   e.Pinned,
-			Muted:    e.Muted,
+			Muted:    e.EffectivelyMuted(now),
+		}
+		if e.MutedUntil > 0 && now.Unix() < e.MutedUntil {
+			rec.MutedUntil = e.MutedUntil
 		}
 		if last, ok := cron.LastDelivery(log, e.ID); ok {
 			rec.LastFired = last.TS
@@ -119,15 +126,20 @@ func runCronList(cmd *cobra.Command) error {
 	fmt.Fprintln(w, "ID\tNAME\tSCHEDULE\tTARGET\tDELIVER\tFLAGS\tLAST-FIRED")
 	for _, r := range records {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.ID, r.Name, r.Schedule, r.Target, r.Deliver, cronListFlags(r), cronListLastFired(r.LastFired))
+			r.ID, r.Name, r.Schedule, r.Target, r.Deliver, cronListFlags(r, now), cronListLastFired(r.LastFired))
 	}
 	return w.Flush()
 }
 
-// cronListFlags renders the FLAGS column ("muted,pinned", "-" when neither).
-func cronListFlags(r cronListRecord) string {
+// cronListFlags renders the FLAGS column ("muted(4m)" for a live lease,
+// "muted" for the indefinite flag, "pinned", comma-joined; "-" when none). The
+// record's Muted is the effective state, so a live lease with no flag still
+// renders muted(<remaining>).
+func cronListFlags(r cronListRecord, now time.Time) string {
 	flags := ""
-	if r.Muted {
+	if r.MutedUntil > 0 && now.Unix() < r.MutedUntil {
+		flags = "muted(" + cronDurationShort(time.Duration(r.MutedUntil-now.Unix())*time.Second) + ")"
+	} else if r.Muted {
 		flags = "muted"
 	}
 	if r.Pinned {

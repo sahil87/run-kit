@@ -26,17 +26,19 @@ type kickoffDeliverFn = func(ctx context.Context, engine *inject.Engine, t injec
 // a sentinel echo probe classifies the settled screen — a parked verdict is an
 // error, so a walled pane is never delivered into) and then runs the engine's
 // verified send (named-buffer bracketed paste, echo probe, probe-gated
-// Enter). The CLI's per-invocation buffer (rk-send-<pid>, the `rk mux send`
+// Enter). serverLabel is the tmux server the delivery's calls are addressed at
+// (the caller derives it: cliServerLabel from a captured $TMUX, or the -L flag
+// value). The CLI's per-invocation buffer (rk-send-<pid>, the `rk mux send`
 // pattern) keeps a kickoff delivery from ever clobbering a concurrent
 // daemon/mux-send buffer. The returned error is informational — callers
 // degrade, it never fails the command.
-func deliverAgentKickoff(parent context.Context, deliver kickoffDeliverFn, originalTMUX, paneID, prompt string, deadline, cmdTimeout time.Duration) error {
+func deliverAgentKickoff(parent context.Context, deliver kickoffDeliverFn, serverLabel, paneID, prompt string, deadline, cmdTimeout time.Duration) error {
 	// The context outlives the readiness wait by one command timeout so the
 	// engine's own bounded subprocesses still fit after a slow boot.
 	ctx, cancel := context.WithTimeout(parent, deadline+cmdTimeout)
 	defer cancel()
 	engine := inject.NewEngine(muxBufferNameFn())
-	_, err := deliver(ctx, engine, awaitReadyTmux{}, cliServerLabel(originalTMUX), paneID, prompt)
+	_, err := deliver(ctx, engine, awaitReadyTmux{}, serverLabel, paneID, prompt)
 	return err
 }
 

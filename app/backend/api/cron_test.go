@@ -92,7 +92,7 @@ func TestCronList(t *testing.T) {
 		writeCronEntries(t, dir, "default", `entries:
   - id: b1cd
     name: operator tick
-    schedule: {kind: backoff, anchor: operator-idle, min: 60s, max: 30m}
+    schedule: {kind: backoff, min: 60s, max: 30m}
     target: {kind: role, role: operator}
     payload: tick
     deliver: immediate
@@ -166,7 +166,7 @@ func TestCronList(t *testing.T) {
 		dir := setupCronState(t)
 		writeCronEntries(t, dir, "default", `entries:
   - id: o3hi
-    schedule: {kind: backoff, anchor: operator-idle, min: 60s, max: 30m}
+    schedule: {kind: backoff, min: 60s, max: 30m}
     target: {kind: role, role: operator}
     payload: tick
 `)
@@ -250,7 +250,7 @@ func TestCronList(t *testing.T) {
 		dir := setupCronState(t)
 		writeCronEntries(t, dir, "default", `entries:
   - id: m4no
-    schedule: {kind: backoff, anchor: operator-idle, min: 60s, max: 30m}
+    schedule: {kind: backoff, min: 60s, max: 30m}
     target: {kind: role, role: operator}
     payload: tick
 `)
@@ -275,6 +275,78 @@ func TestCronList(t *testing.T) {
 		}
 		if body.Entries[0].NextFire != 0 {
 			t.Errorf("no-facts backoff entry nextFire = %d, want unset (anchor unknowable)", body.Entries[0].NextFire)
+		}
+	})
+
+	t.Run("mute lease on the wire: live lease is muted+mutedUntil, an expired one is neither", func(t *testing.T) {
+		dir := setupCronState(t)
+		writeCronEntries(t, dir, "default", `entries:
+  - id: l1ve
+    schedule: {kind: every, interval: 1h}
+    target: {kind: role, role: operator}
+    payload: tick
+    muted_until: 1700000300
+  - id: xp1r
+    schedule: {kind: every, interval: 1h}
+    target: {kind: role, role: operator}
+    payload: tick
+    muted_until: 1699999900
+  - id: fl4g
+    schedule: {kind: every, interval: 1h}
+    target: {kind: role, role: operator}
+    payload: tick
+    muted: true
+`)
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		server.nowFn = func() time.Time { return time.Unix(T, 0) }
+		server.cronFactsFn = cronFactsStub(nil)
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodGet, "/api/cron?server=default", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		// Decode raw: key ABSENCE is the contract for an expired lease and the
+		// retired schedule anchor, so a typed decode (which zero-fills) cannot
+		// see it.
+		var body struct {
+			Entries []map[string]any `json:"entries"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Entries) != 3 {
+			t.Fatalf("entries = %d, want 3", len(body.Entries))
+		}
+		byID := map[string]map[string]any{}
+		for _, e := range body.Entries {
+			byID[e["id"].(string)] = e
+		}
+		live := byID["l1ve"]
+		if live["muted"] != true || live["mutedUntil"] != float64(T+300) {
+			t.Errorf("live lease entry = %v, want muted:true mutedUntil:%d", live, T+300)
+		}
+		expired := byID["xp1r"]
+		if expired["muted"] != false && expired["muted"] != nil {
+			t.Errorf("expired lease entry muted = %v, want absent/false", expired["muted"])
+		}
+		if _, ok := expired["mutedUntil"]; ok {
+			t.Errorf("expired lease entry carries mutedUntil — an expired lease must not surface: %v", expired)
+		}
+		flag := byID["fl4g"]
+		if flag["muted"] != true {
+			t.Errorf("indefinite mute entry = %v, want muted:true", flag)
+		}
+		if _, ok := flag["mutedUntil"]; ok {
+			t.Errorf("indefinite mute entry carries mutedUntil: %v", flag)
+		}
+		for id, e := range byID {
+			if sched, ok := e["schedule"].(map[string]any); ok {
+				if _, has := sched["anchor"]; has {
+					t.Errorf("entry %s schedule carries the retired anchor key: %v", id, sched)
+				}
+			}
 		}
 	})
 }
@@ -421,7 +493,7 @@ func TestCronCreate(t *testing.T) {
 		before := tracker.count.Load()
 		router := server.buildRouter()
 		req := httptest.NewRequest(http.MethodPost, "/api/cron/create?server=default", strings.NewReader(
-			`{"name":"operator tick","schedule":{"kind":"backoff","anchor":"operator-idle","min":"60s","max":"30m"},"target":{"kind":"role","role":"operator"},"payload":"operator tick","deliver":"immediate","ifAbsent":"respawn","pinned":true}`))
+			`{"name":"operator tick","schedule":{"kind":"backoff","min":"60s","max":"30m"},"target":{"kind":"role","role":"operator"},"payload":"operator tick","deliver":"immediate","ifAbsent":"respawn","respawn":["rk","operator","-L","{server}"],"pinned":true}`))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
@@ -435,6 +507,9 @@ func TestCronCreate(t *testing.T) {
 		if len(created.ID) != 4 {
 			t.Errorf("created id = %q, want a 4-char id", created.ID)
 		}
+		if want := []string{"rk", "operator", "-L", "{server}"}; strings.Join(created.Respawn, " ") != strings.Join(want, " ") {
+			t.Errorf("created respawn = %v, want %v (the body field echoes on the wire)", created.Respawn, want)
+		}
 		entries := loadCronEntries(t, dir, "default")
 		if len(entries) != 1 {
 			t.Fatalf("persisted entries = %d, want 1", len(entries))
@@ -445,10 +520,35 @@ func TestCronCreate(t *testing.T) {
 			e.Payload != "operator tick" || !e.Pinned || e.Deliver != cron.DeliverImmediate || e.IfAbsent != cron.IfAbsentRespawn {
 			t.Errorf("persisted entry wrong: %+v", e)
 		}
+		if want := []string{"rk", "operator", "-L", "{server}"}; strings.Join(e.Respawn, " ") != strings.Join(want, " ") {
+			t.Errorf("persisted respawn = %v, want %v", e.Respawn, want)
+		}
 		if e.CreatedBy.At == 0 {
 			t.Error("created_by.at = 0, want now (the every-schedule pre-delivery anchor)")
 		}
 		expectWake(t, tracker, before, "cron create")
+	})
+
+	t.Run("a role target with ifAbsent respawn and no respawn command is a 400", func(t *testing.T) {
+		dir := setupCronState(t)
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/cron/create?server=default", strings.NewReader(
+			`{"schedule":{"kind":"every","interval":"1h"},"target":{"kind":"role","role":"operator"},"payload":"tick","ifAbsent":"respawn"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "respawn command") {
+			t.Errorf("body = %s, want it naming the missing respawn command", rec.Body.String())
+		}
+		if entries := loadCronEntries(t, dir, "default"); len(entries) != 0 {
+			t.Errorf("persisted entries = %d after a rejected create, want 0", len(entries))
+		}
+		expectNoWake(t, tracker, before, "cron create respawn-less role respawn rejected")
 	})
 
 	t.Run("invalid schedule is a 400, persists nothing, does not wake", func(t *testing.T) {

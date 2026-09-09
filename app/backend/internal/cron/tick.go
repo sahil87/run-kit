@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -47,9 +48,9 @@ type Deliverer interface {
 }
 
 // Deps are Tick's seams. Zero values select the production defaults
-// (DefaultDir, tmux.ListServers, the real tmux seam, time.Now,
-// FabOperatorStatePath, push.Notify). A nil Deliverer records outcome
-// "no-deliverer" — the fire/log/cursor choreography still exercises.
+// (DefaultDir, tmux.ListServers, the real tmux seam, time.Now, runRespawnExec,
+// push.Notify). A nil Deliverer records outcome "no-deliverer" — the
+// fire/log/cursor choreography still exercises.
 type Deps struct {
 	Dir         string
 	Now         func() time.Time
@@ -59,21 +60,19 @@ type Deps struct {
 	// Notifier backs the if_absent notify disposition. Fail-silent by
 	// contract: a notify failure is a diagnostic, never a tick error.
 	Notifier func(ctx context.Context, title, body, url string) error
-	// Respawner brings a dead role target back (role targets only). It is
-	// consulted only for an if_absent: respawn entry whose target kind is
-	// role; nil (or a non-role target) keeps the existing notify-degrade
-	// path, byte-for-byte. The returned Outcome is logged as the
-	// disposition (a non-held outcome class — respawned / respawn-failed).
-	Respawner func(ctx context.Context, fire Fire) Outcome
+	// RunRespawn executes an entry's caller-supplied respawn argv (role or
+	// session targets with if_absent: respawn and a non-empty respawn). Exit
+	// 0 within the timeout ⇒ the outcome is "respawned" (no delivery that
+	// tick); anything else ⇒ "respawn-failed: <detail>". Nil selects the
+	// production runRespawnExec.
+	RunRespawn RunRespawnFunc
 	// SessionRespawner brings a dead session target back (session targets
 	// only — pane targets can never respawn). It is consulted only for an
-	// if_absent: respawn entry whose target kind is session; nil (or a pane
-	// target) keeps the existing notify-degrade path, byte-for-byte. The
+	// if_absent: respawn entry whose target kind is session and whose respawn
+	// argv is empty; nil keeps the notify-degrade path, byte-for-byte. The
 	// returned Outcome is logged as the disposition (respawned /
 	// respawn-failed), and the absent-fire rate cap applies as before.
-	SessionRespawner  func(ctx context.Context, fire Fire) Outcome
-	OperatorStatePath func(slug string) (string, error)
-	FreshThreshold    time.Duration
+	SessionRespawner func(ctx context.Context, fire Fire) Outcome
 }
 
 // notifyDefault is the production Notifier: the daemon-side push fan-out.
@@ -201,9 +200,9 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 	if seam == nil {
 		seam = realTmux{}
 	}
-	opStatePath := deps.OperatorStatePath
-	if opStatePath == nil {
-		opStatePath = FabOperatorStatePath
+	runRespawn := deps.RunRespawn
+	if runRespawn == nil {
+		runRespawn = runRespawnExec
 	}
 	notifier := deps.Notifier
 	if notifier == nil {
@@ -232,7 +231,7 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 				Detail: "entry file skipped: server not in the live set"})
 			continue
 		}
-		fires, diags := tickServer(ctx, slug, dir, now(), seam, deps.Deliverer, notifier, deps.Respawner, deps.SessionRespawner, opStatePath, deps.FreshThreshold)
+		fires, diags := tickServer(ctx, slug, dir, now(), seam, deps.Deliverer, notifier, runRespawn, deps.SessionRespawner)
 		res.Servers++
 		res.Fires += fires
 		res.Diags = append(res.Diags, diags...)
@@ -245,7 +244,7 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 
 // tickServer runs the per-server pipeline: load → facts → Evaluate → deliver →
 // log → GC → cursor. A per-file failure is a diagnostic, never an aborted tick.
-func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxSeam, deliverer Deliverer, notifier func(context.Context, string, string, string) error, respawner, sessionRespawner func(context.Context, Fire) Outcome, opStatePath func(string) (string, error), freshThreshold time.Duration) (fires int, diags []Diagnostic) {
+func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxSeam, deliverer Deliverer, notifier func(context.Context, string, string, string) error, runRespawn RunRespawnFunc, sessionRespawner func(context.Context, Fire) Outcome) (fires int, diags []Diagnostic) {
 	entriesPath, err := EntriesPath(dir, slug)
 	if err != nil {
 		return 0, []Diagnostic{{Server: slug, Reason: "path-invalid", Detail: err.Error()}}
@@ -269,27 +268,18 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 	}
 	cursor, _ := ReadWakeCursor(cursorPath) // absent/corrupt = cold start
 
-	var opState OperatorState
-	if p, err := opStatePath(slug); err != nil {
-		diags = append(diags, Diagnostic{Server: slug, Reason: "operator-state-path", Detail: err.Error()})
-	} else {
-		opState = ReadOperatorState(p)
-	}
-
 	logLines := ReadLog(logPath)
 	// gcLog is the pre-disposition log view the orphan-GC pass derives from.
 	// The capped full-slice keeps the appendLine mirror from writing into it.
 	gcLog := logLines[:len(logLines):len(logLines)]
 	eval := Evaluate(EvalInput{
-		Server:         slug,
-		Now:            now,
-		Entries:        entries,
-		Facts:          facts.Targets,
-		Fingerprint:    facts.Fingerprint,
-		Log:            logLines,
-		Cursor:         cursor,
-		Operator:       opState,
-		FreshThreshold: freshThreshold,
+		Server:      slug,
+		Now:         now,
+		Entries:     entries,
+		Facts:       facts.Targets,
+		Fingerprint: facts.Fingerprint,
+		Log:         logLines,
+		Cursor:      cursor,
 	})
 	diags = append(diags, eval.Diags...)
 
@@ -373,22 +363,44 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 			continue
 		}
 		line := LogLine{TS: now.Unix(), Entry: fire.Entry.ID, Reason: string(fire.Reason)}
+		isRespawn := fire.Entry.IfAbsent == IfAbsentRespawn
 		switch {
-		case fire.Entry.IfAbsent == IfAbsentRespawn && fire.Entry.Target.Kind == TargetRole && respawner != nil:
-			// Role-target respawn is real: the seam's returned outcome
-			// (respawned / respawn-failed) is the logged disposition.
-			line.Outcome = respawner(ctx, fire).String()
-		case fire.Entry.IfAbsent == IfAbsentRespawn && fire.Entry.Target.Kind == TargetSession && sessionRespawner != nil:
-			// Session-target respawn routes to the session seam, same logged-
-			// outcome contract as the role path. A nil seam (and pane targets,
-			// always) falls through to the notify-degrade.
+		case isRespawn && len(fire.Entry.Respawn) > 0 &&
+			(fire.Entry.Target.Kind == TargetRole || fire.Entry.Target.Kind == TargetSession):
+			// Caller-supplied argv: run it under the respawn timeout from the
+			// user's home dir (the daemon has no project cwd; its env is
+			// already TMUX-scrubbed by internal/tmux's init). Exit 0 ⇒
+			// respawned — NO delivery this tick (a fresh session has no tick
+			// convention in context; the payload lands on the next resolved
+			// fire). Pane targets never reach this branch: a dead pane id
+			// never re-resolves, so a respawn could never land its payload.
+			argv := RespawnArgv(fire.Entry, fire.Server)
+			rctx, cancel := context.WithTimeout(ctx, DefaultRespawnTimeout)
+			out, err := func() ([]byte, error) {
+				home, herr := os.UserHomeDir()
+				if herr != nil {
+					return nil, fmt.Errorf("resolving home dir: %w", herr)
+				}
+				return runRespawn(rctx, argv, home)
+			}()
+			cancel()
+			if err != nil {
+				line.Outcome = "respawn-failed: " + respawnDetail(err, out)
+			} else {
+				line.Outcome = "respawned"
+			}
+		case isRespawn && fire.Entry.Target.Kind == TargetSession && sessionRespawner != nil:
+			// Session-target respawn without a respawn command routes to the
+			// session seam (closed-ring plain resume), same logged-outcome
+			// contract as the argv path. A nil seam (and pane targets, always)
+			// falls through to the notify-degrade.
 			line.Outcome = sessionRespawner(ctx, fire).String()
-		case fire.Entry.IfAbsent == IfAbsentNotify || fire.Entry.IfAbsent == IfAbsentRespawn:
-			if fire.Entry.IfAbsent == IfAbsentRespawn {
-				// No respawner wired (or a non-role target): degrade to
-				// notify, loudly.
-				diags = append(diags, Diagnostic{Server: slug, EntryID: fire.Entry.ID, Reason: "respawn-unimplemented",
-					Detail: "if_absent respawn is not implemented; degraded to notify"})
+		case fire.Entry.IfAbsent == IfAbsentNotify || isRespawn:
+			if isRespawn {
+				// A respawn policy with no command to run (and no session
+				// seam): degrade to notify, loudly.
+				diags = append(diags, Diagnostic{Server: slug, EntryID: fire.Entry.ID, Reason: "respawn-uncommanded",
+					Detail: "if_absent respawn has no respawn command; degraded to notify"})
 			}
 			name := fire.Entry.Name
 			if name == "" {

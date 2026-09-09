@@ -1,7 +1,9 @@
 package sessions
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -806,4 +808,131 @@ func TestDeriveConversationAvailable(t *testing.T) {
 	if !deriveConversationAvailable("codex", codexRef) {
 		t.Error("resolvable codex rollout must be true")
 	}
+}
+
+// TestFetchSessionsWatchlistSlug pins the watchlist-join file derivation: the
+// fab operator state file is named by the SLUGIFIED SOCKET PATH (fab's naming
+// rule), resolved per fetch via the SocketPath seam, with slug "default" as
+// the degradation when the query fails. Driven end-to-end through
+// FetchSessions against the fetch seams — no live tmux server.
+func TestFetchSessionsWatchlistSlug(t *testing.T) {
+	const (
+		server    = "runKit"
+		paneID    = "%5"
+		changeKey = "260909-abcd-some-change"
+		lastTick  = 1757400000
+	)
+
+	// stubFetchSeams points every fetch-path tmux seam at in-memory fakes: one
+	// session "main" holding one window whose pane is the watchlist join key.
+	stubFetchSeams := func(t *testing.T, socketPath string, socketErr error) {
+		t.Helper()
+		origSessions, origClients, origWindows, origSocket := listSessionsFn, listClientsFn, listWindowsFn, socketPathFn
+		t.Cleanup(func() {
+			listSessionsFn, listClientsFn, listWindowsFn, socketPathFn = origSessions, origClients, origWindows, origSocket
+		})
+		listSessionsFn = func(context.Context, string) ([]tmux.SessionInfo, error) {
+			return []tmux.SessionInfo{{Name: "main", Windows: 1}}, nil
+		}
+		listClientsFn = func(context.Context, string) ([]tmux.ClientInfo, error) {
+			return nil, nil
+		}
+		listWindowsFn = func(_ context.Context, session, _ string) ([]tmux.WindowInfo, error) {
+			return []tmux.WindowInfo{{
+				Index: 0, WindowID: "@1", Name: session,
+				Panes: []tmux.PaneInfo{{PaneID: paneID, IsActive: true}},
+			}}, nil
+		}
+		socketPathFn = func(context.Context, string) (string, error) {
+			return socketPath, socketErr
+		}
+	}
+
+	// writeFabState lays down $XDG_STATE_HOME/fab/operator/<slug>.yaml with one
+	// monitored entry for the pane and a last_tick_at stamp.
+	writeFabState := func(t *testing.T, xdg, slug string) {
+		t.Helper()
+		dir := filepath.Join(xdg, "fab", "operator")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := fmt.Sprintf("last_tick_at: %d\nmonitored:\n  %s:\n    pane: %q\n    repo: /repo\n    stage: apply\n    agent: claude\n    branch: feat/x\n",
+			lastTick, changeKey, paneID)
+		if err := os.WriteFile(filepath.Join(dir, slug+".yaml"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	fetch := func(t *testing.T) []ProjectSession {
+		t.Helper()
+		got, err := FetchSessions(context.Background(), server, nil)
+		if err != nil {
+			t.Fatalf("FetchSessions() error: %v", err)
+		}
+		if len(got) != 1 || len(got[0].Windows) != 1 {
+			t.Fatalf("FetchSessions() = %+v, want one session with one window", got)
+		}
+		return got
+	}
+
+	t.Run("socket-path slug finds the fab file", func(t *testing.T) {
+		xdg := t.TempDir()
+		t.Setenv("XDG_STATE_HOME", xdg)
+		stubFetchSeams(t, "/tmp/tmux-1001/runKit", nil)
+		writeFabState(t, xdg, "tmp-tmux--1001-runKit")
+
+		got := fetch(t)
+		w := got[0].Windows[0]
+		if !w.Monitored || w.MonitoredChange != changeKey {
+			t.Errorf("window = %+v, want monitored via the %q entry", w, changeKey)
+		}
+		if got[0].OperatorLastTickAt != lastTick {
+			t.Errorf("OperatorLastTickAt = %d, want %d", got[0].OperatorLastTickAt, lastTick)
+		}
+	})
+
+	t.Run("socket-path query failure falls back to the default slug", func(t *testing.T) {
+		xdg := t.TempDir()
+		t.Setenv("XDG_STATE_HOME", xdg)
+		stubFetchSeams(t, "", fmt.Errorf("no server running"))
+		writeFabState(t, xdg, "default")
+
+		got := fetch(t)
+		w := got[0].Windows[0]
+		if !w.Monitored || w.MonitoredChange != changeKey {
+			t.Errorf("window = %+v, want the default.yaml join on query failure", w)
+		}
+		if got[0].OperatorLastTickAt != lastTick {
+			t.Errorf("OperatorLastTickAt = %d, want %d", got[0].OperatorLastTickAt, lastTick)
+		}
+	})
+
+	t.Run("query failure with no default file degrades to an empty watchlist", func(t *testing.T) {
+		xdg := t.TempDir()
+		t.Setenv("XDG_STATE_HOME", xdg)
+		stubFetchSeams(t, "", fmt.Errorf("no server running"))
+
+		got := fetch(t)
+		w := got[0].Windows[0]
+		if w.Monitored || w.MonitoredChange != "" {
+			t.Errorf("window = %+v, want unmonitored with no fab file", w)
+		}
+		if got[0].OperatorLastTickAt != 0 || got[0].OperatorStale {
+			t.Errorf("session = %+v, want zero operator facts with no fab file", got[0])
+		}
+	})
+
+	t.Run("server name alone never finds the file", func(t *testing.T) {
+		// The pre-slugify bug: a file named after the SERVER (<server>.yaml) must
+		// stay unread — only the socket-path slug addresses it.
+		xdg := t.TempDir()
+		t.Setenv("XDG_STATE_HOME", xdg)
+		stubFetchSeams(t, "/tmp/tmux-1001/runKit", nil)
+		writeFabState(t, xdg, server)
+
+		got := fetch(t)
+		if got[0].Windows[0].Monitored {
+			t.Error("a server-named fab file must not join — the slug is the socket path")
+		}
+	})
 }

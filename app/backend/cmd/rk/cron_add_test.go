@@ -142,7 +142,7 @@ func TestCronAddScheduleFlagMatrix(t *testing.T) {
 	}
 }
 
-// TestCronAddBackoff: bare --backoff builds the operator-idle ladder with the
+// TestCronAddBackoff: bare --backoff builds the idle-epoch ladder with the
 // 60s/30m defaults; --min/--max override.
 func TestCronAddBackoff(t *testing.T) {
 	dir := stubCronDir(t)
@@ -161,9 +161,9 @@ func TestCronAddBackoff(t *testing.T) {
 		t.Fatalf("entries = %d, want 2", len(entries))
 	}
 	s := entries[0].Schedule
-	if s.Kind != cron.ScheduleBackoff || s.Anchor != "operator-idle" ||
+	if s.Kind != cron.ScheduleBackoff ||
 		s.Min.Duration != time.Minute || s.Max.Duration != 30*time.Minute {
-		t.Errorf("schedule = %+v, want backoff operator-idle 60s→30m", s)
+		t.Errorf("schedule = %+v, want backoff 60s→30m", s)
 	}
 	s = entries[1].Schedule
 	if s.Min.Duration != 2*time.Minute || s.Max.Duration != 5*time.Minute {
@@ -442,13 +442,14 @@ func TestCronAddExplicitTargetFlags(t *testing.T) {
 		wantTarget cron.Target
 	}{
 		{"role operator", []string{"add", "x", "--every", "1h", "--role", "operator"}, "", cron.Target{Kind: cron.TargetRole, Role: "operator"}},
+		{"any role value persists", []string{"add", "x", "--every", "1h", "--role", "reviewer"}, "", cron.Target{Kind: cron.TargetRole, Role: "reviewer"}},
 		{"pane id", []string{"add", "x", "--every", "1h", "--pane", "%9"}, "", cron.Target{Kind: cron.TargetPane, Pane: "%9"}},
 		{"session ref", []string{"add", "x", "--every", "1h", "--session", "4fe2abc-1c3b-4f7e-9a2d-8b5c4e1f0a37"}, "", cron.Target{Kind: cron.TargetSession, Session: "4fe2abc-1c3b-4f7e-9a2d-8b5c4e1f0a37"}},
 		{"role and pane", []string{"add", "x", "--every", "1h", "--role", "operator", "--pane", "%9"}, "mutually exclusive", cron.Target{}},
 		{"role and session", []string{"add", "x", "--every", "1h", "--role", "operator", "--session", "abc123"}, "mutually exclusive", cron.Target{}},
 		{"pane and session", []string{"add", "x", "--every", "1h", "--pane", "%9", "--session", "abc123"}, "mutually exclusive", cron.Target{}},
 		{"all three", []string{"add", "x", "--every", "1h", "--role", "operator", "--pane", "%9", "--session", "abc123"}, "mutually exclusive", cron.Target{}},
-		{"bad role", []string{"add", "x", "--every", "1h", "--role", "manager"}, "invalid --role value", cron.Target{}},
+		{"role with whitespace", []string{"add", "x", "--every", "1h", "--role", "a b"}, "invalid --role value", cron.Target{}},
 		{"bad pane", []string{"add", "x", "--every", "1h", "--pane", "9"}, "invalid --pane value", cron.Target{}},
 		{"bad session", []string{"add", "x", "--every", "1h", "--session", "has space"}, "invalid --session value", cron.Target{}},
 	}
@@ -594,5 +595,121 @@ func TestCronAddCorruptFileRefusesToMutate(t *testing.T) {
 	after, _ := os.ReadFile(path)
 	if string(after) != string(corrupt) {
 		t.Error("corrupt entry file was modified — a failed add must not truncate it")
+	}
+}
+
+// TestCronAddAnyRoleWindowDefaultsRoleTarget: a caller window carrying ANY
+// non-empty @rk_win_role defaults the target to that role, verbatim.
+func TestCronAddAnyRoleWindowDefaultsRoleTarget(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	stubCronAddSeams(t, "reviewer", nil)
+	t.Setenv("TMUX_PANE", "%12")
+
+	if _, _, err := runCronCmd(t, "add", "sweep", "--every", "5m"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	entries := loadCronEntries(t, dir, "work")
+	if len(entries) != 1 || entries[0].Target.Kind != cron.TargetRole || entries[0].Target.Role != "reviewer" {
+		t.Fatalf("entries = %+v, want target role:reviewer", entries)
+	}
+}
+
+// TestCronAddRespawnArgv: repeated --respawn elements persist exactly as typed
+// (one argv element per occurrence, {server} untouched on disk — it resolves
+// at fire time).
+func TestCronAddRespawnArgv(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	stubCronAddSeams(t, "", nil)
+	t.Setenv("TMUX_PANE", "%12")
+
+	if _, _, err := runCronCmd(t, "add", "operator tick", "--backoff", "--role", "operator",
+		"--if-absent", "respawn",
+		"--respawn", "rk", "--respawn", "operator", "--respawn", "-L", "--respawn", "{server}"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	entries := loadCronEntries(t, dir, "work")
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(entries))
+	}
+	want := []string{"rk", "operator", "-L", "{server}"}
+	if strings.Join(entries[0].Respawn, " ") != strings.Join(want, " ") {
+		t.Errorf("respawn = %v, want %v", entries[0].Respawn, want)
+	}
+}
+
+// TestCronAddRespawnMatrix: the usage-error matrix — --respawn without
+// --if-absent respawn; --if-absent respawn without --respawn on role/pane
+// targets; session targets may omit it (the resume default). Usage errors are
+// exit 2 and leave the state dir untouched.
+func TestCronAddRespawnMatrix(t *testing.T) {
+	cases := []struct {
+		name      string
+		args      []string
+		wantInErr string
+	}{
+		{"respawn without if-absent respawn",
+			[]string{"add", "x", "--every", "1h", "--role", "operator", "--respawn", "rk"},
+			"--respawn only applies with --if-absent respawn"},
+		{"role target, if-absent respawn, no respawn command",
+			[]string{"add", "x", "--every", "1h", "--role", "operator", "--if-absent", "respawn"},
+			"requires a respawn command"},
+		{"pane target, if-absent respawn, no respawn command",
+			[]string{"add", "x", "--every", "1h", "--pane", "%9", "--if-absent", "respawn"},
+			"requires a respawn command"},
+		{"session target may omit the respawn command",
+			[]string{"add", "x", "--every", "1h", "--session", "4fe2abc", "--if-absent", "respawn"},
+			""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := stubCronDir(t)
+			stubCronAddSeams(t, "", nil)
+			t.Setenv("TMUX_PANE", "%12")
+
+			_, _, err := runCronCmd(t, tc.args...)
+			if tc.wantInErr == "" {
+				if err != nil {
+					t.Fatalf("%v: err = %v, want success", tc.args, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantInErr) {
+				t.Fatalf("%v: err = %v, want %q", tc.args, err, tc.wantInErr)
+			}
+			if code := exitCode(err); code != exitUsage {
+				t.Errorf("%v: exit code = %d, want %d", tc.args, code, exitUsage)
+			}
+			if fis, _ := os.ReadDir(dir); len(fis) != 0 {
+				t.Errorf("%v: state dir gained %v, want untouched", tc.args, fis)
+			}
+		})
+	}
+}
+
+// TestCronAddHelpText: the add Long states the payload is prompt text typed
+// into the agent's chat (never a command), documents --respawn and the
+// {server} placeholder, and describes --backoff as an idle-epoch ladder.
+func TestCronAddHelpText(t *testing.T) {
+	for _, want := range []string{
+		"prompt text",
+		"never run as a command",
+		"--respawn",
+		"{server}",
+		"idle epoch",
+	} {
+		if !strings.Contains(cronAddCmd.Long, want) {
+			t.Errorf("add Long missing %q", want)
+		}
+	}
+	if bf := cronAddCmd.Flags().Lookup("backoff"); bf == nil || !strings.Contains(bf.Usage, "idle epoch") {
+		t.Errorf("--backoff usage = %q, want the idle-epoch ladder wording", bf.Usage)
+	}
+	if rf := cronAddCmd.Flags().Lookup("role"); rf == nil || !strings.Contains(rf.Usage, "@rk_win_role") {
+		t.Errorf("--role usage = %q, want the @rk_win_role wording", rf.Usage)
+	}
+	if !strings.Contains(cronCmd.Long, "never run as a command") {
+		t.Error("the cron parent Long must carry the prompt-not-command sentence")
 	}
 }

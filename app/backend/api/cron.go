@@ -33,8 +33,10 @@ type cronEntryJSON struct {
 	Payload       string           `json:"payload"`
 	Deliver       string           `json:"deliver,omitempty"`
 	IfAbsent      string           `json:"ifAbsent,omitempty"`
+	Respawn       []string         `json:"respawn,omitempty"`
 	Pinned        bool             `json:"pinned,omitempty"`
 	Muted         bool             `json:"muted,omitempty"`
+	MutedUntil    int64            `json:"mutedUntil,omitempty"`
 	LastFired     int64            `json:"lastFired"` // unix seconds; 0 = never
 	NextFire      int64            `json:"nextFire,omitempty"`
 	Rung          int              `json:"rung,omitempty"`
@@ -46,7 +48,6 @@ type cronEntryJSON struct {
 type cronScheduleJSON struct {
 	Kind     string `json:"kind"`
 	Interval string `json:"interval,omitempty"`
-	Anchor   string `json:"anchor,omitempty"`
 	Min      string `json:"min,omitempty"`
 	Max      string `json:"max,omitempty"`
 	Expr     string `json:"expr,omitempty"`
@@ -75,14 +76,16 @@ func cronDur(d cron.Duration) string {
 }
 
 // cronEntryToJSON projects one entry plus its derived facts onto the wire.
-func cronEntryToJSON(e cron.Entry, d cron.DerivedEntry) cronEntryJSON {
+// muted reports the EFFECTIVE state at now (flag OR live lease); mutedUntil is
+// emitted only while the lease is live — an expired lease is indistinguishable
+// from no lease on the wire.
+func cronEntryToJSON(e cron.Entry, d cron.DerivedEntry, now time.Time) cronEntryJSON {
 	out := cronEntryJSON{
 		ID:   e.ID,
 		Name: e.Name,
 		Schedule: cronScheduleJSON{
 			Kind:     e.Schedule.Kind,
 			Interval: cronDur(e.Schedule.Interval),
-			Anchor:   e.Schedule.Anchor,
 			Min:      cronDur(e.Schedule.Min),
 			Max:      cronDur(e.Schedule.Max),
 			Expr:     e.Schedule.Expr,
@@ -97,13 +100,17 @@ func cronEntryToJSON(e cron.Entry, d cron.DerivedEntry) cronEntryJSON {
 		Payload:       e.Payload,
 		Deliver:       e.Deliver,
 		IfAbsent:      e.IfAbsent,
+		Respawn:       e.Respawn,
 		Pinned:        e.Pinned,
-		Muted:         e.Muted,
+		Muted:         e.EffectivelyMuted(now),
 		LastFired:     d.LastFired,
 		Rung:          d.Rung,
 		Orphaned:      d.Orphaned,
 		OrphanedSince: d.OrphanedSince,
 		ExpiresAt:     d.ExpiresAt,
+	}
+	if e.MutedUntil > 0 && now.Unix() < e.MutedUntil {
+		out.MutedUntil = e.MutedUntil
 	}
 	if e.WakeOn != nil {
 		out.WakeOn = &cronWakeOnJSON{
@@ -207,20 +214,19 @@ func (s *Server) handleCronList(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			f = cron.TargetFacts{Unresolved: "no target facts gathered"}
 		}
-		out = append(out, cronEntryToJSON(e, cron.DeriveEntry(e, log, f, now)))
+		out = append(out, cronEntryToJSON(e, cron.DeriveEntry(e, log, f, now), now))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"entries": out, "deliveries": cronDeliveriesToJSON(log, entries)})
 }
 
 // cronCreateBody is the POST /api/cron/create body — the `rk cron add` schema
 // fields (name, schedule kind+params, target kind+params, payload, deliver,
-// ifAbsent, pinned) in camelCase.
+// ifAbsent, respawn, pinned) in camelCase.
 type cronCreateBody struct {
 	Name     string `json:"name"`
 	Schedule struct {
 		Kind     string `json:"kind"`
 		Interval string `json:"interval"`
-		Anchor   string `json:"anchor"`
 		Min      string `json:"min"`
 		Max      string `json:"max"`
 		Expr     string `json:"expr"`
@@ -232,10 +238,11 @@ type cronCreateBody struct {
 		Session string `json:"session"`
 		Pane    string `json:"pane"`
 	} `json:"target"`
-	Payload  string `json:"payload"`
-	Deliver  string `json:"deliver"`
-	IfAbsent string `json:"ifAbsent"`
-	Pinned   bool   `json:"pinned"`
+	Payload  string   `json:"payload"`
+	Deliver  string   `json:"deliver"`
+	IfAbsent string   `json:"ifAbsent"`
+	Respawn  []string `json:"respawn"`
+	Pinned   bool     `json:"pinned"`
 }
 
 // handleCronCreate serves POST /api/cron/create: validate + persist via
@@ -252,7 +259,6 @@ func (s *Server) handleCronCreate(w http.ResponseWriter, r *http.Request) {
 		Name: body.Name,
 		Schedule: cron.Schedule{
 			Kind:    body.Schedule.Kind,
-			Anchor:  body.Schedule.Anchor,
 			Expr:    body.Schedule.Expr,
 			CatchUp: body.Schedule.CatchUp,
 		},
@@ -265,6 +271,7 @@ func (s *Server) handleCronCreate(w http.ResponseWriter, r *http.Request) {
 		Payload:  body.Payload,
 		Deliver:  body.Deliver,
 		IfAbsent: body.IfAbsent,
+		Respawn:  body.Respawn,
 		Pinned:   body.Pinned,
 	}
 	// created_by.at anchors `every` schedules pre-first-delivery — always
@@ -304,7 +311,7 @@ func (s *Server) handleCronCreate(w http.ResponseWriter, r *http.Request) {
 	s.initSSEHub()
 	s.sseHub.wake(server)
 
-	writeJSON(w, http.StatusCreated, cronEntryToJSON(created, cron.DerivedEntry{}))
+	writeJSON(w, http.StatusCreated, cronEntryToJSON(created, cron.DerivedEntry{}, s.now()))
 }
 
 // cronIDBody is the shared {"id": "<4char>"} body of the delete/mute routes.
@@ -356,8 +363,10 @@ func (s *Server) handleCronDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCronMute serves POST /api/cron/mute ← {"id": "<4char>", "muted":
-// <bool>}: set the flag via cron.SetMuted; unknown id ⇒ 404; success ⇒ 200
-// {"ok": true} + SSE wake.
+// <bool>}: set the flag via cron.SetMuted (its clearing rules: muted:true
+// clears any lease, muted:false clears both flag and lease); unknown id ⇒ 404;
+// success ⇒ 200 {"ok": true} + SSE wake. Lease writes stay CLI-only — this body
+// carries no duration.
 func (s *Server) handleCronMute(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID    string `json:"id"`

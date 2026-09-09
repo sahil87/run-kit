@@ -102,6 +102,22 @@ func loadForMutate(dir, slug string) (path string, entries []Entry, err error) {
 // processes only the first cap-many entries of a (hand-edited) larger file.
 const MaxEntriesPerServer = 50
 
+// ValidateRespawnIntent is the add-time gate for if_absent: respawn: role and
+// pane targets have no built-in way back (only session targets default to the
+// closed-ring resume), so they REQUIRE a caller-supplied respawn argv. It is
+// deliberately NOT part of validate(): an existing on-disk entry in this state
+// keeps loading and degrades to notify at fire time.
+func ValidateRespawnIntent(e Entry) error {
+	if e.IfAbsent != IfAbsentRespawn || len(e.Respawn) > 0 {
+		return nil
+	}
+	switch e.Target.Kind {
+	case TargetRole, TargetPane:
+		return fmt.Errorf("if_absent %q on a %s target requires a respawn command — only session targets have a default (resume)", e.IfAbsent, e.Target.Kind)
+	}
+	return nil
+}
+
 // Add appends an entry, generating its 4-char id (uniqueness within the
 // server's file). The entry's ID field is ignored; the assigned entry is
 // returned.
@@ -128,6 +144,9 @@ func Add(dir, slug string, e Entry) (Entry, error) {
 	if err := e.validate(); err != nil {
 		return Entry{}, err
 	}
+	if err := ValidateRespawnIntent(e); err != nil {
+		return Entry{}, err
+	}
 	if err := saveEntries(path, append(entries, e)); err != nil {
 		return Entry{}, err
 	}
@@ -136,23 +155,32 @@ func Add(dir, slug string, e Entry) (Entry, error) {
 
 // EnsureRoleEntry seeds a role-target entry if this server has none yet. It
 // scans the existing entries for a Target{Kind: TargetRole, Role:
-// spec.Target.Role} match; a hit is a no-op (returns the existing entry,
-// created=false); a miss calls Add with spec (created=true). Existing entries
-// are never mutated — re-seeding after a manual edit (e.g. a user changed the
-// backoff bounds or muted the entry) leaves the user's edit alone: the role
-// target is the idempotency key, not any field value.
+// spec.Target.Role} match; a miss calls Add with spec (created=true). On a
+// hit the ONLY mutation is a narrow upgrade: when the matched entry has
+// if_absent: respawn, an empty respawn argv, and the spec's is non-empty, the
+// argv is filled from the spec and the file rewritten (the marshal drops any
+// retired keys as a side effect) — every other field (min/max, muted, name,
+// payload…) is the user's tuning and is never reconciled. The role target is
+// the idempotency key, not any field value.
 func EnsureRoleEntry(dir, slug string, spec Entry) (entry Entry, created bool, err error) {
 	// The (kind, role) pair is the idempotency key: a mistargeted spec must
 	// fail loudly, never plant a non-role entry the scan can never match.
 	if spec.Target.Kind != TargetRole || spec.Target.Role == "" {
 		return Entry{}, false, fmt.Errorf("EnsureRoleEntry requires a role target with a non-empty role, got kind %q role %q", spec.Target.Kind, spec.Target.Role)
 	}
-	_, entries, err := loadForMutate(dir, slug)
+	path, entries, err := loadForMutate(dir, slug)
 	if err != nil {
 		return Entry{}, false, err
 	}
-	for _, e := range entries {
+	for i, e := range entries {
 		if e.Target.Kind == TargetRole && e.Target.Role == spec.Target.Role {
+			if e.IfAbsent == IfAbsentRespawn && len(e.Respawn) == 0 && len(spec.Respawn) > 0 {
+				entries[i].Respawn = spec.Respawn
+				if err := saveEntries(path, entries); err != nil {
+					return Entry{}, false, err
+				}
+				e.Respawn = spec.Respawn
+			}
 			return e, false, nil
 		}
 	}
@@ -199,9 +227,24 @@ func setFlag(dir, slug, id string, set func(*Entry)) (bool, error) {
 	return false, nil
 }
 
-// SetMuted mutes/unmutes the entry with the given id. Returns false when absent.
+// SetMuted mutes/unmutes the entry with the given id. An indefinite mute
+// clears any lease (indefinite wins); unmuting clears both. Returns false when
+// absent.
 func SetMuted(dir, slug, id string, muted bool) (bool, error) {
-	return setFlag(dir, slug, id, func(e *Entry) { e.Muted = muted })
+	return setFlag(dir, slug, id, func(e *Entry) {
+		e.Muted = muted
+		e.MutedUntil = 0
+	})
+}
+
+// SetMuteLease mutes the entry with the given id until the given unix time —
+// a bounded mute, so it clears the indefinite flag (an earlier plain mute
+// does not outlive the lease). Returns false when absent.
+func SetMuteLease(dir, slug, id string, until int64) (bool, error) {
+	return setFlag(dir, slug, id, func(e *Entry) {
+		e.Muted = false
+		e.MutedUntil = until
+	})
 }
 
 // SetPinned pins/unpins the entry with the given id. Returns false when absent.

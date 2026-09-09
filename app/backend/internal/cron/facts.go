@@ -116,31 +116,26 @@ func GatherFacts(ctx context.Context, server string, entries []Entry, seam TmuxS
 	for _, e := range entries {
 		switch e.Target.Kind {
 		case TargetRole:
-			if e.Target.Role != RoleOperator {
-				out.Targets[e.ID] = TargetFacts{Unresolved: "unknown role " + e.Target.Role}
-				diag(e.ID, "target-unresolved", "unknown role "+e.Target.Role)
-				continue
-			}
-			// The @rk_win_role radio semantics: find the window carrying
-			// Role == "operator", then resolve its agent pane — never a bare
+			// The @rk_win_role radio semantics: find the window carrying the
+			// entry's role value, then resolve its agent pane — never a bare
 			// -t _rk-operator.
 			var carrier *tmux.WindowInfo
 			for i := range windows {
-				if windows[i].window.Role == RoleOperator {
+				if windows[i].window.Role == e.Target.Role {
 					c := windows[i].window
 					carrier = &c
 					break
 				}
 			}
 			if carrier == nil {
-				out.Targets[e.ID] = TargetFacts{Unresolved: "no window carries role operator"}
-				diag(e.ID, "target-unresolved", "no window carries role operator")
+				out.Targets[e.ID] = TargetFacts{Unresolved: "no window carries role " + e.Target.Role}
+				diag(e.ID, "target-unresolved", "no window carries role "+e.Target.Role)
 				continue
 			}
 			pane, err := seam.ResolveAgentPane(ctx, carrier.WindowID, server)
 			if err != nil {
 				out.Targets[e.ID] = TargetFacts{Unresolved: err.Error()}
-				diag(e.ID, "target-unresolved", fmt.Sprintf("operator window %s: %v", carrier.WindowID, err))
+				diag(e.ID, "target-unresolved", fmt.Sprintf("role window %s: %v", carrier.WindowID, err))
 				continue
 			}
 			out.Targets[e.ID] = paneFacts(e.ID, pane)

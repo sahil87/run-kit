@@ -104,7 +104,13 @@ func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 	}
 	operatorRunOutputFn = func(_ context.Context, args, env []string) ([]byte, error) {
 		s.calls = append(s.calls, operatorCall{args: args, env: env})
-		switch args[0] {
+		// The -L/--server path prefixes every call with "-L <name>"; dispatch on
+		// the verb past that prefix.
+		verb := args[0]
+		if verb == "-L" && len(args) > 2 {
+			verb = args[2]
+		}
+		switch verb {
 		case "list-windows":
 			return []byte(s.listOutput), nil
 		case "new-window":
@@ -620,7 +626,7 @@ func TestOperatorListWindowsFailure(t *testing.T) {
 	}
 }
 
-// --- Operator-tick seeding (T005) ---
+// --- Operator-tick seeding ---
 //
 // The seed step runs on every runOperator invocation, before the singleton
 // probe: a fresh state dir gains the spec'd entry, a re-run leaves a user's
@@ -628,10 +634,10 @@ func TestOperatorListWindowsFailure(t *testing.T) {
 // affecting the exit code or the window open.
 
 // TestOperatorSeedsOperatorTickEntry: a fresh state dir gains exactly one
-// entry carrying the spec's fixed operator-tick field values (backoff
-// 60s→30m on operator-idle, wake_on agent-state-change/server/10s, the two
-// suppress guards, role:operator target, "operator tick" payload, immediate
-// delivery, if_absent respawn, pinned), with created_by auto-captured from
+// entry carrying the spec's fixed operator-tick field values (backoff 60s→30m,
+// wake_on agent-state-change/server/10s, role:operator target, "operator tick"
+// payload, immediate delivery, if_absent respawn with the caller-supplied
+// `rk operator -L {server}` argv, pinned), with created_by auto-captured from
 // the caller's pane.
 func TestOperatorSeedsOperatorTickEntry(t *testing.T) {
 	resetOperatorWorkers(t)
@@ -650,19 +656,15 @@ func TestOperatorSeedsOperatorTickEntry(t *testing.T) {
 		t.Errorf("id = %q, want an Add-assigned 4-char id", e.ID)
 	}
 	wantSched := cron.Schedule{
-		Kind:   cron.ScheduleBackoff,
-		Anchor: "operator-idle",
-		Min:    cron.Duration{Duration: 60 * time.Second},
-		Max:    cron.Duration{Duration: 30 * time.Minute},
+		Kind: cron.ScheduleBackoff,
+		Min:  cron.Duration{Duration: 60 * time.Second},
+		Max:  cron.Duration{Duration: 30 * time.Minute},
 	}
 	if e.Schedule != wantSched {
 		t.Errorf("schedule = %+v, want %+v", e.Schedule, wantSched)
 	}
 	if e.WakeOn == nil || e.WakeOn.Event != cron.WakeAgentStateChange || e.WakeOn.Scope != cron.WakeScopeServer || e.WakeOn.Debounce.Duration != 10*time.Second {
 		t.Errorf("wake_on = %+v, want agent-state-change/server/10s", e.WakeOn)
-	}
-	if strings.Join(e.SuppressWhile, ",") != cron.GuardOperatorLoopFresh+","+cron.GuardNothingTracked {
-		t.Errorf("suppress_while = %v", e.SuppressWhile)
 	}
 	if e.Target != (cron.Target{Kind: cron.TargetRole, Role: cron.RoleOperator}) {
 		t.Errorf("target = %+v, want role:operator", e.Target)
@@ -673,6 +675,9 @@ func TestOperatorSeedsOperatorTickEntry(t *testing.T) {
 	if e.Deliver != cron.DeliverImmediate || e.IfAbsent != cron.IfAbsentRespawn || !e.Pinned || e.Muted {
 		t.Errorf("deliver/if_absent/pinned/muted = %q/%q/%v/%v, want immediate/respawn/true/false",
 			e.Deliver, e.IfAbsent, e.Pinned, e.Muted)
+	}
+	if want := []string{"rk", "operator", "-L", "{server}"}; strings.Join(e.Respawn, " ") != strings.Join(want, " ") {
+		t.Errorf("respawn = %v, want %v", e.Respawn, want)
 	}
 	if e.CreatedBy.Pane != operatorTestPane || e.CreatedBy.Session != "" || e.CreatedBy.At == 0 {
 		t.Errorf("created_by = %+v, want {pane: %s, at: <now>} with session empty", e.CreatedBy, operatorTestPane)
@@ -741,5 +746,135 @@ func TestOperatorSeedFailureIsNonFatal(t *testing.T) {
 	}
 	if !opened || len(s.stampOps) == 0 {
 		t.Errorf("window open/stamp missing: calls = %v, stamp ops = %v", s.calls, s.stampOps)
+	}
+}
+
+// --- rk operator -L/--server (daemon-invocable) ---
+//
+// With -L the inside-tmux precondition is waived, every tmux call is addressed
+// at -L <name> with no restored $TMUX, a singleton hit switches no client, and
+// a created window opens in the home directory. Without the flag every path is
+// the interactive one above.
+
+// resetOperatorServer restores the -L/--server package var after a test.
+func resetOperatorServer(t *testing.T) {
+	t.Helper()
+	orig := operatorServerFlag
+	operatorServerFlag = ""
+	t.Cleanup(func() { operatorServerFlag = orig })
+}
+
+// TestOperatorServerFlagCreatesWithoutTMUX: $TMUX unset + -L runKit + no
+// operator window ⇒ the probe and new-window run with a leading "-L runKit"
+// and a nil env, the role is stamped, the kickoff is delivered addressed at
+// runKit, the window opens in the home directory, the entry seeds under the
+// runKit slug, and no select-window/switch-client is ever recorded.
+func TestOperatorServerFlagCreatesWithoutTMUX(t *testing.T) {
+	resetOperatorWorkers(t)
+	resetOperatorServer(t)
+	operatorServerFlag = "runKit"
+	s := stubOperatorSeams(t, "@3\t\tother\n")
+	origTMUX := operatorOriginalTMUXFn
+	operatorOriginalTMUXFn = func() string { return "" }
+	t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
+
+	cmd, outBuf, _ := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v", err)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	var probe, newWindow []string
+	for _, c := range s.calls {
+		if len(c.env) != 0 {
+			t.Errorf("call %v env = %v, want nil (nothing restored in server mode)", c.args, c.env)
+		}
+		if len(c.args) < 2 || c.args[0] != "-L" || c.args[1] != "runKit" {
+			t.Errorf("call argv = %v, want a leading -L runKit", c.args)
+		}
+		switch {
+		case len(c.args) > 2 && c.args[2] == "list-windows":
+			probe = c.args
+		case len(c.args) > 2 && c.args[2] == "new-window":
+			newWindow = c.args
+		case len(c.args) > 2 && (c.args[2] == "select-window" || c.args[2] == "switch-client"):
+			t.Errorf("client-switching call %v must never run in server mode", c.args)
+		}
+	}
+	if probe == nil {
+		t.Error("no list-windows probe recorded")
+	}
+	wantNewWindow := []string{
+		"-L", "runKit", "new-window", "-P", "-F", "#{pane_id}", "-c", home, "-n", "operator",
+		`${SHELL:-/bin/sh} -i -c 'claude --dangerously-skip-permissions'; exec "${SHELL:-/bin/sh}"`,
+	}
+	if strings.Join(newWindow, " ") != strings.Join(wantNewWindow, " ") {
+		t.Errorf("new-window argv =\n  %v\nwant\n  %v", newWindow, wantNewWindow)
+	}
+	if len(s.stampOps) != 3 || s.stampOps[0] != "clear" || s.stampOps[2] != "move "+operatorTestWindow {
+		t.Errorf("stamp ops = %v, want clear → set → move (no displaced carriers)", s.stampOps)
+	} else if !strings.Contains(s.stampOps[1], "-L runKit") || !strings.Contains(s.stampOps[1], "@rk_win_role operator") {
+		t.Errorf("stamp set op = %q, want it -L-addressed at runKit writing @rk_win_role=operator", s.stampOps[1])
+	}
+	if len(s.deliverCalls) != 1 || s.deliverCalls[0].server != "runKit" {
+		t.Errorf("deliveries = %v, want one kickoff addressed at runKit", s.deliverCalls)
+	}
+	if got := outBuf.String(); got != "Opened operator tab (window \"operator\").\n" {
+		t.Errorf("stdout = %q, want the launch report", got)
+	}
+
+	entries, diags := cron.LoadEntries(filepath.Join(s.cronDir, "runKit.yaml"))
+	if len(diags) != 0 || len(entries) != 1 {
+		t.Fatalf("entries = %v diags = %v, want the entry seeded under the -L slug", entries, diags)
+	}
+}
+
+// TestOperatorServerFlagSingletonHit: an operator window already present on the
+// named server ⇒ exit 0 with "Operator tab already present." and no
+// select-window/switch-client, stamp, or delivery.
+func TestOperatorServerFlagSingletonHit(t *testing.T) {
+	resetOperatorWorkers(t)
+	resetOperatorServer(t)
+	operatorServerFlag = "runKit"
+	s := stubOperatorSeams(t, "@7\toperator\tmain\n")
+	origTMUX := operatorOriginalTMUXFn
+	operatorOriginalTMUXFn = func() string { return "" }
+	t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
+
+	cmd, outBuf, _ := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v", err)
+	}
+	if got := outBuf.String(); got != "Operator tab already present.\n" {
+		t.Errorf("stdout = %q, want the already-present report (no switch happened)", got)
+	}
+	for _, c := range s.calls {
+		for _, a := range c.args {
+			if a == "select-window" || a == "switch-client" {
+				t.Errorf("call %v must never run on a server-mode singleton hit", c.args)
+			}
+		}
+	}
+	if len(s.stampOps) != 0 || len(s.deliverCalls) != 0 {
+		t.Errorf("stamp ops = %v, deliveries = %v, want none", s.stampOps, s.deliverCalls)
+	}
+}
+
+// TestOperatorServerPrefix: bare for ""/default, else -L <server>.
+func TestOperatorServerPrefix(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want []string
+	}{
+		{"", nil},
+		{"default", nil},
+		{"runKit", []string{"-L", "runKit"}},
+	} {
+		if got := operatorServerPrefix(tc.in); strings.Join(got, " ") != strings.Join(tc.want, " ") {
+			t.Errorf("operatorServerPrefix(%q) = %v, want %v", tc.in, got, tc.want)
+		}
 	}
 }

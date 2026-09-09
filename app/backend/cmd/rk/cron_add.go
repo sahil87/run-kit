@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"rk/internal/cron"
@@ -16,17 +17,17 @@ import (
 
 // rk cron add <payload> — record one cron entry in the resolved server's
 // intent file. Exactly one schedule flag is required: --every <dur>, bare
-// --backoff (anchor operator-idle, min/max refinable), or --cron "<expr>"
-// (a 5-field expression in the daemon's local time, validated at add time;
-// --catch-up once fires once late after a gap). Inside a tmux pane the creator
-// is auto-captured ($TMUX_PANE + now, plus the pane's agent-session ref when
-// one is stamped) and the target defaults down the ladder: role:operator when
-// the caller's window carries the operator role, else the caller pane's agent
-// session, else the caller's own pane; explicit --role/--session/--pane
-// (mutually exclusive) override. Outside tmux an explicit target flag
-// is required — a typed command must not guess a target. The write goes
-// through cron.Add only (atomic read-modify-write, id generation, per-entry
-// validation — a corrupt file refuses to mutate).
+// --backoff (a ladder keyed on the target pane's idle epoch, min/max
+// refinable), or --cron "<expr>" (a 5-field expression in the daemon's local
+// time, validated at add time; --catch-up once fires once late after a gap).
+// Inside a tmux pane the creator is auto-captured ($TMUX_PANE + now, plus the
+// pane's agent-session ref when one is stamped) and the target defaults down
+// the ladder: the caller window's role when it carries any @rk_win_role, else
+// the caller pane's agent session, else the caller's own pane; explicit
+// --role/--session/--pane (mutually exclusive) override. Outside tmux an
+// explicit target flag is required — a typed command must not guess a target.
+// The write goes through cron.Add only (atomic read-modify-write, id
+// generation, per-entry validation — a corrupt file refuses to mutate).
 
 // cronAddNameMaxRunes caps the derived --name default (a payload prefix).
 const cronAddNameMaxRunes = 40
@@ -41,6 +42,7 @@ var (
 	cronAddName     string
 	cronAddDeliver  string
 	cronAddIfAbsent string
+	cronAddRespawn  []string
 	cronAddPinned   bool
 	cronAddRole     string
 	cronAddPane     string
@@ -50,22 +52,32 @@ var (
 var cronAddCmd = &cobra.Command{
 	Use:   "add <payload> --every <dur> | --backoff | --cron \"<expr>\"",
 	Short: "Add a cron entry to the server's intent file",
-	Long: "Add a cron entry delivering <payload> on a schedule. Exactly one schedule " +
-		"flag is required: --every <dur> (a positive Go duration like 1h or 90s), " +
-		"--backoff (an operator-idle anchored ladder, 60s→30m by default; refine " +
-		"with --min/--max), or --cron \"<expr>\" (a 5-field expression in the " +
-		"daemon's local time, validated at add time; --catch-up once fires once " +
-		"late after a gap). Run inside a tmux " +
+	Long: "Add a cron entry delivering <payload> on a schedule. The payload is prompt " +
+		"text: at fire time rk types it into the target agent's chat through the " +
+		"injection engine and presses Enter, exactly as if a person had typed it; " +
+		"it is never run as a command — to run a command, ask the agent to run it. " +
+		"Exactly one schedule flag is required: --every <dur> (a positive Go " +
+		"duration like 1h or 90s), --backoff (a backoff ladder keyed on the target " +
+		"pane's idle epoch — resets on genuine activity, continues otherwise; " +
+		"60s→30m by default, refine with --min/--max), or --cron \"<expr>\" (a " +
+		"5-field expression in the daemon's local time, validated at add time; " +
+		"--catch-up once fires once late after a gap). Run inside a tmux " +
 		"pane, the creator is auto-captured from $TMUX_PANE and the target defaults " +
-		"to role:operator when your window carries the operator role, else your " +
-		"pane's agent session, else your own pane; --role operator, --session <ref>, " +
+		"to your window's role when it carries any @rk_win_role, else your " +
+		"pane's agent session, else your own pane; --role <role>, --session <ref>, " +
 		"or --pane %N override (mutually exclusive). Outside tmux, --role, " +
 		"--session, or --pane is required. --name defaults to a payload prefix; " +
 		"--deliver and --if-absent values are validated now but enforced by the " +
-		"delivery wave.",
+		"delivery wave. With --if-absent respawn, repeat --respawn <arg> to give " +
+		"the command that brings the target back (one argv element per " +
+		"occurrence; the exact text {server} in any element is replaced with the " +
+		"entry's stamped tmux server name at fire time) — required for role and " +
+		"pane targets, optional for session targets (which default to resuming " +
+		"the closed session).",
 	Example: `  rk cron add "check PRs" --every 1h
   rk cron add "tick" --backoff --min 2m --max 30m
   rk cron add "nightly" --cron "0 3 * * *" --role operator
+  rk cron add "operator tick" --backoff --role operator --if-absent respawn --respawn rk --respawn operator --respawn -L --respawn '{server}'
   rk cron add "follow up" --every 2h --session 4fe2abc-1c3b-4f7e-9a2d-8b5c4e1f0a37`,
 	Args: usageArgs(cobra.ExactArgs(1)),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -76,7 +88,7 @@ var cronAddCmd = &cobra.Command{
 func init() {
 	f := cronAddCmd.Flags()
 	f.DurationVar(&cronAddEvery, "every", 0, "Fire on a fixed interval (Go duration, e.g. 1h, 90s)")
-	f.BoolVar(&cronAddBackoff, "backoff", false, "Fire on an operator-idle backoff ladder (default 60s→30m)")
+	f.BoolVar(&cronAddBackoff, "backoff", false, "Fire on a backoff ladder keyed on the target pane's idle epoch — resets on genuine activity, continues otherwise (60s→30m by default; refine with --min/--max)")
 	f.StringVar(&cronAddCronExpr, "cron", "", "Fire on a 5-field cron expression (daemon local time, validated at add time)")
 	f.StringVar(&cronAddCatchUp, "catch-up", "", "With --cron: fire once late after a gap (only: once)")
 	f.DurationVar(&cronAddMin, "min", time.Minute, "Backoff ladder minimum gap (with --backoff)")
@@ -84,8 +96,9 @@ func init() {
 	f.StringVar(&cronAddName, "name", "", "Display name (default: a payload prefix)")
 	f.StringVar(&cronAddDeliver, "deliver", cron.DeliverImmediate, "Delivery policy: immediate|when-idle")
 	f.StringVar(&cronAddIfAbsent, "if-absent", cron.IfAbsentSkip, "Absent-target policy: skip|notify|respawn")
+	f.StringArrayVar(&cronAddRespawn, "respawn", nil, "With --if-absent respawn: one argv element of the respawn command per occurrence (repeatable; {server} resolves to the entry's server at fire time)")
 	f.BoolVar(&cronAddPinned, "pinned", false, "Pin the entry (exempt from orphan expiry)")
-	f.StringVar(&cronAddRole, "role", "", "Target a server role (only: operator)")
+	f.StringVar(&cronAddRole, "role", "", "Target a server role (the @rk_win_role value, e.g. operator)")
 	f.StringVar(&cronAddPane, "pane", "", "Target a pane id (%N)")
 	f.StringVar(&cronAddSession, "session", "", "Target an agent session ref (e.g. 4fe2abc-…)")
 }
@@ -134,6 +147,9 @@ func runCronAdd(cmd *cobra.Command, payload string) error {
 	if err := cronAddValidateEnum("--if-absent", cronAddIfAbsent, cron.IfAbsentSkip, cron.IfAbsentNotify, cron.IfAbsentRespawn); err != nil {
 		return err
 	}
+	if len(cronAddRespawn) > 0 && cronAddIfAbsent != cron.IfAbsentRespawn {
+		return usageError(fmt.Errorf("--respawn only applies with --if-absent respawn"))
+	}
 
 	parent := cmd.Context()
 	if parent == nil {
@@ -157,9 +173,21 @@ func runCronAdd(cmd *cobra.Command, payload string) error {
 		name = truncateRunes(payload, cronAddNameMaxRunes)
 	}
 
+	// The add-time respawn rule (cron.ValidateRespawnIntent, also enforced
+	// inside cron.Add for the API path) is classified as usage here: the
+	// caller can fix the flags.
+	if err := cron.ValidateRespawnIntent(cron.Entry{Target: target, IfAbsent: cronAddIfAbsent, Respawn: cronAddRespawn}); err != nil {
+		return usageError(fmt.Errorf("%w — pass repeatable --respawn <arg>", err))
+	}
+
 	dir, err := cronDir()
 	if err != nil {
 		return err
+	}
+	// An empty --respawn set is the unset case — the entry file omits the key.
+	respawn := cronAddRespawn
+	if len(respawn) == 0 {
+		respawn = nil
 	}
 	entry, err := cron.Add(dir, slug, cron.Entry{
 		Name:      name,
@@ -168,6 +196,7 @@ func runCronAdd(cmd *cobra.Command, payload string) error {
 		Payload:   payload,
 		Deliver:   cronAddDeliver,
 		IfAbsent:  cronAddIfAbsent,
+		Respawn:   respawn,
 		Pinned:    cronAddPinned,
 		CreatedBy: createdBy,
 	})
@@ -214,10 +243,9 @@ func cronAddSchedule(cmd *cobra.Command) (cron.Schedule, error) {
 		return cron.Schedule{Kind: cron.ScheduleEvery, Interval: cron.Duration{Duration: cronAddEvery}}, nil
 	case cmd.Flags().Changed("backoff"):
 		return cron.Schedule{
-			Kind:   cron.ScheduleBackoff,
-			Anchor: "operator-idle",
-			Min:    cron.Duration{Duration: cronAddMin},
-			Max:    cron.Duration{Duration: cronAddMax},
+			Kind: cron.ScheduleBackoff,
+			Min:  cron.Duration{Duration: cronAddMin},
+			Max:  cron.Duration{Duration: cronAddMax},
 		}, nil
 	default:
 		if len(strings.Fields(cronAddCronExpr)) != 5 {
@@ -239,12 +267,12 @@ func cronAddValidateEnum(flag, value string, valid ...string) error {
 }
 
 // cronAddTarget resolves the entry's target and creator provenance. Explicit
-// flags win; else inside a pane the target defaults down the ladder —
-// role:operator when the caller's window holds the operator role, else the
-// caller pane's agent session, else the caller's pane; outside tmux an
-// explicit flag is required (a typed command must not guess). created_by.at
-// is always "now" — it anchors `every` schedules pre-first-delivery, so a
-// zero value would anchor at the Unix epoch and fire at once.
+// flags win; else inside a pane the target defaults down the ladder — the
+// caller window's role when it carries any @rk_win_role, else the caller
+// pane's agent session, else the caller's pane; outside tmux an explicit flag
+// is required (a typed command must not guess). created_by.at is always "now"
+// — it anchors `every` schedules pre-first-delivery, so a zero value would
+// anchor at the Unix epoch and fire at once.
 // created_by.session is the caller pane's parsed agent-session ref whenever
 // one is stamped, regardless of the target kind chosen.
 func cronAddTarget(ctx context.Context, slug string, sink outputSink) (cron.Target, cron.CreatedBy, error) {
@@ -263,10 +291,10 @@ func cronAddTarget(ctx context.Context, slug string, sink outputSink) (cron.Targ
 	if len(set) > 1 {
 		return cron.Target{}, cron.CreatedBy{}, usageError(fmt.Errorf("%s are mutually exclusive", strings.Join(set, " and ")))
 	}
-	if cronAddRole != "" {
-		if cronAddRole != cron.RoleOperator {
-			return cron.Target{}, cron.CreatedBy{}, usageError(fmt.Errorf("invalid --role value %q: want %q", cronAddRole, cron.RoleOperator))
-		}
+	// A role value is a tmux option discriminator other verbs read back — the
+	// same name-shape rule session refs already pass through.
+	if cronAddRole != "" && strings.IndexFunc(cronAddRole, unicode.IsSpace) >= 0 {
+		return cron.Target{}, cron.CreatedBy{}, usageError(fmt.Errorf("invalid --role value %q: want a non-empty, whitespace-free role (the @rk_win_role value)", cronAddRole))
 	}
 	if cronAddPane != "" && !tmux.ValidPaneID(cronAddPane) {
 		return cron.Target{}, cron.CreatedBy{}, usageError(fmt.Errorf("invalid --pane value %q: want a %%N pane id", cronAddPane))
@@ -304,8 +332,8 @@ func cronAddTarget(ctx context.Context, slug string, sink outputSink) (cron.Targ
 	}
 
 	role, err := cronWindowRoleFn(ctx, callerPane, slug)
-	if err == nil && role == cron.RoleOperator {
-		return cron.Target{Kind: cron.TargetRole, Role: cron.RoleOperator}, createdBy, nil
+	if err == nil && role != "" {
+		return cron.Target{Kind: cron.TargetRole, Role: role}, createdBy, nil
 	}
 	if err != nil {
 		sink.Notef("window role unreadable (%v) — target capture degrades down the ladder\n", err)

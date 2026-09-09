@@ -35,7 +35,7 @@ func TestEvaluateDeterministic(t *testing.T) {
 	entries := []Entry{
 		{
 			ID:       "a3f9",
-			Schedule: Schedule{Kind: ScheduleBackoff, Anchor: "operator-idle", Min: Duration{time.Minute}, Max: Duration{30 * time.Minute}},
+			Schedule: Schedule{Kind: ScheduleBackoff, Min: Duration{time.Minute}, Max: Duration{30 * time.Minute}},
 			WakeOn:   &WakeOn{Event: WakeAgentStateChange, Scope: WakeScopeServer, Debounce: Duration{10 * time.Second}},
 			Target:   Target{Kind: TargetRole, Role: RoleOperator},
 			Payload:  "tick",
@@ -64,7 +64,6 @@ func TestEvaluateDeterministic(t *testing.T) {
 		Cursor: WakeCursor{Entries: map[string]WakeObservation{
 			"a3f9": {Fingerprint: "F0", ObservedAt: T.Add(-time.Minute).Unix()},
 		}},
-		Operator: OperatorState{Present: true, LastTickAt: T.Add(-time.Hour).Unix(), TrackedCount: 1},
 	}
 	first := Evaluate(in)
 	second := Evaluate(in)
@@ -186,68 +185,42 @@ func TestEvaluateCronMissedEmission(t *testing.T) {
 	}
 }
 
-// TestEvaluateCronMissedGuarded: a holding guard suppresses the missed line
-// silently — same gating as fires, recorded as a suppressed diagnostic.
-func TestEvaluateCronMissedGuarded(t *testing.T) {
-	now := localTime(2026, 9, 9, 10, 9, 0)
+// TestEvaluateMuteLease: a live lease suppresses with a `muted — entry is
+// muted until …` diagnostic; the same entry 61s past the lease fires, with no
+// write anywhere (expiry is read-side only).
+func TestEvaluateMuteLease(t *testing.T) {
+	now := localTime(2026, 9, 9, 10, 0, 0)
 	entry := Entry{
-		ID:            "c909",
-		Schedule:      Schedule{Kind: ScheduleCron, Expr: "*/5 * * * *"},
-		SuppressWhile: []string{GuardNothingTracked},
-		Target:        Target{Kind: TargetPane, Pane: "%2"},
-		Payload:       "x",
-		CreatedBy:     CreatedBy{At: localTime(2026, 9, 9, 9, 0, 0).Unix()},
+		ID:         "a3f9",
+		Schedule:   Schedule{Kind: ScheduleEvery, Interval: Duration{time.Hour}},
+		Target:     Target{Kind: TargetPane, Pane: "%2"},
+		Payload:    "x",
+		MutedUntil: now.Add(time.Minute).Unix(),
+		CreatedBy:  CreatedBy{At: now.Add(-2 * time.Hour).Unix()},
 	}
-	res := Evaluate(EvalInput{
-		Server: "dev", Now: now, Entries: []Entry{entry},
-		Facts: map[string]TargetFacts{"c909": resolvedFacts("idle", now.Unix())},
-		Log:   own(localTime(2026, 9, 9, 10, 0, 30).Unix()),
-		// Zero OperatorState: nothing tracked ⇒ the guard holds.
-	})
-	if len(res.Missed) != 0 || len(res.Fires) != 0 {
-		t.Errorf("suppressed missed emitted: missed=%+v fires=%+v", res.Missed, res.Fires)
-	}
-	if !hasDiag(res.Diags, "suppressed") {
-		t.Errorf("diags = %v, want suppressed", diagReasons(res.Diags))
-	}
-}
+	facts := map[string]TargetFacts{"a3f9": resolvedFacts("idle", now.Unix())}
 
-// TestEvaluateGuardPrecedesFire: a due entry whose guard holds does NOT fire —
-// suppression is a silent skip with a diagnostic, never an error (R8/R9).
-func TestEvaluateGuardPrecedesFire(t *testing.T) {
-	T := backoffBase
-	entry := Entry{
-		ID:            "a3f9",
-		Schedule:      Schedule{Kind: ScheduleEvery, Interval: Duration{time.Hour}},
-		SuppressWhile: []string{GuardNothingTracked},
-		Target:        Target{Kind: TargetPane, Pane: "%12"},
-		Payload:       "tick",
-		CreatedBy:     CreatedBy{At: T.Add(-2 * time.Hour).Unix()},
-	}
-	facts := map[string]TargetFacts{"a3f9": resolvedFacts("idle", T.Unix())}
-
-	// Guard holds (nothing tracked) ⇒ suppressed, no fire.
-	res := Evaluate(EvalInput{Server: "dev", Now: T, Entries: []Entry{entry}, Facts: facts,
-		Operator: OperatorState{Present: true}})
+	res := Evaluate(EvalInput{Server: "dev", Now: now, Entries: []Entry{entry}, Facts: facts})
 	if len(res.Fires) != 0 {
-		t.Fatalf("fires = %+v, want suppressed", res.Fires)
+		t.Fatalf("fires = %+v, want none (lease live)", res.Fires)
 	}
-	if !hasDiag(res.Diags, "suppressed") {
-		t.Errorf("diags = %v, want a suppression diagnostic", diagReasons(res.Diags))
+	var detail string
+	for _, d := range res.Diags {
+		if d.Reason == "muted" {
+			detail = d.Detail
+		}
+	}
+	if want := "entry is muted until " + time.Unix(entry.MutedUntil, 0).Format(time.RFC3339); detail != want {
+		t.Errorf("muted detail = %q, want %q", detail, want)
 	}
 
-	// Guard does not hold (something tracked) ⇒ fires.
-	res = Evaluate(EvalInput{Server: "dev", Now: T, Entries: []Entry{entry}, Facts: facts,
-		Operator: OperatorState{Present: true, TrackedCount: 1}})
-	if len(res.Fires) != 1 || res.Fires[0].Reason != FireSchedule {
-		t.Fatalf("fires = %+v, want one schedule fire", res.Fires)
+	// Past the lease the entry fires — an expired lease is simply unmuted.
+	res = Evaluate(EvalInput{Server: "dev", Now: now.Add(61 * time.Second), Entries: []Entry{entry}, Facts: facts})
+	if len(res.Fires) != 1 {
+		t.Fatalf("fires = %+v, want one fire after the lease lapsed", res.Fires)
 	}
-
-	// Unknown guard ⇒ diagnostic, never holds, fire proceeds.
-	entry.SuppressWhile = []string{"bogus-guard"}
-	res = Evaluate(EvalInput{Server: "dev", Now: T, Entries: []Entry{entry}, Facts: facts})
-	if len(res.Fires) != 1 || !hasDiag(res.Diags, "unknown-guard") {
-		t.Errorf("unknown guard: fires=%+v diags=%v", res.Fires, diagReasons(res.Diags))
+	if hasDiag(res.Diags, "muted") {
+		t.Errorf("diags = %v, want no muted diagnostic after expiry", diagReasons(res.Diags))
 	}
 }
 
@@ -343,7 +316,7 @@ func TestEvaluateWakeFireCarriesNoRung(t *testing.T) {
 	T := backoffBase
 	entry := Entry{
 		ID:       "a3f9",
-		Schedule: Schedule{Kind: ScheduleBackoff, Anchor: "operator-idle", Min: Duration{60 * time.Second}, Max: Duration{30 * time.Minute}},
+		Schedule: Schedule{Kind: ScheduleBackoff, Min: Duration{60 * time.Second}, Max: Duration{30 * time.Minute}},
 		WakeOn:   &WakeOn{Event: WakeAgentStateChange, Scope: WakeScopeServer, Debounce: Duration{10 * time.Second}},
 		Target:   Target{Kind: TargetRole, Role: RoleOperator},
 		Payload:  "operator tick",
@@ -393,7 +366,7 @@ func TestEvaluateBackoffFire(t *testing.T) {
 	T := backoffBase
 	entry := Entry{
 		ID:       "a3f9",
-		Schedule: Schedule{Kind: ScheduleBackoff, Anchor: "operator-idle", Min: Duration{60 * time.Second}, Max: Duration{30 * time.Minute}},
+		Schedule: Schedule{Kind: ScheduleBackoff, Min: Duration{60 * time.Second}, Max: Duration{30 * time.Minute}},
 		Target:   Target{Kind: TargetRole, Role: RoleOperator},
 		Payload:  "operator tick",
 	}
@@ -457,33 +430,6 @@ func TestEvaluateAbsentFires(t *testing.T) {
 	// Determinism covers the new field: equal inputs, deep-equal results.
 	if again := Evaluate(in); !reflect.DeepEqual(res, again) {
 		t.Errorf("non-deterministic result:\n first: %+v\nsecond: %+v", res, again)
-	}
-}
-
-// TestEvaluateAbsentFireGuarded: guards are evaluated before an absent fire is
-// emitted — a suppressed absent fire is a silent diagnostic (no emission, so
-// no notify and no log line downstream).
-func TestEvaluateAbsentFireGuarded(t *testing.T) {
-	T := backoffBase
-	entry := Entry{
-		ID:            "a3f9",
-		Schedule:      Schedule{Kind: ScheduleEvery, Interval: Duration{time.Hour}},
-		SuppressWhile: []string{GuardNothingTracked},
-		Target:        Target{Kind: TargetSession, Session: "dead"},
-		Payload:       "tick",
-		IfAbsent:      IfAbsentNotify,
-		CreatedBy:     CreatedBy{At: T.Add(-2 * time.Hour).Unix()},
-	}
-	res := Evaluate(EvalInput{
-		Server: "dev", Now: T, Entries: []Entry{entry},
-		Facts: map[string]TargetFacts{"a3f9": {Unresolved: "no pane carries session dead"}},
-		// Zero OperatorState: nothing tracked ⇒ the guard holds.
-	})
-	if len(res.Absent) != 0 || len(res.Fires) != 0 {
-		t.Errorf("suppressed absent fire emitted: fires=%+v absent=%+v", res.Fires, res.Absent)
-	}
-	if !hasDiag(res.Diags, "suppressed") {
-		t.Errorf("diags = %v, want suppressed", diagReasons(res.Diags))
 	}
 }
 

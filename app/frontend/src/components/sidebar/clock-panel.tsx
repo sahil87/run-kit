@@ -103,13 +103,21 @@ function ClockRow({ server, entry }: { server: string; entry: CronEntry }) {
   });
 
   const dimmed = entry.orphaned === true || entry.muted === true;
-  const badge = entry.orphaned === true ? "orphaned" : entry.muted === true ? "muted" : null;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  // Lease remaining is as-of-fetch — same no-clock contract as `in Ns` below.
+  // An expired `mutedUntil` is not a live lease: the server already reports
+  // `muted: false` for it, so the plain-badge arm never sees one.
+  const mutedBadge =
+    entry.mutedUntil != null && entry.mutedUntil > nowSeconds
+      ? `muted ${formatDuration(entry.mutedUntil - nowSeconds)}`
+      : "muted";
+  const badge = entry.orphaned === true ? "orphaned" : entry.muted === true ? mutedBadge : null;
   // Static text derived from the already-fetched entry — the panel holds no
   // clock, so the relative time is as of the last fetch (the flyout card's
   // render-performance contract).
   const nextFireLabel =
     entry.nextFire != null && entry.nextFire > 0
-      ? `in ${formatDuration(Math.max(0, Math.floor(entry.nextFire - Date.now() / 1000)))}`
+      ? `in ${formatDuration(Math.max(0, entry.nextFire - nowSeconds))}`
       : "—";
 
   return (

@@ -30,19 +30,15 @@ const (
 	TargetPane    = "pane"
 )
 
-// The only role target currently defined (the @rk_win_role radio's closed set).
+// RoleOperator is the operator's @rk_win_role value. Role targets accept any
+// role value — the constant exists for call sites that name the operator role
+// literally (the rk operator seed).
 const RoleOperator = "operator"
 
 // Wake events.
 const (
 	WakeAgentStateChange = "agent-state-change"
 	WakeScopeServer      = "server"
-)
-
-// Guard names (suppress_while).
-const (
-	GuardOperatorLoopFresh = "operator-loop-fresh"
-	GuardNothingTracked    = "nothing-tracked"
 )
 
 // Delivery / absence policies (carried, not enforced — C3 owns enforcement).
@@ -88,13 +84,12 @@ func (d Duration) MarshalYAML() (any, error) {
 }
 
 // Schedule is the entry's timing predicate. every carries Interval; backoff
-// carries Anchor ("operator-idle" — the target pane's idle epoch) + Min + Max;
+// carries Min + Max (the ladder is keyed on the target pane's idle epoch);
 // cron carries a 5-field Expr, with CatchUp ("once") opting into one late fire
 // per missed gap.
 type Schedule struct {
 	Kind     string   `yaml:"kind"`
 	Interval Duration `yaml:"interval,omitempty"`
-	Anchor   string   `yaml:"anchor,omitempty"`
 	Min      Duration `yaml:"min,omitempty"`
 	Max      Duration `yaml:"max,omitempty"`
 	Expr     string   `yaml:"expr,omitempty"`
@@ -126,18 +121,31 @@ type CreatedBy struct {
 
 // Entry is one cron intent record.
 type Entry struct {
-	ID            string    `yaml:"id"`
-	Name          string    `yaml:"name,omitempty"`
-	Schedule      Schedule  `yaml:"schedule"`
-	WakeOn        *WakeOn   `yaml:"wake_on,omitempty"`
-	SuppressWhile []string  `yaml:"suppress_while,omitempty"`
-	Target        Target    `yaml:"target"`
-	Payload       string    `yaml:"payload"`
-	Deliver       string    `yaml:"deliver,omitempty"`
-	IfAbsent      string    `yaml:"if_absent,omitempty"`
-	Pinned        bool      `yaml:"pinned,omitempty"`
-	Muted         bool      `yaml:"muted,omitempty"`
-	CreatedBy     CreatedBy `yaml:"created_by,omitempty"`
+	ID       string   `yaml:"id"`
+	Name     string   `yaml:"name,omitempty"`
+	Schedule Schedule `yaml:"schedule"`
+	WakeOn   *WakeOn  `yaml:"wake_on,omitempty"`
+	Target   Target   `yaml:"target"`
+	Payload  string   `yaml:"payload"`
+	Deliver  string   `yaml:"deliver,omitempty"`
+	IfAbsent string   `yaml:"if_absent,omitempty"`
+	// Respawn is the caller-supplied argv for if_absent: respawn (the {server}
+	// placeholder resolves at fire time); used by role/session targets only.
+	Respawn []string `yaml:"respawn,omitempty"`
+	Pinned  bool     `yaml:"pinned,omitempty"`
+	Muted   bool     `yaml:"muted,omitempty"`
+	// MutedUntil is a bounded mute lease (unix seconds): the entry is muted
+	// until then, after which it resumes on its own — expiry writes nothing.
+	MutedUntil int64     `yaml:"muted_until,omitempty"`
+	CreatedBy  CreatedBy `yaml:"created_by,omitempty"`
+}
+
+// EffectivelyMuted is the single muted rule: the indefinite flag, or a lease
+// that has not yet lapsed at now. An expired lease reads as unmuted with no
+// write — the stale muted_until is scrubbed by the next mutation that marshals
+// the file.
+func (e Entry) EffectivelyMuted(now time.Time) bool {
+	return e.Muted || (e.MutedUntil > 0 && now.Unix() < e.MutedUntil)
 }
 
 // validate is the per-entry gate the tolerant load applies: a failing entry is
@@ -192,6 +200,15 @@ func (e Entry) validate() error {
 		}
 	default:
 		return fmt.Errorf("unknown target kind %q", e.Target.Kind)
+	}
+	// A present-but-empty respawn argv can never exec; argv[0] is the command.
+	if e.Respawn != nil {
+		if len(e.Respawn) == 0 {
+			return fmt.Errorf("respawn needs at least one element")
+		}
+		if e.Respawn[0] == "" {
+			return fmt.Errorf("respawn argv[0] must not be empty")
+		}
 	}
 	return nil
 }

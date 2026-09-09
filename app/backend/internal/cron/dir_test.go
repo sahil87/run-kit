@@ -54,9 +54,16 @@ func TestPathBuildersRejectBadSlugs(t *testing.T) {
 				t.Errorf("path builder accepted slug %q", slug)
 			}
 		}
+	}
+	// FabOperatorStatePath's input is a fab slug derived from a socket path:
+	// "." is legal (socket paths contain dots); only "" / "/" / NUL are not.
+	for _, slug := range []string{"../evil", "a/b", ""} {
 		if _, err := FabOperatorStatePath(slug); err == nil {
 			t.Errorf("FabOperatorStatePath accepted slug %q", slug)
 		}
+	}
+	if _, err := FabOperatorStatePath("tmp-tmux--1001.runKit"); err != nil {
+		t.Errorf("FabOperatorStatePath rejected a dotted slug: %v", err)
 	}
 	// And nothing was created outside the state dir.
 	entries, err := os.ReadDir(dir)
@@ -87,6 +94,28 @@ func TestPathBuilders(t *testing.T) {
 	}
 	if got := LockPath(dir); got != "/state/cron/.lock" {
 		t.Errorf("LockPath = %q", got)
+	}
+}
+
+// TestFabOperatorSlug mirrors fab-kit's slugify rule cell by cell: the `-` →
+// `--` escape happens before any other rewrite (a socket-dir dash and a
+// path-join dash never collide), the leading `/` is stripped, remaining `/`
+// become `-`, and the empty path slugs to "default".
+func TestFabOperatorSlug(t *testing.T) {
+	cases := []struct {
+		socket, want string
+	}{
+		{"/tmp/tmux-1001/runKit", "tmp-tmux--1001-runKit"},
+		{"/tmp/tmux/1000/default", "tmp-tmux-1000-default"},
+		{"", "default"},
+		{"/private/tmp/tmux-501/default", "private-tmp-tmux--501-default"},
+		{"/run/user/1000/tmux.default", "run-user-1000-tmux.default"},
+		{"relative.sock", "relative.sock"},
+	}
+	for _, tc := range cases {
+		if got := FabOperatorSlug(tc.socket); got != tc.want {
+			t.Errorf("FabOperatorSlug(%q) = %q, want %q", tc.socket, got, tc.want)
+		}
 	}
 }
 

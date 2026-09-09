@@ -272,11 +272,12 @@ func TestAddEntryCap(t *testing.T) {
 func roleTickSpec() Entry {
 	return Entry{
 		Name:     "operator tick",
-		Schedule: Schedule{Kind: ScheduleBackoff, Anchor: "operator-idle", Min: Duration{time.Minute}, Max: Duration{30 * time.Minute}},
+		Schedule: Schedule{Kind: ScheduleBackoff, Min: Duration{time.Minute}, Max: Duration{30 * time.Minute}},
 		Target:   Target{Kind: TargetRole, Role: RoleOperator},
 		Payload:  "operator tick",
 		Deliver:  DeliverImmediate,
 		IfAbsent: IfAbsentRespawn,
+		Respawn:  []string{"rk", "operator", "-L", "{server}"},
 		Pinned:   true,
 	}
 }
@@ -390,5 +391,160 @@ func TestEnsureRoleEntryRoleScoped(t *testing.T) {
 	entries, _ := LoadEntries(filepath.Join(dir, "dev.yaml"))
 	if len(entries) != 2 {
 		t.Errorf("entries = %d, want both the sentinel and the seeded operator entry", len(entries))
+	}
+}
+
+// TestMuteWriteRules is the lease write matrix: a lease replaces an indefinite
+// flag; an indefinite mute replaces a lease; unmuting clears both; all through
+// the atomic read-modify-write, and a corrupt file refuses to mutate.
+func TestMuteWriteRules(t *testing.T) {
+	newEntry := func(t *testing.T, dir string) Entry {
+		t.Helper()
+		e, err := Add(dir, "dev", Entry{
+			Schedule: Schedule{Kind: ScheduleEvery, Interval: Duration{time.Minute}},
+			Target:   Target{Kind: TargetPane, Pane: "%1"},
+			Payload:  "x",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+
+	t.Run("lease after flag leaves only muted_until", func(t *testing.T) {
+		dir := t.TempDir()
+		e := newEntry(t, dir)
+		if ok, err := SetMuted(dir, "dev", e.ID, true); err != nil || !ok {
+			t.Fatalf("SetMuted: ok=%v err=%v", ok, err)
+		}
+		until := time.Now().Add(5 * time.Minute).Unix()
+		if ok, err := SetMuteLease(dir, "dev", e.ID, until); err != nil || !ok {
+			t.Fatalf("SetMuteLease: ok=%v err=%v", ok, err)
+		}
+		entries, _ := LoadEntries(filepath.Join(dir, "dev.yaml"))
+		if entries[0].Muted || entries[0].MutedUntil != until {
+			t.Errorf("after lease: muted=%v muted_until=%d, want false/%d", entries[0].Muted, entries[0].MutedUntil, until)
+		}
+		data, _ := os.ReadFile(filepath.Join(dir, "dev.yaml"))
+		if strings.Contains(string(data), "muted:") {
+			t.Errorf("file still carries the muted: key:\n%s", data)
+		}
+	})
+
+	t.Run("flag after lease leaves only muted", func(t *testing.T) {
+		dir := t.TempDir()
+		e := newEntry(t, dir)
+		if ok, err := SetMuteLease(dir, "dev", e.ID, time.Now().Add(5*time.Minute).Unix()); err != nil || !ok {
+			t.Fatalf("SetMuteLease: ok=%v err=%v", ok, err)
+		}
+		if ok, err := SetMuted(dir, "dev", e.ID, true); err != nil || !ok {
+			t.Fatalf("SetMuted: ok=%v err=%v", ok, err)
+		}
+		entries, _ := LoadEntries(filepath.Join(dir, "dev.yaml"))
+		if !entries[0].Muted || entries[0].MutedUntil != 0 {
+			t.Errorf("after mute: muted=%v muted_until=%d, want true/0", entries[0].Muted, entries[0].MutedUntil)
+		}
+	})
+
+	t.Run("unmute clears both", func(t *testing.T) {
+		dir := t.TempDir()
+		e := newEntry(t, dir)
+		if ok, err := SetMuteLease(dir, "dev", e.ID, time.Now().Add(5*time.Minute).Unix()); err != nil || !ok {
+			t.Fatalf("SetMuteLease: ok=%v err=%v", ok, err)
+		}
+		if ok, err := SetMuted(dir, "dev", e.ID, false); err != nil || !ok {
+			t.Fatalf("SetMuted(false): ok=%v err=%v", ok, err)
+		}
+		data, _ := os.ReadFile(filepath.Join(dir, "dev.yaml"))
+		if strings.Contains(string(data), "muted") {
+			t.Errorf("file still carries a mute key:\n%s", data)
+		}
+	})
+
+	t.Run("corrupt file refuses the lease mutation", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "dev.yaml"), []byte("{{{{"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := SetMuteLease(dir, "dev", "a3f9", time.Now().Unix()); err == nil {
+			t.Fatal("SetMuteLease over a corrupt file succeeded")
+		}
+	})
+}
+
+// TestEnsureRoleEntryNarrowUpgrade: an old-shape seeded entry (retired keys,
+// no respawn argv, user-tuned max and muted) gains ONLY the spec's respawn
+// argv on re-seed — tuning stays, retired keys drop out on the marshal, and
+// the call reports created=false.
+func TestEnsureRoleEntryNarrowUpgrade(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dev.yaml")
+	oldShape := `
+entries:
+  - id: a3f9
+    name: operator tick
+    schedule: { kind: backoff, anchor: idle, min: 60s, max: 45m }
+    target: { kind: role, role: operator }
+    payload: "operator tick"
+    deliver: immediate
+    if_absent: respawn
+    suppress_while: [operator-loop-fresh, nothing-tracked]
+    muted: true
+    pinned: true
+`
+	if err := os.WriteFile(path, []byte(oldShape), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	entry, created, err := EnsureRoleEntry(dir, "dev", roleTickSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created {
+		t.Error("created = true on an upgrade, want false")
+	}
+	if !reflect.DeepEqual(entry.Respawn, []string{"rk", "operator", "-L", "{server}"}) {
+		t.Errorf("returned respawn = %v", entry.Respawn)
+	}
+
+	entries, diags := LoadEntries(path)
+	if len(diags) != 0 || len(entries) != 1 {
+		t.Fatalf("reload: entries=%v diags=%v", entries, diags)
+	}
+	got := entries[0]
+	if !reflect.DeepEqual(got.Respawn, []string{"rk", "operator", "-L", "{server}"}) {
+		t.Errorf("respawn = %v, want the spec argv", got.Respawn)
+	}
+	// User tuning survives: max 45m, muted true, and nothing else was touched.
+	if got.Schedule.Max.Duration != 45*time.Minute || !got.Muted || !got.Pinned || got.Name != "operator tick" {
+		t.Errorf("tuning lost: %+v", got)
+	}
+	data, _ := os.ReadFile(path)
+	for _, retired := range []string{"anchor", "suppress_while"} {
+		if strings.Contains(string(data), retired) {
+			t.Errorf("file still carries retired key %q:\n%s", retired, data)
+		}
+	}
+}
+
+// TestEnsureRoleEntryNoUpgradeWhenRespawnPresent: a matched entry that already
+// carries a respawn argv is a pure no-op — the file is byte-identical after
+// the call.
+func TestEnsureRoleEntryNoUpgradeWhenRespawnPresent(t *testing.T) {
+	dir := t.TempDir()
+	if _, created, err := EnsureRoleEntry(dir, "dev", roleTickSpec()); err != nil || !created {
+		t.Fatalf("seed: created=%v err=%v", created, err)
+	}
+	path := filepath.Join(dir, "dev.yaml")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, created, err := EnsureRoleEntry(dir, "dev", roleTickSpec()); err != nil || created {
+		t.Fatalf("re-seed: created=%v err=%v", created, err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Error("re-seed rewrote a file whose entry already carries respawn")
 	}
 }

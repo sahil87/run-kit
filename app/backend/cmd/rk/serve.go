@@ -239,7 +239,7 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		if cronDir, err := cron.DefaultDir(); err != nil {
 			slog.Warn("cron ticker disabled: state dir unresolvable", "err", err)
 		} else {
-			deps := cron.Deps{Dir: cronDir, Deliverer: cron.NewEngineDeliverer(), Respawner: rkCronRespawnRole}
+			deps := cron.Deps{Dir: cronDir, Deliverer: cron.NewEngineDeliverer()}
 			if snapStore != nil {
 				// Session respawn needs the recently-closed ring (R8): wire
 				// it only when the store resolved, else the nil-seam notify

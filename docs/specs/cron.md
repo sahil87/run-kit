@@ -69,9 +69,10 @@ Two scope rules:
 
 1. **A stateless evaluator, pluggable invokers.** The clock's core is
    `rk cron tick` — a short-lived idempotent verb: read the entry files,
-   derived state (idle epochs, pane liveness, the fab operator state file),
-   and the delivery log; compute what is due; deliver; append to the log;
-   exit. It holds **no in-memory schedule state**, so every invoker is
+   derived state (idle epochs, pane liveness), and the delivery log; compute
+   what is due; deliver; append to the log; exit. (The fab operator state
+   file is read for watchlist display only — § Watchlist — never to decide
+   whether a fire is emitted.) It holds **no in-memory schedule state**, so every invoker is
    equivalent, serialized by a non-blocking flock: the **rk-daemon ticker
    goroutine** is the default (an isolated goroutine sharing no locks with
    the serving path — the process-internal separation that actually protects
@@ -107,14 +108,15 @@ separate subdir, never parsed as anything else).
 entries:
   - id: a3f9                     # 4-char, rk-generated
     name: operator tick
-    schedule: { kind: backoff, anchor: operator-idle, min: 60s, max: 30m }
+    schedule: { kind: backoff, min: 60s, max: 30m }
     wake_on: { event: agent-state-change, scope: server, debounce: 10s }
-    suppress_while: [operator-loop-fresh, nothing-tracked]
     target: { kind: role, role: operator }
     payload: "operator tick"
     deliver: immediate           # immediate | when-idle
     if_absent: respawn           # skip | notify | respawn
+    respawn: ["rk", "operator", "-L", "{server}"]   # argv; {server} → the stamped server name
     pinned: true                 # never orphan-expired
+    # muted_until: 1788261200    # optional mute lease (unix seconds) — expiry unmutes with no write
     created_by: { session: 8c1e…, pane: "%12", at: 1788254000 }
   - id: k7q2
     name: hourly PR sweep
@@ -150,19 +152,11 @@ forever (the self-resetting-ladder bug). Both inputs live on disk, so the
 schedule stays a pure function and a restart at worst re-fires one due tick —
 every payload must tolerate that (ticks are idempotent by contract).
 
-**Union predicates and guards** (both optional per entry, both derivable):
+**Union predicate** (optional per entry, derivable):
 
 - `wake_on` — an edge trigger OR'd with the schedule: fire when the named
   transition occurs (v1: `agent-state-change`, server-scoped), debounced so a
   burst coalesces into one delivery.
-- `suppress_while` — named guards evaluated at fire time; while any holds,
-  the fire is skipped silently (not a missed fire). The operator-tick entry
-  ships with two: `operator-loop-fresh` (skip while `last_tick_at` in the fab
-  operator state file is fresh — the staleness arbitration that keeps the
-  cron silent while the in-session `/loop` is alive, so the two clocks never
-  double-tick) and `nothing-tracked` (skip while `monitored`, `watches`, and
-  `autopilot` are all empty — the same condition under which the skill stops
-  its own loop).
 
 **Catch-up policy**: a wall-clock `cron` fire missed while no invoker ran
 defaults to **skip** (never fire late); `catch_up: once` is the per-entry
@@ -171,7 +165,7 @@ due for a grace window of `DefaultCronGrace` (2m — covers tick jitter and
 short daemon restarts), extended to `DefaultHoldWindow` (2h) for
 `deliver: when-idle` entries so a busy-pane hold can outlive the grace; a
 stale occurrence past its window logs exactly one `missed` delivery-log line
-per gap (guard-gated like a fire, target-independent — schedule history, not
+per gap (mute-gated like a fire, target-independent — schedule history, not
 delivery), which advances the anchor past the gap; `catch_up: once` lifts the
 lateness bound and fires the latest stale occurrence exactly once.
 
@@ -179,7 +173,7 @@ lateness bound and fires the latest stale occurrence exactly once.
 
 | Kind | Names | Resolution at fire | Lifetime |
 |------|-------|--------------------|----------|
-| `role` | A server role (only `operator` initially) | The window carrying `@rk_win_role=operator` (shipped radio semantics; equivalently the `_rk-operator` member) → its agent pane | Never orphans — the role outlives any pane |
+| `role` | A server role — any `@rk_win_role` value (`operator` is the predominant one) | The window carrying that `@rk_win_role` value → its agent pane (the operator role rides the shipped radio semantics; equivalently the `_rk-operator` member) | Never orphans — the role outlives any pane |
 | `session` | An agent chat session (`@rk_pane_agent_session` id) | The live pane carrying that session id | Orphans when no pane resolves |
 | `pane` | A raw pane id | That pane, if alive | Dies with the pane (discouraged; exists for scripts) |
 
@@ -192,20 +186,26 @@ becomes the target" costs no arguments.
 
 - `skip` — record a missed fire; entry trends toward orphaned.
 - `notify` — `rk notify` (fail-silent contract) with entry name and server.
-- `respawn` — role targets: relaunch via `rk operator` (one-per-server holds,
-  below); session targets **[phase 3]**: resume the agent
-  (`claude --resume <session-id>` through the launcher seam) and deliver into
-  the resumed pane. A cron that brings its dead agent back. Either respawn
-  runs the standard spawn-then-deliver composite
-  ([`agent-messaging.md`](agent-messaging.md) § Spawn and trust walls):
-  `await --ready` classifies the fresh pane (`ready`/`parked`), a `parked`
-  wall escalates via `rk notify` (the clock never auto-answers walls —
-  judgment is caller-side and the daemon has no judge), and delivery proceeds
-  only on `ready`. **A respawn never delivers the bare tick**: a fresh
-  session has no tick convention in context, so the first delivery is the
-  launcher's kickoff (`/fab-operator` for the operator role — which runs
-  startup and re-establishes context); bare payloads resume from the second
-  fire.
+- `respawn` — run the entry's own `respawn: [argv...]` command as an
+  argv-slice exec (never a shell string) under a timeout; the `{server}`
+  placeholder in any element is substituted with the entry's stamped tmux
+  server name, so the operator entry reads
+  `respawn: ["rk", "operator", "-L", "{server}"]`. The command owns the whole
+  bring-back — spawn, readiness classification, and the kickoff
+  (`rk operator -L {server}` creates the operator window and delivers the
+  `/fab-operator` kickoff itself, which runs startup and re-establishes
+  context). Session targets without a `respawn` command keep the default
+  **[phase 3]**: resume the agent (`claude --resume <session-id>` through the
+  launcher seam) and deliver into the resumed pane — the standard
+  spawn-then-deliver composite ([`agent-messaging.md`](agent-messaging.md)
+  § Spawn and trust walls): `await --ready` classifies the fresh pane
+  (`ready`/`parked`), a `parked` wall escalates via `rk notify` (the clock
+  never auto-answers walls — judgment is caller-side and the daemon has no
+  judge), and delivery proceeds only on `ready`. A role target without a
+  `respawn` command degrades to `notify`. A cron that brings its dead agent
+  back. **A respawn never delivers the bare tick**: a fresh session has no
+  tick convention in context, so the first contact is the respawn command's
+  own kickoff; bare payloads resume from the second fire.
 
 **Orphan GC**: a `session`/`pane` entry that fails resolution goes **orphaned**
 — visible in the UI and `rk cron list`, never silently dropped — and expires
@@ -257,19 +257,27 @@ never a bare `-t _rk-operator` (exact-match targets only).
 
 The complementary visibility surface — and it requires **no push at all**.
 The fab operator binary already maintains a server-keyed state file
-(`$XDG_STATE_HOME/fab/operator/<server-slug>.yaml`, written only through
+(`$XDG_STATE_HOME/fab/operator/<slug>.yaml`, written only through
 `fab operator` verbs — `tick-start`, `enroll`, `update`, …) carrying
 `tick_count`, `last_tick_at`, and the full `monitored:` set: change ID, pane
-ID (the join key), repo, stage, last-known agent state, branch. rk **derives**
-the watchlist from this file — the same posture as its `.status.yaml` and
-`.fab-dispatch/` reads (Constitution II) — joining `monitored` entries to
-windows by pane ID. Constitution X is satisfied by there being nothing
-underivable left: the earlier tick-doc-push design is superseded.
+ID (the join key), repo, stage, last-known agent state, branch. The slug is a
+**cross-repo contract**: fab-kit owns the file and derives `<slug>` from the
+server's tmux socket path — escape `-` as `--` FIRST, strip the leading `/`,
+replace every remaining `/` with `-`, empty ⇒ `default` (e.g.
+`/tmp/tmux-1001/runKit` → `tmp-tmux--1001-runKit`, file
+`tmp-tmux--1001-runKit.yaml`). rk mirrors the rule exactly
+(`tmux.SocketPath` + `cron.FabOperatorSlug`), never writes the file, and
+falls back to slug `default` on a socket-path query failure — matching fab.
+rk **derives** the watchlist from this file — the same posture as its
+`.status.yaml` and `.fab-dispatch/` reads (Constitution II) — joining
+`monitored` entries to windows by pane ID. Constitution X is satisfied by
+there being nothing underivable left: the earlier tick-doc-push design is
+superseded.
 
 `last_tick_at` is the **single staleness timestamp** serving every consumer:
-the UI tick-age stamp, the dimmed watched-row indicators, the CLOCK-header
-warning, and the backstop's `operator-loop-fresh` suppress guard. A stale
-watchlist in the UI *is* the dead-loop alarm's evidence.
+the UI tick-age stamp, the dimmed watched-row indicators, and the
+CLOCK-header warning. A stale watchlist in the UI *is* the dead-loop alarm's
+evidence.
 
 Cross-tool contract note: rk parses a fab-owned schema. The read is tolerant
 (unknown keys ignored, absent file = empty watchlist) and documented as an
@@ -368,7 +376,18 @@ tmux event — the safety-poll lesson).
 |---------|------|
 | Read | `GET /api/cron?server=<slug>` — entries + derived next-fire + orphan state; watchlist rides the existing SSE state doc |
 | Mutate | `POST /api/cron/create`, `POST /api/cron/delete`, `POST /api/cron/mute` — POST-only (Constitution IX) |
-| CLI | `rk cron add <payload> --every 1h \| --backoff \| --cron "<expr>" [--name N] [--deliver when-idle] [--if-absent skip]`, `rk cron list [--json]`, `rk cron rm <id>`, `rk cron mute <id>` — agent-friendly: no flags beyond the schedule are required |
+| CLI | `rk cron add <payload> --every 1h \| --backoff \| --cron "<expr>" [--name N] [--deliver when-idle] [--if-absent skip] [--respawn <arg>…]`, `rk cron list [--json]`, `rk cron rm <id>`, `rk cron mute <id> [--for <dur>] [--off]` — agent-friendly: no flags beyond the schedule are required |
+
+`rk cron mute <id> --for <dur>` mutes until now+dur; expiry unmutes
+automatically with no further call — the evaluator reads an expired lease as
+unmuted. Plain `mute` is indefinite; `--off` clears both. On `add`,
+`--respawn` is repeatable — one argv element per occurrence, passed exactly
+as typed; the `{server}` placeholder is substituted with the entry's stamped
+server name when the command runs (§ Targets & Fire-Time Resolution).
+Entries can be created over the localhost HTTP API, so the API can now make
+the daemon exec a command — but it could already type arbitrary text into an
+agent's chat (command execution by proxy), so the trust boundary does not
+move.
 
 ## Constitution Alignment
 
@@ -388,26 +407,34 @@ tmux event — the safety-poll lesson).
 
 - **P1 — substrate + operator tick**: the evaluator verb + daemon-ticker
   invoker + flock, entry file, `role` target, `backoff` (with the anchor-join)
-  + `every` schedules, `wake_on` + `suppress_while`, injection-engine
+  + `every` schedules, `wake_on`, injection-engine
   delivery, evaluator guards (live-server filter, rate caps), `rk cron` CLI,
   API.
 - **P1.5 — backstop live** (before any UI): `rk operator` seeds the
-  operator-tick entry; **zero fab-operator skill changes** — the
-  `operator-loop-fresh` guard keeps the cron silent while the in-session
-  `/loop` lives. Gate before proceeding: kill the loop → a tick arrives
-  within one backoff step; no double ticks while the loop is healthy;
-  `rk cron add/list/rm` works from inside a pane. Kills the incident class.
+  operator-tick entry (`if_absent: respawn` with
+  `respawn: ["rk", "operator", "-L", "{server}"]`). Silence while the
+  operator's in-session `/loop` lives is **lease arbitration**: the loop
+  renews a mute lease (`rk cron mute <id> --for <dur>`) each tick, and when
+  the loop dies the lease lapses and the cron backstop resumes on its own.
+  The fab-kit side that issues the renewals is a follow-up — until it ships,
+  the idle operator is ticked every backoff step (loud but safe; mute by hand
+  if needed). Gate before proceeding: kill the loop → a tick arrives within
+  one backoff step; with the lease renewing, no double ticks while the loop
+  is healthy; `rk cron add/list/rm` works from inside a pane. Kills the
+  incident class.
 - **P2 — visibility**: the `CLOCK` sidebar section + rail toggle (desktop),
   the agents-tile dashboard, the mobile console sheet's **Activity** feed
   segment + staleness banner + entry detail sheet, watched-row indicator +
   flyout-card detail (watchlist and `last_tick_at` read from the fab
   operator state file), SSE wiring, palette actions, notify deep-links.
 - **P3 — generalization + replacement posture**: `session` targets with
-  auto-capture, orphan GC, `if_absent: respawn` via closed-session resume,
-  `cron` expressions; then the fab-kit skill change — the operator stops
-  running `/loop`, and the entry's union predicate (`backoff` + `wake_on`)
-  replaces §4 Adaptive cadence, eliminating the dual-clock arrangement and
-  the loop-death incident class entirely.
+  auto-capture, orphan GC, the closed-session resume default for
+  `if_absent: respawn`, `cron` expressions; then the fab-kit skill change —
+  the operator's in-session loop renews the mute lease each tick while it
+  runs, and once the loop retires the entry's union predicate (`backoff` +
+  `wake_on`) replaces §4 Adaptive cadence as the only clock — the lease
+  simply stops being renewed — eliminating the loop-death incident class
+  entirely.
 
 ## Open Questions
 

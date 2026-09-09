@@ -60,8 +60,7 @@ type Fire struct {
 
 // EvalInput is everything the stateless evaluator needs, all disk-derivable:
 // the server's entries, per-entry resolved target facts, the server agent-state
-// fingerprint, the parsed delivery log, the previous wake cursor, the fab
-// operator state distillation, and now.
+// fingerprint, the parsed delivery log, the previous wake cursor, and now.
 type EvalInput struct {
 	Server      string
 	Now         time.Time
@@ -70,26 +69,22 @@ type EvalInput struct {
 	Fingerprint string
 	Log         []LogLine
 	Cursor      WakeCursor
-	Operator    OperatorState
-	// FreshThreshold is the operator-loop-fresh guard's freshness window;
-	// zero selects DefaultOperatorLoopFreshThreshold.
-	FreshThreshold time.Duration
 }
 
 // EvalResult carries the due fires, the due-but-target-unresolved fires, the
-// skip/suppression diagnostics, and the next wake cursor (to be persisted by
-// the tick orchestrator).
+// skip diagnostics, and the next wake cursor (to be persisted by the tick
+// orchestrator).
 type EvalResult struct {
 	Fires []Fire
 	// Absent carries due fires whose target did not resolve (empty PaneID),
-	// emitted after guard evaluation exactly like resolved fires — the tick
-	// orchestrator applies the entry's if_absent policy to each.
+	// emitted exactly like resolved fires — the tick orchestrator applies the
+	// entry's if_absent policy to each.
 	Absent []Fire
 	// Missed carries one fire per cron-kind entry whose latest occurrence fell
 	// stale past its window without catch_up — schedule history, not delivery:
-	// emitted through the same muted/guard gating as fires but regardless of
-	// target resolution. The tick appends one `missed` log line per entry,
-	// advancing the anchor past the gap.
+	// emitted through the same muted gating as fires but regardless of target
+	// resolution. The tick appends one `missed` log line per entry, advancing
+	// the anchor past the gap.
 	Missed     []Fire
 	Diags      []Diagnostic
 	NextCursor WakeCursor
@@ -97,14 +92,9 @@ type EvalResult struct {
 
 // Evaluate is the pure core (R4): no package-level mutable state, no I/O —
 // equal inputs return deep-equal results. Composition order per entry (R9):
-// muted → schedule/wake due math → target resolution → guards — guards are
-// ALWAYS evaluated before a fire is emitted, so suppression can never be
-// missed; a suppressed fire is a silent skip with a diagnostic.
+// muted (flag or live lease) → schedule/wake due math → target resolution →
+// emit.
 func Evaluate(in EvalInput) EvalResult {
-	threshold := in.FreshThreshold
-	if threshold <= 0 {
-		threshold = DefaultOperatorLoopFreshThreshold
-	}
 	res := EvalResult{NextCursor: in.Cursor.clone()}
 	for i, e := range in.Entries {
 		// Eval-time defense of the per-server entry cap: a hand-edited file
@@ -118,8 +108,12 @@ func Evaluate(in EvalInput) EvalResult {
 			res.Diags = append(res.Diags, Diagnostic{Server: in.Server, EntryID: e.ID, Reason: reason, Detail: detail})
 		}
 
-		if e.Muted {
-			diag("muted", "entry is muted")
+		if e.EffectivelyMuted(in.Now) {
+			detail := "entry is muted"
+			if !e.Muted {
+				detail = "entry is muted until " + time.Unix(e.MutedUntil, 0).Format(time.RFC3339)
+			}
+			diag("muted", detail)
 			continue
 		}
 
@@ -180,26 +174,6 @@ func Evaluate(in EvalInput) EvalResult {
 		resolved := facts.Resolved()
 		if !resolved && (schedDue || wakeDue) {
 			diag("target-unresolved", facts.Unresolved)
-		}
-
-		// Guards last — before any fire or missed line is emitted, never after;
-		// they gate absent fires exactly as resolved ones (a suppressed absent
-		// fire is a silent diagnostic: no emission, no if_absent disposition).
-		suppressed := false
-		for _, g := range e.SuppressWhile {
-			holds, known := guardHolds(g, in.Operator, in.Now, threshold)
-			if !known {
-				diag("unknown-guard", g)
-				continue
-			}
-			if holds {
-				diag("suppressed", "guard "+g+" holds")
-				suppressed = true
-				break
-			}
-		}
-		if suppressed {
-			continue
 		}
 
 		if missed {

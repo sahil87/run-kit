@@ -32,7 +32,11 @@ var cronCmd = &cobra.Command{
 	Long: "Durable, server-scoped cron entries for agent panes: `add` records an " +
 		"entry (a payload plus a schedule — `--every`, `--backoff`, or `--cron`) " +
 		"in the resolved server's intent file, auto-capturing the caller's pane " +
-		"as creator and default target; `list` prints the entries and their last " +
+		"as creator and default target. The payload is prompt text: at fire time " +
+		"rk types it into the target agent's chat through the injection engine " +
+		"and presses Enter, exactly as if a person had typed it; it is never run " +
+		"as a command — to run a command, ask the agent to run it. `list` prints " +
+		"the entries and their last " +
 		"delivery, derived from disk only (no tmux probes); `rm`, `mute`, and " +
 		"`pin` mutate one entry by id; `tick` runs one evaluation sweep across " +
 		"every live server — flock-guarded, idempotent, safe to invoke " +

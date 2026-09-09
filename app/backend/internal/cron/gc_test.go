@@ -270,9 +270,6 @@ func TestTickOrphanGCDeadServerUntouched(t *testing.T) {
 		},
 		Tmux:      newFakeTmux(),
 		Deliverer: &fakeDeliverer{},
-		OperatorStatePath: func(slug string) (string, error) {
-			return filepath.Join(t.TempDir(), slug+".yaml"), nil
-		},
 	})
 	if err != nil {
 		t.Fatal(err)

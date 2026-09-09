@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // NOTE (tmux safety): rm/mute/pin mutate the entry file on local disk only —
@@ -108,6 +109,74 @@ func TestCronMutCorruptFileRefuses(t *testing.T) {
 			after, _ := os.ReadFile(path)
 			if string(after) != string(corrupt) {
 				t.Error("corrupt entry file was modified by a refused mutation")
+			}
+		})
+	}
+}
+
+// TestCronMuteFor: --for <dur> writes a muted_until lease (and no muted flag)
+// and confirms with the RFC3339 expiry; the clock is pinned via cronNowFn.
+func TestCronMuteFor(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	seedCronEntry(t, dir)
+	origNow := cronNowFn
+	cronNowFn = func() time.Time { return time.Unix(1757000000, 0).In(time.Local) }
+	t.Cleanup(func() { cronNowFn = origNow })
+
+	stdout, _, err := runCronCmd(t, "mute", "a3f9", "--for", "5m")
+	if err != nil {
+		t.Fatalf("mute --for: %v", err)
+	}
+	wantUntil := time.Unix(1757000000, 0).In(time.Local).Add(5 * time.Minute)
+	if want := "muted a3f9 until " + wantUntil.Format(time.RFC3339); !strings.Contains(stdout, want) {
+		t.Errorf("stdout = %q, want %q", stdout, want)
+	}
+	entries := loadCronEntries(t, dir, "work")
+	if len(entries) != 1 || entries[0].MutedUntil != wantUntil.Unix() {
+		t.Fatalf("entries = %+v, want muted_until %d", entries, wantUntil.Unix())
+	}
+	if entries[0].Muted {
+		t.Error("muted flag set alongside the lease — a lease clears the indefinite flag")
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "work.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "muted_until:") {
+		t.Errorf("file = %s, want a muted_until key", raw)
+	}
+	if strings.Contains(string(raw), "muted: ") {
+		t.Errorf("file = %s, want no muted: key", raw)
+	}
+}
+
+// TestCronMuteForUsageErrors: --for 0s, a negative duration, and --for with
+// --off are usage-class (exit 2) and leave the file untouched.
+func TestCronMuteForUsageErrors(t *testing.T) {
+	for _, args := range [][]string{
+		{"mute", "a3f9", "--for", "0s"},
+		{"mute", "a3f9", "--for", "-5m"},
+		{"mute", "a3f9", "--for", "5m", "--off"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			dir := stubCronDir(t)
+			stubCronTMUX(t)
+			path := seedCronEntry(t, dir)
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = runCronCmd(t, args...)
+			if err == nil {
+				t.Fatalf("%v: err = nil, want a usage error", args)
+			}
+			if code := exitCode(err); code != exitUsage {
+				t.Errorf("%v: exit code = %d, want %d", args, code, exitUsage)
+			}
+			after, _ := os.ReadFile(path)
+			if string(after) != string(before) {
+				t.Errorf("%v: entry file modified by a rejected mutation", args)
 			}
 		})
 	}

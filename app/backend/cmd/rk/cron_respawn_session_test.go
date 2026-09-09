@@ -13,10 +13,9 @@ import (
 	"rk/internal/tmux"
 )
 
-// NOTE (tmux safety): like cron_respawn_test.go, these tests never touch a
-// real tmux server, snapshot store, or push subscription — the ring scan,
-// spawn, restamp, record drop, delivery, and escalation all route through the
-// stubbed cronSession* seams (plus cronRespawnNotifyFn).
+// NOTE (tmux safety): these tests never touch a real tmux server, snapshot
+// store, or push subscription — the ring scan, spawn, restamp, record drop,
+// delivery, and escalation all route through the stubbed cronSession* seams.
 
 const cronSessionTestRef = "4fe2a1b3-1234-4abc-8def-0123456789ab"
 
@@ -105,8 +104,8 @@ func stubCronSessionRespawnSeams(t *testing.T) *cronSessionRespawnStub {
 		s.deliverSrv, s.deliverPane, s.deliverText = server, paneID, text
 		return s.readiness, s.deliverErr
 	}
-	origNotify := cronRespawnNotifyFn
-	cronRespawnNotifyFn = func(_ context.Context, title, body, url string) error {
+	origNotify := cronSessionRespawnNotifyFn
+	cronSessionRespawnNotifyFn = func(_ context.Context, title, body, url string) error {
 		s.notifyCalls = append(s.notifyCalls, title+" | "+body)
 		s.notifyURLs = append(s.notifyURLs, url)
 		return s.notifyErr
@@ -119,7 +118,7 @@ func stubCronSessionRespawnSeams(t *testing.T) *cronSessionRespawnStub {
 		cronSessionSpawnFn = origSpawn
 		cronSessionSetWindowOptionsFn = origStamp
 		cronSessionRespawnDeliverFn = origDeliver
-		cronRespawnNotifyFn = origNotify
+		cronSessionRespawnNotifyFn = origNotify
 	})
 	return s
 }

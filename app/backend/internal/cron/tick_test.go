@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -68,9 +69,6 @@ func TestTickDeadServerUntouched(t *testing.T) {
 		},
 		Tmux:      fk,
 		Deliverer: del,
-		OperatorStatePath: func(slug string) (string, error) {
-			return filepath.Join(t.TempDir(), slug+".yaml"), nil
-		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -132,9 +130,6 @@ func tickOnce(t *testing.T, dir string, T time.Time, fk *fakeTmux, deliverer Del
 		},
 		Tmux:      fk,
 		Deliverer: deliverer,
-		OperatorStatePath: func(slug string) (string, error) {
-			return filepath.Join(t.TempDir(), slug+".yaml"), nil
-		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -238,9 +233,6 @@ func tickOnceN(t *testing.T, dir string, T time.Time, fk *fakeTmux, deliverer De
 		Tmux:      fk,
 		Deliverer: deliverer,
 		Notifier:  notifier,
-		OperatorStatePath: func(slug string) (string, error) {
-			return filepath.Join(t.TempDir(), slug+".yaml"), nil
-		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -515,8 +507,8 @@ func TestTickRateCapAbsentOtherEntryUnaffected(t *testing.T) {
 }
 
 // TestTickIfAbsentDispositions: skip (and empty) log skipped-absent; notify
-// calls the notifier and logs notified-absent; respawn degrades to notify with
-// a respawn-unimplemented diagnostic.
+// calls the notifier and logs notified-absent; a respawn policy with no
+// respawn command degrades to notify with a respawn-uncommanded diagnostic.
 func TestTickIfAbsentDispositions(t *testing.T) {
 	cases := []struct {
 		ifAbsent    string
@@ -526,7 +518,7 @@ func TestTickIfAbsentDispositions(t *testing.T) {
 	}{
 		{"skip", "skipped-absent", false, ""},
 		{"notify", "notified-absent", true, ""},
-		{"respawn", "notified-absent", true, "respawn-unimplemented"},
+		{"respawn", "notified-absent", true, "respawn-uncommanded"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.ifAbsent, func(t *testing.T) {
@@ -684,9 +676,6 @@ func TestTickDeliverLogCursor(t *testing.T) {
 		},
 		Tmux:      fk,
 		Deliverer: del,
-		OperatorStatePath: func(slug string) (string, error) {
-			return filepath.Join(t.TempDir(), slug+".yaml"), nil
-		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -781,9 +770,6 @@ func TestTickCorruptEntryFileNeverAborts(t *testing.T) {
 		},
 		Tmux:      fk,
 		Deliverer: &fakeDeliverer{},
-		OperatorStatePath: func(slug string) (string, error) {
-			return filepath.Join(t.TempDir(), slug+".yaml"), nil
-		},
 	})
 	if err != nil {
 		t.Fatalf("tick aborted on a corrupt entry file: %v", err)
@@ -796,25 +782,23 @@ func TestTickCorruptEntryFileNeverAborts(t *testing.T) {
 	}
 }
 
-// TestTickSuppressWhileEndToEnd: a due entry whose guard holds is not
-// delivered and not logged (suppression precedes emission, A-009).
-func TestTickSuppressWhileEndToEnd(t *testing.T) {
+// TestTickToleratesRetiredKeysEndToEnd: an entry file written by an older rk
+// (carrying the retired anchor:/suppress_while: keys) loads with zero
+// diagnostics, fires when due, and a tick never rewrites the file — the keys
+// disappear only on the next mutation.
+func TestTickToleratesRetiredKeysEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	T := backoffBase
-	writeEntryFile(t, dir, "live1", `
+	body := fmt.Sprintf(`
 entries:
   - id: a3f9
     schedule: { kind: every, interval: 1h }
-    suppress_while: [nothing-tracked]
-    target: { kind: pane, pane: "%42" }
+    suppress_while: [operator-loop-fresh, nothing-tracked]
+    target: { kind: pane, pane: "%%42" }
     payload: "sweep"
-    created_by: { session: s, pane: "%42", at: 1 }
-`)
-	// The fab operator state file: nothing tracked ⇒ the guard holds.
-	opDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(opDir, "live1.yaml"), []byte("monitored: []\nwatches: []\nautopilot: []\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+    created_by: { session: s, pane: "%%42", at: %d }
+`, T.Add(-2*time.Hour).Unix())
+	writeEntryFile(t, dir, "live1", body)
 
 	fk := newFakeTmux()
 	fk.sessions["live1"] = []tmux.SessionInfo{{Name: "work"}}
@@ -831,26 +815,31 @@ entries:
 		},
 		Tmux:      fk,
 		Deliverer: del,
-		OperatorStatePath: func(slug string) (string, error) {
-			return filepath.Join(opDir, slug+".yaml"), nil
-		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Fires != 0 || len(del.fires) != 0 {
-		t.Errorf("suppressed entry delivered: fires=%d delivered=%d", res.Fires, len(del.fires))
+	if res.Fires != 1 || len(del.fires) != 1 {
+		t.Errorf("retired-key entry did not fire: fires=%d delivered=%d", res.Fires, len(del.fires))
 	}
-	if !hasDiag(res.Diags, "suppressed") {
-		t.Errorf("diags = %v, want suppressed", diagReasons(res.Diags))
+	if len(res.Diags) != 0 {
+		t.Errorf("diags = %v, want none (retired keys load silently)", diagReasons(res.Diags))
 	}
-	if lines := ReadLog(filepath.Join(dir, "live1.log")); len(lines) != 0 {
-		t.Errorf("log lines = %d, want 0 — a suppression is never a recorded miss", len(lines))
+	if lines := ReadLog(filepath.Join(dir, "live1.log")); len(lines) != 1 {
+		t.Errorf("log lines = %d, want 1 (the delivery)", len(lines))
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "live1.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != body {
+		t.Error("a tick rewrote the entry file — reads must never mutate")
 	}
 }
 
 // absentRoleEntryYAML is one due every-1h entry whose role:operator target
-// never resolves (no window carries @rk_win_role=operator in the rig).
+// never resolves (no window carries @rk_win_role=operator in the rig) and
+// which carries no respawn command.
 const absentRoleEntryYAML = `
 entries:
   - id: a3f9
@@ -859,6 +848,20 @@ entries:
     target: { kind: role, role: operator }
     payload: "operator tick"
     if_absent: respawn
+    created_by: { pane: "%%42", at: %d }
+`
+
+// absentRoleRespawnEntryYAML is absentRoleEntryYAML plus the caller-supplied
+// respawn argv (the seeded operator-tick shape).
+const absentRoleRespawnEntryYAML = `
+entries:
+  - id: a3f9
+    name: operator tick
+    schedule: { kind: every, interval: 1h }
+    target: { kind: role, role: operator }
+    payload: "operator tick"
+    if_absent: respawn
+    respawn: ["rk", "operator", "-L", "{server}"]
     created_by: { pane: "%%42", at: %d }
 `
 
@@ -873,7 +876,17 @@ func absentRoleRig(t *testing.T, dir string, T time.Time) *fakeTmux {
 	return fk
 }
 
-// fakeRespawner records every respawn call and returns a scripted outcome.
+func absentRoleRespawnRig(t *testing.T, dir string, T time.Time) *fakeTmux {
+	t.Helper()
+	writeEntryFile(t, dir, "live1", fmt.Sprintf(absentRoleRespawnEntryYAML, T.Add(-2*time.Hour).Unix()))
+	fk := newFakeTmux()
+	fk.sessions["live1"] = []tmux.SessionInfo{{Name: "work"}}
+	fk.windows["live1"] = map[string][]tmux.WindowInfo{"work": {{WindowID: "@5"}}}
+	return fk
+}
+
+// fakeRespawner records every SessionRespawner call and returns a scripted
+// outcome.
 type fakeRespawner struct {
 	calls   []Fire
 	outcome Outcome
@@ -884,8 +897,23 @@ func (r *fakeRespawner) respawn(ctx context.Context, fire Fire) Outcome {
 	return r.outcome
 }
 
-// tickOnceR is tickOnceN plus the Respawner seam.
-func tickOnceR(t *testing.T, dir string, T time.Time, fk *fakeTmux, notifier func(context.Context, string, string, string) error, respawner func(context.Context, Fire) Outcome) TickResult {
+// fakeRunRespawn records every RunRespawn invocation and returns scripted
+// output/error.
+type fakeRunRespawn struct {
+	argvs  [][]string
+	dirs   []string
+	output []byte
+	err    error
+}
+
+func (r *fakeRunRespawn) run(ctx context.Context, argv []string, dir string) ([]byte, error) {
+	r.argvs = append(r.argvs, argv)
+	r.dirs = append(r.dirs, dir)
+	return r.output, r.err
+}
+
+// tickOnceR is tickOnceN plus the RunRespawn seam.
+func tickOnceR(t *testing.T, dir string, T time.Time, fk *fakeTmux, notifier func(context.Context, string, string, string) error, runRespawn RunRespawnFunc) TickResult {
 	t.Helper()
 	res, err := Tick(context.Background(), Deps{
 		Dir: dir,
@@ -893,12 +921,9 @@ func tickOnceR(t *testing.T, dir string, T time.Time, fk *fakeTmux, notifier fun
 		ListServers: func(ctx context.Context) ([]string, error) {
 			return []string{"live1"}, nil
 		},
-		Tmux:      fk,
-		Notifier:  notifier,
-		Respawner: respawner,
-		OperatorStatePath: func(slug string) (string, error) {
-			return filepath.Join(t.TempDir(), slug+".yaml"), nil
-		},
+		Tmux:       fk,
+		Notifier:   notifier,
+		RunRespawn: runRespawn,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -906,94 +931,133 @@ func tickOnceR(t *testing.T, dir string, T time.Time, fk *fakeTmux, notifier fun
 	return res
 }
 
-// TestTickIfAbsentRespawnRoleTarget: a role-target respawn entry with a wired
-// Respawner calls it (no notify, no respawn-unimplemented diagnostic) and logs
-// the returned outcome — both success and failure. The logged line advances
-// the anchor: an immediate re-tick does not re-fire.
-func TestTickIfAbsentRespawnRoleTarget(t *testing.T) {
-	cases := []struct {
-		name        string
-		outcome     Outcome
-		wantOutcome string
-	}{
-		{"success", Outcome{Status: "respawned"}, "respawned"},
-		{"failure", Outcome{Status: "respawn-failed", Detail: "readiness: parked"}, "respawn-failed: readiness: parked"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			T := backoffBase
-			fk := absentRoleRig(t, dir, T)
-			rs := &fakeRespawner{outcome: tc.outcome}
-			nt := &fakeNotifier{}
+// TestTickIfAbsentRespawnRoleArgv: an absent role fire whose entry carries a
+// respawn argv runs it through the RunRespawn seam with {server} substituted —
+// no notify, no respawn-uncommanded diagnostic, NO delivery that tick. Exit 0
+// logs respawned; a non-zero exit logs respawn-failed with the output tail.
+// The logged line advances the anchor: an immediate re-tick does not re-fire.
+func TestTickIfAbsentRespawnRoleArgv(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		dir := t.TempDir()
+		T := backoffBase
+		fk := absentRoleRespawnRig(t, dir, T)
+		rr := &fakeRunRespawn{}
+		nt := &fakeNotifier{}
 
-			res := tickOnceR(t, dir, T, fk, nt.notify, rs.respawn)
-			if len(rs.calls) != 1 {
-				t.Fatalf("respawn calls = %d, want 1", len(rs.calls))
-			}
-			if got := rs.calls[0]; got.Entry.ID != "a3f9" || got.Server != "live1" {
-				t.Errorf("respawn fire = entry %q server %q, want a3f9/live1", got.Entry.ID, got.Server)
-			}
-			if len(nt.calls) != 0 {
-				t.Errorf("notify calls = %d, want 0 (the respawn path never degrades to notify)", len(nt.calls))
-			}
-			if hasDiag(res.Diags, "respawn-unimplemented") {
-				t.Errorf("diags = %v, want no respawn-unimplemented", diagReasons(res.Diags))
-			}
-			lines := ReadLog(filepath.Join(dir, "live1.log"))
-			if len(lines) != 1 || lines[0].Outcome != tc.wantOutcome {
-				t.Fatalf("log = %+v, want one %q line", lines, tc.wantOutcome)
-			}
+		res := tickOnceR(t, dir, T, fk, nt.notify, rr.run)
+		if len(rr.argvs) != 1 {
+			t.Fatalf("RunRespawn calls = %d, want 1", len(rr.argvs))
+		}
+		if want := []string{"rk", "operator", "-L", "live1"}; !reflect.DeepEqual(rr.argvs[0], want) {
+			t.Errorf("argv = %v, want %v ({server} substituted with the stamped server)", rr.argvs[0], want)
+		}
+		home, err := os.UserHomeDir()
+		if err == nil && rr.dirs[0] != home {
+			t.Errorf("dir = %q, want the user's home %q", rr.dirs[0], home)
+		}
+		if len(nt.calls) != 0 {
+			t.Errorf("notify calls = %d, want 0 (the respawn path never degrades to notify)", len(nt.calls))
+		}
+		if hasDiag(res.Diags, "respawn-uncommanded") {
+			t.Errorf("diags = %v, want no respawn-uncommanded", diagReasons(res.Diags))
+		}
+		lines := ReadLog(filepath.Join(dir, "live1.log"))
+		if len(lines) != 1 || lines[0].Outcome != "respawned" {
+			t.Fatalf("log = %+v, want one respawned line", lines)
+		}
 
-			// The logged disposition advanced the anchor: not due again at T.
-			rs.calls = nil
-			res = tickOnceR(t, dir, T, fk, nt.notify, rs.respawn)
-			if len(rs.calls) != 0 || res.Fires != 0 {
-				t.Errorf("immediate re-tick: respawn calls = %d fires = %d, want 0/0 (anchor advanced)", len(rs.calls), res.Fires)
-			}
-		})
-	}
+		// The logged disposition advanced the anchor: not due again at T.
+		rr.argvs = nil
+		res = tickOnceR(t, dir, T, fk, nt.notify, rr.run)
+		if len(rr.argvs) != 0 || res.Fires != 0 {
+			t.Errorf("immediate re-tick: RunRespawn calls = %d fires = %d, want 0/0 (anchor advanced)", len(rr.argvs), res.Fires)
+		}
+	})
+
+	t.Run("failure folds the output tail into the detail", func(t *testing.T) {
+		dir := t.TempDir()
+		T := backoffBase
+		fk := absentRoleRespawnRig(t, dir, T)
+		rr := &fakeRunRespawn{output: []byte("boom"), err: errors.New("exit status 1")}
+		nt := &fakeNotifier{}
+
+		tickOnceR(t, dir, T, fk, nt.notify, rr.run)
+		if len(rr.argvs) != 1 {
+			t.Fatalf("RunRespawn calls = %d, want 1", len(rr.argvs))
+		}
+		lines := ReadLog(filepath.Join(dir, "live1.log"))
+		if len(lines) != 1 || lines[0].Outcome != "respawn-failed: exit status 1: boom" {
+			t.Fatalf("log = %+v, want respawn-failed: exit status 1: boom", lines)
+		}
+		if len(nt.calls) != 0 {
+			t.Errorf("notify calls = %d, want 0 (a failed argv respawn does not degrade to notify)", len(nt.calls))
+		}
+	})
 }
 
-// TestTickIfAbsentRespawnDegradeUnchanged: the notify + respawn-unimplemented
-// degrade is byte-for-byte unchanged for every combination outside the new
-// branch — a non-role target (respawner wired but never called) and a nil
-// respawner (role target included).
-func TestTickIfAbsentRespawnDegradeUnchanged(t *testing.T) {
-	cases := []struct {
-		name     string
-		roleTgt  bool
-		respawn  func(context.Context, Fire) Outcome // nil = seam unwired
-		wantCall bool
-	}{
-		{"session target, respawner wired", false, (&fakeRespawner{outcome: Outcome{Status: "respawned"}}).respawn, false},
-		{"role target, respawner nil", true, nil, false},
-		{"session target, respawner nil", false, nil, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			T := backoffBase
-			var fk *fakeTmux
-			if tc.roleTgt {
-				fk = absentRoleRig(t, dir, T)
-			} else {
-				fk = absentRig(t, dir, T, "respawn")
-			}
-			nt := &fakeNotifier{}
-			res := tickOnceR(t, dir, T, fk, nt.notify, tc.respawn)
-			if len(nt.calls) != 1 {
-				t.Errorf("notify calls = %d, want 1 (the degrade path)", len(nt.calls))
-			}
-			if !hasDiag(res.Diags, "respawn-unimplemented") {
-				t.Errorf("diags = %v, want respawn-unimplemented", diagReasons(res.Diags))
-			}
-			lines := ReadLog(filepath.Join(dir, "live1.log"))
-			if len(lines) != 1 || lines[0].Outcome != "notified-absent" {
-				t.Errorf("log = %+v, want one notified-absent line", lines)
-			}
-		})
-	}
+// TestTickIfAbsentRespawnDegradeUncommanded: outside the argv branch the
+// notify + respawn-uncommanded degrade holds — a role target without a
+// respawn command, and a pane target even with one (a dead pane id never
+// re-resolves, so a respawn could never land its payload); RunRespawn is
+// never invoked for either.
+func TestTickIfAbsentRespawnDegradeUncommanded(t *testing.T) {
+	t.Run("role target without a respawn command", func(t *testing.T) {
+		dir := t.TempDir()
+		T := backoffBase
+		fk := absentRoleRig(t, dir, T)
+		rr := &fakeRunRespawn{}
+		nt := &fakeNotifier{}
+		res := tickOnceR(t, dir, T, fk, nt.notify, rr.run)
+		if len(rr.argvs) != 0 {
+			t.Errorf("RunRespawn calls = %d, want 0 (no command to run)", len(rr.argvs))
+		}
+		if len(nt.calls) != 1 {
+			t.Errorf("notify calls = %d, want 1 (the degrade path)", len(nt.calls))
+		}
+		if !hasDiag(res.Diags, "respawn-uncommanded") {
+			t.Errorf("diags = %v, want respawn-uncommanded", diagReasons(res.Diags))
+		}
+		lines := ReadLog(filepath.Join(dir, "live1.log"))
+		if len(lines) != 1 || lines[0].Outcome != "notified-absent" {
+			t.Errorf("log = %+v, want one notified-absent line", lines)
+		}
+	})
+
+	t.Run("pane target with a respawn command still degrades", func(t *testing.T) {
+		dir := t.TempDir()
+		T := backoffBase
+		writeEntryFile(t, dir, "live1", fmt.Sprintf(`
+entries:
+  - id: a3f9
+    name: pane sweep
+    schedule: { kind: every, interval: 1h }
+    target: { kind: pane, pane: "%%99" }
+    payload: "sweep"
+    if_absent: respawn
+    respawn: ["rk", "operator", "-L", "{server}"]
+    created_by: { pane: "%%42", at: %d }
+`, T.Add(-2*time.Hour).Unix()))
+		fk := newFakeTmux()
+		fk.sessions["live1"] = []tmux.SessionInfo{{Name: "work"}}
+		fk.windows["live1"] = map[string][]tmux.WindowInfo{"work": {{WindowID: "@5"}}}
+
+		rr := &fakeRunRespawn{}
+		nt := &fakeNotifier{}
+		res := tickOnceR(t, dir, T, fk, nt.notify, rr.run)
+		if len(rr.argvs) != 0 {
+			t.Errorf("RunRespawn calls = %d, want 0 (pane targets never respawn)", len(rr.argvs))
+		}
+		if len(nt.calls) != 1 {
+			t.Errorf("notify calls = %d, want 1 (the degrade path)", len(nt.calls))
+		}
+		if !hasDiag(res.Diags, "respawn-uncommanded") {
+			t.Errorf("diags = %v, want respawn-uncommanded", diagReasons(res.Diags))
+		}
+		lines := ReadLog(filepath.Join(dir, "live1.log"))
+		if len(lines) != 1 || lines[0].Outcome != "notified-absent" {
+			t.Errorf("log = %+v, want one notified-absent line", lines)
+		}
+	})
 }
 
 // tickOnceS is tickOnceN plus the SessionRespawner seam.
@@ -1008,9 +1072,6 @@ func tickOnceS(t *testing.T, dir string, T time.Time, fk *fakeTmux, notifier fun
 		Tmux:             fk,
 		Notifier:         notifier,
 		SessionRespawner: sessionRespawner,
-		OperatorStatePath: func(slug string) (string, error) {
-			return filepath.Join(t.TempDir(), slug+".yaml"), nil
-		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1018,9 +1079,10 @@ func tickOnceS(t *testing.T, dir string, T time.Time, fk *fakeTmux, notifier fun
 	return res
 }
 
-// TestTickIfAbsentRespawnSessionTarget: a session-target respawn entry with a
-// wired SessionRespawner calls it (no notify, no respawn-unimplemented
-// diagnostic) and logs the returned outcome — both success and failure.
+// TestTickIfAbsentRespawnSessionTarget: a session-target respawn entry without
+// a respawn command and a wired SessionRespawner calls it (no notify, no
+// respawn-uncommanded diagnostic) and logs the returned outcome — both success
+// and failure.
 func TestTickIfAbsentRespawnSessionTarget(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -1048,8 +1110,8 @@ func TestTickIfAbsentRespawnSessionTarget(t *testing.T) {
 			if len(nt.calls) != 0 {
 				t.Errorf("notify calls = %d, want 0 (the respawn path never degrades to notify)", len(nt.calls))
 			}
-			if hasDiag(res.Diags, "respawn-unimplemented") {
-				t.Errorf("diags = %v, want no respawn-unimplemented", diagReasons(res.Diags))
+			if hasDiag(res.Diags, "respawn-uncommanded") {
+				t.Errorf("diags = %v, want no respawn-uncommanded", diagReasons(res.Diags))
 			}
 			lines := ReadLog(filepath.Join(dir, "live1.log"))
 			if len(lines) != 1 || lines[0].Outcome != tc.wantOutcome {
@@ -1059,10 +1121,63 @@ func TestTickIfAbsentRespawnSessionTarget(t *testing.T) {
 	}
 }
 
-// TestTickIfAbsentRespawnSessionDegradeUnchanged: outside the new branch the
-// notify + respawn-unimplemented degrade is byte-for-byte unchanged — a nil
-// session seam, and a pane target even with the seam wired (pane targets can
-// never respawn) both degrade verbatim and never call the seam.
+// TestTickIfAbsentRespawnSessionArgvOverridesResume: a session-target entry
+// carrying a respawn argv runs it through RunRespawn — the caller's command
+// overrides the session-resume default, so SessionRespawner is never called.
+func TestTickIfAbsentRespawnSessionArgvOverridesResume(t *testing.T) {
+	dir := t.TempDir()
+	T := backoffBase
+	writeEntryFile(t, dir, "live1", fmt.Sprintf(`
+entries:
+  - id: a3f9
+    name: sweep
+    schedule: { kind: every, interval: 1h }
+    target: { kind: session, session: dead }
+    payload: "sweep"
+    if_absent: respawn
+    respawn: ["rk", "operator", "-L", "{server}"]
+    created_by: { session: s, pane: "%%42", at: %d }
+`, T.Add(-2*time.Hour).Unix()))
+	fk := newFakeTmux()
+	fk.sessions["live1"] = []tmux.SessionInfo{{Name: "work"}}
+	fk.windows["live1"] = map[string][]tmux.WindowInfo{"work": {{WindowID: "@5"}}}
+
+	rr := &fakeRunRespawn{}
+	rs := &fakeRespawner{outcome: Outcome{Status: "respawned"}}
+	nt := &fakeNotifier{}
+	res, err := Tick(context.Background(), Deps{
+		Dir: dir,
+		Now: func() time.Time { return T },
+		ListServers: func(ctx context.Context) ([]string, error) {
+			return []string{"live1"}, nil
+		},
+		Tmux:             fk,
+		Notifier:         nt.notify,
+		RunRespawn:       rr.run,
+		SessionRespawner: rs.respawn,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"rk", "operator", "-L", "live1"}; len(rr.argvs) != 1 || !reflect.DeepEqual(rr.argvs[0], want) {
+		t.Errorf("RunRespawn calls = %v, want one call with %v", rr.argvs, want)
+	}
+	if len(rs.calls) != 0 {
+		t.Errorf("SessionRespawner calls = %d, want 0 (the argv overrides the resume default)", len(rs.calls))
+	}
+	if len(nt.calls) != 0 || hasDiag(res.Diags, "respawn-uncommanded") {
+		t.Errorf("notify calls = %d diags = %v, want neither", len(nt.calls), diagReasons(res.Diags))
+	}
+	lines := ReadLog(filepath.Join(dir, "live1.log"))
+	if len(lines) != 1 || lines[0].Outcome != "respawned" {
+		t.Fatalf("log = %+v, want one respawned line", lines)
+	}
+}
+
+// TestTickIfAbsentRespawnSessionDegradeUnchanged: outside the session-seam
+// branch the notify + respawn-uncommanded degrade holds — a nil session seam,
+// and a pane target even with the seam wired (pane targets can never respawn)
+// both degrade verbatim and never call the seam.
 func TestTickIfAbsentRespawnSessionDegradeUnchanged(t *testing.T) {
 	t.Run("session target, session respawner nil", func(t *testing.T) {
 		dir := t.TempDir()
@@ -1073,8 +1188,8 @@ func TestTickIfAbsentRespawnSessionDegradeUnchanged(t *testing.T) {
 		if len(nt.calls) != 1 {
 			t.Errorf("notify calls = %d, want 1 (the degrade path)", len(nt.calls))
 		}
-		if !hasDiag(res.Diags, "respawn-unimplemented") {
-			t.Errorf("diags = %v, want respawn-unimplemented", diagReasons(res.Diags))
+		if !hasDiag(res.Diags, "respawn-uncommanded") {
+			t.Errorf("diags = %v, want respawn-uncommanded", diagReasons(res.Diags))
 		}
 		lines := ReadLog(filepath.Join(dir, "live1.log"))
 		if len(lines) != 1 || lines[0].Outcome != "notified-absent" {
@@ -1108,8 +1223,8 @@ entries:
 		if len(nt.calls) != 1 {
 			t.Errorf("notify calls = %d, want 1 (the degrade path)", len(nt.calls))
 		}
-		if !hasDiag(res.Diags, "respawn-unimplemented") {
-			t.Errorf("diags = %v, want respawn-unimplemented", diagReasons(res.Diags))
+		if !hasDiag(res.Diags, "respawn-uncommanded") {
+			t.Errorf("diags = %v, want respawn-uncommanded", diagReasons(res.Diags))
 		}
 		lines := ReadLog(filepath.Join(dir, "live1.log"))
 		if len(lines) != 1 || lines[0].Outcome != "notified-absent" {
@@ -1136,6 +1251,7 @@ entries:
     target: { kind: role, role: operator }
     payload: "operator tick"
     if_absent: respawn
+    respawn: ["rk", "operator", "-L", "{server}"]
     created_by: { pane: "%%42", at: %d }
 `, T.Add(-2*time.Hour).Unix()))
 			fk := newFakeTmux()
@@ -1143,10 +1259,10 @@ entries:
 			fk.windows["live1"] = map[string][]tmux.WindowInfo{"work": {{WindowID: "@5"}}}
 			seedLog(t, filepath.Join(dir, "live1.log"), DefaultTargetRatePerHour, "a3f9", "", outcome, T.Add(-30*time.Minute).Unix())
 
-			rs := &fakeRespawner{outcome: Outcome{Status: "respawned"}}
-			tickOnceR(t, dir, T, fk, (&fakeNotifier{}).notify, rs.respawn)
-			if len(rs.calls) != 0 {
-				t.Errorf("respawn calls = %d, want 0 (rate-capped)", len(rs.calls))
+			rr := &fakeRunRespawn{}
+			tickOnceR(t, dir, T, fk, (&fakeNotifier{}).notify, rr.run)
+			if len(rr.argvs) != 0 {
+				t.Errorf("RunRespawn calls = %d, want 0 (rate-capped)", len(rr.argvs))
 			}
 			lines := ReadLog(filepath.Join(dir, "live1.log"))
 			if last := lines[len(lines)-1]; last.Outcome != "rate-capped" || last.Entry != "a3f9" {

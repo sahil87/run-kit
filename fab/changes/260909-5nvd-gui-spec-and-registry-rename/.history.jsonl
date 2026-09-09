@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-09T07:50:18Z"}
+{"args":"gui-spec-and-registry-rename Plan: fab/plans/sahil/26-09-09-gui-surface.md -- implement C1 (spec amendments + registry rename) per the plan's change breakdown and pickup protocol.","cmd":"fab-new","event":"command","ts":"2026-09-09T07:50:18Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-09T07:52:43Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-09T07:53:10Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-09T07:58:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-09T07:59:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-09T08:05:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-09T08:08:10Z"}
+{"event":"review","result":"passed","ts":"2026-09-09T08:08:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-09T08:09:45Z"}

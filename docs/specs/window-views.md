@@ -29,6 +29,15 @@
 > multi-tile surface layout, and R4's switcher retires in its phase 3. R1–R3
 > and R5–R7 (availability derivation, per-viewer choice, tty reachability,
 > default hints, dot semantics, substrate/view split) carry over unchanged.
+>
+> **Succession note (2026-09-09)**: the `desktop` lens is renamed `gui` per
+> the 26-09-09 GUI-surface plan's decision D1 and specified in
+> [`gui.md`](gui.md); PR #71 and
+> [`fab/plans/sahil/26-07-14-desktop-view.md`](../../fab/plans/sahil/26-07-14-desktop-view.md)
+> are superseded by
+> [`fab/plans/sahil/26-09-09-gui-surface.md`](../../fab/plans/sahil/26-09-09-gui-surface.md).
+> Historical `desktop` mentions below (the header origin above, § The
+> Problem's pre-model row, the migration map's From cell) stay verbatim.
 
 ---
 
@@ -74,7 +83,7 @@ Separate **what runs** from **what you can look at**:
 | `web` | always (the lens exists on every window, like `tty`); `@rk_win_url` selects the renderer's CONTENT — empty/whitespace renders the onboarding state (a reduced live URL bar + fill-path instructions), non-empty renders the live iframe — mirroring the `code` row's availability-vs-content split | `IframeWindow` (proxy iframe + URL bar; onboarding content state when `@rk_win_url` is empty) | **[current]** as a lens — change `260714-t97o-web-view-lens`; always-available + onboarding `260821-zqlq-web-tile-always-tileable-onboarding` |
 | `chat` | — | — | **[removed]** — shipped per [`agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md), removed by PR #817 (`260904-39bp-remove-chat-lens`); the identity option survives as `@rk_pane_agent_session` ([`agent-state.md`](agent-state.md)) |
 | `code` | the window's code folder is LATCHED, or a git root is derivable from the active pane's cwd — derivation seeds the latch once, at first open, and the terminal never moves it afterwards (right-panel.md § The `code` lens); the code-server endpoint always resolves by convention, so it gates nothing, and reachability governs the renderer's CONTENT (live iframe vs not-running empty state), never availability | `CodeSurface` (lean proxy iframe, no URL bar) | **[current]** — change `260811-k3vp-right-panel-code-lens`, endpoint by convention `260811-a2bo`, folder latched `260813-if5d`; also the right panel's CODE surface (right-panel.md § Surface Registry) |
-| `desktop` | VNC-port window option present (set by the desktop launcher, reconciler-cleared) | noVNC canvas | **[target]** — [`fab/plans/sahil/26-07-14-desktop-view.md`](../../fab/plans/sahil/26-07-14-desktop-view.md) |
+| `gui` | `gui.enabled` is on (settings registry bool, default `false` — a user choice, never a probe result; a host with Xvnc installed but the switch off shows no button); like `code`, availability is per-HOST not per-window, so the lens is offered on every tab. Reachability (the GUI socket answers) governs the tile's CONTENT — live canvas vs the enabled-but-not-running empty state — never availability ([`gui.md`](gui.md)) | noVNC canvas (`GuiSurface`, RFB over rk's `/ws/gui/{id}` WebSocket relay) | **[target]** — [`gui.md`](gui.md); plan [`fab/plans/sahil/26-09-09-gui-surface.md`](../../fab/plans/sahil/26-09-09-gui-surface.md) |
 
 The registry is open-ended: a new projection adds a row here, a capability
 signal, and a renderer — it does not add a window type, a name convention, or
@@ -111,8 +120,13 @@ localStorage key (a surface kind; absent = no zoom).
 
 ### R3 — The tty is always reachable
 
-Every window offers `tty`, whatever else it offers. A desktop window's tty
-shows the Xvfb/x11vnc supervisor logs; a headless codex-server pane's tty
+Every window offers `tty`, whatever else it offers. For a **host-singleton
+lens** (`gui` — one GUI session per host, no window row of its own) the
+always-reachable tty is the supervisor's pane in the `rk-gui` sibling session
+on the `rk-daemon` server; the tile's empty state and the palette carry a
+`GUI: Open supervisor logs` action that navigates there
+([`gui.md`](gui.md)). No relay sniffing, no window-name typing, no
+`@rk_vnc_port`-style per-window option. A headless codex-server pane's tty
 shows the server logs. Watching the raw process is the run-kit ethos — no
 lens may hide it, and no relay may sniff-and-branch it away.
 
@@ -157,7 +171,8 @@ layout ([`ui-state.md`](ui-state.md)).
 ### R6 — The connection dot reports the current lens's health
 
 "Dot-everywhere = per-page live-data health" extends per-lens: tty → relay WS,
-web → n/a (falls back to SSE health), desktop → VNC WS.
+web → n/a (falls back to SSE health), gui → VNC WS (the RFB WebSocket relay;
+noVNC `connect`/`disconnect` events).
 
 ### R7 — Content address and lens choice are substrate state; postures stay local
 
@@ -171,9 +186,11 @@ zoom (`rk-layout-zoom:*`), divider ratios (`rk-layout-ratios:*`), and focus.
 
 ## Two Species (and the residual case)
 
-**Pane-coupled projections** — desktop, and `web` on the row that actually
-serves the port: the pane's process genuinely has multiple outputs. This is
-the model's home turf.
+**Pane-coupled projections** — `web` on the row that actually serves the
+port: the pane's process genuinely has multiple outputs. This is the model's
+home turf. (`code` and `gui` are **host-service lenses** instead — the
+substrate is a host-level service, not one pane's process, so availability
+derives from host state and the lens rides every row.)
 
 **Row-less surfaces wearing a window costume** [current] — an iframe window
 created from the Host SERVICES zone has an inert shell pane; the tmux
@@ -202,6 +219,6 @@ every current change; noted so nobody designs against it.
 | Feature | From [current] | To [target] | Vehicle |
 |---------|---------------|-------------|---------|
 | iframe | `@rk_win_lens` mutation flips the view for everyone; render gate `rkType === "iframe" && rkUrl` | `web` lens: `?view=web`, chip, no type mutation; `@rk_win_lens=iframe` demoted to default-view hint; `@rk_win_url` stays global substrate state | change `260714-t97o-web-view-lens` (drafted) |
-| desktop | PR #71: name-prefix typing, relay sniffing, tty unreachable, bitrotted against current main | `desktop` lens per [`desktop-view.md`](../../fab/plans/sahil/26-07-14-desktop-view.md); supersede PR #71, salvage its components | new change stack (planned) |
+| desktop | PR #71: name-prefix typing, relay sniffing, tty unreachable, bitrotted against current main | **superseded by `gui` per the 26-09-09 plan** — `gui` lens in [`gui.md`](gui.md): host-singleton substrate, `gui.enabled` switch, RFB over `/ws/gui/{id}`; PR #71 closed, salvage list in the plan § C2 | [`fab/plans/sahil/26-09-09-gui-surface.md`](../../fab/plans/sahil/26-09-09-gui-surface.md) C1–C5 |
 | chat | shipped as `?view=chat` (chat plan changes 1–3) | **removed** — the lens, `chat` surface kind, and backfill/stream backend deleted; `?view=chat` is now a dropped legacy param (heals to the stored layout); chat-send merged into `POST /send` (`target:"agent"`) | PR #817 (`260904-39bp-remove-chat-lens`) |
 | Host "Open in window" | creates a synthetic iframe window | deep-link to owning row's `?view=web` when derivable; synthetic fallback | follow-up after `web-view-lens` |

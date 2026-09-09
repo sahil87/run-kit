@@ -85,11 +85,14 @@ board).
 
 ### One tile per surface kind (v1)
 
-The layout encoding names surface *kinds* (`tty`, `code`, `web`, `agents`);
-content rides the substrate's content signal (`@rk_win_url` etc. — for `web` a
-content *selector*, not an availability gate: the `web` surface is always
-tileable like `tty`, and an empty/whitespace `@rk_win_url` renders the tile's
-onboarding content state; window-views.md § The View Registry). Two `web`
+The layout encoding names surface *kinds* (`tty`, `code`, `web`, `gui`,
+`agents`); content rides the substrate's content signal (`@rk_win_url` etc. —
+for `web` a content *selector*, not an availability gate: the `web` surface
+is always tileable like `tty`, and an empty/whitespace `@rk_win_url` renders
+the tile's onboarding content state; window-views.md § The View Registry).
+`gui` has no content selector in v1 — the tile shows the host's screen; a
+per-session display option becomes the selector only if per-session GUIs ever
+land ([`gui.md`](gui.md)). Two `web`
 tiles with different pages would push content addresses into per-viewer state,
 crossing R7 — punted.
 
@@ -185,6 +188,12 @@ target grows the shared layout via the shared `--add` mutation (`addSurface` →
 impossible (arity 3 without the kind). The palette mirrors the group with
 `Tile: Switch to <Surface>` entries
 (Constitution V), which supersede the `View:` lens entries at mobile width.
+
+The `gui` tile gets one more rule on coarse pointers **[target]**: it scales
+the shared desktop client-side (fit, or 1:1 clip+pan) and **never drives a
+SetDesktopSize resize** — the desktop follows the last-focused *fine-pointer*
+viewer's tile size; phones are readers of the shared screen, not its geometry
+authority ([`gui.md`](gui.md) § Resize policy).
 
 ---
 

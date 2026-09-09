@@ -29,6 +29,7 @@
 | [Cron](cron.md) | rk-owned clock substrate — server-scoped cron entries fired into agents resolved at delivery time (role/session targets), idle-anchored backoff for the operator tick, orphan GC, the sidebar `CLOCK` section + watched-row overlay, and the operator watchlist seam |
 | [Code Bridge](code-bridge.md) | `rk code exec` + the `rk-code-bridge` code-server extension — run VS Code palette commands in the `code` lens from a shell over a same-user Unix socket under `$XDG_STATE_HOME/run-kit/cb/`; protocol, host resolution, security stance, distribution via `rk code-server install`, phasing |
 | [CLI Layering](cli-layering.md) | Two-tool model — rk owns the tmux/agent substrate, fab owns pipeline choreography: delegation rules, the `rk mux`/`rk agent` grouping plan, hidden plumbing, the `fab pane` migration map, and the 8-part phased execution plan |
+| [GUI Surface](gui.md) | The `gui` surface — the host's graphical desktop as a fourth tile kind beside tty/code/web: one GUI session per host supervised in the `rk-gui` sibling session, the `gui.enabled` off-by-default switch that both runs the backend and shows the 4th button, RFB over the `/ws/gui/{id}` relay rendered by noVNC, availability-vs-reachability, the fine-pointer-only resize policy, the Linux Xvnc / macOS view-only mirror split, agent verbs (`rk gui env\|exec\|shot`), and the C0–C6 phasing [target] |
 | [Project Plan](project-plan.md) | 4-phase reimplementation plan: scaffold → backend → frontend → cleanup |
 | [Right Panel](right-panel.md) | **Superseded** by [surface-layout.md](surface-layout.md) — the panel + icon rail are retired from the UI (toggles live in the top bar); still owns the surface registry (web/code/agents), the `code` lens (code-server embed, git-root keyed), availability derivation, P4 attention, and the companion-window convention [target] |
 | [Design Philosophy](design.md) | Core design principles and mental models behind fab-kit |
@@ -37,7 +38,7 @@
 | [Surface Layout](surface-layout.md) | The center as a layout of surfaces — preset shapes × ordered surfaces × ratios, the `?layout=` state ladder, tile verbs, top-bar surface toggles, and the `@rk_win_lens`/view-switcher retirement map |
 | [Themes](themes.md) | Theme system architecture: ANSI palettes, derivation, tmux integration, import script |
 | [UI State](ui-state.md) | Every addressable UI thing is a tmux option — the `@N/<surface>/<n>` addressing grammar, the `@rk_win_*` inventory (layout, indexed web tabs, code root), tab state vs viewer preferences, `rk tab` CLI, absorption of `rk present` and the `?layout=` ladder |
-| [Window Views](window-views.md) | Rows are substrates, views are lenses — the parallel-view model (tty/web/code/desktop): derived availability vs per-viewer choice, the shared switcher contract, two-species taxonomy, migration map for iframe / desktop (PR #71) |
+| [Window Views](window-views.md) | Rows are substrates, views are lenses — the parallel-view model (tty/web/code/gui): derived availability vs per-viewer choice, the shared switcher contract, two-species taxonomy, migration map for iframe / gui (PR #71 superseded) |
 
 ## Wiki
 

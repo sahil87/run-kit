@@ -245,7 +245,7 @@ The operator terminal route ITSELF carries a second mobile surface: a `Terminal 
 
 ### The short placeholder does not repeat the operator glyph
 **Decision**: Below `2xl` the omnibox placeholder is `Ask…`; the standing `◉` glyph beside the input is the operator's name in the box. The placeholder is selected by the `2xl` media query alone — engaging the box never switches it to the long form.
-**Why**: A placeholder that carries its own `◉` renders the box as `◉ Ask ◉…` — two operator glyphs and a dangling ellipsis that read as a truncated label, especially beside the context chip's own truncation `…`. `Ask…` is 4ch, well inside the 12ch resting budget, and follows the codebase's trailing-ellipsis placeholder convention. The gate stays width-only because the mounted chip leaves the engaged input ~12ch inside `w-[34ch]`, where `Ask the operator…` (18ch) clips mid-word.
+**Why**: A placeholder that carries its own `◉` renders the box as `◉ Ask ◉…` — two operator glyphs and a dangling ellipsis that reads as a truncated label, especially beside the context chip's own truncation `…`. `Ask…` is 4ch, well inside the 12ch resting budget, and follows the codebase's trailing-ellipsis placeholder convention. The gate stays width-only because the mounted chip leaves the engaged input ~12ch inside `w-[34ch]`, where `Ask the operator…` (18ch) clips mid-word.
 **Rejected**: `Ask the operator…` whenever engaged (clips against the chip); `Ask` with no ellipsis (reads as a button label, breaks the placeholder convention); a wider resting box (trades away the breadcrumbs' `lg`/`xl` width budget for a placeholder).
 *Introduced by*: 260909-ae2w-omnibox-placeholder-clarity
 

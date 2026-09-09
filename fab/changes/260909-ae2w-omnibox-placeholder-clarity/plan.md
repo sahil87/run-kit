@@ -47,7 +47,7 @@ At ≥ `2xl` the placeholder MUST remain `Ask the operator…`. The `aria-label=
 
 #### The placeholder does not name the operator twice
 **Decision**: The `lg`/`xl` placeholder is `Ask…`; the standing `◉` glyph beside the input is the operator's name in the box.
-**Why**: `Ask ◉…` rendered as `◉ Ask ◉…` — two glyphs and a dangling ellipsis that read as a truncated label, especially beside the chip's own truncation `…`. `Ask…` is 4ch (vs 6ch) and sits comfortably in the 12ch resting budget, following the codebase's trailing-ellipsis placeholder convention.
+**Why**: `Ask ◉…` rendered as `◉ Ask ◉…` — two glyphs and a dangling ellipsis that reads as a truncated label, especially beside the chip's own truncation `…`. `Ask…` is 4ch (vs 6ch) and sits comfortably in the 12ch resting budget, following the codebase's trailing-ellipsis placeholder convention.
 **Rejected**: Switching to `Ask the operator…` whenever engaged — the chip caps the input at ~12ch so the 18ch phrase clips mid-word. Dropping the ellipsis (`Ask`) — reads as a button label and breaks the placeholder convention. Widening the resting box — trades away the crumbs' width budget for a placeholder.
 *Introduced by*: 260909-ae2w-omnibox-placeholder-clarity
 

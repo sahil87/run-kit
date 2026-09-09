@@ -62,7 +62,7 @@ function OperatorStateGlyph({
  *    min-useful-width at `lg`/`xl` (the box grows meaning on focus, not at
  *    rest). The short form does not repeat the `◉` — the standing glyph
  *    beside the input already names the operator, and a second glyph plus
- *    ellipsis read as a truncated label. The placeholder gate is width-only,
+ *    ellipsis reads as a truncated label. The placeholder gate is width-only,
  *    never `engaged`: the mounted context chip leaves the engaged input
  *    ~12ch, where the long form would clip mid-word.
  *  - md–lg: a dim `· ◉ ask` ghost carrying the same state dot that (on click,

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 21
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-09T16:40:05Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-09T16:44:35Z"}
     review: {started_at: "2026-09-09T16:44:35Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-09T16:50:04Z"}
     hydrate: {started_at: "2026-09-09T16:50:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T17:06:54Z"}
-    ship: {started_at: "2026-09-09T17:06:54Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-09T17:06:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T17:09:55Z"}
+    review-pr: {started_at: "2026-09-09T17:09:55Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/895
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 4236
+    deleted: 142
+    net: 4094
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 3434
+        deleted: 71
+        net: 3363
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-09T17:06:54Z"
-    computed_at_stage: hydrate
+        added: 878
+        deleted: 6
+        net: 872
+    computed_at: "2026-09-09T17:09:55Z"
+    computed_at_stage: ship
 summary: 'gui surface tile: GuiSurface noVNC renderer (content states, D7 resize, visibility disconnect, chord gate, macOS credentials), gui as 4th surface kind (registry, ⌘4, GUI: palette family, off-confirm), plus backend fixes (=rk-gui: option target, layoutspec gui kind, XDG_STATE_HOME spawn pin)'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-09T17:06:54Z
+last_updated: 2026-09-09T17:09:55Z

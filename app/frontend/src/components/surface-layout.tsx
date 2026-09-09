@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SearchAddon } from "@xterm/addon-search";
 import { Tip } from "@/components/tip";
 import { controlClass } from "@/components/control";
@@ -29,6 +29,14 @@ import {
 } from "@/lib/surface-layout";
 import { clampBoundary } from "@/lib/right-panel";
 import { codeRootFor } from "@/lib/code-folder-latch";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import type { GuiSignal } from "@/contexts/session-context";
+import type { GuiViewMode } from "@/lib/gui-posture";
+import type { GuiRestartResult, GuiSurfaceCommands } from "@/components/gui-surface";
+
+// noVNC's core is ~150 KB min — the gui tile lazy-loads so tabs that never
+// open it pay nothing.
+const GuiSurface = lazy(() => import("@/components/gui-surface"));
 import {
   disarmGuard,
   focusMemoryKey,
@@ -93,7 +101,9 @@ import {
  * § Shape presets, § Verbs). Replaces the legacy exclusive-lens render branch
  * AND the right-panel surface slot: the resolved `(shape, order)` layout
  * renders as 1–3 TILES, each mounting an EXISTING renderer unchanged —
- * `TerminalClient` (tty), `IframeWindow` (web), `CodeSurface` (code).
+ * `TerminalClient` (tty), `IframeWindow` (web), `CodeSurface` (code),
+ * `GuiSurface` (gui — lazy-loaded: noVNC's ~150 KB core is paid only by tabs
+ * that open the tile).
  *
  * - **Tile chrome (R7, redesigned in 260812-wfic; gap-seam 260814-011r)**: the
  *   desktop grid floats tiles as cards — 6px gutters (`gap-[6px]`), each tile
@@ -199,6 +209,23 @@ interface SurfaceLayoutProps {
   /** Host code-server reachability — selects the code tile's CONTENT (live
    *  iframe vs not-running empty state), never availability. */
   codeReachable: boolean;
+  /** The host-global gui signal — selects the gui tile's CONTENT (live canvas
+   *  vs the enabled-but-unreachable empty state); availability is the
+   *  signal's `enabled`, applied upstream by the layout degradation. */
+  gui?: GuiSignal | null;
+  /** Per-viewer gui postures (app.tsx owns the localStorage-backed state). */
+  guiViewMode?: GuiViewMode;
+  guiResizeLocked?: boolean;
+  /** RFB connection report — app.tsx folds it into the toggle dot. */
+  onGuiConnection?: (connected: boolean) => void;
+  /** Restart supervisor verb for the gui empty state (POSTs the restart
+   *  route; a 409 arrives as `{ ok: false, disabled: true }`). */
+  onGuiRestart?: () => Promise<GuiRestartResult>;
+  /** Open the supervisor logs (navigates to the rk-gui pane). */
+  onGuiOpenLogs?: () => void;
+  /** Filled with the gui tile's imperative seams (paste/reconnect) while an
+   *  RFB is live — the palette's `GUI:` verbs drive them. */
+  guiCommandsRef?: { current: GuiSurfaceCommands | null };
   /** Follow-the-editor passthrough (260813-if5d R3): handed straight to the code
    *  tile's `CodeSurface`, which reports the folder the EDITOR navigated itself
    *  to. The parent latches it — this component only carries the prop. */
@@ -535,6 +562,13 @@ export function SurfaceLayout({
   scrollLocked,
   onSessionNotFound,
   codeReachable,
+  gui = null,
+  guiViewMode = "fit",
+  guiResizeLocked = false,
+  onGuiConnection,
+  onGuiRestart,
+  onGuiOpenLogs,
+  guiCommandsRef,
   onCodeFolderNavigated,
   codeWorkspaceSrc,
   codeFollowSrc,
@@ -562,6 +596,10 @@ export function SurfaceLayout({
   // keying remounts this component per window, but memory outlives the
   // remount — that is the point of it.
   const focusKey = focusMemoryKey(server, windowId);
+
+  // Coarse pointer — the gui tile's resize/quality policy key (a coarse
+  // viewer never drives SetDesktopSize).
+  const coarsePointer = useCoarsePointer();
 
   // Dummy ws bucket for DUPLICATE tty tiles — TerminalClient types `wsRef` as
   // required, but only the first tty tile owns the shared refs (the shell's
@@ -1334,7 +1372,12 @@ export function SurfaceLayout({
    *  surface reports its own interaction via `onInteract` (contentDocument
    *  listeners same-origin; `IframeWindow` adds a window-blur fallback for
    *  cross-origin content). */
-  const renderContent = (kind: SurfaceKind, slot: number, primaryTty: boolean) => {
+  const renderContent = (
+    kind: SurfaceKind,
+    slot: number,
+    primaryTty: boolean,
+    hidden: boolean,
+  ) => {
     switch (kind) {
       case "tty":
         return (
@@ -1446,6 +1489,54 @@ export function SurfaceLayout({
             onFolderNavigated={onCodeFolderNavigated}
           />
         ) : null;
+      }
+      case "gui": {
+        // The gui tile mirrors the code seam grammar, minus the steal guard
+        // (noVNC grabs focus only on click, never programmatically). The tile
+        // stays MOUNTED when closed/zoomed away (hide-never-unmount) —
+        // `visible` is a prop; GuiSurface's 15s hidden-disconnect owns the
+        // framebuffer traffic. `null` gui (no event yet) renders nothing —
+        // availability gating upstream should already have kept the tile out.
+        if (!gui || !onGuiConnection || !onGuiRestart || !onGuiOpenLogs) {
+          return null;
+        }
+        return (
+          <Suspense
+            fallback={
+              <div
+                data-testid="gui-surface-pending"
+                className="flex-1 min-h-0 flex items-center justify-center text-text-secondary text-xs font-mono select-none"
+              >
+                opening…
+              </div>
+            }
+          >
+            <GuiSurface
+              gui={gui}
+              visible={!hidden && slot >= 0}
+              focused={slot >= 0 && slot === focusedSlot}
+              coarsePointer={coarsePointer}
+              viewMode={guiViewMode}
+              resizeLocked={guiResizeLocked}
+              onConnectionChange={onGuiConnection}
+              onRestart={onGuiRestart}
+              onOpenLogs={onGuiOpenLogs}
+              commandsRef={guiCommandsRef}
+              shouldReclaimChord={shouldReclaimChord?.("gui")}
+              onInteract={
+                slot >= 0
+                  ? () => {
+                      focusSlot(slot);
+                      // Canvas pointerdown/keydown is GENUINE interaction —
+                      // the same seam that records `code` records `gui`.
+                      recordFocus(focusKey, "gui");
+                      disarmGuard(focusKey);
+                    }
+                  : undefined
+              }
+            />
+          </Suspense>
+        );
       }
     }
   };
@@ -1911,7 +2002,7 @@ export function SurfaceLayout({
           // drag kinds — single-axis divider and the two-axis intersection.
           className={`flex-1 min-h-0 flex flex-col ${draggingIndex !== null || draggingIntersection ? "pointer-events-none" : ""}`}
         >
-          {renderContent(kind, slot, slot === firstTtySlot)}
+          {renderContent(kind, slot, slot === firstTtySlot, hidden)}
           {/* In-tile compose-strip dock (260813-j3jb): desktop only, first
               tty tile only — the strip sits below the terminal body, inside
               the tile frame. */}

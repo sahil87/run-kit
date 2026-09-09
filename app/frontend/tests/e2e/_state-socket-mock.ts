@@ -48,7 +48,23 @@ export type StateSocketMockOptions = {
   serverOrder?: unknown;
   /** Optional board-order slot ({order:[...]}) delivered on hello. */
   boardOrder?: unknown;
+  /** Optional gui slot (the `gui` StreamEntry list) delivered as a `gui`
+   *  global on hello — beside the backend's cached-gui replay. Flip it
+   *  mid-test with `emitGui`. */
+  gui?: unknown;
 };
+
+// Live mock sockets, so `emitGui` can push a mid-test gui slot flip without
+// the spec holding the routeWebSocket handler's `ws`.
+const liveSockets = new Set<{ send(text: string): void }>();
+
+/** Push a `gui` global event to every live mocked state socket — the spec-side
+ *  stand-in for the backend's per-tick gui broadcast (e.g. flipping
+ *  `enabled`/`reachable` mid-test without a reload). */
+export function emitGui(payload: unknown): void {
+  const frame = JSON.stringify({ op: "event", kind: "global", type: "gui", data: payload });
+  for (const ws of liveSockets) ws.send(frame);
+}
 
 /** Install a `/ws/state` mock speaking the state-socket protocol. Call before
  *  `page.goto`. Returns nothing — specs drive the UI via the delivered payloads.
@@ -59,6 +75,9 @@ export async function mockStateSocket(page: Page, opts: StateSocketMockOptions =
     // Do NOT connectToServer — this is a full mock (no real backend).
     const emitGlobal = (type: string, data: unknown) =>
       ws.send(JSON.stringify({ op: "event", kind: "global", type, data }));
+
+    liveSockets.add(ws);
+    ws.onClose(() => liveSockets.delete(ws));
 
     ws.onMessage((message) => {
       let msg: { op?: string; kind?: string; key?: string; req?: number };
@@ -76,6 +95,7 @@ export async function mockStateSocket(page: Page, opts: StateSocketMockOptions =
           if (opts.boardOrder !== undefined) emitGlobal("board-order", opts.boardOrder);
           if (opts.version !== undefined) emitGlobal("version", opts.version);
           if (opts.updateAvailable !== undefined) emitGlobal("update-available", opts.updateAvailable);
+          if (opts.gui !== undefined) emitGlobal("gui", opts.gui);
           break;
         case "subscribe":
           if (msg.kind === "server" && typeof msg.key === "string") {

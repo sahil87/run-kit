@@ -14,6 +14,7 @@ import (
 	"rk/internal/gui"
 	"rk/internal/selfpath"
 	"rk/internal/settings"
+	"rk/internal/tmux"
 )
 
 const (
@@ -173,6 +174,16 @@ func ensureGUICore(cli bool) (GUIEnsureOutcome, error) {
 
 	args := []string{
 		"new-session", "-d",
+		// Pin the daemon's own XDG_STATE_HOME into the pane: tmux builds pane
+		// environments from the SERVER's environment (plus the client's
+		// update-environment allowlist, which XDG_STATE_HOME is not on), so
+		// without the pin a daemon launched under a different state home than
+		// the tmux server's birth env forks the socket path — supervise writes
+		// host.sock under one root while the probe/relay reads the other. The
+		// daemon session's RK_DAEMON_LOG pin (startSession) is the precedent.
+		// An empty value sets the var empty, which StateDir treats as unset —
+		// aligned with the daemon either way.
+		"-e", "XDG_STATE_HOME=" + os.Getenv("XDG_STATE_HOME"),
 		"-s", GUISessionName,
 		"-n", GUIWindowName,
 		exe, "gui", "supervise", GUIWindowName, "--display", display,
@@ -276,7 +287,11 @@ func GUISessionExists(ctx context.Context) bool {
 // a live tmux server. show-options -v (no -q) hard-fails on an unset user
 // option, which callers treat as absent.
 var guiSessionOption = func(ctx context.Context, option string) (string, error) {
-	out, err := runTmuxOutput(ctx, "show-options", "-v", "-t", "="+GUISessionName, option)
+	// The option commands' target parser rejects the bare `=name` exact-match
+	// form (tmux 3.7c: `no such session`) while accepting it for
+	// display-message/kill-session — session options must use the
+	// session-scoped `=name:` form (the internal/tmux board.go precedent).
+	out, err := runTmuxOutput(ctx, "show-options", "-v", "-t", tmux.ExactSessionTarget(GUISessionName), option)
 	if err != nil {
 		return "", err
 	}

@@ -17,11 +17,24 @@
  */
 
 /**
- * A lens over a window's substrate. `tty`, `web`, and `code` are implemented;
- * the registry (spec § The View Registry) is open-ended — `desktop` adds a
- * member here and a capability in `availableViews`.
+ * A lens over a window's substrate. `tty`, `web`, `code`, and `gui` are
+ * implemented; the registry (spec § The View Registry) is open-ended — a new
+ * lens adds a member here and a capability in `availableViews`.
  */
-export type ViewName = "tty" | "web" | "code";
+export type ViewName = "tty" | "web" | "code" | "gui";
+
+/**
+ * The host-global gui signal the availability helpers consult. Absent/null
+ * means no signal has arrived yet, which reads as NOT available — the gui
+ * surface is never on by default, and a late replay must not flash a button.
+ * Only `enabled` gates availability; reachability/backend/viewers select the
+ * tile's content, never its existence.
+ */
+export type GuiHost = { enabled: boolean } | null | undefined;
+
+export function hasGui(host: GuiHost): boolean {
+  return host?.enabled === true;
+}
 
 /**
  * The minimal window shape the view helpers need. Structural (assignable from
@@ -50,7 +63,7 @@ export type ViewWindow = {
  * registry-driven. `code` sits ahead of `web` and `tty` here for ORDERING
  * only — neither availability nor on-screen state is implied.
  */
-const HINT_ORDER: ViewName[] = ["code", "web", "tty"];
+const HINT_ORDER: ViewName[] = ["code", "gui", "web", "tty"];
 
 /**
  * Whether a window carries at least one web tab (the `@rk_win_web_<n>` family
@@ -94,15 +107,19 @@ export function hasCode(win: ViewWindow | null | undefined): boolean {
  * `web` is ALWAYS available too — like `tty`, the lens exists on every window;
  * `hasWebUrl` selects its CONTENT (onboarding vs live iframe), never its
  * availability (the code-surface availability-vs-reachability split); `code`
- * is available exactly when `hasCode` holds. Capabilities are
+ * is available exactly when `hasCode` holds; `gui` exactly when the host
+ * signal's `enabled` is true (`hasGui`) — a per-HOST capability threaded in
+ * as the optional second arg, absent reading as unavailable. Capabilities are
  * orthogonal and stack (spec R5). Returned in the registry's fixed order
  * (HINT_ORDER).
  */
 export function availableViews(
   win: ViewWindow | null | undefined,
+  host?: GuiHost,
 ): ViewName[] {
   const views: ViewName[] = [];
   if (hasCode(win)) views.push("code");
+  if (hasGui(host)) views.push("gui");
   views.push("web");
   views.push("tty");
   // Return in HINT_ORDER so the switcher segment order is stable/registry-driven.

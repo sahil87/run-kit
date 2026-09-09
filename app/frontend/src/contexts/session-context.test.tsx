@@ -7,6 +7,7 @@ import {
   useHostMetrics,
   useHostServices,
   useCodeServer,
+  useGui,
   useMetrics,
   StandaloneSessionContextProvider,
   shouldReloadOnVersion,
@@ -14,6 +15,7 @@ import {
 } from "./session-context";
 import { ChromeProvider } from "./chrome-context";
 import type { MetricsSnapshot } from "@/types";
+import type { GuiSignal } from "./session-context";
 
 // Keep the real module (so pure helpers like `compareServers` — exercised by
 // the infra-sort test below — run for real); only `listServers` is stubbed.
@@ -886,6 +888,119 @@ describe("SessionProvider — code-server signal (260811-k3vp; portless payload 
       WS.forHostMetrics()!.emit("code-server", { nope: true });
     });
     expect(result.current).toEqual({ reachable: false });
+  });
+});
+
+describe("SessionProvider — gui signal (the host-global `gui` event list)", () => {
+  const GUI_ON = [
+    {
+      id: "host",
+      enabled: true,
+      backend: "Xtigervnc",
+      reachable: true,
+      display: ":10",
+      width: 1920,
+      height: 1080,
+      viewers: 1,
+    },
+  ];
+
+  it("returns null before the first gui event (reads as disabled)", async () => {
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useGui(), { wrapper: Wrapper });
+    await settle();
+    expect(result.current).toBeNull();
+  });
+
+  it("narrows the list payload to the id:\"host\" entry", async () => {
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useGui(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.forHostMetrics()!.emit("gui", [
+        { id: "other", enabled: false },
+        ...GUI_ON,
+      ]);
+    });
+    expect(result.current).toEqual(GUI_ON[0]);
+  });
+
+  it("falls back to the first entry when no id:\"host\" exists", async () => {
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useGui(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.forHostMetrics()!.emit("gui", [{ id: "only", enabled: true }]);
+    });
+    expect(result.current).toEqual({
+      id: "only",
+      enabled: true,
+      backend: "",
+      reachable: false,
+      display: "",
+      width: 0,
+      height: 0,
+      viewers: 0,
+    });
+  });
+
+  it("dedupes identical raw payloads (no consumer re-render)", async () => {
+    setMockMatches([{ params: {} }]);
+    let renders = 0;
+    // Boxed so TS control flow does not narrow the closure-assigned value.
+    const latest: { current: GuiSignal | null } = { current: null };
+    function Probe() {
+      renders += 1;
+      latest.current = useGui();
+      return null;
+    }
+    renderHook(() => useSessionContext(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <Wrapper>
+          <Probe />
+          {children}
+        </Wrapper>
+      ),
+    });
+    await settle();
+
+    act(() => { WS.forHostMetrics()!.emit("gui", GUI_ON); });
+    expect(latest.current).toEqual(GUI_ON[0]);
+    const rendersAfterFirst = renders;
+
+    act(() => { WS.forHostMetrics()!.emit("gui", GUI_ON); });
+    expect(renders).toBe(rendersAfterFirst);
+
+    act(() => { WS.forHostMetrics()!.emit("gui", [{ ...GUI_ON[0], viewers: 2 }]); });
+    expect(latest.current?.viewers).toBe(2);
+    expect(renders).toBeGreaterThan(rendersAfterFirst);
+  });
+
+  it("narrows a malformed payload to safe defaults and never throws", async () => {
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useGui(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.forHostMetrics()!.emit("gui", { not: "a list" });
+    });
+    expect(result.current).toBeNull();
+
+    act(() => {
+      WS.forHostMetrics()!.emit("gui", [{ enabled: "yes", width: "wide", viewers: null }]);
+    });
+    expect(result.current).toEqual({
+      id: "",
+      enabled: false,
+      backend: "",
+      reachable: false,
+      display: "",
+      width: 0,
+      height: 0,
+      viewers: 0,
+    });
   });
 });
 

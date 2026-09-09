@@ -567,6 +567,57 @@ export async function fetchCodeWorkspace(
   return { status: "ok", path: data.path, root: data.root };
 }
 
+/**
+ * The shared gui status document (`GET /api/gui/{id}`) — the same shape
+ * `rk gui status --json` emits. Host-global (no server param, the
+ * `/api/settings` precedent). `reason` carries the not-running explanation
+ * the empty state renders verbatim; `apps` + `uptime_seconds` feed the
+ * off-confirm dialog.
+ */
+export type GuiStatus = {
+  id: string;
+  enabled: boolean;
+  backend: string;
+  reachable: boolean;
+  display: string;
+  width: number;
+  height: number;
+  viewers: number;
+  socket: string;
+  session: string;
+  reason: string;
+  apps: { name: string; count: number }[];
+  uptime_seconds: number;
+};
+
+/**
+ * GET /api/gui/{id} — the one-shot status read. Fires only on transitions
+ * (the gui tile's unreachable flip) and dialog opens — never polled; the
+ * state socket is the reachability authority.
+ */
+export async function fetchGuiStatus(id = "host"): Promise<GuiStatus> {
+  const res = await deduplicatedFetch(`/api/gui/${encodeURIComponent(id)}`);
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/**
+ * POST /api/gui/{id}/restart (kill + ensure). Resolves `{ ok: true }` on 200;
+ * a 409 (`gui disabled`) resolves `{ ok: false, disabled: true }` — the empty
+ * state renders "gui turned off" rather than an error toast. Every other
+ * non-ok response throws as usual.
+ */
+export async function restartGui(
+  id = "host",
+): Promise<{ ok: true } | { ok: false; disabled: true }> {
+  const res = await deduplicatedFetch(`/api/gui/${encodeURIComponent(id)}/restart`, {
+    method: "POST",
+  });
+  if (res.status === 409) return { ok: false, disabled: true };
+  if (!res.ok) await throwOnError(res);
+  return { ok: true };
+}
+
 export async function splitWindow(
   server: string,
   windowId: string,

@@ -14,6 +14,7 @@ import (
 
 	"rk/internal/daemon"
 	"rk/internal/gui"
+	"rk/internal/tmux"
 	"rk/internal/validate"
 
 	"github.com/spf13/cobra"
@@ -267,7 +268,10 @@ func runGuiSuperviseDarwin(ctx context.Context) error {
 func guiStampSessionOption(option, value string) {
 	ctx, cancel := context.WithTimeout(context.Background(), guiSuperviseTmuxTimeout)
 	defer cancel()
-	if err := guiSuperviseTmuxRun(ctx, "set-option", "-t", "="+daemon.GUISessionName, option, value); err != nil {
+	// The option commands' target parser rejects the bare `=name` exact-match
+	// form (tmux 3.7c: `no such session`) — session options must use the
+	// session-scoped `=name:` form (the internal/tmux board.go precedent).
+	if err := guiSuperviseTmuxRun(ctx, "set-option", "-t", tmux.ExactSessionTarget(daemon.GUISessionName), option, value); err != nil {
 		guiSuperviseLog(fmt.Sprintf("gui: failed to stamp %s on the %s session: %v", option, daemon.GUISessionName, err))
 	}
 }

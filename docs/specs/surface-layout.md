@@ -189,7 +189,7 @@ impossible (arity 3 without the kind). The palette mirrors the group with
 `Tile: Switch to <Surface>` entries
 (Constitution V), which supersede the `View:` lens entries at mobile width.
 
-The `gui` tile gets one more rule on coarse pointers **[target]**: it scales
+The `gui` tile gets one more rule on coarse pointers **[current]**: it scales
 the shared desktop client-side (fit, or 1:1 clip+pan) and **never drives a
 SetDesktopSize resize** — the desktop follows the last-focused *fine-pointer*
 viewer's tile size; phones are readers of the shared screen, not its geometry

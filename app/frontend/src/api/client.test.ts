@@ -20,6 +20,8 @@ import {
   ApiError,
   fetchWindowHistory,
   fetchCodeWorkspace,
+  fetchGuiStatus,
+  restartGui,
   getDirectories,
   uploadFile,
   killServer,
@@ -1506,6 +1508,84 @@ describe("fetchCodeWorkspace (tab-keyed workspace derivation)", () => {
       if (!(err instanceof ApiError)) return;
       expect(err.status).toBe(500);
       expect(err.message).toBe("ensure failed");
+    }
+  });
+});
+
+describe("gui client (host-global /api/gui/*)", () => {
+  const STATUS = {
+    id: "host",
+    enabled: true,
+    backend: "Xtigervnc",
+    reachable: false,
+    display: ":10",
+    width: 1920,
+    height: 1080,
+    viewers: 0,
+    socket: "/run/host.sock",
+    session: "rk-gui",
+    reason: "no VNC backend: sudo apt install tigervnc-standalone-server openbox",
+    apps: [{ name: "chromium", count: 3 }],
+    uptime_seconds: 15120,
+  };
+
+  it("fetchGuiStatus GETs /api/gui/host and resolves the status document", async () => {
+    let capturedUrl = "";
+    mswServer.use(
+      http.get("/api/gui/:id", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json(STATUS);
+      }),
+    );
+    const result = await fetchGuiStatus();
+    expect(capturedUrl).toContain("/api/gui/host");
+    expect(result).toEqual(STATUS);
+  });
+
+  it("fetchGuiStatus throws on a non-ok response", async () => {
+    mswServer.use(
+      http.get("/api/gui/:id", () =>
+        HttpResponse.json({ error: "invalid gui id" }, { status: 400 }),
+      ),
+    );
+    await expect(fetchGuiStatus("nope")).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("restartGui POSTs and resolves { ok: true } on 200", async () => {
+    let method = "";
+    mswServer.use(
+      http.post("/api/gui/:id/restart", ({ request }) => {
+        method = request.method;
+        return HttpResponse.json({ status: "ok" });
+      }),
+    );
+    await expect(restartGui()).resolves.toEqual({ ok: true });
+    expect(method).toBe("POST");
+  });
+
+  it("restartGui maps a 409 (gui disabled) to { ok: false, disabled: true }, never a throw", async () => {
+    mswServer.use(
+      http.post("/api/gui/:id/restart", () =>
+        HttpResponse.json({ error: "gui disabled" }, { status: 409 }),
+      ),
+    );
+    await expect(restartGui()).resolves.toEqual({ ok: false, disabled: true });
+  });
+
+  it("restartGui throws on other non-ok responses", async () => {
+    mswServer.use(
+      http.post("/api/gui/:id/restart", () =>
+        HttpResponse.json({ error: "kill failed" }, { status: 500 }),
+      ),
+    );
+    try {
+      await restartGui();
+      expect.fail("restartGui should reject");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      if (!(err instanceof ApiError)) return;
+      expect(err.status).toBe(500);
+      expect(err.message).toBe("kill failed");
     }
   });
 });

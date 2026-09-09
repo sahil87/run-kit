@@ -86,6 +86,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "tty-toggle": "Digit1",
       "code-toggle": "Digit2",
       "web-toggle": "Digit3",
+      "gui-toggle": "Digit4",
       "zen-toggle": "Enter",
       "focus-hop": "Backquote",
       "terminal-find": "KeyF",
@@ -320,6 +321,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
     for (const [id, code, mapLabel] of [
       ["tty-toggle", "Digit1", "tty"],
       ["web-toggle", "Digit3", "web"],
+      ["gui-toggle", "Digit4", "gui"],
     ] as const) {
       expect(DEFAULT_BINDINGS.find((b) => b.actionId === id)).toMatchObject({
         actionId: id,
@@ -337,6 +339,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       ["tty-toggle", "Digit1"],
       ["code-toggle", "Digit2"],
       ["web-toggle", "Digit3"],
+      ["gui-toggle", "Digit4"],
     ] as const) {
       expect(byId(resolved(SHELL_MAC), id)).toMatchObject({
         code,
@@ -358,8 +361,8 @@ describe("DEFAULT_BINDINGS integrity", () => {
       });
     }
     // Mac browser: ⌘1–9 are the browser's tab accelerators (the cmd-tier
-    // claims) — all three resolve reserved and stay palette-reachable.
-    for (const id of ["tty-toggle", "code-toggle", "web-toggle"]) {
+    // claims) — all four resolve reserved and stay palette-reachable.
+    for (const id of ["tty-toggle", "code-toggle", "web-toggle", "gui-toggle"]) {
       expect(byId(resolved(BROWSER_MAC), id)).toMatchObject({
         tier: "cmd",
         enabled: false,
@@ -378,6 +381,35 @@ describe("DEFAULT_BINDINGS integrity", () => {
         (b) => b.actionId,
       ),
     ).toEqual(["code-toggle"]);
+    // gui-toggle (⌘4/⇧Ctrl+4): the full row, tier exclusivity on both
+    // platforms, and no other binding on Digit4 (code or macCode).
+    expect(DEFAULT_BINDINGS.find((b) => b.actionId === "gui-toggle")).toEqual({
+      actionId: "gui-toggle",
+      code: "Digit4",
+      tier: "shifted",
+      macTier: "cmd",
+      scope: "terminal",
+      kind: "builtin",
+      label: "Toggle GUI",
+      description: "open/close the GUI tile",
+      mapLabel: "gui",
+      ignoreInputs: true,
+    });
+    expect(
+      DEFAULT_BINDINGS.filter((b) => b.code === "Digit4" || b.macCode === "Digit4").map(
+        (b) => b.actionId,
+      ),
+    ).toEqual(["gui-toggle"]);
+    expect(
+      findMatches(chord({ code: "Digit4", shiftKey: true, ctrlKey: true }), resolved(SHELL_OTHER)).map(
+        (b) => b.actionId,
+      ),
+    ).toEqual(["gui-toggle"]);
+    expect(
+      findMatches(chord({ code: "Digit4", metaKey: true }), resolved(SHELL_MAC)).map(
+        (b) => b.actionId,
+      ),
+    ).toEqual(["gui-toggle"]);
     // Dispatch: KeyJ resolves to operator-console on every host — ⌘J on both
     // mac hosts (the cmd-tier demotion; no browser claim on ⌘J), ⇧Ctrl+J on
     // win/linux, where plain Ctrl+J stays with the pane (readline). On mac the
@@ -780,6 +812,7 @@ describe("palette parity invariant", () => {
     "code-toggle": ["tile-show-code", "tile-hide-code"],
     "tty-toggle": ["tile-show-tty", "tile-hide-tty", "tile-focus-tty"],
     "web-toggle": ["tile-show-web", "tile-hide-web", "tile-focus-web"],
+    "gui-toggle": ["tile-show-gui", "tile-hide-gui", "tile-focus-gui"],
     "zen-toggle": ["view-zen-enter", "view-zen-exit"],
     "focus-hop": ["tile-focus-tty", "tile-focus-code"],
     "web-find": ["web-find"], // Web: Find in page (260819-ie2i)

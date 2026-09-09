@@ -40,6 +40,7 @@ var surfaceKinds = map[string]bool{
 	"tty":  true,
 	"web":  true,
 	"code": true,
+	"gui":  true,
 }
 
 // Parse validates "<shape>:<a>,<b>[,<c>]" and returns the Layout. Untrusted

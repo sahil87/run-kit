@@ -160,7 +160,7 @@ func TestGuiSuperviseDarwinProbesAndSpawnsNothing(t *testing.T) {
 	if !strings.Contains(buf.String(), "Screen Sharing: reachable on 127.0.0.1:5900") {
 		t.Errorf("log =\n%s\nwant the reachable line", buf.String())
 	}
-	want := []string{"set-option", "-t", "=rk-gui", "@rk_gui_backend", "screen-sharing"}
+	want := []string{"set-option", "-t", "=rk-gui:", "@rk_gui_backend", "screen-sharing"}
 	if len(*stamps) != 1 || strings.Join((*stamps)[0], " ") != strings.Join(want, " ") {
 		t.Errorf("stamps = %v, want exactly [%v]", *stamps, want)
 	}
@@ -246,7 +246,7 @@ func TestGuiSuperviseLinuxSignalTeardown(t *testing.T) {
 	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":11") }()
 
 	waitForGuiLog(t, buf, guiBackendUpLine("Xtigervnc", ":11", sock))
-	wantStamp := []string{"set-option", "-t", "=rk-gui", "@rk_gui_display", ":11"}
+	wantStamp := []string{"set-option", "-t", "=rk-gui:", "@rk_gui_display", ":11"}
 	found := false
 	for _, s := range *stamps {
 		if strings.Join(s, " ") == strings.Join(wantStamp, " ") {

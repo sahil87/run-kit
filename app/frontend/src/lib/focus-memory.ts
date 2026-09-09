@@ -30,8 +30,9 @@
  * jsdom-unit-testable; the module-slot shape mirrors `compose-strip-events.ts`.
  */
 
-/** The three surfaces the restore router can return focus to. */
-export type FocusKind = "tty" | "compose" | "code";
+/** The surfaces the restore router can return focus to; `gui` records focus
+ *  through the same genuine-interaction seam as `code`. */
+export type FocusKind = "tty" | "compose" | "code" | "gui";
 
 /** Compose the per-window memory/guard key — the ONLY place the
  *  `${server}:${windowId}` shape is spelled out. */

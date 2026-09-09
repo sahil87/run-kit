@@ -3,8 +3,11 @@
 > The `gui` surface renders the host's graphical desktop as a fourth surface
 > kind beside `tty` / `code` / `web` — a human watches and drives it from any
 > tab (phone included); agents launch apps into it and screenshot it. It
-> exists only when the user has explicitly turned it on. **[target]**
-> throughout: nothing on this page is shipped yet.
+> exists only when the user has explicitly turned it on.
+>
+> **Status**: C2 (the backend — switch, supervisor, relay, state slot) and C3
+> (the frontend tile) are shipped; § Agent verbs (C4) and § Smoothness
+> targets (C5) remain **[target]**.
 >
 > Design authority: the design study
 > [`docs/wiki/gui-surface-design-study.html`](../wiki/gui-surface-design-study.html)
@@ -43,18 +46,19 @@ singleton — D8). The relay path and the state payload are list-shaped
 height, viewers}]`) so per-session displays can land later without reshaping.
 
 ```
- browser tile (GuiSurface: noVNC RFB → <canvas>)         state stream: gui[{id:"host", available, reachable, display, size}]
+ browser tile (GuiSurface: noVNC RFB → <canvas>)         state stream: gui[{id:"host", enabled, backend, reachable, display, width, height, viewers}]
         │  wss  /ws/gui/host                                      ▲
-        ▼                                                         │ probe (dial socket, TTL-cached like codeServerReachable)
+        ▼                                                         │ probe (dial socket, TTL-cached like codeServerReachable; skipped while a relay viewer is live)
  rk daemon ── WS⇄stream relay (api/gui_ws.go, sibling of terminals_ws.go) ── Linux: unix  $XDG_STATE_HOME/run-kit/gui/host.sock
         │                                                                  └─ macOS: tcp 127.0.0.1:5900 (Apple Screen Sharing)
-        │ POST /api/gui/start|stop|resize         (Constitution IX: POST only, no new route family beyond /api/gui/*)
+        │ GET /api/gui/{id} (the status document: reason, apps, uptime_seconds)
+        │ POST /api/gui/{id}/restart; on/off via POST /api/settings {"gui.enabled": …}
         ▼
  tmux server rk-daemon
    ├─ rk-code-server   (existing sibling)
    └─ rk-gui           (new sibling; window "host")
          └─ rk gui supervise host        ← the pane command; its tty IS the supervisor log (R3)
-               ├─ Xvnc :N -rfbunixpath …/host.sock -SecurityTypes None -AlwaysShared -AcceptSetDesktopSize -geometry 1920x1080
+               ├─ Xtigervnc :N -rfbunixpath …/host.sock -rfbport -1 -SecurityTypes None -AlwaysShared -AcceptSetDesktopSize -geometry 1920x1080 -FrameRate=60
                └─ WM (openbox | xfwm4 | kwin_x11 …) with DISPLAY=:N
 ```
 
@@ -107,8 +111,9 @@ binary frames ⇄ the backend stream, a sibling of the terminal relay. VNC is
 never on TCP on Linux — a unix socket by convention under
 `$XDG_STATE_HOME/run-kit/gui/` (`host.sock`; dir 0700, socket 0600); auth
 `None` (the same trust boundary as code-server's `--auth none`: the only
-client is rk on the same user). Mutations are `POST /api/gui/*`; there is no
-route family beyond `/ws/gui/*` and `/api/gui/*`.
+client is rk on the same user). Mutations are `POST /api/gui/{id}/restart`
+plus the `gui.enabled` key on `POST /api/settings`; there is no route family
+beyond `/ws/gui/*` and `/api/gui/*`.
 
 ---
 

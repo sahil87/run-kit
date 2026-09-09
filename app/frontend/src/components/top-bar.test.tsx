@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/contexts/theme-context";
 import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import type { ProjectSession, WindowInfo } from "@/types";
+import type { SurfaceKind } from "@/lib/surface-layout";
 import { stubMatchMedia } from "@/test-utils/match-media";
 
 // TopBar is rendered without a RouterProvider here, so stub the two router
@@ -1619,9 +1620,9 @@ describe("TopBar", () => {
 
   describe("surface-toggle group (the retired right rail's toggles, relocated)", () => {
     const toggles = (overrides: Partial<{
-      available: ("tty" | "web" | "code")[];
-      open: ("tty" | "web" | "code")[];
-      onToggle: (surface: "tty" | "web" | "code") => void;
+      available: SurfaceKind[];
+      open: SurfaceKind[];
+      onToggle: (surface: SurfaceKind) => void;
     }> = {}) => ({
       mode: "toggle" as const,
       available: overrides.available ?? ["tty", "web", "code"],
@@ -1724,6 +1725,26 @@ describe("TopBar", () => {
       for (const label of ["Terminal tile", "Web tile", "Code tile"]) {
         expect(dotOf(label).every((d) => d !== null)).toBe(true);
       }
+    });
+
+    it("the gui surface renders as a 4th registry-driven button (glyph [], GUI tile) — and not when unavailable", () => {
+      renderTopBar({
+        surfaceToggles: toggles({ available: ["tty", "code", "web", "gui"], open: ["tty"] }),
+      });
+      const group = screen.getAllByTestId("surface-toggles")[0];
+      const guiButton = within(group).getByLabelText("GUI tile");
+      expect(guiButton.textContent).toContain("[]");
+      expect(group.querySelectorAll("button")).toHaveLength(4);
+      // No gui-specific branch: the row rides the same Tiles menu grammar.
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const row = within(menu).getByRole("menuitemcheckbox", { name: "GUI tile" });
+      expect(row.getAttribute("aria-checked")).toBe("false");
+      expect(row.textContent).toContain("[]");
+      cleanup();
+
+      renderTopBar({ surfaceToggles: toggles({ available: ["tty", "code", "web"] }) });
+      expect(screen.queryByLabelText("GUI tile")).toBeNull();
     });
 
     it("switch mode shares the same dot derivation", () => {

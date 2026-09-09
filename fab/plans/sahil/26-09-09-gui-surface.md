@@ -18,8 +18,9 @@ screenshot, and that exists only when the user has explicitly turned it on.
 
 **Status (2026-09-09)**: C1 (`260909-5nvd-gui-spec-and-registry-rename`) is
 Done (PR #888 merged). C0 verdict is in (Xvnc stands — § C0 verdict). C2
-(`260909-fkh1-gui-backend-switch-and-relay`, PR #892) is Done. C3 ∥ C4 are
-in progress (C4: `260909-bbv1-gui-agent-verbs`, PR #894).
+(`260909-fkh1-gui-backend-switch-and-relay`, PR #892) is Done. C3
+(`260909-o2sp-gui-surface-tile`, PR #895) is Done. C4
+(`260909-bbv1-gui-agent-verbs`) is in review (PR #894).
 
 ---
 
@@ -50,7 +51,7 @@ Agents: fill your row when you create the change; mark Done when merged.
 | C0 | *(spike — no fab change; written verdict only)* | — | S | — | — | **Done 2026-09-09** — see § C0 verdict |
 | C1 | `gui-spec-and-registry-rename` | — | S | 260909-5nvd-gui-spec-and-registry-rename | https://github.com/sahil87/run-kit/pull/888 | Done |
 | C2 | `gui-backend-switch-and-relay` | C0 verdict, C1 | L | 260909-fkh1-gui-backend-switch-and-relay | https://github.com/sahil87/run-kit/pull/892 | Done |
-| C3 | `gui-surface-tile` | C2 merged | L | | | not started |
+| C3 | `gui-surface-tile` | C2 merged | L | 260909-o2sp-gui-surface-tile | https://github.com/sahil87/run-kit/pull/895 | Done |
 | C4 | `gui-agent-verbs` | C2 merged (∥ C3) | M | 260909-bbv1-gui-agent-verbs | https://github.com/sahil87/run-kit/pull/894 | in review |
 | C5 | `gui-perf-measure` | C3, C4 merged | S | | | not started |
 | C6 | `gui-kasm-backend` *(conditional on C5)* | C5 verdict | M | | | not started |

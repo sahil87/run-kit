@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 15
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-09T08:46:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T08:52:16Z"}
     hydrate: {started_at: "2026-09-09T08:52:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T09:02:46Z"}
     ship: {started_at: "2026-09-09T09:02:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T09:05:10Z"}
-    review-pr: {started_at: "2026-09-09T09:05:10Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-09T09:05:10Z", driver: git-pr, iterations: 1, completed_at: "2026-09-09T09:11:50Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/890
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: keys the code lens by tab via a derived per-tab .code-workspace file (rk.tab/rk.server settings), adds the six rk.hasTab-gated run-kit editor actions to the code-bridge extension, tab-direct rk code host resolution with an in-tmux own-tab default, and the code-workspace GET as the single writer
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-09T09:05:10Z
+last_updated: 2026-09-09T09:11:50Z

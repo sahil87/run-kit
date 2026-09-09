@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-09T06:39:42Z"}
+{"args":"Operator omnibox placeholder reads '◉ Ask ◉…' — doubled operator glyph plus a cryptic trailing ellipsis (screenshot .uploads/260909120528-image.png); clarify the rest/engaged placeholder","cmd":"fab-new","event":"command","ts":"2026-09-09T06:39:42Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-09-09T06:41:18Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-09T07:10:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-09T07:10:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-09T07:14:57Z"}
+{"event":"review","result":"failed","ts":"2026-09-09T07:19:42Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-09T07:19:42Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-09T07:21:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-09T07:23:51Z"}
+{"event":"review","result":"passed","ts":"2026-09-09T07:23:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-09T07:24:46Z"}

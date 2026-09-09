@@ -1,0 +1,55 @@
+id: ae2w
+name: 260909-ae2w-omnibox-placeholder-clarity
+created: 2026-09-09T06:39:42Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 6
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 63.8
+        reversibility: 94.4
+        competence: 88.8
+        disambiguation: 82.5
+stage_metrics:
+    intake: {started_at: "2026-09-09T06:39:42Z", driver: fab-new, iterations: 1, completed_at: "2026-09-09T07:10:35Z"}
+    apply: {started_at: "2026-09-09T07:19:42Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-09T07:21:20Z"}
+    review: {started_at: "2026-09-09T07:21:20Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-09T07:23:51Z"}
+    hydrate: {started_at: "2026-09-09T07:23:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T07:24:46Z"}
+    ship: {started_at: "2026-09-09T07:24:46Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-09T07:24:46Z"
+    computed_at_stage: hydrate
+summary: Omnibox short placeholder is now 'Ask…' below 2xl — the standing ◉ glyph already names the operator, so the placeholder no longer repeats it; the width-only gate is pinned by a test; tutorial.md, tutorial.html and the embedded skill copy quote the new string
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-09T07:24:46Z

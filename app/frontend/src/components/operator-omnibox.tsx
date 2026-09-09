@@ -56,11 +56,15 @@ function OperatorStateGlyph({
  *
  *  - ≥ lg: a STANDING bordered input (`◉` glyph with the resolved operator's
  *    live state dot, plus a chord keycap) beside the
- *    compact heading. Slim at rest — `12ch` with the short "Ask ◉…"
+ *    compact heading. Slim at rest — `12ch` with the short "Ask…"
  *    placeholder, widening to `20ch` + the full "Ask the operator…"
  *    placeholder only at ≥ 2xl, so the standing box never eats the crumbs'
  *    min-useful-width at `lg`/`xl` (the box grows meaning on focus, not at
- *    rest).
+ *    rest). The short form does not repeat the `◉` — the standing glyph
+ *    beside the input already names the operator, and a second glyph plus
+ *    ellipsis read as a truncated label. The placeholder gate is width-only,
+ *    never `engaged`: the mounted context chip leaves the engaged input
+ *    ~12ch, where the long form would clip mid-word.
  *  - md–lg: a dim `· ◉ ask` ghost carrying the same state dot that (on click,
  *    or when the chord engages the machine) morphs the center into the same
  *    box in place; Esc, the chord, or an outside click restores the heading.
@@ -226,7 +230,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
           type="text"
           value={compose.text}
           data-testid="operator-omnibox-input"
-          placeholder={extraWide ? "Ask the operator…" : "Ask ◉…"}
+          placeholder={extraWide ? "Ask the operator…" : "Ask…"}
           aria-label="Ask the operator"
           onChange={(e) => setOperatorComposeText(e.target.value)}
           onFocus={() => {

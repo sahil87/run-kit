@@ -141,7 +141,7 @@ describe("OperatorOmnibox", () => {
     // Fixed height (matches --ctl-h-bar) — must hold identically once engaged,
     // so focus/blur never reflows the top bar.
     expect(box.className).toContain("h-[28px]");
-    expect(screen.getByTestId("operator-omnibox-input")).toHaveAttribute("placeholder", "Ask ◉…");
+    expect(screen.getByTestId("operator-omnibox-input")).toHaveAttribute("placeholder", "Ask…");
   });
 
   it("≥ 2xl rung: the box takes its full rest width and long placeholder", () => {
@@ -332,6 +332,9 @@ describe("OperatorOmnibox", () => {
     act(() => requestOperatorConsole({ action: "open" }));
     expect(getConsoleMachineState()).toBe("open");
     expect(screen.getByTestId("operator-omnibox").className).toContain("w-[34ch]");
+    // The placeholder gate is width-only: engaging below 2xl keeps the short
+    // form (the mounted chip leaves the input ~12ch — the long form would clip).
+    expect(screen.getByTestId("operator-omnibox-input")).toHaveAttribute("placeholder", "Ask…");
 
     act(() => outside.focus());
     // The peek outlives the box's focus: the machine and the drawer are

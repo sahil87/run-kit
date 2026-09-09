@@ -850,7 +850,13 @@ func (h *sseHub) setGUIEnabled(enabled bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.guiEnabled = enabled
+	// Drop the cached probe result together with its age: a flip must never
+	// rebroadcast the previous state's reachable/backend/display until the
+	// next tick re-probes — the payload reports unreachable until then.
 	h.guiProbeAt = time.Time{}
+	h.guiInfo = gui.Info{}
+	h.guiBackend = ""
+	h.guiDisplay = ""
 	str := h.guiPayloadLocked()
 	if str == "" {
 		return

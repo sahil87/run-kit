@@ -1,0 +1,54 @@
+id: 3cp9
+name: 260909-3cp9-pane-split-wedge-sizing-guard
+created: 2026-09-09T08:39:32Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 10
+    acceptance_completed: 10
+confidence:
+    certain: 4
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 65.7
+        reversibility: 87.9
+        competence: 80.0
+        disambiguation: 72.1
+stage_metrics:
+    intake: {started_at: "2026-09-09T08:39:32Z", driver: fab-new, iterations: 1, completed_at: "2026-09-09T09:04:48Z"}
+    apply: {started_at: "2026-09-09T09:04:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T09:09:42Z"}
+    review: {started_at: "2026-09-09T09:09:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T09:14:17Z"}
+    hydrate: {started_at: "2026-09-09T09:14:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T09:17:58Z"}
+    ship: {started_at: "2026-09-09T09:17:58Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-09T09:17:58Z"
+    computed_at_stage: hydrate
+summary: Managed tmux.conf gains window-size smallest + aggressive-resize on as the guard against the tmux <=3.7c pane-border-status width-underflow server wedge (the s9fw fork removal was hygiene, not the fix); real-tmux two-client regression test; memory root cause corrected
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-09T09:17:58Z

@@ -455,3 +455,24 @@ func TestDefaultConfigPaneBorderNoShellJobs(t *testing.T) {
 		}
 	}
 }
+
+// TestDefaultConfigMultiViewerSizingGuard pins the managed conf's sizing
+// policy: `window-size smallest` paired with `aggressive-resize on`. The pair is
+// a correctness guard, not a preference — every released tmux through 3.7c
+// underflows the pane-border-status draw width when a client is narrower than
+// the window it views (screen-redraw.c, screen_redraw_draw_pane_status), spinning
+// the server ~21s per redraw. `smallest` makes that geometry unreachable, and
+// aggressive-resize scopes the constraint to clients whose current window is
+// the one being sized. TestManagedConfSplitUnderNarrowerClientDoesNotWedge is
+// the end-to-end companion against a real server.
+func TestDefaultConfigMultiViewerSizingGuard(t *testing.T) {
+	conf := string(DefaultConfigBytes())
+	for _, want := range []string{
+		"set -g window-size smallest",
+		"setw -g aggressive-resize on",
+	} {
+		if !strings.Contains(conf, want) {
+			t.Errorf("embedded managed conf missing %q", want)
+		}
+	}
+}

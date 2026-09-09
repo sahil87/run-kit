@@ -96,10 +96,11 @@ export const LIVENESS_TIMEOUT_MS = 2 * HEARTBEAT_INTERVAL_MS;
 export const WAKE_PROBE_TIMEOUT_MS = 3000;
 
 // Hidden-page stream suspension (change 260903-xj0w). Every stream is a sized
-// `tmux attach-session` client server-side, and tmux's `window-size latest`
-// arbitration counts HIDDEN pages' clients too — one forgotten background
-// surface (detached desktop-shell view, backgrounded tab, minimized window)
-// snaps every visible view to its grid after connection churn. So a page the
+// `tmux attach-session` client server-side, and tmux sizes a window to the
+// narrowest client currently viewing it (the managed conf's `window-size
+// smallest` + `aggressive-resize on`), counting HIDDEN pages' clients too — one
+// forgotten background surface (detached desktop-shell view, backgrounded tab,
+// minimized window) would pin every visible view to its grid. So a page the
 // user is not looking at holds no attach client at all: after this grace
 // period hidden, every live stream is closed server-side (kept client-side,
 // marked suspended) and transparently re-opened on the `visible` transition.

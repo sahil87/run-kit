@@ -470,12 +470,13 @@ describe("RelayMux liveness + wake probes", () => {
 });
 
 // Hidden-page stream suspension (change 260903-xj0w). A hidden page's streams
-// are sized tmux attach clients participating in `window-size latest`
-// arbitration, so after HIDDEN_RELEASE_GRACE_MS hidden the mux closes every
-// live stream server-side (keeping it client-side, suspended) and re-opens it
-// only on the `visible` transition. This block stubs an EventTarget window
-// (like the liveness block) and overrides jsdom's document.visibilityState so
-// tests can drive hidden/visible transitions.
+// are sized tmux attach clients that tmux's narrowest-viewer sizing
+// (`window-size smallest`) would count, so after HIDDEN_RELEASE_GRACE_MS
+// hidden the mux closes every live stream server-side (keeping it
+// client-side, suspended) and re-opens it only on the `visible` transition.
+// This block stubs an EventTarget window (like the liveness block) and
+// overrides jsdom's document.visibilityState so tests can drive
+// hidden/visible transitions.
 describe("RelayMux hidden-page suspension", () => {
   let windowTarget: EventTarget;
 

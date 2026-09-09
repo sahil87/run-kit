@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-09T08:39:32Z"}
+{"args":"Pane-open UI unresponsiveness regression: opening a new tmux pane next to a running agent pane makes the UI unresponsive for roughly 30 seconds. This was reportedly fixed recently but the fix did not actually resolve it -- reproduce by opening a tmux pane adjacent to a running Claude session and observing the freeze. Investigate what prior fix targeted this (check recent change history / memory for pane-open perf or unresponsiveness work) and why it did not hold; find the actual root cause and fix it, adding a regression test if the codebase has a way to cover this.","cmd":"fab-new","event":"command","ts":"2026-09-09T08:39:32Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-09-09T08:42:44Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-09T09:04:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-09T09:04:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-09T09:09:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-09T09:14:17Z"}
+{"event":"review","result":"passed","ts":"2026-09-09T09:14:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-09T09:17:58Z"}

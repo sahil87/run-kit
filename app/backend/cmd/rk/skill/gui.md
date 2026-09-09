@@ -50,7 +50,7 @@ stdout is **only the absolute PNG path** — read that file to *look* at the dis
 The computer-use loop: act with `xdotool`, look with `shot`, repeat — the human watches the same pixels in the GUI tile.
 
 ```sh
-rk gui env >/dev/null 2>&1 || { echo "ask the user to run: rk gui on"; exit 0; }   # status always exits 0; env is the gate
+rk gui env >/dev/null 2>&1 || { echo "ask the user to run: rk gui on"; exit 0; }   # env exits 1 when off/not running (status always exits 0, so it cannot gate)
 rk gui exec --detach chromium https://example.com   # started <pid> on :N
 sleep 2                                             # let it paint
 rk gui shot                                          # /tmp/rk-gui-shot-<ts>.png

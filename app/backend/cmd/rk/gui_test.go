@@ -540,8 +540,23 @@ func TestGuiEnvPrintsExports(t *testing.T) {
 		t.Errorf("stdout = %q, want the DISPLAY export first", out.String())
 	}
 	wantSockSuffix := filepath.Join("run-kit", "gui", "host.sock")
-	if !strings.HasPrefix(lines[1], "export RK_GUI_SOCKET=") || !strings.HasSuffix(lines[1], wantSockSuffix) {
-		t.Errorf("socket export = %q, want export RK_GUI_SOCKET=<…%s>", lines[1], wantSockSuffix)
+	if !strings.HasPrefix(lines[1], "export RK_GUI_SOCKET='") || !strings.HasSuffix(lines[1], wantSockSuffix+"'") {
+		t.Errorf("socket export = %q, want export RK_GUI_SOCKET='<…%s>'", lines[1], wantSockSuffix)
+	}
+}
+
+// The env output is eval'd by shell startup blocks, so the socket path must
+// survive spaces and shell metacharacters as one inert word.
+func TestShellSingleQuote(t *testing.T) {
+	cases := map[string]string{
+		"/plain/host.sock":         "'/plain/host.sock'",
+		"/with space/host.sock":    "'/with space/host.sock'",
+		"/it's/$(rm -rf x)/h.sock": `'/it'\''s/$(rm -rf x)/h.sock'`,
+	}
+	for in, want := range cases {
+		if got := shellSingleQuote(in); got != want {
+			t.Errorf("shellSingleQuote(%q) = %s, want %s", in, got, want)
+		}
 	}
 }
 

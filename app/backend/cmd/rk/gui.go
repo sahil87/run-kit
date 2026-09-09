@@ -347,9 +347,20 @@ func runGuiEnv(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	// The output is eval'd by shells (the rk gui display startup block). The
+	// display is a validated :N and stays bare; the socket path inherits
+	// $XDG_STATE_HOME verbatim, so it is single-quoted — a space or shell
+	// metacharacter in that path must neither split the export nor execute.
 	sink.Dataf("export DISPLAY=%s\n", st.Display)
-	sink.Dataf("export RK_GUI_SOCKET=%s\n", st.Socket)
+	sink.Dataf("export RK_GUI_SOCKET=%s\n", shellSingleQuote(st.Socket))
 	return nil
+}
+
+// shellSingleQuote wraps s in single quotes for POSIX shells. An embedded
+// single quote — the one character a single-quoted string cannot carry — is
+// emitted by closing the quotes, backslash-escaping it, and reopening them.
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func runGuiRestart(cmd *cobra.Command, _ []string) error {

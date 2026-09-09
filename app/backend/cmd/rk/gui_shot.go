@@ -121,11 +121,12 @@ func guiShotRunStages(ctx context.Context, stages []guiShotStage) error {
 	if err := cmds[last].Run(); err != nil {
 		return shotStageError(err, stderrs[last])
 	}
-	// Reap the producers after the consumer finished; a producer that failed
-	// (bad display) and explained itself on stderr outranks the consumer's
-	// empty-input failure.
+	// Reap the producers after the consumer finished. Any producer failure
+	// fails the run — a silent non-zero xwd would otherwise let convert's
+	// success stand for a capture that never happened; shotStageError still
+	// prefers the tool's own stderr when it explained itself.
 	for i, cmd := range cmds[:last] {
-		if err := cmd.Wait(); err != nil && stderrs[i].Len() > 0 {
+		if err := cmd.Wait(); err != nil {
 			return shotStageError(err, stderrs[i])
 		}
 	}
@@ -160,7 +161,13 @@ func runGuiShot(cmd *cobra.Command, _ []string) error {
 	if out == "" {
 		// The OS temp dir owns cleanup; screenshots never litter the caller's
 		// cwd (usually a repo) and never grow the run-kit state dir.
-		out = filepath.Join(os.TempDir(), "rk-gui-shot-"+guiShotNowFn().Format("20060102-150405")+".png")
+		// os.TempDir returns $TMPDIR verbatim, which may be relative; stdout
+		// promises an absolute path, so the default is normalized too.
+		abs, err := filepath.Abs(filepath.Join(os.TempDir(), "rk-gui-shot-"+guiShotNowFn().Format("20060102-150405")+".png"))
+		if err != nil {
+			return fmt.Errorf("error: resolving the temp dir: %w", err)
+		}
+		out = abs
 	} else {
 		abs, err := filepath.Abs(out)
 		if err != nil {

@@ -332,3 +332,38 @@ func TestGuiShotRunStagesPipeline(t *testing.T) {
 		t.Errorf("failing stage err = %v, want the stderr tail", err)
 	}
 }
+
+// A producer that exits non-zero WITHOUT writing stderr must still fail the
+// run — otherwise the consumer's success stands for a capture that never
+// happened and a path to an empty file prints.
+func TestGuiShotRunStagesSilentProducerFailureFails(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "silent.png")
+	stages := []guiShotStage{
+		{argv: []string{"false"}},
+		{argv: []string{"sh", "-c", "cat > \"$1\"", "sh", out}},
+	}
+	if err := guiShotRunStages(context.Background(), stages); err == nil {
+		t.Fatal("silent producer failure returned nil, want an error")
+	}
+}
+
+// os.TempDir returns $TMPDIR verbatim, so a relative TMPDIR must still yield
+// the absolute path stdout promises.
+func TestGuiShotDefaultPathIsAbsoluteUnderRelativeTMPDIR(t *testing.T) {
+	_ = withGuiShotSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	t.Setenv("TMPDIR", "rel-tmp")
+
+	var out bytes.Buffer
+	if err := runGuiShot(shotCmdWith(&out, &bytes.Buffer{}, ""), nil); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.TrimSuffix(out.String(), "\n")
+	if !filepath.IsAbs(got) {
+		t.Errorf("default path = %q, want absolute", got)
+	}
+	if !strings.HasSuffix(got, filepath.Join("rel-tmp", "rk-gui-shot-20260909-140506.png")) {
+		t.Errorf("default path = %q, want the TMPDIR-relative name resolved against the cwd", got)
+	}
+}

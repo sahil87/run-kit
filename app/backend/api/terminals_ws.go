@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/creack/pty"
@@ -101,6 +104,20 @@ const (
 	// down that socket (the other tabs' sockets are unaffected).
 	terminalsReadLimit = 4 << 20 // 4 MiB
 )
+
+// terminalsLivenessTimeout is the inbound-silence deadline on a terminals
+// socket. The client heartbeats {op:"ping"} every 30s (relay-mux.ts
+// HEARTBEAT_INTERVAL_MS) while it has live streams and gives up on a silent
+// server after 60s (LIVENESS_TIMEOUT_MS); 90s is three missed heartbeats and
+// strictly longer than the client's own give-up, so a live client always
+// disconnects itself first and this deadline only ever fires on a peer that
+// has stopped running JS (a frozen phone tab, a proxy-kept TCP peer). Expiry
+// surfaces as a ReadMessage error → teardown → every stream's attach client
+// is killed and reaped, releasing its sized tmux client — without it a ghost
+// client clamps every co-viewer's window width (window-size smallest) for as
+// long as the kernel or a reverse proxy keeps the TCP peer alive. A var, not a
+// const, so in-package tests can shorten it.
+var terminalsLivenessTimeout = 90 * time.Second
 
 // Stream-level close codes — mirror the WS close codes handleRelay used, now
 // carried as per-stream `closed` control events (the socket stays open).
@@ -197,7 +214,20 @@ type terminalsConn struct {
 	// writer (dead socket).
 	writeFrame func(f outFrame) error
 
+	// writerDead is set by runWriter before it arms the short cleanup read
+	// deadline, so the read loop can tell that deadline's expiry from the
+	// liveness deadline's — both surface as the same net.Error timeout.
+	writerDead atomic.Bool
+
 	done chan struct{} // closed on socket teardown; stops the writer + producers
+}
+
+// streamCount returns the number of registered streams (the control
+// pseudo-stream included when present).
+func (tc *terminalsConn) streamCount() int {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	return len(tc.streams)
 }
 
 // handleTerminalsWS upgrades a `/ws/terminals` request and runs the mux: a read
@@ -240,11 +270,21 @@ func (s *Server) handleTerminalsWS(w http.ResponseWriter, r *http.Request) {
 	// streams and stop the writer. Bound each inbound message so an oversized
 	// input/paste frame can't drive unbounded allocation (memory-DoS).
 	conn.SetReadLimit(terminalsReadLimit)
+	// Liveness: any inbound frame — data, control op, ping — re-arms the
+	// deadline. A peer that stops running JS (frozen tab) stops heartbeating,
+	// the deadline expires, and the read error below runs teardown.
+	conn.SetReadDeadline(time.Now().Add(terminalsLivenessTimeout))
 	for {
 		msgType, msg, err := conn.ReadMessage()
 		if err != nil {
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() && !tc.writerDead.Load() {
+				slog.Info("terminals: liveness deadline expired; tearing down",
+					"streams", tc.streamCount(), "peer", r.RemoteAddr)
+			}
 			break
 		}
+		conn.SetReadDeadline(time.Now().Add(terminalsLivenessTimeout))
 		if msgType == websocket.BinaryMessage {
 			tc.handleDataFrame(msg)
 			continue
@@ -642,6 +682,7 @@ func (tc *terminalsConn) runWriter() {
 			// the read loop's blocked ReadMessage() returns and runs teardown
 			// (mirrors relay.go / state_ws.go). Best-effort — the test's paced
 			// writer has no real conn deadline, which is harmless.
+			tc.writerDead.Store(true)
 			tc.conn.SetReadDeadline(time.Now().Add(terminalsCleanupWait))
 			return
 		}

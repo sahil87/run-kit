@@ -94,6 +94,16 @@ const RECONNECT_CAP_MS = 30000;
 export const HEARTBEAT_INTERVAL_MS = 30000;
 export const LIVENESS_TIMEOUT_MS = 2 * HEARTBEAT_INTERVAL_MS;
 export const WAKE_PROBE_TIMEOUT_MS = 3000;
+// Server-side counterpart (terminals_ws.go terminalsLivenessTimeout): the
+// daemon tears a terminals socket down after this much inbound silence —
+// three missed heartbeats, and longer than LIVENESS_TIMEOUT_MS so a live
+// client always gives up on a dead server before the server gives up on it.
+// Invariant: HEARTBEAT_INTERVAL_MS < LIVENESS_TIMEOUT_MS < SERVER_LIVENESS_TIMEOUT_MS
+// (pinned by relay-mux.test.ts). Not used at runtime — documentation the test
+// can enforce. A fully suspended tab (heartbeat stopped, zero live streams)
+// WILL hit the server deadline; scheduleReconnect's zero-live-streams check
+// lets that close stand and resumeSuspended() reconnects on `visible`.
+export const SERVER_LIVENESS_TIMEOUT_MS = 90000;
 
 // Hidden-page stream suspension (change 260903-xj0w). Every stream is a sized
 // `tmux attach-session` client server-side, and tmux sizes a window to the

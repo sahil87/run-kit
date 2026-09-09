@@ -5,6 +5,7 @@ import {
   LIVENESS_TIMEOUT_MS,
   WAKE_PROBE_TIMEOUT_MS,
   HIDDEN_RELEASE_GRACE_MS,
+  SERVER_LIVENESS_TIMEOUT_MS,
 } from "./relay-mux";
 
 // MockWebSocket — the terminals-mux transport. Captures the client's frames
@@ -295,6 +296,11 @@ describe("RelayMux liveness + wake probes", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("the liveness ladder holds: heartbeat < client give-up < server deadline (a live client always disconnects itself first)", () => {
+    expect(HEARTBEAT_INTERVAL_MS).toBeLessThan(LIVENESS_TIMEOUT_MS);
+    expect(LIVENESS_TIMEOUT_MS).toBeLessThan(SERVER_LIVENESS_TIMEOUT_MS);
   });
 
   it("heartbeats {op:\"ping\"} while a stream is live and stops when the last stream closes", async () => {
@@ -589,7 +595,7 @@ describe("RelayMux hidden-page suspension", () => {
     mux.close();
   });
 
-  it("a socket reconnect while hidden does NOT re-open suspended streams; a drop while fully suspended stays closed until visible", async () => {
+  it("a socket reconnect while hidden does NOT re-open suspended streams; a drop while fully suspended (e.g. the server's liveness deadline closing the silent socket) stays closed until visible", async () => {
     const mux = new RelayMux();
     mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
     await vi.runAllTicks();

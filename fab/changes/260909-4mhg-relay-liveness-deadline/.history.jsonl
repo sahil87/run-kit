@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-09T19:22:22Z"}
+{"args":"Implement Phase 1 (Server-side liveness deadline) from fab/plans/sahil/26-09-09-relay-viewer-liveness-identity-kick.md -- the SMALL, ships-first change that closes the root cause of relay-viewer ghosts via a server-side liveness deadline (api/terminals_ws.go, lib/relay-mux.ts), per that plan section.","cmd":"fab-new","event":"command","ts":"2026-09-09T19:22:22Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-09-09T19:24:29Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-09-09T19:24:49Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-09T19:25:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-09T19:27:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-09T19:34:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-09T19:39:59Z"}
+{"event":"review","result":"passed","ts":"2026-09-09T19:39:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-09T19:41:14Z"}

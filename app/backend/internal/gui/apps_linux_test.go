@@ -68,6 +68,30 @@ func TestRunningApps(t *testing.T) {
 		}
 	})
 
+	t.Run("the pane tree (WM included) is not counted", func(t *testing.T) {
+		// The supervisor launches the WM with DISPLAY in its env, so a raw
+		// /proc environ scan matches it; only the pane-tree exclusion keeps
+		// openbox out of the apps list.
+		wmRoot := t.TempDir()
+		writeFakeProc(t, wmRoot, 200, "rk", "HOME=/home/u")
+		writeFakeProc(t, wmRoot, 201, "Xtigervnc")
+		writeFakeProc(t, wmRoot, 202, "openbox", "DISPLAY=:10")
+		writeFakeProc(t, wmRoot, 300, "chromium", "DISPLAY=:10")
+		writeFakeStat(t, wmRoot, 200, "rk", 1)
+		writeFakeStat(t, wmRoot, 201, "Xtigervnc", 200)
+		writeFakeStat(t, wmRoot, 202, "openbox", 200)
+		writeFakeStat(t, wmRoot, 300, "chromium", 1)
+
+		apps, err := RunningApps(wmRoot, ":10", ProcessTreePids(wmRoot, 200))
+		if err != nil {
+			t.Fatalf("RunningApps: %v", err)
+		}
+		want := []App{{Name: "chromium", Count: 1}}
+		if !reflect.DeepEqual(apps, want) {
+			t.Errorf("RunningApps(:10, pane tree excluded) = %v, want %v — the WM must not count", apps, want)
+		}
+	})
+
 	t.Run("other display", func(t *testing.T) {
 		apps, err := RunningApps(procRoot, ":11", nil)
 		if err != nil {

@@ -29,6 +29,7 @@ var (
 	guiSessionExistsFn  = daemon.GUISessionExists
 	guiSessionOptionsFn = daemon.GUISessionOptions
 	guiSessionCreatedFn = daemon.GUISessionCreated
+	guiPanePidsFn       = daemon.GUIPanePids
 	guiProbeFn          = gui.Probe
 	guiRunningAppsFn    = gui.RunningApps
 	guiLookPathFn       = exec.LookPath
@@ -229,11 +230,10 @@ func runGuiOff(cmd *cobra.Command, _ []string) error {
 		defer cancel()
 		if d, _, ok := guiSessionOptionsFn(ctx); ok {
 			display = d
-			// The supervisor's own pids are not excluded here: the rk-gui
-			// pane pid is not derivable without another tmux probe, and the
-			// supervisor/backend/WM carry no DISPLAY in their own environ, so
-			// the scan already omits them.
-			if found, err := guiRunningAppsFn("/proc", display, nil); err == nil {
+			// The pane's process tree (supervise, backend, WM) is excluded:
+			// the WM carries DISPLAY in its environ and must not count as a
+			// user app.
+			if found, err := guiRunningAppsFn("/proc", display, guiPanePidsFn(ctx)); err == nil {
 				apps = found
 			}
 		}
@@ -331,49 +331,26 @@ func runGuiRestart(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// gatherGUIStatus assembles the shared gui.Status document for the CLI verbs:
-// settings for the switch, tmux (gated on the daemon running) for the
-// session/stamps/uptime, the RFB probe for reachability and geometry, and the
-// /proc scan for the apps list. All live facts flow through the package seams.
+// gatherGUIStatus assembles the shared gui.Status document for the CLI verbs
+// by wiring the package seams into gui.Assemble (the assembly — daemon gate,
+// stamps, uptime, probe, reason, apps — is owned once in internal/gui).
 func gatherGUIStatus(ctx context.Context) gui.Status {
-	st := gui.Status{ID: daemon.GUIWindowName, Apps: []gui.App{}}
-	if sock, err := gui.SocketPath(daemon.GUIWindowName); err == nil {
-		st.Socket = sock
-	}
-	st.Enabled = guiSettingsLoad().GUIEnabled
-	if !st.Enabled {
-		return st
-	}
-	st.Viewers = guiViewersFn()
-	if !guiDaemonRunningFn() {
-		st.Reason = gui.SessionAbsentReason
-		return st
-	}
-	st.Session = guiSessionExistsFn(ctx)
-	if !st.Session {
-		st.Reason = gui.NotRunningReason(false, "", guiLookPathFn)
-		return st
-	}
-	if display, backend, ok := guiSessionOptionsFn(ctx); ok {
-		st.Display, st.Backend = display, backend
-	}
-	if created, ok := guiSessionCreatedFn(ctx); ok {
-		st.UptimeSeconds = int64(guiNowFn().Sub(created).Seconds())
-	}
-	if network, addr, err := gui.BackendAddr(daemon.GUIWindowName); err == nil {
-		if info, perr := guiProbeFn(ctx, network, addr); perr == nil {
-			st.Reachable = info.Reachable
-			st.Width, st.Height = info.Width, info.Height
-		}
-	}
-	if !st.Reachable {
-		st.Reason = gui.NotRunningReason(true, st.Backend, guiLookPathFn)
-		return st
-	}
-	if apps, err := guiRunningAppsFn("/proc", st.Display, nil); err == nil && apps != nil {
-		st.Apps = apps
-	}
-	return st
+	return gui.Assemble(ctx, gui.StatusDeps{
+		ID:             daemon.GUIWindowName,
+		Enabled:        guiSettingsLoad().GUIEnabled,
+		DaemonRunning:  guiDaemonRunningFn,
+		SessionExists:  guiSessionExistsFn,
+		SessionOptions: guiSessionOptionsFn,
+		SessionCreated: guiSessionCreatedFn,
+		PanePids:       guiPanePidsFn,
+		Probe:          guiProbeFn,
+		RunningApps: func(display string, exclude map[int]bool) ([]gui.App, error) {
+			return guiRunningAppsFn("/proc", display, exclude)
+		},
+		LookPath: guiLookPathFn,
+		Viewers:  guiViewersFn,
+		Now:      guiNowFn,
+	})
 }
 
 // guiStatusSummary renders the human one-liner for `rk gui status`.

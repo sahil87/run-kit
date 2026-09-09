@@ -409,9 +409,9 @@ TigerVNC binds TCP 5900+N unless told not to, which would falsify "VNC never on 
 ### Phase 2: Core Implementation
 
 - [x] T005 Create `internal/gui/display.go`: `FreeDisplay(start int) (int, error)` over an injectable lock-dir root (probes `.X{N}-lock` and `.X11-unix/X{N}`, `:10`–`:99`), `ParseDisplay(":N")`; tests with a temp root <!-- R8 -->
-- [x] T006 Create `internal/gui/backend.go`: `ResolveBackend(lookPath)` (`Xtigervnc` → `Xvnc` → none; darwin ⇒ `screen-sharing`), `BackendArgv(bin, display, socket)` producing the exact R5 argv, `ResolveWM(lookPath)` over the fixed ladder with the `dbus-run-session --` wrap for `x-session-manager`; tests assert `-rfbport -1`, `Xtigervnc`-first, `Xvnc` fallback, ladder order, wrap <!-- R5 -->
+- [x] T006 Create `internal/gui/backend.go`: `ResolveBackend(lookPath)` (`Xtigervnc` → `Xvnc` → none; darwin ⇒ `screen-sharing`), `BackendArgv(bin, display, socket)` producing the exact R5 argv, `ResolveWM(lookPath)` over the fixed ladder with the `dbus-run-session --` wrap for `x-session-manager`; tests assert `-rfbport -1`, `Xtigervnc`-first, `Xvnc` fallback, ladder order, wrap <!-- R5 --> <!-- rework: review cycle 1 — gui.Backend() has zero call sites; delete it (or wire the one real caller) — parsimony -->
 - [x] T007 Create `internal/gui/probe.go`: `Probe(ctx, network, addr) (Info, error)` — banner read, and for `unix` the None handshake through ServerInit (width/height), for `tcp` banner-only; 500 ms dial timeout; classified `Reason`; tests in `probe_test.go` with an in-process fake RFB server on a temp unix socket (1920×1080 ServerInit, single accept-then-close) and the not-listening case <!-- R9 -->
-- [x] T008 Create `internal/gui/apps_linux.go` (+ `apps_other.go` build-tagged stub): `RunningApps(procRoot, display string, exclude map[int]bool) ([]App, error)` scanning `/proc/[0-9]*/environ` for `DISPLAY=:N`, grouped by `comm`, sorted by count desc then name; fixture-tree test <!-- R8 -->
+- [x] T008 Create `internal/gui/apps_linux.go` (+ `apps_other.go` build-tagged stub): `RunningApps(procRoot, display string, exclude map[int]bool) ([]App, error)` scanning `/proc/[0-9]*/environ` for `DISPLAY=:N`, grouped by `comm`, sorted by count desc then name; fixture-tree test <!-- R8 --> <!-- rework: review cycle 1 — RunningApps must exclude the supervisor tree: the WM is launched with DISPLAY=:N so /proc/<wm>/environ matches; add a real exclusion (pids under the rk-gui pane process tree / the supervise process and its children), not a nil set -->
 - [x] T009 Create `internal/daemon/gui.go`: constants `GUISessionName="rk-gui"`, `GUIWindowName="host"`; seams `guiSessionExists`, `guiSpawn`, `guiKillRun`, `guiSelfPath`, `guiLookPath`, `guiFreeDisplay`, `guiSocketExists`; `GUIEnsureOutcome` enum; `ensureGUICore(cli bool)` with the fixed skip order; `ensureGUI()`; `EnsureGUI()` gated on `jobDaemonRunning`; `guiSocketFreeTimeout`/`guiSocketFreePoll` vars; `KillGUISession()` with the socket-release wait; `RestartGUI()`; `GUISessionOptions()` reading `@rk_gui_display`/`@rk_gui_backend` via a seam; `GUISessionCreated()` for uptime <!-- R3 -->
 - [x] T010 Tests in `internal/daemon/gui_test.go`: disabled ⇒ zero seam calls; enabled + no session ⇒ exact spawn argv (`new-session -d -s rk-gui -n host <exe> gui supervise host --display :10`); session exists ⇒ skip; no backend ⇒ `GUIEnsureNoBackend` with no spawn; kill argv `kill-session -t =rk-gui` + socket-release wait honoured with shrunken timers; absent session kill ⇒ `(false, nil)`; `EnsureGUI` refuses when daemon down; `RestartGUI` order kill→spawn and refusal when disabled <!-- R4 -->
 - [x] T011 Wire the boot hook: call `ensureGUI()` right after `ensureCodeServer()` in `internal/daemon/daemon.go` `startSession`; extend the existing startSession test to assert no gui spawn when disabled <!-- R3 -->
@@ -423,8 +423,8 @@ TigerVNC binds TCP 5900+N unless told not to, which would falsify "VNC never on 
 
 ### Phase 3: Integration & Edge Cases
 
-- [x] T017 Create `cmd/rk/gui.go`: the `gui` cobra family (`on`, `off --yes`, `status --json`, `env`, `restart`) per R10–R14 with the exact output strings and exit codes, the R11 confirm copy, tty detection, seams over `daemon.*` and `settings.*`; register in `root.go` beside `codeServerCmd`; tests in `gui_test.go` covering every verb's branches (daemon down, no backend, refuse without `--yes` on non-tty, status reasons, env exit 1 when off) <!-- R10 -->
-- [x] T018 Create `api/gui.go`: `handleGuiStatus` (`GET /api/gui/{id}`) building `gui.Status` (settings + session options + probe + apps + uptime, via seams) and `handleGuiRestart` (`POST /api/gui/{id}/restart`, 409 when off, 400 invalid id, 500 on error); register both routes and `GET /ws/gui/{id}` in `api/router.go`; tests in `gui_test.go` for the 400/409/200 matrix and the status document shape <!-- R22 -->
+- [x] T017 Create `cmd/rk/gui.go`: the `gui` cobra family (`on`, `off --yes`, `status --json`, `env`, `restart`) per R10–R14 with the exact output strings and exit codes, the R11 confirm copy, tty detection, seams over `daemon.*` and `settings.*`; register in `root.go` beside `codeServerCmd`; tests in `gui_test.go` covering every verb's branches (daemon down, no backend, refuse without `--yes` on non-tty, status reasons, env exit 1 when off) <!-- R10 --> <!-- rework: review cycle 1 — pass a real exclude set to RunningApps (WM was counted as an app: off-confirm fired with nothing launched; status showed openbox ×1); fix the wrong comment at gui.go:232-235; move status assembly into a shared internal/gui assembler (see T018) -->
+- [x] T018 Create `api/gui.go`: `handleGuiStatus` (`GET /api/gui/{id}`) building `gui.Status` (settings + session options + probe + apps + uptime, via seams) and `handleGuiRestart` (`POST /api/gui/{id}/restart`, 409 when off, 400 invalid id, 500 on error); register both routes and `GET /ws/gui/{id}` in `api/router.go`; tests in `gui_test.go` for the 400/409/200 matrix and the status document shape <!-- R22 --> <!-- rework: review cycle 1 — gatherGUIStatus (cmd/rk) and buildGuiStatus (api) duplicate the ~35-line status assembly; own it once in internal/gui behind an injected seam struct and call it from both; pass the real exclude set to RunningApps -->
 - [x] T019 Extend `api/settings.go` `handlePostSettings`: detect `gui.enabled` in the patch, call the `ensureGUI`/`killGUI` server seams (production `daemon.EnsureGUI`/`daemon.KillGUISession`) best-effort, then `s.sseHub.setGUIEnabled`; tests in `settings_test.go` asserting the call sequence and that unrelated keys call neither <!-- R21 -->
 - [x] T020 Add `guiCheck` to `cmd/rk/doctor.go` after the code-bridge row with the six exact Notes; table test in `doctor_test.go` <!-- R23 -->
 - [x] T021 Capability-gated integration test `internal/gui/xvnc_integration_test.go`: skip unless `Xtigervnc` is on PATH; launch it on a temp socket with `BackendArgv`, run `Probe`, assert `RFB 003.008` banner + 1920×1080, kill it, assert the socket is gone <!-- R9 -->
@@ -447,61 +447,61 @@ TigerVNC binds TCP 5900+N unless told not to, which would falsify "VNC never on 
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `gui.enabled` is a 14th registry row (`bool`, def `false`, behavior, ui, live) with a `GUIEnabled` field, flat dotted YAML line, byte-stable round-trip, no env form
-- [ ] A-002 R3: `ensureGUICore` implements the five-step skip order; `startSession` calls `ensureGUI()` after `ensureCodeServer()`; `EnsureGUI()` refuses when the daemon is down
-- [ ] A-003 R4: `KillGUISession` kills `=rk-gui` exact-match, treats absence as success, and waits ≤ 5 s for the socket to vanish; `RestartGUI` composes kill → ensure and refuses when disabled
-- [ ] A-004 R5: `supervise` builds the exact backend argv (`Xtigervnc` first, `Xvnc` fallback, `-rfbport -1`, `-desktop run-kit`), waits for and chmods the socket, stamps `@rk_gui_display`/`@rk_gui_backend`, launches the first WM in the fixed ladder with `dbus-run-session` for `x-session-manager`, and traps signals
-- [ ] A-005 R7: on darwin `supervise` spawns nothing, stamps `screen-sharing`, logs the Screen Sharing probe once a minute
-- [ ] A-006 R8: `internal/gui` exposes `StateDir`, `SocketPath`, `ValidateSocketPath`, `FreeDisplay`, `ResolveBackend`, `BackendArgv`, `ResolveWM`, `Probe`, `RunningApps`, `Status`, `InstallHint` with no tmux and no `internal/daemon` import
-- [ ] A-007 R10: `rk gui on` persists true and prints the right line for started / already running / no backend / daemon down, exit 0
+- [x] A-001 R1: `gui.enabled` is a 14th registry row (`bool`, def `false`, behavior, ui, live) with a `GUIEnabled` field, flat dotted YAML line, byte-stable round-trip, no env form
+- [x] A-002 R3: `ensureGUICore` implements the five-step skip order; `startSession` calls `ensureGUI()` after `ensureCodeServer()`; `EnsureGUI()` refuses when the daemon is down
+- [x] A-003 R4: `KillGUISession` kills `=rk-gui` exact-match, treats absence as success, and waits ≤ 5 s for the socket to vanish; `RestartGUI` composes kill → ensure and refuses when disabled
+- [x] A-004 R5: `supervise` builds the exact backend argv (`Xtigervnc` first, `Xvnc` fallback, `-rfbport -1`, `-desktop run-kit`), waits for and chmods the socket, stamps `@rk_gui_display`/`@rk_gui_backend`, launches the first WM in the fixed ladder with `dbus-run-session` for `x-session-manager`, and traps signals
+- [x] A-005 R7: on darwin `supervise` spawns nothing, stamps `screen-sharing`, logs the Screen Sharing probe once a minute
+- [x] A-006 R8: `internal/gui` exposes `StateDir`, `SocketPath`, `ValidateSocketPath`, `FreeDisplay`, `ResolveBackend`, `BackendArgv`, `ResolveWM`, `Probe`, `RunningApps`, `Status`, `InstallHint` with no tmux and no `internal/daemon` import
+- [x] A-007 R10: `rk gui on` persists true and prints the right line for started / already running / no backend / daemon down, exit 0
 - [ ] A-008 R11: `rk gui off` prints the exact confirm copy, refuses on non-tty without `--yes`, and with `--yes` kills the session and persists false
 - [ ] A-009 R12: `rk gui status` renders `off` / `on (...)` / `on — not running (<reason>)` and `--json` emits the `gui.Status` document
-- [ ] A-010 R13: `rk gui env` prints `export DISPLAY=:N` and `export RK_GUI_SOCKET=<path>`, exit 1 with the hint when off or not running
-- [ ] A-011 R14: `rk gui restart` composes kill → ensure and refuses when disabled or daemon down
-- [ ] A-012 R16: `/ws/gui/{id}` upgrades, gates (4400/4403/4404), dials the OS-appropriate backend, pipes binary frames both ways with deadlines and read limit, and tracks viewers
-- [ ] A-013 R19: `event: gui` is broadcast every tick with the list payload, probed with a 5 s TTL, replayed to late joiners, and skips the dial while a viewer is live
-- [ ] A-014 R20: `setGUIEnabled` broadcasts synchronously and is called from the settings POST
-- [ ] A-015 R21: the settings POST calls ensure on true and kill on false, best-effort, and never for unrelated keys
+- [x] A-010 R13: `rk gui env` prints `export DISPLAY=:N` and `export RK_GUI_SOCKET=<path>`, exit 1 with the hint when off or not running
+- [x] A-011 R14: `rk gui restart` composes kill → ensure and refuses when disabled or daemon down
+- [x] A-012 R16: `/ws/gui/{id}` upgrades, gates (4400/4403/4404), dials the OS-appropriate backend, pipes binary frames both ways with deadlines and read limit, and tracks viewers
+- [x] A-013 R19: `event: gui` is broadcast every tick with the list payload, probed with a 5 s TTL, replayed to late joiners, and skips the dial while a viewer is live
+- [x] A-014 R20: `setGUIEnabled` broadcasts synchronously and is called from the settings POST
+- [x] A-015 R21: the settings POST calls ensure on true and kill on false, best-effort, and never for unrelated keys
 - [ ] A-016 R22: `GET /api/gui/{id}` returns the status document; `POST /api/gui/{id}/restart` returns 409 when off, 400 on a bad id, 200 on success
-- [ ] A-017 R23: the doctor `gui` row renders the six exact Notes and is always OK-shaped
-- [ ] A-018 R24: `ValidateGUIID` accepts exactly `host` and is used by the relay, both API routes, and `supervise`
-- [ ] A-019 R25: the plan's C2 row carries the change folder now and the PR URL after ship
+- [x] A-017 R23: the doctor `gui` row renders the six exact Notes and is always OK-shaped
+- [x] A-018 R24: `ValidateGUIID` accepts exactly `host` and is used by the relay, both API routes, and `supervise`
+- [x] A-019 R25: the plan's C2 row carries the change folder now and the PR URL after ship
 
 ### Behavioral Correctness
 
-- [ ] A-020 R2: with `Xtigervnc` installed and a fresh config, daemon start issues zero gui tmux commands and `rk doctor` prints `gui: off` — never-on-by-default is a passing unit test
-- [ ] A-021 R6: after an external backend kill, the pane shows the exit line, the socket is gone, the session persists, and status/stream read not running until `rk gui restart`
-- [ ] A-022 R9: `Probe` on `unix` returns width/height from ServerInit and closes after one connection; on `tcp` it stops at the banner
+- [x] A-020 R2: with `Xtigervnc` installed and a fresh config, daemon start issues zero gui tmux commands and `rk doctor` prints `gui: off` — never-on-by-default is a passing unit test
+- [x] A-021 R6: after an external backend kill, the pane shows the exit line, the socket is gone, the session persists, and status/stream read not running until `rk gui restart`
+- [x] A-022 R9: `Probe` on `unix` returns width/height from ServerInit and closes after one connection; on `tcp` it stops at the banner
 
 ### Scenario Coverage
 
-- [ ] A-023 R16: capability-gated test relays a real `Xtigervnc` through `/ws/gui/host` and reads `RFB 003.008` (skips cleanly when the binary is absent)
-- [ ] A-024 R9: capability-gated test launches `Xtigervnc` with `BackendArgv` on a temp socket and probes 1920×1080
-- [ ] A-025 R11: `off` without `--yes` on a non-tty leaves the setting true and issues no kill
+- [x] A-023 R16: capability-gated test relays a real `Xtigervnc` through `/ws/gui/host` and reads `RFB 003.008` (skips cleanly when the binary is absent)
+- [x] A-024 R9: capability-gated test launches `Xtigervnc` with `BackendArgv` on a temp socket and probes 1920×1080
+- [x] A-025 R11: `off` without `--yes` on a non-tty leaves the setting true and issues no kill
 
 ### Edge Cases & Error Handling
 
-- [ ] A-026 R17: client disconnect closes the backend conn within 1 s; backend disconnect closes the client within 1 s; viewer count returns to 0
-- [ ] A-027 R18: in `screen-sharing` mode KeyEvent and PointerEvent client messages are dropped after the handshake and every other type is forwarded intact; in `unix` mode the filter is inert
-- [ ] A-028 R8: `ValidateSocketPath` rejects paths over 100 bytes; `FreeDisplay` skips displays with either a lock file or a socket and errors past `:99`
-- [ ] A-029 R3: no backend on PATH ⇒ `GUIEnsureNoBackend`, the daemon warns and continues, `rk gui on` still persists true and prints the install hint
-- [ ] A-030 R19: a missing `rk-gui` session yields `reachable:false` with reason `session absent`; an unparsable stamped display is treated as absent
+- [x] A-026 R17: client disconnect closes the backend conn within 1 s; backend disconnect closes the client within 1 s; viewer count returns to 0
+- [x] A-027 R18: in `screen-sharing` mode KeyEvent and PointerEvent client messages are dropped after the handshake and every other type is forwarded intact; in `unix` mode the filter is inert
+- [x] A-028 R8: `ValidateSocketPath` rejects paths over 100 bytes; `FreeDisplay` skips displays with either a lock file or a socket and errors past `:99`
+- [x] A-029 R3: no backend on PATH ⇒ `GUIEnsureNoBackend`, the daemon warns and continues, `rk gui on` still persists true and prints the install hint
+- [x] A-030 R19: a missing `rk-gui` session yields `reachable:false` with reason `session absent`; an unparsable stamped display is treated as absent
 
 ### Code Quality
 
-- [ ] A-031 Pattern consistency: new code mirrors `codeserver.go` seams/outcome enum, the `terminals_ws.go` relay discipline, the `codeServerTick` probe shape, and the `code-server` cobra family shape
+- [x] A-031 Pattern consistency: new code mirrors `codeserver.go` seams/outcome enum, the `terminals_ws.go` relay discipline, the `codeServerTick` probe shape, and the `code-server` cobra family shape
 - [ ] A-032 No unnecessary duplication: reuses `runTmux`, `sessionExistsCtx`, `jobDaemonRunning`, `selfpath.Resolve`, the shared `upgrader`, `writeJSON`/`writeError`, and the XDG state-dir rule
-- [ ] A-033 Security-first: every subprocess uses `exec.CommandContext` with an argv slice and a timeout (supervise's long-lived backend/WM use `exec.CommandContext` with a cancellable ctx and no shell); no shell strings anywhere
-- [ ] A-034 No magic values: session/window names, display start, TTLs, deadlines, close codes, and the WM ladder are named constants/vars
-- [ ] A-035 Tests alongside: every new file has a colocated `_test.go`; Go tests pass via `just test-backend`; `tsc --noEmit` passes
-- [ ] A-036 Comments state constraints, not narration; no change IDs or PR numbers in code comments
-- [ ] A-037 Derived state: nothing new is persisted beyond the preference — reachability is a probe, running is a session probe, display/backend are tmux options stamped by the supervisor
+- [x] A-033 Security-first: every subprocess uses `exec.CommandContext` with an argv slice and a timeout (supervise's long-lived backend/WM use `exec.CommandContext` with a cancellable ctx and no shell); no shell strings anywhere
+- [x] A-034 No magic values: session/window names, display start, TTLs, deadlines, close codes, and the WM ladder are named constants/vars
+- [x] A-035 Tests alongside: every new file has a colocated `_test.go`; Go tests pass via `just test-backend`; `tsc --noEmit` passes
+- [x] A-036 Comments state constraints, not narration; no change IDs or PR numbers in code comments
+- [x] A-037 Derived state: nothing new is persisted beyond the preference — reachability is a probe, running is a session probe, display/backend are tmux options stamped by the supervisor
 
 ### Security
 
-- [ ] A-038 R5: the state dir is created 0700 and the socket chmod'ed 0600; `-rfbport -1` is present in every backend argv so nothing listens on TCP
-- [ ] A-039 R24: `id` is validated before any dial, tmux command, or route handler proceeds
-- [ ] A-040 R18: the macOS backend never receives client input messages (view-only enforced server-side)
+- [x] A-038 R5: the state dir is created 0700 and the socket chmod'ed 0600; `-rfbport -1` is present in every backend argv so nothing listens on TCP
+- [x] A-039 R24: `id` is validated before any dial, tmux command, or route handler proceeds
+- [x] A-040 R18: the macOS backend never receives client input messages (view-only enforced server-side)
 
 ## Notes
 
@@ -509,6 +509,10 @@ TigerVNC binds TCP 5900+N unless told not to, which would falsify "VNC never on 
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
 - macOS-only paths (R7, R18 runtime, the 5900 dial) cannot be exercised on this Linux VM; they are covered by unit tests over seams and synthetic streams, and by the plan's manual macOS acceptance after merge.
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant.
 
 ## Assumptions
 

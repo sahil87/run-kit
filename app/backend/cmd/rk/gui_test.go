@@ -32,6 +32,7 @@ func withGuiCLISeams(t *testing.T) (ensures, kills, restarts *int) {
 	origDaemonRunning := guiDaemonRunningFn
 	origEnsure, origKill, origRestart := guiEnsureFn, guiKillFn, guiRestartFn
 	origExists, origOptions, origCreated := guiSessionExistsFn, guiSessionOptionsFn, guiSessionCreatedFn
+	origPanePids := guiPanePidsFn
 	origProbe, origApps, origLookPath := guiProbeFn, guiRunningAppsFn, guiLookPathFn
 	origTTY, origViewers, origNow := guiStdinTTYFn, guiViewersFn, guiNowFn
 	origStampWait, origStampTick := guiStampWaitTimeout, guiStampPollTick
@@ -39,6 +40,7 @@ func withGuiCLISeams(t *testing.T) (ensures, kills, restarts *int) {
 		guiDaemonRunningFn = origDaemonRunning
 		guiEnsureFn, guiKillFn, guiRestartFn = origEnsure, origKill, origRestart
 		guiSessionExistsFn, guiSessionOptionsFn, guiSessionCreatedFn = origExists, origOptions, origCreated
+		guiPanePidsFn = origPanePids
 		guiProbeFn, guiRunningAppsFn, guiLookPathFn = origProbe, origApps, origLookPath
 		guiStdinTTYFn, guiViewersFn, guiNowFn = origTTY, origViewers, origNow
 		guiStampWaitTimeout, guiStampPollTick = origStampWait, origStampTick
@@ -56,6 +58,7 @@ func withGuiCLISeams(t *testing.T) (ensures, kills, restarts *int) {
 	guiSessionExistsFn = func(context.Context) bool { return true }
 	guiSessionOptionsFn = func(context.Context) (string, string, bool) { return ":10", "Xtigervnc", true }
 	guiSessionCreatedFn = func(context.Context) (time.Time, bool) { return guiNowFn().Add(-4*time.Hour - 12*time.Minute), true }
+	guiPanePidsFn = func(context.Context) map[int]bool { return map[int]bool{4242: true} }
 	guiProbeFn = func(context.Context, string, string) (gui.Info, error) {
 		return gui.Info{Reachable: true, Width: 1920, Height: 1080}, nil
 	}
@@ -293,6 +296,27 @@ func TestGuiOffYesKillsAndPersists(t *testing.T) {
 	}
 }
 
+func TestGuiOffPassesPaneTreeExclude(t *testing.T) {
+	_, kills, _ := withGuiCLISeams(t)
+	seedGuiOn(t)
+	var gotExclude map[int]bool
+	guiRunningAppsFn = func(_ string, _ string, exclude map[int]bool) ([]gui.App, error) {
+		gotExclude = exclude
+		return nil, nil
+	}
+
+	var out bytes.Buffer
+	if err := runGuiOff(offCmdWith(&out, &bytes.Buffer{}, nil, true), nil); err != nil {
+		t.Fatal(err)
+	}
+	if !gotExclude[4242] {
+		t.Errorf("exclude = %v, want the guiPanePidsFn set {4242} (the WM must not count as an app)", gotExclude)
+	}
+	if *kills != 1 {
+		t.Errorf("kills = %d, want 1", *kills)
+	}
+}
+
 func TestGuiOffConfirmCopyAndAbort(t *testing.T) {
 	_, kills, _ := withGuiCLISeams(t)
 	seedGuiOn(t)
@@ -369,6 +393,8 @@ func TestGuiOffNothingRunningSkipsPrompt(t *testing.T) {
 }
 
 // --- rk gui status (R12) ---
+// The reason strings and assembly precedence are covered by the internal/gui
+// assembler tests; here the CLI asserts seam wiring and its own rendering.
 
 func TestGuiStatusOff(t *testing.T) {
 	withGuiCLISeams(t)
@@ -400,53 +426,21 @@ func TestGuiStatusReachable(t *testing.T) {
 	}
 }
 
-func TestGuiStatusBackendExitedReasonExact(t *testing.T) {
+func TestGuiStatusPassesPaneTreeExclude(t *testing.T) {
 	withGuiCLISeams(t)
 	seedGuiOn(t)
-	guiProbeFn = func(context.Context, string, string) (gui.Info, error) {
-		return gui.Info{Reachable: false, Reason: "not running"}, nil
+	var gotExclude map[int]bool
+	guiRunningAppsFn = func(_ string, _ string, exclude map[int]bool) ([]gui.App, error) {
+		gotExclude = exclude
+		return nil, nil
 	}
 
 	var out bytes.Buffer
 	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
 		t.Fatal(err)
 	}
-	want := "gui: on — not running (Xtigervnc exited — see the rk-gui pane; 'rk gui restart')\n"
-	if got := out.String(); got != want {
-		t.Errorf("stdout = %q, want exactly %q", got, want)
-	}
-}
-
-func TestGuiStatusSessionAbsentReason(t *testing.T) {
-	withGuiCLISeams(t)
-	seedGuiOn(t)
-	guiSessionExistsFn = func(context.Context) bool { return false }
-
-	var out bytes.Buffer
-	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
-		t.Fatal(err)
-	}
-	want := "gui: on — not running (rk-gui session absent; the daemon starts it on 'rk daemon start')\n"
-	if got := out.String(); got != want {
-		t.Errorf("stdout = %q, want %q", got, want)
-	}
-}
-
-func TestGuiStatusNoBackendReason(t *testing.T) {
-	withGuiCLISeams(t)
-	seedGuiOn(t)
-	guiProbeFn = func(context.Context, string, string) (gui.Info, error) {
-		return gui.Info{Reason: "not running"}, nil
-	}
-	guiLookPathFn = func(name string) (string, error) { return "", fmt.Errorf("not found: %s", name) }
-
-	var out bytes.Buffer
-	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
-		t.Fatal(err)
-	}
-	want := "gui: on — not running (no VNC backend: sudo apt install tigervnc-standalone-server openbox)\n"
-	if got := out.String(); got != want {
-		t.Errorf("stdout = %q, want %q", got, want)
+	if !gotExclude[4242] {
+		t.Errorf("exclude = %v, want the guiPanePidsFn set {4242} (the WM must not count as an app)", gotExclude)
 	}
 }
 

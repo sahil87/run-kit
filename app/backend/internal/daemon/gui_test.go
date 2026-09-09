@@ -474,3 +474,55 @@ func TestGUISessionCreatedGarbageIsAbsent(t *testing.T) {
 		t.Error("ok = true, want false for an unparsable stamp")
 	}
 }
+
+// --- GUIPanePids ---
+
+func TestGUIPanePidsAbsentSession(t *testing.T) {
+	withGUISeams(t, false)
+	orig := guiPanePID
+	t.Cleanup(func() { guiPanePID = orig })
+	guiPanePID = func(context.Context) (string, error) {
+		t.Error("pane_pid probed for an absent session — the exists gate must fire first")
+		return "", nil
+	}
+
+	if got := GUIPanePids(context.Background()); got != nil {
+		t.Errorf("GUIPanePids = %v, want nil for an absent session", got)
+	}
+}
+
+func TestGUIPanePidsCoversThePaneRoot(t *testing.T) {
+	withGUISeams(t, true)
+	orig := guiPanePID
+	t.Cleanup(func() { guiPanePID = orig })
+	// A pid that cannot exist on the real /proc: the set still contains the
+	// root itself (descendants just do not resolve).
+	guiPanePID = func(context.Context) (string, error) { return "4194303", nil }
+
+	got := GUIPanePids(context.Background())
+	if !got[4194303] {
+		t.Errorf("GUIPanePids = %v, want the pane root pid included", got)
+	}
+}
+
+func TestGUIPanePidsUnavailableIsNil(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		err  error
+	}{
+		{"tmux error", "", fmt.Errorf("no server")},
+		{"unparsable pid", "not-a-pid", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withGUISeams(t, true)
+			orig := guiPanePID
+			t.Cleanup(func() { guiPanePID = orig })
+			guiPanePID = func(context.Context) (string, error) { return tc.raw, tc.err }
+
+			if got := GUIPanePids(context.Background()); got != nil {
+				t.Errorf("GUIPanePids = %v, want nil so callers exclude nothing", got)
+			}
+		})
+	}
+}

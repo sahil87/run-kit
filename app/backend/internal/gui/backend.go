@@ -1,7 +1,6 @@
 package gui
 
 import (
-	"os/exec"
 	"runtime"
 )
 
@@ -46,13 +45,6 @@ func BackendAddr(id string) (network, addr string, err error) {
 		return "", "", err
 	}
 	return "unix", sock, nil
-}
-
-// Backend is the resolved backend name for the current host ("" when Linux
-// has no VNC backend installed).
-func Backend() string {
-	name, _ := ResolveBackend(exec.LookPath)
-	return name
 }
 
 // BackendArgv builds the fixed VNC backend argv. display is the ":N" string.

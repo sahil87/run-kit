@@ -284,8 +284,9 @@ type Server struct {
 	guiSessionExistsFn  func(ctx context.Context) bool
 	guiSessionOptionsFn func(ctx context.Context) (display, backend string, ok bool)
 	guiSessionCreatedFn func(ctx context.Context) (time.Time, bool)
+	guiPanePidsFn       func(ctx context.Context) map[int]bool
 	guiProbeFn          func(ctx context.Context, network, addr string) (gui.Info, error)
-	guiAppsFn           func(display string) ([]gui.App, error)
+	guiAppsFn           func(display string, exclude map[int]bool) ([]gui.App, error)
 	guiLookPathFn       func(name string) (string, error)
 
 	// tintCacheMu guards tintCache.

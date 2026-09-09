@@ -76,6 +76,16 @@ func (s *Server) guiSessionCreatedAt(ctx context.Context) (time.Time, bool) {
 	return daemon.GUISessionCreated(ctx)
 }
 
+// guiPanePids is the rk-gui pane's process-tree pid set — RunningApps'
+// exclude set, so the supervisor's own backend/WM (which carry DISPLAY in
+// their environ) never count as user apps. Nil excludes nothing.
+func (s *Server) guiPanePids(ctx context.Context) map[int]bool {
+	if s.guiPanePidsFn != nil {
+		return s.guiPanePidsFn(ctx)
+	}
+	return daemon.GUIPanePids(ctx)
+}
+
 func (s *Server) guiProbe(ctx context.Context, network, addr string) (gui.Info, error) {
 	if s.guiProbeFn != nil {
 		return s.guiProbeFn(ctx, network, addr)
@@ -83,11 +93,11 @@ func (s *Server) guiProbe(ctx context.Context, network, addr string) (gui.Info, 
 	return gui.Probe(ctx, network, addr)
 }
 
-func (s *Server) guiApps(display string) ([]gui.App, error) {
+func (s *Server) guiApps(display string, exclude map[int]bool) ([]gui.App, error) {
 	if s.guiAppsFn != nil {
-		return s.guiAppsFn(display)
+		return s.guiAppsFn(display, exclude)
 	}
-	return gui.RunningApps("/proc", display, nil)
+	return gui.RunningApps("/proc", display, exclude)
 }
 
 func (s *Server) guiLookPath(name string) (string, error) {
@@ -97,51 +107,29 @@ func (s *Server) guiLookPath(name string) (string, error) {
 	return exec.LookPath(name)
 }
 
-// buildGuiStatus assembles the shared gui.Status document: settings for the
-// switch, tmux (gated on the daemon's liveness) for the session/stamps/
-// uptime, the RFB probe for reachability and geometry, the hub for the live
-// viewer count, and the /proc scan for the apps list. Disabled short-circuits
-// before any tmux or probe work.
+// buildGuiStatus assembles the shared gui.Status document by wiring the
+// Server's gui seams into gui.Assemble (the assembly — daemon gate, stamps,
+// uptime, probe, reason, apps — is owned once in internal/gui). The viewer
+// count is hub-local to this daemon process, hence the sseHub func here
+// (the CLI reports 0).
 func (s *Server) buildGuiStatus(ctx context.Context, id string) gui.Status {
-	st := gui.Status{ID: id, Apps: []gui.App{}}
-	if sock, err := gui.SocketPath(id); err == nil {
-		st.Socket = sock
-	}
-	st.Enabled = settings.Load().GUIEnabled
-	if !st.Enabled {
-		return st
-	}
-	s.initSSEHub()
-	st.Viewers = s.sseHub.guiViewerCount(id)
-	if !s.guiDaemonUp() {
-		st.Reason = gui.SessionAbsentReason
-		return st
-	}
-	st.Session = s.guiSessionExists(ctx)
-	if !st.Session {
-		st.Reason = gui.NotRunningReason(false, "", s.guiLookPath)
-		return st
-	}
-	if display, backend, ok := s.guiSessionOptions(ctx); ok {
-		st.Display, st.Backend = display, backend
-	}
-	if created, ok := s.guiSessionCreatedAt(ctx); ok {
-		st.UptimeSeconds = int64(time.Since(created).Seconds())
-	}
-	if network, addr, err := gui.BackendAddr(id); err == nil {
-		if info, perr := s.guiProbe(ctx, network, addr); perr == nil {
-			st.Reachable = info.Reachable
-			st.Width, st.Height = info.Width, info.Height
-		}
-	}
-	if !st.Reachable {
-		st.Reason = gui.NotRunningReason(true, st.Backend, s.guiLookPath)
-		return st
-	}
-	if apps, err := s.guiApps(st.Display); err == nil && apps != nil {
-		st.Apps = apps
-	}
-	return st
+	return gui.Assemble(ctx, gui.StatusDeps{
+		ID:             id,
+		Enabled:        settings.Load().GUIEnabled,
+		DaemonRunning:  s.guiDaemonUp,
+		SessionExists:  s.guiSessionExists,
+		SessionOptions: s.guiSessionOptions,
+		SessionCreated: s.guiSessionCreatedAt,
+		PanePids:       s.guiPanePids,
+		Probe:          s.guiProbe,
+		RunningApps:    s.guiApps,
+		LookPath:       s.guiLookPath,
+		Viewers: func() int {
+			s.initSSEHub()
+			return s.sseHub.guiViewerCount(id)
+		},
+		Now: time.Now,
+	})
 }
 
 // handleGuiStatus serves GET /api/gui/{id} — the gui.Status document (the

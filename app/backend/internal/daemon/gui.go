@@ -329,3 +329,38 @@ func GUISessionCreated(ctx context.Context) (time.Time, bool) {
 	}
 	return time.Unix(sec, 0), true
 }
+
+// guiPanePID reads the rk-gui pane's pane_pid (the root of the supervisor's
+// process tree). A package seam over runTmuxOutput (the guiSessionOption
+// idiom) so tests script the pid without a live tmux server.
+var guiPanePID = func(ctx context.Context) (string, error) {
+	out, err := runTmuxOutput(ctx, "list-panes", "-t", "="+GUISessionName, "-F", "#{pane_pid}")
+	if err != nil {
+		return "", err
+	}
+	// One pane in practice; a multi-pane listing keeps the first.
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	return line, nil
+}
+
+// GUIPanePids returns the pid set of the rk-gui pane's process tree — the
+// pane root (rk gui supervise) plus every descendant (the VNC backend, the
+// WM) — for RunningApps' exclude set: the WM carries DISPLAY in its environ,
+// so an unexcluded scan counts the supervisor's own tree as user apps. Nil
+// for an absent session, an unreadable pane pid, or an unparsable one;
+// callers exclude nothing then. Callers probing from OUTSIDE the daemon
+// process must gate on the daemon running first (the GUISessionExists rule).
+func GUIPanePids(ctx context.Context) map[int]bool {
+	if !guiSessionExists(ctx) {
+		return nil
+	}
+	raw, err := guiPanePID(ctx)
+	if err != nil {
+		return nil
+	}
+	root, err := strconv.Atoi(raw)
+	if err != nil {
+		return nil
+	}
+	return gui.ProcessTreePids("/proc", root)
+}

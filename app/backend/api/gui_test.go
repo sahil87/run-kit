@@ -37,10 +37,11 @@ func newGuiAPIServer(t *testing.T, enabled bool) (*Server, http.Handler) {
 		guiSessionExistsFn:  func(context.Context) bool { return true },
 		guiSessionOptionsFn: func(context.Context) (string, string, bool) { return ":10", "Xtigervnc", true },
 		guiSessionCreatedFn: func(context.Context) (time.Time, bool) { return time.Now().Add(-time.Hour), true },
+		guiPanePidsFn:       func(context.Context) map[int]bool { return map[int]bool{4242: true} },
 		guiProbeFn: func(context.Context, string, string) (gui.Info, error) {
 			return gui.Info{Reachable: true, Width: 1920, Height: 1080}, nil
 		},
-		guiAppsFn:     func(string) ([]gui.App, error) { return []gui.App{{Name: "chromium", Count: 3}}, nil },
+		guiAppsFn:     func(string, map[int]bool) ([]gui.App, error) { return []gui.App{{Name: "chromium", Count: 3}}, nil },
 		guiLookPathFn: func(name string) (string, error) { return "/usr/bin/" + name, nil },
 	}
 	return server, server.buildRouter()
@@ -97,6 +98,11 @@ func TestGuiStatusReachableDocument(t *testing.T) {
 	server, router := newGuiAPIServer(t, true)
 	server.initSSEHub()
 	server.sseHub.guiViewerAdd("host")
+	var gotExclude map[int]bool
+	server.guiAppsFn = func(_ string, exclude map[int]bool) ([]gui.App, error) {
+		gotExclude = exclude
+		return []gui.App{{Name: "chromium", Count: 3}}, nil
+	}
 
 	rec := getJSON(t, router, "/api/gui/host")
 	if rec.Code != http.StatusOK {
@@ -121,6 +127,9 @@ func TestGuiStatusReachableDocument(t *testing.T) {
 	if len(st.Apps) != 1 || st.Apps[0].Name != "chromium" || st.Apps[0].Count != 3 {
 		t.Errorf("apps = %+v, want [{chromium 3}]", st.Apps)
 	}
+	if !gotExclude[4242] {
+		t.Errorf("exclude = %v, want the guiPanePidsFn set {4242} (the WM must not count as an app)", gotExclude)
+	}
 	if st.UptimeSeconds <= 0 {
 		t.Errorf("uptime_seconds = %d, want > 0", st.UptimeSeconds)
 	}
@@ -129,7 +138,10 @@ func TestGuiStatusReachableDocument(t *testing.T) {
 	}
 }
 
-func TestGuiStatusSessionAbsentReason(t *testing.T) {
+// The reason strings and assembly precedence are covered by the
+// internal/gui assembler tests; here the API asserts seam wiring only.
+
+func TestGuiStatusSessionAbsent(t *testing.T) {
 	server, router := newGuiAPIServer(t, true)
 	server.guiSessionExistsFn = func(context.Context) bool { return false }
 
@@ -141,15 +153,19 @@ func TestGuiStatusSessionAbsentReason(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&st); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if st.Reachable || st.Reason != gui.SessionAbsentReason {
-		t.Errorf("document = %+v, want unreachable with reason %q", st, gui.SessionAbsentReason)
+	if st.Reachable || st.Session || st.Reason == "" {
+		t.Errorf("document = %+v, want unreachable, session=false, a reason set", st)
 	}
 }
 
-func TestGuiStatusBackendExitedReason(t *testing.T) {
+func TestGuiStatusUnreachableOmitsApps(t *testing.T) {
 	server, router := newGuiAPIServer(t, true)
 	server.guiProbeFn = func(context.Context, string, string) (gui.Info, error) {
 		return gui.Info{Reason: "not running"}, nil
+	}
+	server.guiAppsFn = func(string, map[int]bool) ([]gui.App, error) {
+		t.Error("apps seam called while unreachable — the scan is gated on reachability")
+		return nil, nil
 	}
 
 	rec := getJSON(t, router, "/api/gui/host")
@@ -157,8 +173,8 @@ func TestGuiStatusBackendExitedReason(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&st); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if st.Reason != gui.BackendExitedReason("Xtigervnc") {
-		t.Errorf("reason = %q, want %q", st.Reason, gui.BackendExitedReason("Xtigervnc"))
+	if st.Reachable || st.Reason == "" || len(st.Apps) != 0 {
+		t.Errorf("document = %+v, want unreachable with a reason and no apps", st)
 	}
 }
 

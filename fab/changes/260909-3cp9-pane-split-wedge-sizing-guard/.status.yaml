@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 5
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-09-09T09:04:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T09:09:42Z"}
     review: {started_at: "2026-09-09T09:09:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T09:14:17Z"}
     hydrate: {started_at: "2026-09-09T09:14:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T09:17:58Z"}
-    ship: {started_at: "2026-09-09T09:17:58Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-09T09:17:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T09:18:55Z"}
+    review-pr: {started_at: "2026-09-09T09:18:55Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/891
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 777
+    deleted: 25
+    net: 752
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 196
+        deleted: 10
+        net: 186
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-09T09:17:58Z"
-    computed_at_stage: hydrate
+        added: 178
+        deleted: 6
+        net: 172
+    computed_at: "2026-09-09T09:18:55Z"
+    computed_at_stage: ship
 summary: Managed tmux.conf gains window-size smallest + aggressive-resize on as the guard against the tmux <=3.7c pane-border-status width-underflow server wedge (the s9fw fork removal was hygiene, not the fix); real-tmux two-client regression test; memory root cause corrected
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-09T09:17:58Z
+last_updated: 2026-09-09T09:18:55Z

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 24
@@ -33,13 +33,15 @@ stage_metrics:
     apply: {started_at: "2026-09-09T12:25:54Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-09T12:34:33Z"}
     review: {started_at: "2026-09-09T12:34:33Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-09T12:38:51Z"}
     hydrate: {started_at: "2026-09-09T12:38:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T12:52:32Z"}
-    ship: {started_at: "2026-09-09T12:52:32Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-09T12:52:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-09T12:53:34Z"}
+    review-pr: {started_at: "2026-09-09T12:53:34Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/892
 change_type_source: explicit
 true_impact:
-    added: 7650
-    deleted: 7
-    net: 7643
+    added: 7885
+    deleted: 29
+    net: 7856
     excluding:
         added: 6633
         deleted: 5
@@ -48,8 +50,8 @@ true_impact:
         added: 3814
         deleted: 4
         net: 3810
-    computed_at: "2026-09-09T12:52:32Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-09-09T12:53:34Z"
+    computed_at_stage: ship
 summary: 'hydrated docs/memory for the GUI backend: new run-kit/gui.md (gui.enabled, rk gui family, rk-gui supervisor, /ws/gui relay, event: gui, /api/gui/*, doctor row); updated configuration, daemon-lifecycle, api-and-sockets, architecture, toolkit-standards, tmux-sessions'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-09T12:52:32Z
+last_updated: 2026-09-09T12:53:34Z

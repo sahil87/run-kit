@@ -1800,6 +1800,11 @@ export interface CronEntry {
   nextFire?: number;
   rung?: number;
   orphaned?: boolean;
+  /** Orphan facts, present only while `orphaned` is true and the evaluator
+   *  derived them: `orphanedSince` is when the target went absent (unix
+   *  seconds), `expiresAt` is when the orphan TTL reaps the entry. */
+  orphanedSince?: number;
+  expiresAt?: number;
 }
 
 /** One delivery-log line from GET /api/cron's `deliveries` array

@@ -4,6 +4,7 @@ import { useToast } from "@/components/toast";
 import { Tip } from "@/components/tip";
 import { deleteCron, getCron, muteCron, type CronEntry } from "@/api/client";
 import { formatDuration } from "@/lib/format";
+import { isCronDimmed, mutedLabel, targetChip } from "@/components/server-clock-dashboard/model";
 import type { ProjectSession } from "@/types";
 import { CardActionList, CardActionRow, useRowFlyout } from "./row-flyout-card";
 import { PopupTitleBar, PopupTitleBarSecondary } from "./popup-title-bar";
@@ -55,13 +56,6 @@ export function ClockPanel({ server }: { server: string | null }) {
   );
 }
 
-/** The target chip's discriminant: `role: operator`, `session: foo`, or
- *  `pane: %3` — the first target facet the entry carries. */
-function targetChip(entry: CronEntry): string {
-  const discriminant = entry.target.role ?? entry.target.session ?? entry.target.pane;
-  return discriminant ? `${entry.target.kind}: ${discriminant}` : entry.target.kind;
-}
-
 function ClockRow({ server, entry }: { server: string; entry: CronEntry }) {
   const { addToast } = useToast();
   const flyout = useRowFlyout({
@@ -102,16 +96,10 @@ function ClockRow({ server, entry }: { server: string; entry: CronEntry }) {
     ),
   });
 
-  const dimmed = entry.orphaned === true || entry.muted === true;
+  const dimmed = isCronDimmed(entry);
   const nowSeconds = Math.floor(Date.now() / 1000);
-  // Lease remaining is as-of-fetch — same no-clock contract as `in Ns` below.
-  // An expired `mutedUntil` is not a live lease: the server already reports
-  // `muted: false` for it, so the plain-badge arm never sees one.
-  const mutedBadge =
-    entry.mutedUntil != null && entry.mutedUntil > nowSeconds
-      ? `muted ${formatDuration(entry.mutedUntil - nowSeconds)}`
-      : "muted";
-  const badge = entry.orphaned === true ? "orphaned" : entry.muted === true ? mutedBadge : null;
+  const badge =
+    entry.orphaned === true ? "orphaned" : entry.muted === true ? mutedLabel(entry, nowSeconds) : null;
   // Static text derived from the already-fetched entry — the panel holds no
   // clock, so the relative time is as of the last fetch (the flyout card's
   // render-performance contract).

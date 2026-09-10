@@ -1,3 +1,10 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-10T15:17:56Z"}
 {"args":"tmux Server page gains WATCHED / CRONS / RECENT DELIVERIES dashboard zones — the server-scoped full view of the cron clock and operator watchlist","cmd":"fab-new","event":"command","ts":"2026-09-10T15:17:56Z"}
 {"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-09-10T15:21:35Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-10T16:55:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-10T17:00:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-10T17:15:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-10T17:20:31Z"}
+{"event":"review","result":"passed","ts":"2026-09-10T17:20:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-10T17:28:11Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-09-10T17:33:29Z"}

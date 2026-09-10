@@ -50,6 +50,7 @@ function renderTiles(opts: {
   onCreateWindow?: (s: string) => void;
   setPreviewScope?: (server: string, expanded: string[]) => void;
   previews?: Record<string, string>;
+  footer?: React.ReactNode;
 } = {}) {
   const previewsByServer = new Map<string, Record<string, string>>();
   previewsByServer.set(SERVER, opts.previews ?? {});
@@ -69,6 +70,7 @@ function renderTiles(opts: {
           onNavigate={opts.onNavigate ?? vi.fn()}
           onCreateSession={opts.onCreateSession ?? vi.fn()}
           onCreateWindow={opts.onCreateWindow ?? vi.fn()}
+          footer={opts.footer}
         />
       </StandaloneSessionContextProvider>
     </ThemeProvider>,
@@ -340,6 +342,22 @@ describe("SessionTiles", () => {
       expect(note).not.toHaveTextContent("ago");
       expect(note.className).not.toContain("opacity-50");
     });
+  });
+
+  it("renders the footer slot after the grid inside the scroll container", () => {
+    renderTiles({ footer: <div data-testid="tiles-footer">zone content</div> });
+
+    const footer = screen.getByTestId("tiles-footer");
+    expect(footer).toHaveTextContent("zone content");
+    // Same scroll container as the grid (the one-scroll rule), after it.
+    const scrollArea = document.querySelector(".overflow-y-auto");
+    expect(scrollArea).not.toBeNull();
+    expect(scrollArea?.contains(footer)).toBe(true);
+    const grid = scrollArea?.querySelector(".grid");
+    expect(grid).not.toBeNull();
+    expect(
+      grid!.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("wires the New Session and New Tab actions", () => {

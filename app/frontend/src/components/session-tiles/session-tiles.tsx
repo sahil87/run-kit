@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, type ReactNode } from "react";
 import { parseFabChange, formatDuration } from "@/lib/format";
 import { StatusDot } from "@/components/status-dot";
 import { prOwnsGlyph, prGlyphColor } from "@/components/pr-status-model";
@@ -17,6 +17,10 @@ type SessionTilesProps = {
   onNavigate: (windowId: string) => void;
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
+  /** Optional content rendered after the grid, inside the SAME scrolling tile
+   *  area — the one-scroll-container rule for page zones below the Sessions
+   *  grid (the clock dashboard's mount seam). */
+  footer?: ReactNode;
 };
 
 /**
@@ -38,6 +42,7 @@ export function SessionTiles({
   onNavigate,
   onCreateSession,
   onCreateWindow,
+  footer,
 }: SessionTilesProps) {
   const { previewsByServer, setPreviewScope } = useSessionContext();
   const previews = previewsByServer.get(server) ?? {};
@@ -295,6 +300,9 @@ export function SessionTiles({
             + New Session
           </button>
         </div>
+        {/* Footer slot — page zones below the grid (the clock dashboard),
+            inside this same scroll container so only the tile area scrolls. */}
+        {footer}
       </div>
     </div>
   );

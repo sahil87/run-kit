@@ -175,7 +175,9 @@ import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
 import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, fetchCodeBridge, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
-import { buildCronActions } from "@/lib/palette/cron";
+import { buildCronActions, type CronActionHandlers } from "@/lib/palette/cron";
+import { requestCronsScroll } from "@/lib/server-clock-dashboard-scroll";
+import { ServerClockDashboard } from "@/components/server-clock-dashboard";
 import { CronCreateDialog } from "@/components/cron-create-dialog";
 import { buildWebTabActions } from "@/lib/palette/web-tabs";
 import { operatorRequestToast } from "@/lib/operator-request";
@@ -4104,6 +4106,31 @@ function AppShell() {
       ...(instanceDisplayName
         ? [copyPaletteEntry("copy-host-name", "Copy: Host Name", "Host name", instanceDisplayName)]
         : []),
+      // `Server: Clock dashboard` — navigate to `/$server` and scroll the
+      // CRONS heading into view via the document-event seam (the dashboard
+      // consumes the pending flag if it mounts after the dispatch). No URL
+      // hash — the route contract keeps URLs identity-only. On mobile the
+      // entry still navigates; the dashboard is absent there, so nothing
+      // scrolls.
+      ...(server
+        ? [
+            {
+              id: "server-clock-dashboard",
+              label: "Server: Clock dashboard",
+              onSelect: () => {
+                const dispatchScroll = () =>
+                  requestAnimationFrame(() => requestCronsScroll());
+                if (windowParam != null) {
+                  void Promise.resolve(
+                    navigate({ to: "/$server", params: { server } }),
+                  ).then(dispatchScroll);
+                } else {
+                  dispatchScroll();
+                }
+              },
+            },
+          ]
+        : []),
       // Per-server kill entries (bylc): with the hover ✕ removed from the
       // SERVER-panel tiles, this listing is the keyboard escape hatch that
       // keeps every server killable — including non-current servers, which
@@ -4159,7 +4186,7 @@ function AppShell() {
         onSelect: () => handleSwitchServer(name),
       })),
     ],
-    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, openCreateServer, requestKillServer, requestAdoptServer, copyPaletteEntry, instanceDisplayName],
+    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, openCreateServer, requestKillServer, requestAdoptServer, copyPaletteEntry, instanceDisplayName, windowParam, navigate],
   );
 
   // Desktop-shell server switching (Constitution V): `Server: Switch to
@@ -4400,25 +4427,29 @@ function AppShell() {
   const cronData = useCronData(server);
   const [cronCreateOpen, setCronCreateOpen] = useState(false);
   const [cronDeleteTarget, setCronDeleteTarget] = useState<CronEntry | null>(null);
+  // One shared handler set for the palette's cronActions AND the Server
+  // page's clock dashboard — a single delete-confirm path and toast-on-error
+  // posture for both surfaces.
+  const cronHandlers: CronActionHandlers = useMemo(
+    () => ({
+      onCreate: () => setCronCreateOpen(true),
+      onMute: (entry) => {
+        void muteCron(server, entry.id, entry.muted !== true).catch((err: unknown) =>
+          addToast(err instanceof Error && err.message ? err.message : "Mute failed", "error"),
+        );
+      },
+      onPin: (entry) => {
+        void pinCron(server, entry.id, entry.pinned !== true).catch((err: unknown) =>
+          addToast(err instanceof Error && err.message ? err.message : "Pin failed", "error"),
+        );
+      },
+      onDelete: (entry) => setCronDeleteTarget(entry),
+    }),
+    [server, addToast],
+  );
   const cronActions: PaletteAction[] = useMemo(
-    () =>
-      server
-        ? buildCronActions(cronData.entries, {
-            onCreate: () => setCronCreateOpen(true),
-            onMute: (entry) => {
-              void muteCron(server, entry.id, entry.muted !== true).catch((err: unknown) =>
-                addToast(err instanceof Error && err.message ? err.message : "Mute failed", "error"),
-              );
-            },
-            onPin: (entry) => {
-              void pinCron(server, entry.id, entry.pinned !== true).catch((err: unknown) =>
-                addToast(err instanceof Error && err.message ? err.message : "Pin failed", "error"),
-              );
-            },
-            onDelete: (entry) => setCronDeleteTarget(entry),
-          })
-        : [],
-    [server, cronData.entries, addToast],
+    () => (server ? buildCronActions(cronData.entries, cronHandlers) : []),
+    [server, cronData.entries, cronHandlers],
   );
 
   const { actions: pushActions } = usePushSubscription();
@@ -5207,6 +5238,14 @@ function AppShell() {
               onNavigate={navigateToWindow}
               onCreateSession={handleCreateSessionInstant}
               onCreateWindow={handleCreateWindow}
+              footer={
+                <ServerClockDashboard
+                  sessions={sessions}
+                  cronData={cronData}
+                  onNavigate={navigateToWindow}
+                  cronHandlers={cronHandlers}
+                />
+              }
             />
           )}
           </div>

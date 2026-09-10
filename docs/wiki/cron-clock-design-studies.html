@@ -273,6 +273,48 @@
   </div>
 </div>
 
+<h2>1d · The registry — tmux Server page</h2>
+<p><b>Shipped</b> (the registry half of the tier-2 split — § 1b's dashboard content re-homed). The tmux Server page (<code>/$server</code>) is the one existing route whose scope matches the clock's, so the full view lands there as three zones below the Sessions grid, inside the same single scrolling tile area, each headed by the shared bracketed <code>SectionHeading</code> with its stats in the side slot: <b>WATCHED</b> (one row per monitored window — the detail table the sidebar cannot afford), <b>CRONS</b> (the full registry the CLOCK section trims — plain-words schedule, derived state, last/next, row actions), <b>RECENT DELIVERIES</b> (the server-capped log, newest first, day dividers). Desktop-only — the mobile answer is the console sheet's Activity feed (§ 1c). No new route, no settings, no per-zone toggles (Constitution IV).</p>
+
+<div class="study">
+  <span class="tag rec">shipped · desktop</span><span class="tag">/$server · below the Sessions grid</span>
+  <div style="border:1px solid var(--border); border-radius:6px; background:var(--bg); padding:10px 14px; font-family:var(--mono); font-size:11px">
+    <div style="color:var(--ts); font-size:9.5px; letter-spacing:.08em; padding-bottom:6px">[ SESSIONS▊ ]──── 2 sessions, 4 tabs &nbsp;<span style="color:#565e6e">(the tile grid stays the page's first answer)</span></div>
+    <div style="border-top:1px solid var(--border); padding-top:8px">
+      <div style="display:flex; align-items:baseline; gap:8px; color:var(--ts); font-size:10px; letter-spacing:.08em">
+        <span>[ WATCHED▊ ]────</span><span style="margin-left:auto; letter-spacing:0; font-size:9.5px">2 watched · tick 42s ago</span>
+      </div>
+      <table style="width:100%; margin-top:4px; font-size:10px">
+        <tr style="color:var(--ts); font-size:8.5px; letter-spacing:.08em"><th style="border:0; padding:1px 8px 1px 0">STATUS</th><th style="border:0; padding:1px 8px 1px 0">SESSION</th><th style="border:0; padding:1px 8px 1px 0">CHANGE</th><th style="border:0; padding:1px 8px 1px 0">AWAITING</th><th style="border:0; padding:1px 8px 1px 0">NOTE</th><th style="border:0; padding:1px 0">REPO</th></tr>
+        <tr><td style="border:0; padding:2px 8px 2px 0; color:var(--tp)"><span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--blue); margin-right:5px"></span>apply-tv3g</td><td style="border:0; padding:2px 8px 2px 0">fabKit</td><td style="border:0; padding:2px 8px 2px 0">tv3g · <span class="chip" style="border-color:color-mix(in srgb,var(--green) 55%,transparent); color:var(--green)">apply</span></td><td style="border:0; padding:2px 8px 2px 0">busy</td><td style="border:0; padding:2px 8px 2px 0">drafting PR body · 12m ago</td><td style="border:0; padding:2px 0">run-kit</td></tr>
+        <tr><td style="border:0; padding:2px 8px 2px 0; color:var(--tp)"><span style="display:inline-block; width:6px; height:6px; border-radius:50%; border:1.8px solid var(--blue); margin-right:5px"></span>review-w7qc</td><td style="border:0; padding:2px 8px 2px 0">fabKit</td><td style="border:0; padding:2px 8px 2px 0">w7qc · <span class="chip" style="border-color:color-mix(in srgb,var(--green) 55%,transparent); color:var(--green)">review</span></td><td style="border:0; padding:2px 8px 2px 0; color:var(--yellow)">waiting 6m</td><td style="border:0; padding:2px 8px 2px 0">—</td><td style="border:0; padding:2px 0">run-kit</td></tr>
+      </table>
+    </div>
+    <div style="border-top:1px solid var(--border); margin-top:10px; padding-top:8px">
+      <div style="display:flex; align-items:baseline; gap:8px; color:var(--ts); font-size:10px; letter-spacing:.08em">
+        <span>[ CRONS▊ ]────</span><span style="margin-left:auto; letter-spacing:0; font-size:9.5px">3 entries · 1 muted</span>
+      </div>
+      <table style="width:100%; margin-top:4px; font-size:10px">
+        <tr><td style="border:0; padding:2px 8px 2px 0; color:var(--tp)">hourly PR sweep</td><td style="border:0; padding:2px 8px 2px 0"><span class="chip sess">session:4fe2</span></td><td style="border:0; padding:2px 8px 2px 0; color:var(--ts)">every 1 hour</td><td style="border:0; padding:2px 8px 2px 0; color:var(--green)">due · held (busy)</td><td style="border:0; padding:2px 8px 2px 0; color:var(--ts)">52m ago ✓</td><td style="border:0; padding:2px 8px 2px 0; color:var(--ts)">due</td><td style="border:0; padding:2px 0; color:var(--ts)">…</td></tr>
+        <tr><td style="border:0; padding:2px 8px 2px 0; color:var(--tp)">operator tick</td><td style="border:0; padding:2px 8px 2px 0"><span class="chip role">role:operator</span></td><td style="border:0; padding:2px 8px 2px 0; color:var(--ts)">backs off 1m→30m; wakes on agent-state-change</td><td style="border:0; padding:2px 8px 2px 0; color:var(--ts)">rung 3</td><td style="border:0; padding:2px 8px 2px 0; color:var(--ts)">4m ago ✓</td><td style="border:0; padding:2px 8px 2px 0; color:var(--ts)">in 4m</td><td style="border:0; padding:2px 0; color:var(--ts)">…</td></tr>
+        <tr style="opacity:.5"><td style="border:0; padding:2px 8px 2px 0; color:var(--tp); text-decoration:line-through">nightly distill</td><td style="border:0; padding:2px 8px 2px 0"><span class="chip sess">session:9ab1</span></td><td style="border:0; padding:2px 8px 2px 0; color:var(--ts)">0 2 * * * · catch up once</td><td style="border:0; padding:2px 8px 2px 0; color:var(--ts)">muted</td><td style="border:0; padding:2px 8px 2px 0; color:var(--ts)">—</td><td style="border:0; padding:2px 8px 2px 0; color:var(--ts)">—</td><td style="border:0; padding:2px 0; color:var(--ts)">…</td></tr>
+      </table>
+      <div style="margin-top:6px; border:1px dashed var(--border); border-radius:4px; text-align:center; padding:4px; color:var(--ts); font-size:10px">+ New entry</div>
+    </div>
+    <div style="border-top:1px solid var(--border); margin-top:10px; padding-top:8px">
+      <div style="display:flex; align-items:baseline; gap:8px; color:var(--ts); font-size:10px; letter-spacing:.08em">
+        <span>[ RECENT DELIVERIES▊ ]────</span><span style="margin-left:auto; letter-spacing:0; font-size:9.5px">last 4m ago</span>
+      </div>
+      <div style="margin-top:4px; color:var(--ts); font-size:10px; line-height:1.8">
+        <div><span>14:02 · operator tick → delivered ✓</span></div>
+        <div><span>13:47 · hourly PR sweep → held-expired</span></div>
+        <div style="color:var(--red)"><span>12:30 · nightly distill → respawn-failed: exit 1</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="cap"><b>The navigate seam</b>: a WATCHED row's name cell navigates to <code>/$server/$window</code> (the same path the session tiles use) — the watchlist itself stays derived (edits are <code>fab operator</code> verbs, never UI). <b>Row actions</b>: the CRONS row's trailing <code>…</code> opens the sidebar's row-flyout card (Mute/Unmute · Pin/Unpin · Delete-with-confirm); <code>+ New entry</code> opens the existing create dialog. Stale operator loop flips the WATCHED side slot to <b style="color:var(--amber)">⚠ stale {age}</b> and dims the table. Zones render nothing on mobile — the phone keeps its tiles and the Activity feed.</div>
+</div>
+
 <h2>2 · The backoff schedule — a pure function of the idle anchor</h2>
 <p>The operator tick is duration-based, not wall-clock: fire times are <code>anchor + min·(2ⁿ−1)</code> — +1m, +3m, +7m, +15m… capped at <code>max</code>. The anchor is the agent idle epoch carried by <code>@rk_pane_agent_state</code> — with the <b>anchor-join rule</b>: the effective anchor is the last activity <i>not caused by the clock</i> (idle-epoch resets that immediately follow the clock's own delivery are ignored, by joining against the delivery log). Without the join every delivered tick would reset the raw epoch and pin the ladder at rung 1 forever. <b>No stored counters</b>: both inputs live on disk, a daemon restart re-derives the whole schedule, worst case one duplicate idempotent tick. The entry also carries <code>wake_on: agent-state-change</code> (debounced edge trigger, OR'd in) and <code>suppress_while: [operator-loop-fresh, nothing-tracked]</code> — silent while the in-session /loop is alive or nothing is monitored.</p>
 
@@ -338,6 +380,7 @@
   <tr><td>Watched detail</td><td>window row flyout card line</td><td>—</td></tr>
   <tr><td>Open clock activity</td><td>status-bar <code>◷</code> clock chip → console drawer on the Activity segment</td><td>—</td></tr>
   <tr><td>Open clock activity</td><td>palette → console drawer on the Activity segment</td><td><code>Operator: Show clock activity</code></td></tr>
+  <tr><td>Open clock dashboard</td><td>palette → <code>/$server</code>, CRONS heading scrolled into view</td><td><code>Server: Clock dashboard</code></td></tr>
 </table>
 <p style="margin-top:10px">Mutations are POST-only (<code>/api/cron/create·delete·mute</code>) and each handler wakes the SSE hub explicitly — file writes emit no tmux event, so without the wake the panel lags the 12s safety poll. Row actions follow the sidebar's flyout-card action-row idiom (no inline icon clusters), coarse pointers reach the cards through the status rail like every other tier.</p>
 

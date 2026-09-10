@@ -332,7 +332,12 @@ reuses a shipped (or already-reserved) mechanism:
    / RECENT DELIVERIES zones** (the registry; change
    `260910-1rx0-server-page-clock-dashboard`): watched workers with full
    detail (state, rung, what it awaits, age, last note), cron entries with
-   next/last/history, and the recent delivery log, on `/$server`.
+   next/last/history, and the recent delivery log, on `/$server`. **Shipped**
+   — the three zones mount below the Sessions grid inside the same scrolling
+   tile area, desktop-only (the mobile answer is the Activity feed), with the
+   CRONS row flyout carrying Mute/Pin/Delete and `+ New entry` opening the
+   existing create dialog; the palette entry `Server: Clock dashboard`
+   navigates to `/$server` and scrolls the CRONS heading into view.
 
    **Superseded (2026-09-10) — the agents-tile dashboard.** The earlier
    design landed tier 2 in the reserved `agents` surface kind
@@ -388,8 +393,8 @@ registry-in-the-drawer** (the pre-feed mobile design: a pinned-height
 mute two taps deep; superseded by the Activity feed).
 
 Palette-registered per Constitution V (`Panel: Toggle Clock`,
-`Operator: Show clock activity`, `Cron: new entry`, `Cron: mute…`,
-`Cron: delete…`).
+`Operator: Show clock activity`, `Server: Clock dashboard`, `Cron: new entry`,
+`Cron: mute…`, `Cron: delete…`).
 Mutations wake the SSE hub explicitly (user-option and file writes emit no
 tmux event — the safety-poll lesson).
 
@@ -447,7 +452,7 @@ move.
   incident class.
 - **P2 — visibility**: the `CLOCK` sidebar section + rail toggle (desktop),
   the console's desktop **Activity** segment and the Server page's
-  WATCHED / CRONS / RECENT DELIVERIES zones, the mobile console sheet's
+  WATCHED / CRONS / RECENT DELIVERIES zones (shipped), the mobile console sheet's
   **Activity** feed segment + staleness banner + entry detail sheet,
   watched-row underbar + the `opr` register line (watchlist and
   `last_tick_at` read from the fab operator state file), SSE wiring,

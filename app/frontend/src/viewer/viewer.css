@@ -103,6 +103,28 @@ body {
   height: auto;
 }
 
+/* A diagram toggles between fit-to-column and natural size (click / Enter /
+ * Space on the holder). Natural size overflows the column and scrolls inside
+ * the holder, so page zoom can carry a diagram past the column instead of
+ * re-fitting it. */
+#viewer-root .viewer-diagram {
+  overflow-x: auto;
+  cursor: zoom-in;
+}
+
+#viewer-root .viewer-diagram:focus-visible {
+  outline: 2px solid var(--viewer-link);
+  outline-offset: 2px;
+}
+
+#viewer-root .viewer-diagram.natural {
+  cursor: zoom-out;
+}
+
+#viewer-root .viewer-diagram.natural svg {
+  max-width: none;
+}
+
 .viewer-error {
   border: 1px solid var(--viewer-border);
   border-radius: 6px;

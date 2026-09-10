@@ -1,0 +1,55 @@
+id: nuf6
+name: 260910-nuf6-rk-mcp-stdio
+created: 2026-09-10T16:51:50Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 32
+    acceptance_completed: 32
+confidence:
+    certain: 9
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 73.7
+        reversibility: 89.7
+        competence: 85.0
+        disambiguation: 80.3
+stage_metrics:
+    intake: {started_at: "2026-09-10T16:51:50Z", driver: fab-new, iterations: 1, completed_at: "2026-09-10T18:28:35Z"}
+    apply: {started_at: "2026-09-10T18:28:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T18:45:02Z"}
+    review: {started_at: "2026-09-10T18:45:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T18:49:14Z"}
+    hydrate: {started_at: "2026-09-10T18:49:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T18:54:28Z"}
+    ship: {started_at: "2026-09-10T18:54:28Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-10T18:54:28Z"
+    computed_at_stage: hydrate
+summary: 'rk mcp: stdio MCP server — allowlisted proxy over 10 rk verbs (internal/mcp policy table, Cobra-introspected schemas, argv executor, 3-tier result parser), doctor row, E2E'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-10T18:54:28Z

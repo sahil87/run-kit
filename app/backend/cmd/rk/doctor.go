@@ -19,6 +19,7 @@ import (
 	"rk/internal/cron"
 	"rk/internal/daemon"
 	"rk/internal/gui"
+	"rk/internal/mcp"
 	"rk/internal/settings"
 	"rk/internal/tmux"
 
@@ -109,6 +110,14 @@ func runDoctorChecks() doctorReport {
 	// Always OK-shaped: off is the default and not-running is a state, never
 	// a dependency failure. See guiDoctorCheck.
 	report.Checks = append(report.Checks, guiDoctorCheck())
+
+	// mcp — the policy-table drift guard. Unlike the state rows above, a table
+	// that cannot resolve is a real defect, so this row is a verdict flipper.
+	c := mcpDoctorCheck()
+	report.Checks = append(report.Checks, c)
+	if !c.OK {
+		report.OK = false
+	}
 
 	// Ephemeral servers — informational hygiene count, always OK-shaped (the
 	// code-server/drift posture): scratch servers are deliberate creator
@@ -658,6 +667,27 @@ func tmuxGuardShimCheck(home, pathEnv string, lookPath func(string) (string, err
 	}
 	check.Note = "installed; PATH resolves tmux to the shim"
 	return check
+}
+
+// mcpCheck builds the mcp doctor row from the policy-table resolution result.
+// A table that cannot resolve against the live Cobra tree is a defect (a
+// renamed or re-flagged verb), so this row is a verdict flipper — unlike the
+// always-OK state rows (gui, code-server). Pure over its inputs for tests.
+func mcpCheck(n int, err error) doctorCheck {
+	if err != nil {
+		return doctorCheck{Name: "mcp", OK: false, failLabel: "mcp", Hint: err.Error()}
+	}
+	return doctorCheck{Name: "mcp", OK: true, Note: fmt.Sprintf("%d tools; all policy rows resolve", n)}
+}
+
+// mcpDoctorCheck resolves the shipped policy table in-process (introspection
+// only — no exec, no tmux) and reports the tool count.
+func mcpDoctorCheck() doctorCheck {
+	resolved, err := mcp.Resolve(rootCmd, mcp.Table)
+	if err != nil {
+		return mcpCheck(0, err)
+	}
+	return mcpCheck(len(resolved), nil)
 }
 
 // doctorFailLabel returns the human [FAIL] row's lead-in. Pre-existing checks

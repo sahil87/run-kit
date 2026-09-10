@@ -57,6 +57,7 @@ func init() {
 	rootCmd.AddCommand(desktopCmd)
 	rootCmd.AddCommand(urlCmd)
 	rootCmd.AddCommand(skillCmd)
+	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(notifyCmd)
 	rootCmd.AddCommand(agentCmd)
 	// Hidden root aliases for the agent family (see agent.go): agent-setup is

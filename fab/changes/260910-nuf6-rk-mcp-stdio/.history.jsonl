@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-10T16:51:50Z"}
+{"args":"Execute row W1 (rk-mcp-stdio) of fab/plans/sahil/26-09-10-rk-mcp.md against docs/specs/mcp.md (W0, PR #913): go-sdk dep, internal/mcp (policy table, Cobra-introspection schema gen, argv executor, envelope parser), rk mcp stdio verb, rk skill as instructions, PNG image block, doctor row, E2E against a test tmux server","cmd":"fab-new","event":"command","ts":"2026-09-10T16:51:50Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-09-10T16:55:16Z"}
+{"delta":"-0.1","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-10T16:55:48Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-09-10T16:56:04Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-10T18:27:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-10T18:28:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-10T18:45:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-10T18:49:14Z"}
+{"event":"review","result":"passed","ts":"2026-09-10T18:49:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-10T18:54:28Z"}

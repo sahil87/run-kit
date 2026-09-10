@@ -1775,3 +1775,37 @@ func TestGuiCheckStates(t *testing.T) {
 		})
 	}
 }
+
+// TestMCPCheckBranches drives both branches of the pure mcp row builder:
+// resolution success is an OK row with the tool-count note; a resolution
+// failure is a verdict-flipping FAIL row carrying the Resolve error as hint.
+func TestMCPCheckBranches(t *testing.T) {
+	ok := mcpCheck(10, nil)
+	if !ok.OK || ok.Note != "10 tools; all policy rows resolve" || ok.Hint != "" {
+		t.Errorf("passing mcpCheck = %+v", ok)
+	}
+	fail := mcpCheck(0, fmt.Errorf("mcp policy row %q: path %q does not resolve", "capture", "mux capture"))
+	if fail.OK || fail.Hint == "" || fail.failLabel != "mcp" {
+		t.Errorf("failing mcpCheck = %+v", fail)
+	}
+}
+
+// TestMCPDoctorRowPresent proves the shipped table resolves in-process and the
+// row appears in runDoctorChecks (and therefore in doctor --json) as OK.
+func TestMCPDoctorRowPresent(t *testing.T) {
+	found := false
+	for _, c := range runDoctorChecks().Checks {
+		if c.Name == "mcp" {
+			found = true
+			if !c.OK {
+				t.Errorf("mcp row must be OK against the shipped tree, got %+v", c)
+			}
+			if !strings.Contains(c.Note, "tools; all policy rows resolve") {
+				t.Errorf("mcp note = %q", c.Note)
+			}
+		}
+	}
+	if !found {
+		t.Error("runDoctorChecks must append the mcp row")
+	}
+}

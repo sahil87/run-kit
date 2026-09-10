@@ -176,7 +176,10 @@ description: null             # optional override of Cobra Short/Long when termi
 Rules:
 
 - `result: json` parses the envelope: `ok:true` → `result` returned as a JSON text
-  block; `ok:false` → `isError:true` with `message` and `hint`. `result: text` returns
+  block; `ok:false` → `isError:true` with `message` and `hint`. Until a verb's
+  envelope lands, a bare JSON document on stdout is accepted as `result` with `ok`
+  taken from the exit code; the envelope takes precedence whenever an object with a
+  boolean `ok` key is present. `result: text` returns
   stdout verbatim and maps exit code → `isError` (the interim form for verbs without
   `--json`). `result: image` reads the PNG at the path the verb printed and returns an
   image content block plus the JSON (`gui_shot`).

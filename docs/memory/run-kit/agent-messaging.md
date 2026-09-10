@@ -45,7 +45,11 @@ share the pane-level primitives in `internal/tmux/pane_target.go`. Delivery
 reuses the hardened injection engine the daemon's compose-send route also drives
 — the
 shared `internal/inject` package ([agent-send](/run-kit/agent-send.md) § Send Path) — so the
-daemon route and the CLI verb run ONE implementation.
+daemon route and the CLI verb run ONE implementation. The MCP `send` tool is an
+argv door onto the same engine — one invocation of `rk mux send <target> -`
+with the body on stdin, served by the `rk mcp` stdio server
+([mcp](/run-kit/mcp.md)); its receipt is the verb's text report word until the
+`--json` envelope lands. (260910-nuf6-rk-mcp-stdio)
 
 The family parent (`muxCmd`, `cmd/rk/mux.go`) presents the thirteen members in
 three cobra command groups — *Messaging* (`send`, `await`), *Pane mechanics*

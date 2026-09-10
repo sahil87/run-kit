@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator`/`gui` (incl. `gui launch`, the `gui` skill topic) + the `mux` and `cron` families."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator`/`gui` (incl. `gui launch`, the `gui` skill topic)/`mcp` + the `mux` and `cron` families."
 ---
 # Toolkit Standards Conformance
 
@@ -790,6 +790,33 @@ The `rk gui` family (`gui.go` + `gui_supervise.go` + `gui_exec.go` + `gui_shot.g
 - **Principle 9: outcome lines and the status document are data; hints are errors.** `on`'s outcome lines (`started (<bin> :N)` / `already running` / the daemon-down and no-backend lines), `off`'s `gui off` confirmation, `restart`'s `restarted (<bin> :N)`, `env`'s two `export` lines, `status`'s human line / `--json` document, `exec --detach`'s `started <pid> on :N` line, `shot`'s absolute PNG path, and `launch`'s `started <name> (pid <pid>) on :N` line are each the verb's one bounded stdout datum (Dataf, surviving `--quiet`); a foreground `exec` replaces the process, so the command's own output contract applies. The WM chatter after `on`/`restart` (`  window manager: <wm>` or the two-line bare-display install hint) is `Notef` on stderr, so `--quiet` and scripts keep the one-line datum. The `off` refusal (`re-run with --yes`), the disabled/not-running hints, the macOS refusals, `not found on PATH`, `launch`'s ladder-miss install line, and `aborted` ride stderr with non-zero exits.
 - **Exit-code convention (P4)**: 0 success (including the daemon-down `rk gui on` and every `status` state — state, not verdict), 1 operational (refusals without `--yes` on a non-tty, declined confirms, disabled/daemon-down `restart`, `env`/`exec`/`shot`/`launch` when off or not running, the macOS refusals, an unknown program, a failed or missing screenshot tool, a `launch` ladder miss or start failure), 2 usage (arg-count violations via the family's `usageArgs` re-wrap — root's central wrap loop covers only `rootCmd`'s direct children — including `exec` with no command word and `launch` with a role outside `terminal`/`browser`).
 - **The `skill` standard covers the `gui` topic page** — canonical `docs/site/skill/gui.md` (≤150 lines), synced to the embedded copy by `scripts/sync-skill.sh`, drift-guarded and budget-tested by the shared `TestSkillTopics*` tables, and registered as `skillTopics["gui"]` so the `Topics:` help line and `rk skill topics` enumerate it; the page teaches `rk gui launch` (the allowlisted launcher) and the seeded profile directory beside `exec`/`shot`, and the core bundle carries the topic-index line plus one capability row for `rk gui exec <cmd…>` / `rk gui shot [--out f.png]` (gated on the user's `gui.enabled` switch). (bbv1) (2jl3)
+
+The `rk mcp` verb (`mcp.go` — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `mcp` row; the
+subsystem contract in [mcp](/run-kit/mcp.md)) is the twenty-third surface
+measured against the same checks (260910-nuf6-rk-mcp-stdio):
+
+- **help-dump: the visible root verb dumps.** `mcpCmd` is registered
+  unconditionally on `rootCmd` (`root.go`'s `init()`, next to `skillCmd`) and
+  carries `Short`/`Long` blocks, so the cobra tree walk publishes it with no
+  help-dump code change; `cmd/rk/mcp_test.go` asserts the dump contains a
+  visible `run-kit mcp` node and that `rk mcp --help` names the connector
+  command `ssh <box> rk mcp`.
+- **Principle 9: stdout is the protocol channel — the strictest data/chatter
+  split.** Nothing but MCP protocol may be written to stdout; every diagnostic
+  goes to stderr (an `slog` text handler on `cmd.ErrOrStderr()`). The
+  inherited persistent `--quiet` is therefore irrelevant (nothing but protocol
+  reaches stdout either way), and the verb takes no flags of its own.
+- **Exit-code convention (P4)**: 0 when the client disconnects or the context
+  is cancelled, 1 operational (the startup drift guard failing — the error
+  names the offending policy row), 2 usage (a stray positional via
+  `usageArgs(cobra.NoArgs)`).
+- **The `skill` standard is the instructions source, not a new topic** — the
+  server's MCP `instructions` field is the core skill bundle bytes verbatim
+  (byte-identical to `rk skill`; the E2E asserts equality with
+  `docs/site/skill.md`), and the bundle itself is unchanged: `rk mcp` is a
+  transport, not an agent capability, so no topic page changes and the 150-line
+  budget is untouched.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

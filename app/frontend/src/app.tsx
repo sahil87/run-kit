@@ -108,6 +108,7 @@ import {
   tearDownMask,
   confirmSwitchArrived,
   forceSwitchArrived,
+  hasCountedIncomingBytes,
   abandonSwitchFeedback,
   subscribeMaskState,
   getMaskState,
@@ -1969,6 +1970,24 @@ function AppShell() {
       // callback can never navigate the user back off their chosen route or
       // toast about a switch they abandoned.
       if (windowParamRef.current !== target.windowId) return;
+      // SSE already reports the target ACTIVE — the switch DID confirm, but the
+      // writeback (the normal event-driven clearer) can be suppressed for the
+      // whole confirmation window (`dialogOpenRef` — e.g. a dialog held open
+      // >5s over a confirmed switch; rework SF7), or deliberately held the
+      // intent because no incoming byte had been counted yet. Not a failure:
+      // clear the intent silently — no toast, no navigation. The teardown here
+      // is UNCONDITIONAL (`forceSwitchArrived`, not the byte-gated
+      // `confirmSwitchArrived`): after the confirmation window has elapsed with
+      // the target active, a mask whose byte-driven lift path never fired must
+      // never stay up — a stuck input-blocking mask is the worst outcome the
+      // design forbids. This rescue runs BEFORE the `bounceDisarmed` check
+      // below: a POST-200 disarms the BOUNCE, never the rescue.
+      if (activeWindowRef.current?.windowId === target.windowId) {
+        pendingClickRef.current = null;
+        clearPendingSwitchTracking();
+        forceSwitchArrived();
+        return;
+      }
       // Freshness-gate the verdict (260823-ke9i): a failure is only rendered
       // from evidence that POST-DATES the click. A frozen pre-click snapshot
       // (post-sleep half-open socket) or a disconnected socket re-arms the
@@ -1994,23 +2013,6 @@ function AppShell() {
           return;
         }
       }
-      const active = activeWindowRef.current;
-      // SSE already reports the target ACTIVE — the switch DID confirm, but the
-      // writeback (the normal event-driven clearer) can be suppressed for the
-      // whole confirmation window (`dialogOpenRef` — e.g. a dialog held open
-      // >5s over a confirmed switch; rework SF7). Not a failure: clear the
-      // intent silently — no toast, no navigation under the dialog. The
-      // teardown here is UNCONDITIONAL (`forceSwitchArrived`, not the
-      // byte-gated `confirmSwitchArrived`): after the confirmation window has
-      // elapsed with the target active, a mask whose byte-driven lift path
-      // never fired must never stay up — a stuck input-blocking mask is the
-      // worst outcome the design forbids.
-      if (active?.windowId === target.windowId) {
-        pendingClickRef.current = null;
-        clearPendingSwitchTracking();
-        forceSwitchArrived();
-        return;
-      }
       clearPendingSwitchTracking();
       pendingClickRef.current = null;
       // Abandon, don't just unmask (rework G2): a fast POST rejection can land
@@ -2020,6 +2022,7 @@ function AppShell() {
       // rejected, so liftAccepting never opens). Settling the gate too makes
       // the bounce final.
       abandonSwitchFeedback();
+      const active = activeWindowRef.current;
       if (active) {
         // `target.server` — verified equal to the CURRENT route server above,
         // so the callback needs no `server` closure dep (H1: no stale-server
@@ -2257,23 +2260,26 @@ function AppShell() {
       // into the `!urlMatchesPending` clear-and-abandon branch below).
       const urlMatchesPending = isSamePendingTarget(pending, server, windowParam);
       const sseConfirmed = isSamePendingTarget(pending, server, activeWindow.windowId);
+      // SSE confirmation is authoritative for INTENT, but paint feedback stays
+      // byte-driven: until a byte has been counted as the incoming window's,
+      // `confirmSwitchArrived` is a no-op on the gate and the mask (the gate's
+      // 300ms timeout arms the spinner; the first counted write lifts it), and
+      // the tracked confirmation timer is the ONLY path to the unconditional
+      // `forceSwitchArrived` rescue. So a confirmation that lands before the
+      // byte keeps BOTH the intent and its tracking: clearing them here would
+      // leave a timeout-armed mask with no lift when bytes never come. The
+      // next SSE tick after the byte (or the timer itself) resolves it.
+      if (sseConfirmed && urlMatchesPending && !hasCountedIncomingBytes()) return;
       if (sseConfirmed || !urlMatchesPending) {
         pendingClickRef.current = null;
-        // The switch resolved (confirmed, or superseded by a newer nav): stop
-        // tracking so the confirmation timer never fires a spurious late bounce
-        // and any grace mask's cancel is released (260715-38kg).
+        // The switch resolved (confirmed with a counted byte, or superseded by
+        // a newer nav): stop tracking so the confirmation timer never fires a
+        // spurious late bounce and any grace mask's cancel is released.
         clearPendingSwitchTracking();
-        // SSE confirmation is authoritative for INTENT (the URL/heading may
-        // stand), but paint feedback stays byte-driven: `confirmSwitchArrived`
-        // acts only once a byte has been counted as the incoming window's
-        // (260715-38kg). Before that it is a no-op on the gate and the mask —
-        // the gate's 300ms timeout arms the spinner and the incoming first
-        // write lifts it. A same-session switch whose tmux redraw completed
-        // BEFORE `openForNotify` counts that receipt at the POST's resolution
-        // (the in-flight receipt), so the confirmation here still lands after
-        // the counted byte in the landed-fast case; when bytes never come, the
-        // 5s confirmation-timer rescue in `bouncePendingSwitch` is the
-        // unconditional teardown (`forceSwitchArrived`).
+        // A same-session switch whose tmux redraw completed BEFORE
+        // `openForNotify` counts that receipt at the POST's resolution (the
+        // in-flight receipt), so the confirmation here lands after the counted
+        // byte in the landed-fast case.
         //
         // UNCONFIRMED clear (`!urlMatchesPending` — browser Back/Forward away
         // from a pending target; rework SF5): abandon the switch's feedback —

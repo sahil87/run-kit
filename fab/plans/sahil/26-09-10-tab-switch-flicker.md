@@ -161,6 +161,18 @@ cross-session switches, deep links, or reconnects.
   `onOpened` fit size; check `window-size` / per-client sizing with two
   viewers attached. Fix is either "open at the final size, skip the no-op
   resize" or a tmux option, not both.
+- **B5. Stale-chunk clear on a busy outgoing window** (deferred from PR #914's
+  Copilot review): the ride's deferred `clear()` is consumed by the first
+  chunk after the prop change, so a still-streaming outgoing window can spend
+  it before tmux's redraw arrives — a few of its lines then sit in the new
+  window's scrollback (the screen itself is repainted row by row by tmux's
+  window-switch redraw). Gating the clear on the post-select receipt is not a
+  fix by itself: on a same-session ride the redraw races the `selectWindow`
+  response (the CI 260716 race), so a post-POST gate would skip the clear on
+  roughly half of ordinary switches and a late clear would wipe painted
+  content. Candidate: consume the clear on the first counted incoming byte
+  when that byte arrives at receipt time, and fold the in-flight case into
+  B2's held reveal (buffer until quiet, then clear + write once).
 
 ## Verification recipe
 

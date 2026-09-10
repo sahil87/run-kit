@@ -13,6 +13,15 @@ import { ProgressAddon } from "@xterm/addon-progress";
 import { TerminalClient, SCROLLBACK_DESKTOP, SCROLLBACK_MOBILE } from "./terminal-client";
 import { COARSE_POINTER_QUERY } from "@/hooks/use-coarse-pointer";
 import type { OpenStreamOpts, RelayStream } from "@/lib/relay-mux";
+import { notifyFirstWrite } from "@/lib/window-transition";
+
+// The switch-receipt seam is module-global; spy on it so the receipt-source
+// tests can assert WHICH terminal reports (the real function is a no-op here —
+// no switch is ever armed in this file).
+vi.mock("@/lib/window-transition", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@/lib/window-transition")>();
+  return { ...mod, notifyFirstWrite: vi.fn() };
+});
 
 // ---------------------------------------------------------------------------
 // RelayMux mock — the terminals-mux transport (change 260717-803u-relay-mux).
@@ -1772,5 +1781,66 @@ describe("TerminalClient ctrl-wheel/pinch font zoom (260823-cwvv R7)", () => {
     // Crossing the accumulated threshold steps once.
     fireEvent(terminalDiv, new WheelEvent("wheel", { deltaY: -40, ctrlKey: true, bubbles: true, cancelable: true }));
     expect(Number(getByTestId("font-size").textContent)).toBe(before + 1);
+  });
+});
+
+describe("TerminalClient switch-receipt source — exactly one terminal reports notifyFirstWrite", () => {
+  function renderWith(switchReceiptSource: boolean | undefined) {
+    return render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <TerminalClient
+            sessionName="sess"
+            windowId="@0"
+            server="default"
+            wsRef={createWsRef()}
+            scrollLocked={false}
+            switchReceiptSource={switchReceiptSource}
+          />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+  }
+
+  function lastStream(): MockStream {
+    expect(MockStream.instances.length).toBeGreaterThan(0);
+    return MockStream.instances[MockStream.instances.length - 1];
+  }
+
+  beforeEach(() => {
+    stubConnectionEnv();
+    vi.mocked(notifyFirstWrite).mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("reports the receipt on each inbound frame when it is the route's receipt source", async () => {
+    renderWith(true);
+    await act(async () => {});
+    await act(async () => {});
+    const st = lastStream();
+    act(() => {
+      st.emitOpened();
+      st.emitData("ok");
+    });
+    expect(notifyFirstWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("never reports the receipt when it is not the receipt source (the default) — board panes, duplicate tty tiles, the operator console", async () => {
+    renderWith(undefined);
+    await act(async () => {});
+    await act(async () => {});
+    const st = lastStream();
+    act(() => {
+      st.emitOpened();
+      st.emitData("ok");
+      st.emitData("x".repeat(200));
+    });
+    expect(notifyFirstWrite).not.toHaveBeenCalled();
   });
 });

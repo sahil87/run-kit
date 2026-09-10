@@ -528,6 +528,25 @@ describe("SurfaceLayout per-window reset (server-keyed grid, windowId prop chang
     expect(screen.getByTestId("surface-tile-web").classList.contains("hidden")).toBe(false);
   });
 
+  it("keeps the NEW window's stored zoom when the OLD window's zoomed kind is absent from the new layout", () => {
+    // @1 is zoomed on web. @2's layout has no web tile but a valid stored
+    // zoom on code. The zoom reconciliation effect must not treat @1's
+    // now-homeless zoom as @2's and write `null` under @2's key.
+    const { rerender } = renderLayout({ layout: SPLIT });
+    fireEvent.click(screen.getByRole("button", { name: "Expand Web" }));
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBe("web");
+
+    localStorage.setItem("rk-layout-zoom:srv:@2", "code");
+    rerender(
+      layoutElement({ layout: { shape: "split-h", order: ["tty", "code"] }, windowId: "@2" }),
+    );
+    expect(localStorage.getItem("rk-layout-zoom:srv:@2")).toBe("code");
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(true);
+    expect(screen.getByTestId("surface-tile-code").classList.contains("hidden")).toBe(false);
+    // @1's own key is untouched too.
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBe("web");
+  });
+
   it("resets the focused slot to slot A and re-reports the kind exactly once", () => {
     const kindSpy = vi.fn();
     const { rerender } = renderLayout({ layout: SPLIT, onFocusedKindChange: kindSpy });

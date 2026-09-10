@@ -164,6 +164,15 @@ type TerminalClientProps = {
    * The scaffold does no throttling or rendering — consumers own both.
    */
   onProgressChange?: (state: number, value: number) => void;
+  /**
+   * When `true`, this terminal's inbound data frames report the window-switch
+   * first-write receipt (`notifyFirstWrite`) that releases the route's slide
+   * gate and lifts its spinner mask. The receipt is module-global, so exactly
+   * ONE terminal may report it: the terminal route's primary tty tile. Board
+   * panes, duplicate tty tiles, and the operator console leave it unset — their
+   * output must never confirm a switch of the window they are not showing.
+   */
+  switchReceiptSource?: boolean;
   scrollLocked?: boolean;
   /**
    * Lines of scrollback on the xterm buffer. Absent → device-split default
@@ -201,6 +210,7 @@ export function TerminalClient({
   serializeAddonRef,
   terminalRef: terminalSeamRef,
   onProgressChange,
+  switchReceiptSource = false,
   scrollLocked,
   scrollback,
   transparent = false,
@@ -834,6 +844,10 @@ export function TerminalClient({
   // and the server would SelectWindowInSession it, yanking the pane back).
   const windowIdRef = useRef(windowId);
   windowIdRef.current = windowId;
+  // Read inside the connect effect's data handler without being one of its
+  // deps (a role flip must never tear the stream down).
+  const switchReceiptSourceRef = useRef(switchReceiptSource);
+  switchReceiptSourceRef.current = switchReceiptSource;
 
   // The live RelayMux stream handle for the current connection. Held in a ref so
   // the same-session-ride effect below can update its re-open target without
@@ -1191,8 +1205,10 @@ export function TerminalClient({
       // flush still paints these bytes at the first rendering opportunity. The
       // receipt source is now the stream's first DATA frame (seam 1 of the
       // TerminalClient port), replacing the socket's `onmessage`. No-op when no
-      // transition is armed.
-      notifyFirstWrite();
+      // transition is armed. Only the route's designated receipt source
+      // reports (`switchReceiptSource`) — another mounted terminal's bytes are
+      // not evidence that THIS route's incoming window has painted.
+      if (switchReceiptSourceRef.current) notifyFirstWrite();
 
       if (canWriteImmediately(chunk.length)) {
         consumePendingReset();

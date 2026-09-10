@@ -884,7 +884,16 @@ export function SurfaceLayout({
     },
     [layout.order, server, windowId],
   );
+  // The window the zoom STATE belongs to. On a windowId change this effect
+  // runs (flipZoom's identity changes) BEFORE the per-window reset effect
+  // below has re-derived the zoom for the new window, so it would otherwise
+  // reconcile the OLD window's zoom against the NEW layout and — when the old
+  // kind is absent — write `null` under the NEW window's key, destroying a
+  // valid stored zoom. Skip reconciliation until the reset effect has handed
+  // the state over to the current window.
+  const zoomOwnerRef = useRef(`${server}:${windowId}`);
   useEffect(() => {
+    if (zoomOwnerRef.current !== `${server}:${windowId}`) return;
     if (zoomedIndex === null) return;
     const kind = zoomedKindRef.current;
     const slot = kind === null ? -1 : layout.order.indexOf(kind);
@@ -895,7 +904,7 @@ export function SurfaceLayout({
     // A reorder moved the zoomed kind: follow it (the key already holds the
     // kind, so no write).
     if (slot !== zoomedIndex) setZoomedIndex(slot);
-  }, [zoomedIndex, layout.order, flipZoom]);
+  }, [zoomedIndex, layout.order, flipZoom, server, windowId]);
   const zoomed = zoomedIndex !== null;
 
   // Zoom flip reporting for the palette seam (T012/R11): the `Layout: Expand`/
@@ -1298,6 +1307,9 @@ export function SurfaceLayout({
     const zoomSlot = storedKind ? layout.order.indexOf(storedKind) : -1;
     setZoomedIndex(zoomSlot >= 0 ? zoomSlot : null);
     zoomedKindRef.current = zoomSlot >= 0 && storedKind ? storedKind : null;
+    // Hand the zoom state over to this window — the reconciliation effect
+    // above stays inert until this runs.
+    zoomOwnerRef.current = key;
 
     // Focused slot: back to slot A, re-reported through the deduped seam —
     // the ref clear makes the report fire even when the kind is unchanged
@@ -1451,6 +1463,7 @@ export function SurfaceLayout({
               sessionName={sessionName}
               windowId={windowId}
               server={server}
+              switchReceiptSource={primaryTty}
               wsRef={primaryTty ? wsRef : extraTtyWsRef}
               onSessionNotFound={primaryTty ? onSessionNotFound : undefined}
               focusRef={primaryTty ? focusRef : undefined}

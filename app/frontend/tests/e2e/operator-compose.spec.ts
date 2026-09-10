@@ -210,14 +210,17 @@ test.describe("Operator compose (260822-wyn3)", () => {
   /**
    * Proves: the degrade-to-absent gate — with no `role: "operator"` window in
    * the sessions payload, both compose-dialog `Operator:` palette entries are
-   * omitted (not disabled). `Operator: Open console` is deliberately ungated —
-   * the console itself opens and shows the no-operator hint — so it remains
-   * the one listed `Operator:` entry.
+   * omitted (not disabled). The two console openers — `Operator: Open
+   * console` and its Activity-segment twin `Operator: Show clock activity` —
+   * are deliberately ungated: the console itself opens and shows the
+   * no-operator hint (and the cron clock is server-wide, operator or not), so
+   * they remain the only listed `Operator:` entries.
    *
    * Steps:
    * 1. Mock the backend WITHOUT an operator window.
    * 2. Open the palette, filter to `Operator:`.
-   * 3. Assert both compose entries are absent and only `Open console` remains.
+   * 3. Assert both compose entries are absent and only the two console
+   *    openers remain.
    */
   test("compose palette entries are omitted when the server has no operator window", async ({ page }) => {
     await mockBackend(page, false);
@@ -226,7 +229,8 @@ test.describe("Operator compose (260822-wyn3)", () => {
     await openPaletteWith(page, "Operator:");
     await expect(page.getByRole("option", { name: "Operator: Spawn task…" })).toHaveCount(0);
     await expect(page.getByRole("option", { name: "Operator: Find discussion…" })).toHaveCount(0);
-    await expect(page.getByRole("option", { name: /^Operator:/ })).toHaveCount(1);
+    await expect(page.getByRole("option", { name: /^Operator:/ })).toHaveCount(2);
     await expect(page.getByRole("option", { name: "Operator: Open console" })).toHaveCount(1);
+    await expect(page.getByRole("option", { name: "Operator: Show clock activity" })).toHaveCount(1);
   });
 });

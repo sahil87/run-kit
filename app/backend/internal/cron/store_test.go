@@ -710,6 +710,35 @@ func TestUpdateMergesFields(t *testing.T) {
 		}
 	})
 
+	t.Run("apply cannot move identity fields", func(t *testing.T) {
+		dir := t.TempDir()
+		e := newEntry(t, dir)
+		path := filepath.Join(dir, "dev.yaml")
+		before := mustOnlyEntry(t, path)
+
+		merged, ok, err := Update(dir, "dev", e.ID, func(e *Entry) {
+			e.ID = "zzzz"
+			e.Target = Target{Kind: TargetPane, Pane: "%99"}
+			e.CreatedBy = CreatedBy{}
+			e.Muted = true
+			e.MutedUntil = 123
+			e.Pinned = true
+			e.Name = "renamed"
+		})
+		if err != nil || !ok {
+			t.Fatalf("Update: ok=%v err=%v", ok, err)
+		}
+		if merged.Name != "renamed" {
+			t.Errorf("merged.Name = %q, want the apply's edit kept", merged.Name)
+		}
+		after := mustOnlyEntry(t, path)
+		if after.ID != before.ID || after.Target != before.Target ||
+			after.CreatedBy != before.CreatedBy || after.Muted != before.Muted ||
+			after.MutedUntil != before.MutedUntil || after.Pinned != before.Pinned {
+			t.Errorf("identity fields moved:\nbefore %+v\nafter  %+v", before, after)
+		}
+	})
+
 	t.Run("corrupt file refuses to mutate", func(t *testing.T) {
 		dir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(dir, "dev.yaml"), []byte("{{{{"), 0o600); err != nil {

@@ -238,12 +238,12 @@ func Remove(dir, slug, id string) (bool, error) {
 }
 
 // Update merges caller edits into the entry with the given id: apply mutates a
-// copy of the stored entry, and the merged entry must pass validate() and
+// copy of the stored entry, identity and flag fields (ID, Target, CreatedBy,
+// Muted, MutedUntil, Pinned) are then restored from the stored entry so no
+// apply can move them, and the merged entry must pass validate() and
 // ValidateRespawnIntent before anything is written — a failing merge returns
 // the error and leaves the file untouched. Returns (Entry{}, false, nil) when
-// absent (the Remove shape). Update writes no fields of its own; identity and
-// flag fields (ID, Target, CreatedBy, Muted, MutedUntil, Pinned) survive
-// because the caller's apply leaves them alone.
+// absent (the Remove shape). Update writes no fields of its own.
 func Update(dir, slug, id string, apply func(*Entry)) (Entry, bool, error) {
 	path, entries, err := loadForMutate(dir, slug)
 	if err != nil {
@@ -255,6 +255,12 @@ func Update(dir, slug, id string, apply func(*Entry)) (Entry, bool, error) {
 		}
 		merged := e
 		apply(&merged)
+		merged.ID = e.ID
+		merged.Target = e.Target
+		merged.CreatedBy = e.CreatedBy
+		merged.Muted = e.Muted
+		merged.MutedUntil = e.MutedUntil
+		merged.Pinned = e.Pinned
 		if err := merged.validate(); err != nil {
 			return Entry{}, false, &EntryValidationError{Err: err}
 		}

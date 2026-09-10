@@ -43,10 +43,10 @@ func TestLastDeliveryAndOwnDeliveries(t *testing.T) {
 	}
 }
 
-// TestScheduleHistoryCutsAtReschedule: own lines at or before the entry's
-// newest `rescheduled` line are excluded (the boundary line included), later
-// lines kept; another entry's `rescheduled` line is not a boundary; with no
-// boundary the view equals OwnDeliveries.
+// TestScheduleHistoryCutsAtReschedule: own lines newer than the entry's
+// newest `rescheduled` line are kept (the boundary line itself is excluded);
+// another entry's `rescheduled` line is not a boundary; with no boundary the
+// view equals OwnDeliveries.
 func TestScheduleHistoryCutsAtReschedule(t *testing.T) {
 	lines := ParseLog([]byte(`{"ts":100,"entry":"a3f9","target":"%12","reason":"schedule","outcome":"delivered"}
 {"ts":200,"entry":"a3f9","reason":"edit","outcome":"rescheduled"}

@@ -1040,4 +1040,27 @@ func TestCronEditRoute(t *testing.T) {
 		}
 		expectNoWake(t, tracker, before, "cron edit max<min rejected")
 	})
+
+	t.Run("a non-respawn ifAbsent clears a carried respawn argv", func(t *testing.T) {
+		dir := setupCronState(t)
+		writeCronEntries(t, dir, "default", `entries:
+  - id: ed01
+    name: operator tick
+    schedule: {kind: backoff, min: 60s, max: 30m}
+    target: {kind: role, role: operator}
+    payload: tick
+    if_absent: respawn
+    respawn: [rk, operator]
+`)
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		router := server.buildRouter()
+		rec := postCronEdit(t, router, `{"id":"ed01","ifAbsent":"skip","respawn":["rk","operator","-L","{server}"]}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		entries := loadCronEntries(t, dir, "default")
+		if len(entries) != 1 || entries[0].IfAbsent != cron.IfAbsentSkip || entries[0].Respawn != nil {
+			t.Errorf("stored entries = %+v, want ifAbsent skip with the respawn argv cleared", entries)
+		}
+	})
 }

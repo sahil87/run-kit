@@ -60,7 +60,7 @@ func Edit(dir, slug, id string, now time.Time, apply func(*Entry)) (Entry, bool,
 	}
 	logPath, err := LogPath(dir, slug)
 	if err != nil {
-		return Entry{}, false, err
+		return merged, true, err
 	}
 	if err := AppendLog(logPath, LogLine{TS: now.Unix(), Entry: id, Reason: "edit", Outcome: "rescheduled"}); err != nil {
 		return merged, true, err

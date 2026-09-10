@@ -553,17 +553,18 @@ func (s *Server) handleCronEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.IfAbsent != nil {
 			e.IfAbsent = *body.IfAbsent
-			// An argv without the respawn policy is dead weight — setting
-			// ifAbsent to a non-respawn value clears it (the CLI's rule).
-			if *body.IfAbsent != cron.IfAbsentRespawn && body.Respawn == nil {
-				e.Respawn = nil
-			}
 		}
 		if body.Respawn != nil {
 			e.Respawn = *body.Respawn
 			if len(e.Respawn) == 0 {
 				e.Respawn = nil
 			}
+		}
+		// An argv without the respawn policy is dead weight: whatever the
+		// request carried, a merged non-respawn ifAbsent clears it (the
+		// CLI's rule, enforced post-merge so the two keys cannot drift).
+		if e.IfAbsent != cron.IfAbsentRespawn {
+			e.Respawn = nil
 		}
 	})
 	if err != nil {

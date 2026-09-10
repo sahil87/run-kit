@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-10T08:12:22Z"}
+{"args":"Help topics submenu: preselected help pages (status dot, cron schedule kinds, boards, notifications, fab-kit merge topologies, FKF) as chevron-menu Help rows + palette twins, opening as a web tab in the current window","cmd":"fab-new","event":"command","ts":"2026-09-10T08:12:22Z"}
+{"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-09-10T08:14:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-10T08:25:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-10T08:43:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-10T08:48:17Z"}
+{"event":"review","result":"passed","ts":"2026-09-10T08:48:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-10T08:56:31Z"}

@@ -171,7 +171,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, fetchCodeBridge, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, fetchCodeBridge, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions } from "@/lib/palette/cron";
 import { CronCreateDialog } from "@/components/cron-create-dialog";
@@ -192,6 +192,7 @@ import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-c
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useCodeWorkspace } from "@/hooks/use-code-workspace";
 import { useToast } from "@/components/toast";
+import { HELP_TOPIC_EVENT, isHelpTopic } from "@/lib/help-topics";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { useShellNotifications } from "@/hooks/use-shell-notifications";
@@ -1395,6 +1396,43 @@ function AppShell() {
     },
     [layout, applyLayout, server, windowParam],
   );
+
+  // Help topics arrive on the cancelable `rk:help-topic` window event
+  // (lib/help-topics): the chevron menu and the global palette that dispatch
+  // it mount at the root with no layout access, so this shell — the owner of
+  // the current window's layout — is the in-tile handler. Cancelling
+  // SYNCHRONOUSLY suppresses the dispatcher's browser-tab fallback; the async
+  // work then mirrors `rk present` (add the tab → ensure a web surface →
+  // select the tab). The server dedupes an identical stored address, so a
+  // re-open selects the existing tab instead of growing the family. A layout
+  // that cannot grow (three tiles, no web) still keeps the added tab for
+  // later but opens a browser tab now rather than no-oping. Registered only
+  // while a window is current: off the terminal route nobody cancels and the
+  // dispatcher opens a browser tab itself.
+  useEffect(() => {
+    if (!windowParam) return;
+    const handleHelpTopic = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !isHelpTopic(event.detail)) return;
+      const topic = event.detail;
+      event.preventDefault();
+      void (async () => {
+        const { index } = await addWebTab(server, windowParam, topic.url);
+        const hasWeb = layout.order.includes("web");
+        const grown = hasWeb ? null : addSurface(layout, "web");
+        if (!hasWeb && grown === null) {
+          window.open(topic.url, "_blank", "noopener,noreferrer");
+          return;
+        }
+        // Mobile grows the shared layout through the same add mutation AND
+        // writes the per-viewer zoom key so the phone shows the tile.
+        if (isMobile) switchToTile("web");
+        else if (grown) applyLayout(grown);
+        await selectWebTab(server, windowParam, index);
+      })().catch((err: Error) => addToast(err.message || "Failed to open help topic", "error"));
+    };
+    window.addEventListener(HELP_TOPIC_EVENT, handleHelpTopic);
+    return () => window.removeEventListener(HELP_TOPIC_EVENT, handleHelpTopic);
+  }, [server, windowParam, isMobile, layout, applyLayout, switchToTile, addToast]);
 
   // Switch-group/palette gating: a not-open surface whose growth is
   // disallowed (`addSurface` → null, e.g. 3 tiles already) renders disabled

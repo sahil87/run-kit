@@ -12,6 +12,7 @@ import { useToast } from "@/components/toast";
 import { deleteCron, getCron, muteCron, type CronEntry } from "@/api/client";
 import type { PaletteAction } from "@/components/command-palette";
 import { HELP_URL } from "@/components/global-chrome";
+import { HELP_TOPICS, helpTopicActionId, helpTopicPaletteLabel, openHelpTopic } from "@/lib/help-topics";
 import { withShortcutHints } from "@/lib/keybindings";
 import { canCloseShellWindow, canNewShellWindow, closeShellWindow, newShellWindow } from "@/lib/shell";
 import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
@@ -154,6 +155,20 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       },
     }),
     [settingsOpen, settingsTab, openSettings, closeSettings],
+  );
+
+  // Help topics — one `Help: <topic>` twin per curated docs page, so the
+  // chevron menu's Help topics rows are palette-reachable (Constitution V).
+  // Route-agnostic: `openHelpTopic` opens in the current window's web tile
+  // when a shell claims the event, else in a browser tab. No chords.
+  const helpTopicActions: PaletteAction[] = useMemo(
+    () =>
+      HELP_TOPICS.map((topic) => ({
+        id: helpTopicActionId(topic),
+        label: helpTopicPaletteLabel(topic),
+        onSelect: () => openHelpTopic(topic),
+      })),
+    [],
   );
 
   // Settings dialog (o7q8): the palette is the primary keyboard path. The
@@ -473,10 +488,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, operatorConsoleEntry, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, operatorConsoleEntry, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, operatorConsoleEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, operatorConsoleEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
   );
 }

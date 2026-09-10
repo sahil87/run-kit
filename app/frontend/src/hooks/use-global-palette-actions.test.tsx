@@ -7,6 +7,7 @@ import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-d
 import { ToastProvider } from "@/components/toast";
 import { registerSidebarRowFocuser } from "@/lib/sidebar-events";
 import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
+import { HELP_TOPICS, openHelpTopic } from "@/lib/help-topics";
 
 /**
  * Tests for the layout-level global palette groups (260811-239r) — the hook
@@ -37,6 +38,14 @@ vi.mock("@/api/client", () => ({
   deleteCron: vi.fn().mockResolvedValue({ ok: true }),
 }));
 import { getCron, muteCron, deleteCron } from "@/api/client";
+
+// The help-topic twins' only seam is `openHelpTopic`; the registry stays real
+// so the ids/labels under test are the shipped ones.
+vi.mock("@/lib/help-topics", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/help-topics")>();
+  return { ...actual, openHelpTopic: vi.fn() };
+});
+const mockOpenHelpTopic = vi.mocked(openHelpTopic);
 const mockGetCron = vi.mocked(getCron);
 const mockMuteCron = vi.mocked(muteCron);
 const mockDeleteCron = vi.mocked(deleteCron);
@@ -101,6 +110,12 @@ describe("useGlobalPaletteActions", () => {
       "refresh-page",
       "help-documentation",
       "shortcuts-overlay",
+      "help-topic-status-dot",
+      "help-topic-cron-schedule-kinds",
+      "help-topic-boards",
+      "help-topic-notifications",
+      "help-topic-merge-topologies",
+      "help-topic-fkf",
       "settings-open",
       "settings-appearance",
       "settings-all",
@@ -173,6 +188,18 @@ describe("useGlobalPaletteActions", () => {
     expect(entry?.label).toBe("Settings: All");
     act(() => entry?.onSelect());
     expect(dialogState).toEqual({ isOpen: true, activeTab: "all" });
+  });
+
+  it("registers one Help: <topic> action per registry entry, each opening through openHelpTopic", () => {
+    renderHook();
+    const byId = new Map(captured.map((a) => [a.id, a]));
+    const topicActions = HELP_TOPICS.map((t) => byId.get(`help-topic-${t.id}`));
+    expect(topicActions.map((a) => a?.label)).toEqual(HELP_TOPICS.map((t) => `Help: ${t.label}`));
+    // No chord is bound to any topic — the palette is their keyboard path.
+    for (const a of topicActions) expect(a?.shortcut).toBeUndefined();
+    byId.get("help-topic-fkf")?.onSelect();
+    const fkf = HELP_TOPICS.find((t) => t.id === "fkf");
+    expect(mockOpenHelpTopic).toHaveBeenCalledExactlyOnceWith(fkf);
   });
 
   it("renders the global entries through the palette (id/label identity)", () => {

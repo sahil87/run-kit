@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
-import { TopBarOverflowMenu } from "./top-bar-overflow-menu";
+import { HelpTopicsMenuRow, TopBarOverflowMenu, type OverflowMenuRow } from "./top-bar-overflow-menu";
 import { ToastProvider } from "@/components/toast";
+import { HELP_TOPICS, openHelpTopic } from "@/lib/help-topics";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import type { SessionContextType, UpdateAvailable, UpdateTool } from "@/contexts/session-context";
 import { checkForUpdates } from "@/api/client";
@@ -14,6 +15,14 @@ vi.mock("@/api/client", async (importOriginal) => {
   return { ...actual, checkForUpdates: vi.fn() };
 });
 const checkForUpdatesMock = vi.mocked(checkForUpdates);
+
+// Partial-mock the help-topics module: the row's activation seam is the only
+// intercept; the registry itself stays real so the rows render the real list.
+vi.mock("@/lib/help-topics", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/help-topics")>();
+  return { ...actual, openHelpTopic: vi.fn() };
+});
+const openHelpTopicMock = vi.mocked(openHelpTopic);
 
 afterEach(() => {
   cleanup();
@@ -36,12 +45,12 @@ const emptyResult: UpdateCheckResult = { tools: [], key: "", source: "released" 
 
 function renderMenu(
   sessionValue: Partial<SessionContextType>,
-  { updateOverflowed = false }: { updateOverflowed?: boolean } = {},
+  { updateOverflowed = false, rows = [] }: { updateOverflowed?: boolean; rows?: OverflowMenuRow[] } = {},
 ) {
   return render(
     <ToastProvider>
       <StandaloneSessionContextProvider value={sessionValue}>
-        <TopBarOverflowMenu rows={[]} updateOverflowed={updateOverflowed} />
+        <TopBarOverflowMenu rows={rows} updateOverflowed={updateOverflowed} />
       </StandaloneSessionContextProvider>
     </ToastProvider>,
   );
@@ -179,5 +188,107 @@ describe("version-row check affordance (260720-ml7k)", () => {
     expect(within(menu).getByText("RunKit v0.5.3")).toBeInTheDocument();
     expect(within(menu).queryByText(/⬆/)).not.toBeInTheDocument();
     expect(within(menu).getByLabelText("Check for updates")).toBeInTheDocument();
+  });
+});
+
+describe("HelpTopicsMenuRow", () => {
+  const helpTopicsRow = (external: boolean): OverflowMenuRow => ({
+    id: "help-topics",
+    group: "app",
+    node: <HelpTopicsMenuRow external={external} />,
+  });
+
+  function disclosure() {
+    return screen.getByRole("menuitem", { name: "Help topics" });
+  }
+
+  function topicRows() {
+    const group = screen.queryByRole("group", { name: "Help topics" });
+    return group ? within(group).getAllByRole("menuitem") : [];
+  }
+
+  it("renders collapsed by default with a trailing ▸ and no topic rows", () => {
+    renderMenu({ daemonVersion: "0.6.2", updateAvailable: null }, { rows: [helpTopicsRow(false)] });
+    openMenu();
+    expect(disclosure()).toHaveAttribute("aria-expanded", "false");
+    expect(disclosure()).toHaveTextContent("▸");
+    expect(screen.queryByRole("group", { name: "Help topics" })).not.toBeInTheDocument();
+  });
+
+  it("click expands to the six registry rows in order and keeps the menu open", () => {
+    renderMenu({ daemonVersion: "0.6.2", updateAvailable: null }, { rows: [helpTopicsRow(false)] });
+    openMenu();
+    fireEvent.click(disclosure());
+    expect(disclosure()).toHaveAttribute("aria-expanded", "true");
+    expect(disclosure()).toHaveTextContent("▾");
+    expect(disclosure()).toHaveAttribute(
+      "aria-controls",
+      screen.getByRole("group", { name: "Help topics" }).id,
+    );
+    expect(topicRows().map((r) => r.textContent?.replace(/fab-kit|↗/g, "").trim())).toEqual(
+      HELP_TOPICS.map((t) => t.label),
+    );
+    // The disclosure is not a terminal action: the menu must survive the click.
+    expect(screen.getByRole("menu", { name: "More controls" })).toBeInTheDocument();
+  });
+
+  it("a second click collapses; ArrowRight expands and ArrowLeft collapses", () => {
+    renderMenu({ daemonVersion: "0.6.2", updateAvailable: null }, { rows: [helpTopicsRow(false)] });
+    openMenu();
+    fireEvent.click(disclosure());
+    expect(topicRows()).toHaveLength(6);
+    fireEvent.click(disclosure());
+    expect(topicRows()).toHaveLength(0);
+    expect(disclosure()).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.keyDown(disclosure(), { key: "ArrowRight" });
+    expect(topicRows()).toHaveLength(6);
+    fireEvent.keyDown(disclosure(), { key: "ArrowLeft" });
+    expect(topicRows()).toHaveLength(0);
+    expect(disclosure()).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("ArrowLeft from a topic row collapses the group and refocuses the disclosure", () => {
+    renderMenu({ daemonVersion: "0.6.2", updateAvailable: null }, { rows: [helpTopicsRow(false)] });
+    openMenu();
+    fireEvent.click(disclosure());
+    const boards = screen.getByRole("menuitem", { name: "Boards" });
+    boards.focus();
+    fireEvent.keyDown(boards, { key: "ArrowLeft" });
+    expect(topicRows()).toHaveLength(0);
+    expect(document.activeElement).toBe(disclosure());
+  });
+
+  it("shows no ↗ in terminal mode (external=false) and ↗ on every row otherwise", () => {
+    renderMenu({ daemonVersion: "0.6.2", updateAvailable: null }, { rows: [helpTopicsRow(false)] });
+    openMenu();
+    fireEvent.click(disclosure());
+    for (const row of topicRows()) expect(row).not.toHaveTextContent("↗");
+    cleanup();
+
+    renderMenu({ daemonVersion: "0.6.2", updateAvailable: null }, { rows: [helpTopicsRow(true)] });
+    openMenu();
+    fireEvent.click(disclosure());
+    const rows = topicRows();
+    expect(rows).toHaveLength(6);
+    for (const row of rows) expect(row).toHaveTextContent("↗");
+  });
+
+  it("tags the two fab-kit rows and none of the run-kit rows", () => {
+    renderMenu({ daemonVersion: "0.6.2", updateAvailable: null }, { rows: [helpTopicsRow(false)] });
+    openMenu();
+    fireEvent.click(disclosure());
+    const tagged = topicRows().filter((r) => within(r).queryByText("fab-kit") !== null);
+    expect(tagged.map((r) => r.textContent)).toEqual(["Merge topologiesfab-kit", "FKFfab-kit"]);
+  });
+
+  it("clicking a topic opens it through openHelpTopic and closes the menu", () => {
+    renderMenu({ daemonVersion: "0.6.2", updateAvailable: null }, { rows: [helpTopicsRow(false)] });
+    openMenu();
+    fireEvent.click(disclosure());
+    fireEvent.click(screen.getByRole("menuitem", { name: "Boards" }));
+    const boards = HELP_TOPICS.find((t) => t.id === "boards");
+    expect(openHelpTopicMock).toHaveBeenCalledExactlyOnceWith(boards);
+    expect(screen.queryByRole("menu", { name: "More controls" })).not.toBeInTheDocument();
   });
 });

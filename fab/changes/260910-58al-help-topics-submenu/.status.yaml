@@ -1,0 +1,55 @@
+id: 58al
+name: 260910-58al-help-topics-submenu
+created: 2026-09-10T08:12:22Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 20
+    acceptance_completed: 20
+confidence:
+    certain: 7
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.2
+    fuzzy: true
+    dimensions:
+        signal: 70.4
+        reversibility: 89.6
+        competence: 80.8
+        disambiguation: 76.3
+stage_metrics:
+    intake: {started_at: "2026-09-10T08:12:22Z", driver: fab-new, iterations: 1, completed_at: "2026-09-10T08:25:50Z"}
+    apply: {started_at: "2026-09-10T08:25:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T08:43:01Z"}
+    review: {started_at: "2026-09-10T08:43:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T08:48:17Z"}
+    hydrate: {started_at: "2026-09-10T08:48:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T08:56:31Z"}
+    ship: {started_at: "2026-09-10T08:56:31Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 3
+    deleted: 2
+    net: 1
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-10T08:56:31Z"
+    computed_at_stage: hydrate
+change_type_source: explicit
+summary: 'adds a Help topics inline disclosure (six shll.ai docs pages) to the chevron menu''s App section with Help: <topic> palette twins, opened in the current window''s web tile via the cancelable rk:help-topic event (addWebTab → ensure web surface → selectWebTab) with a browser-tab fallback off the terminal route or on a full layout'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-10T08:56:31Z

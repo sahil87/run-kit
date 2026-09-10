@@ -21,6 +21,7 @@ import { activePaneCwd, buildOpenTargets } from "@/lib/open-in-app";
 import {
   TopBarOverflowMenu,
   HelpMenuRow,
+  HelpTopicsMenuRow,
   KeyboardMenuRow,
   OperatorConsoleMenuRow,
   type OverflowMenuRow,
@@ -926,6 +927,17 @@ export function TopBar({
       menuGroup: "app",
       barRender: () => null,
       menuRender: () => <HelpMenuRow />,
+    },
+    // Help topics — the curated docs pages, expanded inline under the Help
+    // row. `external` is true off the terminal route: no window owns a web
+    // tile there, so a topic opens a browser tab and the rows show ↗.
+    {
+      id: "help-topics",
+      modes: ["terminal", "board", "server", "host"],
+      menuOnly: true,
+      menuGroup: "app",
+      barRender: () => null,
+      menuRender: () => <HelpTopicsMenuRow external={mode !== "terminal"} />,
     },
     {
       id: "keyboard",

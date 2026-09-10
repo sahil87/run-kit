@@ -2,8 +2,10 @@ import {
   useState,
   useRef,
   useEffect,
+  useId,
   useLayoutEffect,
   useCallback,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
 import { useUpdateNotification } from "@/contexts/session-context";
@@ -18,6 +20,7 @@ import { Tip } from "@/components/tip";
 import { HELP_URL, HelpIcon } from "@/components/global-chrome";
 import { HeadsetIcon, KeyboardIcon } from "@/components/sidebar/icons";
 import { requestOperatorConsole } from "@/lib/operator-console";
+import { HELP_TOPICS, openHelpTopic } from "@/lib/help-topics";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
@@ -89,6 +92,98 @@ export function HelpMenuRow() {
       <span className="flex-1">Help — run-kit docs</span>
       <span aria-hidden="true">↗</span>
     </a>
+  );
+}
+
+/**
+ * Help topics — an inline disclosure of the curated `HELP_TOPICS` pages. The
+ * menu is a single-level `role="menu"` list with no submenu primitive, so the
+ * topics expand IN PLACE (the row toggles a `role="group"` beneath it) rather
+ * than in a second popover. The expanded state is component-local: the menu
+ * unmounts its rows on close, so it always reopens collapsed.
+ *
+ * `external` — true outside terminal mode, where no window owns a web tile and
+ * a topic opens a browser tab; the rows then carry the same `↗` the Help row
+ * uses. Inside terminal mode the shell handles the open in-tile and the rows
+ * show no glyph. The decision itself lives in `openHelpTopic`'s cancelable
+ * event, not here — the prop only keeps the glyph honest.
+ *
+ * Keyboard: Enter/Space (native click) and ArrowRight expand, ArrowLeft
+ * collapses (from the disclosure or from any topic row, refocusing the
+ * disclosure); ArrowUp/Down stay the menu's — the topic buttons are ordinary
+ * focusables in its flat navigation list. Escape keeps closing the whole
+ * menu. A topic row IS a terminal `role="menuitem"`, so the container's
+ * role-keyed dismissal closes the menu after it fires.
+ */
+export function HelpTopicsMenuRow({ external }: { external: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const groupId = useId();
+  const disclosureRef = useRef<HTMLButtonElement>(null);
+
+  const collapse = useCallback(() => {
+    setExpanded(false);
+    disclosureRef.current?.focus();
+  }, []);
+
+  const handleDisclosureKey = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === "ArrowRight" && !expanded) {
+      e.preventDefault();
+      e.stopPropagation();
+      setExpanded(true);
+    } else if (e.key === "ArrowLeft" && expanded) {
+      e.preventDefault();
+      e.stopPropagation();
+      collapse();
+    }
+  };
+
+  const handleGroupKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      e.stopPropagation();
+      collapse();
+    }
+  };
+
+  return (
+    <>
+      <button
+        ref={disclosureRef}
+        type="button"
+        role="menuitem"
+        tabIndex={-1}
+        aria-expanded={expanded}
+        aria-controls={expanded ? groupId : undefined}
+        data-menu-disclosure
+        onClick={() => setExpanded((v) => !v)}
+        onKeyDown={handleDisclosureKey}
+        className={controlClass({ variant: "menu-row" })}
+      >
+        <HelpIcon />
+        <span className="flex-1">Help topics</span>
+        <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>
+      </button>
+      {expanded && (
+        <div id={groupId} role="group" aria-label="Help topics" className="pl-4" onKeyDown={handleGroupKey}>
+          {HELP_TOPICS.map((topic) => (
+            <button
+              key={topic.id}
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              onClick={() => openHelpTopic(topic)}
+              className={controlClass({ variant: "menu-row" })}
+            >
+              <span className="flex-1">{topic.label}</span>
+              {topic.tool !== "run-kit" && (
+                <span className="text-[10px] text-text-secondary">{topic.tool}</span>
+              )}
+              {external && <span aria-hidden="true">↗</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -476,12 +571,16 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
       // stepping the font does NOT match and the menu stays open across repeated
       // steps. Checkbox toggles (fixed-width, autofit) and layout-shape radio
       // rows (LayoutMenuRows) DO close, matching a single-shot menu action.
+      // A `data-menu-disclosure` menuitem (the Help topics row) is exempt: it
+      // toggles an inline group, so its click must leave the menu open.
       onClick={(e) => {
         const t = e.target as HTMLElement;
+        const item = t.closest('[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]');
         if (
           open &&
           menuRef.current?.contains(t) &&
-          t.closest('[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]')
+          item &&
+          !item.hasAttribute("data-menu-disclosure")
         ) {
           close();
         }

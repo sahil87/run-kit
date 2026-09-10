@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 17
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-10T22:56:00Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-10T23:00:18Z"}
     review: {started_at: "2026-09-10T23:00:18Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-10T23:04:07Z"}
     hydrate: {started_at: "2026-09-10T23:04:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T23:16:30Z"}
-    ship: {started_at: "2026-09-10T23:16:30Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-10T23:16:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T23:17:47Z"}
+    review-pr: {started_at: "2026-09-10T23:17:47Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/931
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 3355
+    deleted: 297
+    net: 3058
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 2934
+        deleted: 270
+        net: 2664
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-10T23:16:30Z"
-    computed_at_stage: hydrate
+        added: 1041
+        deleted: 32
+        net: 1009
+    computed_at: "2026-09-10T23:17:47Z"
+    computed_at_stage: ship
 summary: 'gui tile: rk-gui-zoom ladder (sized-host rendering, pan, 1.5s badge, Ctrl+=/−/0 + Ctrl+wheel guiOnly chords), trackpad/touch pointer modes (capture-phase synthetic-event layer), coarse key bar with latching modifiers; rk-gui-view retired into the zoom posture'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-10T23:16:30Z
+last_updated: 2026-09-10T23:17:47Z

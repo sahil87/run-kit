@@ -354,10 +354,14 @@ export function CodeSurface({
         gen.timer = null;
         const decide = fetchBridgeRef.current;
         if (!decide) return;
+        // Settle BEFORE the verdict fetch: `arm`'s guard reads `settled`, and
+        // leaving it false until the promise resolves would let a second
+        // `load` during a slow GET arm another timer — a second verdict read
+        // and a possible double reload. One verdict fetch per generation.
+        gen.settled = true;
         decide()
           .then((res) => {
             if (!alive) return;
-            gen.settled = true;
             const decision = decideRescue({
               baseline: gen.baseline,
               current: res.status === "ok" ? res.startedAt : null,
@@ -378,9 +382,8 @@ export function CodeSurface({
             }
           })
           .catch(() => {
-            // A throwing injected fetcher fails closed; the generation settles
-            // so it never retries into a second decision.
-            gen.settled = true;
+            /* a throwing injected fetcher fails closed — the generation is
+               already settled, so it never retries into a second decision */
           });
       }, CODE_BOOT_RESCUE_WAIT_MS);
     };

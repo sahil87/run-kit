@@ -411,6 +411,32 @@ describe("CodeSurface", () => {
       expect(warn).toHaveBeenCalledTimes(1);
     });
 
+    it("a load during the in-flight verdict fetch never arms a second timer", async () => {
+      let resolveVerdict: (r: CodeBridgeResult) => void = () => {};
+      const fetcher = vi
+        .fn<() => Promise<CodeBridgeResult>>()
+        .mockResolvedValueOnce(ok("")) // baseline
+        .mockImplementationOnce(
+          () => new Promise<CodeBridgeResult>((res) => (resolveVerdict = res)),
+        ); // verdict GET hangs
+      const { getByTitle } = render(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} fetchBridgeStatus={fetcher} />,
+      );
+      const iframe = getByTitle("Code editor");
+      const reload = stubReload(iframe);
+      await flushBaseline();
+      fireEvent.load(iframe);
+      await expireWait();
+      expect(fetcher).toHaveBeenCalledTimes(2); // verdict fetch in flight
+      // A second load while the verdict GET is still pending must not re-arm.
+      fireEvent.load(iframe);
+      await expireWait(CODE_BOOT_RESCUE_WAIT_MS * 2);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      resolveVerdict(ok(""));
+      await act(async () => {});
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+
     it("a reachability-flip remount starts a fresh generation: new baseline read, budget restored", async () => {
       const fetcher = vi.fn<() => Promise<CodeBridgeResult>>().mockResolvedValue(ok(""));
       const { rerender, getByTitle } = render(

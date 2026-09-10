@@ -32,6 +32,10 @@ var (
 	guiSuperviseTmuxTimeout = 5 * time.Second
 	// guiRootBackgroundTimeout bounds the one-shot xsetroot run.
 	guiRootBackgroundTimeout = 5 * time.Second
+	// guiWMStopTimeout bounds a session starter's SIGTERM grace period before
+	// teardown escalates to a group SIGKILL (lxqt-session's module shutdown
+	// finishes in well under a second).
+	guiWMStopTimeout = 5 * time.Second
 	// guiScreenSharingInterval is the darwin probe cadence.
 	guiScreenSharingInterval = time.Minute
 )
@@ -75,12 +79,24 @@ var guiSuperviseStartBackend = func(ctx context.Context, argv []string) (*exec.C
 // guiSuperviseStartWM starts the window manager with DISPLAY set in its env —
 // the tmux window's env does not carry the rk-managed display. extraEnv adds
 // rung-specific variables (the icewm rung's ICEWM_PRIVCFG); nil for every
-// other rung.
-var guiSuperviseStartWM = func(ctx context.Context, argv []string, display string, extraEnv []string) (*exec.Cmd, error) {
+// other rung. ownGroup (session starters under dbus-run-session) puts the
+// child in its own process group so teardown can signal the whole tree —
+// killing the wrapper alone orphans dbus-daemon and the session's modules —
+// and overrides Cancel so a ctx cancel SIGTERMs the group instead of the
+// default direct-child SIGKILL. WaitDelay is a backstop for the wrapper only
+// (it kills the direct child, never the group), so it sits at twice
+// guiWMStopTimeout: guiStopWM's group SIGKILL must always fire first, or a
+// TERM-ignoring session would lose its escalation and be orphaned again.
+var guiSuperviseStartWM = func(ctx context.Context, argv []string, display string, extraEnv []string, ownGroup bool) (*exec.Cmd, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Env = append(os.Environ(), append([]string{"DISPLAY=" + display}, extraEnv...)...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	if ownGroup {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
+		cmd.WaitDelay = 2 * guiWMStopTimeout
+	}
 	return cmd, cmd.Start()
 }
 
@@ -117,8 +133,8 @@ func guiNoWMLine(hint string) string {
 		strings.Join(gui.WMLadder(), ", "), hint)
 }
 
-func guiPinMissLine(pin string) string {
-	return fmt.Sprintf("gui: gui.wm=%s not on PATH; falling back to the ladder", pin)
+func guiPinMissLine(pin, hint string) string {
+	return fmt.Sprintf("gui: gui.wm=%s not on PATH; falling back to the ladder — %s", pin, hint)
 }
 
 func guiProfileDirFailedLine(err error) string {
@@ -130,17 +146,21 @@ func guiSeedFailedLine(dir string, err error) string {
 }
 
 // guiWMLine is the per-rung "window manager" line: the icewm rung names its
-// config dir (with a "seeded preferences" suffix on the first seed); every
-// other rung is the bare name.
+// config dir (with a "seeded preferences" suffix on the first seed); a
+// session starter names its dbus-run-session wrap; every other rung is the
+// bare name.
 func guiWMLine(name, profileDir string, seeded bool) string {
-	if name != "icewm-session" || profileDir == "" {
-		return "gui: window manager " + name
+	if name == "icewm-session" && profileDir != "" {
+		line := fmt.Sprintf("gui: window manager %s (config %s", name, profileDir)
+		if seeded {
+			line += ", seeded preferences"
+		}
+		return line + ")"
 	}
-	line := fmt.Sprintf("gui: window manager %s (config %s", name, profileDir)
-	if seeded {
-		line += ", seeded preferences"
+	if gui.IsSessionStarter(name) {
+		return fmt.Sprintf("gui: window manager %s (session under dbus-run-session)", name)
 	}
-	return line + ")"
+	return "gui: window manager " + name
 }
 
 func guiToolbarLine(terminal, browser string) string {
@@ -294,7 +314,7 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 	pin := guiSuperviseSettingsLoad().GUIWM
 	wmArgv, pinMissed, wmOK := gui.ResolveWM(guiSuperviseLookPath, pin)
 	if pinMissed {
-		guiSuperviseLog(guiPinMissLine(pin))
+		guiSuperviseLog(guiPinMissLine(pin, gui.PinInstallHint(pin, guiSuperviseLookPath)))
 	}
 	term, _, _ := gui.ResolveApp(gui.AppTerminal, guiSuperviseLookPath, guiSuperviseStat)
 	browser, _, _ := gui.ResolveApp(gui.AppBrowser, guiSuperviseLookPath, guiSuperviseStat)
@@ -322,7 +342,7 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 
 	wmName := ""
 	if wmOK {
-		wmName = wmArgv[0]
+		wmName = gui.WMName(wmArgv)
 	}
 	// Stamping "" when bare is deliberate: "bare" and "unset" both render wm:"".
 	guiStampSessionOption(daemon.GUIOptionDisplay, display)
@@ -340,13 +360,15 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 	}
 
 	var wm *exec.Cmd
+	wmGroup := false
 	if wmOK {
+		wmGroup = gui.WMOwnsProcessGroup(wmArgv)
 		var extraEnv []string
 		if icewm && profileDir != "" {
 			extraEnv = []string{"ICEWM_PRIVCFG=" + profileDir}
 		}
-		if w, werr := guiSuperviseStartWM(ctx, wmArgv, display, extraEnv); werr != nil {
-			guiSuperviseLog(fmt.Sprintf("gui: window manager %s failed to start: %v; running bare", wmArgv[0], werr))
+		if w, werr := guiSuperviseStartWM(ctx, wmArgv, display, extraEnv, wmGroup); werr != nil {
+			guiSuperviseLog(fmt.Sprintf("gui: window manager %s failed to start: %v; running bare", wmName, werr))
 		} else {
 			wm = w
 		}
@@ -360,19 +382,19 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 	case <-ctx.Done():
 		// Signal trap: WM first, then the backend (CommandContext's kill is
 		// already in flight), then the socket; exit 0.
-		guiKillAndWait(wm)
+		guiStopWM(wm, wmGroup)
 		guiRemoveSocket(sock)
 		<-backendWait
 		return nil
 	case werr := <-backendWait:
 		if ctx.Err() != nil {
 			// The signal landed while the backend was exiting — same teardown.
-			guiKillAndWait(wm)
+			guiStopWM(wm, wmGroup)
 			guiRemoveSocket(sock)
 			return nil
 		}
 		guiSuperviseLog(guiBackendExitLine(bin, guiBackendExitStatus(werr), display))
-		guiKillAndWait(wm)
+		guiStopWM(wm, wmGroup)
 		guiRemoveSocket(sock)
 		<-ctx.Done() // stay alive idle so the pane keeps the exit line readable
 		return nil
@@ -455,4 +477,31 @@ func guiKillAndWait(cmd *exec.Cmd) {
 	}
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
+}
+
+// guiStopWM stops a started WM child and reaps it; nil-safe (no WM found).
+// ownGroup (a session starter under dbus-run-session) signals the child's
+// process group — SIGTERM first so the session binary runs its module
+// shutdown, escalating to a group SIGKILL after guiWMStopTimeout; signalling
+// only the wrapper would orphan dbus-daemon and every session module. Bare
+// WMs keep the direct-child kill.
+func guiStopWM(cmd *exec.Cmd, ownGroup bool) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	if !ownGroup {
+		guiKillAndWait(cmd)
+		return
+	}
+	pid := cmd.Process.Pid
+	_ = syscall.Kill(-pid, syscall.SIGTERM)
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
+	select {
+	case <-waited:
+	case <-time.After(guiWMStopTimeout):
+		guiSuperviseLog(fmt.Sprintf("gui: window manager %s did not exit within %s; killing its process group", gui.WMName(cmd.Args), guiWMStopTimeout))
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		<-waited
+	}
 }

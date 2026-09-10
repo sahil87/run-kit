@@ -60,7 +60,7 @@ The 15-key inventory:
 | `auto_name` | bool | `false` | behavior | yes | yes | a settings POST rewires the hub's auto-name tracker live (see [architecture](/run-kit/architecture.md) § SSE Hub) |
 | `cron_ticker` | bool | `true` | behavior | yes | yes | gates the daemon cron ticker per iteration (see [cron](/run-kit/cron.md) § Daemon Ticker Invoker) |
 | `gui.enabled` | bool | `false` | behavior | yes | yes | the GUI surface switch — flat dotted YAML line, no env form; a settings POST ensures/kills the `rk-gui` session and flips the stream synchronously (see [gui](/run-kit/gui.md)) |
-| `gui.wm` | string | `""` | behavior | yes | no | pins the window manager the GUI supervisor starts; empty picks the first installed ladder rung (icewm-session → openbox → xfwm4 → i3 → kwin_x11 → x-session-manager); takes effect on `rk gui restart`; no env form (see [gui](/run-kit/gui.md)) (2jl3) |
+| `gui.wm` | string | `""` | behavior | yes | no | pins the window manager the GUI supervisor starts; empty picks the first installed ladder rung (icewm-session → openbox → xfwm4 → i3 → kwin_x11 → x-session-manager); a session-starter pin (startlxqt, startxfce4, …) runs under `dbus-run-session`; takes effect on `rk gui restart`; settable three ways — the `rk gui wm` CLI verb (with PATH check and `--restart` chaining), the Settings dialog, or hand-edited YAML; no env form (see [gui](/run-kit/gui.md)) (2jl3) (zsui) |
 | `tmux_conf` | path string | `""` | advanced | yes | no | user owns the file; rk performs no ensure/refresh/doctor on it |
 | `log_level` | enum (`info`/`debug`) | `info` | advanced | yes | no | read at serve startup |
 

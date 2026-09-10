@@ -127,7 +127,7 @@ func TestGuiTreeRegistered(t *testing.T) {
 		"exec": false, "shot": false, "launch": false, "open": false,
 		"windows": false, "focus": false, "wait": false,
 		"click": false, "move": false, "scroll": false, "type": false, "key": false, "clip": false,
-		"lock": false, "unlock": false,
+		"lock": false, "unlock": false, "wm": false,
 	}
 	var supervise *cobra.Command
 	for _, c := range parent.Commands() {
@@ -563,6 +563,44 @@ func TestGuiStatusJSONDocument(t *testing.T) {
 	}
 	if st.UptimeSeconds <= 0 {
 		t.Errorf("uptime_seconds = %d, want > 0 (stamped session_created)", st.UptimeSeconds)
+	}
+}
+
+// A session-starter WM carries the (session) suffix on the human summary only;
+// --json keeps the plain binary name.
+func TestGuiStatusSessionStarterSuffix(t *testing.T) {
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiViewersFn = func() int { return 1 }
+	guiSessionOptionsFn = func(context.Context) (string, string, string, bool) { return ":10", "Xtigervnc", "startlxqt", true }
+
+	var out bytes.Buffer
+	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), "gui: on (Xtigervnc, :10, 1920x1080, 1 viewer, startlxqt (session))\n"; got != want {
+		t.Errorf("stdout = %q, want %q", got, want)
+	}
+
+	out.Reset()
+	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, true), nil); err != nil {
+		t.Fatal(err)
+	}
+	var st gui.Status
+	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
+		t.Fatalf("--json output is not the status document: %v (%q)", err, out.String())
+	}
+	if st.WM != "startlxqt" {
+		t.Errorf("--json wm = %q, want the plain binary name (no suffix)", st.WM)
+	}
+
+	guiSessionOptionsFn = func(context.Context) (string, string, string, bool) { return ":10", "Xtigervnc", "icewm-session", true }
+	out.Reset()
+	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); strings.Contains(got, "(session)") {
+		t.Errorf("stdout = %q, want no (session) suffix for a bare WM", got)
 	}
 }
 

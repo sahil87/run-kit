@@ -115,8 +115,8 @@ func TestGuiSuperviseLineFormats(t *testing.T) {
 		"gui: no window manager found (tried icewm-session, openbox, xfwm4, i3, kwin_x11, x-session-manager); running bare — sudo apt install --no-install-recommends icewm, then rk gui restart"; got != want {
 		t.Errorf("no-WM line = %q, want %q", got, want)
 	}
-	if got, want := guiPinMissLine("xfwm4"),
-		"gui: gui.wm=xfwm4 not on PATH; falling back to the ladder"; got != want {
+	if got, want := guiPinMissLine("xfwm4", "sudo apt install --no-install-recommends icewm"),
+		"gui: gui.wm=xfwm4 not on PATH; falling back to the ladder — sudo apt install --no-install-recommends icewm"; got != want {
 		t.Errorf("pin-miss line = %q, want %q", got, want)
 	}
 	if got, want := guiSeedFailedLine("/s/gui/icewm", errors.New("disk full")),
@@ -134,6 +134,10 @@ func TestGuiSuperviseLineFormats(t *testing.T) {
 	if got, want := guiWMLine("openbox", "", false),
 		"gui: window manager openbox"; got != want {
 		t.Errorf("non-icewm line = %q, want %q (no config segment)", got, want)
+	}
+	if got, want := guiWMLine("startlxqt", "", false),
+		"gui: window manager startlxqt (session under dbus-run-session)"; got != want {
+		t.Errorf("session-starter line = %q, want %q", got, want)
 	}
 	if got, want := guiToolbarLine("x-terminal-emulator", ""),
 		"gui: toolbar: terminal=x-terminal-emulator browser=none"; got != want {
@@ -596,6 +600,7 @@ type guiWMStartRec struct {
 	argv     []string
 	display  string
 	extraEnv []string
+	ownGroup bool
 	calls    int
 }
 
@@ -604,13 +609,14 @@ func withGuiSuperviseStartWMRec(t *testing.T) *guiWMStartRec {
 	rec := &guiWMStartRec{}
 	orig := guiSuperviseStartWM
 	t.Cleanup(func() { guiSuperviseStartWM = orig })
-	guiSuperviseStartWM = func(_ context.Context, argv []string, display string, extraEnv []string) (*exec.Cmd, error) {
+	guiSuperviseStartWM = func(_ context.Context, argv []string, display string, extraEnv []string, ownGroup bool) (*exec.Cmd, error) {
 		rec.mu.Lock()
 		defer rec.mu.Unlock()
 		rec.calls++
 		rec.argv = append([]string(nil), argv...)
 		rec.display = display
 		rec.extraEnv = append([]string(nil), extraEnv...)
+		rec.ownGroup = ownGroup
 		return nil, nil
 	}
 	return rec
@@ -689,6 +695,9 @@ func TestGuiSuperviseLinuxIcewmSeedsStampsAndStarts(t *testing.T) {
 	}
 	if want := []string{"ICEWM_PRIVCFG=" + profileDir}; !reflect.DeepEqual(wmRec.extraEnv, want) {
 		t.Errorf("WM extra env = %v, want %v", wmRec.extraEnv, want)
+	}
+	if wmRec.ownGroup {
+		t.Error("WM ownGroup = true, want false for icewm (direct-child teardown)")
 	}
 
 	cancel()
@@ -794,7 +803,7 @@ func TestGuiSuperviseLinuxPinMissFallsBackToLadder(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":18") }()
 
-	waitForGuiLog(t, buf, "gui: gui.wm=xfwm4 not on PATH; falling back to the ladder")
+	waitForGuiLog(t, buf, "gui: gui.wm=xfwm4 not on PATH; falling back to the ladder — install icewm with your package manager")
 	waitForGuiLog(t, buf, "gui: window manager openbox")
 
 	wmRec.mu.Lock()
@@ -806,8 +815,81 @@ func TestGuiSuperviseLinuxPinMissFallsBackToLadder(t *testing.T) {
 	if len(extraEnv) != 0 {
 		t.Errorf("WM extra env = %v, want none for a non-icewm rung", extraEnv)
 	}
+	if wmRec.ownGroup {
+		t.Error("WM ownGroup = true, want false for a bare WM (direct-child teardown)")
+	}
 	if i := stampIndex(*stamps, "@rk_gui_wm", "openbox"); i < 0 {
 		t.Errorf("stamps = %v, want @rk_gui_wm openbox", *stamps)
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("teardown err = %v, want nil", err)
+	}
+}
+
+func TestGuiSuperviseLinuxSessionStarterPinMissNamesDEHint(t *testing.T) {
+	withGuiSuperviseGOOS(t, "linux")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+	withGuiSuperviseLookPath(t, map[string]string{
+		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
+		"openbox":   "/usr/bin/openbox",
+		"apt-get":   "/usr/bin/apt-get",
+	})
+	withGuiSuperviseSettingsLoad(t, "startlxqt")
+	buf := captureGuiSuperviseLog(t)
+	captureGuiStamps(t)
+	withGuiSuperviseStartWMRec(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":19") }()
+
+	waitForGuiLog(t, buf, "gui: gui.wm=startlxqt not on PATH; falling back to the ladder — sudo apt install --no-install-recommends lxqt-core")
+	waitForGuiLog(t, buf, "gui: window manager openbox")
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("teardown err = %v, want nil", err)
+	}
+}
+
+func TestGuiSuperviseLinuxSessionStarterResolvesUnderDBus(t *testing.T) {
+	withGuiSuperviseGOOS(t, "linux")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+	withGuiSuperviseLookPath(t, map[string]string{
+		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
+		"startlxqt": "/usr/bin/startlxqt",
+	})
+	withGuiSuperviseSettingsLoad(t, "startlxqt")
+	buf := captureGuiSuperviseLog(t)
+	stamps := captureGuiStamps(t)
+	wmRec := withGuiSuperviseStartWMRec(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":20") }()
+
+	waitForGuiLog(t, buf, "gui: window manager startlxqt (session under dbus-run-session)")
+
+	wmRec.mu.Lock()
+	argv, extraEnv := wmRec.argv, wmRec.extraEnv
+	wmRec.mu.Unlock()
+	if want := []string{"dbus-run-session", "--", "startlxqt"}; !reflect.DeepEqual(argv, want) {
+		t.Errorf("WM argv = %v, want %v (the dbus wrap)", argv, want)
+	}
+	if len(extraEnv) != 0 {
+		t.Errorf("WM extra env = %v, want none for a non-icewm rung", extraEnv)
+	}
+	if !wmRec.ownGroup {
+		t.Error("WM ownGroup = false, want true for a session starter (process-group teardown)")
+	}
+	if i := stampIndex(*stamps, "@rk_gui_wm", "startlxqt"); i < 0 {
+		t.Errorf("stamps = %v, want @rk_gui_wm startlxqt", *stamps)
 	}
 
 	cancel()

@@ -5,17 +5,17 @@ created_by: sahil87
 change_type: feat
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 16
+    acceptance_count: 32
+    acceptance_completed: 32
 confidence:
     certain: 6
     confident: 2
@@ -29,8 +29,27 @@ confidence:
         competence: 84.4
         disambiguation: 84.4
 stage_metrics:
-    intake: {started_at: "2026-09-10T15:12:44Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-09-10T15:12:44Z", driver: fab-new, iterations: 1, completed_at: "2026-09-10T15:26:27Z"}
+    apply: {started_at: "2026-09-10T16:17:32Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-10T16:23:39Z"}
+    review: {started_at: "2026-09-10T16:23:39Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-10T16:28:05Z"}
+    hydrate: {started_at: "2026-09-10T16:28:05Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-10T16:32:35Z"}
+    ship: {started_at: "2026-09-10T16:32:35Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-10T16:32:35Z"
+    computed_at_stage: hydrate
+summary: generalizes the WM dbus-run-session wrap to a sessionStarters table and adds the rk gui wm CLI setter for gui.wm (aliases, PATH refusal with DE-aware install hints, --force/--restart); (session) suffix on status/doctor, wider RunningApps exclusion set; session starters launch in their own process group and are stopped as a group (SIGTERM, then SIGKILL after 5 s)
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-10T15:14:38Z
+last_updated: 2026-09-10T16:32:35Z

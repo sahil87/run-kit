@@ -3,6 +3,7 @@ package gui
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -150,11 +151,65 @@ func TestResolveWM(t *testing.T) {
 func TestWMArgv(t *testing.T) {
 	for name, want := range map[string][]string{
 		"icewm-session":     {"icewm-session", "--nobg", "--notray"},
-		"x-session-manager": {"dbus-run-session", "--", "x-session-manager"},
 		"openbox":           {"openbox"},
+		"xfwm4":             {"xfwm4"},
+		"startlxqt":         {"dbus-run-session", "--", "startlxqt"},
+		"lxqt-session":      {"dbus-run-session", "--", "lxqt-session"},
+		"startxfce4":        {"dbus-run-session", "--", "startxfce4"},
+		"xfce4-session":     {"dbus-run-session", "--", "xfce4-session"},
+		"startplasma-x11":   {"dbus-run-session", "--", "startplasma-x11"},
+		"x-session-manager": {"dbus-run-session", "--", "x-session-manager"},
 	} {
 		if got := WMArgv(name); !reflect.DeepEqual(got, want) {
 			t.Errorf("WMArgv(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestWMName(t *testing.T) {
+	for argv, want := range map[string]string{
+		"dbus-run-session -- startlxqt":       "startlxqt",
+		"dbus-run-session -- startxfce4":      "startxfce4",
+		"icewm-session --nobg --notray":       "icewm-session",
+		"openbox":                             "openbox",
+		"dbus-run-session":                    "dbus-run-session",
+		"dbus-run-session startlxqt":          "dbus-run-session",
+		"dbus-run-session -- startlxqt extra": "dbus-run-session",
+	} {
+		got := WMName(strings.Fields(argv))
+		if got != want {
+			t.Errorf("WMName(%q) = %q, want %q", argv, got, want)
+		}
+	}
+}
+
+func TestIsSessionStarter(t *testing.T) {
+	for _, name := range []string{
+		"startlxqt", "lxqt-session", "startxfce4", "xfce4-session",
+		"startplasma-x11", "x-session-manager",
+	} {
+		if !IsSessionStarter(name) {
+			t.Errorf("IsSessionStarter(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"openbox", "icewm-session", "xfwm4", ""} {
+		if IsSessionStarter(name) {
+			t.Errorf("IsSessionStarter(%q) = true, want false", name)
+		}
+	}
+}
+
+func TestWMOwnsProcessGroup(t *testing.T) {
+	for argv, want := range map[string]bool{
+		"dbus-run-session -- startlxqt":      true,
+		"dbus-run-session -- xfce4-session":  true,
+		"icewm-session --nobg --notray":      false,
+		"openbox":                            false,
+		"dbus-run-session -- openbox":        false,
+		"dbus-run-session -- startlxqt bad4": false,
+	} {
+		if got := WMOwnsProcessGroup(strings.Fields(argv)); got != want {
+			t.Errorf("WMOwnsProcessGroup(%q) = %v, want %v", argv, got, want)
 		}
 	}
 }

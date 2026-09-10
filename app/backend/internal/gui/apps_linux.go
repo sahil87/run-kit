@@ -11,13 +11,20 @@ import (
 	"strings"
 )
 
-// wmHelperComms are window-manager processes excluded from RunningApps by
-// comm name (on top of the pid-tree exclude). By name, not ancestry: apps
-// launched from the IceWM toolbar are children of icewm and must stay listed.
+// wmHelperComms are window-manager and desktop-environment daemon processes
+// excluded from RunningApps by comm name (on top of the pid-tree exclude). By
+// name, not ancestry: apps launched from a panel or toolbar are children of
+// the panel process and must stay listed.
 var wmHelperComms = map[string]bool{
 	"icewm-session": true, "icewm": true, "icewmbg": true, "icewmtray": true,
 	"icesound": true, "icewmhint": true, "openbox": true, "xfwm4": true,
 	"i3": true, "kwin_x11": true, "xsetroot": true,
+	"lxqt-session": true, "lxqt-panel": true, "lxqt-runner": true,
+	"lxqt-globalkeysd": true, "lxqt-notificationd": true,
+	"lxqt-policykit-agent": true, "pcmanfm-qt": true,
+	"xfce4-session": true, "xfce4-panel": true, "xfdesktop": true,
+	"xfsettingsd": true, "xfce4-notifyd": true, "xfce4-power-manager": true,
+	"dbus-daemon": true, "dbus-run-session": true,
 }
 
 // RunningApps lists the applications running on the given display (":N") by

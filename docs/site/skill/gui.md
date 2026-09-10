@@ -17,13 +17,16 @@ rk gui status    # "gui: off" / "gui: on (…)" / "gui: on — not running (…)
 
 Every `rk gui` verb below refuses with exit 1 and the same hints when the gate fails, so a missed check fails loudly, not silently.
 
-## `rk gui env` — get DISPLAY into your shell
+## `rk gui env` / `rk gui exec` — DISPLAY into your shell, any command on the display
 
 ```sh
 eval "$(rk gui env)"    # exports DISPLAY=:N and RK_GUI_SOCKET=<path>
+rk gui exec xterm                                  # foreground: rk is replaced by the app
+rk gui exec --detach chromium https://example.com  # launch and return
+rk gui exec -- xdotool key --clearmodifiers minus  # `--` ends flag parsing
 ```
 
-Prints the two export lines when the display is live; exits 1 with the hint otherwise. `rk agent setup` installs exactly this eval into the user's shell startup files (gated on `$TMUX_PANE` and an unset `DISPLAY`), so **new shells inside panes land on the display automatically once the user runs `rk gui on`**; a shell started before that does not get DISPLAY — run the eval yourself.
+`env` prints the two export lines when the display is live (exit 1 with the hint otherwise); `rk agent setup` installs exactly this eval into the user's shell startup files (gated on `$TMUX_PANE` and an unset `DISPLAY`), so **new shells inside panes land on the display automatically once the user runs `rk gui on`** — a shell started before that needs the eval run by hand. `exec` runs a command with `DISPLAY` pointed at the rk display (an existing `DISPLAY` is **overridden** — the rk display is the point) and `RK_GUI_SOCKET` set: foreground is a process-replacing passthrough (the app's tty, signals, and exit status are its own), `--detach` (`-d`) starts it as its own session with stdio on `/dev/null` and prints `started <pid> on :N`; unknown program → `error: <cmd>: not found on PATH`, exit 1. Prefer the dedicated verbs below over `exec xdotool …` — they gate, guard, and name windows for you.
 
 ## Windows: `rk gui windows` / `rk gui focus`
 
@@ -53,9 +56,8 @@ Coordinates are **display pixels**, integers ≥ 0. Typed text rides stdin to `x
 ## `rk gui shot` — screenshot the display
 
 ```sh
-rk gui shot                              # full-res; prints an absolute temp PNG path
-rk gui shot --scale 0.5                  # 960x540 on a 1920x1080 display — the loop's cheap look
-rk gui shot --max-width 1280 --out x.png # scale derived from the source width
+rk gui shot [--out x.png]                # full-res; default prints an absolute temp PNG path
+rk gui shot --scale 0.5                  # 960x540 on a 1920x1080 display — the loop's cheap look (--max-width derives the scale)
 rk gui shot --window <id>                # one window (id from `windows`)
 ```
 
@@ -90,16 +92,6 @@ rk gui launch browser --cdp         # + a second line: cdp http://127.0.0.1:9222
 ```
 
 The argument is a **role, never an arbitrary command** (that is `rk gui exec`). Each role resolves through a fixed ladder of known binaries — terminal `x-terminal-emulator, xterm, uxterm, lxterm, foot, alacritty, kitty, gnome-terminal, xfce4-terminal`; browser `chromium, chromium-browser, google-chrome, google-chrome-stable, firefox, x-www-browser` — first on PATH wins, dangling Debian alternatives skipped. Nothing on the ladder → exit 1 with the install line (`no browser on the GUI host — sudo apt install chromium-browser`); the HTTP twin returns `200 {"ok":false,"app","hint"}` instead, so the dashboard toasts the hint through the success path. A bad role is usage (exit 2). `--cdp [--port 9222]` is browser-only and Chromium-family only (Firefox refuses, exit 1): it adds `--remote-debugging-port` with a dedicated profile dir (so it works while another instance runs), waits ≤5s for the port, and prints the `cdp http://127.0.0.1:<N>` endpoint — feed it to Playwright's `connectOverCDP`.
-
-## `rk gui exec` — run an arbitrary command on the display
-
-```sh
-rk gui exec xterm                                # foreground: rk is replaced by the app
-rk gui exec --detach chromium https://example.com   # launch and return
-rk gui exec -- xdotool key --clearmodifiers minus   # `--` ends flag parsing
-```
-
-Runs the command with `DISPLAY` pointed at the rk display (an existing `DISPLAY` is **overridden** — the rk display is the point) and `RK_GUI_SOCKET` set. Foreground is a process-replacing passthrough: the app's tty, signals, and exit status are its own. `--detach` (`-d`) starts the app as its own session with stdio on `/dev/null`, prints `started <pid> on :N`, and returns. Unknown program → `error: <cmd>: not found on PATH`, exit 1. Prefer the dedicated verbs above over `exec xdotool …` — they gate, guard, and name windows for you.
 
 ## `rk gui lock` / `unlock` — pin the resolution for a loop
 
@@ -143,3 +135,4 @@ Pairing: `rk notify` for out-of-band pings, `rk present` when the content is HTM
 - **Coordinates are display pixels** — a click computed from a `--scale 0.5` shot multiplies by 2 (stderr's `geometry WxH scale S` carries S). `rk gui lock` keeps the geometry from shifting mid-loop.
 - **Apps you start die with `rk gui off`** — the switch kills the `rk-gui` session and everything on the display (the user confirms first). Detached apps survive your shell, not the switch.
 - **Nothing is installed for you** — xdotool, ImageMagick, xclip/xsel, xdg-utils are probed at run time; a miss refuses with the apt hint.
+- **The desktop may be a full DE** — IceWM is the default, but the user may pin LXQt/XFCE (`rk gui wm lxqt`); every verb on this page works identically regardless. On a full desktop `rk gui windows` also lists the DE's panel as a window — filter by `app` when looking for user apps.

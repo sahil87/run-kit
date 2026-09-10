@@ -114,6 +114,25 @@ func TestRunningApps(t *testing.T) {
 	})
 }
 
+func TestRunningAppsExcludesDEDaemonsByName(t *testing.T) {
+	// A full desktop's session/panel/D-Bus daemons carry the display in their
+	// env like any X client; only the user app survives the comm-name filter.
+	procRoot := t.TempDir()
+	writeFakeProc(t, procRoot, 201, "lxqt-session", "DISPLAY=:10")
+	writeFakeProc(t, procRoot, 202, "lxqt-panel", "DISPLAY=:10")
+	writeFakeProc(t, procRoot, 203, "dbus-daemon", "DISPLAY=:10")
+	writeFakeProc(t, procRoot, 300, "xterm", "DISPLAY=:10")
+
+	apps, err := RunningApps(procRoot, ":10", nil)
+	if err != nil {
+		t.Fatalf("RunningApps: %v", err)
+	}
+	want := []App{{Name: "xterm", Count: 1}}
+	if !reflect.DeepEqual(apps, want) {
+		t.Errorf("RunningApps(:10) = %v, want %v — DE daemons excluded by name", apps, want)
+	}
+}
+
 func TestRunningAppsExcludesWMHelpersByName(t *testing.T) {
 	// WM helpers carry the display in their env like any X client; without the
 	// comm-name exclusion they would show in the apps list whenever the pid

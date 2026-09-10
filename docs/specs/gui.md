@@ -74,8 +74,15 @@ window manager comes from a fixed ladder — `icewm-session`, `openbox`,
 `gui.wm` pin when set (an unresolvable pin logs and falls back to the
 ladder). `icewm-session` runs `--nobg --notray`: icewmbg would paint a theme
 wallpaper over the `xsetroot -solid #3b4252` ground, and the tray is dead
-weight on a single-user display. `x-session-manager` keeps its
-`dbus-run-session` wrap.
+weight on a single-user display. Every session starter — `startlxqt`,
+`lxqt-session`, `startxfce4`, `xfce4-session`, `startplasma-x11`,
+`x-session-manager` — runs under `dbus-run-session -- <name>`: a desktop
+environment without a session bus fails its panel, tray, and policy agents
+silently, and libdbus autolaunch on a headless X display is not dependable.
+Bare window managers run unwrapped. A session starter also runs in its own
+process group, and teardown signals the group — SIGTERM first, then SIGKILL
+after 5 s — because signalling only the `dbus-run-session` child orphans
+`dbus-daemon` and the whole session.
 
 For the icewm rung the supervisor seeds a private profile at
 `$XDG_STATE_HOME/run-kit/gui/icewm/` (dir 0700, files 0600), passed as
@@ -83,10 +90,40 @@ For the icewm rung the supervisor seeds a private profile at
 absent; user edits persist; delete to re-seed), `toolbar` and `menu` are
 regenerated on every start from the launcher ladders (rows only for resolved
 binaries). `~/.icewm` is never touched. Before starting the WM the supervisor
-stamps `@rk_gui_display`, `@rk_gui_backend`, and `@rk_gui_wm` (`<argv[0]>`, or
-`""` when bare) on the `rk-gui` session in one burst; every reader — the
-status document (`wm`, `wm_hint`), the `event: gui` stream entry, `rk gui
-status`, doctor — derives the WM from that stamp.
+stamps `@rk_gui_display`, `@rk_gui_backend`, and `@rk_gui_wm` (the resolved
+WM name — never the `dbus-run-session` wrapper — or `""` when bare) on the
+`rk-gui` session in one burst; every reader — the status document (`wm`,
+`wm_hint`), the `event: gui` stream entry, `rk gui status`, doctor — derives
+the WM from that stamp.
+
+---
+
+## Switching desktops
+
+`rk gui wm [auto|icewm|lxqt|xfce|<binary>] [--restart] [--force]` is the CLI
+face of the `gui.wm` pin (§ The switch). With no argument it reports the pin
+and the live rung (`wm: auto → icewm-session (running)`, `wm: startlxqt
+(pinned; not running)`) — state, exit 0 always. The aliases map `auto` ⇒ the
+ladder, `icewm` ⇒ `icewm-session`, `lxqt` ⇒ `startlxqt`, `xfce` ⇒
+`startxfce4`; anything else is a literal binary name. A name not on PATH is
+refused with the package-manager-aware install line (the desktop's packages
+for a session starter, the icewm line for a bare WM) unless `--force` pins
+anyway — the supervisor then logs the miss and falls back to the ladder. The
+pin takes effect on `rk gui restart`; `--restart` chains into that verb and
+inherits its refusals (gui off, daemon down).
+
+```
+$ rk gui wm lxqt
+error: startlxqt not on PATH — sudo apt install --no-install-recommends lxqt-core (pass --force to pin anyway)
+$ rk gui wm lxqt --restart
+set gui.wm=startlxqt
+restarted (Xtigervnc :10)
+  window manager: startlxqt (session)
+$ rk gui wm auto --restart
+set gui.wm= (ladder)
+restarted (Xtigervnc :10)
+  window manager: icewm-session
+```
 
 ---
 

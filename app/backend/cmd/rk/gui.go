@@ -219,7 +219,7 @@ socket only — nothing ever listens on TCP; on macOS the surface mirrors Screen
 Sharing view-only.
 
 Subcommands:
-  display: on off status env restart exec launch open
+  display: on off status env restart exec launch open wm
   look:    shot windows wait
   drive:   focus click move scroll type key clip
   guard:   lock unlock
@@ -348,6 +348,8 @@ func init() {
 	guiStatusCmd.Flags().Bool("json", false, "Emit the status document as JSON")
 	guiExecCmd.Flags().BoolP("detach", "d", false, "Start the command as its own session and return immediately")
 	guiShotCmd.Flags().StringP("out", "o", "", "Write the PNG to this path (parent created, existing file overwritten)")
+	guiWmCmd.Flags().Bool("restart", false, "Restart the rk-gui session after pinning (kills apps on the display)")
+	guiWmCmd.Flags().Bool("force", false, "Pin even when the binary is not on PATH")
 
 	guiCmd.AddCommand(guiOnCmd)
 	guiCmd.AddCommand(guiOffCmd)
@@ -369,6 +371,7 @@ func init() {
 	guiCmd.AddCommand(guiClipCmd)
 	guiCmd.AddCommand(guiLockCmd)
 	guiCmd.AddCommand(guiUnlockCmd)
+	guiCmd.AddCommand(guiWmCmd)
 
 	// Arg-count violations on the children are usage-class (exit 2) — root.go's
 	// central wrap loop covers only rootCmd's direct children (the code-server
@@ -608,7 +611,7 @@ func runGuiLockVerb(cmd *cobra.Command, locked bool) error {
 // scripts keep the one-line datum.
 func guiWMLines(sink outputSink, wm string) {
 	if wm != "" {
-		sink.Notef("  window manager: %s\n", wm)
+		sink.Notef("  window manager: %s%s\n", wm, guiSessionSuffix(wm))
 		return
 	}
 	hint := gui.WMInstallHint(guiLookPathFn)
@@ -662,6 +665,17 @@ func guiStatusSummary(st gui.Status) string {
 	return "gui: on — not running (" + st.Reason + ")"
 }
 
+// guiSessionSuffix is the human-readable marker a session-starter WM carries
+// (a full desktop environment under dbus-run-session, vs a bare WM) — the
+// status summary and the on/restart chatter share it; --json stays the plain
+// binary name.
+func guiSessionSuffix(wm string) string {
+	if gui.IsSessionStarter(wm) {
+		return " (session)"
+	}
+	return ""
+}
+
 // guiOnSummary is the shared "on (<bin>, :N, WxH, k viewer(s), <wm>[, locked])"
 // rendering — the status line's tail and the doctor row's reachable note. An
 // empty wm renders the bare "no window manager" (the doctor appends the
@@ -674,6 +688,8 @@ func guiOnSummary(bin, display string, width, height, viewers int, wm string, lo
 	}
 	if wm == "" {
 		wm = "no window manager"
+	} else {
+		wm += guiSessionSuffix(wm)
 	}
 	s := fmt.Sprintf("on (%s, %s, %dx%d, %d %s, %s", bin, display, width, height, viewers, noun, wm)
 	if locked {

@@ -77,20 +77,60 @@ func WMLadder() []string {
 	return append([]string(nil), wmLadder...)
 }
 
+// sessionStarters are the desktop-environment session binaries: every member
+// runs under dbus-run-session (a DE without a session bus fails its panel,
+// tray, and policy agents silently — libdbus autolaunch on a headless X
+// display is not dependable). Bare window managers stay unwrapped.
+var sessionStarters = map[string]bool{
+	"startlxqt": true, "lxqt-session": true,
+	"startxfce4": true, "xfce4-session": true,
+	"startplasma-x11": true, "x-session-manager": true,
+}
+
+// IsSessionStarter reports whether name is a session-starter binary — the
+// status summary's (session) suffix, the supervisor's WM line, and desktop
+// candidate labeling share this one table.
+func IsSessionStarter(name string) bool {
+	return sessionStarters[name]
+}
+
+// WMOwnsProcessGroup reports whether a launch argv must run in — and be
+// stopped via — its own process group: true exactly for a session starter.
+// Under the dbus-run-session wrap the direct child is the wrapper; signalling
+// it alone reparents dbus-daemon and every session module to PID 1, so launch
+// and teardown must target the group. The policy lives beside the wrap rule;
+// the supervisor is a consumer.
+func WMOwnsProcessGroup(argv []string) bool {
+	return IsSessionStarter(WMName(argv))
+}
+
 // WMArgv returns the launch argv for one window-manager binary name:
 // icewm-session runs --nobg --notray (icewmbg would paint a theme wallpaper
 // over rk's xsetroot ground; the tray is dead weight on a single-user
-// display), x-session-manager runs under dbus-run-session, anything else
+// display), every session starter runs under dbus-run-session, anything else
 // runs bare. The flags belong to the binary, not to how it was chosen — a
 // pinned name gets the same argv as its ladder rung.
 func WMArgv(name string) []string {
-	switch name {
-	case "icewm-session":
-		return []string{"icewm-session", "--nobg", "--notray"}
-	case "x-session-manager":
+	if sessionStarters[name] {
 		return []string{"dbus-run-session", "--", name}
 	}
+	if name == "icewm-session" {
+		return []string{"icewm-session", "--nobg", "--notray"}
+	}
 	return []string{name}
+}
+
+// WMName recovers the window-manager binary name from a launch argv: the
+// dbus-run-session wrap's target for a session starter, argv[0] otherwise.
+// Stamps and log lines name the WM, never the wrapper.
+func WMName(argv []string) string {
+	if len(argv) == 0 {
+		return ""
+	}
+	if len(argv) == 3 && argv[0] == "dbus-run-session" && argv[1] == "--" {
+		return argv[2]
+	}
+	return argv[0]
 }
 
 // ResolveWM picks the window manager: the pin (gui.wm) when non-empty and on

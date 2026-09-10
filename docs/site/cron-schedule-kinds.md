@@ -206,6 +206,7 @@ pinned:   true</code></pre>
     color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.55;
     padding-block: 8px 40px;
   }
+  .rk-cron-clocks { container-type: inline-size; }
   .rk-cron-clocks .wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: 56px; }
   .rk-cron-clocks header { display: grid; gap: 14px; max-width: 720px; }
   .rk-cron-clocks .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
@@ -254,7 +255,7 @@ pinned:   true</code></pre>
   .rk-cron-clocks th { font-family: var(--mono); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
   .rk-cron-clocks td:first-child { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
   .rk-cron-clocks .tablewrap { overflow-x: auto; }
-  @media (max-width: 760px) {
+  @container (max-width: 760px) {
     .rk-cron-clocks .panel-body, .rk-cron-clocks .summary { grid-template-columns: 1fr; }
     .rk-cron-clocks .panel-head { grid-template-columns: 1fr; }
     .rk-cron-clocks .panel { padding: 18px 16px; }
@@ -292,7 +293,7 @@ pinned:   true</code></pre>
         const act = b.dataset.act, tog = b.dataset.toggle;
         if (act === 'play') b.addEventListener('click', () => this.toggle());
         else if (act === 'restart') b.addEventListener('click', () => this.restart(true));
-        else if (act && cfg.actions && cfg.actions[act]) b.addEventListener('click', () => { cfg.actions[act](this); this.model = this.compute(this.state, this); this.render(); });
+        else if (act && cfg.actions && cfg.actions[act]) b.addEventListener('click', () => { const run = cfg.actions[act]; run(this); this.model = this.compute(this.state, this); this.render(); });
         else if (tog) b.addEventListener('click', () => {
           this.state[tog] = !this.state[tog];
           b.setAttribute('aria-pressed', String(this.state[tog]));

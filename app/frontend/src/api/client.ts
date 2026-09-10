@@ -610,7 +610,9 @@ export async function fetchCodeBridge(
  * off-confirm dialog. `wm` is the window-manager stamp (`""` when bare or
  * disabled); `wm_hint` is the package-manager-aware install line, present
  * only when enabled ∧ reachable ∧ bare (the backend's omitempty) — the
- * frontend never hardcodes a package name.
+ * frontend never hardcodes a package name. `locked` is the host-side
+ * resolution pin (`rk gui lock`); `human_input_ago_ms` is the age of the
+ * last relayed human input, omitted when none was seen (omitempty).
  */
 export type GuiStatus = {
   id: string;
@@ -622,6 +624,8 @@ export type GuiStatus = {
   height: number;
   viewers: number;
   wm: string;
+  locked: boolean;
+  human_input_ago_ms?: number;
   wm_hint?: string;
   socket: string;
   session: string;

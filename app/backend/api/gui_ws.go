@@ -33,9 +33,12 @@ import (
 // viewer-skip gate).
 //
 // On the tcp backend (macOS Screen Sharing) the client→server direction
-// passes through the view-only filter (gui_filter.go), which drops KeyEvent
-// and PointerEvent after the RFB handshake — a Screen Sharing mirror is
-// view-only through rk.
+// passes through the view-only filter (gui_filter.go), which drops KeyEvent,
+// PointerEvent, and QEMU extended key messages after the RFB handshake — a
+// Screen Sharing mirror is view-only through rk. On the unix backend the
+// same parser runs in observe mode: bytes forward verbatim, and completed
+// input messages stamp the hub's last-human-input time (the agent-verb
+// guard's signal).
 
 // GUI relay close codes — private-range WS codes carrying the gate outcome.
 const (
@@ -115,7 +118,7 @@ func (s *Server) handleGuiWS(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	filter := newGuiViewFilter(network)
+	filter := newGuiViewFilter(network, func() { hub.guiHumanInputSeen(id) })
 
 	// Backend → WS pump: the ONLY writer on the socket from here on (gorilla
 	// forbids concurrent writes). A backend read error (EOF = backend closed)

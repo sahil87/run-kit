@@ -314,6 +314,13 @@ type sseHub struct {
 	guiWM         string
 	guiViewers    map[string]int
 	cachedGuiJSON string
+	// guiLocked is the host resolution pin (@rk_gui_lock) as of the last
+	// probe pass (read beside the stamps). guiHumanInput is the
+	// last-relayed-human-input timestamp per id, written by the relay's
+	// filter callback — in-memory only; the fact exists nowhere on disk and
+	// dies with the daemon (Constitution X's in-flight carve-out).
+	guiLocked     bool
+	guiHumanInput map[string]time.Time
 	// prStatus, when non-nil, supplies the in-memory PR-status snapshot the
 	// poll path joins onto change-bound windows. nil degrades gracefully (no
 	// PR fields attached) — used by tests and when no collector is wired.
@@ -441,6 +448,9 @@ type sseHub struct {
 	// test's still-running poll loop).
 	guiSessionOptionsFn func(ctx context.Context) (display, backend, wm string, ok bool)
 	guiProbeFn          func(ctx context.Context, network, addr string) (gui.Info, error)
+	// guiLockedFn reads the host resolution pin (@rk_gui_lock) on the gui
+	// tick, beside the stamps. Same per-hub seam idiom.
+	guiLockedFn func(ctx context.Context) bool
 }
 
 // getSubscriber returns the hub's current WindowChangeSubscriber under
@@ -537,6 +547,7 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		pollSem:                make(chan struct{}, ssePollConcurrency),
 		pollResults:            make(chan pollUnitResult, ssePollConcurrency),
 		guiViewers:             make(map[string]int),
+		guiHumanInput:          make(map[string]time.Time),
 		fetcher:                fetcher,
 		orderFetcher:           prodSessionOrderFetcher{},
 		metrics:                mc,
@@ -547,6 +558,7 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		captureFn:              capturePreviewForWindow,
 		guiSessionOptionsFn:    daemon.GUISessionOptions,
 		guiProbeFn:             gui.Probe,
+		guiLockedFn:            daemon.GUILocked,
 	}
 	h.waitingPush = newWaitingPushTracker(func(ctx context.Context, title, body, url string) error {
 		// Shell broadcast first: the hub write is immediate, while the Web
@@ -769,14 +781,17 @@ func (h *sseHub) guiTick() {
 	h.mu.Unlock()
 
 	if enabled && time.Since(probeAt) >= h.guiProbeTTLEffective() {
+		ctx, cancel := context.WithTimeout(context.Background(), guiTickTimeout)
+		locked := h.guiLockedFn(ctx)
 		if viewers > 0 {
 			h.mu.Lock()
 			h.guiInfo.Reachable = true
 			h.guiInfo.Reason = ""
 			h.guiProbeAt = time.Now()
+			h.guiLocked = locked
 			h.mu.Unlock()
+			cancel()
 		} else {
-			ctx, cancel := context.WithTimeout(context.Background(), guiTickTimeout)
 			display, backend, wm, ok := h.guiSessionOptionsFn(ctx)
 			if ok && display != "" {
 				// An unparsable stamped display reads as "not running".
@@ -811,6 +826,7 @@ func (h *sseHub) guiTick() {
 			h.guiWM = wm
 			h.guiInfo = info
 			h.guiProbeAt = time.Now()
+			h.guiLocked = locked
 			h.mu.Unlock()
 		}
 	}
@@ -838,6 +854,10 @@ func (h *sseHub) guiPayloadLocked() string {
 		entry.Height = h.guiInfo.Height
 		entry.Viewers = h.guiViewers[daemon.GUIWindowName]
 		entry.WM = h.guiWM
+		entry.Locked = h.guiLocked
+		if at, ok := h.guiHumanInput[daemon.GUIWindowName]; ok {
+			entry.HumanInputAgoMS = gui.HumanInputAgoMS(at, time.Now())
+		}
 	}
 	b, err := json.Marshal([]gui.StreamEntry{entry})
 	if err != nil {
@@ -863,6 +883,7 @@ func (h *sseHub) setGUIEnabled(enabled bool) {
 	h.guiBackend = ""
 	h.guiDisplay = ""
 	h.guiWM = ""
+	h.guiLocked = false
 	str := h.guiPayloadLocked()
 	if str == "" {
 		return
@@ -894,6 +915,32 @@ func (h *sseHub) guiViewerCount(id string) int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.guiViewers[id]
+}
+
+// guiHumanInputSeen records one relayed human input for an id — the relay
+// filter's onHumanInput callback. In-memory only: the timestamp exists
+// nowhere on disk and dies with the daemon (Constitution X's in-flight
+// carve-out — the one pushed fact on this surface).
+func (h *sseHub) guiHumanInputSeen(id string) {
+	h.mu.Lock()
+	h.guiHumanInput[id] = time.Now()
+	h.mu.Unlock()
+}
+
+// guiHumanInputAt is the last relayed human-input time for an id; ok=false
+// when no viewer has driven the display since the daemon started.
+func (h *sseHub) guiHumanInputAt(id string) (time.Time, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	at, ok := h.guiHumanInput[id]
+	return at, ok
+}
+
+// guiLockedState is the host resolution pin as of the last gui tick.
+func (h *sseHub) guiLockedState() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.guiLocked
 }
 
 // replayGlobalSlots sends the cached host-global slots to a state-socket

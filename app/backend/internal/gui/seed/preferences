@@ -8,4 +8,6 @@ TaskBarShowWorkspaces=0
 TaskBarShowShowDesktopButton=0
 TaskBarShowWindowListMenu=0
 TaskBarClockLeds=0
+TaskBarShowMEMStatus=0
+TimeFormat="%H:%M"
 WorkspaceNames=" run-kit "

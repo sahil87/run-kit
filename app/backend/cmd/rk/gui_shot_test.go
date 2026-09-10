@@ -25,9 +25,11 @@ func withGuiShotSeams(t *testing.T) (ranStages *[][]guiShotStage) {
 
 	origLookPath, origRun, origNow := guiShotLookPathFn, guiShotRunFn, guiShotNowFn
 	origGOOS := guiGOOS
+	origXdo := guiXdoRunFn
 	t.Cleanup(func() {
 		guiShotLookPathFn, guiShotRunFn, guiShotNowFn = origLookPath, origRun, origNow
 		guiGOOS = origGOOS
+		guiXdoRunFn = origXdo
 	})
 
 	guiShotLookPathFn = func(name string) (string, error) { return "/usr/bin/" + name, nil }
@@ -37,6 +39,10 @@ func withGuiShotSeams(t *testing.T) (ranStages *[][]guiShotStage) {
 	}
 	guiShotNowFn = func() time.Time { return time.Date(2026, 9, 9, 14, 5, 6, 0, time.Local) }
 	guiGOOS = "linux"
+	// --window resolves geometry through xdotool; the default answers empty so
+	// a shot test can never exec the real tool. Tests script responses with
+	// withGuiXdoSeams.
+	guiXdoRunFn = func(context.Context, string, []string, string) (string, error) { return "", nil }
 	return ranStages
 }
 
@@ -159,7 +165,11 @@ func TestGuiShotArgvLadder(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			stages, tool, ok := guiShotArgv(lookPathOnly(tc.tools...), ":10", "/tmp/a.png")
+			stages, tool, err := guiShotArgv(lookPathOnly(tc.tools...), ":10", "/tmp/a.png", guiShotOpts{})
+			if err != nil {
+				t.Fatalf("ladder err = %v, want nil with no capture modifiers", err)
+			}
+			ok := tool != ""
 			if ok != tc.wantOK || tool != tc.wantTool {
 				t.Fatalf("ladder = (ok=%v, tool=%q), want (ok=%v, tool=%q)", ok, tool, tc.wantOK, tc.wantTool)
 			}
@@ -365,5 +375,232 @@ func TestGuiShotDefaultPathIsAbsoluteUnderRelativeTMPDIR(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, filepath.Join("rel-tmp", "rk-gui-shot-20260909-140506.png")) {
 		t.Errorf("default path = %q, want the TMPDIR-relative name resolved against the cwd", got)
+	}
+}
+
+// --- --scale / --max-width / --window (R5) ---
+
+// shotFlagsCmdWith builds a bare command carrying the shot verb's capture
+// modifier flags (out is registered by shotCmdWith).
+func shotFlagsCmdWith(out, errOut *bytes.Buffer, flags map[string]string) *cobra.Command {
+	cmd := shotCmdWith(out, errOut, "")
+	cmd.Flags().Float64("scale", 0, "")
+	cmd.Flags().Int("max-width", 0, "")
+	cmd.Flags().Uint64("window", 0, "")
+	setFlags(cmd, flags)
+	return cmd
+}
+
+func TestGuiShotArgvScaleWindowRungs(t *testing.T) {
+	cases := []struct {
+		name     string
+		tools    []string
+		opts     guiShotOpts
+		wantArgv [][]string
+		wantEnv  []string // stage 0's extra env
+		wantTool string
+		wantErr  string
+	}{
+		{
+			name:     "import resizes inline",
+			tools:    []string{"import"},
+			opts:     guiShotOpts{scale: 0.5},
+			wantArgv: [][]string{{"import", "-display", ":10", "-window", "root", "-resize", "50%", "/tmp/a.png"}},
+			wantTool: "import",
+		},
+		{
+			name:  "scrot resizes via a convert post-stage",
+			tools: []string{"scrot", "convert"},
+			opts:  guiShotOpts{scale: 0.5},
+			wantArgv: [][]string{
+				{"scrot", "/tmp/a.png"},
+				{"convert", "/tmp/a.png", "-resize", "50%", "/tmp/a.png"},
+			},
+			wantEnv:  []string{"DISPLAY=:10"},
+			wantTool: "scrot",
+		},
+		{
+			name:    "scrot scale without convert refuses",
+			tools:   []string{"scrot"},
+			opts:    guiShotOpts{scale: 0.5},
+			wantErr: "--scale needs imagemagick — sudo apt install imagemagick",
+		},
+		{
+			name:    "scrot has no by-id capture",
+			tools:   []string{"scrot", "convert"},
+			opts:    guiShotOpts{window: 42, windowSet: true},
+			wantErr: "--window needs imagemagick (import or convert) — sudo apt install imagemagick",
+		},
+		{
+			name:  "xwd maps --window to -id and resizes in convert",
+			tools: []string{"xwd", "convert"},
+			opts:  guiShotOpts{scale: 0.5, window: 42, windowSet: true},
+			wantArgv: [][]string{
+				{"xwd", "-display", ":10", "-id", "42", "-silent"},
+				{"convert", "xwd:-", "-resize", "50%", "/tmp/a.png"},
+			},
+			wantTool: "xwd+convert",
+		},
+		{
+			name:     "import takes --window inline",
+			tools:    []string{"import"},
+			opts:     guiShotOpts{window: 42, windowSet: true},
+			wantArgv: [][]string{{"import", "-display", ":10", "-window", "42", "/tmp/a.png"}},
+			wantTool: "import",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stages, tool, err := guiShotArgv(lookPathOnly(tc.tools...), ":10", "/tmp/a.png", tc.opts)
+			if tc.wantErr != "" {
+				if err == nil || err.Error() != tc.wantErr {
+					t.Fatalf("err = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ladder err = %v, want nil", err)
+			}
+			if tool != tc.wantTool {
+				t.Fatalf("tool = %q, want %q", tool, tc.wantTool)
+			}
+			if len(stages) != len(tc.wantArgv) {
+				t.Fatalf("stages = %v, want %v", stages, tc.wantArgv)
+			}
+			for i, want := range tc.wantArgv {
+				if strings.Join(stages[i].argv, " ") != strings.Join(want, " ") {
+					t.Errorf("stage %d argv = %v, want %v", i, stages[i].argv, want)
+				}
+			}
+			if strings.Join(stages[0].env, " ") != strings.Join(tc.wantEnv, " ") {
+				t.Errorf("stage 0 env = %v, want %v", stages[0].env, tc.wantEnv)
+			}
+		})
+	}
+}
+
+func TestGuiShotScalePrintsGeometryLine(t *testing.T) {
+	ranStages := withGuiShotSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+
+	var out, errOut bytes.Buffer
+	if err := runGuiShot(shotFlagsCmdWith(&out, &errOut, map[string]string{"scale": "0.5"}), nil); err != nil {
+		t.Fatal(err)
+	}
+	wantPath := filepath.Join(os.TempDir(), "rk-gui-shot-20260909-140506.png") + "\n"
+	if got := out.String(); got != wantPath {
+		t.Errorf("stdout = %q, want the bare path %q", got, wantPath)
+	}
+	if got, want := errOut.String(), "geometry 1920x1080 scale 0.5\n"; got != want {
+		t.Errorf("stderr = %q, want %q", got, want)
+	}
+	argv := (*ranStages)[0][0].argv
+	if got, want := strings.Join(argv, " "), "import -display :10 -window root -resize 50% "+strings.TrimSuffix(wantPath, "\n"); got != want {
+		t.Errorf("capture argv = %q, want %q", got, want)
+	}
+}
+
+// The no-flag contract: stdout stays the bare default path (byte-identical to
+// before the capture modifiers) and stderr reports scale 1.
+func TestGuiShotDefaultPrintsScaleOne(t *testing.T) {
+	ranStages := withGuiShotSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+
+	var out, errOut bytes.Buffer
+	if err := runGuiShot(shotFlagsCmdWith(&out, &errOut, nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	wantPath := filepath.Join(os.TempDir(), "rk-gui-shot-20260909-140506.png") + "\n"
+	if got := out.String(); got != wantPath {
+		t.Errorf("stdout = %q, want the unchanged default %q", got, wantPath)
+	}
+	if got, want := errOut.String(), "geometry 1920x1080 scale 1\n"; got != want {
+		t.Errorf("stderr = %q, want %q", got, want)
+	}
+	argv := (*ranStages)[0][0].argv
+	if got, want := strings.Join(argv, " "), "import -display :10 -window root "+strings.TrimSuffix(wantPath, "\n"); got != want {
+		t.Errorf("capture argv = %q, want %q (no -resize without a scale)", got, want)
+	}
+}
+
+func TestGuiShotScaleUsageErrors(t *testing.T) {
+	cases := []struct {
+		name  string
+		flags map[string]string
+	}{
+		{"scale zero", map[string]string{"scale": "0"}},
+		{"scale above one", map[string]string{"scale": "1.5"}},
+		{"scale with max-width", map[string]string{"scale": "0.5", "max-width": "960"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ranStages := withGuiShotSeams(t)
+			withGuiCLISeams(t)
+			seedGuiOn(t)
+
+			err := runGuiShot(shotFlagsCmdWith(&bytes.Buffer{}, &bytes.Buffer{}, tc.flags), nil)
+			if err == nil || exitCode(err) != exitUsage {
+				t.Errorf("err = %v (code %d), want a usage error (exit 2)", err, exitCode(err))
+			}
+			if len(*ranStages) != 0 {
+				t.Errorf("runner called %d times on a usage error", len(*ranStages))
+			}
+		})
+	}
+}
+
+func TestGuiShotMaxWidthDerivesScale(t *testing.T) {
+	withGuiShotSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+
+	var out, errOut bytes.Buffer
+	if err := runGuiShot(shotFlagsCmdWith(&out, &errOut, map[string]string{"max-width": "960"}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := errOut.String(), "geometry 1920x1080 scale 0.5\n"; got != want {
+		t.Errorf("stderr = %q, want %q (S = min(1, 960/1920))", got, want)
+	}
+}
+
+func TestGuiShotWindowUsesWindowGeometry(t *testing.T) {
+	ranStages := withGuiShotSeams(t)
+	withGuiXdoSeams(t, map[string][]xdoResult{
+		"getwindowgeometry --shell 42": {{out: "WINDOW=42\nX=10\nY=20\nWIDTH=800\nHEIGHT=600\nSCREEN=0"}},
+	})
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+
+	var out, errOut bytes.Buffer
+	if err := runGuiShot(shotFlagsCmdWith(&out, &errOut, map[string]string{"window": "42"}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := errOut.String(), "geometry 800x600 scale 1\n"; got != want {
+		t.Errorf("stderr = %q, want the window's geometry %q", got, want)
+	}
+	argv := (*ranStages)[0][0].argv
+	joined := strings.Join(argv, " ")
+	if !strings.Contains(joined, "-window 42") {
+		t.Errorf("capture argv = %q, want -window 42", joined)
+	}
+}
+
+func TestGuiShotWindowNeedsXdotool(t *testing.T) {
+	ranStages := withGuiShotSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiLookPathFn = lookPathOnly()
+
+	err := runGuiShot(shotFlagsCmdWith(&bytes.Buffer{}, &bytes.Buffer{}, map[string]string{"window": "42"}), nil)
+	if err == nil || err.Error() != "xdotool not found — sudo apt install xdotool" {
+		t.Errorf("err = %v, want the xdotool install hint", err)
+	}
+	if code := exitCode(err); code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if len(*ranStages) != 0 {
+		t.Errorf("runner called %d times without xdotool", len(*ranStages))
 	}
 }

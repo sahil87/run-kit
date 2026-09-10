@@ -93,6 +93,7 @@ const GUI_ON: GuiSignal = {
   height: 1080,
   viewers: 1,
   wm: "icewm-session",
+  locked: false,
 };
 
 const GUI_OFF: GuiSignal = { ...GUI_ON, enabled: false, reachable: false };
@@ -380,7 +381,7 @@ describe("GuiSurface — the bare-WM strip", () => {
 });
 
 describe("GuiSurface — RFB prop mapping", () => {
-  it("resizeSession = !coarsePointer && focused && !resizeLocked, recomputed on prop change", () => {
+  it("resizeSession = !coarsePointer && focused && !resizeLocked && !hostLocked, recomputed on prop change", () => {
     const { rerender } = renderGui();
     expect(latestRfb().resizeSession).toBe(true);
 
@@ -397,6 +398,13 @@ describe("GuiSurface — RFB prop mapping", () => {
     expect(latestRfb().resizeSession).toBe(false);
     rerender(<GuiSurface {...base} focused={true} coarsePointer={true} resizeLocked={false} viewMode="fit" />);
     expect(latestRfb().resizeSession).toBe(false);
+    // The host pin (`rk gui lock`) is an AND term beside the viewer-local lock.
+    rerender(
+      <GuiSurface {...base} gui={{ ...GUI_ON, locked: true }} focused={true} coarsePointer={false} resizeLocked={false} viewMode="fit" />,
+    );
+    expect(latestRfb().resizeSession).toBe(false);
+    rerender(<GuiSurface {...base} focused={true} coarsePointer={false} resizeLocked={false} viewMode="fit" />);
+    expect(latestRfb().resizeSession).toBe(true);
   });
 
   it("view modes map to scaleViewport/clipViewport/dragViewport", () => {

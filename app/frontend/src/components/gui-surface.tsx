@@ -39,10 +39,12 @@ import { Control } from "./control";
  *   resumes — and reconnects on the next visible true. Focus loss alone never
  *   disconnects. Unmount disconnects and clears every timer.
  * - **Resize policy (D7)**: `resizeSession` is `!coarsePointer && focused &&
- *   !resizeLocked`, recomputed on every prop change — only the focused
- *   fine-pointer viewer drives SetDesktopSize; coarse viewers scale
+ *   !resizeLocked && !hostLocked`, recomputed on every prop change — only the
+ *   focused fine-pointer viewer drives SetDesktopSize; coarse viewers scale
  *   client-side (`scaleViewport` in fit, `clipViewport` + `dragViewport` in
- *   1:1) and can never resize the shared desktop.
+ *   1:1) and can never resize the shared desktop. `hostLocked` is the
+ *   host-side pin (`rk gui lock`, streamed as the entry's `locked`) — an AND
+ *   term beside the viewer-local `resizeLocked`, not a replacement.
  * - **Chord gate**: a capture-phase keydown on the canvas wrapper intercepts
  *   registry chords (`shouldReclaimChord`, bound to kind "gui") BEFORE
  *   noVNC's canvas-attached handler sees them and re-dispatches a synthetic
@@ -162,8 +164,8 @@ export default function GuiSurface({
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Latest-value refs for the listener/effect closures that outlive renders.
-  const propsRef = useRef({ coarsePointer, focused, resizeLocked, viewMode, backend: gui?.backend ?? "" });
-  propsRef.current = { coarsePointer, focused, resizeLocked, viewMode, backend: gui?.backend ?? "" };
+  const propsRef = useRef({ coarsePointer, focused, resizeLocked, viewMode, backend: gui?.backend ?? "", hostLocked: gui?.locked ?? false });
+  propsRef.current = { coarsePointer, focused, resizeLocked, viewMode, backend: gui?.backend ?? "", hostLocked: gui?.locked ?? false };
   const onConnectionChangeRef = useRef(onConnectionChange);
   onConnectionChangeRef.current = onConnectionChange;
   const onInteractRef = useRef(onInteract);
@@ -171,10 +173,11 @@ export default function GuiSurface({
   const reclaimRef = useRef(shouldReclaimChord);
   reclaimRef.current = shouldReclaimChord;
 
-  // D7: only the focused fine-pointer, unlocked viewer drives SetDesktopSize.
+  // D7: only the focused fine-pointer viewer on an unlocked host (neither the
+  // viewer-local pin nor `rk gui lock` set) drives SetDesktopSize.
   const applyRfbProps = (rfb: RFB) => {
     const p = propsRef.current;
-    rfb.resizeSession = !p.coarsePointer && p.focused && !p.resizeLocked;
+    rfb.resizeSession = !p.coarsePointer && p.focused && !p.resizeLocked && !p.hostLocked;
     rfb.scaleViewport = p.viewMode === "fit";
     rfb.clipViewport = p.viewMode === "1:1";
     rfb.dragViewport = p.viewMode === "1:1";

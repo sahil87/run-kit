@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,7 @@ func withGuiCLISeams(t *testing.T) (ensures, kills, restarts *int) {
 	origProbe, origApps, origLookPath := guiProbeFn, guiRunningAppsFn, guiLookPathFn
 	origTTY, origViewers, origNow := guiStdinTTYFn, guiViewersFn, guiNowFn
 	origStampWait, origStampTick := guiStampWaitTimeout, guiStampPollTick
+	origSetLock, origLocked, origFetch := guiSetLockFn, guiLockedFn, guiFetchDaemonStatusFn
 	t.Cleanup(func() {
 		guiDaemonRunningFn = origDaemonRunning
 		guiEnsureFn, guiKillFn, guiRestartFn = origEnsure, origKill, origRestart
@@ -44,6 +46,7 @@ func withGuiCLISeams(t *testing.T) (ensures, kills, restarts *int) {
 		guiProbeFn, guiRunningAppsFn, guiLookPathFn = origProbe, origApps, origLookPath
 		guiStdinTTYFn, guiViewersFn, guiNowFn = origTTY, origViewers, origNow
 		guiStampWaitTimeout, guiStampPollTick = origStampWait, origStampTick
+		guiSetLockFn, guiLockedFn, guiFetchDaemonStatusFn = origSetLock, origLocked, origFetch
 	})
 
 	// Hermetic defaults: daemon up, session present and stamped, backend
@@ -67,6 +70,11 @@ func withGuiCLISeams(t *testing.T) (ensures, kills, restarts *int) {
 	guiStdinTTYFn = func(io.Reader) bool { return false }
 	guiViewersFn = func() int { return 0 }
 	guiStampWaitTimeout, guiStampPollTick = 50*time.Millisecond, 5*time.Millisecond
+	guiLockedFn = func(context.Context) bool { return false }
+	guiSetLockFn = func(context.Context, bool) error { return nil }
+	// No daemon document by default: the guard fails open and status prints
+	// the local assembly (tests script the document through this seam).
+	guiFetchDaemonStatusFn = func(context.Context) (gui.Status, bool) { return gui.Status{}, false }
 	return ensures, kills, restarts
 }
 
@@ -114,7 +122,13 @@ func TestGuiTreeRegistered(t *testing.T) {
 	if parent.Long == "" {
 		t.Error("parent command has no Long block")
 	}
-	want := map[string]bool{"on": false, "off": false, "status": false, "env": false, "restart": false, "exec": false, "shot": false, "launch": false}
+	want := map[string]bool{
+		"on": false, "off": false, "status": false, "env": false, "restart": false,
+		"exec": false, "shot": false, "launch": false, "open": false,
+		"windows": false, "focus": false, "wait": false,
+		"click": false, "move": false, "scroll": false, "type": false, "key": false, "clip": false,
+		"lock": false, "unlock": false,
+	}
 	var supervise *cobra.Command
 	for _, c := range parent.Commands() {
 		if c.Name() == "supervise" {
@@ -694,5 +708,243 @@ func TestGuiRestartBarePrintsWMHint(t *testing.T) {
 		"  then: rk gui restart\n"
 	if got := errOut.String(); got != want {
 		t.Errorf("stderr = %q, want exactly %q", got, want)
+	}
+}
+
+// --- the human-input guard (R4) ---
+
+func TestGuiRequireNoHumanInput(t *testing.T) {
+	withGuiCLISeams(t)
+	cases := []struct {
+		name    string
+		agoMS   int64
+		force   bool
+		fetch   bool // false = daemon document unreachable (fail-open)
+		wantErr string
+	}{
+		{"absent proceeds", 0, false, true, ""},
+		{"1ms refuses", 1, false, true, "human input 1s ago — retry or pass --force"},
+		{"2999ms refuses", 2999, false, true, "human input 2s ago — retry or pass --force"},
+		{"3000ms proceeds", 3000, false, true, ""},
+		{"whole seconds floored", 1200, false, true, "human input 1s ago — retry or pass --force"},
+		{"force proceeds", 100, true, true, ""},
+		{"daemon down fails open", 1500, false, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			guiFetchDaemonStatusFn = func(context.Context) (gui.Status, bool) {
+				return gui.Status{HumanInputAgoMS: tc.agoMS}, tc.fetch
+			}
+			err := guiRequireNoHumanInput(context.Background(), tc.force)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Errorf("err = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.wantErr {
+				t.Errorf("err = %v, want exactly %q", err, tc.wantErr)
+			}
+			if code := exitCode(err); code != 1 {
+				t.Errorf("exit code = %d, want 1", code)
+			}
+		})
+	}
+}
+
+// --- rk gui lock / unlock (R8) ---
+
+func TestGuiLockUnlockHappyPath(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		run     func(*cobra.Command, []string) error
+		wantSet bool
+		wantOut string
+	}{
+		{"lock", runGuiLock, true, "locked\n"},
+		{"unlock", runGuiUnlock, false, "unlocked\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withGuiCLISeams(t)
+			seedGuiOn(t)
+			var sets []bool
+			guiSetLockFn = func(_ context.Context, locked bool) error {
+				sets = append(sets, locked)
+				return nil
+			}
+
+			var out bytes.Buffer
+			if err := tc.run(bareCmd(&out, &bytes.Buffer{}), nil); err != nil {
+				t.Fatal(err)
+			}
+			if got := out.String(); got != tc.wantOut {
+				t.Errorf("stdout = %q, want %q", got, tc.wantOut)
+			}
+			if len(sets) != 1 || sets[0] != tc.wantSet {
+				t.Errorf("guiSetLockFn calls = %v, want [%v]", sets, tc.wantSet)
+			}
+		})
+	}
+}
+
+func TestGuiLockOffRefuses(t *testing.T) {
+	withGuiCLISeams(t)
+	called := false
+	guiSetLockFn = func(context.Context, bool) error { called = true; return nil }
+
+	err := runGuiLock(bareCmd(&bytes.Buffer{}, &bytes.Buffer{}), nil)
+	if err == nil || err.Error() != guiErrOff {
+		t.Errorf("err = %v, want the off refusal", err)
+	}
+	if code := exitCode(err); code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if called {
+		t.Error("guiSetLockFn called while the GUI is off")
+	}
+}
+
+func TestGuiLockDarwinRefusesBeforeStatusRead(t *testing.T) {
+	withGuiCLISeams(t)
+	origGOOS := guiGOOS
+	guiGOOS = "darwin"
+	t.Cleanup(func() { guiGOOS = origGOOS })
+	guiDaemonRunningFn = func() bool {
+		t.Error("status seams consulted on darwin — the OS refusal must fire first")
+		return false
+	}
+
+	err := runGuiLock(bareCmd(&bytes.Buffer{}, &bytes.Buffer{}), nil)
+	if err == nil || err.Error() != guiDarwinRefusal("lock").Error() {
+		t.Errorf("err = %v, want the macOS refusal for lock", err)
+	}
+	if code := exitCode(err); code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+}
+
+func TestGuiLockSetErrorPropagates(t *testing.T) {
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiSetLockFn = func(context.Context, bool) error { return fmt.Errorf("tmux exited 1") }
+
+	err := runGuiLock(bareCmd(&bytes.Buffer{}, &bytes.Buffer{}), nil)
+	if err == nil || !strings.Contains(err.Error(), "tmux exited 1") {
+		t.Errorf("err = %v, want the set error propagated", err)
+	}
+	if code := exitCode(err); code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+}
+
+// --- status: locked segment and the fetched daemon document (R7/R8) ---
+
+func TestGuiStatusLockedSegment(t *testing.T) {
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiViewersFn = func() int { return 1 }
+	guiSessionOptionsFn = func(context.Context) (string, string, string, bool) { return ":10", "Xtigervnc", "icewm-session", true }
+	guiLockedFn = func(context.Context) bool { return true }
+
+	var out bytes.Buffer
+	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
+		t.Fatal(err)
+	}
+	want := "gui: on (Xtigervnc, :10, 1920x1080, 1 viewer, icewm-session, locked)\n"
+	if got := out.String(); got != want {
+		t.Errorf("stdout = %q, want %q (locked rides last in the paren list)", got, want)
+	}
+}
+
+// The fetched document's human-input age renders as an indented line after
+// the summary (and after the apps line when apps exist), only inside the
+// grace window.
+func TestGuiStatusHumanInputLine(t *testing.T) {
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiRunningAppsFn = func(string, string, map[int]bool) ([]gui.App, error) {
+		return []gui.App{{Name: "xterm", Count: 1}}, nil
+	}
+	guiFetchDaemonStatusFn = func(context.Context) (gui.Status, bool) {
+		return gui.Status{HumanInputAgoMS: 1200}, true
+	}
+
+	var out bytes.Buffer
+	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
+		t.Fatal(err)
+	}
+	want := "gui: on (Xtigervnc, :10, 1920x1080, 0 viewers, no window manager)\n" +
+		"  apps: xterm ×1\n" +
+		"  human input 1s ago\n"
+	if got := out.String(); got != want {
+		t.Errorf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestGuiStatusHumanInputLineOutsideGrace(t *testing.T) {
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiFetchDaemonStatusFn = func(context.Context) (gui.Status, bool) {
+		return gui.Status{HumanInputAgoMS: 5000}, true
+	}
+
+	var out bytes.Buffer
+	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "human input") {
+		t.Errorf("stdout = %q, want no human-input line at 5s (past the 3s grace)", out.String())
+	}
+}
+
+// --json prints the fetched daemon document when the fetch answers (the live
+// viewers count is hub-local), else the local assembly.
+func TestGuiStatusJSONPrefersFetchedDocument(t *testing.T) {
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiViewersFn = func() int { return 3 }
+	guiFetchDaemonStatusFn = func(context.Context) (gui.Status, bool) {
+		return gui.Status{ID: "host", Enabled: true, Reachable: true, Display: ":10", Viewers: 7}, true
+	}
+
+	var out bytes.Buffer
+	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, true), nil); err != nil {
+		t.Fatal(err)
+	}
+	var st gui.Status
+	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
+		t.Fatalf("--json output is not the status document: %v (%q)", err, out.String())
+	}
+	if st.Viewers != 7 {
+		t.Errorf("viewers = %d, want 7 from the fetched daemon document", st.Viewers)
+	}
+
+	guiFetchDaemonStatusFn = func(context.Context) (gui.Status, bool) { return gui.Status{}, false }
+	out.Reset()
+	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, true), nil); err != nil {
+		t.Fatal(err)
+	}
+	st = gui.Status{}
+	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
+		t.Fatalf("--json output is not the status document: %v (%q)", err, out.String())
+	}
+	if st.Viewers != 3 {
+		t.Errorf("viewers = %d, want 3 from the local assembly when the fetch fails", st.Viewers)
+	}
+}
+
+// --- help grouping (R12) ---
+
+func TestGuiHelpGroupsNewVerbs(t *testing.T) {
+	for _, label := range []string{"display:", "look:", "drive:", "guard:"} {
+		if !strings.Contains(guiCmd.Long, label) {
+			t.Errorf("gui Long lacks the %q group label", label)
+		}
+	}
+	for _, verb := range []string{"windows", "focus", "wait", "click", "move", "scroll", "type", "key", "clip", "open", "lock", "unlock"} {
+		n := len(regexp.MustCompile(`\b`+verb+`\b`).FindAllString(guiCmd.Long, -1))
+		if n != 1 {
+			t.Errorf("gui Long lists %q %d times, want exactly once", verb, n)
+		}
 	}
 }

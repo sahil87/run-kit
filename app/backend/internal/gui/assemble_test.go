@@ -274,3 +274,64 @@ func TestAssembleReachableBareNilLookPathIsSafe(t *testing.T) {
 		t.Errorf("WMHint = %q with a nil LookPath, want the generic %q (no probe, no panic)", st.WMHint, want)
 	}
 }
+
+func TestAssembleLockedFromThePin(t *testing.T) {
+	d := assembleDeps(t)
+	d.Locked = func(context.Context) bool { return true }
+
+	st := Assemble(context.Background(), d)
+	if !st.Locked {
+		t.Error("Locked = false, want true when the pin dep reports locked")
+	}
+}
+
+// The pin is a session-scoped tmux option: no session, no read.
+func TestAssembleLockedGatedOnSession(t *testing.T) {
+	d := assembleDeps(t)
+	d.SessionExists = func(context.Context) bool { return false }
+	d.Locked = func(context.Context) bool {
+		t.Error("Locked consulted with no rk-gui session")
+		return true
+	}
+
+	st := Assemble(context.Background(), d)
+	if st.Locked {
+		t.Error("Locked = true with no session")
+	}
+}
+
+func TestAssembleHumanInputAgoMS(t *testing.T) {
+	d := assembleDeps(t)
+	now := d.Now()
+	d.HumanInputAt = func() (time.Time, bool) { return now.Add(-1200 * time.Millisecond), true }
+
+	st := Assemble(context.Background(), d)
+	if st.HumanInputAgoMS != 1200 {
+		t.Errorf("HumanInputAgoMS = %d, want 1200", st.HumanInputAgoMS)
+	}
+
+	// No timestamp seen (or the daemon restarted — the map is in-memory):
+	// the field stays zero so omitempty drops it from the document.
+	d.HumanInputAt = func() (time.Time, bool) { return time.Time{}, false }
+	if st := Assemble(context.Background(), d); st.HumanInputAgoMS != 0 {
+		t.Errorf("HumanInputAgoMS = %d with no timestamp, want 0 (omitted)", st.HumanInputAgoMS)
+	}
+
+	// The CLI wires no hub reader — nil must omit the field, not panic.
+	d.HumanInputAt = nil
+	if st := Assemble(context.Background(), d); st.HumanInputAgoMS != 0 {
+		t.Errorf("HumanInputAgoMS = %d with a nil dep, want 0 (omitted)", st.HumanInputAgoMS)
+	}
+}
+
+// The ≥ 1 ms clamp keeps "absent" (field omitted) and "just now"
+// distinguishable — omitempty would drop a 0.
+func TestHumanInputAgoMSClamp(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	if got := HumanInputAgoMS(now, now); got != 1 {
+		t.Errorf("HumanInputAgoMS(now, now) = %d, want 1", got)
+	}
+	if got := HumanInputAgoMS(now.Add(-1500*time.Millisecond), now); got != 1500 {
+		t.Errorf("HumanInputAgoMS(-1500ms) = %d, want 1500", got)
+	}
+}

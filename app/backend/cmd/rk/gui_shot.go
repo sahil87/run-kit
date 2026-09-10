@@ -5,11 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+
+	"rk/internal/gui"
 
 	"github.com/spf13/cobra"
 )
@@ -18,7 +22,9 @@ import (
 // tool ladder (import → scrot → xwd+convert) is probed at run time: nothing
 // is installed for the caller, and the first available tool wins. Every
 // subprocess is an argv slice under exec.CommandContext bounded by
-// guiShotTimeout (Constitution §I).
+// guiShotTimeout (Constitution §I). Resizing rides ImageMagick: import takes
+// -resize inline, scrot/xwd get a convert post-stage — a scale request on a
+// host with neither import nor convert refuses with the imagemagick hint.
 
 // guiShotTimeout bounds one screenshot run — a root-window grab is
 // sub-second; the bound exists so a hung X tool never wedges the caller.
@@ -27,6 +33,15 @@ var guiShotTimeout = 15 * time.Second
 // guiShotNoToolError names every ladder option so the hint survives a partial
 // install (e.g. xwd without convert).
 const guiShotNoToolError = "no screenshot tool found (tried import, scrot, xwd+convert) — sudo apt install imagemagick"
+
+const (
+	// guiShotWindowRungError: scrot has no by-id capture (scrot -t is a
+	// thumbnail flag and is not used), so --window needs an ImageMagick rung.
+	guiShotWindowRungError = "--window needs imagemagick (import or convert) — sudo apt install imagemagick"
+	// guiShotScaleRungError: only ImageMagick resizes (import inline, convert
+	// as a post-stage).
+	guiShotScaleRungError = "--scale needs imagemagick — sudo apt install imagemagick"
+)
 
 // Package seams (the gui.go idiom): LookPath per tool, the pipeline runner,
 // and the clock for the default output name (guiGOOS lives in gui.go).
@@ -41,12 +56,19 @@ var guiShotCmd = &cobra.Command{
 	Short: "Screenshot the GUI display to a PNG and print its path",
 	Long: `Screenshot the GUI display (the root window of the rk-gui desktop) to
 a PNG and print the absolute path on stdout — the look-half of the agent loop:
-'rk gui exec xdotool …' to act, 'rk gui shot' to see the result.
+the drive verbs act, 'rk gui shot' sees the result.
 
 Uses the first screenshot tool found on PATH (import, then scrot, then
 xwd+convert); none installed is an error with the apt hint. With --out the
 file lands there (parent created, existing file overwritten); otherwise it
 lands in the OS temp dir as rk-gui-shot-<timestamp>.png.
+
+--scale <f> (0 < f ≤ 1) and --max-width <px> shrink the capture through
+ImageMagick (mutually exclusive; --max-width derives the scale from the
+source width). --window <id> captures one window instead of the root.
+stderr always carries 'geometry WxH scale S' — the source geometry and the
+applied scale — so coordinates divide cleanly back into display pixels;
+stdout stays the bare path.
 
 Refuses (exit 1) when the GUI is off or enabled but not running ('rk gui
 status' has the reason); on macOS the surface mirrors your live session
@@ -54,6 +76,12 @@ view-only, so there is no display to screenshot.`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runGuiShot,
+}
+
+func init() {
+	guiShotCmd.Flags().Float64("scale", 0, "Scale the capture by this factor, in (0, 1] (ImageMagick)")
+	guiShotCmd.Flags().Int("max-width", 0, "Scale the capture down to at most this width in px (ImageMagick)")
+	guiShotCmd.Flags().Uint64("window", 0, "Capture this window id (from 'rk gui windows') instead of the root")
 }
 
 // guiShotStage is one stage of the screenshot pipeline: the argv to run plus
@@ -64,26 +92,84 @@ type guiShotStage struct {
 	env  []string
 }
 
-// guiShotArgv resolves the screenshot ladder for display/out: (1) import
-// -window root, (2) scrot with DISPLAY in its env, (3) xwd piped into
-// convert (both must be present — an xwd-only host falls through to the
-// no-tool error rather than producing a non-PNG). Pure over lookPath.
-func guiShotArgv(lookPath func(string) (string, error), display, out string) (stages []guiShotStage, tool string, ok bool) {
+// guiShotOpts carries the capture modifiers. The verb fills scale/scaleSet/
+// maxWidth from flags; guiShotCapture resolves them into the effective scale
+// it stores back in scale for the ladder builder (1 = no resize). window is
+// the --window target (windowSet false = the root).
+type guiShotOpts struct {
+	scale     float64
+	scaleSet  bool
+	maxWidth  int
+	window    uint64
+	windowSet bool
+}
+
+// guiShotResizeArg renders the ImageMagick -resize percentage for a scale
+// (0.5 → "50%").
+func guiShotResizeArg(scale float64) string {
+	return strconv.FormatFloat(scale*100, 'f', -1, 64) + "%"
+}
+
+// guiShotArgv resolves the screenshot ladder for display/out: (1) import,
+// (2) scrot with DISPLAY in its env, (3) xwd piped into convert (both must be
+// present — an xwd-only host falls through to the no-tool case rather than
+// producing a non-PNG). A scale below 1 and a --window target ride the
+// ImageMagick rungs: import takes both inline; scrot resizes via a convert
+// post-stage and refuses --window outright; xwd maps --window to -id and
+// resizes in the convert stage. A nil error with tool "" is the no-tool case
+// (the caller prints guiShotNoToolError). Pure over lookPath.
+func guiShotArgv(lookPath func(string) (string, error), display, out string, opts guiShotOpts) (stages []guiShotStage, tool string, err error) {
+	resize := opts.scale > 0 && opts.scale < 1
+	window := "root"
+	if opts.windowSet {
+		window = strconv.FormatUint(opts.window, 10)
+	}
 	if _, err := lookPath("import"); err == nil {
-		return []guiShotStage{{argv: []string{"import", "-display", display, "-window", "root", out}}}, "import", true
+		argv := []string{"import", "-display", display, "-window", window}
+		if resize {
+			argv = append(argv, "-resize", guiShotResizeArg(opts.scale))
+		}
+		return []guiShotStage{{argv: append(argv, out)}}, "import", nil
 	}
 	if _, err := lookPath("scrot"); err == nil {
-		return []guiShotStage{{argv: []string{"scrot", out}, env: []string{"DISPLAY=" + display}}}, "scrot", true
+		if opts.windowSet {
+			return nil, "", errors.New(guiShotWindowRungError)
+		}
+		stages := []guiShotStage{{argv: []string{"scrot", out}, env: []string{"DISPLAY=" + display}}}
+		if resize {
+			if _, err := lookPath("convert"); err != nil {
+				return nil, "", errors.New(guiShotScaleRungError)
+			}
+			stages = append(stages, guiShotStage{argv: []string{"convert", out, "-resize", guiShotResizeArg(opts.scale), out}})
+		}
+		return stages, "scrot", nil
 	}
 	if _, err := lookPath("xwd"); err == nil {
 		if _, err := lookPath("convert"); err == nil {
+			xwdArgv := []string{"xwd", "-display", display}
+			if opts.windowSet {
+				xwdArgv = append(xwdArgv, "-id", window)
+			} else {
+				xwdArgv = append(xwdArgv, "-root")
+			}
+			xwdArgv = append(xwdArgv, "-silent")
+			convertArgv := []string{"convert", "xwd:-"}
+			if resize {
+				convertArgv = append(convertArgv, "-resize", guiShotResizeArg(opts.scale))
+			}
 			return []guiShotStage{
-				{argv: []string{"xwd", "-display", display, "-root", "-silent"}},
-				{argv: []string{"convert", "xwd:-", out}},
-			}, "xwd+convert", true
+				{argv: xwdArgv},
+				{argv: append(convertArgv, out)},
+			}, "xwd+convert", nil
 		}
 	}
-	return nil, "", false
+	if resize {
+		return nil, "", errors.New(guiShotScaleRungError)
+	}
+	// No rung resolved: the no-tool case. (--window with no import present is
+	// here only when scrot is absent too — the scrot rung refuses above — and
+	// xwd-without-convert was never a PNG pipeline.)
+	return nil, "", nil
 }
 
 // guiShotRunStages is the default guiShotRunFn: runs the resolved pipeline —
@@ -143,9 +229,57 @@ func shotStageError(err error, stderr *bytes.Buffer) error {
 	return errors.New(tail)
 }
 
+// guiShotCapture runs one capture and returns the destination, the SOURCE
+// geometry, and the effective scale. The source geometry is the probe's
+// Width×Height for the root and the window's getwindowgeometry for --window
+// (which needs xdotool). The effective scale is the explicit --scale, or
+// min(1, maxWidth/W) for --max-width. wait --stable reuses this at 0.25.
+func guiShotCapture(ctx context.Context, st gui.Status, out string, opts guiShotOpts) (width, height int, scale float64, err error) {
+	if opts.windowSet {
+		if err := guiRequireXTool("xdotool", guiXdoMissingHint); err != nil {
+			return 0, 0, 0, err
+		}
+		geo, gerr := guiXdoRunFn(ctx, st.Display, gui.XdoWindowGeometry(opts.window), "")
+		if gerr != nil {
+			return 0, 0, 0, fmt.Errorf("--window %d: not a window", opts.window)
+		}
+		_, _, w, h, perr := gui.ParseWindowGeometry(geo)
+		if perr != nil {
+			return 0, 0, 0, fmt.Errorf("--window %d: not a window", opts.window)
+		}
+		width, height = w, h
+	} else {
+		width, height = st.Width, st.Height
+	}
+	scale = 1
+	if opts.scaleSet {
+		scale = opts.scale
+	}
+	if opts.maxWidth > 0 && width > 0 {
+		scale = math.Min(1, float64(opts.maxWidth)/float64(width))
+	}
+	stages, tool, aerr := guiShotArgv(guiShotLookPathFn, st.Display, out, guiShotOpts{scale: scale, window: opts.window, windowSet: opts.windowSet})
+	if aerr != nil {
+		return 0, 0, 0, aerr
+	}
+	if tool == "" {
+		return 0, 0, 0, errors.New(guiShotNoToolError)
+	}
+	if err := guiShotRunFn(ctx, stages); err != nil {
+		return 0, 0, 0, fmt.Errorf("error: %s failed: %w", tool, err)
+	}
+	return width, height, scale, nil
+}
+
+// guiShotScaleText renders the scale for the stderr geometry line (1, 0.5).
+func guiShotScaleText(scale float64) string {
+	return strconv.FormatFloat(scale, 'f', -1, 64)
+}
+
 // runGuiShot gates on the OS and the switch, resolves the output path and the
 // tool ladder, runs the pipeline, and prints only the absolute PNG path
-// (Dataf — the datum survives --quiet; diagnostics go to stderr).
+// (Dataf — the datum survives --quiet; diagnostics go to stderr). stderr
+// always carries the source geometry and applied scale.
 func runGuiShot(cmd *cobra.Command, _ []string) error {
 	if guiGOOS == "darwin" {
 		return guiDarwinRefusal("shot")
@@ -156,6 +290,20 @@ func runGuiShot(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+
+	scale, _ := cmd.Flags().GetFloat64("scale")
+	maxWidth, _ := cmd.Flags().GetInt("max-width")
+	window, _ := cmd.Flags().GetUint64("window")
+	if cmd.Flags().Changed("scale") && cmd.Flags().Changed("max-width") {
+		return usageError(errors.New("--scale and --max-width are mutually exclusive"))
+	}
+	if cmd.Flags().Changed("scale") && (scale <= 0 || scale > 1) {
+		return usageError(fmt.Errorf("--scale %s is outside (0, 1]", guiShotScaleText(scale)))
+	}
+	if cmd.Flags().Changed("max-width") && maxWidth < 1 {
+		return usageError(fmt.Errorf("--max-width %d is not a positive pixel width", maxWidth))
+	}
+	opts := guiShotOpts{scale: scale, scaleSet: cmd.Flags().Changed("scale"), maxWidth: maxWidth, window: window, windowSet: cmd.Flags().Changed("window")}
 
 	out, _ := cmd.Flags().GetString("out")
 	if out == "" {
@@ -179,13 +327,12 @@ func runGuiShot(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	stages, tool, ok := guiShotArgv(guiShotLookPathFn, st.Display, out)
-	if !ok {
-		return errors.New(guiShotNoToolError)
+	width, height, applied, err := guiShotCapture(ctx, st, out, opts)
+	if err != nil {
+		return err
 	}
-	if err := guiShotRunFn(guiCmdCtx(cmd), stages); err != nil {
-		return fmt.Errorf("error: %s failed: %w", tool, err)
-	}
-	newSink(cmd).Dataf("%s\n", out)
+	sink := newSink(cmd)
+	sink.Notef("geometry %dx%d scale %s\n", width, height, guiShotScaleText(applied))
+	sink.Dataf("%s\n", out)
 	return nil
 }

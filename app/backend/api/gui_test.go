@@ -424,3 +424,37 @@ func TestGuiLaunchDarwin409(t *testing.T) {
 		t.Errorf("body = %s, want the CLI's darwin refusal text", rec.Body.String())
 	}
 }
+
+// The status document's locked / human_input_ago_ms fields ride the hub: the
+// pin as of the last gui tick, and the relay's in-memory input timestamp.
+func TestGuiStatusCarriesLockAndHumanInput(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	server.initSSEHub()
+	server.sseHub.guiHumanInputSeen("host")
+	server.sseHub.mu.Lock()
+	server.sseHub.guiLocked = true
+	server.sseHub.mu.Unlock()
+
+	rec := getJSON(t, router, "/api/gui/host")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var st gui.Status
+	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !st.Locked {
+		t.Errorf("locked = false, want true (the hub's tick-cached pin)")
+	}
+	if st.HumanInputAgoMS < 1 {
+		t.Errorf("human_input_ago_ms = %d, want ≥ 1 after a relayed input", st.HumanInputAgoMS)
+	}
+}
+
+func TestGuiStatusOmitsHumanInputBeforeAny(t *testing.T) {
+	_, router := newGuiAPIServer(t, true)
+	rec := getJSON(t, router, "/api/gui/host")
+	if strings.Contains(rec.Body.String(), "human_input_ago_ms") {
+		t.Errorf("body = %s, want human_input_ago_ms omitted before any relayed input", rec.Body.String())
+	}
+}

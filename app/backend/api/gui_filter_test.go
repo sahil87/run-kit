@@ -126,7 +126,7 @@ func TestGuiViewFilterNoneHandshakeDropsInput(t *testing.T) {
 	)
 
 	for _, split := range []int{0, 1, 3} {
-		f := newGuiViewFilter("tcp")
+		f := newGuiViewFilter("tcp", nil)
 		clientOut, serverOut := runGuiFilterScript(f, script, split)
 		if string(clientOut) != string(wantClient) {
 			t.Fatalf("split=%d client→server = %v, want %v", split, clientOut, wantClient)
@@ -150,7 +150,7 @@ func TestGuiViewFilterARDHandshakeDropsInput(t *testing.T) {
 	)
 
 	for _, split := range []int{0, 1} {
-		f := newGuiViewFilter("tcp")
+		f := newGuiViewFilter("tcp", nil)
 		clientOut, _ := runGuiFilterScript(f, script, split)
 		if string(clientOut) != string(wantClient) {
 			t.Fatalf("split=%d client→server = %v, want %v", split, clientOut, wantClient)
@@ -158,14 +158,110 @@ func TestGuiViewFilterARDHandshakeDropsInput(t *testing.T) {
 	}
 }
 
-func TestGuiViewFilterUnixIsInert(t *testing.T) {
+func TestGuiViewFilterUnixObservesVerbatim(t *testing.T) {
 	stream := concatBytes(rfbTestFUR, rfbTestKeyEvent, rfbTestPointerEvent, rfbTestCutText)
-	f := newGuiViewFilter("unix")
+	f := newGuiViewFilter("unix", nil)
 	if got := f.feedClient(stream); string(got) != string(stream) {
 		t.Fatalf("unix filter altered client bytes: %v, want %v", got, stream)
 	}
 	if got := f.feedServer(stream); string(got) != string(stream) {
 		t.Fatalf("unix filter altered server bytes: %v, want %v", got, stream)
+	}
+}
+
+// The QEMU extended key event (255/0): u8 type, u8 sub-type, u16 down-flag,
+// u32 keysym, u32 keycode — noVNC's keyboard path against TigerVNC.
+var rfbTestQEMUKeyEvent = []byte{255, 0, 0, 1, 0, 0, 0, 61, 0, 0, 0, 38}
+
+// Observe mode (unix): every chunk forwards verbatim even when the parser is
+// mid-message, and the human-input callback fires once per completed input
+// message — after the handshake, never during it.
+func TestGuiViewFilterUnixObserveMode(t *testing.T) {
+	var inputs int
+	f := newGuiViewFilter("unix", func() { inputs++ })
+
+	// Handshake bytes must not count as input; feed them split across chunks.
+	for _, step := range noneHandshake() {
+		data := step.data
+		for len(data) > 0 {
+			n := 3
+			if n > len(data) {
+				n = len(data)
+			}
+			var out []byte
+			if step.dir == 'c' {
+				out = f.feedClient(data[:n])
+			} else {
+				out = f.feedServer(data[:n])
+			}
+			if string(out) != string(data[:n]) {
+				t.Fatalf("observe mode altered %q bytes: %v, want %v", step.dir, out, data[:n])
+			}
+			data = data[n:]
+		}
+	}
+	if inputs != 0 {
+		t.Fatalf("callback fired %d times during the handshake, want 0", inputs)
+	}
+
+	// A PointerEvent split across two frames: both chunks forward verbatim
+	// and the callback fires once, after the second.
+	if got := f.feedClient(rfbTestPointerEvent[:4]); string(got) != string(rfbTestPointerEvent[:4]) {
+		t.Fatalf("mid-message chunk = %v, want verbatim %v", got, rfbTestPointerEvent[:4])
+	}
+	if inputs != 0 {
+		t.Fatalf("callback fired mid-message, want completion-only")
+	}
+	if got := f.feedClient(rfbTestPointerEvent[4:]); string(got) != string(rfbTestPointerEvent[4:]) {
+		t.Fatalf("completing chunk = %v, want verbatim %v", got, rfbTestPointerEvent[4:])
+	}
+	if inputs != 1 {
+		t.Fatalf("inputs = %d after one PointerEvent, want 1", inputs)
+	}
+
+	f.feedClient(rfbTestKeyEvent)
+	f.feedClient(rfbTestQEMUKeyEvent)
+	f.feedClient(rfbTestFUR) // not input
+	if inputs != 3 {
+		t.Fatalf("inputs = %d, want 3 (pointer + key + QEMU key; FUR is not input)", inputs)
+	}
+}
+
+// The tcp view-only drop set gains the QEMU extended key event: no input
+// reaches the host, whatever encoding the client picked.
+func TestGuiViewFilterTCPDropsQEMUKeyEvent(t *testing.T) {
+	script := append(noneHandshake(),
+		guiFilterStep{'c', rfbTestQEMUKeyEvent},
+		guiFilterStep{'c', rfbTestFUR},
+	)
+	wantClient := concatBytes(
+		rfbTestClientBanner, []byte{rfbSecurityNone}, rfbTestClientInit,
+		rfbTestFUR, // the QEMU key event is dropped
+	)
+	for _, split := range []int{0, 1, 5} {
+		f := newGuiViewFilter("tcp", nil)
+		clientOut, _ := runGuiFilterScript(f, script, split)
+		if string(clientOut) != string(wantClient) {
+			t.Fatalf("split=%d client→server = %v, want %v", split, clientOut, wantClient)
+		}
+	}
+}
+
+// An unknown QEMU sub-type has unknowable framing: forwarded raw byte-wise,
+// resyncing on the next byte.
+func TestGuiViewFilterQEMUUnknownSubtypeForwardedRaw(t *testing.T) {
+	script := append(noneHandshake(),
+		guiFilterStep{'c', []byte{255, 7}}, // unknown sub-type 7
+		guiFilterStep{'c', rfbTestFUR},
+	)
+	wantClient := concatBytes(
+		rfbTestClientBanner, []byte{rfbSecurityNone}, rfbTestClientInit,
+		[]byte{255, 7}, rfbTestFUR,
+	)
+	f := newGuiViewFilter("tcp", nil)
+	clientOut, _ := runGuiFilterScript(f, script, 1)
+	if string(clientOut) != string(wantClient) {
+		t.Fatalf("client→server = %v, want %v", clientOut, wantClient)
 	}
 }
 
@@ -184,7 +280,7 @@ func TestGuiViewFilterRandomSplits(t *testing.T) {
 
 	rng := rand.New(rand.NewSource(42))
 	for trial := 0; trial < 25; trial++ {
-		f := newGuiViewFilter("tcp")
+		f := newGuiViewFilter("tcp", nil)
 		var clientOut []byte
 		for _, step := range script {
 			data := step.data
@@ -218,7 +314,7 @@ func TestGuiViewFilterUnknownTypeForwardedRaw(t *testing.T) {
 		rfbTestClientBanner, []byte{rfbSecurityNone}, rfbTestClientInit,
 		[]byte{99, 99, 99}, rfbTestFUR,
 	)
-	f := newGuiViewFilter("tcp")
+	f := newGuiViewFilter("tcp", nil)
 	clientOut, _ := runGuiFilterScript(f, script, 1)
 	if string(clientOut) != string(wantClient) {
 		t.Fatalf("client→server = %v, want %v", clientOut, wantClient)

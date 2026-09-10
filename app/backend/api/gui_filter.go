@@ -7,10 +7,14 @@ import (
 
 // The view-only filter sits on the GUI relay when the backend is macOS Screen
 // Sharing (network "tcp"): it tracks the RFB 3.8 handshake in both directions
-// and afterwards DROPS client→server KeyEvent (type 4) and PointerEvent
-// (type 5) messages, so the relay can never inject input into the host —
-// Screen Sharing mirrors are view-only through rk. On the unix backend
-// (Linux, auth None) the filter is inert: bytes pass through untouched.
+// and afterwards DROPS client→server KeyEvent (type 4), PointerEvent (type 5),
+// and QEMU extended key event (type 255 sub-type 0) messages, so the relay can
+// never inject input into the host — Screen Sharing mirrors are view-only
+// through rk. On the unix backend (Linux, auth None) the filter runs in
+// OBSERVE mode: the same parser runs for its side effect only (the
+// last-human-input timestamp) and feedClient ALWAYS returns the chunk
+// verbatim — a parser stall or confusion can never withhold or reorder a
+// Linux viewer's bytes.
 //
 // Both parsers are streaming: handshake fields and messages may straddle
 // relay chunk boundaries arbitrarily, so each direction buffers until its
@@ -84,7 +88,13 @@ const (
 // the two parsers, so every feed takes mu (all work under it is bounded byte
 // movement; nothing blocks).
 type guiViewFilter struct {
-	inert bool
+	// drop is the view-only posture (the tcp backend): input messages are
+	// withheld after the handshake. Otherwise the filter observes only.
+	drop bool
+	// onHumanInput fires when a post-handshake input message (KeyEvent,
+	// PointerEvent, QEMU extended key) completes — on every backend, dropped
+	// or not. Injected by the relay; nil-safe.
+	onHumanInput func()
 
 	mu sync.Mutex
 
@@ -103,24 +113,27 @@ type guiViewFilter struct {
 
 	// Post-handshake client-message assembly: msgNeed is the expected total
 	// length of the message starting at cbuf[0] (0 = length not yet
-	// determined); msgDrop marks a KeyEvent/PointerEvent being withheld.
-	msgNeed int
-	msgDrop bool
+	// determined); msgDrop marks a KeyEvent/PointerEvent/QEMU-key message
+	// being withheld; msgHuman marks it for the onHumanInput callback.
+	msgNeed  int
+	msgDrop  bool
+	msgHuman bool
 }
 
-// newGuiViewFilter builds the filter for one relayed connection. Only the
-// tcp backend (macOS Screen Sharing) is filtered; unix passes through.
-func newGuiViewFilter(network string) *guiViewFilter {
-	return &guiViewFilter{inert: network != "tcp"}
+// newGuiViewFilter builds the filter for one relayed connection. The tcp
+// backend (macOS Screen Sharing) is filtered view-only; on every other
+// backend the parser runs in observe mode — the data path forwards every
+// chunk verbatim regardless of parser state.
+func newGuiViewFilter(network string, onHumanInput func()) *guiViewFilter {
+	return &guiViewFilter{drop: network == "tcp", onHumanInput: onHumanInput}
 }
 
 // feedClient consumes one chunk of client→server bytes and returns the bytes
-// to forward to the backend (possibly empty, possibly more than the chunk
-// when a buffered message completes).
+// to forward to the backend. In observe mode (non-tcp) the return is ALWAYS
+// the chunk verbatim — the parse runs for its side effect only. In drop mode
+// the return is possibly empty, possibly more than the chunk when a buffered
+// message completes.
 func (f *guiViewFilter) feedClient(chunk []byte) []byte {
-	if f.inert {
-		return chunk
-	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.cbuf = append(f.cbuf, chunk...)
@@ -129,12 +142,12 @@ func (f *guiViewFilter) feedClient(chunk []byte) []byte {
 		switch f.cStage {
 		case guiCStageBanner:
 			if !f.forwardClient(&out, rfbProtocolVersionLen) {
-				return out
+				return f.clientResult(chunk, out)
 			}
 			f.cStage = guiCStageSecChoice
 		case guiCStageSecChoice:
 			if len(f.cbuf) < 1 {
-				return out
+				return f.clientResult(chunk, out)
 			}
 			f.secChoice = f.cbuf[0]
 			f.choiceKnown = true
@@ -151,23 +164,33 @@ func (f *guiViewFilter) feedClient(chunk []byte) []byte {
 			// credentials, so an unknown length means the chunks crossed in
 			// flight — hold until the server side catches up.
 			if !f.keyLenKnown {
-				return out
+				return f.clientResult(chunk, out)
 			}
 			if !f.forwardClient(&out, rfbARDCredsBaseLen+f.ardKeyLen) {
-				return out
+				return f.clientResult(chunk, out)
 			}
 			f.cStage = guiCStageClientInit
 		case guiCStageClientInit:
 			if !f.forwardClient(&out, 1) {
-				return out
+				return f.clientResult(chunk, out)
 			}
 			f.cStage = guiCStageMessages
 		case guiCStageMessages:
 			if !f.pumpClientMessage(&out) {
-				return out
+				return f.clientResult(chunk, out)
 			}
 		}
 	}
+}
+
+// clientResult picks feedClient's return: observe mode keeps the data path
+// verbatim no matter what the parser did; drop mode returns the filtered
+// output.
+func (f *guiViewFilter) clientResult(chunk, out []byte) []byte {
+	if !f.drop {
+		return chunk
+	}
+	return out
 }
 
 // forwardClient emits n buffered client bytes and consumes them. False when
@@ -182,10 +205,12 @@ func (f *guiViewFilter) forwardClient(out *[]byte, n int) bool {
 }
 
 // pumpClientMessage frames one post-handshake client→server message and
-// forwards it — unless it is a KeyEvent (type 4) or PointerEvent (type 5),
-// the input messages the view-only posture drops. Unknown types are
-// forwarded raw one byte at a time (their framing is unknowable, and
-// resyncing on the next byte keeps well-formed 4/5 drops intact).
+// forwards it — unless it is an input message (KeyEvent type 4, PointerEvent
+// type 5, QEMU extended key event 255/0), which the view-only posture drops.
+// Unknown types are forwarded raw one byte at a time (their framing is
+// unknowable, and resyncing on the next byte keeps well-formed input drops
+// intact). A completed input message fires onHumanInput on every backend —
+// the last-human-input timestamp the agent-verb guard reads.
 func (f *guiViewFilter) pumpClientMessage(out *[]byte) bool {
 	if len(f.cbuf) == 0 {
 		return false
@@ -202,9 +227,9 @@ func (f *guiViewFilter) pumpClientMessage(out *[]byte) bool {
 			f.msgNeed = 4 + 4*int(binary.BigEndian.Uint16(f.cbuf[2:4]))
 		case 3: // FramebufferUpdateRequest: u8 + incremental + x/y/w/h
 			f.msgNeed = 10
-		case 4: // KeyEvent: u8 + down-flag + pad + u32 keysym — dropped
+		case 4: // KeyEvent: u8 + down-flag + pad + u32 keysym — human input
 			f.msgNeed = 8
-		case 5: // PointerEvent: u8 + button-mask + x/y — dropped
+		case 5: // PointerEvent: u8 + button-mask + x/y — human input
 			f.msgNeed = 6
 		case 6: // ClientCutText: u8 + 3 pad + u32 length + payload
 			if len(f.cbuf) < 8 {
@@ -217,12 +242,29 @@ func (f *guiViewFilter) pumpClientMessage(out *[]byte) bool {
 				return true
 			}
 			f.msgNeed = 8 + int(n)
+		case 255: // QEMU client message: u8 + u8 sub-type; sub-type 0 is the
+			// extended key event (u16 down-flag + u32 keysym + u32 keycode) —
+			// human input. noVNC sends it whenever the server advertises the
+			// QEMU Extended Key Event pseudo-encoding (TigerVNC does), so
+			// counting plain KeyEvent alone would miss most keyboard input.
+			if len(f.cbuf) < 2 {
+				return false
+			}
+			if f.cbuf[1] != 0 {
+				// Unknown sub-type: forward raw byte-wise like an unknown
+				// type (the framing is unknowable).
+				*out = append(*out, f.cbuf[0])
+				f.cbuf = f.cbuf[1:]
+				return true
+			}
+			f.msgNeed = 12
 		default:
 			*out = append(*out, f.cbuf[0])
 			f.cbuf = f.cbuf[1:]
 			return true
 		}
-		f.msgDrop = typ == 4 || typ == 5
+		f.msgDrop = f.drop && (typ == 4 || typ == 5 || typ == 255)
+		f.msgHuman = typ == 4 || typ == 5 || typ == 255
 	}
 	if len(f.cbuf) < f.msgNeed {
 		return false
@@ -233,16 +275,18 @@ func (f *guiViewFilter) pumpClientMessage(out *[]byte) bool {
 	f.cbuf = f.cbuf[f.msgNeed:]
 	f.msgNeed = 0
 	f.msgDrop = false
+	if f.msgHuman && f.onHumanInput != nil {
+		f.onHumanInput()
+	}
+	f.msgHuman = false
 	return true
 }
 
 // feedServer consumes one chunk of server→client bytes and returns it
 // verbatim — server output is never withheld; the parse only advances the
-// handshake tracker.
+// handshake tracker (which the client side's ARD framing depends on, on
+// every backend).
 func (f *guiViewFilter) feedServer(chunk []byte) []byte {
-	if f.inert {
-		return chunk
-	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.sStage == guiSStageDone {

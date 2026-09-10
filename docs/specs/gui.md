@@ -187,6 +187,13 @@ client is rk on the same user). Mutations are `POST /api/gui/{id}/restart`,
 `POST /api/settings`; there is no route family
 beyond `/ws/gui/*` and `/api/gui/*`.
 
+The relay's RFB client-message parser runs on every backend: on `tcp` (the
+macOS mirror) it drops KeyEvent, PointerEvent, and QEMU extended key (255/0)
+messages after the handshake; on `unix` it runs in observe mode — every chunk
+forwards verbatim regardless of parser state, and completed input messages
+stamp the hub's in-memory last-human-input time (the agent-verb guard's
+signal, § Agent verbs).
+
 ---
 
 ## OS split
@@ -212,6 +219,15 @@ SetDesktopSize; other viewers scale client-side; **coarse-pointer viewers
 never drive resize**; palette `GUI: Lock resolution` pins it — D7. HiDPI
 renders 1× (CSS pixels) by default.
 
+The host-side pin: `rk gui lock` sets the session-scoped tmux option
+`@rk_gui_lock` on `rk-gui` (`rk gui unlock` unsets it; both gated,
+idempotent, and the option dies with the session — `restart`/`off` clear it).
+The hub reads it on the gui tick beside the stamps and streams it as the
+entry's `locked`; the tile ANDs `!locked` into `resizeSession` beside the
+viewer-local pin (an additional term, not a replacement), so an agent loop's
+coordinates cannot move mid-loop; `rk gui status` and the doctor row render
+`, locked` as the summary's last segment.
+
 ---
 
 ## Agent verbs
@@ -222,17 +238,70 @@ otherwise (plan C4, study §10):
 - `rk gui env` — prints `DISPLAY=:N` and the socket path for `eval`.
 - `rk gui exec <cmd…>` — runs a command on the display (the `rk code exec`
   shape).
-- `rk gui launch <terminal|browser>` — the allowlisted launcher: two roles
-  resolved server-side over fixed ladders (first on PATH wins, dangling
-  alternatives skipped); a miss exits 1 with the install hint (the HTTP twin
-  returns `{"ok":false,"hint"}`). Prefer it over `exec --detach` for the two
-  roles — one ladder shared by the CLI, HTTP, and the IceWM toolbar.
-- `rk gui shot [--out <png>]` — screenshots the display; macOS refuses in v1
-  (view-only mirror).
+- `rk gui launch <terminal|browser> [--cdp [--port 9222]]` — the allowlisted
+  launcher: two roles resolved server-side over fixed ladders (first on PATH
+  wins, dangling alternatives skipped); a miss exits 1 with the install hint
+  (the HTTP twin returns `{"ok":false,"hint"}`). Prefer it over
+  `exec --detach` for the two roles — one ladder shared by the CLI, HTTP, and
+  the IceWM toolbar. `--cdp` (browser role only, Chromium-family only — a
+  Firefox resolution refuses, exit 1) adds `--remote-debugging-port` with a
+  dedicated profile dir, waits ≤ 5 s for the port, and prints a second datum
+  line `cdp http://127.0.0.1:<N>` (the Playwright `connectOverCDP` endpoint).
+- `rk gui shot [--out <png>] [--scale <f> | --max-width <px>] [--window <id>]`
+  — screenshots the display; macOS refuses in v1 (view-only mirror). stdout
+  stays the bare absolute path; stderr always carries `geometry WxH scale S`
+  (the source geometry and applied scale). Resizing rides ImageMagick
+  (`import -resize` inline; a `convert` post-stage for scrot/xwd); `--window`
+  on the scrot rung and any scale without ImageMagick refuse with the
+  imagemagick hint.
+- `rk gui windows [--json]` — the visible-window inventory: `ID PID GEOMETRY
+  TITLE` rows (`WxH+X+Y`, sorted by X id, the active row suffixed ` *`) or
+  `[{id, pid, x, y, width, height, title, active, app}]`; pid 0 / no active
+  mark / `[]` degrade, never error.
+- `rk gui focus <id|--title <substr>>` — raise + focus exactly one window;
+  zero matches, an ambiguous substring, or a non-window id all exit 1.
+- `rk gui click <x> <y> [--right|--middle|--double] [--window <id>]`,
+  `rk gui move <x> <y>`, `rk gui scroll <up|down|left|right> [--n 3] [--at x
+  y]`, `rk gui type <text>|--stdin` (unicode-safe via stdin; newline =
+  Return), `rk gui key <chord>…` (xdotool keysym spelling) — the input
+  verbs, wrapping xdotool (a miss refuses `xdotool not found — sudo apt
+  install xdotool`). Coordinates are display pixels.
+- `rk gui wait --window <substr> [--timeout 10s]` (prints the first matching
+  window id) / `rk gui wait --stable [--interval 500ms] [--timeout 10s]`
+  (exits 0 once two consecutive scale-0.25 captures are pixel-identical —
+  hashed over decoded pixels, never PNG bytes, because ImageMagick's date
+  text chunks differ per capture). Expiry is `timed out after <d>`, exit 1.
+- `rk gui clip get | set <text> | set --stdin` — the CLIPBOARD selection via
+  xclip (xsel fallback; the apt hint when neither is installed). `set`
+  attaches no stdout/stderr pipes and never kills the forked selection owner
+  — on a desktop with no clipboard manager that child IS the clipboard.
+- `rk gui open <url|file>` — `xdg-open` detached (`started <pid> on :N`);
+  without it a URL falls back to the browser ladder and a file refuses with
+  the xdg-utils hint.
+- `rk gui lock` / `rk gui unlock` — the host resolution pin (§ Resize
+  policy).
 - `rk agent setup` — exports `DISPLAY` into managed panes when enabled
   (read-time derivation from the supervisor's stamped display, never a hook
   push — Constitution X).
 - `rk skill gui` — the briefing page.
+
+**The human-input guard**: the six input verbs (`click`, `move`, `scroll`,
+`type`, `key`, `focus`) — and only those — fetch the daemon's status document
+before acting and refuse with `human input <N>s ago — retry or pass --force`
+(exit 1) when `human_input_ago_ms` is present and under 3 s; `--force`
+overrides. The guard fails open when the daemon's HTTP origin does not answer
+(with no daemon there is no relay viewer, so nobody can be driving).
+
+**The coordinate rule**: one coordinate space — display pixels. `shot`'s
+stderr line carries the source geometry and scale, so shot-derived
+coordinates divide by S back into display pixels.
+
+**The status document and stream entry** gain `locked` (always present, like
+`wm`) and `human_input_ago_ms` (`omitempty`, clamped ≥ 1 ms when the hub has
+seen relayed input; absent before any — the timestamp is in-memory and dies
+with the daemon). `rk gui status` renders `  human input <N>s ago` under the
+summary while the fetched document is inside the grace window, and `--json`
+prints the fetched (live) document when the daemon answers.
 
 ---
 

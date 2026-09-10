@@ -149,6 +149,18 @@ func (s *Server) buildGuiStatus(ctx context.Context, id string) gui.Status {
 			s.initSSEHub()
 			return s.sseHub.guiViewerCount(id)
 		},
+		// Locked and HumanInputAt come from the hub: the pin is read on the
+		// gui tick beside the stamps, and the input timestamp is hub-local
+		// relay bookkeeping (the CLI wires nil for the latter — it cannot
+		// observe the hub).
+		Locked: func(context.Context) bool {
+			s.initSSEHub()
+			return s.sseHub.guiLockedState()
+		},
+		HumanInputAt: func() (time.Time, bool) {
+			s.initSSEHub()
+			return s.sseHub.guiHumanInputAt(id)
+		},
 		Now: time.Now,
 	})
 }

@@ -1,23 +1,33 @@
 package gui
 
+import "time"
+
 // Status is the shared GUI status document served by `rk gui status --json`
 // and GET /api/gui/{id}. Field order is the stream-payload order first, then
 // the document-only fields.
 type Status struct {
-	ID            string `json:"id"`
-	Enabled       bool   `json:"enabled"`
-	Backend       string `json:"backend"`
-	Reachable     bool   `json:"reachable"`
-	Display       string `json:"display"`
-	Width         int    `json:"width"`
-	Height        int    `json:"height"`
-	Viewers       int    `json:"viewers"`
-	WM            string `json:"wm"`
-	Socket        string `json:"socket"`
-	Session       bool   `json:"session"`
-	Reason        string `json:"reason"`
-	Apps          []App  `json:"apps"`
-	UptimeSeconds int64  `json:"uptime_seconds"`
+	ID        string `json:"id"`
+	Enabled   bool   `json:"enabled"`
+	Backend   string `json:"backend"`
+	Reachable bool   `json:"reachable"`
+	Display   string `json:"display"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	Viewers   int    `json:"viewers"`
+	WM        string `json:"wm"`
+	// Locked is the host resolution pin (`rk gui lock` — @rk_gui_lock on the
+	// rk-gui session), always present like wm.
+	Locked bool `json:"locked"`
+	// HumanInputAgoMS is the age of the last relayed human input in
+	// milliseconds (the daemon's in-memory relay timestamp), clamped ≥ 1 so
+	// "absent" and "just now" stay distinguishable; omitted when no viewer has
+	// driven the display since the daemon started.
+	HumanInputAgoMS int64  `json:"human_input_ago_ms,omitempty"`
+	Socket          string `json:"socket"`
+	Session         bool   `json:"session"`
+	Reason          string `json:"reason"`
+	Apps            []App  `json:"apps"`
+	UptimeSeconds   int64  `json:"uptime_seconds"`
 	// WMHint is the install line for the window manager, present only on a
 	// reachable display running bare (the unreachable reason already carries
 	// the backend hint).
@@ -31,7 +41,7 @@ type App struct {
 }
 
 // StreamEntry is the per-id element of the host-global `event: gui` state
-// payload — the first nine fields of Status.
+// payload — the first eleven fields of Status.
 type StreamEntry struct {
 	ID        string `json:"id"`
 	Enabled   bool   `json:"enabled"`
@@ -42,6 +52,21 @@ type StreamEntry struct {
 	Height    int    `json:"height"`
 	Viewers   int    `json:"viewers"`
 	WM        string `json:"wm"`
+	Locked    bool   `json:"locked"`
+	// HumanInputAgoMS mirrors Status: the clamped age of the last relayed
+	// human input, omitted when none was seen.
+	HumanInputAgoMS int64 `json:"human_input_ago_ms,omitempty"`
+}
+
+// HumanInputAgoMS renders the age of the last relayed human input in
+// milliseconds, clamped to ≥ 1 so a just-seen event never reads as absent
+// (the field is omitempty — 0 would vanish from the document).
+func HumanInputAgoMS(at, now time.Time) int64 {
+	ms := now.Sub(at).Milliseconds()
+	if ms < 1 {
+		return 1
+	}
+	return ms
 }
 
 // Info is the result of an RFB probe (Probe): reachability plus the geometry

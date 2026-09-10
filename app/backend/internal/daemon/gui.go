@@ -35,6 +35,10 @@ const (
 	// display runs bare). Best-effort for readers: an unset option reads as
 	// "" and never affects the ok of GUISessionOptions.
 	GUIOptionWM = "@rk_gui_wm"
+	// GUIOptionLock is the host-side resolution pin (`rk gui lock`): set to "1"
+	// while locked, unset when unlocked. Session-scoped, so it dies with the
+	// rk-gui session — a stale pin cannot survive a restart.
+	GUIOptionLock = "@rk_gui_lock"
 	// guiDisplayStart is the lowest display the ensure ladder hands out —
 	// below :10 belongs to the host's desktop session.
 	guiDisplayStart = 10
@@ -320,6 +324,36 @@ func GUISessionOptions(ctx context.Context) (display, backend, wm string, ok boo
 	}
 	wm, _ = guiSessionOption(ctx, GUIOptionWM)
 	return display, backend, wm, true
+}
+
+// guiSetLockRun is the package seam over the lock pin's tmux write (the
+// guiSpawn/guiKillRun idiom) so tests capture the argv without a live tmux
+// server.
+var guiSetLockRun = func(ctx context.Context, args ...string) error {
+	return runTmux(ctx, args...)
+}
+
+// SetGUILock sets or unsets the host resolution pin on the rk-gui session
+// (GUIOptionLock = "1" while locked, removed when unlocked). The option
+// commands need the session-scoped exact-match target (the guiSessionOption
+// comment's tmux 3.7c note).
+func SetGUILock(ctx context.Context, locked bool) error {
+	target := tmux.ExactSessionTarget(GUISessionName)
+	if locked {
+		return guiSetLockRun(ctx, "set-option", "-t", target, GUIOptionLock, "1")
+	}
+	return guiSetLockRun(ctx, "set-option", "-u", "-t", target, GUIOptionLock)
+}
+
+// GUILocked reads the host resolution pin; an unset option or an absent
+// session reads as false. Callers probing from OUTSIDE the daemon process
+// must gate on the daemon running first (the GUISessionExists rule).
+func GUILocked(ctx context.Context) bool {
+	if !guiSessionExists(ctx) {
+		return false
+	}
+	v, err := guiSessionOption(ctx, GUIOptionLock)
+	return err == nil && v == "1"
 }
 
 // guiSessionCreated reads the rk-gui session's session_created format. A

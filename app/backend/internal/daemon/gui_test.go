@@ -466,6 +466,67 @@ func TestGUISessionOptionsUnsetOptionIsAbsent(t *testing.T) {
 	}
 }
 
+func TestSetGUILockArgv(t *testing.T) {
+	withGUISeams(t, true)
+	var calls [][]string
+	orig := guiSetLockRun
+	t.Cleanup(func() { guiSetLockRun = orig })
+	guiSetLockRun = func(_ context.Context, args ...string) error {
+		calls = append(calls, append([]string(nil), args...))
+		return nil
+	}
+
+	if err := SetGUILock(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetGUILock(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("set-option calls = %v, want 2", calls)
+	}
+	if got, want := strings.Join(calls[0], " "), "set-option -t =rk-gui: @rk_gui_lock 1"; got != want {
+		t.Errorf("lock argv = %q, want %q (session-scoped exact target)", got, want)
+	}
+	if got, want := strings.Join(calls[1], " "), "set-option -u -t =rk-gui: @rk_gui_lock"; got != want {
+		t.Errorf("unlock argv = %q, want %q", got, want)
+	}
+}
+
+func TestGUILockedReadsThePin(t *testing.T) {
+	withGUISeams(t, true)
+	orig := guiSessionOption
+	t.Cleanup(func() { guiSessionOption = orig })
+
+	guiSessionOption = func(_ context.Context, option string) (string, error) {
+		if option == GUIOptionLock {
+			return "1", nil
+		}
+		return "", fmt.Errorf("invalid option")
+	}
+	if !GUILocked(context.Background()) {
+		t.Error("GUILocked = false with the pin set to 1")
+	}
+
+	// An unset option hard-fails show-options -v, which reads as unlocked.
+	guiSessionOption = func(context.Context, string) (string, error) {
+		return "", fmt.Errorf("invalid option")
+	}
+	if GUILocked(context.Background()) {
+		t.Error("GUILocked = true with the pin unset")
+	}
+}
+
+func TestGUILockedAbsentSession(t *testing.T) {
+	rec := withGUISeams(t, false)
+	if GUILocked(context.Background()) {
+		t.Error("GUILocked = true with no rk-gui session")
+	}
+	if rec.existsProbes != 1 {
+		t.Errorf("exists probes = %d, want 1 (gated before the option read)", rec.existsProbes)
+	}
+}
+
 func TestGUISessionCreatedAbsent(t *testing.T) {
 	withGUISeams(t, false)
 

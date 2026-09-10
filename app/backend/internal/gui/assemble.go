@@ -29,7 +29,15 @@ type StatusDeps struct {
 	RunningApps func(display string, exclude map[int]bool) ([]App, error)
 	LookPath    func(string) (string, error)
 	Viewers     func() int
-	Now         func() time.Time
+	// Locked reads the host resolution pin (@rk_gui_lock); consulted once the
+	// session exists. Nil reads as unlocked.
+	Locked func(ctx context.Context) bool
+	// HumanInputAt is the daemon's in-memory last-relayed-human-input
+	// timestamp (ok=false when none was seen or the daemon restarted — the
+	// fact dies with the process). Nil omits human_input_ago_ms (the CLI
+	// cannot observe the hub — the guiViewersFn caveat).
+	HumanInputAt func() (time.Time, bool)
+	Now          func() time.Time
 }
 
 // Assemble builds the shared Status document from StatusDeps. The order is
@@ -52,6 +60,11 @@ func Assemble(ctx context.Context, d StatusDeps) Status {
 	if d.Viewers != nil {
 		st.Viewers = d.Viewers()
 	}
+	if d.HumanInputAt != nil && d.Now != nil {
+		if at, ok := d.HumanInputAt(); ok {
+			st.HumanInputAgoMS = HumanInputAgoMS(at, d.Now())
+		}
+	}
 	if d.DaemonRunning == nil || !d.DaemonRunning() {
 		st.Reason = SessionAbsentReason
 		return st
@@ -62,6 +75,9 @@ func Assemble(ctx context.Context, d StatusDeps) Status {
 	if !st.Session {
 		st.Reason = NotRunningReason(false, "", d.LookPath)
 		return st
+	}
+	if d.Locked != nil {
+		st.Locked = d.Locked(ctx)
 	}
 	if d.SessionOptions != nil {
 		if display, backend, wm, ok := d.SessionOptions(ctx); ok {

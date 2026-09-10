@@ -2,10 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"rk/internal/gui"
+
+	"github.com/spf13/cobra"
 )
 
 // withGuiLaunchSeams points the launch verb's own seams at capturing stubs and
@@ -16,9 +23,11 @@ func withGuiLaunchSeams(t *testing.T) (startCalls *[][]string) {
 	startCalls = new([][]string)
 
 	origStat, origStart, origGOOS := guiStatFn, guiLaunchStartFn, guiGOOS
+	origEval, origDial := guiEvalSymlinksFn, guiDialFn
 	t.Cleanup(func() {
 		guiStatFn, guiLaunchStartFn = origStat, origStart
 		guiGOOS = origGOOS
+		guiEvalSymlinksFn, guiDialFn = origEval, origDial
 	})
 
 	guiStatFn = func(string) (os.FileInfo, error) { return nil, nil }
@@ -26,6 +35,10 @@ func withGuiLaunchSeams(t *testing.T) (startCalls *[][]string) {
 		*startCalls = append(*startCalls, append(argv, env...))
 		return 4321, nil
 	}
+	// --cdp: the symlink resolution defaults to identity (tests point it at a
+	// family member or Firefox) and the CDP port defaults to answering.
+	guiEvalSymlinksFn = func(p string) (string, error) { return p, nil }
+	guiDialFn = func(context.Context, string) error { return nil }
 	guiGOOS = "linux"
 	return startCalls
 }
@@ -145,5 +158,158 @@ func TestGuiLaunchStartFailure(t *testing.T) {
 	}
 	if code := exitCode(err); code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
+	}
+}
+
+// --- launch browser --cdp (R11) ---
+
+// launchCmdWith builds a bare command carrying the launch verb's --cdp/--port
+// flags.
+func launchCmdWith(out, errOut *bytes.Buffer, flags map[string]string) *cobra.Command {
+	cmd := bareCmd(out, errOut)
+	cmd.Flags().Bool("cdp", false, "")
+	cmd.Flags().Int("port", guiCDPDefaultPort, "")
+	setFlags(cmd, flags)
+	return cmd
+}
+
+func TestGuiLaunchCDPArgvAndPortLine(t *testing.T) {
+	startCalls := withGuiLaunchSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiLookPathFn = lookPathOnly("chromium")
+
+	var out bytes.Buffer
+	err := runGuiLaunch(launchCmdWith(&out, &bytes.Buffer{}, map[string]string{"cdp": "true"}), []string{"browser"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDir, err := gui.StateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := (*startCalls)[0]
+	want := []string{
+		"/usr/bin/chromium",
+		"--remote-debugging-port=9222",
+		"--user-data-dir=" + filepath.Join(stateDir, "cdp-9222"),
+	}
+	if strings.Join(call[:3], " ") != strings.Join(want, " ") {
+		t.Errorf("start argv = %v, want %v", call[:3], want)
+	}
+	wantOut := "started chromium (pid 4321) on :10\ncdp http://127.0.0.1:9222\n"
+	if got := out.String(); got != wantOut {
+		t.Errorf("stdout = %q, want %q", got, wantOut)
+	}
+}
+
+func TestGuiLaunchCDPPortTimeout(t *testing.T) {
+	withGuiLaunchSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiLookPathFn = lookPathOnly("chromium")
+	guiDialFn = func(context.Context, string) error { return errors.New("connection refused") }
+	origTimeout, origPoll := guiCDPWaitTimeout, guiCDPWaitPoll
+	guiCDPWaitTimeout, guiCDPWaitPoll = 100*time.Millisecond, 5*time.Millisecond
+	t.Cleanup(func() { guiCDPWaitTimeout, guiCDPWaitPoll = origTimeout, origPoll })
+
+	var out bytes.Buffer
+	err := runGuiLaunch(launchCmdWith(&out, &bytes.Buffer{}, map[string]string{"cdp": "true"}), []string{"browser"})
+	if err == nil || err.Error() != "cdp port 9222 did not open within 100ms (browser pid 4321 is running)" {
+		t.Errorf("err = %v, want the port-timeout error (naming the shrunk budget)", err)
+	}
+	if code := exitCode(err); code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if got, want := out.String(), "started chromium (pid 4321) on :10\n"; got != want {
+		t.Errorf("stdout = %q, want %q (the started line already printed)", got, want)
+	}
+}
+
+func TestGuiLaunchCDPOnTerminalIsUsage(t *testing.T) {
+	startCalls := withGuiLaunchSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiLookPathFn = lookPathOnly("xterm")
+
+	err := runGuiLaunch(launchCmdWith(&bytes.Buffer{}, &bytes.Buffer{}, map[string]string{"cdp": "true"}), []string{"terminal"})
+	if err == nil || exitCode(err) != exitUsage {
+		t.Errorf("err = %v (code %d), want a usage error (exit 2)", err, exitCode(err))
+	}
+	if len(*startCalls) != 0 {
+		t.Errorf("start called %d times for --cdp on terminal", len(*startCalls))
+	}
+}
+
+func TestGuiLaunchCDPFirefoxRefuses(t *testing.T) {
+	startCalls := withGuiLaunchSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiLookPathFn = lookPathOnly("firefox")
+
+	err := runGuiLaunch(launchCmdWith(&bytes.Buffer{}, &bytes.Buffer{}, map[string]string{"cdp": "true"}), []string{"browser"})
+	if err == nil || err.Error() != "--cdp needs a Chromium-family browser (resolved firefox)" {
+		t.Errorf("err = %v, want the Chromium-family refusal", err)
+	}
+	if code := exitCode(err); code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if len(*startCalls) != 0 {
+		t.Errorf("start called %d times for a Firefox resolution", len(*startCalls))
+	}
+}
+
+// The x-www-browser alternative joins the family by its symlink target's
+// basename.
+func TestGuiLaunchCDPWWWBrowserResolvesBySymlinkTarget(t *testing.T) {
+	startCalls := withGuiLaunchSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiLookPathFn = lookPathOnly("x-www-browser")
+	guiEvalSymlinksFn = func(string) (string, error) { return "/usr/lib/chromium/chromium", nil }
+
+	var out bytes.Buffer
+	if err := runGuiLaunch(launchCmdWith(&out, &bytes.Buffer{}, map[string]string{"cdp": "true"}), []string{"browser"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "cdp http://127.0.0.1:9222\n") {
+		t.Errorf("stdout = %q, want the cdp line for the chromium-resolving alternative", out.String())
+	}
+	if len(*startCalls) != 1 {
+		t.Fatalf("start calls = %d, want 1", len(*startCalls))
+	}
+}
+
+func TestGuiLaunchCDPWWWBrowserToFirefoxRefuses(t *testing.T) {
+	startCalls := withGuiLaunchSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiLookPathFn = lookPathOnly("x-www-browser")
+	guiEvalSymlinksFn = func(string) (string, error) { return "/usr/bin/firefox", nil }
+
+	err := runGuiLaunch(launchCmdWith(&bytes.Buffer{}, &bytes.Buffer{}, map[string]string{"cdp": "true"}), []string{"browser"})
+	if err == nil || err.Error() != "--cdp needs a Chromium-family browser (resolved x-www-browser)" {
+		t.Errorf("err = %v, want the Chromium-family refusal", err)
+	}
+	if code := exitCode(err); code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if len(*startCalls) != 0 {
+		t.Errorf("start called %d times for a firefox-resolving alternative", len(*startCalls))
+	}
+}
+
+func TestGuiLaunchCDPPortZeroIsUsage(t *testing.T) {
+	startCalls := withGuiLaunchSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiLookPathFn = lookPathOnly("chromium")
+
+	err := runGuiLaunch(launchCmdWith(&bytes.Buffer{}, &bytes.Buffer{}, map[string]string{"cdp": "true", "port": "0"}), []string{"browser"})
+	if err == nil || exitCode(err) != exitUsage {
+		t.Errorf("err = %v (code %d), want a usage error (exit 2)", err, exitCode(err))
+	}
+	if len(*startCalls) != 0 {
+		t.Errorf("start called %d times for --port 0", len(*startCalls))
 	}
 }

@@ -903,6 +903,7 @@ describe("SessionProvider — gui signal (the host-global `gui` event list)", ()
       height: 1080,
       viewers: 1,
       wm: "icewm-session",
+      locked: false,
     },
   ];
 
@@ -945,6 +946,7 @@ describe("SessionProvider — gui signal (the host-global `gui` event list)", ()
       height: 0,
       viewers: 0,
       wm: "",
+      locked: false,
     });
   });
 
@@ -1003,6 +1005,7 @@ describe("SessionProvider — gui signal (the host-global `gui` event list)", ()
       height: 0,
       viewers: 0,
       wm: "",
+      locked: false,
     });
   });
 

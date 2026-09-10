@@ -275,7 +275,9 @@ const CodeServerContext = createContext<CodeServerSignal | null | undefined>(und
  *  displays); consumers select the `id === "host"` entry. Reachability and
  *  viewers govern the tile's CONTENT — availability keys off `enabled` only
  *  (see `hasGui`). `wm` is the supervisor's window-manager stamp (`""` when
- *  bare) — the tile keys the bare-WM strip on it. */
+ *  bare) — the tile keys the bare-WM strip on it. `locked` is the host-side
+ *  resolution pin (`rk gui lock`) — while set, no viewer drives
+ *  SetDesktopSize. */
 export type GuiSignal = {
   id: string;
   enabled: boolean;
@@ -286,6 +288,7 @@ export type GuiSignal = {
   height: number;
   viewers: number;
   wm: string;
+  locked: boolean;
 };
 
 // The gui signal lives in its OWN context (the CodeServerContext precedent):
@@ -323,6 +326,7 @@ function narrowGuiEntry(entry: unknown): GuiSignal {
     height: guiNumber(e.height),
     viewers: guiNumber(e.viewers),
     wm: guiString(e.wm),
+    locked: e.locked === true,
   };
 }
 

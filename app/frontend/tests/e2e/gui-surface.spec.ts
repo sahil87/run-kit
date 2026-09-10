@@ -45,14 +45,14 @@ import {
 // fetch/poll, geometry settle) are shared with gui-perf.spec.ts via `_gui.ts`.
 
 const GUI_OFF = [
-  { id: "host", enabled: false, backend: "", reachable: false, display: "", width: 0, height: 0, viewers: 0, wm: "" },
+  { id: "host", enabled: false, backend: "", reachable: false, display: "", width: 0, height: 0, viewers: 0, wm: "", locked: false },
 ];
 const GUI_ON_UNREACHABLE = [
-  { id: "host", enabled: true, backend: "Xtigervnc", reachable: false, display: ":10", width: 0, height: 0, viewers: 0, wm: "" },
+  { id: "host", enabled: true, backend: "Xtigervnc", reachable: false, display: ":10", width: 0, height: 0, viewers: 0, wm: "", locked: false },
 ];
 const GUI_REASON = "no VNC backend: sudo apt install --no-install-recommends tigervnc-standalone-server icewm";
 const GUI_ON_BARE = [
-  { id: "host", enabled: true, backend: "Xtigervnc", reachable: true, display: ":10", width: 1280, height: 800, viewers: 0, wm: "" },
+  { id: "host", enabled: true, backend: "Xtigervnc", reachable: true, display: ":10", width: 1280, height: 800, viewers: 0, wm: "", locked: false },
 ];
 const GUI_ON_ICEWM = [{ ...GUI_ON_BARE[0], wm: "icewm-session" }];
 const GUI_WM_HINT = "sudo apt install --no-install-recommends icewm";

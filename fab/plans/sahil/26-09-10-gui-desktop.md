@@ -25,7 +25,7 @@ ground (C5 painted it) and a right-click menu whose entries point at
 desktop, nothing is reachable by tap on a phone, and a missing browser fails
 silently.
 
-**Status (2026-09-10)**: spike done (§ Spike verdict). G1 Done (`260910-2jl3-gui-desktop-icewm-and-launcher`, PR #905 merged). G2 in progress (`260910-vu4p-gui-desktop-tile-strip-and-palette`, PR #908). G3 (agent verbs) added 2026-09-10 from the bronze-crane thread — not started; the operator picks it up once G2 is merged.
+**Status (2026-09-10)**: spike done (§ Spike verdict). G1 Done (`260910-2jl3-gui-desktop-icewm-and-launcher`, PR #905 merged). G2 Done (`260910-vu4p-gui-desktop-tile-strip-and-palette`, PR #908 merged). G3 (agent verbs) added 2026-09-10 from the bronze-crane thread — in progress (`260910-d0za-gui-agent-verbs-input-and-windows`, intake 2026-09-10).
 
 ---
 
@@ -266,8 +266,8 @@ changes at once; it has no code dependency on G2.
 | # | Slug (suggested) | Depends on | Size | Change folder | PR | Status |
 |---|------------------|-----------|------|---------------|----|--------|
 | G1 | `gui-desktop-icewm-and-launcher` | parent C5 merged (it is) | M | 260910-2jl3-gui-desktop-icewm-and-launcher | https://github.com/sahil87/run-kit/pull/905 | Done |
-| G2 | `gui-desktop-tile-strip-and-palette` | G1 merged | S | 260910-vu4p-gui-desktop-tile-strip-and-palette | https://github.com/sahil87/run-kit/pull/908 | in progress (PR #908) |
-| G3 | `gui-agent-verbs-input-and-windows` | G2 merged | M | | | not started — operator pickup after G2 |
+| G2 | `gui-desktop-tile-strip-and-palette` | G1 merged | S | 260910-vu4p-gui-desktop-tile-strip-and-palette | https://github.com/sahil87/run-kit/pull/908 | Done |
+| G3 | `gui-agent-verbs-input-and-windows` | G2 merged | M | 260910-d0za-gui-agent-verbs-input-and-windows | | in progress (intake) |
 
 ---
 

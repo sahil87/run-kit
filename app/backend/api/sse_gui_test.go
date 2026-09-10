@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
@@ -73,7 +74,7 @@ func TestGuiTickDisabledPayloadShape(t *testing.T) {
 	isolateSettings(t) // fresh HOME ⇒ gui.enabled false by default
 	hub := newGuiTestHub()
 	hub.guiTick()
-	want := `[{"id":"host","enabled":false,"backend":"","reachable":false,"display":"","width":0,"height":0,"viewers":0,"wm":""}]`
+	want := `[{"id":"host","enabled":false,"backend":"","reachable":false,"display":"","width":0,"height":0,"viewers":0,"wm":"","locked":false}]`
 	if got := hub.cachedGui(t); got != want {
 		t.Fatalf("disabled payload = %s, want %s", got, want)
 	}
@@ -307,5 +308,60 @@ func TestGuiTickSessionAbsent(t *testing.T) {
 				t.Fatalf("payload = %s, want reachable:false", got)
 			}
 		})
+	}
+}
+
+func TestGuiTickReadsTheLockPin(t *testing.T) {
+	enableGuiSettings(t)
+	stub := &guiProbeStub{info: gui.Info{Reachable: true, Width: 1920, Height: 1080}}
+	hub := newGuiTestHub()
+	stubGuiSeams(hub, ":10", "Xtigervnc", true, stub.probe)
+	var lockReads int
+	hub.guiLockedFn = func(context.Context) bool { lockReads++; return true }
+
+	hub.guiTick()
+	if lockReads != 1 {
+		t.Fatalf("lock reads = %d, want 1 (read on the probe tick beside the stamps)", lockReads)
+	}
+	if got := hub.cachedGui(t); !strings.Contains(got, `"locked":true`) {
+		t.Fatalf("payload = %s, want \"locked\":true", got)
+	}
+
+	// The pin flip surfaces on the next TTL window, like the stamps.
+	hub.guiLockedFn = func(context.Context) bool { return false }
+	hub.guiProbeAt = time.Time{}
+	hub.guiTick()
+	if got := hub.cachedGui(t); strings.Contains(got, `"locked":true`) {
+		t.Fatalf("payload = %s, want locked:false after the flip", got)
+	}
+}
+
+func TestGuiPayloadCarriesHumanInputAgo(t *testing.T) {
+	enableGuiSettings(t)
+	stub := &guiProbeStub{info: gui.Info{Reachable: true, Width: 1920, Height: 1080}}
+	hub := newGuiTestHub()
+	stubGuiSeams(hub, ":10", "Xtigervnc", true, stub.probe)
+	hub.guiLockedFn = func(context.Context) bool { return false }
+
+	hub.guiTick()
+	if got := hub.cachedGui(t); strings.Contains(got, "human_input_ago_ms") {
+		t.Fatalf("payload = %s, want the field omitted before any input (omitempty)", got)
+	}
+
+	hub.guiHumanInputSeen("host")
+	hub.guiTick()
+	got := hub.cachedGui(t)
+	var entries []gui.StreamEntry
+	if err := json.Unmarshal([]byte(got), &entries); err != nil {
+		t.Fatalf("payload does not decode: %v (%s)", err, got)
+	}
+	if len(entries) != 1 || entries[0].HumanInputAgoMS < 1 {
+		t.Errorf("entry = %+v, want human_input_ago_ms ≥ 1 (the clamp keeps just-now distinct from absent)", entries)
+	}
+	if _, ok := hub.guiHumanInputAt("host"); !ok {
+		t.Error("guiHumanInputAt = not ok after guiHumanInputSeen")
+	}
+	if _, ok := hub.guiHumanInputAt("nope"); ok {
+		t.Error("guiHumanInputAt(nope) = ok, want not ok")
 	}
 }

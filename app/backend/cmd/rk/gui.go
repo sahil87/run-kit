@@ -2,10 +2,13 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -34,6 +37,8 @@ var (
 	guiProbeFn          = gui.Probe
 	guiRunningAppsFn    = gui.RunningApps
 	guiLookPathFn       = exec.LookPath
+	guiSetLockFn        = daemon.SetGUILock
+	guiLockedFn         = daemon.GUILocked
 	// guiStdinTTYFn decides between the interactive [y/N] prompt and the
 	// non-tty refusal on `rk gui off`. Tests substitute it to drive both.
 	guiStdinTTYFn = isTerminal
@@ -54,6 +59,122 @@ const (
 	guiErrOff        = "gui is off — turn it on with 'rk gui on'"
 	guiErrNotRunning = "gui is on but not running — see 'rk gui status'"
 )
+
+// guiHumanInputGrace is the guard window for the input verbs: a relayed human
+// input younger than this refuses the verb (the human's pointer wins).
+const guiHumanInputGrace = 3 * time.Second
+
+// guiFetchDaemonStatusTimeout bounds the CLI's read of the daemon's live
+// status document (the relay's viewer/human-input facts are hub-local to the
+// daemon process — a CLI can only learn them over HTTP).
+const guiFetchDaemonStatusTimeout = 2 * time.Second
+
+// guiFetchDaemonStatusFn GETs the daemon's live gui.Status document at the
+// caller-covering origin (the sendNotify origin resolution) — the source of
+// the hub-local facts (viewers, human_input_ago_ms). ok=false on any error:
+// the guard fails open (with the daemon's HTTP down no relay viewer exists)
+// and status falls back to the local assembly. A package seam so tests
+// script the document.
+var guiFetchDaemonStatusFn = guiFetchDaemonStatus
+
+func guiFetchDaemonStatus(ctx context.Context) (gui.Status, bool) {
+	ctx, cancel := context.WithTimeout(ctx, guiFetchDaemonStatusTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, resolveOrigin(ctx)+"/api/gui/host", nil)
+	if err != nil {
+		return gui.Status{}, false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return gui.Status{}, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return gui.Status{}, false
+	}
+	var st gui.Status
+	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+		return gui.Status{}, false
+	}
+	return st, true
+}
+
+// guiRequireNoHumanInput is the input-verb guard (click, move, scroll, type,
+// key, focus — only those): refuse while a human drove the display within
+// guiHumanInputGrace, unless --force. Fails open when the daemon's document
+// is unreachable.
+func guiRequireNoHumanInput(ctx context.Context, force bool) error {
+	if force {
+		return nil
+	}
+	st, ok := guiFetchDaemonStatusFn(ctx)
+	if !ok || st.HumanInputAgoMS <= 0 {
+		return nil
+	}
+	if time.Duration(st.HumanInputAgoMS)*time.Millisecond >= guiHumanInputGrace {
+		return nil
+	}
+	// Whole seconds, floored, minimum 1 — "1s ago" covers the sub-second case.
+	n := st.HumanInputAgoMS / 1000
+	if n < 1 {
+		n = 1
+	}
+	return fmt.Errorf("human input %ds ago — retry or pass --force", n)
+}
+
+// guiRequireXTool probes an X tool on PATH before a verb uses it and refuses
+// with the tool's install hint on a miss (install-composition: probe,
+// degrade, hint — rk installs nothing).
+func guiRequireXTool(name, hint string) error {
+	if _, err := guiLookPathFn(name); err != nil {
+		return errors.New(hint)
+	}
+	return nil
+}
+
+// guiXdoMissingHint is the refusal every xdotool-backed verb shares.
+const guiXdoMissingHint = "xdotool not found — sudo apt install xdotool"
+
+// guiXdoTimeout bounds one xdotool invocation (the tmux-class bound,
+// Constitution § Process Execution).
+const guiXdoTimeout = 10 * time.Second
+
+// guiXdoRunFn runs xdotool on the GUI display: an argv slice under
+// exec.CommandContext (never a shell string), DISPLAY set in the env
+// (xdotool has no display flag), and user text on stdin — never argv
+// (Constitution I). The error carries the tool's stderr tail when it
+// explained itself (the shotStageError idiom). A package seam so tests
+// capture argv/stdin without an X server.
+var guiXdoRunFn = func(ctx context.Context, display string, argv []string, stdin string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, guiXdoTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "xdotool", argv...)
+	cmd.Env = gui.LaunchEnv(os.Environ(), display, "")
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	if err := cmd.Run(); err != nil {
+		if tail := strings.TrimSpace(errBuf.String()); tail != "" {
+			return "", errors.New(tail)
+		}
+		return "", err
+	}
+	return strings.TrimSuffix(out.String(), "\n"), nil
+}
+
+// guiXdoSearchIDs is the shared visible-window search: returns the matching X
+// ids sorted ascending. xdotool exits 1 when nothing matches, which reads as
+// an empty result — never an error.
+func guiXdoSearchIDs(ctx context.Context, display, quotedPattern string) ([]uint64, error) {
+	out, err := guiXdoRunFn(ctx, display, gui.XdoSearchName(quotedPattern), "")
+	if err != nil && out == "" {
+		return nil, nil
+	}
+	return gui.ParseWindowIDs(out)
+}
 
 // guiRequireReachable is the shared gate for verbs that act on the live
 // display: enabled and reachable, or the refusal error (exit 1). The status
@@ -98,14 +219,15 @@ socket only — nothing ever listens on TCP; on macOS the surface mirrors Screen
 Sharing view-only.
 
 Subcommands:
-  on       Turn the GUI on (idempotent; starts rk-gui when the daemon is up)
-  off      Turn the GUI off (confirms when apps are running on the display)
-  status   Show the GUI state (human-readable or --json)
-  env      Print DISPLAY/RK_GUI_SOCKET exports for eval
-  restart  Kill and respawn the rk-gui session (recovery for a dead backend)
-  exec     Run a command on the GUI display (DISPLAY set); --detach to launch and return
-  shot     Screenshot the display to a PNG and print its path
-  launch   Open a terminal or browser on the GUI display (the allowlisted launcher)
+  display: on off status env restart exec launch open
+  look:    shot windows wait
+  drive:   focus click move scroll type key clip
+  guard:   lock unlock
+
+The drive verbs wrap xdotool (probe first — a miss refuses with the install
+hint) and refuse while a human drove the display in the last 3s (retry, or
+--force to override). Coordinates are display pixels; 'shot' reports its
+source geometry and scale on stderr.
 
 See 'run-kit gui <subcommand> --help' for details.`,
 }
@@ -190,6 +312,37 @@ daemon is down (a tmux command on a dead socket would birth a server).`,
 	RunE:         runGuiRestart,
 }
 
+var guiLockCmd = &cobra.Command{
+	Use:   "lock",
+	Short: "Pin the display resolution against viewer resizes",
+	Long: `Pin the display resolution host-side: sets @rk_gui_lock on the rk-gui
+session, and every viewer's tile stops driving SetDesktopSize while it is set
+— the loop-safe answer when an agent's coordinates must not move mid-loop (a
+viewer's window resize otherwise follows the last fine-pointer viewer's size).
+
+The pin dies with the rk-gui session: 'rk gui restart' and 'rk gui off' clear
+it. 'rk gui status' shows 'locked' while pinned. Idempotent.
+
+Refuses (exit 1) when the GUI is off or enabled but not running — a lock on a
+dead display is meaningless.`,
+	Args:         cobra.NoArgs,
+	SilenceUsage: true,
+	RunE:         runGuiLock,
+}
+
+var guiUnlockCmd = &cobra.Command{
+	Use:   "unlock",
+	Short: "Clear the host display-resolution pin",
+	Long: `Clear the host display-resolution pin ('rk gui lock'): unsets
+@rk_gui_lock on the rk-gui session, so the focused fine-pointer viewer's tile
+drives SetDesktopSize again. Idempotent.
+
+Refuses (exit 1) when the GUI is off or enabled but not running.`,
+	Args:         cobra.NoArgs,
+	SilenceUsage: true,
+	RunE:         runGuiUnlock,
+}
+
 func init() {
 	guiOffCmd.Flags().Bool("yes", false, "Skip the running-apps confirmation")
 	guiStatusCmd.Flags().Bool("json", false, "Emit the status document as JSON")
@@ -204,6 +357,18 @@ func init() {
 	guiCmd.AddCommand(guiExecCmd)
 	guiCmd.AddCommand(guiShotCmd)
 	guiCmd.AddCommand(guiLaunchCmd)
+	guiCmd.AddCommand(guiOpenCmd)
+	guiCmd.AddCommand(guiWindowsCmd)
+	guiCmd.AddCommand(guiFocusCmd)
+	guiCmd.AddCommand(guiWaitCmd)
+	guiCmd.AddCommand(guiClickCmd)
+	guiCmd.AddCommand(guiMoveCmd)
+	guiCmd.AddCommand(guiScrollCmd)
+	guiCmd.AddCommand(guiTypeCmd)
+	guiCmd.AddCommand(guiKeyCmd)
+	guiCmd.AddCommand(guiClipCmd)
+	guiCmd.AddCommand(guiLockCmd)
+	guiCmd.AddCommand(guiUnlockCmd)
 
 	// Arg-count violations on the children are usage-class (exit 2) — root.go's
 	// central wrap loop covers only rootCmd's direct children (the code-server
@@ -327,8 +492,19 @@ func runGuiStatus(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithTimeout(guiCmdCtx(cmd), 10*time.Second)
 	defer cancel()
 	st := gatherGUIStatus(ctx)
+	// The daemon's live document carries the hub-local facts (viewers,
+	// human_input_ago_ms); fetch it only when the daemon is up (a connection
+	// attempt otherwise would just burn the fetch timeout).
+	fetched, fetchedOK := gui.Status{}, false
+	if guiDaemonRunningFn() {
+		fetched, fetchedOK = guiFetchDaemonStatusFn(ctx)
+	}
 	if jsonOut {
-		data, err := json.MarshalIndent(st, "", "  ")
+		doc := st
+		if fetchedOK {
+			doc = fetched
+		}
+		data, err := json.MarshalIndent(doc, "", "  ")
 		if err != nil {
 			return fmt.Errorf("encoding gui status: %w", err)
 		}
@@ -338,6 +514,14 @@ func runGuiStatus(cmd *cobra.Command, _ []string) error {
 	sink.Dataf("%s\n", guiStatusSummary(st))
 	if st.Reachable && len(st.Apps) > 0 {
 		sink.Dataf("  apps: %s\n", guiAppsSummary(st.Apps))
+	}
+	if fetchedOK && fetched.HumanInputAgoMS > 0 &&
+		time.Duration(fetched.HumanInputAgoMS)*time.Millisecond < guiHumanInputGrace {
+		n := fetched.HumanInputAgoMS / 1000
+		if n < 1 {
+			n = 1
+		}
+		sink.Dataf("  human input %ds ago\n", n)
 	}
 	return nil
 }
@@ -386,6 +570,38 @@ func runGuiRestart(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+func runGuiLock(cmd *cobra.Command, _ []string) error {
+	return runGuiLockVerb(cmd, true)
+}
+
+func runGuiUnlock(cmd *cobra.Command, _ []string) error {
+	return runGuiLockVerb(cmd, false)
+}
+
+// runGuiLockVerb is the shared lock/unlock body: the standard gate (enabled +
+// reachable — a lock on a dead display is meaningless), then the session
+// option write. Both verbs are idempotent, and neither is an input verb (the
+// human-input guard never applies).
+func runGuiLockVerb(cmd *cobra.Command, locked bool) error {
+	verb := "unlock"
+	if locked {
+		verb = "lock"
+	}
+	if guiGOOS == "darwin" {
+		return guiDarwinRefusal(verb)
+	}
+	ctx, cancel := context.WithTimeout(guiCmdCtx(cmd), 10*time.Second)
+	defer cancel()
+	if _, err := guiRequireReachable(ctx); err != nil {
+		return err
+	}
+	if err := guiSetLockFn(ctx, locked); err != nil {
+		return fmt.Errorf("error: setting the resolution pin: %w", err)
+	}
+	newSink(cmd).Dataf("%s\n", verb+"ed") // locked / unlocked
+	return nil
+}
+
 // guiWMLines prints the window-manager chatter after a started/restarted
 // datum: the resolved WM name, or the bare-display install hint pair when the
 // supervisor stamped an empty @rk_gui_wm. Chatter-class (Notef) so --quiet and
@@ -423,7 +639,11 @@ func gatherGUIStatus(ctx context.Context) gui.Status {
 		},
 		LookPath: guiLookPathFn,
 		Viewers:  guiViewersFn,
-		Now:      guiNowFn,
+		// Locked is tmux-derivable for the CLI (the pin is a session option);
+		// HumanInputAt stays nil — the input timestamp is hub-local to the
+		// daemon process, so the CLI learns it from the fetched document.
+		Locked: guiLockedFn,
+		Now:    guiNowFn,
 	})
 }
 
@@ -437,16 +657,17 @@ func guiStatusSummary(st gui.Status) string {
 		if bin == "" {
 			bin, _ = gui.ResolveBackend(guiLookPathFn)
 		}
-		return "gui: " + guiOnSummary(bin, st.Display, st.Width, st.Height, st.Viewers, st.WM)
+		return "gui: " + guiOnSummary(bin, st.Display, st.Width, st.Height, st.Viewers, st.WM, st.Locked)
 	}
 	return "gui: on — not running (" + st.Reason + ")"
 }
 
-// guiOnSummary is the shared "on (<bin>, :N, WxH, k viewer(s), <wm>)" rendering
-// — the status line's tail and the doctor row's reachable note. An empty wm
-// renders the bare "no window manager" (the doctor appends the install hint
-// itself; the status line does not).
-func guiOnSummary(bin, display string, width, height, viewers int, wm string) string {
+// guiOnSummary is the shared "on (<bin>, :N, WxH, k viewer(s), <wm>[, locked])"
+// rendering — the status line's tail and the doctor row's reachable note. An
+// empty wm renders the bare "no window manager" (the doctor appends the
+// install hint itself; the status line does not); locked rides last when the
+// host resolution pin is set.
+func guiOnSummary(bin, display string, width, height, viewers int, wm string, locked bool) string {
 	noun := "viewers"
 	if viewers == 1 {
 		noun = "viewer"
@@ -454,7 +675,11 @@ func guiOnSummary(bin, display string, width, height, viewers int, wm string) st
 	if wm == "" {
 		wm = "no window manager"
 	}
-	return fmt.Sprintf("on (%s, %s, %dx%d, %d %s, %s)", bin, display, width, height, viewers, noun, wm)
+	s := fmt.Sprintf("on (%s, %s, %dx%d, %d %s, %s", bin, display, width, height, viewers, noun, wm)
+	if locked {
+		s += ", locked"
+	}
+	return s + ")"
 }
 
 // guiAppsSummary renders the apps list as "<name> ×<count>, …" (the off

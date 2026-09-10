@@ -67,11 +67,14 @@ var codeServerRunJob = func(ctx context.Context, window string, argv []string) (
 	return RunJob(ctx, window, argv)
 }
 
-// codeServerSelfPath resolves this daemon's own on-disk binary path for the
-// spawn argv's RK_BIN env element and the install job's shell chain. A
-// package seam (mirroring codeServerUserHomeDir) so tests return a fixed
-// path.
-var codeServerSelfPath = selfpath.Resolve
+// codeServerSelfPath resolves the version-stable rk path for the spawn argv's
+// RK_BIN env element and the install job's shell chain: the brew-prefix
+// symlink on a Homebrew install, the resolved binary elsewhere. The
+// rk-code-server session outlives the binary version that spawned it, and
+// `brew upgrade` deletes the old keg — a Cellar path here dies at the next
+// release. A package seam (mirroring codeServerUserHomeDir) so tests return a
+// fixed path.
+var codeServerSelfPath = selfpath.Stable
 
 // codeServerSeedSettings is the write-once baseline for the rk-owned profile:
 // the first two settings are settings-only (no CLI flags exist — verified
@@ -231,7 +234,7 @@ func ensureCodeServerCore(cli bool) (EnsureOutcome, error) {
 		return EnsureInstallJobSpawned, nil
 	}
 
-	// RK_BIN hands the code-server environment the resolved rk binary path (the
+	// RK_BIN hands the code-server environment the version-stable rk path (the
 	// bridge extension's $RK_BIN rung). Resolution failure drops the element —
 	// the spawn proceeds without it, matching the home-dir posture.
 	envPrefix := []string{"env", "-u", "VSCODE_IPC_HOOK_CLI"}
@@ -322,9 +325,11 @@ func spawnCodeServerInstallJob(ctx context.Context) {
 // `env -u` (inside a VS Code integrated terminal that var flips code-server
 // into `code`-CLI mode — "open in existing instance" → exits with "Please
 // specify at least one file or folder"; the dev.sh lesson). The same env
-// prefix sets RK_BIN to the daemon's own resolved binary path so the bridge
-// extension can run rk regardless of the window's PATH; an unresolvable
-// self-path omits the element and never blocks the spawn. Loopback-only +
+// prefix sets RK_BIN to the version-stable rk path (the brew-prefix symlink on
+// a Homebrew install — never the Cellar path, which `brew upgrade` deletes
+// while this session keeps running) so the bridge extension can run rk
+// regardless of the window's PATH; an unresolvable self-path omits the
+// element and never blocks the spawn. Loopback-only +
 // --auth none: the rk origin is the trust boundary, same posture as dev.
 // The remaining flags curate the embedded /code lens: telemetry and the
 // update notifier off (updates arrive via rk — `rk code-server update`),

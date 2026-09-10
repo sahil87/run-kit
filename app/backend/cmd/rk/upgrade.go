@@ -290,14 +290,9 @@ func runUpdateCLILeg(sink outputSink) error {
 	// Outcome line — data (survives --quiet).
 	sink.Dataf("Updated to v%s.\n", latest)
 
-	// Derive the stable Homebrew bin symlink from the Cellar path.
-	// resolved is e.g. /opt/homebrew/Cellar/run-kit/0.5.3/bin/run-kit
-	// We want:         /opt/homebrew/bin/run-kit
-	cellarIdx := strings.Index(resolved, selfpath.CellarMarker)
-	if cellarIdx == -1 {
-		return fmt.Errorf("could not derive brew prefix from %s", resolved)
-	}
-	brewBinPath := resolved[:cellarIdx] + "/bin/run-kit"
+	// Restart via the stable Homebrew bin symlink (<prefix>/bin/run-kit), not
+	// the Cellar path: brew has just deleted the keg this process ran from.
+	brewBinPath := selfpath.StableFor(resolved)
 
 	// Restart daemon so it picks up the new binary.
 	// Idempotent: if no daemon is running, this starts one.

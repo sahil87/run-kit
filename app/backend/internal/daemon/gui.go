@@ -64,9 +64,12 @@ var guiKillRun = func(ctx context.Context, args ...string) error {
 	return runTmux(ctx, args...)
 }
 
-// guiSelfPath resolves this daemon's own on-disk binary path for the spawn
-// argv's supervise command. A package seam so tests return a fixed path.
-var guiSelfPath = selfpath.Resolve
+// guiSelfPath resolves the version-stable rk path for the spawn argv's
+// supervise command — the brew-prefix symlink on a Homebrew install, the
+// resolved binary elsewhere — because the rk-gui session outlives the binary
+// version that spawned it (the code-server RK_BIN precedent). A package seam
+// so tests return a fixed path.
+var guiSelfPath = selfpath.Stable
 
 // guiLookPath resolves backend binaries on PATH. A package seam so tests
 // script the no-backend branch without depending on the host's PATH.

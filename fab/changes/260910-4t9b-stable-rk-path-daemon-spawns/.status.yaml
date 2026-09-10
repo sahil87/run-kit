@@ -1,0 +1,55 @@
+id: 4t9b
+name: 260910-4t9b-stable-rk-path-daemon-spawns
+created: 2026-09-10T19:45:17Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 16
+    acceptance_completed: 16
+confidence:
+    certain: 9
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 79.4
+        reversibility: 88.9
+        competence: 88.3
+        disambiguation: 82.8
+stage_metrics:
+    intake: {started_at: "2026-09-10T19:45:17Z", driver: fab-new, iterations: 1, completed_at: "2026-09-10T19:49:43Z"}
+    apply: {started_at: "2026-09-10T19:49:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T19:53:42Z"}
+    review: {started_at: "2026-09-10T19:53:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T19:57:35Z"}
+    hydrate: {started_at: "2026-09-10T19:57:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T19:58:32Z"}
+    ship: {started_at: "2026-09-10T19:58:32Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-10T19:58:32Z"
+    computed_at_stage: hydrate
+summary: Daemon-spawned long-lived processes (code-server RK_BIN, the install-job chain, the rk-gui supervisor) carry the version-stable brew-prefix rk path via selfpath.Stable instead of the Cellar path brew upgrade deletes
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-10T19:58:32Z

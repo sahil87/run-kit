@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-10T19:45:17Z"}
+{"args":"Stable rk path for daemon-spawned processes — code-server RK_BIN and the gui supervisor spawn no longer pin a brew Cellar version (bridge 'rk not found' after every rk update)","cmd":"fab-new","event":"command","ts":"2026-09-10T19:45:17Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-10T19:47:09Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-10T19:47:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-10T19:49:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-10T19:53:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-10T19:57:35Z"}
+{"event":"review","result":"passed","ts":"2026-09-10T19:57:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-10T19:58:32Z"}

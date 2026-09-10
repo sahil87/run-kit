@@ -67,7 +67,7 @@ A code-server window learns which run-kit tab embeds it from a **derived `.code-
 
 **Identity gate**: `readTabIdentity` (`src/tab.ts`, pure) accepts `rk.tab` only when it matches `^@\d+$` and `rk.server` only when it matches the tmux server-name charset `^[A-Za-z0-9_.-]+$`; either failing ⇒ no identity. On activate the extension sets the `rk.hasTab` context key (`setContext`), re-evaluated on `onDidChangeConfiguration` for the `rk` section. Every run-kit menu and palette entry carries a `rk.hasTab`-gated `when` clause, so a host without a tab shows nothing and never errors.
 
-**The `rk` resolution ladder** (`src/rk.ts`): `rk.bridge.rkPath` (non-empty, absolute) → `process.env.RK_BIN` (set by the daemon's code-server spawn — see [daemon-lifecycle](/run-kit/daemon-lifecycle.md)) → the bare name `rk` (PATH search by `execFile`). `runRk(argv, {timeoutMs, stdin?})` runs `child_process.execFile(rkPath, argv, {timeout, maxBuffer})` with argv arrays only — never a shell string — piping `stdin` when given and resolving `{code, stdout, stderr, error?}` (a non-zero exit is a result, not a throw); a spawn `ENOENT` resolves as a distinguishable result and surfaces exactly `run-kit: rk not found — set rk.bridge.rkPath`.
+**The `rk` resolution ladder** (`src/rk.ts`): `rk.bridge.rkPath` (non-empty, absolute) → `process.env.RK_BIN` (set by the daemon's code-server spawn to the version-stable rk path — the brew-prefix `bin/run-kit` symlink on a Homebrew install, never the Cellar path `brew upgrade` deletes — see [daemon-lifecycle](/run-kit/daemon-lifecycle.md)) → the bare name `rk` (PATH search by `execFile`). `runRk(argv, {timeoutMs, stdin?})` runs `child_process.execFile(rkPath, argv, {timeout, maxBuffer})` with argv arrays only — never a shell string — piping `stdin` when given and resolving `{code, stdout, stderr, error?}` (a non-zero exit is a result, not a throw); a spawn `ENOENT` resolves as a distinguishable result and surfaces exactly `run-kit: rk not found — set rk.bridge.rkPath`.
 
 **The six actions** (all `"category": "run-kit"` — the palette renders `run-kit: <Title>`; context-menu titles are unprefixed VS Code-style verbs; the user-facing noun is "Web Tile"):
 
@@ -282,9 +282,9 @@ The extension SHALL read its tab identity from the workspace settings `rk.tab` (
 *Introduced by*: 260909-kji8-tab-keyed-code-workspace-actions
 
 ### `RK_BIN` is env-carried; tab identity is not
-**Decision**: the daemon's code-server spawn passes `RK_BIN=<self path>`; the extension resolves `rk.bridge.rkPath` → `$RK_BIN` → `rk` on PATH.
-**Why**: the binary path is per-process (one code-server), so env is the right carrier; tab identity is per-window, so it is not. PATH inheritance alone works only by accident of how `rk serve -d` was launched.
-**Rejected**: relying on PATH inheritance alone.
+**Decision**: the daemon's code-server spawn passes `RK_BIN=<version-stable rk path>` (`selfpath.Stable`: the brew-prefix `<prefix>/bin/run-kit` symlink on a Homebrew install, the resolved binary elsewhere); the extension resolves `rk.bridge.rkPath` → `$RK_BIN` → `rk` on PATH.
+**Why**: the binary path is per-process (one code-server), so env is the right carrier; tab identity is per-window, so it is not. PATH inheritance alone works only by accident of how `rk serve -d` was launched. The value must be version-stable rather than the resolved Cellar binary: the code-server session outlives the rk version that spawned it, and `brew upgrade` deletes the old keg — a Cellar-pinned `RK_BIN` leaves every bridge action failing with `rk not found` after each release (260910-4t9b-stable-rk-path-daemon-spawns).
+**Rejected**: relying on PATH inheritance alone; a Cellar-pinned `RK_BIN` (dies at the next `brew upgrade`); an ENOENT fall-through to `rk` on PATH inside the extension (symptom treatment — PATH inheritance by accident again, and it leaves the install-job chain and the rk-gui spawn broken).
 *Introduced by*: 260909-kji8-tab-keyed-code-workspace-actions
 
 ### One state-dir resolution rule, mirrored in two runtimes

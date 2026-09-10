@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"rk/internal/selfpath"
 )
 
 // guiSeamRec records what the gui seams observed in one test.
@@ -109,6 +111,40 @@ func TestEnsureGUISpawnsSuperviseSession(t *testing.T) {
 	want := "new-session -d -e XDG_STATE_HOME=" + os.Getenv("XDG_STATE_HOME") + " -s rk-gui -n host /usr/local/bin/rk gui supervise host --display :10"
 	if got != want {
 		t.Errorf("spawn argv =\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestEnsureGUISpawnCarriesStableRkPathOnBrew(t *testing.T) {
+	withGUISetting(t, true)
+	rec := withGUISeams(t, false)
+	guiSelfPath = func() (string, error) {
+		return selfpath.StableFor("/opt/homebrew/Cellar/run-kit/1.2.3/bin/run-kit"), nil
+	}
+
+	if _, err := ensureGUICore(false); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.spawnArgs) != 1 {
+		t.Fatalf("spawn calls = %d, want 1", len(rec.spawnArgs))
+	}
+	args := rec.spawnArgs[0]
+	i := -1
+	for j, a := range args {
+		if a == "gui" && j > 0 {
+			i = j - 1
+			break
+		}
+	}
+	if i < 0 {
+		t.Fatalf("spawn argv = %v, want `<rk-exe> gui supervise …`", args)
+	}
+	if args[i] != "/opt/homebrew/bin/run-kit" {
+		t.Errorf("rk exe element = %q, want the brew-prefix symlink /opt/homebrew/bin/run-kit", args[i])
+	}
+	for _, a := range args {
+		if strings.Contains(a, "/Cellar/") {
+			t.Errorf("spawn argv = %v, want no version-pinned /Cellar/ element", args)
+		}
 	}
 }
 

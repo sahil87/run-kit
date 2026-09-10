@@ -85,3 +85,20 @@ func ResolveWM(lookPath func(string) (string, error)) (argv []string, ok bool) {
 	}
 	return nil, false
 }
+
+// RootBackground is the solid color painted onto the X root window once the
+// WM is up. Xvnc's default root is black and openbox paints no desktop, so an
+// empty desktop would otherwise be indistinguishable from a dead canvas. A
+// solid fill costs the encoder one rect per update; the classic X weave
+// stipple (-retro) would be JPEG noise on every full update.
+const RootBackground = "#3b4252"
+
+// RootBackgroundArgv returns the argv that paints the root window, or ok=false
+// when xsetroot is not on PATH (the desktop stays black and the supervisor
+// logs the install hint).
+func RootBackgroundArgv(lookPath func(string) (string, error)) (argv []string, ok bool) {
+	if _, err := lookPath("xsetroot"); err != nil {
+		return nil, false
+	}
+	return []string{"xsetroot", "-solid", RootBackground}, true
+}

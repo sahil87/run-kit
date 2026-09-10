@@ -112,3 +112,18 @@ func TestResolveWM(t *testing.T) {
 		}
 	})
 }
+
+func TestRootBackgroundArgv(t *testing.T) {
+	t.Run("xsetroot present", func(t *testing.T) {
+		argv, ok := RootBackgroundArgv(stubLookPath("xsetroot"))
+		if !ok || !reflect.DeepEqual(argv, []string{"xsetroot", "-solid", RootBackground}) {
+			t.Errorf("RootBackgroundArgv() = %v, %v, want [xsetroot -solid %s], true", argv, ok, RootBackground)
+		}
+	})
+
+	t.Run("xsetroot absent", func(t *testing.T) {
+		if argv, ok := RootBackgroundArgv(stubLookPath("openbox")); ok || argv != nil {
+			t.Errorf("RootBackgroundArgv() = %v, %v, want nil, false", argv, ok)
+		}
+	})
+}

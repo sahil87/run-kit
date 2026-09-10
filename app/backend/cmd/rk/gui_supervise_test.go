@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -104,6 +106,14 @@ func TestGuiSuperviseLineFormats(t *testing.T) {
 	if got, want := guiBackendExitLine("Xtigervnc", 1, ":10"),
 		"gui: Xtigervnc exited (status 1) — display :10 is down; run 'rk gui restart' or turn the GUI off"; got != want {
 		t.Errorf("exit line = %q, want %q", got, want)
+	}
+	if got, want := guiNoRootBackgroundLine(),
+		"gui: no xsetroot on PATH; the empty desktop stays black — apt install x11-xserver-utils"; got != want {
+		t.Errorf("no-xsetroot line = %q, want %q", got, want)
+	}
+	if got, want := guiRootBackgroundFailedLine(errors.New("exit status 1")),
+		"gui: xsetroot failed: exit status 1; the empty desktop stays black"; got != want {
+		t.Errorf("xsetroot-failed line = %q, want %q", got, want)
 	}
 	if got, want := guiScreenSharingLine(true),
 		"Screen Sharing: reachable on 127.0.0.1:5900"; got != want {
@@ -311,6 +321,127 @@ func TestGuiSuperviseLinuxLaunchesWMWithDisplay(t *testing.T) {
 	if strings.Contains(buf.String(), guiNoWMLine()) {
 		t.Errorf("log =\n%s\nwant no bare-WM line when kwin_x11 resolves", buf.String())
 	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("teardown err = %v, want nil", err)
+	}
+}
+
+// The root-background step: xsetroot present ⇒ it runs after the WM with
+// DISPLAY set; absent ⇒ the hint line, backend still up; failing ⇒ the failure
+// line, supervisor still alive.
+func TestGuiSuperviseLinuxPaintsRootBackground(t *testing.T) {
+	withGuiSuperviseGOOS(t, "linux")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+	withGuiSuperviseLookPath(t, map[string]string{
+		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
+		"xsetroot":  "/usr/bin/xsetroot",
+	})
+	buf := captureGuiSuperviseLog(t)
+	captureGuiStamps(t)
+
+	type run struct {
+		argv    []string
+		display string
+	}
+	var (
+		mu   sync.Mutex
+		runs []run
+	)
+	orig := guiSuperviseRunOnDisplay
+	t.Cleanup(func() { guiSuperviseRunOnDisplay = orig })
+	guiSuperviseRunOnDisplay = func(_ context.Context, argv []string, display string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		runs = append(runs, run{append([]string(nil), argv...), display})
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":12") }()
+
+	waitForGuiLog(t, buf, "gui: Xtigervnc up on :12")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(runs)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	got := append([]run(nil), runs...)
+	mu.Unlock()
+	want := run{[]string{"xsetroot", "-solid", gui.RootBackground}, ":12"}
+	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+		t.Errorf("root-background runs = %+v, want exactly %+v", got, want)
+	}
+	if strings.Contains(buf.String(), guiNoRootBackgroundLine()) {
+		t.Errorf("log =\n%s\nwant no hint line when xsetroot resolves", buf.String())
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("teardown err = %v, want nil", err)
+	}
+}
+
+func TestGuiSuperviseLinuxNoXsetrootLogsHint(t *testing.T) {
+	withGuiSuperviseGOOS(t, "linux")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+	withGuiSuperviseLookPath(t, map[string]string{
+		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
+	})
+	buf := captureGuiSuperviseLog(t)
+	captureGuiStamps(t)
+	orig := guiSuperviseRunOnDisplay
+	t.Cleanup(func() { guiSuperviseRunOnDisplay = orig })
+	guiSuperviseRunOnDisplay = func(context.Context, []string, string) error {
+		t.Error("xsetroot must not run when it is not on PATH")
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":13") }()
+
+	waitForGuiLog(t, buf, "gui: Xtigervnc up on :13")
+	waitForGuiLog(t, buf, guiNoRootBackgroundLine())
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("teardown err = %v, want nil", err)
+	}
+}
+
+func TestGuiSuperviseLinuxXsetrootFailureIsLogged(t *testing.T) {
+	withGuiSuperviseGOOS(t, "linux")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+	withGuiSuperviseLookPath(t, map[string]string{
+		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
+		"xsetroot":  "/usr/bin/xsetroot",
+	})
+	buf := captureGuiSuperviseLog(t)
+	captureGuiStamps(t)
+	orig := guiSuperviseRunOnDisplay
+	t.Cleanup(func() { guiSuperviseRunOnDisplay = orig })
+	guiSuperviseRunOnDisplay = func(context.Context, []string, string) error {
+		return errors.New("exit status 1")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":14") }()
+
+	waitForGuiLog(t, buf, guiRootBackgroundFailedLine(errors.New("exit status 1")))
+	// Still alive after the failure: the socket is up and teardown is clean.
 	cancel()
 	if err := <-done; err != nil {
 		t.Errorf("teardown err = %v, want nil", err)

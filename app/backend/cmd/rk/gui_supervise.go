@@ -28,6 +28,8 @@ var (
 	guiSocketWaitPoll    = 200 * time.Millisecond
 	// guiSuperviseTmuxTimeout bounds each session-option stamp.
 	guiSuperviseTmuxTimeout = 5 * time.Second
+	// guiRootBackgroundTimeout bounds the one-shot xsetroot run.
+	guiRootBackgroundTimeout = 5 * time.Second
 	// guiScreenSharingInterval is the darwin probe cadence.
 	guiScreenSharingInterval = time.Minute
 )
@@ -66,6 +68,17 @@ var guiSuperviseStartWM = func(ctx context.Context, argv []string, display strin
 	return cmd, cmd.Start()
 }
 
+// guiSuperviseRunOnDisplay runs a one-shot X client (xsetroot) to completion
+// with DISPLAY set, bounded by ctx; its output joins the supervisor log. A
+// package seam so tests record the argv and display without an X server.
+var guiSuperviseRunOnDisplay = func(ctx context.Context, argv []string, display string) error {
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Env = append(os.Environ(), "DISPLAY="+display)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // guiSuperviseTmuxRun stamps session options on the rk-daemon socket. A
 // package seam so tests capture the stamp argv without a live tmux server.
 var guiSuperviseTmuxRun = func(ctx context.Context, args ...string) error {
@@ -85,6 +98,14 @@ func guiBackendUpLine(bin, display, sock string) string {
 
 func guiNoWMLine() string {
 	return "gui: no window manager found (tried openbox, xfwm4, i3, kwin_x11, x-session-manager); running bare — apt install openbox"
+}
+
+func guiNoRootBackgroundLine() string {
+	return "gui: no xsetroot on PATH; the empty desktop stays black — apt install x11-xserver-utils"
+}
+
+func guiRootBackgroundFailedLine(err error) string {
+	return fmt.Sprintf("gui: xsetroot failed: %v; the empty desktop stays black", err)
 }
 
 func guiBackendExitLine(bin string, status int, display string) string {
@@ -219,6 +240,7 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 	} else {
 		guiSuperviseLog(guiNoWMLine())
 	}
+	paintGuiRootBackground(ctx, display)
 
 	backendWait := make(chan error, 1)
 	go func() { backendWait <- backend.Wait() }()
@@ -243,6 +265,24 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 		guiRemoveSocket(sock)
 		<-ctx.Done() // stay alive idle so the pane keeps the exit line readable
 		return nil
+	}
+}
+
+// paintGuiRootBackground gives the empty desktop a visible ground (R1). It
+// runs after the WM so a desktop environment that paints its own desktop
+// window still wins; openbox paints nothing, so the solid root shows through.
+// Best-effort: a missing xsetroot or a failed run logs and never aborts the
+// supervisor — a black desktop is still usable.
+func paintGuiRootBackground(ctx context.Context, display string) {
+	argv, ok := gui.RootBackgroundArgv(guiSuperviseLookPath)
+	if !ok {
+		guiSuperviseLog(guiNoRootBackgroundLine())
+		return
+	}
+	runCtx, cancel := context.WithTimeout(ctx, guiRootBackgroundTimeout)
+	defer cancel()
+	if err := guiSuperviseRunOnDisplay(runCtx, argv, display); err != nil {
+		guiSuperviseLog(guiRootBackgroundFailedLine(err))
 	}
 }
 

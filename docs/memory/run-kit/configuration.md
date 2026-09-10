@@ -259,4 +259,9 @@ Every scaffold path (`EnsureConfig`, `ForceWriteConfig`, `rk mux init-conf`, `PO
 **Rejected**: `pane-border-status off` (loses per-pane identity in multi-pane and Board views and orphans the daemon stamping); daemon- or hook-driven per-window border toggling (the first redraw after a geometry change already wedges before any reactor runs, tmux formats cannot enumerate clients, and `run-shell` is asynchronous); padding or shortening the status text (the underflow depends on the pane's x-offset, which the format cannot control); `window-size largest`/`manual` (guarantee clipping for every narrower viewer / freeze everyone); a tmux version gate or `rk doctor` row (every released version is affected, and the policy stands on its own once a fixed tmux ships); waiting for upstream (the report draft lives with the change; no release date).
 *Introduced by*: 260909-3cp9-pane-split-wedge-sizing-guard
 
-See [architecture](/run-kit/architecture.md) § `internal/settings` for the package-level contract and [layout-snapshots](/run-kit/layout-snapshots.md) for the snapshot store under the state root.
+See [backend-packages](/run-kit/architecture/backend-packages.md) § `internal/settings` for the package-level contract and [layout-snapshots](/run-kit/layout-snapshots.md) for the snapshot store under the state root.
+
+### Backend settings file over localStorage-only
+**Decision**: `~/.config/run-kit/config.yaml` via the `internal/settings/` package + the `GET/POST /api/settings` endpoint pair. localStorage kept as a synchronous cache for instant reads before the API responds on page load. Simple `key: value` text parsing (not yaml.v3). Settings are global (not per-server, no `?server=` param).
+**Why**: survives browser cache clears, works across devices accessing the same server. The text parser started with one field and avoids re-adding a heavyweight dependency.
+*Introduced by*: 260323-7wys-ansi-palette-theme-rework

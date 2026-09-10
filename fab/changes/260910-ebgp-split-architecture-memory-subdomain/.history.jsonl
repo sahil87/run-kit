@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-10T20:36:06Z"}
+{"args":"split architecture.md memory into architecture/ sub-domain to reduce parallel-change conflicts","cmd":"fab-new","event":"command","ts":"2026-09-10T20:36:06Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-09-10T20:39:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-10T20:41:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-10T20:50:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-10T21:02:28Z"}
+{"event":"review","result":"passed","ts":"2026-09-10T21:02:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-10T21:02:42Z"}

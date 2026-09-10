@@ -47,7 +47,7 @@ unbounded surfaces carry explicit caps stated in the output, and what survives
 (260717-f8yv-cli-output-volume-controls)
 
 The shipped posture (mechanism lives in
-[architecture](/run-kit/architecture.md) § CLI Subcommands — the `outputSink`
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands — the `outputSink`
 convention plus the per-command rows):
 
 - **A single persistent `--quiet` bool on `rootCmd`** (`root.go`), so every present
@@ -115,7 +115,7 @@ practice the `help-dump` contract and Principle 9's data-vs-chatter split.
 (260730-pl4v-rk-desktop-install)
 
 The `rk desktop` group (`install`/`update`/`status` — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `desktop` row) is the
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `desktop` row) is the
 first worked example of what conformance costs on a new surface:
 
 - **help-dump: the command tree is platform-stable.** The three children are
@@ -150,7 +150,7 @@ first worked example of what conformance costs on a new surface:
   byte-equality drift guard for no standard-mandated gain.
 
 The `rk remote` group (`add`/`connect`/`list`/`status`/`disconnect`/`remove` — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `remote` row, and
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `remote` row, and
 [remote-hosts](/run-kit/remote-hosts.md) for the subsystem) is the second surface
 measured against the same two checks:
 
@@ -181,7 +181,7 @@ measured against the same two checks:
   would trip its byte-equality drift guard for no standard-mandated gain.
 
 The `rk daemon run` verb (`--window <name> -- <cmd> [args…]` — see
-[architecture](/run-kit/architecture.md) § Daemon Lifecycle, the `rk-jobs`
+[daemon-lifecycle](/run-kit/daemon-lifecycle.md) § Daemon Lifecycle, the `rk-jobs`
 sibling session) is the third surface measured against the same two checks
 (260812-z1ya-update-daemon-tmux-window):
 
@@ -199,7 +199,7 @@ sibling session) is the third surface measured against the same two checks
   `--window` or a missing `--` command is a usage error.
 
 The `rk role <operator|clear>` verb (`role.go` — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `role` row) is the
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `role` row) is the
 fourth surface measured against the same two checks
 (260813-ifya-operator-role-pinned-row):
 
@@ -217,7 +217,7 @@ fourth surface measured against the same two checks
   exit.
 
 The `rk code-server` group (`install`/`start`/`update` — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `code-server` row)
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `code-server` row)
 is the fifth surface measured against the same two checks
 (260813-oid2-own-code-server-install):
 
@@ -258,7 +258,7 @@ is the fifth surface measured against the same two checks
   drift guard for no standard-mandated gain.
 
 The `rk present` verb (`present.go` — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `present` row) is
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `present` row) is
 the sixth surface measured against the same checks
 (260813-becu-rk-present-attach-verb):
 
@@ -293,7 +293,7 @@ the sixth surface measured against the same checks
   rk whose pages teach it.
 
 The `rk tab` family (`new`/`layout`/`web add|rm|mv|select|ls`/`code set`/`show` —
-see [architecture](/run-kit/architecture.md) § CLI Subcommands, `tab` row) is
+see [cli](/run-kit/architecture/cli.md) § CLI Subcommands, `tab` row) is
 the seventeenth surface measured against the same checks
 (260829-c143-rk-tab-cli-present-sugar, 260901-s36e-web-tab-strip-drafts-reorder, 260910-wzve-tab-new-command-json-ready):
 
@@ -340,7 +340,7 @@ the seventeenth surface measured against the same checks
   drift guards after `scripts/sync-skill.sh`.
 
 The `rk mux` family (`send`/`await` — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `mux` row; full
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `mux` row; full
 contract in [agent-messaging](/run-kit/agent-messaging.md)) is the seventh
 surface measured against the same checks
 (260815-a5vf-rk-send-await-agent-messaging):
@@ -377,7 +377,7 @@ surface measured against the same checks
   both verbs' report contracts.
 
 The `rk agent` family (`setup`/`hook` — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `agent` row; full
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `agent` row; full
 contract in [agent-state](/run-kit/agent-state.md)) is the eighth surface
 measured against the same checks (260815-r2wp-agent-family):
 
@@ -414,7 +414,7 @@ measured against the same checks (260815-r2wp-agent-family):
 
 The grown `rk mux` family (`reap`/`snapshot list|show|restore`/`init-conf`,
 then `guard`, joining `send`/`await` — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `mux` row; full
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `mux` row; full
 contract in [agent-messaging](/run-kit/agent-messaging.md)) is the ninth
 surface measured against the same checks
 (260815-lsgf-mux-consolidation-low-risk); `guard` itself is the tenth surface
@@ -480,7 +480,7 @@ against the same checks (260815-mi5s-mux-guard-move):
 
 The substrate twins (`rk mux capture`/`kill`/`process` — the generic
 pane-mechanics verbs ported from `fab pane`, agent-state-aware — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `mux` row; full
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `mux` row; full
 contract in [agent-messaging](/run-kit/agent-messaging.md)) are the eleventh
 surface measured against the same checks (260815-82w7-mux-substrate-twins):
 
@@ -606,7 +606,7 @@ fourteenth surface measured against the same checks
   one-liner; both stay within the 150-line budget.
 
 The `rk code` group (`exec`/`hosts`/`commands` — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `code` row; full
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `code` row; full
 contract in [code-bridge](/run-kit/code-bridge.md)) is the fifteenth surface
 measured against the same checks (260826-83jz-code-bridge-extension):
 
@@ -685,7 +685,7 @@ EXISTING surface, so it was re-audited in place against the same checks
   stay byte-identical under `TestSkillMuxEmbedMatchesCanonical`.
 
 The `rk tutorial` verb (`tutorial.go` — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `tutorial` row; the
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `tutorial` row; the
 composition seam in [rk-riff](/run-kit/rk-riff.md) § Shell-String Composition)
 is the eighteenth surface measured against the same checks
 (260903-7ajq-rk-tutorial-entry):
@@ -712,7 +712,7 @@ is the eighteenth surface measured against the same checks
   command-reference table (readme-extraction stays closed over the tree).
 
 The `rk operator` verb (`operator.go` — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `operator` row; the
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `operator` row; the
 composition seam in [rk-riff](/run-kit/rk-riff.md) § Shell-String Composition)
 is the nineteenth surface measured against the same checks
 (260903-a8e4-rk-operator-launcher):
@@ -813,7 +813,7 @@ The `rk gui` family (`gui.go` + `gui_supervise.go` + `gui_exec.go` + `gui_shot.g
 - **The `skill` standard covers the `gui` topic page** — canonical `docs/site/skill/gui.md` (≤150 lines), synced to the embedded copy by `scripts/sync-skill.sh`, drift-guarded and budget-tested by the shared `TestSkillTopics*` tables, and registered as `skillTopics["gui"]` so the `Topics:` help line and `rk skill topics` enumerate it; the page teaches `rk gui launch` (the allowlisted launcher) and the seeded profile directory beside `exec`/`shot`, and the core bundle carries the topic-index line plus one capability row for `rk gui exec <cmd…>` / `rk gui shot [--out f.png]` (gated on the user's `gui.enabled` switch). (bbv1) (2jl3)
 
 The `rk mcp` verb (`mcp.go` — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `mcp` row; the
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `mcp` row; the
 subsystem contract in [mcp](/run-kit/mcp.md)) is the twenty-third surface
 measured against the same checks (260910-nuf6-rk-mcp-stdio):
 
@@ -879,7 +879,7 @@ every conformance claim stays valid at the audited **`shll v0.0.23`**.
 
 ### help-dump — PASS
 The envelope is exactly `{tool, version, schema_version, root}` (see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `help-dump` row). It
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `help-dump` row). It
 carries **no** `captured_at` — the standard forbids it as a rule "with teeth" (the
 capture timestamp is owned by the shll.ai puller; a tool cannot know its own
 capture time). The rest of the checklist passes: exit 0, stdout-only JSON, stderr
@@ -929,7 +929,7 @@ URLs, and the constitution's `sahil87/shll` canonical-source reference.
 `rk skill` + `docs/site/skill.md` exist at HEAD (PR #381), so the standard's
 "deferred, not yet adopted" contingency does NOT apply — it passes in full:
 byte-identical stdout to canonical, ≤150 lines, static-only, in-genre briefing.
-See [architecture](/run-kit/architecture.md) § CLI Subcommands (`skill` row) for
+See [cli](/run-kit/architecture/cli.md) § CLI Subcommands (`skill` row) for
 the embed mechanism and drift guard.
 (260717-agst-rk-skill-agent-setup-hooks-only)
 
@@ -992,7 +992,7 @@ PASS — no principle gaps remain open. The conformance mechanisms:
   [agent-state](/run-kit/agent-state.md) § `rk agent setup` for the consent flow.
 - **P2 (stdout is data)** — `status` and `doctor` carry a machine format via
   `--json` (data to stdout; `doctor`'s human diagnostic stays on stderr). See
-  [architecture](/run-kit/architecture.md) § CLI Subcommands.
+  [cli](/run-kit/architecture/cli.md) § CLI Subcommands.
 - **P5 (Visible mutation boundaries)** — the `agent-setup --dry-run` above also
   satisfies P5's destructive-write preview requirement.
 
@@ -1029,7 +1029,7 @@ plumbing rather than a parallel mechanism):
     (`ExitValidation` → 400), so no api-layer change. riff's manual `Flags().Parse`
     error (`DisableFlagParsing` bypasses the root FlagErrorFunc) is wrapped locally
     as `usageError` (exit 2). See [rk-riff](rk-riff.md) § Exit Code Discipline and
-    [architecture](architecture.md) § CLI Subcommands (`riff` row), and § Design
+    [cli](architecture/cli.md) § CLI Subcommands (`riff` row), and § Design
     Decisions → "riff exit-class renumbering is a value change, not a mapping change".
   - **agent-hook never-fail carve-out** — both hook command instances (the
     `agent hook` family member and the permanent hidden root alias `agent-hook`)
@@ -1076,7 +1076,7 @@ only when brew-installed (the `/Cellar/` gate with a clear non-brew degrade
 message), and satisfies the naming/release clauses (`run-kit` is one string
 across repo / roster / formula leaf / binary; `v{semver}` tags; the tap carries a
 `formula_renames.json` entry mapping the `rk` leaf to `run-kit` — the standard's
-own cited precedent). See [architecture](/run-kit/architecture.md) § CLI Subcommands
+own cited precedent). See [cli](/run-kit/architecture/cli.md) § CLI Subcommands
 (`update` row) for the mechanism.
 
 **The umbrella holds the same conformance across all three legs** — `rk
@@ -1099,7 +1099,7 @@ Requirement: A new command surface is checked against help-dump and Principle
 
 **The code-server third leg is best-effort by design**
 (260813-oid2-own-code-server-install); mechanism in
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `update` row. It
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `update` row. It
 runs **only when `~/.rk/code-server-bin` exists** — the ownership gate, the
 mirror of the standard's "self-update only when brew-installed" clause; a
 user-managed PATH install is never touched, and no managed dir is a silent
@@ -1136,7 +1136,7 @@ below governs both.
 ### Brew invocation discipline — the read-only vs mutating split
 run-kit splits brew calls by whether they mutate the install, and treats the two
 classes differently (the mechanism lives in `newBrewCmd` — see
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `update` row):
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `update` row):
 
 - **Mutating brew subcommands (`brew update`, `brew upgrade`)** — keg
   transactions that must never be `SIGKILL`ed mid-swap. They run under
@@ -1182,7 +1182,7 @@ covers `displayVersion`'s three input shapes — `"1.2.3" → "v1.2.3"` (the rel
 shape shll actually parses), `"v1.2.3"` passthrough, and the `"dev"` sentinel
 passthrough (no `"vdev"`) — so the release-shape path (the one shll parses in
 production) is pinned, not just the `dev` sentinel. See
-[architecture](/run-kit/architecture.md) § Version Management.
+[build-and-release](/run-kit/build-and-release.md) § Version Management.
 
 ## `install-composition` Standard
 

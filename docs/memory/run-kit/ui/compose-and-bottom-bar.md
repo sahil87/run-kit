@@ -285,3 +285,15 @@ In fullbleed mode, `globals.css` pins the **`.app-root` root layout container** 
 **Why**: On touch devices the chord does not exist, so the button is the ONLY path to the "press Enter in the pane" action — disabling it on empty would strand that affordance on exactly the devices that need it. The original complaint was never the send itself but the misleading affordance: a lit primary CTA over an empty composer reads as broken, and the neutral face answers that without removing the capability.
 **Rejected**: Disabling Send on empty (kills the touch path to pane Enter); keeping the lit face on an empty composer (the lit-CTA-over-nothing misread); making the chord a no-op on empty (loses a real remote-control affordance).
 *Introduced by*: 260813-kvk7-dashboard-chrome-nitpick-polish; style-over-state revision PR #592
+
+### Sticky modifier state via useRef + forceUpdate
+**Decision**: `useModifierState` uses a ref for the authoritative state and a counter state to trigger re-renders.
+**Why**: ensures `consume()` reads the latest value atomically without stale closure issues.
+
+### Docked compose strip as native textarea (not xterm input)
+**Decision**: the docked compose strip provides a real `<textarea>` where dictation, paste, IME, and terminal-style line editing all work (autocorrect/autocapitalize/spellcheck stay off — a rewritten path or flag is a bug, not a convenience); plain Enter transmits the line (`text + "\n"`) and Cmd/Ctrl+Enter submits (`text + "\r"`), both as raw bytes over the focused pane's relay stream (full matrix: [ui/compose-and-bottom-bar](/run-kit/ui/compose-and-bottom-bar.md) § Docked Compose Strip → Send semantics). It is a single global, sticky surface with a live focused-pane target, NOT a modal frozen at open.
+**Why**: xterm renders to `<canvas>`, blocking OS-level input features.
+*Introduced by*: 260718-dhdj-docked-compose-strip
+
+### Armed modifiers bridge to physical keyboard
+**Decision**: when bottom-bar modifiers (Ctrl/Alt) are armed, a capture-phase `keydown` listener intercepts physical keypresses, translates them to terminal escape sequences (Ctrl+letter → control characters, Alt → ESC prefix), and sends via WebSocket. Prevents xterm from receiving the unmodified key. Ignores real Cmd/Ctrl/Alt held by the OS.

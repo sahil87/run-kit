@@ -293,4 +293,4 @@ The extension SHALL read its tab identity from the workspace settings `rk.tab` (
 **Rejected**: A config key or env override for the bridge dir (new config surface for a path that should follow the state root convention).
 *Introduced by*: 260826-83jz-code-bridge-extension
 
-See [architecture](/run-kit/architecture.md) § CLI Subcommands (`code` row) and § Backend Libraries (`internal/codebridge`), [configuration](/run-kit/configuration.md) § Boundaries for the state-dir tenant, and [toolkit-standards](/run-kit/toolkit-standards.md) for the new-surface conformance check.
+See [cli](/run-kit/architecture/cli.md) § CLI Subcommands (`code` row) and § Backend Libraries (`internal/codebridge`), [configuration](/run-kit/configuration.md) § Boundaries for the state-dir tenant, and [toolkit-standards](/run-kit/toolkit-standards.md) for the new-surface conformance check.

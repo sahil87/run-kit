@@ -680,3 +680,9 @@ extraction mode; externally hosted pages; agent-generated companion pages.
 **Why**: the poll/dedup/cache machinery is proven in production; confining the transport to the edge keeps the blast radius off it and lets consumers above the `subscribe*` seams stay transport-agnostic.
 **Rejected**: reshaping producers around the socket's kind/key envelope (rewrites proven code for no behavioral gain).
 *Introduced by*: 260716-qf3j-state-socket
+
+### The code-server embed rides a stable `/code/*` route; the port never reaches the frontend
+**Decision**: the Go server mounts `/code/*` reverse-proxying to `127.0.0.1:{ResolvedCodeServerPort()}` via a shared prefix-parameterized proxy constructor (the `/proxy/{port}` machinery parameterized by strip-prefix and HTML-rewrite path, cache keyed by route prefix), resolving the port PER REQUEST via `config.Load()`; the frontend's iframe src is the fixed `/code/?folder=<gitRoot>` and the SSE signal carries reachability only.
+**Why**: code-server keys browser-side workspace state by the proxy pathname, so the pathname must never change even if the port does — and with the daemon managing code-server on the `RK_PORT+2` convention the port is always derivable, so it becomes a private implementation detail.
+**Rejected**: keeping the port in the client contract (`/proxy/{port}/?folder=…`) — a port drift silently blanks every user's workspace; seeding the resolved port onto the server at startup and reading a field (per-request `config.Load()` is four getenvs and keeps tests on `t.Setenv` instead of a server-field seam).
+*Introduced by*: 260811-a2bo-daemon-code-server-stable-route

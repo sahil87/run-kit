@@ -1,0 +1,209 @@
+---
+description: "System overview (Go backend + Vite SPA on one port, dev vs prod topology, the -L runkit tmux server, the URL hierarchy), the no-database data model (tmux-derived state, the @rk_* option inventory, fab-tier derivation, the SSE session cache), SPA static serving and its two-tier cache policy, embedded frontend assets, and the security posture."
+type: memory
+---
+# run-kit Architecture — Overview
+
+## System Overview
+
+run-kit is a web-based agent orchestration dashboard. In production, a single Go binary runs as a daemon in a dedicated tmux session:
+
+1. **Go backend** (`app/backend/`, default port 3000) — single binary serving REST API, SSE, WebSocket terminal relay, and SPA static files on one port. Cobra CLI with subcommands: `serve` (default; foreground-only — daemon lifecycle is the `daemon start|stop|restart|status` tree), `update` (alias: `upgrade`), `doctor`, `status`, `url`, `skill`, `mcp` (serve run-kit's MCP tools over stdio — a visible transport verb typed into connector configs rather than by humans; an allowlisted proxy over rk verbs whose stdout is the protocol channel, all diagnostics on stderr — see [mcp](/run-kit/mcp.md)), `riff`, `tutorial` (guided-tour entry — a session-scoped singleton `tutorial` window running the `--tier`-resolved launcher (default `fast`) bare, with the kickoff prompt typed into the booted agent and verified; tmux-required, exit 1 outside), `operator` (the server-wide singleton operator launcher — opens (or switches to) the `@rk_win_role=operator` window running the operator-tier launcher bare with the `/fab-operator` kickoff typed in; hard preconditions inside-tmux + fab-on-PATH, atomic create-and-mark via the `rk role` write path), `desktop` (macOS-only install/update/status for the Electron shell), `remote` (SSH-only remote hosts — bootstrap, tunnel, connect), `code-server` (the rk-owned editor install — install/start/update), `tab` (tab-state family — layout/web-tab/code-root/signal-setter verbs over the `@rk_win_*` options, works with `rk serve` down), `present` (one-verb "show this to the user" — sugar over `rk tab web add --show`: attach a file/dir/port/URL target and open the web tile), `mux` (tmux-substrate family — the `send`/`await` agent-to-agent messaging verbs, the `capture`/`kill`/`process` substrate twins (pane capture/kill/process-tree, agent-state-aware), the `panes` whole-server enumeration query, plus the operator members `new`, `adopt`, `reap`, `snapshot list|show|restore`, `init-conf`, `guard`; `rk mux -h` presents the family in three command groups — messaging / pane mechanics / server ops). Hidden from help: `shell-init` (sourced from shell rc — functional, excluded from `rk -h` and help-dump) and the deprecation aliases `reaper`/`snapshot`/`init-conf` at the root (hidden, each prints cobra's `Deprecated` pointer and runs byte-identically; removable in a future release — unlike the permanent `agent-hook` alias). Version info via `--version`/`-v` global flag (Cobra built-in)
+
+In development, `just dev` runs two concurrent processes:
+- Vite dev server (`:RK_PORT`, default 3000) — HMR, proxies `/api/*`, `/relay/*`, `/proxy/*`, and `/code/*` to Go backend
+- Go backend (`:RK_PORT+1`, default 3001) — API, WebSocket relay, SPA static serving
+
+Configuration via env vars: `.env` (committed) defines `RK_PORT` and `RK_HOST`, `.env.local` (gitignored) for overrides. Go backend and Vite both read `RK_PORT`/`RK_HOST` directly — no intermediate `BACKEND_*` vars. In dev mode, `dev.sh` is the translation layer: it passes `RK_PORT+1` to the Go backend and `RK_PORT` to Vite. `dev.sh` accepts `--port` for ad-hoc overrides. `RK_CODE_SERVER_PORT` (read into `Config.CodeServerPort` by `internal/config`; unset/empty/invalid ⇒ unset) is an OVERRIDE for the code lens's code-server port — set it only to point rk at an externally managed code-server; by default the daemon runs code-server itself (§ Daemon Lifecycle → the `rk-code-server` sibling session) and the effective port resolves via `Config.ResolvedCodeServerPort()` (a valid preset wins, else the `RK_PORT+2` convention; 0 only on a degenerate `RK_PORT` whose +2 falls outside 1–65535 — the one case the feature is off). The frontend never sees the port: the embed rides the stable same-origin `/code/` route (a full URL would bypass the proxy and break same-origin). **The pathname is state identity**: code-server keys browser-side workspace state (tabs, layout, IndexedDB) by the proxy pathname, and `/code/` never changes — the port behind it is a private implementation detail. Tmux config defaults to `~/.config/run-kit/tmux.conf` — an rk-managed file whose first line is a hash-stamped ownership header (`# rk-managed sha256:<hex> — DO NOT EDIT; overrides go in ~/.config/run-kit/tmux.d/`, the hex being the SHA-256 of the body), scaffolded by `rk mux init-conf` and refreshed three-state at daemon start (§ `rk serve` Wiring; full ownership contract in [configuration](/run-kit/configuration.md) § Managed tmux.conf). The `tmux_conf` settings key or the `RK_TMUX_CONF` env escape redirects the path and flips the file to user-owned (rk performs no ensure/refresh/doctor on it). The config is embedded in the binary via `go:embed`; every rk write rides the shared managed write path (`writeManagedConfig`). All consumers use `tmux.ConfigPath()` getter — no direct env var reads elsewhere. User extensions go in `~/.config/run-kit/tmux.d/*.conf` — a drop-in directory sourced via `source-file -q` at the end of the managed config; `tmux.d/user.conf` is scaffolded as a commented starter by every scaffold path and never overwritten. Files load in lexicographic order (numeric prefixes control precedence). The `-q` flag silences errors when the directory is empty or missing.
+
+run-kit connects to **one tmux server at a time**, determined by the URL path segment. The URL hierarchy is `/$server/$window` (260529-jad6-window-api-stability) — the server name is always in the URL, making URLs fully shareable and self-contained. The window segment is the **bare numeric part** of the stable tmux **window ID** (`@N` sans `@`, e.g. `/$server/0`) (260703-8mpy-numeric-window-url) — NOT the mutable window index (260529-chgz-window-id-routing): the number in the URL is the ID's digits, restored to `@N` by the route's parse, never the positional index. The API/relay layers still address a window by the `@N` form (e.g. `/api/windows/%40N`, `/relay/%40N` — unchanged); only the page URL segment drops the `@`. The route shape carries **no `$session`** (260529-jad6-window-api-stability) — `@N` is server-global so the session is redundant in the URL; it is derived server-side / from the active window's SSE snapshot wherever a session name is needed for display. 3-segment `/$server/$session/$window` URLs are not served (no redirect shim). The active server is sent as a `?server=` query parameter on every API request (SSE, REST, WebSocket) by the frontend's `withServer()` helper. The backend is stateless — it defaults to the `default` tmux server when the parameter is absent. Server discovery scans `/tmp/tmux-{uid}/` for socket files. The frontend persists the last-used server in localStorage (`runkit-server`) as a convenience for the server list page, but the URL is always the source of truth. Server lifecycle: create (via server list page or command palette), kill (`tmux kill-server`), switch (navigate to `/$newserver`).
+
+The pane-boards view (`/board/$name`) is a deliberate exception: it is a root-level peer to `/$server` (NOT under `/$server/...`) because boards aggregate windows across multiple tmux servers. It does not render the server-scoped AppShell — see [ui/boards](/run-kit/ui/boards.md) § Architecture Placement.
+
+## Data Model
+
+**No database.** State derived at request time from:
+- **tmux server** — `tmux list-sessions`, `tmux list-windows` via `internal/tmux/tmux.go`. Project roots derived from window 0's `pane_current_path`. Read-path functions (`ListSessions`, `ListWindows`, `ListServers`) accept `context.Context` from HTTP handlers for request cancellation propagation. Mutation functions (Create/Kill/Rename) use `context.Background()` — user-initiated actions complete regardless of client disconnect
+- **`config.FindGitRoot()`** (`internal/config/gitroot.go`) — walk-up helper from `pane_current_path` looking for `.git`; live callers (`internal/sessions`, `ProjectRoot`). Session color lives in the tmux `@rk_ses_color` option (below)
+- **tmux `@rk_win_color` / `@rk_ses_color` user options (color storage)** (260615-6rnr-expand-swatch-palette-blends) — per-window color in the `@rk_win_color` user option (`#{@rk_win_color}` is field 8 of the `ListWindows()` format string); per-session color in the `@rk_ses_color` option (field 5 of `ListSessions()`'s format string — a distinct name from window `@rk_win_color` so hierarchical format lookup never leaks one scope's value into the other). Both are ephemeral (survive session lifetime, not tmux-server restarts). The stored value is a **string color-value descriptor** in one of four forms: a legacy numeric/blend form `"4"` (single ANSI index) or `"1+3"` (two-hue blend, NOT a bare integer, though a legacy bare int is still accepted on read); a plain owned-family name `"blue"`; or a `-dark`-/`-light`-suffixed shade (`"blue-dark"` / `"blue-light"`). All forms round-trip; the numeric forms remain valid forever (see § validate closed sets). Window color set via `SetWindowColor`/`UnsetWindowColor` (`set-option -w -t {windowID} @rk_win_color {value}` / `-wu`); session color set via `SetSessionColor(session, value, server)` / `UnsetSessionColor` (`set-option -t {session} @rk_ses_color {value}` / `-u`). Both parse the raw option through `validate.NormalizeColorValue` (accepts legacy int OR descriptor, normalizes to the canonical string, drops on malformed) into `WindowInfo.Color *string` / `SessionInfo.Color *string` (nil when unset/malformed); `SessionInfo.Color` surfaces to the SSE snapshot as `ProjectSession.SessionColor` in `internal/sessions`. Pre-namespaced color keys migrate through `MigrateLegacyOptions` — see [tmux-sessions](/run-kit/tmux-sessions.md) § Legacy Option Migration. Both `-t` targets are self-contained (window ID; session name) — no `session:index` string
+- **tmux `@rk_win_marker` window user option (marker well, window-scoped)** — the window's display-only marker state, stored per-window in `@rk_win_marker` (`#{@rk_win_marker}` is field 11 / index 10 of the `ListWindows()` format string). Ephemeral (survives session lifetime, not tmux-server restarts). Its closed-set schema is `<mode>[:<stage>]`, where mode is `manual`/`auto`/`blocked`, stage is `1`/`2`/`3`, and a bare mode means stage 1: the twelve accepted write tokens are `manual`, `manual:1..3`, `auto`, `auto:1..3`, `blocked`, `blocked:1..3`. `tmux.NormalizeMarker` maps stored flat tokens (`pipe`/`dotted`/`dashed`/`solid` → `manual:1`, `double` → `manual:2`, `thick` → `manual:3`, `hatch` → `blocked:2`, `block` → `blocked:3`) at the live `parseWindows` read boundary, layout-snapshot capture, and snapshot restore. Unknown values collapse to `""`; current tokens pass through unchanged. `WindowInfo.Marker string` (JSON `marker,omitempty`) drives the sidebar's fixed-ink marker well; markers are user label conventions with no behavioral wiring. Writes use the unified `POST /api/windows/{windowId}/options` allowlist. Scope is windows only — session rows and server tiles have no marker.
+- **tmux `@rk_win_flair` user options (per-row flair, decorative)** — the row flair channel (`""`/`rain`/`scan`/`nyan`/`naruto`/`onepiece`/`pacman`/`matrix`/`aquarium`/`roadrunner`/`invaders`/`cube`/`warp`/`spidey`/`ironman` — an opt-in character-animation overlay, decoration only with no semantic wiring; see ui/sidebar.md § Row Flair). Window flair lives in the `@rk_win_flair` **window** option (`#{@rk_win_flair}` is field 13 / index 12 of the `ListWindows()` format string) and session flair in the **scope-split** `@rk_ses_flair` **session** option (field 7 of `ListSessions()`'s format string — a shared name would leak across scopes in format expansion, so the same-scope pair uses distinct names exactly like `@rk_win_color`/`@rk_ses_color`), both ephemeral. Values are a **closed-set token** validated by `validate.FlairValues` / `validate.ValidateFlairValue`; `parseWindows`/`parseSessions` drop any out-of-set value to empty (the `Marker` closed-set idiom), landing in `WindowInfo.Flair string` / `SessionInfo.Flair string` (JSON `flair,omitempty`). Window flair is written through the unified `POST /api/windows/{windowId}/options` allowlist; session flair through `POST /api/sessions/{session}/flair` via `tmux.SetSessionFlair`/`UnsetSessionFlair`. `#{@rk_win_flair}` is also in the layout-snapshot capture set (`layout.go`). Flair stops at the session tier — server rows carry none (they mirror the flair-free SERVER-pane tiles) (260814-2esh-sidebar-character-row-animations)
+- **tmux `@rk_win_role` window user option (orchestration role, window-scoped)** — the window's orchestration role, stored per-window in the `@rk_win_role` user option (`#{@rk_win_role}` is field 12 / index 11 of the `ListWindows()` format string; the `RoleOption` constant sits in `internal/tmux/tmux.go` alongside `SessionOrderOption`/`ServerRankOption`). The value is a **closed-set token** — `""` (unset) | `"operator"` — validated by `validate.RoleValues` / `validate.ValidateRoleValue` (mirroring the marker rule). `parseWindows` drops any value outside `RoleValues` to `""`, landing it in `WindowInfo.Role string` (JSON `role,omitempty`) — the Marker parse idiom. `"operator"` is a **server-scoped radio**: at most one window per tmux server carries it, enforced in rk's write paths (never trusted to clients) by `tmux.ClearWindowRoleExcept` / `ClearWindowRoleExceptOnServer` — one `list-windows -a -F '#{window_id}\t#{@rk_win_role}'` read plus a single `\;`-chained `set-option -wu` batch unsets the option on every other carrier (zero carriers ⇒ no write call); the pure `roleCarriersToClear` parser makes the rule unit-testable without a live server. The sidebar pins the carrier's row below the SESSIONS header (see ui/sidebar.md § Operator Pinned Row). Written through the unified `POST /api/windows/{windowId}/options` allowlist, the `rk role` CLI, or `rk operator`'s atomic create-and-mark — all apply the radio clear. No liveness reconciliation: the marking persists until explicitly cleared or the window is killed (a dead operator staying pinned is desired signal, unlike `@rk_agent_state`).
+- **tmux `@rk_win_note` window user option (one-line status note, window-scoped)** — the window's free-text one-line status note (the "why" behind the derived signals; user/agent-authored annotation in the marker/flair user-preference class, NOT derived state), stored per-window in the `@rk_win_note` user option (`#{@rk_win_note}` is field 14 / index 13 — always the LAST field — of the `ListWindows()` format string; const `tmux.NoteOption`). The value schema is `<unix-epoch>:<text>` (the `@rk_agent_state` staleness precedent — the epoch lets the UI age notes honestly). Unlike the closed-set channels there is NO value validation on read: the parse is tolerant (`parseNoteValue` — a missing colon or a non-numeric/negative prefix keeps the whole value as text with epoch 0, never dropped), and `parseWindows` rejoins the tab-delimited tail (`strings.Join(parts[13:], "\t")`) so tabs inside the text cannot truncate sibling fields; the result lands in `WindowInfo.Note string` / `WindowInfo.NoteEpoch int64` (JSON `note,omitempty` / `noteEpoch,omitempty`). Written through the unified `POST /api/windows/{windowId}/options` allowlist with the epoch prefix stamped server-side (below), or by agents/operator templates via raw `set-option -wt` with their own `$(date +%s)` stamp. Also in the layout-snapshot capture set (trailing optional field, restored verbatim so the note's age survives a restore). Dies with the window.
+- **tmux `@rk_srv_session_order` server-scoped user option** — sidebar session render order stored as a JSON-encoded array of session names on the tmux *server* (not per-window). Survives the same lifetime as the tmux server (lost on tmux server death, NOT on rk-go restart per Constitution VI). Read by `tmux.GetSessionOrder(ctx, server)` — treats unset / no-server / `failed to connect` as empty slice; surfaces other errors (including JSON decode) as wrapped Go errors. Written by `tmux.SetSessionOrder(ctx, server, order)` — `nil` slice normalized to `[]` so round-trips are lossless. Both functions go through `tmuxExecRawServer` with `context.WithTimeout(ctx, TmuxTimeout)` (10s). The constant `tmux.SessionOrderOption = "@rk_srv_session_order"` is the canonical option name
+- **fab tier (native per-pane derivation)** — `internal/sessions/fabstate.go` derives the **fab tier proper** — change name, pipeline stage, display-state — from the filesystem inside every `FetchSessions`, with no `fab` subprocess on the sessions/SSE hot path (Constitution II: fab state comes from `.status.yaml`, derived at request time; status-pyramid.md documents the L2 register source as `cwd → .fab-status.yaml → .status.yaml`). Per pane: a bounded walk-up from the pane's cwd finds the nearest `.fab-status.yaml` symlink (Lstat, so a dangling symlink still counts and degrades at read time); the change name is the symlink target's parent-directory basename (`fab/changes/{name}/.status.yaml`, relative targets resolved against the symlink's own directory); the target's ordered `progress:` map (`yaml.v3` node parse — order is load-bearing) yields `(stage, displayState)` via fab's five-tier display-stage rule (first `active` → first `failed` → first `ready` → last `done`/`skipped` → first stage `pending`), mirrored from fab-kit `internal/status/status.go` `DisplayStage` — a **cross-repo schema coupling**: fab-side drift degrades fail-open to empty fields, never an error. Derivation runs fresh per fetch with a per-call memo (cwd → located link, resolved link → derived state) and nothing persisted across requests, so a stage transition shows on the next SSE tick; the failure modes (no symlink ancestor, dangling symlink = archived change, unreadable/unparsable YAML, empty `progress:`) degrade per-pane to empty fab fields. The window rollup (`fabStateMemo.windowState`) walks the window's panes in pane order — a change-bound pane's derivation wins, else the first pane with any derivation — landing in `WindowInfo.FabChange`/`FabStage`/`FabDisplayState` with the frontend JSON contract unchanged. Agent lifecycle state comes from the `@rk_agent_state` pane option (Tier 2, read natively by `internal/tmux`, see [agent-state](agent-state.md)); PR links are derived server-side from the pane's branch (see § Branch→PR Derivation). (260820-hol4-mux-panes-native-pane-map)
+
+### Performance Caching
+
+One in-memory cache reduces subprocess spawning on the SSE hot path (justified per code-quality.md performance carve-out — not general-purpose caching):
+
+| Cache | Location | TTL | Key | Purpose |
+|-------|----------|-----|-----|---------|
+| SSE session cache | `sseHub.cache` (`api/sse.go`) | 500ms | server name | Skip `FetchSessions()` subprocess calls when data is fresh |
+
+The cache uses `sync.RWMutex` for thread safety. The fab tier carries no cache — it is derived natively from the filesystem on every fetch (§ Data Model), so there is no subprocess to throttle. The SSE hub's existing JSON diff-check (`previousJSON`) remains as a separate concern — the session cache prevents redundant subprocess spawning, while the diff prevents redundant SSE broadcasts
+
+## SPA Static Serving
+
+Dual-mode SPA serving in `app/backend/api/spa.go`. `hasEmbeddedAssets()` checks if the `embed.FS` contains real build output (more than `.gitkeep`):
+
+- **Production** (`mountEmbeddedSPA`): serves from `embed.FS` through the `embeddedSPASub` package-var seam (`fs.Sub(build.Frontend, "frontend")` in production; overridden by tests to inject an `fstest.MapFS`, since the test-build embed.FS holds only `.gitkeep`) + `http.FS`. SPA fallback rewrites to `index.html`.
+- **Development** (`mountFilesystemSPA`): serves from `app/frontend/dist/` on the local filesystem. Path traversal prevented (resolved path must stay within SPA directory).
+
+Both modes: any request not matching `/api/*`, `/relay/*`, `/proxy/*`, or `/present/*` serves `index.html` for client-side routing. In development, Vite handles SPA fallback natively.
+
+### Two-tier cache policy
+
+Both mounts apply one shared policy via `setSPACacheControl(w, urlPath)`, keyed on the path of the file **actually being served** (not the raw request URL — the SPA fallback serves `index.html` even when the request URL looks like a stale hashed asset, and that response must never inherit the immutable policy):
+
+| Path | `Cache-Control` | Validator |
+|------|-----------------|-----------|
+| under `/assets/` | `public, max-age=31536000, immutable` (`spaAssetsCacheControl`) | none needed — Vite content-hashes the filename, so a rebuild changes the URL |
+| everything else — `index.html`, every SPA-fallback route, root-level files (favicons, manifests) | `no-cache` (`spaHTMLCacheControl`) | embedded: content ETag; filesystem: mtime `Last-Modified` |
+
+Both values are named constants, so no header literal is repeated across the two mounts.
+
+**Embedded-mode ETag**: embedded files carry a **zero modtime**, so `net/http` emits no `Last-Modified` and generates no `ETag` on its own — and a response carrying neither a validator nor a freshness lifetime is uncacheable, forcing a full ~700KB bundle transfer on every navigation. The validator is therefore content-derived: a quoted truncated SHA-256 (first 8 bytes, hex) of the served bytes, computed lazily per path and memoized in a per-mount `map[string]string` guarded by a `sync.Mutex`. The header is set **before** delegating to `http.FileServer`, so `net/http`'s `serveContent` answers `If-None-Match` with `304` itself — no hand-rolled conditional-request handling. Memoization is safe because the embedded FS is immutable for the process lifetime (same rationale as `pwa.go`'s `tintCached`); it is a pure function of fixed bytes, not persistent state, so Constitution §II is unaffected.
+
+**Filesystem mode** applies the same two-tier `Cache-Control` but computes no ETag — `http.ServeFile` already supplies mtime-based `Last-Modified`/`If-Modified-Since` 304s. The contract is behavior parity (assets cached, HTML revalidated cheaply), not implementation symmetry.
+
+The PWA identity routes (`api/pwa.go`) are registered before the SPA catch-all and set their own `Cache-Control: no-cache` plus a `?c=` cache-buster (§ PWA Identity Assets) — they never reach this handler and are unaffected by the policy.
+
+## Embedded Frontend Assets
+
+`app/backend/build/embed.go` exposes `//go:embed all:frontend` as `build.Frontend` (`embed.FS`) and `//go:embed all:codebridge` as `build.CodeBridge` (`embed.FS` — the packaged rk-code-bridge VSIX + `VERSION` sidecar; see [code-bridge](/run-kit/code-bridge.md) § Distribution). During development, both directories contain only `.gitkeep` (empty FS). Production builds copy `app/frontend/dist/` into `app/backend/build/frontend/` and the packaged VSIX into `app/backend/build/codebridge/` before `go build`.
+
+Files read out of the `embed.FS` carry a **zero modtime** — `embed` records no timestamps — so `net/http` emits no `Last-Modified` for them and HTTP caching in embedded mode has to supply its own validator (§ SPA Static Serving → Two-tier cache policy).
+
+`api/spa.go` uses dual-mode serving:
+- **Production**: `hasEmbeddedAssets()` detects real build output (more than `.gitkeep`), serves from `embed.FS` via `mountEmbeddedSPA()`
+- **Development**: Falls back to filesystem-based serving from `app/frontend/dist/` via `mountFilesystemSPA()` (Vite dev server handles frontend)
+
+Both modes include SPA fallback (serve `index.html` for non-matching paths), API/relay route guards, and the two-tier cache policy.
+
+## Security
+
+- All subprocess calls use `os/exec.CommandContext` with argument slices (never `sh -c` or shell strings)
+- All `exec.CommandContext` calls include timeout via `context.WithTimeout` (10s tmux, 30s build). Terminal relay attach uses `context.WithCancel` (long-lived, cancelled on disconnect)
+- User input validated via `internal/validate` before reaching any subprocess. For `rk remote`, validation runs on **both sides of the store**: at add-time and again in `remote.Load`, because `~/.config/rk/remotes.yaml` is user-editable and its stored names/targets flow into tmux and ssh argv (see [remote-hosts](/run-kit/remote-hosts.md) § Stored entries are validated on the read path)
+- SSH remote hosts: the tunnel is the system `ssh` binary invoked with an argv slice and `BatchMode=yes`, `StrictHostKeyChecking` untouched; every remote command is a compile-time literal (nothing user-provided is interpolated), and the remote daemon binds loopback only with SSH as the sole auth layer
+- Directory listing restricted to `$HOME` via `ExpandTilde()` — rejects `..` traversal, absolute paths outside home, and `~username` syntax. Symlinks under `$HOME` are not resolved (accepted risk for local dev tool)
+- File uploads: filename sanitized via `SanitizeFilename()` (strips path separators, null bytes, leading dots, collapses dot sequences); 50MB size limit enforced server-side via `http.MaxBytesReader`; writes via `os.Create` (not subprocess)
+- CORS: permissive by default (`*` origin) for multi-client API flexibility. TLS handled by Tailscale Serve in production
+- Web Push: the VAPID private key (`~/.rk/vapid.json`) is written mode `0600` and is **never** returned to any client — only the public key is served via `GET /api/push/vapid-public-key`. The subscribe/notify endpoints validate JSON shape and bound the request body (64 KiB); no subprocess execution is introduced by the push path (260615-xd9r-web-push-notifications)
+
+## Design Decisions
+
+### Legacy marker values are normalized at every boundary, never migrated in place
+
+**Decision**: Flat tokens are mapped forward by `NormalizeMarker` at three seams — the live read (`parseWindows`), the snapshot read (`layout.go` field 27), and the restore write (`restore.go`) — rather than by a one-shot rewrite of `@rk_win_marker` across running servers.
+
+**Why**: Constitution II derives state from tmux at request time; a migration pass would need a writable sweep over every reachable server and would still miss servers started later from an old snapshot. Normalizing at the boundaries makes every path idempotent and leaves no window in a state its own validator rejects.
+
+**Rejected**: A `MigrateLegacyOptions` row (that table remaps option names, and this is a value remap); a startup sweep (a write pass over user state at boot, with no way to reach detached servers).
+
+*Introduced by*: 260830-srec-marker-migrate-well-ink-retirements
+
+### Flair settings normalize is a membership check, not a canonicalizer
+**Decision**: the `server_flairs` `mapSection` normalize func accepts a value iff it is non-empty AND `validate.FlairValues[value]` — a small closure in `internal/settings`, not a new exported validator.
+**Why**: the settings parser is a `nestedSection` registry requiring a `func(string) (string, bool)` normalize, and the universal flair set is consumed generically — no flair names enumerated in new code.
+**Rejected**: a `validate.NormalizeServerFlairValue` mirroring `NormalizeColorValue` — colors need canonicalization (legacy ints), flairs are exact tokens; a pass/fail membership check needs no canonical form.
+*Introduced by*: 260820-arqw-server-flair-application
+
+### Go backend + Vite SPA over a Next.js monolith
+**Decision**: a Go backend and a Vite SPA, decoupled for independent iteration.
+**Why**: the Go backend is a stable, long-lived API that outlives any individual frontend; multi-client API support (web, mobile, CLI) without a split API surface.
+**Rejected**: a Next.js monolith.
+
+### Single port architecture
+**Decision**: Go serves API, WebSocket relay, and SPA static files on one port, in one binary.
+**Rejected**: a two-port split (Next.js :3000, relay :3001) — a Node.js artifact: separate processes required separate ports.
+
+### chi over stdlib ServeMux
+**Decision**: chi for middleware chaining (CORS, logging, recovery).
+**Rejected**: Go 1.22+ ServeMux — it has pattern matching but lacks ergonomic middleware composition.
+
+### TanStack Router over React Router
+**Decision**: TanStack Router — type-safe params and search params, built-in loader pattern. Single route `/:session/:window` in the frontend.
+
+### Vite proxy in dev (not CORS)
+**Decision**: the Vite dev server proxies to the Go backend — single browser URL, no CORS config needed; WebSocket upgrade works transparently. Go includes chi CORS middleware for production/non-browser clients.
+
+### SPA fallback in Go
+**Decision**: Go serves the SPA standalone; TLS termination is handled externally via Tailscale Serve when needed.
+
+### Every tmux session is a project
+**Decision**: no config, no "Other" bucket. Project root derived from window 0's `pane_current_path`.
+
+### Config via env vars (not YAML) for deployment binding
+**Decision**: `.env` committed with defaults (`RK_PORT`, `RK_HOST`), `.env.local` for overrides, loaded via `.envrc` (direnv). Go and Vite read `RK_PORT`/`RK_HOST` directly. `dev.sh` translates `RK_PORT+1` for the backend subprocess. No relay port — single port serves everything.
+
+### Dedicated tmux server (`-L runkit`)
+**Decision**: run-kit sessions live on a named tmux server `runkit` with its own config (`internal/tmux/tmux.conf` loaded via `-f`). The default tmux server is also queried for session discovery (read-only display of external sessions). `CreateSession()` uses plain `tmux new-session` on the runkit server (no byobu dependency). `SessionInfo` carries a `Name` field; `ProjectSession` has `Name` and `Windows` fields. The caller passes the target server name to each tmux operation.
+**Why**: the `runkit` server provides isolation, a custom status bar matching run-kit's dark theme, and byobu-style F-key keybindings (F2/F3/F4).
+**Rejected**: byobu integration.
+
+### The embedded tmux.conf reports extended keys in the kitty CSI-u form
+**Decision**: the embedded config enables extended keys and reports them to inner applications in the kitty CSI-u form (`set -gq extended-keys-format csi-u`); the `-q` flag makes the option a silent no-op on tmux < 3.5, the same degradation pattern as the `allow-passthrough -gq` line. The format applies only to applications that opt into extended keys; the relay/xterm.js side is unaffected.
+**Why**: CSI-u is the form kitty-keyboard-protocol TUIs (Kimi Code, crossterm-based tools, neovim, helix, fish 4) expect.
+*Introduced by*: 260810-j93s-tmux-csi-u-extended-keys
+
+### Multi-server session enumeration
+**Decision**: `ListSessions(ctx, server)` queries the specified tmux server. The API layer calls it once per server (e.g., `runkit` and `default`), merging results. Session-group filtering applies to both servers. See `docs/memory/run-kit/tmux-sessions.md`.
+
+### Role as a tmux window option, not tmux index mutation
+**Decision**: operator identity is the `@rk_win_role` window user option; the sidebar floats the carrier's row at render time.
+**Why**: derived-from-tmux state (Constitution II), follows the `@rk_win_marker` option family, survives rk restarts with the window, keeps window indices and `@N` addressing untouched, and makes the operator addressable for future features.
+**Rejected**: `tmux move-window -t 0` (mutates indices, displaced by renumber/new windows, conveys nothing); a per-session `@rk_window_order` option (pure ordering preference, no role semantics).
+*Introduced by*: 260813-ifya-operator-role-pinned-row
+
+### Server-scoped `@rk_win_role` radio enforced in the write path
+**Decision**: one operator per tmux server; every rk writer (the window-options POST handler, the `rk role` CLI) clears prior carriers as part of the set, via the shared `tmux.ClearWindowRoleExcept` helper (one `list-windows -a` carrier read + one `\;`-chained `set-option -wu` batch; the helper takes the server-targeting argv prefix so the daemon's `serverArgs` and the in-pane CLI's `-S socket` share one enforcement point).
+**Why**: the pinned slot sits above all session groups — one slot per server — and fab-operator coordinates worktree sessions across the whole project; client-side enforcement would let stale carriers accumulate.
+**Rejected**: per-session radio (contradicts the top-of-panel placement); read-side "first wins" tie-breaking (leaves stale options on windows).
+*Introduced by*: 260813-ifya-operator-role-pinned-row
+
+### SPA handler dual-mode (embedded FS vs filesystem)
+**Decision**: `hasEmbeddedAssets()` checks whether `frontend/` contains more than `.gitkeep`. Production uses `embed.FS`, dev uses filesystem (Vite handles frontend).
+**Why**: automatic detection, no build tags or env vars needed.
+*Introduced by*: 260317-ukyz-homebrew-deployment
+
+### Two-tier SPA cache policy keyed on the `/assets/` prefix, with a content-derived embedded ETag
+**Decision**: hashed assets get `public, max-age=31536000, immutable`; `index.html`, every SPA-fallback route, and other non-asset paths get `no-cache` plus a validator (§ SPA Static Serving).
+**Why**: *the prefix split* — Vite content-hashes exactly the filenames under `/assets/`, so the URL changes whenever the content does and infinite caching is safe **by construction** — while the HTML entry point must revalidate every load so a new deploy reaches clients immediately, which `no-cache` + a cheap conditional fetch buys at ~3KB instead of the full bundle. *A content-derived ETag rather than mtime or version* — `embed.FS` records no timestamps, so embedded responses carry a zero modtime and `net/http` emits no `Last-Modified` and no `ETag` of its own — with neither validator nor freshness lifetime the browser could cache nothing, so every navigation would re-download ~700KB as a fresh 200 (dev/filesystem mode caches *better* without the ETag, because `http.ServeFile` sees a real mtime). A hash of the served bytes is the only honest validator available, and setting it before delegating to `http.FileServer` lets `serveContent` handle `If-None-Match` → 304 without hand-rolled conditional logic. *Memoized* — the embedded FS is immutable for the process lifetime, so the per-path hash is a pure function of fixed bytes — the same Constitution-§II-compatible shape as `pwa.go`'s `tintCached`, not persistent state.
+**Rejected**: an rk-version-derived ETag — it aliases distinct dev builds that share a version string; computing ETags in filesystem mode too — `http.ServeFile`'s mtime validators already 304 correctly there, and the contract is behavior parity, not implementation symmetry; bundling the SPA into the Electron desktop shell to avoid the transfer entirely — it breaks version-match-by-construction between a host's UI and its API, and the shell never auto-updates.
+*Introduced by*: 260801-ujuk-spa-asset-cache-headers
+
+### Per-window fab enrichment, derived natively (no subprocess)
+**Decision**: the fab tier resolves per window (each worktree window shows its own change/stage) rather than per session, derived by `internal/sessions/fabstate.go` reading `.fab-status.yaml` → `.status.yaml` natively, fresh per `FetchSessions` with only a per-call memo — the server executes no `fab` binary on the sessions/SSE hot path (Constitution II; status-pyramid.md documents the L2 register source as `cwd → .fab-status.yaml → .status.yaml`). The display-stage rule mirrors fab-kit `internal/status/status.go` `DisplayStage` — a **cross-repo schema coupling**: fab-side drift degrades fail-open to empty fields. `rk mux panes` stays substrate-only (fab enriches, per cli-layering Part 8). There is no `internal/fab` package.
+**Why**: fresh-per-fetch derivation avoids the StatusDot lag class a subprocess behind a TTL cache carries (a stage transition repaints on the next SSE tick, not after a cache window).
+**Rejected**: shelling to `fab pane map` without the cache (keeps the fab-binary dependency and per-tick subprocess cost); dropping the fab fields (regresses the StatusDot L2 tier).
+*Introduced by*: 260313-3vlx-pane-map-enrichment, 260417-5nok-fix-sidebar-fab-state, 260820-hol4-mux-panes-native-pane-map
+
+### Dual storage: tmux `@rk_ses_color` for session color + `@rk_win_color` for window color
+**Decision**: session colors persist across tmux restarts in the session-scoped user option; window colors are ephemeral and tmux-native (user options survive session lifetime but not server restart).
+**Rejected**: a per-project file store (would require tracking per-window state in a file, complex synchronization with the tmux window lifecycle).
+*Introduced by*: 260416-jn4h-session-window-color-tinting
+
+### Tmux user-defined options for web content state over database/config file
+**Decision**: the web-tab family (`@rk_win_web_<n>` + `_root` + `_active`), `@rk_win_layout`, and `@rk_win_code_root` are tmux window options.
+**Why**: preserves constitution principles II (no database) and VI (sessions survive restarts). State is co-located with the tmux window lifecycle — kill the window, lose the metadata. Reactive via existing SSE polling (no new transport).
+**Rejected**: database/config file (violates constitution), window name encoding (fragile).
+*Introduced by*: 260416-6b0h-iframe-proxy-windows
+
+### The layout option is a default-view HINT, not identity
+**Decision**: under the window-view lens model (`docs/specs/window-views.md` R1/R5, `ui/lenses-and-layout.md` § Window Views (Lens Model)), "which view am I in" is per-viewer client state (the surface layout: `?layout=` + `rk-layout:` localStorage, § Surface Layout), NOT the window's identity. `@rk_win_layout` (a `single:web` / web-containing layout) seeds `defaultView` only ("default view = web" when the web-tab family is also non-empty — the ladder's hint rung); the frontend never reads it as a render gate and never mutates it on a view switch. The web-tab family is global substrate state (the shared content addresses, edited via the web lens's URL bar).
+*Introduced by*: 260714-t97o-web-view-lens
+
+### Web-tab family density holds on every write path
+**Decision**: the `@rk_win_web_<n>` family is dense on every write path — raw `/options` writes may only replace an existing slot or append at `len+1` (a gap write → 400), `null` on a slot routes through `WebRemove`, and the read path truncates at the first empty slot.
+**Why**: indexed addresses (`/present/@N/web/<n>`) are only meaningful when the family is dense; a hand-written gap must degrade, never error.
+**Rejected**: allowing sparse slots and compacting on read (two views of the same state).
+*Introduced by*: 260828-fykg-ui-state-backend-tmux-options
+
+### `@rk_win_url` dual-reads instead of a migration-sweep row
+**Decision**: `@rk_win_url` has NO `legacyOptions` sweep row. It is dual-READ in both hot read paths (`parseWindows`, `ReadWebTabFamily`): with an empty `web_1` it surfaces as the dense family's first tab with the active pointer defaulted, and `WebRemove` on the last tab also clears the retired name. The `_lens`/`_present_root` rows migrate as planned.
+**Why**: a sweep row breaks the shipped frontend two ways: (1) the migration sweep is once-per-server, so a mid-session `tmux set-option -w @rk_win_url` (the present-auto-expand / web-view-lens live-flip path the frontend polls via the derived `rkUrl`) is never migrated and goes unread; (2) the read path cannot converge `@rk_url → @rk_win_url → @rk_win_web_1`, so the sweep row unsets the intermediate `@rk_win_url` that the legacy-scope-sweep e2e asserts holds the value. Dual-read keeps every reader correct without a sweep trigger, and keeps `@rk_url → @rk_win_url` as the terminal convergence.
+**Rejected**: the sweep row (live-flip writes unread; legacy-scope-sweep red); a recurring SSE-tick sweep (O(windows) churn on the hot path).
+*Introduced by*: 260828-fykg-ui-state-backend-tmux-options
+

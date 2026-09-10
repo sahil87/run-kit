@@ -1,0 +1,55 @@
+id: ebgp
+name: 260910-ebgp-split-architecture-memory-subdomain
+created: 2026-09-10T20:36:06Z
+created_by: sahil-noon
+change_type: docs
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 5
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 80.0
+        reversibility: 80.0
+        competence: 84.5
+        disambiguation: 77.7
+stage_metrics:
+    intake: {started_at: "2026-09-10T20:36:06Z", driver: fab-new, iterations: 1, completed_at: "2026-09-10T20:41:24Z"}
+    apply: {started_at: "2026-09-10T20:41:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T20:50:10Z"}
+    review: {started_at: "2026-09-10T20:50:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T21:02:28Z"}
+    hydrate: {started_at: "2026-09-10T21:02:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T21:02:42Z"}
+    ship: {started_at: "2026-09-10T21:02:42Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-10T21:02:42Z"
+    computed_at_stage: hydrate
+summary: Split architecture.md into the architecture/ sub-domain (overview, repo-layout, backend-packages, tmux-runner, pr-status, cli, testing); Chrome Architecture → ui/routes-and-shell, Boards Feature → ui/boards; 107 design decisions distributed to their topic files; architecture.md kept as a map file
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-10T21:02:42Z

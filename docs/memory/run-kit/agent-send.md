@@ -344,7 +344,7 @@ On a resolved pane the handler SHALL inject the message through the shared
 ordered sequence,
 every subprocess an argv slice (Constitution I) targeting the `paneID`, each
 spawned through the shared runner core with `TMUX`/`TMUX_PANE` stripped from the
-child env ([architecture](/run-kit/architecture.md) § tmux Runner Core):
+child env ([tmux-runner](/run-kit/architecture/tmux-runner.md) § tmux Runner Core):
 1. **Pane-mode guard** — `ClearPaneMode` (the `inject.Tmux` method delegating to
    the single decision site `tmux.ClearPaneModeCtx`: probe `#{pane_in_mode}`,
    one `send-keys -X cancel` only when in a mode, no re-probe). It is the FIRST

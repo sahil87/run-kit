@@ -125,7 +125,7 @@ Remove old implementation. The new code is the only code.
 4. Update `pnpm-workspace.yaml` to `["app/frontend"]`
 5. Clean up root `package.json` if it exists (remove old scripts)
 6. Delete old `playwright.config.ts` from repo root
-7. Update `docs/memory/run-kit/architecture.md` to reflect new paths
+7. Update `docs/memory/run-kit/architecture/repo-layout.md` to reflect new paths
 8. Update `docs/specs/architecture.md` if any structural decisions changed during implementation
 9. Run `just verify` one final time
 

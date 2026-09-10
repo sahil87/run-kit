@@ -319,7 +319,7 @@ The command surface is `rk agent setup` / `rk agent setup --uninstall`, and
 `--uninstall` reverses all three families. The
 visual-display context-injection role belongs to the **`rk skill` bundle** (served
 by the `skill` subcommand, aggregated by the coming `shll agent-setup`), described
-in [architecture](/run-kit/architecture.md) § CLI Subcommands; the only skill trace
+in [cli](/run-kit/architecture/cli.md) § CLI Subcommands; the only skill trace
 in `rk agent setup` is a **one-release legacy cleanup** that removes a stale
 `rk-display` copy left by an older run-kit (see § Legacy `rk-display` Cleanup).
 (260717-agst)
@@ -478,7 +478,7 @@ non-empty + absolute). The `os.Executable()` fallback runs **without**
 `filepath.EvalSymlinks` (resolution would pin the Cellar version and re-freeze the
 hook). **Installed hooks embedding `…/bin/rk` remain valid indefinitely**: `rk`
 stays a real on-PATH symlink (per the canonical-swap invariants — see
-[architecture](/run-kit/architecture.md) § Homebrew Distribution), so a hook
+[build-and-release](/run-kit/build-and-release.md) § Homebrew Distribution), so a hook
 resolved to `/opt/homebrew/bin/rk` keeps working. (260709-gidk) Before any merge
 the path is run through `validateHookPath`: a path containing any of `' " $ ` backslash (all
 shell-active inside the wrapper's double-in-single quoting) **fails the install
@@ -627,7 +627,7 @@ The fab tier carries only fab pipeline state: the native derivation yields
 `change`/`stage`/`display_state` (not `agent_state`, `agent_idle_duration`,
 `pr_url`, or `pr_number`), and the window rollup priority is change-bound >
 first-seen.
-See [architecture](/run-kit/architecture.md) § `internal/sessions`.
+See [backend-packages](/run-kit/architecture/backend-packages.md) § `internal/sessions`.
 
 There is **no dual-source fallback**: until `rk agent setup` has been run on a
 machine, agent columns read unknown (`—`). Accepted for a single-operator
@@ -935,7 +935,7 @@ identity lands on the first PreInvocation `active` fire). (nnqu) The claude row:
 - Both `GET /api/sessions` and the SSE `event: sessions` payload carry these
   fields via the existing `ProjectSession` marshal — **per window
   and per pane** — with no new endpoint and no new SSE event type. See
-  [architecture](/run-kit/architecture.md) § API Layer.
+  [api-and-sockets](/run-kit/api-and-sockets.md) § API Layer.
 
 ### Lifecycle
 

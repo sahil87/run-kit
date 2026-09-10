@@ -1,134 +1,13 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>rk cron Clocks</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<style>html{color-scheme:light dark}body{font-size:14px}</style>
-<style>
-  :root {
-    --bg: #EDF0F2;
-    --bg-panel: #F7F8F9;
-    --bg-inset: #E2E6EA;
-    --ink: #17222B;
-    --ink-2: #4A5966;
-    --ink-3: #7B8894;
-    --line: #C9D1D8;
-    --line-2: #DCE2E7;
-    --sched: #2F6FDB;      /* schedule fires */
-    --sched-soft: #2F6FDB33;
-    --wake: #D9821B;       /* wake (edge) fires */
-    --wake-soft: #D9821B33;
-    --act: #199C5A;        /* agent active */
-    --act-soft: #199C5A2E;
-    --wait: #C23B5E;       /* agent waiting */
-    --miss: #8A96A1;
-    --outage: #17222B14;
-    --focus: #2F6FDB;
-    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-    --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
-    color-scheme: light;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #0F1519; --bg-panel: #161D23; --bg-inset: #0B1014;
-      --ink: #E3E9EE; --ink-2: #A9B5BF; --ink-3: #6F7D89;
-      --line: #2A343D; --line-2: #1F282F;
-      --sched: #6FA0FF; --sched-soft: #6FA0FF33;
-      --wake: #F0A24A; --wake-soft: #F0A24A33;
-      --act: #3DDC84; --act-soft: #3DDC842E;
-      --wait: #FF6B8E; --miss: #6F7D89; --outage: #E3E9EE12; --focus: #6FA0FF;
-      color-scheme: dark;
-    }
-  }
-  :root[data-theme="dark"] {
-    --bg: #0F1519; --bg-panel: #161D23; --bg-inset: #0B1014;
-    --ink: #E3E9EE; --ink-2: #A9B5BF; --ink-3: #6F7D89;
-    --line: #2A343D; --line-2: #1F282F;
-    --sched: #6FA0FF; --sched-soft: #6FA0FF33;
-    --wake: #F0A24A; --wake-soft: #F0A24A33;
-    --act: #3DDC84; --act-soft: #3DDC842E;
-    --wait: #FF6B8E; --miss: #6F7D89; --outage: #E3E9EE12; --focus: #6FA0FF;
-    color-scheme: dark;
-  }
+# Cron Schedule Kinds — Four Ways a Clock Can Wake an Agent
 
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--ink);
-    font-family: var(--sans); font-size: 16px; line-height: 1.55;
-    padding-inline: 20px; padding-block: 40px 80px;
-  }
-  .wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: 56px; }
+> [← Back to the README](https://github.com/sahil87/run-kit/blob/main/README.md)
 
-  header { display: grid; gap: 14px; max-width: 720px; }
-  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
-  h1 { font-family: var(--mono); font-weight: 600; font-size: clamp(30px, 5vw, 46px); line-height: 1.1; margin: 0; letter-spacing: -.02em; text-wrap: balance; }
-  header p { margin: 0; color: var(--ink-2); font-size: 17px; max-width: 62ch; }
-  code, pre { font-family: var(--mono); font-size: .92em; }
-  code { background: var(--bg-inset); padding: .1em .4em; border-radius: 4px; }
-  pre { background: var(--bg-inset); padding: 14px 16px; border-radius: 6px; overflow-x: auto; margin: 0; line-height: 1.5; font-size: 13px; }
-  pre code { background: none; padding: 0; }
+An interactive explainer for `rk cron`: the three schedule kinds (`every`, `cron`, `backoff`) and the `wake_on` edge trigger, each as an animated timeline you can play, restart, and change the rules of. Companion to the [cron spec](https://github.com/sahil87/run-kit/blob/main/docs/specs/cron.md).
 
-  .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
-  .legend span { display: inline-flex; align-items: center; gap: 7px; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-  .sw { width: 18px; height: 8px; border-radius: 2px; display: inline-block; }
-
-  .panel {
-    background: var(--bg-panel); border: 1px solid var(--line-2); border-radius: 10px;
-    padding: 24px 24px 20px; display: grid; gap: 18px;
-  }
-  .panel-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 24px; align-items: start; }
-  .panel-head h2 { margin: 0; font-family: var(--mono); font-weight: 600; font-size: 22px; letter-spacing: -.01em; }
-  .panel-head h2 small { font-weight: 400; color: var(--ink-3); font-size: 14px; margin-left: 10px; }
-  .panel-head .add { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); background: var(--bg-inset); padding: 6px 10px; border-radius: 5px; white-space: nowrap; overflow-x: auto; max-width: 100%; }
-  .panel-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px 28px; align-items: start; }
-  .panel-body p { margin: 0 0 10px; color: var(--ink-2); font-size: 15px; }
-  .panel-body p strong { color: var(--ink); font-weight: 600; }
-  .stage { display: grid; gap: 10px; min-width: 0; }
-  canvas { width: 100%; max-width: 100%; min-width: 0; display: block; border-radius: 6px; background: var(--bg-inset); }
-  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  button {
-    font-family: var(--mono); font-size: 12.5px; font-weight: 500; color: var(--ink);
-    background: var(--bg-panel); border: 1px solid var(--line); border-radius: 5px; padding: 6px 12px; cursor: pointer;
-  }
-  button:hover { border-color: var(--ink-3); }
-  button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-  button[aria-pressed="true"] { background: var(--ink); color: var(--bg-panel); border-color: var(--ink); }
-  button.primary { border-color: var(--ink); }
-  .readout { margin-left: auto; font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; text-align: right; }
-  .readout b { color: var(--ink); font-weight: 600; }
-
-  .rule { display: grid; gap: 8px; }
-  .rule h3 { margin: 0; font-family: var(--mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
-  .rule ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 14.5px; display: grid; gap: 6px; }
-
-  .summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px 32px; align-items: start; }
-  .summary h2 { grid-column: 1 / -1; margin: 0; font-family: var(--mono); font-weight: 600; font-size: 22px; }
-  .summary p { margin: 0 0 10px; color: var(--ink-2); font-size: 15px; }
-  table { border-collapse: collapse; width: 100%; font-size: 14px; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
-  th { font-family: var(--mono); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
-  td:first-child { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
-  .tablewrap { overflow-x: auto; }
-
-  @media (max-width: 760px) {
-    .panel-body, .summary { grid-template-columns: 1fr; }
-    .panel-head { grid-template-columns: 1fr; }
-    .panel { padding: 18px 16px; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .pulse { display: none; }
-  }
-</style>
-</head>
-<body>
-
-<div class="wrap">
+<div class="rk-cron-clocks not-content"><div class="wrap">
   <header>
     <div class="eyebrow">run-kit · rk cron</div>
-    <h1>Four ways a clock can wake an agent</h1>
+    <div class="title" role="heading" aria-level="2">Four ways a clock can wake an agent</div>
     <p>An <code>rk cron</code> entry is a small intent file: <em>what</em> text to deliver, <em>which</em> pane to deliver it to, and <em>when</em>. The “when” comes in three schedule kinds plus one optional edge trigger. A ticker polls every 30 seconds and asks a pure function, “given the entries, the delivery log and the panes’ agent states on disk right now, what is due?” Nothing is remembered in memory, so a restart never loses the clock.</p>
     <div class="legend">
       <span><i class="dot" style="background:var(--sched)"></i> schedule fire</span>
@@ -141,7 +20,6 @@
     </div>
     <p style="font-size:14px;color:var(--ink-3)">Every panel loads finished. Press <b>Play</b> to watch it happen; toggles change the rules and replay.</p>
   </header>
-
   <!-- ===================== EVERY ===================== -->
   <section class="panel" id="p-every">
     <div class="panel-head">
@@ -168,7 +46,6 @@
       </div>
     </div>
   </section>
-
   <!-- ===================== CRON ===================== -->
   <section class="panel" id="p-cron">
     <div class="panel-head">
@@ -195,7 +72,6 @@
       </div>
     </div>
   </section>
-
   <!-- ===================== BACKOFF ===================== -->
   <section class="panel" id="p-backoff">
     <div class="panel-head">
@@ -223,7 +99,6 @@
       </div>
     </div>
   </section>
-
   <!-- ===================== WAKE ===================== -->
   <section class="panel" id="p-wake">
     <div class="panel-head">
@@ -250,7 +125,6 @@
       </div>
     </div>
   </section>
-
   <!-- ===================== TOGETHER ===================== -->
   <section class="panel summary" id="p-together">
     <h2>Put together: the operator’s clock</h2>
@@ -281,13 +155,121 @@ pinned:   true</code></pre>
     </div>
   </section>
 </div>
+</div>
+
+<style>
+  .rk-cron-clocks {
+    --bg: #EDF0F2;
+    --bg-panel: #F7F8F9;
+    --bg-inset: #E2E6EA;
+    --ink: #17222B;
+    --ink-2: #4A5966;
+    --ink-3: #7B8894;
+    --line: #C9D1D8;
+    --line-2: #DCE2E7;
+    --sched: #2F6FDB;      /* schedule fires */
+    --sched-soft: #2F6FDB33;
+    --wake: #D9821B;       /* wake (edge) fires */
+    --wake-soft: #D9821B33;
+    --act: #199C5A;        /* agent active */
+    --act-soft: #199C5A2E;
+    --wait: #C23B5E;       /* agent waiting */
+    --miss: #8A96A1;
+    --outage: #17222B14;
+    --focus: #2F6FDB;
+    --mono: var(--sl-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    --sans: var(--sl-font, system-ui, -apple-system, 'Segoe UI', sans-serif);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .rk-cron-clocks {
+      --bg: #0F1519; --bg-panel: #161D23; --bg-inset: #0B1014;
+      --ink: #E3E9EE; --ink-2: #A9B5BF; --ink-3: #6F7D89;
+      --line: #2A343D; --line-2: #1F282F;
+      --sched: #6FA0FF; --sched-soft: #6FA0FF33;
+      --wake: #F0A24A; --wake-soft: #F0A24A33;
+      --act: #3DDC84; --act-soft: #3DDC842E;
+      --wait: #FF6B8E; --miss: #6F7D89; --outage: #E3E9EE12; --focus: #6FA0FF;
+    }
+  }
+  :root[data-theme="dark"] .rk-cron-clocks {
+    --bg: #0F1519; --bg-panel: #161D23; --bg-inset: #0B1014;
+    --ink: #E3E9EE; --ink-2: #A9B5BF; --ink-3: #6F7D89;
+    --line: #2A343D; --line-2: #1F282F;
+    --sched: #6FA0FF; --sched-soft: #6FA0FF33;
+    --wake: #F0A24A; --wake-soft: #F0A24A33;
+    --act: #3DDC84; --act-soft: #3DDC842E;
+    --wait: #FF6B8E; --miss: #6F7D89; --outage: #E3E9EE12; --focus: #6FA0FF;
+    color-scheme: dark;
+  }
+  .rk-cron-clocks * { box-sizing: border-box; }
+  .rk-cron-clocks {
+    color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.55;
+    padding-block: 8px 40px;
+  }
+  .rk-cron-clocks .wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: 56px; }
+  .rk-cron-clocks header { display: grid; gap: 14px; max-width: 720px; }
+  .rk-cron-clocks .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+  .rk-cron-clocks .title { font-family: var(--mono); font-weight: 600; font-size: clamp(30px, 5vw, 46px); line-height: 1.1; margin: 0; letter-spacing: -.02em; text-wrap: balance; }
+  .rk-cron-clocks header p { margin: 0; color: var(--ink-2); font-size: 17px; max-width: 62ch; }
+  .rk-cron-clocks code, .rk-cron-clocks pre { font-family: var(--mono); font-size: .92em; }
+  .rk-cron-clocks code { background: var(--bg-inset); padding: .1em .4em; border-radius: 4px; }
+  .rk-cron-clocks pre { background: var(--bg-inset); padding: 14px 16px; border-radius: 6px; overflow-x: auto; margin: 0; line-height: 1.5; font-size: 13px; }
+  .rk-cron-clocks pre code { background: none; padding: 0; }
+  .rk-cron-clocks .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+  .rk-cron-clocks .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .rk-cron-clocks .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .rk-cron-clocks .sw { width: 18px; height: 8px; border-radius: 2px; display: inline-block; }
+  .rk-cron-clocks .panel {
+    background: var(--bg-panel); border: 1px solid var(--line-2); border-radius: 10px;
+    padding: 24px 24px 20px; display: grid; gap: 18px;
+  }
+  .rk-cron-clocks .panel-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 24px; align-items: start; }
+  .rk-cron-clocks .panel-head h2 { margin: 0; font-family: var(--mono); font-weight: 600; font-size: 22px; letter-spacing: -.01em; }
+  .rk-cron-clocks .panel-head h2 small { font-weight: 400; color: var(--ink-3); font-size: 14px; margin-left: 10px; }
+  .rk-cron-clocks .panel-head .add { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); background: var(--bg-inset); padding: 6px 10px; border-radius: 5px; white-space: nowrap; overflow-x: auto; max-width: 100%; }
+  .rk-cron-clocks .panel-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px 28px; align-items: start; }
+  .rk-cron-clocks .panel-body p { margin: 0 0 10px; color: var(--ink-2); font-size: 15px; }
+  .rk-cron-clocks .panel-body p strong { color: var(--ink); font-weight: 600; }
+  .rk-cron-clocks .stage { display: grid; gap: 10px; min-width: 0; }
+  .rk-cron-clocks canvas { width: 100%; max-width: 100%; min-width: 0; display: block; border-radius: 6px; background: var(--bg-inset); }
+  .rk-cron-clocks .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .rk-cron-clocks button {
+    font-family: var(--mono); font-size: 12.5px; font-weight: 500; color: var(--ink);
+    background: var(--bg-panel); border: 1px solid var(--line); border-radius: 5px; padding: 6px 12px; cursor: pointer;
+  }
+  .rk-cron-clocks button:hover { border-color: var(--ink-3); }
+  .rk-cron-clocks button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .rk-cron-clocks button[aria-pressed="true"] { background: var(--ink); color: var(--bg-panel); border-color: var(--ink); }
+  .rk-cron-clocks button.primary { border-color: var(--ink); }
+  .rk-cron-clocks .readout { margin-left: auto; font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; text-align: right; }
+  .rk-cron-clocks .readout b { color: var(--ink); font-weight: 600; }
+  .rk-cron-clocks .rule { display: grid; gap: 8px; }
+  .rk-cron-clocks .rule h3 { margin: 0; font-family: var(--mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
+  .rk-cron-clocks .rule ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 14.5px; display: grid; gap: 6px; }
+  .rk-cron-clocks .summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px 32px; align-items: start; }
+  .rk-cron-clocks .summary h2 { grid-column: 1 / -1; margin: 0; font-family: var(--mono); font-weight: 600; font-size: 22px; }
+  .rk-cron-clocks .summary p { margin: 0 0 10px; color: var(--ink-2); font-size: 15px; }
+  .rk-cron-clocks table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  .rk-cron-clocks th, .rk-cron-clocks td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+  .rk-cron-clocks th { font-family: var(--mono); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
+  .rk-cron-clocks td:first-child { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+  .rk-cron-clocks .tablewrap { overflow-x: auto; }
+  @media (max-width: 760px) {
+    .rk-cron-clocks .panel-body, .rk-cron-clocks .summary { grid-template-columns: 1fr; }
+    .rk-cron-clocks .panel-head { grid-template-columns: 1fr; }
+    .rk-cron-clocks .panel { padding: 18px 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rk-cron-clocks .pulse { display: none; }
+  }
+</style>
 
 <script>
 (() => {
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const root = document.querySelector('.rk-cron-clocks');
+  const css = (name) => getComputedStyle(root).getPropertyValue(name).trim();
   const fmtMin = (m) => { const h = Math.floor(m / 60), mm = Math.round(m % 60); return h ? `${h}h ${String(mm).padStart(2,'0')}m` : `${mm}m`; };
-
   /* ---------- shared engine ---------- */
   class Sim {
     constructor(sectionId, canvasId, cfg) {
@@ -367,11 +349,9 @@ pinned:   true</code></pre>
     }
     hasPulse(t) { return (this.model.fires || []).some(f => t - f.t >= 0 && t - f.t < this.pulseSpan); }
   }
-
   /* ---------- drawing helpers ---------- */
   const PAD = { l: 18, r: 18 };
   const xOf = (t, dur, w) => PAD.l + (t / dur) * (w - PAD.l - PAD.r);
-
   function axis(ctx, w, y, dur, step, labelFn, opts = {}) {
     ctx.strokeStyle = css('--line'); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(PAD.l, y + .5); ctx.lineTo(w - PAD.r, y + .5); ctx.stroke();
@@ -421,7 +401,6 @@ pinned:   true</code></pre>
     }
     if (name) { ctx.fillStyle = css('--ink-2'); ctx.font = `11px ${css('--mono')}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText(name, PAD.l, y - 3); }
   }
-
   /* ================= EVERY ================= */
   new Sim('p-every', 'c-every', {
     duration: 60, speed: 6, // 60 sim minutes in 10 s
@@ -457,7 +436,6 @@ pinned:   true</code></pre>
       playhead(ctx, w, h, t, 60, 24, yAxis + 6);
     },
   });
-
   /* ================= CRON ================= */
   // timeline in hours, 3 days (0..72). Day boundaries at 0, 24, 48. 09:00 = 9, 33, 57. Outage day 2: 31..38 (07:00–14:00).
   new Sim('p-cron', 'c-cron', {
@@ -492,7 +470,6 @@ pinned:   true</code></pre>
       playhead(ctx, w, h, t, dur, 24, yAxis + 6);
     },
   });
-
   /* ================= BACKOFF ================= */
   const MINB = 1, MAXB = 30, ATTR = 2, TICKBUSY = 0.35, WORK = 1.5;
   function gapAfter(r) { let g = MINB; for (let i = 0; i < r; i++) { if (g >= MAXB || g > MAXB - g) return MAXB; g *= 2; } return g; }
@@ -569,7 +546,6 @@ pinned:   true</code></pre>
       playhead(ctx, w, h, t, dur, 24, yStrip + 12);
     },
   });
-
   /* ================= WAKE ================= */
   // 30 sim minutes. Agents A, B, C; operator (self) excluded. Debounce 1 min after own delivery.
   new Sim('p-wake', 'c-wake', {
@@ -632,5 +608,3 @@ pinned:   true</code></pre>
   });
 })();
 </script>
-</body>
-</html>

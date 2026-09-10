@@ -193,8 +193,9 @@ Where each removed signal survives:
 
 **Hover any row for the full picture.** Resting the pointer on a window row opens a card at the
 sidebar's right edge — same position every time, so it never jumps around under the pointer. It
-shows the dot's own label, the five registers below (the `opr` watchlist register appears when
-the fab operator monitors the window), how long ago the PR status was checked, and an
+shows the dot's own label, the `fab` and `pr` registers (joined by the `opr` watchlist register
+when the fab operator monitors the window; `out`/`agt` are omitted — the row itself already
+carries those facts), how long ago the PR status was checked, and an
 "Open PR #N" link. The card also opens when you focus a row with the keyboard (Escape dismisses
 it), and on a touch device by tapping the row's status dot.
 

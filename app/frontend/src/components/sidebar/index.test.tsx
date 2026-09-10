@@ -1608,6 +1608,140 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
   });
 });
 
+describe("BottomPanels — opr register owning-session lookup", () => {
+  // The `opr` register's stale/tick facts live on the OWNING SESSION
+  // (`operatorStale` / `operatorLastTickAt`), threaded to the PANE panel via
+  // routeSession on a server route and via the focused-pane fallbackSession
+  // lookup on a board route. The StatusPanel unit tests inject `operator`
+  // directly, so these cases cover the selection seam itself.
+  const tickSecsAgo = (secs: number) => Math.floor(Date.now() / 1000) - secs;
+
+  function stubMobilePanels() {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((query: string) => ({
+        matches:
+          query.includes("prefers-color-scheme: dark") ||
+          query.includes("max-width") ||
+          query.includes("pointer: coarse"),
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        onchange: null,
+      })),
+    );
+  }
+  afterEach(() => {
+    stubMatchMedia((query) => query.includes("prefers-color-scheme: dark"));
+  });
+
+  it("server route: the route session's stale/tick facts land on the opr register", () => {
+    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    const sessions: ProjectSession[] = [
+      {
+        name: "main",
+        operatorStale: true,
+        operatorLastTickAt: tickSecsAgo(120),
+        windows: [
+          {
+            index: 0,
+            windowId: "@0",
+            name: "shell",
+            worktreePath: "~/code/run-kit",
+            activity: "active",
+            isActiveWindow: true,
+            paneCommand: "zsh",
+            activityTimestamp: tickSecsAgo(0),
+            monitored: true,
+            monitoredStage: "apply",
+          },
+        ],
+      },
+    ];
+    renderSidebar({
+      sessionsByServer: new Map([["primary", sessions], ["alpha", []], ["beta", []]]),
+    });
+    const opr = screen.getByTestId("register-operator");
+    expect(opr).toHaveTextContent(/^opr watched · apply · tick \d+m ago$/);
+    expect(opr).toHaveAttribute("data-stale", "true");
+  });
+
+  it("board route: the focused pane's home session supplies fresh tick facts (no stale mark)", () => {
+    stubMobilePanels();
+    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    const sessions: ProjectSession[] = [
+      {
+        name: "home",
+        operatorStale: false,
+        operatorLastTickAt: tickSecsAgo(45),
+        windows: [
+          {
+            index: 0,
+            windowId: "@9",
+            name: "watched-win",
+            worktreePath: "/home/u/code/live",
+            activity: "idle",
+            isActiveWindow: false,
+            activityTimestamp: 0,
+            monitored: true,
+            monitoredStage: "review",
+            panes: [
+              { paneId: "%77", paneIndex: 0, cwd: "/home/u/code/live", command: "zsh", isActive: true },
+            ],
+          },
+        ],
+      },
+    ];
+    renderSidebar({
+      currentServer: null,
+      servers: [{ name: "boardsrv", sessionCount: 1 }],
+      sessionsByServer: new Map([["boardsrv", sessions]]),
+      focusedPane: {
+        server: "boardsrv",
+        windowId: "@9",
+        windowName: "watched-win",
+        panes: [
+          { paneId: "%77", paneIndex: 0, cwd: "/tmp/thin", command: "zsh", isActive: true },
+        ],
+      },
+    });
+    const opr = screen.getByTestId("register-operator");
+    expect(opr).toHaveTextContent(/^opr watched · review · tick \d+s ago$/);
+    expect(opr.getAttribute("data-stale")).toBeNull();
+  });
+
+  it("omits the register's tick segment when the owning session never ticked", () => {
+    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    const sessions: ProjectSession[] = [
+      {
+        name: "main",
+        windows: [
+          {
+            index: 0,
+            windowId: "@0",
+            name: "shell",
+            worktreePath: "~/code/run-kit",
+            activity: "active",
+            isActiveWindow: true,
+            paneCommand: "zsh",
+            activityTimestamp: tickSecsAgo(0),
+            monitored: true,
+          },
+        ],
+      },
+    ];
+    renderSidebar({
+      sessionsByServer: new Map([["primary", sessions], ["alpha", []], ["beta", []]]),
+    });
+    const opr = screen.getByTestId("register-operator");
+    expect(opr).toHaveTextContent(/^opr watched$/);
+    expect(opr.getAttribute("data-stale")).toBeNull();
+  });
+});
+
 describe("Sidebar — section-visibility rail + gating (iha5)", () => {
   const railToggle = (name: string) =>
     screen.getByRole("button", { name: `Toggle ${name} section` });

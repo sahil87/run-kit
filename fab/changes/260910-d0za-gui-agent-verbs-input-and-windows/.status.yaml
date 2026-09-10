@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 17
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-10T10:29:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T10:36:00Z"}
     hydrate: {started_at: "2026-09-10T10:36:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T10:51:08Z"}
     ship: {started_at: "2026-09-10T10:51:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T10:53:00Z"}
-    review-pr: {started_at: "2026-09-10T10:53:00Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-10T10:53:00Z", driver: git-pr, iterations: 1, completed_at: "2026-09-10T12:26:15Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/912
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'hydrated memory for the G3 agent verbs: gui.md gains the windows/focus/input/wait/clip/open/lock verbs, shot --scale/--max-width/--window, launch --cdp, the human-input guard, the relay observe mode, and the locked/human_input_ago_ms status fields; tmux-sessions.md gains the @rk_gui_lock registry row; the ui files gain the hostLocked resizeSession term and the host-pin pointer'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-10T10:53:00Z
+last_updated: 2026-09-10T12:26:15Z

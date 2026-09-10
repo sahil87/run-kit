@@ -30,7 +30,10 @@ var cronListCmd = &cobra.Command{
 		"the entry file and delivery log only — no tmux commands are issued, so " +
 		"listing never resurrects a dead server. Corrupt entries are skipped with " +
 		"a stderr diagnostic; an absent or empty file yields an empty listing " +
-		"with exit 0. --json emits the same records as a JSON array.",
+		"with exit 0. --json emits the same records as a JSON array, with the " +
+		"schedule as a structured object (kind plus its parameters) beside the " +
+		"intent fields wake_on, if_absent and respawn; schedule_summary carries " +
+		"the table's rendering.",
 	Example: `  rk cron list
   rk cron list -L work --json`,
 	Args: usageArgs(cobra.NoArgs),
@@ -44,25 +47,85 @@ func init() {
 }
 
 // cronListRecord is one list row / --json element. The JSON shape is a fixed
-// key set — unset values serialize as zero values, never as missing keys —
-// with one exception: muted_until is omitempty, emitted only while the lease
-// is live (an expired lease is indistinguishable from no lease).
+// key set — unset values serialize as zero values, never as missing keys
+// (wake_on is null, respawn is [], if_absent is "") — with one exception:
+// muted_until is omitempty, emitted only while the lease is live (an expired
+// lease is indistinguishable from no lease). Inside schedule and wake_on the
+// optional parameters ARE omitempty, mirroring the entry file's own keys.
+// Keys are snake_case like the on-disk YAML; the HTTP API's camelCase
+// projection is a separate type by design.
 type cronListRecord struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Schedule  string `json:"schedule"`
-	Target    string `json:"target"`
-	Deliver   string `json:"deliver"`
-	Pinned    bool   `json:"pinned"`
-	Muted     bool   `json:"muted"`
-	MutedUntil int64 `json:"muted_until,omitempty"`
-	LastFired int64  `json:"last_fired"`
+	ID       string           `json:"id"`
+	Name     string           `json:"name"`
+	Schedule cronListSchedule `json:"schedule"`
+	// ScheduleSummary is the table's rendering of Schedule, kept for one
+	// release so consumers that read the pre-structured string keep working.
+	ScheduleSummary string          `json:"schedule_summary"`
+	WakeOn          *cronListWakeOn `json:"wake_on"`
+	Target          string          `json:"target"`
+	Deliver         string          `json:"deliver"`
+	IfAbsent        string          `json:"if_absent"`
+	Respawn         []string        `json:"respawn"`
+	Pinned          bool            `json:"pinned"`
+	Muted           bool            `json:"muted"`
+	MutedUntil      int64           `json:"muted_until,omitempty"`
+	LastFired       int64           `json:"last_fired"`
 	// OrphanedSince/ExpiresAt are the log-derived orphan streak (unix
 	// seconds; role targets always zero, ExpiresAt zero for pinned). The CLI
 	// gathers no live facts, so a target that re-resolved without a logged
 	// delivery still reports its streak — the API carries the live snapshot.
 	OrphanedSince int64 `json:"orphaned_since"`
 	ExpiresAt     int64 `json:"expires_at"`
+}
+
+// cronListSchedule is the --json projection of cron.Schedule: kind is always
+// present, the parameters only when the entry sets them (each kind uses a
+// different subset — every: interval; backoff: min/max; cron: expr/catch_up).
+type cronListSchedule struct {
+	Kind     string `json:"kind"`
+	Interval string `json:"interval,omitempty"`
+	Min      string `json:"min,omitempty"`
+	Max      string `json:"max,omitempty"`
+	Expr     string `json:"expr,omitempty"`
+	CatchUp  string `json:"catch_up,omitempty"`
+}
+
+// cronListWakeOn is the --json projection of cron.WakeOn.
+type cronListWakeOn struct {
+	Event    string `json:"event"`
+	Scope    string `json:"scope,omitempty"`
+	Debounce string `json:"debounce,omitempty"`
+}
+
+// cronListDur renders a duration as time.Duration.String() — the encoding
+// GET /api/cron uses — or "" when unset so omitempty drops the key.
+func cronListDur(d cron.Duration) string {
+	if d.Duration <= 0 {
+		return ""
+	}
+	return d.String()
+}
+
+func newCronListSchedule(s cron.Schedule) cronListSchedule {
+	return cronListSchedule{
+		Kind:     s.Kind,
+		Interval: cronListDur(s.Interval),
+		Min:      cronListDur(s.Min),
+		Max:      cronListDur(s.Max),
+		Expr:     s.Expr,
+		CatchUp:  s.CatchUp,
+	}
+}
+
+func newCronListWakeOn(w *cron.WakeOn) *cronListWakeOn {
+	if w == nil {
+		return nil
+	}
+	return &cronListWakeOn{
+		Event:    w.Event,
+		Scope:    w.Scope,
+		Debounce: cronListDur(w.Debounce),
+	}
 }
 
 func runCronList(cmd *cobra.Command) error {
@@ -95,13 +158,20 @@ func runCronList(cmd *cobra.Command) error {
 	now := cronNowFn()
 	for _, e := range entries {
 		rec := cronListRecord{
-			ID:       e.ID,
-			Name:     e.Name,
-			Schedule: cronScheduleSummary(e.Schedule),
-			Target:   cronTargetSummary(e.Target),
-			Deliver:  e.Deliver,
-			Pinned:   e.Pinned,
-			Muted:    e.EffectivelyMuted(now),
+			ID:              e.ID,
+			Name:            e.Name,
+			Schedule:        newCronListSchedule(e.Schedule),
+			ScheduleSummary: cronScheduleSummary(e.Schedule),
+			WakeOn:          newCronListWakeOn(e.WakeOn),
+			Target:          cronTargetSummary(e.Target),
+			Deliver:         e.Deliver,
+			IfAbsent:        e.IfAbsent,
+			Respawn:         e.Respawn,
+			Pinned:          e.Pinned,
+			Muted:           e.EffectivelyMuted(now),
+		}
+		if rec.Respawn == nil {
+			rec.Respawn = []string{}
 		}
 		if e.MutedUntil > 0 && now.Unix() < e.MutedUntil {
 			rec.MutedUntil = e.MutedUntil
@@ -126,7 +196,7 @@ func runCronList(cmd *cobra.Command) error {
 	fmt.Fprintln(w, "ID\tNAME\tSCHEDULE\tTARGET\tDELIVER\tFLAGS\tLAST-FIRED")
 	for _, r := range records {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.ID, r.Name, r.Schedule, r.Target, r.Deliver, cronListFlags(r, now), cronListLastFired(r.LastFired))
+			r.ID, r.Name, r.ScheduleSummary, r.Target, r.Deliver, cronListFlags(r, now), cronListLastFired(r.LastFired))
 	}
 	return w.Flush()
 }

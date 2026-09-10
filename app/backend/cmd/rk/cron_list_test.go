@@ -30,10 +30,18 @@ entries:
   - id: k7q2
     name: op tick
     schedule: { kind: backoff, min: 60s, max: 30m }
+    wake_on: { event: agent-state-change, scope: server, debounce: 2m }
     target: { kind: role, role: operator }
     payload: "tick"
     deliver: when-idle
+    if_absent: respawn
+    respawn: ["rk", "operator", "-L", "{server}"]
     pinned: true
+  - id: cr0n
+    name: morning digest
+    schedule: { kind: cron, expr: "0 9 * * *", catch_up: once }
+    target: { kind: pane, pane: "%43" }
+    payload: "digest"
 `
 
 func writeCronFixture(t *testing.T, dir, slug, body string) {
@@ -89,6 +97,7 @@ func TestCronListRows(t *testing.T) {
 	for _, want := range []string{
 		"a3f9", "hourly sweep", "every 1h", "pane:%42", "immediate", "muted",
 		"k7q2", "op tick", "backoff 1m→30m", "role:operator", "when-idle", "pinned",
+		"cr0n", "morning digest", "cron 0 9 * * * (catch-up once)", "pane:%43",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q:\n%s", want, stdout)
@@ -119,10 +128,11 @@ func TestCronListJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
 		t.Fatalf("unmarshal: %v (stdout %q)", err, stdout)
 	}
-	if len(records) != 2 {
-		t.Fatalf("records = %d, want 2", len(records))
+	if len(records) != 3 {
+		t.Fatalf("records = %d, want 3", len(records))
 	}
-	if records[0].ID != "a3f9" || records[0].Schedule != "every 1h" || records[0].Target != "pane:%42" ||
+	if records[0].ID != "a3f9" || records[0].Schedule.Kind != "every" || records[0].Schedule.Interval != "1h0m0s" ||
+		records[0].ScheduleSummary != "every 1h" || records[0].Target != "pane:%42" ||
 		!records[0].Muted || records[0].LastFired != 1757002222 {
 		t.Errorf("records[0] = %+v, want the a3f9 row with the last-fired join", records[0])
 	}
@@ -178,6 +188,93 @@ entries:
 	}
 	if len(records) != 1 || records[0].Deliver != cron.DeliverSkipIfBusy {
 		t.Errorf("records = %+v, want the s1kp row with deliver skip-if-busy", records)
+	}
+}
+
+// TestCronListJSONIntentFields: --json carries the entry's intent as
+// structured fields keyed like the on-disk schema — schedule {kind + only the
+// parameters the kind uses}, wake_on (object or null, never omitted),
+// if_absent (raw, "" when unset), respawn ([] when unset, argv verbatim
+// otherwise) — plus schedule_summary, the table's rendering.
+func TestCronListJSONIntentFields(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	writeCronFixture(t, dir, "work", cronListFixture)
+
+	stdout, _, err := runCronCmd(t, "list", "--json")
+	if err != nil {
+		t.Fatalf("list --json: %v", err)
+	}
+	var raw []map[string]any
+	if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
+		t.Fatalf("unmarshal: %v (stdout %q)", err, stdout)
+	}
+	if len(raw) != 3 {
+		t.Fatalf("records = %d, want 3", len(raw))
+	}
+	every, backoff, cronKind := raw[0], raw[1], raw[2]
+
+	// schedule: kind always present; each kind carries only its own parameters.
+	wantSchedules := map[string]map[string]any{
+		"a3f9": {"kind": "every", "interval": "1h0m0s"},
+		"k7q2": {"kind": "backoff", "min": "1m0s", "max": "30m0s"},
+		"cr0n": {"kind": "cron", "expr": "0 9 * * *", "catch_up": "once"},
+	}
+	for _, rec := range raw {
+		id, _ := rec["id"].(string)
+		got, ok := rec["schedule"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s schedule = %T %v, want an object", id, rec["schedule"], rec["schedule"])
+		}
+		if want := wantSchedules[id]; len(got) != len(want) {
+			t.Errorf("%s schedule = %v, want exactly %v", id, got, want)
+		} else {
+			for k, v := range want {
+				if got[k] != v {
+					t.Errorf("%s schedule[%q] = %v, want %v", id, k, got[k], v)
+				}
+			}
+		}
+	}
+
+	// schedule_summary keeps the table's rendering.
+	if every["schedule_summary"] != "every 1h" || backoff["schedule_summary"] != "backoff 1m→30m" ||
+		cronKind["schedule_summary"] != "cron 0 9 * * * (catch-up once)" {
+		t.Errorf("schedule_summary = %v / %v / %v, want the table renderings",
+			every["schedule_summary"], backoff["schedule_summary"], cronKind["schedule_summary"])
+	}
+
+	// wake_on: present on every record — null without a block, object with one.
+	for _, rec := range []map[string]any{every, cronKind} {
+		v, ok := rec["wake_on"]
+		if !ok {
+			t.Errorf("%s: wake_on key missing, want null", rec["id"])
+		} else if v != nil {
+			t.Errorf("%s: wake_on = %v, want null", rec["id"], v)
+		}
+	}
+	wakeOn, ok := backoff["wake_on"].(map[string]any)
+	if !ok || wakeOn["event"] != "agent-state-change" || wakeOn["scope"] != "server" || wakeOn["debounce"] != "2m0s" || len(wakeOn) != 3 {
+		t.Errorf("k7q2 wake_on = %v, want {event: agent-state-change, scope: server, debounce: 2m0s}", backoff["wake_on"])
+	}
+
+	// if_absent raw; respawn [] when unset, argv verbatim (placeholder intact) when set.
+	if every["if_absent"] != "skip" || backoff["if_absent"] != "respawn" || cronKind["if_absent"] != "" {
+		t.Errorf("if_absent = %v / %v / %v, want skip / respawn / \"\" (raw stored value, never a default)",
+			every["if_absent"], backoff["if_absent"], cronKind["if_absent"])
+	}
+	if arr, ok := every["respawn"].([]any); !ok || len(arr) != 0 {
+		t.Errorf("a3f9 respawn = %v (%T), want an empty array, never null", every["respawn"], every["respawn"])
+	}
+	wantArgv := []any{"rk", "operator", "-L", "{server}"}
+	gotArgv, _ := backoff["respawn"].([]any)
+	if len(gotArgv) != len(wantArgv) {
+		t.Fatalf("k7q2 respawn = %v, want %v", gotArgv, wantArgv)
+	}
+	for i := range wantArgv {
+		if gotArgv[i] != wantArgv[i] {
+			t.Errorf("k7q2 respawn[%d] = %v, want %v", i, gotArgv[i], wantArgv[i])
+		}
 	}
 }
 

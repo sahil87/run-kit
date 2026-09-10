@@ -1453,7 +1453,7 @@ export function IframeWindow({
           terminal button was removed, 260819-v6y4 R13 — the top-bar surface
           toggles own view switching). */}
       <TipGroup>
-      <div className="flex items-center gap-1.5 px-2 py-1 border-b border-border bg-bg-primary shrink-0">
+      <div className="flex items-center gap-1.5 px-2 h-[35px] border-b border-border bg-bg-primary shrink-0">
         {!onboarding && !crossOrigin && (
           <>
             <Tip label="Back">
@@ -1511,7 +1511,7 @@ export function IframeWindow({
             setInputUrl(rawAddress);
           }}
           onKeyDown={handleKeyDown}
-          className={`flex-1 min-w-0 bg-bg-card text-text-primary text-sm px-2 py-1 rounded border border-border ${INPUT_FOCUS}`}
+          className={`flex-1 min-w-0 bg-bg-card text-text-primary text-sm px-2 h-[28px] py-0 rounded border border-border ${INPUT_FOCUS}`}
           aria-label="URL"
           aria-invalid={submitError !== null}
           spellCheck={false}

@@ -66,7 +66,7 @@ export function FindBar({
 
   return (
     <div
-      className="flex items-center gap-1.5 px-2 py-1 border-b border-border bg-bg-primary shrink-0"
+      className="flex items-center gap-1.5 px-2 h-[35px] border-b border-border bg-bg-primary shrink-0"
       data-testid={testId}
     >
       <input
@@ -76,7 +76,7 @@ export function FindBar({
         onChange={(e) => onQueryChange(e.target.value)}
         onKeyDown={handleKeyDown}
         disabled={disabled}
-        className={`w-60 max-w-[40%] shrink bg-bg-card text-text-primary text-sm px-2 py-1 rounded border border-border ${INPUT_FOCUS} disabled:opacity-40`}
+        className={`w-60 max-w-[40%] shrink bg-bg-card text-text-primary text-sm px-2 h-[28px] py-0 rounded border border-border ${INPUT_FOCUS} disabled:opacity-40`}
         aria-label="Find query"
         placeholder={placeholder}
         spellCheck={false}

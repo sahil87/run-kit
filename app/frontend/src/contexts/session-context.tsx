@@ -274,7 +274,8 @@ const CodeServerContext = createContext<CodeServerSignal | null | undefined>(und
  *  gui.StreamEntry). The payload is a LIST (forward-compat for per-session
  *  displays); consumers select the `id === "host"` entry. Reachability and
  *  viewers govern the tile's CONTENT — availability keys off `enabled` only
- *  (see `hasGui`). */
+ *  (see `hasGui`). `wm` is the supervisor's window-manager stamp (`""` when
+ *  bare) — the tile keys the bare-WM strip on it. */
 export type GuiSignal = {
   id: string;
   enabled: boolean;
@@ -284,6 +285,7 @@ export type GuiSignal = {
   width: number;
   height: number;
   viewers: number;
+  wm: string;
 };
 
 // The gui signal lives in its OWN context (the CodeServerContext precedent):
@@ -320,6 +322,7 @@ function narrowGuiEntry(entry: unknown): GuiSignal {
     width: guiNumber(e.width),
     height: guiNumber(e.height),
     viewers: guiNumber(e.viewers),
+    wm: guiString(e.wm),
   };
 }
 

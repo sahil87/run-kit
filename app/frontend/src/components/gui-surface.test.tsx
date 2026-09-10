@@ -5,6 +5,7 @@ import type { GuiSurfaceCommands } from "./gui-surface";
 import GuiSurface from "./gui-surface";
 import RFB from "@novnc/novnc";
 import { fetchGuiStatus } from "@/api/client";
+import { copyToClipboard } from "@/lib/clipboard";
 
 // Fake RFB: settable plain props, an event registry tests can fire, and vi.fn
 // seams for the verbs. `emit` delivers to every registered listener with a
@@ -55,6 +56,10 @@ vi.mock("@/api/client", async (importActual) => ({
   fetchGuiStatus: vi.fn(),
 }));
 
+vi.mock("@/lib/clipboard", () => ({
+  copyToClipboard: vi.fn(),
+}));
+
 type FakeRFBInstance = {
   url: string;
   scaleViewport: boolean;
@@ -87,10 +92,20 @@ const GUI_ON: GuiSignal = {
   width: 1920,
   height: 1080,
   viewers: 1,
+  wm: "icewm-session",
 };
 
 const GUI_OFF: GuiSignal = { ...GUI_ON, enabled: false, reachable: false };
 const GUI_UNREACHABLE: GuiSignal = { ...GUI_ON, reachable: false };
+const GUI_BARE: GuiSignal = { ...GUI_ON, wm: "" };
+const WM_HINT = "sudo apt install --no-install-recommends icewm";
+
+function mockBareStatus(hint: string | undefined = WM_HINT) {
+  vi.mocked(fetchGuiStatus).mockResolvedValue({
+    wm: "",
+    ...(hint === undefined ? {} : { wm_hint: hint }),
+  } as Awaited<ReturnType<typeof fetchGuiStatus>>);
+}
 
 function renderGui(overrides: Partial<Parameters<typeof GuiSurface>[0]> = {}) {
   const props = {
@@ -113,6 +128,8 @@ const latestRfb = () => FakeRFBClass.instances[FakeRFBClass.instances.length - 1
 beforeEach(() => {
   FakeRFBClass.instances = [];
   vi.mocked(fetchGuiStatus).mockReset();
+  vi.mocked(copyToClipboard).mockReset();
+  localStorage.clear();
 });
 
 afterEach(() => {
@@ -205,6 +222,160 @@ describe("GuiSurface — content states", () => {
     renderGui({ gui: GUI_OFF });
     expect(screen.queryByTestId("gui-surface-canvas")).toBeNull();
     expect(screen.queryByTestId("gui-surface-empty")).toBeNull();
+  });
+});
+
+describe("GuiSurface — the bare-WM strip", () => {
+  it("WM present mounts the canvas host and no strip (and no status GET)", async () => {
+    renderGui();
+    expect(screen.getByTestId("gui-surface-canvas")).toBeInTheDocument();
+    expect(screen.queryByTestId("gui-wm-strip")).toBeNull();
+    await act(async () => {});
+    expect(vi.mocked(fetchGuiStatus)).not.toHaveBeenCalled();
+  });
+
+  it("bare renders the strip with the exact text and the fetched install line, once per transition", async () => {
+    mockBareStatus();
+    const { rerender } = renderGui({ gui: GUI_BARE });
+    const strip = await screen.findByTestId("gui-wm-strip");
+    await act(async () => {});
+    expect(strip).toHaveTextContent(
+      "No window manager on the GUI host — sudo apt install --no-install-recommends icewm · then Restart supervisor",
+    );
+    expect(screen.getByRole("button", { name: "Copy install line" })).toHaveTextContent("Copy");
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+    rerender(
+      <GuiSurface
+        gui={GUI_BARE}
+        visible={true}
+        focused={true}
+        coarsePointer={false}
+        viewMode="fit"
+        resizeLocked={false}
+        onConnectionChange={vi.fn()}
+        onRestart={vi.fn()}
+        onOpenLogs={vi.fn()}
+      />,
+    );
+    await act(async () => {});
+    expect(vi.mocked(fetchGuiStatus)).toHaveBeenCalledTimes(1);
+  });
+
+  it("the strip is the first child of the canvas wrapper, before the noVNC host div", async () => {
+    mockBareStatus();
+    renderGui({ gui: GUI_BARE });
+    const strip = await screen.findByTestId("gui-wm-strip");
+    const canvas = screen.getByTestId("gui-surface-canvas");
+    expect(canvas.firstElementChild).toBe(strip);
+    expect(strip.nextElementSibling).toHaveClass("flex-1", "min-h-0");
+  });
+
+  it("a failed status GET leaves the strip without the install segment and without Copy", async () => {
+    vi.mocked(fetchGuiStatus).mockRejectedValue(new Error("boom"));
+    renderGui({ gui: GUI_BARE });
+    const strip = await screen.findByTestId("gui-wm-strip");
+    await act(async () => {});
+    expect(strip).toHaveTextContent("No window manager on the GUI host · then Restart supervisor");
+    expect(strip).not.toHaveTextContent("apt install");
+    expect(screen.queryByRole("button", { name: "Copy install line" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+  });
+
+  it("the screen-sharing backend never renders the strip, even bare", async () => {
+    mockBareStatus();
+    renderGui({ gui: { ...GUI_BARE, backend: "screen-sharing" } });
+    expect(screen.getByTestId("gui-surface-canvas")).toBeInTheDocument();
+    await act(async () => {});
+    expect(screen.queryByTestId("gui-wm-strip")).toBeNull();
+    expect(vi.mocked(fetchGuiStatus)).not.toHaveBeenCalled();
+  });
+
+  it("Copy copies exactly the install line and reads Copied for 1.5s", async () => {
+    vi.useFakeTimers();
+    mockBareStatus();
+    vi.mocked(copyToClipboard).mockResolvedValue(true);
+    renderGui({ gui: GUI_BARE });
+    expect(screen.getByTestId("gui-wm-strip")).toBeInTheDocument();
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Copy install line" }));
+    await act(async () => {});
+    expect(copyToClipboard).toHaveBeenCalledOnce();
+    expect(copyToClipboard).toHaveBeenCalledWith(WM_HINT);
+    expect(screen.getByRole("button", { name: "Copy install line" })).toHaveTextContent("Copied");
+    act(() => void vi.advanceTimersByTime(1_500));
+    expect(screen.getByRole("button", { name: "Copy install line" })).toHaveTextContent("Copy");
+  });
+
+  it("a failed copy leaves the strip unchanged", async () => {
+    mockBareStatus();
+    vi.mocked(copyToClipboard).mockResolvedValue(false);
+    renderGui({ gui: GUI_BARE });
+    await screen.findByTestId("gui-wm-strip");
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Copy install line" }));
+    await act(async () => {});
+    expect(screen.getByRole("button", { name: "Copy install line" })).toHaveTextContent("Copy");
+  });
+
+  it("Restart supervisor in the strip calls onRestart", async () => {
+    mockBareStatus();
+    const { props } = renderGui({ gui: GUI_BARE });
+    await screen.findByTestId("gui-wm-strip");
+    fireEvent.click(screen.getByRole("button", { name: "Restart supervisor" }));
+    expect(props.onRestart).toHaveBeenCalledOnce();
+  });
+
+  it("× hides the strip and persists the dismissal; a remount honors it", async () => {
+    mockBareStatus();
+    const first = renderGui({ gui: GUI_BARE });
+    await screen.findByTestId("gui-wm-strip");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByTestId("gui-wm-strip")).toBeNull();
+    expect(localStorage.getItem("runkit-gui-wm-strip-dismissed")).toBe("1");
+    first.unmount();
+
+    renderGui({ gui: GUI_BARE });
+    await act(async () => {});
+    expect(screen.getByTestId("gui-surface-canvas")).toBeInTheDocument();
+    expect(screen.queryByTestId("gui-wm-strip")).toBeNull();
+  });
+
+  it("a wm flip to non-empty removes the dismissal key (a later bare state shows the strip again)", async () => {
+    localStorage.setItem("runkit-gui-wm-strip-dismissed", "1");
+    mockBareStatus();
+    const { rerender } = renderGui({ gui: GUI_BARE });
+    expect(screen.queryByTestId("gui-wm-strip")).toBeNull();
+
+    rerender(
+      <GuiSurface
+        gui={GUI_ON}
+        visible={true}
+        focused={true}
+        coarsePointer={false}
+        viewMode="fit"
+        resizeLocked={false}
+        onConnectionChange={vi.fn()}
+        onRestart={vi.fn()}
+        onOpenLogs={vi.fn()}
+      />,
+    );
+    await act(async () => {});
+    expect(localStorage.getItem("runkit-gui-wm-strip-dismissed")).toBeNull();
+
+    rerender(
+      <GuiSurface
+        gui={GUI_BARE}
+        visible={true}
+        focused={true}
+        coarsePointer={false}
+        viewMode="fit"
+        resizeLocked={false}
+        onConnectionChange={vi.fn()}
+        onRestart={vi.fn()}
+        onOpenLogs={vi.fn()}
+      />,
+    );
+    expect(await screen.findByTestId("gui-wm-strip")).toBeInTheDocument();
   });
 });
 

@@ -22,6 +22,7 @@ import {
   fetchCodeWorkspace,
   fetchCodeBridge,
   fetchGuiStatus,
+  launchGuiApp,
   restartGui,
   getDirectories,
   uploadFile,
@@ -1559,6 +1560,7 @@ describe("gui client (host-global /api/gui/*)", () => {
     width: 1920,
     height: 1080,
     viewers: 0,
+    wm: "",
     socket: "/run/host.sock",
     session: "rk-gui",
     reason: "no VNC backend: sudo apt install tigervnc-standalone-server openbox",
@@ -1623,6 +1625,53 @@ describe("gui client (host-global /api/gui/*)", () => {
       if (!(err instanceof ApiError)) return;
       expect(err.status).toBe(500);
       expect(err.message).toBe("kill failed");
+    }
+  });
+
+  it("launchGuiApp POSTs the app body and resolves the parsed ok:false ladder-miss body (a 200 by design)", async () => {
+    let capturedUrl = "";
+    let capturedBody: unknown = null;
+    const hint = "no browser on the GUI host — sudo apt install chromium-browser";
+    mswServer.use(
+      http.post("/api/gui/:id/launch", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedBody = await request.json();
+        return HttpResponse.json({ ok: false, app: "browser", hint });
+      }),
+    );
+    await expect(launchGuiApp("browser")).resolves.toEqual({ ok: false, app: "browser", hint });
+    expect(capturedUrl).toContain("/api/gui/host/launch");
+    expect(capturedBody).toEqual({ app: "browser" });
+  });
+
+  it("launchGuiApp resolves the parsed ok:true body on 200", async () => {
+    mswServer.use(
+      http.post("/api/gui/:id/launch", () =>
+        HttpResponse.json({ ok: true, app: "terminal", argv0: "xterm", pid: 4321 }),
+      ),
+    );
+    await expect(launchGuiApp("terminal")).resolves.toEqual({
+      ok: true,
+      app: "terminal",
+      argv0: "xterm",
+      pid: 4321,
+    });
+  });
+
+  it("launchGuiApp throws on a 409 (gui disabled) via throwOnError", async () => {
+    mswServer.use(
+      http.post("/api/gui/:id/launch", () =>
+        HttpResponse.json({ error: "gui disabled" }, { status: 409 }),
+      ),
+    );
+    try {
+      await launchGuiApp("terminal");
+      expect.fail("launchGuiApp should reject");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      if (!(err instanceof ApiError)) return;
+      expect(err.status).toBe(409);
+      expect(err.message).toBe("gui disabled");
     }
   });
 });

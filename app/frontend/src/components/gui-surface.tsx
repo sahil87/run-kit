@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import RFB from "@novnc/novnc";
 import { fetchGuiStatus } from "@/api/client";
 import type { GuiSignal } from "@/contexts/session-context";
-import type { GuiViewMode } from "@/lib/gui-posture";
+import { copyToClipboard } from "@/lib/clipboard";
+import {
+  readGuiWmStripDismissed,
+  writeGuiWmStripDismissed,
+  type GuiViewMode,
+} from "@/lib/gui-posture";
+import { Control } from "./control";
 
 /**
  * GuiSurface — the renderer for the `gui` lens (spec docs/specs/gui.md § The
@@ -16,6 +22,13 @@ import type { GuiViewMode } from "@/lib/gui-posture";
  *   enabled-but-unreachable host renders the empty state with the `reason`
  *   fetched ONCE per unreachable transition (never polled — the state socket
  *   drives re-fetch). A `!enabled` host never mounts this tile (degradation).
+ *   On a reachable host with NO window manager (`wm === ""`, never on the
+ *   screen-sharing mirror backend) a one-line strip (`gui-wm-strip`) rides
+ *   above the canvas as a flex sibling — the fit subtracts it — carrying the
+ *   status document's `wm_hint` install line (fetched ONCE per bare
+ *   transition, the reason-fetch grammar), a Copy of the line, the empty
+ *   state's Restart supervisor action, and a per-viewer dismiss
+ *   (`runkit-gui-wm-strip-dismissed`, cleared whenever `wm` turns non-empty).
  * - **Connection lifecycle**: connect/disconnect report through
  *   `onConnectionChange` (the top-bar dot). An RFB disconnect while
  *   `reachable` stays true re-dials on a 1s→2s→4s→8s backoff (reset on
@@ -51,6 +64,9 @@ const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000];
 /** How long the tile may stay invisible before the RFB disconnects — the
  *  "stop framebuffer requests when hidden" budget (noVNC has no pause API). */
 const VISIBILITY_DISCONNECT_MS = 15_000;
+
+/** How long the strip's Copy button reads `Copied` after a successful write. */
+const COPIED_FEEDBACK_MS = 1_500;
 
 /** The imperative seams the palette's `GUI:` verbs drive (app.tsx holds the
  *  ref; the component fills it while mounted). */
@@ -109,6 +125,12 @@ export default function GuiSurface({
 }: GuiSurfaceProps) {
   const enabled = gui?.enabled === true;
   const reachable = gui?.reachable === true;
+  const wm = gui?.wm ?? "";
+  const backend = gui?.backend ?? "";
+  // The bare state: a reachable host whose supervisor resolved no WM rung.
+  // The screen-sharing mirror stamps no WM by construction and has no display
+  // to install one into — it is never "bare" here.
+  const bare = enabled && reachable && wm === "" && backend !== "screen-sharing";
 
   const hostRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<RFB | null>(null);
@@ -131,6 +153,13 @@ export default function GuiSurface({
   // Connection generation: bumping re-dials (the backoff timer and the manual
   // GUI: Reconnect seam both ride it).
   const [epoch, setEpoch] = useState(0);
+  // The bare-WM strip: the install line (empty until the status GET resolves —
+  // the strip renders without that segment meanwhile) and the per-viewer
+  // dismiss/Copy feedback state.
+  const [wmHint, setWmHint] = useState("");
+  const [wmStripDismissed, setWmStripDismissed] = useState(readGuiWmStripDismissed);
+  const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Latest-value refs for the listener/effect closures that outlive renders.
   const propsRef = useRef({ coarsePointer, focused, resizeLocked, viewMode, backend: gui?.backend ?? "" });
@@ -314,6 +343,71 @@ export default function GuiSurface({
     };
   }, [enabled, reachable]);
 
+  // The strip's install line: fetched ONCE per bare transition from the status
+  // document (the stream carries `wm` but not the package-manager-aware hint,
+  // so the frontend never hardcodes one) — the same never-polled grammar as
+  // the reason fetch above. A failed GET leaves the line unknown: the strip
+  // still renders, without the install segment and without Copy. A `wm` or
+  // `reachable` flip re-arms the transition and clears the stored line.
+  const hintFetchedRef = useRef(false);
+  useEffect(() => {
+    if (!bare) {
+      hintFetchedRef.current = false;
+      setWmHint("");
+      return;
+    }
+    if (hintFetchedRef.current) return;
+    hintFetchedRef.current = true;
+    // A new bare transition starts with no line: a stale hint from an earlier
+    // transition must not survive a failed GET.
+    setWmHint("");
+    let cancelled = false;
+    fetchGuiStatus()
+      .then((s) => {
+        if (!cancelled) setWmHint(s.wm_hint ?? "");
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      // StrictMode's mount-replay cleanup runs synchronously between the two
+      // effect invocations of ONE transition — re-arm so the replay re-fires
+      // the fetch instead of dropping it (the cancelled flag above suppresses
+      // the first attempt's late resolution).
+      hintFetchedRef.current = false;
+    };
+  }, [bare]);
+
+  // A non-empty `wm` (the user installed a WM and restarted) clears the
+  // dismissal, so a LATER bare state shows the strip again. A `reachable`
+  // flip deliberately never clears it.
+  useEffect(() => {
+    if (wm === "") return;
+    writeGuiWmStripDismissed(false);
+    setWmStripDismissed(false);
+  }, [wm]);
+
+  // The `Copied` feedback timer must not outlive the component.
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    };
+  }, []);
+
+  const dismissWmStrip = () => {
+    setWmStripDismissed(true);
+    writeGuiWmStripDismissed(true);
+  };
+
+  const copyInstallLine = () => {
+    void copyToClipboard(wmHint).then((ok) => {
+      // A failed copy (both mechanisms) leaves the strip unchanged.
+      if (!ok) return;
+      setCopied(true);
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
+    });
+  };
+
   if (!gui || !enabled) return null;
 
   if (!reachable || credEscaped) {
@@ -388,7 +482,41 @@ export default function GuiSurface({
         );
       }}
     >
-      <div ref={hostRef} className="flex-1 min-h-0" />
+      {bare && !wmStripDismissed ? (
+        <div
+          data-testid="gui-wm-strip"
+          role="status"
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1 border-b border-border text-text-secondary select-none font-mono text-xs"
+        >
+          <span>No window manager on the GUI host</span>
+          {wmHint ? <span>{` — ${wmHint}`}</span> : null}
+          <span>
+            {" · then "}
+            <button
+              type="button"
+              className="underline hover:text-text-primary"
+              // An ok:false (409) means the switch flipped off — the stream
+              // unmounts the tile; there is nothing to render for it here.
+              onClick={() => void onRestart().catch(() => {})}
+            >
+              Restart supervisor
+            </button>
+          </span>
+          {wmHint ? (
+            <Control variant="chip" aria-label="Copy install line" onClick={copyInstallLine}>
+              {copied ? "Copied" : "Copy"}
+            </Control>
+          ) : null}
+          <Control variant="chip" aria-label="Dismiss" onClick={dismissWmStrip}>
+            ×
+          </Control>
+        </div>
+      ) : null}
+      {/* The key pins the host div's DOM node identity: without it a branch
+          switch (canvas ⇄ empty state) can reuse the node for a same-position
+          sibling, and the connect effect's cleanup (`hostEl.replaceChildren()`)
+          would then wipe THAT element's content. */}
+      <div ref={hostRef} className="flex-1 min-h-0" key="novnc-host" />
       {reconnecting && !credentials ? (
         <div
           data-testid="gui-surface-reconnecting"

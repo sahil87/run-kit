@@ -31,6 +31,7 @@ function status(overrides: Partial<GuiStatus> = {}): GuiStatus {
     width: 1920,
     height: 1080,
     viewers: 1,
+    wm: "icewm-session",
     socket: "/run/host.sock",
     session: "rk-gui",
     reason: "",

@@ -12,6 +12,12 @@
  *  - `GUI: Turn on`             — switch OFF only; POSTs `gui.enabled: true`.
  *  - `GUI: Turn off`            — switch ON only; opens the off-confirm dialog
  *                                 (the dialog owns the settings POST).
+ *  - `GUI: Open terminal` / `GUI: Open browser` — switch ON AND reachable AND
+ *                                 not the screen-sharing mirror (the mirror
+ *                                 has no display to launch into); POSTs
+ *                                 `/api/gui/host/launch` via the caller's
+ *                                 onLaunch. Independent of `tileOpen` — a
+ *                                 phone user may launch, then open the tile.
  *  - `GUI: Fullscreen`          — gui tile open; the fullscreen verb (zen
  *                                 fallback where requestFullscreen is absent).
  *  - `GUI: Paste clipboard`     — gui tile open AND connected (readText needs a
@@ -36,6 +42,7 @@
  * `withShortcutHints` on the actionId.
  */
 
+import type { GuiLaunchApp } from "../../api/client";
 import type { GuiViewMode } from "../gui-posture";
 
 export type GuiPaletteAction = {
@@ -50,6 +57,10 @@ export type GuiPaletteAction = {
 export type GuiPaletteInput = {
   /** The host signal's `enabled` (the gui.enabled switch state). */
   enabled: boolean;
+  /** The host signal's `reachable` (the launch rows exist only on a live display). */
+  reachable: boolean;
+  /** The host signal's `backend` — the view-only mirror has no display to launch into. */
+  backend: string;
   /** A gui tile is open in the current layout. */
   tileOpen: boolean;
   /** The tile's RFB connection state (the R11 dot seam). */
@@ -63,6 +74,8 @@ export type GuiPaletteInput = {
   onTurnOn: () => void;
   /** Opens the off-confirm dialog (the dialog owns the settings POST). */
   onTurnOff: () => void;
+  /** POST /api/gui/host/launch for the role; the caller owns the toast. */
+  onLaunch: (app: GuiLaunchApp) => void;
   onFullscreen: () => void;
   onPaste: () => void;
   onViewMode: (mode: GuiViewMode) => void;
@@ -80,6 +93,13 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
   }
 
   actions.push({ id: "gui-turn-off", label: "GUI: Turn off", onSelect: input.onTurnOff });
+
+  if (input.reachable && input.backend !== "screen-sharing") {
+    actions.push(
+      { id: "gui-open-terminal", label: "GUI: Open terminal", onSelect: () => input.onLaunch("terminal") },
+      { id: "gui-open-browser", label: "GUI: Open browser", onSelect: () => input.onLaunch("browser") },
+    );
+  }
 
   if (input.tileOpen) {
     actions.push(

@@ -171,7 +171,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, fetchCodeBridge, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, fetchCodeBridge, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions } from "@/lib/palette/cron";
 import { CronCreateDialog } from "@/components/cron-create-dialog";
@@ -1305,6 +1305,8 @@ function AppShell() {
     if (!windowParam) return [];
     const actions = buildGuiActions({
       enabled: gui?.enabled === true,
+      reachable: gui?.reachable === true,
+      backend: gui?.backend ?? "",
       tileOpen: layout.order.includes("gui"),
       connected: guiConnected,
       coarsePointer,
@@ -1317,6 +1319,18 @@ function AppShell() {
         });
       },
       onTurnOff: () => guiOffRequest?.open(),
+      // A ladder miss is a 200 with ok:false by design — toast the server's
+      // hint verbatim through the success path; a success toasts nothing (the
+      // app appears on the desktop).
+      onLaunch: (app) => {
+        void launchGuiApp(app)
+          .then((r) => {
+            if (!r.ok) addToast(r.hint, "error");
+          })
+          .catch((err: unknown) => {
+            addToast(err instanceof Error && err.message ? err.message : `Failed to open ${app}`, "error");
+          });
+      },
       onFullscreen: guiFullscreen,
       onPaste: () => {
         navigator.clipboard

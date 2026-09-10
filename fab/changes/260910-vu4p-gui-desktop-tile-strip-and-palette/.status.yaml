@@ -1,0 +1,55 @@
+id: vu4p
+name: 260910-vu4p-gui-desktop-tile-strip-and-palette
+created: 2026-09-10T07:06:21Z
+created_by: sahil87
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 26
+    acceptance_completed: 26
+confidence:
+    certain: 13
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 75.3
+        reversibility: 90.9
+        competence: 87.6
+        disambiguation: 81.2
+stage_metrics:
+    intake: {started_at: "2026-09-10T07:06:21Z", driver: fab-new, iterations: 1, completed_at: "2026-09-10T07:10:47Z"}
+    apply: {started_at: "2026-09-10T07:10:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T08:09:24Z"}
+    review: {started_at: "2026-09-10T08:09:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T08:13:01Z"}
+    hydrate: {started_at: "2026-09-10T08:13:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T08:17:35Z"}
+    ship: {started_at: "2026-09-10T08:17:35Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-10T08:17:35Z"
+    computed_at_stage: hydrate
+summary: 'GUI desktop frontend: the gui tile''s bare-WM strip (wm_hint install line, Copy/Restart/×, per-viewer dismiss) and the GUI: Open terminal/browser palette rows behind launchGuiApp; memory hydrated'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-10T08:17:35Z

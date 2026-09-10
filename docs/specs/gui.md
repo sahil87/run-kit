@@ -103,7 +103,7 @@ on `rk gui restart`.
 |-------------|------|-------|
 | CLI | `rk gui on` / `rk gui off [--yes]` / `rk gui status` | writes the setting, then ensures or kills the session; `on` on a host with no backend prints the install hint and still enables (the tile then shows the hint — the code tile's not-running state) |
 | Settings dialog | a **GUI** row with a toggle | registry-driven; the off direction opens the confirm listing running apps |
-| Palette | `GUI: Turn on` / `GUI: Turn off` | Constitution V parity for the dialog toggle; same confirm |
+| Palette | `GUI: Turn on` / `GUI: Turn off` | Constitution V parity for the dialog toggle; same confirm. On a live display (enabled ∧ reachable, never on the macOS mirror) the palette also carries `GUI: Open terminal` / `GUI: Open browser`, calling the § Agent verbs launcher over HTTP |
 | Tile empty state | appears only when enabled but unreachable | "GUI is on but not running" → Restart supervisor · Open supervisor logs · install hint; there is deliberately **no Start button on a disabled host** — the button itself doesn't exist there |
 
 Install hints are package-manager-aware (apt/dnf/pacman probed by presence —
@@ -136,6 +136,40 @@ Availability and reachability are separate facts (study §1):
 | **Reachable** (live content) | code-server answers on its conventional port | the GUI socket answers; otherwise an empty state: restart supervisor · open supervisor logs · install hint when the backend is missing |
 | **Content selector** | `@rk_win_code_root` | none in v1 — the tile shows the host's screen (a per-session display option becomes the selector if per-session GUIs ever land) |
 | **Dot** | reachability | VNC WS health (window-views R6) |
+
+---
+
+## The tile
+
+Three content states, driven by the stream entry alone (no polling):
+
+- **Reachable, WM present** (`wm` non-empty): the canvas, nothing else. The
+  desktop's own affordances (the IceWM taskbar: start menu · Terminal ·
+  Browser-if-installed · task buttons · clock) are the UI.
+- **Reachable, bare** (`wm === ""`): a one-line strip pinned above the canvas
+  (a flex sibling, so the canvas fit subtracts the strip's height — never an
+  overlay), monospace, wrapping to two lines at phone width:
+  `No window manager on the GUI host — <pm-line> · then Restart supervisor`
+  with a `Copy` button (copies only the install line; reads `Copied` for
+  1.5 s on success) and a `×` dismiss. The install line is the status
+  document's `wm_hint`, fetched once per bare transition (the empty state's
+  reason-fetch grammar — a failed GET leaves the strip without the line and
+  without Copy; the frontend never hardcodes a package name). `Restart
+  supervisor` is the empty state's action, reused. `×` dismisses for this
+  viewer only (localStorage `runkit-gui-wm-strip-dismissed`; a later
+  `wm != ""` clears it, a `reachable` flip never does). The macOS mirror
+  backend is excluded by construction — it stamps no WM and has no display to
+  install one into, so the strip never renders there.
+- **Unreachable**: the existing empty state; the reason line already carries
+  the backend hint via `reason`.
+
+The palette gains two launch rows beside the strip (§ The switch): `GUI: Open
+terminal` / `GUI: Open browser`, gated on `enabled && reachable && backend !==
+"screen-sharing"` (a tile need not be open — a phone user may launch first,
+then switch to the tile). They call `POST /api/gui/{id}/launch`; an `ok:false`
+answer (a launcher-ladder miss — a 200 by design) toasts the server's `hint`
+verbatim, a success toasts nothing, and a thrown error (409/500/network)
+toasts the error message.
 
 ---
 

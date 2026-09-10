@@ -4,6 +4,8 @@ import {
   writeGuiViewMode,
   readGuiResizeLocked,
   writeGuiResizeLocked,
+  readGuiWmStripDismissed,
+  writeGuiWmStripDismissed,
 } from "./gui-posture";
 
 beforeEach(() => localStorage.clear());
@@ -45,5 +47,34 @@ describe("gui resize lock posture (rk-gui-lock)", () => {
     writeGuiResizeLocked(false);
     expect(readGuiResizeLocked()).toBe(false);
     expect(localStorage.getItem("rk-gui-lock")).toBeNull();
+  });
+});
+
+describe("gui bare-WM strip dismissal (runkit-gui-wm-strip-dismissed)", () => {
+  it("defaults to not dismissed when absent", () => {
+    expect(readGuiWmStripDismissed()).toBe(false);
+  });
+
+  it("round-trips the dismissal; clearing removes the key", () => {
+    writeGuiWmStripDismissed(true);
+    expect(readGuiWmStripDismissed()).toBe(true);
+    expect(localStorage.getItem("runkit-gui-wm-strip-dismissed")).toBe("1");
+    writeGuiWmStripDismissed(false);
+    expect(readGuiWmStripDismissed()).toBe(false);
+    expect(localStorage.getItem("runkit-gui-wm-strip-dismissed")).toBeNull();
+  });
+
+  it("swallows a localStorage read failure, returning not dismissed", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    expect(readGuiWmStripDismissed()).toBe(false);
+  });
+
+  it("swallows a localStorage write failure silently", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    expect(() => writeGuiWmStripDismissed(true)).not.toThrow();
   });
 });

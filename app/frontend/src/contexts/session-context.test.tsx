@@ -902,6 +902,7 @@ describe("SessionProvider — gui signal (the host-global `gui` event list)", ()
       width: 1920,
       height: 1080,
       viewers: 1,
+      wm: "icewm-session",
     },
   ];
 
@@ -943,6 +944,7 @@ describe("SessionProvider — gui signal (the host-global `gui` event list)", ()
       width: 0,
       height: 0,
       viewers: 0,
+      wm: "",
     });
   });
 
@@ -1000,7 +1002,27 @@ describe("SessionProvider — gui signal (the host-global `gui` event list)", ()
       width: 0,
       height: 0,
       viewers: 0,
+      wm: "",
     });
+  });
+
+  it("wm passes through as a string and narrows to \"\" when absent or non-string", async () => {
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useGui(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => { WS.forHostMetrics()!.emit("gui", GUI_ON); });
+    expect(result.current?.wm).toBe("icewm-session");
+
+    act(() => {
+      WS.forHostMetrics()!.emit("gui", [{ id: "host", enabled: true }]);
+    });
+    expect(result.current?.wm).toBe("");
+
+    act(() => {
+      WS.forHostMetrics()!.emit("gui", [{ id: "host", enabled: true, wm: 42 }]);
+    });
+    expect(result.current?.wm).toBe("");
   });
 });
 

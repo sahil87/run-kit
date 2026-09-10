@@ -22,10 +22,15 @@ import {
 // work window, default layout) and `@2` (code-capable, `layout:
 // "split-h:tty,gui"` — proving the off-degrades/on-restores rule without a
 // settings write). `/ws/terminals` is accepted and held open; the window
-// `/options` POST and `GET /api/gui/host` are route-stubbed; `/ws/gui/` is
-// route-tracked so a test can assert NO relay socket is opened while the host
-// is unreachable. Both desktop (1280px) and mobile (375px, hasTouch) forks
-// run.
+// `/options` POST and `GET /api/gui/host` are route-stubbed (the status
+// document is a parameter — the bare-WM strip tests pass one carrying
+// `wm: ""` + `wm_hint`); `/ws/gui/` is route-tracked so a test can assert NO
+// relay socket is opened while the host is unreachable. The bare-WM strip
+// tests drive the gui slot between a bare fixture (`wm: ""`) and a WM-stamped
+// one (`wm: "icewm-session"`); the palette launch-row tests stub
+// `POST /api/gui/host/launch` with the `ok:false` ladder-miss document and
+// capture the request body. Both desktop (1280px) and mobile (375px,
+// hasTouch) forks run.
 //
 // (b) XVNC-GATED, real rig: skips cleanly when Xtigervnc is not on PATH (CI
 // lacks it). Turns the gui switch on with a real POST /api/settings against
@@ -40,12 +45,34 @@ import {
 // fetch/poll, geometry settle) are shared with gui-perf.spec.ts via `_gui.ts`.
 
 const GUI_OFF = [
-  { id: "host", enabled: false, backend: "", reachable: false, display: "", width: 0, height: 0, viewers: 0 },
+  { id: "host", enabled: false, backend: "", reachable: false, display: "", width: 0, height: 0, viewers: 0, wm: "" },
 ];
 const GUI_ON_UNREACHABLE = [
-  { id: "host", enabled: true, backend: "Xtigervnc", reachable: false, display: ":10", width: 0, height: 0, viewers: 0 },
+  { id: "host", enabled: true, backend: "Xtigervnc", reachable: false, display: ":10", width: 0, height: 0, viewers: 0, wm: "" },
 ];
-const GUI_REASON = "no VNC backend: sudo apt install tigervnc-standalone-server openbox";
+const GUI_REASON = "no VNC backend: sudo apt install --no-install-recommends tigervnc-standalone-server icewm";
+const GUI_ON_BARE = [
+  { id: "host", enabled: true, backend: "Xtigervnc", reachable: true, display: ":10", width: 1280, height: 800, viewers: 0, wm: "" },
+];
+const GUI_ON_ICEWM = [{ ...GUI_ON_BARE[0], wm: "icewm-session" }];
+const GUI_WM_HINT = "sudo apt install --no-install-recommends icewm";
+const GUI_STATUS_BARE = {
+  id: "host",
+  enabled: true,
+  backend: "Xtigervnc",
+  reachable: true,
+  display: ":10",
+  width: 1280,
+  height: 800,
+  viewers: 0,
+  wm: "",
+  wm_hint: GUI_WM_HINT,
+  socket: "",
+  session: "",
+  reason: "",
+  apps: [],
+  uptime_seconds: 0,
+};
 
 const WORK_WINDOW = {
   windowId: "@1",
@@ -70,8 +97,10 @@ function sessionsPayload() {
   return JSON.stringify([{ name: "dev", windows: [WORK_WINDOW, GUI_LAYOUT_WINDOW] }]);
 }
 
-/** The mocked backend for the ungated half; returns the /ws/gui/ dial count. */
-async function mockGuiBackend(page: Page, gui: unknown) {
+/** The mocked backend for the ungated half; returns the /ws/gui/ dial count.
+ *  `statusDoc` overrides the `GET /api/gui/host` document (the bare-WM strip
+ *  tests pass one carrying `wm: ""` and the `wm_hint` install line). */
+async function mockGuiBackend(page: Page, gui: unknown, statusDoc?: unknown) {
   let guiDials = 0;
   await page.routeWebSocket(/\/ws\/terminals/, () => {});
   await page.routeWebSocket(/\/ws\/gui\//, () => {
@@ -91,24 +120,64 @@ async function mockGuiBackend(page: Page, gui: unknown) {
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        id: "host",
-        enabled: true,
-        backend: "Xtigervnc",
-        reachable: false,
-        display: ":10",
-        width: 0,
-        height: 0,
-        viewers: 0,
-        socket: "",
-        session: "",
-        reason: GUI_REASON,
-        apps: [],
-        uptime_seconds: 0,
-      }),
+      body: JSON.stringify(
+        statusDoc ?? {
+          id: "host",
+          enabled: true,
+          backend: "Xtigervnc",
+          reachable: false,
+          display: ":10",
+          width: 0,
+          height: 0,
+          viewers: 0,
+          wm: "",
+          socket: "",
+          session: "",
+          reason: GUI_REASON,
+          apps: [],
+          uptime_seconds: 0,
+        },
+      ),
     }),
   );
   await mockStateSocket(page, { sessions: sessionsPayload(), gui });
+  // noVNC's Websock.attach() probes the raw channel's properties via
+  // Object.keys + prototype names and throws on a miss; Playwright's
+  // routeWebSocket mock instance forwards gets through a proxy but exposes
+  // nothing to that enumeration, so constructing an RFB against a mocked
+  // /ws/gui/ URL would crash the page. Wrap the constructor so /ws/gui/
+  // sockets get a prototype carrying the probed names; every other socket
+  // keeps the plain mock. Registered AFTER the routeWebSocket calls: init
+  // scripts run in registration order, and Playwright's mock injection must
+  // install first for this wrapper to ride on top of it.
+  await page.addInitScript(() => {
+    const probed = ["send", "close", "binaryType", "onerror", "onmessage", "onopen", "protocol", "readyState"];
+    window.WebSocket = new Proxy(window.WebSocket, {
+      construct(target, args) {
+        const inner = Reflect.construct(target, args);
+        if (!String(args[0]).includes("/ws/gui/")) return inner;
+        const patched = Object.create(Object.getPrototypeOf(inner));
+        for (const name of probed) {
+          Object.defineProperty(patched, name, {
+            configurable: true,
+            enumerable: true,
+            get: () => Reflect.get(inner, name),
+            set: (v) => Reflect.set(inner, name, v),
+          });
+        }
+        // Methods bind to the inner socket: the mock extends EventTarget,
+        // whose native methods (addEventListener, …) brand-check the receiver
+        // and would throw "Illegal invocation" on the proxy.
+        return new Proxy(inner, {
+          getPrototypeOf: () => patched,
+          get: (t, p) => {
+            const v = Reflect.get(t, p);
+            return typeof v === "function" ? v.bind(t) : v;
+          },
+        });
+      },
+    });
+  });
   return { guiDials: () => guiDials };
 }
 
@@ -194,6 +263,135 @@ test.describe("gui surface — mocked signal, desktop (1280px)", () => {
     await expect(page.getByTestId("gui-surface-empty")).toContainText(GUI_REASON);
     expect(guiDials()).toBe(0);
   });
+
+  /**
+   * Proves: on a reachable host whose supervisor stamped no window manager,
+   * the gui tile shows the bare-WM strip above the canvas with the exact copy
+   * and the status document's install line, Copy places exactly that line on
+   * the clipboard, and a stream flip to a WM-stamped entry removes the strip.
+   *
+   * Steps:
+   * 1. Grant clipboard permissions; mock the backend with the bare stream
+   *    entry (`wm: ""`) and the bare status document (`wm_hint`).
+   * 2. Open @1, toggle the gui tile on; assert `gui-wm-strip` renders the
+   *    exact line `No window manager on the GUI host — <hint> · then Restart
+   *    supervisor` above the canvas.
+   * 3. Click Copy; assert the clipboard holds exactly the install line.
+   * 4. `emitGui` the icewm-stamped entry; assert the strip is gone.
+   */
+  test("bare WM: the strip shows the install line, Copy puts it on the clipboard, a WM stamp removes the strip", async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await mockGuiBackend(page, GUI_ON_BARE, GUI_STATUS_BARE);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await toggleButton(page, "GUI tile").click();
+    const strip = page.getByTestId("gui-wm-strip");
+    await expect(strip).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(strip).toContainText(
+      `No window manager on the GUI host — ${GUI_WM_HINT} · then Restart supervisor`,
+    );
+
+    await page.getByRole("button", { name: "Copy install line" }).click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(GUI_WM_HINT);
+
+    emitGui(GUI_ON_ICEWM);
+    await expect(strip).toHaveCount(0);
+    await expect(page.getByTestId("gui-surface-canvas")).toBeVisible();
+  });
+
+  /**
+   * Proves: the strip's × dismissal is per-viewer persistent — it survives a
+   * full page reload (localStorage), and a stream flip to a non-empty `wm`
+   * clears the dismissal so a LATER bare state shows the strip again.
+   *
+   * Steps:
+   * 1. Mock the backend bare; open @1; toggle the gui tile on; assert the
+   *    strip, then click × and assert it is hidden.
+   * 2. Reload the page (the state-socket mock replays the bare slot on hello);
+   *    toggle the gui tile back on; assert the strip stays hidden.
+   * 3. `emitGui` the icewm-stamped entry, then the bare one again; assert the
+   *    strip is back (the WM stamp cleared the dismissal).
+   */
+  test("dismiss persists across reload; a WM-stamped flip re-arms the strip", async ({ page }) => {
+    await mockGuiBackend(page, GUI_ON_BARE, GUI_STATUS_BARE);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await toggleButton(page, "GUI tile").click();
+    const strip = page.getByTestId("gui-wm-strip");
+    await expect(strip).toBeVisible({ timeout: READY_TIMEOUT });
+    await page.getByRole("button", { name: "Dismiss" }).click();
+    await expect(strip).toHaveCount(0);
+
+    await page.reload();
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+    await toggleButton(page, "GUI tile").click();
+    await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(strip).toHaveCount(0);
+
+    emitGui(GUI_ON_ICEWM);
+    await expect(page.getByTestId("gui-surface-canvas")).toBeVisible();
+    emitGui(GUI_ON_BARE);
+    await expect(strip).toBeVisible({ timeout: READY_TIMEOUT });
+  });
+
+  /**
+   * Proves: the palette's launch rows are gated on the live signal — absent
+   * while the host is unreachable, present once reachable — and selecting
+   * `GUI: Open browser` POSTs `{"app":"browser"}` to the launch endpoint and
+   * toasts the server's `ok:false` hint verbatim.
+   *
+   * Steps:
+   * 1. Mock the backend enabled-but-unreachable; open @1; open the palette
+   *    and assert neither `GUI: Open terminal` nor `GUI: Open browser` is
+   *    listed (the supervisor-logs row still is — the family is present).
+   * 2. Stub `POST /api/gui/host/launch` with the `ok:false` ladder-miss body
+   *    (capturing the request body); `emitGui` the bare-but-reachable entry.
+   * 3. Reopen the palette; assert both rows; select `GUI: Open browser`.
+   * 4. Assert the POST body was `{"app":"browser"}` and the error toast
+   *    carries the hint.
+   */
+  test("palette launch rows follow reachability; Open browser toasts the ladder-miss hint", async ({
+    page,
+  }) => {
+    await mockGuiBackend(page, GUI_ON_UNREACHABLE);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    let paletteInput = await openPalette(page);
+    await paletteInput.fill("GUI: Open");
+    await expect(page.getByRole("option", { name: "GUI: Open terminal" })).toHaveCount(0);
+    await expect(page.getByRole("option", { name: "GUI: Open browser" })).toHaveCount(0);
+    await expect(page.getByRole("option", { name: "GUI: Open supervisor logs" })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    const hint = "no browser on the GUI host — sudo apt install chromium-browser";
+    let launchBody: unknown = null;
+    await page.route("**/api/gui/host/launch", async (route) => {
+      launchBody = JSON.parse(route.request().postData() ?? "null");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: false, app: "browser", hint }),
+      });
+    });
+    emitGui(GUI_ON_BARE);
+    await expect(toggleButton(page, "GUI tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    paletteInput = await openPalette(page);
+    await paletteInput.fill("GUI: Open");
+    await expect(page.getByRole("option", { name: "GUI: Open terminal" })).toBeVisible();
+    await page.getByRole("option", { name: "GUI: Open browser" }).click();
+
+    await expect.poll(() => launchBody).toEqual({ app: "browser" });
+    await expect(page.getByText(/no browser on the GUI host/)).toBeVisible();
+  });
 });
 
 test.describe("gui surface — mocked signal, mobile (375px)", () => {
@@ -225,6 +423,44 @@ test.describe("gui surface — mocked signal, mobile (375px)", () => {
 
     await toggleButton(page, "GUI tile").click();
     await expect(page.getByTestId("gui-surface-empty")).toBeVisible({ timeout: READY_TIMEOUT });
+  });
+
+  /**
+   * Proves: on a coarse 375px viewport the bare-WM strip renders (wrapping to
+   * two lines is allowed) with both of its buttons visible and fully inside
+   * the viewport — the phone's tap-reachable route that does not depend on
+   * the desktop's taskbar — and × dismisses it.
+   *
+   * Steps:
+   * 1. Mock the backend with the bare stream entry and the bare status
+   *    document; open @1 at 375px; tap the GUI button in the switch group.
+   * 2. Assert the strip renders and the Copy and × buttons are visible with
+   *    bounding boxes inside the 375px viewport.
+   * 3. Tap ×; assert the strip is gone.
+   */
+  test("mobile bare WM: the strip and its buttons fit the 375px viewport; × dismisses", async ({
+    page,
+  }) => {
+    await mockGuiBackend(page, GUI_ON_BARE, GUI_STATUS_BARE);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await toggleButton(page, "GUI tile").click();
+    const strip = page.getByTestId("gui-wm-strip");
+    await expect(strip).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(strip).toContainText("No window manager on the GUI host");
+
+    for (const name of ["Copy install line", "Dismiss"]) {
+      const button = page.getByRole("button", { name });
+      await expect(button).toBeVisible();
+      const box = await button.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(375);
+    }
+
+    await page.getByRole("button", { name: "Dismiss" }).click();
+    await expect(strip).toHaveCount(0);
   });
 });
 

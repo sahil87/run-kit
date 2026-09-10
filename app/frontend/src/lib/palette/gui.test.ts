@@ -4,6 +4,8 @@ import { buildGuiActions, type GuiPaletteInput } from "./gui";
 function input(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput {
   return {
     enabled: true,
+    reachable: true,
+    backend: "Xtigervnc",
     tileOpen: true,
     connected: true,
     coarsePointer: false,
@@ -12,6 +14,7 @@ function input(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput {
     supervisorAvailable: true,
     onTurnOn: vi.fn(),
     onTurnOff: vi.fn(),
+    onLaunch: vi.fn(),
     onFullscreen: vi.fn(),
     onPaste: vi.fn(),
     onViewMode: vi.fn(),
@@ -49,18 +52,60 @@ describe("buildGuiActions — switch gating", () => {
 describe("buildGuiActions — tile-open gating", () => {
   it("omits the tile verbs when no gui tile is open", () => {
     const list = ids(input({ tileOpen: false }));
-    expect(list).toEqual(["gui-turn-off", "gui-logs"]);
+    expect(list).toEqual(["gui-turn-off", "gui-open-terminal", "gui-open-browser", "gui-logs"]);
   });
 
   it("the R8 worked example: on + open + connected + fine + fit + unlocked", () => {
     expect(ids(input())).toEqual([
       "gui-turn-off",
+      "gui-open-terminal",
+      "gui-open-browser",
       "gui-fullscreen",
       "gui-paste",
       "gui-view-1to1",
       "gui-lock",
       "gui-logs",
     ]);
+  });
+});
+
+describe("buildGuiActions — launch rows", () => {
+  it("sits right after GUI: Turn off, before the tile-open verbs, regardless of tileOpen", () => {
+    const open = ids(input({ tileOpen: true }));
+    expect(open.indexOf("gui-open-terminal")).toBe(open.indexOf("gui-turn-off") + 1);
+    expect(open.indexOf("gui-open-browser")).toBe(open.indexOf("gui-open-terminal") + 1);
+    expect(open.indexOf("gui-open-browser")).toBeLessThan(open.indexOf("gui-fullscreen"));
+
+    const closed = ids(input({ tileOpen: false }));
+    expect(closed.indexOf("gui-open-terminal")).toBe(closed.indexOf("gui-turn-off") + 1);
+  });
+
+  it("omits both rows when unreachable", () => {
+    const list = ids(input({ reachable: false }));
+    expect(list).not.toContain("gui-open-terminal");
+    expect(list).not.toContain("gui-open-browser");
+  });
+
+  it("omits both rows on the screen-sharing mirror (no display to launch into)", () => {
+    const list = ids(input({ backend: "screen-sharing" }));
+    expect(list).not.toContain("gui-open-terminal");
+    expect(list).not.toContain("gui-open-browser");
+  });
+
+  it("omits both rows when the switch is off", () => {
+    const list = ids(input({ enabled: false }));
+    expect(list).not.toContain("gui-open-terminal");
+    expect(list).not.toContain("gui-open-browser");
+  });
+
+  it("onSelect routes the role to onLaunch", () => {
+    const inp = input();
+    const actions = buildGuiActions(inp);
+    actions.find((a) => a.id === "gui-open-terminal")!.onSelect();
+    expect(inp.onLaunch).toHaveBeenCalledWith("terminal");
+    actions.find((a) => a.id === "gui-open-browser")!.onSelect();
+    expect(inp.onLaunch).toHaveBeenCalledWith("browser");
+    expect(inp.onLaunch).toHaveBeenCalledTimes(2);
   });
 });
 

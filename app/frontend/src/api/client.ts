@@ -607,7 +607,10 @@ export async function fetchCodeBridge(
  * `rk gui status --json` emits. Host-global (no server param, the
  * `/api/settings` precedent). `reason` carries the not-running explanation
  * the empty state renders verbatim; `apps` + `uptime_seconds` feed the
- * off-confirm dialog.
+ * off-confirm dialog. `wm` is the window-manager stamp (`""` when bare or
+ * disabled); `wm_hint` is the package-manager-aware install line, present
+ * only when enabled ∧ reachable ∧ bare (the backend's omitempty) — the
+ * frontend never hardcodes a package name.
  */
 export type GuiStatus = {
   id: string;
@@ -618,6 +621,8 @@ export type GuiStatus = {
   width: number;
   height: number;
   viewers: number;
+  wm: string;
+  wm_hint?: string;
   socket: string;
   session: string;
   reason: string;
@@ -651,6 +656,36 @@ export async function restartGui(
   if (res.status === 409) return { ok: false, disabled: true };
   if (!res.ok) await throwOnError(res);
   return { ok: true };
+}
+
+/** The two launcher roles (spec docs/specs/gui.md § Agent verbs / § Protocol
+ *  and relay — the allowlisted `POST /api/gui/{id}/launch` body). */
+export type GuiLaunchApp = "terminal" | "browser";
+
+/** The launch endpoint's parsed body: a ladder miss resolves `ok: false` with
+ *  the server-built install hint (a 200 by design — the caller toasts the
+ *  hint through the success path; only non-2xx throws). */
+export type GuiLaunchResult =
+  | { ok: true; app: GuiLaunchApp; argv0: string; pid: number }
+  | { ok: false; app: GuiLaunchApp; hint: string };
+
+/**
+ * POST /api/gui/{id}/launch with body `{"app": app}`. Resolves the parsed
+ * body on any 2xx — including the `ok: false` ladder-miss answer; non-2xx
+ * (409 `gui disabled`/not-running, 500 start failure) throws via the shared
+ * `throwOnError` path.
+ */
+export async function launchGuiApp(
+  app: GuiLaunchApp,
+  id = "host",
+): Promise<GuiLaunchResult> {
+  const res = await deduplicatedFetch(`/api/gui/${encodeURIComponent(id)}/launch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ app }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
 }
 
 export async function splitWindow(

@@ -36,6 +36,14 @@ func recordPath(dir, hostID string) string {
 // host. A missing dir is an empty list, not an error; unreadable or undecodable
 // files are skipped.
 func ReadRecords(dir string) ([]HostRecord, error) {
+	return readJSONDir(dir, func(rec HostRecord) string { return rec.HostID })
+}
+
+// readJSONDir is the one registry enumeration loop: every *.json file under
+// dir decoded into T, sorted by host id for deterministic listing. A missing
+// dir is an empty list, not an error; unreadable or undecodable files are
+// skipped.
+func readJSONDir[T any](dir string, hostID func(T) string) ([]T, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -43,7 +51,7 @@ func ReadRecords(dir string) ([]HostRecord, error) {
 		}
 		return nil, err
 	}
-	var out []HostRecord
+	var out []T
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
@@ -52,12 +60,12 @@ func ReadRecords(dir string) ([]HostRecord, error) {
 		if err != nil {
 			continue
 		}
-		var rec HostRecord
-		if err := json.Unmarshal(data, &rec); err != nil {
+		var item T
+		if err := json.Unmarshal(data, &item); err != nil {
 			continue
 		}
-		out = append(out, rec)
+		out = append(out, item)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].HostID < out[j].HostID })
+	sort.Slice(out, func(i, j int) bool { return hostID(out[i]) < hostID(out[j]) })
 	return out, nil
 }

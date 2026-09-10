@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   CODE_BOOT_RESCUE_WAIT_MS,
+  CODE_BOOT_RESCUE_RECHECK_MS,
   isWorkspaceSrc,
-  bridgeConfirmed,
+  newerThanBaseline,
   decideRescue,
 } from "./code-boot-rescue";
 
@@ -22,88 +23,116 @@ describe("isWorkspaceSrc", () => {
   });
 });
 
-describe("bridgeConfirmed", () => {
+describe("newerThanBaseline", () => {
   it("confirms a strictly newer stamp", () => {
-    expect(bridgeConfirmed(BASELINE, NEWER)).toBe(true);
+    expect(newerThanBaseline(BASELINE, NEWER)).toBe(true);
   });
 
-  it("does not confirm an equal or older stamp (the previous boot's record)", () => {
-    expect(bridgeConfirmed(BASELINE, BASELINE)).toBe(false);
-    expect(bridgeConfirmed(NEWER, BASELINE)).toBe(false);
+  it("does not confirm an equal or older stamp", () => {
+    expect(newerThanBaseline(BASELINE, BASELINE)).toBe(false);
+    expect(newerThanBaseline(NEWER, BASELINE)).toBe(false);
   });
 
-  it("confirms any parseable stamp against a null or empty baseline", () => {
-    expect(bridgeConfirmed(null, BASELINE)).toBe(true);
-    expect(bridgeConfirmed("", BASELINE)).toBe(true);
+  it("an empty baseline accepts any parseable stamp; a null baseline never confirms", () => {
+    expect(newerThanBaseline("", NEWER)).toBe(true);
+    expect(newerThanBaseline(null, NEWER)).toBe(false);
   });
 
   it("never confirms an empty or unparseable current", () => {
-    expect(bridgeConfirmed(BASELINE, "")).toBe(false);
-    expect(bridgeConfirmed(BASELINE, null)).toBe(false);
-    expect(bridgeConfirmed(BASELINE, "not-a-time")).toBe(false);
-    expect(bridgeConfirmed(null, "not-a-time")).toBe(false);
+    expect(newerThanBaseline(BASELINE, "")).toBe(false);
+    expect(newerThanBaseline(BASELINE, null)).toBe(false);
+    expect(newerThanBaseline(BASELINE, "not-a-time")).toBe(false);
+    expect(newerThanBaseline("", "not-a-time")).toBe(false);
   });
 
   it("never confirms against an unparseable baseline", () => {
-    expect(bridgeConfirmed("not-a-time", BASELINE)).toBe(false);
+    expect(newerThanBaseline("not-a-time", BASELINE)).toBe(false);
   });
 });
 
 describe("decideRescue", () => {
-  it("a confirmed bridge (newer stamp) rescues nothing", () => {
+  it("a marker newer than its baseline reloads", () => {
     expect(
       decideRescue({
-        baseline: BASELINE,
-        current: NEWER,
+        baselineEmptyBootAt: BASELINE,
+        emptyBootAt: NEWER,
+        installed: true,
+        isWorkspaceMount: true,
+      }),
+    ).toBe("reload");
+  });
+
+  it("an empty baseline accepts any parseable marker", () => {
+    expect(
+      decideRescue({
+        baselineEmptyBootAt: "",
+        emptyBootAt: NEWER,
+        installed: true,
+        isWorkspaceMount: true,
+      }),
+    ).toBe("reload");
+  });
+
+  it("a null (unavailable) baseline is not confirmable — no reload", () => {
+    expect(
+      decideRescue({
+        baselineEmptyBootAt: null,
+        emptyBootAt: NEWER,
         installed: true,
         isWorkspaceMount: true,
       }),
     ).toBe("none");
   });
 
-  it("an equal (stale) stamp with the extension installed reloads", () => {
-    expect(
-      decideRescue({
-        baseline: BASELINE,
-        current: BASELINE,
-        installed: true,
-        isWorkspaceMount: true,
-      }),
-    ).toBe("reload");
+  it("an equal, older, or absent marker never reloads — even with NO host record", () => {
+    for (const emptyBootAt of [BASELINE, "2026-09-10T02:45:38.000Z", "", null]) {
+      expect(
+        decideRescue({
+          baselineEmptyBootAt: BASELINE,
+          emptyBootAt,
+          installed: true,
+          isWorkspaceMount: true,
+        }),
+      ).toBe("none");
+    }
   });
 
-  it("an empty current with the extension installed reloads", () => {
-    expect(
-      decideRescue({ baseline: BASELINE, current: "", installed: true, isWorkspaceMount: true }),
-    ).toBe("reload");
-  });
-
-  it("installed false or null (status GET unavailable) fails closed — no reload", () => {
+  it("installed false or null (status GET unavailable) fails closed — and outranks a newer marker", () => {
     for (const installed of [false, null]) {
       expect(
-        decideRescue({ baseline: null, current: null, installed, isWorkspaceMount: true }),
+        decideRescue({
+          baselineEmptyBootAt: "",
+          emptyBootAt: NEWER,
+          installed,
+          isWorkspaceMount: true,
+        }),
       ).toBe("skip-not-installed");
     }
   });
 
-  it("installed null outranks an otherwise-confirmed bridge", () => {
-    expect(
-      decideRescue({ baseline: null, current: NEWER, installed: null, isWorkspaceMount: true }),
-    ).toBe("skip-not-installed");
-  });
-
   it("a ?folder= mount is never rescued, whatever the other inputs", () => {
     expect(
-      decideRescue({ baseline: null, current: null, installed: true, isWorkspaceMount: false }),
+      decideRescue({
+        baselineEmptyBootAt: "",
+        emptyBootAt: NEWER,
+        installed: true,
+        isWorkspaceMount: false,
+      }),
     ).toBe("none");
     expect(
-      decideRescue({ baseline: BASELINE, current: NEWER, installed: false, isWorkspaceMount: false }),
+      decideRescue({
+        baselineEmptyBootAt: BASELINE,
+        emptyBootAt: NEWER,
+        installed: false,
+        isWorkspaceMount: false,
+      }),
     ).toBe("none");
   });
 });
 
-describe("CODE_BOOT_RESCUE_WAIT_MS", () => {
-  it("is the named 10 s wait window", () => {
+describe("rescue timing constants", () => {
+  it("the wait and the re-check are the named 10 s windows", () => {
     expect(CODE_BOOT_RESCUE_WAIT_MS).toBe(10_000);
+    expect(CODE_BOOT_RESCUE_RECHECK_MS).toBe(10_000);
   });
 });

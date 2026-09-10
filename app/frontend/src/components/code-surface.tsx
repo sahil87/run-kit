@@ -1,9 +1,11 @@
 import { useEffect, useRef } from "react";
 import type { CodeBridgeResult } from "@/api/client";
 import {
+  CODE_BOOT_RESCUE_RECHECK_MS,
   CODE_BOOT_RESCUE_WAIT_MS,
   decideRescue,
   isWorkspaceSrc,
+  newerThanBaseline,
 } from "@/lib/code-boot-rescue";
 
 /**
@@ -52,15 +54,19 @@ import {
  *   `onFolderNavigated`, so the latch follows the editor. Derivation seeds the
  *   latch exactly once; thereafter only the editor moves it, never the terminal.
  * - **First-boot rescue**: a never-cached `?workspace=` boot can load zero
- *   folders (the bridge extension then never registers a host record). When the
- *   `fetchBridgeStatus` seam is injected, a `?workspace=` mount generation
- *   reads the bridge status once at src adoption (baseline) and once at
- *   `CODE_BOOT_RESCUE_WAIT_MS` after the first `load` (verdict), and a
- *   `decideRescue` "reload" verdict re-navigates the frame via
- *   `contentWindow.location.reload()` — the SECOND sanctioned parent
- *   re-navigation, at most once per mount generation, and never a `src` write.
- *   Not-installed and unavailable statuses fail closed (no reload, one warning
- *   per generation); `?folder=` mounts are never rescued.
+ *   folders; the bridge extension reports that failure itself by writing an
+ *   empty-boot marker. When the `fetchBridgeStatus` seam is injected, a
+ *   `?workspace=` mount generation reads the bridge status once at src
+ *   adoption (baseline: both the host-record and marker stamps), once at
+ *   `CODE_BOOT_RESCUE_WAIT_MS` after the first `load` (verdict), and at most
+ *   once more at `CODE_BOOT_RESCUE_RECHECK_MS` later when neither stamp has
+ *   moved (the re-check). Only a marker strictly NEWER than its baseline —
+ *   the extension positively reporting THIS boot saw zero folders — fires
+ *   `contentWindow.location.reload()`, at most once per generation and never
+ *   a `src` write; the absence of a host record is never a trigger, and a
+ *   NEWER host record is the good-boot confirmation that settles the
+ *   generation early. Not-installed and unavailable statuses fail closed (no
+ *   reload, one warning per generation); `?folder=` mounts are never rescued.
  */
 
 /**
@@ -135,9 +141,10 @@ interface CodeSurfaceProps {
   onFolderNavigated?: (folder: string) => void;
   /** First-boot rescue's status read (built in app.tsx, threaded through
    *  SurfaceLayout): one call at a `?workspace=` mount generation's src
-   *  adoption (baseline) and one at the rescue wait's expiry (verdict). The
-   *  injected fetcher keeps this component free of the API client import
-   *  graph. Absent ⇒ no rescue runs (no fetches, no timer). */
+   *  adoption (baseline), one at the rescue wait's expiry (verdict), and at
+   *  most one re-check when neither stamp moved. The injected fetcher keeps
+   *  this component free of the API client import graph. Absent ⇒ no rescue
+   *  runs (no fetches, no timer). */
   fetchBridgeStatus?: () => Promise<CodeBridgeResult>;
 }
 
@@ -318,9 +325,11 @@ export function CodeSurface({
   // First-boot rescue: per mount generation (this effect's [reachable, src]
   // keying re-runs on every generation boundary — the reachable flip, a
   // window-switch remount, or a followSrc nonce adoption), a `?workspace=`
-  // mount gets exactly TWO status reads and at most ONE reload. The baseline
-  // read fires at src adoption; the first `load` arms the wait timer; its
-  // expiry reads again and hands both stamps to decideRescue. A "reload"
+  // mount gets at most THREE status reads and at most ONE reload. The
+  // baseline read at src adoption captures BOTH stamps (host record and
+  // empty-boot marker); the first `load` arms the wait timer; at its expiry a
+  // verdict read decides, and only when NEITHER stamp moved does exactly one
+  // re-check timer arm for CODE_BOOT_RESCUE_RECHECK_MS later. A "reload"
   // verdict re-navigates via contentWindow.location.reload() — a reload keeps
   // the `?workspace=` URL and tab identity, so the per-generation src ref
   // stays untouched. `?folder=` mounts never enter here (a folder-opened
@@ -333,59 +342,87 @@ export function CodeSurface({
     const iframe = iframeRef.current;
     if (!fetcher || !iframe || !reachable || src === null || !isWorkspaceSrc(src)) return;
     const gen = {
-      baseline: null as string | null,
+      baselineStartedAt: null as string | null,
+      baselineEmptyBootAt: null as string | null,
       settled: false,
       warned: false,
+      verdicts: 0,
       timer: null as ReturnType<typeof setTimeout> | null,
     };
     let alive = true;
     fetcher()
       .then((res) => {
-        // An unavailable baseline stays null: bridgeConfirmed then accepts any
-        // non-empty verdict stamp — erring toward NOT reloading is the posture.
-        if (alive && res.status === "ok") gen.baseline = res.startedAt;
+        // An unavailable baseline leaves both stamps null, and null is NOT
+        // confirmable (newerThanBaseline fails closed) — an unseen baseline
+        // must never license a reload.
+        if (alive && res.status === "ok") {
+          gen.baselineStartedAt = res.startedAt;
+          gen.baselineEmptyBootAt = res.emptyBootAt;
+        }
       })
       .catch(() => {
         /* an injected fetcher may throw; a failed baseline reads as none */
       });
-    const arm = () => {
-      if (!alive || gen.settled || gen.timer !== null) return;
-      gen.timer = setTimeout(() => {
-        gen.timer = null;
-        const decide = fetchBridgeRef.current;
-        if (!decide) return;
-        // Settle BEFORE the verdict fetch: `arm`'s guard reads `settled`, and
-        // leaving it false until the promise resolves would let a second
-        // `load` during a slow GET arm another timer — a second verdict read
-        // and a possible double reload. One verdict fetch per generation.
-        gen.settled = true;
-        decide()
-          .then((res) => {
-            if (!alive) return;
-            const decision = decideRescue({
-              baseline: gen.baseline,
-              current: res.status === "ok" ? res.startedAt : null,
-              installed: res.status === "ok" ? res.installed : null,
-              isWorkspaceMount: true,
-            });
-            if (decision === "reload") {
-              try {
-                iframe.contentWindow?.location.reload();
-              } catch {
-                /* cross-origin or pre-load frame — skip */
-              }
-            } else if (decision === "skip-not-installed" && !gen.warned) {
+    const verdict = () => {
+      gen.timer = null;
+      const decide = fetchBridgeRef.current;
+      // Settle BEFORE the verdict fetch: `arm`'s guard reads `settled`, and
+      // leaving it false until the promise resolves would let a second
+      // `load` during a slow GET arm another timer — an extra verdict read
+      // and a possible double reload.
+      gen.settled = true;
+      if (!decide) return;
+      gen.verdicts += 1;
+      decide()
+        .then((res) => {
+          if (!alive) return;
+          const ok = res.status === "ok" ? res : null;
+          // A newer host record is the positive good-boot confirmation: the
+          // boot registered the bridge, hence loaded the folder. It settles
+          // the generation (no re-check) and OUTRANKS a newer marker — a
+          // folder that arrived late raced the read, and a live tab-keyed
+          // record proves the frame works.
+          if (ok !== null && newerThanBaseline(gen.baselineStartedAt, ok.startedAt)) return;
+          const decision = decideRescue({
+            baselineEmptyBootAt: gen.baselineEmptyBootAt,
+            emptyBootAt: ok !== null ? ok.emptyBootAt : null,
+            installed: ok !== null ? ok.installed : null,
+            isWorkspaceMount: true,
+          });
+          if (decision === "reload") {
+            try {
+              iframe.contentWindow?.location.reload();
+            } catch {
+              /* cross-origin or pre-load frame — skip */
+            }
+            return;
+          }
+          if (decision === "skip-not-installed") {
+            if (!gen.warned) {
               gen.warned = true;
               console.warn(
                 "code bridge extension not installed — first-boot rescue disabled; run `rk code-server install`",
               );
             }
-          })
-          .catch(() => {
-            /* a throwing injected fetcher fails closed — the generation is
-               already settled, so it never retries into a second decision */
-          });
-      }, CODE_BOOT_RESCUE_WAIT_MS);
+            return;
+          }
+          // Neither stamp moved. The marker is written by the same slow
+          // extension-host activation as the record, so a signal-less FIRST
+          // verdict gets exactly one re-check; the second verdict settles the
+          // generation whatever it finds.
+          if (gen.verdicts === 1) {
+            gen.settled = false;
+            gen.timer = setTimeout(verdict, CODE_BOOT_RESCUE_RECHECK_MS);
+          }
+        })
+        .catch(() => {
+          /* a throwing injected fetcher fails closed — the generation is
+             already settled, so it never retries into another decision */
+        });
+    };
+    const arm = () => {
+      if (!alive || gen.settled || gen.timer !== null) return;
+      gen.timer = setTimeout(verdict, CODE_BOOT_RESCUE_WAIT_MS);
     };
     iframe.addEventListener("load", arm);
     return () => {

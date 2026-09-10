@@ -38,6 +38,17 @@ func TestHostsDir(t *testing.T) {
 	}
 }
 
+func TestBootsDir(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/custom/state")
+	dir, err := BootsDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir != filepath.Join("/custom/state", "run-kit", "cb", "boots") {
+		t.Errorf("boots dir = %s", dir)
+	}
+}
+
 func TestReadRecords(t *testing.T) {
 	dir := t.TempDir()
 	writeRecord(t, dir, HostRecord{HostID: "b2", Folder: "/two", PID: 1})

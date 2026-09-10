@@ -5,41 +5,55 @@
  * rules live here and are unit-tested without a DOM.
  *
  * The rescue exists for one failure shape: a never-cached `?workspace=` boot
- * that loads zero folders (the bridge extension then never activates, so no
- * host record appears). The signal is the bridge host record's `startedAt`,
- * read through `GET /api/windows/{id}/code-bridge` at exactly two points per
- * mount generation — a baseline at src adoption and a verdict at wait expiry
- * (two point-in-time reads, not polling: no interval, no loop). A record
- * strictly NEWER than the baseline proves this boot registered the bridge,
- * hence loaded the folder — the previous boot's record may still be pid-alive
- * at remount, so existence alone is not the signal.
+ * that loads zero folders. The signal is POSITIVE, never an absence: the
+ * bridge extension is the one process that knows it activated with zero
+ * folders, so it writes an empty-boot marker (`cb/boots/<hostId>.json`), and
+ * this module reloads only when that marker's stamp — read through
+ * `GET /api/windows/{id}/code-bridge` at bounded decision points (a baseline
+ * at src adoption, a verdict at wait expiry, at most one re-check) — is
+ * strictly newer than the baseline. A slow GOOD boot simply reports no
+ * marker; the absence of a host record is never a trigger, because a good
+ * boot's record can land later than any fixed window under load. A host
+ * record strictly newer than ITS baseline is the good-boot confirmation and
+ * only settles the generation early — it never produces a reload.
  */
 
-/** The wait between the iframe's `load` event and the verdict fetch. Good
- *  boots confirm within ~1–3 s; 10 s leaves margin without a long broken
+/** The wait between the iframe's `load` event and the first verdict fetch.
+ *  Good boots confirm within ~1–3 s; 10 s leaves margin without a long broken
  *  dwell. */
 export const CODE_BOOT_RESCUE_WAIT_MS = 10_000;
 
+/** The wait between a signal-less first verdict and the single re-check. The
+ *  marker rides the same slow extension-host activation as the host record
+ *  (7 s measured under concurrent-boot load), so one re-check at the same
+ *  interval covers it with margin while keeping the per-generation reads
+ *  bounded at three. */
+export const CODE_BOOT_RESCUE_RECHECK_MS = 10_000;
+
 /** True iff the src carries a `workspace` query param (the
  *  `/code/?workspace=` form). The `?folder=` degrade form can never produce a
- *  tab-keyed host record, so it is never rescued. */
+ *  tab-keyed marker or host record, so it is never rescued. */
 export function isWorkspaceSrc(src: string): boolean {
   const q = src.indexOf("?");
   if (q < 0) return false;
   return new URLSearchParams(src.slice(q + 1)).has("workspace");
 }
 
-/** The signal test: `current` is a confirmation iff it is a parseable,
- *  non-empty stamp strictly newer than the baseline — or the baseline is
- *  absent/empty (a failed baseline fetch must not blind the verdict; erring
- *  toward NOT reloading is the posture). Both values are server-written RFC
- *  3339 stamps compared stamp-vs-stamp via Date.parse — never against the
- *  browser clock, which shares no clock with a remote host. */
-export function bridgeConfirmed(baseline: string | null, current: string | null): boolean {
+/** The stamp test: `current` is a positive signal iff it is a parseable,
+ *  non-empty stamp strictly newer than `baseline`. An EMPTY baseline ("",
+ *  read OK, nothing existed at adoption) accepts any parseable current. A
+ *  NULL baseline (the baseline read was unavailable) is NOT confirmable —
+ *  erring toward NOT reloading is the posture, and a still-pid-alive marker
+ *  from a previous empty boot must never blind-reload this one. Both values
+ *  are server-written RFC 3339 stamps compared stamp-vs-stamp via Date.parse
+ *  — never against the browser clock, which shares no clock with a remote
+ *  host. */
+export function newerThanBaseline(baseline: string | null, current: string | null): boolean {
   if (!current) return false;
   const currentMs = Date.parse(current);
   if (Number.isNaN(currentMs)) return false;
-  if (!baseline) return true;
+  if (baseline === null) return false;
+  if (baseline === "") return true;
   const baselineMs = Date.parse(baseline);
   if (Number.isNaN(baselineMs)) return false;
   return currentMs > baselineMs;
@@ -47,19 +61,22 @@ export function bridgeConfirmed(baseline: string | null, current: string | null)
 
 export type RescueDecision = "reload" | "none" | "skip-not-installed";
 
-/** The decision at wait expiry. Order matters: a non-workspace mount is
- *  never rescued; a bridge that is not installed — or whose status GET
- *  failed (`installed: null`, e.g. an old backend's 404) — fails CLOSED with
- *  no reload; a confirmed bridge means the boot succeeded; anything left is
- *  the broken first boot, rescued with one reload. */
+/** The decision at a verdict read. Order matters: a non-workspace mount is
+ *  never rescued; a bridge that is not installed — or whose status GET failed
+ *  (`installed: null`, e.g. an old backend's 404) — fails CLOSED with no
+ *  reload; an empty-boot marker newer than its baseline proves THIS boot
+ *  activated with zero folders and is rescued with one reload; anything left
+ *  (no marker, an equal or older marker) is not the broken boot. The
+ *  host-record stamp is never an input here: it can only settle a generation
+ *  early (the caller checks it first), never trigger a reload. */
 export function decideRescue(args: {
-  baseline: string | null;
-  current: string | null;
+  baselineEmptyBootAt: string | null;
+  emptyBootAt: string | null;
   installed: boolean | null;
   isWorkspaceMount: boolean;
 }): RescueDecision {
   if (!args.isWorkspaceMount) return "none";
   if (args.installed !== true) return "skip-not-installed";
-  if (bridgeConfirmed(args.baseline, args.current)) return "none";
-  return "reload";
+  if (newerThanBaseline(args.baselineEmptyBootAt, args.emptyBootAt)) return "reload";
+  return "none";
 }

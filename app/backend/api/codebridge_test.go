@@ -27,6 +27,23 @@ func writeHostRecord(t *testing.T, stateHome, hostID, tab, server string, pid in
 	}
 }
 
+// writeBootMarker plants one cb/boots/<hostId>.json under the test's
+// XDG_STATE_HOME with the given tab/server/pid/stamp.
+func writeBootMarker(t *testing.T, stateHome, hostID, tab, server string, pid int, startedAt string) {
+	t.Helper()
+	dir := filepath.Join(stateHome, "run-kit", "cb", "boots")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := fmt.Sprintf(
+		`{"hostId":%q,"workspaceFile":"/state/@7-x.code-workspace","tab":%q,"server":%q,"pid":%d,"extVersion":"1.0.0","startedAt":%q}`,
+		hostID, tab, server, pid, startedAt,
+	)
+	if err := os.WriteFile(filepath.Join(dir, hostID+".json"), []byte(marker), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // writeBridgeExtFixture plants an installed rk-code-bridge manifest under the
 // test's XDG_DATA_HOME extensions dir (the writeBridgeFixture layout).
 func writeBridgeExtFixture(t *testing.T, dataHome, version string) {
@@ -76,8 +93,51 @@ func TestCodeBridgeOK(t *testing.T) {
 	if body["startedAt"] != stamp {
 		t.Errorf("startedAt = %v, want %q", body["startedAt"], stamp)
 	}
+	if body["emptyBootAt"] != "" {
+		t.Errorf("emptyBootAt = %v, want \"\" (no markers)", body["emptyBootAt"])
+	}
 	if body["installed"] != false {
 		t.Errorf("installed = %v, want false (empty extensions dir)", body["installed"])
+	}
+}
+
+func TestCodeBridgeEmptyBootMarker(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	stamp := "2026-09-10T02:45:39.941Z"
+	writeBootMarker(t, state, "boot-a", "@7", "default", os.Getpid(), stamp)
+	// A same-tab marker on ANOTHER server must not leak into the answer.
+	writeBootMarker(t, state, "boot-b", "@7", "other", os.Getpid(), "2026-09-10T03:00:00.000Z")
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := getCodeBridge(t, router, "/api/windows/@7/code-bridge?server=default")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %q)", rec.Code, rec.Body.String())
+	}
+	body := decodeCodeBridge(t, rec)
+	if body["emptyBootAt"] != stamp {
+		t.Errorf("emptyBootAt = %v, want %q", body["emptyBootAt"], stamp)
+	}
+	if body["startedAt"] != "" {
+		t.Errorf("startedAt = %v, want \"\" (no host records)", body["startedAt"])
+	}
+}
+
+func TestCodeBridgeDeadPidMarker(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	// PID 2**30-1 cannot exist (kill -0 fails), so the marker is invisible.
+	writeBootMarker(t, state, "boot-dead", "@7", "default", 1<<30-1, "2026-09-10T02:45:39.941Z")
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := getCodeBridge(t, router, "/api/windows/@7/code-bridge?server=default")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %q)", rec.Code, rec.Body.String())
+	}
+	if body := decodeCodeBridge(t, rec); body["emptyBootAt"] != "" {
+		t.Errorf("emptyBootAt = %v, want \"\" for a dead pid", body["emptyBootAt"])
 	}
 }
 

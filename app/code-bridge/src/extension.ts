@@ -6,6 +6,8 @@ import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { startBridge, BridgeDeps } from './bridge';
 import { readTabIdentity, TabIdentity } from './tab';
+import { identityFromWorkspaceFile } from './workspace-file';
+import { ownsFile, buildBootMarker } from './ownership';
 import { resolveRkPath, runRk, RunRkResult } from './rk';
 import {
   WEB_ADD_TIMEOUT_MS,
@@ -23,13 +25,67 @@ import {
 let server: net.Server | undefined;
 let socketPath: string | undefined;
 let recordPath: string | undefined;
+let markerPath: string | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const enabled = vscode.workspace.getConfiguration('rk.bridge').get<boolean>('enabled', true);
   if (!enabled) return;
   const folder = vscode.workspace.workspaceFolders?.[0];
-  if (!folder) return;
+  if (folder !== undefined) {
+    startBridgeForFolder(context, folder);
+    return;
+  }
 
+  // Zero-folder activation: on the broken first boot (a never-cached
+  // workspace) the live configuration carries no identity, but the daemon-
+  // written workspace file on disk does. An identity that cannot be proven —
+  // no workspace file, a non-file scheme, an unreadable/unparseable file, or
+  // invalid settings — produces no side effects, exactly as before.
+  const workspaceFile = vscode.workspace.workspaceFile;
+  if (workspaceFile === undefined || workspaceFile.scheme !== 'file') return;
+  let contents: string;
+  try {
+    contents = fs.readFileSync(workspaceFile.fsPath, 'utf8');
+  } catch {
+    return;
+  }
+  const identity = identityFromWorkspaceFile(contents);
+  if (identity === null) return;
+
+  const output = vscode.window.createOutputChannel('run-kit Code Bridge');
+  context.subscriptions.push(output);
+  const cbDir = stateDir();
+  if (!ensurePrivateDir(cbDir, output)) return;
+  const bootsDir = path.join(cbDir, 'boots');
+  fs.mkdirSync(bootsDir, { recursive: true, mode: 0o700 });
+  // The marker shares the good-boot record's hostId (both hash the tab-keyed
+  // workspace file), so the daemon can key marker and record to one tab.
+  const hostId = computeHostId(workspaceFile.fsPath);
+  const marker = buildBootMarker({
+    hostId,
+    workspaceFile: workspaceFile.fsPath,
+    identity,
+    pid: process.pid,
+    extVersion: extensionVersion(context),
+    now: new Date(),
+  });
+  const markerFile = path.join(bootsDir, `${hostId}.json`);
+  writeAtomic(markerFile, JSON.stringify(marker) + '\n');
+  markerPath = markerFile;
+
+  // A folder arriving late means the boot recovered: drop the marker and run
+  // the normal startup, once (one bridge per window).
+  const lateFolder = vscode.workspace.onDidChangeWorkspaceFolders(() => {
+    const arrived = vscode.workspace.workspaceFolders?.[0];
+    if (arrived === undefined) return;
+    lateFolder.dispose();
+    removeIfOwned(markerFile);
+    startBridgeForFolder(context, arrived);
+  });
+  context.subscriptions.push(lateFolder);
+}
+
+function startBridgeForFolder(context: vscode.ExtensionContext, folder: vscode.WorkspaceFolder): void {
   const readConfig = (key: string): unknown => vscode.workspace.getConfiguration().get(key);
   let identity = readTabIdentity(readConfig);
   const setHasTab = (): void => {
@@ -111,17 +167,53 @@ export function deactivate(): void {
     server.close();
     server = undefined;
   }
-  for (const file of [socketPath, recordPath]) {
-    if (file !== undefined) {
+  // Ownership guard: the registry paths are deterministic per tab+browser and
+  // VS Code keeps a disconnected extension host alive for minutes, so a newer
+  // boot of the same tab may already own the record (and the socket it
+  // recreated) and the marker. Unlink only files whose on-disk pid is this
+  // process's; a missing, unreadable, or unparseable file is never guessed
+  // and left alone. The socket follows the record's ownership.
+  if (recordPath !== undefined && fileOwnedBy(recordPath)) {
+    try {
+      fs.unlinkSync(recordPath);
+    } catch {
+      // The record may already be gone.
+    }
+    if (socketPath !== undefined) {
       try {
-        fs.unlinkSync(file);
+        fs.unlinkSync(socketPath);
       } catch {
-        // Socket or record may already be gone.
+        // The socket may already be gone.
       }
     }
   }
+  if (markerPath !== undefined) {
+    removeIfOwned(markerPath);
+  }
   socketPath = undefined;
   recordPath = undefined;
+  markerPath = undefined;
+}
+
+// fileOwnedBy reads the file off disk and applies the pid ownership test; an
+// unreadable file is never owned (never guess ownership).
+function fileOwnedBy(file: string): boolean {
+  let contents: string;
+  try {
+    contents = fs.readFileSync(file, 'utf8');
+  } catch {
+    return false;
+  }
+  return ownsFile(contents, process.pid);
+}
+
+function removeIfOwned(file: string): void {
+  if (!fileOwnedBy(file)) return;
+  try {
+    fs.unlinkSync(file);
+  } catch {
+    // The file may already be gone.
+  }
 }
 
 // Every action no-ops without an identity; the rk.hasTab when-clauses already hide the entries.

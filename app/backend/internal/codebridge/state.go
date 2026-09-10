@@ -29,3 +29,12 @@ func HostsDir() (string, error) {
 	}
 	return filepath.Join(dir, "hosts"), nil
 }
+
+// BootsDir is the empty-boot marker dir, <state dir>/boots.
+func BootsDir() (string, error) {
+	dir, err := StateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "boots"), nil
+}

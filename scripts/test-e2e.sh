@@ -23,6 +23,19 @@ E2E_STATE_HOME="$(mktemp -d)"
 RK_CONFIG_DIR="$E2E_STATE_HOME/config"
 mkdir -p "$RK_CONFIG_DIR"
 
+# Deterministic `installed: true` for the code-bridge status route: the
+# backend derives it from codeserver.ExtensionsDir, the rig's ONLY reader of
+# XDG_DATA_HOME (code-server is stubbed, and a spawn would respect the
+# externally-managed port preset). A per-run data home with a fixture bridge
+# extension manifest makes the answer independent of the box's real
+# extensions dir; it is forwarded ONLY to the dev-server launch below, never
+# to the Playwright run.
+E2E_DATA_HOME="$E2E_STATE_HOME/data"
+E2E_BRIDGE_EXT_DIR="$E2E_DATA_HOME/code-server/extensions/run-kit.rk-code-bridge-0.0.0-e2e"
+mkdir -p "$E2E_BRIDGE_EXT_DIR"
+printf '%s' '{"name":"rk-code-bridge","publisher":"run-kit","version":"0.0.0-e2e"}' \
+  > "$E2E_BRIDGE_EXT_DIR/package.json"
+
 # DEV_PGID is the process-group ID of the detached dev server (set after launch).
 # Empty until then so cleanup running early is a no-op for the group kill.
 DEV_PGID=""
@@ -163,7 +176,7 @@ tmux -L "$E2E_TMUX_SERVER" set-option -w -t "$E2E_INIT_WIN_ID" @rk_note '1:e2e-l
 # worktrees never collide on the stub. The same value is exported to the
 # playwright run below so the spec and the backend agree on the port.
 set -m
-bash -c "RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_FAMILY E2E_TMUX_FAMILY=$E2E_TMUX_FAMILY RK_CODE_SERVER_PORT=$RK_CODE_SERVER_PORT XDG_STATE_HOME=$E2E_STATE_HOME RK_CONFIG_DIR=$RK_CONFIG_DIR exec just dev" &
+bash -c "RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_FAMILY E2E_TMUX_FAMILY=$E2E_TMUX_FAMILY RK_CODE_SERVER_PORT=$RK_CODE_SERVER_PORT XDG_STATE_HOME=$E2E_STATE_HOME XDG_DATA_HOME=$E2E_DATA_HOME RK_CONFIG_DIR=$RK_CONFIG_DIR exec just dev" &
 DEV_PID=$!
 set +m
 

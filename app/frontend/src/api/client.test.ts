@@ -1515,12 +1515,16 @@ describe("fetchCodeWorkspace (tab-keyed workspace derivation)", () => {
 });
 
 describe("fetchCodeBridge (first-boot rescue status)", () => {
-  it("GETs /api/windows/{id}/code-bridge with the server query and resolves ok with installed/startedAt", async () => {
+  it("GETs /api/windows/{id}/code-bridge with the server query and resolves ok with installed/startedAt/emptyBootAt", async () => {
     let capturedUrl = "";
     mswServer.use(
       http.get("/api/windows/:windowId/code-bridge", ({ request }) => {
         capturedUrl = request.url;
-        return HttpResponse.json({ installed: true, startedAt: "2026-09-10T02:45:39.941Z" });
+        return HttpResponse.json({
+          installed: true,
+          startedAt: "2026-09-10T02:45:39.941Z",
+          emptyBootAt: "2026-09-10T02:45:40.000Z",
+        });
       }),
     );
     const result = await fetchCodeBridge("default", "@7");
@@ -1530,6 +1534,21 @@ describe("fetchCodeBridge (first-boot rescue status)", () => {
       status: "ok",
       installed: true,
       startedAt: "2026-09-10T02:45:39.941Z",
+      emptyBootAt: "2026-09-10T02:45:40.000Z",
+    });
+  });
+
+  it("an older backend without emptyBootAt resolves it as the empty string", async () => {
+    mswServer.use(
+      http.get("/api/windows/:windowId/code-bridge", () =>
+        HttpResponse.json({ installed: true, startedAt: "2026-09-10T02:45:39.941Z" }),
+      ),
+    );
+    await expect(fetchCodeBridge("default", "@7")).resolves.toEqual({
+      status: "ok",
+      installed: true,
+      startedAt: "2026-09-10T02:45:39.941Z",
+      emptyBootAt: "",
     });
   });
 

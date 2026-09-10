@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { CodeSurface, codeServerSrc, codeServerWorkspaceSrc } from "./code-surface";
-import { CODE_BOOT_RESCUE_WAIT_MS } from "@/lib/code-boot-rescue";
+import { CODE_BOOT_RESCUE_RECHECK_MS, CODE_BOOT_RESCUE_WAIT_MS } from "@/lib/code-boot-rescue";
 import type { CodeBridgeResult } from "@/api/client";
 
 afterEach(cleanup);
@@ -313,12 +313,15 @@ describe("CodeSurface", () => {
     document.removeEventListener("keydown", parentSpy);
   });
 
-  // First-boot rescue: exactly two status reads per mount generation (baseline
-  // at src adoption, verdict at the wait's expiry) and at most one reload — a
-  // confirmed bridge, an unavailable read, and a ?folder= mount never reload.
+  // First-boot rescue: at most three status reads per mount generation
+  // (baseline at src adoption, verdict at the wait's expiry, one re-check
+  // when neither stamp moved) and at most one reload — and only a newer
+  // empty-boot MARKER reloads; a newer host record settles the generation
+  // early, and an unavailable read or a ?folder= mount never reloads.
   describe("first-boot rescue (fetchBridgeStatus)", () => {
     const WS_SRC = codeServerWorkspaceSrc("/state/@7-3fa1c9.code-workspace");
-    const NEWER = "2026-09-10T02:45:41.100Z";
+    const MARKER = "2026-09-10T02:45:41.100Z";
+    const RECORD = "2026-09-10T02:45:42.200Z";
 
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => {
@@ -337,10 +340,11 @@ describe("CodeSurface", () => {
       });
       return reload;
     };
-    const ok = (startedAt: string, installed = true): CodeBridgeResult => ({
+    const ok = (startedAt: string, emptyBootAt = "", installed = true): CodeBridgeResult => ({
       status: "ok",
       installed,
       startedAt,
+      emptyBootAt,
     });
     const flushBaseline = () => act(async () => {});
     const expireWait = (ms = CODE_BOOT_RESCUE_WAIT_MS) =>
@@ -348,12 +352,12 @@ describe("CodeSurface", () => {
         await vi.advanceTimersByTimeAsync(ms);
       });
 
-    it("a confirming record at expiry means no reload, and the settled generation never re-arms", async () => {
-      // Baseline: no record yet; verdict: the boot registered its host record.
+    it("a newer host record at the first verdict settles early: no re-check, no reload", async () => {
+      // Baseline: nothing yet; verdict: the boot registered its host record.
       const fetcher = vi
         .fn<() => Promise<CodeBridgeResult>>()
         .mockResolvedValueOnce(ok(""))
-        .mockResolvedValue(ok(NEWER));
+        .mockResolvedValue(ok(RECORD));
       const { getByTitle } = render(
         <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} fetchBridgeStatus={fetcher} />,
       );
@@ -364,14 +368,15 @@ describe("CodeSurface", () => {
       await expireWait();
       expect(fetcher).toHaveBeenCalledTimes(2);
       expect(reload).not.toHaveBeenCalled();
-      // A later load (any cause) must not arm a second wait for this generation.
+      // Settled: no re-check timer, and a later load re-arms nothing.
+      await expireWait(CODE_BOOT_RESCUE_WAIT_MS + CODE_BOOT_RESCUE_RECHECK_MS);
       fireEvent.load(iframe);
       await expireWait(CODE_BOOT_RESCUE_WAIT_MS * 2);
       expect(fetcher).toHaveBeenCalledTimes(2);
       expect(reload).not.toHaveBeenCalled();
     });
 
-    it("no newer record with the extension installed reloads exactly once and never re-arms", async () => {
+    it("no marker and no record never reloads: verdict, one re-check, settled", async () => {
       const fetcher = vi.fn<() => Promise<CodeBridgeResult>>().mockResolvedValue(ok(""));
       const { getByTitle } = render(
         <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} fetchBridgeStatus={fetcher} />,
@@ -381,13 +386,79 @@ describe("CodeSurface", () => {
       await flushBaseline();
       fireEvent.load(iframe);
       await expireWait();
+      expect(fetcher).toHaveBeenCalledTimes(2); // baseline + first verdict
+      await expireWait(CODE_BOOT_RESCUE_RECHECK_MS);
+      expect(fetcher).toHaveBeenCalledTimes(3); // the one re-check
+      expect(reload).not.toHaveBeenCalled();
+      // Settled: a later load (any cause) re-arms nothing and re-reads nothing.
+      fireEvent.load(iframe);
+      await expireWait(CODE_BOOT_RESCUE_WAIT_MS * 2);
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(reload).not.toHaveBeenCalled();
+    });
+
+    it("a marker newer than its baseline at the re-check reloads exactly once", async () => {
+      const fetcher = vi
+        .fn<() => Promise<CodeBridgeResult>>()
+        .mockResolvedValueOnce(ok("")) // baseline: no marker yet
+        .mockResolvedValueOnce(ok("")) // first verdict: still nothing
+        .mockResolvedValue(ok("", MARKER)); // re-check: the extension reported the empty boot
+      const { getByTitle } = render(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} fetchBridgeStatus={fetcher} />,
+      );
+      const iframe = getByTitle("Code editor");
+      const reload = stubReload(iframe);
+      await flushBaseline();
+      fireEvent.load(iframe);
+      await expireWait();
       expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(reload).not.toHaveBeenCalled();
+      await expireWait(CODE_BOOT_RESCUE_RECHECK_MS);
+      expect(fetcher).toHaveBeenCalledTimes(3);
       expect(reload).toHaveBeenCalledTimes(1);
       // The reload's own load event arrives on a settled generation.
       fireEvent.load(iframe);
       await expireWait(CODE_BOOT_RESCUE_WAIT_MS * 2);
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+
+    it("a marker newer than its baseline at the first verdict reloads with no re-check", async () => {
+      const fetcher = vi
+        .fn<() => Promise<CodeBridgeResult>>()
+        .mockResolvedValueOnce(ok(""))
+        .mockResolvedValue(ok("", MARKER));
+      const { getByTitle } = render(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} fetchBridgeStatus={fetcher} />,
+      );
+      const iframe = getByTitle("Code editor");
+      const reload = stubReload(iframe);
+      await flushBaseline();
+      fireEvent.load(iframe);
+      await expireWait();
       expect(fetcher).toHaveBeenCalledTimes(2);
       expect(reload).toHaveBeenCalledTimes(1);
+      await expireWait(CODE_BOOT_RESCUE_WAIT_MS + CODE_BOOT_RESCUE_RECHECK_MS);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+
+    it("a newer record OUTRANKS a newer marker at the same read (late folder): no reload", async () => {
+      const fetcher = vi
+        .fn<() => Promise<CodeBridgeResult>>()
+        .mockResolvedValueOnce(ok(""))
+        .mockResolvedValue(ok(RECORD, MARKER));
+      const { getByTitle } = render(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} fetchBridgeStatus={fetcher} />,
+      );
+      const iframe = getByTitle("Code editor");
+      const reload = stubReload(iframe);
+      await flushBaseline();
+      fireEvent.load(iframe);
+      await expireWait();
+      expect(reload).not.toHaveBeenCalled();
+      await expireWait(CODE_BOOT_RESCUE_RECHECK_MS);
+      expect(fetcher).toHaveBeenCalledTimes(2); // settled early — no re-check
     });
 
     it("an unavailable verdict fetch performs no reload and warns exactly once", async () => {
@@ -405,20 +476,22 @@ describe("CodeSurface", () => {
       expect(reload).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0][0]).toContain("rk code-server install");
-      // Settled: a later load neither re-fetches nor re-warns.
+      // Settled: no re-check, and a later load neither re-fetches nor re-warns.
       fireEvent.load(iframe);
-      await expireWait(CODE_BOOT_RESCUE_WAIT_MS * 2);
+      await expireWait(CODE_BOOT_RESCUE_WAIT_MS + CODE_BOOT_RESCUE_RECHECK_MS);
+      expect(fetcher).toHaveBeenCalledTimes(2);
       expect(warn).toHaveBeenCalledTimes(1);
     });
 
-    it("a load during the in-flight verdict fetch never arms a second timer", async () => {
+    it("a load during the in-flight verdict fetch never arms a parallel timer", async () => {
       let resolveVerdict: (r: CodeBridgeResult) => void = () => {};
       const fetcher = vi
         .fn<() => Promise<CodeBridgeResult>>()
         .mockResolvedValueOnce(ok("")) // baseline
         .mockImplementationOnce(
           () => new Promise<CodeBridgeResult>((res) => (resolveVerdict = res)),
-        ); // verdict GET hangs
+        ) // first verdict GET hangs
+        .mockResolvedValue(ok("", MARKER)); // re-check
       const { getByTitle } = render(
         <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} fetchBridgeStatus={fetcher} />,
       );
@@ -432,8 +505,11 @@ describe("CodeSurface", () => {
       fireEvent.load(iframe);
       await expireWait(CODE_BOOT_RESCUE_WAIT_MS * 2);
       expect(fetcher).toHaveBeenCalledTimes(2);
+      // The hung verdict resolves signal-less: exactly one re-check arms.
       resolveVerdict(ok(""));
       await act(async () => {});
+      await expireWait(CODE_BOOT_RESCUE_RECHECK_MS);
+      expect(fetcher).toHaveBeenCalledTimes(3);
       expect(reload).toHaveBeenCalledTimes(1);
     });
 
@@ -447,8 +523,13 @@ describe("CodeSurface", () => {
       fireEvent.load(getByTitle("Code editor"));
       await expireWait();
       expect(fetcher).toHaveBeenCalledTimes(2);
-      expect(reload).toHaveBeenCalledTimes(1);
+      expect(reload).not.toHaveBeenCalled();
+      await expireWait(CODE_BOOT_RESCUE_RECHECK_MS);
+      expect(fetcher).toHaveBeenCalledTimes(3); // first generation spent
 
+      // The new generation's baseline is marker-free; its verdict then sees a
+      // marker newer than that baseline.
+      fetcher.mockResolvedValueOnce(ok("")).mockResolvedValue(ok("", MARKER));
       rerender(
         <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={false} fetchBridgeStatus={fetcher} />,
       );
@@ -458,10 +539,10 @@ describe("CodeSurface", () => {
       const remounted = getByTitle("Code editor");
       reload = stubReload(remounted);
       await flushBaseline();
-      expect(fetcher).toHaveBeenCalledTimes(3); // the fresh generation's baseline
+      expect(fetcher).toHaveBeenCalledTimes(4); // the fresh generation's baseline
       fireEvent.load(remounted);
       await expireWait();
-      expect(fetcher).toHaveBeenCalledTimes(4);
+      expect(fetcher).toHaveBeenCalledTimes(5);
       expect(reload).toHaveBeenCalledTimes(1); // the new generation's own one-shot
     });
 
@@ -473,7 +554,7 @@ describe("CodeSurface", () => {
       const iframe = getByTitle("Code editor");
       const reload = stubReload(iframe);
       fireEvent.load(iframe);
-      await expireWait(CODE_BOOT_RESCUE_WAIT_MS * 2);
+      await expireWait(CODE_BOOT_RESCUE_WAIT_MS + CODE_BOOT_RESCUE_RECHECK_MS);
       expect(reload).not.toHaveBeenCalled();
       expect(warn).not.toHaveBeenCalled();
     });
@@ -491,7 +572,7 @@ describe("CodeSurface", () => {
       const iframe = getByTitle("Code editor");
       const reload = stubReload(iframe);
       fireEvent.load(iframe);
-      await expireWait(CODE_BOOT_RESCUE_WAIT_MS * 2);
+      await expireWait(CODE_BOOT_RESCUE_WAIT_MS + CODE_BOOT_RESCUE_RECHECK_MS);
       expect(fetcher).not.toHaveBeenCalled();
       expect(reload).not.toHaveBeenCalled();
     });

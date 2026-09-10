@@ -1,12 +1,14 @@
 package api
 
 // GET /api/windows/{windowId}/code-bridge — the first-boot rescue's signal
-// read: whether the bridge extension is installed, and the newest pid-alive
-// tab-keyed host record's startedAt for (server, windowId). Everything is
-// derived from the filesystem at request time (Constitution II) and the route
-// is read-shaped, so it is a GET (Constitution IX). The registry read is
-// kill-0-filtered only — no socket dial, no prune (LiveHosts does both and is
-// the CLI's verb, never a request path's).
+// read: whether the bridge extension is installed, the newest pid-alive
+// tab-keyed host record's startedAt (the good-boot confirmation), and the
+// newest pid-alive empty-boot marker's stamp (the positive broken-boot
+// signal) for (server, windowId). Everything is derived from the filesystem
+// at request time (Constitution II) and the route is read-shaped, so it is a
+// GET (Constitution IX). The registry reads are kill-0-filtered only — no
+// socket dial, no prune (LiveHosts does both and is the CLI's verb, never a
+// request path's).
 
 import (
 	"net/http"
@@ -18,10 +20,10 @@ import (
 )
 
 // handleCodeBridge serves GET /api/windows/{windowId}/code-bridge:
-// 200 {"installed","startedAt"} / 400 on an invalid window id or an
-// explicitly invalid server / 500 on an unexpected registry read error. A
-// missing hosts dir or an unresolvable state dir degrades to startedAt ""
-// (the ReadRecords absent-is-empty posture), and an unresolvable home dir
+// 200 {"installed","startedAt","emptyBootAt"} / 400 on an invalid window id
+// or an explicitly invalid server / 500 on an unexpected registry read error.
+// A missing hosts or boots dir or an unresolvable state dir degrades to ""
+// stamps (the absent-is-empty read posture), and an unresolvable home dir
 // degrades to installed false — a degenerate box fires no rescue anyway.
 func (s *Server) handleCodeBridge(w http.ResponseWriter, r *http.Request) {
 	windowID, ok := parseWindowID(r)
@@ -59,5 +61,15 @@ func (s *Server) handleCodeBridge(w http.ResponseWriter, r *http.Request) {
 		startedAt = codebridge.TabStartedAt(records, server, windowID, codebridge.PIDAlive)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"installed": installed, "startedAt": startedAt})
+	emptyBootAt := ""
+	if bootsDir, err := codebridge.BootsDir(); err == nil {
+		markers, err := codebridge.ReadBootMarkers(bootsDir)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		emptyBootAt = codebridge.TabEmptyBootAt(markers, server, windowID, codebridge.PIDAlive)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"installed": installed, "startedAt": startedAt, "emptyBootAt": emptyBootAt})
 }

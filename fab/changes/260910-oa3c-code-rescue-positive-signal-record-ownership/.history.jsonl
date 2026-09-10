@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-10T16:47:03Z"}
+{"args":"Code tile rescue — reload only on a positive empty-boot signal; fix bridge record ownership (regression from PR #904: false reloads on good boots under load; deactivate() unlinks the newer host's record/socket; zero-folder activation is silent)","cmd":"fab-new","event":"command","ts":"2026-09-10T16:47:03Z"}
+{"delta":"+0.0","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-09-10T16:50:11Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-10T16:51:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-10T16:53:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-10T17:10:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-10T17:18:18Z"}
+{"event":"review","result":"passed","ts":"2026-09-10T17:18:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-10T17:25:02Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-09-10T17:25:34Z"}

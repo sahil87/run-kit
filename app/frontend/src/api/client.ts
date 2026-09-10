@@ -571,16 +571,18 @@ export async function fetchCodeWorkspace(
  *  non-2xx (including an old backend's 404) and any thrown fetch/parse error —
  *  the first-boot rescue reads it as "not installed" and fails closed. */
 export type CodeBridgeResult =
-  | { status: "ok"; installed: boolean; startedAt: string }
+  | { status: "ok"; installed: boolean; startedAt: string; emptyBootAt: string }
   | { status: "unavailable" };
 
 /**
  * Read the window's code-bridge status: GET
- * /api/windows/{windowId}/code-bridge. Issued at exactly two decision points
- * per code-tile mount generation (baseline at src adoption, verdict at the
- * rescue wait's expiry). NEVER throws — the rescue decision treats every
- * failure as `{ status: "unavailable" }`, so a caller without the route (an
- * old backend) silently disables the rescue rather than erroring.
+ * /api/windows/{windowId}/code-bridge. Issued at the decision points of a
+ * code-tile mount generation (baseline at src adoption, verdict at the rescue
+ * wait's expiry, plus at most one re-check). NEVER throws — the rescue
+ * decision treats every failure as `{ status: "unavailable" }`, so a caller
+ * without the route (an old backend) silently disables the rescue rather than
+ * erroring. `emptyBootAt` defaults to "" for an older backend that predates
+ * the field.
  */
 export async function fetchCodeBridge(
   server: string,
@@ -591,11 +593,16 @@ export async function fetchCodeBridge(
       withServer(`/api/windows/${encodeURIComponent(windowId)}/code-bridge`, server),
     );
     if (!res.ok) return { status: "unavailable" };
-    const data = (await res.json()) as { installed?: boolean; startedAt?: string };
+    const data = (await res.json()) as {
+      installed?: boolean;
+      startedAt?: string;
+      emptyBootAt?: string;
+    };
     return {
       status: "ok",
       installed: data.installed === true,
       startedAt: typeof data.startedAt === "string" ? data.startedAt : "",
+      emptyBootAt: typeof data.emptyBootAt === "string" ? data.emptyBootAt : "",
     };
   } catch {
     return { status: "unavailable" };

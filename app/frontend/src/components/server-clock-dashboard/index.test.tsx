@@ -97,4 +97,14 @@ describe("ServerClockDashboard", () => {
     renderDashboard();
     expect(vi.mocked(Element.prototype.scrollIntoView)).toHaveBeenCalledTimes(1);
   });
+
+  it("on mobile, holds no document listener and leaves the pending flag armed", () => {
+    requestCronsScroll();
+    renderDashboard(() => true);
+    const scroll = vi.mocked(Element.prototype.scrollIntoView);
+    expect(scroll).not.toHaveBeenCalled();
+    document.dispatchEvent(new CustomEvent(CRONS_SCROLL_EVENT));
+    expect(scroll).not.toHaveBeenCalled();
+    expect(consumePendingCronsScroll()).toBe(true);
+  });
 });

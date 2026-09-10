@@ -138,6 +138,13 @@ describe("CronsZone", () => {
     expect(onCreate).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps rows out of the tab order, and focusing the … button does not open the flyout", () => {
+    renderZone([makeEntry({ id: "a" })]);
+    expect(screen.getByTestId("crons-row")).not.toHaveAttribute("tabindex");
+    fireEvent.focus(screen.getByTestId("crons-row-actions"));
+    expect(screen.queryByTestId("row-flyout-card")).not.toBeInTheDocument();
+  });
+
   it("the … button opens the row-flyout card; Unmute calls onMute with the entry and closes", () => {
     const entry = makeEntry({ id: "a", name: "quiet", muted: true });
     const onMute = vi.fn();

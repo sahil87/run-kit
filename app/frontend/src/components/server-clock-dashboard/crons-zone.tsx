@@ -171,8 +171,6 @@ function CronRow({
     <tr
       ref={flyout.setReference}
       {...flyout.referenceProps}
-      tabIndex={0}
-      aria-label={`Cron entry ${name}`}
       data-testid="crons-row"
       className={dimmed ? "opacity-50" : ""}
     >
@@ -195,6 +193,11 @@ function CronRow({
           type="button"
           aria-label={`Actions for ${name}`}
           data-testid="crons-row-actions"
+          // The row's useFocus trigger listens for focusin BUBBLING from
+          // descendants — a tab stop's focus must not pop the card; this
+          // button opens it explicitly on click (the keyboard path is
+          // Tab → … → Enter).
+          onFocus={(e) => e.stopPropagation()}
           onClick={flyout.openNow}
           className="px-1.5 text-text-secondary hover:text-text-primary"
         >

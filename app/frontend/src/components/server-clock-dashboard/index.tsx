@@ -44,10 +44,14 @@ export function ServerClockDashboard({
   }, []);
 
   useEffect(() => {
+    // The mobile instance renders null: it must not hold the global listener
+    // or consume the pending flag (a scroll it cannot perform would be lost —
+    // the flag stays armed for a later desktop mount).
+    if (isMobile) return;
     document.addEventListener(CRONS_SCROLL_EVENT, scrollToCrons);
     if (consumePendingCronsScroll()) scrollToCrons();
     return () => document.removeEventListener(CRONS_SCROLL_EVENT, scrollToCrons);
-  }, [scrollToCrons]);
+  }, [scrollToCrons, isMobile]);
 
   if (isMobile) return null;
 

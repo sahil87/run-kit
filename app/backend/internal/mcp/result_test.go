@@ -107,7 +107,7 @@ func TestMapJSONResultTiers(t *testing.T) {
 		{"exit 1 no envelope", Outcome{Stderr: []byte("no such pane %999\n"), ExitCode: 1}, true, `{"code":"operational","message":"no such pane %999"}`, nil},
 		{"exit 2 usage", Outcome{Stderr: []byte("bad flag\n"), ExitCode: 2}, true, `{"code":"usage","message":"bad flag"}`, nil},
 		{"exit 1 falls back to stdout", Outcome{Stdout: []byte("some prose"), ExitCode: 1}, true, `{"code":"operational","message":"some prose"}`, nil},
-		{"bare JSON with nonzero exit is an error", Outcome{Stdout: []byte(`[]`), ExitCode: 1}, true, "", []string{`"operational"`}},
+		{"bare JSON with nonzero exit is verbatim error", Outcome{Stdout: []byte(`[]`), ExitCode: 1}, true, `[]`, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

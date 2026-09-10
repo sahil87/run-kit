@@ -38,16 +38,19 @@ func TestMCPEndToEnd(t *testing.T) {
 	}
 
 	// Build the real binary. The tmux.conf embed input is generated (see
-	// scripts/build.sh), so seed it the same way when absent.
+	// scripts/build.sh), so seed it the same way when absent — and remove a
+	// seeded copy on cleanup so the test never leaves the working tree dirty.
 	backendRoot := filepath.Join("..", "..")
-	if _, err := os.Stat(filepath.Join(backendRoot, "build", "tmux.conf")); os.IsNotExist(err) {
+	confPath := filepath.Join(backendRoot, "build", "tmux.conf")
+	if _, err := os.Stat(confPath); os.IsNotExist(err) {
 		src, err := os.ReadFile(filepath.Join("..", "..", "..", "configs", "tmux", "default.conf"))
 		if err != nil {
 			t.Fatalf("read canonical tmux.conf: %v", err)
 		}
-		if err := os.WriteFile(filepath.Join(backendRoot, "build", "tmux.conf"), src, 0o644); err != nil {
+		if err := os.WriteFile(confPath, src, 0o644); err != nil {
 			t.Fatalf("seed build/tmux.conf: %v", err)
 		}
+		t.Cleanup(func() { _ = os.Remove(confPath) })
 	}
 	bin := filepath.Join(t.TempDir(), "rk")
 	buildCtx, buildCancel := context.WithTimeout(context.Background(), 120*time.Second)

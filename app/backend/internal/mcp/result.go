@@ -92,6 +92,11 @@ func validateArg(arg Arg, v any) error {
 		if !ok || f != math.Trunc(f) {
 			return fmt.Errorf("argument %q must be an integer", arg.Name)
 		}
+		// Reject magnitudes that cannot survive the float64→int conversion;
+		// an overflowed int would bypass the minimum/maximum checks below.
+		if f >= float64(math.MaxInt) || f < float64(math.MinInt) {
+			return fmt.Errorf("argument %q is out of range for an integer", arg.Name)
+		}
 		n := int(f)
 		if arg.Minimum != nil && n < *arg.Minimum {
 			return fmt.Errorf("argument %q must be >= %d", arg.Name, *arg.Minimum)
@@ -126,10 +131,12 @@ func MapResult(tool string, row Row, timeout time.Duration, out Outcome) *mcpsdk
 
 // mapJSONResult parses stdout in three tiers: (a) an object with a boolean ok
 // key is the --json envelope; (b) any other valid JSON document is the interim
-// bare form, returned verbatim; (c) non-JSON falls through to the text rule
-// with a leading note. On a non-zero exit the envelope still wins (a verb may
-// emit ok:false with exit 1/2); otherwise the text is a machine-shaped
-// code/message document built from stderr, with exit 2 classifying as usage.
+// bare form, returned verbatim with isError taken from the exit code
+// (docs/specs/mcp.md § Policy table rules); (c) non-JSON falls through to the
+// text rule with a leading note. On a non-zero exit the envelope still wins (a
+// verb may emit ok:false with exit 1/2); otherwise the text is a
+// machine-shaped code/message document built from stderr, with exit 2
+// classifying as usage.
 func mapJSONResult(out Outcome) *mcpsdk.CallToolResult {
 	stdout := bytes.TrimSpace(out.Stdout)
 	var doc any
@@ -139,9 +146,7 @@ func mapJSONResult(out Outcome) *mcpsdk.CallToolResult {
 				return mapEnvelope(obj, okVal)
 			}
 		}
-		if out.ExitCode == 0 {
-			return textResult(string(stdout), false)
-		}
+		return textResult(string(stdout), out.ExitCode != 0)
 	}
 	if out.ExitCode == 0 {
 		return textResult("(non-JSON output)\n"+string(stdout), false)

@@ -34,7 +34,7 @@ lands in a verb, so every pane agent gets it for free.
    never a special tool.
 2. **Allowlist, default-excluded.** A verb is exposed if and only if it has a row in
    the compiled-in policy table (§ Policy table). New verbs ship unexposed. The budget
-   is **≤ 40 tools** (clients degrade above that); v1 ships 30.
+   is **≤ 40 tools** (clients degrade above that); v1 ships 29.
 3. **Flat tools.** One tool per verb, named in `snake_case` from the verb path with the
    family prefix dropped where unambiguous (`mux sessions` → `sessions`, `cron list`
    → `cron_list`, `tab web ls` → `tab_web_ls`). Exactly two tools take an action enum
@@ -64,8 +64,13 @@ The MCP server has no pane, no `$TMUX`, no `$TMUX_PANE`. Therefore:
 - **No own-pane or own-tab default reaches any tool schema.** Every pane- or
   window-scoped tool declares its target as a **required** input: `target` for pane
   verbs (`%N`, `@N`, or `=session:window` — the `rk mux` grammar), `window` (`@N`)
-  for `tab_*`, `present`, `operator_request`, and the `board` mutations. `cron_add`
-  requires exactly one of `pane` / `session` / `role`.
+  for `tab_*` and the `board` mutations. `cron_add` requires exactly one of `pane` /
+  `session` / `role`. `operator_request` takes `window` **iff** its template is
+  window-scoped — server-scoped templates reject it — so the schema marks `window`
+  optional and the verb enforces the conditional (the daemon's 400 passes through as
+  a `usage` error). A verb with no explicit-address form is not a v1 tool: `present`
+  resolves only the caller's own tab, so it sits in tier two and `tab_web add`
+  carries the capability.
 - The CLI already fails closed when own-tab resolution finds no `$TMUX`; the tool
   layer makes the argument required at the schema level so the model never sees
   that error.
@@ -74,7 +79,10 @@ The MCP server has no pane, no `$TMUX`, no `$TMUX_PANE`. Therefore:
   which with no `$TMUX` resolves to `default`. The `sessions` tool's result carries
   server names, so a model can discover what to pass.
 - No tool takes a shell string, a raw tmux target expression beyond the three forms
-  above, or a filesystem path beyond what the verb already validates.
+  above, or a filesystem path beyond what the verb already validates. `riff`'s
+  `--cmd` (a pane shell command; its bare form drops into `$SHELL`) is therefore
+  **excluded** from the `riff` tool's inputs — the tool exposes `preset`, `skill`,
+  `layout`, and `count` only.
 
 ## Envelope (`--json`)
 
@@ -123,8 +131,8 @@ below are the contract; a verb MAY add fields, never rename these.
 | Spawn | `tab new` / `mux new` | `{"window":"@N","server":"…"}` / `{"server":"<name>"}` |
 | Spawn | `operator` | `{"window":"@N","server":"…","created":bool}` — idempotent; `created:false` when the operator tab already existed |
 | Spawn | `cron add` | `{"id":"<entry id>","name":"…","schedule":"…","target":"…"}` (the four fields the human line already prints) |
-| Steer UI | `tab layout` / `tab web *` / `tab code set` / `present` | `{"window":"@N", …}` plus the resulting addressed state the verb already prints in prose (layout string, web-tab list, code root, presented target) |
-| Steer UI | `code exec` / `gui exec` | `code exec` keeps its existing `--json` document; `gui exec` returns `{"pid":n,"display":"<name>"}` (the human line's two facts) |
+| Steer UI | `tab layout` / `tab web *` / `tab code set` | `{"window":"@N", …}` plus the resulting addressed state the verb already prints in prose (layout string, web-tab list, code root) |
+| Steer UI | `code exec` / `gui exec --detach` | `code exec` keeps its existing `--json` document; `gui exec --detach` returns `{"pid":n,"display":"<name>"}` (the two facts its `started <pid> on <display>` line already prints) |
 | Clean up | `mux kill` | `{"report":"killed","target":"%N"}` |
 | Clean up | `cron rm` / `cron mute` | `{"id":"…","removed":true}` / `{"id":"…","muted":bool,"until":"<RFC3339>"?}` |
 | See/Steer | `board` | `show` → the `GET /api/boards[/{name}]` body verbatim; `pin`/`unpin`/`reorder` → `{"board":"…","window":"@N","orderKey":"…"?}` |
@@ -182,7 +190,7 @@ Rules:
   required); every tool's `annotations` are declared here, so a client can drive its
   confirmation UX from `destructiveHint` without reading a verb.
 
-### Allowlist v1 (30 tools)
+### Allowlist v1 (29 tools)
 
 Annotations: **ro** = `readOnlyHint`, **destr** = `destructiveHint`, **idem** =
 `idempotentHint`. **Structured today** = the verb emits machine output at the time of
@@ -208,16 +216,15 @@ not this spec's.
 | Talk | `await` | `mux await <target> --until … --timeout ≤40` | ro | report word (text) |
 | Talk | `notify` | `notify <message> [--title]` | — | no |
 | Talk | `operator_request` | `operator request <template> [--window @N] [--text] [--session]` | — | new verb |
-| Spawn | `riff` | `riff [preset] [--skill…] [--cmd…] [--layout] [--count]` | — | no |
+| Spawn | `riff` | `riff [preset] [--skill…] [--layout] [--count]` (no `--cmd`) | — | no |
 | Spawn | `new_window` | `tab new [--session =S] [--cwd] [--name] [--layout]` | — | no (prints `@N`) |
 | Spawn | `operator` | `operator [--workers] [-L]` | idem | no |
 | Spawn | `cron_add` | `cron add <prompt> (--every\|--backoff\|--cron) (--pane\|--session\|--role)` | — | no (prints an id line) |
 | Steer UI | `tab_layout` | `tab layout @N [L \| --add S \| --rm S \| --promote S \| --cycle]` | — | no |
 | Steer UI | `tab_web` | `tab web add\|rm\|select\|mv` (action enum) | — | no |
 | Steer UI | `tab_code` | `tab code set @N <folder>` | — | no |
-| Steer UI | `present` | `present <target> [--window] [--notify]` | — | no |
 | Steer UI | `code_exec` | `code exec <command> [json-arg…] --json` | — | yes |
-| Steer UI | `gui_exec` | `gui exec <cmd> [args…]` | — | no (prints `started <pid> on <display>`) |
+| Steer UI | `gui_exec` | `gui exec --detach <cmd> [args…]` (fixed `--detach`) | — | no (prints `started <pid> on <display>`) |
 | Clean up | `kill` | `mux kill <target>` | destr | report word (text) |
 | Clean up | `cron_rm` | `cron rm <id>` | destr | no |
 | Clean up | `cron_mute` | `cron mute <id> [--for] [--off]` | idem | no |
@@ -233,6 +240,15 @@ Row-level rules:
   `Left` `Right` `Space` `BSpace` `y` `n` `1`–`9`. Control chords (`C-c`, `C-d`,
   `C-z`) are excluded: interrupting an agent is `kill`'s job — a destructive tool the
   client confirms. The enum MAY be widened; it MUST stay closed.
+- `riff` exposes no `--cmd`: a pane shell command is a shell string (§ Target rule).
+  Spawning a shell pane over MCP is not a v1 capability.
+- `gui_exec` always passes the literal `--detach`. The foreground path replaces the
+  `rk` process with the command and returns no receipt, so a foreground call would
+  block to the backstop and report nothing; detached, the verb prints `started <pid>
+  on <display>` and exits.
+- `operator_request`'s `window` is conditional on the template (§ Target rule); the
+  tool description names which templates are window-scoped, and `--list` is the
+  source of truth.
 - `kill` and `cron_rm` carry `destructiveHint`; `operator` and `cron_mute` carry
   `idempotentHint`; every See row carries `readOnlyHint`; `await` is read-only even
   though it blocks.
@@ -240,7 +256,9 @@ Row-level rules:
 ### Tier two
 
 Added only when usage asks for it; each needs a policy row like any other tool:
-`mux snapshot show|restore`, `mux adopt`, `mux reap`,
+`present` (today the own-tab alias of `tab web add --show` — needs an explicit
+`--tab @N` contract before it can satisfy the target rule; `tab_web add` carries the
+capability meanwhile), `mux snapshot show|restore`, `mux adopt`, `mux reap`,
 `gui on|off|launch|open|windows|wait|click|type|key`, `doctor --json`,
 `code-server start`, `daemon status --json`, `code hosts`, `code commands`.
 
@@ -266,9 +284,12 @@ registry: each id and which of `requiresAgentSessionRef` / `acceptsText` /
 Window-scoped templates require `--window` and ride
 `POST /api/windows/{windowId}/operator-request`; server-scoped templates reject
 `--window` and ride `POST /api/operator-request`. The daemon's 400/404/409 messages
-pass through as `operational` errors; `202 {"queued":true}` surfaces as
-`result.queued:true` with exit 0. The verb adds **no** lane: it is a CLI door onto the
-existing request lane (agent-messaging.md § Messaging the operator — three lanes).
+pass through as `operational` errors. Busy posture follows the registry, not the
+verb: for templates **without** `chatDelivery` a busy operator answers
+`202 {"queued":true}`, surfaced as `result.queued:true` with exit 0; a `chatDelivery`
+template (`user-message`) skips the busy gate and the queue by design and always
+reports `queued:false`. The verb adds **no** lane: it is a CLI door onto the existing
+request lane (agent-messaging.md § Messaging the operator — three lanes).
 
 **`rk board show [name] [--json]` · `rk board pin <name> <@N>` · `rk board unpin <name> <@N>` ·
 `rk board reorder <name> <@N> [--before <@N>] [--after <@N>]`** — a new flat root
@@ -304,10 +325,15 @@ The SDK's streamable-HTTP handler, mounted on the daemon router and sharing
   a public hostname and is therefore *not* this route's client; its clients are
   Claude Code and other MCP clients already on the tailnet.
 - **Origin validation.** When a request carries an `Origin` header, the handler MUST
-  reject it unless the origin's host matches the request's `Host` (same origin) or is
-  loopback — the MCP transport's DNS-rebinding guard (Constitution I). The root
-  router's CORS allowlist `[GET, POST, OPTIONS]` is **unchanged**: MCP clients are not
-  browsers, and CORS governs only browser preflights.
+  reject it unless the origin's scheme, host, and port match an entry in an
+  **allowlist derived from the daemon's own bind configuration** — the configured
+  `RK_HOST`:`RK_PORT` origin and the host's tailnet hostname and IP at that port —
+  with an explicit loopback exception. The request's `Host` header is **never** the
+  reference: under DNS rebinding an attacker-controlled name resolves to the daemon
+  and both headers carry the attacker's name, so `Origin == Host` defends nothing.
+  This is the MCP transport's DNS-rebinding guard (Constitution I). The root router's
+  CORS allowlist `[GET, POST, OPTIONS]` is **unchanged**: MCP clients are not browsers,
+  and CORS governs only browser preflights.
 - **Verb-shape exception.** The transport requires `POST` (client→server messages),
   `GET` (the server→client SSE stream), and `DELETE` (session termination) on one
   path. This is a documented exception to Constitution IX, recorded in

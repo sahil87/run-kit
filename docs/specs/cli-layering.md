@@ -58,7 +58,7 @@ over the daemon via the CLI's existing origin-resolution pattern (the `notify` /
 
 | Member | Wraps | Shape |
 |--------|-------|-------|
-| `rk operator request <template> [--window @N] [--text] [--session] [--list] [--json]` | `POST /api/windows/{windowId}/operator-request`, `POST /api/operator-request` | Subcommand of the existing `operator` verb; `--list` prints the closed template registry; busy ⇒ `queued:true` in the receipt (a door onto the existing request lane, not a new one) |
+| `rk operator request <template> [--window @N] [--text] [--session] [--list] [--json]` | `POST /api/windows/{windowId}/operator-request`, `POST /api/operator-request` | Subcommand of the existing `operator` verb; `--list` prints the closed template registry; busy ⇒ `queued:true` in the receipt for templates without `chatDelivery` (`user-message` skips the busy gate and queue by design) — a door onto the existing request lane, not a new one |
 | `rk board show [name] [--json]` · `pin <name> <@N>` · `unpin <name> <@N>` · `reorder <name> <@N> [--before] [--after]` | `GET /api/boards[/{name}]`, `POST /api/boards/{name}/pin\|unpin\|reorder` | New flat root family (like `tab`, sharing its `@N` grammar); `-L` fills the routes' `server` field |
 
 ### Hidden plumbing (visible today, machine-invoked)

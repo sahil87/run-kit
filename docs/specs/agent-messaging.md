@@ -52,8 +52,9 @@ probe, no queue); **a request is work handed over** — a busy operator queues i
 | **Operator request** | the two `/operator-request` routes, closed template registry | Fully server-rendered work item (Constitution X facts; optional delimited client text) | Busy ⇒ enqueue (`202 {"queued":true}`), in-memory per-server queue drained on idle |
 
 `rk operator request` ([mcp.md](mcp.md) § New verb families) is a **CLI door onto the
-request lane** — same closed registry, same busy ⇒ 202 posture, surfaced in its
-`--json` receipt as `queued:true` — not a fourth lane. The lane count stays three.
+request lane** — same closed registry, same busy ⇒ 202 posture for non-`chatDelivery`
+templates, surfaced in its `--json` receipt as `queued:true` — not a fourth lane. The
+lane count stays three.
 
 The templated chat lane is the console's context-carrying send. When the
 operator console (⌘J) is opened on a terminal route, the message rides the chat

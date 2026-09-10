@@ -284,16 +284,16 @@ their verb gains `--json`. The spec carries **no wave column** — waves are the
 | Talk | `await` | `mux await <target> --until … --timeout ≤40` | ro | report word (text) |
 | Talk | `notify` | `notify <message> [--title]` | — | no |
 | Talk | `operator_request` | `operator request <template> [--window @N] [--text] [--session]` | — | new verb |
-| Spawn | `riff` | `riff [preset] [--skill…] [--cmd…] [--layout] [--count]` | — | no |
+| Spawn | `riff` | `riff [preset] [--skill…] [--layout] [--count]` — `--cmd` excluded: a pane shell command is a shell string | — | no |
 | Spawn | `new_window` | `tab new [--session =S] [--cwd] [--name] [--layout]` | — | no |
 | Spawn | `operator` | `operator [--workers] [-L]` | idem | no |
 | Spawn | `cron_add` | `cron add <prompt> (--every\|--backoff\|--cron) (--pane\|--session\|--role)` | — | no |
 | Steer UI | `tab_layout` | `tab layout @N [L \| --add S \| --rm S \| --promote S \| --cycle]` | — | no |
 | Steer UI | `tab_web` | `tab web add\|rm\|select\|mv` (action enum) | — | no |
 | Steer UI | `tab_code` | `tab code set @N <folder>` | — | no |
-| Steer UI | `present` | `present <target> [--window] [--notify]` | — | no |
+| Steer UI | ~~`present`~~ | moved to tier two at PR review: `present` resolves only the caller's own tab (no `@N` form) — `tab_web add` covers it | — | — |
 | Steer UI | `code_exec` | `code exec <command> [json-arg…] --json` | — | yes |
-| Steer UI | `gui_exec` | `gui exec <cmd> [args…]` | — | no |
+| Steer UI | `gui_exec` | `gui exec --detach <cmd> [args…]` (fixed `--detach`; the foreground path execs and returns nothing) | — | no |
 | Clean up | `kill` | `mux kill <target>` | destr | report word (text) |
 | Clean up | `cron_rm` | `cron rm <id>` | destr | no |
 | Clean up | `cron_mute` | `cron mute <id> [--for] [--off]` | idem | no |

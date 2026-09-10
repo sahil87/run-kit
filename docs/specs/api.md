@@ -523,8 +523,12 @@ code of our own.
   (Claude Code and kin); the Claude Desktop app reaches run-kit over stdio via
   `ssh <box> rk mcp`, not this route.
 - **Origin validation** — when a request carries an `Origin` header, the handler
-  rejects it unless the origin's host matches the request `Host` (same origin) or is
-  loopback (the MCP transport's DNS-rebinding guard, Constitution I).
+  rejects it unless the origin's scheme, host, and port match an allowlist derived
+  from the daemon's own bind configuration (the configured `RK_HOST`:`RK_PORT`
+  origin and the host's tailnet hostname and IP at that port), with an explicit
+  loopback exception. The request `Host` header is never the reference — under DNS
+  rebinding both headers carry the attacker's name (the MCP transport's
+  DNS-rebinding guard, Constitution I).
 - **CORS allowlist unchanged** — § Middleware's `GET POST OPTIONS` stays as is. MCP
   clients are not browsers; CORS governs only browser preflights.
 - **Session state** — per-connection SDK state in memory for the connection's life

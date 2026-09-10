@@ -9,7 +9,7 @@ package main
 //
 // The command form is argv after `--`, never a shell string: every token is
 // single-quoted via internal/shellq so the window's shell receives it as one
-// literal word, and rk's agent-exit fallback (`; exec "${SHELL:-/bin/sh}") is
+// literal word, and rk's agent-exit fallback (`; exec "${SHELL:-/bin/sh}"`) is
 // appended unless --no-shell-fallback. --json swaps the bare @N datum for the
 // {session, window_id, pane_id} envelope; --ready (requires --json and a
 // command) adds the boot-readiness verdict via the rk mux await --ready seam.

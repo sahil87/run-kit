@@ -1,0 +1,52 @@
+id: xy7q
+name: 260910-xy7q-gui-perf-measure
+created: 2026-09-10T01:58:54Z
+created_by: sahil87
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: active
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 16
+    acceptance_completed: 0
+confidence:
+    certain: 6
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 71.4
+        reversibility: 88.2
+        competence: 82.3
+        disambiguation: 73.6
+stage_metrics:
+    intake: {started_at: "2026-09-10T01:58:54Z", driver: fab-new, iterations: 1, completed_at: "2026-09-10T02:05:20Z"}
+    apply: {started_at: "2026-09-10T02:05:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T02:49:26Z"}
+    review: {started_at: "2026-09-10T02:49:26Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 203
+    deleted: 0
+    net: 203
+    excluding:
+        added: 203
+        deleted: 0
+        net: 203
+    tests:
+        added: 146
+        deleted: 0
+        net: 146
+    computed_at: "2026-09-10T02:49:26Z"
+    computed_at_stage: apply
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-10T02:49:26Z

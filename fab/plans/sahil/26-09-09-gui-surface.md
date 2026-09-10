@@ -16,11 +16,14 @@ tile kind beside `tty` / `code` / `web` — that a human can watch and drive
 from any tab (phone included), that agents can launch apps into and
 screenshot, and that exists only when the user has explicitly turned it on.
 
-**Status (2026-09-09)**: C1 (`260909-5nvd-gui-spec-and-registry-rename`) is
+**Status (2026-09-10)**: C1 (`260909-5nvd-gui-spec-and-registry-rename`) is
 Done (PR #888 merged). C0 verdict is in (Xvnc stands — § C0 verdict). C2
 (`260909-fkh1-gui-backend-switch-and-relay`, PR #892) is Done. C3
 (`260909-o2sp-gui-surface-tile`, PR #895) is Done. C4
-(`260909-bbv1-gui-agent-verbs`, PR #894) is Done. C5 is the next pickup.
+(`260909-bbv1-gui-agent-verbs`, PR #894) is Done. C5
+(`260910-xy7q-gui-perf-measure`) is Done — verdict in § C5 verdict: the fps
+target is missed at ≤ 40 Mbit/s for byte-budget reasons, so **C6 is picked
+up**, scoped as a bandwidth-efficiency change. C6 is the next pickup.
 
 ---
 
@@ -53,10 +56,10 @@ Agents: fill your row when you create the change; mark Done when merged.
 | C2 | `gui-backend-switch-and-relay` | C0 verdict, C1 | L | 260909-fkh1-gui-backend-switch-and-relay | https://github.com/sahil87/run-kit/pull/892 | Done |
 | C3 | `gui-surface-tile` | C2 merged | L | 260909-o2sp-gui-surface-tile | https://github.com/sahil87/run-kit/pull/895 | Done |
 | C4 | `gui-agent-verbs` | C2 merged (∥ C3) | M | 260909-bbv1-gui-agent-verbs | https://github.com/sahil87/run-kit/pull/894 | Done |
-| C5 | `gui-perf-measure` | C3, C4 merged | S | | | not started |
-| C6 | `gui-kasm-backend` *(conditional on C5)* | C5 verdict | M | | | not started |
+| C5 | `gui-perf-measure` | C3, C4 merged | S | 260910-xy7q-gui-perf-measure | (this PR — fill on merge) | Done — see § C5 verdict |
+| C6 | `gui-kasm-backend` *(picked up by C5's verdict)* | C5 verdict | M | | | not started — scope note in § C5 verdict |
 
-C1 ∥ C0. C3 ∥ C4 after C2. C6 only if C5 misses D9's targets and C0 did not already make KasmVNC the default.
+C1 ∥ C0. C3 ∥ C4 after C2. C6 only if C5 misses D9's targets and C0 did not already make KasmVNC the default — C5 missed the fps target on a bandwidth-capped link (§ C5 verdict), so C6 proceeds.
 
 ---
 
@@ -497,3 +500,97 @@ India (laptop + phone, ~270 ms RTT): the Xvnc + noVNC tile read as the better
 of the two. Verdict holds; D5 is not reopened. Teardown: the spike agent left a `stop-spike.sh` in its
 scratch dir (kills both X servers, WMs, browsers, websockify); `sudo apt-get
 remove kasmvncserver` also restores the `Xvnc` alternative to TigerVNC.
+
+---
+
+## C5 verdict
+
+> Appended 2026-09-10 by the C5 agent (change `260910-xy7q-gui-perf-measure`,
+> this VM: `dev-ws-sahil01`, 16 vCPU, no GPU; Xtigervnc 1.12 + openbox,
+> noVNC 1.7.0). Full table, method, and re-run recipe:
+> `docs/memory/run-kit/gui.md` § Smoothness (C5).
+
+**Verdict: D9 partially met; the fps target is missed on a bandwidth-capped
+link for encoder byte-budget reasons ⇒ C6 is picked up**, scoped as a
+bandwidth-efficiency change (below), not as "a smoother backend".
+
+### Preliminary: the black tile
+
+The report that opened this change ("opening the GUI shows only a blank/black
+screen") was reproduced and was **not** a relay or renderer bug: the tile
+faithfully showed an empty openbox desktop whose X root is black on Xvnc, with
+no app running — indistinguishable from a dead canvas. Fixed in the same
+change: the supervisor paints the root `#3b4252` (`xsetroot -solid`) after the
+WM, best-effort with an install hint when `xsetroot` is missing.
+
+### What was measured
+
+`app/frontend/tests/e2e/gui-perf.spec.ts` (`@perf`, `just pw test gui-perf`;
+skips without Xtigervnc/xdotool): a kiosk Chromium on the rk display scrolling
+a ~300 KB page at 30 wheel notches/s for 10 s; fps = noVNC `Display.flip`
+count on the tile canvas; relay Mbit/s = bytes on `/ws/gui/host` in the
+browser; Xvnc/guest cores from `/proc`; click-to-pixel = pointerdown → color
+flip of a guest square, 20 trials. Viewers: a fine-pointer tile fitted to an
+exact 1920×1080 desktop, and a coarse 390×844 touch viewer alongside (desktop
+locked, D7 held). Links: loopback, and `tc netem` emulation on the rig's
+backend port (`scripts/gui-perf-link.sh`) at the 260 ms RTT `tailscale ping`
+measures from this VM to the user's laptop and phone (DERP-relayed), with and
+without a 40 Mbit/s cap, plus 0/50/120 ms and 20 Mbit/s points.
+
+| Link | fps (fine 1080p) | Relay Mbit/s | Xvnc cores | Click→pixel p50 |
+|---|---|---|---|---|
+| loopback | 59.2 | 109.3 | 0.29 | 29 ms |
+| 260 ms RTT, uncapped | 33.7 | 75.8 | 0.23 | 279 ms |
+| 0 ms, 40 Mbit/s | 16.6 | 37.6 | 0.14 | 29 ms |
+| 0 ms, 20 Mbit/s | 8.5 | 19.4 | 0.11 | 29 ms |
+| **260 ms, 40 Mbit/s** (the Tailscale proxy) | **11.1** | 25.0 | 0.12 | **280 ms** |
+
+### Against D9
+
+- **< 1 core Xvnc CPU — met** everywhere (peak 0.52 cores with two viewers on
+  loopback).
+- **Click-to-pixel < 100 ms — met net of the link**: the pipeline itself adds
+  ~29 ms p50 (loopback) and RTT + ~20 ms on every emulated link. From the
+  user's ~260 ms link no backend can reach 100 ms (the C0 verdict's point);
+  this target says nothing about the encoder.
+- **≥ 30 fps scrolling at 1080p over Tailscale — met with bandwidth, missed
+  without it**: 59 fps on loopback and 34 fps at 260 ms RTT with no cap show
+  that latency alone is not the limiter (noVNC pipelines its update requests).
+  A full-screen 1080p scroll at the fine preset costs ~1.85 Mbit per update
+  (109 Mbit/s ÷ 59 fps), so a 40 Mbit/s link caps the rate near 17 fps and a
+  20 Mbit/s link near 8, independent of RTT. At the 260 ms / 40 Mbit/s proxy
+  for the user's link the tile updates at **11 fps**. The miss is
+  **encoder-attributable** (bytes per frame), which is exactly the case the
+  plan's rule sends to C6.
+
+### C6 scope note (for its intake)
+
+1. **Measure the real link first**: the 40 Mbit/s figure is an assumed
+   DERP-relay budget; run the recipe from the user's laptop (`rk gui exec --
+   …` + the spec's probes) and record the actual Mbit/s. If the link carries
+   ≥ 60 Mbit/s, the fps target is already met and C6 can stop at a paragraph.
+2. **Weigh the in-tree lever before the second renderer**: noVNC's Tight
+   `qualityLevel`/`compressionLevel` for fine viewers (the coarse preset 4/6
+   already ships ~40 % fewer bytes at the same content), possibly adaptive on
+   the measured update rate. That is a `gui-surface.tsx` change, not a
+   backend.
+3. **KasmVNC** is the plan's upgrade lane and the C0 spike measured it at ~3×
+   fewer bytes (42 vs 121 Mbit/s) for ~3× the CPU with a lossless refresh —
+   the right tool if the quality lever cannot reach 30 fps on the real link.
+
+### Incidental findings (not fixed here)
+
+- `rk gui status` / `GET /api/gui/host` report `reachable: true` a beat
+  before the supervisor's `@rk_gui_display` stamp lands, so a caller that
+  reads `display` on the first reachable tick can see `""` (the perf spec
+  waits for both).
+- On a slow link the first render of a window route can show the gui tile
+  pressed and connecting for ~2 s before the window's stored layout lands and
+  hides it again (observed at 260 ms RTT; too fast to see on loopback).
+- On a host running the live daemon, the e2e rig's backend shares the
+  `rk-daemon` tmux socket, so any real-rig gui spec kills and respawns the
+  host's own `rk-gui` session and leaves it `on — not running` afterwards
+  (`rk gui restart` recovers it).
+- `expect(tile).toHaveClass(/hidden/)` in `gui-surface.spec.ts`'s zen step is
+  satisfied by `overflow-hidden` on every tile; the perf spec uses
+  `toBeHidden()` instead.

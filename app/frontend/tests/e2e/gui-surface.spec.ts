@@ -1,10 +1,17 @@
-import { execFileSync, spawn } from "node:child_process";
-import { readFileSync, writeFileSync, rmSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { test, expect, type Page } from "@playwright/test";
 import { READY_TIMEOUT, gotoWindow, openPalette, resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 import { emitGui, mockStateSocket } from "./_state-socket-mock";
-import { SETTINGS_PATH } from "./_settings";
+import {
+  fetchGuiStatusRaw,
+  hasXtigervnc,
+  pollGuiStatus,
+  postSettingsRaw,
+  restoreSettings,
+  snapshotSettings,
+  stableGuiGeometry,
+} from "./_gui";
 
 // GUI surface tile e2e (spec docs/specs/gui.md — the gui lens as a 4th surface
 // kind). Two halves:
@@ -26,9 +33,11 @@ import { SETTINGS_PATH } from "./_settings";
 // openbox on the test daemon socket), opens the tile, zen-zooms it, attaches
 // a coarse 375px viewer (proving a phone never drives SetDesktopSize — the
 // payload width/height stay), and walks the off-confirm → degrade → restore
-// cycle. The settings file at SETTINGS_PATH is snapshotted in beforeAll and
-// restored in afterAll, and cleanup POSTs {"gui.enabled": null} so the rk-gui
-// session is killed and the key unset even when the snapshot held no gui key.
+// cycle. The settings file is snapshotted in beforeAll and restored in afterAll
+// (`_gui.ts` snapshotSettings/restoreSettings — the restore also POSTs
+// {"gui.enabled": null} so the rk-gui session is killed and the key unset even
+// when the snapshot held no gui key). The rig helpers (capability gate, status
+// fetch/poll, geometry settle) are shared with gui-perf.spec.ts via `_gui.ts`.
 
 const GUI_OFF = [
   { id: "host", enabled: false, backend: "", reachable: false, display: "", width: 0, height: 0, viewers: 0 },
@@ -221,90 +230,6 @@ test.describe("gui surface — mocked signal, mobile (375px)", () => {
 
 // ── Xvnc-gated half (real rig) ──────────────────────────────────────────────
 
-const hasXtigervnc = (() => {
-  try {
-    execFileSync("which", ["Xtigervnc"], { stdio: ["ignore", "pipe", "ignore"] });
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-/** The rig's origin, derived exactly like playwright.config.ts (E2E_PORT is
- *  harness-set; 3333 fails closed). */
-const RIG_ORIGIN = `http://localhost:${process.env.E2E_PORT ?? "3333"}`;
-
-async function postSettingsRaw(body: Record<string, unknown>): Promise<void> {
-  await fetch(`${RIG_ORIGIN}/api/settings`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }).catch(() => {});
-}
-
-async function fetchGuiStatusRaw(): Promise<{
-  reachable: boolean;
-  session: boolean;
-  display: string;
-  width: number;
-  height: number;
-  viewers: number;
-} | null> {
-  try {
-    const res = await fetch(`${RIG_ORIGIN}/api/gui/host`);
-    if (!res.ok) return null;
-    return (await res.json()) as {
-      reachable: boolean;
-      session: boolean;
-      display: string;
-      width: number;
-      height: number;
-      viewers: number;
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** Poll the gui status until `pred` holds (or the budget lapses). On
- *  exhaustion the error carries the LAST observed document — the reason field
- *  is the difference between "session absent" and "probe failed". */
-async function pollGuiStatus(
-  pred: (s: NonNullable<Awaited<ReturnType<typeof fetchGuiStatusRaw>>>) => boolean,
-  budgetMs = 25_000,
-): Promise<boolean> {
-  const deadline = Date.now() + budgetMs;
-  let last: unknown = null;
-  while (Date.now() < deadline) {
-    const s = await fetchGuiStatusRaw();
-    if (s) {
-      last = s;
-      if (pred(s)) return true;
-    }
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  console.log("pollGuiStatus exhausted; last status:", JSON.stringify(last));
-  return false;
-}
-
-/** Read the payload geometry once it is STABLE across two reads ≥1 s apart —
- *  a focused fine-pointer viewer's SetDesktopSize may still be landing, and
- *  the phone-fit stage must sample after that settle or it races the desktop
- *  viewer's own resize. Throws when the geometry never stabilizes. */
-async function stableGuiGeometry(budgetMs = 15_000): Promise<{ width: number; height: number }> {
-  const deadline = Date.now() + budgetMs;
-  let prev: { width: number; height: number } | null = null;
-  while (Date.now() < deadline) {
-    const s = await fetchGuiStatusRaw();
-    if (s && prev && s.width === prev.width && s.height === prev.height) {
-      return { width: s.width, height: s.height };
-    }
-    if (s) prev = { width: s.width, height: s.height };
-    await new Promise((r) => setTimeout(r, 1_200));
-  }
-  throw new Error("gui geometry never stabilized");
-}
-
 test.describe("gui surface — real Xvnc rig", () => {
   test.skip(!hasXtigervnc, "Xtigervnc not on PATH");
 
@@ -313,11 +238,7 @@ test.describe("gui surface — real Xvnc rig", () => {
   let fakeAppPid: number | null = null;
 
   test.beforeAll(() => {
-    try {
-      settingsSnapshot = readFileSync(SETTINGS_PATH);
-    } catch {
-      settingsSnapshot = null;
-    }
+    settingsSnapshot = snapshotSettings();
     createSession(SESSION, { windows: ["work"] });
   });
 
@@ -330,14 +251,7 @@ test.describe("gui surface — real Xvnc rig", () => {
       }
     }
     killSession(SESSION);
-    // Turn the switch back off (kills rk-gui) and unset the key, then restore
-    // the snapshotted settings file.
-    await postSettingsRaw({ "gui.enabled": null });
-    if (settingsSnapshot !== null) {
-      writeFileSync(SETTINGS_PATH, settingsSnapshot);
-    } else {
-      rmSync(SETTINGS_PATH, { force: true });
-    }
+    await restoreSettings(settingsSnapshot);
   });
 
   /**

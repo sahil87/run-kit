@@ -1,0 +1,6 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-10T01:58:54Z"}
+{"args":"gui-perf-measure Plan: fab/plans/sahil/26-09-09-gui-surface.md -- implement C5 (measure -- the GATE for C6); FIRST diagnose/fix the reported blank/black GUI tile; then the Playwright perf spec, laptop+phone over Tailscale numbers into docs/memory/run-kit/gui.md against D9, verdict, and the plan's C5 row","cmd":"fab-new","event":"command","ts":"2026-09-10T01:58:54Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-09-10T02:02:33Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-10T02:03:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-10T02:05:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-10T02:49:26Z"}

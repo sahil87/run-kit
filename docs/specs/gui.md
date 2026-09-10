@@ -5,9 +5,11 @@
 > tab (phone included); agents launch apps into it and screenshot it. It
 > exists only when the user has explicitly turned it on.
 >
-> **Status**: C2 (the backend — switch, supervisor, relay, state slot) and C3
-> (the frontend tile) are shipped; § Agent verbs (C4) and § Smoothness
-> targets (C5) remain **[target]**.
+> **Status**: C2 (the backend — switch, supervisor, relay, state slot), C3
+> (the frontend tile), C4 (§ Agent verbs), and C5 (§ Smoothness targets —
+> measured 2026-09-10) are shipped. C5's verdict picks up C6 as a
+> bandwidth-efficiency change (the fps target is met on loopback and on a
+> latency-only link, missed at ≤ 40 Mbit/s — see the memory table).
 >
 > Design authority: the design study
 > [`docs/wiki/gui-surface-design-study.html`](../wiki/gui-surface-design-study.html)
@@ -166,6 +168,15 @@ scrolling a browser page at 1080p over Tailscale; < 1 core of Xvnc CPU.
 KasmVNC (Linux only, its own client, iframe via the `/code/` proxy shape) is
 the upgrade lane, gated on C5's numbers.
 
+Measured (C5, 2026-09-10) by the `@perf` audit spec
+`app/frontend/tests/e2e/gui-perf.spec.ts` on loopback and on port-scoped
+`netem` links (`scripts/gui-perf-link.sh`): Xvnc CPU ≤ 0.52 cores and a
+pipeline cost of ~29 ms click-to-pixel on every link (met; the remaining
+latency is the link's own RTT); 59 fps on loopback and 34 fps at 260 ms RTT
+uncapped (met), 11 fps at 260 ms / 40 Mbit/s (missed — bytes per frame, not
+latency, bound the rate). The table, method, and re-run recipe live in
+`docs/memory/run-kit/gui.md` § Smoothness (C5).
+
 ---
 
 ## Out of scope
@@ -202,8 +213,8 @@ The execution plan's C0–C6, condensed (scope and acceptance live in
 | C2 | Backend: the switch, the supervisor, the relay | `gui.enabled`, `rk gui on\|off\|status\|env\|supervise`, the `rk-gui` session, the `/ws/gui/{id}` relay, `gui[]` on the state stream, the doctor row |
 | C3 | Frontend: the tile | The registry row gated on `enabled`, the `GuiSurface` noVNC canvas, the empty state, resize policy, palette and settings rows |
 | C4 | Agent verbs | `rk gui exec\|shot`, `DISPLAY` export in `rk agent setup`, `rk skill gui`, the `gui.md` memory file |
-| C5 | Measure | The perf spec that turns D9 into numbers — the GATE for C6 |
-| C6 | KasmVNC backend | Conditional on C5 missing D9's targets and C0 not having made Kasm the default |
+| C5 | Measure | The perf spec that turns D9 into numbers — the GATE for C6; verdict: fps missed at ≤ 40 Mbit/s (bytes per frame), C6 picked up as a bandwidth-efficiency change |
+| C6 | KasmVNC backend | Picked up by C5's verdict; its intake weighs the in-tree Tight quality lever against the Kasm backend's byte reduction before committing to a second renderer |
 
 Picked with the user at C2/C3 (recorded as open, not decided here): the 4th
 toggle's glyph (`▣` placeholder — C3); the WM probe order (`openbox`,

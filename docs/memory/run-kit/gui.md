@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The GUI surface — the gui.enabled switch, the rk gui CLI family (on/off/status/env/restart/exec/shot + hidden supervise), the rk-gui supervisor session (display selection, Xvnc argv, WM ladder, @rk_gui_* stamps), the /ws/gui/{id} RFB relay (close-code gates, view-only filter), the event: gui slot, /api/gui/* routes, the doctor row, internal/gui (probe, apps scan, Assemble), the agent verbs (exec passthrough/--detach, shot ladder), the rk agent setup gui display block, and the rk skill gui topic."
+description: "The GUI surface — the gui.enabled switch, the rk gui CLI family (on/off/status/env/restart/exec/shot + hidden supervise), the rk-gui supervisor (display pick, Xvnc argv, WM ladder, solid root background, @rk_gui_* stamps), the /ws/gui/{id} RFB relay (close-code gates, view-only filter), the event: gui slot, /api/gui/* routes, doctor row, internal/gui (probe, apps, Assemble), agent verbs, the rk agent setup display block, rk skill gui, and the C5 smoothness numbers against D9 with the C6 verdict."
 ---
 # GUI Surface
 
@@ -83,8 +83,9 @@ The host desktop runs as the `rk-gui` sibling session (single window `host`) on 
    Binary resolution is **by name `Xtigervnc` first, `Xvnc` only when `Xtigervnc` is absent** (the KasmVNC deb hijacks `Xvnc` via `update-alternatives`); `-rfbport -1` is mandatory (without it TigerVNC still binds TCP 5900+N on all interfaces).
 3. Wait ≤ 5 s for the socket (`guiSocketWaitTimeout`/`guiSocketWaitPoll` 5 s/200 ms), `chmod 0600` it, log `gui: <bin> up on :N (socket <path>)`. Stamp `@rk_gui_display :N` and `@rk_gui_backend <bin>` on the `rk-gui` session via `tmux -L rk-daemon set-option -t =rk-gui: …` (best-effort, 5 s bound) — the session-scoped exact-match target `tmux.ExactSessionTarget(...)` (`=rk-gui:` — the trailing colon is load-bearing: tmux 3.7c rejects the bare `=name` form for the option commands; § Design Decisions → Session-option commands target `=rk-gui:`); readers are `rk gui status`/`env`, the state probe (`guiSessionOption`, same target), and `gui.Assemble`. The `@rk_*` per-entity state home ([tmux-sessions](/run-kit/tmux-sessions.md) § Server-Scoped User Options).
 4. Launch the first WM found in the ladder `openbox → xfwm4 → i3 → kwin_x11 → x-session-manager` with `DISPLAY=:N` in its env, `x-session-manager` wrapped as `dbus-run-session -- x-session-manager`; none found ⇒ log `gui: no window manager found (tried openbox, xfwm4, i3, kwin_x11, x-session-manager); running bare — apt install openbox` and continue (a bare X display is still usable).
-5. Trap SIGTERM/SIGINT/SIGHUP (`signal.NotifyContext`): kill the WM, remove the socket, reap the backend, exit 0.
-6. **Stay-idle exit semantics**: when the backend exits on its own, log `gui: <bin> exited (status N) — display :N is down; run 'rk gui restart' or turn the GUI off`, kill the WM, remove the socket, and block until a signal arrives (no auto-respawn, no process exit) — the pane remains readable and the session still exists, so ensure skips it while status and the stream report not-running until `rk gui restart` / `POST /api/gui/host/restart` / `rk gui off`.
+5. Paint the root window: `gui.RootBackgroundArgv` resolves `xsetroot -solid #3b4252` (`gui.RootBackground`) and the supervisor runs it once with `DISPLAY=:N` under a 5 s bound (`guiRootBackgroundTimeout`, seam `guiSuperviseRunOnDisplay`), best-effort — a failure logs `gui: xsetroot failed: <err>; the empty desktop stays black`; no `xsetroot` on PATH logs `gui: no xsetroot on PATH; the empty desktop stays black — apt install x11-xserver-utils`. Either way the supervisor continues. Xvnc's root is otherwise black and openbox paints no desktop, so a freshly enabled GUI with no app running would render as a black tile indistinguishable from a dead canvas (§ Design Decisions → Empty desktop gets a solid root background). (xy7q)
+6. Trap SIGTERM/SIGINT/SIGHUP (`signal.NotifyContext`): kill the WM, remove the socket, reap the backend, exit 0.
+7. **Stay-idle exit semantics**: when the backend exits on its own, log `gui: <bin> exited (status N) — display :N is down; run 'rk gui restart' or turn the GUI off`, kill the WM, remove the socket, and block until a signal arrives (no auto-respawn, no process exit) — the pane remains readable and the session still exists, so ensure skips it while status and the stream report not-running until `rk gui restart` / `POST /api/gui/host/restart` / `rk gui off`.
 
 **macOS** (`GOOS=darwin`): supervise spawns nothing — it stamps `@rk_gui_backend screen-sharing` and logs the Screen Sharing dial result (`127.0.0.1:5900`) once a minute (`Screen Sharing: reachable on 127.0.0.1:5900` / `Screen Sharing: not reachable — enable System Settings › General › Sharing › Screen Sharing`), exiting 0 on signal. Backend detection reports `screen-sharing` and never `GUIEnsureNoBackend`.
 
@@ -124,6 +125,37 @@ Registered in `api/router.go` beside `/api/settings` (mutations POST-only, Const
 ## Validation
 
 `validate.ValidateGUIID(id string) string` returns `""` for exactly `"host"` and ``gui id must be "host"`` otherwise — the path and payload stay list-shaped so a second id lands at the validator later. Used by the relay, both `/api/gui` routes, and `rk gui supervise`.
+
+## Smoothness (C5)
+
+The plan's D9 targets — **click-to-pixel < 100 ms**, **≥ 30 fps scrolling a browser page at 1080p over Tailscale**, **< 1 core of Xvnc CPU** — are measured by the `@perf` audit spec `app/frontend/tests/e2e/gui-perf.spec.ts` (see [lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § GUI Surface for its e2e shape), never asserted: it records and prints, and the verdict is a reading of the table below. (xy7q)
+
+**Method.** The spec turns the rig's GUI on through the settings POST, launches Playwright's own Chromium in kiosk on the payload's `DISPLAY` with a generated ~300 KB long page (text + colored tile rows, plus a fixed 240×240 square that toggles red⇄teal on pointerdown), and drives a wheel scroll with `xdotool click --repeat N --delay 33 5` (30 notches/s) for a 2 s ramp + 10 s window. In the viewer it installs three probes before the app loads: a `CanvasRenderingContext2D.prototype.drawImage` wrap counting draws whose source is a canvas onto the gui tile's canvas (noVNC 1.7 `Display.flip()` — one per completed FramebufferUpdate — so **fps is the client's framebuffer-update rate**), a `WebSocket` wrap summing binary message bytes on `/ws/gui/` (**relay Mbit/s** as the browser sees it), and a capture-phase `pointerdown` stamp. Xvnc and guest-Chromium **cores** are utime+stime deltas from `/proc/<pid>/stat` over the window. **Click-to-pixel** arms a rAF poll of `getImageData` at the square, clicks through the tile (`page.mouse.click`; `touchscreen.tap` on the coarse viewer), and stops at the color flip — the full pointer → relay → Xvnc → guest repaint → encode → decode → paint path, 20 trials, p50/p95. Three runs per link: an idle baseline, a fine-pointer viewer with the tile zen-zoomed and the viewport fitted so the desktop is exactly 1920×1080 (SetDesktopSize via `resizeSession`), and a coarse 390×844 touch viewer attached alongside it with the desktop locked at 1080p (`GUI: Lock resolution` on the fine viewer; the phone scales client-side — D7 holds, asserted). Links are emulated with `scripts/gui-perf-link.sh on <backend-port> <rtt_ms> <mbit>` — a port-scoped `tc prio` + `netem` on `lo` (delay rtt/2 each way, optional rate cap) matching only the rig's Go backend port, so the live daemon on `:3000` is untouched; `RK_GUI_PERF_LABEL` names the row. The 260 ms RTT is what `tailscale ping` measured from this VM (`dev-ws-sahil01`, 16 vCPU, no GPU) to the user's laptop and phone in India (DERP-relayed, 258–274 ms); the 40 Mbit/s cap is an assumed DERP-relay budget — the real device throughput has not been measured (see the recipe).
+
+**Results (2026-09-10, Xtigervnc 1.12 + openbox, noVNC 1.7.0 Tight/JPEG at the tile's presets — fine 6/2, coarse 4/6; desktop 1920×1080 in every row; idle rows are 0 fps / 0 Mbit/s / 0.00 cores everywhere):**
+
+| Link (viewer → relay) | Viewer | fps | Relay Mbit/s | Xvnc cores | Guest cores | Click→pixel p50 / p95 |
+|---|---|---|---|---|---|---|
+| loopback | fine 1080p | **59.2** | 109.3 | **0.29** | 0.18 | **29 / 46 ms** |
+| loopback | coarse 390×844 (+ fine attached) | 63.1 | 66.8 | 0.52 | 0.21 | 33 / 59 ms |
+| 260 ms RTT, uncapped (latency only) | fine 1080p | **33.7** | 75.8 | 0.23 | 0.17 | 279 / 315 ms |
+| 260 ms RTT, uncapped | coarse | 50.4 | 58.1 | 0.42 | 0.19 | 283 / 315 ms |
+| 0 ms, 40 Mbit/s (bandwidth only) | fine 1080p | 16.6 | 37.6 | 0.14 | 0.16 | 29 / 44 ms |
+| 0 ms, 40 Mbit/s | coarse | 13.1 | 17.1 | 0.16 | 0.17 | 33 / 66 ms |
+| 0 ms, 20 Mbit/s | fine 1080p | 8.5 | 19.4 | 0.11 | 0.16 | 29 / 153 ms |
+| 0 ms, 20 Mbit/s | coarse | 5.9 | 7.6 | 0.12 | 0.16 | 29 / 199 ms |
+| 50 ms, 40 Mbit/s | fine 1080p | 14.7 | 33.4 | 0.14 | 0.16 | 63 / 108 ms |
+| 120 ms, 40 Mbit/s | fine 1080p | 8.0 | 18.1 | 0.11 | 0.15 | 146 / 204 ms |
+| **260 ms, 40 Mbit/s (the Tailscale proxy)** | fine 1080p | **11.1** | 25.0 | 0.12 | 0.16 | **280 / 303 ms** |
+| 260 ms, 40 Mbit/s | coarse | 10.7 | 13.7 | 0.15 | 0.16 | 283 / 333 ms |
+
+Coarse rows share the capped port with the still-connected fine viewer, so their Mbit/s is a share, not a ceiling. Xvnc's 60 fps `-FrameRate` and the browser's rAF bound the loopback rows.
+
+**Reading.** Three facts fall out. (1) The pipeline's own cost is small: click-to-pixel is 29 ms p50 on loopback and RTT + ~20 ms everywhere else; Xvnc never exceeds 0.52 cores even with two viewers. (2) Latency alone does not break the frame rate: at 260 ms with no cap the fine viewer still updates at 34 fps (noVNC pipelines its FramebufferUpdateRequests, so RFB's request/response loop is not the limiter). (3) **Bytes per frame are.** A full-screen 1080p scroll at the fine preset costs ~1.85 Mbit per update (109 Mbit/s ÷ 59 fps), so a 40 Mbit/s link caps the update rate near 17 fps and a 20 Mbit/s link near 8, independent of RTT — the fps rows track the cap, not the delay.
+
+**Verdict against D9 (2026-09-10).** *Xvnc CPU < 1 core*: **met** on every row. *Click-to-pixel < 100 ms*: **met net of the link** — the pipeline adds ~20–30 ms, and no backend can beat the ~260 ms RTT floor from the user's devices (the C0 verdict's point). *≥ 30 fps at 1080p over Tailscale*: **met when the link carries ≥ ~60 Mbit/s, missed at 40 Mbit/s or less (11 fps at the 260 ms/40 Mbit proxy)** — and the miss is encoder-attributable: the encoded byte budget per frame, not latency or CPU. Per the plan's rule (an encoder-attributable fps miss ⇒ C6), **C6 is picked up**, scoped as a *bandwidth-efficiency* change: its intake should first measure the user's real Tailscale throughput with the recipe below, then weigh the cheap in-tree lever (a lower or adaptive Tight `qualityLevel`/`compressionLevel` for fine viewers — the coarse preset already ships ~40 % fewer bytes at the same content) against the KasmVNC backend's ~3× byte reduction the C0 spike measured (42 vs 121 Mbit/s), before committing to a second renderer.
+
+**Re-run recipe.** On this host: `just dev` (the rig), then `just pw test gui-perf` for the loopback row; `scripts/gui-perf-link.sh on <E2E_PORT+1> 260 40 && RK_GUI_PERF_LABEL=netem-260ms-40mbit just pw test gui-perf; scripts/gui-perf-link.sh off` for an emulated link (`mbit=0` ⇒ uncapped). Results print in `afterAll` and land in `app/frontend/test-results/gui-perf-<label>.json` (merged by run+viewer across Playwright worker restarts). Caveat on a host with the live daemon running: the rig's backend shares the `rk-daemon` tmux socket, so the spec's `gui.enabled` off/on cycle kills and respawns the host's own `rk-gui` session and leaves it off-then-`on — not running` at the end — `rk gui restart` brings it back. From a real laptop over Tailscale: install the frontend deps there, point Playwright at the rk origin (`E2E_PORT` is the rig contract; against a live daemon use `RK_E2E_PORT=<port>` with the daemon's host in `baseURL`), turn the GUI on with `rk gui on`, launch the guest with `rk gui exec --detach -- <chromium> --kiosk --window-size=1920,1080 file:///<page>` and scroll with `rk gui exec -- xdotool mousemove 960 640 click --repeat 360 --delay 33 5`; read the fps/bytes probes from the same spec or its `INSTALL_PROBES` snippet in DevTools. A phone cannot run Playwright — the coarse rows above are the emulated proxy; a hands-on phone run reads noVNC's update cadence by eye only.
 
 ## Requirements
 
@@ -171,6 +203,24 @@ Every verb that acts on the live display (`exec`, `shot`) SHALL apply the same g
 - **THEN** all three print `gui is on but not running — see 'rk gui status'` and exit 1
 
 ## Design Decisions
+
+### Empty desktop gets a solid root background
+**Decision**: the Linux supervisor runs `xsetroot -solid #3b4252` (`gui.RootBackground`) once after the WM launch, best-effort under a 5 s bound, logging an `x11-xserver-utils` install hint when `xsetroot` is absent; macOS is untouched.
+**Why**: Xvnc's default root is black and openbox paints no desktop, so a freshly enabled GUI with nothing running rendered as a black tile indistinguishable from a dead canvas (reported as "blank/black screen" the day the tile shipped). A solid fill costs the encoder one rect per update. Running after the WM lets a desktop environment on the ladder that paints its own desktop window win visually.
+**Rejected**: Xvnc `-retro` (the classic weave stipple is high-frequency JPEG noise on every full update and scales badly on phones); a frontend "empty desktop" overlay (the tile has no live `apps` signal — only the one-shot status GET on the unreachable transition — and text over a live desktop is intrusive).
+*Introduced by*: 260910-xy7q-gui-perf-measure
+
+### Smoothness is audited by a `@perf` spec, never gated
+**Decision**: `gui-perf.spec.ts` records fps, relay bytes, CPU, and click-to-pixel and prints/writes them; its only assertions are rig health (canvas painted, frames and bytes flowed, a coarse viewer left the geometry alone). It is `@perf`-tagged (excluded from `just test-e2e`, run via `just pw test gui-perf`) and skips without `Xtigervnc`/`xdotool`.
+**Why**: loopback timing is too noisy for a stable gate (the echo-latency precedent), and the D9 verdict depends on the viewer's link, which only a labelled table can carry. The frame counter rides a `drawImage(<canvas>)` hook because the RFB instance is a closure inside the tile — no product seam is exposed for a test.
+**Rejected**: threshold assertions (flaky on shared runners, wrong on a high-RTT link); a product-side perf overlay (scope; the probes are three lines of init script).
+*Introduced by*: 260910-xy7q-gui-perf-measure
+
+### Remote links are emulated with port-scoped netem, not CDP throttling
+**Decision**: `scripts/gui-perf-link.sh` installs `tc prio` + `netem` (delay rtt/2, optional rate cap) on `lo` with `u32` filters on the rig's Go backend port only.
+**Why**: the agent cannot drive the user's devices; the C0 verdict found CDP's per-message throttle starves the RFB request loop and collapses every stack to the same number; matching one port keeps the live daemon and every other loopback consumer unaffected, and delaying the backend rather than Vite keeps the dev module graph loading at full speed while the RFB stream and API pay the round trip.
+**Rejected**: CDP `emulateNetworkConditions`; a global netem on `lo`; delaying the Vite port.
+*Introduced by*: 260910-xy7q-gui-perf-measure
 
 ### Session-option commands target `=rk-gui:`, not `=rk-gui`
 **Decision**: the `@rk_gui_display`/`@rk_gui_backend` stamp write (`cmd/rk/gui_supervise.go`) and the hub's option read (`internal/daemon/gui.go`'s `guiSessionOption`) target the session-scoped exact-match form `tmux.ExactSessionTarget(GUISessionName)` (`=rk-gui:` — the `internal/tmux/board.go` precedent); `kill-session`, `display-message`, and `list-panes` keep the bare `=rk-gui` target.

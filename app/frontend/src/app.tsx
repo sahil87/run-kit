@@ -5117,6 +5117,12 @@ function AppShell() {
               server={server}
               windowId={windowParam}
               sessionName={sessionName ?? ""}
+              // A UI-initiated switch records its intent (`pendingClickRef`)
+              // in the same tick as the navigate, before this render: only then
+              // may the tty tile arm its deferred buffer clear. A tmux/SSE-
+              // driven URL writeback carries no intent — the attached client
+              // already redrew, so the clear must stay off.
+              clearOnWindowChange={isSamePendingTarget(pendingClickRef.current, server, windowParam)}
               // The payload's window record: the code tile reads the shared
               // code root (`codeRootFor`), the web tile the active web tab.
               window={effectiveWindow}

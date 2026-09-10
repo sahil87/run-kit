@@ -504,7 +504,7 @@ describe("SurfaceLayout zoom", () => {
 });
 
 describe("SurfaceLayout per-window reset (server-keyed grid, windowId prop change)", () => {
-  const SPLIT = { shape: "split-h", order: ["tty", "web"] } as Layout;
+  const SPLIT: Layout = { shape: "split-h", order: ["tty", "web"] };
 
   it("resets the zoom from the NEW window's stored key — and never writes the old window's key", () => {
     // @1 zoomed on web; @2 has no stored zoom.

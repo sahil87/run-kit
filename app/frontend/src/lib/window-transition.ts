@@ -473,7 +473,7 @@ export function tearDownMask(): void {
 
 /**
  * The switch is confirmed ARRIVED by an out-of-band authority — the SSE snapshot
- * reporting the target window active (260715-38kg) — and at least one byte has
+ * reporting the target window active — and at least one byte has
  * already been counted as the incoming window's. BYTE-GATED: when no byte has
  * been counted for the current switch epoch this is a NO-OP on the gate and the
  * mask. SSE fires as soon as `select-window` lands — before any byte has reached

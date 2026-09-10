@@ -191,6 +191,13 @@ interface SurfaceLayoutProps {
   server: string;
   /** The route window id (`@N`). */
   windowId: string;
+  /** True when the current `windowId` was reached by a UI-initiated switch
+   *  (a pending click intent targets it). Forwarded to the tty tile as
+   *  `clearOnRide`: only a UI-initiated same-session ride arms the deferred
+   *  buffer clear — on a tmux/SSE-driven switch the attached client has
+   *  already redrawn the new window BEFORE the URL followed, so a clear armed
+   *  then would wipe painted content on its next chunk. */
+  clearOnWindowChange?: boolean;
   sessionName: string;
   /** The SSE-derived window record — tile meta + renderer props (web URL,
    *  code root) narrow from it; an unavailable kind renders an empty tile body
@@ -559,6 +566,7 @@ export function SurfaceLayout({
   layout,
   server,
   windowId,
+  clearOnWindowChange = false,
   sessionName,
   window: win,
   isMobile,
@@ -1339,6 +1347,16 @@ export function SurfaceLayout({
     setFindQuery("");
     setFindResults(null);
     setFindRan(false);
+
+    // Interaction state mid-gesture belongs to the window it started on: a
+    // divider or intersection drag in flight would otherwise persist its
+    // release under the NEW window's ratio key, and an open ⇩ export menu
+    // would offer the old window's buffer.
+    dragRef.current = null;
+    setDraggingIndex(null);
+    intersectionDragRef.current = null;
+    setDraggingIntersection(false);
+    setExportMenuPos(null);
   }, [server, windowId, layout.order]);
 
   // ── Web-tab strip verbs (optimistic select/remove/move) ────────────────
@@ -1436,9 +1454,14 @@ export function SurfaceLayout({
 
   // A window switch re-runs this effect's cleanup (the deps change — the
   // component is keyed by server, not remounted): drop any in-flight override
-  // for the window left behind.
+  // for the window left behind, and start the move queue fresh — a failed or
+  // still-pending move chain from the old window must not cancel the new
+  // window's first reorder or strand its optimistic override.
   useEffect(
-    () => () => clearWebOverride(server, sessionName, windowId),
+    () => () => {
+      clearWebOverride(server, sessionName, windowId);
+      webMoveQueueRef.current = Promise.resolve(true);
+    },
     [server, sessionName, windowId, clearWebOverride],
   );
 
@@ -1464,6 +1487,7 @@ export function SurfaceLayout({
               windowId={windowId}
               server={server}
               switchReceiptSource={primaryTty}
+              clearOnRide={clearOnWindowChange}
               wsRef={primaryTty ? wsRef : extraTtyWsRef}
               onSessionNotFound={primaryTty ? onSessionNotFound : undefined}
               focusRef={primaryTty ? focusRef : undefined}

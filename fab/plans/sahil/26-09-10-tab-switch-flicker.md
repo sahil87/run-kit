@@ -27,8 +27,10 @@ recording (terminal-region luminance at 30 fps):
 | 8.30 s | 167 ms · content · blank 267 ms |
 | 10.17 s | 433 ms |
 
-**Status (2026-09-10)**: Change A in progress. Change B waits on the
-re-measurement after A ships.
+**Status (2026-09-10)**: Change A shipped as PR #914
+(`260910-0awz-tab-switch-persistent-terminal`); Copilot and codex review
+findings addressed on the branch (the stale-chunk clear deferred as B5).
+Change B waits on the re-measurement after A merges.
 
 ---
 

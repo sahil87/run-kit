@@ -810,6 +810,7 @@ describe("TerminalClient connection identity — (server, owning session), not w
     windowId: string;
     server?: string;
     onSessionNotFound?: () => void;
+    clearOnRide?: boolean;
   };
 
   /** Rerenderable harness so tests can change session/window/server props. */
@@ -824,6 +825,7 @@ describe("TerminalClient connection identity — (server, owning session), not w
             server={p.server ?? "default"}
             wsRef={wsRef}
             onSessionNotFound={p.onSessionNotFound}
+            clearOnRide={p.clearOnRide}
             scrollLocked={false}
           />
         </FocusedTerminalProvider>
@@ -868,7 +870,7 @@ describe("TerminalClient connection identity — (server, owning session), not w
 
     // Same-session window switch: tmux select-window moves the attached PTY in
     // place — the stream must survive.
-    view.rerender(renderAt({ sessionName: "sess", windowId: "@1" }));
+    view.rerender(renderAt({ sessionName: "sess", windowId: "@1", clearOnRide: true }));
     await act(async () => {});
 
     expect(st1.closeSpy).not.toHaveBeenCalled();
@@ -909,7 +911,7 @@ describe("TerminalClient connection identity — (server, owning session), not w
     });
 
     // Same-session switch: rides the live stream and arms the deferred clear.
-    view.rerender(renderAt({ sessionName: "sess", windowId: "@1" }));
+    view.rerender(renderAt({ sessionName: "sess", windowId: "@1", clearOnRide: true }));
     await act(async () => {});
     expect(st1.setWindowIdSpy).toHaveBeenCalledWith("@1");
     expect(term.clear).not.toHaveBeenCalled(); // armed, not yet fired
@@ -940,7 +942,7 @@ describe("TerminalClient connection identity — (server, owning session), not w
       runRafCallbacks();
     });
 
-    view.rerender(renderAt({ sessionName: "sess", windowId: "@1" }));
+    view.rerender(renderAt({ sessionName: "sess", windowId: "@1", clearOnRide: true }));
     await act(async () => {});
 
     // A large redraw chunk (> IMMEDIATE_WRITE_MAX_BYTES) coalesces: no clear
@@ -988,7 +990,7 @@ describe("TerminalClient connection identity — (server, owning session), not w
     // Ride to @1 (arms the clear), then a socket drop re-opens the stream
     // before any chunk arrives — onOpened arms the deferred reset and drops
     // the pending clear.
-    view.rerender(renderAt({ sessionName: "sess", windowId: "@1" }));
+    view.rerender(renderAt({ sessionName: "sess", windowId: "@1", clearOnRide: true }));
     await act(async () => {});
     act(() => {
       st1.emitOpened();
@@ -1002,6 +1004,34 @@ describe("TerminalClient connection identity — (server, owning session), not w
     expect(term.reset.mock.invocationCallOrder[1]).toBeLessThan(
       writeOrderOf(term, "redraw"),
     );
+  });
+
+  it("does NOT arm the clear on a tmux-driven ride (clearOnRide false) — the attached client already redrew, so the next chunk must not wipe it", async () => {
+    const { view, renderAt } = createHarness({ sessionName: "sess", windowId: "@0" });
+    await flushInit();
+    const st1 = lastStream();
+    const term = terminalSpies();
+
+    act(() => {
+      st1.emitOpened();
+      st1.emitData("@0-scrollback");
+    });
+    act(() => {
+      runRafCallbacks();
+    });
+
+    // The URL followed a tmux select-window (SSE writeback): no pending click
+    // intent, so the route passes no clearOnRide.
+    view.rerender(renderAt({ sessionName: "sess", windowId: "@1" }));
+    await act(async () => {});
+    expect(st1.setWindowIdSpy).toHaveBeenCalledWith("@1");
+
+    act(() => {
+      st1.emitData("r");
+    });
+    expect(term.clear).not.toHaveBeenCalled();
+    expect(term.reset).toHaveBeenCalledTimes(1);
+    expectWritten(term, "r");
   });
 
   it("does NOT arm the clear while the connection is unresolved — the windowId change reconnects instead", async () => {

@@ -60,7 +60,7 @@
  * clear and the deferred write's parse can never false-positive.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { gotoServerReady, resolveWindow, READY_TIMEOUT } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
@@ -188,13 +188,15 @@ test.describe("Window-switch slide transition (animated path)", () => {
 
     // Two named windows in the shared session, each carrying its own marker.
     newWindow(TEST_SESSION, winA);
-    execSync(
-      `tmux -L ${TMUX_SERVER} send-keys -t "${TEST_SESSION}:${winA}" "echo ${markerA}" Enter`,
+    execFileSync(
+      "tmux",
+      ["-L", TMUX_SERVER, "send-keys", "-t", `${TEST_SESSION}:${winA}`, `echo ${markerA}`, "Enter"],
       { stdio: "ignore" },
     );
     newWindow(TEST_SESSION, winB);
-    execSync(
-      `tmux -L ${TMUX_SERVER} send-keys -t "${TEST_SESSION}:${winB}" "echo ${markerB}" Enter`,
+    execFileSync(
+      "tmux",
+      ["-L", TMUX_SERVER, "send-keys", "-t", `${TEST_SESSION}:${winB}`, `echo ${markerB}`, "Enter"],
       { stdio: "ignore" },
     );
 
@@ -306,17 +308,16 @@ test.describe("Window-switch slide transition (animated path)", () => {
    * 3. Deep-link into window A's terminal and wait for A's marker to paint,
    *    so the switch starts from a real, populated outgoing terminal.
    * 4. Capture the `.xterm` element handle (the outgoing terminal's node).
-   * 5. Arm a ~50ms poll of the xterm buffer's viewport text (via
-   *    `window.__rkTerminals`, whichever of the two ids the persisted
-   *    terminal is currently keyed under — WebGL paints no DOM text layer),
-   *    recording a violation only on two CONSECUTIVE blank/missing samples so
-   *    the one-macrotask clear→parse gap can't false-positive, then click
-   *    window B's sidebar row.
+   * 5. Arm an in-page requestAnimationFrame probe of the xterm buffer's
+   *    viewport text (via `window.__rkTerminals`, whichever of the two ids
+   *    the persisted terminal is currently keyed under — WebGL paints no DOM
+   *    text layer) that records the longest run of consecutive blank frames,
+   *    then click window B's sidebar row.
    * 6. Wait for B's marker in `__rkTerminals[idB]`'s buffer within
    *    `SWITCH_COMPLETE_BUDGET_MS` — the incoming content painted.
-   * 7. Stop the poll and assert no violation — the surface was never empty
-   *    across the switch (the deferred clear repaints in the same frame it
-   *    wipes).
+   * 7. Stop the probe and assert at most ONE blank frame was ever observed —
+   *    the deferred clear wipes and the first chunk repaints within a task,
+   *    so two consecutive blank frames would be a visible flicker.
    * 8. Assert the `.xterm` handle after the switch IS the pre-switch node —
    *    the terminal (xterm instance, stream, scrollback) survived.
    */
@@ -333,13 +334,15 @@ test.describe("Window-switch slide transition (animated path)", () => {
     const markerB = `PERSISTBBB${ts}`;
 
     newWindow(TEST_SESSION, winA);
-    execSync(
-      `tmux -L ${TMUX_SERVER} send-keys -t "${TEST_SESSION}:${winA}" "echo ${markerA}" Enter`,
+    execFileSync(
+      "tmux",
+      ["-L", TMUX_SERVER, "send-keys", "-t", `${TEST_SESSION}:${winA}`, `echo ${markerA}`, "Enter"],
       { stdio: "ignore" },
     );
     newWindow(TEST_SESSION, winB);
-    execSync(
-      `tmux -L ${TMUX_SERVER} send-keys -t "${TEST_SESSION}:${winB}" "echo ${markerB}" Enter`,
+    execFileSync(
+      "tmux",
+      ["-L", TMUX_SERVER, "send-keys", "-t", `${TEST_SESSION}:${winB}`, `echo ${markerB}`, "Enter"],
       { stdio: "ignore" },
     );
 
@@ -359,34 +362,53 @@ test.describe("Window-switch slide transition (animated path)", () => {
     const xtermBefore = await page.locator(".xterm").elementHandle();
     if (!xtermBefore) throw new Error("expected a mounted .xterm before the switch");
 
-    // Sample the rendered terminal every ~50ms across the switch. The probe
-    // reads the xterm buffer of whichever id currently keys the persisted
-    // terminal (the registry re-keys A → B on the ride); a missing terminal
-    // counts as empty. A violation needs TWO consecutive blank samples — the
-    // deferred clear's clear→parse gap is a single macrotask, so one isolated
-    // blank sample can never convict, while the multi-hundred-ms blank this
-    // guards against always produces a streak.
-    let sawEmptySurface = false;
-    let blankStreak = 0;
-    let polling = true;
-    const surfacePoll = (async () => {
-      while (polling) {
-        const blank = await page.evaluate((ids) => {
-          const reg = window.__rkTerminals ?? {};
-          const term = ids.map((id) => reg[id]).find((t) => t !== undefined);
-          if (!term) return true;
-          const buf = term.buffer.active;
-          for (let y = buf.viewportY; y < buf.viewportY + term.rows; y++) {
-            const line = buf.getLine(y)?.translateToString(true) ?? "";
-            if (line.trim().length > 0) return false;
-          }
-          return true;
-        }, [idA, idB]);
-        blankStreak = blank ? blankStreak + 1 : 0;
-        if (blankStreak >= 2) sawEmptySurface = true;
-        await page.waitForTimeout(50);
-      }
-    })();
+    // Sample the terminal on EVERY animation frame across the switch, in-page
+    // (a requestAnimationFrame loop — no cross-process poll interval to hide a
+    // frame in). The probe reads the xterm buffer of whichever id currently
+    // keys the persisted terminal (the registry re-keys A → B on the ride); a
+    // missing terminal counts as blank. It records the longest run of
+    // consecutive blank frames and resolves when the test dispatches the stop
+    // event. The deferred clear wipes the buffer synchronously and the first
+    // post-switch chunk parses in the same or the next task, so the invariant
+    // under test allows at most ONE blank frame; two consecutive blank frames
+    // is a visible flicker.
+    const surfaceProbe = page.evaluate(
+      (ids) =>
+        new Promise<{ maxBlankStreak: number; frames: number }>((resolve) => {
+          let streak = 0;
+          let maxBlankStreak = 0;
+          let frames = 0;
+          let running = true;
+          const isBlank = () => {
+            const reg = window.__rkTerminals ?? {};
+            const term = ids.map((id) => reg[id]).find((t) => t !== undefined);
+            if (!term) return true;
+            const buf = term.buffer.active;
+            for (let y = buf.viewportY; y < buf.viewportY + term.rows; y++) {
+              const line = buf.getLine(y)?.translateToString(true) ?? "";
+              if (line.trim().length > 0) return false;
+            }
+            return true;
+          };
+          const tick = () => {
+            if (!running) return;
+            frames += 1;
+            streak = isBlank() ? streak + 1 : 0;
+            if (streak > maxBlankStreak) maxBlankStreak = streak;
+            requestAnimationFrame(tick);
+          };
+          window.addEventListener(
+            "rk-e2e:surface-probe-stop",
+            () => {
+              running = false;
+              resolve({ maxBlankStreak, frames });
+            },
+            { once: true },
+          );
+          requestAnimationFrame(tick);
+        }),
+      [idA, idB],
+    );
 
     const buttonB = sidebar
       .locator(`[data-window-id="${idB}"]`)
@@ -405,19 +427,22 @@ test.describe("Window-switch slide transition (animated path)", () => {
       })
       .toBe(true);
 
-    polling = false;
-    await surfacePoll;
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event("rk-e2e:surface-probe-stop"));
+    });
+    const probe = await surfaceProbe;
+    expect(probe.frames, "the frame probe never ran").toBeGreaterThan(0);
     expect(
-      sawEmptySurface,
-      "the terminal surface went empty during the switch — the persistent-terminal invariant is broken",
-    ).toBe(false);
+      probe.maxBlankStreak,
+      "the terminal surface was blank for two or more consecutive frames during the switch — the persistent-terminal invariant is broken",
+    ).toBeLessThanOrEqual(1);
 
     // The terminal node survived the switch (no remount).
     const xtermAfter = await page.locator(".xterm").elementHandle();
     if (!xtermAfter) throw new Error("expected a mounted .xterm after the switch");
     const sameNode = await page.evaluate(
-      ([a, b]) => a === b,
-      [xtermBefore, xtermAfter] as const,
+      ({ a, b }) => a === b,
+      { a: xtermBefore, b: xtermAfter },
     );
     expect(
       sameNode,

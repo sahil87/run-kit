@@ -173,6 +173,16 @@ type TerminalClientProps = {
    * output must never confirm a switch of the window they are not showing.
    */
   switchReceiptSource?: boolean;
+  /**
+   * When `true`, a same-session `windowId` change arms the deferred buffer
+   * clear (`terminal.clear()` before the first post-switch chunk). The route
+   * passes it only for a UI-initiated switch, where the URL changes BEFORE
+   * tmux redraws. On a tmux/SSE-driven switch the attached client has already
+   * painted the new window by the time the URL follows, so arming the clear
+   * then would wipe that content on its next chunk — those rides leave the
+   * buffer alone (the old window's rows stay in scrollback).
+   */
+  clearOnRide?: boolean;
   scrollLocked?: boolean;
   /**
    * Lines of scrollback on the xterm buffer. Absent → device-split default
@@ -211,6 +221,7 @@ export function TerminalClient({
   terminalRef: terminalSeamRef,
   onProgressChange,
   switchReceiptSource = false,
+  clearOnRide = false,
   scrollLocked,
   scrollback,
   transparent = false,
@@ -848,6 +859,9 @@ export function TerminalClient({
   // deps (a role flip must never tear the stream down).
   const switchReceiptSourceRef = useRef(switchReceiptSource);
   switchReceiptSourceRef.current = switchReceiptSource;
+  // Same discipline: the windowId effect reads it, never depends on it.
+  const clearOnRideRef = useRef(clearOnRide);
+  clearOnRideRef.current = clearOnRide;
 
   // The live RelayMux stream handle for the current connection. Held in a ref so
   // the same-session-ride effect below can update its re-open target without
@@ -887,8 +901,11 @@ export function TerminalClient({
     stream.setWindowId(windowId);
     // Arm the deferred buffer clear for the ride — only while a stream is live
     // AND the served session is resolved (an unresolved connection reconnects
-    // instead: the identity watcher's windowId-based rule bumps the epoch).
-    if (connectedSessionRef.current) {
+    // instead: the identity watcher's windowId-based rule bumps the epoch) AND
+    // the switch is UI-initiated (`clearOnRide`): a tmux-driven switch has
+    // already redrawn the new window before the URL followed, so a clear armed
+    // now would fire on the new window's NEXT chunk and wipe painted content.
+    if (connectedSessionRef.current && clearOnRideRef.current) {
       pendingClearRef.current = true;
     }
   }, [windowId]);

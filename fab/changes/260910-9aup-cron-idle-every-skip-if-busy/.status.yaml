@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 22
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-10T17:39:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T18:49:19Z"}
     review: {started_at: "2026-09-10T18:49:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T18:54:03Z"}
     hydrate: {started_at: "2026-09-10T18:54:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T19:03:19Z"}
-    ship: {started_at: "2026-09-10T19:03:19Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-10T19:03:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T19:06:56Z"}
+    review-pr: {started_at: "2026-09-10T19:06:56Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/926
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 3598
+    deleted: 221
+    net: 3377
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 2287
+        deleted: 148
+        net: 2139
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-10T19:03:19Z"
-    computed_at_stage: hydrate
+        added: 1330
+        deleted: 17
+        net: 1313
+    computed_at: "2026-09-10T19:06:56Z"
+    computed_at_stage: ship
 summary: 'cron: --idle-every sugar for a flat backoff idle reminder, the skip-if-busy deliver policy (logged skipped-busy drop), and rk cron edit + POST /api/cron/edit sharing cron.Edit with a rescheduled anchor reset; web UI shows and sets deliver'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-10T19:04:16Z
+last_updated: 2026-09-10T19:06:56Z

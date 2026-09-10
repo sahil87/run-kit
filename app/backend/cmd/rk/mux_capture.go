@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"rk/internal/promptscan"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 
@@ -34,27 +35,40 @@ import (
 // waiting (the rollupAgentState semantics — how long at rest / how long the
 // human has been the blocker), never for active. Exit codes follow the toolkit
 // convention: 0 success, 1 operational (missing pane, tmux failure), 2 usage.
+//
+// --classify adds a pending-prompt classification of the captured text
+// (promptscan) — a `question:` header line, or a `questions` object under
+// --json. It is substrate, not policy: any resolvable pane classifies
+// regardless of agent state, rk never answers what it finds, and `none` is a
+// report (exit 0), not a failure. --raw stays unannotated by contract.
 
 var (
-	muxCaptureLinesFlag int
-	muxCaptureJSONFlag  bool
-	muxCaptureRawFlag   bool
+	muxCaptureLinesFlag    int
+	muxCaptureJSONFlag     bool
+	muxCaptureRawFlag      bool
+	muxCaptureClassifyFlag bool
 )
 
 var muxCaptureCmd = &cobra.Command{
-	Use:   "capture <target> [-l <lines>] [--json | --raw]",
+	Use:   "capture <target> [-l <lines>] [--json | --raw] [--classify]",
 	Short: "Capture a pane's scrollback with substrate context",
 	Long: "Capture the last N lines of the target pane's scrollback (default 50) as " +
 		"plain text — no ANSI escapes — enriched with substrate facts only: the " +
-		"pane's cwd and its reconciled "+tmux.AgentStateOption+" with idle/waiting duration. " +
+		"pane's cwd and its reconciled " + tmux.AgentStateOption + " with idle/waiting duration. " +
 		"--raw prints the captured text only (byte-identical to tmux's output); " +
 		"--json emits the metadata wrapper. The content is never trimmed.\n\n" +
+		"--classify scans the captured text for a pending prompt (yes/no, numbered " +
+		"menu, colon prompt, open question, press-key) and reports the indicator " +
+		"class with the matched line, or none with a reason — as a question: header " +
+		"line, or a questions object under --json. Any pane classifies regardless of " +
+		"agent state; rk never answers. Not combinable with --raw.\n\n" +
 		"Targets: %N (pane), @N (window — resolves to its agent pane), " +
 		"=session:window (exact). Bare session:window names are rejected.",
 	Example: `  rk mux capture %5
   rk mux capture @3 --lines 200
   rk mux capture %5 --raw
-  rk mux capture %5 --json`,
+  rk mux capture %5 --json
+  rk mux capture %5 --lines 20 --classify --json`,
 	Args: usageArgs(cobra.ExactArgs(1)),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runMuxCapture(cmd, args[0])
@@ -68,7 +82,10 @@ func init() {
 		"Output as JSON with metadata")
 	muxCaptureCmd.Flags().BoolVar(&muxCaptureRawFlag, "raw", false,
 		"Output the captured text only, byte-identical to tmux's output")
+	muxCaptureCmd.Flags().BoolVar(&muxCaptureClassifyFlag, "classify", false,
+		"Classify the captured text for a pending prompt")
 	muxCaptureCmd.MarkFlagsMutuallyExclusive("json", "raw")
+	muxCaptureCmd.MarkFlagsMutuallyExclusive("classify", "raw")
 }
 
 // muxCapture*Fn are package-level seams so runMuxCapture can be tested without
@@ -87,14 +104,41 @@ var (
 
 // muxCaptureJSON is the --json output shape: agent_state and
 // agent_state_duration are null when the pane is uninstrumented (or carries no
-// duration-bearing state).
+// duration-bearing state); questions is present only under --classify so the
+// six-key shape stays byte-identical for callers that never asked.
 type muxCaptureJSON struct {
-	Pane               string  `json:"pane"`
-	Lines              int     `json:"lines"`
-	Content            string  `json:"content"`
-	CWD                string  `json:"cwd"`
-	AgentState         *string `json:"agent_state"`
-	AgentStateDuration *string `json:"agent_state_duration"`
+	Pane               string               `json:"pane"`
+	Lines              int                  `json:"lines"`
+	Content            string               `json:"content"`
+	CWD                string               `json:"cwd"`
+	AgentState         *string              `json:"agent_state"`
+	AgentStateDuration *string              `json:"agent_state_duration"`
+	Questions          *muxCaptureQuestions `json:"questions,omitempty"`
+}
+
+// muxCaptureQuestions is the fixed-shape classification contract fab-kit's
+// `fab pane questions` is to consume structurally: indicator is a promptscan
+// class name or "none"; snippet is "" and reason non-null exactly when none.
+type muxCaptureQuestions struct {
+	Indicator string  `json:"indicator"`
+	Snippet   string  `json:"snippet"`
+	Reason    *string `json:"reason"`
+}
+
+func newMuxCaptureQuestions(r promptscan.Result) *muxCaptureQuestions {
+	q := &muxCaptureQuestions{Indicator: r.Indicator, Snippet: r.Snippet}
+	if r.Reason != "" {
+		q.Reason = &r.Reason
+	}
+	return q
+}
+
+// formatQuestionLine renders the human `question:` header line.
+func formatQuestionLine(r promptscan.Result) string {
+	if r.Indicator == promptscan.IndicatorNone {
+		return "question: none (" + r.Reason + ")"
+	}
+	return "question: " + r.Indicator + " — " + r.Snippet
 }
 
 // runMuxCapture is the testable core: parse → resolve → capture → enrich →
@@ -146,6 +190,11 @@ func runMuxCapture(cmd *cobra.Command, target string) error {
 		duration = sessions.FormatAgentDuration(muxCaptureNowFn().Unix() - facts.AgentStateEpoch)
 	}
 
+	var classification promptscan.Result
+	if muxCaptureClassifyFlag {
+		classification = promptscan.Scan(content)
+	}
+
 	if muxCaptureJSONFlag {
 		out := muxCaptureJSON{
 			Pane:    paneID,
@@ -158,6 +207,9 @@ func runMuxCapture(cmd *cobra.Command, target string) error {
 		}
 		if duration != "" {
 			out.AgentStateDuration = &duration
+		}
+		if muxCaptureClassifyFlag {
+			out.Questions = newMuxCaptureQuestions(classification)
 		}
 		enc := json.NewEncoder(sink.data)
 		enc.SetIndent("", "  ")
@@ -178,6 +230,9 @@ func runMuxCapture(cmd *cobra.Command, target string) error {
 	}
 	if len(parts) > 0 {
 		sink.Dataf("%s\n", strings.Join(parts, " | "))
+	}
+	if muxCaptureClassifyFlag {
+		sink.Dataf("%s\n", formatQuestionLine(classification))
 	}
 	sink.Dataf("---\n")
 	sink.Dataf("%s", content)

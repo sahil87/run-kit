@@ -120,11 +120,11 @@ func TestMuxCaptureValidation(t *testing.T) {
 	installMuxFakes(t, f)
 
 	for _, args := range [][]string{
-		{"capture", "mysession:win"},             // bare name rejected
-		{"capture", "%5", "--lines", "0"},        // < 1
-		{"capture", "%5", "--json", "--raw"},     // mutually exclusive
-		{"capture"},                              // missing target
-		{"capture", "%5", "%6"},                  // extra arg
+		{"capture", "mysession:win"},         // bare name rejected
+		{"capture", "%5", "--lines", "0"},    // < 1
+		{"capture", "%5", "--json", "--raw"}, // mutually exclusive
+		{"capture"},                          // missing target
+		{"capture", "%5", "%6"},              // extra arg
 	} {
 		stdout, _, err := runMuxCmd(t, args...)
 		if err == nil || exitCode(err) != exitUsage {
@@ -187,5 +187,125 @@ func TestMuxCaptureOperationalErrors(t *testing.T) {
 	_, _, err = runMuxCmd(t, "capture", "%5")
 	if err == nil || exitCode(err) != 1 {
 		t.Fatalf("facts read: err = %v, want exit 1", err)
+	}
+}
+
+// TestMuxCaptureClassifyJSON: --classify adds the fixed-shape questions object
+// under --json — reason null on a match, snippet empty on none — and the key
+// is absent without the flag (R3).
+func TestMuxCaptureClassifyJSON(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		args    []string
+		wantQ   string // "" = no questions key at all
+	}{
+		{
+			"matched", "building...\nOverwrite file [y/N]\n", []string{"--json", "--classify"},
+			"  \"questions\": {\n" +
+				"    \"indicator\": \"yes_no\",\n" +
+				"    \"snippet\": \"Overwrite file [y/N]\",\n" +
+				"    \"reason\": null\n" +
+				"  }\n",
+		},
+		{
+			"none with reason", "   \n", []string{"--json", "--classify"},
+			"  \"questions\": {\n" +
+				"    \"indicator\": \"none\",\n" +
+				"    \"snippet\": \"\",\n" +
+				"    \"reason\": \"blank_capture\"\n" +
+				"  }\n",
+		},
+		{"absent without flag", "Overwrite file [y/N]\n", []string{"--json"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &muxFake{states: map[string]string{"%5": ""}, captureContent: map[string]string{"%5": tc.content}}
+			installMuxFakes(t, f)
+
+			stdout, _, err := runMuxCmd(t, append([]string{"capture", "%5"}, tc.args...)...)
+			if err != nil {
+				t.Fatalf("err = %v", err)
+			}
+			if tc.wantQ == "" {
+				if strings.Contains(stdout, "questions") {
+					t.Errorf("stdout = %q, want no questions key without --classify", stdout)
+				}
+				return
+			}
+			if !strings.Contains(stdout, tc.wantQ) {
+				t.Errorf("stdout = %q, want questions block %q", stdout, tc.wantQ)
+			}
+			// The six existing keys still precede it in order.
+			if !strings.HasSuffix(stdout, "  \"agent_state_duration\": null,\n"+tc.wantQ+"}\n") {
+				t.Errorf("stdout = %q, want questions as the trailing key", stdout)
+			}
+		})
+	}
+}
+
+// TestMuxCaptureClassifyHumanLine: --classify appends one `question:` header
+// line after the context line — or directly after the pane header when the
+// context line is omitted — before the closing separator (R4).
+func TestMuxCaptureClassifyHumanLine(t *testing.T) {
+	cases := []struct {
+		name     string
+		facts    tmux.PaneFacts
+		content  string
+		wantHead []string
+	}{
+		{
+			"with context line", tmux.PaneFacts{CWD: "/tmp", AgentState: tmux.AgentStateIdle, AgentStateEpoch: 1_800_000_000},
+			"1) yes  2) no\n",
+			[]string{"--- pane %5 ---", "cwd: /tmp | agent: idle (5m)", "question: enumerated_options — 1) yes  2) no", "---"},
+		},
+		{
+			"without context line", tmux.PaneFacts{},
+			"Enter your name:\n",
+			[]string{"--- pane %5 ---", "question: colon_prompt — Enter your name:", "---"},
+		},
+		{
+			"none carries the reason", tmux.PaneFacts{CWD: "/tmp"},
+			"done\n>\n",
+			[]string{"--- pane %5 ---", "cwd: /tmp", "question: none (turn_boundary)", "---"},
+		},
+		{
+			"active pane still classifies", tmux.PaneFacts{CWD: "/tmp", AgentState: tmux.AgentStateActive, AgentStateEpoch: 1_800_000_000},
+			"Proceed? [Y/n]\n",
+			[]string{"--- pane %5 ---", "cwd: /tmp | agent: active", "question: yes_no — Proceed? [Y/n]", "---"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &muxFake{facts: map[string]tmux.PaneFacts{"%5": tc.facts}, captureContent: map[string]string{"%5": tc.content}}
+			installMuxFakes(t, f)
+
+			stdout, _, err := runMuxCmd(t, "capture", "%5", "--classify")
+			if err != nil {
+				t.Fatalf("err = %v", err)
+			}
+			want := strings.Join(tc.wantHead, "\n") + "\n" + tc.content
+			if stdout != want {
+				t.Errorf("stdout = %q, want %q", stdout, want)
+			}
+			if strings.Count(stdout, "question:") != 1 {
+				t.Errorf("stdout = %q, want exactly one question: line", stdout)
+			}
+		})
+	}
+}
+
+// TestMuxCaptureClassifyRawExclusive: --raw is byte-identical by contract, so
+// pairing it with --classify is a usage error and performs no capture (R2).
+func TestMuxCaptureClassifyRawExclusive(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+
+	stdout, _, err := runMuxCmd(t, "capture", "%5", "--classify", "--raw")
+	if err == nil || exitCode(err) != exitUsage {
+		t.Fatalf("err = %v (exit %d), want usage exit 2", err, exitCode(err))
+	}
+	if stdout != "" || len(f.captureCalls) != 0 {
+		t.Errorf("stdout = %q, captures = %v; want nothing on a usage error", stdout, f.captureCalls)
 	}
 }

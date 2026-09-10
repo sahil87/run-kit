@@ -302,7 +302,7 @@ func resetMuxFlags() {
 	awaitAnyFlag = false
 	awaitReadyFlag = false
 	muxCaptureLinesFlag = 50
-	muxCaptureJSONFlag, muxCaptureRawFlag = false, false
+	muxCaptureJSONFlag, muxCaptureRawFlag, muxCaptureClassifyFlag = false, false, false
 	muxKillForceFlag = false
 	muxProcessJSONFlag = false
 	muxPanesJSONFlag = false

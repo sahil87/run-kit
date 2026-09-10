@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — 13 tmux-substrate verbs, no daemon dependency, grouped as messaging (`send`/`await`) / pane mechanics (`capture`/`kill`/`process`, `panes`/`sessions`) / server ops (`new`/`adopt`/`reap`/`snapshot`/`init-conf`/`guard`). Pane-scoped members share the strict %N/@N/=session:window grammar and consume inherited `-L` (server ops reject it); `await --any` wakes on the first of N panes, `--ready` classifies boot-readiness (`ready %N (state|echo)` / `parked %N` / `narrow %N (WxH)`)."
+description: "The `rk mux` family — 13 tmux-substrate verbs: messaging (`send`/`await`), pane mechanics (`capture`/`kill`/`process`, `panes`/`sessions`), server ops (`new`/`adopt`/`reap`/`snapshot`/`init-conf`/`guard`). Pane-scoped members share the strict %N/@N/=session:window grammar and consume inherited `-L` (server ops reject it); `await --any` wakes on the first of N panes, `--ready` classifies boot-readiness (`ready`/`parked`/`narrow`), `capture --classify` a pending prompt from screen text."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -408,9 +408,9 @@ full `--timeout` is reachable.
   `running %5`, exit 0.
 
 ### Requirement: `rk mux capture` — plain scrollback with substrate-only enrichment
-`rk mux capture <target> [-l/--lines <N>] [--json | --raw]` SHALL capture the
-last N lines of the resolved pane's scrollback as **plain text — no `-e` ANSI
-escapes** — via `tmux.CapturePanePlainCtx` (the `-e` `CapturePaneCtx` variant
+`rk mux capture <target> [-l/--lines <N>] [--json | --raw] [--classify]` SHALL
+capture the last N lines of the resolved pane's scrollback as **plain text — no
+`-e` ANSI escapes** — via `tmux.CapturePanePlainCtx` (the `-e` `CapturePaneCtx` variant
 stays untouched for the chat echo probe), never trimming the content. `--lines`
 defaults to 50; `< 1` is a usage error. `--json` and `--raw` are mutually
 exclusive via `MarkFlagsMutuallyExclusive`; `--raw` prints the captured text
@@ -429,12 +429,46 @@ formatted floor `Ns`/`Nm`/`Nh` via `sessions.FormatAgentDuration` (the
 with the agent fields `null` when the pane is uninstrumented. A missing pane or
 tmux failure is operational (exit 1) carrying tmux's stderr diagnostic.
 
+**`--classify`** adds a pending-prompt classification of the captured text via
+`promptscan.Scan` (`internal/promptscan` — pure text, no tmux/exec): guards
+first (blank content → `blank_capture`; a bare `^\s*>\s*$` Claude turn-boundary
+prompt in the last two lines → `turn_boundary`), then a bottom-most-first walk
+of the non-empty lines testing class `question_mark` (last line only: ends in
+`?`, `< 120` chars, no `#`/`//`/`*`/`>` opener, no leading timestamp) and, on
+every line in order, `yes_no` (`[y/n]`/`(y/n)`/`(yes/no)`, case-insensitive),
+`action_word` (`\b(Allow|Approve|Confirm|Proceed)\?`), `imperative_question`
+(`Do you want to`/`Should I`/`Would you like`), `colon_prompt` (trailing `:`),
+`enumerated_options` (`[1-9]\)`), `press_key` (`Press.*key`/`press.*enter`/
+`hit.*enter`); the first matching line wins and is the snippet verbatim; no
+match → `none`/`no_indicator`. Class and reason identifiers are the cross-tool
+contract shared verbatim with fab-kit's `fab pane questions`. The verb applies
+**no agent-state gate** — any resolvable pane classifies, `active` and
+uninstrumented included — and never answers what it finds; `none` is a report,
+so exit stays 0. It scans exactly the captured `--lines` window (fab passes
+`--lines 20`). `--classify` and `--raw` are mutually exclusive (usage, exit 2)
+— raw output is byte-identical by contract. Human output gains exactly one
+header line after the context line (or directly after `--- pane %N ---` when
+that line is omitted): `question: {indicator} — {snippet}` or `question: none
+({reason})`. `--json` gains a `questions` object as the trailing key — present
+**only** under `--classify`, so the six-key shape is otherwise byte-identical —
+with fixed keys `indicator` (class name or `none`), `snippet` (`""` when none),
+`reason` (`null` when matched, else the reason).
+
 #### Scenario: Reconciled state with duration, no choreography fields
 - **GIVEN** a pane whose `@rk_pane_agent_state` is `waiting:<epoch 2m ago>:<live-pid>`
 - **WHEN** `rk mux capture %5` runs
 - **THEN** the context line contains `agent: waiting (2m)` and no
   `change:`/`stage:` parts; **AND GIVEN** a dead-pid value, **THEN** no
   `agent:` part appears (reconciled to unknown).
+
+#### Scenario: Classify reports a pending prompt on a hook-less pane
+- **GIVEN** an uninstrumented pane whose last screen line is `Overwrite file [y/N]`
+- **WHEN** `rk mux capture %5 --lines 20 --classify --json` runs
+- **THEN** the output ends with `"questions": {"indicator": "yes_no", "snippet":
+  "Overwrite file [y/N]", "reason": null}` and exit is 0; **AND GIVEN** the last
+  two lines are `done` / `>`, **THEN** `questions` is `{"indicator": "none",
+  "snippet": "", "reason": "turn_boundary"}`; **AND WHEN** `--classify --raw` is
+  passed, **THEN** exit is 2 and nothing is captured.
 
 ### Requirement: `rk mux kill` — gated pane removal
 `rk mux kill <target> [--force]` SHALL refuse through two gates before killing,
@@ -906,6 +940,29 @@ site (the SendLiteralArgs/SendKeyArgs lesson).
 **Rejected**: stripping escapes downstream (fragile, and `--raw` must stay
 byte-identical to tmux output).
 *Introduced by*: `260815-82w7-mux-substrate-twins`
+
+### Prompt classification is substrate, prompt policy is fab's
+**Decision**: `rk mux capture --classify` classifies any resolvable pane's
+screen text on request and reports `{indicator, snippet}` or `none` + reason;
+which panes to sweep, what to answer, and when to escalate stay in
+fab-operator. The classifier is the pure package `internal/promptscan`, and its
+class/reason identifiers match `fab pane questions` verbatim.
+**Why**: cli-layering rule 1 — rk owns pane reads (capture, reconciled state,
+readiness); fab owns choreography. A hook-less pane never flips
+`@rk_pane_agent_state` to `waiting`, so the pending-question fact for it is a
+request-time derivation from the screen (Constitution X's derivation side), and
+it belongs beside the other pane readers. A state gate in rk would bake operator
+policy into a substrate verb; identical identifiers make fab's rk-first
+delegation a structural pass-through; a pure package is unit-testable without
+tmux fakes and reusable by future rk consumers.
+**Rejected**: filtering to `waiting`/`idle` inside rk (duplicates fab's
+candidate policy and blocks classifying an `active` hook-less pane); a separate
+`rk mux questions` verb (a second capture with its own flags for one extra
+field); always emitting `questions` under `--json` (silent shape change for
+every caller); placing the scanner in `internal/tmux` or `internal/inject`
+(neither is about text classification); rk-native class names (forces a
+translation table in fab).
+*Introduced by*: `260910-a7g2-capture-classify-pending-prompts`
 
 ### Server-create collision probe is `ServerAlive`, refusal is operational
 **Decision**: `rk mux new` probes `tmux.ServerAlive` before creating; a live

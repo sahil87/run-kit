@@ -1,0 +1,156 @@
+// Package promptscan classifies captured pane text for a pending prompt —
+// a yes/no confirmation, a numbered menu, a colon-terminated input request,
+// an open question — so a hook-less pane whose agent state never flips to
+// waiting can still be recognised as blocked on a human.
+//
+// The package is pure text → Result: no tmux, exec, or I/O. Indicator and
+// reason identifiers are a cross-tool contract shared verbatim with fab-kit's
+// `fab pane questions`, whose classifier this mirrors; that verb is to
+// delegate to `rk mux capture --classify` when rk is present and map the
+// fields structurally, so renaming any identifier here breaks the contract.
+package promptscan
+
+import (
+	"regexp"
+	"strings"
+)
+
+// Indicator class names, one per mechanical prompt shape. IndicatorNone is
+// the no-match value; Result.Reason then says why.
+const (
+	IndicatorQuestionMark       = "question_mark"
+	IndicatorYesNo              = "yes_no"
+	IndicatorActionWord         = "action_word"
+	IndicatorImperativeQuestion = "imperative_question"
+	IndicatorColonPrompt        = "colon_prompt"
+	IndicatorEnumeratedOptions  = "enumerated_options"
+	IndicatorPressKey           = "press_key"
+	IndicatorNone               = "none"
+)
+
+// Reasons a capture classifies as IndicatorNone.
+const (
+	ReasonBlankCapture = "blank_capture"
+	ReasonTurnBoundary = "turn_boundary"
+	ReasonNoIndicator  = "no_indicator"
+)
+
+// Result is one classification. Snippet is the matched line verbatim and is
+// empty when Indicator is IndicatorNone; Reason is set only then.
+type Result struct {
+	Indicator string
+	Snippet   string
+	Reason    string
+}
+
+// questionMarkMaxLen bounds class 1: a line at or beyond this length ending
+// in "?" is prose, not a prompt.
+const questionMarkMaxLen = 120
+
+var (
+	// turnBoundaryPattern is Claude Code's bare human-turn prompt — a lone ">"
+	// on an otherwise empty line. Its presence in the last two lines means the
+	// screen sits at a normal turn boundary, not at a question.
+	turnBoundaryPattern       = regexp.MustCompile(`^\s*>\s*$`)
+	timestampPrefixPattern    = regexp.MustCompile(`^\s*[\[(]?\d{1,4}[-/:]\d{1,2}`)
+	yesNoPattern              = regexp.MustCompile(`(?i)(\[y/n\]|\(y/n\)|\(yes/no\))`)
+	actionWordPattern         = regexp.MustCompile(`\b(Allow|Approve|Confirm|Proceed)\?`)
+	imperativeQuestionPattern = regexp.MustCompile(`(?i)(Do you want to|Should I|Would you like)`)
+	enumeratedOptionsPattern  = regexp.MustCompile(`[1-9]\)`)
+	pressKeyPattern           = regexp.MustCompile(`(?i)(Press.*key|press.*enter|hit.*enter)`)
+)
+
+// questionMarkExcludedPrefixes are line openers that make a trailing "?"
+// commentary or quotation rather than a prompt.
+var questionMarkExcludedPrefixes = []string{"#", "//", "*", ">"}
+
+// Scan classifies captured pane text. Guards run first: blank content, then
+// a turn boundary in the last two lines. Otherwise non-empty lines are walked
+// bottom-most first; class 1 (question-mark ending) applies to the actual last
+// line only, classes 2–7 to every line. The first line with any match wins.
+func Scan(content string) Result {
+	if strings.TrimSpace(content) == "" {
+		return Result{Indicator: IndicatorNone, Reason: ReasonBlankCapture}
+	}
+	lines := splitLines(content)
+	if hasTurnBoundary(lines) {
+		return Result{Indicator: IndicatorNone, Reason: ReasonTurnBoundary}
+	}
+
+	var nonEmpty []string
+	for _, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			nonEmpty = append(nonEmpty, l)
+		}
+	}
+	lastIdx := len(nonEmpty) - 1
+	for i := lastIdx; i >= 0; i-- {
+		line := nonEmpty[i]
+		if i == lastIdx && isQuestionMarkLine(line) {
+			return Result{Indicator: IndicatorQuestionMark, Snippet: line}
+		}
+		if ind, ok := matchOtherClasses(line); ok {
+			return Result{Indicator: ind, Snippet: line}
+		}
+	}
+	return Result{Indicator: IndicatorNone, Reason: ReasonNoIndicator}
+}
+
+// splitLines splits on "\n", dropping only the single empty element a
+// terminating newline leaves behind — real blank lines are preserved.
+func splitLines(content string) []string {
+	lines := strings.Split(content, "\n")
+	if n := len(lines); n > 0 && lines[n-1] == "" {
+		lines = lines[:n-1]
+	}
+	return lines
+}
+
+// hasTurnBoundary reports whether either of the last two lines is a bare
+// turn-boundary prompt.
+func hasTurnBoundary(lines []string) bool {
+	start := len(lines) - 2
+	if start < 0 {
+		start = 0
+	}
+	for _, l := range lines[start:] {
+		if turnBoundaryPattern.MatchString(l) {
+			return true
+		}
+	}
+	return false
+}
+
+// isQuestionMarkLine implements class 1 against a single line.
+func isQuestionMarkLine(line string) bool {
+	trimmed := strings.TrimRight(line, " \t")
+	if !strings.HasSuffix(trimmed, "?") || len(trimmed) >= questionMarkMaxLen {
+		return false
+	}
+	leading := strings.TrimLeft(line, " \t")
+	for _, prefix := range questionMarkExcludedPrefixes {
+		if strings.HasPrefix(leading, prefix) {
+			return false
+		}
+	}
+	return !timestampPrefixPattern.MatchString(line)
+}
+
+// matchOtherClasses tests classes 2–7 against one line in listed order.
+func matchOtherClasses(line string) (string, bool) {
+	switch {
+	case yesNoPattern.MatchString(line):
+		return IndicatorYesNo, true
+	case actionWordPattern.MatchString(line):
+		return IndicatorActionWord, true
+	case imperativeQuestionPattern.MatchString(line):
+		return IndicatorImperativeQuestion, true
+	case strings.HasSuffix(strings.TrimRight(line, " \t"), ":"):
+		return IndicatorColonPrompt, true
+	case enumeratedOptionsPattern.MatchString(line):
+		return IndicatorEnumeratedOptions, true
+	case pressKeyPattern.MatchString(line):
+		return IndicatorPressKey, true
+	}
+	return "", false
+}

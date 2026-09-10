@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 16
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-10T16:17:32Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-10T16:23:39Z"}
     review: {started_at: "2026-09-10T16:23:39Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-10T16:28:05Z"}
     hydrate: {started_at: "2026-09-10T16:28:05Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-10T16:32:35Z"}
-    ship: {started_at: "2026-09-10T16:32:35Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-10T16:32:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T16:34:21Z"}
+    review-pr: {started_at: "2026-09-10T16:34:21Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/916
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1468
+    deleted: 103
+    net: 1365
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 967
+        deleted: 50
+        net: 917
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-10T16:32:35Z"
-    computed_at_stage: hydrate
+        added: 621
+        deleted: 6
+        net: 615
+    computed_at: "2026-09-10T16:34:21Z"
+    computed_at_stage: ship
 summary: generalizes the WM dbus-run-session wrap to a sessionStarters table and adds the rk gui wm CLI setter for gui.wm (aliases, PATH refusal with DE-aware install hints, --force/--restart); (session) suffix on status/doctor, wider RunningApps exclusion set; session starters launch in their own process group and are stopped as a group (SIGTERM, then SIGKILL after 5 s)
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-10T16:32:35Z
+last_updated: 2026-09-10T16:34:21Z

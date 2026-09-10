@@ -1406,23 +1406,25 @@ function AppShell() {
   // select the tab). The server dedupes an identical stored address, so a
   // re-open selects the existing tab instead of growing the family. A layout
   // that cannot grow (three tiles, no web) still keeps the added tab for
-  // later but opens a browser tab now rather than no-oping. Registered only
-  // while a window is current: off the terminal route nobody cancels and the
-  // dispatcher opens a browser tab itself.
+  // later but opens a browser tab now rather than no-oping — decided and
+  // opened BEFORE the first await: `window.open` rides the click's transient
+  // user activation, which browsers revoke once the handler yields, so a
+  // post-request open is what popup blockers return `null` for. Registered
+  // only while a window is current: off the terminal route nobody cancels
+  // and the dispatcher opens a browser tab itself.
   useEffect(() => {
     if (!windowParam) return;
     const handleHelpTopic = (event: Event) => {
       if (!(event instanceof CustomEvent) || !isHelpTopic(event.detail)) return;
       const topic = event.detail;
       event.preventDefault();
+      const hasWeb = layout.order.includes("web");
+      const grown = hasWeb ? null : addSurface(layout, "web");
+      const fullLayout = !hasWeb && grown === null;
+      if (fullLayout) window.open(topic.url, "_blank", "noopener,noreferrer");
       void (async () => {
         const { index } = await addWebTab(server, windowParam, topic.url);
-        const hasWeb = layout.order.includes("web");
-        const grown = hasWeb ? null : addSurface(layout, "web");
-        if (!hasWeb && grown === null) {
-          window.open(topic.url, "_blank", "noopener,noreferrer");
-          return;
-        }
+        if (fullLayout) return;
         // Mobile grows the shared layout through the same add mutation AND
         // writes the per-viewer zoom key so the phone shows the tile.
         if (isMobile) switchToTile("web");

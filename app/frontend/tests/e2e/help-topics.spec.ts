@@ -7,10 +7,11 @@
  * owns a web tile.
  *
  * Shared setup: `beforeAll` creates a dedicated session `e2e-help-<ts>` on
- * the isolated tmux server with two plain windows (`help-menu-<ts>` for the
- * menu path, `help-palette-<ts>` for the palette path — each test needs a
- * window whose layout starts at `single:tty` with no web tabs); `afterAll`
- * kills the session. `beforeEach` route-stubs `https://shll.ai/**` with a
+ * the isolated tmux server with three plain windows (`help-menu-<ts>` for the
+ * menu path, `help-palette-<ts>` for the palette path — each needs a window
+ * whose layout starts at `single:tty` with no web tabs — and `help-full-<ts>`
+ * for the full-layout fallback, whose `@rk_win_layout` the test seeds to
+ * three tty tiles before navigating); `afterAll` kills the session. `beforeEach` route-stubs `https://shll.ai/**` with a
  * static 200 page so the web tile's iframe never reaches the network (the
  * specs assert the stored tab and the layout, never remote content) and
  * replaces `window.open` with a recorder on `window.__openedUrls` so the
@@ -22,12 +23,14 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { gotoWindow as gotoWindowRaw, openPalette, resolveWindow as resolveWindowRaw } from "./_ready";
-import { TMUX_SERVER, createSession, killSession, windowOption } from "./_tmux";
+import { TMUX_SERVER, createSession, killSession, setWindowOption, windowOption } from "./_tmux";
 
 const STAMP = Date.now().toString().slice(-6);
 const TEST_SESSION = `e2e-help-${STAMP}`;
 const MENU_WINDOW = `help-menu-${STAMP}`;
 const PALETTE_WINDOW = `help-palette-${STAMP}`;
+const FULL_WINDOW = `help-full-${STAMP}`;
+const FULL_LAYOUT = "main-left:tty,tty,tty";
 
 const CRON_URL = "https://shll.ai/run-kit/cron-schedule-kinds/";
 const BOARDS_URL = "https://shll.ai/run-kit/boards/";
@@ -77,7 +80,7 @@ async function expandHelpTopics(page: Page) {
 }
 
 test.beforeAll(() => {
-  createSession(TEST_SESSION, { windows: [MENU_WINDOW, PALETTE_WINDOW] });
+  createSession(TEST_SESSION, { windows: [MENU_WINDOW, PALETTE_WINDOW, FULL_WINDOW] });
 });
 
 test.afterAll(() => {
@@ -199,5 +202,53 @@ test.describe("Help topics", () => {
 
     await group.getByRole("menuitem", { name: /^Boards/ }).click();
     await expect.poll(() => openedUrls(page)).toEqual([BOARDS_URL]);
+  });
+
+  /**
+   * Proves: on a terminal route whose layout already holds three tiles and no
+   * web surface, opening a topic still stores it as a web tab but performs
+   * NO layout write and opens the page in a browser tab instead — and that
+   * browser tab opens synchronously from the click, before the add request
+   * resolves (the fallback must keep the click's user activation, or popup
+   * blockers swallow it).
+   *
+   * Steps:
+   * 1. Seed the full window's `@rk_win_layout` to `main-left:tty,tty,tty`
+   *    (duplicate tty tiles are legal) and navigate to it; assert no web tab.
+   * 2. Hold the `POST /api/windows/{id}/web` add request open.
+   * 3. Open the menu, expand `Help topics`, click `Cron schedule kinds`;
+   *    assert `window.open` recorded the topic URL while the add request is
+   *    still pending.
+   * 4. Release the request; poll tmux: `@rk_win_web_1` equals the topic URL
+   *    and `@rk_win_layout` is unchanged at the three-tile value.
+   */
+  test("full three-tile layout keeps the tab, skips the layout write, and opens a browser tab synchronously", async ({ page }) => {
+    const id = await resolveWindow(page, FULL_WINDOW);
+    setWindowOption(id, "@rk_win_layout", FULL_LAYOUT);
+    expect(windowOption(id, "@rk_win_web_1")).toBe("");
+    await gotoWindow(page, id);
+    await expect.poll(() => windowOption(id, "@rk_win_layout")).toBe(FULL_LAYOUT);
+
+    let releaseAdd: () => void = () => {};
+    const addHeld = new Promise<void>((resolve) => {
+      releaseAdd = resolve;
+    });
+    const addRequested = page.waitForRequest(
+      (req) => req.method() === "POST" && /\/api\/windows\/[^/]+\/web(\?|$)/.test(req.url()),
+    );
+    await page.route(/\/api\/windows\/[^/]+\/web(\?|$)/, async (route) => {
+      await addHeld;
+      await route.continue();
+    });
+
+    const { group } = await expandHelpTopics(page);
+    await group.getByRole("menuitem", { name: "Cron schedule kinds" }).click();
+    await addRequested;
+    expect(await openedUrls(page)).toEqual([CRON_URL]);
+
+    releaseAdd();
+    await expect.poll(() => windowOption(id, "@rk_win_web_1"), { timeout: 10_000 }).toBe(CRON_URL);
+    expect(windowOption(id, "@rk_win_layout")).toBe(FULL_LAYOUT);
+    expect(await openedUrls(page)).toEqual([CRON_URL]);
   });
 });

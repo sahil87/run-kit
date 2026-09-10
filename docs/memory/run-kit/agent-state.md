@@ -637,10 +637,10 @@ The `agentState` three-state value is a first-class UI input across every surfac
 - **Row Minimalism**: the sidebar window row carries no trailing stage-word +
   duration cluster — its status signals are the `StatusDot` plus an owned-PR
   rest glyph (§ Window rows).
-- **L1 `agt` register**: the four-register view (out/agt/fab/PR) renders
+- **L1 `agt` register**: the five-register view (out/agt/fab/PR/opr) renders
   `waiting <dur>` on its own line, never muted by flowing output (the pierce
   rule), on BOTH register surfaces — the PANE panel and the row-hover flyout
-  card (§ Pane panel four-register view, § Row-hover register flyout card).
+  card (§ Pane panel five-register view, § Row-hover register flyout card).
 - **Attention rollups + nav**: `waiting` counts propagate as `WaitingBadge` chips
   (session row, Host-page server tile, board header, and — since
   `260708-4li7-sidebar-server-tile-waiting-badge` — the sidebar SERVER-panel

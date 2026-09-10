@@ -290,7 +290,7 @@ there being nothing underivable left: the earlier tick-doc-push design is
 superseded.
 
 `last_tick_at` is the **single staleness timestamp** serving every consumer:
-the UI tick-age stamp, the dimmed watched-row indicators, and the
+the UI tick-age stamp, the dimmed-and-dashed watched-row underbar, and the
 CLOCK-header warning. A stale watchlist in the UI *is* the dead-loop alarm's
 evidence.
 
@@ -313,10 +313,10 @@ reuses a shipped (or already-reserved) mechanism:
    orphaned/muted treatment; mute/delete on the row's flyout card (the
    sidebar's action-row idiom). The **watchlist stays out of the sidebar** —
    watched workers are already window rows in the tree, so the ambient signal
-   is a row-level "watched" indicator plus a detail line on the row's
-   existing flyout card (beside `@rk_win_note`). Staleness past the pulse
-   threshold dims the indicators and renders a warning strip in the CLOCK
-   header.
+   is the StatusDot's watched underbar on the row plus an `opr` register line
+   on the row's existing flyout card (beside `@rk_win_note`). Staleness past
+   the pulse threshold dims and dashes the underbar and renders a warning
+   strip in the CLOCK header.
 2. **Dashboard — land the reserved `agents` surface as the operator panel**
    (the desktop-scale view). The layout encoding already reserves the
    `agents` kind (`tty`/`code`/`web`/`agents` —
@@ -370,7 +370,7 @@ reuses a shipped (or already-reserved) mechanism:
    - **Push is the mobile entry point**: escalations, orphans, and staleness
      ride `rk notify`; the notification deep-links to the Activity segment.
    - The sidebar CLOCK section is **desktop-only** (its rail toggle hidden on
-     mobile); the tree's watched-row ◉ indicators remain on both.
+     mobile); the tree's watched-row underbars remain on both.
 
 Rejected: a dedicated `clock` **surface kind** (the reserved `agents` kind
 already owns "agent fleet beside the work" — a second kind would split it);
@@ -439,8 +439,8 @@ move.
   incident class.
 - **P2 — visibility**: the `CLOCK` sidebar section + rail toggle (desktop),
   the agents-tile dashboard, the mobile console sheet's **Activity** feed
-  segment + staleness banner + entry detail sheet, watched-row indicator +
-  flyout-card detail (watchlist and `last_tick_at` read from the fab
+  segment + staleness banner + entry detail sheet, watched-row underbar +
+  the `opr` register line (watchlist and `last_tick_at` read from the fab
   operator state file), SSE wiring, palette actions, notify deep-links.
 - **P3 — generalization + replacement posture**: `session` targets with
   auto-capture, orphan GC, the closed-session resume default for

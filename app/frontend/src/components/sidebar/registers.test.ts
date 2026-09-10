@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getOutputLine, getAgentLine, getFabParts, getFabLine, getPrSegments } from "./registers";
+import { getOutputLine, getAgentLine, getFabParts, getFabLine, getOperatorParts, getPrSegments } from "./registers";
 import { makeWindow, makeWindowWithPanes } from "@/test-utils/fixtures";
 
 // 93dy: the register-line resolvers were extracted from status-panel.tsx into
@@ -179,5 +179,59 @@ describe("getPrSegments", () => {
         }),
       )!.map((s) => s.text),
     ).toEqual(["#540", "open (draft)", "checks pending", "review: changes requested"]);
+  });
+});
+
+describe("getOperatorParts (L4)", () => {
+  it("null unless win.monitored === true", () => {
+    expect(getOperatorParts(makeWindow({}), { stale: false, lastTickAt: 900 }, 1000)).toBeNull();
+    expect(getOperatorParts(makeWindow({ monitored: false }), { stale: false }, 1000)).toBeNull();
+  });
+
+  it("head leads with the decisive tokens; facets are repo · branch", () => {
+    const parts = getOperatorParts(
+      makeWindow({
+        monitored: true,
+        monitoredStage: "apply",
+        monitoredRepo: "run-kit",
+        monitoredBranch: "fab/wuiu",
+      }),
+      { stale: false, lastTickAt: 880 },
+      1000,
+    );
+    expect(parts).toEqual({ head: "watched · apply · tick 2m ago", facets: "run-kit · fab/wuiu" });
+  });
+
+  it("omits the stage segment when absent and the tick segment when lastTickAt is 0/undefined or operator is undefined", () => {
+    expect(
+      getOperatorParts(makeWindow({ monitored: true, monitoredStage: "review" }), { stale: false }, 1000),
+    ).toEqual({ head: "watched · review" });
+    expect(
+      getOperatorParts(makeWindow({ monitored: true, monitoredStage: "review" }), { stale: false, lastTickAt: 0 }, 1000),
+    ).toEqual({ head: "watched · review" });
+    expect(getOperatorParts(makeWindow({ monitored: true, monitoredStage: "review" }), undefined, 1000)).toEqual({
+      head: "watched · review",
+    });
+  });
+
+  it("tick without a stage reads 'watched · tick <age> ago'; facets undefined when both absent", () => {
+    expect(
+      getOperatorParts(makeWindow({ monitored: true }), { stale: true, lastTickAt: 540 }, 1000),
+    ).toEqual({ head: "watched · tick 7m ago" });
+  });
+
+  it("ages via formatDuration; a non-positive elapsed renders 'tick 0s ago'", () => {
+    expect(
+      getOperatorParts(makeWindow({ monitored: true }), { stale: false, lastTickAt: 1000 }, 1000)?.head,
+    ).toBe("watched · tick 0s ago");
+    expect(
+      getOperatorParts(makeWindow({ monitored: true }), { stale: false, lastTickAt: 900 }, 700)?.head,
+    ).toBe("watched · tick 0s ago");
+  });
+
+  it("omits empty facet segments", () => {
+    expect(
+      getOperatorParts(makeWindow({ monitored: true, monitoredRepo: "run-kit" }), undefined, 1000),
+    ).toEqual({ head: "watched", facets: "run-kit" });
   });
 });

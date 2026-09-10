@@ -18,7 +18,8 @@ import {
 } from "@floating-ui/react";
 import { PinIcon } from "@/components/pin-icon";
 import { CloseIcon, PaletteIcon } from "./icons";
-import { getFabParts, getPrSegments } from "./registers";
+import { getFabParts, getOperatorParts, getPrSegments } from "./registers";
+import type { OperatorLoopFacts } from "./registers";
 import { PopupTitleBar, PopupTitleBarSecondary, notchFill } from "./popup-title-bar";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { formatDuration } from "@/lib/format";
@@ -334,18 +335,21 @@ function InfoIcon() {
  *  `pr` is NBSP-padded to the same column). `min-w-0 truncate` matches the
  *  panel rows these registers were promoted from (status-panel.tsx) — long
  *  `fab`/`pr` text must ellipsize inside the `max-w-xs` card, never paint
- *  outside it. */
+ *  outside it. `stale` marks the line with `data-stale` and dims its content
+ *  (the NoteLine stale idiom) — the caller dims the value span itself. */
 function RegisterLine({
   prefix,
   testid,
+  stale = false,
   children,
 }: {
   prefix: string;
   testid: string;
+  stale?: boolean;
   children: ReactNode;
 }) {
   return (
-    <span className="min-w-0 truncate" data-testid={testid}>
+    <span className="min-w-0 truncate" data-testid={testid} data-stale={stale ? "true" : undefined}>
       <span className="text-text-secondary">{prefix}</span>
       {children}
     </span>
@@ -395,25 +399,6 @@ export function NoteLine({ win }: { win: WindowInfo }) {
           <span className="text-text-secondary">{` · ${formatDuration(ageSeconds)} ago`}</span>
         )}
       </span>
-    </span>
-  );
-}
-
-/** The window card's watched register — the operator-watchlist identity line
- *  (`watched · repo · stage · branch`, omitting empty segments) for windows
- *  carrying the `monitored` join. Degrade-to-absent: no `monitored` on the
- *  payload renders nothing (mirrors NoteLine's own gate). */
-export function WatchedLine({ win }: { win: WindowInfo }) {
-  if (win.monitored !== true) return null;
-  const segments = [win.monitoredRepo, win.monitoredStage, win.monitoredBranch].filter(
-    (s): s is string => Boolean(s),
-  );
-  return (
-    <span className="min-w-0 truncate" data-testid="row-flyout-watched-line">
-      <span className="text-text-secondary">{"watched"}</span>
-      {segments.length > 0 && (
-        <span className="text-text-primary">{` · ${segments.join(" · ")}`}</span>
-      )}
     </span>
   );
 }
@@ -676,9 +661,9 @@ function WindowFlyoutTitle({ win }: { win: WindowInfo }) {
 /**
  * The window tier's card body — mounted ONLY while the flyout is open, so the
  * freshness line's `useNow()` clock stays leaf-scoped per the
- * render-performance contract. The body is the `fab` and `pr` registers only;
- * a window with neither renders no body block at all. The consuming WindowRow
- * builds this via the hook's `content` render prop.
+ * render-performance contract. The body is the `fab`, `pr`, and `opr`
+ * registers only; a window with none renders no body block at all. The
+ * consuming WindowRow builds this via the hook's `content` render prop.
  */
 export function WindowFlyoutContent({
   win,
@@ -690,6 +675,7 @@ export function WindowFlyoutContent({
   pinned = false,
   pinnedBoard,
   onKillAction,
+  operator,
 }: {
   win: WindowInfo;
   /** Open the row's combined Label picker (the card's `Change color…` row —
@@ -709,9 +695,16 @@ export function WindowFlyoutContent({
   pinned?: boolean;
   pinnedBoard?: string;
   onKillAction?: () => void;
+  /** The owning session's operator-watchdog facts (stale flag verbatim +
+   *  last tick) — feeds the `opr` register only; undefined leaves the
+   *  register's tick segment absent. */
+  operator?: OperatorLoopFacts;
 }) {
   const fabParts = getFabParts(win);
   const prSegments = getPrSegments(win);
+  // The card holds no clock (the render-performance contract, same as
+  // NoteLine): the `opr` tick age is as of this render frame.
+  const operatorParts = getOperatorParts(win, operator, Math.floor(Date.now() / 1000));
   // Single-sourced segment JSX shared by the anchor and plain branches below
   // (the panel's segmentSpans idiom — the two renderings can't drift).
   const segmentSpans = prSegments?.map((seg, i) => (
@@ -757,7 +750,8 @@ export function WindowFlyoutContent({
       >
         <WindowFlyoutTitle win={win} />
       </PopupTitleBar>
-      {/* The body is the change and its PR only — the row already carries the
+      {/* The body is the change, its PR, and the operator watchlist — the row
+          already carries the
           window name, the status dot, the PR glyph and the colour label, so
           the `out`/`agt` registers and the dot label would restate it.
           Critical tokens lead; expendable values continue on indented lines.
@@ -766,7 +760,6 @@ export function WindowFlyoutContent({
       {hasBody && (
         <>
           <NoteLine win={win} />
-          <WatchedLine win={win} />
           {fabParts && (
             <>
               <RegisterLine prefix="fab " testid="row-flyout-fab">
@@ -823,6 +816,25 @@ export function WindowFlyoutContent({
                 <RegisterLine prefix={"pr\u00a0\u00a0"} testid="row-flyout-pr">
                   {segmentSpans}
                 </RegisterLine>
+              )}
+            </>
+          )}
+          {/* `opr` register — the last body register, after the `pr` block.
+              Leads with the decisive tokens (`watched · stage · tick age`);
+              the repo · branch facets continue on an indented line. Stale
+              (operator loop's tick overdue) dims the head text and marks the
+              line — the NoteLine stale idiom, never opacity on the register. */}
+          {operatorParts && (
+            <>
+              <RegisterLine prefix="opr " testid="row-flyout-opr" stale={operator?.stale === true}>
+                <span className={operator?.stale === true ? "text-text-secondary" : "text-text-primary"}>
+                  {operatorParts.head}
+                </span>
+              </RegisterLine>
+              {operatorParts.facets && (
+                <ContinuationLine testid="row-flyout-opr-facets">
+                  {operatorParts.facets}
+                </ContinuationLine>
               )}
             </>
           )}

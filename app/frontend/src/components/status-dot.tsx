@@ -1,19 +1,22 @@
 import { statusDotState, PHASE_HUE } from "@/components/pr-status-model";
 import { dotLabel } from "@/components/status-dot-label";
+import type { WatchedFlag } from "@/components/status-dot-label";
 import type { WindowInfo } from "@/types";
 
 // `dotLabel` lives in `status-dot-label.ts` (shared with the sidebar row
 // flyout card, `sidebar/row-flyout-card.tsx`); re-export it so this module's
 // public surface — and existing `@/components/status-dot` import sites — stay
-// unchanged.
+// unchanged. `WatchedFlag` lives there for the same no-cycle reason.
 export { dotLabel };
+export type { WatchedFlag };
 
 /**
  * Unified lifecycle status dot reused on the sidebar window row, the dashboard
  * window cards, and the pane-panel header. It renders a single signal per
  * window via the `statusDotState` two-family ladder (compositional vocabulary
- * — status-pyramid.md), using TWO orthogonal visual channels plus TWO additive
- * overlay flags. THE DOT TELLS THE LOCAL STORY ONLY — what runs in this pane
+ * — status-pyramid.md), using TWO orthogonal visual channels plus THREE
+ * additive overlay flags. THE DOT TELLS THE LOCAL STORY ONLY — what runs in
+ * this pane
  * (which journey, is anyone working, did the pipeline fail here, does it need
  * me); the REMOTE story (the branch's PR on GitHub) lives on the row's
  * rest-state PR glyph (`prOwnsGlyph`/`prGlyphColor`), never on the dot.
@@ -39,6 +42,11 @@ export { dotLabel };
  *     building asking"). Static yellow ring under prefers-reduced-motion
  *     (globals.css). A waiting agent renders the RING base — blocked is at
  *     rest by definition.
+ *   - RELATION = the additive watched underbar when the mount passes the
+ *     `watched` flag (today: the sidebar window row). A 1px neutral bar
+ *     (`text-text-secondary`, painted from currentColor) just below the dot —
+ *     never a hue, never a shape, so it can never be misread as journey.
+ *     Stale (the operator loop's tick is overdue) renders dimmed AND dashed.
  *
  * DOT-red appears in exactly ONE way: the small center dot of a flagged
  * (failed) dot — never as a whole-dot color. (The row GLYPH separately uses
@@ -68,9 +76,9 @@ const FLAGGED_SIZE = "w-[9px] h-[9px]";
 // The ~3px red center of a flagged dot — the ONLY dot-red.
 const RED_CENTER = "w-[3px] h-[3px] rounded-full bg-signal-red";
 
-export function StatusDot({ win }: { win: WindowInfo }) {
+export function StatusDot({ win, watched }: { win: WindowInfo; watched?: WatchedFlag }) {
   const state = statusDotState(win);
-  const label = dotLabel(win, state);
+  const label = dotLabel(win, state, watched);
   const color = PHASE_HUE[state.phase];
 
   // Additive waiting halo (status-pyramid.md § The Channel Model). When the
@@ -89,6 +97,7 @@ export function StatusDot({ win }: { win: WindowInfo }) {
     "aria-label": label,
   };
 
+  let dot: React.ReactNode;
   if (state.failed) {
     // Additive red-center overlay at the 9px footprint, composed with the base
     // shape: over a RING the red center sits inside the standard hollow ring;
@@ -96,8 +105,8 @@ export function StatusDot({ win }: { win: WindowInfo }) {
     // stack cuts a dark gap ring (a bullseye), so failure changes the
     // silhouette and is never color alone. The gap circle uses the shell
     // ground token so it re-themes with the mounting surfaces.
-    if (state.shape === "solid") {
-      return (
+    dot =
+      state.shape === "solid" ? (
         <span
           {...common}
           className={`relative inline-flex items-center justify-center ${FLAGGED_SIZE} rounded-full shrink-0 ${color}${halo}`}
@@ -110,36 +119,57 @@ export function StatusDot({ win }: { win: WindowInfo }) {
             <span aria-hidden="true" className={RED_CENTER} />
           </span>
         </span>
+      ) : (
+        <span
+          {...common}
+          className={`relative inline-flex items-center justify-center ${FLAGGED_SIZE} rounded-full shrink-0 ${color}${halo}`}
+          style={{ border: "1.8px solid currentColor", backgroundColor: "transparent" }}
+        >
+          <span aria-hidden="true" className={RED_CENTER} />
+        </span>
       );
-    }
-    return (
-      <span
-        {...common}
-        className={`relative inline-flex items-center justify-center ${FLAGGED_SIZE} rounded-full shrink-0 ${color}${halo}`}
-        style={{ border: "1.8px solid currentColor", backgroundColor: "transparent" }}
-      >
-        <span aria-hidden="true" className={RED_CENTER} />
-      </span>
-    );
-  }
-
-  if (state.shape === "solid") {
-    return (
+  } else if (state.shape === "solid") {
+    dot = (
       <span
         {...common}
         className={`${DOT_SIZE} rounded-full shrink-0 ${color}${halo}`}
         style={{ border: "none", backgroundColor: "currentColor" }}
       />
     );
+  } else {
+    // `ring` — the at-rest shape (no live worker, idle/waiting agent, parked
+    // done, quiet shell): a hollow circle in the phase hue.
+    dot = (
+      <span
+        {...common}
+        className={`${DOT_SIZE} rounded-full shrink-0 ${color}${halo}`}
+        style={{ border: "1.8px solid currentColor", backgroundColor: "transparent" }}
+      />
+    );
   }
 
-  // `ring` — the at-rest shape (no live worker, idle/waiting agent, parked
-  // done, quiet shell): a hollow circle in the phase hue.
+  // No watched flag ⇒ the dot renders exactly as without the overlay (no
+  // wrapper, no bar) — every non-sidebar mount passes nothing.
+  if (!watched) return dot;
+
+  // Additive watched underbar (status-pyramid.md § The Channel Model): a 1px
+  // neutral bar painted from currentColor just below the dot — never the
+  // phase hue, never accent-green. 4px below the 7px dot and 3px below the 9px
+  // flagged dot so the watched footprint stays ~12px tall either way and the
+  // bar clears the waiting halo's 3px box-shadow reach. The wrapper carries no
+  // overflow rule: the halo paints outside the dot's border-box. The bar is
+  // aria-hidden decoration with no hit target — the dot keeps role/label.
   return (
-    <span
-      {...common}
-      className={`${DOT_SIZE} rounded-full shrink-0 ${color}${halo}`}
-      style={{ border: "1.8px solid currentColor", backgroundColor: "transparent" }}
-    />
+    <span className="relative inline-flex items-center justify-center shrink-0">
+      {dot}
+      <span
+        aria-hidden="true"
+        data-testid="status-dot-watched-bar"
+        data-stale={watched.stale ? "true" : undefined}
+        className={`absolute left-0 right-0 h-px text-text-secondary rk-watched-underbar${
+          watched.stale ? " rk-watched-underbar-stale opacity-50" : ""
+        } ${state.failed ? "-bottom-[3px]" : "-bottom-[4px]"}`}
+      />
+    </span>
   );
 }

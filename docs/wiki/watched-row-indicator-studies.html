@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watched-Row Indicator Studies</title>
+<style>
+  :root {
+    --bg: #0f1117; --card: #171b24; --inset: #0a0c12; --row: #12151d;
+    --tp: #e8eaf0; --ts: #7a8394; --border: #454d66;
+    --green: #22c55e; --yellow: #facc15; --blue: #60a5fa; --red: #f87171; --purple: #c084fc; --gray: #7a8394;
+    --amber: #f59e0b;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  body.light {
+    --bg: #f8f9fb; --card: #ffffff; --inset: #eef0f4; --row: #f3f4f7;
+    --tp: #1a1d24; --ts: #6b7280; --border: #d1d5db;
+    --green: #16a34a; --yellow: #b07d02; --blue: #2563eb; --red: #dc2626; --purple: #9333ea; --gray: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--tp); font: 14px/1.5 ui-sans-serif, system-ui, sans-serif; padding: 28px 32px 80px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 42px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { font-size: 13px; margin: 18px 0 6px; color: var(--tp); }
+  .sub { color: var(--ts); margin: 0 0 18px; max-width: 900px; }
+  .sub b, .cap b, p b { color: var(--tp); }
+  p { max-width: 900px; color: #b6bcc9; }
+  body.light p { color: #4b5563; }
+  code { font-family: var(--mono); font-size: 11.5px; background: var(--inset); padding: 0 4px; border-radius: 3px; color: #cbd5e1; }
+  body.light code { color: #334155; }
+  table { border-collapse: collapse; font-size: 12px; margin: 8px 0 14px; }
+  td, th { border: 1px solid var(--border); padding: 4px 8px; text-align: left; color: #b6bcc9; vertical-align: top; }
+  body.light td { color: #4b5563; }
+  th { color: var(--tp); font-weight: 600; }
+  .tag { display: inline-block; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border); color: var(--ts); margin: 0 6px 6px 0; }
+  .tag.rec { border-color: var(--green); color: var(--green); }
+  .tag.bad { border-color: var(--red); color: var(--red); }
+  .tag.park { border-color: var(--blue); color: var(--blue); }
+  .tag.ship { border-color: var(--amber); color: var(--amber); }
+
+  .toolbar { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; align-items: center; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(6px); padding: 8px 0 10px; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .toolbar button { font: 11px var(--mono); padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border); background: var(--card); color: var(--ts); cursor: pointer; }
+  .toolbar button.on { color: var(--green); border-color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
+  .toolbar .hint { font-size: 11px; color: var(--ts); margin-left: 6px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  .study { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .study .cap { font-size: 11px; color: var(--ts); margin-top: 8px; line-height: 1.45; }
+  .study h3 { margin: 0 0 8px; }
+
+  /* ---------- sidebar row mock (mirrors window-row.tsx geometry) ---------- */
+  .sidebar { width: 262px; background: var(--inset); border: 1px solid var(--border); border-radius: 6px; font-family: var(--mono); font-size: 12px; overflow: hidden; }
+  .sess { display: flex; align-items: center; gap: 6px; padding: 5px 8px 4px 10px; color: var(--ts); font-size: 11px; }
+  .sess .tri { font-size: 9px; }
+  .row { position: relative; display: flex; align-items: center; min-height: 24px; padding: 1px 44px 1px 30px; color: var(--ts); }
+  .row.sel { color: var(--tp); font-weight: 500; background: color-mix(in srgb, var(--ts) 14%, transparent); }
+  .row .well { position: absolute; left: 0; top: 0; bottom: 0; width: 22px; background: color-mix(in srgb, var(--wc, var(--ts)) 12%, transparent); box-shadow: inset -1px 0 0 color-mix(in srgb, var(--wc, var(--ts)) 30%, transparent); }
+  .row .well.orange { --wc: #fb923c; } .row .well.slate { --wc: #94a3b8; } .row .well.none { background: none; box-shadow: none; }
+  .row .well.m1::before { content: ""; position: absolute; left: 7px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 2px; background: color-mix(in srgb, var(--wc) 80%, transparent); }
+  .row .well.a2::before { content: ""; position: absolute; left: 7px; top: 50%; width: 0; height: 0; margin-top: -4px; border-left: 7px solid color-mix(in srgb, var(--wc) 80%, transparent); border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+  .sig { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+  .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .trail { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 4px; color: var(--ts); }
+  .row .trail svg { display: block; }
+
+  /* ---------- the dot (mirrors status-dot.tsx) ---------- */
+  .dotwrap { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .dot { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 7px; height: 7px; border-radius: 9999px; flex: none; }
+  .dot.solid { background: currentColor; }
+  .dot.ring { border: 1.8px solid currentColor; background: transparent; }
+  .dot.failed { width: 9px; height: 9px; }
+  .dot.failed::after { content: ""; position: absolute; width: 3px; height: 3px; border-radius: 9999px; background: var(--red); left: 50%; top: 50%; margin: -1.5px 0 0 -1.5px; z-index: 2; }
+  .dot.failed.solid::before { content: ""; position: absolute; width: 6px; height: 6px; border-radius: 9999px; background: var(--inset); left: 50%; top: 50%; margin: -3px 0 0 -3px; z-index: 1; }
+  .row.sel .dot.failed.solid::before { background: color-mix(in srgb, var(--ts) 14%, var(--inset)); }
+  .c-blue { color: var(--blue); } .c-green { color: var(--green); } .c-yellow { color: var(--yellow); } .c-gray { color: var(--gray); } .c-purple { color: var(--purple); } .c-red { color: var(--red); }
+  @keyframes halo {
+    0%, 100% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--yellow) 55%, transparent); }
+    50%      { box-shadow: 0 0 0 3px   color-mix(in srgb, var(--yellow) 85%, transparent); }
+  }
+  .dot.halo { animation: halo 1.4s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .dot.halo { animation: none; box-shadow: 0 0 0 2px var(--yellow); } }
+
+  /* ---------- watched candidates ---------- */
+  /* A0 — shipped: green ◉ beside the dot */
+  .wg { font-size: 12px; line-height: 1; flex: none; color: var(--green); }
+  /* A1 — same glyph, neutral ink */
+  .wg.neutral { color: var(--ts); }
+  /* B1 — orbit: a static thin ring outside the halo's reach */
+  .w-orbit { outline: 1px solid color-mix(in srgb, var(--ts) 60%, transparent); outline-offset: 4px; border-radius: 9999px; }
+  /* B3 — underbar: a 1px bar 3px under the dot, dot-width */
+  .bar { position: absolute; left: 0; right: 0; bottom: -4px; height: 1px; background: color-mix(in srgb, var(--ts) 85%, transparent); }
+  .dot.failed ~ .bar { bottom: -3px; }
+  /* C1 — name treatment */
+  .nm.tracked { text-decoration: underline dotted color-mix(in srgb, var(--ts) 75%, transparent); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  /* headset (operator role identity) */
+  .hs { display: inline-flex; flex: none; color: inherit; }
+  /* stale */
+  body.stale .wg, body.stale .bar, body.stale .w-orbit { opacity: .4; }
+  body.stale .w-orbit { outline-style: dashed; }
+  body.stale .bar { background: repeating-linear-gradient(90deg, var(--ts) 0 1px, transparent 1px 3px); }
+  body.stale .nm.tracked { text-decoration-color: color-mix(in srgb, var(--ts) 35%, transparent); }
+
+  /* zoom insets */
+  .zoom { display: inline-block; zoom: 3; transform-origin: left center; }
+  .zcell { display: flex; align-items: center; gap: 14px; }
+  .zcell .z { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px; background: var(--inset); border-radius: 4px; }
+  .mat { overflow-x: auto; }
+  .mat table { font-family: var(--mono); font-size: 11px; }
+  .mat td { padding: 6px 8px; white-space: nowrap; vertical-align: middle; }
+  .mat td.st { color: var(--ts); font-size: 10.5px; }
+  .mat .z { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px; }
+
+  /* flyout card + register mock */
+  .card { width: 250px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; font-family: var(--mono); font-size: 11px; }
+  .card .tb { padding: 4px 8px; border-bottom: 1px solid var(--border); color: var(--tp); display: flex; gap: 6px; align-items: center; }
+  .card .ln { padding: 2px 8px; color: var(--ts); display: flex; gap: 8px; }
+  .card .ln .k { color: var(--ts); width: 26px; flex: none; }
+  .card .ln .v { color: var(--tp); }
+  .card .ln.new .v { color: var(--green); }
+  .card .ln.note { border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent); margin-top: 4px; padding-top: 4px; }
+
+  .channel td.on { color: var(--tp); }
+  .channel td.off { color: var(--red); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+  .strip { display: flex; gap: 22px; flex-wrap: wrap; align-items: center; margin: 8px 0 4px; }
+  .strip .lab { font-size: 10.5px; color: var(--ts); font-family: var(--mono); margin-left: 6px; }
+  ul { max-width: 900px; color: #b6bcc9; } body.light ul { color: #4b5563; }
+  li { margin: 3px 0; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button id="tStale">stale operator loop</button>
+  <button id="tLight">light theme</button>
+  <button id="tSel">select watched rows</button>
+  <span class="hint">stale = the cron tick is overdue → every watched indicator dims. Toggle to check the dimmed register still reads.</span>
+</div>
+
+<h1>Watched-Row Indicator Studies</h1>
+<p class="sub">
+  Where does <b>"watched by the operator"</b> live on a sidebar window row? The C6 clock rung shipped a
+  green <b>◉</b> beside the StatusDot without passing through the StatusDot vocabulary
+  (<code>docs/specs/status-pyramid.md</code>, the marker 3×3 studies). This study puts that glyph back
+  on the grid it skipped, tests five alternatives against the full hue × shape × overlay matrix, and
+  records a recommendation. Every dot here mirrors <code>status-dot.tsx</code> at true size (7px, 9px flagged), with 3× insets.
+</p>
+
+<h2>0 · The problem — what shipped, on the pyramid's own grid</h2>
+<div class="two">
+  <div class="study">
+    <h3>The row as it renders today</h3>
+    <div class="sidebar">
+      <div class="sess"><span class="tri">▼</span> shll_ai</div>
+      <div class="row sel"><span class="well slate"></span><span class="sig"><span class="dot ring c-gray"></span><span class="nm">shll.ai</span></span></div>
+      <div class="row"><span class="well orange"></span><span class="sig"><span class="dot ring c-blue"></span><span class="wg">◉</span><span class="nm">»poised-canyon</span></span><span class="trail"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M5 8l7-6 7 6M9 8v6l-2 3h10l-2-3V8"/></svg><span style="font-size:13px">✕</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot solid c-gray"></span><span class="nm">wt</span></span></div>
+    </div>
+    <div class="zcell" style="margin-top:10px"><span class="zoom"><span class="z"><span class="dot ring c-blue"></span><span class="wg">◉</span></span></span></div>
+    <div class="cap"><b>Two dot-shaped glyphs, two hues, one row.</b> The blue ring says "fab building, at rest". The green ◉ beside it borrows the hue the pyramid reserves for "PR-ready / done" and the silhouette the pyramid reserves for the dot itself. At a glance the row asserts two contradictory journey positions — and the second one is not a status at all, it is a <i>relation</i> (the operator's attention set).</div>
+  </div>
+  <div class="study">
+    <h3>The channel model, with ◉ mapped onto it</h3>
+    <table class="channel">
+      <tr><th>Channel</th><th>Owns</th><th>Vocabulary</th><th>◉ fits?</th></tr>
+      <tr><td>core hue</td><td>journey</td><td>blue building · green PR-ready · yellow ad-hoc · gray floor</td><td class="off">no — spends green on a non-journey</td></tr>
+      <tr><td>shape</td><td>liveness</td><td>solid now · ring at rest</td><td class="off">no — a second dot silhouette with no liveness meaning</td></tr>
+      <tr><td>red center</td><td>failed here</td><td>additive, 9px footprint</td><td class="on">n/a</td></tr>
+      <tr><td>yellow halo</td><td>agent waits on you</td><td>additive box-shadow</td><td class="on">n/a</td></tr>
+      <tr><td>PR glyph</td><td>remote story</td><td>right edge, six states</td><td class="on">n/a</td></tr>
+      <tr><td>marker well</td><td>human-declared mode × stage</td><td>manual · auto · blocked × 1–3</td><td class="off">no — human-owned; derived state never writes it or reads from it</td></tr>
+      <tr><td>headset</td><td>role identity</td><td>"this row IS the operator"</td><td class="off">no — watched is the inverse relation</td></tr>
+    </table>
+    <div class="cap">The pyramid's rule for anything that is not journey or liveness: <b>flags are additive overlays — never a hue, never a shape.</b> "Watched" is a flag. The wuiu intake called it greenfield because <code>grep ◉</code> returned nothing; the grid above says it was never greenfield — every channel already had an owner, and the glyph took the one thing (a colored dot) the row could not afford a second of.</div>
+  </div>
+</div>
+
+<h2>1 · The candidates</h2>
+<p>Same five rows in every card: a watched blue ring, a watched blue ring whose agent is asking (halo), a watched green resting ring (the collision case), the operator's own row (headset), and an unwatched gray floor row. Use the toolbar to dim (stale) and to check the light theme.</p>
+
+<div class="grid">
+
+  <div class="study">
+    <span class="tag bad">shipped · replace</span>
+    <h3>A0 · Green ◉ beside the dot</h3>
+    <div class="sidebar">
+      <div class="row"><span class="well orange a2"></span><span class="sig"><span class="dot ring c-blue"></span><span class="wg">◉</span><span class="nm">»poised-canyon</span></span></div>
+      <div class="row"><span class="well orange a2"></span><span class="sig"><span class="dot ring halo c-blue"></span><span class="wg">◉</span><span class="nm">»quiet-heron</span></span></div>
+      <div class="row"><span class="well slate m1"></span><span class="sig"><span class="dot ring c-green"></span><span class="wg">◉</span><span class="nm">»brave-otter</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot solid c-yellow"></span><span class="hs"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><path d="M4 14h3v5H4zM17 14h3v5h-3z"/></svg></span><span class="nm">operator</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot ring c-gray"></span><span class="nm">shell</span></span></div>
+    </div>
+    <div class="cap"><b>Fails on hue and on silhouette.</b> Row 3 is the tell: a green ring next to a green ◉ — is that one PR-ready window, or two? The glyph is also the largest thing in the status cluster (12px vs the 7px dot), so it outranks the actual status.</div>
+  </div>
+
+  <div class="study">
+    <span class="tag bad">reject</span>
+    <h3>A1 · Same ◉, neutral ink</h3>
+    <div class="sidebar">
+      <div class="row"><span class="well orange a2"></span><span class="sig"><span class="dot ring c-blue"></span><span class="wg neutral">◉</span><span class="nm">»poised-canyon</span></span></div>
+      <div class="row"><span class="well orange a2"></span><span class="sig"><span class="dot ring halo c-blue"></span><span class="wg neutral">◉</span><span class="nm">»quiet-heron</span></span></div>
+      <div class="row"><span class="well slate m1"></span><span class="sig"><span class="dot ring c-green"></span><span class="wg neutral">◉</span><span class="nm">»brave-otter</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot solid c-yellow"></span><span class="hs"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><path d="M4 14h3v5H4zM17 14h3v5h-3z"/></svg></span><span class="nm">operator</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot ring c-gray"></span><span class="nm">shell</span></span></div>
+    </div>
+    <div class="cap"><b>Fixes the hue collision, keeps the silhouette collision.</b> A gray ◉ beside a gray floor ring reads as a bullseye — which is the pyramid's <i>failed-over-solid</i> shape. The cheapest fix is still the wrong one: it leaves two dots on the row.</div>
+  </div>
+
+  <div class="study">
+    <span class="tag park">park</span>
+    <h3>B1 · Orbit ring on the dot</h3>
+    <div class="sidebar">
+      <div class="row"><span class="well orange a2"></span><span class="sig"><span class="dotwrap"><span class="dot ring c-blue w-orbit"></span></span><span class="nm">»poised-canyon</span></span></div>
+      <div class="row"><span class="well orange a2"></span><span class="sig"><span class="dotwrap"><span class="dot ring halo c-blue w-orbit"></span></span><span class="nm">»quiet-heron</span></span></div>
+      <div class="row"><span class="well slate m1"></span><span class="sig"><span class="dotwrap"><span class="dot ring c-green w-orbit"></span></span><span class="nm">»brave-otter</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot solid c-yellow"></span><span class="hs"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><path d="M4 14h3v5H4zM17 14h3v5h-3z"/></svg></span><span class="nm">operator</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot ring c-gray"></span><span class="nm">shell</span></span></div>
+    </div>
+    <div class="cap"><b>"In the operator's sights."</b> A 1px neutral ring at 4px offset — outside the halo's 3px reach, so both overlays survive together (row 2). Additive, hue-free, on the dot. Cost: a 17px footprint in a 24px row; it eats the 8px well gap and crowds the name; and a ring around a ring (row 1, row 3) is a <i>third</i> concentric shape competing with the bullseye vocabulary. Strong metaphor, heavy pixel.</div>
+  </div>
+
+  <div class="study">
+    <span class="tag rec">recommended</span>
+    <h3>B3 · Underbar on the dot</h3>
+    <div class="sidebar">
+      <div class="row"><span class="well orange a2"></span><span class="sig"><span class="dotwrap"><span class="dot ring c-blue"></span><i class="bar"></i></span><span class="nm">»poised-canyon</span></span></div>
+      <div class="row"><span class="well orange a2"></span><span class="sig"><span class="dotwrap"><span class="dot ring halo c-blue"></span><i class="bar"></i></span><span class="nm">»quiet-heron</span></span></div>
+      <div class="row"><span class="well slate m1"></span><span class="sig"><span class="dotwrap"><span class="dot ring c-green"></span><i class="bar"></i></span><span class="nm">»brave-otter</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot solid c-yellow"></span><span class="hs"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><path d="M4 14h3v5H4zM17 14h3v5h-3z"/></svg></span><span class="nm">operator</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot ring c-gray"></span><span class="nm">shell</span></span></div>
+    </div>
+    <div class="cap"><b>A 1px neutral bar, dot-width, 4px below the dot.</b> Touches neither hue nor shape; sits in the one free geometric slot (the halo owns the perimeter, the red center owns the middle, above/below are unclaimed). Reads as "underlined = on the list", the same idiom a tracked item has everywhere else. Footprint 7×12px — inside the 24px row with no crowding. Stale: dashes at 40%. The bar is the same ink whatever the dot's hue, so it can never be misread as journey.</div>
+  </div>
+
+  <div class="study">
+    <span class="tag park">park</span>
+    <h3>C1 · Dotted underline on the name</h3>
+    <div class="sidebar">
+      <div class="row"><span class="well orange a2"></span><span class="sig"><span class="dot ring c-blue"></span><span class="nm tracked">»poised-canyon</span></span></div>
+      <div class="row"><span class="well orange a2"></span><span class="sig"><span class="dot ring halo c-blue"></span><span class="nm tracked">»quiet-heron</span></span></div>
+      <div class="row"><span class="well slate m1"></span><span class="sig"><span class="dot ring c-green"></span><span class="nm tracked">»brave-otter</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot solid c-yellow"></span><span class="hs"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><path d="M4 14h3v5H4zM17 14h3v5h-3z"/></svg></span><span class="nm">operator</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot ring c-gray"></span><span class="nm">shell</span></span></div>
+    </div>
+    <div class="cap"><b>Leaves the dot a pure function of its four registers.</b> The relation goes on the name, where the flyout's <code>WatchedLine</code> already extends it. Zero glyph budget, composes with everything. Cost: an underlined name is the web's "this is a link" affordance, and the name is already the inline-rename control — the treatment promises an interaction it does not have. Also the weakest at a glance in a dense tree.</div>
+  </div>
+
+  <div class="study">
+    <span class="tag park">fallback</span>
+    <h3>E1 · Nothing on the row</h3>
+    <div class="sidebar">
+      <div class="row"><span class="well orange a2"></span><span class="sig"><span class="dot ring c-blue"></span><span class="nm">»poised-canyon</span></span></div>
+      <div class="row"><span class="well orange a2"></span><span class="sig"><span class="dot ring halo c-blue"></span><span class="nm">»quiet-heron</span></span></div>
+      <div class="row"><span class="well slate m1"></span><span class="sig"><span class="dot ring c-green"></span><span class="nm">»brave-otter</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot solid c-yellow"></span><span class="hs"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><path d="M4 14h3v5H4zM17 14h3v5h-3z"/></svg></span><span class="nm">operator</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot ring c-gray"></span><span class="nm">shell</span></span></div>
+    </div>
+    <div style="margin-top:8px" class="card">
+      <div class="tb">Tab · »poised-canyon</div>
+      <div class="ln"><span class="k">out</span><span class="v">idle · 2m since last output</span></div>
+      <div class="ln"><span class="k">agt</span><span class="v">idle 2m</span></div>
+      <div class="ln"><span class="k">fab</span><span class="v">260910-k3p1 · apply · active</span></div>
+      <div class="ln note"><span class="k"></span><span class="v" style="color:var(--ts)">watched · run-kit · apply · poised-canyon</span></div>
+    </div>
+    <div class="cap"><b>Membership lives on the flyout line and the CLOCK section only.</b> Zero collision by construction. Cost: the operator's fleet has no glance-level surface until the agents-tile dashboard wave (<code>WATCHED · 3</code>) lands. Acceptable as the interim if B3 is judged too subtle — but it gives up the one thing the cron study argued for.</div>
+  </div>
+
+</div>
+
+<h2>2 · Composition test — every base state × candidate</h2>
+<p>The pyramid's contract is that overlays compose freely with no special cell. A watched indicator is only admissible if it survives every row of this table without changing the reading of the dot beneath it. 3× insets; toggle <i>stale</i> and <i>light</i> in the toolbar.</p>
+<div class="mat">
+<table>
+  <tr><th>base state</th><th>A0 shipped</th><th>A1 neutral ◉</th><th>B1 orbit</th><th>B3 underbar</th><th>C1 name</th></tr>
+
+  <tr><td class="st">blue solid — building, worker live</td>
+    <td><span class="zoom"><span class="z"><span class="dot solid c-blue"></span><span class="wg">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot solid c-blue"></span><span class="wg neutral">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:8px 10px"><span class="dot solid c-blue w-orbit"></span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:4px 6px 7px"><span class="dotwrap"><span class="dot solid c-blue"></span><i class="bar"></i></span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot solid c-blue"></span><span class="nm tracked" style="font:11px var(--mono)">name</span></span></span></td></tr>
+
+  <tr><td class="st">blue ring — building, at rest</td>
+    <td><span class="zoom"><span class="z"><span class="dot ring c-blue"></span><span class="wg">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot ring c-blue"></span><span class="wg neutral">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:8px 10px"><span class="dot ring c-blue w-orbit"></span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:4px 6px 7px"><span class="dotwrap"><span class="dot ring c-blue"></span><i class="bar"></i></span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot ring c-blue"></span><span class="nm tracked" style="font:11px var(--mono)">name</span></span></span></td></tr>
+
+  <tr><td class="st">blue ring + yellow halo — agent asking</td>
+    <td><span class="zoom"><span class="z" style="padding:6px 8px"><span class="dot ring halo c-blue"></span><span class="wg">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:6px 8px"><span class="dot ring halo c-blue"></span><span class="wg neutral">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:8px 10px"><span class="dot ring halo c-blue w-orbit"></span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:6px 8px 8px"><span class="dotwrap"><span class="dot ring halo c-blue"></span><i class="bar"></i></span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:6px 8px"><span class="dot ring halo c-blue"></span><span class="nm tracked" style="font:11px var(--mono)">name</span></span></span></td></tr>
+
+  <tr><td class="st">blue bullseye — failed, rework live</td>
+    <td><span class="zoom"><span class="z"><span class="dot solid failed c-blue"></span><span class="wg">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot solid failed c-blue"></span><span class="wg neutral">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:8px 10px"><span class="dot solid failed c-blue w-orbit"></span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:4px 6px 7px"><span class="dotwrap"><span class="dot solid failed c-blue"></span><i class="bar"></i></span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot solid failed c-blue"></span><span class="nm tracked" style="font:11px var(--mono)">name</span></span></span></td></tr>
+
+  <tr><td class="st">blue ring + red center — failed, nobody on it</td>
+    <td><span class="zoom"><span class="z"><span class="dot ring failed c-blue"></span><span class="wg">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot ring failed c-blue"></span><span class="wg neutral">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:8px 10px"><span class="dot ring failed c-blue w-orbit"></span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:4px 6px 7px"><span class="dotwrap"><span class="dot ring failed c-blue"></span><i class="bar"></i></span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot ring failed c-blue"></span><span class="nm tracked" style="font:11px var(--mono)">name</span></span></span></td></tr>
+
+  <tr><td class="st">green ring — PR-ready, parked (the collision row)</td>
+    <td><span class="zoom"><span class="z"><span class="dot ring c-green"></span><span class="wg">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot ring c-green"></span><span class="wg neutral">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:8px 10px"><span class="dot ring c-green w-orbit"></span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:4px 6px 7px"><span class="dotwrap"><span class="dot ring c-green"></span><i class="bar"></i></span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot ring c-green"></span><span class="nm tracked" style="font:11px var(--mono)">name</span></span></span></td></tr>
+
+  <tr><td class="st">yellow ring — ad-hoc agent, idle</td>
+    <td><span class="zoom"><span class="z"><span class="dot ring c-yellow"></span><span class="wg">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot ring c-yellow"></span><span class="wg neutral">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:8px 10px"><span class="dot ring c-yellow w-orbit"></span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:4px 6px 7px"><span class="dotwrap"><span class="dot ring c-yellow"></span><i class="bar"></i></span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot ring c-yellow"></span><span class="nm tracked" style="font:11px var(--mono)">name</span></span></span></td></tr>
+
+  <tr><td class="st">gray ring — floor, quiet shell (the bullseye trap)</td>
+    <td><span class="zoom"><span class="z"><span class="dot ring c-gray"></span><span class="wg">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot ring c-gray"></span><span class="wg neutral">◉</span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:8px 10px"><span class="dot ring c-gray w-orbit"></span></span></span></td>
+    <td><span class="zoom"><span class="z" style="padding:4px 6px 7px"><span class="dotwrap"><span class="dot ring c-gray"></span><i class="bar"></i></span></span></span></td>
+    <td><span class="zoom"><span class="z"><span class="dot ring c-gray"></span><span class="nm tracked" style="font:11px var(--mono)">name</span></span></span></td></tr>
+</table>
+</div>
+<div class="cap" style="font-size:11px;color:var(--ts);max-width:900px">
+  Read across the <b>green ring</b> row: A0 doubles the hue; A1 and B1 add a concentric shape the eye must separate from the bullseye two rows up; B3 and C1 leave the dot exactly as the pyramid draws it. Read down the <b>B3</b> column: the bar is the one constant — same ink, same width, same offset — whatever the dot does above it. That is what "additive" means.
+</div>
+
+<h2>3 · Recommendation</h2>
+<p><b>Ship B3, the underbar, and give it a register.</b> Three decisions travel with it:</p>
+<ul>
+  <li><b>Neutral ink only.</b> The bar is <code>text-text-secondary</code> in every state; never <code>accent-green</code>. Hue on the row belongs to journey (dot) and the PR glyph. Stale = the note-stale <code>opacity-50</code> treatment plus a dashed bar, so staleness is not encoded in opacity alone.</li>
+  <li><b>A fifth register, <code>opr</code>.</b> The dot is documented as a pure function of the four register lines on the flyout card and the PANE panel. An overlay with no register breaks that. Add <code>opr  watched · apply · tick 2m ago</code> below <code>PR</code>, absent when unwatched — the same degrade-to-absent the <code>WatchedLine</code> already uses; the two lines merge into one.</li>
+  <li><b>The bar is decoration, the dot stays the tap target.</b> No new hit area; the accessible name grows one clause ("building — at rest — watched") on the dot's existing <code>aria-label</code>, and <code>WatchedIndicator</code> as a separate <code>role="img"</code> goes away.</li>
+</ul>
+
+<div class="two">
+  <div class="study">
+    <h3>Before → after</h3>
+    <div class="strip">
+      <span class="zoom"><span class="z"><span class="dot ring c-blue"></span><span class="wg">◉</span></span></span>
+      <span style="color:var(--ts)">→</span>
+      <span class="zoom"><span class="z" style="padding:4px 6px 7px"><span class="dotwrap"><span class="dot ring c-blue"></span><i class="bar"></i></span></span></span>
+    </div>
+    <div class="sidebar" style="margin-top:8px">
+      <div class="sess"><span class="tri">▼</span> shll_ai</div>
+      <div class="row sel"><span class="well slate"></span><span class="sig"><span class="dot ring c-gray"></span><span class="nm">shll.ai</span></span></div>
+      <div class="row"><span class="well orange"></span><span class="sig"><span class="dotwrap"><span class="dot ring c-blue"></span><i class="bar"></i></span><span class="nm">»poised-canyon</span></span><span class="trail"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M5 8l7-6 7 6M9 8v6l-2 3h10l-2-3V8"/></svg><span style="font-size:13px">✕</span></span></div>
+      <div class="row"><span class="well none"></span><span class="sig"><span class="dot solid c-gray"></span><span class="nm">wt</span></span></div>
+    </div>
+    <div class="cap">The screenshot row, re-rendered. One dot, one hue, one silhouette; the underbar says the operator has it. Row 2 is the same state as the original — building, at rest, watched.</div>
+  </div>
+  <div class="study">
+    <h3>The register view with <code>opr</code></h3>
+    <div class="card">
+      <div class="tb"><span class="dotwrap"><span class="dot ring c-blue"></span><i class="bar"></i></span> building — at rest — watched</div>
+      <div class="ln"><span class="k">out</span><span class="v">idle · 2m since last output</span></div>
+      <div class="ln"><span class="k">agt</span><span class="v">idle 2m</span></div>
+      <div class="ln"><span class="k">fab</span><span class="v">260910-k3p1 · apply · active</span></div>
+      <div class="ln"><span class="k">PR</span><span class="v">—</span></div>
+      <div class="ln new"><span class="k">opr</span><span class="v">watched · apply · tick 2m ago</span></div>
+    </div>
+    <div class="cap">Five orthogonal lines; the dot above is derivable from them by eye. <code>opr</code> carries what the fab operator state file knows — membership, the stage it recorded, and the tick age that drives the stale dimming — so the bar's dimmed state is explainable from the same card, not a mystery opacity.</div>
+  </div>
+</div>
+
+<h3>Rejected, for the record</h3>
+<table>
+  <tr><th>Option</th><th>Why not</th></tr>
+  <tr><td>A0 green ◉ (shipped)</td><td>Spends the PR-ready hue on a relation; second dot silhouette; the largest glyph in the cluster outranks the status.</td></tr>
+  <tr><td>A1 neutral ◉</td><td>Hue fixed, silhouette not — beside a gray ring it forms the bullseye (failed-over-solid) shape.</td></tr>
+  <tr><td>B1 orbit ring</td><td>Best metaphor, worst footprint (17px in a 24px row; eats the well gap); a third concentric shape next to ring and bullseye. Revisit if the sidebar ever grows a comfortable row height.</td></tr>
+  <tr><td>B2 reticle ticks</td><td>Four 1px ticks at N/S/E/W read as noise at 7px and collide with the halo's perimeter at 3px. Not rendered here; noted so it is not re-proposed.</td></tr>
+  <tr><td>Dashed dot border</td><td>Border style is the shape channel (solid/ring). A dashed ring is a third liveness value — and was the pre-#802 <i>failed</i> rendering. Never reuse.</td></tr>
+  <tr><td>Marker well texture</td><td>The well is human-owned (mode × stage are set by a person, never derived). Watched is fab-operator-derived. A derived signal in the well breaks the mode-axis "who may write" decision — and the reverse inference (reading watched-ness off an <code>auto</code> chevron) is equally out, because a human mode says nothing reliable about machine state.</td></tr>
+  <tr><td>Ghost headset</td><td>The headset means "this row IS the operator". A faint copy on watched rows inverts its meaning.</td></tr>
+  <tr><td>C1 name underline</td><td>Composes perfectly but promises a link and rides the inline-rename control. Parked: the fallback if B3 proves too subtle in a real tree.</td></tr>
+  <tr><td>E1 nothing</td><td>Zero collision, zero glance surface until the agents-tile dashboard. The interim if B3 is rejected outright.</td></tr>
+</table>
+
+<h3>Decision · the well stays human-owned</h3>
+<p>Raised and closed in the 260910 discussion: could the <code>auto</code> chevron stand in for "watched", making a dot overlay redundant? <b>No.</b> Marker modes are fully manual — a person declares them, nothing derives them — and that is the point of the axis. So status may never depend on the marker mode, and the marker may never carry status. Watched-ness therefore needs its own derived channel on the row, which is what the underbar is. The E1-plus-chevron path is closed.</p>
+
+<script>
+  const b = document.body;
+  const wire = (id, cls) => {
+    const el = document.getElementById(id);
+    el.addEventListener('click', () => { b.classList.toggle(cls); el.classList.toggle('on'); });
+  };
+  wire('tStale', 'stale');
+  wire('tLight', 'light');
+  document.getElementById('tSel').addEventListener('click', (e) => {
+    e.currentTarget.classList.toggle('on');
+    document.querySelectorAll('.row').forEach(r => {
+      if (r.querySelector('.bar, .wg, .w-orbit, .tracked')) r.classList.toggle('sel');
+    });
+  });
+</script>
+</body>
+</html>

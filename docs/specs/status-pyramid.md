@@ -68,16 +68,17 @@ output. Not v1.
 | Core hue **[current — compositional vocabulary]** | which journey + position in it (the LOCAL story) | **cool = fab pipeline**: blue (building — intake·apply·review) → green (PR-ready/done — ship·review-pr·done) · **warm = ad-hoc agent**: yellow · gray = floor (no agent, no journey). Purple/orange are retired from the dot |
 | Shape | **liveness** — the SAME meaning in every hue | solid (**work happening NOW** — agent mid-turn; floor: output flowing) · ring (**at rest** — no live worker · idle agent · waiting agent · parked done · quiet shell). Per-family source: journey hues read the rolled-up `agentState` only (absent/stale ⇒ ring); the L0 output fallback is the floor's alone |
 | PR glyph **[current]** | the REMOTE story — the branch's PR on GitHub; never the dot | right-edge git-pull-request glyph, six states via `prGlyphColor`: red closed (✕ icon) > purple merged > red failing > gray open-draft (dotted-rail icon) > yellow checks-running > green open; gated on `prOwnsGlyph` (owned PR: open/merged/closed), un-family-gated |
-| Overlays **[current]** | attention + failure — TWO **additive** flags, never destructive, never a tier | constant-**yellow** pulsing halo = `waiting`, over any tier (blocked is at rest: the halo wraps a ring) · **red center** = `failed` (fab `fabDisplayState === "failed"` — the only dot-red), over either shape: inside the hollow ring at rest, as a **bullseye** (dark gap ring) over solid so failure changes the silhouette, never color alone; flagged dots keep the 9px footprint. (future) slow-pulse halo = stuck. No overlay = no flag |
+| Overlays **[current]** | attention + failure + relation — THREE **additive** flags, never destructive, never a tier | constant-**yellow** pulsing halo = `waiting`, over any tier (blocked is at rest: the halo wraps a ring) · **red center** = `failed` (fab `fabDisplayState === "failed"` — the only dot-red), over either shape: inside the hollow ring at rest, as a **bullseye** (dark gap ring) over solid so failure changes the silhouette, never color alone; flagged dots keep the 9px footprint · **watched underbar** = on the fab operator's watchlist — a 1px neutral bar (`text-text-secondary`, painted from `currentColor`) 4px below the dot, sidebar window row only; stale (the operator loop's tick overdue) = dimmed AND dashed (1px-on/2px-off), static. Never a hue, never a shape. (future) slow-pulse halo = stuck. No overlay = no flag |
 | Duration text | how long in the current resting state | `waiting Xm` (attention token) · `idle Xm` · tmux elapsed |
-| Hover card (row flyout) | full detail | hue-word + liveness-word label + flags, the four registers, PR link, docs link |
+| Hover card (row flyout) | full detail | hue-word + liveness-word label + flags, the five registers (`out`/`agt`/`fab`/`pr`/`opr`), PR link, docs link |
 | Rollup badges **[current]** | attention counts up the hierarchy | session row → server tile → board header |
 
 **Compositional vocabulary — split by story, not by precedence.** The **dot
 tells the local story** (what runs in this pane: which journey, is anyone
 working, did the pipeline fail here, does it need me) and the **glyph tells
 the remote story** (the branch's PR on GitHub). Four hues × two shapes, plus
-two additive overlay flags (waiting halo · failed red center), and shape means
+three additive overlay flags (waiting halo · failed red center · watched
+underbar), and shape means
 the same thing in every hue — fully compositional, no per-cell captions. The
 fab hue is a **two-stop progress bar, not a stage map**: blue = building
 (pre-PR work), green = PR-ready/landed/done ("still cooking vs out the door"
@@ -123,6 +124,31 @@ fine animated, but its reduced-motion form nearly vanishes and reads like the
 hollow `ring` shape; also leaves colorblind + reduced-motion users with no
 cue); **fuchsia attention hue** (superseded — the amber collision that forced
 it no longer exists once fab collapses to blue/green).
+
+**Watched is additive too: a 1px neutral underbar beneath the dot, on the
+sidebar window row only.** The fab operator's watchlist is a relation, not a
+journey position, so it can never be a hue or a shape; below the dot is the
+one free geometric slot (the halo owns the perimeter up to 3px of box-shadow,
+the red center owns the middle). The bar is `text-text-secondary` painted
+from `currentColor` in every state — selected rows included — so it can never
+read as journey, and it sits 4px below the 7px dot (3px below the 9px flagged
+footprint) so it clears the halo. Stale (the operator loop's tick overdue) is
+dimmed AND dashed — `opacity-50` plus a 1px-on/2px-off dash, static — so
+staleness is never encoded in opacity alone. The placement study is
+[`docs/wiki/watched-row-indicator-studies.html`](../wiki/watched-row-indicator-studies.html).
+
+**Rejected — watched placements**, for the record: **green ◉** (spends the
+PR-ready hue on a relation and adds a second dot silhouette — hue +
+silhouette collision); **neutral ◉** (the bullseye trap — beside a gray floor
+ring a gray ◉ reproduces the failed-over-solid silhouette); **orbit ring at
+4px** (17px footprint in a 24px row, eats the well gap, a third concentric
+shape); **reticle ticks** (noise at 7px, collide with the halo perimeter);
+**dashed dot border** (border style is the shape/liveness channel and was the
+pre-#802 failed rendering); **marker-well texture** (the well is
+human-owned); **ghost headset** (the headset says "this row IS the
+operator"); **dotted name underline** (reads as a link, rides the
+inline-rename control — parked fallback); **nothing on the row** (zero glance
+surface until the agents-tile dashboard — interim fallback).
 
 ---
 
@@ -309,18 +335,23 @@ Where each removed signal goes:
 **The register view has TWO surfaces**: the bottom PANE panel and a row-anchored
 **hover flyout card** (opening on whole-row hover, keyboard row focus, or a
 coarse-pointer dot tap, at a fixed x on the sidebar's right edge). Both render
-the four layers as separate, orthogonal lines — never collapsed — so the dot is
-a *pure function* of what they show and can be mentally derived from it:
+the four signal layers as separate, orthogonal lines — never collapsed — plus a
+fifth **`opr` watchlist register** (last) when the fab operator monitors the
+window, so the dot is a *pure function* of what they show and can be mentally
+derived from it (every dot overlay has a register: the watched underbar's
+stale dimming reads off `opr`'s `tick <age> ago`):
 
 ```
 out  active · 4s since last output        (L0)
 agt  waiting 3m                           (L1)
 fab  260705-dmex · review · failed        (L2)
 PR   #314 open · checks fail · draft      (L3)
+opr  watched · review · tick 2m ago       (operator watchlist)
 ```
 
-Register keys are fixed-width 3-char lowercase (`out` / `agt` / `fab` / `pr`),
-matching the panel's existing `tmx`/`cwd`/`git` vocabulary. **[current]**
+Register keys are fixed-width 3-char lowercase (`out` / `agt` / `fab` / `pr` /
+`opr`), matching the panel's existing `tmx`/`cwd`/`git` vocabulary.
+**[current]**
 
 Absent layers render as absent (no placeholder rows for a plain shell pane
 beyond `output`).
@@ -386,10 +417,14 @@ One overlay at a time: `waiting` outranks `stuck`.
 ## Accessibility
 
 - `aria-label` composes hue word + liveness word + flags: `"building — failed —
-  at rest — agent waiting 3m"`. Color and motion are never the sole channel
-  (the halo has a static reduced-motion form; the bullseye changes the
-  silhouette, not just the color; the duration text and the hover card carry
-  the same fact).
+  at rest — agent waiting 3m"`. The watched overlay appends one trailing clause
+  after the waiting suffix — ` — watched`, or ` — watched (operator stale)`
+  when the operator loop's tick is overdue (`"building — at rest — watched"`);
+  the underbar itself is `aria-hidden` decoration. Color and motion are never
+  the sole channel (the halo has a static reduced-motion form; the bullseye
+  changes the silhouette, not just the color; the underbar is dimmed AND
+  dashed when stale, never opacity alone; the duration text and the hover card
+  carry the same fact).
 - The pulse respects `prefers-reduced-motion` per the existing animation
   discipline (`rk-*` utilities zero out; JS treatments skip themselves).
 

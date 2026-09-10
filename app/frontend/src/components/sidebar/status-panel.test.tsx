@@ -850,3 +850,59 @@ describe("Register-label tips (260723-fm08)", () => {
     expect(row).toHaveAttribute("title", "/home/user/code/run-kit");
   });
 });
+
+describe("opr register (operator watchlist)", () => {
+  // The panel's fifth register — `opr watched · stage · tick age · repo ·
+  // branch` after the fab row, present only for monitored windows; stale dims
+  // the value text and marks the row (the note-stale idiom).
+  it("renders register-operator for a monitored window, after the fab row", () => {
+    vi.setSystemTime(10_000_000);
+    render(
+      <StatusPanel
+        window={makeWindow({
+          fabChange: "260805-93dy-row-flyout",
+          fabStage: "apply",
+          monitored: true,
+          monitoredStage: "apply",
+          monitoredRepo: "run-kit",
+          monitoredBranch: "fab/wuiu",
+        })}
+        operator={{ stale: false, lastTickAt: 10_000_000 / 1000 - 120 }}
+      />,
+    );
+    const opr = screen.getByTestId("register-operator");
+    expect(opr).toHaveTextContent("opr watched · apply · tick 2m ago · run-kit · fab/wuiu");
+    const fab = screen.getByText(/93dy row-flyout · apply/).closest("button")!;
+    expect(fab.compareDocumentPosition(opr) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(opr.getAttribute("data-stale")).toBeNull();
+  });
+
+  it("is absent for an unmonitored window", () => {
+    render(<StatusPanel window={makeWindow({})} operator={{ stale: false }} />);
+    expect(screen.queryByTestId("register-operator")).toBeNull();
+  });
+
+  it("stale dims the value text and marks the row", () => {
+    vi.setSystemTime(10_000_000);
+    render(
+      <StatusPanel
+        window={makeWindow({ monitored: true })}
+        operator={{ stale: true, lastTickAt: 10_000_000 / 1000 - 2460 }}
+      />,
+    );
+    const opr = screen.getByTestId("register-operator");
+    expect(opr).toHaveTextContent("opr watched · tick 41m ago");
+    expect(opr).toHaveAttribute("data-stale", "true");
+    expect(opr.querySelector("span:last-child")!.className).toContain("text-text-secondary");
+  });
+
+  it("the register label tip reads 'Operator watchlist'", () => {
+    render(<StatusPanel window={makeWindow({ monitored: true })} operator={{ stale: false }} />);
+    const label = screen.getByText("opr");
+    act(() => {
+      fireEvent.mouseEnter(label);
+      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+    });
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Operator watchlist");
+  });
+});

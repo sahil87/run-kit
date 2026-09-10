@@ -32,6 +32,7 @@ import { PopupTitleBar, PopupTitleBarSecondary, notchFill, POPUP_TITLE_BAR_HEIGH
 import { CardActionList, CardActionRow } from "./row-flyout-card";
 import { dotLabel } from "@/components/status-dot-label";
 import { statusDotState } from "@/components/pr-status-model";
+import type { OperatorLoopFacts } from "./registers";
 import type { WindowInfo } from "@/types";
 import { makeWindow, makeWindowWithPanes } from "@/test-utils/fixtures";
 
@@ -74,6 +75,7 @@ function Row({
   pinnedBoard,
   onKillAction,
   onRowClick,
+  operator,
 }: {
   win: WindowInfo;
   suppressed?: boolean;
@@ -86,6 +88,7 @@ function Row({
   pinnedBoard?: string;
   onKillAction?: () => void;
   onRowClick?: () => void;
+  operator?: OperatorLoopFacts;
 }) {
   const flyout = useRowFlyout({
     suppressed,
@@ -114,6 +117,7 @@ function Row({
         pinned={pinned}
         pinnedBoard={pinnedBoard}
         onKillAction={onKillAction}
+        operator={operator}
       />
     ),
   });
@@ -682,40 +686,76 @@ describe("Note register (260824-bb5n)", () => {
   });
 });
 
-describe("Watched register (wuiu)", () => {
-  // The window card's watched line: `watched · repo · stage · branch` for
-  // windows on the operator's watchlist, directly below the note register.
-  // Degrade-to-absent: no `monitored` → no row.
+describe("opr register (operator watchlist)", () => {
+  // The card's fifth register — `opr watched · stage · tick age` with the
+  // repo · branch facets on a continuation line, rendered LAST (after the pr
+  // block). Degrade-to-absent: no `monitored` → no row. The tick age is as of
+  // the render frame (the card holds no clock — the NoteLine idiom).
+  function renderOpenWithOperator(win: WindowInfo, operator?: OperatorLoopFacts) {
+    render(<Row win={win} operator={operator} />);
+    hoverOpen();
+  }
 
-  it("renders the watched line with repo · stage · branch when the window is monitored", () => {
-    renderOpen(
+  it("renders the opr register with head + facets when the window is monitored", () => {
+    renderOpenWithOperator(
       makeWindow({
         monitored: true,
         monitoredRepo: "run-kit",
         monitoredStage: "apply",
         monitoredBranch: "fab/wuiu",
       }),
+      { stale: false, lastTickAt: Math.floor(Date.now() / 1000) - 120 },
     );
-    expect(screen.getByTestId("row-flyout-watched-line")).toHaveTextContent(
-      "watched · run-kit · apply · fab/wuiu",
+    expect(screen.getByTestId("row-flyout-opr")).toHaveTextContent(
+      "opr watched · apply · tick 2m ago",
     );
+    expect(screen.getByTestId("row-flyout-opr-facets")).toHaveTextContent("run-kit · fab/wuiu");
   });
 
-  it("omits empty segments", () => {
-    renderOpen(makeWindow({ monitored: true, monitoredStage: "review" }));
-    expect(screen.getByTestId("row-flyout-watched-line")).toHaveTextContent("watched · review");
+  it("renders as the LAST body register — after the fab and pr blocks", () => {
+    renderOpenWithOperator(
+      makeWindow({
+        fabChange: "260805-93dy-row-flyout",
+        fabStage: "apply",
+        prNumber: 241,
+        prState: "open",
+        monitored: true,
+        monitoredStage: "apply",
+      }),
+      { stale: false },
+    );
+    const fab = screen.getByTestId("row-flyout-fab");
+    const pr = screen.getByTestId("row-flyout-pr");
+    const opr = screen.getByTestId("row-flyout-opr");
+    expect(fab.compareDocumentPosition(pr) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(pr.compareDocumentPosition(opr) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("renders no watched row when the window is not monitored", () => {
-    renderOpen(makeWindow({}));
+  it("renders no opr row (and no retired watched line) when the window is not monitored", () => {
+    renderOpenWithOperator(makeWindow({}));
+    expect(screen.queryByTestId("row-flyout-opr")).toBeNull();
+    expect(screen.queryByTestId("row-flyout-opr-facets")).toBeNull();
     expect(screen.queryByTestId("row-flyout-watched-line")).toBeNull();
   });
 
-  it("renders directly below the note register when both exist", () => {
-    renderOpen(makeWindow({ note: "hello", noteEpoch: 0, monitored: true, monitoredStage: "apply" }));
-    const note = screen.getByTestId("row-flyout-note");
-    const watched = screen.getByTestId("row-flyout-watched-line");
-    expect(note.compareDocumentPosition(watched) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  it("stale dims the head text and marks the line with data-stale", () => {
+    renderOpenWithOperator(makeWindow({ monitored: true, monitoredStage: "apply" }), {
+      stale: true,
+    });
+    const row = screen.getByTestId("row-flyout-opr");
+    expect(row).toHaveAttribute("data-stale", "true");
+    expect(row).toHaveTextContent("opr watched · apply");
+    expect(row.querySelector("span:last-child")!.className).toContain(
+      "text-text-secondary",
+    );
+
+    cleanup();
+    renderOpenWithOperator(makeWindow({ monitored: true, monitoredStage: "apply" }), {
+      stale: false,
+    });
+    const fresh = screen.getByTestId("row-flyout-opr");
+    expect(fresh.getAttribute("data-stale")).toBeNull();
+    expect(fresh.querySelector("span:last-child")!.className).toContain("text-text-primary");
   });
 });
 

@@ -1724,10 +1724,10 @@ describe("coarse pointer: rest glyph, rail target, and plain status dot", () => 
   });
 });
 
-describe("WatchedIndicator (wuiu)", () => {
-  // The watched-by-operator glyph (◉) beside the StatusDot: rendered only for
-  // windows on the operator's watchlist, dimmed while the owning session's
-  // operator loop is stale (the note-stale opacity treatment, new trigger).
+describe("Watched underbar (the dot carries the flag)", () => {
+  // Watched-by-operator renders as the StatusDot's additive underbar overlay:
+  // rendered only for non-ghost windows on the operator's watchlist, dimmed
+  // AND dashed while the owning session's operator loop is stale.
   beforeEach(() => {
     mockMatchMedia();
   });
@@ -1757,28 +1757,43 @@ describe("WatchedIndicator (wuiu)", () => {
     );
   }
 
-  it("renders the ◉ glyph beside the StatusDot when win.monitored is true, with an accessible label", () => {
+  function dotInRow(): HTMLElement {
+    return screen.getByTestId("status-dot-tap").querySelector("[role='img']")!;
+  }
+
+  it("renders the underbar on the StatusDot when win.monitored is true, and the label ends with '— watched'", () => {
     renderRowWithStaleness(makeWindow({ monitored: true, monitoredStage: "apply" }));
-    const indicator = screen.getByTestId("row-watched-indicator");
-    expect(indicator).toHaveTextContent("◉");
-    expect(indicator).toHaveAttribute("aria-label", "Watched by operator — apply");
+    expect(screen.getByTestId("status-dot-watched-bar")).toBeInTheDocument();
+    expect(dotInRow().getAttribute("aria-label")).toMatch(/— watched$/);
+    // The retired glyph surface is gone.
+    expect(screen.queryByTestId("row-watched-indicator")).toBeNull();
   });
 
-  it("renders no glyph (zero DOM footprint) when win.monitored is false or absent", () => {
+  it("renders no bar (zero extra DOM) when win.monitored is false or absent, and the label is unchanged", () => {
     renderRowWithStaleness(makeWindow({}));
-    expect(screen.queryByTestId("row-watched-indicator")).toBeNull();
+    expect(screen.queryByTestId("status-dot-watched-bar")).toBeNull();
+    expect(dotInRow().getAttribute("aria-label")).not.toContain("watched");
 
     cleanup();
     renderRowWithStaleness(makeWindow({ monitored: false }));
-    expect(screen.queryByTestId("row-watched-indicator")).toBeNull();
+    expect(screen.queryByTestId("status-dot-watched-bar")).toBeNull();
   });
 
-  it("renders dimmed when the owning session's operatorStale is true, full treatment otherwise", () => {
+  it("renders no bar on ghost rows even when monitored is set", () => {
+    renderGhostRow(makeGhostWindow({ monitored: true }));
+    expect(screen.queryByTestId("status-dot-watched-bar")).toBeNull();
+  });
+
+  it("stale prop ⇒ dashed + dimmed bar with data-stale, and the label ends with '— watched (operator stale)'", () => {
     renderRowWithStaleness(makeWindow({ monitored: true }), true);
-    expect(screen.getByTestId("row-watched-indicator").className).toContain("opacity-50");
+    const bar = screen.getByTestId("status-dot-watched-bar");
+    expect(bar.className).toContain("rk-watched-underbar-stale");
+    expect(bar.className).toContain("opacity-50");
+    expect(bar.getAttribute("data-stale")).toBe("true");
+    expect(dotInRow().getAttribute("aria-label")).toMatch(/— watched \(operator stale\)$/);
 
     cleanup();
     renderRowWithStaleness(makeWindow({ monitored: true }), false);
-    expect(screen.getByTestId("row-watched-indicator").className).not.toContain("opacity-50");
+    expect(screen.getByTestId("status-dot-watched-bar").className).not.toContain("opacity-50");
   });
 });

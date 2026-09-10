@@ -3,8 +3,8 @@ import { PR_STATE_COLORS, PR_CHECKS_COLORS, PR_REVIEW_COLORS } from "@/component
 import type { WindowInfo } from "@/types";
 
 /**
- * Shared register-line resolvers for the status pyramid's four orthogonal
- * signal registers (`out` L0 / `agt` L1 / `fab` L2 / `PR` L3 — see
+ * Shared register-line resolvers for the status pyramid's five orthogonal
+ * signal registers (`out` L0 / `agt` L1 / `fab` L2 / `PR` L3 / `opr` L4 — see
  * docs/specs/status-pyramid.md § Row Minimalism). Extracted from
  * `status-panel.tsx` (93dy) so the TWO register surfaces — the bottom PANE
  * panel's `WindowContent` and the sidebar row-hover flyout card
@@ -69,6 +69,33 @@ export function getFabLine(win: WindowInfo): string | null {
 }
 
 export type PrSegment = { text: string; color: string };
+
+export type OperatorLoopFacts = { stale: boolean; lastTickAt?: number };
+export type OperatorParts = { head: string; facets?: string };
+
+/** L4 `opr` register. Null unless `win.monitored === true` (degrade-to-absent,
+ *  the NoteLine gate). `head` leads with the decisive tokens:
+ *  `watched · <monitoredStage> · tick <age> ago`; the stage segment is omitted
+ *  when absent, the tick segment when `lastTickAt` is 0/absent (never ticked).
+ *  `facets` = `<monitoredRepo> · <monitoredBranch>` (empty segments omitted;
+ *  undefined when both absent). `stale` is consumed verbatim — the threshold
+ *  is server-derived, never recomputed here. */
+export function getOperatorParts(
+  win: WindowInfo,
+  operator: OperatorLoopFacts | undefined,
+  nowSeconds: number,
+): OperatorParts | null {
+  if (win.monitored !== true) return null;
+  let head = "watched";
+  if (win.monitoredStage) head += ` · ${win.monitoredStage}`;
+  if (operator?.lastTickAt) {
+    head += ` · tick ${formatDuration(nowSeconds - operator.lastTickAt)} ago`;
+  }
+  const facets = [win.monitoredRepo, win.monitoredBranch].filter(Boolean).join(" · ");
+  const parts: OperatorParts = { head };
+  if (facets) parts.facets = facets;
+  return parts;
+}
 
 /**
  * Build the L3 `PR` register line as colored segments, e.g.

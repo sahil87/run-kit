@@ -5,9 +5,10 @@
 > The single status dot reused on the sidebar window row, the dashboard window cards, and the
 > pane-panel header. It tells the window's **local story** — what runs in this pane: which journey,
 > is anyone working right now, did the pipeline fail here, does it need me — using **two
-> orthogonal visual channels** plus **two additive overlay flags**: **core hue = journey**,
+> orthogonal visual channels** plus **three additive overlay flags**: **core hue = journey**,
 > **shape = liveness** (the same meaning in every hue), a **red center = the pipeline failed
-> here**, and a **constant-yellow pulsing halo = the agent is waiting on you**. The **remote
+> here**, a **constant-yellow pulsing halo = the agent is waiting on you**, and — on the sidebar
+> window row only — a **neutral underbar = on the fab operator's watchlist**. The **remote
 > story** — the branch's PR on GitHub — lives on the row's right-edge **PR glyph**, never on the
 > dot. There is no matrix to memorize: hue × shape × overlays compose freely and no cell is
 > special.
@@ -91,12 +92,13 @@ A **parked-done change is a green resting ring** — resting, journey complete; 
 glyph (when a PR exists) says how it ended. All unflagged dots render at one uniform 7px
 footprint.
 
-### 3 · Overlays = additive flags (2 — over any hue × shape; never a tier, never destructive)
+### 3 · Overlays = additive flags (3 — over any hue × shape; never a tier, never destructive)
 
 | Overlay | Rendering | Means |
 |---------|-----------|-------|
 | **failed red center** | a small (~3px) **red** center dot flagged over the base shape, at a 9px footprint | review / review-pr failed **here** (fab `fabDisplayState === "failed"`) — the only dot-red |
 | **waiting halo** | a constant-yellow pulsing box-shadow ring around the dot (`rk-waiting-halo`) | an agent is **waiting on you** — blocked, therefore at rest: the halo always wraps a RING |
+| **watched underbar** | a 1px **neutral** bar (`text-text-secondary`, painted from `currentColor`) 4px below the dot — 3px below the 9px flagged footprint — **sidebar window row only** | the window is on the **fab operator's watchlist** — a relation, so never a hue and never a shape; stale (the operator loop's tick overdue) = **dimmed AND dashed** (`opacity-50` plus a 1px-on/2px-off dash), static |
 
 Failure and liveness are **orthogonal**: over a **ring**, the red center sits inside the hollow
 ring ("failed, nobody on it — **act**"); over a **solid**, the flag cuts a **dark gap ring**
@@ -108,6 +110,13 @@ yellow ring** — attention is never encoded in motion alone.
 Yellow is the agent color in both roles — **yellow core** = "an ad-hoc agent lives here",
 **yellow halo** = "an agent needs you now" — the glow never claims the window is ad-hoc, because
 family identity lives strictly in the core.
+
+The watched underbar renders only where the row passes the watched flag — today the sidebar
+window row alone; the dashboard window cards, the pane-panel header, the status bar, and the tty
+tile header render no bar. It is the same neutral ink whatever the dot's hue, so it can never
+read as a journey position, and it clears the waiting halo's reach by sitting below it. The
+watchlist's full story (stage, repo · branch, tick age) lives in the `opr` register on the hover
+card and the PANE panel.
 
 ### 4 · PR = the right-edge row glyph (one channel, six states — never the dot)
 
@@ -144,6 +153,9 @@ Read hue, then shape, then overlays, then glyph:
 | blue bullseye (solid + gap ring + red center) | — | review failed, **rework agent live** |
 | blue ring + red center, yellow halo | — | review failed and the agent is asking |
 | blue ring, yellow halo | — | intake stage, agent asking |
+| blue ring + underbar | — | building, at rest, **watched by the operator** |
+| blue ring, yellow halo + underbar | — | watched agent asking |
+| blue ring, dashed dim underbar | — | watched, **operator loop stale** (dimmed + dashed) |
 | green ring | purple | merged and parked — archive me |
 | gray solid | — | build running (floor — output flowing) |
 | gray ring | — | quiet shell |
@@ -181,12 +193,14 @@ Where each removed signal survives:
 
 **Hover any row for the full picture.** Resting the pointer on a window row opens a card at the
 sidebar's right edge — same position every time, so it never jumps around under the pointer. It
-shows the dot's own label, the four registers below, how long ago the PR status was checked, and an
+shows the dot's own label, the five registers below (the `opr` watchlist register appears when
+the fab operator monitors the window), how long ago the PR status was checked, and an
 "Open PR #N" link. The card also opens when you focus a row with the keyboard (Escape dismisses
 it), and on a touch device by tapping the row's status dot.
 
 **The PANE panel is the same register view for the selected window.** The four signal layers render
-as separate, orthogonal lines — never collapsed — so the dot is a *pure function* of what they show
+as separate, orthogonal lines — never collapsed — joined by the fifth `opr` register when the
+window is on the operator's watchlist, so the dot is a *pure function* of what they show
 and can be mentally derived from it:
 
 ```
@@ -194,9 +208,10 @@ out  active · 4s since last output        (L0: tmux activity)
 agt  waiting 3m                            (L1: @rk_pane_agent_state + epoch)
 fab  260705-dmex · review · failed         (L2: fabChange · stage · displayState)
 PR   #314 open · checks fail · draft        (L3: prNumber/state/checks/review/draft)
+opr  watched · review · tick 2m ago         (operator watchlist — the row's underbar)
 ```
 
-The register keys are fixed-width 3-char (`out`/`agt`/`fab`/`PR`), matching the panel's existing
+The register keys are fixed-width 3-char (`out`/`agt`/`fab`/`PR`/`opr`), matching the panel's existing
 `tmx`/`cwd`/`git` vocabulary. Absent layers render as absent (a plain shell pane shows only `out`).
 The L3 PR register shows for **any** pane with a `prNumber` (universal derivation, even a plain
 pane whose dot stays gray). The row's rest-state PR glyph is stricter — it renders only for an
@@ -223,7 +238,10 @@ flags** — a pure function of what the dot shows — so neither color nor motio
 channel (colorblind a11y + the keyboard-first constitution). Examples: `"building — worker live"`,
 `"PR-ready — at rest"`, `"building — failed — rework live"` (bullseye),
 `"building — failed — at rest — agent waiting 3m"`, `"agent — idle"`; the floor uses the bare
-`"active"` / `"idle"`. PR facts are deliberately absent from the label (the glyph is
+`"active"` / `"idle"`. A watched window's label grows one trailing clause after the waiting
+suffix — ` — watched`, or ` — watched (operator stale)` when the operator loop's tick is overdue
+(`"building — at rest — watched"`); the underbar itself is `aria-hidden` decoration. PR facts are
+deliberately absent from the label (the glyph is
 `aria-hidden` decoration; the flyout card and PANE panel carry the PR detail). The halo respects
 `prefers-reduced-motion` (a static yellow ring), and the same waiting fact is carried by the
 duration text and the register surfaces.

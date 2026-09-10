@@ -432,6 +432,17 @@ summary {
   animation: rk-waiting-halo 1.4s ease-in-out infinite;
 }
 
+/* Watched-by-operator underbar (status-dot.tsx): a 1px neutral bar under the
+   StatusDot painted from currentColor so it can never carry a journey hue.
+   Stale (the operator loop's tick is overdue, `operatorStale` server-derived)
+   = the note-stale opacity-50 treatment PLUS a dashed 1px-on / 2px-off
+   pattern, so staleness is never encoded in opacity alone. Static — no
+   animation, nothing to zero under reduced motion. */
+.rk-watched-underbar { background: currentColor; }
+.rk-watched-underbar-stale {
+  background: repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 3px);
+}
+
 /* Waiting seam = the board-pane form of the same attention overlay. A waiting
    pane's border pulses in the signal yellow (3px, border-width system —
    board-pane.tsx switches to border-[3px] and adds this class). Reduced motion:
@@ -1605,6 +1616,8 @@ html[data-theme="light"] {
   .rk-console-slide { transition: none; }
   /* Hatch-marker hazard wedge (.rk-hazard): static in every state by design —
      nothing to zero here; listed so the reduced-motion audit stays complete. */
+  /* Watched underbar (.rk-watched-underbar): static by design — no animation,
+     nothing to zero; listed for audit completeness like .rk-hazard. */
   /* Flair overlays (all fourteen named states): motion-only ambient decoration
      with NO static label cue of their own — hidden entirely, including the
      onepiece wave baseline (a bare wave line without its ship would read as

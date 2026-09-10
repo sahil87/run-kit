@@ -22,6 +22,12 @@ const FAB_PHASE_LABEL: Record<Extract<DotPhase, "building" | "prReady">, string>
 };
 
 /**
+ * The watched-by-operator overlay flag. `stale` is consumed verbatim from the
+ * server-derived `ProjectSession.operatorStale` — never recomputed here.
+ */
+export type WatchedFlag = { stale: boolean };
+
+/**
  * Fab-hue liveness word, composed from the shape plus the additive failure
  * flag: solid = "worker live", ring = "at rest"; a flagged (failed) solid is
  * the bullseye — "failed — rework live" — and a flagged ring is
@@ -67,19 +73,26 @@ function coreLabel(win: WindowInfo, state: StatusDotState): string {
 }
 
 /**
- * Compose the full accessible label = core journey label + additive attention
- * suffix. The `waiting` overlay is ADDITIVE on every tier (status-pyramid.md
- * § Accessibility): a review-failed window that is waiting 3m reads
- * "building — failed — at rest — agent waiting 3m"; a plain waiting agent
- * reads "agent — idle — agent waiting 2m". The duration is taken from the
- * rk-computed `agentIdleDuration` (populated for `waiting` and `idle`). No
- * suffix when the window is not waiting.
+ * Compose the full accessible label = core journey label + additive suffixes,
+ * in overlay precedence order: the attention suffix (waiting), then the
+ * relation suffix (watched). The `waiting` overlay is ADDITIVE on every tier
+ * (status-pyramid.md § Accessibility): a review-failed window that is waiting
+ * 3m reads "building — failed — at rest — agent waiting 3m"; a plain waiting
+ * agent reads "agent — idle — agent waiting 2m". The duration is taken from
+ * the rk-computed `agentIdleDuration` (populated for `waiting` and `idle`). No
+ * suffix when the window is not waiting. The watched suffix mirrors the
+ * underbar overlay: "— watched", or "— watched (operator stale)" when the
+ * operator loop's tick is overdue; the exact monitored stage lives in the
+ * `opr` register, not the label.
  */
-export function dotLabel(win: WindowInfo, state: StatusDotState): string {
-  const core = coreLabel(win, state);
+export function dotLabel(win: WindowInfo, state: StatusDotState, watched?: WatchedFlag): string {
+  let label = coreLabel(win, state);
   if (state.waiting) {
     const dur = win.agentIdleDuration ? ` ${win.agentIdleDuration}` : "";
-    return `${core} — agent waiting${dur}`;
+    label = `${label} — agent waiting${dur}`;
   }
-  return core;
+  if (watched) {
+    label = `${label} — watched${watched.stale ? " (operator stale)" : ""}`;
+  }
+  return label;
 }

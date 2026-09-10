@@ -230,3 +230,103 @@ describe("dotLabel — hue-word + liveness-word + flags composition", () => {
 // The hover-card content-resolution suite moved with the surface: the
 // per-dot StatusDotTip was replaced by the sidebar row flyout card —
 // see sidebar/row-flyout-card.test.tsx for the card content coverage.
+
+describe("StatusDot — additive watched underbar", () => {
+  const watchedWin = (overrides = {}) =>
+    makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "active", ...overrides });
+
+  it("renders the bar only when `watched` is passed; without it the DOM is byte-identical", () => {
+    const win = watchedWin();
+    const plain = render(<StatusDot win={win} />);
+    expect(screen.queryByTestId("status-dot-watched-bar")).toBeNull();
+    const plainHtml = plain.container.innerHTML;
+    cleanup();
+    const watched = render(<StatusDot win={win} watched={{ stale: false }} />);
+    const bar = screen.getByTestId("status-dot-watched-bar");
+    expect(bar.getAttribute("aria-hidden")).toBe("true");
+    expect(bar.getAttribute("role")).toBeNull();
+    expect(bar.getAttribute("title")).toBeNull();
+    expect(bar.getAttribute("tabindex")).toBeNull();
+    // The base dot element's classes and shape are identical with and without
+    // the flag (the label differs by the watched clause — asserted below).
+    const dotInWatched = watched.container.querySelector("[role='img']")!;
+    cleanup();
+    const plainAgain = render(<StatusDot win={win} />);
+    expect(plainAgain.container.innerHTML).toBe(plainHtml);
+    const dotPlain = plainAgain.container.querySelector("[role='img']")!;
+    expect(dotInWatched.className).toBe(dotPlain.className);
+    expect(dotInWatched.getAttribute("style")).toBe(dotPlain.getAttribute("style"));
+  });
+
+  it("paints the bar neutral — text-text-secondary, never accent-green or the phase hue", () => {
+    render(<StatusDot win={watchedWin()} watched={{ stale: false }} />);
+    const bar = screen.getByTestId("status-dot-watched-bar");
+    expect(bar.className).toContain("text-text-secondary");
+    expect(bar.className).toContain("rk-watched-underbar");
+    expect(bar.className).not.toContain("text-accent-green");
+    expect(bar.className).not.toContain("text-signal-blue");
+  });
+
+  it("stale adds the dashed class + opacity-50 + data-stale; non-stale has none", () => {
+    const { rerender } = render(<StatusDot win={watchedWin()} watched={{ stale: true }} />);
+    const bar = screen.getByTestId("status-dot-watched-bar");
+    expect(bar.className).toContain("rk-watched-underbar-stale");
+    expect(bar.className).toContain("opacity-50");
+    expect(bar.getAttribute("data-stale")).toBe("true");
+    rerender(<StatusDot win={watchedWin()} watched={{ stale: false }} />);
+    const fresh = screen.getByTestId("status-dot-watched-bar");
+    expect(fresh.className).not.toContain("rk-watched-underbar-stale");
+    expect(fresh.className).not.toContain("opacity-50");
+    expect(fresh.getAttribute("data-stale")).toBeNull();
+  });
+
+  it("composes with the waiting halo — both classes present, bar at -bottom-[4px]", () => {
+    render(
+      <StatusDot
+        win={watchedWin({ agentState: "waiting", agentIdleDuration: "3m" })}
+        watched={{ stale: false }}
+      />,
+    );
+    const dot = screen.getByLabelText("building — at rest — agent waiting 3m — watched");
+    expect(dot.className).toContain("rk-waiting-halo");
+    expect(dot.className).toContain("text-signal-blue");
+    const bar = screen.getByTestId("status-dot-watched-bar");
+    expect(bar.className).toContain("-bottom-[4px]");
+  });
+
+  it("under the 9px flagged dot the bar sits at -bottom-[3px] (same ~12px footprint)", () => {
+    render(
+      <StatusDot
+        win={watchedWin({ fabStage: "review", fabDisplayState: "failed", agentState: "active" })}
+        watched={{ stale: false }}
+      />,
+    );
+    const dot = screen.getByLabelText("building — failed — rework live — watched");
+    expect(dot.className).toContain("w-[9px]");
+    // Bullseye intact: gap ring + red center unchanged by the overlay.
+    const gap = dot.querySelector("span")!;
+    expect(gap.className).toContain("bg-bg-primary");
+    expect(gap.querySelector("span")!.className).toContain("bg-signal-red");
+    expect(screen.getByTestId("status-dot-watched-bar").className).toContain("-bottom-[3px]");
+  });
+
+  it("dotLabel appends the watched clause LAST, after the waiting suffix; stale reads '(operator stale)'", () => {
+    const building = makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "active" });
+    expect(dotLabel(building, statusDotState(building), { stale: false })).toBe("building — at rest — watched");
+    expect(dotLabel(building, statusDotState(building), { stale: true })).toBe(
+      "building — at rest — watched (operator stale)",
+    );
+    const waitingAgent = makeWindow({ agentState: "waiting", agentIdleDuration: "3m" });
+    expect(dotLabel(waitingAgent, statusDotState(waitingAgent), { stale: false })).toBe(
+      "agent — idle — agent waiting 3m — watched",
+    );
+    const failed = makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed", agentState: "active" });
+    expect(dotLabel(failed, statusDotState(failed), { stale: false })).toBe(
+      "building — failed — rework live — watched",
+    );
+    const floor = makeWindow({ activity: "idle" });
+    expect(dotLabel(floor, statusDotState(floor), { stale: false })).toBe("idle — watched");
+    // No flag ⇒ unchanged.
+    expect(dotLabel(building, statusDotState(building))).toBe("building — at rest");
+  });
+});

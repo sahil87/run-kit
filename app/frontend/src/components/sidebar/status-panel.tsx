@@ -9,7 +9,8 @@ import { CollapsiblePanel } from "./collapsible-panel";
 import { ICON_CLASS } from "./icons";
 import { COPY_FEEDBACK_MS, useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { abbreviateHomePath, parseFabChange } from "@/lib/format";
-import { getOutputLine, getAgentLine, getFabLine, getPrSegments } from "./registers";
+import { getOutputLine, getAgentLine, getFabLine, getOperatorParts, getPrSegments } from "./registers";
+import type { OperatorLoopFacts } from "./registers";
 import { StatusDot } from "@/components/status-dot";
 import { Tip } from "@/components/tip";
 import type { WindowInfo } from "@/types";
@@ -34,6 +35,10 @@ type RefreshButtonState = "idle" | "spinning" | "check";
 
 type WindowPanelProps = {
   window: WindowInfo | null;
+  /** The owning session's operator-watchdog facts (stale flag verbatim + last
+   *  tick) — feeds the `opr` register; undefined for windows whose session
+   *  facts are unavailable (the thin pin-only fallback window). */
+  operator?: OperatorLoopFacts;
 };
 
 /** Shorten an absolute path by replacing $HOME with ~ and truncating deep paths */
@@ -222,7 +227,7 @@ function PaneRefreshButton() {
   );
 }
 
-export function WindowPanel({ window: win }: WindowPanelProps) {
+export function WindowPanel({ window: win, operator }: WindowPanelProps) {
   const headerRight = win ? (
     <span className="flex min-w-0 items-center gap-1.5 text-text-secondary font-mono">
       <StatusDot win={win} />
@@ -241,7 +246,7 @@ export function WindowPanel({ window: win }: WindowPanelProps) {
       {!win ? (
         <span className="text-xs text-text-secondary">No tab selected</span>
       ) : (
-        <WindowContent win={win} />
+        <WindowContent win={win} operator={operator} />
       )}
     </CollapsiblePanel>
   );
@@ -317,7 +322,7 @@ function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel }: {
             icon), so the at-rest prefix here is "pr"+NBSP+NBSP (also 4 advances)
             to keep the icon/content column-aligned with tmx/cwd/git/fab and the
             no-URL pr branch. Lowercase "pr" \u2014 the register keys are one
-            lowercase vocabulary (tmx/cwd/git/out/agt/fab/pr). The
+            lowercase vocabulary (tmx/cwd/git/out/agt/fab/pr/opr). The
             "copied \u2713"+NBSP feedback is 9 advances, matching CopyableRow's
             "copied \u2713 " copied rendering. */}
         <Tip label={tipLabel} placement="right">
@@ -375,7 +380,7 @@ function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel }: {
   );
 }
 
-function WindowContent({ win }: { win: WindowInfo }) {
+function WindowContent({ win, operator }: { win: WindowInfo; operator?: OperatorLoopFacts }) {
   // The `run` line's idle duration ticks once per second. Reading the clock
   // here (the leaf that composes the line) keeps the tick off the sidebar tree
   // — the bottom panel is a single instance, so its per-second re-render is
@@ -405,6 +410,7 @@ function WindowContent({ win }: { win: WindowInfo }) {
   const outputLine = getOutputLine(win, nowSeconds);
   const agentLine = getAgentLine(win);
   const prSegments = getPrSegments(win);
+  const operatorParts = getOperatorParts(win, operator, nowSeconds);
   const prText = prSegments?.map((s) => s.text).join(" · ") ?? "";
   // The colored PR segment spans (separator + segment) are identical in the
   // anchor (URL-present) and CopyableRow (no-URL) branches — build them once so
@@ -501,9 +507,10 @@ function WindowContent({ win }: { win: WindowInfo }) {
         )
       )}
 
-      {/* ── The four orthogonal signal registers (status-pyramid.md § Row
+      {/* ── The five orthogonal signal registers (status-pyramid.md § Row
           Minimalism): out (L0) / agt (L1) / fab (L2) / PR (L3, rendered just
-          above), fixed-width 3-char keys matching tmx/cwd/git. One line per
+          above) / opr (L4), fixed-width 3-char keys matching tmx/cwd/git. One
+          line per
           layer, never collapsed, so the sidebar StatusDot is a pure function of
           what this panel shows and can be mentally derived from it. Absent
           layers render as absent (a plain shell pane shows only `out`). The
@@ -539,6 +546,22 @@ function WindowContent({ win }: { win: WindowInfo }) {
           <ClockSpinner className={`${ICON_CLASS} font-normal`} />{" "}
           <span className="text-text-primary group-hover:text-accent">{fabLine}</span>
         </CopyableRow>
+      )}
+
+      {/* opr (L4) — operator watchlist: watched · stage · tick age, facets
+          inline. Absent when the window is unmonitored. No per-layer icon (the
+          watchlist has no animated mark); the column stays aligned by the
+          4-advance key, as the pr row does. Stale dims the value text and
+          marks the row (the note-stale idiom). */}
+      {operatorParts && (
+        <div className="truncate" data-testid="register-operator" data-stale={operator?.stale ? "true" : undefined}>
+          <Tip label="Operator watchlist" placement="right">
+            <span className="text-text-secondary">opr </span>
+          </Tip>
+          <span className={operator?.stale ? "text-text-secondary" : "text-text-primary"}>
+            {operatorParts.head}{operatorParts.facets ? ` · ${operatorParts.facets}` : ""}
+          </span>
+        </div>
       )}
 
     </div>

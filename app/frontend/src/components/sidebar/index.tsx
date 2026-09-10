@@ -4,7 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ServerInfo } from "@/api/client";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
-import { resolveFocusedWindow, thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
+import { thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
 import { finalizeSafeName } from "@/lib/names";
 import { pinDragImage } from "@/lib/drag-image";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
@@ -2150,10 +2150,10 @@ function BottomPanels({
   const ctx = useSessionContext();
   const focusedPane = useFocusedPane();
   const sessions = currentServer ? ctx.sessionsByServer.get(currentServer) ?? [] : [];
-  const routeWindow = currentSessionName && currentWindowId != null
-    ? sessions.find((s) => s.name === currentSessionName)
-        ?.windows.find((w) => w.windowId === currentWindowId) ?? null
+  const routeSession = currentSessionName && currentWindowId != null
+    ? sessions.find((s) => s.name === currentSessionName) ?? null
     : null;
+  const routeWindow = routeSession?.windows.find((w) => w.windowId === currentWindowId) ?? null;
   // Focused-tile fallback (board route): resolve the published focused pane to
   // its fully-enriched home-session copy by windowId (dual home+pin membership
   // keeps it in the sessions stream); a miss means a pin-only window (home
@@ -2162,16 +2162,27 @@ function BottomPanels({
   // (`currentServer === null`), NOT on `!routeWindow` — on a server route a
   // temporarily-unresolved route window (sessions snapshot not yet arrived)
   // must show the empty state, never a stale board-focused window.
+  const fallbackSessions = !currentServer && focusedPane
+    ? ctx.sessionsByServer.get(focusedPane.server) ?? []
+    : [];
+  const fallbackSession = focusedPane
+    ? fallbackSessions.find((s) => s.windows.some((w) => w.windowId === focusedPane.windowId)) ?? null
+    : null;
   const fallbackWindow = !currentServer && focusedPane
-    ? resolveFocusedWindow(
-        ctx.sessionsByServer.get(focusedPane.server) ?? [],
-        focusedPane.windowId,
-      ) ?? thinWindowFromFocusedPane(focusedPane)
+    ? fallbackSession?.windows.find((w) => w.windowId === focusedPane.windowId) ??
+      thinWindowFromFocusedPane(focusedPane)
     : null;
   const selectedWindow = routeWindow ?? fallbackWindow;
+  // The `opr` register reads the OWNING session's operator-watchdog facts
+  // (verbatim — the threshold is server-derived); the thin pin-only fallback
+  // has no owning session, so its facts are honestly absent.
+  const operatorSession = routeSession ?? fallbackSession;
+  const operator = selectedWindow && operatorSession
+    ? { stale: operatorSession.operatorStale === true, lastTickAt: operatorSession.operatorLastTickAt }
+    : undefined;
   return (
     <>
-      {showPane && <WindowPanel window={selectedWindow} />}
+      {showPane && <WindowPanel window={selectedWindow} operator={operator} />}
       {showHost && <HostPanel />}
       {showClock && (
         <CollapsiblePanel
@@ -2499,7 +2510,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     for (const session of orderedSessions) {
       for (const win of session.windows) {
         if (!isGhostWindow(win) && win.role === "operator") {
-          return { sessionName: session.name, win, operatorStale: session.operatorStale };
+          return { sessionName: session.name, win, operatorStale: session.operatorStale, operatorLastTickAt: session.operatorLastTickAt };
         }
       }
     }
@@ -2877,6 +2888,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               win={operatorEntry.win}
               session={operatorEntry.sessionName}
               operatorStale={operatorEntry.operatorStale}
+              operatorLastTickAt={operatorEntry.operatorLastTickAt}
               isSelected={
                 currentSessionName === operatorEntry.sessionName &&
                 (currentWindowId != null
@@ -3057,6 +3069,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                             win={win}
                             session={session.name}
                             operatorStale={session.operatorStale}
+                            operatorLastTickAt={session.operatorLastTickAt}
                             isSelected={isSelected}
                             isDragOver={isDragOver}
                             isDragSource={

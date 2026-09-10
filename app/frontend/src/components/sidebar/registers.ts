@@ -73,19 +73,26 @@ export type PrSegment = { text: string; color: string };
 export type OperatorLoopFacts = { stale: boolean; lastTickAt?: number };
 export type OperatorParts = { head: string; facets?: string };
 
-/** L4 `opr` register. Null unless `win.monitored === true` (degrade-to-absent,
- *  the NoteLine gate). `head` leads with the decisive tokens:
- *  `watched · <monitoredStage> · tick <age> ago`; the stage segment is omitted
- *  when absent, the tick segment when `lastTickAt` is 0/absent (never ticked).
- *  `facets` = `<monitoredRepo> · <monitoredBranch>` (empty segments omitted;
- *  undefined when both absent). `stale` is consumed verbatim — the threshold
- *  is server-derived, never recomputed here. */
+/** L4 `opr` register. Precedence: `win.monitored === true` WINS — the watched
+ *  head leads with the decisive tokens: `watched · <monitoredStage> · tick
+ *  <age> ago`; the stage segment is omitted when absent, the tick segment when
+ *  `lastTickAt` is 0/absent (never ticked). `facets` = `<monitoredRepo> ·
+ *  <monitoredBranch>` (empty segments omitted; undefined when both absent).
+ *  Otherwise `win.owner === "operator"` yields the done head
+ *  `{ head: "done · operator-touched" }` — no facets, no tick age, and the
+ *  `operator` facts are ignored entirely for that branch: a done row has no
+ *  live loop, so stale never applies to it (consumers gate data-stale on the
+ *  watched branch). Null otherwise (degrade-to-absent, the NoteLine gate).
+ *  `stale` is consumed verbatim — the threshold is server-derived, never
+ *  recomputed here. */
 export function getOperatorParts(
   win: WindowInfo,
   operator: OperatorLoopFacts | undefined,
   nowSeconds: number,
 ): OperatorParts | null {
-  if (win.monitored !== true) return null;
+  if (win.monitored !== true) {
+    return win.owner === "operator" ? { head: "done · operator-touched" } : null;
+  }
   let head = "watched";
   if (win.monitoredStage) head += ` · ${win.monitoredStage}`;
   if (operator?.lastTickAt) {

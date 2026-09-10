@@ -128,6 +128,11 @@ func resetTabFlagState(t *testing.T) {
 		resetFlagChanged(tabWebAddCmd, "show")
 		resetFlagChanged(tabWebLsCmd, "json")
 		resetFlagChanged(tabShowCmd, "json")
+		resetFlagChanged(tabMarkCmd, "off")
+		resetFlagChanged(tabNoteCmd, "off")
+		resetFlagChanged(tabColorCmd, "off")
+		resetFlagChanged(tabFlairCmd, "off")
+		resetFlagChanged(tabOwnerCmd, "off")
 		tabServerFlag = ""
 		tabNewSessionFlag, tabNewCwdFlag, tabNewNameFlag, tabNewLayoutFlag = "", "", "", ""
 		tabLayoutAddFlag, tabLayoutRmFlag, tabLayoutPromoteFlag, tabLayoutCycleFlag = "", "", "", false

@@ -12,7 +12,7 @@ Depth for a specific job lives in topic pages — pull one at use-time:
 - **act inside the `code` lens editor** (run VS Code palette commands in the open code-server window from the shell) → `rk skill code`
 - **drive and screenshot the host GUI display** (launch apps with DISPLAY set, take a PNG the human also sees in the GUI tile) → `rk skill gui`
 - **guided first-run tour** (when the user asks for a tutorial, tour, or onboarding) → `rk skill tutorial`
-- **drive the tab UI** (layouts, web-tab strip, code folder — `rk tab --help`); works with `rk serve` down
+- **drive the tab UI** (layouts, web-tab strip, code folder, sidebar signals — `rk tab --help`); works with `rk serve` down
 
 ## When to use
 
@@ -42,11 +42,14 @@ One line each, keyed to the subcommand or tmux option that does it:
 - `rk tab layout [@N] [L|--add S|--rm S|--promote S|--cycle]` — read or mutate the tab's surface layout (`split-h:tty,web`, …); unset reads as `single:tty`.
 - `rk tab web add|rm|select|ls` — manage the tab's web-tab strip (add takes a `present` target; rm/select address `@N/web/<n>` or bare `<n>`; `ls [--json]` lists).
 - `rk tab code set [@N] <folder>` — point the tab's code surface at a folder; `rk tab show [@N] [--json]` dumps every `@rk_win_*` option.
-- **Sidebar signals** — annotate your window's sidebar row so a human scanning many agents sees your state at a glance. Plain window options (`tmux set-option -w @rk_win_<name> <value>`; `-u` unsets):
-  - `@rk_win_color` — row color: an ANSI index `0`–`15`, a palette family name, or a blend `a+b`.
-  - `@rk_win_marker` — stage marker: `manual|auto|blocked` × `:1|:2|:3` (bare mode = stage 1); `blocked` is the "I'm stuck" flag.
-  - `@rk_win_note` — `<epoch>:<text>` — a short status line on the row's flyout card (stale-dims after 24h), e.g. `"$(date +%s):tests green, drafting PR"`.
-  - `@rk_win_flair` — animated row flair from a closed set (`rain`, `scan`, `matrix`, `nyan`, …); unknown values render nothing.
+- `rk tab color|mark|note|flair [@N] <v> | --off` — set or clear the sidebar signal options below (validated against the same closed sets the dashboard renders).
+- **Sidebar signals** — annotate your window's sidebar row so a human scanning many agents sees your state at a glance. Write through the `rk tab` verbs (validated, epoch-stamped for you); `[@N]` omitted writes your own tab, and `--off` clears:
+  - `rk tab color <v>` — row color: an ANSI index `0`–`15`, a palette family name, or a blend `a+b`; stored and printed normalized.
+  - `rk tab mark <v>` — stage marker: `manual|auto|blocked` × `:1|:2|:3` (bare mode = stage 1); `blocked` is the "I'm stuck" flag.
+  - `rk tab note <text>` — a short status line on the row's flyout card (stale-dims after 24h); stamped `"<epoch>:<text>"` for you, e.g. `rk tab note "tests green, drafting PR"`; `-` reads the text from stdin.
+  - `rk tab flair <name>` — animated row flair from a closed set (`rain`, `scan`, `matrix`, `nyan`, …); unknown values are rejected.
+  - `rk tab owner operator` — operator-facing only (the fab operator's enrollment marker); not an agent signal.
+  - rk absent: fall back to raw `tmux set-option -w @rk_win_<name> <value>` (`-u` unsets) — same option names as the verbs.
 - `rk mux send <target> [<msg>|-]` — deliver a message into another agent's pane, gated on its `@rk_pane_agent_state`, with a pre-Enter paste probe and post-Enter non-submission detection; a changed pane frame makes no submit claim. Depth: `rk skill mux`.
 - `rk mux await <target>` — block until a pane's agent state (or a `--file` signal) fires; prints a one-word report. Depth: `rk skill mux`.
 - `rk mux new <name> [--ephemeral]` — create a detached tmux server on socket `<name>`; scratch servers are created with `--ephemeral` and bulk-cleaned with `rk mux reap --ephemeral` (never bare `tmux kill-server`). Depth: `rk skill mux`.
@@ -92,7 +95,7 @@ rk url                                           # server URL (config-derived)
 
 - **`rk notify` is fail-silent by contract.** Any error — server unreachable, no subscriptions, non-2xx — exits **0** and prints nothing, so it never stalls a calling loop. Do not branch on its output.
 - **`rk present` prints only the resolved URL to stdout** (data — printed even under `--quiet`); diagnostics go to stderr. Its exit codes follow the convention below; its `--notify` send stays fail-silent like `rk notify`.
-- **`rk tab` verbs print one datum to stdout** — `tab new` prints `@N`, `tab web add` prints `@N/web/<n>` (the URL echoes to stderr), `tab layout` prints the resulting layout value, `tab web ls`/`tab show` print rows (`--json` objects). rm/select print nothing on success.
+- **`rk tab` verbs print one datum to stdout** — `tab new` prints `@N`, `tab web add` prints `@N/web/<n>` (the URL echoes to stderr), `tab layout` prints the resulting layout value, the signal setters (`tab color|mark|note|flair|owner`) print the stored value (the note's stamped `<epoch>:<text>`, the normalized color), and `tab web ls`/`tab show` print rows (`--json` objects). rm/select and every `--off` print nothing on success.
 - **`rk mux send`/`rk mux await` print exactly one report line to stdout** — `delivered|unverified|staged|sent <pane>` for send (the await report word under `--await`), and the reached state / `file` / `running` / `gone` for await — plus `ready %N (state)` / `ready %N (echo)` / `parked %N` / `narrow %N (WxH)` (all exit 0 — `parked` and `narrow` are classifications, not failures; the wall's screen snippet or the narrow geometry + remedy ride stderr) under `--ready`. A changed post-Enter frame makes no submit claim and reports `delivered`; successful recovery also reports `delivered`. `unverified` means the engine detected non-submission and bounded recovery did not fix it (exit 1); capture the pane before resending, because the message may or may not have landed and a resend may duplicate it. Diagnostics go to stderr; `gone` and gate refusals also exit 1.
 - **`rk skill`, `rk url`, and `rk help-dump` print data to stdout** (stdout is data; stderr is diagnostics). `rk skill` emits this bundle byte-identical with empty stderr and exit 0; `rk skill <topic>` (e.g. `display`) prints one topic page under the same contract, and an unknown topic exits non-zero with the valid topics on stderr; `rk url` prints the server URL newline-terminated; `rk help-dump` emits the machine-readable command tree.
 - **Exit codes follow the toolkit convention: `0` success, `1` operational failure, `2` usage error** — usage/flag/arg-count/unknown-command errors exit `2`; operational failures (dead server, failed check) exit `1`; `rk riff` subprocess failures exit `3`. The diagnostic is on stderr. (`rk notify` is the exception above — runtime failures exit `0`.)

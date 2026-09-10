@@ -242,5 +242,12 @@ export type WindowInfo = {
   monitoredRepo?: string;
   monitoredBranch?: string;
   monitoredAgent?: string;
+  /** Done-trail marker from the `@rk_win_owner` window option — a closed set,
+   *  currently only "operator" (the operator finished with this window).
+   *  Absent when unset and on payloads from an older backend. Feeds the `opr`
+   *  register's done head only when the window is NOT on the watchlist —
+   *  `monitored` wins over `owner` (getOperatorParts in sidebar/registers.ts).
+   *  Carries no status-dot semantics. */
+  owner?: "operator";
   panes?: PaneInfo[];
 };

@@ -1779,6 +1779,12 @@ describe("Watched underbar (the dot carries the flag)", () => {
     expect(screen.queryByTestId("status-dot-watched-bar")).toBeNull();
   });
 
+  it("renders no bar for an owner-only window — owner carries no dot semantics", () => {
+    renderRowWithStaleness(makeWindow({ owner: "operator" }), true);
+    expect(screen.queryByTestId("status-dot-watched-bar")).toBeNull();
+    expect(dotInRow().getAttribute("aria-label")).not.toContain("watched");
+  });
+
   it("renders no bar on ghost rows even when monitored is set", () => {
     renderGhostRow(makeGhostWindow({ monitored: true }));
     expect(screen.queryByTestId("status-dot-watched-bar")).toBeNull();

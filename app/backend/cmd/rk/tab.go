@@ -23,7 +23,7 @@ var tabServerFlag string
 
 var tabCmd = &cobra.Command{
 	Use:   "tab",
-	Short: "Drive a tab's UI state — layout, web tabs, code root — from the shell",
+	Short: "Drive a tab's UI state — layout, web tabs, code root, signals — from the shell",
 	Long: "Drive a tab's UI state from the shell — substrate verbs over the @rk_win_*\n" +
 		"tmux options the dashboard renders; works with rk serve down.\n\n" +
 		"Every verb takes a tab address: @N, =session:window, or omitted for the\n" +
@@ -35,6 +35,11 @@ var tabCmd = &cobra.Command{
 		"  layout   Set or mutate @rk_win_layout (add/rm/promote/cycle)\n" +
 		"  web      Add, remove, move, select, or list web tabs\n" +
 		"  code     Set the code surface's folder\n" +
+		"  mark     Set or clear the tab's left-gutter marker\n" +
+		"  note     Set or clear the tab's one-line status note\n" +
+		"  color    Set or clear the tab's color\n" +
+		"  flair    Set or clear the tab's per-row flair\n" +
+		"  owner    Set or clear the tab's operator-ownership trail\n" +
 		"  show     Dump every @rk_win_* option of a tab\n\n" +
 		"See 'rk tab <subcommand> --help' for details.",
 }

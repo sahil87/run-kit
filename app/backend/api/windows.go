@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/go-chi/chi/v5"
 
@@ -410,6 +409,7 @@ const (
 	optKeyMarker    = tmux.MarkerOption
 	optKeyRole      = tmux.RoleOption
 	optKeyFlair     = tmux.FlairOption
+	optKeyOwner     = tmux.OwnerOption
 	optKeyNote      = tmux.NoteOption
 
 	optKeyLegacyURL  = "@rk_win_url"
@@ -431,11 +431,6 @@ func webTabIndex(key string) (int, bool) {
 	}
 	return n, true
 }
-
-// windowNoteMaxLen caps the free-text @rk_win_note value (the tab's one-line
-// status note). The bound lives server-side (Constitution §I) and protects the
-// UI surfaces that render the note inline.
-const windowNoteMaxLen = 120
 
 // translateLegacyOptionKeys maps the retired @rk_win_url / @rk_win_lens keys
 // onto the indexed web-tab family before validation:
@@ -572,20 +567,21 @@ func validateWindowOption(key string, value *string, fam tmux.WebTabFamily, appe
 		if errMsg := validate.ValidateFlairValue(*value); errMsg != "" {
 			return errMsg
 		}
+	case optKeyOwner:
+		// Operator-ownership trail: "operator" (or empty to clear). An empty
+		// string is valid and treated as unset below (mirroring
+		// @rk_win_marker).
+		if errMsg := validate.ValidateOwnerValue(*value); errMsg != "" {
+			return errMsg
+		}
 	case optKeyNote:
 		// Free-text one-line status note: trimmed, length-capped, and free of
-		// control characters (tabs/newlines would corrupt the tab-delimited
-		// list-windows read format; any other control rune would leak into
-		// tmux and the rendered UI). Empty and whitespace-only strings are
-		// valid and treated as unset below (mirroring @rk_win_marker).
-		trimmed := strings.TrimSpace(*value)
-		if len(trimmed) > windowNoteMaxLen {
-			return fmt.Sprintf("note exceeds %d characters", windowNoteMaxLen)
-		}
-		for _, r := range trimmed {
-			if unicode.IsControl(r) {
-				return "note cannot contain control characters"
-			}
+		// control characters (the shared rule — tabs/newlines would corrupt the
+		// tab-delimited list-windows read format). Empty and whitespace-only
+		// strings are valid and treated as unset below (mirroring
+		// @rk_win_marker).
+		if _, errMsg := validate.ValidateNoteText(*value); errMsg != "" {
+			return errMsg
 		}
 	}
 	return ""
@@ -610,11 +606,11 @@ func buildWindowOptionOps(options map[string]*string, armActive bool) (ops []tmu
 		op := tmux.WindowOptionOp{Key: key, Value: value}
 		// An empty string means unset for @rk_win_layout (revert to the
 		// single:tty render), @rk_win_marker, @rk_win_role, @rk_win_flair,
-		// @rk_win_note, and @rk_win_code_root — the same "empty clears"
-		// contract the retired @rk_win_lens carried.
+		// @rk_win_owner, @rk_win_note, and @rk_win_code_root — the same
+		// "empty clears" contract the retired @rk_win_lens carried.
 		if value != nil && *value == "" {
 			switch key {
-			case optKeyLayout, optKeyMarker, optKeyRole, optKeyFlair, optKeyNote, optKeyCodeRoot:
+			case optKeyLayout, optKeyMarker, optKeyRole, optKeyFlair, optKeyOwner, optKeyNote, optKeyCodeRoot:
 				op.Value = nil
 			}
 		}
@@ -688,7 +684,7 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 		}
 		switch key {
 		case optKeyColor, optKeyLayout, optKeyWebActive, optKeyCodeRoot,
-			optKeyMarker, optKeyRole, optKeyFlair, optKeyNote,
+			optKeyMarker, optKeyRole, optKeyFlair, optKeyOwner, optKeyNote,
 			optKeyLegacyURL, optKeyLegacyLens:
 		default:
 			writeError(w, http.StatusBadRequest, "Unknown option key: "+key)

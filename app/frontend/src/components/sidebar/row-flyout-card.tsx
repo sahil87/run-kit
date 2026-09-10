@@ -705,6 +705,9 @@ export function WindowFlyoutContent({
   // The card holds no clock (the render-performance contract, same as
   // NoteLine): the `opr` tick age is as of this render frame.
   const operatorParts = getOperatorParts(win, operator, Math.floor(Date.now() / 1000));
+  // Stale describes the live watch loop, so it applies only to the watched
+  // head — the done head (owner, unmonitored) never dims.
+  const oprStale = win.monitored === true && operator?.stale === true;
   // Single-sourced segment JSX shared by the anchor and plain branches below
   // (the panel's segmentSpans idiom — the two renderings can't drift).
   const segmentSpans = prSegments?.map((seg, i) => (
@@ -715,7 +718,7 @@ export function WindowFlyoutContent({
   ));
   // Drives both the body block and the action list's `flush` spacing — they
   // must agree, or the card grows a gap with nothing in it.
-  const hasBody = Boolean(fabParts || prSegments || win.note || win.monitored);
+  const hasBody = Boolean(fabParts || prSegments || win.note || win.monitored || win.owner === "operator");
   // The fork row keeps the DOUBLE gate: a forkable window AND a wired handler.
   // Derived as a narrowed handler (not a boolean) so the ForkActionRow call
   // site type-checks structurally instead of leaning on aliased-condition
@@ -820,14 +823,16 @@ export function WindowFlyoutContent({
             </>
           )}
           {/* `opr` register — the last body register, after the `pr` block.
-              Leads with the decisive tokens (`watched · stage · tick age`);
-              the repo · branch facets continue on an indented line. Stale
-              (operator loop's tick overdue) dims the head text and marks the
-              line — the NoteLine stale idiom, never opacity on the register. */}
+              Leads with the decisive tokens (`watched · stage · tick age`, or
+              the done head for an operator-owned unmonitored window); the
+              repo · branch facets continue on an indented line. Stale
+              (operator loop's tick overdue) dims the watched head and marks
+              the line — the NoteLine stale idiom, never opacity on the
+              register. The done head is never stale: a done row has no loop. */}
           {operatorParts && (
             <>
-              <RegisterLine prefix="opr " testid="row-flyout-opr" stale={operator?.stale === true}>
-                <span className={operator?.stale === true ? "text-text-secondary" : "text-text-primary"}>
+              <RegisterLine prefix="opr " testid="row-flyout-opr" stale={oprStale}>
+                <span className={oprStale ? "text-text-secondary" : "text-text-primary"}>
                   {operatorParts.head}
                 </span>
               </RegisterLine>

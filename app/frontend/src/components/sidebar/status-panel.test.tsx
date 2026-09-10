@@ -905,4 +905,17 @@ describe("opr register (operator watchlist)", () => {
     });
     expect(screen.getByRole("tooltip")).toHaveTextContent("Operator watchlist");
   });
+
+  it("renders the done head for an owner-only window — never stale, even with a stale operator", () => {
+    render(
+      <StatusPanel
+        window={makeWindow({ owner: "operator" })}
+        operator={{ stale: true, lastTickAt: 10_000_000 / 1000 - 2460 }}
+      />,
+    );
+    const opr = screen.getByTestId("register-operator");
+    expect(opr).toHaveTextContent("opr done · operator-touched");
+    expect(opr.getAttribute("data-stale")).toBeNull();
+    expect(opr.querySelector("span:last-child")!.className).toContain("text-text-primary");
+  });
 });

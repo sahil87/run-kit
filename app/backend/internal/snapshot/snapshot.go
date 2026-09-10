@@ -73,6 +73,7 @@ type Window struct {
 	Marker    string   `json:"marker,omitempty"`
 	Flair     string   `json:"flair,omitempty"`
 	Role      string   `json:"role,omitempty"`
+	Owner     string   `json:"owner,omitempty"`
 	// Note is the raw @rk_win_note value ("<unix-epoch>:<text>") — the epoch rides
 	// along so the note's age stays honest across a restore.
 	Note  string `json:"note,omitempty"`
@@ -204,6 +205,7 @@ func layoutWindowToSnapshot(w tmux.LayoutWindow, panes []tmux.LayoutPane) Window
 		Marker:    w.Marker,
 		Flair:     w.Flair,
 		Role:      w.Role,
+		Owner:     w.Owner,
 		Note:      w.Note,
 	}
 	for _, p := range panes {

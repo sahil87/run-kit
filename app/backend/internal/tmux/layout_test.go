@@ -67,9 +67,10 @@ func TestParseLayoutSessions(t *testing.T) {
 
 // layoutLine builds a layout-capture line with every field placed explicitly:
 // rk_layout at idx 7, the web slots at idx 8..15, their roots at 16..23,
-// web_active at 24, code_root at 25, marker 26, role 27, flair 28, the note at
-// 29 (strict single field), and the legacy note appended LAST (30+).
-func layoutLine(session, id, index, name, active, layout, color, rkLayout, webActive, codeRoot, marker, role, flair, note, legacyNote string, tabs, roots []string) string {
+// web_active at 24, code_root at 25, marker 26, role 27, flair 28, owner 29,
+// the note at 30 (strict single field), and the legacy note appended LAST
+// (31+).
+func layoutLine(session, id, index, name, active, layout, color, rkLayout, webActive, codeRoot, marker, role, flair, owner, note, legacyNote string, tabs, roots []string) string {
 	fields := []string{session, id, index, name, active, layout, color, rkLayout}
 	var slots, slotRoots [MaxWebTabs]string
 	copy(slots[:], tabs)
@@ -80,7 +81,7 @@ func layoutLine(session, id, index, name, active, layout, color, rkLayout, webAc
 	for _, r := range slotRoots {
 		fields = append(fields, r)
 	}
-	fields = append(fields, webActive, codeRoot, marker, role, flair, note)
+	fields = append(fields, webActive, codeRoot, marker, role, flair, owner, note)
 	return strings.Join(fields, listDelim) + listDelim + legacyNote
 }
 
@@ -93,11 +94,18 @@ func TestParseLayoutWindows(t *testing.T) {
 		fields[26] = marker
 		return strings.Join(fields, listDelim)
 	}
-	// lineThroughNote builds a line that stops at the note field (idx 29).
+	// lineThroughNote builds a line that stops at the note field (idx 30).
 	lineThroughNote := func(note string) string {
+		fields := make([]string, 31)
+		copy(fields, []string{"kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1"})
+		fields[30] = note
+		return strings.Join(fields, listDelim)
+	}
+	// lineThroughOwner builds a line that stops at the owner field (idx 29).
+	lineThroughOwner := func(owner string) string {
 		fields := make([]string, 30)
 		copy(fields, []string{"kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1"})
-		fields[29] = note
+		fields[29] = owner
 		return strings.Join(fields, listDelim)
 	}
 
@@ -109,7 +117,7 @@ func TestParseLayoutWindows(t *testing.T) {
 		{
 			name: "windows with options and active flag",
 			lines: []string{
-				layoutLine("kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "4", "split-h:tty,web", "1", "", "solid", "operator", "", "", "",
+				layoutLine("kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "4", "split-h:tty,web", "1", "", "solid", "operator", "", "operator", "", "",
 					[]string{"http://x"}, nil),
 				"kit\t@2\t2\tshell\t0\tabcd,204x48,0,0,2\t\t\t\t",
 			},
@@ -117,7 +125,7 @@ func TestParseLayoutWindows(t *testing.T) {
 				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
 					Layout: "d5d2,204x48,0,0,1", Color: "4", RkLayout: "split-h:tty,web",
 					WebTabs: []string{"http://x"}, WebRoots: []string{""}, WebActive: 1,
-					Marker: "manual:1", Role: "operator"},
+					Marker: "manual:1", Role: "operator", Owner: "operator"},
 				{Session: "kit", WindowID: "@2", Index: 2, Name: "shell", Active: false,
 					Layout: "abcd,204x48,0,0,2"},
 			},
@@ -125,7 +133,7 @@ func TestParseLayoutWindows(t *testing.T) {
 		{
 			name: "web family with roots and active index",
 			lines: []string{
-				layoutLine("kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "", "", "2", "", "", "", "", "", "",
+				layoutLine("kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "", "", "2", "", "", "", "", "", "", "",
 					[]string{"/proxy/3000/", "/present/@1/2/a.html?server=s&v=1", "https://x/"},
 					[]string{"/r1", "", "/r3"}),
 			},
@@ -139,7 +147,7 @@ func TestParseLayoutWindows(t *testing.T) {
 		{
 			name: "gap truncates to the dense prefix, active clamps",
 			lines: []string{
-				layoutLine("kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "", "", "3", "", "", "", "", "", "",
+				layoutLine("kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "", "", "3", "", "", "", "", "", "", "",
 					[]string{"/proxy/3000/", "", "https://x/"}, nil),
 			},
 			want: []LayoutWindow{
@@ -159,7 +167,17 @@ func TestParseLayoutWindows(t *testing.T) {
 			},
 		},
 		{
-			name: "new note in its strict single field (idx 29), verbatim",
+			name: "owner field captured (idx 29), unknown value rides verbatim",
+			lines: []string{
+				lineThroughOwner("operator"),
+			},
+			want: []LayoutWindow{
+				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
+					Layout: "d5d2,204x48,0,0,1", Owner: "operator"},
+			},
+		},
+		{
+			name: "new note in its strict single field (idx 30), verbatim",
 			lines: []string{
 				lineThroughNote("1756036800:blocked on flaky e2e"),
 			},
@@ -237,7 +255,7 @@ func TestParseLayoutWindowsNoteDualRead(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			line := layoutLine("kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1",
-				"", "", "", "", "", "", "", tt.newNote, tt.legacyNote, nil, nil)
+				"", "", "", "", "", "", "", "", tt.newNote, tt.legacyNote, nil, nil)
 			got := parseLayoutWindows([]string{line})
 			if len(got) != 1 {
 				t.Fatalf("parseLayoutWindows() returned %d windows, want 1", len(got))

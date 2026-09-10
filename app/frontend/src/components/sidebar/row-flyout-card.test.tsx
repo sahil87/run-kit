@@ -757,6 +757,33 @@ describe("opr register (operator watchlist)", () => {
     expect(fresh.getAttribute("data-stale")).toBeNull();
     expect(fresh.querySelector("span:last-child")!.className).toContain("text-text-primary");
   });
+
+  it("owner-only window renders the body with the done head — no facets, never stale", () => {
+    // No fabParts/PR/note/monitored: the owner marker alone lifts the body
+    // gate, and a stale operator object still leaves the done head undimmed
+    // (stale describes the live loop; a done row has no loop).
+    renderOpenWithOperator(makeWindow({ owner: "operator" }), {
+      stale: true,
+      lastTickAt: Math.floor(Date.now() / 1000) - 120,
+    });
+    const opr = screen.getByTestId("row-flyout-opr");
+    expect(opr).toHaveTextContent("opr done · operator-touched");
+    expect(opr.getAttribute("data-stale")).toBeNull();
+    expect(opr.querySelector("span:last-child")!.className).toContain("text-text-primary");
+    expect(screen.queryByTestId("row-flyout-opr-facets")).toBeNull();
+    // Owner carries no dot semantics — no watched underbar on the row.
+    expect(screen.queryByTestId("status-dot-watched-bar")).toBeNull();
+  });
+
+  it("monitored wins over owner — the watched head renders, owner ignored", () => {
+    renderOpenWithOperator(
+      makeWindow({ monitored: true, monitoredStage: "apply", owner: "operator" }),
+      { stale: false, lastTickAt: Math.floor(Date.now() / 1000) - 120 },
+    );
+    expect(screen.getByTestId("row-flyout-opr")).toHaveTextContent(
+      "opr watched · apply · tick 2m ago",
+    );
+  });
 });
 
 describe("Flyout warm-window delay group (module-scoped)", () => {

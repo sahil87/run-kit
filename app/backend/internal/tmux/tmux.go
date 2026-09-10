@@ -197,6 +197,13 @@ func NormalizeMarker(raw string) string {
 // decoration: a closed-set token (validate.FlairValues), "" when unset.
 const FlairOption = "@rk_win_flair"
 
+// OwnerOption is the tmux window user option recording that an operator has
+// taken responsibility for the window at least once: a closed-set token
+// (validate.OwnerValues), "" when unset. The intended writer is the operator
+// at enrollment; the persisted value is the operator-touched trail after
+// monitoring ends.
+const OwnerOption = "@rk_win_owner"
+
 // legacyTypeOption / legacyURLOption / legacyNoteOption are the retired
 // unscoped names of the window lens/URL/note options; legacyWinLensOption /
 // legacyWinURLOption / LegacyWinPresentRootOption are the retired scoped names
@@ -894,6 +901,11 @@ type WindowInfo struct {
 	// Pure decoration — an independent axis from Color and Marker. Unknown
 	// tokens are dropped to "" by parseWindows (the Marker idiom).
 	Flair string `json:"flair,omitempty"`
+	// Owner records that an operator has taken responsibility for the window at
+	// least once, sourced from the @rk_win_owner window user option: ""
+	// (unset)/"operator". Unknown tokens are dropped to "" by parseWindows (the
+	// Marker idiom).
+	Owner string `json:"owner,omitempty"`
 	// Note is the window's free-text one-line status note, sourced from the
 	// NoteOption window user option ("<unix-epoch>:<text>" — the epoch lands in
 	// NoteEpoch). Free text, NOT a closed set: no value validation on read; a
@@ -1450,21 +1462,21 @@ func clampWebActive(raw string, tabs int) int {
 
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
 // nowUnix is the current Unix timestamp for activity threshold computation.
-// Lines have 24 tab-delimited fields plus the legacy-note tail: window_id,
+// Lines have 25 tab-delimited fields plus the legacy-note tail: window_id,
 // window_index, window_name, pane_current_path, window_activity,
 // window_active, pane_current_command, @rk_win_color, @rk_win_layout,
 // @rk_win_web_1 .. @rk_win_web_8, @rk_win_web_active, @rk_win_code_root,
-// @rk_win_marker, @rk_win_role, @rk_win_flair, then @rk_win_note as a STRICT
-// SINGLE FIELD, then the retired @rk_win_url (dual-read web_1 fallback), the
-// retired @rk_win_lens (dual-read single:web layout fallback), then the legacy
-// note LAST. Lines with fewer than 8 fields are skipped; fields 8+
-// are optional (empty string if absent). The web-tab slots read dense (walk
-// 1..8, stop at the first empty) and web_active degrades
-// (non-numeric/out-of-range clamps per clampWebActive, never an error). The
-// note is dual-read: the new field wins when non-empty, else the legacy note,
-// whose free-text tail is rejoined (tabs inside it would otherwise shift
-// sibling columns); the new note rides one field because write-side validation
-// strips control chars.
+// @rk_win_marker, @rk_win_role, @rk_win_flair, @rk_win_owner, then
+// @rk_win_note as a STRICT SINGLE FIELD, then the retired @rk_win_url
+// (dual-read web_1 fallback), the retired @rk_win_lens (dual-read single:web
+// layout fallback), then the legacy note LAST. Lines with fewer than 8 fields
+// are skipped; fields 8+ are optional (empty string if absent). The web-tab
+// slots read dense (walk 1..8, stop at the first empty) and web_active
+// degrades (non-numeric/out-of-range clamps per clampWebActive, never an
+// error). The note is dual-read: the new field wins when non-empty, else the
+// legacy note, whose free-text tail is rejoined (tabs inside it would
+// otherwise shift sibling columns); the new note rides one field because
+// write-side validation strips control chars.
 // Exported for testing.
 func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	var windows []WindowInfo
@@ -1540,39 +1552,48 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			}
 		}
 
+		// Owner is a closed-set token ("operator"); drop any value outside the
+		// set (including "") to the empty unset state. Same idiom as Marker.
+		var owner string
+		if len(parts) >= 23 {
+			if o := strings.TrimSpace(parts[22]); validate.OwnerValues[o] {
+				owner = o
+			}
+		}
+
 		// Note is free text ("<epoch>:<text>"), NOT a closed set — no value
 		// validation. Dual-read: the new note is a strict single field (idx
-		// 22 — joining is WRONG for it) and wins when non-empty; the legacy
+		// 23 — joining is WRONG for it) and wins when non-empty; the legacy
 		// note is the format's last column, so its tail is rejoined to survive
 		// tabs inside the text. Tolerant epoch split: a non-numeric prefix
 		// keeps the whole value as text with epoch 0.
 		var note string
 		var noteEpoch int64
 		var rawNote string
-		if len(parts) >= 23 {
-			rawNote = parts[22]
+		if len(parts) >= 24 {
+			rawNote = parts[23]
 		}
-		// Retired @rk_win_url (idx 23) is the dual-read fallback for an empty
+		// Retired @rk_win_url (idx 24) is the dual-read fallback for an empty
 		// slot 1: external writers may still stamp it live, where the
 		// once-per-server sweep cannot see it, so the family surfaces it as web_1
 		// with the active pointer defaulted — the same shape a first WebAdd
 		// produces. Compat until the cleanup change removes the fallback.
-		if len(webTabs) == 0 && len(parts) >= 24 {
-			if legacyURL := strings.TrimSpace(parts[23]); legacyURL != "" {
+		if len(webTabs) == 0 && len(parts) >= 25 {
+			if legacyURL := strings.TrimSpace(parts[24]); legacyURL != "" {
 				webTabs = []string{legacyURL}
 				webActive = 1
 			}
 		}
-		// Retired @rk_win_lens (idx 24): "iframe" was the web default-view hint;
+		// Retired @rk_win_lens (idx 25): "iframe" was the web default-view hint;
 		// with @rk_win_layout unset it reads as the single:web layout the
 		// migration row would write — the same live-stamp dual-read as web_1.
-		if layout == "" && len(parts) >= 25 {
-			if legacyLens := strings.TrimSpace(parts[24]); legacyLens == "iframe" {
+		if layout == "" && len(parts) >= 26 {
+			if legacyLens := strings.TrimSpace(parts[25]); legacyLens == "iframe" {
 				layout = layoutspecSingleWeb
 			}
 		}
-		if rawNote == "" && len(parts) >= 26 {
-			rawNote = strings.Join(parts[25:], listDelim)
+		if rawNote == "" && len(parts) >= 27 {
+			rawNote = strings.Join(parts[26:], listDelim)
 		}
 		if rawNote != "" {
 			note, noteEpoch = parseNoteValue(rawNote)
@@ -1595,6 +1616,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			Marker:            marker,
 			Role:              role,
 			Flair:             flair,
+			Owner:             owner,
 			Note:              note,
 			NoteEpoch:         noteEpoch,
 		})
@@ -1672,6 +1694,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{"+MarkerOption+"}",
 		"#{"+RoleOption+"}",
 		"#{"+FlairOption+"}",
+		"#{"+OwnerOption+"}",
 		// The new note is a strict single field (write-side validation strips
 		// control chars). legacyWinURLOption is the retired @rk_win_url, dual-read
 		// as a web_1 fallback and legacyWinLensOption the retired @rk_win_lens,

@@ -234,4 +234,24 @@ describe("getOperatorParts (L4)", () => {
       getOperatorParts(makeWindow({ monitored: true, monitoredRepo: "run-kit" }), undefined, 1000),
     ).toEqual({ head: "watched", facets: "run-kit" });
   });
+
+  it("owner-only window resolves to the done head — no facets, no tick, operator facts ignored", () => {
+    expect(
+      getOperatorParts(makeWindow({ owner: "operator" }), { stale: true, lastTickAt: 880 }, 1000),
+    ).toEqual({ head: "done · operator-touched" });
+  });
+
+  it("monitored wins over owner — the watched head, owner ignored", () => {
+    expect(
+      getOperatorParts(
+        makeWindow({ monitored: true, monitoredStage: "apply", owner: "operator" }),
+        { stale: false, lastTickAt: 880 },
+        1000,
+      ),
+    ).toEqual({ head: "watched · apply · tick 2m ago" });
+  });
+
+  it("neither monitored nor owner → null", () => {
+    expect(getOperatorParts(makeWindow({}), undefined, 1000)).toBeNull();
+  });
 });

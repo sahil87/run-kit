@@ -55,6 +55,9 @@ type LayoutWindow struct {
 	Marker    string
 	Role      string
 	Flair     string
+	// Owner is the raw @rk_win_owner value ("operator") — the operator-touched
+	// trail, restored verbatim.
+	Owner string
 	// Note is the raw @rk_win_note value ("<unix-epoch>:<text>") — restored
 	// verbatim so the note's age stays honest across a restore.
 	Note string
@@ -109,6 +112,7 @@ var layoutWindowFormat = func() string {
 		"#{"+MarkerOption+"}",
 		"#{"+RoleOption+"}",
 		"#{"+FlairOption+"}",
+		"#{"+OwnerOption+"}",
 		"#{"+NoteOption+"}",
 		"#{"+legacyNoteOption+"}",
 	)
@@ -299,16 +303,20 @@ func parseLayoutWindows(lines []string) []LayoutWindow {
 		if len(parts) >= 29 {
 			win.Flair = strings.TrimSpace(parts[28])
 		}
-		// Field 30 (@rk_win_note) is optional — absent on older captures. A
-		// strict single field (write-side validation strips control chars).
+		// Field 30 (@rk_win_owner) is optional — absent on older captures.
 		if len(parts) >= 30 {
-			win.Note = parts[29]
+			win.Owner = strings.TrimSpace(parts[29])
+		}
+		// Field 31 (@rk_win_note) is optional — absent on older captures. A
+		// strict single field (write-side validation strips control chars).
+		if len(parts) >= 31 {
+			win.Note = parts[30]
 		}
 		// The legacy note is optional and LAST: free text, so its tail is
 		// rejoined to survive tabs inside the value. It fills in only when the
 		// new note field came back empty (dual-read; mirrors parseWindows).
-		if win.Note == "" && len(parts) >= 31 {
-			win.Note = strings.Join(parts[30:], listDelim)
+		if win.Note == "" && len(parts) >= 32 {
+			win.Note = strings.Join(parts[31:], listDelim)
 		}
 		out = append(out, win)
 	}

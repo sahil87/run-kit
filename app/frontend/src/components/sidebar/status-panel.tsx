@@ -411,6 +411,9 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
   const agentLine = getAgentLine(win);
   const prSegments = getPrSegments(win);
   const operatorParts = getOperatorParts(win, operator, nowSeconds);
+  // Stale describes the live watch loop, so it applies only to the watched
+  // head — the done head (owner, unmonitored) never dims.
+  const oprStale = win.monitored === true && operator?.stale === true;
   const prText = prSegments?.map((s) => s.text).join(" · ") ?? "";
   // The colored PR segment spans (separator + segment) are identical in the
   // anchor (URL-present) and CopyableRow (no-URL) branches — build them once so
@@ -549,16 +552,18 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
       )}
 
       {/* opr (L4) — operator watchlist: watched · stage · tick age, facets
-          inline. Absent when the window is unmonitored. No per-layer icon (the
-          watchlist has no animated mark); the column stays aligned by the
-          4-advance key, as the pr row does. Stale dims the value text and
-          marks the row (the note-stale idiom). */}
+          inline, or the done head for an operator-owned unmonitored window.
+          Absent when the window is unmonitored and carries no owner. No
+          per-layer icon (the watchlist has no animated mark); the column
+          stays aligned by the 4-advance key, as the pr row does. Stale dims
+          the value text and marks the row (the note-stale idiom) — watched
+          head only; the done head is never stale. */}
       {operatorParts && (
-        <div className="truncate" data-testid="register-operator" data-stale={operator?.stale ? "true" : undefined}>
+        <div className="truncate" data-testid="register-operator" data-stale={oprStale ? "true" : undefined}>
           <Tip label="Operator watchlist" placement="right">
             <span className="text-text-secondary">opr </span>
           </Tip>
-          <span className={operator?.stale ? "text-text-secondary" : "text-text-primary"}>
+          <span className={oprStale ? "text-text-secondary" : "text-text-primary"}>
             {operatorParts.head}{operatorParts.facets ? ` · ${operatorParts.facets}` : ""}
           </span>
         </div>

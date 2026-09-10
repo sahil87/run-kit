@@ -210,6 +210,7 @@ var (
 	}
 	roleTokens  = []string{"operator"}
 	flairTokens = []string{"rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp", "spidey", "ironman", "noon"}
+	ownerTokens = []string{"operator"}
 )
 
 // closedSet builds the membership map for an ordered token slice, including
@@ -279,6 +280,47 @@ var FlairValues = closedSet(flairTokens)
 // window-option and session-flair handlers.
 func ValidateFlairValue(value string) string {
 	return validateClosedSet(value, "Flair", FlairValues, flairTokens)
+}
+
+// OwnerValues is the closed set of accepted @rk_win_owner window-option values,
+// derived from ownerTokens. The empty string means "unset" (no owner);
+// "operator" records that an operator has taken responsibility for the window
+// at least once.
+var OwnerValues = closedSet(ownerTokens)
+
+// ValidateOwnerValue validates an @rk_win_owner value: one of ""/operator.
+// Returns an empty string if valid, an error message otherwise. The single
+// shared owner-value rule reused by the window-option handler and the rk tab
+// owner CLI.
+func ValidateOwnerValue(value string) string {
+	return validateClosedSet(value, "Owner", OwnerValues, ownerTokens)
+}
+
+// NoteTextMaxLength caps the free-text @rk_win_note value (the tab's one-line
+// status note). The bound lives server-side (Constitution §I) and protects the
+// UI surfaces that render the note inline.
+const NoteTextMaxLength = 120
+
+// ValidateNoteText validates the free text of an @rk_win_note value: trimmed,
+// length-capped, and free of control characters (tabs/newlines would corrupt
+// the tab-delimited list-windows read format; any other control rune would
+// leak into tmux and the rendered UI). Returns the trimmed text and an empty
+// message when valid, or "" and the error message otherwise. Text that trims
+// to empty is NOT an error here — each caller decides what empty means (the
+// /options handler treats it as unset; the rk tab note CLI rejects it in favor
+// of --off). The single shared note rule consumed by the /options handler and
+// the rk tab note CLI.
+func ValidateNoteText(text string) (trimmed string, errMsg string) {
+	trimmed = strings.TrimSpace(text)
+	if len(trimmed) > NoteTextMaxLength {
+		return "", fmt.Sprintf("note exceeds %d characters", NoteTextMaxLength)
+	}
+	for _, r := range trimmed {
+		if unicode.IsControl(r) {
+			return "", "note cannot contain control characters"
+		}
+	}
+	return trimmed, ""
 }
 
 // ValidateWebTabURL validates an @rk_win_web_<n> window-option value against

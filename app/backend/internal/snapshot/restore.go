@@ -364,6 +364,7 @@ func WindowOptionOps(win Window) []tmux.WindowOptionOp {
 	add(tmux.MarkerOption, tmux.NormalizeMarker(win.Marker))
 	add(tmux.FlairOption, win.Flair)
 	add(tmux.RoleOption, win.Role)
+	add(tmux.OwnerOption, win.Owner)
 	add(tmux.NoteOption, win.Note)
 	return ops
 }

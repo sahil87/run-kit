@@ -555,6 +555,53 @@ func TestValidateFlairValue(t *testing.T) {
 	}
 }
 
+func TestValidateOwnerValue(t *testing.T) {
+	// The empty string is valid — it means "unset" (no owner). The closed set
+	// is the single "operator" token.
+	valid := []string{"", "operator"}
+	for _, v := range valid {
+		if msg := ValidateOwnerValue(v); msg != "" {
+			t.Errorf("ValidateOwnerValue(%q) = %q, want valid", v, msg)
+		}
+	}
+	// Anything outside the closed set is rejected (case-sensitive, no
+	// whitespace tolerance); the message lists the accepted token.
+	invalid := []string{"Operator", "OPERATOR", " operator ", "done", "op", "none", "true"}
+	for _, v := range invalid {
+		msg := ValidateOwnerValue(v)
+		if msg == "" {
+			t.Errorf("ValidateOwnerValue(%q) = valid, want error", v)
+		} else if !strings.Contains(msg, "operator") {
+			t.Errorf("ValidateOwnerValue(%q) = %q, want the closed set named", v, msg)
+		}
+	}
+}
+
+func TestValidateNoteText(t *testing.T) {
+	// Trim: surrounding whitespace collapses and the trimmed form is returned.
+	if trimmed, msg := ValidateNoteText("  tests green  "); msg != "" || trimmed != "tests green" {
+		t.Errorf("ValidateNoteText(trim) = (%q, %q), want (\"tests green\", \"\")", trimmed, msg)
+	}
+	// Empty-after-trim is NOT an error here — callers decide what empty means.
+	if trimmed, msg := ValidateNoteText("   "); msg != "" || trimmed != "" {
+		t.Errorf("ValidateNoteText(blank) = (%q, %q), want (\"\", \"\")", trimmed, msg)
+	}
+	// Exactly at the bound is valid; one over is rejected with the bound named.
+	max := strings.Repeat("a", NoteTextMaxLength)
+	if _, msg := ValidateNoteText(max); msg != "" {
+		t.Errorf("ValidateNoteText(120 chars) = %q, want valid", msg)
+	}
+	if _, msg := ValidateNoteText(max + "a"); msg != "note exceeds 120 characters" {
+		t.Errorf("ValidateNoteText(121 chars) = %q, want the length message", msg)
+	}
+	// Control runes (tab/newline/NUL) are rejected even inside the length bound.
+	for _, v := range []string{"a\tb", "a\nb", "a\x00b"} {
+		if _, msg := ValidateNoteText(v); msg != "note cannot contain control characters" {
+			t.Errorf("ValidateNoteText(%q) = %q, want the control-character message", v, msg)
+		}
+	}
+}
+
 func TestNormalizeColorValue(t *testing.T) {
 	cases := map[string]struct {
 		want string

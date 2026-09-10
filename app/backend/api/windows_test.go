@@ -14,6 +14,7 @@ import (
 
 	"rk/internal/snapshot"
 	"rk/internal/tmux"
+	"rk/internal/validate"
 )
 
 // --- Window Options endpoint tests (POST /api/windows/{id}/options) ---
@@ -388,6 +389,56 @@ func TestWindowOptionsFlairInvalid(t *testing.T) {
 	}
 	if ops.setWindowOptionsCalled {
 		t.Error("SetWindowOptions must NOT be called for invalid flair")
+	}
+}
+
+// Set @rk_win_owner=operator — one SetWindowOptions call with just
+// @rk_win_owner.
+func TestWindowOptionsSetOwner(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@7", `{"options":{"@rk_win_owner":"operator"}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_owner")
+	if !ok || op.Value == nil || *op.Value != "operator" {
+		t.Errorf("@rk_win_owner op = %+v, want value \"operator\"", op)
+	}
+}
+
+// @rk_win_owner empty string unsets (nil Value op), mirroring @rk_win_marker —
+// "" clears.
+func TestWindowOptionsOwnerEmptyUnsets(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@7", `{"options":{"@rk_win_owner":""}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_owner")
+	if !ok {
+		t.Fatal("expected @rk_win_owner op")
+	}
+	if op.Value != nil {
+		t.Errorf("@rk_win_owner value = %q, want nil (empty string unsets)", *op.Value)
+	}
+}
+
+// Invalid @rk_win_owner (outside the closed set) → 400 naming the accepted
+// token, and zero tmux calls (validate-all-then-execute).
+func TestWindowOptionsOwnerInvalid(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@7", `{"options":{"@rk_win_owner":"done"}}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(rec.Body.String(), "operator") {
+		t.Errorf("body = %s, want the closed set named", rec.Body.String())
+	}
+	if ops.setWindowOptionsCalled {
+		t.Error("SetWindowOptions must NOT be called for invalid owner")
 	}
 }
 
@@ -1572,7 +1623,7 @@ func TestWindowOptionsNoteTrims(t *testing.T) {
 // Over-length and control-char notes 400 with zero tmux calls
 // (validate-all-then-execute preserved).
 func TestWindowOptionsNoteValidation(t *testing.T) {
-	over := strings.Repeat("x", windowNoteMaxLen+1)
+	over := strings.Repeat("x", validate.NoteTextMaxLength+1)
 	cases := map[string]string{
 		"over-length": `{"options":{"@rk_win_note":"` + over + `"}}`,
 		"tab char":    `{"options":{"@rk_win_note":"a\tb"}}`,

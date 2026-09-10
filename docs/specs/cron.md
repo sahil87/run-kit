@@ -391,7 +391,7 @@ tmux event — the safety-poll lesson).
 |---------|------|
 | Read | `GET /api/cron?server=<slug>` — entries + derived next-fire + orphan state; watchlist rides the existing SSE state doc |
 | Mutate | `POST /api/cron/create`, `POST /api/cron/delete`, `POST /api/cron/mute` — POST-only (Constitution IX) |
-| CLI | `rk cron add <payload> --every 1h \| --backoff \| --cron "<expr>" [--name N] [--deliver when-idle] [--if-absent skip] [--respawn <arg>…]`, `rk cron list [--json]`, `rk cron rm <id>`, `rk cron mute <id> [--for <dur>] [--off]` — agent-friendly: no flags beyond the schedule are required |
+| CLI | `rk cron add <prompt> --every 1h \| --backoff \| --cron "<expr>" [--name N] [--deliver when-idle] [--if-absent skip] [--respawn <arg>…]`, `rk cron list [--json]`, `rk cron rm <id>`, `rk cron mute <id> [--for <dur>] [--off]` — agent-friendly: no flags beyond the schedule are required |
 
 `rk cron mute <id> --for <dur>` mutes until now+dur; expiry unmutes
 automatically with no further call — the evaluator reads an expired lease as

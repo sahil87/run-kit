@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// rk cron add <payload> — record one cron entry in the resolved server's
+// rk cron add <prompt> — record one cron entry in the resolved server's
 // intent file. Exactly one schedule flag is required: --every <dur>, bare
 // --backoff (a ladder keyed on the target pane's idle epoch, min/max
 // refinable), or --cron "<expr>" (a 5-field expression in the daemon's local
@@ -29,7 +29,7 @@ import (
 // The write goes through cron.Add only (atomic read-modify-write, id
 // generation, per-entry validation — a corrupt file refuses to mutate).
 
-// cronAddNameMaxRunes caps the derived --name default (a payload prefix).
+// cronAddNameMaxRunes caps the derived --name default (a prompt prefix).
 const cronAddNameMaxRunes = 40
 
 var (
@@ -50,10 +50,10 @@ var (
 )
 
 var cronAddCmd = &cobra.Command{
-	Use:   "add <payload> --every <dur> | --backoff | --cron \"<expr>\"",
+	Use:   "add <prompt> --every <dur> | --backoff | --cron \"<expr>\"",
 	Short: "Add a cron entry to the server's intent file",
-	Long: "Add a cron entry delivering <payload> on a schedule. The payload is prompt " +
-		"text: at fire time rk types it into the target agent's chat through the " +
+	Long: "Add a cron entry delivering <prompt> on a schedule. The prompt is text for an " +
+		"agent, not a command: at fire time rk types it into the target agent's chat through the " +
 		"injection engine and presses Enter, exactly as if a person had typed it; " +
 		"it is never run as a command — to run a command, ask the agent to run it. " +
 		"Exactly one schedule flag is required: --every <dur> (a positive Go " +
@@ -66,7 +66,7 @@ var cronAddCmd = &cobra.Command{
 		"to your window's role when it carries any @rk_win_role, else your " +
 		"pane's agent session, else your own pane; --role <role>, --session <ref>, " +
 		"or --pane %N override (mutually exclusive). Outside tmux, --role, " +
-		"--session, or --pane is required. --name defaults to a payload prefix; " +
+		"--session, or --pane is required. --name defaults to a prompt prefix; " +
 		"--deliver and --if-absent values are validated now but enforced by the " +
 		"delivery wave. With --if-absent respawn, repeat --respawn <arg> to give " +
 		"the command that brings the target back (one argv element per " +
@@ -93,7 +93,7 @@ func init() {
 	f.StringVar(&cronAddCatchUp, "catch-up", "", "With --cron: fire once late after a gap (only: once)")
 	f.DurationVar(&cronAddMin, "min", time.Minute, "Backoff ladder minimum gap (with --backoff)")
 	f.DurationVar(&cronAddMax, "max", 30*time.Minute, "Backoff ladder maximum gap (with --backoff)")
-	f.StringVar(&cronAddName, "name", "", "Display name (default: a payload prefix)")
+	f.StringVar(&cronAddName, "name", "", "Display name (default: a prompt prefix)")
 	f.StringVar(&cronAddDeliver, "deliver", cron.DeliverImmediate, "Delivery policy: immediate|when-idle")
 	f.StringVar(&cronAddIfAbsent, "if-absent", cron.IfAbsentSkip, "Absent-target policy: skip|notify|respawn")
 	f.StringArrayVar(&cronAddRespawn, "respawn", nil, "With --if-absent respawn: one argv element of the respawn command per occurrence (repeatable; {server} resolves to the entry's server at fire time)")

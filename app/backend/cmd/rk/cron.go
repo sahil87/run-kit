@@ -30,9 +30,9 @@ var cronCmd = &cobra.Command{
 	Use:   "cron",
 	Short: "Scheduled agent prompts (add, list, rm, mute, pin, tick)",
 	Long: "Durable, server-scoped cron entries for agent panes: `add` records an " +
-		"entry (a payload plus a schedule — `--every`, `--backoff`, or `--cron`) " +
+		"entry (a prompt plus a schedule — `--every`, `--backoff`, or `--cron`) " +
 		"in the resolved server's intent file, auto-capturing the caller's pane " +
-		"as creator and default target. The payload is prompt text: at fire time " +
+		"as creator and default target. This is not a system cron: nothing is executed. The prompt is text for an agent — at fire time " +
 		"rk types it into the target agent's chat through the injection engine " +
 		"and presses Enter, exactly as if a person had typed it; it is never run " +
 		"as a command — to run a command, ask the agent to run it. `list` prints " +

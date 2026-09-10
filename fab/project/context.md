@@ -63,6 +63,8 @@ Task runner: `just` (see `justfile`). Frontend deps managed by pnpm (in `app/fro
 
 Run `just setup` once before attempting to run test cases — it installs frontend deps, playwright browsers, copies `.env.local`, and stages the tmux config for Go embed. Re-run when pulling dependency changes.
 
+A fresh worktree has no `app/frontend/node_modules`, so Playwright and its Chromium are absent until `just setup` runs there — do not go looking for an install in sibling worktrees. `just setup` is also the way to get a headless browser for anything beyond e2e tests, e.g. a one-off screenshot of a local HTML file (a design study, an artifact preview): after setup, from `app/frontend`, `pnpm exec playwright screenshot --full-page file:///abs/path.html /tmp/out.png` or a short node script that `require("playwright")`s. This is outside the `just pw` rig (no dev server needed), so it is the one Playwright use that does not go through a `just` recipe.
+
 Always run tests through `just` recipes — never invoke `go test`, `pnpm test`, or `playwright test` directly. The `just test-e2e` recipe (via `scripts/test-e2e.sh`, deriving from `scripts/e2e-env.sh`) starts a dev server on this worktree's derived port triple (3400–3699: Vite / Go backend / code-server stub) with an isolated per-worktree tmux socket family (`rk-test-e2e-<token>-*`) and a per-run temp `XDG_STATE_HOME`, so e2e runs never collide with a running `rk serve` instance or a sibling worktree's run. A flock throttle (`RK_E2E_SLOTS`, default 2; 1 = strict series) bounds concurrent Playwright phases across worktrees. Running Playwright directly would fall back to port 3333 and connect to nothing (fail-closed).
 
 - `just test` — all tests (backend + frontend + e2e)

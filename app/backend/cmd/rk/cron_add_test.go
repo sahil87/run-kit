@@ -688,12 +688,16 @@ func TestCronAddRespawnMatrix(t *testing.T) {
 	}
 }
 
-// TestCronAddHelpText: the add Long states the payload is prompt text typed
-// into the agent's chat (never a command), documents --respawn and the
-// {server} placeholder, and describes --backoff as an idle-epoch ladder.
+// TestCronAddHelpText: the add usage names the positional <prompt> and the Long
+// states it is text for an agent typed into its chat (never a command),
+// documents --respawn and the {server} placeholder, and describes --backoff as
+// an idle-epoch ladder.
 func TestCronAddHelpText(t *testing.T) {
+	if !strings.Contains(cronAddCmd.Use, "add <prompt>") {
+		t.Errorf("add Use = %q, want the <prompt> positional", cronAddCmd.Use)
+	}
 	for _, want := range []string{
-		"prompt text",
+		"text for an agent",
 		"never run as a command",
 		"--respawn",
 		"{server}",
@@ -709,7 +713,9 @@ func TestCronAddHelpText(t *testing.T) {
 	if rf := cronAddCmd.Flags().Lookup("role"); rf == nil || !strings.Contains(rf.Usage, "@rk_win_role") {
 		t.Errorf("--role usage = %q, want the @rk_win_role wording", rf.Usage)
 	}
-	if !strings.Contains(cronCmd.Long, "never run as a command") {
-		t.Error("the cron parent Long must carry the prompt-not-command sentence")
+	for _, want := range []string{"not a system cron", "never run as a command"} {
+		if !strings.Contains(cronCmd.Long, want) {
+			t.Errorf("the cron parent Long must carry %q", want)
+		}
 	}
 }

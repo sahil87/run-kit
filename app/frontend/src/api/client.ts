@@ -567,6 +567,41 @@ export async function fetchCodeWorkspace(
   return { status: "ok", path: data.path, root: data.root };
 }
 
+/** The typed result of the code-bridge status GET. `unavailable` covers any
+ *  non-2xx (including an old backend's 404) and any thrown fetch/parse error —
+ *  the first-boot rescue reads it as "not installed" and fails closed. */
+export type CodeBridgeResult =
+  | { status: "ok"; installed: boolean; startedAt: string }
+  | { status: "unavailable" };
+
+/**
+ * Read the window's code-bridge status: GET
+ * /api/windows/{windowId}/code-bridge. Issued at exactly two decision points
+ * per code-tile mount generation (baseline at src adoption, verdict at the
+ * rescue wait's expiry). NEVER throws — the rescue decision treats every
+ * failure as `{ status: "unavailable" }`, so a caller without the route (an
+ * old backend) silently disables the rescue rather than erroring.
+ */
+export async function fetchCodeBridge(
+  server: string,
+  windowId: string,
+): Promise<CodeBridgeResult> {
+  try {
+    const res = await deduplicatedFetch(
+      withServer(`/api/windows/${encodeURIComponent(windowId)}/code-bridge`, server),
+    );
+    if (!res.ok) return { status: "unavailable" };
+    const data = (await res.json()) as { installed?: boolean; startedAt?: string };
+    return {
+      status: "ok",
+      installed: data.installed === true,
+      startedAt: typeof data.startedAt === "string" ? data.startedAt : "",
+    };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
 /**
  * The shared gui status document (`GET /api/gui/{id}`) — the same shape
  * `rk gui status --json` emits. Host-global (no server param, the

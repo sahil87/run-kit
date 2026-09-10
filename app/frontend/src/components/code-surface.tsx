@@ -1,4 +1,10 @@
 import { useEffect, useRef } from "react";
+import type { CodeBridgeResult } from "@/api/client";
+import {
+  CODE_BOOT_RESCUE_WAIT_MS,
+  decideRescue,
+  isWorkspaceSrc,
+} from "@/lib/code-boot-rescue";
 
 /**
  * CodeSurface — the renderer for the `code` lens AND the panel's CODE surface
@@ -45,6 +51,16 @@ import { useEffect, useRef } from "react";
  *   (File > Open Folder → a full workbench navigation to `/code/?folder=…`) via
  *   `onFolderNavigated`, so the latch follows the editor. Derivation seeds the
  *   latch exactly once; thereafter only the editor moves it, never the terminal.
+ * - **First-boot rescue**: a never-cached `?workspace=` boot can load zero
+ *   folders (the bridge extension then never registers a host record). When the
+ *   `fetchBridgeStatus` seam is injected, a `?workspace=` mount generation
+ *   reads the bridge status once at src adoption (baseline) and once at
+ *   `CODE_BOOT_RESCUE_WAIT_MS` after the first `load` (verdict), and a
+ *   `decideRescue` "reload" verdict re-navigates the frame via
+ *   `contentWindow.location.reload()` — the SECOND sanctioned parent
+ *   re-navigation, at most once per mount generation, and never a `src` write.
+ *   Not-installed and unavailable statuses fail closed (no reload, one warning
+ *   per generation); `?folder=` mounts are never rescued.
  */
 
 /**
@@ -117,6 +133,12 @@ interface CodeSurfaceProps {
    *  differs from `gitRoot` — the parent writes it to the window's latch. Absent
    *  ⇒ no reporting. */
   onFolderNavigated?: (folder: string) => void;
+  /** First-boot rescue's status read (built in app.tsx, threaded through
+   *  SurfaceLayout): one call at a `?workspace=` mount generation's src
+   *  adoption (baseline) and one at the rescue wait's expiry (verdict). The
+   *  injected fetcher keeps this component free of the API client import
+   *  graph. Absent ⇒ no rescue runs (no fetches, no timer). */
+  fetchBridgeStatus?: () => Promise<CodeBridgeResult>;
 }
 
 export function CodeSurface({
@@ -128,6 +150,7 @@ export function CodeSurface({
   onInteract,
   onFolderNavigated,
   onProgrammaticFocus,
+  fetchBridgeStatus,
 }: CodeSurfaceProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const reclaimRef = useRef(shouldReclaimChord);
@@ -138,6 +161,8 @@ export function CodeSurface({
   folderNavigatedRef.current = onFolderNavigated;
   const programmaticFocusRef = useRef(onProgrammaticFocus);
   programmaticFocusRef.current = onProgrammaticFocus;
+  const fetchBridgeRef = useRef(fetchBridgeStatus);
+  fetchBridgeRef.current = fetchBridgeStatus;
   // The comparison baseline for the load-event report below, read through a ref
   // because the listener outlives the render that installed it. It tracks the
   // latch, which after seeding tracks the editor — so it is exactly "the folder
@@ -287,6 +312,83 @@ export function CodeSurface({
       } catch {
         /* noop */
       }
+    };
+  }, [reachable, src]);
+
+  // First-boot rescue: per mount generation (this effect's [reachable, src]
+  // keying re-runs on every generation boundary — the reachable flip, a
+  // window-switch remount, or a followSrc nonce adoption), a `?workspace=`
+  // mount gets exactly TWO status reads and at most ONE reload. The baseline
+  // read fires at src adoption; the first `load` arms the wait timer; its
+  // expiry reads again and hands both stamps to decideRescue. A "reload"
+  // verdict re-navigates via contentWindow.location.reload() — a reload keeps
+  // the `?workspace=` URL and tab identity, so the per-generation src ref
+  // stays untouched. `?folder=` mounts never enter here (a folder-opened
+  // bridge host writes no tab identity, so the signal can never exist), and
+  // without the injected fetcher the generation is inert (no reads, no
+  // timer). Cleanup clears a pending timer and discards in-flight reads, so
+  // an unmounted or superseded generation can neither reload nor warn.
+  useEffect(() => {
+    const fetcher = fetchBridgeRef.current;
+    const iframe = iframeRef.current;
+    if (!fetcher || !iframe || !reachable || src === null || !isWorkspaceSrc(src)) return;
+    const gen = {
+      baseline: null as string | null,
+      settled: false,
+      warned: false,
+      timer: null as ReturnType<typeof setTimeout> | null,
+    };
+    let alive = true;
+    fetcher()
+      .then((res) => {
+        // An unavailable baseline stays null: bridgeConfirmed then accepts any
+        // non-empty verdict stamp — erring toward NOT reloading is the posture.
+        if (alive && res.status === "ok") gen.baseline = res.startedAt;
+      })
+      .catch(() => {
+        /* an injected fetcher may throw; a failed baseline reads as none */
+      });
+    const arm = () => {
+      if (!alive || gen.settled || gen.timer !== null) return;
+      gen.timer = setTimeout(() => {
+        gen.timer = null;
+        const decide = fetchBridgeRef.current;
+        if (!decide) return;
+        decide()
+          .then((res) => {
+            if (!alive) return;
+            gen.settled = true;
+            const decision = decideRescue({
+              baseline: gen.baseline,
+              current: res.status === "ok" ? res.startedAt : null,
+              installed: res.status === "ok" ? res.installed : null,
+              isWorkspaceMount: true,
+            });
+            if (decision === "reload") {
+              try {
+                iframe.contentWindow?.location.reload();
+              } catch {
+                /* cross-origin or pre-load frame — skip */
+              }
+            } else if (decision === "skip-not-installed" && !gen.warned) {
+              gen.warned = true;
+              console.warn(
+                "code bridge extension not installed — first-boot rescue disabled; run `rk code-server install`",
+              );
+            }
+          })
+          .catch(() => {
+            // A throwing injected fetcher fails closed; the generation settles
+            // so it never retries into a second decision.
+            gen.settled = true;
+          });
+      }, CODE_BOOT_RESCUE_WAIT_MS);
+    };
+    iframe.addEventListener("load", arm);
+    return () => {
+      alive = false;
+      iframe.removeEventListener("load", arm);
+      if (gen.timer !== null) clearTimeout(gen.timer);
     };
   }, [reachable, src]);
 

@@ -171,7 +171,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, fetchCodeBridge, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions } from "@/lib/palette/cron";
 import { CronCreateDialog } from "@/components/cron-create-dialog";
@@ -1079,6 +1079,20 @@ function AppShell() {
     effectiveWindow,
     layout.order.includes("code"),
     codeSeedRejected,
+  );
+
+  // The first-boot rescue's status-read seam (the code tile's two
+  // decision-point GETs): CodeSurface owns the mount generation and the
+  // load-event seam, so the fetcher is injected rather than the server/window
+  // pair. Without a window route there is no code tile — the unavailable
+  // answer keeps the rescue fail-closed. useCallback-stable so CodeSurface's
+  // ref mirror never churns.
+  const fetchBridgeStatus = useCallback(
+    () =>
+      windowParam
+        ? fetchCodeBridge(server, windowParam)
+        : Promise.resolve({ status: "unavailable" as const }),
+    [server, windowParam],
   );
 
   // Follow write (spec right-panel.md § The code lens): after the seed, the
@@ -5046,6 +5060,9 @@ function AppShell() {
               // The follow rule's re-navigation: nonce-keyed, so only an
               // editor-initiated folder navigation ever moves a live frame.
               codeFollowSrc={followSrc}
+              // The first-boot rescue's two status reads (baseline + verdict)
+              // per code-tile mount generation.
+              fetchBridgeStatus={fetchBridgeStatus}
               shouldReclaimChord={reclaimChordForKind}
               onPromote={(surface) => applyLayout(promote(layout, surface))}
               onSwap={(surface) => applyLayout(swapWithNext(layout, surface))}

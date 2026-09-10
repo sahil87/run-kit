@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The rk-code-bridge code-server extension + the `rk code` CLI family — a same-user Unix-socket channel into the code lens editor's extension host. Covers the socket + host registry under $XDG_STATE_HOME/run-kit/cb/, tab-keyed identity via the derived .code-workspace file (rk.tab/rk.server, the rk.hasTab gate) + the six run-kit editor actions, the NDJSON protocol, exec/hosts/commands + exit codes, tab-direct resolution + liveness pruning, VSIX distribution, the doctor row, and the security stance."
+description: "The rk-code-bridge code-server extension + the `rk code` CLI family — a same-user Unix-socket channel into the code-server extension host. Covers the socket + host registry under $XDG_STATE_HOME/run-kit/cb/, tab-keyed identity via the derived .code-workspace file (rk.tab/rk.server, the rk.hasTab gate) + the six editor actions, the NDJSON protocol, exec/hosts/commands verbs, tab-direct resolution + liveness, the status-GET startedAt boot oracle, VSIX distribution, doctor row, and security stance."
 ---
 # Code Bridge
 
@@ -100,6 +100,8 @@ rk code commands [--folder <path>] [--host <id>] [--tab [@N]]
 ## Host resolution and liveness
 
 The registry is a **discovery hint only** — liveness is re-derived on every call, never cached (Constitution II). `codebridge.LiveHosts` treats a record as live only if `kill -0` on its pid succeeds (or returns `EPERM` — the process exists, just not signal-able; false-pruning a live host is worse than keeping it) **and** a `__ping` over its socket answers within 2s. A record failing either check is removed (prune notice on stderr) and excluded.
+
+**Second consumer — the daemon's status GET**: `GET /api/windows/{windowId}/code-bridge` ([api-and-sockets](/run-kit/api-and-sockets.md) § API Layer) reads the registry at request time (`ReadRecords` over `HostsDir()`, no cache) and derives the tab's `startedAt` via `codebridge.TabStartedAt(records, server, tab, PIDAlive)` — the newest RFC 3339 `startedAt` among records whose `tab` AND `server` match and whose pid is alive (`kill -0` only; unparseable stamps skipped, folder-only records never match, two records for one tab resolve to the newer). This consumer does NO `__ping` and prunes nothing — `LiveHosts` stays the CLI's verb (§ Design Decisions → Request-path liveness is `kill -0` only). Because the extension's `activate()` returns before any side effect when the boot carried no workspace folder, a live tab-keyed record is a "this boot saw its folder" oracle, and its `startedAt` distinguishes this boot from a stale previous-boot record — the code tile's first-boot rescue consumes it ([ui/lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § Code Surface → First-boot rescue). Two documented limitations: two viewers opening the same fresh tab within the rescue wait window — if the second boot succeeds (the first warmed VS Code's workspace cache), its record confirms the first viewer's still-broken frame too, so that viewer remounts by hand; and `rk.bridge.enabled=false` is undetectable without reading VS Code settings files (a rejected coupling), so that configuration sees one rescue reload per mount (260910-74q0-code-tile-first-boot-rescue-reload).
 
 Resolution order for a single-host verb (`codebridge.Resolve`):
 
@@ -222,6 +224,12 @@ The extension SHALL read its tab identity from the workspace settings `rk.tab` (
 **Why**: Constitution II — no request-time read treats a file as the source of truth; the live socket is.
 **Rejected**: Scanning `cb/*.sock` alone (no folder metadata without a round-trip to every socket).
 *Introduced by*: 260826-83jz-code-bridge-extension
+
+### Request-path liveness is `kill -0` only
+**Decision**: the code-bridge status GET filters host records with `PIDAlive` (`kill -0`; `EPERM` counts as alive) and never calls `LiveHosts`.
+**Why**: `LiveHosts` dials every record's socket with a 2 s timeout serially and prunes the registry as a side effect — neither belongs on a UI request path; the rescue's newer-than-baseline compare already neutralises stale records, so a ping adds nothing for this signal.
+**Rejected**: reusing `LiveHosts` on the request path (latency and file deletion on a read).
+*Introduced by*: 260910-74q0-code-tile-first-boot-rescue-reload
 
 ### `vscode`-free bridge core
 **Decision**: `src/bridge.ts` + `src/protocol.ts` implement socket serving, framing, timeouts, `$uri` rewriting, and result serialisation over an injected executor; `src/extension.ts` is only the vscode glue.

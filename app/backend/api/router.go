@@ -897,6 +897,10 @@ func (s *Server) buildRouter() chi.Router {
 	// Derived per-tab .code-workspace file — read-shaped ensure (GET, §IX); the
 	// ONLY daemon-side writer of workspace files. See api/codeworkspace.go.
 	r.Get("/api/windows/{windowId}/code-workspace", s.handleCodeWorkspace)
+	// The first-boot rescue's status read: extension-installed + the tab's
+	// newest pid-alive host-record stamp, derived per request. See
+	// api/codebridge.go.
+	r.Get("/api/windows/{windowId}/code-bridge", s.handleCodeBridge)
 	// Conversation fork — a new window in the SAME session + directory, resuming
 	// the window's agent session with --fork-session. See api/fork.go.
 	r.Post("/api/windows/{windowId}/fork", s.handleWindowFork)

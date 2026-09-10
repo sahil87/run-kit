@@ -20,6 +20,7 @@ import {
   ApiError,
   fetchWindowHistory,
   fetchCodeWorkspace,
+  fetchCodeBridge,
   fetchGuiStatus,
   restartGui,
   getDirectories,
@@ -1509,6 +1510,42 @@ describe("fetchCodeWorkspace (tab-keyed workspace derivation)", () => {
       expect(err.status).toBe(500);
       expect(err.message).toBe("ensure failed");
     }
+  });
+});
+
+describe("fetchCodeBridge (first-boot rescue status)", () => {
+  it("GETs /api/windows/{id}/code-bridge with the server query and resolves ok with installed/startedAt", async () => {
+    let capturedUrl = "";
+    mswServer.use(
+      http.get("/api/windows/:windowId/code-bridge", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ installed: true, startedAt: "2026-09-10T02:45:39.941Z" });
+      }),
+    );
+    const result = await fetchCodeBridge("default", "@7");
+    expect(capturedUrl).toContain("/api/windows/%407/code-bridge");
+    expect(capturedUrl).toContain("server=default");
+    expect(result).toEqual({
+      status: "ok",
+      installed: true,
+      startedAt: "2026-09-10T02:45:39.941Z",
+    });
+  });
+
+  it("a non-2xx (an old backend's 404) resolves to unavailable and never throws", async () => {
+    mswServer.use(
+      http.get("/api/windows/:windowId/code-bridge", () =>
+        HttpResponse.json({ error: "not found" }, { status: 404 }),
+      ),
+    );
+    await expect(fetchCodeBridge("default", "@7")).resolves.toEqual({ status: "unavailable" });
+  });
+
+  it("a network error resolves to unavailable and never throws", async () => {
+    mswServer.use(
+      http.get("/api/windows/:windowId/code-bridge", () => HttpResponse.error()),
+    );
+    await expect(fetchCodeBridge("default", "@7")).resolves.toEqual({ status: "unavailable" });
   });
 });
 

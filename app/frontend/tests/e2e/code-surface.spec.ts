@@ -1,8 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { CODE_BOOT_RESCUE_WAIT_MS } from "../../src/lib/code-boot-rescue";
 import { plainCodeStubHtml, reserveDeadPort, startCodeStub, type CodeStub, type DeadPort } from "./_ports";
 import { openPalette, READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import {
@@ -75,6 +76,12 @@ import { stubProxyPorts } from "./_web-tile";
  *   payload (`folders[0].path`, `rk.tab`, `rk.server`).
  *   `holdWorkspaceFetch(page)` route-holds the frontend's GET so the
  *   pending → iframe transition is observable regardless of box load.
+ * - The first-boot-rescue test additionally writes a fake pid-alive bridge
+ *   host record into `${XDG_STATE_HOME}/run-kit/cb/hosts/` (forwarded from
+ *   the harness's per-run state home, so the backend reads the SAME dir) and
+ *   counts `Code editor` iframe loads via an addInitScript capture listener;
+ *   every record path lands in `rescueRecordFiles` and is removed by the
+ *   describe's `afterEach`.
  * - `expectWindowLayout(id, expected)`: retrying read of the window's
  *   `@rk_win_layout` tmux option — the SHARED layout the translation / verbs
  *   write (never the URL; the URL stays bare after translation drops the
@@ -249,6 +256,10 @@ test.afterAll(() => {
 test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
   let stub: CodeStub;
 
+  // Fake bridge host records written by the rescue test — removed after each
+  // test so a later run's registry never carries a stale entry.
+  const rescueRecordFiles: string[] = [];
+
   test.beforeAll(async () => {
     stub = await startCodeStub(plainCodeStubHtml());
   });
@@ -259,6 +270,12 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
 
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
+  });
+
+  test.afterEach(() => {
+    while (rescueRecordFiles.length) {
+      rmSync(rescueRecordFiles.pop()!, { force: true });
+    }
   });
 
   /**
@@ -474,6 +491,101 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     expect(
       await page.evaluate(([a, b]) => a === b, [handleBefore, handleAfter]),
     ).toBe(true);
+  });
+
+  /**
+   * Proves: the first-boot rescue never reloads a frame whose boot the bridge
+   * host record confirms — with a pid-alive tab-keyed record (written into the
+   * harness's per-run state home AFTER the tile mounted, so its stamp is newer
+   * than the mount's empty baseline) the iframe fires exactly ONE `load` over
+   * the rescue wait window plus slack. The assertion holds in both installed
+   * states of the host box: a confirmed record yields "none", a missing
+   * extension yields "skip-not-installed" — neither reloads. (The stub
+   * code-server cannot run the real extension, so e2e covers only this
+   * negative arm; the reload arm is vitest-covered.)
+   *
+   * Steps:
+   * 1. Register a capture-phase `load` counter via addInitScript (the iframe
+   *    `load` does not bubble, so document-level capture is the counter), then
+   *    create a repo-cwd window and navigate.
+   * 2. Arm a `waitForResponse` on the code-bridge GET, open the code tile, and
+   *    await the iframe — the response await orders the test AFTER the
+   *    frontend's baseline read, so the record cannot land in both reads and
+   *    compare stale.
+   * 3. Write the fake host record `{hostId, folder, pid: process.pid, sock,
+   *    extVersion, startedAt: <now>, tab: <window id>, server: <E2E tmux
+   *    server>}` into `${XDG_STATE_HOME}/run-kit/cb/hosts/` (read from
+   *    process.env, never hardcoded) and register it for afterEach cleanup.
+   * 4. Wait CODE_BOOT_RESCUE_WAIT_MS + 2 s, then assert the load counter is
+   *    exactly 1 (a rescue reload would have fired a second `load`).
+   */
+  test("a confirming bridge host record suppresses the rescue reload (exactly one iframe load)", async ({
+    page,
+  }) => {
+    // One window, one navigation, then a 12 s observation window — past the
+    // 10s default + READY budgets, so this test carries a 45s budget.
+    test.setTimeout(45_000);
+    const stateHome = process.env.XDG_STATE_HOME;
+    if (!stateHome) {
+      throw new Error(
+        "XDG_STATE_HOME is unset — run via `just test-e2e code-surface`, which " +
+          "seeds the per-run state home and forwards it to the spec process.",
+      );
+    }
+
+    // Step 1: the load counter must predate the iframe, so it rides an init
+    // script — registered before gotoWindow's navigation.
+    await page.addInitScript(() => {
+      const w = window as unknown as { __codeIframeLoads: number };
+      w.__codeIframeLoads = 0;
+      document.addEventListener(
+        "load",
+        (e) => {
+          if (e.target instanceof HTMLIFrameElement && e.target.title === "Code editor") {
+            w.__codeIframeLoads++;
+          }
+        },
+        true,
+      );
+    });
+    const id = await makeWindow(page, `cs-rescue-${Date.now()}`);
+    await gotoWindow(page, id);
+
+    // Step 2: open the tile; the response await proves the baseline status
+    // read completed before the record exists.
+    const baselineAnswered = page.waitForResponse("**/api/windows/*/code-bridge*");
+    await codeToggle(page).click();
+    await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await baselineAnswered;
+
+    // Step 3: the confirming record — pid-alive (this process), tab-keyed to
+    // the window under test, stamped now (newer than the empty baseline).
+    const hostsDir = join(stateHome, "run-kit", "cb", "hosts");
+    mkdirSync(hostsDir, { recursive: true });
+    const hostId = `e2e-rescue-${id.slice(1)}`;
+    const recordPath = join(hostsDir, `${hostId}.json`);
+    writeFileSync(
+      recordPath,
+      JSON.stringify({
+        hostId,
+        folder: GIT_ROOT,
+        pid: process.pid,
+        sock: join(stateHome, "run-kit", "cb", `${hostId}.sock`),
+        extVersion: "0.0.0-e2e",
+        startedAt: new Date().toISOString(),
+        tab: id,
+        server: TMUX_SERVER,
+      }),
+    );
+    rescueRecordFiles.push(recordPath);
+
+    // Step 4: the rescue verdict lands at the 10 s mark; a reload would fire
+    // a second load immediately after.
+    await page.waitForTimeout(CODE_BOOT_RESCUE_WAIT_MS + 2_000);
+    const loads = await page.evaluate(
+      () => (window as unknown as { __codeIframeLoads: number }).__codeIframeLoads,
+    );
+    expect(loads).toBe(1);
   });
 
 });

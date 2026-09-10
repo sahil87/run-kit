@@ -76,6 +76,7 @@ import {
   selectWebTab,
   setWindowOptions,
 } from "@/api/client";
+import type { CodeBridgeResult } from "@/api/client";
 import { useToast } from "@/components/toast";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import {
@@ -242,6 +243,10 @@ interface SurfaceLayoutProps {
    *  with a fresh nonce — the one sanctioned parent re-navigation. Carried
    *  straight to CodeSurface. */
   codeFollowSrc?: { src: string; nonce: number } | null;
+  /** First-boot rescue's status-read seam: the code tile's baseline/verdict
+   *  fetcher, built in app.tsx as `() => fetchCodeBridge(server, windowId)`.
+   *  Carried straight to CodeSurface; absent ⇒ no rescue runs. */
+  fetchBridgeStatus?: () => Promise<CodeBridgeResult>;
   /** Chord-reclaim predicate FACTORY (260819-ie2i R3): called with a tile's
    *  kind at each iframe mount to bind the kind-aware registry predicate —
    *  `case "code"` passes `shouldReclaimChord("code")` to CodeSurface
@@ -572,6 +577,7 @@ export function SurfaceLayout({
   onCodeFolderNavigated,
   codeWorkspaceSrc,
   codeFollowSrc,
+  fetchBridgeStatus,
   shouldReclaimChord,
   onProgrammaticFocus,
   onPromote,
@@ -1470,6 +1476,7 @@ export function SurfaceLayout({
             // parent's derivation GET; the component never composes it.
             workspaceSrc={codeWorkspaceSrc ?? null}
             followSrc={codeFollowSrc ?? null}
+            fetchBridgeStatus={fetchBridgeStatus}
             reachable={codeReachable}
             shouldReclaimChord={shouldReclaimChord?.("code")}
             onInteract={

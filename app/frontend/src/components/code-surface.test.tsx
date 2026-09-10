@@ -1,6 +1,8 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, cleanup, fireEvent } from "@testing-library/react";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { CodeSurface, codeServerSrc, codeServerWorkspaceSrc } from "./code-surface";
+import { CODE_BOOT_RESCUE_WAIT_MS } from "@/lib/code-boot-rescue";
+import type { CodeBridgeResult } from "@/api/client";
 
 afterEach(cleanup);
 
@@ -309,5 +311,163 @@ describe("CodeSurface", () => {
     doc2.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true }));
     expect(parentSpy).toHaveBeenCalledTimes(2);
     document.removeEventListener("keydown", parentSpy);
+  });
+
+  // First-boot rescue: exactly two status reads per mount generation (baseline
+  // at src adoption, verdict at the wait's expiry) and at most one reload — a
+  // confirmed bridge, an unavailable read, and a ?folder= mount never reload.
+  describe("first-boot rescue (fetchBridgeStatus)", () => {
+    const WS_SRC = codeServerWorkspaceSrc("/state/@7-3fa1c9.code-workspace");
+    const NEWER = "2026-09-10T02:45:41.100Z";
+
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    });
+
+    /** Stub the frame's contentWindow with a reload spy — jsdom never
+     *  navigates an iframe, so the rescue's reload target is injected (the
+     *  same configurable-property pattern as the folder seam's stub). */
+    const stubReload = (el: HTMLElement) => {
+      const reload = vi.fn();
+      Object.defineProperty(el, "contentWindow", {
+        configurable: true,
+        value: { location: { reload, search: "?workspace=x" } },
+      });
+      return reload;
+    };
+    const ok = (startedAt: string, installed = true): CodeBridgeResult => ({
+      status: "ok",
+      installed,
+      startedAt,
+    });
+    const flushBaseline = () => act(async () => {});
+    const expireWait = (ms = CODE_BOOT_RESCUE_WAIT_MS) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+
+    it("a confirming record at expiry means no reload, and the settled generation never re-arms", async () => {
+      // Baseline: no record yet; verdict: the boot registered its host record.
+      const fetcher = vi
+        .fn<() => Promise<CodeBridgeResult>>()
+        .mockResolvedValueOnce(ok(""))
+        .mockResolvedValue(ok(NEWER));
+      const { getByTitle } = render(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} fetchBridgeStatus={fetcher} />,
+      );
+      const iframe = getByTitle("Code editor");
+      const reload = stubReload(iframe);
+      await flushBaseline();
+      fireEvent.load(iframe);
+      await expireWait();
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(reload).not.toHaveBeenCalled();
+      // A later load (any cause) must not arm a second wait for this generation.
+      fireEvent.load(iframe);
+      await expireWait(CODE_BOOT_RESCUE_WAIT_MS * 2);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(reload).not.toHaveBeenCalled();
+    });
+
+    it("no newer record with the extension installed reloads exactly once and never re-arms", async () => {
+      const fetcher = vi.fn<() => Promise<CodeBridgeResult>>().mockResolvedValue(ok(""));
+      const { getByTitle } = render(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} fetchBridgeStatus={fetcher} />,
+      );
+      const iframe = getByTitle("Code editor");
+      const reload = stubReload(iframe);
+      await flushBaseline();
+      fireEvent.load(iframe);
+      await expireWait();
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(reload).toHaveBeenCalledTimes(1);
+      // The reload's own load event arrives on a settled generation.
+      fireEvent.load(iframe);
+      await expireWait(CODE_BOOT_RESCUE_WAIT_MS * 2);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+
+    it("an unavailable verdict fetch performs no reload and warns exactly once", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fetcher = vi.fn<() => Promise<CodeBridgeResult>>().mockResolvedValue({ status: "unavailable" });
+      const { getByTitle } = render(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} fetchBridgeStatus={fetcher} />,
+      );
+      const iframe = getByTitle("Code editor");
+      const reload = stubReload(iframe);
+      await flushBaseline();
+      fireEvent.load(iframe);
+      await expireWait();
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(reload).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("rk code-server install");
+      // Settled: a later load neither re-fetches nor re-warns.
+      fireEvent.load(iframe);
+      await expireWait(CODE_BOOT_RESCUE_WAIT_MS * 2);
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it("a reachability-flip remount starts a fresh generation: new baseline read, budget restored", async () => {
+      const fetcher = vi.fn<() => Promise<CodeBridgeResult>>().mockResolvedValue(ok(""));
+      const { rerender, getByTitle } = render(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} fetchBridgeStatus={fetcher} />,
+      );
+      let reload = stubReload(getByTitle("Code editor"));
+      await flushBaseline();
+      fireEvent.load(getByTitle("Code editor"));
+      await expireWait();
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(reload).toHaveBeenCalledTimes(1);
+
+      rerender(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={false} fetchBridgeStatus={fetcher} />,
+      );
+      rerender(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} fetchBridgeStatus={fetcher} />,
+      );
+      const remounted = getByTitle("Code editor");
+      reload = stubReload(remounted);
+      await flushBaseline();
+      expect(fetcher).toHaveBeenCalledTimes(3); // the fresh generation's baseline
+      fireEvent.load(remounted);
+      await expireWait();
+      expect(fetcher).toHaveBeenCalledTimes(4);
+      expect(reload).toHaveBeenCalledTimes(1); // the new generation's own one-shot
+    });
+
+    it("without the fetcher prop the generation is inert — no timer, no warn, no reload", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { getByTitle } = render(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} />,
+      );
+      const iframe = getByTitle("Code editor");
+      const reload = stubReload(iframe);
+      fireEvent.load(iframe);
+      await expireWait(CODE_BOOT_RESCUE_WAIT_MS * 2);
+      expect(reload).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("a ?folder= mount is never rescued — no fetch, no timer, no reload", async () => {
+      const fetcher = vi.fn<() => Promise<CodeBridgeResult>>().mockResolvedValue(ok(""));
+      const { getByTitle } = render(
+        <CodeSurface
+          gitRoot="/repo"
+          workspaceSrc={codeServerSrc("/repo")}
+          reachable={true}
+          fetchBridgeStatus={fetcher}
+        />,
+      );
+      const iframe = getByTitle("Code editor");
+      const reload = stubReload(iframe);
+      fireEvent.load(iframe);
+      await expireWait(CODE_BOOT_RESCUE_WAIT_MS * 2);
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(reload).not.toHaveBeenCalled();
+    });
   });
 });

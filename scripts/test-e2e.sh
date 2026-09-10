@@ -215,9 +215,11 @@ done
 # base port from E2E_PORT — a variable only the harness sets (ambient direnv
 # exports RK_PORT, so a spec-side RK_PORT read would defeat the :3333
 # fail-closed fallback on a bare `playwright test`); RK_PORT is still passed
-# for any non-Playwright reader in the child env.
+# for any non-Playwright reader in the child env. XDG_STATE_HOME is forwarded
+# so a spec can write into the SAME per-run state home the backend reads
+# (e.g. a fake code-bridge host record under run-kit/cb/hosts/).
 run_playwright() {
-  cd app/frontend && RK_PORT=$E2E_PORT E2E_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" E2E_TMUX_FAMILY="$E2E_TMUX_FAMILY" RK_CODE_SERVER_PORT="$RK_CODE_SERVER_PORT" RK_CONFIG_DIR="$RK_CONFIG_DIR" pnpm exec playwright test "$@"
+  cd app/frontend && RK_PORT=$E2E_PORT E2E_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" E2E_TMUX_FAMILY="$E2E_TMUX_FAMILY" RK_CODE_SERVER_PORT="$RK_CODE_SERVER_PORT" XDG_STATE_HOME="$E2E_STATE_HOME" RK_CONFIG_DIR="$RK_CONFIG_DIR" pnpm exec playwright test "$@"
 }
 
 # Concurrency throttle (load, not correctness — the derived identity already

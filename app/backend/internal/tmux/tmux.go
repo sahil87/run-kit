@@ -1552,8 +1552,8 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			}
 		}
 
-		// Owner is a closed-set token ("operator"); drop any value outside the
-		// set (including "") to the empty unset state. Same idiom as Marker.
+		// Owner is a closed-set token ("operator"); unknown non-empty tokens
+		// drop to the empty unset state. Same idiom as Marker.
 		var owner string
 		if len(parts) >= 23 {
 			if o := strings.TrimSpace(parts[22]); validate.OwnerValues[o] {

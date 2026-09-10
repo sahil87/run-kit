@@ -395,7 +395,13 @@ func guiWMLines(sink outputSink, wm string) {
 		sink.Notef("  window manager: %s\n", wm)
 		return
 	}
-	sink.Notef("  no window manager — running bare. Install one: %s\n", gui.WMInstallHint(guiLookPathFn))
+	hint := gui.WMInstallHint(guiLookPathFn)
+	if hint == "" {
+		// No hint means no WM concept on this OS (the darwin mirror) — an
+		// empty stamp is not a bare desktop there, so nothing to say.
+		return
+	}
+	sink.Notef("  no window manager — running bare. Install one: %s\n", hint)
 	sink.Notef("  then: rk gui restart\n")
 }
 

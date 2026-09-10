@@ -420,7 +420,11 @@ func guiCheck(enabled, session bool, display, backend, wm string, probe gui.Info
 			bin, _ = gui.ResolveBackend(lookPath)
 		}
 		if wm == "" {
-			wm = "no window manager — " + gui.WMInstallHint(lookPath)
+			wm = "no window manager"
+			// Empty off Linux — the darwin mirror runs no WM, so no hint.
+			if hint := gui.WMInstallHint(lookPath); hint != "" {
+				wm += " — " + hint
+			}
 		}
 		check.Note = guiOnSummary(bin, display, probe.Width, probe.Height, viewers, wm)
 		return check

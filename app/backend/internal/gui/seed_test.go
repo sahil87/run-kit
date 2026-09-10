@@ -140,3 +140,46 @@ func TestProfileDirUnderStateDir(t *testing.T) {
 		t.Errorf("ProfileDir() = %q, want %q", dir, want)
 	}
 }
+
+func TestSeedProfileNormalizesLooseModes(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "icewm")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"preferences", "toolbar", "menu"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("user content\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	seeded, err := SeedProfile(dir, "xterm", "")
+	if err != nil {
+		t.Fatalf("SeedProfile: %v", err)
+	}
+	if seeded {
+		t.Error("seeded = true with preferences present, want false")
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Errorf("dir mode = %o after reseed, want 700", info.Mode().Perm())
+	}
+	for _, name := range []string{"preferences", "toolbar", "menu"} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("%s mode = %o after reseed, want 600", name, info.Mode().Perm())
+		}
+	}
+	prefs, err := os.ReadFile(filepath.Join(dir, "preferences"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(prefs) != "user content\n" {
+		t.Errorf("preferences rewritten to %q, want the user's content kept", prefs)
+	}
+}

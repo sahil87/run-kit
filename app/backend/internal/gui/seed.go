@@ -34,11 +34,17 @@ func ProfileDir() (string, error) {
 // toolbar and menu are regenerated on every call from the resolved terminal
 // and browser (rows only for non-empty names, so a button never names a
 // binary that does not exist; the commands are plain binary names, never rk
-// paths). Directory 0700, files 0600. seeded reports whether preferences was
-// written on this call — the supervisor's log line names the first seed.
+// paths). Directory 0700, files 0600 — normalized on every call, not only at
+// creation, so a pre-existing profile with looser modes is pulled back inside
+// the private-config boundary before ICEWM_PRIVCFG points at it. seeded
+// reports whether preferences was written on this call — the supervisor's
+// log line names the first seed.
 func SeedProfile(dir, terminal, browser string) (seeded bool, err error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return false, fmt.Errorf("creating the icewm profile dir: %w", err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return false, fmt.Errorf("securing the icewm profile dir: %w", err)
 	}
 	prefs := filepath.Join(dir, "preferences")
 	if _, err := os.Stat(prefs); errors.Is(err, fs.ErrNotExist) {
@@ -48,6 +54,8 @@ func SeedProfile(dir, terminal, browser string) (seeded bool, err error) {
 		seeded = true
 	} else if err != nil {
 		return false, fmt.Errorf("reading icewm preferences: %w", err)
+	} else if err := os.Chmod(prefs, 0o600); err != nil {
+		return false, fmt.Errorf("securing icewm preferences: %w", err)
 	}
 	if err := writeIcewmApps(filepath.Join(dir, "toolbar"), icewmToolbarContent(terminal, browser)); err != nil {
 		return false, err
@@ -58,11 +66,16 @@ func SeedProfile(dir, terminal, browser string) (seeded bool, err error) {
 	return seeded, nil
 }
 
-// writeIcewmApps rewrites one generated file (0600); a partial write is
-// acceptable on the write path — the file is regenerated on the next start.
+// writeIcewmApps rewrites one generated file (0600 — WriteFile keeps an
+// existing file's mode, so the chmod is what normalizes a reused profile); a
+// partial write is acceptable on the write path — the file is regenerated on
+// the next start.
 func writeIcewmApps(path, content string) error {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("writing %s: %w", filepath.Base(path), err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("securing %s: %w", filepath.Base(path), err)
 	}
 	return nil
 }

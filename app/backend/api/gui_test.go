@@ -405,3 +405,22 @@ func TestGuiNoOtherRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestGuiLaunchDarwin409(t *testing.T) {
+	saved := guiLaunchGOOS
+	t.Cleanup(func() { guiLaunchGOOS = saved })
+	guiLaunchGOOS = "darwin"
+	server, router := newGuiAPIServer(t, true)
+	server.guiLaunchFn = func([]string, []string) (int, error) {
+		t.Error("launch seam called on darwin")
+		return 0, nil
+	}
+
+	rec := postJSON(t, router, "/api/gui/host/launch", `{"app":"terminal"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), guiLaunchDarwinError) {
+		t.Errorf("body = %s, want the CLI's darwin refusal text", rec.Body.String())
+	}
+}

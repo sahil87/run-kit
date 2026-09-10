@@ -815,3 +815,44 @@ func TestGuiSuperviseLinuxPinMissFallsBackToLadder(t *testing.T) {
 		t.Errorf("teardown err = %v, want nil", err)
 	}
 }
+
+func TestGuiSuperviseLinuxIcewmSeedFailureStartsWithDefaults(t *testing.T) {
+	withGuiSuperviseGOOS(t, "linux")
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+	withGuiSuperviseLookPath(t, map[string]string{
+		"Xtigervnc":     filepath.Join(stubDir, "Xtigervnc"),
+		"icewm-session": "/usr/bin/icewm-session",
+	})
+	withGuiSuperviseSettingsLoad(t, "")
+	buf := captureGuiSuperviseLog(t)
+	captureGuiStamps(t)
+	wmRec := withGuiSuperviseStartWMRec(t)
+	origSeed := guiSuperviseSeed
+	t.Cleanup(func() { guiSuperviseSeed = origSeed })
+	guiSuperviseSeed = func(string, string, string) (bool, error) { return false, os.ErrPermission }
+
+	profileDir := filepath.Join(stateHome, "run-kit", "gui", "icewm")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":16") }()
+
+	waitForGuiLog(t, buf, guiSeedFailedLine(profileDir, os.ErrPermission))
+	waitForGuiLog(t, buf, "gui: window manager icewm-session\n")
+
+	wmRec.mu.Lock()
+	defer wmRec.mu.Unlock()
+	if wmRec.calls != 1 {
+		t.Fatalf("WM starts = %d, want 1 (icewm still runs on its defaults)", wmRec.calls)
+	}
+	if len(wmRec.extraEnv) != 0 {
+		t.Errorf("WM extra env = %v after a seed failure, want none (ICEWM_PRIVCFG must not name the failed profile)", wmRec.extraEnv)
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("teardown err = %v, want nil", err)
+	}
+}

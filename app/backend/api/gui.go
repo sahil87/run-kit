@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -194,6 +195,16 @@ type guiLaunchRequest struct {
 	App string `json:"app"`
 }
 
+// guiLaunchGOOS is the OS seam behind the launch handler's macOS refusal (the
+// CLI verb's guiDarwinRefusal twin): the darwin backend mirrors Screen Sharing
+// view-only, so there is no rk-managed display to launch onto. A package var
+// so tests drive the darwin branch without a darwin build.
+var guiLaunchGOOS = runtime.GOOS
+
+// guiLaunchDarwinError is the refusal text — byte-identical to the CLI's
+// guiDarwinRefusal("launch") so both doors say the same thing.
+const guiLaunchDarwinError = "gui launch is not supported on macOS in v1 — the GUI mirrors your live session view-only"
+
 // handleGuiLaunch serves POST /api/gui/{id}/launch — the HTTP twin of
 // 'rk gui launch', behind G2's palette rows. The ladder miss is a 200 with
 // ok:false on purpose: the palette toasts the hint through the normal success
@@ -214,6 +225,10 @@ func (s *Server) handleGuiLaunch(w http.ResponseWriter, r *http.Request) {
 	role, err := gui.ParseAppRole(body.App)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if guiLaunchGOOS == "darwin" {
+		writeError(w, http.StatusConflict, guiLaunchDarwinError)
 		return
 	}
 	if !settings.Load().GUIEnabled {

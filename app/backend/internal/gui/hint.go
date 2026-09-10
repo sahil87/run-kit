@@ -15,8 +15,12 @@ var packageManagerProbes = []struct {
 
 // PackageManager reports "apt" | "dnf" | "pacman" | "" by probing apt-get,
 // dnf, pacman on PATH in that order. lookPath is exec.LookPath, injected so
-// tests exercise every branch without depending on the host PATH.
+// tests exercise every branch without depending on the host PATH; a nil
+// lookPath (StatusDeps promises nil seams are safe) detects nothing.
 func PackageManager(lookPath func(string) (string, error)) string {
+	if lookPath == nil {
+		return ""
+	}
 	for _, pm := range packageManagerProbes {
 		if _, err := lookPath(pm.binary); err == nil {
 			return pm.name
@@ -27,8 +31,13 @@ func PackageManager(lookPath func(string) (string, error)) string {
 
 // WMInstallHint is the one-line install command for the window manager,
 // worded for the detected package manager; with no manager detected it
-// degrades to a generic sentence.
+// degrades to a generic sentence. Only Linux runs a window manager (the
+// darwin supervisor mirrors Screen Sharing and starts none), so every other
+// OS gets no hint — callers omit the segment when it is empty.
 func WMInstallHint(lookPath func(string) (string, error)) string {
+	if goos != "linux" {
+		return ""
+	}
 	switch PackageManager(lookPath) {
 	case "apt":
 		return "sudo apt install --no-install-recommends icewm"

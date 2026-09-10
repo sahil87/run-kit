@@ -26,6 +26,8 @@ func TestPackageManager(t *testing.T) {
 }
 
 func TestWMInstallHint(t *testing.T) {
+	defer func(saved string) { goos = saved }(goos)
+	goos = "linux"
 	cases := []struct {
 		name    string
 		present []string
@@ -93,5 +95,21 @@ func TestNoBackendReason(t *testing.T) {
 	}
 	if got, want := NoBackendReason(stubLookPath()), "no VNC backend: install a VNC X server (TigerVNC) and icewm with your package manager"; got != want {
 		t.Errorf("NoBackendReason(none) = %q, want %q", got, want)
+	}
+}
+
+func TestPackageManagerNilLookPathDetectsNothing(t *testing.T) {
+	if got := PackageManager(nil); got != "" {
+		t.Errorf("PackageManager(nil) = %q, want empty (nil seams are safe)", got)
+	}
+}
+
+func TestWMInstallHintOffLinuxIsEmpty(t *testing.T) {
+	defer func(saved string) { goos = saved }(goos)
+	for _, os := range []string{"darwin", "plan9"} {
+		goos = os
+		if got := WMInstallHint(stubLookPath("apt-get")); got != "" {
+			t.Errorf("%s WMInstallHint = %q, want empty (no window manager off Linux)", os, got)
+		}
 	}
 }

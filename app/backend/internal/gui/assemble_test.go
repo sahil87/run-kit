@@ -261,3 +261,16 @@ func TestAssembleLinuxNamesUnixSocket(t *testing.T) {
 		t.Errorf("Socket = %q, want %q", st.Socket, want)
 	}
 }
+
+func TestAssembleReachableBareNilLookPathIsSafe(t *testing.T) {
+	d := assembleDeps(t)
+	d.LookPath = nil
+
+	st := Assemble(context.Background(), d)
+	if !st.Reachable {
+		t.Fatalf("status = %+v, want reachable", st)
+	}
+	if want := "install icewm with your package manager"; st.WMHint != want {
+		t.Errorf("WMHint = %q with a nil LookPath, want the generic %q (no probe, no panic)", st.WMHint, want)
+	}
+}

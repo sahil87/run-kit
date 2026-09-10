@@ -311,6 +311,9 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 			// coming up — icewm runs on its defaults.
 			if s, serr := guiSuperviseSeed(dir, term, browser); serr != nil {
 				guiSuperviseLog(guiSeedFailedLine(dir, serr))
+				// "its defaults" must be literal: a failed or partial profile
+				// is never handed to icewm through ICEWM_PRIVCFG.
+				profileDir = ""
 			} else {
 				seeded = s
 			}

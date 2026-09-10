@@ -118,10 +118,13 @@ func LaunchEnv(base []string, display, socket string) []string {
 }
 
 // StartDetached starts argv as its own session (Setsid — it outlives the
-// caller's shell) with stdio on /dev/null, and is never waited on: nil stdio
-// streams read/write /dev/null, so a long-lived GUI app cannot hang the
-// caller on a pipe it never closes. Constitution §I's timeout rule governs
-// subprocesses rk waits on; this one waits on nothing. Returns the pid.
+// caller's shell) with stdio on /dev/null and returns the pid immediately:
+// nil stdio streams read/write /dev/null, so a long-lived GUI app cannot hang
+// the caller on a pipe it never closes. Constitution §I's timeout rule
+// governs subprocesses rk waits on; nothing here blocks on the child. Setsid
+// detaches the session, not the parent/child link, so the child is reaped
+// asynchronously — otherwise every terminal or browser that later exits
+// would linger as a zombie under the long-lived daemon.
 func StartDetached(argv, env []string) (pid int, err error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Env = env
@@ -129,5 +132,6 @@ func StartDetached(argv, env []string) (pid int, err error) {
 	if err := cmd.Start(); err != nil {
 		return 0, err
 	}
+	go func() { _ = cmd.Wait() }()
 	return cmd.Process.Pid, nil
 }

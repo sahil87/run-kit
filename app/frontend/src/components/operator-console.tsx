@@ -20,7 +20,9 @@ import {
   OPERATOR_CONSOLE_EVENT,
   attachOperatorFiles,
   clampConsoleGeometry,
+  clearPendingConsoleRequest,
   cycleConsoleMachine,
+  drainPendingConsoleRequest,
   findOperatorWindow,
   getConsoleMachineActivity,
   isOperatorConsoleRequest,
@@ -350,9 +352,9 @@ export function OperatorConsole() {
   // view is not visible on the desktop route itself, so the drawer must open
   // to show it.
   useEffect(() => {
-    function onRequest(e: Event) {
-      const detail = (e as CustomEvent<unknown>).detail;
-      if (!isOperatorConsoleRequest(detail)) return;
+    function handleRequest(detail: OperatorConsoleRequest) {
+      // Handled — clear the seam's buffer so a later mount cannot replay it.
+      clearPendingConsoleRequest();
       if (isMobileRef.current) {
         mobileRequestRef.current(detail);
         return;
@@ -377,7 +379,17 @@ export function OperatorConsole() {
       // open-with-segment request lands on it directly.
       if (detail.segment !== undefined) setSegment(detail.segment);
     }
+    function onRequest(e: Event) {
+      const detail = (e as CustomEvent<unknown>).detail;
+      if (!isOperatorConsoleRequest(detail)) return;
+      handleRequest(detail);
+    }
     document.addEventListener(OPERATOR_CONSOLE_EVENT, onRequest);
+    // Mount drain: this module loads lazily behind Suspense, so a request
+    // dispatched before the listener attached (a cold `?tab=activity` deep
+    // link) sits in the seam's buffer — replay it now.
+    const pending = drainPendingConsoleRequest();
+    if (pending) handleRequest(pending);
     return () => document.removeEventListener(OPERATOR_CONSOLE_EVENT, onRequest);
   }, []);
 

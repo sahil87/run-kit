@@ -14,19 +14,25 @@ const EMPTY_CRON: CronListResponse = { entries: [], deliveries: [] };
  * client never polls; the socket's cadence is the refresh).
  *
  * An empty `server` fires NO request and yields the empty shape (the
- * degrade-to-absent posture). Failures keep the last good data.
+ * degrade-to-absent posture). Failures keep the last good data. The cached
+ * data is keyed to the server that produced it: a server switch yields the
+ * empty shape until the new server's first fetch resolves — never the
+ * previous server's entries beside the new server's name.
  */
 export function useCronData(server: string): CronListResponse {
   const { sessionsByServer } = useSessionContext();
   const sessions = sessionsByServer.get(server);
-  const [data, setData] = useState<CronListResponse>(EMPTY_CRON);
+  const [state, setState] = useState<{ server: string; data: CronListResponse }>({
+    server: "",
+    data: EMPTY_CRON,
+  });
 
   useEffect(() => {
     if (!server) return;
     let cancelled = false;
     getCron(server)
       .then((r) => {
-        if (!cancelled) setData(r);
+        if (!cancelled) setState({ server, data: r });
       })
       .catch(() => {
         // Fail-silent: a transient error keeps the last good data; the next
@@ -37,5 +43,5 @@ export function useCronData(server: string): CronListResponse {
     };
   }, [server, sessions]);
 
-  return server ? data : EMPTY_CRON;
+  return server && state.server === server ? state.data : EMPTY_CRON;
 }

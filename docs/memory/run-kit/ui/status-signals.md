@@ -258,7 +258,7 @@ Named constants carry every magic value: `TIP_OPEN_DELAY_MS`, `TIP_WARM_WINDOW_M
 
 ## Attention Surfacing (`waiting` rollups + nav)
 
-The per-window `waiting` overlay (agent blocked on a human) propagates UP the hierarchy as **count badges** and drives a **keyboard-first navigation** action and a **board-pane seam**. This is the UI half of #314's three-state `agentState` — see [agent-state](agent-state.md). All counts derive from the existing SSE session data already in the client — **no new endpoint, no `setInterval`/fetch** (Constitution II / code-quality anti-patterns).
+The per-window `waiting` overlay (agent blocked on a human) propagates UP the hierarchy as **count badges** and drives a **keyboard-first navigation** action and a **board-pane seam**. This is the UI half of #314's three-state `agentState` — see [agent-state](/run-kit/agent-state.md). All counts derive from the existing SSE session data already in the client — **no new endpoint, no `setInterval`/fetch** (Constitution II / code-quality anti-patterns).
 
 **Shared rollup helpers** (`lib/waiting.ts`) — the single source of truth so every surface counts identically: `isWaiting(win)` (= `win.agentState === "waiting"`, keyed on the server-side window-level rollup that already applies `waiting > active > idle` across panes), `countWaitingWindows(windows)`, `countWaitingInSessions(sessions)`, and the instance-wide `countWaitingAcrossServers(sessionsByServer)` (which composes `countWaitingInSessions` over the streamed map). Pure functions over the streamed `WindowInfo`/`ProjectSession` shape.
 

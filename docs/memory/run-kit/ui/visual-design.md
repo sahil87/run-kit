@@ -149,7 +149,7 @@ On landing the driver parks the literal `staticFill` hex values and restores the
 
 ### Theme System
 
-> Full spec: [`docs/specs/themes.md`](../../specs/themes.md) — architecture, ANSI palette structure, tmux colour mapping, import script usage, persistence model.
+> Full spec: [`docs/specs/themes.md`](../../../specs/themes.md) — architecture, ANSI palette structure, tmux colour mapping, import script usage, persistence model.
 
 Palette-based theme model: each theme defines a `ThemePalette` with 22 canonical terminal colors — `foreground`, `background`, `cursorColor`, `cursorText`, `selectionBackground`, `selectionForeground`, plus 16 ANSI colors (indices 0-15) as a fixed-length readonly tuple. The `Theme` type has shape `{ id, name, category, palette }` — no `colors` or `themeColor` properties; both are derived from the palette.
 

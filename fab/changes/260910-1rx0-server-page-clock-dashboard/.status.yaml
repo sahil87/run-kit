@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-10T17:00:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T17:15:34Z"}
     review: {started_at: "2026-09-10T17:15:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T17:20:31Z"}
     hydrate: {started_at: "2026-09-10T17:20:31Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T17:28:11Z"}
-    ship: {started_at: "2026-09-10T17:28:11Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-10T17:28:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T17:35:02Z"}
+    review-pr: {started_at: "2026-09-10T17:35:02Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/918
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2352
+    deleted: 60
+    net: 2292
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1937
+        deleted: 37
+        net: 1900
     tests:
-        added: 0
+        added: 530
         deleted: 0
-        net: 0
-    computed_at: "2026-09-10T17:28:11Z"
-    computed_at_stage: hydrate
+        net: 530
+    computed_at: "2026-09-10T17:35:02Z"
+    computed_at_stage: ship
 summary: 'tmux Server page gains WATCHED / CRONS / RECENT DELIVERIES zones below the Sessions grid (desktop only), the Server: Clock dashboard palette entry, and shared cron row helpers in server-clock-dashboard/model.ts'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-10T17:28:11Z
+last_updated: 2026-09-10T17:35:02Z

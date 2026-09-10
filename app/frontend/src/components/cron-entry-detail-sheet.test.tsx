@@ -120,4 +120,59 @@ describe("CronEntryDetailSheet", () => {
     await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
     expect(screen.getByRole("alert")).toHaveTextContent("unknown entry");
   });
+
+  it("the default variant is modal: fixed backdrop, aria-modal, and the ✕ close control", () => {
+    installFetch();
+    const { container } = render(
+      <CronEntryDetailSheet server="srv" entry={ENTRY} onClose={vi.fn()} />,
+    );
+
+    const sheet = screen.getByTestId("cron-entry-sheet");
+    expect(sheet.className).toContain("fixed inset-0");
+    // The full-viewport backdrop sibling.
+    expect(container.querySelector(".bg-black\\/50")).not.toBeNull();
+    expect(screen.getByRole("dialog", { name: "Cron entry operator tick" })).toHaveAttribute(
+      "aria-modal",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Close entry details" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back to activity" })).toBeNull();
+  });
+
+  it("the inline variant drops the modal shell: no backdrop, no aria-modal, absolute inset-0 panel", () => {
+    installFetch();
+    const { container } = render(
+      <CronEntryDetailSheet server="srv" entry={ENTRY} onClose={vi.fn()} inline />,
+    );
+
+    const sheet = screen.getByTestId("cron-entry-sheet");
+    expect(sheet.className).toContain("absolute inset-0");
+    expect(container.querySelector(".fixed")).toBeNull();
+    const dialog = screen.getByRole("dialog", { name: "Cron entry operator tick" });
+    expect(dialog).not.toHaveAttribute("aria-modal");
+    // The ✕ close control is replaced by the back control.
+    expect(screen.queryByRole("button", { name: "Close entry details" })).toBeNull();
+  });
+
+  it("the inline ‹ Activity back control calls onClose", () => {
+    installFetch();
+    const onClose = vi.fn();
+    render(<CronEntryDetailSheet server="srv" entry={ENTRY} onClose={onClose} inline />);
+
+    const back = screen.getByRole("button", { name: "Back to activity" });
+    expect(back).toHaveTextContent("‹ Activity");
+    fireEvent.click(back);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("Escape inside the inline panel closes the sheet and claims the key (defaultPrevented)", () => {
+    installFetch();
+    const onClose = vi.fn();
+    render(<CronEntryDetailSheet server="srv" entry={ENTRY} onClose={onClose} inline />);
+
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    document.dispatchEvent(event);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(true);
+  });
 });

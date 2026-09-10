@@ -7,11 +7,11 @@ import { CronEntryDetailSheet } from "@/components/cron-entry-detail-sheet";
 import type { CronDelivery, CronEntry } from "@/api/client";
 
 /**
- * The mobile Activity feed — one time-ordered triage timeline for the
- * server's cron clock (the healthchecks.io agenda pattern), mounted in place
- * of the terminal on the operator route's `?tab=activity`. Data rides
- * `useCronData` (mount fetch + the existing state-socket sessions cadence —
- * no new polling loop).
+ * The cron Activity feed — one time-ordered triage timeline for the server's
+ * cron clock (the healthchecks.io agenda pattern), mounted in place of the
+ * terminal on the mobile operator route's `?tab=activity` and as the desktop
+ * console drawer's Activity segment body. Data rides `useCronData` (mount
+ * fetch + the existing state-socket sessions cadence — no new polling loop).
  *
  * Anatomy: the pinned staleness banner (rendered exactly when the server's
  * sessions report `operatorStale`, derived from the already-shipped
@@ -24,10 +24,13 @@ import type { CronDelivery, CronEntry } from "@/api/client";
  * (newest-first, so the newest sits adjacent to the divider). Tapping a row
  * opens the entry detail sheet scoped to that entry.
  *
+ * `inline` (the desktop drawer mount) makes the root `relative` so the
+ * sheet's in-container variant anchors to it, and forwards the flag.
+ *
  * An unresolvable server degrades to the operator console's absent/hint state
  * (a centered hint line) and fires no request.
  */
-export function CronActivityFeed({ server }: { server: string }) {
+export function CronActivityFeed({ server, inline = false }: { server: string; inline?: boolean }) {
   const { sessionsByServer } = useSessionContext();
   const sessions = useMemo(() => sessionsByServer.get(server) ?? [], [sessionsByServer, server]);
   const { entries, deliveries } = useCronData(server);
@@ -64,7 +67,10 @@ export function CronActivityFeed({ server }: { server: string }) {
   const empty = upcoming.length === 0 && past.length === 0;
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col" data-testid="cron-activity-feed">
+    <div
+      className={`flex-1 min-h-0 flex flex-col${inline ? " relative" : ""}`}
+      data-testid="cron-activity-feed"
+    >
       {staleSession && (
         <div
           className="shrink-0 border-b border-border px-3 py-2 text-xs text-signal-yellow"
@@ -117,6 +123,7 @@ export function CronActivityFeed({ server }: { server: string }) {
           server={server}
           entry={selectedEntry}
           onClose={() => setSelectedEntryId(null)}
+          inline={inline}
         />
       )}
     </div>

@@ -75,6 +75,12 @@ export type OperatorConsoleRequest = {
    *  the text is seeded into the operator route's compose-strip draft instead
    *  of auto-sending. */
   send?: string;
+  /** The body segment to select on open. Desktop applies it to the drawer's
+   *  Terminal|Activity state (and bypasses the already-on-operator-route hint
+   *  — the Activity view is not visible on the desktop route itself); mobile
+   *  maps `activity` to the operator route's `?tab=activity` search param.
+   *  Absent = no segment change. */
+  segment?: "terminal" | "activity";
 };
 
 /** Dispatch a console request to the layout-mounted OperatorConsole. */

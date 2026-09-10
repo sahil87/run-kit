@@ -9,12 +9,16 @@ import { openPalette } from "./_ready";
 // host-metrics snapshot (`e2e-box`), and a version slot (`0.9.3`).
 // `/ws/terminals` is stubbed; `/api/servers` + window-select are fulfilled
 // inline. `beforeEach` installs the mock. Default Playwright desktop viewport
-// (1280px) unless a test resizes.
+// (1280px) unless a test resizes. The clock-chip test additionally stubs
+// `GET /api/cron` via page.route (trailing `*` — withServer appends
+// `?server=`) with one nextFire-bearing entry so the chip renders
+// deterministically and the console drawer's Activity feed has rows.
 //
 // Subjects: the full-width attached status strip at the shell bottom
 // (desktop-only), the width-or-coarse mobile predicate that suppresses it, the
 // fine-pointer bottom-bar DELETION, the window-cluster / host-cluster route
-// split, and the no-scroll degradation ladder with the `…` overflow chevron.
+// split, the no-scroll degradation ladder with the `…` overflow chevron, and
+// the `◷` clock chip that opens the operator console on the Activity feed.
 
 const SERVER = "default";
 
@@ -395,5 +399,53 @@ test.describe("Status bar (260814-ldbs)", () => {
         await context.close();
       }
     }
+  });
+
+  /**
+   * Proves: with a cron entry carrying a `nextFire`, the status bar's `◷`
+   * clock chip renders in the right cluster, and clicking it opens the
+   * operator console drawer directly on the Activity segment's feed.
+   *
+   * Steps:
+   * 1. Stub `GET /api/cron` with one nextFire-bearing entry (the chip's
+   *    next-fire state); navigate to `/default/1`.
+   * 2. Assert the `status-bar-clock` chip is visible — the default 1280px
+   *    viewport is the xl rung the next-fire chip shows at.
+   * 3. Click the chip; assert the console drawer opens with the Activity tab
+   *    selected and the cron feed visible.
+   */
+  test("the clock chip opens the console on the Activity feed", async ({ page }) => {
+    await page.route("**/api/cron*", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          entries: [
+            {
+              id: "a3f9",
+              name: "operator tick",
+              schedule: { kind: "backoff", min: "60s", max: "30m" },
+              target: { kind: "role", role: "operator" },
+              payload: "tick",
+              lastFired: 0,
+              nextFire: Math.floor(Date.now() / 1000) + 600,
+            },
+          ],
+          deliveries: [],
+        }),
+      }),
+    );
+    await page.goto(`/${SERVER}/1`);
+    const chip = statusBar(page).getByTestId("status-bar-clock");
+    await expect(chip).toBeVisible({ timeout: 10_000 });
+
+    await chip.click();
+
+    const drawer = page.getByTestId("operator-console");
+    await expect(drawer).toBeVisible();
+    await expect(
+      drawer.getByTestId("terminal-activity-tabs").getByRole("tab", { name: "Activity" }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(drawer.getByTestId("cron-activity-feed")).toBeVisible({ timeout: 10_000 });
   });
 });

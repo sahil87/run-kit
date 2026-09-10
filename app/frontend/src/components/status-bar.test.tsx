@@ -12,13 +12,23 @@ import type { MetricsSnapshot } from "@/types";
 // Controllable session-context seams: StatusBar leaf-subscribes to the two
 // metrics contexts and the tolerant update-notification hook (the HostPanel /
 // SidebarFooter precedent) — mocked here so tests need no SessionProvider.
+// The clock chip's two reads ride the same mock boundary.
 let mockMetrics: MetricsSnapshot | null = null;
 let mockHostMetrics: MetricsSnapshot | null = null;
 let mockDaemonVersion: string | null = null;
+let mockSessionsByServer: Map<string, { operatorStale?: boolean; operatorLastTickAt?: number }[]> = new Map();
 vi.mock("@/contexts/session-context", () => ({
   useMetrics: () => mockMetrics,
   useHostMetrics: () => mockHostMetrics,
   useUpdateNotification: () => ({ daemonVersion: mockDaemonVersion }),
+  useSessionContext: () => ({ sessionsByServer: mockSessionsByServer }),
+}));
+
+// The clock chip's cron data — mocked so no fetch fires and entries are
+// controllable per test.
+let mockCronEntries: { id: string; name?: string; nextFire?: number }[] = [];
+vi.mock("@/hooks/use-cron", () => ({
+  useCronData: () => ({ entries: mockCronEntries, deliveries: [] }),
 }));
 
 // Copy seam: the segments copy through the shared clipboard lib (via
@@ -59,6 +69,8 @@ beforeEach(() => {
   mockMetrics = null;
   mockHostMetrics = null;
   mockDaemonVersion = null;
+  mockSessionsByServer = new Map();
+  mockCronEntries = [];
   mockCopyToClipboard.mockClear();
 });
 
@@ -318,6 +330,76 @@ describe("StatusBar (260814-ldbs)", () => {
       // Wraps backwards from the first row to the last.
       fireEvent.keyDown(document, { key: "ArrowUp" });
       expect(document.activeElement).toBe(rows[rows.length - 1]);
+    });
+  });
+
+  describe("clock chip (260910-6ehs)", () => {
+    it("is omitted with zero entries and no staleness", () => {
+      renderBar({ server: "alpha" });
+      expect(screen.queryByTestId("status-bar-clock")).not.toBeInTheDocument();
+    });
+
+    it("shows ◷ in {rel} for the soonest nextFire, dropping with the hints (hidden xl:flex)", () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      mockCronEntries = [
+        { id: "b2", name: "nightly", nextFire: nowSec + 3600 },
+        { id: "a1", name: "deploy", nextFire: nowSec + 300 },
+      ];
+      renderBar({ server: "alpha" });
+
+      const chip = screen.getByTestId("status-bar-clock");
+      // The soonest fire wins, not the first listed.
+      expect(chip).toHaveTextContent("◷ in 5m");
+      expect(chip.className).toContain("hidden xl:flex");
+    });
+
+    it("stale wins over entries: ◷ stale {age} in yellow, never dropped (flex)", () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      mockCronEntries = [{ id: "a1", name: "deploy", nextFire: nowSec + 300 }];
+      mockSessionsByServer = new Map([
+        ["alpha", [{ operatorStale: true, operatorLastTickAt: nowSec - 120 }]],
+      ]);
+      renderBar({ server: "alpha" });
+
+      const chip = screen.getByTestId("status-bar-clock");
+      expect(chip).toHaveTextContent("◷ stale 2m");
+      expect(chip.className).toContain("text-signal-yellow");
+      expect(chip.className).toContain("flex");
+      expect(chip.className).not.toContain("hidden");
+    });
+
+    it("clicking the chip dispatches the console request with segment: activity", () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      mockCronEntries = [{ id: "a1", name: "deploy", nextFire: nowSec + 300 }];
+      const seen: unknown[] = [];
+      const listener = (e: Event) => seen.push((e as CustomEvent<unknown>).detail);
+      document.addEventListener("rk:operator-console", listener);
+      try {
+        renderBar({ server: "alpha" });
+        fireEvent.click(screen.getByTestId("status-bar-clock"));
+      } finally {
+        document.removeEventListener("rk:operator-console", listener);
+      }
+
+      expect(seen).toEqual([{ action: "open", segment: "activity" }]);
+    });
+
+    it("the overflow clk row renders only in the next-fire state, not in the stale state", () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      mockCronEntries = [{ id: "a1", name: "deploy", nextFire: nowSec + 300 }];
+      renderBar({ server: "alpha" });
+      fireEvent.click(screen.getByTestId("status-bar-overflow"));
+      expect(screen.getByRole("menuitem", { name: "◷ Clock activity" })).toBeInTheDocument();
+      cleanup();
+
+      // Stale: the chip never drops from the strip, so no mirror row exists.
+      mockSessionsByServer = new Map([
+        ["alpha", [{ operatorStale: true, operatorLastTickAt: nowSec - 120 }]],
+      ]);
+      renderBar({ server: "alpha" });
+      expect(screen.getByTestId("status-bar-clock")).toHaveTextContent("◷ stale 2m");
+      fireEvent.click(screen.getByTestId("status-bar-overflow"));
+      expect(screen.queryByRole("menuitem", { name: "◷ Clock activity" })).not.toBeInTheDocument();
     });
   });
 

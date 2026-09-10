@@ -886,6 +886,22 @@ function AppShell() {
   // deep link swaps in a beat after mount.
   const operatorConsoleTabs = isMobile && windowParam != null && currentWindow?.role === "operator";
   const activityTabActive = operatorConsoleTabs && search.tab === "activity";
+  // Desktop `?tab=activity` handoff (the notify deep-link): the segment param
+  // is inert on desktop — the tabs above are mobile-only and the route itself
+  // has no Activity view — so on the operator window's terminal route the
+  // console drawer opens on its Activity segment instead. Fires once per
+  // arrival: the param is stripped immediately so a reload does not re-open.
+  useEffect(() => {
+    if (isMobile || !windowParam || currentWindow?.role !== "operator" || search.tab !== "activity") {
+      return;
+    }
+    requestOperatorConsole({ action: "open", segment: "activity" });
+    void navigate({
+      to: ".",
+      search: (prev) => ({ ...prev, tab: undefined }),
+      replace: true,
+    });
+  }, [isMobile, windowParam, currentWindow?.role, search.tab, navigate]);
   // The host-level code-server signal (260811-k3vp; portless since
   // 260811-a2bo) — `reachable` gates only the surface CONTENT (passed to
   // CodeSurface below); availability is gitRoot-derived (hasCode). `null` = no

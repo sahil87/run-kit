@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-10T15:17:56Z"}
+{"args":"tmux Server page gains WATCHED / CRONS / RECENT DELIVERIES dashboard zones — the server-scoped full view of the cron clock and operator watchlist","cmd":"fab-new","event":"command","ts":"2026-09-10T15:17:56Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-09-10T15:21:35Z"}

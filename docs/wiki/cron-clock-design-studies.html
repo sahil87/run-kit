@@ -192,6 +192,7 @@
 </div>
 
 <h2>1b · The larger view — the operator dashboard in the <code>agents</code> tile</h2>
+<p style="border:1px solid color-mix(in srgb, var(--amber) 55%, transparent); background:color-mix(in srgb, var(--amber) 9%, transparent); color:var(--amber); padding:6px 10px; border-radius:5px; font-size:12px"><b>Superseded 2026-09-10</b> — see <code>docs/specs/cron.md</code> § UI item 2. The larger view is server-scoped and split between the console's desktop Activity segment (the glimpse) and the tmux Server page's WATCHED / CRONS / RECENT DELIVERIES zones (the registry); the <code>agents</code> surface kind no longer exists (<code>SURFACE_KINDS</code> is <code>tty · web · code · gui</code>). The mock below is retained as the record of the rejected direction.</p>
 <p>The sidebar glance can't show "what all the operator does" at desktop scale. The layout encoding already reserves an unbuilt <code>agents</code> surface kind (tty / code / web / <b>agents</b>) — specced as "the workers the pane spawned," and for the operator window its companions <i>are</i> the watched fleet. Landing that tile as the <b>operator dashboard</b> gives the large view with no new route and no new surface kind: open <code>main-left: tty,agents</code> from the shipped top-bar surface toggles, and the shipped <b>tile zoom</b> verb makes it momentarily full-center. The operator chat console <b>shipped</b> (#839, quake v2 #840) with the desktop input relocated to the <b>top-bar omnibox</b> (⌘J) under a one-input rule — so the tile carries <b>no compose of its own</b>: the omnibox is already the global talk channel, and the tile is the pure <i>see-what-it's-doing</i> half.</p>
 
 <div class="study">
@@ -335,6 +336,8 @@
   <tr><td>Delete</td><td>cron row flyout card row (confirm)</td><td><code>Cron: delete…</code></td></tr>
   <tr><td>Pin orphan</td><td>orphan row flyout card row</td><td><code>Cron: pin…</code></td></tr>
   <tr><td>Watched detail</td><td>window row flyout card line</td><td>—</td></tr>
+  <tr><td>Open clock activity</td><td>status-bar <code>◷</code> clock chip → console drawer on the Activity segment</td><td>—</td></tr>
+  <tr><td>Open clock activity</td><td>palette → console drawer on the Activity segment</td><td><code>Operator: Show clock activity</code></td></tr>
 </table>
 <p style="margin-top:10px">Mutations are POST-only (<code>/api/cron/create·delete·mute</code>) and each handler wakes the SSE hub explicitly — file writes emit no tmux event, so without the wake the panel lags the 12s safety poll. Row actions follow the sidebar's flyout-card action-row idiom (no inline icon clusters), coarse pointers reach the cards through the status rail like every other tier.</p>
 

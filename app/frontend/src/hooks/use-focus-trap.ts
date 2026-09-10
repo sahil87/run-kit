@@ -64,6 +64,9 @@ export function useFocusTrap(
       // into the rows behind it).
       if (hasNestedDialog(node)) return;
       if (e.key === "Escape") {
+        // Claim the key: other document-level Esc listeners (the console
+        // drawer's machine release) stand down on `defaultPrevented`.
+        e.preventDefault();
         onEscapeRef.current();
         return;
       }

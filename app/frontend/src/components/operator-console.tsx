@@ -6,6 +6,10 @@ import {
 } from "@/contexts/session-context";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { TerminalClient } from "@/components/terminal-client";
+import { ConsoleSegments, type ConsoleSegment } from "@/components/terminal-activity-tabs";
+import { CronActivityFeed } from "@/components/cron-activity-feed";
+import { Tip } from "@/components/tip";
+import { formatDuration } from "@/lib/format";
 import { useMatches, useNavigate, useRouter, useSearch } from "@tanstack/react-router";
 import { prefersReducedMotion } from "@/lib/motion";
 import { resolveFocusedWindow } from "@/lib/focused-pane-window";
@@ -83,12 +87,18 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * survives the gate.
  *
  * Anatomy (desktop): a title strip (◉ OPERATOR · server, the operator
- * window's live agent state from the sessions payload, a server picker on
- * param-less multi-server routes, a collapse affordance) and an embedded LIVE
+ * window's live agent state from the sessions payload, the operator loop's
+ * tick-age stamp, a server picker on param-less multi-server routes, a
+ * collapse affordance), a Terminal | Activity segment header (the shared
+ * `ConsoleSegments` strip from terminal-activity-tabs.tsx, driven by
+ * console-local ephemeral state), and the body: on Terminal an embedded LIVE
  * terminal view of the operator window (a plain TerminalClient over the
  * shared /ws/terminals relay mux — the same mechanism a board pane uses,
  * registerFocus off so the BottomBar keeps its target, `transparent` on so
- * the glass background shows through the cells). The one-input rule: the
+ * the glass background shows through the cells); on Activity the
+ * `CronActivityFeed` (inline variant — the entry detail sheet renders
+ * in-container) with the TerminalClient unmounted, so the drawer holds at
+ * most one relay stream. The one-input rule: the
  * compose IS the top-bar omnibox (components/operator-omnibox.tsx); the
  * drawer is output-only, carrying the inline status/error line at its top
  * edge, directly under the box. The omnibox drives the ONE shared compose
@@ -150,6 +160,10 @@ export function OperatorConsole() {
   const [pinnedServer, setPinnedServer] = useState<string | null>(null);
   const [pickerServer, setPickerServer] = useState<string | null>(null);
   const [pendingSend, setPendingSend] = useState<string | null>(null);
+  // The drawer's body segment — console-local ephemeral state (no URL, tmux,
+  // or localStorage write), defaulting to Terminal and resetting on close; a
+  // seam request carrying `segment` sets it on open.
+  const [segment, setSegment] = useState<ConsoleSegment>("terminal");
   const rootRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const navigate = useNavigate();
@@ -214,6 +228,7 @@ export function OperatorConsole() {
     setClosing(false);
     setOpen(false);
     setEntered(false);
+    setSegment("terminal");
   }, []);
 
   const requestClose = useCallback(() => {
@@ -224,6 +239,7 @@ export function OperatorConsole() {
       setClosing(false);
       setOpen(false);
       setEntered(false);
+      setSegment("terminal");
       return;
     }
     setClosing(true);
@@ -271,7 +287,10 @@ export function OperatorConsole() {
   // from a terminal route on the same server carries the origin window as
   // `?from=` (never the operator window itself); re-activating while ALREADY
   // on the target operator route skips the navigate entirely, so the
-  // existing `?from=` (and the chip it feeds) survives. The palette fallback
+  // existing `?from=` (and the chip it feeds) survives. A request carrying
+  // `segment: "activity"` instead maps to the route's `?tab=activity` search
+  // param (merged with `?from=`; an in-place search update when already on
+  // the route). The palette fallback
   // row's query seeds the operator route's compose-strip draft rather than
   // auto-sending, and an operator-less server toasts the hint (throttled to
   // one per toast lifetime) without navigating. Held in a ref so the
@@ -290,7 +309,25 @@ export function OperatorConsole() {
       return;
     }
     const onOperatorRoute = routeServer === srv && routeWindow === tgt.window.windowId;
-    if (!onOperatorRoute) {
+    if (detail.segment === "activity") {
+      // The Activity segment maps to the operator route's `?tab=activity`
+      // search param — merged with the `?from=` origin carrier on a cross-
+      // route navigation, an in-place search update when already there.
+      if (onOperatorRoute) {
+        navigate({
+          to: ".",
+          search: (prev) => ({ ...prev, tab: "activity" as const }),
+          replace: true,
+        });
+      } else {
+        const from = routeServer === srv && routeWindow !== null ? routeWindow : undefined;
+        navigate({
+          to: "/$server/$window",
+          params: { server: srv, window: tgt.window.windowId },
+          search: from ? { from, tab: "activity" as const } : { tab: "activity" as const },
+        });
+      }
+    } else if (!onOperatorRoute) {
       const from = routeServer === srv && routeWindow !== null ? routeWindow : undefined;
       navigate({
         to: "/$server/$window",
@@ -309,7 +346,9 @@ export function OperatorConsole() {
   // the two-state machine, and `open` always opens with the omnibox focused.
   // While the resolved operator route is already current, every desktop
   // action stops here with one throttled hint instead of changing any console
-  // state.
+  // state — EXCEPT a request carrying `segment: "activity"`: the Activity
+  // view is not visible on the desktop route itself, so the drawer must open
+  // to show it.
   useEffect(() => {
     function onRequest(e: Event) {
       const detail = (e as CustomEvent<unknown>).detail;
@@ -318,7 +357,7 @@ export function OperatorConsole() {
         mobileRequestRef.current(detail);
         return;
       }
-      if (onOperatorRouteRef.current) {
+      if (onOperatorRouteRef.current && detail.segment !== "activity") {
         const now = Date.now();
         if (now - alreadyOnOperatorHintAtRef.current >= NO_OPERATOR_HINT_THROTTLE_MS) {
           alreadyOnOperatorHintAtRef.current = now;
@@ -334,6 +373,9 @@ export function OperatorConsole() {
       }
       if (detail.server) setPinnedServer(detail.server);
       if (detail.send !== undefined) setPendingSend(detail.send);
+      // The requested segment applies AFTER the machine transition, so an
+      // open-with-segment request lands on it directly.
+      if (detail.segment !== undefined) setSegment(detail.segment);
     }
     document.addEventListener(OPERATOR_CONSOLE_EVENT, onRequest);
     return () => document.removeEventListener(OPERATOR_CONSOLE_EVENT, onRequest);
@@ -374,6 +416,11 @@ export function OperatorConsole() {
     if (!open && machine === "rest") return;
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape" || e.defaultPrevented) return;
+      // A dialog layer nested INSIDE the drawer (the inline cron entry sheet)
+      // owns this Escape — it returns to the feed, never collapses the drawer.
+      // A DOM check, not `defaultPrevented`: this listener was registered when
+      // the drawer opened, so it runs before the nested layer's focus trap.
+      if (rootRef.current?.querySelector('[role="dialog"]')) return;
       if (machineRef.current !== "rest") setConsoleMachineState("rest");
     }
     document.addEventListener("keydown", onKey);
@@ -578,6 +625,18 @@ export function OperatorConsole() {
   const agentState = target?.window.agentState;
   const agentIdle = target?.window.agentIdleDuration;
 
+  // The title-strip tick-age stamp reads the FIRST session on the resolved
+  // server carrying `operatorLastTickAt > 0`; operator-less servers and older
+  // backends carry no field and render nothing. Render-time only — the
+  // sessions SSE cadence is the clock, never a timer.
+  const tickSession = server
+    ? sessionsByServer.get(server)?.find((s) => (s.operatorLastTickAt ?? 0) > 0)
+    : undefined;
+  const tickStale = tickSession?.operatorStale === true;
+  const tickAge = tickSession
+    ? formatDuration(Math.max(0, Math.floor(Date.now() / 1000) - (tickSession.operatorLastTickAt ?? 0)))
+    : null;
+
   // Glass: alpha-blended bg-primary over a fixed 6px backdrop blur. α=1
   // disables the filter entirely: the zero-cost opaque path.
   const glassStyle: React.CSSProperties = {
@@ -662,6 +721,19 @@ export function OperatorConsole() {
             {agentIdle ? ` ${agentIdle}` : ""}
           </span>
         )}
+        {tickSession && tickAge !== null && (
+          <Tip
+            label={tickStale ? `Operator last ticked ${tickAge} ago` : undefined}
+            placement="bottom"
+          >
+            <span
+              data-testid="operator-console-tick"
+              className={tickStale ? "text-signal-yellow" : "text-text-secondary"}
+            >
+              {tickStale ? "⚠ " : ""}· tick {tickAge} ago
+            </span>
+          </Tip>
+        )}
         <button
           type="button"
           aria-label="Collapse operator console"
@@ -671,6 +743,10 @@ export function OperatorConsole() {
           ▼
         </button>
       </div>
+      {/* The drawer's Terminal | Activity segment header — the shared
+          presentational strip (terminal-activity-tabs.tsx), driven here by
+          console-local state instead of the mobile route's `tab` param. */}
+      <ConsoleSegments value={segment} onChange={setSegment} />
       {/* The status line: the inline-error contract relocated to the
           drawer's top edge, directly under the omnibox (the desktop compose
           lives in the top bar). Carries structured send/upload failures and
@@ -688,7 +764,12 @@ export function OperatorConsole() {
           )}
         </div>
       )}
-      {target && server ? (
+      {segment === "activity" ? (
+        // One relay stream max per drawer: the TerminalClient is UNMOUNTED
+        // while Activity shows (the keyed remount on switching back is cheap).
+        // An unresolved server renders the feed's own hint line.
+        <CronActivityFeed server={server ?? ""} inline />
+      ) : target && server ? (
         <div className="flex-1 min-h-0 flex flex-col px-1 py-0.5">
           <TerminalClient
             key={`${server}:${target.window.windowId}`}

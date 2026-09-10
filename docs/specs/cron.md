@@ -14,9 +14,9 @@
 > [`api.md`](api.md) (endpoint surface). Visual design:
 > [`docs/wiki/cron-clock-design-studies.html`](../wiki/cron-clock-design-studies.html)
 > (the three-tier UI mocks, backoff timeline, resolution ladder). The UI is
-> tiered (§ UI): a sidebar `CLOCK` section for the glance, the reserved
-> [`surface-layout.md`](surface-layout.md) `agents` tile as the operator
-> dashboard, boards for immersion — the right panel is retired, so no
+> tiered (§ UI): a sidebar `CLOCK` section for the glance, the operator
+> console's desktop Activity segment and the tmux Server page zones as the
+> larger views, boards for immersion — the right panel is retired, so no
 > panel/rail placement exists. Cross-repo: this spec supersedes the
 > **Clock B ownership** half of fab-kit's operator pulse plan
 > (`fab/plans/sahil/26-09-03-operator-pulse-plan.md`, apt-marten worktree) —
@@ -317,31 +317,33 @@ reuses a shipped (or already-reserved) mechanism:
    on the row's existing flyout card (beside `@rk_win_note`). Staleness past
    the pulse threshold dims and dashes the underbar and renders a warning
    strip in the CLOCK header.
-2. **Dashboard — land the reserved `agents` surface as the operator panel**
-   (the desktop-scale view). The layout encoding already reserves the
-   `agents` kind (`tty`/`code`/`web`/`agents` —
-   [`surface-layout.md`](surface-layout.md)); it was specced as "the tier-2
-   workers the pane spawned" and never built. For the operator window its
-   companions *are* the watched fleet, so the agents tile IS the operator
-   dashboard: **watched workers** with full detail (state, rung, what it
-   awaits, age, last note), **cron entries** with next/last/history,
-   **pending escalations** (open questions awaiting the user), and a **recent
-   delivery log**. Opened as `main-left: tty,agents` (operator terminal
-   big-left, dashboard beside it) via the shipped top-bar surface toggles;
-   the shipped **tile zoom** verb makes it momentarily full-center — the
-   "larger view" is one action away, no new route and no new surface kind.
-   The **operator chat console shipped** (#839 + #840's quake v2) with a
-   design that reshapes the dock story: on desktop the console's input is the
-   **top-bar omnibox** (⌘J three-state machine) and the drawer is
-   **output-only** — the one-input rule. The agents tile therefore carries
-   **no compose of its own**: the omnibox is already the global talk channel
-   on every route, so the tile is a pure dashboard (and can embed the
-   operator terminal via the same `TerminalClient`/RelayMux path the console
-   drawer and board panes proved). What the tile adds over the drawer is the
-   *dashboard* half — watched/crons/escalations/log — and the console
-   intake's "escalation badges — future synergy" note is exactly this spec's
-   escalations section; the console title strip's live agent-state line is
-   the natural later home for the tick-age stamp.
+2. **Dashboard — the larger view is server-scoped, split in two** (the
+   desktop-scale view). **(a) The operator console drawer's Activity
+   segment on desktop** (the glimpse; change
+   `260910-6ehs-console-activity-segment-status-chip`): the desktop console
+   gains the `Terminal | Activity` segment the mobile sheet ships, mounting
+   the same Activity feed — computed upcoming fires + recent deliveries
+   across a "now" divider, the pinned staleness banner, the entry detail
+   sheet as an inline in-drawer panel. Entry points: the status-bar `◷`
+   clock chip (soonest next fire; yellow `◷ stale {age}` when the operator
+   loop is stale) and the palette entry `Operator: Show clock activity`;
+   the console's title strip also carries the operator tick-age stamp after
+   the live agent-state line. **(b) The tmux Server page's WATCHED / CRONS
+   / RECENT DELIVERIES zones** (the registry; change
+   `260910-1rx0-server-page-clock-dashboard`): watched workers with full
+   detail (state, rung, what it awaits, age, last note), cron entries with
+   next/last/history, and the recent delivery log, on `/$server`.
+
+   **Superseded (2026-09-10) — the agents-tile dashboard.** The earlier
+   design landed tier 2 in the reserved `agents` surface kind
+   ([`surface-layout.md`](surface-layout.md)): opened as
+   `main-left: tty,agents` beside the operator terminal, tile-zoom to
+   full-center, no compose of its own (output-only per the console's
+   one-input rule — the omnibox is the global talk channel). Superseded:
+   it was a tab-scoped tile for a server-scoped fact, and `agents` is no
+   longer a reserved surface kind — `SURFACE_KINDS` is now
+   `tty · web · code · gui` (the `gui` surface took the fourth kind). The
+   study's § 1b mock stays as the record of the rejected direction.
 3. **Immersion — an operator board** (zero new machinery, optional): boards
    already render pinned windows as live terminal cards. The operator (an
    actuating agent) can pin its watched windows to a `watched` board as the
@@ -371,17 +373,23 @@ reuses a shipped (or already-reserved) mechanism:
      ride `rk notify`; the notification deep-links to the Activity segment.
    - The sidebar CLOCK section is **desktop-only** (its rail toggle hidden on
      mobile); the tree's watched-row underbars remain on both.
+   - **Desktop has parity**: the desktop console drawer ships the same
+     `Terminal | Activity` segments (tier 2a) — one feed, banner, and
+     detail-sheet codebase across both form factors.
 
-Rejected: a dedicated `clock` **surface kind** (the reserved `agents` kind
-already owns "agent fleet beside the work" — a second kind would split it);
-**Host page** (checking crons must not cost a navigation); **status bar
-only** (no management affordance — a next-tick readout may ride it later);
-**mobile registry-in-the-drawer** (the pre-feed mobile design: a pinned-height
+Rejected: a dedicated `clock` **surface kind** (a dedicated kind would split
+the surface model — the surface set is `tty · web · code · gui`, and crons
+ride the console and Server page instead); **Host page** (checking crons
+must not cost a navigation); **status bar
+only** (no management affordance — the `◷` readout that rides it is an entry
+point to the console Activity segment, not the surface); **mobile
+registry-in-the-drawer** (the pre-feed mobile design: a pinned-height
 `CollapsiblePanel` in the drawer with flyout-card actions — no glanceability,
 mute two taps deep; superseded by the Activity feed).
 
 Palette-registered per Constitution V (`Panel: Toggle Clock`,
-`Surface: Agents`, `Cron: new entry`, `Cron: mute…`, `Cron: delete…`).
+`Operator: Show clock activity`, `Cron: new entry`, `Cron: mute…`,
+`Cron: delete…`).
 Mutations wake the SSE hub explicitly (user-option and file writes emit no
 tmux event — the safety-poll lesson).
 
@@ -438,10 +446,12 @@ move.
   is healthy; `rk cron add/list/rm` works from inside a pane. Kills the
   incident class.
 - **P2 — visibility**: the `CLOCK` sidebar section + rail toggle (desktop),
-  the agents-tile dashboard, the mobile console sheet's **Activity** feed
-  segment + staleness banner + entry detail sheet, watched-row underbar +
-  the `opr` register line (watchlist and `last_tick_at` read from the fab
-  operator state file), SSE wiring, palette actions, notify deep-links.
+  the console's desktop **Activity** segment and the Server page's
+  WATCHED / CRONS / RECENT DELIVERIES zones, the mobile console sheet's
+  **Activity** feed segment + staleness banner + entry detail sheet,
+  watched-row underbar + the `opr` register line (watchlist and
+  `last_tick_at` read from the fab operator state file), SSE wiring,
+  palette actions, notify deep-links.
 - **P3 — generalization + replacement posture**: `session` targets with
   auto-capture, orphan GC, the closed-session resume default for
   `if_absent: respawn`, `cron` expressions; then the fab-kit skill change —

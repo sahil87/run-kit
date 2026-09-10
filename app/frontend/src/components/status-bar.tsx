@@ -15,11 +15,13 @@ import {
 import {
   useMetrics,
   useHostMetrics,
+  useSessionContext,
   useUpdateNotification,
 } from "@/contexts/session-context";
 import { useInstanceName } from "@/contexts/instance-name-context";
 import { useChromeState } from "@/contexts/chrome-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useCronData } from "@/hooks/use-cron";
 import { chordHintFor } from "@/lib/keybindings";
 import { Tip } from "@/components/tip";
 import { StatusDot } from "@/components/status-dot";
@@ -29,7 +31,8 @@ import { formatMemory, gaugeColor } from "@/lib/gauge";
 import { getAgentLine, getFabLine, getPrSegments } from "./sidebar/registers";
 import { controlClass } from "@/components/control";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
-import { parseFabChange } from "@/lib/format";
+import { formatDuration, parseFabChange } from "@/lib/format";
+import { requestOperatorConsole } from "@/lib/operator-console";
 import type { MetricsSnapshot, WindowInfo } from "@/types";
 
 /**
@@ -56,7 +59,10 @@ import type { MetricsSnapshot, WindowInfo } from "@/types";
  * contexts at this leaf (the HostPanel/SidebarFooter precedent): the metrics
  * contexts are deliberately split from SessionContext so the ~2.5s metrics
  * stream re-renders only subscribers — passing metrics DOWN through AppShell
- * would re-render the whole shell every tick.
+ * would re-render the whole shell every tick. The clock chip reads the
+ * server's cron data (`useCronData`) and operator staleness fields the same
+ * way — leaf subscriptions to existing seams, riding the sessions SSE
+ * cadence.
  *
  * OVERFLOW — degradation ladder, never scroll (R5, the top-bar precedent):
  *   1. Flexible values truncate in place (`min-w-0 truncate` on the branch /
@@ -66,7 +72,9 @@ import type { MetricsSnapshot, WindowInfo } from "@/types";
  *      (git → pr → fab → agt → tmx → cwd), and display order equals survival
  *      order, so the rule is simply: RIGHTMOST DIES FIRST — cwd (≥xl), then
  *      tmx (≥lg), then git (≥md); PR/fab/agt never drop. The right cluster
- *      drops the hints (≥xl), then ld (≥lg), then cpu/mem (≥md), then
+ *      drops the hints (≥xl) — the `◷` clock chip's next-fire state rides
+ *      that same drop, but its stale state never does (the connection-dot
+ *      alarm precedent) — then ld (≥lg), then cpu/mem (≥md), then
  *      version (≥700px); the connection dot never drops. The clusters
  *      degrade independently (separate sides of the `ml-auto` flex).
  *   3. A trailing `…` chevron (the top-bar `menuOnly` row pattern) lists every
@@ -225,6 +233,93 @@ function loadPercent(m: MetricsSnapshot): number {
   return normalizeLoadPercent(m.load.avg1, m.load.cpus);
 }
 
+/** The clock chip's render states: the stale dead-man alarm, the
+ *  soonest-next-fire readout, or omitted entirely (no stale session and no
+ *  entry carrying a `nextFire`). One chip, never two — stale wins. */
+type ClockChipState =
+  | { kind: "stale"; age: string | null }
+  | { kind: "next"; text: string; tip: string }
+  | { kind: "omitted" };
+
+/**
+ * Derive the clock chip's state for one server from the existing seams at
+ * this leaf: `useCronData` (mount fetch + the state-socket sessions cadence)
+ * and the sessions payload's server-derived `operatorStale` /
+ * `operatorLastTickAt` fields. No new fetch loop, no timer — ages are
+ * computed at render time and the SSE cadence is the clock.
+ */
+function useClockChipState(server: string | null | undefined): ClockChipState {
+  const { entries } = useCronData(server ?? "");
+  const { sessionsByServer } = useSessionContext();
+  const sessions = server ? (sessionsByServer.get(server) ?? []) : [];
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  const staleSession = sessions.find((s) => s.operatorStale === true);
+  if (staleSession) {
+    const tickAt = staleSession.operatorLastTickAt ?? 0;
+    return {
+      kind: "stale",
+      age: tickAt > 0 ? formatDuration(Math.max(0, nowSec - tickAt)) : null,
+    };
+  }
+
+  let soonest: number | undefined;
+  let soonestName = "";
+  for (const entry of entries) {
+    if (entry.nextFire === undefined) continue;
+    if (soonest === undefined || entry.nextFire < soonest) {
+      soonest = entry.nextFire;
+      soonestName = entry.name || entry.id;
+    }
+  }
+  if (soonest === undefined) return { kind: "omitted" };
+  const delta = soonest - nowSec;
+  if (delta <= 0) {
+    return { kind: "next", text: "◷ due", tip: `Clock — next fire ${soonestName} due` };
+  }
+  const rel = formatDuration(delta);
+  return { kind: "next", text: `◷ in ${rel}`, tip: `Clock — next fire ${soonestName} in ${rel}` };
+}
+
+/** The chip and its overflow row share the one open action: the operator
+ *  console on its Activity segment. */
+function openClockActivity(): void {
+  requestOperatorConsole({ action: "open", segment: "activity" });
+}
+
+/** The `◷` clock chip — the right-cluster glance at the server's cron clock.
+ *  The stale state never drops in the ladder (the connection-dot precedent:
+ *  an alarm must be visible at every width); the next-fire readout is a
+ *  convenience that drops with the hints at `hidden xl:flex` (the overflow
+ *  menu's `clk` row is its mirror there). No copy affordance — no stable raw
+ *  value (the `agt` rule). */
+function ClockChip({ state }: { state: Exclude<ClockChipState, { kind: "omitted" }> }) {
+  const stale = state.kind === "stale";
+  const text = stale ? `◷ stale${state.age ? ` ${state.age}` : ""}` : state.text;
+  const tip = stale
+    ? state.age
+      ? `Operator loop stale — last tick ${state.age} ago`
+      : "Operator loop stale — no recent tick"
+    : state.tip;
+  return (
+    <Tip label={tip} placement="top">
+      <button
+        type="button"
+        aria-label="Clock activity"
+        data-testid="status-bar-clock"
+        onClick={openClockActivity}
+        className={`${stale ? "flex" : "hidden xl:flex"} items-center rounded border px-1 transition-colors ${
+          stale
+            ? "border-signal-yellow/50 text-signal-yellow hover:border-signal-yellow"
+            : "border-border text-text-secondary hover:border-text-secondary"
+        }`}
+      >
+        {text}
+      </button>
+    </Tip>
+  );
+}
+
 /** LEFT cluster (terminal route only) — the current window's registers,
  *  resolved by the shared `sidebar/registers.ts` helpers + the PANE panel's
  *  identity-row sources. */
@@ -380,11 +475,16 @@ function OverflowMenu({
   metrics,
   version,
   onOpenCompose,
+  clock,
 }: {
   win: WindowInfo | null;
   metrics: MetricsSnapshot | null;
   version: string | null;
   onOpenCompose?: () => void;
+  /** The clock chip's state — the `clk` row mirrors the chip only in its
+   *  droppable (next-fire) state; the stale state never drops, so it never
+   *  needs a row. */
+  clock?: ClockChipState;
 }) {
   const [open, setOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ bottom: number; right: number } | null>(null);
@@ -549,6 +649,11 @@ function OverflowMenu({
       {label}
     </button>
   );
+  // The clock chip's mirror row — only its next-fire state drops below xl, so
+  // only that state gets a row (the stale chip never leaves the strip).
+  if (clock?.kind === "next") {
+    rows.push(actionRow("clk", "◷ Clock activity", openClockActivity));
+  }
   rows.push(
     actionRow("palette", "⌘K Command palette", () =>
       document.dispatchEvent(new CustomEvent("palette:open")),
@@ -639,6 +744,10 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
   // `copied ✓` during the feedback window (live metrics and the connection
   // dot stay passive — no stable value worth copying).
   const { copiedKey, copy } = useCopyFeedback<"server" | "host" | "version">();
+  // The clock chip's state — one derivation feeding both the strip segment
+  // and its overflow-menu mirror row (a second `useCronData` subscription
+  // would double the cron fetch per SSE tick).
+  const clock = useClockChipState(server);
 
   return (
     <div
@@ -685,6 +794,10 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
             <span className={`${VALUE_CLASS} hidden lg:inline`}>{loadPercent(metrics)}%</span>
           </MetricsFlyout>
         )}
+        {/* The clock chip — the cron-clock glance, immediately before the
+            server fragment; only ever rendered with a resolved server (never
+            on the Host page). */}
+        {server && clock.kind !== "omitted" && <ClockChip state={clock} />}
         {server && (
           <button
             type="button"
@@ -754,7 +867,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
             </button>
           </Tip>
         )}
-        <OverflowMenu win={win} metrics={metrics} version={version} onOpenCompose={onOpenCompose} />
+        <OverflowMenu win={win} metrics={metrics} version={version} onOpenCompose={onOpenCompose} clock={clock} />
         {/* The connection dot is the right-most status terminator (the sidebar
             footer's vocabulary) and never drops. */}
         <span role="status" aria-live="polite" className="flex items-center">

@@ -56,15 +56,24 @@ function SwitchTrack({ on }: { on: boolean }) {
  * next SSE-driven refetch confirms it (every mutation wakes the hub
  * server-side), then the override clears; a failure reverts to the prop and
  * surfaces the error inline.
+ *
+ * The `inline` variant is the same sheet without the modal shell: no fixed
+ * full-viewport backdrop and no `aria-modal` — the panel fills its parent's
+ * relative container (`absolute inset-0`, the desktop console drawer's
+ * Activity segment mounts it this way) and its header leads with a
+ * `‹ Activity` back control in place of the ✕. Rows are identical in both
+ * variants.
  */
 export function CronEntryDetailSheet({
   server,
   entry,
   onClose,
+  inline = false,
 }: {
   server: string;
   entry: CronEntry;
   onClose: () => void;
+  inline?: boolean;
 }) {
   const sheetRef = useRef<HTMLDivElement>(null);
   useFocusTrap(sheetRef, true, onClose);
@@ -126,6 +135,123 @@ export function CronEntryDetailSheet({
   const labelClass = "text-xs text-text-primary";
   const valueClass = "text-xs text-text-secondary text-right";
 
+  const content = (
+    <>
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        {inline && (
+          <button
+            type="button"
+            aria-label="Back to activity"
+            onClick={onClose}
+            className="rk-glint inline-flex shrink-0 items-center rounded px-1 text-text-secondary transition-colors hover:text-text-primary coarse:min-h-[36px]"
+          >
+            ‹ Activity
+          </button>
+        )}
+        <h2 className="min-w-0 flex-1 truncate text-xs font-medium text-text-primary">
+          {title}
+        </h2>
+        {!inline && (
+          <button
+            type="button"
+            aria-label="Close entry details"
+            onClick={onClose}
+            className="rk-glint ml-auto inline-flex shrink-0 items-center justify-center rounded px-1 text-text-secondary transition-colors hover:text-text-primary coarse:min-h-[36px] coarse:min-w-[36px]"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      <p className="px-3 pb-2 text-xs text-text-secondary">{describeSchedule(entry)}</p>
+      <div className="border-t border-border">
+        <div className={rowClass}>
+          <span className={labelClass}>Last fired</span>
+          <span className={valueClass} data-testid="cron-entry-last-fired">
+            {entry.lastFired > 0 ? agoLabel(entry.lastFired, nowMs) : "never"}
+          </span>
+        </div>
+        <div className={`${rowClass} border-t border-border`}>
+          <span className={labelClass}>Next fire</span>
+          <span className={valueClass} data-testid="cron-entry-next-fire">
+            {entry.nextFire !== undefined ? inLabel(entry.nextFire, nowMs) : "unknown"}
+          </span>
+        </div>
+        {/* The whole row is the switch hit target — the phone affordance. */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={muted}
+          aria-label="Mute entry"
+          onClick={toggleMute}
+          className={`${rowClass} w-full border-t border-border text-left coarse:min-h-[44px]`}
+        >
+          <span className={labelClass}>Mute</span>
+          <SwitchTrack on={muted} />
+        </button>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={pinned}
+          aria-label="Pin entry"
+          onClick={togglePin}
+          className={`${rowClass} w-full border-t border-border text-left coarse:min-h-[44px]`}
+        >
+          <span className={labelClass}>Pin</span>
+          <SwitchTrack on={pinned} />
+        </button>
+        <div className="border-t border-border px-3 py-2.5">
+          {confirmingDelete ? (
+            <div className="flex items-center gap-2">
+              <span className="flex-1 text-xs text-text-secondary">Delete this entry?</span>
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                className={controlClass({ variant: "confirm" })}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleting}
+                className={controlClass({ variant: "confirm", danger: true })}
+              >
+                Delete
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              className="w-full text-left text-xs text-signal-red coarse:min-h-[44px]"
+            >
+              Delete entry
+            </button>
+          )}
+        </div>
+      </div>
+      {error && (
+        <p role="alert" className="px-3 py-2 text-xs text-signal-red">
+          {error}
+        </p>
+      )}
+    </>
+  );
+
+  if (inline) {
+    return (
+      <div
+        ref={sheetRef}
+        role="dialog"
+        aria-label={`Cron entry ${title}`}
+        data-testid="cron-entry-sheet"
+        className="absolute inset-0 z-10 flex flex-col overflow-y-auto bg-bg-primary text-[11px]"
+      >
+        {content}
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-40" data-testid="cron-entry-sheet">
       <div
@@ -140,92 +266,7 @@ export function CronEntryDetailSheet({
         aria-label={`Cron entry ${title}`}
         className="absolute bottom-0 left-0 right-0 sm:left-1/2 sm:right-auto sm:w-full sm:max-w-lg sm:-translate-x-1/2 max-h-[80vh] overflow-y-auto rounded-t-lg border border-b-0 border-border bg-bg-primary text-[11px] shadow-2xl"
       >
-        <div className="flex items-center gap-2 px-3 py-2.5">
-          <h2 className="min-w-0 flex-1 truncate text-xs font-medium text-text-primary">
-            {title}
-          </h2>
-          <button
-            type="button"
-            aria-label="Close entry details"
-            onClick={onClose}
-            className="rk-glint ml-auto inline-flex shrink-0 items-center justify-center rounded px-1 text-text-secondary transition-colors hover:text-text-primary coarse:min-h-[36px] coarse:min-w-[36px]"
-          >
-            ✕
-          </button>
-        </div>
-        <p className="px-3 pb-2 text-xs text-text-secondary">{describeSchedule(entry)}</p>
-        <div className="border-t border-border">
-          <div className={rowClass}>
-            <span className={labelClass}>Last fired</span>
-            <span className={valueClass} data-testid="cron-entry-last-fired">
-              {entry.lastFired > 0 ? agoLabel(entry.lastFired, nowMs) : "never"}
-            </span>
-          </div>
-          <div className={`${rowClass} border-t border-border`}>
-            <span className={labelClass}>Next fire</span>
-            <span className={valueClass} data-testid="cron-entry-next-fire">
-              {entry.nextFire !== undefined ? inLabel(entry.nextFire, nowMs) : "unknown"}
-            </span>
-          </div>
-          {/* The whole row is the switch hit target — the phone affordance. */}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={muted}
-            aria-label="Mute entry"
-            onClick={toggleMute}
-            className={`${rowClass} w-full border-t border-border text-left coarse:min-h-[44px]`}
-          >
-            <span className={labelClass}>Mute</span>
-            <SwitchTrack on={muted} />
-          </button>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={pinned}
-            aria-label="Pin entry"
-            onClick={togglePin}
-            className={`${rowClass} w-full border-t border-border text-left coarse:min-h-[44px]`}
-          >
-            <span className={labelClass}>Pin</span>
-            <SwitchTrack on={pinned} />
-          </button>
-          <div className="border-t border-border px-3 py-2.5">
-            {confirmingDelete ? (
-              <div className="flex items-center gap-2">
-                <span className="flex-1 text-xs text-text-secondary">Delete this entry?</span>
-                <button
-                  type="button"
-                  onClick={() => setConfirmingDelete(false)}
-                  className={controlClass({ variant: "confirm" })}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmDelete}
-                  disabled={deleting}
-                  className={controlClass({ variant: "confirm", danger: true })}
-                >
-                  Delete
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(true)}
-                className="w-full text-left text-xs text-signal-red coarse:min-h-[44px]"
-              >
-                Delete entry
-              </button>
-            )}
-          </div>
-        </div>
-        {error && (
-          <p role="alert" className="px-3 py-2 text-xs text-signal-red">
-            {error}
-          </p>
-        )}
+        {content}
       </div>
     </div>
   );

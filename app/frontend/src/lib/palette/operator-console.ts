@@ -23,3 +23,18 @@ export function buildOperatorConsoleAction(): OperatorConsolePaletteAction {
     onSelect: () => requestOperatorConsole({ action: "open" }),
   };
 }
+
+/**
+ * The `Operator: Show clock activity` entry — the console opened straight
+ * onto its Activity segment (the cron-clock glimpse). No registry chord: the
+ * segment is a view inside the console, one Tab-reachable click past ⌘J; the
+ * palette entry is its keyboard-parity path (Constitution V). On mobile the
+ * seam maps it to the operator route's `?tab=activity`.
+ */
+export function buildOperatorConsoleActivityAction(): OperatorConsolePaletteAction {
+  return {
+    id: "operator-console-activity",
+    label: "Operator: Show clock activity",
+    onSelect: () => requestOperatorConsole({ action: "open", segment: "activity" }),
+  };
+}

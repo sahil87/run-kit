@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act, waitFor, within } from "@testing-library/react";
 import { OperatorConsole, OperatorConsoleTongue } from "./operator-console";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
@@ -49,6 +49,18 @@ vi.mock("@/api/client", async (importActual) => ({
   sendToWindow: mockSend,
   uploadFile: mockUpload,
   sendOperatorRequest: mockOperatorRequest,
+}));
+
+// The Activity segment mounts the real CronActivityFeed; its cron fetch is
+// mocked out here (controllable shape) so no request fires from these tests.
+const mockCronData = vi.hoisted(() => ({
+  current: {
+    entries: [] as import("@/api/client").CronEntry[],
+    deliveries: [] as import("@/api/client").CronDelivery[],
+  },
+}));
+vi.mock("@/hooks/use-cron", () => ({
+  useCronData: () => mockCronData.current,
 }));
 
 function win(overrides: Partial<WindowInfo>): WindowInfo {
@@ -617,6 +629,196 @@ describe("OperatorConsole", () => {
   });
 });
 
+describe("OperatorConsole (activity segment)", () => {
+  beforeEach(() => {
+    stubMatchMedia(() => false);
+    setConsoleMachineState("rest");
+    setOperatorComposeText("");
+    mockMatches = [{ params: {} }];
+    mockSearch = {};
+    mockNavigate.mockReset();
+    terminalMounts.length = 0;
+    mockSend.mockReset();
+    mockSend.mockResolvedValue({ ok: true });
+    mockUpload.mockReset();
+    mockUpload.mockResolvedValue({ ok: true, path: "/tmp/op/.uploads/shot.png" });
+    mockOperatorRequest.mockReset();
+    mockOperatorRequest.mockResolvedValue({ outcome: "delivered" });
+    setOperatorChatSubject(null);
+    localStorage.clear();
+    hydrateComposeDrafts();
+    mockCronData.current = { entries: [], deliveries: [] };
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  function activityTab() {
+    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Activity" });
+  }
+  function terminalTab() {
+    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Terminal" });
+  }
+
+  it("the desktop drawer renders the Terminal | Activity strip with Terminal selected", () => {
+    renderConsole();
+    openDrawer();
+
+    const strip = screen.getByTestId("terminal-activity-tabs");
+    expect(strip).toHaveAttribute("role", "tablist");
+    expect(terminalTab()).toHaveAttribute("aria-selected", "true");
+    expect(activityTab()).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("selecting Activity mounts the feed and unmounts the terminal; Terminal reverses it", () => {
+    renderConsole();
+    openDrawer();
+    expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
+
+    fireEvent.click(activityTab());
+    expect(screen.getByTestId("cron-activity-feed")).toBeInTheDocument();
+    expect(screen.queryByTestId("embedded-terminal")).toBeNull();
+
+    fireEvent.click(terminalTab());
+    expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
+    expect(screen.queryByTestId("cron-activity-feed")).toBeNull();
+  });
+
+  it("an open request carrying segment: activity opens the drawer on the Activity segment", () => {
+    renderConsole();
+    act(() => {
+      requestOperatorConsole({ action: "open", segment: "activity" });
+    });
+
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(activityTab()).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("cron-activity-feed")).toBeInTheDocument();
+    expect(screen.queryByTestId("embedded-terminal")).toBeNull();
+  });
+
+  it("segment: activity on the operator route bypasses the already-viewing toast and opens the drawer", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    renderConsole({ withToasts: true });
+
+    act(() => {
+      requestOperatorConsole({ action: "open", segment: "activity" });
+    });
+
+    expect(getConsoleMachineState()).toBe("open");
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(activityTab()).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByText("already viewing the operator — nothing to open")).toBeNull();
+  });
+
+  it("Escape inside the inline entry sheet returns to the feed without collapsing the drawer", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    mockCronData.current = {
+      entries: [
+        {
+          id: "a3f9",
+          name: "operator tick",
+          schedule: { kind: "backoff", min: "60s", max: "30m" },
+          target: { kind: "role", role: "operator" },
+          payload: "tick",
+          lastFired: 0,
+          muted: false,
+          pinned: false,
+          nextFire: nowSec + 300,
+        },
+      ],
+      deliveries: [],
+    };
+    renderConsole();
+    act(() => {
+      requestOperatorConsole({ action: "open", segment: "activity" });
+    });
+
+    fireEvent.click(screen.getByTestId("cron-upcoming-row-a3f9"));
+    expect(screen.getByTestId("cron-entry-sheet")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("cron-entry-sheet")).toBeNull();
+    expect(screen.getByTestId("cron-activity-feed")).toBeInTheDocument();
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(getConsoleMachineState()).toBe("open");
+  });
+
+  it("closing the drawer and re-opening with a plain request resets to the Terminal segment", async () => {
+    // Reduced motion so the close is instant — no exit-slide wait.
+    stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
+    renderConsole();
+    act(() => {
+      requestOperatorConsole({ action: "open", segment: "activity" });
+    });
+    expect(activityTab()).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+
+    openDrawer();
+    expect(terminalTab()).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("cron-activity-feed")).toBeNull();
+  });
+
+  it("the title strip carries the tick-age stamp from the first session with operatorLastTickAt > 0", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    renderConsole({
+      sessionsByServer: new Map([
+        [
+          "srv1",
+          [
+            { name: "main", windows: [win({})], operatorLastTickAt: nowSec - 90 },
+            { name: "_rk-operator", windows: [OPERATOR_WINDOW], hidden: true },
+          ],
+        ],
+      ]),
+    });
+    openDrawer();
+
+    const tick = screen.getByTestId("operator-console-tick");
+    expect(tick).toHaveTextContent("· tick 1m ago");
+    expect(tick.className).toContain("text-text-secondary");
+  });
+
+  it("a stale operator loop renders the tick stamp yellow with the ⚠ prefix", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    renderConsole({
+      sessionsByServer: new Map([
+        [
+          "srv1",
+          [
+            { name: "main", windows: [win({})], operatorLastTickAt: nowSec - 120, operatorStale: true },
+            { name: "_rk-operator", windows: [OPERATOR_WINDOW], hidden: true },
+          ],
+        ],
+      ]),
+    });
+    openDrawer();
+
+    const tick = screen.getByTestId("operator-console-tick");
+    expect(tick).toHaveTextContent("⚠ · tick 2m ago");
+    expect(tick.className).toContain("text-signal-yellow");
+  });
+
+  it("no tick stamp renders when no session carries operatorLastTickAt > 0", () => {
+    renderConsole({
+      sessionsByServer: new Map([
+        [
+          "srv1",
+          [
+            { name: "main", windows: [win({})], operatorLastTickAt: 0 },
+            { name: "_rk-operator", windows: [OPERATOR_WINDOW], hidden: true },
+          ],
+        ],
+      ]),
+    });
+    openDrawer();
+
+    expect(screen.queryByTestId("operator-console-tick")).toBeNull();
+  });
+});
+
 describe("OperatorConsole (mobile navigation)", () => {
   beforeEach(() => {
     stubMatchMedia(() => true);
@@ -743,6 +945,41 @@ describe("OperatorConsole (mobile navigation)", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(mockSend).not.toHaveBeenCalled();
     expect(mockOperatorRequest).not.toHaveBeenCalled();
+  });
+
+  it("a segment: activity request navigates with search.tab = activity, merged with the ?from= origin", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
+    renderConsole();
+    act(() => {
+      requestOperatorConsole({ action: "open", segment: "activity" });
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@9" },
+      search: { from: "@1", tab: "activity" },
+    });
+    expect(screen.queryByTestId("operator-console")).toBeNull();
+  });
+
+  it("already on the operator route, segment: activity updates the tab search param in place", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    mockSearch = { from: "@1" };
+    renderConsole();
+    act(() => {
+      requestOperatorConsole({ action: "open", segment: "activity" });
+    });
+
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+    const call = mockNavigate.mock.calls[0][0] as {
+      to: string;
+      search: (prev: Record<string, unknown>) => Record<string, unknown>;
+      replace: boolean;
+    };
+    expect(call.to).toBe(".");
+    expect(call.replace).toBe(true);
+    // The updater merges over the existing search — the ?from= survives.
+    expect(call.search({ from: "@1" })).toEqual({ from: "@1", tab: "activity" });
   });
 
   it("an operator-less server toasts the hint once and never navigates", () => {

@@ -99,40 +99,44 @@ The measurements SHALL be run on this VM for `loopback` and `netem-260ms` (260 m
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `RootBackgroundArgv` returns `["xsetroot","-solid","#3b4252"]` when resolvable and `ok=false` otherwise; the supervisor runs it after the WM with `DISPLAY` set and logs the hint when absent
-- [ ] A-002 R2: `_gui.ts` exports the helpers and `gui-surface.spec.ts` imports them with unchanged behavior
-- [ ] A-003 R3: `gui-perf.spec.ts` exists under `@perf`, gated on Xtigervnc+xdotool, and produces the console table and JSON for fine/coarse/idle runs
-- [ ] A-004 R4: `scripts/gui-perf-link.sh` supports on/off/status, refuses without passwordless sudo, and filters on the given port only
-- [ ] A-005 R5: `docs/memory/run-kit/gui.md` carries § Smoothness (C5) with the table, verdict, and recipe; the spec, the plan table/Status/verdict section, and lenses-and-layout are updated
+- [x] A-001 R1: `RootBackgroundArgv` returns `["xsetroot","-solid","#3b4252"]` when resolvable and `ok=false` otherwise; the supervisor runs it after the WM with `DISPLAY` set and logs the hint when absent — verified by `TestRootBackgroundArgv` and `TestGuiSuperviseLinuxPaintsRootBackground`/`TestGuiSuperviseLinuxNoXsetrootLogsHint` (`go test ./...` green)
+- [x] A-002 R2: `_gui.ts` exports the helpers and `gui-surface.spec.ts` imports them with unchanged behavior — `just test-e2e gui-surface` re-run in review: 4 passed (exit 0), incl. the real-Xvnc-rig gated test
+- [x] A-003 R3: `gui-perf.spec.ts` exists under `@perf`, gated on Xtigervnc+xdotool, and produces the console table and JSON for fine/coarse/idle runs — code inspection + the author's recorded runs (the memory § Smoothness (C5) table); the spec itself was not re-run (dispatch prohibition)
+- [x] A-004 R4: `scripts/gui-perf-link.sh` supports on/off/status, refuses without passwordless sudo, and filters on the given port only — code inspection (`need_sudo` gates on `sudo -n true`; u32 filters match only `dport`/`sport == $port`); not executed here per the dispatch prohibition (sudo + `lo`)
+- [x] A-005 R5: `docs/memory/run-kit/gui.md` carries § Smoothness (C5) with the table, verdict, and recipe; the spec, the plan table/Status/verdict section, and lenses-and-layout are updated — verified in the diff. One gap: the generated docs-index was not regenerated (`fab docs-index docs/memory --check` errors) — tracked as a should-fix review finding; hydrate's regen step repairs it
 
 ### Behavioral Correctness
 
-- [ ] A-006 R1: on this host `rk gui shot` of a freshly restarted, empty desktop is `#3b4252`, not black; the tile shows the same
+- [x] A-006 R1: on this host `rk gui shot` of a freshly restarted, empty desktop is `#3b4252`, not black; the tile shows the same — mechanism verified live in review: `DISPLAY=:75 xsetroot -solid '#3b4252'` → `rk gui shot` center pixel `#3B4252`. Note: the live daemon's brew binary (v3.19.38, built at the merge-base) predates the fix, so the supervisor-side automatic paint is covered by the Go tests; the live pixel check proves the xsetroot mechanism on the real Xvnc+openbox desktop
 
 ### Scenario Coverage
 
-- [ ] A-007 R1: Go tests cover xsetroot-present (argv + DISPLAY recorded) and xsetroot-absent (hint logged, backend still up)
-- [ ] A-008 R3: the spec skips with a reason when Xtigervnc/xdotool are absent (`test.skip` predicate present) and is excluded from `just test-e2e` by the `@perf` tag
-- [ ] A-009 R4: `on` then `off` leaves `tc qdisc show dev lo` at the default `noqueue`
+- [x] A-007 R1: Go tests cover xsetroot-present (argv + DISPLAY recorded) and xsetroot-absent (hint logged, backend still up) — plus the failure case (`TestGuiSuperviseLinuxXsetrootFailureIsLogged`)
+- [x] A-008 R3: the spec skips with a reason when Xtigervnc/xdotool are absent (`test.skip` predicate present) and is excluded from `just test-e2e` by the `@perf` tag — `playwright.config.ts:11` `grepInvert /@perf/` unless `RK_E2E_PERF=1`; the review's `just test-e2e gui-surface` run selected only the 4 gui-surface tests
+- [x] A-009 R4: `on` then `off` leaves `tc qdisc show dev lo` at the default `noqueue` — by code inspection: `off` runs `tc qdisc del dev lo root`, restoring the kernel default; not executed here per the dispatch prohibition
 
 ### Edge Cases & Error Handling
 
-- [ ] A-010 R1: an `xsetroot` failure (non-zero exit) logs and does not abort the supervisor or the WM
-- [ ] A-011 R3: `afterAll` restores the settings file and kills the guest Chromium and xdotool even when a test fails
+- [x] A-010 R1: an `xsetroot` failure (non-zero exit) logs and does not abort the supervisor or the WM — `TestGuiSuperviseLinuxXsetrootFailureIsLogged`; `paintGuiRootBackground` logs and returns, never aborts
+- [x] A-011 R3: `afterAll` restores the settings file and kills the guest Chromium and xdotool even when a test fails — `afterAll` runs `killGuest()` (SIGTERM the process group, SIGKILL stragglers, rm the temp dir), `killSession`, `restoreSettings`; each scroll xdotool is awaited with a 5 s kill fallback inside the test
 
 ### Code Quality
 
-- [ ] A-012 Pattern consistency: seams follow the `guiSupervise*` package-var style; the spec follows `echo-latency.spec.ts`'s addInitScript/afterAll-summary shape; script follows `scripts/` conventions (`set -euo pipefail`, header comment)
-- [ ] A-013 No unnecessary duplication: rig helpers live once in `_gui.ts`; no second copy in either spec
-- [ ] A-014 Process execution: the xsetroot run uses `exec.CommandContext` with a timeout and an argv slice
-- [ ] A-015 Test intent comments: every new/modified `test()` carries Proves/Steps; the file header covers shared setup; no change IDs in comments
-- [ ] A-016 Comments state constraints, not narration; no magic numbers without named constants (`RootBackground`, trial counts, budgets)
+- [x] A-012 Pattern consistency: seams follow the `guiSupervise*` package-var style; the spec follows `echo-latency.spec.ts`'s addInitScript/afterAll-summary shape; script follows `scripts/` conventions (`set -euo pipefail`, header comment)
+- [x] A-013 No unnecessary duplication: rig helpers live once in `_gui.ts`; no second copy in either spec — the old inline copies in `gui-surface.spec.ts` are deleted in the diff; `npx tsc --noEmit` clean
+- [x] A-014 Process execution: the xsetroot run uses `exec.CommandContext` with a timeout and an argv slice — `context.WithTimeout(ctx, guiRootBackgroundTimeout)` (5 s) around `guiSuperviseRunOnDisplay`
+- [x] A-015 Test intent comments: every new/modified `test()` carries Proves/Steps; the file header covers shared setup; no change IDs in comments
+- [x] A-016 Comments state constraints, not narration; no magic numbers without named constants (`RootBackground`, trial counts, budgets) — `SCROLL_SECONDS`/`SCROLL_NOTCH_DELAY_MS`/`CLICK_TRIALS`/`TAP_SIZE`/`GEOMETRY_TOLERANCE_PX` etc. are all named
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant. The one redundancy it touched (the Xvnc-rig helpers formerly inline in `gui-surface.spec.ts`) is consumed in-diff: they moved to `app/frontend/tests/e2e/_gui.ts` and the old copies were deleted. The pre-existing weak assertion `expect(tile).toHaveClass(/hidden/)` in `gui-surface.spec.ts` (satisfied by `overflow-hidden` on every tile) is already recorded in the plan's § C5 verdict incidental findings — a test-quality follow-up, not a deletion candidate.
 
 ## Assumptions
 

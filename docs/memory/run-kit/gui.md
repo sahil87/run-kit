@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The GUI surface — the gui.enabled switch, the rk gui CLI family (on/off/status/env/restart/exec/shot + hidden supervise), the rk-gui supervisor (display pick, Xvnc argv, WM ladder, solid root background, @rk_gui_* stamps), the /ws/gui/{id} RFB relay (close-code gates, view-only filter), the event: gui slot, /api/gui/* routes, doctor row, internal/gui (probe, apps, Assemble), agent verbs, the rk agent setup display block, rk skill gui, and the C5 smoothness numbers against D9 with the C6 verdict."
+description: "The GUI surface — the gui.enabled switch, the rk gui CLI family (on/off/status/env/restart/exec/shot/supervise), the rk-gui supervisor (display pick, Xvnc argv, WM ladder, solid root background, @rk_gui_* stamps), the /ws/gui/{id} RFB relay (close-code gates, view-only filter), the event: gui slot, /api/gui/* routes, doctor row, internal/gui (probe, apps, Assemble), agent verbs, the rk agent setup display block, rk skill gui, and the C5 smoothness numbers vs D9 + the C6 verdict."
 ---
 # GUI Surface
 

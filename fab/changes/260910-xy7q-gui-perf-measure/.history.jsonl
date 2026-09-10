@@ -4,3 +4,6 @@
 {"cmd":"fab-fff","event":"command","ts":"2026-09-10T02:03:19Z"}
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-10T02:05:20Z"}
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-10T02:49:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-10T02:59:10Z"}
+{"event":"review","result":"passed","ts":"2026-09-10T02:59:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-10T02:59:24Z"}

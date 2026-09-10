@@ -108,7 +108,7 @@ scripts/gui-perf-link.sh off                                 # sudo tc qdisc del
 scripts/gui-perf-link.sh status                              # tc -s qdisc show dev lo
 ```
 
-Both directions traverse `lo`, so delaying packets to and from the port yields the full RTT. The Vite port (`E2E_PORT`) is the one to delay — the browser talks to Vite, which proxies `/ws/gui/host` to the Go backend on loopback. One-liner-thin per Constitution VIII (the logic is the script; the justfile gains no recipe — `just pw` is the entry). The CDP throttle C0 used is deliberately not reused (C0: it starves the RFB request loop and collapsed both stacks to the same number). The script refuses without `sudo -n true`.
+Both directions traverse `lo`, so delaying packets to and from the port yields the full RTT. The Go backend port (`E2E_PORT+1`) is the one to delay — the browser talks to Vite, which proxies `/ws/gui/host` and `/api` to the Go backend on loopback, so the RFB stream and the API pay the round trip while Vite's dev module graph loads at full speed (delaying the Vite port stalls page load instead). One-liner-thin per Constitution VIII (the logic is the script; the justfile gains no recipe — `just pw` is the entry). The CDP throttle C0 used is deliberately not reused (C0: it starves the RFB request loop and collapsed both stacks to the same number). The script refuses without `sudo -n true`.
 
 Measurement plan the apply stage executes on this VM and records: `loopback` (fine 1080p + coarse phone + idle), `netem-260ms` (same three, 260 ms RTT, 40 Mbit/s cap — a conservative Tailscale-DERP figure), plus the manual re-run recipe for the user's real laptop and phone.
 

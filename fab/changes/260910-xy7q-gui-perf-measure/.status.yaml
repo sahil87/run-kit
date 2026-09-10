@@ -7,15 +7,15 @@ issues: []
 progress:
     intake: done
     apply: done
-    review: active
-    hydrate: pending
-    ship: pending
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
     task_count: 5
     acceptance_count: 16
-    acceptance_completed: 0
+    acceptance_completed: 16
 confidence:
     certain: 6
     confident: 5
@@ -31,22 +31,25 @@ confidence:
 stage_metrics:
     intake: {started_at: "2026-09-10T01:58:54Z", driver: fab-new, iterations: 1, completed_at: "2026-09-10T02:05:20Z"}
     apply: {started_at: "2026-09-10T02:05:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T02:49:26Z"}
-    review: {started_at: "2026-09-10T02:49:26Z", driver: fab-fff, iterations: 1}
+    review: {started_at: "2026-09-10T02:49:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T02:59:10Z"}
+    hydrate: {started_at: "2026-09-10T02:59:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T02:59:24Z"}
+    ship: {started_at: "2026-09-10T02:59:24Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 true_impact:
-    added: 203
-    deleted: 0
-    net: 203
+    added: 1665
+    deleted: 117
+    net: 1548
     excluding:
-        added: 203
-        deleted: 0
-        net: 203
+        added: 1132
+        deleted: 103
+        net: 1029
     tests:
-        added: 146
-        deleted: 0
-        net: 146
-    computed_at: "2026-09-10T02:49:26Z"
-    computed_at_stage: apply
+        added: 882
+        deleted: 103
+        net: 779
+    computed_at: "2026-09-10T02:59:24Z"
+    computed_at_stage: hydrate
+summary: 'C5 measured: @perf gui-perf.spec.ts (noVNC flip counter, relay bytes, /proc CPU, click-to-pixel) + port-scoped netem link emulation; D9 verdict recorded (fps missed at ≤40 Mbit/s for byte-budget reasons ⇒ C6 as a bandwidth-efficiency change); the empty desktop gets a solid xsetroot root background'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-10T02:49:26Z
+last_updated: 2026-09-10T02:59:24Z

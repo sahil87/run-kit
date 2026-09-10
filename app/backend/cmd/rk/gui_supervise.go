@@ -138,6 +138,13 @@ func guiDesktopLine(geometry string, auto bool) string {
 	return fmt.Sprintf("gui: desktop %s (gui.geometry)", geometry)
 }
 
+// guiDesktopInvalidLine is the provenance line when the stored gui.geometry
+// does not parse (a hand-edited file): the backend boots at GeometryDefault,
+// and the line says so instead of attributing the default to the setting.
+func guiDesktopInvalidLine(stored string) string {
+	return fmt.Sprintf("gui: desktop %s (default — invalid gui.geometry %q)", gui.GeometryDefault, stored)
+}
+
 func guiNoWMLine(hint string) string {
 	return fmt.Sprintf("gui: no window manager found (tried %s); running bare — %s, then rk gui restart",
 		strings.Join(gui.WMLadder(), ", "), hint)
@@ -304,10 +311,17 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 	// The start-time geometry read: a valid fixed gui.geometry passes verbatim;
 	// auto or an unparsable stored value boots at GeometryDefault (RandR resizes
 	// come later over -AcceptSetDesktopSize — this is not the live path).
-	geometry := guiSuperviseSettingsLoad().GUIGeometry
-	_, _, auto, gerr := gui.ParseGeometry(geometry)
-	if auto || gerr != nil {
+	stored := guiSuperviseSettingsLoad().GUIGeometry
+	_, _, auto, gerr := gui.ParseGeometry(stored)
+	geometry := stored
+	desktopLine := guiDesktopLine(stored, false)
+	switch {
+	case gerr != nil:
 		geometry = gui.GeometryDefault
+		desktopLine = guiDesktopInvalidLine(stored)
+	case auto:
+		geometry = gui.GeometryDefault
+		desktopLine = guiDesktopLine(geometry, true)
 	}
 
 	backend, err := guiSuperviseStartBackend(ctx, gui.BackendArgv(bin, display, sock, geometry))
@@ -325,7 +339,7 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 		guiSuperviseLog(fmt.Sprintf("gui: chmod 0600 %s failed: %v", sock, err))
 	}
 	guiSuperviseLog(guiBackendUpLine(bin, display, sock))
-	guiSuperviseLog(guiDesktopLine(geometry, auto))
+	guiSuperviseLog(desktopLine)
 
 	// Resolve the WM (pin first, ladder fallback) and the launcher apps, seed
 	// the icewm profile, and only then stamp display/backend/wm in one burst:

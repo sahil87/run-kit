@@ -120,6 +120,10 @@ func TestGuiSuperviseLineFormats(t *testing.T) {
 		"gui: desktop 1920x1080 (auto — follows the focused viewer)"; got != want {
 		t.Errorf("auto desktop line = %q, want %q", got, want)
 	}
+	if got, want := guiDesktopInvalidLine("abc"),
+		`gui: desktop 1920x1080 (default — invalid gui.geometry "abc")`; got != want {
+		t.Errorf("invalid desktop line = %q, want %q", got, want)
+	}
 	if got, want := guiNoWMLine("sudo apt install --no-install-recommends icewm"),
 		"gui: no window manager found (tried icewm-session, openbox, xfwm4, i3, kwin_x11, x-session-manager); running bare — sudo apt install --no-install-recommends icewm, then rk gui restart"; got != want {
 		t.Errorf("no-WM line = %q, want %q", got, want)
@@ -363,7 +367,7 @@ func argvFlagValue(argv []string, flag string) string {
 }
 
 // The -geometry argv and the desktop log line read gui.geometry once at
-// supervise start: a fixed value passes verbatim, auto boots at the default.
+// supervise start: a fixed value passes verbatim, auto and an unparsable value boot at the default.
 func TestGuiSuperviseLinuxGeometryFromSettings(t *testing.T) {
 	for name, tc := range map[string]struct {
 		geometry string
@@ -372,6 +376,9 @@ func TestGuiSuperviseLinuxGeometryFromSettings(t *testing.T) {
 	}{
 		"fixed": {"1600x900", "1600x900", "gui: desktop 1600x900 (gui.geometry)"},
 		"auto":  {"auto", "1920x1080", "gui: desktop 1920x1080 (auto — follows the focused viewer)"},
+		// A hand-edited, unparsable value boots at the default and says so —
+		// never attributed to gui.geometry as if the setting had asked for it.
+		"invalid": {"abc", "1920x1080", `gui: desktop 1920x1080 (default — invalid gui.geometry "abc")`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			withGuiSuperviseGOOS(t, "linux")

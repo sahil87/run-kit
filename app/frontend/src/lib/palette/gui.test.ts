@@ -248,6 +248,12 @@ describe("buildGuiActions — resolution rows", () => {
     expect(actions.find((a) => a.id === "gui-res-1600x900")!.description).toBeUndefined();
   });
 
+  it("an empty geometry (a stream entry without the field) never pins the Lock row as fixed", () => {
+    const lock = buildGuiActions(input({ geometry: "" })).find((a) => a.id === "gui-lock")!;
+    expect(lock.disabled).toBeFalsy();
+    expect(lock.description).toBeUndefined();
+  });
+
   it("under auto the Auto row hides and the Lock row stays enabled with no description", () => {
     const actions = buildGuiActions(input({ geometry: "auto" }));
     expect(actions.some((a) => a.id === "gui-res-auto")).toBe(false);

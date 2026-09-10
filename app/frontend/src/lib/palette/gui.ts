@@ -171,9 +171,11 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
     );
     if (!input.coarsePointer) {
       // Under a fixed geometry the pins are inert (no viewer can drive
-      // SetDesktopSize) — the row stays, disabled, saying why.
+      // SetDesktopSize) — the row stays, disabled, saying why. Only a real
+      // WxH counts as fixed: an empty geometry (a stream entry that omitted
+      // the field) leaves the pins as they were.
       const fixedPin =
-        input.geometry !== "auto"
+        input.geometry !== "" && input.geometry !== "auto"
           ? {
               disabled: true,
               description: `resolution is fixed (${presetLabel(input.geometry)}) — pick Auto to follow the tile`,

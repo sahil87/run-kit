@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import { useEffect } from "react";
 import { render, screen, cleanup, fireEvent, act, within, waitFor } from "@testing-library/react";
 import { SurfaceLayout } from "./surface-layout";
 import { ToastProvider } from "@/components/toast";
@@ -22,9 +23,31 @@ stubMatchMedia(() => false);
 const terminalSpy = vi.hoisted(() => vi.fn());
 const codeSpy = vi.hoisted(() => vi.fn());
 const iframeSpy = vi.hoisted(() => vi.fn());
+// The passive SearchAddon the real TerminalClient fills into searchAddonRef at
+// init — mocked so find-state tests can assert decoration clearing across a
+// window switch (the addon instance persists with the terminal's ride).
+const searchAddonMock = vi.hoisted(() => ({
+  clearDecorations: vi.fn(),
+  onDidChangeResults: vi.fn(() => ({ dispose: vi.fn() })),
+  findNext: vi.fn(() => true),
+  findPrevious: vi.fn(() => true),
+}));
 vi.mock("@/components/terminal-client", () => ({
   TerminalClient: (props: Record<string, unknown>) => {
     terminalSpy(props);
+    // Fill the addon seam from an effect, mirroring the real component's
+    // init-time fill (never during render — the proxy setter setStates the
+    // parent).
+    const searchAddonRef = props.searchAddonRef as
+      | { current: unknown }
+      | undefined;
+    useEffect(() => {
+      if (!searchAddonRef) return;
+      searchAddonRef.current = searchAddonMock;
+      return () => {
+        searchAddonRef.current = null;
+      };
+    }, [searchAddonRef]);
     return <div data-testid="mock-terminal" />;
   },
 }));
@@ -85,6 +108,8 @@ const FULL_WINDOW = {
 
 type LayoutOverrides = {
   layout?: Layout;
+  server?: string;
+  windowId?: string;
   window?: object | null;
   isMobile?: boolean;
   mobileActiveSlot?: number;
@@ -136,8 +161,8 @@ function layoutElement(overrides: LayoutOverrides = {}) {
     <ToastProvider>
       <SurfaceLayout
       layout={overrides.layout ?? { shape: "single", order: ["tty"] }}
-      server="srv"
-      windowId="@1"
+      server={overrides.server ?? "srv"}
+      windowId={overrides.windowId ?? "@1"}
       sessionName="sess"
       window={overrides.window === undefined ? FULL_WINDOW : overrides.window}
       isMobile={overrides.isMobile ?? false}
@@ -185,6 +210,10 @@ beforeEach(() => {
   codeSpy.mockClear();
   iframeSpy.mockClear();
   guiSpy.mockClear();
+  searchAddonMock.clearDecorations.mockClear();
+  searchAddonMock.onDidChangeResults.mockClear();
+  searchAddonMock.findNext.mockClear();
+  searchAddonMock.findPrevious.mockClear();
   resetFocusMemory();
   for (const spy of Object.values(apiSpy)) spy.mockReset();
   useWindowStore.setState({ entries: new Map(), ghosts: [] });
@@ -471,6 +500,146 @@ describe("SurfaceLayout zoom", () => {
     expect(zoom).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Promote Code" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Swap Code" })).toBeTruthy();
+  });
+});
+
+describe("SurfaceLayout per-window reset (server-keyed grid, windowId prop change)", () => {
+  const SPLIT = { shape: "split-h", order: ["tty", "web"] } as Layout;
+
+  it("resets the zoom from the NEW window's stored key — and never writes the old window's key", () => {
+    // @1 zoomed on web; @2 has no stored zoom.
+    const { rerender } = renderLayout({ layout: SPLIT });
+    fireEvent.click(screen.getByRole("button", { name: "Expand Web" }));
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(true);
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBe("web");
+
+    rerender(layoutElement({ layout: SPLIT, windowId: "@2" }));
+    // @2's stored key is empty → unzoomed, both tiles visible.
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(false);
+    expect(screen.getByTestId("surface-tile-web").classList.contains("hidden")).toBe(false);
+    // The reset re-DERIVES, it does not write: @1 keeps its zoom, @2 gets none.
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBe("web");
+    expect(localStorage.getItem("rk-layout-zoom:srv:@2")).toBeNull();
+
+    // @3 has web zoomed in its stored key → the switch re-derives the zoom.
+    localStorage.setItem("rk-layout-zoom:srv:@3", "web");
+    rerender(layoutElement({ layout: SPLIT, windowId: "@3" }));
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(true);
+    expect(screen.getByTestId("surface-tile-web").classList.contains("hidden")).toBe(false);
+  });
+
+  it("resets the focused slot to slot A and re-reports the kind exactly once", () => {
+    const kindSpy = vi.fn();
+    const { rerender } = renderLayout({ layout: SPLIT, onFocusedKindChange: kindSpy });
+    // Mount reports slot A's kind once.
+    expect(kindSpy).toHaveBeenCalledTimes(1);
+    expect(kindSpy).toHaveBeenLastCalledWith("tty");
+
+    // Focus the web tile (pointerdown capture on the tile wrapper).
+    fireEvent.pointerDown(screen.getByTestId("surface-tile-web"));
+    expect(kindSpy).toHaveBeenLastCalledWith("web");
+    expect(
+      screen.getByTestId("surface-tile-web").className.includes("border-accent-green"),
+    ).toBe(true);
+
+    kindSpy.mockClear();
+    rerender(layoutElement({ layout: SPLIT, windowId: "@2", onFocusedKindChange: kindSpy }));
+    // Slot A is focused again and re-reported — exactly once.
+    expect(kindSpy).toHaveBeenCalledTimes(1);
+    expect(kindSpy).toHaveBeenLastCalledWith("tty");
+    expect(
+      screen.getByTestId("surface-tile-tty").className.includes("border-accent-green"),
+    ).toBe(true);
+  });
+
+  it("resets the hide-never-unmount set to the new window's layout kinds", () => {
+    const { rerender } = renderLayout({ layout: SPLIT });
+    // Close the web tile on @1: the parent collapses the layout, but
+    // hide-never-unmount keeps the iframe mounted-hidden.
+    rerender(layoutElement({ layout: { shape: "single", order: ["tty"] } }));
+    expect(screen.getByTestId("mock-iframe")).toBeTruthy();
+    expect(screen.getByTestId("surface-tile-web").classList.contains("hidden")).toBe(true);
+
+    // A window switch re-seeds everOpened from @2's layout: the stale web
+    // tile unmounts.
+    rerender(
+      layoutElement({ layout: { shape: "single", order: ["tty"] }, windowId: "@2" }),
+    );
+    expect(screen.queryByTestId("mock-iframe")).toBeNull();
+  });
+
+  it("closes and clears the find state, clearing decorations on the persistent addon (no focus grab)", () => {
+    const { rerender } = renderLayout();
+    // The primary tty's search addon seam is filled by the mock TerminalClient.
+    expect(searchAddonMock.onDidChangeResults).toHaveBeenCalled();
+
+    // Open the bar and run a search (decorations now live on the buffer).
+    fireEvent.click(screen.getByRole("button", { name: "Find in terminal" }));
+    const bar = screen.getByTestId("terminal-find-bar");
+    fireEvent.change(within(bar).getByRole("textbox"), { target: { value: "needle" } });
+    expect(searchAddonMock.findNext).toHaveBeenCalled();
+    searchAddonMock.clearDecorations.mockClear();
+
+    rerender(layoutElement({ windowId: "@2" }));
+    expect(screen.queryByTestId("terminal-find-bar")).toBeNull();
+    // The addon instance persists with the terminal across the ride, so the
+    // old window's decorations must be dropped explicitly by the reset.
+    expect(searchAddonMock.clearDecorations).toHaveBeenCalled();
+  });
+
+  it("clears the web page title reported by the old window's iframe", () => {
+    const { rerender } = renderLayout({ layout: SPLIT });
+    const props = iframeSpy.mock.lastCall?.[0] as {
+      onPageMeta?: (m: { title: string | null }) => void;
+    };
+    act(() => {
+      props.onPageMeta?.({ title: "Old Window Doc" });
+    });
+    expect(screen.getByText("Old Window Doc")).toBeTruthy();
+
+    rerender(layoutElement({ layout: SPLIT, windowId: "@2" }));
+    expect(screen.queryByText("Old Window Doc")).toBeNull();
+  });
+
+  it("resets the tty progress line + chip to idle", async () => {
+    const { rerender } = renderLayout();
+    const props = terminalSpy.mock.lastCall?.[0] as {
+      onProgressChange?: (state: number, value: number) => void;
+    };
+    act(() => {
+      props.onProgressChange?.(1, 42);
+    });
+    // The commit is rAF-coalesced — wait for the frame.
+    await waitFor(() => expect(screen.queryByTestId("progress-chip")).toBeTruthy());
+
+    rerender(layoutElement({ windowId: "@2" }));
+    expect(screen.queryByTestId("progress-line")).toBeNull();
+    expect(screen.queryByTestId("progress-chip")).toBeNull();
+  });
+
+  it("keeps the tty tile's DOM node across the switch; a non-tty tile's node remounts", () => {
+    const { rerender } = renderLayout({ layout: SPLIT });
+    const ttyNode = screen.getByTestId("mock-terminal");
+    const webNode = screen.getByTestId("mock-iframe");
+
+    rerender(layoutElement({ layout: SPLIT, windowId: "@2" }));
+    // The whole point of the server-keyed grid: the tty tile (and its
+    // TerminalClient) is the SAME instance after a same-server switch.
+    expect(screen.getByTestId("mock-terminal")).toBe(ttyNode);
+    // Non-tty tiles carry `windowId` in their key — content identity changes
+    // with the window, so the web tile remounts.
+    expect(screen.getByTestId("mock-iframe")).not.toBe(webNode);
+  });
+
+  it("first mount fires NO reset side effects (no duplicate kind report, no key writes)", () => {
+    const kindSpy = vi.fn();
+    renderLayout({ layout: SPLIT, onFocusedKindChange: kindSpy });
+    // Exactly the mount-time slot-A report — the reset effect's first-mount
+    // guard must not double it.
+    expect(kindSpy).toHaveBeenCalledTimes(1);
+    expect(kindSpy).toHaveBeenLastCalledWith("tty");
+    // No zoom key written by a mount with no stored zoom.
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBeNull();
   });
 });
 

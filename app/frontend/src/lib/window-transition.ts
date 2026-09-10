@@ -218,6 +218,7 @@ export function beginWindowSwitchGate(opts?: { gated?: boolean }): WindowSwitchG
   // acceptance until ITS selectWindow POST resolves (see openForNotify).
   const epoch = ++switchEpoch;
   liftAccepting = false;
+  bytesCounted = false;
 
   const gate: SwitchGate = {
     resolve: null,
@@ -243,6 +244,7 @@ export function beginWindowSwitchGate(opts?: { gated?: boolean }): WindowSwitchG
         // the successful resolution proves tmux switched, so the recorded
         // receipt is the incoming window's paint.
         if (inFlightNotifyEpoch === epoch) {
+          bytesCounted = true;
           if (currentGate === gate) {
             // Gate still pending: settle as first-write — the slide plays and
             // the timeout (with its mask) is cancelled.
@@ -289,6 +291,7 @@ export function beginWindowSwitchGate(opts?: { gated?: boolean }): WindowSwitchG
  */
 export function notifyFirstWrite(): void {
   if (currentGate && currentGate.acceptingNotify) {
+    bytesCounted = true;
     settleGate(currentGate, "first-write");
     return;
   }
@@ -297,6 +300,7 @@ export function notifyFirstWrite(): void {
   // is the signal that the switch DID arrive — lift the mask as a cut, and
   // cancel any pending grace timer.
   if (liftAccepting) {
+    bytesCounted = true;
     tearDownMask();
     return;
   }
@@ -397,6 +401,25 @@ let liftAccepting = false;
  */
 let inFlightNotifyEpoch: number | null = null;
 
+/**
+ * Whether a byte has been counted as the INCOMING window's for the current
+ * switch epoch. Cleared wherever a new switch mints its epoch
+ * (`beginWindowSwitchGate`, `armGraceMask`) and set at every point a byte is
+ * accepted as the incoming window's: the `acceptingNotify` gate release and
+ * the `liftAccepting` mask lift in `notifyFirstWrite`, and the in-flight
+ * receipt counted at `openForNotify`/`openForLift`. This is what byte-gates
+ * `confirmSwitchArrived`: SSE confirms INTENT (the URL/heading may stand)
+ * before any pixel of the new window exists, so paint feedback must stay
+ * byte-driven — an SSE confirmation with no counted byte leaves the gate to
+ * its timeout (arming the mask) and the late first write to lift it.
+ */
+let bytesCounted = false;
+
+/** Pure query for `bytesCounted` — tests assert the counting paths. */
+export function hasCountedIncomingBytes(): boolean {
+  return bytesCounted;
+}
+
 /** Snapshot for `useSyncExternalStore`. Stable identity while unchanged. */
 export function getMaskState(): MaskState {
   return maskState;
@@ -424,7 +447,8 @@ function setMaskState(next: MaskState): void {
  * Tear the mask down: cancel any pending grace timer and clear the mask. THE
  * single mask-clearing primitive (rework F5 — the former `notifyMaskLift` alias
  * was byte-identical and is folded in): called by `notifyFirstWrite`'s filtered
- * late lift, by `confirmSwitchArrived`/`abandonSwitchFeedback`, and at every
+ * late lift, by `confirmSwitchArrived` (byte-gated) / `forceSwitchArrived`
+ * (unconditional) / `abandonSwitchFeedback`, and at every
  * fresh switch start (a new switch owns all feedback). Idempotent no-op when
  * already idle and no timer pending.
  *
@@ -432,8 +456,10 @@ function setMaskState(next: MaskState): void {
  * abandonment/arrival callers were folded away — app.tsx's former direct callers
  * (failure/bounce, route-leave/unmount) were replaced by `abandonSwitchFeedback()`
  * in the G2 rework, which additionally settles a still-pending gate. For those
- * intents production callers reach for `abandonSwitchFeedback` (abandonment) or
- * `confirmSwitchArrived` (confirmed arrival), both of which delegate here. The
+ * intents production callers reach for `abandonSwitchFeedback` (abandonment),
+ * `confirmSwitchArrived` (byte-gated confirmed arrival), or
+ * `forceSwitchArrived` (the unconditional confirmation-timer rescue), all of
+ * which delegate here. The
  * ONE sanctioned direct production caller of the bare primitive is
  * `beginPendingSwitch`'s fresh-switch teardown (260719-h0x4): it must clear a
  * leftover mask WITHOUT settling a gate, because on the animated path it runs
@@ -447,23 +473,39 @@ export function tearDownMask(): void {
 
 /**
  * The switch is confirmed ARRIVED by an out-of-band authority — the SSE snapshot
- * reporting the target window active (260715-38kg). This is the second honest
- * "arrived" signal alongside the incoming first write, and it closes a real gap:
- * on a same-session switch tmux's redraw can complete BEFORE the gate's
- * `openForNotify` (those bytes are filtered as outgoing), so no later write fires
- * the receipt-time lift; the gate would then time out and arm the mask even
- * though the switch landed. Settling any still-pending gate here as `"first-write"`
- * cancels its timeout so the mask never arms, and tears down any mask/grace timer
- * already showing. Idempotent no-op when nothing is pending or masked.
+ * reporting the target window active (260715-38kg) — and at least one byte has
+ * already been counted as the incoming window's. BYTE-GATED: when no byte has
+ * been counted for the current switch epoch this is a NO-OP on the gate and the
+ * mask. SSE fires as soon as `select-window` lands — before any byte has reached
+ * the terminal — so an ungated settle would animate the slide into a surface
+ * that has not painted yet and suppress the spinner mask the design promises for
+ * that case. With no counted byte the gate's 300ms timeout arms the mask and the
+ * later first write lifts it (the designed late-arrival cut). With a counted
+ * byte the gate has already settled `"first-write"` (the counting path IS the
+ * settle), so acting here only tears down any leftover mask/grace timer.
+ * The unconditional form — for the confirmation-timer rescue, where a mask with
+ * no lift path must never stay up — is `forceSwitchArrived()`.
  */
 export function confirmSwitchArrived(): void {
+  if (!bytesCounted) return;
   if (currentGate) {
-    // Settle as first-write: cancels the timer so it can't later arm a mask, and
-    // resolves any awaiting `waitForFirstWrite` with `"first-write"` (the slide
-    // plays — the switch DID arrive within the wrapper's view).
     settleGate(currentGate, "first-write");
   }
-  // SSE confirmation is authoritative — it needs no post-POST lift filter.
+  tearDownMask();
+}
+
+/**
+ * The UNCONDITIONAL arrival teardown (the 5 s confirmation-timer rescue in
+ * `app.tsx`'s `bouncePendingSwitch`): settle any still-pending gate as
+ * `"first-write"` and tear down any mask/grace timer, regardless of byte
+ * counting. After the confirmation window has elapsed with SSE reporting the
+ * target active, a mask whose byte-driven lift path never fired must not stay
+ * up — a stuck input-blocking mask is the worst outcome the design forbids.
+ */
+export function forceSwitchArrived(): void {
+  if (currentGate) {
+    settleGate(currentGate, "first-write");
+  }
   tearDownMask();
 }
 
@@ -545,6 +587,7 @@ export function armGraceMask(timeoutMs: number = FIRST_WRITE_TIMEOUT_MS): GraceM
   // This switch is now the current one (same epoch discipline as the gate).
   const epoch = ++switchEpoch;
   liftAccepting = false;
+  bytesCounted = false;
 
   const timer = setTimeout(() => {
     graceTimer = null;
@@ -558,7 +601,10 @@ export function armGraceMask(timeoutMs: number = FIRST_WRITE_TIMEOUT_MS): GraceM
         // Count an in-flight receipt at resolution (CI 260716) — same rule as
         // the gate's openForNotify: cancels a pending grace timer (the switch
         // arrived, never mask) or lifts a mask the timer already armed.
-        if (inFlightNotifyEpoch === epoch) tearDownMask();
+        if (inFlightNotifyEpoch === epoch) {
+          bytesCounted = true;
+          tearDownMask();
+        }
       }
     },
     cancel() {

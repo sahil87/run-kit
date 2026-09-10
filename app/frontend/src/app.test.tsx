@@ -1,14 +1,48 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
+import { useEffect } from "react";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
 import {
   buildTabPickerActions,
   buildWindowSwitchActions,
   resolveServerView,
+  ServerShell,
 } from "@/app";
 import { availableViews, hasCode } from "@/lib/window-view";
 import type { ServerInfo } from "@/api/client";
 import { operatorRequestToast, QUEUED_OPERATOR_TOAST } from "@/lib/operator-request";
+import {
+  urlSegmentToWindowId,
+  validateTerminalSearch,
+  windowIdToUrlSegment,
+} from "@/lib/router-url";
+import { ThemeProvider } from "@/contexts/theme-context";
+import { ToastProvider } from "@/components/toast";
+import { InstanceNameProvider } from "@/contexts/instance-name-context";
+import { ChromeProvider } from "@/contexts/chrome-context";
+import { ZenProvider } from "@/contexts/zen-context";
+import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
+import { OptimisticProvider } from "@/contexts/optimistic-context";
+import { TopBarSlotProvider } from "@/contexts/top-bar-slot-context";
+import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
+import { ServerDialogsProvider } from "@/contexts/server-dialogs-context";
+import { PaletteActionsProvider } from "@/contexts/palette-actions-context";
+import { GuiOffRequestProvider } from "@/contexts/gui-off-context";
+import {
+  HostMetricsProvider,
+  MetricsProvider,
+  StandaloneSessionContextProvider,
+} from "@/contexts/session-context";
+import { stubMatchMedia } from "@/test-utils/match-media";
+import { makeSession, makeWindow } from "@/test-utils/fixtures";
 
 // `@/app` transitively imports terminal-client → @xterm/addon-unicode-graphemes,
 // whose import-time trie init is a documented CI flake ("Data error" — see
@@ -17,6 +51,70 @@ import { operatorRequestToast, QUEUED_OPERATOR_TOAST } from "@/lib/operator-requ
 vi.mock("@xterm/addon-unicode-graphemes", () => ({
   UnicodeGraphemesAddon: vi.fn(),
 }));
+
+// ── Terminal-route harness mocks (the grid-key block at the bottom) ─────────
+// The grid-key test renders ServerShell (AppShell) under a memory router. The
+// SurfaceLayout child is replaced by a mount-spying stub: the block asserts
+// the KEY behavior at the app.tsx seam (the tty-DOM survival inside the grid
+// is surface-layout.test.tsx's; the end-to-end form is the e2e spec's).
+const surfaceLayoutSpy = vi.hoisted(() => ({
+  mounts: [] as Array<"mount" | "unmount">,
+  props: vi.fn(),
+}));
+vi.mock("@/components/surface-layout", () => ({
+  SurfaceLayout: (props: { server: string; windowId: string }) => {
+    surfaceLayoutSpy.props({ server: props.server, windowId: props.windowId });
+    useEffect(() => {
+      surfaceLayoutSpy.mounts.push("mount");
+      return () => {
+        surfaceLayoutSpy.mounts.push("unmount");
+      };
+    }, []);
+    return <div data-testid="mock-surface-layout" />;
+  },
+}));
+
+// The host-global signal hooks read nested contexts only the real
+// SessionProvider fills (it owns the state socket — never opened in tests).
+// Everything else in the module stays real: the controlled session value
+// arrives through the real StandaloneSessionContextProvider below.
+vi.mock("@/contexts/session-context", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@/contexts/session-context")>();
+  return {
+    ...mod,
+    useCodeServer: () => ({ reachable: false }),
+    useGui: () => null,
+  };
+});
+
+// Every network call routes through these two modules. Keep the real modules
+// (constants, error classes, pure helpers) and stub only the fetchers that
+// fire on this route's mount/navigation: list getters resolve [], the rest
+// resolve a benign `{ ok: true }`.
+vi.mock("@/api/client", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@/api/client")>();
+  const ok = () => Promise.resolve({ ok: true });
+  return {
+    ...mod,
+    getHealth: () => Promise.resolve({}),
+    getOpenApps: () => Promise.resolve([]),
+    getCron: () => Promise.resolve({ entries: [], deliveries: [] }),
+    listClosedWindows: () => Promise.resolve([]),
+    getSessions: () => Promise.resolve([]),
+    getDirectories: () => Promise.resolve([]),
+    selectWindow: ok,
+    setWindowOptions: ok,
+    postSettings: ok,
+  };
+});
+vi.mock("@/api/boards", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@/api/boards")>();
+  return {
+    ...mod,
+    listBoards: () => Promise.resolve([]),
+    getBoard: () => Promise.resolve([]),
+  };
+});
 
 /**
  * Tests for move window CmdK actions (T010).
@@ -1141,5 +1239,175 @@ describe("CmdK Annotate Tab Action (operator-request gate)", () => {
     openPalette();
 
     expect(screen.queryByText("Operator: Annotate tab")).not.toBeInTheDocument();
+  });
+});
+
+describe("terminal route grid key — SurfaceLayout keyed by server", () => {
+  // The terminal route's tile grid mounts ONCE per server: a same-server
+  // window switch re-renders the mounted grid with the new windowId prop (the
+  // tty tile's terminal rides its session connection), and only a SERVER
+  // change remounts. The child is the mount-spying stub above; the assertions
+  // read its mount/unmount record and the windowId prop stream.
+  stubMatchMedia(() => false);
+
+  function TerminalRouteRoot() {
+    return (
+      <ThemeProvider>
+        <ToastProvider>
+          <InstanceNameProvider>
+            <ChromeProvider>
+              <ZenProvider>
+                <FocusedTerminalProvider>
+                  <OptimisticProvider>
+                    <TopBarSlotProvider>
+                      <FocusedPaneProvider>
+                        <ServerDialogsProvider>
+                          <PaletteActionsProvider globalActions={[]}>
+                            <GuiOffRequestProvider value={undefined}>
+                              <MetricsProvider value={null}>
+                                <HostMetricsProvider value={null}>
+                                  <StandaloneSessionContextProvider
+                                value={{
+                                  // `currentServer: null` so AppShell falls
+                                  // back to the URL param per route.
+                                  currentServer: null,
+                                  servers: [
+                                    { name: "srv", sessionCount: 1 },
+                                    { name: "other", sessionCount: 1 },
+                                  ] as ServerInfo[],
+                                  serversLoaded: true,
+                                  sessionsByServer: new Map([
+                                    [
+                                      "srv",
+                                      [
+                                        makeSession({
+                                          name: "alpha",
+                                          windows: [
+                                            makeWindow({
+                                              windowId: "@0",
+                                              index: 0,
+                                              isActiveWindow: true,
+                                            }),
+                                            makeWindow({ windowId: "@1", index: 1 }),
+                                          ],
+                                        }),
+                                      ],
+                                    ],
+                                    [
+                                      "other",
+                                      [
+                                        makeSession({
+                                          name: "beta",
+                                          windows: [
+                                            makeWindow({
+                                              windowId: "@1",
+                                              index: 0,
+                                              isActiveWindow: true,
+                                            }),
+                                          ],
+                                        }),
+                                      ],
+                                    ],
+                                  ]),
+                                  isConnectedByServer: new Map([
+                                    ["srv", true],
+                                    ["other", true],
+                                  ]),
+                                }}
+                              >
+                                <Outlet />
+                                  </StandaloneSessionContextProvider>
+                                </HostMetricsProvider>
+                              </MetricsProvider>
+                            </GuiOffRequestProvider>
+                          </PaletteActionsProvider>
+                        </ServerDialogsProvider>
+                      </FocusedPaneProvider>
+                    </TopBarSlotProvider>
+                  </OptimisticProvider>
+                </FocusedTerminalProvider>
+              </ZenProvider>
+            </ChromeProvider>
+          </InstanceNameProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    );
+  }
+
+  const testRootRoute = createRootRoute({ component: TerminalRouteRoot });
+  const testServerRoute = createRoute({
+    getParentRoute: () => testRootRoute,
+    path: "/$server",
+    component: ServerShell,
+  });
+  const testServerIndexRoute = createRoute({
+    getParentRoute: () => testServerRoute,
+    path: "/",
+  });
+  const testTerminalRoute = createRoute({
+    getParentRoute: () => testServerRoute,
+    path: "/$window",
+    validateSearch: validateTerminalSearch,
+    params: {
+      parse: (params) => ({ window: urlSegmentToWindowId(params.window) }),
+      stringify: (params) => ({ window: windowIdToUrlSegment(params.window) }),
+    },
+  });
+  const testRouteTree = testRootRoute.addChildren([
+    testServerRoute.addChildren([testServerIndexRoute, testTerminalRoute]),
+  ]);
+
+  afterEach(() => {
+    cleanup();
+    surfaceLayoutSpy.mounts.length = 0;
+    surfaceLayoutSpy.props.mockClear();
+  });
+
+  it("a same-server window switch does NOT remount the grid; a server change does", async () => {
+    const router = createRouter({
+      routeTree: testRouteTree,
+      history: createMemoryHistory({ initialEntries: ["/srv/0"] }),
+    });
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+    expect(surfaceLayoutSpy.mounts).toEqual(["mount"]);
+    expect(surfaceLayoutSpy.props).toHaveBeenLastCalledWith({
+      server: "srv",
+      windowId: "@0",
+    });
+
+    // Same-server switch @0 → @1: the grid re-renders with the new windowId
+    // prop and stays mounted.
+    await act(async () => {
+      await router.navigate({
+        to: "/$server/$window",
+        params: { server: "srv", window: "@1" },
+        search: {},
+      });
+    });
+    await waitFor(() =>
+      expect(surfaceLayoutSpy.props).toHaveBeenLastCalledWith({
+        server: "srv",
+        windowId: "@1",
+      }),
+    );
+    expect(surfaceLayoutSpy.mounts).toEqual(["mount"]);
+
+    // Cross-server switch: the key changes, so the grid remounts.
+    await act(async () => {
+      await router.navigate({
+        to: "/$server/$window",
+        params: { server: "other", window: "@1" },
+        search: {},
+      });
+    });
+    await waitFor(() =>
+      expect(surfaceLayoutSpy.props).toHaveBeenLastCalledWith({
+        server: "other",
+        windowId: "@1",
+      }),
+    );
+    expect(surfaceLayoutSpy.mounts).toEqual(["mount", "unmount", "mount"]);
   });
 });

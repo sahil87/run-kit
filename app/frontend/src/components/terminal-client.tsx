@@ -840,6 +840,25 @@ export function TerminalClient({
   // being a dependency of (and thus re-running) the connect effect.
   const streamRef = useRef<RelayStream | null>(null);
 
+  // Deferred buffer clear for a same-session ride. Armed by the windowId effect
+  // below when a resolved same-session switch rides the live stream; consumed
+  // once by the connect effect's `consumePendingClear()` immediately before the
+  // first inbound chunk written after the change. Component-scoped (not
+  // effect-scoped like `pendingReset`): the arming seam lives OUTSIDE the
+  // connect effect — the ride's whole point is that the connect effect does
+  // NOT re-run on a same-session windowId change.
+  //
+  // Why `clear()` and never `reset()` on a ride: tmux's in-place redraw
+  // repaints the screen rows only, so without a clear the previous window's
+  // screen lines would sit in xterm's scrollback and find-in-terminal / the ⇩
+  // export would read mixed content. But `reset()` also resets terminal modes
+  // (mouse reporting, bracketed paste, focus events) that tmux believes it
+  // already set on this still-attached client and will not re-send — a fresh
+  // attach re-sends them, an in-place switch does not. Deferring to the first
+  // chunk keeps the no-blank-frame invariant (the old content persists until
+  // the redraw paints in the same tick).
+  const pendingClearRef = useRef(false);
+
   // Same-session windowId ride: keep the live stream's re-open target fresh.
   // The connect effect deliberately does NOT depend on windowId (a same-session
   // switch rides the existing stream — tmux moves the attached PTY's active
@@ -849,7 +868,15 @@ export function TerminalClient({
   // which carries the current windowId at open time — so this call is redundant
   // (harmless) there and load-bearing only for the ride.
   useEffect(() => {
-    streamRef.current?.setWindowId(windowId);
+    const stream = streamRef.current;
+    if (!stream) return;
+    stream.setWindowId(windowId);
+    // Arm the deferred buffer clear for the ride — only while a stream is live
+    // AND the served session is resolved (an unresolved connection reconnects
+    // instead: the identity watcher's windowId-based rule bumps the epoch).
+    if (connectedSessionRef.current) {
+      pendingClearRef.current = true;
+    }
   }, [windowId]);
 
   // Connection identity — (server, owning session), NOT windowId.
@@ -1076,12 +1103,23 @@ export function TerminalClient({
       terminal.reset();
     }
 
+    /** Run the deferred same-session-ride buffer clear exactly once, at
+     *  first-write time — the `clear()` (not `reset()`) counterpart armed by
+     *  the windowId effect; see `pendingClearRef`. Mutually exclusive with a
+     *  pending reset: `onOpened` drops the clear when it arms the reset. */
+    function consumePendingClear() {
+      if (!pendingClearRef.current) return;
+      pendingClearRef.current = false;
+      terminal.clear();
+    }
+
     function flushToTerminal() {
       flushRafId = null;
       // An empty flush (e.g. a zero-message connection's close-time drain)
       // must not consume or execute the pending reset — see above.
       if (binaryBuffers.length === 0) return;
       consumePendingReset();
+      consumePendingClear();
       for (const buf of binaryBuffers) {
         terminal.write(buf);
       }
@@ -1158,6 +1196,7 @@ export function TerminalClient({
 
       if (canWriteImmediately(chunk.length)) {
         consumePendingReset();
+        consumePendingClear();
         terminal.write(chunk);
         markImmediateWrite();
         return;
@@ -1191,6 +1230,10 @@ export function TerminalClient({
       stream.onOpened(() => {
         if (cancelled || streamRef.current !== stream) return;
         pendingReset = true;
+        // A stream (re)open supersedes a pending ride clear: the fresh
+        // connection's deferred reset owns the first chunk, and `reset()`
+        // already covers everything `clear()` would.
+        pendingClearRef.current = false;
         // Wipe adaptive-flush state carried over from the dead connection
         // (mirroring the effect-cleanup neutralization below). On a transparent
         // re-open, bytes buffered from the PREVIOUS connection may still be
@@ -1288,6 +1331,7 @@ export function TerminalClient({
       // buffers turns any orphaned drain into a no-op via the empty-flush guard
       // in flushToTerminal.
       pendingReset = false;
+      pendingClearRef.current = false;
       binaryBuffers = [];
       if (flushRafId) cancelAnimationFrame(flushRafId);
       if (frameResetRafId) cancelAnimationFrame(frameResetRafId);

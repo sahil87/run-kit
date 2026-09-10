@@ -107,6 +107,7 @@ import {
   armGraceMask,
   tearDownMask,
   confirmSwitchArrived,
+  forceSwitchArrived,
   abandonSwitchFeedback,
   subscribeMaskState,
   getMaskState,
@@ -1212,8 +1213,8 @@ function AppShell() {
   // `Layout: Restore` entries need to OBSERVE it (label gating) and TRIGGER it
   // (the focused-slot toggle — 260819-qwr7 R7). The component registers its
   // toggle into this ref and reports flips through `onZoomChange`, so the
-  // palette list rebuilds on every zoom change. Not lifted: keying
-  // SurfaceLayout per window keeps the reset semantics where the state lives.
+  // palette list rebuilds on every zoom change. Not lifted: SurfaceLayout's
+  // per-window reset effect keeps the reset semantics where the state lives.
   const layoutZoomToggleRef = useRef<(() => void) | null>(null);
   const [layoutZoomed, setLayoutZoomed] = useState(false);
 
@@ -1477,8 +1478,8 @@ function AppShell() {
   );
 
   // Focused tile (260812-wfic R2/R8): SurfaceLayout owns the focused SLOT as
-  // transient state (the zoom precedent — the per-window reset comes free
-  // from its `${server}:${windowId}` key) and reports the focused KIND up via
+  // transient state (the zoom precedent — the per-window reset comes from its
+  // `[server, windowId]` reset effect) and reports the focused KIND up via
   // `onFocusedKindChange`; the shell mirrors only the kind — it's all the
   // `ttyOnly` dispatcher gate and the `Tile: Focus <Surface>` palette
   // entries need. On mobile the single VISIBLE slot counts as focused (the
@@ -1998,11 +1999,16 @@ function AppShell() {
       // writeback (the normal event-driven clearer) can be suppressed for the
       // whole confirmation window (`dialogOpenRef` — e.g. a dialog held open
       // >5s over a confirmed switch; rework SF7). Not a failure: clear the
-      // intent silently — no toast, no navigation under the dialog.
+      // intent silently — no toast, no navigation under the dialog. The
+      // teardown here is UNCONDITIONAL (`forceSwitchArrived`, not the
+      // byte-gated `confirmSwitchArrived`): after the confirmation window has
+      // elapsed with the target active, a mask whose byte-driven lift path
+      // never fired must never stay up — a stuck input-blocking mask is the
+      // worst outcome the design forbids.
       if (active?.windowId === target.windowId) {
         pendingClickRef.current = null;
         clearPendingSwitchTracking();
-        confirmSwitchArrived();
+        forceSwitchArrived();
         return;
       }
       clearPendingSwitchTracking();
@@ -2257,14 +2263,17 @@ function AppShell() {
         // tracking so the confirmation timer never fires a spurious late bounce
         // and any grace mask's cancel is released (260715-38kg).
         clearPendingSwitchTracking();
-        // SSE confirmation is the AUTHORITATIVE "arrived" signal — settle any
-        // still-pending gate as first-write and lift any mask (260715-38kg). The
-        // receipt-time `notifyFirstWrite` lift covers the common case, but on a
-        // same-session switch tmux's redraw can complete BEFORE the gate's
-        // `openForNotify` (so those bytes were filtered out as outgoing), leaving
-        // no later write to fire the lift; the gate would then time out and arm
-        // the mask even though the switch DID land. `confirmSwitchArrived` cancels
-        // that pending timeout AND clears any mask already showing.
+        // SSE confirmation is authoritative for INTENT (the URL/heading may
+        // stand), but paint feedback stays byte-driven: `confirmSwitchArrived`
+        // acts only once a byte has been counted as the incoming window's
+        // (260715-38kg). Before that it is a no-op on the gate and the mask —
+        // the gate's 300ms timeout arms the spinner and the incoming first
+        // write lifts it. A same-session switch whose tmux redraw completed
+        // BEFORE `openForNotify` counts that receipt at the POST's resolution
+        // (the in-flight receipt), so the confirmation here still lands after
+        // the counted byte in the landed-fast case; when bytes never come, the
+        // 5s confirmation-timer rescue in `bouncePendingSwitch` is the
+        // unconditional teardown (`forceSwitchArrived`).
         //
         // UNCONFIRMED clear (`!urlMatchesPending` — browser Back/Forward away
         // from a pending target; rework SF5): abandon the switch's feedback —
@@ -5086,10 +5095,15 @@ function AppShell() {
               briefly flash the Dashboard). */}
           {windowParam ? (
             <SurfaceLayout
-              // Keyed by server:window so a window switch REMOUNTS the grid —
-              // its hide-never-unmount set, zoom, and ratio-drag state are
-              // per-window (the RightPanel keying precedent).
-              key={`${server}:${windowParam}`}
+              // Keyed by SERVER only: a same-server window switch re-renders
+              // the mounted grid with a new `windowId` prop — the tty tile's
+              // TerminalClient (xterm instance + relay stream) must survive so
+              // the relay's same-session ride and deferred-reset/clear designs
+              // apply. Per-window transient state (zoom, focused slot, the
+              // hide-never-unmount set, find, page title, progress) resets by
+              // a `[server, windowId]` effect inside the component; non-tty
+              // tiles remount via `windowId` in their own keys.
+              key={server}
               // The rendered layout: the payload's `@rk_win_layout` value,
               // overlaid by the optimistic `pendingLayout` while a verb's
               // POST is in flight.

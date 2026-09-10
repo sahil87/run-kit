@@ -150,8 +150,9 @@ import {
  * - **Hide-never-unmount (P3)**: a surface opened earlier this route visit
  *   stays mounted (`hidden` class) when closed or zoomed away, so iframe /
  *   terminal state survives. The "ever opened" bookkeeping is keyed by
- *   surface kind and resets per window — `app.tsx` keys this component by
- *   `${server}:${windowId}` (the RightPanel precedent).
+ *   surface kind and is per-window — `app.tsx` keys this component by
+ *   server, so the set (with the other per-window transient state) resets via
+ *   the `[server, windowId]` reset effect on a window switch.
  * - **Dividers (R5; gap-seam sash 260814-011r)**: drag mutates RATIOS only
  *   (never shape/order), clamped via `clampBoundary` (280px floor both
  *   sides on the boundary's own axis; sibling chaining on row/col only —
@@ -598,9 +599,9 @@ export function SurfaceLayout({
   const arity = SHAPE_ARITY[layout.shape];
   // The focus-memory key for this window (spec right-panel.md § The code
   // lens): the recording seams below write the user's focus choice under it,
-  // and the steal guard consults it. The parent's `${server}:${windowId}`
-  // keying remounts this component per window, but memory outlives the
-  // remount — that is the point of it.
+  // and the steal guard consults it. This component is keyed by server and
+  // survives a same-server window switch — the memory is what carries the
+  // per-window focus choice across it.
   const focusKey = focusMemoryKey(server, windowId);
 
   // Coarse pointer — the gui tile's resize/quality policy key (a coarse
@@ -643,8 +644,8 @@ export function SurfaceLayout({
     resultCount: number;
   } | null>(null);
   // Sticky "a search has run" flag — gates the buffer-scope hint; closing the
-  // bar clears it with everything else. The parent's per-window key remounts
-  // this component on a window switch, so no query survives one.
+  // bar clears it with everything else. The per-window reset effect clears it
+  // on a window switch, so no query survives one.
   const [findRan, setFindRan] = useState(false);
   const findOptions = useMemo(
     () =>
@@ -838,8 +839,8 @@ export function SurfaceLayout({
 
 
   // Hide-never-unmount (P3): kinds opened earlier this route visit stay
-  // mounted at display level. The parent keys this component per window, so
-  // the set resets on a window switch (the RightPanel precedent).
+  // mounted at display level. Per-window: the reset effect re-seeds the set
+  // from the new window's layout on a window switch.
   const [everOpened, setEverOpened] = useState<SurfaceKind[]>(() => [
     ...new Set(layout.order),
   ]);
@@ -906,8 +907,8 @@ export function SurfaceLayout({
 
   // Web tile page title (260819-v6y4 R10): reported by IframeWindow's
   // onPageMeta on each same-origin frame load; null (cross-origin, pre-load,
-  // or empty) falls the header back to the address's display form. The
-  // per-window reset comes free from the parent's key (the zoom precedent).
+  // or empty) falls the header back to the address's display form. Per-window:
+  // the reset effect clears it on a window switch.
   const [webPageTitle, setWebPageTitle] = useState<string | null>(null);
 
   // Tty task progress (260819-1vxq): OSC 9;4 events lifted from the
@@ -917,8 +918,9 @@ export function SurfaceLayout({
   // Events reduce immediately (retention semantics need event order) but
   // commit at most once per animation frame, so bursty emitters cannot
   // re-render storm the grid. Per-viewer ephemeral by design: component
-  // state only, reset by the parent's per-window key — a stale value with
-  // no updates is left as-is (the emitter owns lifecycle via state 0).
+  // state only, reset to idle by the per-window reset effect on a window
+  // switch — a stale value with no updates is left as-is (the emitter owns
+  // lifecycle via state 0).
   const [ttyProgress, setTtyProgress] = useState<TtyProgress>(IDLE_PROGRESS);
   const ttyProgressRef = useRef<TtyProgress>(IDLE_PROGRESS);
   const ttyProgressRafRef = useRef<number | null>(null);
@@ -947,8 +949,7 @@ export function SurfaceLayout({
   // Focused tile (260812-wfic R2) — transient, like zoom: the slot that last
   // received pointer/keyboard interaction. Default slot A; falls back to slot
   // A when the focused slot leaves the layout (a close collapsed the arity).
-  // The per-window reset comes free from the parent's `${server}:${windowId}`
-  // key (the zoom precedent).
+  // Per-window: the reset effect returns it to slot A on a window switch.
   const [focusedSlot, setFocusedSlot] = useState(0);
   useEffect(() => {
     setFocusedSlot((s) => (s >= layout.order.length ? 0 : s));
@@ -1271,6 +1272,63 @@ export function SurfaceLayout({
     };
   }, [draggingIntersection]);
 
+  // ── Per-window transient-state reset ─────────────────────────────────────
+  // The parent keys this component by SERVER (a same-server window switch
+  // re-renders the mounted grid with a new `windowId` prop — the tty tile's
+  // TerminalClient and its xterm instance must survive so the relay's
+  // same-session ride applies). Every piece of transient PER-WINDOW state
+  // therefore resets HERE, in one effect keyed on [server, windowId], guarded
+  // against first mount (the useState initializers already seed the first
+  // window's values — re-running them would double-report the focused kind).
+  // Ratios and the web-tab override keep their own keyed effects (ratios also
+  // key on layout.shape; the override cleanup runs on dep change).
+  const prevWindowKeyRef = useRef(`${server}:${windowId}`);
+  useEffect(() => {
+    const key = `${server}:${windowId}`;
+    if (prevWindowKeyRef.current === key) return; // first mount
+    prevWindowKeyRef.current = key;
+
+    // Hide-never-unmount set: exactly the new window's layout kinds.
+    setEverOpened([...new Set(layout.order)]);
+
+    // Zoom: re-derived from the new window's stored key — the same derivation
+    // as the useState initializer, WITHOUT writing the key back (it already
+    // holds this kind; the old window keeps its own zoom).
+    const storedKind = readStoredZoom(server, windowId);
+    const zoomSlot = storedKind ? layout.order.indexOf(storedKind) : -1;
+    setZoomedIndex(zoomSlot >= 0 ? zoomSlot : null);
+    zoomedKindRef.current = zoomSlot >= 0 && storedKind ? storedKind : null;
+
+    // Focused slot: back to slot A, re-reported through the deduped seam —
+    // the ref clear makes the report fire even when the kind is unchanged
+    // (the parent's mirror was reset on the switch).
+    lastReportedKindRef.current = null;
+    focusSlot(0);
+
+    // Web page title (reported up from the iframe on each load): the old
+    // window's title must not headline the new window's web tile.
+    setWebPageTitle(null);
+
+    // Tty progress: idle, and cancel a pending rAF commit so a stale value
+    // can't land after the reset.
+    if (ttyProgressRafRef.current !== null) {
+      cancelAnimationFrame(ttyProgressRafRef.current);
+      ttyProgressRafRef.current = null;
+    }
+    ttyProgressRef.current = IDLE_PROGRESS;
+    setTtyProgress(IDLE_PROGRESS);
+
+    // Find state: closed and cleared. The SearchAddon instance persists with
+    // the terminal across the ride, so the old window's decorations must be
+    // dropped explicitly. No focus grab — that is the user-close affordance;
+    // a switch leaves focus to the shell's focus-restore logic.
+    searchAddon?.clearDecorations();
+    setFindOpen(false);
+    setFindQuery("");
+    setFindResults(null);
+    setFindRan(false);
+  }, [server, windowId, layout.order]);
+
   // ── Web-tab strip verbs (optimistic select/remove/move) ────────────────
   // Select/remove/move ride the window store's per-entry `webOverride` (the
   // pendingName/killed precedent): the optimistic write repaints the strip
@@ -1364,8 +1422,9 @@ export function SurfaceLayout({
     if (tabsSettled && activeSettled) clearWebOverride(server, sessionName, windowId);
   }, [webOverride, win, server, sessionName, windowId, clearWebOverride]);
 
-  // A window switch remounts this component (the `${server}:${windowId}`
-  // key) — drop any in-flight override for the window left behind.
+  // A window switch re-runs this effect's cleanup (the deps change — the
+  // component is keyed by server, not remounted): drop any in-flight override
+  // for the window left behind.
   useEffect(
     () => () => clearWebOverride(server, sessionName, windowId),
     [server, sessionName, windowId, clearWebOverride],
@@ -1551,7 +1610,12 @@ export function SurfaceLayout({
   // Tile models: every VISIBLE slot plus every ever-opened kind that is
   // currently closed (hidden). The React key is stable per (kind, occurrence)
   // across the visible↔hidden transition — THAT is what makes
-  // hide-never-unmount survive React reconciliation.
+  // hide-never-unmount survive React reconciliation. The tty tile's key is
+  // additionally WINDOW-INDEPENDENT: it must survive a same-server window
+  // switch (the grid is keyed by server) so the terminal's same-session ride
+  // keeps its xterm instance and stream; every non-tty tile carries `windowId`
+  // in its key because its content identity changes with the window (per-url
+  // iframes, code mount-once bookkeeping, the gui RFB session).
   let ttySeen = 0;
   const visibleTiles = layout.order.map((kind, slot) => {
     const occ = kind === "tty" ? ttySeen++ : 0;
@@ -1612,7 +1676,7 @@ export function SurfaceLayout({
     const isFocused = !mobile && arity > 1 && slot >= 0 && slot === focusedSlot;
     return (
       <div
-        key={`${kind}${suffix}`}
+        key={kind === "tty" ? `${kind}${suffix}` : `${kind}${suffix}:${windowId}`}
         data-testid={testId}
         // Mobile tiles MUST carry flex-1: the single visible slot fills the
         // column. Without it the tile is content-sized — xterm's own canvas

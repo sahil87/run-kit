@@ -7,6 +7,8 @@ import {
   notifyFirstWrite,
   tearDownMask,
   confirmSwitchArrived,
+  forceSwitchArrived,
+  hasCountedIncomingBytes,
   abandonSwitchFeedback,
   armGraceMask,
   getMaskState,
@@ -103,8 +105,10 @@ describe("first-write gate (beginWindowSwitchGate / notifyFirstWrite)", () => {
   afterEach(() => {
     vi.useRealTimers();
     // Settle any lingering gate (so a leaked resolver can't dangle across
-    // tests) and reset the shared mask signal in one authoritative call.
-    confirmSwitchArrived();
+    // tests) and reset the shared mask signal in one authoritative call. The
+    // UNCONDITIONAL form — confirmSwitchArrived is byte-gated and would not
+    // clean up a byte-less switch.
+    forceSwitchArrived();
   });
 
   it("resolves 'first-write' when a notify arrives after openForNotify, before the timeout", async () => {
@@ -269,8 +273,9 @@ describe("first-write gate (beginWindowSwitchGate / notifyFirstWrite)", () => {
 describe("pending-switch mask signal (260715-38kg)", () => {
   afterEach(() => {
     vi.useRealTimers();
-    // Settle any lingering gate + reset the shared mask state between tests.
-    confirmSwitchArrived();
+    // Settle any lingering gate + reset the shared mask state between tests
+    // (unconditional — the byte-gated confirmSwitchArrived cannot do this).
+    forceSwitchArrived();
   });
 
   it("starts idle", () => {
@@ -445,25 +450,51 @@ describe("pending-switch mask signal (260715-38kg)", () => {
     expect(getMaskState()).toBe("idle");
   });
 
-  it("confirmSwitchArrived settles a still-pending gate as first-write, so it never times out into a mask", async () => {
-    // The same-session gap: tmux's redraw completed before openForNotify, so no
-    // later write fires the lift. SSE confirming the switch settles the gate as
-    // first-write and cancels its timeout — the mask never arms.
+  it("confirmSwitchArrived before any counted byte is a no-op: the gate times out, the mask arms, a later byte lifts it", async () => {
+    // Byte-gated SSE confirmation: SSE reports the target active as soon as
+    // `select-window` lands — before any byte of the new window exists — so the
+    // confirmation must NOT settle the gate or lift the mask. The gate's 300ms
+    // timeout arms the mask and the late first write lifts it.
     vi.useFakeTimers();
     const gate = beginWindowSwitchGate({ gated: true });
     gate.openForNotify();
     const wait = gate.waitForFirstWrite(300);
-    // SSE confirms BEFORE the 300ms timeout.
+    // SSE confirms BEFORE the timeout and before any byte: no-op.
     vi.advanceTimersByTime(150);
     confirmSwitchArrived();
+    let settled: string | undefined;
+    void wait.then((r) => {
+      settled = r;
+    });
+    await Promise.resolve();
+    expect(settled).toBeUndefined();
+    // The gate rides out its timeout and the mask arms.
+    vi.advanceTimersByTime(150);
+    await expect(wait).resolves.toBe("timeout");
+    expect(getMaskState()).toBe("masked");
+    // The incoming window's late first write lifts the mask (the designed cut).
+    notifyFirstWrite();
+    expect(getMaskState()).toBe("idle");
+    expect(hasCountedIncomingBytes()).toBe(true);
+  });
+
+  it("confirmSwitchArrived after a counted byte settles/tears down (gate already first-write, no mask)", async () => {
+    // The counted byte IS the settle: once a byte counted, the gate resolved
+    // "first-write" and no mask can be armed — the confirmation only tears down
+    // any leftover mask/grace state.
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(300);
+    notifyFirstWrite();
     await expect(wait).resolves.toBe("first-write");
-    // Advancing past the original timeout must NOT arm a mask — the timer was
-    // cleared by the settle.
+    expect(hasCountedIncomingBytes()).toBe(true);
+    confirmSwitchArrived();
     vi.advanceTimersByTime(300);
     expect(getMaskState()).toBe("idle");
   });
 
-  it("confirmSwitchArrived lifts a mask already armed by a gate timeout", async () => {
+  it("confirmSwitchArrived does NOT lift an armed mask while no byte has been counted", async () => {
     vi.useFakeTimers();
     const gate = beginWindowSwitchGate({ gated: true });
     gate.openForNotify();
@@ -471,8 +502,39 @@ describe("pending-switch mask signal (260715-38kg)", () => {
     vi.advanceTimersByTime(300);
     await wait; // times out → masked
     expect(getMaskState()).toBe("masked");
-    // SSE confirms after the timeout — the authoritative arrived signal lifts it.
+    // SSE confirms with the mask up but no byte counted: the mask stays.
     confirmSwitchArrived();
+    expect(getMaskState()).toBe("masked");
+    // The byte-driven lift still works.
+    notifyFirstWrite();
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("forceSwitchArrived settles a still-pending gate as first-write regardless of bytes (the 5s rescue)", async () => {
+    // The confirmation-timer rescue is unconditional: after the confirmation
+    // window elapses with the target active, a mask with no lift path must
+    // never stay up.
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(300);
+    vi.advanceTimersByTime(150);
+    expect(hasCountedIncomingBytes()).toBe(false);
+    forceSwitchArrived();
+    await expect(wait).resolves.toBe("first-write");
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("forceSwitchArrived tears down an armed mask with no counted byte", async () => {
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await wait;
+    expect(getMaskState()).toBe("masked");
+    forceSwitchArrived();
     expect(getMaskState()).toBe("idle");
   });
 
@@ -506,7 +568,7 @@ describe("pending-switch mask signal (260715-38kg)", () => {
 describe("non-VT / reduced-motion grace mask (260715-38kg, R3)", () => {
   afterEach(() => {
     vi.useRealTimers();
-    confirmSwitchArrived();
+    forceSwitchArrived();
   });
 
   it("arms the mask after the threshold when no countable write arrives", () => {
@@ -629,7 +691,7 @@ describe("in-flight receipt — redraw bytes racing the select POST's resolution
   // exactly the fact the filter was waiting to establish.
   afterEach(() => {
     vi.useRealTimers();
-    confirmSwitchArrived();
+    forceSwitchArrived();
   });
 
   it("a receipt DURING the POST's flight releases the gate at resolution (no mask ever)", async () => {
@@ -716,6 +778,85 @@ describe("in-flight receipt — redraw bytes racing the select POST's resolution
   });
 });
 
+describe("incoming-byte counting (hasCountedIncomingBytes)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    forceSwitchArrived();
+  });
+
+  it("starts false and is cleared when a new switch mints its epoch", async () => {
+    const first = beginWindowSwitchGate({ gated: true });
+    first.openForNotify();
+    const wait = first.waitForFirstWrite(300);
+    notifyFirstWrite();
+    await wait;
+    expect(hasCountedIncomingBytes()).toBe(true);
+    // A fresh gate mints a new epoch — the flag re-arms for THAT switch.
+    beginWindowSwitchGate({ gated: true });
+    expect(hasCountedIncomingBytes()).toBe(false);
+    // Same for the grace-mask (instant path) epoch mint.
+    const grace = armGraceMask(300);
+    grace.openForLift();
+    notifyFirstWrite();
+    expect(hasCountedIncomingBytes()).toBe(true);
+    armGraceMask(300);
+    expect(hasCountedIncomingBytes()).toBe(false);
+  });
+
+  it("counts on the acceptingNotify gate release (first-write settle)", async () => {
+    const gate = beginWindowSwitchGate({ gated: true });
+    gate.openForNotify();
+    expect(hasCountedIncomingBytes()).toBe(false);
+    const wait = gate.waitForFirstWrite(300);
+    notifyFirstWrite();
+    await expect(wait).resolves.toBe("first-write");
+    expect(hasCountedIncomingBytes()).toBe(true);
+  });
+
+  it("counts on the liftAccepting mask lift (late byte after a timeout)", async () => {
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await wait;
+    expect(getMaskState()).toBe("masked");
+    expect(hasCountedIncomingBytes()).toBe(false);
+    notifyFirstWrite();
+    expect(getMaskState()).toBe("idle");
+    expect(hasCountedIncomingBytes()).toBe(true);
+  });
+
+  it("counts an in-flight receipt at openForNotify (gate path)", async () => {
+    const gate = beginWindowSwitchGate({ gated: true });
+    const wait = gate.waitForFirstWrite(300);
+    notifyFirstWrite(); // recorded while the POST is in flight — not yet counted
+    expect(hasCountedIncomingBytes()).toBe(false);
+    gate.openForNotify(); // the POST's resolution counts the recorded receipt
+    await expect(wait).resolves.toBe("first-write");
+    expect(hasCountedIncomingBytes()).toBe(true);
+  });
+
+  it("counts an in-flight receipt at openForLift (grace path)", () => {
+    vi.useFakeTimers();
+    const grace = armGraceMask(300);
+    notifyFirstWrite(); // in-flight receipt
+    expect(hasCountedIncomingBytes()).toBe(false);
+    grace.openForLift();
+    expect(hasCountedIncomingBytes()).toBe(true);
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("does NOT count outgoing-window bytes that arrive before the POST resolves", () => {
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    void gate.waitForFirstWrite(300);
+    notifyFirstWrite(); // outgoing straggler — filtered, merely recorded
+    expect(hasCountedIncomingBytes()).toBe(false);
+  });
+});
+
 describe("isMaskExemptKey (rework F2 — global chords survive the masked swallow)", () => {
   const key = (
     k: string,
@@ -782,7 +923,7 @@ describe("isMaskExemptKey (rework F2 — global chords survive the masked swallo
 describe("abandonSwitchFeedback (rework G2 — bounce/teardown can never be re-masked)", () => {
   afterEach(() => {
     vi.useRealTimers();
-    confirmSwitchArrived();
+    forceSwitchArrived();
   });
 
   it("settles a still-pending gate as 'superseded' so its timer can never re-mask", async () => {

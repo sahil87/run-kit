@@ -210,10 +210,13 @@ function cpuTicks(pids: number[]): number {
   return ticks;
 }
 
+/** Nearest-rank percentile: the smallest value with at least p% of the
+ *  samples at or below it (p95 of 20 samples is the 19th, not the maximum). */
 function percentile(values: number[], p: number): number {
   if (values.length === 0) return NaN;
   const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))];
+  const rank = Math.max(1, Math.ceil((p / 100) * sorted.length));
+  return sorted[rank - 1];
 }
 
 // --- guest (X display) side --------------------------------------------------
@@ -711,6 +714,7 @@ test.describe("@perf GUI smoothness benchmark", () => {
     });
     const total = await readCounters(phonePage);
     expect(total.flips).toBeGreaterThan(0);
+    expect(total.bytes).toBeGreaterThan(0);
 
     const clickToPixelMs = await clickTrials(phonePage, before, true);
     record({ run: "scroll", viewer: `coarse ${PHONE_VIEWPORT.width}x${PHONE_VIEWPORT.height}`, desktop: before, seconds: SCROLL_SECONDS, ...summarize(perSecond), perSecond, clickToPixelMs });

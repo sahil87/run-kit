@@ -102,8 +102,11 @@ export async function stableGuiGeometry(budgetMs = 15_000): Promise<{ width: num
 export function snapshotSettings(): Buffer | null {
   try {
     return readFileSync(SETTINGS_PATH);
-  } catch {
-    return null;
+  } catch (err) {
+    // Only a missing file is "absent" — any other read failure (EACCES, EIO)
+    // must not let afterAll remove a config it never captured.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw err;
   }
 }
 

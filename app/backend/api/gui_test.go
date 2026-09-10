@@ -94,6 +94,9 @@ func TestGuiStatusDisabledDocument(t *testing.T) {
 	if !strings.Contains(string(body), `"enabled":false`) {
 		t.Errorf("body = %s, want enabled:false", body)
 	}
+	if !strings.Contains(string(body), `"wm_candidates":[`) {
+		t.Errorf("body = %s, want wm_candidates serialized as an array on the disabled document", body)
+	}
 }
 
 func TestGuiStatusReachableDocument(t *testing.T) {
@@ -162,6 +165,61 @@ func TestGuiStatusCarriesGeometry(t *testing.T) {
 
 // The reason strings and assembly precedence are covered by the
 // internal/gui assembler tests; here the API asserts seam wiring only.
+
+func TestGuiStatusWMCandidates(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	server.guiLookPathFn = func(name string) (string, error) {
+		switch name {
+		case "icewm-session", "startlxqt":
+			return "/usr/bin/" + name, nil
+		}
+		return "", errors.New("not found: " + name)
+	}
+
+	rec := getJSON(t, router, "/api/gui/host")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var st gui.Status
+	if err := json.NewDecoder(rec.Body).Decode(&st); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := []gui.WMCandidate{
+		{Name: "icewm-session", Label: "IceWM", Kind: "wm", Installed: true},
+		{Name: "startlxqt", Label: "LXQt", Kind: "session", Installed: true},
+	}
+	if !reflect.DeepEqual(st.WMCandidates, want) {
+		t.Errorf("wm_candidates = %+v, want %+v", st.WMCandidates, want)
+	}
+	if strings.Contains(rec.Body.String(), "wm_candidates_hint") {
+		t.Errorf("body = %s, want wm_candidates_hint omitted (startlxqt is installed)", rec.Body.String())
+	}
+}
+
+func TestGuiStatusWMCandidatesEmptyCarriesHint(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	server.guiLookPathFn = func(name string) (string, error) {
+		if name == "apt-get" {
+			return "/usr/bin/apt-get", nil
+		}
+		return "", errors.New("not found: " + name)
+	}
+
+	rec := getJSON(t, router, "/api/gui/host")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"wm_candidates":[]`) {
+		t.Errorf("body = %s, want wm_candidates serialized as [] (never null)", rec.Body.String())
+	}
+	var st gui.Status
+	if err := json.NewDecoder(rec.Body).Decode(&st); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if want := "sudo apt install --no-install-recommends lxqt-core"; st.WMCandidatesHint != want {
+		t.Errorf("wm_candidates_hint = %q, want %q", st.WMCandidatesHint, want)
+	}
+}
 
 func TestGuiStatusSessionAbsent(t *testing.T) {
 	server, router := newGuiAPIServer(t, true)

@@ -83,12 +83,15 @@ func WMLadder() []string {
 // sessionStarters are the desktop-environment session binaries: every member
 // runs under dbus-run-session (a DE without a session bus fails its panel,
 // tray, and policy agents silently — libdbus autolaunch on a headless X
-// display is not dependable). Bare window managers stay unwrapped.
-var sessionStarters = map[string]bool{
-	"startlxqt": true, "lxqt-session": true,
-	"startxfce4": true, "xfce4-session": true,
-	"startplasma-x11": true, "x-session-manager": true,
-}
+// display is not dependable). Bare window managers stay unwrapped. Derived
+// from sessionStarterOrder so the name set is written once.
+var sessionStarters = func() map[string]bool {
+	m := make(map[string]bool, len(sessionStarterOrder))
+	for _, name := range sessionStarterOrder {
+		m[name] = true
+	}
+	return m
+}()
 
 // IsSessionStarter reports whether name is a session-starter binary — the
 // status summary's (session) suffix, the supervisor's WM line, and desktop

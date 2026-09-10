@@ -521,6 +521,167 @@ describe("CommandPalette", () => {
     });
   });
 
+  describe("subList sub-step", () => {
+    const PLACEHOLDER = "Pick a desktop — Enter select · Esc cancel";
+
+    function makeSubListAction(
+      rows: PaletteAction[] | (() => Promise<PaletteAction[]>),
+    ): PaletteAction {
+      return {
+        id: "gui-desktop",
+        label: "GUI: Desktop…",
+        subList: { placeholder: PLACEHOLDER, rows },
+        onSelect: vi.fn(),
+      };
+    }
+
+    function makeRows(): PaletteAction[] {
+      return [
+        { id: "auto", label: "Auto (ladder)", description: "current", onSelect: vi.fn() },
+        { id: "icewm", label: "IceWM", onSelect: vi.fn() },
+        { id: "lxqt", label: "LXQt", onSelect: vi.fn() },
+      ];
+    }
+
+    function enterSubList() {
+      const input = screen.getByPlaceholderText(/^Type a command/);
+      fireEvent.keyDown(input, { key: "Enter" });
+      return screen.getByPlaceholderText(PLACEHOLDER);
+    }
+
+    it("eager rows swap the list to a readOnly sub-step rendering descriptions", () => {
+      const action = makeSubListAction(makeRows());
+      render(<CommandPalette actions={[action]} />);
+      openPalette();
+      const input = enterSubList();
+
+      expect(input).toHaveAttribute("readonly");
+      expect(screen.getByText("Auto (ladder)")).toBeInTheDocument();
+      expect(screen.getByText("— current")).toBeInTheDocument();
+      expect(screen.getByText("IceWM")).toBeInTheDocument();
+      expect(screen.getByText("LXQt")).toBeInTheDocument();
+      expect(screen.queryByText("GUI: Desktop…")).not.toBeInTheDocument();
+      expect(action.onSelect).not.toHaveBeenCalled();
+    });
+
+    it("lazy rows render Loading… until the loader resolves", async () => {
+      let resolveRows: (rows: PaletteAction[]) => void = () => {};
+      const loader = vi.fn().mockImplementation(
+        () => new Promise<PaletteAction[]>((resolve) => { resolveRows = resolve; }),
+      );
+      render(<CommandPalette actions={[makeSubListAction(loader)]} />);
+      openPalette();
+      const input = enterSubList();
+
+      expect(loader).toHaveBeenCalledOnce();
+      expect(screen.getByText("Loading…")).toBeInTheDocument();
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(screen.getByPlaceholderText(PLACEHOLDER)).toBeInTheDocument();
+
+      resolveRows(makeRows());
+      expect(await screen.findByText("IceWM")).toBeInTheDocument();
+    });
+
+    it("a rejected loader renders a non-selectable error row and stays cancelable", async () => {
+      const loader = vi.fn().mockRejectedValue(new Error("down"));
+      render(<CommandPalette actions={[makeSubListAction(loader)]} />);
+      openPalette();
+      const input = enterSubList();
+
+      const errorRow = (await screen.findByText("Couldn't load choices")).closest("[role='option']")!;
+      expect(errorRow).toHaveAttribute("aria-disabled", "true");
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(screen.getByPlaceholderText(PLACEHOLDER)).toBeInTheDocument();
+
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(screen.queryByPlaceholderText(PLACEHOLDER)).not.toBeInTheDocument();
+    });
+
+    it("Enter fires exactly the selected row's onSelect and closes the palette", async () => {
+      const rows = makeRows();
+      render(<CommandPalette actions={[makeSubListAction(rows)]} />);
+      openPalette();
+      const input = enterSubList();
+
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(rows[2].onSelect).toHaveBeenCalledOnce();
+      expect(rows[0].onSelect).not.toHaveBeenCalled();
+      expect(rows[1].onSelect).not.toHaveBeenCalled();
+      expect(screen.queryByPlaceholderText(PLACEHOLDER)).not.toBeInTheDocument();
+    });
+
+    it("click selects a row the same way", () => {
+      const rows = makeRows();
+      render(<CommandPalette actions={[makeSubListAction(rows)]} />);
+      openPalette();
+      enterSubList();
+
+      fireEvent.click(screen.getByText("IceWM"));
+      expect(rows[1].onSelect).toHaveBeenCalledOnce();
+      expect(screen.queryByPlaceholderText(PLACEHOLDER)).not.toBeInTheDocument();
+    });
+
+    it("a disabled row stays inert to Enter and click", () => {
+      const hint = { id: "hint", label: "Install more: sudo apt install lxqt-core", disabled: true, onSelect: vi.fn() };
+      render(<CommandPalette actions={[makeSubListAction([...makeRows(), hint])]} />);
+      openPalette();
+      const input = enterSubList();
+
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(hint.onSelect).not.toHaveBeenCalled();
+      expect(screen.getByPlaceholderText(PLACEHOLDER)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText("Install more: sudo apt install lxqt-core"));
+      expect(hint.onSelect).not.toHaveBeenCalled();
+    });
+
+    it("Escape cancels back out without firing any row", () => {
+      const rows = makeRows();
+      render(<CommandPalette actions={[makeSubListAction(rows)]} />);
+      openPalette();
+      const input = enterSubList();
+
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(screen.queryByPlaceholderText(PLACEHOLDER)).not.toBeInTheDocument();
+      for (const row of rows) expect(row.onSelect).not.toHaveBeenCalled();
+    });
+
+    it("backdrop click cancels the sub-step", () => {
+      const rows = makeRows();
+      render(<CommandPalette actions={[makeSubListAction(rows)]} />);
+      openPalette();
+      enterSubList();
+
+      fireEvent.click(screen.getByTestId("palette-overlay"));
+      expect(screen.queryByPlaceholderText(PLACEHOLDER)).not.toBeInTheDocument();
+      for (const row of rows) expect(row.onSelect).not.toHaveBeenCalled();
+    });
+
+    it("a sub-list row carrying its own confirmLabel/subList fires onSelect directly (no recursion)", () => {
+      const nested: PaletteAction = {
+        id: "nested",
+        label: "Nested row",
+        confirmLabel: "should be ignored",
+        subList: { rows: [] },
+        onSelect: vi.fn(),
+      };
+      render(<CommandPalette actions={[makeSubListAction([nested])]} />);
+      openPalette();
+      const input = enterSubList();
+
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(nested.onSelect).toHaveBeenCalledOnce();
+      expect(screen.queryByText("should be ignored")).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText(PLACEHOLDER)).not.toBeInTheDocument();
+    });
+  });
+
   describe("Ask-operator fallback row", () => {
     const noMatch = makeActions(["New Session"]);
 

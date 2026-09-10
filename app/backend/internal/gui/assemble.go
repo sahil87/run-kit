@@ -57,6 +57,11 @@ func Assemble(ctx context.Context, d StatusDeps) Status {
 		st.Socket = addr
 	}
 	st.Enabled = d.Enabled
+	// Candidates derive from PATH alone — no tmux, no daemon gate — so they
+	// precede the disabled short-circuit: the picker must work with the GUI
+	// off (the bare-set-while-off rule).
+	st.WMCandidates = WMCandidates(d.LookPath)
+	st.WMCandidatesHint = WMCandidatesHint(st.WMCandidates, d.LookPath)
 	if !st.Enabled {
 		return st
 	}

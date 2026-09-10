@@ -58,6 +58,8 @@ import { buildViewActions } from "@/lib/palette/view";
 import { buildLayoutActions, buildTileSwitchActions } from "@/lib/palette/layout";
 import { buildGuiActions } from "@/lib/palette/gui";
 import { closestAspectPreset } from "@/lib/gui-geometry";
+import { buildDesktopPaletteRows } from "@/lib/gui-desktop";
+import { useDesktopPick } from "@/hooks/use-desktop-pick";
 import {
   readGuiResizeLocked,
   readGuiViewMode,
@@ -128,6 +130,8 @@ import { InstanceNameProvider, useInstanceName } from "@/contexts/instance-name-
 import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
 import { GuiOffRequestProvider, useGuiOffRequest, type GuiOffRequest } from "@/contexts/gui-off-context";
 import { GuiOffDialog } from "@/components/gui-off-dialog";
+import { GuiRestartRequestProvider, type GuiRestartRequest } from "@/contexts/gui-restart-context";
+import { GuiRestartDialog } from "@/components/gui-restart-dialog";
 import type { GuiSurfaceCommands } from "@/components/gui-surface";
 import { windowIdToUrlSegment } from "@/lib/router-url";
 import { ServerDialogsProvider, useServerDialogs } from "@/contexts/server-dialogs-context";
@@ -174,7 +178,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, resizeGui, fetchCodeBridge, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions, type CronActionHandlers } from "@/lib/palette/cron";
 import { requestCronsScroll } from "@/lib/server-clock-dashboard-scroll";
@@ -382,6 +386,24 @@ function AppLayoutContent() {
     [],
   );
 
+  // The desktop restart confirm (spec gui.md § Switching desktops): the second
+  // one-mount dialog at this layer, beside the off-confirm. Both desktop-pick
+  // doors (the Settings `gui.wm` row, the palette's `GUI: Desktop…`) request
+  // it through the context AFTER their settings write — `request` resolves the
+  // verdict; the dialog's Restart button owns the restart POST itself.
+  const [guiRestartOpen, setGuiRestartOpen] = useState(false);
+  const guiRestartResolveRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const guiRestart = useMemo<GuiRestartRequest>(
+    () => ({
+      request: () =>
+        new Promise<boolean>((resolve) => {
+          guiRestartResolveRef.current = resolve;
+          setGuiRestartOpen(true);
+        }),
+    }),
+    [],
+  );
+
   // Instance accent (1etw): a 2px stripe across the top of the persistent top
   // bar plus a subtle wash behind it — the "which run-kit instance is this"
   // color channel (server colors own the sidebar). Both hexes are theme-derived
@@ -434,6 +456,7 @@ function AppLayoutContent() {
 
   return (
     <GuiOffRequestProvider value={guiOff}>
+    <GuiRestartRequestProvider value={guiRestart}>
     <PaletteActionsProvider globalActions={globalActions}>
     <div
       className="app-root flex flex-col"
@@ -506,7 +529,19 @@ function AppLayoutContent() {
         }}
       />
     )}
+    {/* The ONE desktop restart-confirm mount — both desktop-pick doors reach
+        it through the gui-restart context after their settings write. */}
+    {guiRestartOpen && (
+      <GuiRestartDialog
+        onClose={(confirmed) => {
+          setGuiRestartOpen(false);
+          guiRestartResolveRef.current?.(confirmed);
+          guiRestartResolveRef.current = null;
+        }}
+      />
+    )}
     </PaletteActionsProvider>
+    </GuiRestartRequestProvider>
     </GuiOffRequestProvider>
   );
 }
@@ -1351,6 +1386,22 @@ function AppShell() {
   // chord's hint rides the registry-inherited `Tile:` rows (the
   // `toggleHints` seam in buildLayoutActions).
   const guiOffRequest = useGuiOffRequest();
+  // The palette door of the desktop picker (spec gui.md § Switching desktops):
+  // the sub-list's lazy loader fetches the status document and the settings
+  // entries ONCE per sub-step entry (never polled, never a stream field) and
+  // maps them through the shared builder; a pick runs the same write →
+  // enabled-check → confirm flow as the Settings row.
+  const desktopPick = useDesktopPick();
+  const loadDesktopRows = useCallback(async (): Promise<PaletteAction[]> => {
+    const [status, entries] = await Promise.all([fetchGuiStatus(), getSettingsEntries()]);
+    const wmEntry = entries.find((e) => e.key === "gui.wm");
+    const currentWM = wmEntry && typeof wmEntry.value === "string" ? wmEntry.value : "";
+    return buildDesktopPaletteRows(status, currentWM, (name) => {
+      void desktopPick(name, (n) => postSettings({ "gui.wm": n })).catch((err: unknown) => {
+        addToast(err instanceof Error && err.message ? err.message : "Failed to save", "error");
+      });
+    });
+  }, [desktopPick, addToast]);
   const guiActions: PaletteAction[] = useMemo(() => {
     if (!windowParam) return [];
     const actions = buildGuiActions({
@@ -1370,6 +1421,7 @@ function AppShell() {
         });
       },
       onTurnOff: () => guiOffRequest?.open(),
+      loadDesktopRows,
       // A ladder miss is a 200 with ok:false by design — toast the server's
       // hint verbatim through the success path; a success toasts nothing (the
       // app appears on the desktop).
@@ -1423,6 +1475,7 @@ function AppShell() {
     guiResizeLocked,
     rkGuiWindow,
     guiOffRequest,
+    loadDesktopRows,
     guiFullscreen,
     resizeGuiDesktop,
     matchGuiTile,

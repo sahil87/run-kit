@@ -15,6 +15,7 @@ function input(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput {
     supervisorAvailable: true,
     onTurnOn: vi.fn(),
     onTurnOff: vi.fn(),
+    loadDesktopRows: vi.fn().mockResolvedValue([]),
     onLaunch: vi.fn(),
     onResize: vi.fn(),
     onResizeCustom: vi.fn(),
@@ -58,6 +59,7 @@ describe("buildGuiActions — tile-open gating", () => {
     const list = ids(input({ tileOpen: false }));
     expect(list).toEqual([
       "gui-turn-off",
+      "gui-desktop",
       "gui-open-terminal",
       "gui-open-browser",
       "gui-res-1280x720",
@@ -73,6 +75,7 @@ describe("buildGuiActions — tile-open gating", () => {
   it("the R8 worked example: on + open + connected + fine + fit + unlocked", () => {
     expect(ids(input())).toEqual([
       "gui-turn-off",
+      "gui-desktop",
       "gui-open-terminal",
       "gui-open-browser",
       "gui-res-1280x720",
@@ -91,15 +94,42 @@ describe("buildGuiActions — tile-open gating", () => {
   });
 });
 
+describe("buildGuiActions — the desktop picker row", () => {
+  it("sits right after GUI: Turn off, before the launch rows, when enabled", () => {
+    const list = ids(input());
+    expect(list.indexOf("gui-desktop")).toBe(list.indexOf("gui-turn-off") + 1);
+    expect(list.indexOf("gui-desktop")).toBeLessThan(list.indexOf("gui-open-terminal"));
+
+    const closed = ids(input({ tileOpen: false }));
+    expect(closed.indexOf("gui-desktop")).toBe(closed.indexOf("gui-turn-off") + 1);
+  });
+
+  it("exists whenever the switch is on — even unreachable", () => {
+    expect(ids(input({ reachable: false }))).toContain("gui-desktop");
+  });
+
+  it("is absent when the switch is off", () => {
+    expect(ids(input({ enabled: false }))).not.toContain("gui-desktop");
+  });
+
+  it("carries the lazy sub-list over the caller's loader", () => {
+    const inp = input();
+    const row = buildGuiActions(inp).find((a) => a.id === "gui-desktop")!;
+    expect(row.label).toBe("GUI: Desktop…");
+    expect(row.subList?.placeholder).toBe("Pick a desktop — Enter select · Esc cancel");
+    expect(row.subList?.rows).toBe(inp.loadDesktopRows);
+  });
+});
+
 describe("buildGuiActions — launch rows", () => {
-  it("sits right after GUI: Turn off, before the tile-open verbs, regardless of tileOpen", () => {
+  it("sits right after the desktop picker, before the tile-open verbs, regardless of tileOpen", () => {
     const open = ids(input({ tileOpen: true }));
-    expect(open.indexOf("gui-open-terminal")).toBe(open.indexOf("gui-turn-off") + 1);
+    expect(open.indexOf("gui-open-terminal")).toBe(open.indexOf("gui-desktop") + 1);
     expect(open.indexOf("gui-open-browser")).toBe(open.indexOf("gui-open-terminal") + 1);
     expect(open.indexOf("gui-open-browser")).toBeLessThan(open.indexOf("gui-fullscreen"));
 
     const closed = ids(input({ tileOpen: false }));
-    expect(closed.indexOf("gui-open-terminal")).toBe(closed.indexOf("gui-turn-off") + 1);
+    expect(closed.indexOf("gui-open-terminal")).toBe(closed.indexOf("gui-desktop") + 1);
   });
 
   it("omits both rows when unreachable", () => {
@@ -212,6 +242,7 @@ describe("buildGuiActions — resolution rows", () => {
     const actions = buildGuiActions(input({ geometry: "1920x1080" }));
     expect(actions.map((a) => a.id)).toEqual([
       "gui-turn-off",
+      "gui-desktop",
       "gui-open-terminal",
       "gui-open-browser",
       "gui-res-1280x720",

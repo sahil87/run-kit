@@ -20,6 +20,14 @@ export type PaletteOptionPicker = {
   onApply: (orderedKeys: string[]) => void;
 };
 
+export type PaletteSubList = {
+  /** Instructional placeholder shown while the sub-step is active. */
+  placeholder?: string;
+  /** Eager rows, or a loader fired once on sub-step entry (pending renders a
+   *  non-selectable `Loading…` row, a rejection `Couldn't load choices`). */
+  rows: PaletteAction[] | (() => Promise<PaletteAction[]>);
+};
+
 export type PaletteAction = {
   id: string;
   label: string;
@@ -34,6 +42,12 @@ export type PaletteAction = {
    * Space/click toggles options (order badges = selection order), Enter
    * applies, Esc/backdrop/⌘K cancel. */
   optionPicker?: PaletteOptionPicker;
+  /** When set, first selection enters a single-select sub-step listing the
+   *  rows (eager or lazy) as plain display rows — a row's own
+   *  confirmLabel/optionPicker/subList are dropped, so a sub-step can never
+   *  recurse. Enter/click on a row closes the palette and fires that row's
+   *  onSelect; Esc/backdrop/⌘K cancel. */
+  subList?: PaletteSubList;
   /** Renders the row dimmed and inert (selecting it is a no-op) — the
    *  palette's disabled affordance (e.g. a switch target whose growth is
    *  disallowed). Prefer omitting the row when the action is simply
@@ -59,16 +73,27 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
   const [confirming, setConfirming] = useState<PaletteAction | null>(null);
   const [picking, setPicking] = useState<PaletteAction | null>(null);
   const [pickedKeys, setPickedKeys] = useState<string[]>([]);
+  const [subListing, setSubListing] = useState<PaletteAction | null>(null);
+  // null = the lazy loader is still in flight.
+  const [subRows, setSubRows] = useState<PaletteAction[] | null>(null);
+  const [subError, setSubError] = useState(false);
+  // Bumped on every sub-list entry/exit so a loader resolving after a cancel
+  // (or after a second entry) can never resurrect stale rows.
+  const subListGenRef = useRef(0);
   const paletteRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listId = useId();
 
   const closePalette = useCallback(() => {
+    subListGenRef.current += 1;
     setOpen(false);
     setConfirming(null);
     setPicking(null);
     setPickedKeys([]);
+    setSubListing(null);
+    setSubRows(null);
+    setSubError(false);
   }, []);
 
   // The hook owns Escape (document-level, so it fires regardless of which
@@ -81,8 +106,8 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
   // sub-step flow. Refocus the input whenever a sub-step activates or a row
   // is click-toggled.
   useEffect(() => {
-    if (confirming || picking) inputRef.current?.focus();
-  }, [confirming, picking, pickedKeys]);
+    if (confirming || picking || subListing) inputRef.current?.focus();
+  }, [confirming, picking, pickedKeys, subListing]);
 
   const baseFiltered = confirming
     ? [
@@ -101,13 +126,41 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
           label: o.label,
           onSelect: () => {},
         }))
-      : actions.filter((a) => {
-          const q = query.toLowerCase();
-          return (
-            a.label.toLowerCase().includes(q) ||
-            (a.description?.toLowerCase().includes(q) ?? false)
-          );
-        });
+      : subListing
+        ? subError
+          ? [
+              {
+                id: `${subListing.id}-load-error`,
+                label: "Couldn't load choices",
+                disabled: true,
+                onSelect: () => {},
+              },
+            ]
+          : subRows === null
+            ? [
+                {
+                  id: `${subListing.id}-loading`,
+                  label: "Loading…",
+                  disabled: true,
+                  onSelect: () => {},
+                },
+              ]
+            : // Display rows by construction: only id/label/description/
+              // disabled/onSelect survive, so a sub-step can never recurse.
+              subRows.map((row): PaletteAction => ({
+                id: `${subListing.id}-sub-${row.id}`,
+                label: row.label,
+                description: row.description,
+                disabled: row.disabled,
+                onSelect: row.onSelect,
+              }))
+        : actions.filter((a) => {
+            const q = query.toLowerCase();
+            return (
+              a.label.toLowerCase().includes(q) ||
+              (a.description?.toLowerCase().includes(q) ?? false)
+            );
+          });
 
   // The Ask-operator fallback row rides the ordinary row machinery (selection,
   // Enter, scroll-into-view) as a synthesized last row — present ONLY at zero
@@ -116,6 +169,7 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
   const showAskRow =
     confirming === null &&
     picking === null &&
+    subListing === null &&
     askOperator !== undefined &&
     shouldShowAskOperatorRow(query, baseFiltered.length, askOperator.hasOperator);
   const filtered: PaletteAction[] = showAskRow
@@ -150,19 +204,27 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
     function handleKeyDown(e: KeyboardEvent) {
       if (toggleBindingsRef.current.some((b) => matchesCombo(e, b))) {
         e.preventDefault();
+        subListGenRef.current += 1;
         setConfirming(null);
         setPicking(null);
         setPickedKeys([]);
+        setSubListing(null);
+        setSubRows(null);
+        setSubError(false);
         setOpen((prev) => !prev);
         setQuery("");
         setSelectedIndex(0);
       }
     }
     function handlePaletteOpen() {
+      subListGenRef.current += 1;
       setOpen(true);
       setConfirming(null);
       setPicking(null);
       setPickedKeys([]);
+      setSubListing(null);
+      setSubRows(null);
+      setSubError(false);
       setQuery("");
       setSelectedIndex(0);
     }
@@ -186,6 +248,29 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
   const handleSelect = useCallback(
     (action: PaletteAction) => {
       if (action.disabled) return;
+      if (action.subList) {
+        subListGenRef.current += 1;
+        const gen = subListGenRef.current;
+        setSubListing(action);
+        setSubError(false);
+        setQuery("");
+        setSelectedIndex(0);
+        const rows = action.subList.rows;
+        if (typeof rows === "function") {
+          setSubRows(null);
+          rows().then(
+            (resolved) => {
+              if (subListGenRef.current === gen) setSubRows(resolved);
+            },
+            () => {
+              if (subListGenRef.current === gen) setSubError(true);
+            },
+          );
+        } else {
+          setSubRows(rows);
+        }
+        return;
+      }
       if (action.optionPicker) {
         setPicking(action);
         setPickedKeys([]);
@@ -270,22 +355,24 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
           type="text"
           value={query}
           onChange={(e) => {
-            if (confirming || picking) return;
+            if (confirming || picking || subListing) return;
             setQuery(e.target.value);
             setSelectedIndex(0);
           }}
           onKeyDown={handleKeyDown}
-          readOnly={confirming !== null || picking !== null}
+          readOnly={confirming !== null || picking !== null || subListing !== null}
           // Placeholder education (260811-ke2s): the prefix namespaces
           // (Board:/Pin:/View:/Window:) are an entire hidden command system with
           // no other always-visible surface. Typed prefixes, not chords — so no
           // coarse-pointer branch.
           placeholder={
-            picking?.optionPicker
-              ? (picking.optionPicker.placeholder ?? "Pick options — Space toggle · Enter apply")
-              : confirming
-                ? "Confirm action..."
-                : "Type a command — try Board: Pin: View: Tab:"
+            subListing
+              ? (subListing.subList?.placeholder ?? "Pick one — Enter select · Esc cancel")
+              : picking?.optionPicker
+                ? (picking.optionPicker.placeholder ?? "Pick options — Space toggle · Enter apply")
+                : confirming
+                  ? "Confirm action..."
+                  : "Type a command — try Board: Pin: View: Tab:"
           }
           aria-label="Search commands"
           aria-autocomplete="list"

@@ -18,6 +18,7 @@ import {
   ScopeHeading,
 } from "@/components/text-setting-core";
 import type { SettingsRegistry } from "@/components/settings-registry-seam";
+import { GuiWMPicker } from "@/components/gui-wm-picker";
 
 /**
  * The All-settings tab — the registry-driven everything-table: rows generated
@@ -150,8 +151,8 @@ function ValueSelect({
 /** The TextSetting contract for `string`/`path` kinds, on the shared core
  *  (`text-setting-core.tsx`): Enter/blur commits, Escape cancels the edit
  *  only, a rejection renders inline (`role="alert"`) and the input keeps the
- *  typed value. */
-function TextEntryControl({
+ *  typed value. Exported for the gui.wm picker's pre-resolution fallback. */
+export function TextEntryControl({
   entry,
   value,
   commit,
@@ -252,6 +253,12 @@ function ReadOnlySummary({ entry }: { entry: SettingsEntry }) {
 function EntryControl({ entry, registry }: { entry: SettingsEntry; registry: SettingsRegistry }) {
   const value = registry.settingValue(entry.key);
   const commit = (v: string | boolean | null) => registry.commitSetting(entry.key, v);
+
+  // The desktop picker's named-key override (same precedent as theme_dark
+  // below — no registry kind): the select + Other… reveal own the row.
+  if (entry.key === "gui.wm") {
+    return <GuiWMPicker entry={entry} value={stringValue(value)} commit={commit} />;
+  }
 
   if (entry.key === "theme_dark" || entry.key === "theme_light") {
     const category = entry.key === "theme_dark" ? "dark" : "light";

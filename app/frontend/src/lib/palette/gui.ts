@@ -12,6 +12,10 @@
  *  - `GUI: Turn on`             — switch OFF only; POSTs `gui.enabled: true`.
  *  - `GUI: Turn off`            — switch ON only; opens the off-confirm dialog
  *                                 (the dialog owns the settings POST).
+ *  - `GUI: Desktop…`            — switch ON only (NOT gated on reachable); a
+ *                                 lazy sub-list of the installed WM/desktop
+ *                                 candidates (the loader fetches the status
+ *                                 document + settings entries on entry).
  *  - `GUI: Open terminal` / `GUI: Open browser` — switch ON AND reachable AND
  *                                 not the screen-sharing mirror (the mirror
  *                                 has no display to launch into); POSTs
@@ -54,6 +58,7 @@
  */
 
 import type { GuiLaunchApp } from "../../api/client";
+import type { PaletteAction } from "../../components/command-palette";
 import type { GuiViewMode } from "../gui-posture";
 import { GUI_GEOMETRY_PRESETS, presetLabel } from "../gui-geometry";
 
@@ -62,6 +67,9 @@ export type GuiPaletteAction = {
   label: string;
   description?: string;
   shortcut?: string;
+  /** The `GUI: Desktop…` sub-list — the palette's generic single-select
+   *  sub-step (see PaletteAction.subList); rows load lazily on entry. */
+  subList?: PaletteAction["subList"];
   disabled?: boolean;
   onSelect: () => void;
 };
@@ -89,6 +97,9 @@ export type GuiPaletteInput = {
   onTurnOn: () => void;
   /** Opens the off-confirm dialog (the dialog owns the settings POST). */
   onTurnOff: () => void;
+  /** The `GUI: Desktop…` sub-list's lazy row loader — fetches the status
+   *  document + settings entries once on sub-step entry (never polled). */
+  loadDesktopRows: () => Promise<PaletteAction[]>;
   /** POST /api/gui/host/launch for the role; the caller owns the toast. */
   onLaunch: (app: GuiLaunchApp) => void;
   /** POST /api/gui/host/resize for a preset or `auto`; the caller owns the toast. */
@@ -114,6 +125,16 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
   }
 
   actions.push({ id: "gui-turn-off", label: "GUI: Turn off", onSelect: input.onTurnOff });
+
+  actions.push({
+    id: "gui-desktop",
+    label: "GUI: Desktop…",
+    subList: {
+      placeholder: "Pick a desktop — Enter select · Esc cancel",
+      rows: input.loadDesktopRows,
+    },
+    onSelect: () => {},
+  });
 
   if (input.reachable && input.backend !== "screen-sharing") {
     actions.push(

@@ -54,6 +54,46 @@ func TestAssembleDisabledShortCircuits(t *testing.T) {
 	}
 }
 
+func TestAssembleDisabledCarriesWMCandidates(t *testing.T) {
+	d := assembleDeps(t)
+	d.Enabled = false
+	d.LookPath = stubLookPath("icewm-session", "startlxqt")
+
+	st := Assemble(context.Background(), d)
+	want := []WMCandidate{
+		{Name: "icewm-session", Label: "IceWM", Kind: "wm", Installed: true},
+		{Name: "startlxqt", Label: "LXQt", Kind: "session", Installed: true},
+	}
+	if !reflect.DeepEqual(st.WMCandidates, want) {
+		t.Errorf("disabled WMCandidates = %+v, want %+v (PATH-only derivation precedes the short-circuit)", st.WMCandidates, want)
+	}
+	if st.WMCandidatesHint != "" {
+		t.Errorf("disabled WMCandidatesHint = %q, want empty (startlxqt is installed)", st.WMCandidatesHint)
+	}
+}
+
+func TestAssembleWMCandidatesHint(t *testing.T) {
+	t.Run("present when no LXQt candidate resolves", func(t *testing.T) {
+		d := assembleDeps(t)
+		d.LookPath = stubLookPath("apt-get", "icewm-session")
+
+		st := Assemble(context.Background(), d)
+		if want := "sudo apt install --no-install-recommends lxqt-core"; st.WMCandidatesHint != want {
+			t.Errorf("WMCandidatesHint = %q, want %q", st.WMCandidatesHint, want)
+		}
+	})
+
+	t.Run("absent when startlxqt is installed", func(t *testing.T) {
+		d := assembleDeps(t)
+		d.LookPath = stubLookPath("apt-get", "startlxqt")
+
+		st := Assemble(context.Background(), d)
+		if st.WMCandidatesHint != "" {
+			t.Errorf("WMCandidatesHint = %q, want empty", st.WMCandidatesHint)
+		}
+	})
+}
+
 func TestAssembleDaemonDownGatesTmux(t *testing.T) {
 	d := assembleDeps(t)
 	d.DaemonRunning = func() bool { return false }
@@ -108,6 +148,19 @@ func TestAssembleReachablePassesThePaneTreeExclude(t *testing.T) {
 		// wm "" on a reachable display carries the install hint; the
 		// resolve-everything LookPath stub detects apt.
 		WMHint: "sudo apt install --no-install-recommends icewm",
+		WMCandidates: []WMCandidate{
+			{Name: "icewm-session", Label: "IceWM", Kind: "wm", Installed: true},
+			{Name: "openbox", Label: "openbox", Kind: "wm", Installed: true},
+			{Name: "xfwm4", Label: "xfwm4", Kind: "wm", Installed: true},
+			{Name: "i3", Label: "i3", Kind: "wm", Installed: true},
+			{Name: "kwin_x11", Label: "kwin_x11", Kind: "wm", Installed: true},
+			{Name: "x-session-manager", Label: "x-session-manager", Kind: "session", Installed: true},
+			{Name: "startlxqt", Label: "LXQt", Kind: "session", Installed: true},
+			{Name: "startxfce4", Label: "XFCE", Kind: "session", Installed: true},
+			{Name: "startplasma-x11", Label: "startplasma-x11", Kind: "session", Installed: true},
+		},
+		// startlxqt resolves under the stub, so no LXQt install hint.
+		WMCandidatesHint: "",
 	}
 	if st.Socket == "" {
 		t.Error("socket empty, want the state-dir host.sock path")

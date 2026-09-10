@@ -623,6 +623,16 @@ export async function fetchCodeBridge(
  * viewer's tile), `""` when disabled. `human_input_ago_ms` is the age of
  * the last relayed human input, omitted when none was seen (omitempty).
  */
+/** One installed window-manager/desktop candidate the server derived from
+ *  PATH (`kind` is `session` for session starters, `wm` for bare window
+ *  managers); only resolving names are listed, so `installed` is always true. */
+export type GuiWMCandidate = {
+  name: string;
+  label: string;
+  kind: "wm" | "session";
+  installed: boolean;
+};
+
 export type GuiStatus = {
   id: string;
   enabled: boolean;
@@ -637,6 +647,12 @@ export type GuiStatus = {
   geometry: string;
   human_input_ago_ms?: number;
   wm_hint?: string;
+  /** Installed WM/desktop candidates, derived from PATH on every read and
+   *  never stored; the server always serializes an array (`[]`, never null).
+   *  Optional here only for old daemons that predate the field. */
+  wm_candidates?: GuiWMCandidate[];
+  /** The LXQt install line, present only when no LXQt candidate is installed. */
+  wm_candidates_hint?: string;
   socket: string;
   session: string;
   reason: string;

@@ -125,6 +125,23 @@ restarted (Xtigervnc :10)
   window manager: icewm-session
 ```
 
+The same pin has two UI doors sharing one picker. Settings → All settings →
+`gui.wm` renders a select — `Auto (ladder)` first, then every installed
+candidate the server detected (`IceWM`, `LXQt`, `XFCE`, bare WMs by name),
+then `Other…` revealing a free-text field for a typed binary — and the
+palette gains `GUI: Desktop…` (⌘K) opening the same picker as a sub-list.
+The candidates ride the status document: `GET /api/gui/host` gains
+`wm_candidates: [{name, label, kind: wm|session, installed: true}]` —
+derived by `LookPath` over the ladder ∪ session-starter set on every read,
+never stored and never in the stream — plus `wm_candidates_hint` (the L-D7
+LXQt install line) when no LXQt candidate is installed, rendered as the
+picker's `Install more: …` footer. Choosing a value writes `gui.wm` through
+`POST /api/settings` and then asks `Restart the desktop now?` with the
+running-apps list, `Restart` / `Later`; `Later` leaves the pin set for the
+next `rk gui on`/`restart`. XFCE stays reachable but unseeded (`rk gui wm
+xfce`) — turn off xfwm4 compositing in Settings → Window Manager Tweaks or
+the relay pays for it.
+
 ---
 
 ## The switch

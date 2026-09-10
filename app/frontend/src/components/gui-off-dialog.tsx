@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
-import { fetchGuiStatus, postSettings, type GuiStatus } from "@/api/client";
-import { Dialog } from "@/components/dialog";
-import { controlClass } from "@/components/control";
+import { useState } from "react";
+import { postSettings, type GuiStatus } from "@/api/client";
 import { useToast } from "@/components/toast";
+import { GuiConfirmShell, useGuiStatusOnOpen } from "@/components/gui-confirm-shell";
 
 /**
  * GuiOffDialog — the GUI off-confirm (spec docs/specs/gui.md § The switch:
@@ -15,7 +14,8 @@ import { useToast } from "@/components/toast";
  * its `apps`/`display`/`uptime_seconds`/`backend` fields — the stream payload
  * carries no apps, so the confirm copy cannot derive from it. Confirm POSTs
  * exactly `{"gui.enabled": false}` — the settings side effect kills the
- * rk-gui session; the dialog never calls a kill route itself.
+ * rk-gui session; the dialog never calls a kill route itself. The fetch/body/
+ * buttons shell is shared with the restart confirm (gui-confirm-shell.tsx).
  */
 
 /** Format the supervisor uptime: `4h 12m` / `3m` / `12s`. */
@@ -65,26 +65,8 @@ export function GuiOffDialog({
   const { addToast } = useToast();
   // null + !loaded = the GET is in flight; null + loaded = it failed (the
   // dialog still confirms — the copy just lacks the apps list).
-  const [status, setStatus] = useState<GuiStatus | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const { status, loaded } = useGuiStatusOnOpen();
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    fetchGuiStatus()
-      .then((s) => {
-        if (alive) {
-          setStatus(s);
-          setLoaded(true);
-        }
-      })
-      .catch(() => {
-        if (alive) setLoaded(true);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   const confirm = () => {
     if (!postOnConfirm) {
@@ -108,35 +90,14 @@ export function GuiOffDialog({
       : null;
 
   return (
-    <Dialog title="Turn the GUI off?" onClose={() => onClose(false)}>
-      {body ? (
-        <p className="text-text-secondary mb-2.5">
-          {body.line}
-          {body.detail ? (
-            <>
-              <br />
-              <span className="pl-4">{body.detail}</span>
-            </>
-          ) : null}
-        </p>
-      ) : (
-        <p className="text-text-secondary mb-2.5">Checking what the GUI is running…</p>
-      )}
-      <div className="flex gap-2">
-        <button
-          onClick={() => onClose(false)}
-          className={`flex-1 ${controlClass({ variant: "confirm" })}`}
-        >
-          Cancel
-        </button>
-        <button
-          onClick={confirm}
-          disabled={busy}
-          className={`flex-1 ${controlClass({ variant: "confirm", danger: true })}`}
-        >
-          Turn off
-        </button>
-      </div>
-    </Dialog>
+    <GuiConfirmShell
+      title="Turn the GUI off?"
+      body={body}
+      cancelLabel="Cancel"
+      confirmLabel="Turn off"
+      busy={busy}
+      onCancel={() => onClose(false)}
+      onConfirm={confirm}
+    />
   );
 }

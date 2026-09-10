@@ -217,7 +217,7 @@ against a stubbed stream alone. Prefer two.
 
 | # | Slug (suggested) | Depends on | Size | Change folder | PR | Status |
 |---|------------------|-----------|------|---------------|----|--------|
-| G1 | `gui-desktop-icewm-and-launcher` | parent C5 merged (it is) | M | 260910-2jl3-gui-desktop-icewm-and-launcher | | in progress (intake 2026-09-10) |
+| G1 | `gui-desktop-icewm-and-launcher` | parent C5 merged (it is) | M | 260910-2jl3-gui-desktop-icewm-and-launcher | https://github.com/sahil87/run-kit/pull/905 | in review (PR #905) |
 | G2 | `gui-desktop-tile-strip-and-palette` | G1 merged | S | | | not started |
 
 ---

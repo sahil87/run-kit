@@ -4351,3 +4351,101 @@ func TestReadServerMarks(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildCreateWindowWithCommandArgs(t *testing.T) {
+	v := "split-h:tty,web"
+	cases := []struct {
+		name     string
+		session  string
+		winName  string
+		cwd      string
+		shellCmd string
+		ops      []WindowOptionOp
+		want     []string
+	}{
+		{
+			name:    "no command, no cwd, no ops",
+			session: "kit",
+			winName: "»fox",
+			want: []string{"new-window", "-P", "-F",
+				"#{session_name}\t#{window_id}\t#{pane_id}",
+				"-a", "-t", "=kit:", "-n", "»fox"},
+		},
+		{
+			name:     "command sits before the chained option ops",
+			session:  "kit",
+			winName:  "»fox",
+			cwd:      "/wt/fox",
+			shellCmd: `'claude' '--model' 'opus'; exec "${SHELL:-/bin/sh}"`,
+			ops:      []WindowOptionOp{{Key: LayoutOption, Value: &v}},
+			want: []string{"new-window", "-P", "-F",
+				"#{session_name}\t#{window_id}\t#{pane_id}",
+				"-a", "-t", "=kit:", "-n", "»fox", "-c", "/wt/fox",
+				`'claude' '--model' 'opus'; exec "${SHELL:-/bin/sh}"`,
+				";", "set-option", "-w", LayoutOption, "split-h:tty,web"},
+		},
+		{
+			name:    "ops chain without a command",
+			session: "my session",
+			winName: "w",
+			ops:     []WindowOptionOp{{Key: LayoutOption, Value: &v}},
+			want: []string{"new-window", "-P", "-F",
+				"#{session_name}\t#{window_id}\t#{pane_id}",
+				"-a", "-t", "=my session:", "-n", "w",
+				";", "set-option", "-w", LayoutOption, "split-h:tty,web"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildCreateWindowWithCommandArgs(tc.session, tc.winName, tc.cwd, tc.shellCmd, tc.ops)
+			if len(got) != len(tc.want) {
+				t.Fatalf("args = %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("args = %v, want %v (first diff at %d)", got, tc.want, i)
+				}
+			}
+		})
+	}
+}
+
+func TestParseWindowBirth(t *testing.T) {
+	cases := []struct {
+		name    string
+		line    string
+		want    WindowBirth
+		wantErr bool
+	}{
+		{
+			name: "three tab-separated fields",
+			line: "kit\t@42\t%97",
+			want: WindowBirth{Session: "kit", WindowID: "@42", PaneID: "%97"},
+		},
+		{
+			name: "session with spaces survives the tab split",
+			line: "my session\t@1\t%2",
+			want: WindowBirth{Session: "my session", WindowID: "@1", PaneID: "%2"},
+		},
+		{name: "two fields error", line: "kit\t@42", wantErr: true},
+		{name: "four fields error", line: "kit\t@42\t%97\textra", wantErr: true},
+		{name: "empty line errors", line: "", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseWindowBirth(tc.line)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("parseWindowBirth(%q) = %+v, want an error", tc.line, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseWindowBirth(%q): %v", tc.line, err)
+			}
+			if got != tc.want {
+				t.Errorf("parseWindowBirth(%q) = %+v, want %+v", tc.line, got, tc.want)
+			}
+		})
+	}
+}

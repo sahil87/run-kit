@@ -339,6 +339,15 @@ stays gated on agent state, which a hook-less pane never has, so `--force` is
 the pairing (no new send gate mode). `parked` and `narrow` also exit 0, so `&&`-composers
 must branch on the report word.
 
+The readiness→report mapping itself is one shared helper (`mapReadyReport` in
+`cmd/rk/mux_await.go` — word + pane form, the ungated stderr diagnostic for
+the parked/narrow verdicts, the exit-classifying error for `gone`) consumed by
+both `rk mux await --ready` and `rk tab new --ready` (wzve): the word
+vocabulary and this verb's stdout/stderr/exit contract are the single mapping;
+`rk tab new --ready` carries the word as the `ready` key of its `--json`
+envelope instead of a bare stdout line, and its probe is legal by construction
+(the pane was created by that very call — nothing has been delivered to it).
+
 The fleet-wake protocol monitoring agents build on (rk guarantee vs caller
 obligation): (a) the CALLER arms only against not-currently-waiting panes — rk
 does not filter already-waiting targets; an already-fired `--until` state

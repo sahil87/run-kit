@@ -24,7 +24,7 @@
 // Security (constitution §I): every subprocess is an argv-slice
 // exec.CommandContext with an explicit timeout — no shell strings. The only
 // argv element subject to user input is the trailing tmux shell string, whose
-// task/skill component is single-quote-escaped via escapeSingleQuotes; the
+// task/skill component is single-quote-escaped via internal/shellq; the
 // launcher itself (resolved from fab-kit's committed fab/project/config.yaml) is
 // the documented shell-expansion exception.
 package riff

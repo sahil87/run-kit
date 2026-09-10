@@ -15,6 +15,7 @@ import (
 	"rk/internal/codeserver"
 	"rk/internal/config"
 	"rk/internal/selfpath"
+	"rk/internal/shellq"
 )
 
 const (
@@ -290,7 +291,7 @@ func spawnCodeServerInstallJob(ctx context.Context) {
 	// tmux joins the trailing argv words with spaces into its own sh -c, so the
 	// chain is one argv element and the exe path is single-quoted (the
 	// space-in-path edge RunJob's unquoted join documents).
-	quoted := shellQuote(exe)
+	quoted := shellq.Quote(exe)
 	argv := []string{quoted + " code-server install && " + quoted + " code-server start"}
 	target, started, err := codeServerRunJob(ctx, CodeServerInstallJobWindow, argv)
 	switch {

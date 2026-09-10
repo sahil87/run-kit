@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"rk/internal/shellq"
 	"rk/internal/tmux"
 )
 
@@ -15,7 +16,8 @@ import (
 //     when cmdArg is empty (bare launcher: no positional).
 //  2. interactive wrap: `${SHELL:-/bin/sh} -i -c '<escaped-layer-1>'` so
 //     .zshrc/.bashrc aliases reach the launcher.
-//  3. shellWrap suffix: `; exec "${SHELL:-/bin/sh}"` so the pane stays interactive.
+//  3. shellq.WithShellFallback suffix: `; exec "${SHELL:-/bin/sh}"` so the pane
+//     stays interactive.
 //
 // Callers deciding BETWEEN positional and post-boot typed delivery go through
 // taskPaneShellString; this function is the positional composition itself.
@@ -24,10 +26,10 @@ func buildSkillShellString(launcher, cmdArg string) string {
 	if cmdArg == "" {
 		layer1 = launcher
 	} else {
-		layer1 = fmt.Sprintf("%s '%s'", launcher, escapeSingleQuotes(cmdArg))
+		layer1 = fmt.Sprintf("%s %s", launcher, shellq.Quote(cmdArg))
 	}
-	interactive := fmt.Sprintf(`${SHELL:-/bin/sh} -i -c '%s'`, escapeSingleQuotes(layer1))
-	return shellWrap(interactive)
+	interactive := fmt.Sprintf(`${SHELL:-/bin/sh} -i -c %s`, shellq.Quote(layer1))
+	return shellq.WithShellFallback(interactive)
 }
 
 // SkillPaneCommand exposes the skill-pane shell composition to cmd/rk (rk
@@ -130,10 +132,11 @@ func launcherCommandName(launcher string) string {
 
 // buildCmdShellString composes the shell string for a cmd-type pane. cmd panes
 // get NO interactive `sh -i -c` wrap (the user's command is self-sufficient and
-// wrapping would alter argv semantics). shellWrap appends the `; exec $SHELL`
-// tail. Empty value → the bare-shell path (just `exec "${SHELL:-/bin/sh}"`).
+// wrapping would alter argv semantics). shellq.WithShellFallback appends the
+// `; exec $SHELL` tail. Empty value → the bare-shell path (just
+// `exec "${SHELL:-/bin/sh}"`).
 func buildCmdShellString(value string) string {
-	return shellWrap(value)
+	return shellq.WithShellFallback(value)
 }
 
 // paneShellString dispatches between skill and cmd composition by pane kind.
@@ -263,23 +266,4 @@ func parsePaneID(stdout string) (string, error) {
 		return "", fmt.Errorf("empty pane id from tmux new-window -P")
 	}
 	return id, nil
-}
-
-// shellWrap appends `; exec "${SHELL:-/bin/sh}"` to cmd so the pane drops into an
-// interactive shell rather than closing when cmd exits. Empty/whitespace-only
-// input yields just the bare `exec "${SHELL:-/bin/sh}"` (never a leading `;`).
-// Pure.
-func shellWrap(cmd string) string {
-	if strings.TrimSpace(cmd) == "" {
-		return `exec "${SHELL:-/bin/sh}"`
-	}
-	return fmt.Sprintf(`%s; exec "${SHELL:-/bin/sh}"`, cmd)
-}
-
-// escapeSingleQuotes returns s with every literal ' replaced by the 4-character
-// sequence '\'' (close the quote, emit a backslash-escaped literal quote, reopen
-// the quote) so the result can be embedded inside a single-quoted shell string
-// (canonical POSIX shell-safe encoding). Pure.
-func escapeSingleQuotes(s string) string {
-	return strings.ReplaceAll(s, "'", `'\''`)
 }

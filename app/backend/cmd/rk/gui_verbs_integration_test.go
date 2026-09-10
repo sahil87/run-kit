@@ -84,7 +84,7 @@ func TestGuiVerbsIntegration(t *testing.T) {
 	}
 	sock := filepath.Join(dir, "host.sock")
 	bin, _ := gui.ResolveBackend(exec.LookPath)
-	start(gui.BackendArgv(bin, display, sock))
+	start(gui.BackendArgv(bin, display, sock, gui.GeometryDefault))
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		if _, err := os.Stat(sock); err == nil {

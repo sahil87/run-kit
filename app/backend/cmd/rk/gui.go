@@ -219,7 +219,7 @@ socket only — nothing ever listens on TCP; on macOS the surface mirrors Screen
 Sharing view-only.
 
 Subcommands:
-  display: on off status env restart exec launch open wm
+  display: on off status env restart exec launch open wm resize
   look:    shot windows wait
   drive:   focus click move scroll type key clip
   guard:   lock unlock
@@ -268,11 +268,12 @@ macOS nothing runs under rk's control, so no confirmation is needed.`,
 var guiStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show the GUI state",
-	Long: `Show the GUI state: 'gui: off', 'gui: on (<backend>, :N, WxH, k
-viewers, <wm>)' when the desktop is reachable, or 'gui: on — not running
+	Long: `Show the GUI state: 'gui: off', 'gui: on (<backend>, :N, WxH
+fixed|auto, k viewers, <wm>)' when the desktop is reachable (the fixed/auto
+marker reads the gui.geometry setting), or 'gui: on — not running
 (<reason>)' with the reason (session absent, no VNC backend, backend exited,
-Screen Sharing off) when it is not. When running, the apps on the display are
-listed indented below.
+Screen Sharing off) when it is not. When running, the apps on the display
+are listed indented below.
 
 --json emits the machine-readable status document (the same document GET
 /api/gui/host serves). Always exits 0 — this is state, not a verdict.`,
@@ -372,6 +373,7 @@ func init() {
 	guiCmd.AddCommand(guiLockCmd)
 	guiCmd.AddCommand(guiUnlockCmd)
 	guiCmd.AddCommand(guiWmCmd)
+	guiCmd.AddCommand(guiResizeCmd)
 
 	// Arg-count violations on the children are usage-class (exit 2) — root.go's
 	// central wrap loop covers only rootCmd's direct children (the code-server
@@ -628,9 +630,11 @@ func guiWMLines(sink outputSink, wm string) {
 // by wiring the package seams into gui.Assemble (the assembly — daemon gate,
 // stamps, uptime, probe, reason, apps — is owned once in internal/gui).
 func gatherGUIStatus(ctx context.Context) gui.Status {
+	st := guiSettingsLoad()
 	return gui.Assemble(ctx, gui.StatusDeps{
 		ID:             daemon.GUIWindowName,
-		Enabled:        guiSettingsLoad().GUIEnabled,
+		Enabled:        st.GUIEnabled,
+		Geometry:       st.GUIGeometry,
 		DaemonRunning:  guiDaemonRunningFn,
 		SessionExists:  guiSessionExistsFn,
 		SessionOptions: guiSessionOptionsFn,
@@ -660,7 +664,7 @@ func guiStatusSummary(st gui.Status) string {
 		if bin == "" {
 			bin, _ = gui.ResolveBackend(guiLookPathFn)
 		}
-		return "gui: " + guiOnSummary(bin, st.Display, st.Width, st.Height, st.Viewers, st.WM, st.Locked)
+		return "gui: " + guiOnSummary(bin, st.Display, st.Width, st.Height, st.Geometry, st.Viewers, st.WM, st.Locked)
 	}
 	return "gui: on — not running (" + st.Reason + ")"
 }
@@ -676,12 +680,14 @@ func guiSessionSuffix(wm string) string {
 	return ""
 }
 
-// guiOnSummary is the shared "on (<bin>, :N, WxH, k viewer(s), <wm>[, locked])"
-// rendering — the status line's tail and the doctor row's reachable note. An
-// empty wm renders the bare "no window manager" (the doctor appends the
-// install hint itself; the status line does not); locked rides last when the
-// host resolution pin is set.
-func guiOnSummary(bin, display string, width, height, viewers int, wm string, locked bool) string {
+// guiOnSummary is the shared "on (<bin>, :N, WxH [fixed|auto], k viewer(s),
+// <wm>[, locked])" rendering — the status line's tail and the doctor row's
+// reachable note. An empty wm renders the bare "no window manager" (the
+// doctor appends the install hint itself; the status line does not); the
+// WxH stays the probe's live size while the fixed/auto marker reads the
+// gui.geometry setting (an empty geometry renders bare WxH for safety);
+// locked rides last when the host resolution pin is set.
+func guiOnSummary(bin, display string, width, height int, geometry string, viewers int, wm string, locked bool) string {
 	noun := "viewers"
 	if viewers == 1 {
 		noun = "viewer"
@@ -691,7 +697,16 @@ func guiOnSummary(bin, display string, width, height, viewers int, wm string, lo
 	} else {
 		wm += guiSessionSuffix(wm)
 	}
-	s := fmt.Sprintf("on (%s, %s, %dx%d, %d %s, %s", bin, display, width, height, viewers, noun, wm)
+	size := fmt.Sprintf("%dx%d", width, height)
+	switch geometry {
+	case "":
+		// Bare WxH — a missing setting says nothing about the resize policy.
+	case gui.GeometryAuto:
+		size += " auto"
+	default:
+		size += " fixed"
+	}
+	s := fmt.Sprintf("on (%s, %s, %s, %d %s, %s", bin, display, size, viewers, noun, wm)
 	if locked {
 		s += ", locked"
 	}

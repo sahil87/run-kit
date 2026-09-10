@@ -29,7 +29,11 @@ import {
 // tests drive the gui slot between a bare fixture (`wm: ""`) and a WM-stamped
 // one (`wm: "icewm-session"`); the palette launch-row tests stub
 // `POST /api/gui/host/launch` with the `ok:false` ladder-miss document and
-// capture the request body. Both desktop (1280px) and mobile (375px,
+// capture the request body. Every reachable gui fixture carries the host's
+// `geometry` setting (a fixed WxH or `auto`); the geometry tests exercise
+// the palette's disabled Lock row / hidden Auto row gating across a
+// fixed→`auto` flip and stub `POST /api/gui/host/resize` to capture the
+// preset row's request body. Both desktop (1280px) and mobile (375px,
 // hasTouch) forks run.
 //
 // (b) XVNC-GATED, real rig: skips cleanly when Xtigervnc is not on PATH (CI
@@ -38,10 +42,15 @@ import {
 // openbox on the test daemon socket), opens the tile, zen-zooms it, attaches
 // a coarse 375px viewer (proving a phone never drives SetDesktopSize — the
 // payload width/height stay), and walks the off-confirm → degrade → restore
-// cycle. The settings file is snapshotted in beforeAll and restored in afterAll
+// cycle. A resize case POSTs /api/gui/host/resize through page.request,
+// asserts the display's width/height follow within seconds and the fit-mode
+// canvas letterboxes to the desktop's aspect, then resizes back. The settings
+// file is snapshotted in beforeAll and restored in afterAll
 // (`_gui.ts` snapshotSettings/restoreSettings — the restore also POSTs
 // {"gui.enabled": null} so the rk-gui session is killed and the key unset even
-// when the snapshot held no gui key). The rig helpers (capability gate, status
+// when the snapshot held no gui key; the afterAll additionally POSTs
+// {"gui.geometry": null} first so the run's geometry writes never outlive it).
+// The rig helpers (capability gate, status
 // fetch/poll, geometry settle) are shared with gui-perf.spec.ts via `_gui.ts`.
 
 const GUI_OFF = [
@@ -52,9 +61,13 @@ const GUI_ON_UNREACHABLE = [
 ];
 const GUI_REASON = "no VNC backend: sudo apt install --no-install-recommends tigervnc-standalone-server icewm";
 const GUI_ON_BARE = [
-  { id: "host", enabled: true, backend: "Xtigervnc", reachable: true, display: ":10", width: 1280, height: 800, viewers: 0, wm: "", locked: false },
+  { id: "host", enabled: true, backend: "Xtigervnc", reachable: true, display: ":10", width: 1280, height: 800, viewers: 0, wm: "", locked: false, geometry: "1920x1080" },
 ];
 const GUI_ON_ICEWM = [{ ...GUI_ON_BARE[0], wm: "icewm-session" }];
+// Geometry variants of the reachable icewm entry: a fixed desktop size vs the
+// follow-the-tile `auto` value (the palette's Lock/Auto rows key off it).
+const GUI_ON_FIXED = [{ ...GUI_ON_ICEWM[0], geometry: "1600x900" }];
+const GUI_ON_AUTO = [{ ...GUI_ON_ICEWM[0], geometry: "auto" }];
 const GUI_WM_HINT = "sudo apt install --no-install-recommends icewm";
 const GUI_STATUS_BARE = {
   id: "host",
@@ -392,6 +405,91 @@ test.describe("gui surface — mocked signal, desktop (1280px)", () => {
     await expect.poll(() => launchBody).toEqual({ app: "browser" });
     await expect(page.getByText(/no browser on the GUI host/)).toBeVisible();
   });
+
+  /**
+   * Proves: under a fixed `gui.geometry` the palette keeps `GUI: Lock
+   * resolution` listed but DISABLED with the fixed-size copy (the pins are
+   * inert — no viewer can drive SetDesktopSize), and flipping the stream's
+   * geometry to `auto` re-enables the row while the destination-only
+   * `GUI: Resolution → Auto (follow this tile)` row drops out of the list.
+   *
+   * Steps:
+   * 1. Mock the backend with the fixed-geometry entry (`geometry: "1600x900"`,
+   *    reachable, WM-stamped status document); open @1; toggle the gui tile
+   *    open (the Lock row needs an open tile).
+   * 2. Open the palette; assert the Lock option is aria-disabled and reads
+   *    exactly `GUI: Lock resolution — resolution is fixed (1600×900) — pick
+   *    Auto to follow the tile`, and that the Auto row is listed; Escape.
+   * 3. `emitGui` the `auto` entry; reopen the palette; assert the Lock row is
+   *    enabled again and the Auto row is gone.
+   */
+  test("fixed geometry: the Lock row is disabled with the fixed copy; `auto` re-enables it and drops the Auto row", async ({
+    page,
+  }) => {
+    await mockGuiBackend(page, GUI_ON_FIXED, { ...GUI_STATUS_BARE, wm: "icewm-session", wm_hint: "" });
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+    await toggleButton(page, "GUI tile").click();
+    await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    let paletteInput = await openPalette(page);
+    await paletteInput.fill("GUI: Lock resolution");
+    const lockOption = page.getByRole("option", { name: "GUI: Lock resolution" });
+    await expect(lockOption).toBeVisible();
+    await expect(lockOption).toHaveAttribute("aria-disabled", "true");
+    await expect(lockOption).toHaveText(
+      "GUI: Lock resolution — resolution is fixed (1600×900) — pick Auto to follow the tile",
+    );
+    await paletteInput.fill("GUI: Resolution → Auto");
+    await expect(
+      page.getByRole("option", { name: "GUI: Resolution → Auto (follow this tile)" }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    emitGui(GUI_ON_AUTO);
+    paletteInput = await openPalette(page);
+    await paletteInput.fill("GUI: Lock resolution");
+    await expect(lockOption).toBeVisible();
+    await expect(lockOption).not.toHaveAttribute("aria-disabled", "true");
+    await paletteInput.fill("GUI: Resolution → Auto");
+    await expect(
+      page.getByRole("option", { name: "GUI: Resolution → Auto (follow this tile)" }),
+    ).toHaveCount(0);
+  });
+
+  /**
+   * Proves: selecting the palette's `GUI: Resolution → 1280×720` preset row
+   * POSTs the resize endpoint with exactly `{"geometry":"1280x720"}` — the ×
+   * glyph is display-only, the wire value is the lowercase-x form.
+   *
+   * Steps:
+   * 1. Stub `POST /api/gui/host/resize` (capturing the request body, answering
+   *    the 200 ok document); mock the backend reachable with
+   *    `geometry: "1920x1080"`; open @1.
+   * 2. Open the palette, filter to the resolution rows, select
+   *    `GUI: Resolution → 1280×720`.
+   * 3. Assert the captured body is exactly `{ geometry: "1280x720" }`.
+   */
+  test("Resolution → 1280×720 posts the exact resize body", async ({ page }) => {
+    let resizeBody: unknown = null;
+    await page.route("**/api/gui/host/resize", async (route) => {
+      resizeBody = JSON.parse(route.request().postData() ?? "null");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, geometry: "1280x720", was: "1920x1080" }),
+      });
+    });
+    await mockGuiBackend(page, GUI_ON_ICEWM);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("GUI: Resolution");
+    await page.getByRole("option", { name: "GUI: Resolution → 1280×720" }).click();
+
+    await expect.poll(() => resizeBody).toEqual({ geometry: "1280x720" });
+  });
 });
 
 test.describe("gui surface — mocked signal, mobile (375px)", () => {
@@ -487,6 +585,10 @@ test.describe("gui surface — real Xvnc rig", () => {
       }
     }
     killSession(SESSION);
+    // The resize case left gui.geometry written; unset it through the daemon
+    // BEFORE the snapshot restore rewrites the file, so the key cannot
+    // outlive the run.
+    await postSettingsRaw({ "gui.geometry": null });
     await restoreSettings(settingsSnapshot);
   });
 
@@ -616,5 +718,89 @@ test.describe("gui surface — real Xvnc rig", () => {
     await expect(page.getByTestId("surface-tile-gui")).toBeVisible({ timeout: READY_TIMEOUT });
     // The respawned Xvnc takes seconds to answer the probe again.
     await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: 30_000 });
+  });
+
+  /**
+   * Proves: POST /api/gui/host/resize resizes the live display in place — the
+   * status document's width/height read the requested size within seconds —
+   * and the open tile's fit-mode canvas letterboxes to the desktop's 16:9
+   * aspect (narrower or shorter than its host div); a second resize restores
+   * 1920x1080.
+   *
+   * Steps:
+   * 1. Clean slate (unset gui.enabled, wait out any half-torn-down session),
+   *    POST the switch on, open the seeded window, assert the GUI button.
+   * 2. Poll /api/gui/host until reachable; open the gui tile (the window's
+   *    persisted layout may already show it from the lifecycle test above, so
+   *    the toggle — which TOGGLES — is pressed only when the tile is not
+   *    visible); assert the live canvas mounts.
+   * 3. POST /api/gui/host/resize {"geometry":"1280x720"} via page.request;
+   *    assert the status document reads width 1280 / height 720 within 5 s.
+   * 4. Poll the canvas bounding box until it sits at 16:9 (width == height ×
+   *    16/9 within 2 px), then assert it is contained in the noVNC host div's
+   *    box and strictly narrower or shorter (the fit-mode letterbox).
+   * 5. POST the resize back to {"geometry":"1920x1080"}; assert the status
+   *    document follows.
+   */
+  test("the resize endpoint drives the display size; the fit canvas letterboxes to 16:9", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    // Retry clean slate: unset first and wait out any half-torn-down session.
+    await postSettingsRaw({ "gui.enabled": null });
+    expect(await pollGuiStatus((s) => !s.session, 15_000)).toBe(true);
+    const on = await page.request.post("/api/settings", {
+      data: { "gui.enabled": true },
+    });
+    expect(on.ok()).toBe(true);
+
+    const win = await resolveWindow(page, TMUX_SERVER, SESSION, "work");
+    await gotoWindow(page, TMUX_SERVER, win.windowId);
+    await expect(toggleButton(page, "GUI tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    expect(await pollGuiStatus((s) => s.reachable)).toBe(true);
+    const canvasHost = page.getByTestId("gui-surface-canvas");
+    // The window's persisted layout may already carry an open gui tile from
+    // the lifecycle test above; the toggle TOGGLES, so press it only when the
+    // tile is not showing.
+    const tileOpen = await canvasHost
+      .waitFor({ state: "visible", timeout: 3_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!tileOpen) await toggleButton(page, "GUI tile").click();
+    const canvas = canvasHost.locator("canvas");
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+
+    const shrink = await page.request.post("/api/gui/host/resize", {
+      data: { geometry: "1280x720" },
+    });
+    expect(shrink.ok()).toBe(true);
+    expect(await pollGuiStatus((s) => s.width === 1280 && s.height === 720, 5_000)).toBe(true);
+
+    // Fit mode preserves the desktop's aspect inside the tile: the canvas
+    // letterboxes against the noVNC host div at the desktop's 16:9.
+    const host = canvasHost.locator(":scope > div.flex-1");
+    let canvasBox: { width: number; height: number } | null = null;
+    let hostBox: { width: number; height: number } | null = null;
+    await expect
+      .poll(
+        async () => {
+          canvasBox = await canvas.boundingBox();
+          hostBox = await host.boundingBox();
+          if (!canvasBox || !hostBox) return false;
+          return Math.abs(canvasBox.width - (canvasBox.height * 16) / 9) <= 2;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+    expect(canvasBox!.width).toBeLessThanOrEqual(hostBox!.width);
+    expect(canvasBox!.height).toBeLessThanOrEqual(hostBox!.height);
+    expect(canvasBox!.width < hostBox!.width || canvasBox!.height < hostBox!.height).toBe(true);
+
+    const back = await page.request.post("/api/gui/host/resize", {
+      data: { geometry: "1920x1080" },
+    });
+    expect(back.ok()).toBe(true);
+    expect(await pollGuiStatus((s) => s.width === 1920 && s.height === 1080, 10_000)).toBe(true);
   });
 });

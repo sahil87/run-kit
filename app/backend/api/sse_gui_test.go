@@ -74,9 +74,45 @@ func TestGuiTickDisabledPayloadShape(t *testing.T) {
 	isolateSettings(t) // fresh HOME ⇒ gui.enabled false by default
 	hub := newGuiTestHub()
 	hub.guiTick()
-	want := `[{"id":"host","enabled":false,"backend":"","reachable":false,"display":"","width":0,"height":0,"viewers":0,"wm":"","locked":false}]`
+	want := `[{"id":"host","enabled":false,"backend":"","reachable":false,"display":"","width":0,"height":0,"viewers":0,"wm":"","locked":false,"geometry":""}]`
 	if got := hub.cachedGui(t); got != want {
 		t.Fatalf("disabled payload = %s, want %s", got, want)
+	}
+}
+
+// The geometry rides the settings file like gui.enabled: the tick's one
+// settings.Load carries gui.geometry into the payload while enabled, and
+// setGUIEnabled(false) clears it.
+func TestGuiTickPayloadCarriesGeometry(t *testing.T) {
+	isolateSettings(t)
+	st := settings.Load()
+	st.GUIEnabled = true
+	st.GUIGeometry = "1600x900"
+	if err := settings.Save(st); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	stub := &guiProbeStub{info: gui.Info{Reachable: true, Width: 1600, Height: 900}}
+	hub := newGuiTestHub()
+	stubGuiSeams(hub, ":10", "Xtigervnc", true, stub.probe)
+
+	hub.guiTick()
+	if got := hub.cachedGui(t); !strings.Contains(got, `"geometry":"1600x900"`) {
+		t.Fatalf("payload = %s, want \"geometry\":\"1600x900\" from the setting", got)
+	}
+
+	// A settings edit surfaces on the next tick (the per-tick re-read).
+	st.GUIGeometry = gui.GeometryAuto
+	if err := settings.Save(st); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	hub.guiTick()
+	if got := hub.cachedGui(t); !strings.Contains(got, `"geometry":"auto"`) {
+		t.Fatalf("payload = %s, want \"geometry\":\"auto\" after the edit", got)
+	}
+
+	hub.setGUIEnabled(false)
+	if got := hub.cachedGui(t); !strings.Contains(got, `"geometry":""`) {
+		t.Fatalf("payload = %s, want geometry cleared on disable", got)
 	}
 }
 

@@ -293,9 +293,9 @@ type sseHub struct {
 	cachedCodeServerJSON string
 	// The guiEnabled/guiProbeAt/guiInfo/guiBackend/guiDisplay/guiWM/guiViewers/
 	// cachedGuiJSON group implements the host-global `event: gui` slot
-	// (mirroring the code-server slot). guiEnabled is re-read from the
-	// settings file every tick — a CLI-side `rk gui on` writes the file
-	// directly and must surface without a settings POST. guiProbeAt/guiInfo
+	// (mirroring the code-server slot). guiEnabled and guiGeometry are re-read
+	// from the settings file every tick — a CLI-side `rk gui on` writes the
+	// file directly and must surface without a settings POST. guiProbeAt/guiInfo
 	// are the TTL-cached probe result; guiBackend/guiDisplay/guiWM are the
 	// supervisor's stamped session options from the last probe pass (the
 	// viewers>0 short-circuit keeps the last values — the stamps do not
@@ -307,6 +307,7 @@ type sseHub struct {
 	// Guarded by h.mu; only the poll loop, setGUIEnabled, and the relay's
 	// viewer bookkeeping write.
 	guiEnabled    bool
+	guiGeometry   string
 	guiProbeAt    time.Time
 	guiInfo       gui.Info
 	guiBackend    string
@@ -767,9 +768,11 @@ const guiTickTimeout = 5 * time.Second
 // follows from the live relay and each dial would write accept/close lines
 // into the supervisor pane's log.
 func (h *sseHub) guiTick() {
-	enabled := settings.Load().GUIEnabled
+	guiSettings := settings.Load()
+	enabled := guiSettings.GUIEnabled
 
 	h.mu.Lock()
+	h.guiGeometry = guiSettings.GUIGeometry
 	if enabled != h.guiEnabled {
 		h.guiEnabled = enabled
 		// Force a fresh probe on the flip so a CLI on/off surfaces within one
@@ -855,6 +858,7 @@ func (h *sseHub) guiPayloadLocked() string {
 		entry.Viewers = h.guiViewers[daemon.GUIWindowName]
 		entry.WM = h.guiWM
 		entry.Locked = h.guiLocked
+		entry.Geometry = h.guiGeometry
 		if at, ok := h.guiHumanInput[daemon.GUIWindowName]; ok {
 			entry.HumanInputAgoMS = gui.HumanInputAgoMS(at, time.Now())
 		}
@@ -884,6 +888,9 @@ func (h *sseHub) setGUIEnabled(enabled bool) {
 	h.guiDisplay = ""
 	h.guiWM = ""
 	h.guiLocked = false
+	if !enabled {
+		h.guiGeometry = ""
+	}
 	str := h.guiPayloadLocked()
 	if str == "" {
 		return

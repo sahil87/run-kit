@@ -39,7 +39,7 @@ func TestXtigervncProbeIntegration(t *testing.T) {
 	}
 	display := fmt.Sprintf(":%d", n)
 
-	argv := BackendArgv(bin, display, sock)
+	argv := BackendArgv(bin, display, sock, GeometryDefault)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout = os.Stderr // the backend log is diagnostic on failure
 	cmd.Stderr = os.Stderr

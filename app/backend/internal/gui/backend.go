@@ -51,8 +51,11 @@ func BackendAddr(id string) (network, addr string, err error) {
 // BackendArgv builds the fixed VNC backend argv. display is the ":N" string.
 // -rfbport -1 is mandatory: without it TigerVNC binds TCP 5900+N on all
 // interfaces, and the unix socket must be the only door. Auth is None because
-// rk on the same user is the only client.
-func BackendArgv(bin, display, socket string) []string {
+// rk on the same user is the only client. geometry is emitted verbatim as the
+// -geometry value (the caller resolves "auto" to GeometryDefault — Xvnc needs
+// a concrete size at boot; -AcceptSetDesktopSize keeps live RandR resizes
+// possible).
+func BackendArgv(bin, display, socket, geometry string) []string {
 	return []string{
 		bin, display,
 		"-rfbunixpath", socket,
@@ -60,7 +63,7 @@ func BackendArgv(bin, display, socket string) []string {
 		"-SecurityTypes", "None",
 		"-AlwaysShared",
 		"-AcceptSetDesktopSize",
-		"-geometry", "1920x1080",
+		"-geometry", geometry,
 		"-FrameRate=60",
 		"-desktop", "run-kit",
 	}

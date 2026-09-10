@@ -70,7 +70,8 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	entries := getSettingsList(t, router)
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
-		"instance_name", "auto_name", "cron_ticker", "gui.enabled", "gui.wm", "tmux_conf",
+		"instance_name", "auto_name", "cron_ticker", "gui.enabled", "gui.wm", "gui.geometry",
+		"tmux_conf",
 		"log_level", "server_colors", "server_flairs", "board_order",
 	}
 	if len(entries) != len(wantKeys) {
@@ -190,7 +191,7 @@ func TestGetSettings_enumOptionsWireShape(t *testing.T) {
 	// Non-enum kinds omit the options key entirely (omitempty).
 	for _, key := range []string{
 		"theme_dark", "theme_light", "instance_color", "ssh_host",
-		"instance_name", "auto_name", "cron_ticker", "tmux_conf",
+		"instance_name", "auto_name", "cron_ticker", "gui.geometry", "tmux_conf",
 		"server_colors", "server_flairs", "board_order",
 	} {
 		if _, present := byKey[key]["options"]; present {
@@ -731,5 +732,61 @@ func TestPostSettings_guiEnsureFailureIsBestEffort(t *testing.T) {
 	}
 	if !settings.Load().GUIEnabled {
 		t.Error("gui.enabled not persisted despite the ensure failure")
+	}
+}
+
+// --- POST /api/settings: gui.geometry live resize side effect ---
+
+// A fixed geometry on an enabled, reachable rig applies live: the runner sees
+// the query then the resize steps, and the response stays 200.
+func TestPostSettings_guiGeometryFixedResizesLive(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	var calls []xrandrCall
+	server.guiXrandrRunFn = recordingXrandrRunner(&calls, "", nil)
+
+	rec := postJSON(t, router, "/api/settings", `{"gui.geometry": "1280x720"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := settings.Load().GUIGeometry; got != "1280x720" {
+		t.Errorf("GUIGeometry = %q, want 1280x720 persisted", got)
+	}
+	// 1280x720 is listed in the fake query, so the resize is the single
+	// --output --mode step on the status's display.
+	want := []xrandrCall{
+		{":10", []string{"xrandr", "--query"}},
+		{":10", []string{"xrandr", "--output", "VNC-0", "--mode", "1280x720"}},
+	}
+	if !reflect.DeepEqual(calls, want) {
+		t.Errorf("xrandr calls = %+v, want %+v", calls, want)
+	}
+}
+
+// Disabled GUI: the setting still saves (the generic path owns persistence)
+// but no xrandr runs.
+func TestPostSettings_guiGeometryDisabledSkipsResize(t *testing.T) {
+	server, router := newGuiAPIServer(t, false)
+	server.guiXrandrRunFn = failIfXrandrRuns(t)
+
+	rec := postJSON(t, router, "/api/settings", `{"gui.geometry": "1280x720"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := settings.Load().GUIGeometry; got != "1280x720" {
+		t.Errorf("GUIGeometry = %q, want 1280x720 persisted", got)
+	}
+}
+
+// "auto" needs no live action — the stream's geometry flips resizeSession.
+func TestPostSettings_guiGeometryAutoSkipsResize(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	server.guiXrandrRunFn = failIfXrandrRuns(t)
+
+	rec := postJSON(t, router, "/api/settings", `{"gui.geometry": "auto"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := settings.Load().GUIGeometry; got != "auto" {
+		t.Errorf("GUIGeometry = %q, want auto persisted", got)
 	}
 }

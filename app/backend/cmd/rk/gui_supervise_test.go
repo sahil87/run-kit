@@ -81,13 +81,14 @@ func withGuiSuperviseLookPath(t *testing.T, resolvable map[string]string) {
 }
 
 // withGuiSuperviseSettingsLoad stubs the settings seam with the given gui.wm
-// pin ("" = no pin) so supervisor tests never read a real config file.
-func withGuiSuperviseSettingsLoad(t *testing.T, pin string) {
+// pin ("" = no pin) and gui.geometry value so supervisor tests never read a
+// real config file.
+func withGuiSuperviseSettingsLoad(t *testing.T, pin, geometry string) {
 	t.Helper()
 	orig := guiSuperviseSettingsLoad
 	t.Cleanup(func() { guiSuperviseSettingsLoad = orig })
 	guiSuperviseSettingsLoad = func() settings.Settings {
-		return settings.Settings{GUIWM: pin}
+		return settings.Settings{GUIWM: pin, GUIGeometry: geometry}
 	}
 }
 
@@ -110,6 +111,14 @@ func TestGuiSuperviseLineFormats(t *testing.T) {
 	if got, want := guiBackendUpLine("Xtigervnc", ":11", "/x/gui/host.sock"),
 		"gui: Xtigervnc up on :11 (socket /x/gui/host.sock)"; got != want {
 		t.Errorf("up line = %q, want %q", got, want)
+	}
+	if got, want := guiDesktopLine("1600x900", false),
+		"gui: desktop 1600x900 (gui.geometry)"; got != want {
+		t.Errorf("fixed desktop line = %q, want %q", got, want)
+	}
+	if got, want := guiDesktopLine("1920x1080", true),
+		"gui: desktop 1920x1080 (auto — follows the focused viewer)"; got != want {
+		t.Errorf("auto desktop line = %q, want %q", got, want)
 	}
 	if got, want := guiNoWMLine("sudo apt install --no-install-recommends icewm"),
 		"gui: no window manager found (tried icewm-session, openbox, xfwm4, i3, kwin_x11, x-session-manager); running bare — sudo apt install --no-install-recommends icewm, then rk gui restart"; got != want {
@@ -287,7 +296,7 @@ func TestGuiSuperviseLinuxSignalTeardown(t *testing.T) {
 	})
 	buf := captureGuiSuperviseLog(t)
 	stamps := captureGuiStamps(t)
-	withGuiSuperviseSettingsLoad(t, "")
+	withGuiSuperviseSettingsLoad(t, "", gui.GeometryDefault)
 
 	sock, err := gui.SocketPath("host")
 	if err != nil {
@@ -329,6 +338,74 @@ func TestGuiSuperviseLinuxSignalTeardown(t *testing.T) {
 	}
 }
 
+// withGuiSuperviseBackendArgvRec wraps the backend-start seam so the test sees
+// the argv while the stub backend still starts.
+func withGuiSuperviseBackendArgvRec(t *testing.T) *[][]string {
+	t.Helper()
+	argvs := &[][]string{}
+	orig := guiSuperviseStartBackend
+	t.Cleanup(func() { guiSuperviseStartBackend = orig })
+	guiSuperviseStartBackend = func(ctx context.Context, argv []string) (*exec.Cmd, error) {
+		*argvs = append(*argvs, append([]string(nil), argv...))
+		return orig(ctx, argv)
+	}
+	return argvs
+}
+
+// argvFlagValue returns the element following flag in argv, or "".
+func argvFlagValue(argv []string, flag string) string {
+	for i, arg := range argv {
+		if arg == flag && i+1 < len(argv) {
+			return argv[i+1]
+		}
+	}
+	return ""
+}
+
+// The -geometry argv and the desktop log line read gui.geometry once at
+// supervise start: a fixed value passes verbatim, auto boots at the default.
+func TestGuiSuperviseLinuxGeometryFromSettings(t *testing.T) {
+	for name, tc := range map[string]struct {
+		geometry string
+		wantArgv string
+		wantLine string
+	}{
+		"fixed": {"1600x900", "1600x900", "gui: desktop 1600x900 (gui.geometry)"},
+		"auto":  {"auto", "1920x1080", "gui: desktop 1920x1080 (auto — follows the focused viewer)"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			withGuiSuperviseGOOS(t, "linux")
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+			withGuiSuperviseLookPath(t, map[string]string{
+				"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
+			})
+			buf := captureGuiSuperviseLog(t)
+			captureGuiStamps(t)
+			withGuiSuperviseSettingsLoad(t, "", tc.geometry)
+			argvs := withGuiSuperviseBackendArgvRec(t)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- runGuiSuperviseCtx(ctx, "host", ":21") }()
+
+			waitForGuiLog(t, buf, tc.wantLine)
+			if len(*argvs) != 1 {
+				t.Fatalf("backend starts = %d, want 1", len(*argvs))
+			}
+			if got := argvFlagValue((*argvs)[0], "-geometry"); got != tc.wantArgv {
+				t.Errorf("backend argv -geometry = %q, want %q (argv %v)", got, tc.wantArgv, (*argvs)[0])
+			}
+
+			cancel()
+			if err := <-done; err != nil {
+				t.Errorf("teardown err = %v, want nil", err)
+			}
+		})
+	}
+}
+
 func TestGuiSuperviseLinuxLaunchesWMWithDisplay(t *testing.T) {
 	withGuiSuperviseGOOS(t, "linux")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
@@ -342,7 +419,7 @@ func TestGuiSuperviseLinuxLaunchesWMWithDisplay(t *testing.T) {
 	})
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
-	withGuiSuperviseSettingsLoad(t, "")
+	withGuiSuperviseSettingsLoad(t, "", gui.GeometryDefault)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -383,7 +460,7 @@ func TestGuiSuperviseLinuxPaintsRootBackground(t *testing.T) {
 	})
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
-	withGuiSuperviseSettingsLoad(t, "")
+	withGuiSuperviseSettingsLoad(t, "", gui.GeometryDefault)
 
 	type run struct {
 		argv    []string
@@ -443,7 +520,7 @@ func TestGuiSuperviseLinuxNoXsetrootLogsHint(t *testing.T) {
 	})
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
-	withGuiSuperviseSettingsLoad(t, "")
+	withGuiSuperviseSettingsLoad(t, "", gui.GeometryDefault)
 	orig := guiSuperviseRunOnDisplay
 	t.Cleanup(func() { guiSuperviseRunOnDisplay = orig })
 	guiSuperviseRunOnDisplay = func(context.Context, []string, string) error {
@@ -474,7 +551,7 @@ func TestGuiSuperviseLinuxXsetrootFailureIsLogged(t *testing.T) {
 	})
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
-	withGuiSuperviseSettingsLoad(t, "")
+	withGuiSuperviseSettingsLoad(t, "", gui.GeometryDefault)
 	orig := guiSuperviseRunOnDisplay
 	t.Cleanup(func() { guiSuperviseRunOnDisplay = orig })
 	guiSuperviseRunOnDisplay = func(context.Context, []string, string) error {
@@ -503,7 +580,7 @@ func TestGuiSuperviseLinuxBackendExitStaysIdle(t *testing.T) {
 	})
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
-	withGuiSuperviseSettingsLoad(t, "")
+	withGuiSuperviseSettingsLoad(t, "", gui.GeometryDefault)
 
 	sock, err := gui.SocketPath("host")
 	if err != nil {
@@ -540,7 +617,7 @@ func TestGuiSuperviseLinuxRemovesStaleSocket(t *testing.T) {
 	})
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
-	withGuiSuperviseSettingsLoad(t, "")
+	withGuiSuperviseSettingsLoad(t, "", gui.GeometryDefault)
 
 	// A stale socket from a crashed supervisor must not block the bind.
 	sock, err := gui.SocketPath("host")
@@ -647,7 +724,7 @@ func TestGuiSuperviseLinuxIcewmSeedsStampsAndStarts(t *testing.T) {
 	origStat := guiSuperviseStat
 	t.Cleanup(func() { guiSuperviseStat = origStat })
 	guiSuperviseStat = func(string) (os.FileInfo, error) { return nil, nil }
-	withGuiSuperviseSettingsLoad(t, "")
+	withGuiSuperviseSettingsLoad(t, "", gui.GeometryDefault)
 	buf := captureGuiSuperviseLog(t)
 	stamps := captureGuiStamps(t)
 	wmRec := withGuiSuperviseStartWMRec(t)
@@ -715,7 +792,7 @@ func TestGuiSuperviseLinuxIcewmUnseededLogVariant(t *testing.T) {
 		"Xtigervnc":     filepath.Join(stubDir, "Xtigervnc"),
 		"icewm-session": "/usr/bin/icewm-session",
 	})
-	withGuiSuperviseSettingsLoad(t, "")
+	withGuiSuperviseSettingsLoad(t, "", gui.GeometryDefault)
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
 	withGuiSuperviseStartWMRec(t)
@@ -748,7 +825,7 @@ func TestGuiSuperviseLinuxNoWMStampsEmptyAndLogsHint(t *testing.T) {
 		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
 		"apt-get":   "/usr/bin/apt-get",
 	})
-	withGuiSuperviseSettingsLoad(t, "")
+	withGuiSuperviseSettingsLoad(t, "", gui.GeometryDefault)
 	buf := captureGuiSuperviseLog(t)
 	stamps := captureGuiStamps(t)
 	wmRec := withGuiSuperviseStartWMRec(t)
@@ -793,7 +870,7 @@ func TestGuiSuperviseLinuxPinMissFallsBackToLadder(t *testing.T) {
 		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
 		"openbox":   "/usr/bin/openbox",
 	})
-	withGuiSuperviseSettingsLoad(t, "xfwm4")
+	withGuiSuperviseSettingsLoad(t, "xfwm4", gui.GeometryDefault)
 	buf := captureGuiSuperviseLog(t)
 	stamps := captureGuiStamps(t)
 	wmRec := withGuiSuperviseStartWMRec(t)
@@ -837,7 +914,7 @@ func TestGuiSuperviseLinuxSessionStarterPinMissNamesDEHint(t *testing.T) {
 		"openbox":   "/usr/bin/openbox",
 		"apt-get":   "/usr/bin/apt-get",
 	})
-	withGuiSuperviseSettingsLoad(t, "startlxqt")
+	withGuiSuperviseSettingsLoad(t, "startlxqt", gui.GeometryDefault)
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
 	withGuiSuperviseStartWMRec(t)
@@ -864,7 +941,7 @@ func TestGuiSuperviseLinuxSessionStarterResolvesUnderDBus(t *testing.T) {
 		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
 		"startlxqt": "/usr/bin/startlxqt",
 	})
-	withGuiSuperviseSettingsLoad(t, "startlxqt")
+	withGuiSuperviseSettingsLoad(t, "startlxqt", gui.GeometryDefault)
 	buf := captureGuiSuperviseLog(t)
 	stamps := captureGuiStamps(t)
 	wmRec := withGuiSuperviseStartWMRec(t)
@@ -907,7 +984,7 @@ func TestGuiSuperviseLinuxIcewmSeedFailureStartsWithDefaults(t *testing.T) {
 		"Xtigervnc":     filepath.Join(stubDir, "Xtigervnc"),
 		"icewm-session": "/usr/bin/icewm-session",
 	})
-	withGuiSuperviseSettingsLoad(t, "")
+	withGuiSuperviseSettingsLoad(t, "", gui.GeometryDefault)
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
 	wmRec := withGuiSuperviseStartWMRec(t)

@@ -278,10 +278,10 @@ type Server struct {
 	cronFactsFn func(ctx context.Context, server string, entries []cron.Entry) cron.ServerFacts
 
 	// The gui*Fn group is the injectable seam layer behind GET /api/gui/{id},
-	// POST /api/gui/{id}/restart, POST /api/gui/{id}/launch, and the
-	// gui.enabled settings POST side effect (see api/gui.go and settings.go).
-	// Nil falls back to the production daemon/gui calls, mirroring the hub's
-	// gui seams in sse.go.
+	// POST /api/gui/{id}/restart, POST /api/gui/{id}/launch,
+	// POST /api/gui/{id}/resize, and the gui.enabled/gui.geometry settings POST
+	// side effects (see api/gui.go and settings.go). Nil falls back to the
+	// production daemon/gui calls, mirroring the hub's gui seams in sse.go.
 	guiEnsureFn         func() (daemon.GUIEnsureOutcome, error)
 	guiKillFn           func() (bool, error)
 	guiRestartFn        func() error
@@ -295,6 +295,7 @@ type Server struct {
 	guiLookPathFn       func(name string) (string, error)
 	guiStatFn           func(path string) (os.FileInfo, error)
 	guiLaunchFn         func(argv, env []string) (int, error)
+	guiXrandrRunFn      gui.DisplayRunner
 
 	// tintCacheMu guards tintCache.
 	tintCacheMu sync.Mutex
@@ -958,12 +959,14 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/settings", s.handlePostSettings)
 
 	// GUI surface — the status document (GET, incl. the apps list the
-	// off-confirm renders), the supervisor restart, and the allowlisted
-	// terminal/browser launcher (POST per §IX). On/off ride POST /api/settings
-	// (the gui.enabled side effect). See api/gui.go.
+	// off-confirm renders), the supervisor restart, the allowlisted
+	// terminal/browser launcher, and the live desktop resize (POST per §IX).
+	// On/off ride POST /api/settings (the gui.enabled side effect). See
+	// api/gui.go.
 	r.Get("/api/gui/{id}", s.handleGuiStatus)
 	r.Post("/api/gui/{id}/restart", s.handleGuiRestart)
 	r.Post("/api/gui/{id}/launch", s.handleGuiLaunch)
+	r.Post("/api/gui/{id}/resize", s.handleGuiResize)
 
 	// Web Push: VAPID key (read), subscribe + notify (mutations, POST per §IX)
 	r.Get("/api/push/vapid-public-key", s.handlePushVAPIDPublicKey)

@@ -277,7 +277,9 @@ const CodeServerContext = createContext<CodeServerSignal | null | undefined>(und
  *  (see `hasGui`). `wm` is the supervisor's window-manager stamp (`""` when
  *  bare) — the tile keys the bare-WM strip on it. `locked` is the host-side
  *  resolution pin (`rk gui lock`) — while set, no viewer drives
- *  SetDesktopSize. */
+ *  SetDesktopSize. `geometry` is the host's `gui.geometry` setting (a fixed
+ *  `WxH` or `auto`; `""` when disabled) — only its `auto` value lets a
+ *  viewer drive SetDesktopSize at all. */
 export type GuiSignal = {
   id: string;
   enabled: boolean;
@@ -289,6 +291,7 @@ export type GuiSignal = {
   viewers: number;
   wm: string;
   locked: boolean;
+  geometry: string;
 };
 
 // The gui signal lives in its OWN context (the CodeServerContext precedent):
@@ -327,6 +330,7 @@ function narrowGuiEntry(entry: unknown): GuiSignal {
     viewers: guiNumber(e.viewers),
     wm: guiString(e.wm),
     locked: e.locked === true,
+    geometry: guiString(e.geometry),
   };
 }
 

@@ -15,8 +15,9 @@ func assembleDeps(t *testing.T) StatusDeps {
 	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	return StatusDeps{
-		ID:      "host",
-		Enabled: true,
+		ID:       "host",
+		Enabled:  true,
+		Geometry: "1600x900",
 		DaemonRunning: func() bool {
 			return true
 		},
@@ -45,8 +46,8 @@ func TestAssembleDisabledShortCircuits(t *testing.T) {
 	}
 
 	st := Assemble(context.Background(), d)
-	if st.Enabled || st.Session || st.Reachable || st.Reason != "" || len(st.Apps) != 0 {
-		t.Errorf("status = %+v, want everything off/empty with no reason", st)
+	if st.Enabled || st.Session || st.Reachable || st.Reason != "" || len(st.Apps) != 0 || st.Geometry != "" {
+		t.Errorf("status = %+v, want everything off/empty with no reason and no geometry", st)
 	}
 	if st.Apps == nil {
 		t.Error("Apps = nil, want the non-nil empty slice (JSON [] never null)")
@@ -101,6 +102,7 @@ func TestAssembleReachablePassesThePaneTreeExclude(t *testing.T) {
 	want := Status{
 		ID: "host", Enabled: true, Backend: "Xtigervnc", Reachable: true,
 		Display: ":10", Width: 1920, Height: 1080, Viewers: 2, Session: true,
+		Geometry:      "1600x900",
 		Apps:          []App{{Name: "chromium", Count: 3}},
 		UptimeSeconds: 4*3600 + 12*60,
 		// wm "" on a reachable display carries the install hint; the
@@ -272,6 +274,18 @@ func TestAssembleReachableBareNilLookPathIsSafe(t *testing.T) {
 	}
 	if want := "install icewm with your package manager"; st.WMHint != want {
 		t.Errorf("WMHint = %q with a nil LookPath, want the generic %q (no probe, no panic)", st.WMHint, want)
+	}
+}
+
+// Geometry is a pass-through of the gui.geometry setting when enabled:
+// "auto" rides the document verbatim like a fixed WxH.
+func TestAssembleGeometryPassthrough(t *testing.T) {
+	d := assembleDeps(t)
+	d.Geometry = GeometryAuto
+
+	st := Assemble(context.Background(), d)
+	if st.Geometry != GeometryAuto {
+		t.Errorf("Geometry = %q, want %q (auto is a document value, not resolved here)", st.Geometry, GeometryAuto)
 	}
 }
 

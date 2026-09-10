@@ -59,7 +59,7 @@ func TestResolveBackend(t *testing.T) {
 }
 
 func TestBackendArgv(t *testing.T) {
-	got := BackendArgv("/usr/bin/Xtigervnc", ":10", "/state/run-kit/gui/host.sock")
+	got := BackendArgv("/usr/bin/Xtigervnc", ":10", "/state/run-kit/gui/host.sock", "1600x900")
 	want := []string{
 		"/usr/bin/Xtigervnc", ":10",
 		"-rfbunixpath", "/state/run-kit/gui/host.sock",
@@ -67,7 +67,7 @@ func TestBackendArgv(t *testing.T) {
 		"-SecurityTypes", "None",
 		"-AlwaysShared",
 		"-AcceptSetDesktopSize",
-		"-geometry", "1920x1080",
+		"-geometry", "1600x900",
 		"-FrameRate=60",
 		"-desktop", "run-kit",
 	}

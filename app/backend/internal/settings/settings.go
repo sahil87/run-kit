@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 
+	"rk/internal/gui"
 	"rk/internal/validate"
 )
 
@@ -86,6 +87,10 @@ type Settings struct {
 	// the first installed rung of the ladder. Read at supervise start, so a
 	// change applies on the next rk gui restart.
 	GUIWM string
+	// GUIGeometry is the GUI desktop's pixel size: a fixed WxH, or "auto" to
+	// follow the focused desktop viewer's tile. Applies live via RandR when
+	// the display is reachable.
+	GUIGeometry string
 	// TmuxConf is the path to the tmux.conf rk passes to tmux. Empty means
 	// "unset": tmux resolution falls back to its built-in default. The user
 	// owns the file — rk performs no ensure/refresh on it. Read at tmux
@@ -100,11 +105,12 @@ type Settings struct {
 // Default returns the default settings.
 func Default() Settings {
 	return Settings{
-		Theme:      "system",
-		ThemeDark:  "default-dark",
-		ThemeLight: "default-light",
-		CronTicker: true,
-		LogLevel:   "info",
+		Theme:       "system",
+		ThemeDark:   "default-dark",
+		ThemeLight:  "default-light",
+		CronTicker:  true,
+		GUIGeometry: gui.GeometryDefault,
+		LogLevel:    "info",
 	}
 }
 
@@ -417,6 +423,15 @@ var registry = []registryEntry{
 		apply:     plainScalar(func(s *Settings) *string { return &s.GUIWM }),
 	},
 	{
+		key: "gui.geometry", kind: "string", def: gui.GeometryDefault,
+		desc:     "The GUI desktop's pixel size. Fixed sizes keep windows where they are; Auto follows the focused desktop viewer's tile. Applies live.",
+		category: "behavior", ui: true, live: true,
+		parse:     validatedQuoteTrimmedScalar(func(s *Settings) *string { return &s.GUIGeometry }, gui.ValidateGeometry),
+		serialize: quotedScalarOmittingDefault("gui.geometry", gui.GeometryDefault, func(s *Settings) *string { return &s.GUIGeometry }),
+		read:      func(s *Settings) any { return s.GUIGeometry },
+		apply:     validatedScalar(func(s *Settings) *string { return &s.GUIGeometry }, gui.ValidateGeometry, gui.GeometryDefault),
+	},
+	{
 		key: "tmux_conf", kind: "path", def: "",
 		desc:     "Path to the tmux.conf rk passes to tmux; empty uses the built-in default. The RK_TMUX_CONF env escape wins when set.",
 		category: "advanced", ui: true, live: false,
@@ -499,6 +514,29 @@ func quoteTrimmedScalar(target func(*Settings) *string) func(*Settings, string) 
 func quotedScalar(key string, target func(*Settings) *string) func(*Settings) string {
 	return func(s *Settings) string {
 		if v := *target(s); v != "" {
+			return key + ": \"" + v + "\"\n"
+		}
+		return ""
+	}
+}
+
+// validatedQuoteTrimmedScalar builds the parse hook for a validated string
+// scalar: quote-stripped and trimmed, kept only when the validator accepts it
+// — anything else keeps the default (the tolerant-read posture).
+func validatedQuoteTrimmedScalar(target func(*Settings) *string, validator func(string) string) func(*Settings, string) {
+	return func(s *Settings, value string) {
+		if v := strings.TrimSpace(strings.Trim(value, "\"")); validator(v) == "" {
+			*target(s) = v
+		}
+	}
+}
+
+// quotedScalarOmittingDefault builds the serialize hook for a string scalar
+// with a non-empty default: emitted quoted, omitted when the value equals the
+// default so a file without the key round-trips byte-identically.
+func quotedScalarOmittingDefault(key, def string, target func(*Settings) *string) func(*Settings) string {
+	return func(s *Settings) string {
+		if v := *target(s); v != "" && v != def {
 			return key + ": \"" + v + "\"\n"
 		}
 		return ""
@@ -627,7 +665,7 @@ func Registry() []KeyInfo {
 			// Copied: the exported view must not alias the package-global
 			// registry slice, or a caller write mutates every later Registry()
 			// call and /api/settings response.
-			Options:     append([]string(nil), e.options...),
+			Options: append([]string(nil), e.options...),
 		}
 	}
 	return infos

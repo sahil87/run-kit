@@ -476,6 +476,7 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 		"cron_ticker":    registryValueFixture(`false`, false, `true`, true, true),
 		"gui.enabled":    registryValueFixture(`true`, true, `false`, false, false),
 		"gui.wm":         registryValueFixture(`"openbox"`, "openbox", `"xfwm4"`, "xfwm4", ""),
+		"gui.geometry":   registryValueFixture(`"auto"`, "auto", `"1600x900"`, "1600x900", "1920x1080"),
 		"tmux_conf":      registryValueFixture(`"/my/tmux.conf"`, ptr("/my/tmux.conf"), `"/other/tmux.conf"`, ptr("/other/tmux.conf"), (*string)(nil)),
 		"log_level":      registryValueFixture(`"debug"`, ptr("debug"), `"info"`, ptr("info"), ptr("info")),
 		"server_colors": stringValueFixture("6", "1+3", func(v *string) error {
@@ -775,6 +776,74 @@ func TestGUIWM(t *testing.T) {
 		}
 		if s.GUIWM != "" {
 			t.Errorf("GUIWM = %q after null, want unset", s.GUIWM)
+		}
+	})
+}
+
+func TestGUIGeometry(t *testing.T) {
+	t.Run("omitted at the default, reading back yields 1920x1080", func(t *testing.T) {
+		s := Default()
+		out := serialize(s)
+		if strings.Contains(out, "gui.geometry") {
+			t.Errorf("gui.geometry emitted at the default — files without the key must serialize byte-identically:\n%s", out)
+		}
+		if got := parse(out); got.GUIGeometry != "1920x1080" {
+			t.Errorf("GUIGeometry after a default round-trip = %q, want %q", got.GUIGeometry, "1920x1080")
+		}
+	})
+
+	t.Run("auto and a custom size round-trip as a quoted dotted line", func(t *testing.T) {
+		for _, v := range []string{"auto", "1600x900"} {
+			s := Default()
+			s.GUIGeometry = v
+			out := serialize(s)
+			if !strings.Contains(out, "gui.geometry: \""+v+"\"\n") {
+				t.Errorf("serialize(GUIGeometry=%q) missing the quoted dotted line:\n%s", v, out)
+			}
+			if got := parse(out); got.GUIGeometry != v {
+				t.Errorf("GUIGeometry lost in serialize/parse round-trip: got %q, want %q", got.GUIGeometry, v)
+			}
+		}
+	})
+
+	t.Run("a value the validator rejects keeps the default on read", func(t *testing.T) {
+		if got := parse("gui.geometry: \"bogus\"\n"); got.GUIGeometry != "1920x1080" {
+			t.Errorf("GUIGeometry after a garbage line = %q, want %q", got.GUIGeometry, "1920x1080")
+		}
+	})
+
+	t.Run("null restores the default", func(t *testing.T) {
+		entry := findEntry("gui.geometry")
+		if entry == nil {
+			t.Fatal("no gui.geometry registry entry")
+		}
+		s := Default()
+		if err := entry.apply(&s, json.RawMessage(`"auto"`)); err != nil {
+			t.Fatalf("apply: %v", err)
+		}
+		if s.GUIGeometry != "auto" {
+			t.Errorf("GUIGeometry = %q after apply, want auto", s.GUIGeometry)
+		}
+		if err := entry.apply(&s, json.RawMessage(`null`)); err != nil {
+			t.Fatalf("apply null: %v", err)
+		}
+		if s.GUIGeometry != "1920x1080" {
+			t.Errorf("GUIGeometry = %q after null, want 1920x1080", s.GUIGeometry)
+		}
+	})
+
+	t.Run("invalid value rejected with the range message", func(t *testing.T) {
+		entry := findEntry("gui.geometry")
+		if entry == nil {
+			t.Fatal("no gui.geometry registry entry")
+		}
+		s := Default()
+		err := entry.apply(&s, json.RawMessage(`"100x100"`))
+		if err == nil || err.Error() != "geometry 100x100 out of range (320–7680 per side)" {
+			t.Fatalf("apply err = %v, want %q", err, "geometry 100x100 out of range (320–7680 per side)")
+		}
+		if s.GUIGeometry != "1920x1080" {
+			t.Errorf("GUIGeometry mutated on rejection: %q", s.GUIGeometry)
 		}
 	})
 }

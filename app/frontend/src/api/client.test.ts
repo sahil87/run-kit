@@ -23,6 +23,7 @@ import {
   fetchCodeBridge,
   fetchGuiStatus,
   launchGuiApp,
+  resizeGui,
   restartGui,
   getDirectories,
   uploadFile,
@@ -1580,6 +1581,7 @@ describe("gui client (host-global /api/gui/*)", () => {
     height: 1080,
     viewers: 0,
     wm: "",
+    geometry: "1920x1080",
     socket: "/run/host.sock",
     session: "rk-gui",
     reason: "no VNC backend: sudo apt install tigervnc-standalone-server openbox",
@@ -1691,6 +1693,45 @@ describe("gui client (host-global /api/gui/*)", () => {
       if (!(err instanceof ApiError)) return;
       expect(err.status).toBe(409);
       expect(err.message).toBe("gui disabled");
+    }
+  });
+
+  it("resizeGui POSTs the geometry body to /api/gui/host/resize and resolves the parsed body", async () => {
+    let capturedUrl = "";
+    let capturedBody: unknown = null;
+    mswServer.use(
+      http.post("/api/gui/:id/resize", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedBody = await request.json();
+        return HttpResponse.json({ ok: true, geometry: "1600x900", was: "1920x1080" });
+      }),
+    );
+    await expect(resizeGui("1600x900")).resolves.toEqual({
+      ok: true,
+      geometry: "1600x900",
+      was: "1920x1080",
+    });
+    expect(capturedUrl).toContain("/api/gui/host/resize");
+    expect(capturedBody).toEqual({ geometry: "1600x900" });
+  });
+
+  it("resizeGui throws on a non-ok response via throwOnError (the server message)", async () => {
+    mswServer.use(
+      http.post("/api/gui/:id/resize", () =>
+        HttpResponse.json(
+          { error: "geometry 100x100 out of range (320–7680 per side)" },
+          { status: 400 },
+        ),
+      ),
+    );
+    try {
+      await resizeGui("100x100");
+      expect.fail("resizeGui should reject");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      if (!(err instanceof ApiError)) return;
+      expect(err.status).toBe(400);
+      expect(err.message).toBe("geometry 100x100 out of range (320–7680 per side)");
     }
   });
 });

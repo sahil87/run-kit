@@ -70,7 +70,7 @@ The LXQt plan's own § Execution order (L0 ∥ L1 first, then L2 ∥ L3, L2 gate
 | # | Change ID | Folder | PR | Merged |
 |---|-----------|--------|----|--------|
 | S1 | | | | |
-| S2 | | | | |
+| S2 | | 260910-zuci-gui-fixed-geometry-and-resize | | |
 | S3 | | | | |
 | S4 | | | | |
 | S5 | | | | |

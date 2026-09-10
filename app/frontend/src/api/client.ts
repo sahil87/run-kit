@@ -618,8 +618,10 @@ export async function fetchCodeBridge(
  * disabled); `wm_hint` is the package-manager-aware install line, present
  * only when enabled ∧ reachable ∧ bare (the backend's omitempty) — the
  * frontend never hardcodes a package name. `locked` is the host-side
- * resolution pin (`rk gui lock`); `human_input_ago_ms` is the age of the
- * last relayed human input, omitted when none was seen (omitempty).
+ * resolution pin (`rk gui lock`); `geometry` is the host's `gui.geometry`
+ * setting — a fixed `WxH` desktop size or `auto` (follow the focused
+ * viewer's tile), `""` when disabled. `human_input_ago_ms` is the age of
+ * the last relayed human input, omitted when none was seen (omitempty).
  */
 export type GuiStatus = {
   id: string;
@@ -632,6 +634,7 @@ export type GuiStatus = {
   viewers: number;
   wm: string;
   locked: boolean;
+  geometry: string;
   human_input_ago_ms?: number;
   wm_hint?: string;
   socket: string;
@@ -694,6 +697,26 @@ export async function launchGuiApp(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ app }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/**
+ * POST /api/gui/{id}/resize with body `{"geometry": geometry}` — the fixed
+ * `WxH` desktop size or `auto`. Resolves the parsed 200 body (`was` is the
+ * previous setting value); non-2xx (400 out-of-range, 409 disabled or not
+ * running, 500 xrandr failure) throws via the shared `throwOnError` path —
+ * the server's message becomes the toast.
+ */
+export async function resizeGui(
+  geometry: string,
+  id = "host",
+): Promise<{ ok: true; geometry: string; was: string }> {
+  const res = await deduplicatedFetch(`/api/gui/${encodeURIComponent(id)}/resize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ geometry }),
   });
   if (!res.ok) await throwOnError(res);
   return res.json();

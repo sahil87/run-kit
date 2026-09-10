@@ -18,6 +18,11 @@ type Status struct {
 	// Locked is the host resolution pin (`rk gui lock` — @rk_gui_lock on the
 	// rk-gui session), always present like wm.
 	Locked bool `json:"locked"`
+	// Geometry is the gui.geometry setting (a fixed WxH or "auto"), always
+	// present like wm; "" when disabled. The live pixel size still rides
+	// width/height from the probe — the two may disagree transiently
+	// mid-resize.
+	Geometry string `json:"geometry"`
 	// HumanInputAgoMS is the age of the last relayed human input in
 	// milliseconds (the daemon's in-memory relay timestamp), clamped ≥ 1 so
 	// "absent" and "just now" stay distinguishable; omitted when no viewer has
@@ -53,6 +58,8 @@ type StreamEntry struct {
 	Viewers   int    `json:"viewers"`
 	WM        string `json:"wm"`
 	Locked    bool   `json:"locked"`
+	// Geometry mirrors Status: the gui.geometry setting, "" when disabled.
+	Geometry string `json:"geometry"`
 	// HumanInputAgoMS mirrors Status: the clamped age of the last relayed
 	// human input, omitted when none was seen.
 	HumanInputAgoMS int64 `json:"human_input_ago_ms,omitempty"`

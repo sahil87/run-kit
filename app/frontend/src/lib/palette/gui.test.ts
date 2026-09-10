@@ -11,10 +11,14 @@ function input(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput {
     coarsePointer: false,
     viewMode: "fit",
     resizeLocked: false,
+    geometry: "auto",
     supervisorAvailable: true,
     onTurnOn: vi.fn(),
     onTurnOff: vi.fn(),
     onLaunch: vi.fn(),
+    onResize: vi.fn(),
+    onResizeCustom: vi.fn(),
+    onMatchTile: vi.fn(),
     onFullscreen: vi.fn(),
     onPaste: vi.fn(),
     onViewMode: vi.fn(),
@@ -52,7 +56,18 @@ describe("buildGuiActions — switch gating", () => {
 describe("buildGuiActions — tile-open gating", () => {
   it("omits the tile verbs when no gui tile is open", () => {
     const list = ids(input({ tileOpen: false }));
-    expect(list).toEqual(["gui-turn-off", "gui-open-terminal", "gui-open-browser", "gui-logs"]);
+    expect(list).toEqual([
+      "gui-turn-off",
+      "gui-open-terminal",
+      "gui-open-browser",
+      "gui-res-1280x720",
+      "gui-res-1600x900",
+      "gui-res-1920x1080",
+      "gui-res-2560x1440",
+      "gui-res-1080x1920",
+      "gui-res-custom",
+      "gui-logs",
+    ]);
   });
 
   it("the R8 worked example: on + open + connected + fine + fit + unlocked", () => {
@@ -60,6 +75,13 @@ describe("buildGuiActions — tile-open gating", () => {
       "gui-turn-off",
       "gui-open-terminal",
       "gui-open-browser",
+      "gui-res-1280x720",
+      "gui-res-1600x900",
+      "gui-res-1920x1080",
+      "gui-res-2560x1440",
+      "gui-res-1080x1920",
+      "gui-res-match",
+      "gui-res-custom",
       "gui-fullscreen",
       "gui-paste",
       "gui-view-1to1",
@@ -182,5 +204,107 @@ describe("buildGuiActions — supervisor logs", () => {
     )!;
     expect(row.disabled).toBe(true);
     expect(row.description).toBe("supervisor not running");
+  });
+});
+
+describe("buildGuiActions — resolution rows", () => {
+  it("the R12 worked example: fixed geometry orders the rows and pins the Lock row disabled", () => {
+    const actions = buildGuiActions(input({ geometry: "1920x1080" }));
+    expect(actions.map((a) => a.id)).toEqual([
+      "gui-turn-off",
+      "gui-open-terminal",
+      "gui-open-browser",
+      "gui-res-1280x720",
+      "gui-res-1600x900",
+      "gui-res-1920x1080",
+      "gui-res-2560x1440",
+      "gui-res-1080x1920",
+      "gui-res-match",
+      "gui-res-custom",
+      "gui-res-auto",
+      "gui-fullscreen",
+      "gui-paste",
+      "gui-view-1to1",
+      "gui-lock",
+      "gui-logs",
+    ]);
+    expect(actions.find((a) => a.id === "gui-res-1920x1080")!.description).toBe("current");
+    const lock = actions.find((a) => a.id === "gui-lock")!;
+    expect(lock.disabled).toBe(true);
+    expect(lock.description).toBe(
+      "resolution is fixed (1920×1080) — pick Auto to follow the tile",
+    );
+  });
+
+  it("renders one labeled row per preset, marking only the current one", () => {
+    const actions = buildGuiActions(input({ geometry: "1280x720" }));
+    expect(actions.find((a) => a.id === "gui-res-1280x720")!.label).toBe(
+      "GUI: Resolution → 1280×720",
+    );
+    expect(actions.find((a) => a.id === "gui-res-1080x1920")!.label).toBe(
+      "GUI: Resolution → 1080×1920 (portrait)",
+    );
+    expect(actions.find((a) => a.id === "gui-res-1280x720")!.description).toBe("current");
+    expect(actions.find((a) => a.id === "gui-res-1600x900")!.description).toBeUndefined();
+  });
+
+  it("under auto the Auto row hides and the Lock row stays enabled with no description", () => {
+    const actions = buildGuiActions(input({ geometry: "auto" }));
+    expect(actions.some((a) => a.id === "gui-res-auto")).toBe(false);
+    const lock = actions.find((a) => a.id === "gui-lock")!;
+    expect(lock.disabled).toBeFalsy();
+    expect(lock.description).toBeUndefined();
+  });
+
+  it("under a fixed geometry the Unlock row renders disabled with the same fixed copy", () => {
+    const row = buildGuiActions(input({ geometry: "1600x900", resizeLocked: true })).find(
+      (a) => a.id === "gui-unlock",
+    )!;
+    expect(row.disabled).toBe(true);
+    expect(row.description).toBe(
+      "resolution is fixed (1600×900) — pick Auto to follow the tile",
+    );
+  });
+
+  it("Match this tile requires an open tile; presets, Custom…, and Auto remain", () => {
+    const list = ids(input({ tileOpen: false, geometry: "1920x1080" }));
+    expect(list).not.toContain("gui-res-match");
+    expect(list).toContain("gui-res-1280x720");
+    expect(list).toContain("gui-res-custom");
+    expect(list).toContain("gui-res-auto");
+  });
+
+  it("no gui-res-* rows on the screen-sharing mirror or when unreachable", () => {
+    for (const gated of [input({ backend: "screen-sharing" }), input({ reachable: false })]) {
+      expect(ids(gated).some((id) => id.startsWith("gui-res-"))).toBe(false);
+    }
+  });
+
+  it("no gui-res-* rows when the switch is off", () => {
+    expect(ids(input({ enabled: false })).some((id) => id.startsWith("gui-res-"))).toBe(false);
+  });
+
+  it("onSelect routes: presets and Auto to onResize, Custom… to onResizeCustom, Match to onMatchTile", () => {
+    const inp = input({ geometry: "1920x1080" });
+    const actions = buildGuiActions(inp);
+    actions.find((a) => a.id === "gui-res-1600x900")!.onSelect();
+    expect(inp.onResize).toHaveBeenCalledWith("1600x900");
+    actions.find((a) => a.id === "gui-res-auto")!.onSelect();
+    expect(inp.onResize).toHaveBeenCalledWith("auto");
+    expect(inp.onResize).toHaveBeenCalledTimes(2);
+    actions.find((a) => a.id === "gui-res-custom")!.onSelect();
+    expect(inp.onResizeCustom).toHaveBeenCalledOnce();
+    actions.find((a) => a.id === "gui-res-match")!.onSelect();
+    expect(inp.onMatchTile).toHaveBeenCalledOnce();
+  });
+
+  it("the Auto row carries the follow description", () => {
+    const row = buildGuiActions(input({ geometry: "1920x1080" })).find(
+      (a) => a.id === "gui-res-auto",
+    )!;
+    expect(row.label).toBe("GUI: Resolution → Auto (follow this tile)");
+    expect(row.description).toBe(
+      "today's behavior — the desktop follows the focused fine-pointer viewer",
+    );
   });
 });

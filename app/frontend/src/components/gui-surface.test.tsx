@@ -94,6 +94,7 @@ const GUI_ON: GuiSignal = {
   viewers: 1,
   wm: "icewm-session",
   locked: false,
+  geometry: "auto",
 };
 
 const GUI_OFF: GuiSignal = { ...GUI_ON, enabled: false, reachable: false };
@@ -381,7 +382,7 @@ describe("GuiSurface — the bare-WM strip", () => {
 });
 
 describe("GuiSurface — RFB prop mapping", () => {
-  it("resizeSession = !coarsePointer && focused && !resizeLocked && !hostLocked, recomputed on prop change", () => {
+  it("resizeSession = !coarsePointer && focused && !resizeLocked && !hostLocked && geometry === \"auto\", recomputed on prop change", () => {
     const { rerender } = renderGui();
     expect(latestRfb().resizeSession).toBe(true);
 
@@ -404,6 +405,29 @@ describe("GuiSurface — RFB prop mapping", () => {
     );
     expect(latestRfb().resizeSession).toBe(false);
     rerender(<GuiSurface {...base} focused={true} coarsePointer={false} resizeLocked={false} viewMode="fit" />);
+    expect(latestRfb().resizeSession).toBe(true);
+  });
+
+  it("a fixed geometry (or \"\") forces resizeSession false regardless of the other clauses", () => {
+    const base = {
+      gui: GUI_ON,
+      visible: true,
+      focused: true,
+      coarsePointer: false,
+      resizeLocked: false,
+      viewMode: "fit" as const,
+      onConnectionChange: vi.fn(),
+      onRestart: vi.fn(),
+      onOpenLogs: vi.fn(),
+    };
+    const { rerender } = renderGui({ gui: { ...GUI_ON, geometry: "1920x1080" } });
+    expect(latestRfb().resizeSession).toBe(false);
+
+    rerender(<GuiSurface {...base} gui={{ ...GUI_ON, geometry: "" }} />);
+    expect(latestRfb().resizeSession).toBe(false);
+
+    // Flipping the setting back to `auto` re-enables the follow live.
+    rerender(<GuiSurface {...base} gui={{ ...GUI_ON, geometry: "auto" }} />);
     expect(latestRfb().resizeSession).toBe(true);
   });
 

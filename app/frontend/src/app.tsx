@@ -57,6 +57,7 @@ import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget 
 import { buildViewActions } from "@/lib/palette/view";
 import { buildLayoutActions, buildTileSwitchActions } from "@/lib/palette/layout";
 import { buildGuiActions } from "@/lib/palette/gui";
+import { closestAspectPreset } from "@/lib/gui-geometry";
 import {
   readGuiResizeLocked,
   readGuiViewMode,
@@ -173,7 +174,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, fetchCodeBridge, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, resizeGui, fetchCodeBridge, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions, type CronActionHandlers } from "@/lib/palette/cron";
 import { requestCronsScroll } from "@/lib/server-clock-dashboard-scroll";
@@ -206,6 +207,7 @@ const CommandPalette = lazy(() => import("@/components/command-palette").then(m 
 const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m => ({ default: m.ThemeSelector })));
 const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
 const SessionNamePrompt = lazy(() => import("@/components/session-name-prompt").then(m => ({ default: m.SessionNamePrompt })));
+const GuiGeometryPrompt = lazy(() => import("@/components/gui-geometry-prompt").then(m => ({ default: m.GuiGeometryPrompt })));
 const WindowNotePrompt = lazy(() => import("@/components/window-note-prompt").then(m => ({ default: m.WindowNotePrompt })));
 const SpawnAgentDialog = lazy(() => import("@/components/spawn-agent-dialog").then(m => ({ default: m.SpawnAgentDialog })));
 const OperatorComposeDialog = lazy(() => import("@/components/operator-compose-dialog").then(m => ({ default: m.OperatorComposeDialog })));
@@ -1206,6 +1208,9 @@ function AppShell() {
   // lock. The ONLY new state the gui surface adds anywhere.
   const [guiViewMode, setGuiViewMode] = useState<GuiViewMode>(() => readGuiViewMode());
   const [guiResizeLocked, setGuiResizeLocked] = useState(() => readGuiResizeLocked());
+  // The Custom… geometry prompt's open state (the palette's `GUI: Resolution →
+  // Custom…` row opens it; the prompt owns validation).
+  const [guiGeometryPromptOpen, setGuiGeometryPromptOpen] = useState(false);
   // The palette seams into the live RFB (GUI: Paste clipboard / GUI:
   // Reconnect) — GuiSurface fills it while mounted.
   const guiCommandsRef = useRef<GuiSurfaceCommands | null>(null);
@@ -1315,6 +1320,31 @@ function AppShell() {
     return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
+  // The desktop-resize path shared by the palette's preset/Auto/Custom… rows
+  // and Match this tile: POST /api/gui/host/resize. No toast on success (the
+  // desktop visibly reflows); a non-2xx throws the server's message into an
+  // error toast.
+  const resizeGuiDesktop = useCallback(
+    (geometry: string) => {
+      void resizeGui(geometry).catch((err: unknown) => {
+        addToast(err instanceof Error && err.message ? err.message : "Failed to resize the desktop", "error");
+      });
+    },
+    [addToast],
+  );
+  // Match this tile: measure the noVNC host div inside the gui tile's canvas
+  // wrapper (the `.flex-1` child; the bare-WM strip is the only other direct
+  // div), falling back to the wrapper itself, and post the closest-aspect
+  // preset.
+  const matchGuiTile = useCallback(() => {
+    const wrapper = document.querySelector('[data-testid="gui-surface-canvas"]');
+    const host = wrapper?.querySelector(":scope > div.flex-1") ?? wrapper;
+    if (!(host instanceof HTMLElement)) return;
+    const rect = host.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    resizeGuiDesktop(closestAspectPreset(Math.round(rect.width), Math.round(rect.height)));
+  }, [resizeGuiDesktop]);
+
   // The `GUI:` palette family (Constitution V — every GUI verb is
   // palette-reachable). Terminal-route gated; the per-state gating and labels
   // live in the pure `buildGuiActions` (lib/palette/gui.ts). The toggle
@@ -1332,6 +1362,7 @@ function AppShell() {
       coarsePointer,
       viewMode: guiViewMode,
       resizeLocked: guiResizeLocked,
+      geometry: gui?.geometry ?? "",
       supervisorAvailable: rkGuiWindow !== null,
       onTurnOn: () => {
         void postSettings({ "gui.enabled": true }).catch((err: unknown) => {
@@ -1351,6 +1382,9 @@ function AppShell() {
             addToast(err instanceof Error && err.message ? err.message : `Failed to open ${app}`, "error");
           });
       },
+      onResize: resizeGuiDesktop,
+      onResizeCustom: () => setGuiGeometryPromptOpen(true),
+      onMatchTile: matchGuiTile,
       onFullscreen: guiFullscreen,
       onPaste: () => {
         navigator.clipboard
@@ -1390,6 +1424,8 @@ function AppShell() {
     rkGuiWindow,
     guiOffRequest,
     guiFullscreen,
+    resizeGuiDesktop,
+    matchGuiTile,
     openGuiLogs,
     addToast,
   ]);
@@ -5272,6 +5308,18 @@ function AppShell() {
             defaultName={sessionNamePrompt.defaultName}
             onSubmit={handleSessionNamePromptSubmit}
             onClose={() => setSessionNamePrompt(null)}
+          />
+        </Suspense>
+      )}
+
+      {guiGeometryPromptOpen && (
+        <Suspense fallback={null}>
+          <GuiGeometryPrompt
+            onSubmit={(geometry) => {
+              setGuiGeometryPromptOpen(false);
+              resizeGuiDesktop(geometry);
+            }}
+            onClose={() => setGuiGeometryPromptOpen(false)}
           />
         </Suspense>
       )}

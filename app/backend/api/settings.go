@@ -88,7 +88,11 @@ func normalizeSettingValue(value any) any {
 // session — true ⇒ ensure (best-effort: a failure warns and the response is
 // still 200; the stream's reachable/reason fields carry the outcome), false
 // ⇒ kill — then flips the hub's gui slot synchronously via setGUIEnabled.
-// No other key has a side effect.
+// When the patch contains gui.geometry with a fixed WxH value and the GUI is
+// enabled and reachable, a successful save additionally applies the size live
+// via xrandr — best-effort, so a failure warns and the response stays 200;
+// `auto` needs no action (see applyGuiGeometryLive). No other key has a side
+// effect.
 func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	var patch map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
@@ -103,6 +107,7 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	_, hasBoardOrder := patch["board_order"]
 	_, hasAutoName := patch["auto_name"]
 	_, hasGUIEnabled := patch["gui.enabled"]
+	_, hasGUIGeometry := patch["gui.geometry"]
 	// Sorted keys, not map order: which validation error a multi-key invalid
 	// patch reports must be deterministic across runs.
 	keys := make([]string, 0, len(patch))
@@ -161,6 +166,13 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		s.sseHub.setGUIEnabled(current.GUIEnabled)
+	}
+
+	// gui.geometry's live resize: the setting is already validated and saved by
+	// the generic path, so the xrandr apply is best-effort and never fails the
+	// request.
+	if hasGUIGeometry {
+		s.applyGuiGeometryLive(r.Context(), current)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

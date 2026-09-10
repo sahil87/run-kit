@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -84,7 +85,7 @@ func TestGuiStatusDisabledDocument(t *testing.T) {
 	if err := json.Unmarshal(body, &st); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if st.ID != "host" || st.Enabled || st.Reachable || st.Session || len(st.Apps) != 0 {
+	if st.ID != "host" || st.Enabled || st.Reachable || st.Session || len(st.Apps) != 0 || st.Geometry != "" {
 		t.Errorf("document = %+v, want id=host with everything off/empty", st)
 	}
 	if !strings.Contains(string(body), `"apps":[]`) {
@@ -136,6 +137,26 @@ func TestGuiStatusReachableDocument(t *testing.T) {
 	}
 	if !strings.HasSuffix(st.Socket, "host.sock") {
 		t.Errorf("socket = %q, want the host.sock path", st.Socket)
+	}
+}
+
+// The geometry rides settings like enabled: the document carries the
+// gui.geometry value while enabled, "" while disabled.
+func TestGuiStatusCarriesGeometry(t *testing.T) {
+	_, router := newGuiAPIServer(t, true)
+	st := settings.Load()
+	st.GUIGeometry = "1600x900"
+	if err := settings.Save(st); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+
+	rec := getJSON(t, router, "/api/gui/host")
+	var doc gui.Status
+	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if doc.Geometry != "1600x900" {
+		t.Errorf("geometry = %q, want 1600x900 from the setting", doc.Geometry)
 	}
 }
 
@@ -385,8 +406,8 @@ func TestGuiLaunchOK(t *testing.T) {
 }
 
 // The family is exactly GET /api/gui/{id} + POST /api/gui/{id}/restart +
-// POST /api/gui/{id}/launch — nothing else under /api/gui exists (mutations
-// ride POST, on/off ride /api/settings).
+// POST /api/gui/{id}/launch + POST /api/gui/{id}/resize — nothing else under
+// /api/gui exists (mutations ride POST, on/off ride /api/settings).
 func TestGuiNoOtherRoutes(t *testing.T) {
 	_, router := newGuiAPIServer(t, true)
 	for _, tc := range []struct {
@@ -456,5 +477,235 @@ func TestGuiStatusOmitsHumanInputBeforeAny(t *testing.T) {
 	rec := getJSON(t, router, "/api/gui/host")
 	if strings.Contains(rec.Body.String(), "human_input_ago_ms") {
 		t.Errorf("body = %s, want human_input_ago_ms omitted before any relayed input", rec.Body.String())
+	}
+}
+
+// --- POST /api/gui/{id}/resize ---
+
+// fakeXrandrQuery is the probe output the stubbed reachable rig answers with:
+// VNC-0 connected, 1920x1080 and 1280x720 listed, 1600x900 not.
+const fakeXrandrQuery = "Screen 0: minimum 32 x 32, current 1920 x 1080, maximum 16384 x 16384\n" +
+	"VNC-0 connected 1920x1080+0+0 0mm x 0mm\n" +
+	"   1920x1080     60.00*+\n" +
+	"   1280x720      60.00\n"
+
+// xrandrCall is one recorded DisplayRunner invocation.
+type xrandrCall struct {
+	display string
+	argv    []string
+}
+
+// recordingXrandrRunner builds a DisplayRunner that records each call and
+// answers --query with fakeXrandrQuery. failOnFlag, when non-empty, makes any
+// argv containing that flag fail with failErr.
+func recordingXrandrRunner(calls *[]xrandrCall, failOnFlag string, failErr error) gui.DisplayRunner {
+	return func(_ context.Context, display string, argv []string) (string, error) {
+		*calls = append(*calls, xrandrCall{display: display, argv: append([]string(nil), argv...)})
+		if failOnFlag != "" {
+			for _, a := range argv {
+				if a == failOnFlag {
+					return "", failErr
+				}
+			}
+		}
+		if len(argv) == 2 && argv[1] == "--query" {
+			return fakeXrandrQuery, nil
+		}
+		return "", nil
+	}
+}
+
+// failIfXrandrRuns is the runner for refusal rows: xrandr must never start.
+func failIfXrandrRuns(t *testing.T) gui.DisplayRunner {
+	t.Helper()
+	return func(context.Context, string, []string) (string, error) {
+		t.Error("xrandr runner called on a refusal path")
+		return "", nil
+	}
+}
+
+func TestGuiResizeInvalidID(t *testing.T) {
+	_, router := newGuiAPIServer(t, true)
+	rec := postJSON(t, router, "/api/gui/nope/resize", `{"geometry":"1600x900"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.TrimSpace(rec.Body.String()) != `{"error":"gui id must be \"host\""}` {
+		t.Errorf("body = %s, want the validation message", rec.Body.String())
+	}
+}
+
+// An undecodable body — truncation, a non-string geometry, extra keys — is the
+// same 400 shape message.
+func TestGuiResizeBadBody(t *testing.T) {
+	for _, body := range []string{
+		`{`,
+		`{"geometry":1}`,
+		`{"geometry":"1600x900","argv":["rm","-rf","/"]}`,
+	} {
+		server, router := newGuiAPIServer(t, true)
+		server.guiXrandrRunFn = failIfXrandrRuns(t)
+		rec := postJSON(t, router, "/api/gui/host/resize", body)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("body %s: status = %d, want 400; resp=%s", body, rec.Code, rec.Body.String())
+			continue
+		}
+		if strings.TrimSpace(rec.Body.String()) != `{"error":"geometry must be WxH (320–7680 per side) or auto"}` {
+			t.Errorf("body %s: resp = %s, want the shape error", body, rec.Body.String())
+		}
+	}
+}
+
+func TestGuiResizeOutOfRange400(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	server.guiXrandrRunFn = failIfXrandrRuns(t)
+
+	rec := postJSON(t, router, "/api/gui/host/resize", `{"geometry":"100x100"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "geometry 100x100 out of range (320–7680 per side)") {
+		t.Errorf("body = %s, want the range message", rec.Body.String())
+	}
+}
+
+func TestGuiResizeDarwin409(t *testing.T) {
+	saved := guiLaunchGOOS
+	t.Cleanup(func() { guiLaunchGOOS = saved })
+	guiLaunchGOOS = "darwin"
+	server, router := newGuiAPIServer(t, true)
+	server.guiXrandrRunFn = failIfXrandrRuns(t)
+
+	rec := postJSON(t, router, "/api/gui/host/resize", `{"geometry":"1600x900"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), guiResizeDarwinError) {
+		t.Errorf("body = %s, want the darwin refusal text", rec.Body.String())
+	}
+}
+
+func TestGuiResizeDisabled409(t *testing.T) {
+	server, router := newGuiAPIServer(t, false)
+	server.guiXrandrRunFn = failIfXrandrRuns(t)
+
+	rec := postJSON(t, router, "/api/gui/host/resize", `{"geometry":"1600x900"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.TrimSpace(rec.Body.String()) != `{"error":"gui disabled"}` {
+		t.Errorf("body = %s, want exactly the gui-disabled error", rec.Body.String())
+	}
+}
+
+func TestGuiResizeNotRunning409(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	server.guiProbeFn = func(context.Context, string, string) (gui.Info, error) {
+		return gui.Info{Reason: "not running"}, nil
+	}
+	server.guiXrandrRunFn = failIfXrandrRuns(t)
+
+	rec := postJSON(t, router, "/api/gui/host/resize", `{"geometry":"1600x900"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.TrimSpace(rec.Body.String()) != `{"error":"gui is on but not running — see 'rk gui status'"}` {
+		t.Errorf("body = %s, want exactly the not-running error", rec.Body.String())
+	}
+}
+
+// No xrandr on PATH: 500 with the install hint and the setting stays
+// unwritten.
+func TestGuiResizeXrandrMissing500(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	server.guiLookPathFn = func(name string) (string, error) {
+		if name == "xrandr" {
+			return "", errors.New("not found: " + name)
+		}
+		return "/usr/bin/" + name, nil
+	}
+	server.guiXrandrRunFn = failIfXrandrRuns(t)
+
+	rec := postJSON(t, router, "/api/gui/host/resize", `{"geometry":"1600x900"}`)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.TrimSpace(rec.Body.String()) != `{"error":"`+gui.XrandrMissingHint+`"}` {
+		t.Errorf("body = %s, want the xrandr install hint", rec.Body.String())
+	}
+	if got := settings.Load().GUIGeometry; got != gui.GeometryDefault {
+		t.Errorf("GUIGeometry = %q, want unwritten default %q", got, gui.GeometryDefault)
+	}
+}
+
+// A failed xrandr step surfaces its stderr tail and leaves the setting
+// unwritten (the setting must stay truthful to the display).
+func TestGuiResizeFailure500LeavesSetting(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	var calls []xrandrCall
+	server.guiXrandrRunFn = recordingXrandrRunner(&calls, "--output", errors.New("X Error of failed request"))
+
+	rec := postJSON(t, router, "/api/gui/host/resize", `{"geometry":"1600x900"}`)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "X Error of failed request") {
+		t.Errorf("body = %s, want the xrandr stderr tail", rec.Body.String())
+	}
+	if got := settings.Load().GUIGeometry; got != gui.GeometryDefault {
+		t.Errorf("GUIGeometry = %q, want unchanged default %q after the failure", got, gui.GeometryDefault)
+	}
+}
+
+// "auto" persists the setting only — no xrandr exchange at all.
+func TestGuiResizeAutoPersistsOnly(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	server.guiXrandrRunFn = failIfXrandrRuns(t)
+
+	rec := postJSON(t, router, "/api/gui/host/resize", `{"geometry":"auto"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["ok"] != true || body["geometry"] != gui.GeometryAuto || body["was"] != gui.GeometryDefault {
+		t.Errorf("body = %v, want ok:true geometry:auto was:%s", body, gui.GeometryDefault)
+	}
+	if got := settings.Load().GUIGeometry; got != gui.GeometryAuto {
+		t.Errorf("GUIGeometry = %q, want auto", got)
+	}
+}
+
+func TestGuiResizeOK(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	var calls []xrandrCall
+	server.guiXrandrRunFn = recordingXrandrRunner(&calls, "", nil)
+
+	rec := postJSON(t, router, "/api/gui/host/resize", `{"geometry":"1600x900"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["ok"] != true || body["geometry"] != "1600x900" || body["was"] != gui.GeometryDefault {
+		t.Errorf("body = %v, want ok:true geometry:1600x900 was:%s", body, gui.GeometryDefault)
+	}
+	if got := settings.Load().GUIGeometry; got != "1600x900" {
+		t.Errorf("GUIGeometry = %q, want 1600x900 persisted", got)
+	}
+	// 1600x900 is unlisted: query first, then the zero-timing modeline,
+	// addmode, and the output step — all on the status's display.
+	want := []xrandrCall{
+		{":10", []string{"xrandr", "--query"}},
+		{":10", []string{"xrandr", "--newmode", "1600x900", "0", "1600", "0", "0", "0", "900", "0", "0", "0"}},
+		{":10", []string{"xrandr", "--addmode", "VNC-0", "1600x900"}},
+		{":10", []string{"xrandr", "--output", "VNC-0", "--mode", "1600x900"}},
+	}
+	if !reflect.DeepEqual(calls, want) {
+		t.Errorf("xrandr calls = %+v, want %+v", calls, want)
 	}
 }

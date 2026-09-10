@@ -134,7 +134,11 @@ default `false`, home `~/.config/run-kit/config.yaml`, **no env form** (env
 stays the three binding keys — Constitution IV) — D3. A second registry key,
 **`gui.wm`** (string, default `""`, no env form), pins the window manager;
 empty picks the first ladder rung on PATH (§ The supervisor). It takes effect
-on `rk gui restart`.
+on `rk gui restart`. A third registry key, **`gui.geometry`** (string,
+default `1920x1080`, values `WxH` or `auto`, `live: true`), fixes the
+desktop's pixel size (§ Resize policy); the Settings dialog renders it as a
+plain text field (the select control is a later stage) whose inline error
+surfaces a 400, and a fixed value applies live via RandR.
 
 | Entry point | Form | Notes |
 |-------------|------|-------|
@@ -251,10 +255,24 @@ an optional later backend.
 
 ## Resize policy
 
-The desktop follows the **last-focused fine-pointer viewer's** tile size via
-SetDesktopSize; other viewers scale client-side; **coarse-pointer viewers
-never drive resize**; palette `GUI: Lock resolution` pins it — D7. HiDPI
-renders 1× (CSS pixels) by default.
+The desktop's size is the host preference **`gui.geometry`** (string, default
+`1920x1080` — a fixed pixel size the guest keeps until someone changes it);
+D7's follow-the-**last-focused-fine-pointer-viewer's**-tile behavior survives
+as its `auto` value, exactly as before: the focused fine-pointer viewer
+drives SetDesktopSize, other viewers scale client-side, **coarse-pointer
+viewers never drive resize**. Under a fixed value `resizeSession` is false
+for **every** viewer, and the two pins — viewer-local `GUI: Lock resolution`,
+host `rk gui lock` — are inert: the palette row never disappears, it renders
+disabled with the description `resolution is fixed (1920×1080) — pick Auto to
+follow the tile` (V-D4). Aspect is preserved by construction: fit mode
+letterboxes a fixed desktop onto the tile's ground and never stretches
+(V-D5). Changing the size applies live through RandR, never a restart (V-D3 —
+spike-verified on Xvnc: a zero-timing modeline `--newmode WxH 0 W 0 0 0 H 0 0
+0` + `--addmode <output>` + `--output <output> --mode WxH`, the first two
+steps skipped when the output already lists the mode; the output name is
+probed from `xrandr --query`, never hardcoded), then persists the setting, so
+`rk gui restart` lands on the chosen size. HiDPI renders 1× (CSS pixels) by
+default.
 
 The host-side pin: `rk gui lock` sets the session-scoped tmux option
 `@rk_gui_lock` on `rk-gui` (`rk gui unlock` unsets it; both gated,
@@ -263,7 +281,8 @@ The hub reads it on the gui tick beside the stamps and streams it as the
 entry's `locked`; the tile ANDs `!locked` into `resizeSession` beside the
 viewer-local pin (an additional term, not a replacement), so an agent loop's
 coordinates cannot move mid-loop; `rk gui status` and the doctor row render
-`, locked` as the summary's last segment.
+`, locked` as the summary's last segment. The pin matters under `auto` —
+under a fixed `gui.geometry` nothing can resize the desktop anyway.
 
 ---
 
@@ -317,6 +336,22 @@ otherwise (plan C4, study §10):
   the xdg-utils hint.
 - `rk gui lock` / `rk gui unlock` — the host resolution pin (§ Resize
   policy).
+- `rk gui resize <WxH|auto>` — sets the desktop size (§ Resize policy): a
+  fixed `WxH` (320–7680 per side) resizes the display live via RandR first
+  and only then persists `gui.geometry`, printing `resized :10 to 1600x900
+  (was 1920x1080)` (was = the previous setting value); `auto` persists only
+  and prints `desktop follows the focused viewer (gui.geometry=auto)`. A
+  shape or range error is usage (`Error: geometry 100x100 out of range
+  (320–7680 per side)`, exit 2); a missing `xrandr` or a failed resize is
+  exit 1 with the setting untouched. Not an input verb — it never consults
+  the human-input guard. The HTTP twin `POST /api/gui/{id}/resize` takes
+  `{"geometry":"WxH"|"auto"}` and answers: 400 for an invalid id or a
+  parse/range error; 409 for the macOS mirror (`gui resize is not supported
+  on macOS in v1 — the GUI mirrors your live session view-only`), `gui
+  disabled`, or on-but-not-running; 500 for a missing `xrandr` (the
+  x11-xserver-utils hint) or a failed resize (the stderr tail), the setting
+  left unwritten; 200
+  `{"ok":true,"geometry":"1600x900","was":"<previous setting value>"}`.
 - `rk agent setup` — exports `DISPLAY` into managed panes when enabled
   (read-time derivation from the supervisor's stamped display, never a hook
   push — Constitution X).

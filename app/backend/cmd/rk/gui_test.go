@@ -301,6 +301,17 @@ func seedGuiOn(t *testing.T) {
 	}
 }
 
+// seedGuiGeometry persists the gui.geometry setting through the isolated
+// config dir.
+func seedGuiGeometry(t *testing.T, geometry string) {
+	t.Helper()
+	st := settings.Load()
+	st.GUIGeometry = geometry
+	if err := settings.Save(st); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+}
+
 func TestGuiOffNonTTYWithAppsRefuses(t *testing.T) {
 	_, kills, _ := withGuiCLISeams(t)
 	seedGuiOn(t)
@@ -471,7 +482,7 @@ func TestGuiStatusReachable(t *testing.T) {
 	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
 		t.Fatal(err)
 	}
-	want := "gui: on (Xtigervnc, :10, 1920x1080, 2 viewers, no window manager)\n  apps: chromium ×3, xterm ×1\n"
+	want := "gui: on (Xtigervnc, :10, 1920x1080 fixed, 2 viewers, no window manager)\n  apps: chromium ×3, xterm ×1\n"
 	if got := out.String(); got != want {
 		t.Errorf("stdout = %q, want %q", got, want)
 	}
@@ -490,7 +501,7 @@ func TestGuiStatusSingularViewerNamesWM(t *testing.T) {
 	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := out.String(), "gui: on (Xtigervnc, :10, 1920x1080, 1 viewer, icewm-session)\n"; got != want {
+	if got, want := out.String(), "gui: on (Xtigervnc, :10, 1920x1080 fixed, 1 viewer, icewm-session)\n"; got != want {
 		t.Errorf("stdout = %q, want %q", got, want)
 	}
 }
@@ -578,7 +589,7 @@ func TestGuiStatusSessionStarterSuffix(t *testing.T) {
 	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := out.String(), "gui: on (Xtigervnc, :10, 1920x1080, 1 viewer, startlxqt (session))\n"; got != want {
+	if got, want := out.String(), "gui: on (Xtigervnc, :10, 1920x1080 fixed, 1 viewer, startlxqt (session))\n"; got != want {
 		t.Errorf("stdout = %q, want %q", got, want)
 	}
 
@@ -888,7 +899,7 @@ func TestGuiStatusLockedSegment(t *testing.T) {
 	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
 		t.Fatal(err)
 	}
-	want := "gui: on (Xtigervnc, :10, 1920x1080, 1 viewer, icewm-session, locked)\n"
+	want := "gui: on (Xtigervnc, :10, 1920x1080 fixed, 1 viewer, icewm-session, locked)\n"
 	if got := out.String(); got != want {
 		t.Errorf("stdout = %q, want %q (locked rides last in the paren list)", got, want)
 	}
@@ -897,6 +908,40 @@ func TestGuiStatusLockedSegment(t *testing.T) {
 // The fetched document's human-input age renders as an indented line after
 // the summary (and after the apps line when apps exist), only inside the
 // grace window.
+// The geometry segment carries the gui.geometry setting's fixed/auto marker
+// next to the probe's live WxH (the two may disagree transiently mid-resize).
+func TestGuiStatusGeometrySegment(t *testing.T) {
+	cases := []struct {
+		name          string
+		geometry      string
+		width, height int
+		want          string
+	}{
+		{"fixed", "1600x900", 1600, 900, "gui: on (Xtigervnc, :10, 1600x900 fixed, 1 viewer, icewm-session)\n"},
+		{"auto", "auto", 1920, 1080, "gui: on (Xtigervnc, :10, 1920x1080 auto, 1 viewer, icewm-session)\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withGuiCLISeams(t)
+			seedGuiOn(t)
+			seedGuiGeometry(t, tc.geometry)
+			guiViewersFn = func() int { return 1 }
+			guiSessionOptionsFn = func(context.Context) (string, string, string, bool) { return ":10", "Xtigervnc", "icewm-session", true }
+			guiProbeFn = func(context.Context, string, string) (gui.Info, error) {
+				return gui.Info{Reachable: true, Width: tc.width, Height: tc.height}, nil
+			}
+
+			var out bytes.Buffer
+			if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
+				t.Fatal(err)
+			}
+			if got := out.String(); got != tc.want {
+				t.Errorf("stdout = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestGuiStatusHumanInputLine(t *testing.T) {
 	withGuiCLISeams(t)
 	seedGuiOn(t)
@@ -911,7 +956,7 @@ func TestGuiStatusHumanInputLine(t *testing.T) {
 	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
 		t.Fatal(err)
 	}
-	want := "gui: on (Xtigervnc, :10, 1920x1080, 0 viewers, no window manager)\n" +
+	want := "gui: on (Xtigervnc, :10, 1920x1080 fixed, 0 viewers, no window manager)\n" +
 		"  apps: xterm ×1\n" +
 		"  human input 1s ago\n"
 	if got := out.String(); got != want {

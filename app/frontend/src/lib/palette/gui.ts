@@ -18,6 +18,14 @@
  *                                 `/api/gui/host/launch` via the caller's
  *                                 onLaunch. Independent of `tileOpen` — a
  *                                 phone user may launch, then open the tile.
+ *  - `GUI: Resolution → …`      — the launch rows' gate: one row per preset
+ *                                 (`current` marks the row matching the
+ *                                 host's geometry), `Match this tile` (only
+ *                                 with a tile open — it measures the tile),
+ *                                 `Custom…` (the caller's prompt), and `Auto
+ *                                 (follow this tile)` (hidden while the
+ *                                 setting already reads `auto` — the
+ *                                 destination-only rule).
  *  - `GUI: Fullscreen`          — gui tile open; the fullscreen verb (zen
  *                                 fallback where requestFullscreen is absent).
  *  - `GUI: Paste clipboard`     — gui tile open AND connected (readText needs a
@@ -30,7 +38,10 @@
  *                                 pointer only (coarse viewers never drive
  *                                 resize, so there is nothing to lock);
  *                                 destination-only pair toggling the
- *                                 viewer-local `rk-gui-lock` posture.
+ *                                 viewer-local `rk-gui-lock` posture. Under a
+ *                                 fixed geometry the pins are inert: the row
+ *                                 renders DISABLED with the fixed-size
+ *                                 description rather than disappearing.
  *  - `GUI: Open supervisor logs` — switch ON; navigates to the rk-gui
  *                                 session's host window. When the supervisor
  *                                 session is absent the row renders DISABLED
@@ -44,6 +55,7 @@
 
 import type { GuiLaunchApp } from "../../api/client";
 import type { GuiViewMode } from "../gui-posture";
+import { GUI_GEOMETRY_PRESETS, presetLabel } from "../gui-geometry";
 
 export type GuiPaletteAction = {
   id: string;
@@ -69,6 +81,9 @@ export type GuiPaletteInput = {
   coarsePointer: boolean;
   viewMode: GuiViewMode;
   resizeLocked: boolean;
+  /** The host signal's `geometry` — the `gui.geometry` setting: a fixed `WxH`,
+   *  or `auto` (the desktop follows the focused fine-pointer viewer). */
+  geometry: string;
   /** The rk-gui supervisor session's host window was found for navigation. */
   supervisorAvailable: boolean;
   onTurnOn: () => void;
@@ -76,6 +91,12 @@ export type GuiPaletteInput = {
   onTurnOff: () => void;
   /** POST /api/gui/host/launch for the role; the caller owns the toast. */
   onLaunch: (app: GuiLaunchApp) => void;
+  /** POST /api/gui/host/resize for a preset or `auto`; the caller owns the toast. */
+  onResize: (geometry: string) => void;
+  /** Opens the Custom… geometry prompt (the caller owns the dialog). */
+  onResizeCustom: () => void;
+  /** Measures the open gui tile and posts the closest-aspect preset. */
+  onMatchTile: () => void;
   onFullscreen: () => void;
   onPaste: () => void;
   onViewMode: (mode: GuiViewMode) => void;
@@ -99,6 +120,36 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
       { id: "gui-open-terminal", label: "GUI: Open terminal", onSelect: () => input.onLaunch("terminal") },
       { id: "gui-open-browser", label: "GUI: Open browser", onSelect: () => input.onLaunch("browser") },
     );
+    for (const preset of GUI_GEOMETRY_PRESETS) {
+      actions.push({
+        id: `gui-res-${preset}`,
+        label: `GUI: Resolution → ${presetLabel(preset)}`,
+        ...(preset === input.geometry ? { description: "current" } : {}),
+        onSelect: () => input.onResize(preset),
+      });
+    }
+    // Match measures the open tile — without one there is nothing to measure.
+    if (input.tileOpen) {
+      actions.push({
+        id: "gui-res-match",
+        label: "GUI: Resolution → Match this tile",
+        onSelect: input.onMatchTile,
+      });
+    }
+    actions.push({
+      id: "gui-res-custom",
+      label: "GUI: Resolution → Custom…",
+      onSelect: input.onResizeCustom,
+    });
+    // Destination-only: Auto hides while the setting already reads `auto`.
+    if (input.geometry !== "auto") {
+      actions.push({
+        id: "gui-res-auto",
+        label: "GUI: Resolution → Auto (follow this tile)",
+        description: "today's behavior — the desktop follows the focused fine-pointer viewer",
+        onSelect: () => input.onResize("auto"),
+      });
+    }
   }
 
   if (input.tileOpen) {
@@ -119,10 +170,19 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
         : { id: "gui-view-fit", label: "GUI: Fit", onSelect: () => input.onViewMode("fit") },
     );
     if (!input.coarsePointer) {
+      // Under a fixed geometry the pins are inert (no viewer can drive
+      // SetDesktopSize) — the row stays, disabled, saying why.
+      const fixedPin =
+        input.geometry !== "auto"
+          ? {
+              disabled: true,
+              description: `resolution is fixed (${presetLabel(input.geometry)}) — pick Auto to follow the tile`,
+            }
+          : {};
       actions.push(
         input.resizeLocked
-          ? { id: "gui-unlock", label: "GUI: Unlock resolution", onSelect: () => input.onLockChange(false) }
-          : { id: "gui-lock", label: "GUI: Lock resolution", onSelect: () => input.onLockChange(true) },
+          ? { id: "gui-unlock", label: "GUI: Unlock resolution", ...fixedPin, onSelect: () => input.onLockChange(false) }
+          : { id: "gui-lock", label: "GUI: Lock resolution", ...fixedPin, onSelect: () => input.onLockChange(true) },
       );
     }
     if (!input.connected) {

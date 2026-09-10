@@ -22,11 +22,11 @@ import (
 const guiStatusBuildTimeout = 10 * time.Second
 
 // Server gui seams — the injectable layer behind GET /api/gui/{id},
-// POST /api/gui/{id}/restart, POST /api/gui/{id}/launch, and the gui.enabled
-// settings side effect (mirroring the hub's guiSessionOptionsFn/guiProbeFn
-// idiom). Nil falls back to the production daemon/gui calls, so NewTestRouter
-// handlers keep working; tests that assert call counts inject counters
-// directly.
+// POST /api/gui/{id}/restart, POST /api/gui/{id}/launch,
+// POST /api/gui/{id}/resize, and the gui.enabled/gui.geometry settings side
+// effects (mirroring the hub's guiSessionOptionsFn/guiProbeFn idiom). Nil
+// falls back to the production daemon/gui calls, so NewTestRouter handlers
+// keep working; tests that assert call counts inject counters directly.
 //
 // guiSessionExistsFn/guiSessionOptionsFn/guiSessionCreatedFn probe tmux, so
 // they are gated on guiDaemonUpFn — a tmux command on a dead rk-daemon socket
@@ -128,15 +128,26 @@ func (s *Server) guiLaunch(argv, env []string) (int, error) {
 	return gui.StartDetached(argv, env)
 }
 
+// guiXrandrRun is the xrandr runner behind POST /api/gui/{id}/resize and the
+// gui.geometry settings side effect (nil ⇒ gui.RunOnDisplay).
+func (s *Server) guiXrandrRun() gui.DisplayRunner {
+	if s.guiXrandrRunFn != nil {
+		return s.guiXrandrRunFn
+	}
+	return gui.RunOnDisplay
+}
+
 // buildGuiStatus assembles the shared gui.Status document by wiring the
 // Server's gui seams into gui.Assemble (the assembly — daemon gate, stamps,
 // uptime, probe, reason, apps — is owned once in internal/gui). The viewer
 // count is hub-local to this daemon process, hence the sseHub func here
 // (the CLI reports 0).
 func (s *Server) buildGuiStatus(ctx context.Context, id string) gui.Status {
+	st := settings.Load()
 	return gui.Assemble(ctx, gui.StatusDeps{
 		ID:             id,
-		Enabled:        settings.Load().GUIEnabled,
+		Enabled:        st.GUIEnabled,
+		Geometry:       st.GUIGeometry,
 		DaemonRunning:  s.guiDaemonUp,
 		SessionExists:  s.guiSessionExists,
 		SessionOptions: s.guiSessionOptions,
@@ -265,4 +276,111 @@ func (s *Server) handleGuiLaunch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "app": string(role), "argv0": name, "pid": pid})
+}
+
+// guiResizeRequest is the POST /api/gui/{id}/resize body: the target desktop
+// geometry — a fixed WxH, or "auto" to follow the focused viewer's tile.
+type guiResizeRequest struct {
+	Geometry string `json:"geometry"`
+}
+
+// guiResizeBadBody is the 400 for an undecodable resize body: the parse shape
+// error without the got clause (there is no geometry string to name).
+const guiResizeBadBody = "geometry must be WxH (320–7680 per side) or auto"
+
+// guiResizeDarwinError is the resize twin of guiLaunchDarwinError.
+const guiResizeDarwinError = "gui resize is not supported on macOS in v1 — the GUI mirrors your live session view-only"
+
+// handleGuiResize serves POST /api/gui/{id}/resize — the HTTP twin of
+// 'rk gui resize'. A fixed WxH is applied via xrandr BEFORE the gui.geometry
+// setting is written, so the setting stays truthful to the display (a failed
+// xrandr leaves it unwritten); "auto" persists without touching xrandr. `was`
+// in the success body is the previous setting value.
+func (s *Server) handleGuiResize(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if msg := validate.ValidateGUIID(id); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	var body guiResizeRequest
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, guiResizeBadBody)
+		return
+	}
+	width, height, auto, err := gui.ParseGeometry(body.Geometry)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if guiLaunchGOOS == "darwin" {
+		writeError(w, http.StatusConflict, guiResizeDarwinError)
+		return
+	}
+	if !settings.Load().GUIEnabled {
+		writeError(w, http.StatusConflict, "gui disabled")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), guiStatusBuildTimeout)
+	defer cancel()
+	st := s.buildGuiStatus(ctx, id)
+	if !st.Reachable {
+		writeError(w, http.StatusConflict, "gui is on but not running — see 'rk gui status'")
+		return
+	}
+	target := gui.GeometryAuto
+	if !auto {
+		if _, err := s.guiLookPath("xrandr"); err != nil {
+			writeError(w, http.StatusInternalServerError, gui.XrandrMissingHint)
+			return
+		}
+		resizeCtx, resizeCancel := context.WithTimeout(r.Context(), gui.XrandrTimeout)
+		defer resizeCancel()
+		if err := gui.Resize(resizeCtx, s.guiXrandrRun(), st.Display, width, height); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		target = gui.FormatGeometry(width, height)
+	}
+	cur := settings.Load()
+	was := cur.GUIGeometry
+	cur.GUIGeometry = target
+	if err := settings.Save(cur); err != nil {
+		s.logger.Error("failed to save settings", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to save settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "geometry": target, "was": was})
+}
+
+// applyGuiGeometryLive is the POST /api/settings gui.geometry side effect
+// (current is the just-saved document): a fixed WxH on an enabled, reachable
+// GUI is applied via xrandr BEST-EFFORT — a failure warns and the response
+// stays 200 (the setting is already saved; `rk gui restart` applies it).
+// "auto" needs no action: the stream's geometry flips the tiles'
+// resizeSession. The runner and PATH check ride the resize endpoint's seams.
+func (s *Server) applyGuiGeometryLive(rctx context.Context, current settings.Settings) {
+	width, height, auto, err := gui.ParseGeometry(current.GUIGeometry)
+	if err != nil || auto || !current.GUIEnabled {
+		return
+	}
+	ctx, cancel := context.WithTimeout(rctx, guiStatusBuildTimeout)
+	defer cancel()
+	st := s.buildGuiStatus(ctx, "host")
+	if !st.Reachable {
+		return
+	}
+	fail := func(err error) {
+		s.logger.Warn("gui.geometry: live resize failed (the setting is saved; rk gui restart applies it)", "error", err)
+	}
+	if _, err := s.guiLookPath("xrandr"); err != nil {
+		fail(err)
+		return
+	}
+	resizeCtx, resizeCancel := context.WithTimeout(rctx, gui.XrandrTimeout)
+	defer resizeCancel()
+	if err := gui.Resize(resizeCtx, s.guiXrandrRun(), st.Display, width, height); err != nil {
+		fail(err)
+	}
 }

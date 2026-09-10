@@ -291,7 +291,7 @@ func TestGuiRelayRealXtigervnc(t *testing.T) {
 	}
 	display := fmt.Sprintf(":%d", n)
 
-	argv := gui.BackendArgv(bin, display, sock)
+	argv := gui.BackendArgv(bin, display, sock, gui.GeometryDefault)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr

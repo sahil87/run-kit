@@ -1889,6 +1889,7 @@ describe("SurfaceLayout gui tile", () => {
     viewers: 1,
     wm: "icewm-session",
     locked: false,
+    geometry: "1920x1080",
   };
   const lastGuiProps = () => guiSpy.mock.calls.at(-1)?.[0];
 

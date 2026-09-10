@@ -16,6 +16,9 @@ type StatusDeps struct {
 	// Enabled is settings.Load().GUIEnabled, resolved by the caller so the
 	// CLI's settings seam stays injectable.
 	Enabled bool
+	// Geometry is settings.Load().GUIGeometry, resolved by the caller like
+	// Enabled; copied into the document only when enabled.
+	Geometry string
 	// DaemonRunning gates every tmux-touching dep below: a tmux command on a
 	// dead rk-daemon socket births a server.
 	DaemonRunning  func() bool
@@ -57,6 +60,7 @@ func Assemble(ctx context.Context, d StatusDeps) Status {
 	if !st.Enabled {
 		return st
 	}
+	st.Geometry = d.Geometry
 	if d.Viewers != nil {
 		st.Viewers = d.Viewers()
 	}

@@ -128,6 +128,16 @@ func guiBackendUpLine(bin, display, sock string) string {
 	return fmt.Sprintf("gui: %s up on %s (socket %s)", bin, display, sock)
 }
 
+// guiDesktopLine names the geometry the backend started with and where it came
+// from: a fixed gui.geometry value, or auto (resolved to GeometryDefault at
+// boot; the live size then follows the focused viewer's tile via RandR).
+func guiDesktopLine(geometry string, auto bool) string {
+	if auto {
+		return "gui: desktop " + geometry + " (auto — follows the focused viewer)"
+	}
+	return fmt.Sprintf("gui: desktop %s (gui.geometry)", geometry)
+}
+
 func guiNoWMLine(hint string) string {
 	return fmt.Sprintf("gui: no window manager found (tried %s); running bare — %s, then rk gui restart",
 		strings.Join(gui.WMLadder(), ", "), hint)
@@ -291,7 +301,16 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 		return fmt.Errorf("no VNC backend installed — %s", gui.InstallHint(guiSuperviseLookPath))
 	}
 
-	backend, err := guiSuperviseStartBackend(ctx, gui.BackendArgv(bin, display, sock))
+	// The start-time geometry read: a valid fixed gui.geometry passes verbatim;
+	// auto or an unparsable stored value boots at GeometryDefault (RandR resizes
+	// come later over -AcceptSetDesktopSize — this is not the live path).
+	geometry := guiSuperviseSettingsLoad().GUIGeometry
+	_, _, auto, gerr := gui.ParseGeometry(geometry)
+	if auto || gerr != nil {
+		geometry = gui.GeometryDefault
+	}
+
+	backend, err := guiSuperviseStartBackend(ctx, gui.BackendArgv(bin, display, sock, geometry))
 	if err != nil {
 		return fmt.Errorf("starting %s: %w", bin, err)
 	}
@@ -306,6 +325,7 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 		guiSuperviseLog(fmt.Sprintf("gui: chmod 0600 %s failed: %v", sock, err))
 	}
 	guiSuperviseLog(guiBackendUpLine(bin, display, sock))
+	guiSuperviseLog(guiDesktopLine(geometry, auto))
 
 	// Resolve the WM (pin first, ladder fallback) and the launcher apps, seed
 	// the icewm profile, and only then stamp display/backend/wm in one burst:

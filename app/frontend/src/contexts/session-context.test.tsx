@@ -904,6 +904,7 @@ describe("SessionProvider — gui signal (the host-global `gui` event list)", ()
       viewers: 1,
       wm: "icewm-session",
       locked: false,
+      geometry: "1600x900",
     },
   ];
 
@@ -947,6 +948,7 @@ describe("SessionProvider — gui signal (the host-global `gui` event list)", ()
       viewers: 0,
       wm: "",
       locked: false,
+      geometry: "",
     });
   });
 
@@ -1006,6 +1008,7 @@ describe("SessionProvider — gui signal (the host-global `gui` event list)", ()
       viewers: 0,
       wm: "",
       locked: false,
+      geometry: "",
     });
   });
 
@@ -1026,6 +1029,25 @@ describe("SessionProvider — gui signal (the host-global `gui` event list)", ()
       WS.forHostMetrics()!.emit("gui", [{ id: "host", enabled: true, wm: 42 }]);
     });
     expect(result.current?.wm).toBe("");
+  });
+
+  it("geometry passes through as a string and narrows to \"\" when absent or non-string", async () => {
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useGui(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => { WS.forHostMetrics()!.emit("gui", GUI_ON); });
+    expect(result.current?.geometry).toBe("1600x900");
+
+    act(() => {
+      WS.forHostMetrics()!.emit("gui", [{ id: "host", enabled: true }]);
+    });
+    expect(result.current?.geometry).toBe("");
+
+    act(() => {
+      WS.forHostMetrics()!.emit("gui", [{ id: "host", enabled: true, geometry: 42 }]);
+    });
+    expect(result.current?.geometry).toBe("");
   });
 });
 

@@ -96,6 +96,7 @@ The argument is a **role, never an arbitrary command** (that is `rk gui exec`). 
 ## `rk gui lock` / `unlock` — pin the resolution for a loop
 
 `rk gui lock` sets a host-side pin (the `@rk_gui_lock` option on the rk-gui session): while set, no viewer's tile may resize the desktop, so every coordinate you computed from the last shot stays valid. `rk gui status` shows `, locked`; `unlock` clears it; both are idempotent. The pin dies with the rk-gui session (`rk gui restart`/`off` clear it). The palette's `GUI: Lock resolution` row stays viewer-local; the host pin is the loop-safe one.
+`rk gui resize 1600x900` sets the desktop's size itself — live, persisted as `gui.geometry` (default `1920x1080`, fixed; `auto` follows the focused tile) — and a fixed desktop is what keeps `shot`/`click` coordinates stable.
 
 ## The IceWM profile directory
 
@@ -123,7 +124,7 @@ Pairing: `rk notify` for out-of-band pings, `rk present` when the content is HTM
 
 ## Exit codes
 
-- `0` success — stdout carries only the datum (`shot`: the PNG path; `wait --window`: the window id; `exec --detach` / `open`: `started <pid> on :N`; `launch`: `started <name> (pid <n>) on :N`, plus the `cdp` line with `--cdp`; `env`: the export lines; `windows`: the inventory; `clip get`: the clipboard; `lock`/`unlock`: `locked`/`unlocked`). Diagnostics go to stderr.
+- `0` success — stdout carries only the datum (`shot`: the PNG path; `wait --window`: the window id; `exec --detach` / `open`: `started <pid> on :N`; `launch`: `started <name> (pid <n>) on :N`, plus the `cdp` line with `--cdp`; `env`: the export lines; `windows`: the inventory; `clip get`: the clipboard; `lock`/`unlock`: `locked`/`unlocked`; `resize`: `resized :10 to 1600x900 (was 1920x1080)`). Diagnostics go to stderr.
 - `1` operational — the gate refusals (`gui is off — turn it on with 'rk gui on'` / `gui is on but not running — see 'rk gui status'`), the human-input guard, a missing X tool (the apt hints), `not found on PATH`, a launch ladder miss (the install line), no/ambiguous window match, a `wait` timeout, a failed capture tool (`error: <tool> failed: <stderr tail>`).
 - `2` usage — missing command word, stray arg, unknown flag, a launch role other than `terminal`/`browser`, a bad flag combo (`--scale` with `--max-width`, `wait` with neither/both flags, `type` with an argument and `--stdin`, `--cdp` on `terminal`, a bad `scroll` direction). A literal `--` ends flag parsing for `exec`.
 

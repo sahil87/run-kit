@@ -402,13 +402,14 @@ func tmuxConfigCheck() doctorCheck {
 
 // guiCheck reports the GUI surface's state: off (the default), on+reachable
 // with the resolved backend/display/geometry/viewer count/window manager and
-// the resolution pin (a bare display appends the install hint — doctor is the
-// diagnostic surface; 'rk gui status' keeps the bare 'no window manager'), or
-// on+not-running with the fixed reason set (gui.NotRunningReason owns the
-// strings). Always OK-shaped — the code-server posture: a missing or down
-// desktop is a note, never a verdict flipper. Pure over the injected inputs
-// so tests never touch tmux, the probe, or PATH.
-func guiCheck(enabled, session bool, display, backend, wm string, probe gui.Info, viewers int, locked bool, lookPath func(string) (string, error)) doctorCheck {
+// the resolution pin — the geometry segment carries the gui.geometry setting's
+// fixed/auto marker next to the probe's live WxH (a bare display appends the
+// install hint — doctor is the diagnostic surface; 'rk gui status' keeps the
+// bare 'no window manager') — or on+not-running with the fixed reason set
+// (gui.NotRunningReason owns the strings). Always OK-shaped — the code-server
+// posture: a missing or down desktop is a note, never a verdict flipper. Pure
+// over the injected inputs so tests never touch tmux, the probe, or PATH.
+func guiCheck(enabled, session bool, display, backend, wm, geometry string, probe gui.Info, viewers int, locked bool, lookPath func(string) (string, error)) doctorCheck {
 	check := doctorCheck{Name: "gui", OK: true}
 	if !enabled {
 		check.Note = "off"
@@ -426,7 +427,7 @@ func guiCheck(enabled, session bool, display, backend, wm string, probe gui.Info
 				wm += " — " + hint
 			}
 		}
-		check.Note = guiOnSummary(bin, display, probe.Width, probe.Height, viewers, wm, locked)
+		check.Note = guiOnSummary(bin, display, probe.Width, probe.Height, geometry, viewers, wm, locked)
 		return check
 	}
 	check.Note = "on — not running (" + gui.NotRunningReason(session, backend, lookPath) + ")"
@@ -438,11 +439,12 @@ func guiCheck(enabled, session bool, display, backend, wm string, probe gui.Info
 // socket would birth a tmux server; with the daemon down the row reads as
 // session-absent.
 func guiDoctorCheck() doctorCheck {
-	if !settings.Load().GUIEnabled {
-		return guiCheck(false, false, "", "", "", gui.Info{}, 0, false, guiLookPathFn)
+	st := settings.Load()
+	if !st.GUIEnabled {
+		return guiCheck(false, false, "", "", "", "", gui.Info{}, 0, false, guiLookPathFn)
 	}
 	if !guiDaemonRunningFn() {
-		return guiCheck(true, false, "", "", "", gui.Info{}, 0, false, guiLookPathFn)
+		return guiCheck(true, false, "", "", "", "", gui.Info{}, 0, false, guiLookPathFn)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), tmux.TmuxTimeout)
 	defer cancel()
@@ -459,7 +461,7 @@ func guiDoctorCheck() doctorCheck {
 			info, _ = guiProbeFn(ctx, network, addr)
 		}
 	}
-	return guiCheck(true, session, display, backend, wm, info, guiViewersFn(), locked, guiLookPathFn)
+	return guiCheck(true, session, display, backend, wm, st.GUIGeometry, info, guiViewersFn(), locked, guiLookPathFn)
 }
 
 // dialTCP is the production reachability probe for the code-server doctor row:

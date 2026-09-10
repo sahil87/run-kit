@@ -56,7 +56,7 @@ Agents: fill your row when you create the change; mark Done when merged.
 | C2 | `gui-backend-switch-and-relay` | C0 verdict, C1 | L | 260909-fkh1-gui-backend-switch-and-relay | https://github.com/sahil87/run-kit/pull/892 | Done |
 | C3 | `gui-surface-tile` | C2 merged | L | 260909-o2sp-gui-surface-tile | https://github.com/sahil87/run-kit/pull/895 | Done |
 | C4 | `gui-agent-verbs` | C2 merged (∥ C3) | M | 260909-bbv1-gui-agent-verbs | https://github.com/sahil87/run-kit/pull/894 | Done |
-| C5 | `gui-perf-measure` | C3, C4 merged | S | 260910-xy7q-gui-perf-measure | (this PR — fill on merge) | Done — see § C5 verdict |
+| C5 | `gui-perf-measure` | C3, C4 merged | S | 260910-xy7q-gui-perf-measure | https://github.com/sahil87/run-kit/pull/903 | Done — see § C5 verdict |
 | C6 | `gui-kasm-backend` *(picked up by C5's verdict)* | C5 verdict | M | | | not started — scope note in § C5 verdict |
 
 C1 ∥ C0. C3 ∥ C4 after C2. C6 only if C5 misses D9's targets and C0 did not already make KasmVNC the default — C5 missed the fps target on a bandwidth-capped link (§ C5 verdict), so C6 proceeds.

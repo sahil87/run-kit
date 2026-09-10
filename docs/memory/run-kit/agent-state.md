@@ -57,23 +57,28 @@ boot stamp exploits (see § Boot-Ready Signal).
 
 ## Backend Native Read (`internal/tmux`)
 
-`#{@rk_pane_agent_state}` is field 8 (0-indexed) of the **11-field** `paneFormat`
+`#{@rk_pane_agent_state}` is field 8 (0-indexed) of the **12-field** `paneFormat`
 `list-panes` format string (`window_id`, `pane_id`, `pane_index`,
 `pane_current_path`, `pane_current_command`, `pane_active`, `#{@rk_agent_state}`,
 `alternate_on`, `#{@rk_pane_agent_state}`, `#{@rk_pane_chat}`,
-`#{@rk_pane_agent_session}`) —
+`#{@rk_pane_agent_session}`, `pane_pid`) —
 **dual-read** with the retired unscoped name at field 6: `parsePanes` resolves
-`agentStateRaw` as field 8 when non-empty else field 6 (lines with fewer than 11
-fields are skipped). It costs **zero extra subprocess** — it rides the existing
+`agentStateRaw` as field 8 when non-empty else field 6 (lines with fewer than 12
+fields are skipped). Field 11 (`pane_pid`) is the `rk mux panes` liveness-walk
+root (`PaneInfo.PanePID`, `json:"-"`; see
+[agent-messaging](/run-kit/agent-messaging.md)). It costs **zero extra subprocess** — it rides the existing
 `list-panes` call `ListWindows` already issues per session. The same dual-read
 applies to the agent-session fields: `agentSessionRaw` = field 10
 (`#{@rk_pane_agent_session}`) when non-empty else field 9 (`#{@rk_pane_chat}`,
 the fallback name carried for one release). (260904-bf1l-agent-session-identity-rename)
 
-`PaneInfo` carries two fields: `AgentState string` (`json:"agentState,omitempty"`,
-`active|waiting|idle`, empty = unknown) and `AgentStateEpoch int64`
-(`json:"agentStateEpoch,omitempty"`, 0 = unknown). Both are parsed and reconciled
-in `parsePanes` (which requires `< 11` fields to skip a line):
+`PaneInfo` carries two serialized agent-state fields: `AgentState string`
+(`json:"agentState,omitempty"`, `active|waiting|idle`, empty = unknown) and
+`AgentStateEpoch int64` (`json:"agentStateEpoch,omitempty"`, 0 = unknown), plus
+the unserialized `AgentPID int` (`json:"-"` — the reconciled pid segment, 0 when
+absent or stale, zeroed together with `AgentState`; the `rk mux panes`
+liveness-walk cross-check pid). All are parsed and reconciled in `parsePanes`
+(which skips a line with fewer than 12 fields):
 
 - **`parseAgentState(raw string) (string, int64)`** — pure helper. Trims, splits
   on the **last** `:` (defensive; state tokens never contain a colon so it equals
@@ -755,8 +760,8 @@ hooks.
 
 - **`paneFormat` carries the agent-session field `#{@rk_pane_agent_session}` as field 10**,
   dual-read with the fallback `#{@rk_pane_chat}` at field 9 — new wins;
-  `parsePanes`'s skip-guard is `< 11`. Zero extra subprocess — it rides
-  the existing per-session `list-panes` call.
+  `parsePanes`'s skip-guard is `< 12` (field 11 is `pane_pid`). Zero extra
+  subprocess — it rides the existing per-session `list-panes` call.
 - **`PaneInfo` carries `AgentProvider string`** (`json:"agentProvider,omitempty"`)
   **and `AgentSessionRef string`** (`json:"agentSessionRef,omitempty"`), parsed once
   in Go so no consumer re-splits the raw value.

@@ -288,8 +288,10 @@ test.describe("Sidebar Window Sync", () => {
    * 4. Open a second browser context at a smaller viewport, navigate its page
    *    to the same terminal route, and wait for its `.xterm` + relay attach.
    * 5. Assert the session row's viewer-badge appears showing "2".
-   * 6. Hover the session row; assert the flyout card's viewer line reads
-   *    "2 viewers · <W>×<H> · <W>×<H>" (two real grids).
+   * 6. Hover the session row; assert the flyout card's viewers block has a
+   *    "2 viewers" header plus one row per viewer, each naming a relay-forked
+   *    attach ("desktop · <W>×<H> · <peer> · <age> · idle <n>"), with exactly
+   *    one row (the narrower second page) marked "narrowest".
    * 7. Close the second context.
    */
   test("a second attached viewer surfaces the count chip and card grids on the session row", async ({
@@ -357,12 +359,20 @@ test.describe("Sidebar Window Sync", () => {
       await expect(badge).toHaveText("2");
       await expect(badge).toHaveAttribute("aria-label", "2 viewers attached");
 
-      // The row's hover card lists both grids — the size is the diagnostic.
+      // The row's hover card names both viewers: each relay stream is a
+      // forked attach the daemon owns, so both rows resolve as kind "rk" —
+      // Playwright's UA classifies as "desktop", the peer is the loopback
+      // address. The narrower second page carries the "narrowest" marker.
       await sessionRow.hover();
-      await expect(page.getByTestId("row-flyout-viewers")).toHaveText(
-        /^2 viewers · \d+×\d+ · \d+×\d+$/,
-        { timeout: READY_TIMEOUT },
-      );
+      const viewersBlock = page.getByTestId("row-flyout-viewers");
+      await expect(viewersBlock).toContainText("2 viewers", { timeout: READY_TIMEOUT });
+      const rows = viewersBlock.getByTestId("row-flyout-viewer");
+      await expect(rows).toHaveCount(2);
+      const rowPattern =
+        /^desktop · \d+×\d+ · [\d.:a-f]+ · \d+[smh] · idle \d+[smh]( · narrowest)?$/;
+      await expect(rows.nth(0)).toHaveText(rowPattern);
+      await expect(rows.nth(1)).toHaveText(rowPattern);
+      await expect(rows.filter({ hasText: "narrowest" })).toHaveCount(1);
     } finally {
       await ctx2.close();
     }

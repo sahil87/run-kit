@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeSchedule, humanizeDuration } from "./cron-schedule";
+import { describeDeliver, describeSchedule, humanizeDuration } from "./cron-schedule";
 
 describe("humanizeDuration", () => {
   it.each([
@@ -61,5 +61,25 @@ describe("describeSchedule", () => {
 
   it("renders an unknown kind without fabricating a phrasing", () => {
     expect(describeSchedule({ schedule: { kind: "weird" } })).toBe("unknown schedule (weird)");
+  });
+});
+
+describe("describeDeliver", () => {
+  it("describes absent/empty/immediate as delivered immediately", () => {
+    expect(describeDeliver(undefined)).toBe("delivered immediately");
+    expect(describeDeliver("")).toBe("delivered immediately");
+    expect(describeDeliver("immediate")).toBe("delivered immediately");
+  });
+
+  it("describes when-idle as held until idle, bounded by the hold window", () => {
+    expect(describeDeliver("when-idle")).toBe("held until the agent is idle (up to 2h)");
+  });
+
+  it("describes skip-if-busy as skipped when busy", () => {
+    expect(describeDeliver("skip-if-busy")).toBe("skipped when the agent is busy");
+  });
+
+  it("passes an unknown value through verbatim", () => {
+    expect(describeDeliver("weird")).toBe("weird");
   });
 });

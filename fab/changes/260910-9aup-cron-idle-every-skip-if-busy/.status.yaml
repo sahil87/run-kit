@@ -1,0 +1,55 @@
+id: 9aup
+name: 260910-9aup-cron-idle-every-skip-if-busy
+created: 2026-09-10T17:23:12Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 22
+    acceptance_count: 35
+    acceptance_completed: 35
+confidence:
+    certain: 22
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 73.7
+        reversibility: 88.0
+        competence: 89.1
+        disambiguation: 85.4
+stage_metrics:
+    intake: {started_at: "2026-09-10T17:23:12Z", driver: fab-new, iterations: 1, completed_at: "2026-09-10T17:39:05Z"}
+    apply: {started_at: "2026-09-10T17:39:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T18:49:19Z"}
+    review: {started_at: "2026-09-10T18:49:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T18:54:03Z"}
+    hydrate: {started_at: "2026-09-10T18:54:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T19:03:19Z"}
+    ship: {started_at: "2026-09-10T19:03:19Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-10T19:03:19Z"
+    computed_at_stage: hydrate
+summary: 'cron: --idle-every sugar for a flat backoff idle reminder, the skip-if-busy deliver policy (logged skipped-busy drop), and rk cron edit + POST /api/cron/edit sharing cron.Edit with a rescheduled anchor reset; web UI shows and sets deliver'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-10T19:04:16Z

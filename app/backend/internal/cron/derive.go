@@ -59,7 +59,7 @@ func DeriveEntry(e Entry, log []LogLine, facts TargetFacts, now time.Time) Deriv
 		d.HasNextFire = true
 	case ScheduleBackoff:
 		if facts.Resolved() && facts.StateEpoch > 0 {
-			ladder := JoinAnchor(facts.StateEpoch, OwnDeliveries(log, e.ID),
+			ladder := JoinAnchor(facts.StateEpoch, ScheduleHistory(log, e.ID),
 				e.Schedule.Min.Duration, e.Schedule.Max.Duration)
 			d.Rung = ladder.Rung + 1
 			d.NextFire = ladder.NextFire(e.Schedule.Min.Duration, e.Schedule.Max.Duration)

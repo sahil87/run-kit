@@ -90,6 +90,21 @@ describe("CronsZone", () => {
     expect(row).toHaveTextContent("in 5m");
   });
 
+  it("marks the schedule cell with the deliver policy only when it is not immediate", () => {
+    // Undated entries sort by name — the aaa/bbb/ccc names pin the row order.
+    renderZone([
+      makeEntry({ id: "a", name: "aaa-default", deliver: "immediate" }),
+      makeEntry({ id: "b", name: "bbb-unset" }),
+      makeEntry({ id: "c", name: "ccc-dropper", deliver: "skip-if-busy" }),
+    ]);
+    const rows = screen.getAllByTestId("crons-row");
+    expect(rows[0].querySelector('[data-testid="crons-row-deliver"]')).toBeNull();
+    expect(rows[1].querySelector('[data-testid="crons-row-deliver"]')).toBeNull();
+    expect(rows[2].querySelector('[data-testid="crons-row-deliver"]')).toHaveTextContent(
+      "skip-if-busy",
+    );
+  });
+
   it("dims and strikes muted/orphaned rows", () => {
     renderZone([makeEntry({ id: "a", name: "quiet", muted: true })]);
     const row = screen.getByTestId("crons-row");

@@ -2,6 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -11,7 +14,7 @@ import (
 
 // cron.go — the cron HTTP surface (docs/specs/cron.md § API & CLI): entries +
 // derived facts + recent deliveries (GET /api/cron) and the
-// create/delete/mute/pin mutations. All
+// create/delete/mute/pin/edit mutations. All
 // schedule math lives in internal/cron (DeriveEntry reuses JoinAnchor /
 // Ladder.NextFire / everyAnchor / LastDelivery); this file is the thin JSON
 // translation layer over it. Unlike `rk cron list` (disk-only, zero tmux),
@@ -219,20 +222,24 @@ func (s *Server) handleCronList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"entries": out, "deliveries": cronDeliveriesToJSON(log, entries)})
 }
 
+// cronScheduleBody is the schedule field shape of the create and edit bodies:
+// kind plus its parameters, durations as Go strings ("60s", "30m").
+type cronScheduleBody struct {
+	Kind     string `json:"kind"`
+	Interval string `json:"interval"`
+	Min      string `json:"min"`
+	Max      string `json:"max"`
+	Expr     string `json:"expr"`
+	CatchUp  string `json:"catchUp"`
+}
+
 // cronCreateBody is the POST /api/cron/create body — the `rk cron add` schema
 // fields (name, schedule kind+params, target kind+params, payload, deliver,
 // ifAbsent, respawn, pinned) in camelCase.
 type cronCreateBody struct {
-	Name     string `json:"name"`
-	Schedule struct {
-		Kind     string `json:"kind"`
-		Interval string `json:"interval"`
-		Min      string `json:"min"`
-		Max      string `json:"max"`
-		Expr     string `json:"expr"`
-		CatchUp  string `json:"catchUp"`
-	} `json:"schedule"`
-	Target struct {
+	Name     string           `json:"name"`
+	Schedule cronScheduleBody `json:"schedule"`
+	Target   struct {
 		Kind    string `json:"kind"`
 		Role    string `json:"role"`
 		Session string `json:"session"`
@@ -245,6 +252,30 @@ type cronCreateBody struct {
 	Pinned   bool     `json:"pinned"`
 }
 
+// parseCronSchedule converts a body schedule into the schema shape, parsing
+// the duration strings; a bad duration is the caller's 400.
+func parseCronSchedule(b cronScheduleBody) (cron.Schedule, error) {
+	sched := cron.Schedule{Kind: b.Kind, Expr: b.Expr, CatchUp: b.CatchUp}
+	for _, dur := range []struct {
+		dst *cron.Duration
+		raw string
+	}{
+		{&sched.Interval, b.Interval},
+		{&sched.Min, b.Min},
+		{&sched.Max, b.Max},
+	} {
+		if dur.raw == "" {
+			continue
+		}
+		d, err := time.ParseDuration(dur.raw)
+		if err != nil {
+			return cron.Schedule{}, fmt.Errorf("bad duration %s: %w", dur.raw, err)
+		}
+		*dur.dst = cron.Duration{Duration: d}
+	}
+	return sched, nil
+}
+
 // handleCronCreate serves POST /api/cron/create: validate + persist via
 // cron.Add (validation failure ⇒ 400 with the underlying error text), then
 // wake the SSE hub and return the created entry (assigned id included) at 201.
@@ -255,13 +286,14 @@ func (s *Server) handleCronCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sched, err := parseCronSchedule(body.Schedule)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	entry := cron.Entry{
-		Name: body.Name,
-		Schedule: cron.Schedule{
-			Kind:    body.Schedule.Kind,
-			Expr:    body.Schedule.Expr,
-			CatchUp: body.Schedule.CatchUp,
-		},
+		Name:     body.Name,
+		Schedule: sched,
 		Target: cron.Target{
 			Kind:    body.Target.Kind,
 			Role:    body.Target.Role,
@@ -277,24 +309,6 @@ func (s *Server) handleCronCreate(w http.ResponseWriter, r *http.Request) {
 	// created_by.at anchors `every` schedules pre-first-delivery — always
 	// "now" (the CLI's rule); a zero value would anchor at the Unix epoch.
 	entry.CreatedBy = cron.CreatedBy{At: s.now().Unix()}
-	for _, dur := range []struct {
-		dst *cron.Duration
-		raw string
-	}{
-		{&entry.Schedule.Interval, body.Schedule.Interval},
-		{&entry.Schedule.Min, body.Schedule.Min},
-		{&entry.Schedule.Max, body.Schedule.Max},
-	} {
-		if dur.raw == "" {
-			continue
-		}
-		d, err := time.ParseDuration(dur.raw)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "bad duration "+dur.raw+": "+err.Error())
-			return
-		}
-		*dur.dst = cron.Duration{Duration: d}
-	}
 
 	server := serverFromRequest(r)
 	dir, err := cron.DefaultDir()
@@ -436,4 +450,141 @@ func (s *Server) handleCronPin(w http.ResponseWriter, r *http.Request) {
 	s.sseHub.wake(server)
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// cronEditBody is the POST /api/cron/edit body — a partial merge
+// (Constitution IX): pointer fields carry key presence, so an absent key keeps
+// the stored value while a present key replaces it (`schedule` replaces the
+// whole schedule; `respawn: []` clears the argv). target/createdBy/muted/
+// pinned are not fields here at all — they are rejected off the raw key map.
+type cronEditBody struct {
+	ID       string            `json:"id"`
+	Schedule *cronScheduleBody `json:"schedule"`
+	Deliver  *string           `json:"deliver"`
+	Name     *string           `json:"name"`
+	IfAbsent *string           `json:"ifAbsent"`
+	Respawn  *[]string         `json:"respawn"`
+}
+
+// handleCronEdit serves POST /api/cron/edit ← {"id": "<4char>", ...}: merge
+// the present keys into the entry via cron.Edit (the shared helper behind
+// `rk cron edit` — it holds the tick flock, validates the merged entry, and
+// appends the `rescheduled` log line when schedule or deliver changed).
+// Unknown id ⇒ 404; a forbidden key, bad enum/duration, or a merged entry
+// failing validation ⇒ 400 with the validation text; tick-flock contention ⇒
+// 409; other store failures ⇒ 500. Success wakes the SSE hub and returns the
+// updated entry in the create response shape so a UI can re-render without a
+// refetch.
+func (s *Server) handleCronEdit(w http.ResponseWriter, r *http.Request) {
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	for key, msg := range map[string]string{
+		"target":    "target is immutable",
+		"createdBy": "createdBy is immutable",
+		"muted":     "muted is set via /api/cron/mute",
+		"pinned":    "pinned is set via /api/cron/pin",
+	} {
+		if _, ok := raw[key]; ok {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
+	}
+
+	var body cronEditBody
+	if err := json.Unmarshal(data, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	if body.ID == "" {
+		writeError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+	// Enum gates mirror validate()'s closed sets so a rejected value is a 400
+	// here rather than a store-round-trip failure; if_absent is left unenforced
+	// by validate() itself, so the API checks it the way the CLI does.
+	if body.Deliver != nil {
+		switch *body.Deliver {
+		case "", cron.DeliverImmediate, cron.DeliverWhenIdle, cron.DeliverSkipIfBusy:
+		default:
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown deliver value %q", *body.Deliver))
+			return
+		}
+	}
+	if body.IfAbsent != nil {
+		switch *body.IfAbsent {
+		case "", cron.IfAbsentSkip, cron.IfAbsentNotify, cron.IfAbsentRespawn:
+		default:
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown ifAbsent value %q", *body.IfAbsent))
+			return
+		}
+	}
+	var sched *cron.Schedule
+	if body.Schedule != nil {
+		parsed, err := parseCronSchedule(*body.Schedule)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		sched = &parsed
+	}
+
+	server := serverFromRequest(r)
+	dir, ok := cronDirForMutation(w)
+	if !ok {
+		return
+	}
+	merged, found, err := cron.Edit(dir, server, body.ID, s.now(), func(e *cron.Entry) {
+		if sched != nil {
+			e.Schedule = *sched
+		}
+		if body.Deliver != nil {
+			e.Deliver = *body.Deliver
+		}
+		if body.Name != nil {
+			e.Name = *body.Name
+		}
+		if body.IfAbsent != nil {
+			e.IfAbsent = *body.IfAbsent
+			// An argv without the respawn policy is dead weight — setting
+			// ifAbsent to a non-respawn value clears it (the CLI's rule).
+			if *body.IfAbsent != cron.IfAbsentRespawn && body.Respawn == nil {
+				e.Respawn = nil
+			}
+		}
+		if body.Respawn != nil {
+			e.Respawn = *body.Respawn
+			if len(e.Respawn) == 0 {
+				e.Respawn = nil
+			}
+		}
+	})
+	if err != nil {
+		var valErr *cron.EntryValidationError
+		switch {
+		case errors.As(err, &valErr):
+			writeError(w, http.StatusBadRequest, valErr.Error())
+		case errors.Is(err, cron.ErrEditContention):
+			writeError(w, http.StatusConflict, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "cron entry not found")
+		return
+	}
+
+	s.initSSEHub()
+	s.sseHub.wake(server)
+
+	writeJSON(w, http.StatusOK, cronEntryToJSON(merged, cron.DerivedEntry{}, s.now()))
 }

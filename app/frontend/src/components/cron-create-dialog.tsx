@@ -5,13 +5,15 @@ import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
 import { createCron, type CronSchedule } from "@/api/client";
 
 type ScheduleKind = "every" | "backoff" | "cron";
+type Deliver = "immediate" | "when-idle" | "skip-if-busy";
 
 /**
  * The dialog behind the palette's `Cron: new entry` — the minimal web
  * creation surface for the operator clock (the CLI, `rk cron add`, stays the
- * full-featured path). Fields: optional name, required payload, and a
- * schedule — kind segment (every / backoff / cron) with its param input(s)
- * (Go-style durations like "10m"/"1h"; a raw 5-field expression for cron).
+ * full-featured path). Fields: optional name, required payload, a schedule —
+ * kind segment (every / backoff / cron) with its param input(s) (Go-style
+ * durations like "10m"/"1h"; a raw 5-field expression for cron) — and a
+ * Delivery segment (immediate / when-idle / skip-if-busy) sent as `deliver`.
  * The target is fixed to role "operator" — cron is the operator's clock.
  * Submit POSTs createCron; a server validation failure renders inline and the
  * dialog stays open for edit (the TextSetting rejection idiom).
@@ -26,6 +28,7 @@ export function CronCreateDialog({
   const [name, setName] = useState("");
   const [payload, setPayload] = useState("");
   const [kind, setKind] = useState<ScheduleKind>("every");
+  const [deliver, setDeliver] = useState<Deliver>("immediate");
   const [interval, setInterval_] = useState("");
   const [min, setMin] = useState("");
   const [max, setMax] = useState("");
@@ -63,6 +66,7 @@ export function CronCreateDialog({
       schedule,
       target: { kind: "role", role: "operator" },
       payload: payload.trim(),
+      deliver,
     })
       .then(onClose)
       .catch((err: unknown) => {
@@ -80,6 +84,21 @@ export function CronCreateDialog({
         variant: "toggle",
         base: "px-2 py-1 border rounded text-xs transition-colors",
         pressed: kind === k,
+      })}
+    >
+      {label}
+    </button>
+  );
+
+  const deliverButton = (d: Deliver, label: string) => (
+    <button
+      type="button"
+      onClick={() => setDeliver(d)}
+      aria-pressed={deliver === d}
+      className={controlClass({
+        variant: "toggle",
+        base: "px-2 py-1 border rounded text-xs transition-colors",
+        pressed: deliver === d,
       })}
     >
       {label}
@@ -112,6 +131,11 @@ export function CronCreateDialog({
           {kindButton("every", "Every")}
           {kindButton("backoff", "Backoff")}
           {kindButton("cron", "Cron")}
+        </div>
+        <div className="flex gap-1.5" role="group" aria-label="Delivery">
+          {deliverButton("immediate", "Immediate")}
+          {deliverButton("when-idle", "When idle")}
+          {deliverButton("skip-if-busy", "Skip if busy")}
         </div>
         {kind === "every" && (
           <input

@@ -240,18 +240,18 @@ func TestCaptureNodeRealTreeSelfExcludesAndDepth(t *testing.T) {
 		}
 	}
 
-	// The cron family is captured to full depth with exactly its six members.
+	// The cron family is captured to full depth with exactly its seven members.
 	cron, ok := childByName(n, "cron")
 	if !ok {
 		t.Fatal("cron should be present in the real tree")
 	}
-	for _, name := range []string{"add", "list", "rm", "mute", "pin", "tick"} {
+	for _, name := range []string{"add", "edit", "list", "rm", "mute", "pin", "tick"} {
 		if _, ok := childByName(cron, name); !ok {
 			t.Errorf("cron should have its %q subcommand captured", name)
 		}
 	}
-	if len(cron.Commands) != 6 {
-		t.Errorf("cron has %d captured subcommands, want exactly 6 (add, list, rm, mute, pin, tick)", len(cron.Commands))
+	if len(cron.Commands) != 7 {
+		t.Errorf("cron has %d captured subcommands, want exactly 7 (add, edit, list, rm, mute, pin, tick)", len(cron.Commands))
 	}
 
 	// The agent family is captured to full depth with exactly its two members;

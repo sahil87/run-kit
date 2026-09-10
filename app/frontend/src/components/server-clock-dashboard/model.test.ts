@@ -225,6 +225,21 @@ describe("describeOutcome", () => {
     expect(describeOutcome("failed: timeout")).toEqual({ label: "failed: timeout", error: true });
   });
 
+  it("labels a skipped-busy outcome (with its state suffix) as skipped (busy), uncolored", () => {
+    expect(describeOutcome("skipped-busy: active")).toEqual({
+      label: "skipped (busy)",
+      error: false,
+    });
+    expect(describeOutcome("skipped-busy: waiting")).toEqual({
+      label: "skipped (busy)",
+      error: false,
+    });
+  });
+
+  it("passes rescheduled through verbatim, uncolored", () => {
+    expect(describeOutcome("rescheduled")).toEqual({ label: "rescheduled", error: false });
+  });
+
   it("passes an unknown outcome through verbatim, uncolored", () => {
     expect(describeOutcome("something-new")).toEqual({ label: "something-new", error: false });
   });

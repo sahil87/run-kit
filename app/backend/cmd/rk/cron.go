@@ -14,7 +14,8 @@ import (
 
 // rk cron — the scheduling-substrate command family (docs/specs/cron.md):
 // durable per-server cron entries plus the invoker verb. The entry-file-scoped
-// verbs (add, list, rm, mute, pin) resolve one tmux server — the entry file's
+// verbs (add, edit, list, rm, mute, pin) resolve one tmux server — the entry
+// file's
 // slug — via the family's persistent -L/--server flag; `tick` is the exception:
 // cron.Tick sweeps every live server by design, so it rejects an explicitly-set
 // -L rather than silently ignoring it (the muxRejectInheritedServerFlag
@@ -28,16 +29,19 @@ var cronServerFlag string
 
 var cronCmd = &cobra.Command{
 	Use:   "cron",
-	Short: "Scheduled agent prompts (add, list, rm, mute, pin, tick)",
+	Short: "Scheduled agent prompts (add, edit, list, rm, mute, pin, tick)",
 	Long: "Durable, server-scoped cron entries for agent panes: `add` records an " +
-		"entry (a prompt plus a schedule — `--every`, `--backoff`, or `--cron`) " +
+		"entry (a prompt plus a schedule — `--every`, `--idle-every`, `--backoff`, " +
+		"or `--cron`) " +
 		"in the resolved server's intent file, auto-capturing the caller's pane " +
 		"as creator and default target. This is not a system cron: nothing is executed. The prompt is text for an agent — at fire time " +
 		"rk types it into the target agent's chat through the injection engine " +
 		"and presses Enter, exactly as if a person had typed it; it is never run " +
 		"as a command — to run a command, ask the agent to run it. `list` prints " +
 		"the entries and their last " +
-		"delivery, derived from disk only (no tmux probes); `rm`, `mute`, and " +
+		"delivery, derived from disk only (no tmux probes); `edit` changes one " +
+		"entry's schedule or policies in place (target and creator are " +
+		"immutable); `rm`, `mute`, and " +
 		"`pin` mutate one entry by id; `tick` runs one evaluation sweep across " +
 		"every live server — flock-guarded, idempotent, safe to invoke " +
 		"repeatedly. Entry files live under $XDG_STATE_HOME/run-kit/cron/, keyed " +
@@ -47,8 +51,9 @@ var cronCmd = &cobra.Command{
 
 func init() {
 	cronCmd.PersistentFlags().StringVarP(&cronServerFlag, "server", "L", "",
-		"tmux server name (entry-file-scoped verbs: add/list/rm/mute/pin; default: the caller's own server from $TMUX, else the default server)")
+		"tmux server name (entry-file-scoped verbs: add/edit/list/rm/mute/pin; default: the caller's own server from $TMUX, else the default server)")
 	cronCmd.AddCommand(cronAddCmd)
+	cronCmd.AddCommand(cronEditCmd)
 	cronCmd.AddCommand(cronListCmd)
 	cronCmd.AddCommand(cronRmCmd)
 	cronCmd.AddCommand(cronMuteCmd)

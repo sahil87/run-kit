@@ -54,7 +54,7 @@ func (cronInjectTmux) PaneSize(ctx context.Context, paneID, server string) (int,
 type EngineDeliverer struct {
 	engine *inject.Engine
 	// readState reads the target pane's agent state at delivery time (fresher
-	// than the eval-time facts) for the when-idle gate.
+	// than the eval-time facts) for the when-idle and skip-if-busy gates.
 	readState func(ctx context.Context, paneID, server string) (string, error)
 	// now is the hold-bound clock.
 	now  func() time.Time
@@ -73,18 +73,27 @@ func NewEngineDeliverer() *EngineDeliverer {
 	}
 }
 
-// Deliver sends one due fire. `deliver: when-idle` gates on the pane's
-// agent-state read at delivery time: active or waiting (the operator
-// request-lane busy predicate) holds the fire — outcome held-busy with Held
-// set, which the tick never logs, so the hold is realized as cross-tick retry.
-// The hold is bounded: past DefaultHoldWindow from the fire's DueAt the
-// outcome is held-expired with Held UNSET — a logged disposition that advances
-// the anchor and drops the fire (the next due period fires normally). The
-// bound never force-delivers into a busy pane; catch-up late fires carry
-// DueAt = now and so never expire. Idle and unknown ("") states deliver: an
-// unknown-state pane carries no gateable signal. A send error is outcome
-// "failed: <detail>" — the logged failure advances the anchor, so the retry
-// lands next due period, not next tick.
+// Deliver sends one due fire under the entry's delivery policy:
+//
+//   - immediate (or "") sends now.
+//   - when-idle gates on the pane's agent-state read at delivery time: active
+//     or waiting (the operator request-lane busy predicate) holds the fire —
+//     outcome held-busy with Held set, which the tick never logs, so the hold
+//     is realized as cross-tick retry. The hold is bounded: past
+//     DefaultHoldWindow from the fire's DueAt the outcome is held-expired
+//     with Held UNSET — a logged disposition that advances the anchor and
+//     drops the fire (the next due period fires normally). The bound never
+//     force-delivers into a busy pane; catch-up late fires carry DueAt = now
+//     and so never expire.
+//   - skip-if-busy reads the same state once at due time and drops a
+//     busy-pane fire — outcome skipped-busy with Held UNSET, logged so the
+//     anchor advances and the next attempt is the next due period. No hold
+//     bound applies: DefaultHoldWindow is never consulted for this policy.
+//
+// Idle and unknown ("") states deliver: an unknown-state pane carries no
+// gateable signal. A state-read error is `failed: agent-state read: …`; a
+// send error is `failed: <detail>` — logged failures advance the anchor, so
+// the retry lands next due period, not next tick.
 func (d *EngineDeliverer) Deliver(ctx context.Context, fire Fire) Outcome {
 	if fire.Entry.Deliver == DeliverWhenIdle {
 		state, err := d.readState(ctx, fire.PaneID, fire.Server)
@@ -96,6 +105,17 @@ func (d *EngineDeliverer) Deliver(ctx context.Context, fire Fire) Outcome {
 				return Outcome{Status: "held-expired", Detail: state}
 			}
 			return Outcome{Status: "held-busy", Detail: state, Held: true}
+		}
+	}
+	if fire.Entry.Deliver == DeliverSkipIfBusy {
+		state, err := d.readState(ctx, fire.PaneID, fire.Server)
+		if err != nil {
+			return Outcome{Status: "failed", Detail: "agent-state read: " + err.Error()}
+		}
+		if state == tmux.AgentStateActive || state == tmux.AgentStateWaiting {
+			// Held deliberately UNSET: the skip is logged so the anchor
+			// advances to this due point.
+			return Outcome{Status: "skipped-busy", Detail: state}
 		}
 	}
 	if err := d.send(ctx, cronInjectTmux{}, fire.Server, fire.PaneID, inject.Sanitize(fire.Entry.Payload), true); err != nil {

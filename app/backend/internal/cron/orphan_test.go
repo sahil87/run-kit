@@ -110,6 +110,51 @@ func TestOrphanedSince(t *testing.T) {
 	}
 }
 
+// TestOrphanedSinceIgnoresRescheduled: a `rescheduled` line is neutral to the
+// streak walk — it never terminates or restarts an absent run, and as the
+// only own line it yields zero rather than the created_by.at fallback.
+func TestOrphanedSinceIgnoresRescheduled(t *testing.T) {
+	T := backoffBase
+	entry := Entry{ID: "a3f9", CreatedBy: CreatedBy{At: unix(T, -time.Hour)}}
+
+	tests := []struct {
+		name string
+		log  []LogLine
+		want int64
+	}{
+		{
+			name: "delivered then rescheduled: no unresolved evidence",
+			log: []LogLine{
+				orphanLine(unix(T, 0), "delivered"),
+				{TS: unix(T, time.Minute), Entry: "a3f9", Reason: "edit", Outcome: "rescheduled"},
+			},
+			want: 0,
+		},
+		{
+			name: "an absent run is not restarted by a rescheduled line",
+			log: []LogLine{
+				orphanLine(unix(T, time.Minute), "skipped-absent"),
+				{TS: unix(T, 2*time.Minute), Entry: "a3f9", Reason: "edit", Outcome: "rescheduled"},
+			},
+			want: unix(T, time.Minute),
+		},
+		{
+			name: "a lone rescheduled line is zero, never created_by.at",
+			log: []LogLine{
+				{TS: unix(T, 0), Entry: "a3f9", Reason: "edit", Outcome: "rescheduled"},
+			},
+			want: 0,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := OrphanedSince(tc.log, entry); got != tc.want {
+				t.Errorf("OrphanedSince = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestOrphanedSinceTrimDegradesYounger: log-cap trimming drops the OLDEST
 // lines, so the derived orphan age can only move younger — expiry degrades
 // later, never premature.

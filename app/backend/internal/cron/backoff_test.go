@@ -269,6 +269,76 @@ func TestLargestRungWithGapAtMost(t *testing.T) {
 	}
 }
 
+// TestGapAfterFlat: a flat ladder (min == max) returns min on every rung —
+// the first iteration hits the cap. Pins the `--idle-every` expansion's math.
+func TestGapAfterFlat(t *testing.T) {
+	const flat = 3 * time.Minute
+	for rung := 0; rung < 8; rung++ {
+		if got := gapAfter(flat, flat, rung); got != flat {
+			t.Errorf("gapAfter(min==max, rung %d) = %v, want %v", rung, got, flat)
+		}
+	}
+}
+
+// TestAnchorJoinFlatLadder: on a min == max ladder the streak walk's
+// cap-saturated branch counts each 3m gap as one more rung at the cap — own
+// lines at T+3m/T+6m/T+9m with an attributed epoch give rung 3 anchored at T,
+// next fire T+12m. A non-attributed epoch resets to rung 0 at the epoch.
+func TestAnchorJoinFlatLadder(t *testing.T) {
+	T := backoffBase
+	const flat = 3 * time.Minute
+	deliveries := own(unix(T, 3*time.Minute), unix(T, 6*time.Minute), unix(T, 9*time.Minute))
+
+	ladder := JoinAnchor(unix(T, 9*time.Minute+5*time.Second), deliveries, flat, flat)
+	if !ladder.Anchor.Equal(T) || ladder.Rung != 3 {
+		t.Fatalf("attributed: anchor=%v rung=%d, want T rung 3", ladder.Anchor, ladder.Rung)
+	}
+	if next := ladder.NextFire(flat, flat); !next.Equal(T.Add(12 * time.Minute)) {
+		t.Errorf("next fire = %v, want T+12m", next)
+	}
+
+	genuine := unix(T, 14*time.Minute)
+	ladder = JoinAnchor(genuine, deliveries, flat, flat)
+	if ladder.Rung != 0 || !ladder.Anchor.Equal(time.Unix(genuine, 0)) {
+		t.Errorf("reset: anchor=%v rung=%d, want epoch anchor rung 0", ladder.Anchor, ladder.Rung)
+	}
+	if next := ladder.NextFire(flat, flat); !next.Equal(time.Unix(genuine, 0).Add(flat)) {
+		t.Errorf("next fire = %v, want epoch+3m", next)
+	}
+}
+
+// TestJoinAnchorAfterReschedule: the `rescheduled` line cuts the streak —
+// deliveries logged under the old schedule (T+1m, T+3m, T+7m) never become
+// rungs of the new flat ladder, so the anchor restarts from the raw idle
+// epoch T+2m and the next fire (T+5m) is already due at the edit time T+8m.
+func TestJoinAnchorAfterReschedule(t *testing.T) {
+	T := backoffBase
+	const flat = 3 * time.Minute
+	log := []LogLine{
+		{TS: unix(T, time.Minute), Entry: "a3f9", Outcome: "delivered"},
+		{TS: unix(T, 3*time.Minute), Entry: "a3f9", Outcome: "delivered"},
+		{TS: unix(T, 7*time.Minute), Entry: "a3f9", Outcome: "delivered"},
+		{TS: unix(T, 8*time.Minute), Entry: "a3f9", Reason: "edit", Outcome: "rescheduled"},
+	}
+	epoch := unix(T, 2*time.Minute) // idle since before the edit
+
+	history := ScheduleHistory(log, "a3f9")
+	if len(history) != 0 {
+		t.Fatalf("ScheduleHistory = %+v, want nothing newer than the boundary", history)
+	}
+	ladder := JoinAnchor(epoch, history, flat, flat)
+	if ladder.Rung != 0 || !ladder.Anchor.Equal(time.Unix(epoch, 0)) {
+		t.Errorf("ladder = anchor %v rung %d, want epoch anchor rung 0", ladder.Anchor, ladder.Rung)
+	}
+	next := ladder.NextFire(flat, flat)
+	if !next.Equal(T.Add(5 * time.Minute)) {
+		t.Errorf("next fire = %v, want T+5m", next)
+	}
+	if !ladder.Due(T.Add(8*time.Minute), flat, flat) {
+		t.Error("not due at the edit time T+8m — the agent has been quiet longer than min")
+	}
+}
+
 // TestAnchorJoinCappedStreak: a streak that has reached the gap cap keeps its
 // full rung count. Deliveries at +1,+3,+7,+15,+31,+61,+91 are rungs 1–7 (the
 // last two gaps capped at 30m); the next fire is +121m. A walk that descends a

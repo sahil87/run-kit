@@ -30,7 +30,10 @@ type Outcome struct {
 	// anchor-derivation source for `every` and the backoff anchor-join streak,
 	// so logging a held attempt would advance anchors and silently delay the
 	// fire by a full period. Skipping the append makes re-evaluation the retry
-	// mechanism — the fire recomputes as due on the next tick.
+	// mechanism — the fire recomputes as due on the next tick. The busy-pane
+	// skip (skip-if-busy, outcome skipped-busy) is the deliberate
+	// counter-example: a busy-pane outcome that MUST be logged because
+	// advancing the anchor is its purpose.
 	Held bool
 }
 
@@ -123,9 +126,10 @@ const DefaultTargetRatePerHour = 30
 const rateWindow = time.Hour
 
 // countsTowardRate classifies a log outcome for the rate cap: delivery-attempt
-// classes count (delivered/failed/notified/respawned), suppressions and misses
-// do not — and held outcomes never reach the log at all, so they are
-// inherently excluded.
+// classes count (delivered/failed/notified/respawned); suppressions and
+// recorded misses do not — and neither do skipped-busy (a dropped fire, not a
+// delivery attempt) or rescheduled (schedule history, not delivery). Held
+// outcomes never reach the log at all, so they are inherently excluded.
 func countsTowardRate(outcome string) bool {
 	switch {
 	case outcome == "delivered":
@@ -273,13 +277,13 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 	// The capped full-slice keeps the appendLine mirror from writing into it.
 	gcLog := logLines[:len(logLines):len(logLines)]
 	eval := Evaluate(EvalInput{
-		Server:      slug,
-		Now:         now,
-		Entries:     entries,
-		Facts:       facts.Targets,
-		States:      facts.States,
-		Log:         logLines,
-		Cursor:      cursor,
+		Server:  slug,
+		Now:     now,
+		Entries: entries,
+		Facts:   facts.Targets,
+		States:  facts.States,
+		Log:     logLines,
+		Cursor:  cursor,
 	})
 	diags = append(diags, eval.Diags...)
 

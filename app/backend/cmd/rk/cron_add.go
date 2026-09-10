@@ -16,7 +16,8 @@ import (
 )
 
 // rk cron add <prompt> — record one cron entry in the resolved server's
-// intent file. Exactly one schedule flag is required: --every <dur>, bare
+// intent file. Exactly one schedule flag is required: --every <dur>,
+// --idle-every <dur> (sugar for a flat backoff ladder, min = max), bare
 // --backoff (a ladder keyed on the target pane's idle epoch, min/max
 // refinable), or --cron "<expr>" (a 5-field expression in the daemon's local
 // time, validated at add time; --catch-up once fires once late after a gap).
@@ -33,31 +34,35 @@ import (
 const cronAddNameMaxRunes = 40
 
 var (
-	cronAddEvery    time.Duration
-	cronAddBackoff  bool
-	cronAddCronExpr string
-	cronAddCatchUp  string
-	cronAddMin      time.Duration
-	cronAddMax      time.Duration
-	cronAddName     string
-	cronAddDeliver  string
-	cronAddIfAbsent string
-	cronAddRespawn  []string
-	cronAddPinned   bool
-	cronAddRole     string
-	cronAddPane     string
-	cronAddSession  string
+	cronAddEvery     time.Duration
+	cronAddIdleEvery time.Duration
+	cronAddBackoff   bool
+	cronAddCronExpr  string
+	cronAddCatchUp   string
+	cronAddMin       time.Duration
+	cronAddMax       time.Duration
+	cronAddName      string
+	cronAddDeliver   string
+	cronAddIfAbsent  string
+	cronAddRespawn   []string
+	cronAddPinned    bool
+	cronAddRole      string
+	cronAddPane      string
+	cronAddSession   string
 )
 
 var cronAddCmd = &cobra.Command{
-	Use:   "add <prompt> --every <dur> | --backoff | --cron \"<expr>\"",
+	Use:   `add <prompt> --every <dur> | --idle-every <dur> | --backoff | --cron "<expr>"`,
 	Short: "Add a cron entry to the server's intent file",
 	Long: "Add a cron entry delivering <prompt> on a schedule. The prompt is text for an " +
 		"agent, not a command: at fire time rk types it into the target agent's chat through the " +
 		"injection engine and presses Enter, exactly as if a person had typed it; " +
 		"it is never run as a command — to run a command, ask the agent to run it. " +
 		"Exactly one schedule flag is required: --every <dur> (a positive Go " +
-		"duration like 1h or 90s), --backoff (a backoff ladder keyed on the target " +
+		"duration like 1h or 90s), --idle-every <dur> (fire every <dur> of agent " +
+		"quiet — a flat backoff ladder, min = max; unlike --every, the count " +
+		"restarts on genuine activity and the clock's own deliveries never " +
+		"restart it), --backoff (a backoff ladder keyed on the target " +
 		"pane's idle epoch — resets on genuine activity, continues otherwise; " +
 		"60s→30m by default, refine with --min/--max), or --cron \"<expr>\" (a " +
 		"5-field expression in the daemon's local time, validated at add time; " +
@@ -67,16 +72,19 @@ var cronAddCmd = &cobra.Command{
 		"pane's agent session, else your own pane; --role <role>, --session <ref>, " +
 		"or --pane %N override (mutually exclusive). Outside tmux, --role, " +
 		"--session, or --pane is required. --name defaults to a prompt prefix; " +
-		"--deliver and --if-absent values are validated now but enforced by the " +
-		"delivery wave. With --if-absent respawn, repeat --respawn <arg> to give " +
+		"--deliver (immediate | when-idle | skip-if-busy) and --if-absent are " +
+		"validated at add time and enforced at fire time. " +
+		"With --if-absent respawn, repeat --respawn <arg> to give " +
 		"the command that brings the target back (one argv element per " +
 		"occurrence; the exact text {server} in any element is replaced with the " +
 		"entry's stamped tmux server name at fire time) — required for role and " +
 		"pane targets, optional for session targets (which default to resuming " +
 		"the closed session).",
 	Example: `  rk cron add "check PRs" --every 1h
+  rk cron add "wake up" --idle-every 3m
   rk cron add "tick" --backoff --min 2m --max 30m
   rk cron add "nightly" --cron "0 3 * * *" --role operator
+  rk cron add "morning digest" --cron "0 9 * * *" --deliver skip-if-busy
   rk cron add "operator tick" --backoff --role operator --if-absent respawn --respawn rk --respawn operator --respawn -L --respawn '{server}'
   rk cron add "follow up" --every 2h --session 4fe2abc-1c3b-4f7e-9a2d-8b5c4e1f0a37`,
 	Args: usageArgs(cobra.ExactArgs(1)),
@@ -88,13 +96,14 @@ var cronAddCmd = &cobra.Command{
 func init() {
 	f := cronAddCmd.Flags()
 	f.DurationVar(&cronAddEvery, "every", 0, "Fire on a fixed interval (Go duration, e.g. 1h, 90s)")
+	f.DurationVar(&cronAddIdleEvery, "idle-every", 0, "Fire every <dur> of agent quiet: <dur> after the target pane last went idle for a reason other than the clock, then every <dur> while it stays idle (a flat backoff ladder, min = max)")
 	f.BoolVar(&cronAddBackoff, "backoff", false, "Fire on a backoff ladder keyed on the target pane's idle epoch — resets on genuine activity, continues otherwise (60s→30m by default; refine with --min/--max)")
 	f.StringVar(&cronAddCronExpr, "cron", "", "Fire on a 5-field cron expression (daemon local time, validated at add time)")
 	f.StringVar(&cronAddCatchUp, "catch-up", "", "With --cron: fire once late after a gap (only: once)")
 	f.DurationVar(&cronAddMin, "min", time.Minute, "Backoff ladder minimum gap (with --backoff)")
 	f.DurationVar(&cronAddMax, "max", 30*time.Minute, "Backoff ladder maximum gap (with --backoff)")
 	f.StringVar(&cronAddName, "name", "", "Display name (default: a prompt prefix)")
-	f.StringVar(&cronAddDeliver, "deliver", cron.DeliverImmediate, "Delivery policy: immediate|when-idle")
+	f.StringVar(&cronAddDeliver, "deliver", cron.DeliverImmediate, "Delivery policy: immediate|when-idle|skip-if-busy")
 	f.StringVar(&cronAddIfAbsent, "if-absent", cron.IfAbsentSkip, "Absent-target policy: skip|notify|respawn")
 	f.StringArrayVar(&cronAddRespawn, "respawn", nil, "With --if-absent respawn: one argv element of the respawn command per occurrence (repeatable; {server} resolves to the entry's server at fire time)")
 	f.BoolVar(&cronAddPinned, "pinned", false, "Pin the entry (exempt from orphan expiry)")
@@ -141,7 +150,7 @@ func runCronAdd(cmd *cobra.Command, payload string) error {
 	if err != nil {
 		return err
 	}
-	if err := cronAddValidateEnum("--deliver", cronAddDeliver, cron.DeliverImmediate, cron.DeliverWhenIdle); err != nil {
+	if err := cronAddValidateEnum("--deliver", cronAddDeliver, cron.DeliverImmediate, cron.DeliverWhenIdle, cron.DeliverSkipIfBusy); err != nil {
 		return err
 	}
 	if err := cronAddValidateEnum("--if-absent", cronAddIfAbsent, cron.IfAbsentSkip, cron.IfAbsentNotify, cron.IfAbsentRespawn); err != nil {
@@ -207,56 +216,107 @@ func runCronAdd(cmd *cobra.Command, payload string) error {
 	return nil
 }
 
-// cronAddSchedule validates the schedule flag set and builds the schedule.
-// Exactly one of --every/--backoff/--cron must be set; --min/--max and
-// --catch-up are legal only alongside --backoff and --cron respectively. The
-// 5-field count is a friendlier usage-error pre-check; cron.Add's validate()
-// (ParseStandard) stays the authority on what parses.
+// cronScheduleExactlyOne is the four-way schedule-flag exclusion shared by
+// `add` (which requires exactly one) and `edit` (which rejects more than one;
+// zero means "keep the stored schedule").
+const cronScheduleExactlyOne = "exactly one schedule flag is required: --every, --idle-every, --backoff, or --cron"
+
+// cronScheduleFlags carries the raw schedule-flag values of one verb (`add`
+// and `edit` bind their own flag vars); the Changed bits are read off the
+// command by cronScheduleFromFlags.
+type cronScheduleFlags struct {
+	every     time.Duration
+	idleEvery time.Duration
+	min       time.Duration
+	max       time.Duration
+	cronExpr  string
+	catchUp   string
+}
+
+// cronAddSchedule is the add-side wrapper over the shared parser: exactly one
+// schedule flag is required.
 func cronAddSchedule(cmd *cobra.Command) (cron.Schedule, error) {
+	schedule, set, err := cronScheduleFromFlags(cmd, cronScheduleFlags{
+		every:     cronAddEvery,
+		idleEvery: cronAddIdleEvery,
+		min:       cronAddMin,
+		max:       cronAddMax,
+		cronExpr:  cronAddCronExpr,
+		catchUp:   cronAddCatchUp,
+	})
+	if err != nil {
+		return cron.Schedule{}, err
+	}
+	if !set {
+		return cron.Schedule{}, usageError(fmt.Errorf("%s", cronScheduleExactlyOne))
+	}
+	return schedule, nil
+}
+
+// cronScheduleFromFlags validates the schedule flag set and builds the
+// schedule, returning set=false when no schedule flag was given (edit's
+// "keep the schedule" case). At most one of --every/--idle-every/--backoff/
+// --cron may be set; --min/--max and --catch-up are legal only alongside
+// --backoff and --cron respectively. --idle-every d is sugar for a flat
+// backoff ladder {backoff, d, d}. The 5-field count is a friendlier
+// usage-error pre-check; validate() (ParseStandard) stays the authority on
+// what parses.
+func cronScheduleFromFlags(cmd *cobra.Command, f cronScheduleFlags) (cron.Schedule, bool, error) {
 	set := 0
-	for _, name := range []string{"every", "backoff", "cron"} {
+	for _, name := range []string{"every", "idle-every", "backoff", "cron"} {
 		if cmd.Flags().Changed(name) {
 			set++
 		}
 	}
-	if set != 1 {
-		return cron.Schedule{}, usageError(fmt.Errorf("exactly one schedule flag is required: --every, --backoff, or --cron"))
+	if set > 1 {
+		return cron.Schedule{}, false, usageError(fmt.Errorf("%s", cronScheduleExactlyOne))
 	}
 	if cmd.Flags().Changed("min") || cmd.Flags().Changed("max") {
 		if !cmd.Flags().Changed("backoff") {
-			return cron.Schedule{}, usageError(fmt.Errorf("--min/--max only apply with --backoff"))
+			return cron.Schedule{}, false, usageError(fmt.Errorf("--min/--max only apply with --backoff"))
 		}
 	}
 	if cmd.Flags().Changed("catch-up") {
 		if !cmd.Flags().Changed("cron") {
-			return cron.Schedule{}, usageError(fmt.Errorf("--catch-up only applies with --cron"))
+			return cron.Schedule{}, false, usageError(fmt.Errorf("--catch-up only applies with --cron"))
 		}
-		if cronAddCatchUp != cron.CatchUpOnce {
-			return cron.Schedule{}, usageError(fmt.Errorf("invalid --catch-up value %q: want %q", cronAddCatchUp, cron.CatchUpOnce))
+		if f.catchUp != cron.CatchUpOnce {
+			return cron.Schedule{}, false, usageError(fmt.Errorf("invalid --catch-up value %q: want %q", f.catchUp, cron.CatchUpOnce))
 		}
 	}
 	switch {
 	case cmd.Flags().Changed("every"):
-		if cronAddEvery <= 0 {
-			return cron.Schedule{}, usageError(fmt.Errorf("--every must be a positive duration, got %s", cronAddEvery))
+		if f.every <= 0 {
+			return cron.Schedule{}, false, usageError(fmt.Errorf("--every must be a positive duration, got %s", f.every))
 		}
-		return cron.Schedule{Kind: cron.ScheduleEvery, Interval: cron.Duration{Duration: cronAddEvery}}, nil
+		return cron.Schedule{Kind: cron.ScheduleEvery, Interval: cron.Duration{Duration: f.every}}, true, nil
+	case cmd.Flags().Changed("idle-every"):
+		if f.idleEvery <= 0 {
+			return cron.Schedule{}, false, usageError(fmt.Errorf("--idle-every must be a positive duration, got %s", f.idleEvery))
+		}
+		return cron.Schedule{
+			Kind: cron.ScheduleBackoff,
+			Min:  cron.Duration{Duration: f.idleEvery},
+			Max:  cron.Duration{Duration: f.idleEvery},
+		}, true, nil
 	case cmd.Flags().Changed("backoff"):
 		return cron.Schedule{
 			Kind: cron.ScheduleBackoff,
-			Min:  cron.Duration{Duration: cronAddMin},
-			Max:  cron.Duration{Duration: cronAddMax},
-		}, nil
-	default:
-		if len(strings.Fields(cronAddCronExpr)) != 5 {
-			return cron.Schedule{}, usageError(fmt.Errorf("--cron must be a 5-field cron expression, got %q", cronAddCronExpr))
+			Min:  cron.Duration{Duration: f.min},
+			Max:  cron.Duration{Duration: f.max},
+		}, true, nil
+	case cmd.Flags().Changed("cron"):
+		if len(strings.Fields(f.cronExpr)) != 5 {
+			return cron.Schedule{}, false, usageError(fmt.Errorf("--cron must be a 5-field cron expression, got %q", f.cronExpr))
 		}
-		return cron.Schedule{Kind: cron.ScheduleCron, Expr: cronAddCronExpr, CatchUp: cronAddCatchUp}, nil
+		return cron.Schedule{Kind: cron.ScheduleCron, Expr: f.cronExpr, CatchUp: f.catchUp}, true, nil
 	}
+	return cron.Schedule{}, false, nil
 }
 
 // cronAddValidateEnum gates a flag value against the schema's closed set at
-// parse time (the schema carries but does not enforce these values).
+// parse time, so a bad value is a usage error (exit 2) before any write;
+// Entry.validate() enforces the same sets on the store/API path.
 func cronAddValidateEnum(flag, value string, valid ...string) error {
 	for _, v := range valid {
 		if value == v {

@@ -105,12 +105,30 @@ func ReadLog(path string) []LogLine {
 	return ParseLog(data)
 }
 
-// OwnDeliveries returns the entry's delivery lines in log (chronological) order.
+// OwnDeliveries returns the entry's delivery lines in log (chronological)
+// order. It is the UNFILTERED view — every own line, any outcome (deliveries,
+// suppressions, and schedule history such as `missed` and `rescheduled`).
 func OwnDeliveries(lines []LogLine, entryID string) []LogLine {
 	var own []LogLine
 	for _, l := range lines {
 		if l.Entry == entryID {
 			own = append(own, l)
+		}
+	}
+	return own
+}
+
+// ScheduleHistory is the backoff anchor-join view of the log: the entry's own
+// lines strictly newer than its newest "rescheduled" line — an edit's anchor
+// reset, which is schedule history like "missed", not a delivery, so the
+// boundary line itself is excluded. With no "rescheduled" line it is identical
+// to OwnDeliveries. Cutting at the edit keeps pre-edit deliveries from being
+// walked as rungs of the new ladder.
+func ScheduleHistory(lines []LogLine, entryID string) []LogLine {
+	own := OwnDeliveries(lines, entryID)
+	for i := len(own) - 1; i >= 0; i-- {
+		if own[i].Outcome == "rescheduled" {
+			return own[i+1:]
 		}
 	}
 	return own

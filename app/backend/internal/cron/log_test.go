@@ -43,6 +43,41 @@ func TestLastDeliveryAndOwnDeliveries(t *testing.T) {
 	}
 }
 
+// TestScheduleHistoryCutsAtReschedule: own lines at or before the entry's
+// newest `rescheduled` line are excluded (the boundary line included), later
+// lines kept; another entry's `rescheduled` line is not a boundary; with no
+// boundary the view equals OwnDeliveries.
+func TestScheduleHistoryCutsAtReschedule(t *testing.T) {
+	lines := ParseLog([]byte(`{"ts":100,"entry":"a3f9","target":"%12","reason":"schedule","outcome":"delivered"}
+{"ts":200,"entry":"a3f9","reason":"edit","outcome":"rescheduled"}
+{"ts":250,"entry":"k7q2","reason":"edit","outcome":"rescheduled"}
+{"ts":300,"entry":"a3f9","target":"%12","reason":"schedule","outcome":"delivered"}
+{"ts":400,"entry":"a3f9","target":"%12","reason":"schedule","outcome":"failed: pane gone"}
+`))
+
+	history := ScheduleHistory(lines, "a3f9")
+	if len(history) != 2 || history[0].TS != 300 || history[1].TS != 400 {
+		t.Errorf("ScheduleHistory = %+v, want only the two lines newer than the reschedule", history)
+	}
+
+	// The boundary must be the entry's OWN rescheduled line: k7q2's line at
+	// 250 does not cut a3f9's history, and for k7q2 it is the newest own line.
+	if history := ScheduleHistory(lines, "k7q2"); len(history) != 0 {
+		t.Errorf("ScheduleHistory(k7q2) = %+v, want empty (the boundary is its newest own line)", history)
+	}
+
+	// No boundary: identical to the unfiltered view.
+	noBoundary := ParseLog([]byte(`{"ts":100,"entry":"a3f9","target":"%12","reason":"schedule","outcome":"delivered"}
+{"ts":250,"entry":"k7q2","reason":"edit","outcome":"rescheduled"}
+{"ts":300,"entry":"a3f9","target":"%12","reason":"schedule","outcome":"delivered"}
+`))
+	history = ScheduleHistory(noBoundary, "a3f9")
+	own := OwnDeliveries(noBoundary, "a3f9")
+	if len(history) != len(own) || history[0].TS != own[0].TS || history[len(history)-1].TS != own[len(own)-1].TS {
+		t.Errorf("no boundary: ScheduleHistory = %+v, want %+v (OwnDeliveries)", history, own)
+	}
+}
+
 func TestAppendLog(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dev.log")
 	line := LogLine{TS: 100, Entry: "a3f9", Target: "%12", Reason: "schedule", Outcome: "delivered"}

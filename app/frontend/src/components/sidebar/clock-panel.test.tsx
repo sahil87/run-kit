@@ -130,6 +130,25 @@ describe("ClockPanel", () => {
     expect(mockGetCron).toHaveBeenCalledWith("primary");
   });
 
+  it("shows a deliver chip only for a non-immediate policy, raw value as text", async () => {
+    mockGetCron.mockResolvedValue(
+      asCronResponse([
+        makeEntry({ id: "a1b2", name: "default", deliver: "immediate" }),
+        makeEntry({ id: "c3d4", name: "unset" }),
+        makeEntry({ id: "e5f6", name: "dropper", deliver: "skip-if-busy" }),
+      ]),
+    );
+    renderPanel();
+    await flushFetch();
+
+    const rows = screen.getAllByTestId("clock-row");
+    expect(rows[0].querySelector('[data-testid="clock-row-deliver"]')).toBeNull();
+    expect(rows[1].querySelector('[data-testid="clock-row-deliver"]')).toBeNull();
+    expect(rows[2].querySelector('[data-testid="clock-row-deliver"]')).toHaveTextContent(
+      "skip-if-busy",
+    );
+  });
+
   it("dims and badges orphaned/muted rows", async () => {
     mockGetCron.mockResolvedValue(
       asCronResponse([

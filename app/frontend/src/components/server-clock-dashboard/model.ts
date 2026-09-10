@@ -146,6 +146,8 @@ export function cronStateLabel(
  *  fabricated phrasing. */
 export function describeOutcome(outcome: string): { label: string; error: boolean } {
   const error = outcome.startsWith("respawn-failed") || /fail|error/.test(outcome);
+  // Prefix match: the wire string carries the agent state (`skipped-busy: active`).
+  if (outcome.startsWith("skipped-busy")) return { label: "skipped (busy)", error: false };
   switch (outcome) {
     case "delivered":
       return { label: "delivered ✓", error: false };

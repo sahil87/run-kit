@@ -8,7 +8,7 @@ import {
   SWITCH_TRACK_ON,
 } from "@/components/controls";
 import { deleteCron, muteCron, pinCron, type CronEntry } from "@/api/client";
-import { describeSchedule } from "@/lib/cron-schedule";
+import { describeDeliver, describeSchedule } from "@/lib/cron-schedule";
 import { formatDuration } from "@/lib/format";
 
 /** "3m ago" for a unix-seconds timestamp. Render-time only — the feed's
@@ -174,6 +174,12 @@ export function CronEntryDetailSheet({
           <span className={labelClass}>Next fire</span>
           <span className={valueClass} data-testid="cron-entry-next-fire">
             {entry.nextFire !== undefined ? inLabel(entry.nextFire, nowMs) : "unknown"}
+          </span>
+        </div>
+        <div className={`${rowClass} border-t border-border`}>
+          <span className={labelClass}>Deliver</span>
+          <span className={valueClass} data-testid="cron-entry-deliver">
+            {describeDeliver(entry.deliver)}
           </span>
         </div>
         {/* The whole row is the switch hit target — the phone affordance. */}

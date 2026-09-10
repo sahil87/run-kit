@@ -611,6 +611,117 @@ func TestEnsureRoleEntryNoDebounceDowngrade(t *testing.T) {
 	}
 }
 
+// TestUpdateMergesFields: an apply that sets Schedule and Deliver leaves every
+// other field identical after reload; a merged entry that fails validate()
+// writes nothing; an absent id is (Entry{}, false, nil); a corrupt file
+// refuses to mutate.
+func TestUpdateMergesFields(t *testing.T) {
+	newEntry := func(t *testing.T, dir string) Entry {
+		t.Helper()
+		e, err := Add(dir, "dev", Entry{
+			Name:     "sweep",
+			Schedule: Schedule{Kind: ScheduleEvery, Interval: Duration{time.Hour}},
+			Target:   Target{Kind: TargetSession, Session: "4fe2"},
+			Payload:  "check open PRs",
+			IfAbsent: IfAbsentRespawn,
+			Respawn:  []string{"rk", "operator"},
+			CreatedBy: CreatedBy{
+				Session: "4fe2",
+				Pane:    "%7",
+				At:      time.Now().Add(-time.Hour).Unix(),
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+
+	t.Run("merge leaves every other field identical", func(t *testing.T) {
+		dir := t.TempDir()
+		e := newEntry(t, dir)
+		if ok, err := SetMuted(dir, "dev", e.ID, true); err != nil || !ok {
+			t.Fatalf("SetMuted: ok=%v err=%v", ok, err)
+		}
+		until := time.Now().Add(5 * time.Minute).Unix()
+		if ok, err := SetMuteLease(dir, "dev", e.ID, until); err != nil || !ok {
+			t.Fatalf("SetMuteLease: ok=%v err=%v", ok, err)
+		}
+		if ok, err := SetPinned(dir, "dev", e.ID, true); err != nil || !ok {
+			t.Fatalf("SetPinned: ok=%v err=%v", ok, err)
+		}
+		path := filepath.Join(dir, "dev.yaml")
+		before := mustOnlyEntry(t, path)
+
+		newSchedule := Schedule{Kind: ScheduleBackoff, Min: Duration{3 * time.Minute}, Max: Duration{3 * time.Minute}}
+		merged, ok, err := Update(dir, "dev", e.ID, func(e *Entry) {
+			e.Schedule = newSchedule
+			e.Deliver = DeliverWhenIdle
+		})
+		if err != nil || !ok {
+			t.Fatalf("Update: ok=%v err=%v", ok, err)
+		}
+		if merged.Schedule != newSchedule || merged.Deliver != DeliverWhenIdle {
+			t.Errorf("merged = %+v, want the new schedule and deliver", merged)
+		}
+
+		after := mustOnlyEntry(t, path)
+		if after.Schedule != newSchedule || after.Deliver != DeliverWhenIdle {
+			t.Errorf("reloaded schedule/deliver = %v/%q", after.Schedule, after.Deliver)
+		}
+		if after.ID != before.ID || after.Name != before.Name ||
+			after.Target != before.Target || after.Payload != before.Payload ||
+			after.IfAbsent != before.IfAbsent || !reflect.DeepEqual(after.Respawn, before.Respawn) ||
+			after.Pinned != before.Pinned || after.Muted != before.Muted ||
+			after.MutedUntil != before.MutedUntil || after.CreatedBy != before.CreatedBy {
+			t.Errorf("identity fields drifted:\nbefore %+v\nafter  %+v", before, after)
+		}
+	})
+
+	t.Run("a merge failing validate writes nothing", func(t *testing.T) {
+		dir := t.TempDir()
+		e := newEntry(t, dir)
+		path := filepath.Join(dir, "dev.yaml")
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = Update(dir, "dev", e.ID, func(e *Entry) {
+			e.Schedule = Schedule{Kind: ScheduleBackoff, Min: Duration{5 * time.Minute}, Max: Duration{time.Minute}}
+		})
+		if err == nil {
+			t.Fatal("Update with max < min succeeded")
+		}
+		after, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(before) != string(after) {
+			t.Error("entry file changed despite the rejected merge")
+		}
+	})
+
+	t.Run("absent id is the Remove shape", func(t *testing.T) {
+		dir := t.TempDir()
+		newEntry(t, dir)
+		merged, ok, err := Update(dir, "dev", "zzzz", func(e *Entry) { e.Name = "nope" })
+		if err != nil || ok || !reflect.DeepEqual(merged, Entry{}) {
+			t.Errorf("Update absent id: merged=%+v ok=%v err=%v, want zero/false/nil", merged, ok, err)
+		}
+	})
+
+	t.Run("corrupt file refuses to mutate", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "dev.yaml"), []byte("{{{{"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := Update(dir, "dev", "a3f9", func(e *Entry) { e.Name = "nope" })
+		if err == nil || !strings.Contains(err.Error(), "refusing to mutate") {
+			t.Errorf("Update over a corrupt file: err = %v, want refusing to mutate", err)
+		}
+	})
+}
+
 func mustOnlyEntry(t *testing.T, path string) Entry {
 	t.Helper()
 	entries, diags := LoadEntries(path)

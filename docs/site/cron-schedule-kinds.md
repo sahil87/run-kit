@@ -2,17 +2,19 @@
 
 > [← Back to the README](https://github.com/sahil87/run-kit/blob/main/README.md)
 
-An interactive explainer for `rk cron`: the three schedule kinds (`every`, `cron`, `backoff`) and the `wake_on` edge trigger, each as an animated timeline you can play, restart, and change the rules of. Companion to the [cron spec](https://github.com/sahil87/run-kit/blob/main/docs/specs/cron.md).
+An interactive explainer for `rk cron`: the three schedule kinds (`every`, `cron`, `backoff`) and the `wake_on` edge trigger, each as an animated timeline you can play, restart, and change the rules of — plus the `deliver` policy that decides what happens when the agent is busy at fire time. Companion to the [cron spec](https://github.com/sahil87/run-kit/blob/main/docs/specs/cron.md).
 
 <div class="rk-cron-clocks not-content"><div class="wrap">
   <header>
     <div class="eyebrow">run-kit · rk cron</div>
     <div class="title" role="heading" aria-level="2">Four ways a clock can wake an agent</div>
-    <p>An <code>rk cron</code> entry is a small intent file: <em>what</em> text to deliver, <em>which</em> pane to deliver it to, and <em>when</em>. The “when” comes in three schedule kinds plus one optional edge trigger. A ticker polls every 30 seconds and asks a pure function, “given the entries, the delivery log and the panes’ agent states on disk right now, what is due?” Nothing is remembered in memory, so a restart never loses the clock.</p>
+    <p>An <code>rk cron</code> entry is a small intent file: <em>what</em> text to deliver, <em>which</em> pane to deliver it to, and <em>when</em>. The “when” comes in three schedule kinds plus one optional edge trigger, and a <code>deliver</code> policy on the entry says what to do if the agent is busy at that moment — send anyway, hold until idle, or skip the fire. A ticker polls every 30 seconds and asks a pure function, “given the entries, the delivery log and the panes’ agent states on disk right now, what is due?” Nothing is remembered in memory, so a restart never loses the clock.</p>
     <div class="legend">
       <span><i class="dot" style="background:var(--sched)"></i> schedule fire</span>
       <span><i class="dot" style="background:var(--wake)"></i> wake fire</span>
       <span><i class="dot" style="background:transparent;border:2px solid var(--miss)"></i> missed occurrence</span>
+      <span><i class="dot" style="background:transparent;border:2px solid var(--wake)"></i> held</span>
+      <span><i class="dot" style="background:transparent;border:2px solid var(--sched)"></i> skipped (busy)</span>
       <span><i class="sw" style="background:var(--act)"></i> agent active</span>
       <span><i class="sw" style="background:var(--wait)"></i> agent waiting</span>
       <span><i class="sw" style="background:var(--line)"></i> agent idle</span>
@@ -85,6 +87,7 @@ An interactive explainer for `rk cron`: the three schedule kinds (`every`, `cron
           <button class="primary" data-act="play">Play</button>
           <button data-act="restart">Restart</button>
           <button data-act="poke">You type to the operator</button>
+          <button data-toggle="flat" aria-pressed="false">flat: min = max (idle reminder)</button>
           <div class="readout" data-readout></div>
         </div>
       </div>
@@ -95,6 +98,7 @@ An interactive explainer for `rk cron`: the three schedule kinds (`every`, `cron
           <li>Every delivery makes the agent busy for a few seconds, then idle again. That flip lands within <strong>120 s</strong> of the entry’s own delivery, so the clock says “I caused that” and the ladder <em>keeps climbing</em>.</li>
           <li>An idle flip <em>not</em> explained by a recent delivery is genuine activity: someone typed, or the agent did real work. The ladder <strong>resets</strong> to a 1-minute gap from that moment.</li>
           <li>So: quiet agent, ticks thin out. Busy agent, ticks stay frequent. The agent never has to tell the clock anything.</li>
+          <li>Set <code>min = max</code> and the ladder is flat — “ping every 3 min of quiet”. Same anchor rules: the clock’s own pings don’t restart the count, real activity does. <code>rk cron add "wake up" --idle-every 3m</code> writes exactly this entry — no new kind, no schema field.</li>
         </ul>
       </div>
     </div>
@@ -125,6 +129,33 @@ An interactive explainer for `rk cron`: the three schedule kinds (`every`, `cron
       </div>
     </div>
   </section>
+  <!-- ===================== DELIVER ===================== -->
+  <section class="panel" id="p-deliver">
+    <div class="panel-head">
+      <h2>deliver <small>what happens when the agent is busy at fire time</small></h2>
+      <div class="add">rk cron add "check PRs" --every 5m --deliver skip-if-busy</div>
+    </div>
+    <div class="panel-body">
+      <div class="stage">
+        <canvas id="c-deliver" height="240" aria-label="Three delivery policies across one busy stretch of an every-5m entry"></canvas>
+        <div class="controls">
+          <button class="primary" data-act="play">Play</button>
+          <button data-act="restart">Restart</button>
+          <button data-toggle="busy" aria-pressed="true">agent busy 7–18 min</button>
+          <div class="readout" data-readout></div>
+        </div>
+      </div>
+      <div class="rule">
+        <p>The schedule decides <em>when</em> a fire comes due; <code>deliver</code> decides what happens if the target agent is busy at that moment. One <code>every 5m</code> entry below, three policies, one busy stretch (the green block on the state strip).</p>
+        <h3>Hold, drop, or neither</h3>
+        <ul>
+          <li><strong>immediate</strong> ignores the agent state: every boundary fires, busy or not — the payload lands in a working pane.</li>
+          <li><strong>when-idle</strong> <em>holds</em> a busy-pane fire and delivers the moment the agent goes idle; the rhythm re-anchors on that delivery. A hold is bounded: 2 hours past the due time it expires with a logged <code>held-expired</code> rather than landing hours late.</li>
+          <li><strong>skip-if-busy</strong> <em>drops</em> a busy-pane fire: the skip is logged (<code>skipped-busy</code>), so the next attempt is one full interval later, not the next 30 s poll — and the grid itself never moves.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
   <!-- ===================== TOGETHER ===================== -->
   <section class="panel summary" id="p-together">
     <h2>Put together: the operator’s clock</h2>
@@ -148,9 +179,11 @@ pinned:   true</code></pre>
           <tr><td>every</td><td>the gap since the last delivery reaches the interval</td><td>plain heartbeats, polling a queue</td></tr>
           <tr><td>cron</td><td>a wall-clock occurrence arrives (missed ones skipped unless <code>catch_up: once</code>)</td><td>“09:00 every day”, weekly reports</td></tr>
           <tr><td>backoff</td><td>the doubling ladder from the last <em>genuine</em> idle moment comes due</td><td>attention that should fade while quiet</td></tr>
+          <tr><td>backoff, min = max<br>(<code>--idle-every</code>)</td><td>X after the last genuine idle moment, then every X while it stays quiet</td><td>reminders that wait for quiet</td></tr>
           <tr><td>wake_on</td><td>another pane finished, asked something, or vanished</td><td>reacting within seconds instead of a poll</td></tr>
         </tbody>
       </table>
+      <p style="margin-top:14px;font-size:14px;color:var(--ink-3)">The flat ladder’s fixed-grid cousin is <code>--every X --deliver skip-if-busy</code>: it fires only at grid points where the agent happens to be idle, skipping busy boundaries instead of waiting out a fresh X of quiet — the deliver panel above shows the difference.</p>
       <p style="margin-top:14px;font-size:14px;color:var(--ink-3)">All four are evaluated by the same 30-second poll, so any fire lands up to 30 s after it came due. Every payload must tolerate being delivered twice; a restart may re-fire one due tick.</p>
     </div>
   </section>
@@ -476,19 +509,27 @@ pinned:   true</code></pre>
   function gapAfter(r) { let g = MINB; for (let i = 0; i < r; i++) { if (g >= MAXB || g > MAXB - g) return MAXB; g *= 2; } return g; }
   new Sim('p-backoff', 'c-backoff', {
     duration: 100, speed: 8, // 100 sim minutes in 12.5 s
-    initial: () => ({ pokes: [] }),
+    initial: () => ({ pokes: [], flat: false }),
     actions: {
       poke: (self) => { if (!self.playing) { self.restart(true); } self.state.pokes.push(self.t); }
+    },
+    onToggle: (self, tog) => {
+      if (tog !== 'flat') return;
+      self.section.querySelector('.add').textContent = self.state.flat
+        ? 'rk cron add "wake up" --idle-every 3m'
+        : 'rk cron add "operator tick" --backoff --min 1m --max 30m';
     },
     compute: (st) => {
       // Operator idle at t=0 (anchor 0). Fires climb the ladder. Each fire → active for TICKBUSY (attributed: no reset).
       // A poke at p → operator active [p, p+WORK], idle epoch p+WORK, not attributed → ladder resets, anchor = p+WORK.
+      // st.flat: min = max — every gap is a constant 3 sim-minutes; the anchor rules are unchanged.
+      const gap = st.flat ? () => 3 : gapAfter;
       const pokes = [...st.pokes].sort((a, b) => a - b);
       const fires = [], segs = [], resets = [];
       let anchor = 0, rung = 0, t = 0, pi = 0;
       let guard = 0;
       while (guard++ < 500) {
-        const next = anchor + (() => { let s = 0; for (let n = 0; n <= rung; n++) s += gapAfter(n); return s; })();
+        const next = anchor + (() => { let s = 0; for (let n = 0; n <= rung; n++) s += gap(n); return s; })();
         const poke = pi < pokes.length ? pokes[pi] : Infinity;
         if (poke < next) {
           segs.push({ a: poke, b: poke + WORK, state: 'active' });
@@ -498,7 +539,7 @@ pinned:   true</code></pre>
           continue;
         }
         if (next > 100) break;
-        fires.push({ t: next, rung: rung + 1, gap: gapAfter(rung) });
+        fires.push({ t: next, rung: rung + 1, gap: gap(rung) });
         segs.push({ a: next, b: next + TICKBUSY, state: 'active' });
         rung++;
       }
@@ -605,6 +646,81 @@ pinned:   true</code></pre>
       // operator row, greyed: excluded from its own fingerprint
       ctx.globalAlpha = .45; strip(ctx, w, dur, opY, 10, m.opSegs, t, 'operator (target) · excluded from the fingerprint'); ctx.globalAlpha = 1;
       playhead(ctx, w, h, t, dur, 24, opY + 12);
+    },
+  });
+  /* ================= DELIVER ================= */
+  // 30 sim minutes of one every-5m entry; the agent is busy (active) 7–18 min when st.busy.
+  new Sim('p-deliver', 'c-deliver', {
+    duration: 30, speed: 3, // 10 s
+    initial: () => ({ busy: true }),
+    compute: (st) => {
+      const dur = 30, step = 5, busy = st.busy ? [7, 18] : null;
+      const isBusy = (x) => !!(busy && x >= busy[0] && x < busy[1]);
+      const immediate = [], whenIdle = [], skipIfBusy = [];
+      for (let g = step; g <= dur + 1e-9; g += step) immediate.push({ t: g, busy: isBusy(g) });
+      let next = step;
+      while (next <= dur + 1e-9) {
+        if (isBusy(next)) { whenIdle.push({ t: busy[1], heldFrom: next }); next = busy[1] + step; }
+        else { whenIdle.push({ t: next }); next += step; }
+      }
+      for (let g = step; g <= dur + 1e-9; g += step) skipIfBusy.push({ t: g, skipped: isBusy(g) });
+      // exposed for the pulse sweep; skipped fires are not pulses
+      const fires = immediate.concat(whenIdle, skipIfBusy.filter(f => !f.skipped));
+      return { immediate, whenIdle, skipIfBusy, busy, fires };
+    },
+    readout: (t, m) => {
+      const im = m.immediate.filter(f => f.t <= t).length;
+      const wi = m.whenIdle.filter(f => f.t <= t);
+      const held = m.whenIdle.filter(f => f.heldFrom != null && f.heldFrom <= t).length;
+      const sk = m.skipIfBusy.filter(f => f.t <= t);
+      return `t = <b>${fmtMin(t)}</b> · immediate <b>${im}</b> · when-idle <b>${wi.length}</b> (held <b>${held}</b>) · skip-if-busy <b>${sk.filter(f => !f.skipped).length}</b> (skipped <b>${sk.filter(f => f.skipped).length}</b>)`;
+    },
+    draw(ctx, w, h, t, m, self) {
+      self.pulseSpan = 1.5;
+      const dur = 30, yAxis = 54, yStrip = 88;
+      const lanes = [
+        { name: 'immediate', y: 134, rows: m.immediate },
+        { name: 'when-idle', y: 174, rows: m.whenIdle },
+        { name: 'skip-if-busy', y: 214, rows: m.skipIfBusy },
+      ];
+      axis(ctx, w, yAxis, dur, 5, v => `${v}m`);
+      const segs = m.busy ? [{ a: m.busy[0], b: m.busy[1], state: 'active' }] : [];
+      strip(ctx, w, dur, yStrip, 10, segs, t, 'agent pane  @rk_pane_agent_state');
+      let busyLabels = 0;
+      for (const lane of lanes) {
+        ctx.strokeStyle = css('--line'); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(PAD.l, lane.y + .5); ctx.lineTo(w - PAD.r, lane.y + .5); ctx.stroke();
+        ctx.fillStyle = css('--ink-2'); ctx.font = `11px ${css('--mono')}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+        ctx.fillText(lane.name, PAD.l, lane.y - 24);
+        for (const f of lane.rows) {
+          const visible = f.t <= t || (f.heldFrom != null && f.heldFrom <= t);
+          if (!visible) continue;
+          const x = xOf(f.t, dur, w);
+          if (lane.name === 'immediate') {
+            if (f.t <= t) {
+              fire(ctx, x, lane.y, css('--sched'), t - f.t, self.pulseSpan, '', css('--ink-2'));
+              if (f.busy) {
+                // stagger the two adjacent busy labels so they never collide
+                ctx.fillStyle = css('--ink-2'); ctx.font = `11px ${css('--mono')}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+                ctx.fillText('into a busy pane', x, lane.y - (busyLabels++ % 2 === 0 ? 10 : 26));
+              }
+            }
+          } else if (lane.name === 'when-idle') {
+            if (f.heldFrom != null) {
+              const xh = xOf(f.heldFrom, dur, w);
+              fire(ctx, xh, lane.y, css('--wake'), 0, 0, 'held', css('--ink-2'), true);
+              if (f.t <= t) {
+                ctx.strokeStyle = css('--wake'); ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(xh, lane.y - 16); ctx.lineTo(x, lane.y - 16); ctx.stroke(); ctx.setLineDash([]);
+                fire(ctx, x, lane.y, css('--sched'), t - f.t, self.pulseSpan, 'delivered when idle', css('--ink-2'));
+              }
+            } else if (f.t <= t) fire(ctx, x, lane.y, css('--sched'), t - f.t, self.pulseSpan, '', css('--ink-2'));
+          } else if (f.t <= t) {
+            fire(ctx, x, lane.y, css('--sched'), t - f.t, self.pulseSpan, f.skipped ? 'skipped · busy' : '', css('--ink-2'), f.skipped);
+          }
+        }
+      }
+      playhead(ctx, w, h, t, dur, 24, 226);
     },
   });
 })();

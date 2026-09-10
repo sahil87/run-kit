@@ -28,7 +28,9 @@ const (
 
 // cronScheduleDue evaluates one cron-kind entry at now. A fire is due when the
 // latest occurrence in (anchor, now] is within the deliver-dependent window
-// (DefaultCronGrace, or DefaultHoldWindow for when-idle), carrying DueAt = the
+// (DefaultCronGrace, or DefaultHoldWindow for when-idle — a hold is realized
+// as cross-tick retry, so it needs the longer window; skip-if-busy decides
+// once at due time and keeps DefaultCronGrace), carrying DueAt = the
 // occurrence. catch_up: once lifts the lateness bound for a stale occurrence —
 // it fires late exactly once per gap with DueAt = now, opting out of the hold
 // bound; an occurrence still inside its window is an ordinary on-time fire

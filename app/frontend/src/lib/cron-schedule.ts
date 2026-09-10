@@ -113,3 +113,26 @@ export function describeSchedule(entry: CronScheduleLike): string {
   }
   return base;
 }
+
+/**
+ * Translate an entry's `deliver` policy into a plain-words sentence:
+ * `undefined`/`""`/`immediate` → "delivered immediately"; `when-idle` →
+ * "held until the agent is idle (up to 2h)"; `skip-if-busy` → "skipped when
+ * the agent is busy". Unknown values render raw, never a fabricated phrasing
+ * (the describeSchedule unknown-kind precedent) — the wire type stays
+ * `string`; this helper is the one place that knows the enum.
+ */
+export function describeDeliver(deliver?: string): string {
+  switch (deliver) {
+    case undefined:
+    case "":
+    case "immediate":
+      return "delivered immediately";
+    case "when-idle":
+      return "held until the agent is idle (up to 2h)";
+    case "skip-if-busy":
+      return "skipped when the agent is busy";
+    default:
+      return deliver;
+  }
+}

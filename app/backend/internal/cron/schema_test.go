@@ -164,6 +164,14 @@ func TestEntryValidate(t *testing.T) {
 		{"backoff valid", func(e *Entry) {
 			e.Schedule = Schedule{Kind: ScheduleBackoff, Min: Duration{time.Minute}, Max: Duration{30 * time.Minute}}
 		}, false},
+		{"backoff min == max (flat ladder)", func(e *Entry) {
+			e.Schedule = Schedule{Kind: ScheduleBackoff, Min: Duration{3 * time.Minute}, Max: Duration{3 * time.Minute}}
+		}, false},
+		{"deliver empty", func(e *Entry) {}, false},
+		{"deliver immediate", func(e *Entry) { e.Deliver = DeliverImmediate }, false},
+		{"deliver when-idle", func(e *Entry) { e.Deliver = DeliverWhenIdle }, false},
+		{"deliver skip-if-busy", func(e *Entry) { e.Deliver = DeliverSkipIfBusy }, false},
+		{"deliver unknown value", func(e *Entry) { e.Deliver = "bogus" }, true},
 		{"unknown target kind", func(e *Entry) { e.Target.Kind = "bogus" }, true},
 		{"role target needs role", func(e *Entry) { e.Target = Target{Kind: TargetRole} }, true},
 		{"role target valid", func(e *Entry) { e.Target = Target{Kind: TargetRole, Role: RoleOperator} }, false},
@@ -183,6 +191,15 @@ func TestEntryValidate(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("deliver error names the value", func(t *testing.T) {
+		e := base
+		e.Deliver = "bogus"
+		err := e.validate()
+		if err == nil || !strings.Contains(err.Error(), `unknown deliver value "bogus"`) {
+			t.Errorf("validate() = %v, want `unknown deliver value \"bogus\"`", err)
+		}
+	})
 }
 
 // TestLoadEntriesSkipsBadCronExpr: a stored entry whose expression does not

@@ -13,16 +13,22 @@ import (
 // Execute() run cannot leak flag state into the next (the resetMuxFlags
 // pattern). Also resets the seams the family shares.
 func resetCronFlags() {
-	cronAddEvery, cronAddBackoff, cronAddCronExpr = 0, false, ""
+	cronAddEvery, cronAddIdleEvery, cronAddBackoff, cronAddCronExpr = 0, 0, false, ""
 	cronAddCatchUp = ""
 	cronAddMin, cronAddMax = time.Minute, 30*time.Minute
 	cronAddName, cronAddDeliver, cronAddIfAbsent = "", cron.DeliverImmediate, cron.IfAbsentSkip
 	cronAddRespawn = nil
 	cronAddPinned = false
 	cronAddRole, cronAddPane, cronAddSession = "", "", ""
+	cronEditEvery, cronEditIdleEvery, cronEditBackoff, cronEditCronExpr = 0, 0, false, ""
+	cronEditCatchUp = ""
+	cronEditMin, cronEditMax = time.Minute, 30*time.Minute
+	cronEditName, cronEditDeliver, cronEditIfAbsent = "", "", ""
+	cronEditRespawn = nil
 	cronListJSONFlag = false
 	cronMuteOffFlag, cronMuteForFlag, cronPinOffFlag = false, 0, false
-	resetFlagChanged(cronAddCmd, "every", "backoff", "cron", "catch-up", "min", "max", "name", "deliver", "if-absent", "respawn", "pinned", "role", "pane", "session")
+	resetFlagChanged(cronAddCmd, "every", "idle-every", "backoff", "cron", "catch-up", "min", "max", "name", "deliver", "if-absent", "respawn", "pinned", "role", "pane", "session")
+	resetFlagChanged(cronEditCmd, "every", "idle-every", "backoff", "cron", "catch-up", "min", "max", "name", "deliver", "if-absent", "respawn")
 	resetFlagChanged(cronListCmd, "json")
 	resetFlagChanged(cronMuteCmd, "off", "for")
 	resetFlagChanged(cronPinCmd, "off")
@@ -130,7 +136,7 @@ func TestCronSlugValidation(t *testing.T) {
 }
 
 // TestCronFamilyRegistered: the root gains exactly one cron row, and the
-// family lists its six verbs with the shared -L flag inherited.
+// family lists its seven verbs with the shared -L flag inherited.
 func TestCronFamilyRegistered(t *testing.T) {
 	found := false
 	count := 0
@@ -139,7 +145,7 @@ func TestCronFamilyRegistered(t *testing.T) {
 			count++
 			for _, sub := range c.Commands() {
 				switch sub.Name() {
-				case "add", "list", "rm", "mute", "pin", "tick":
+				case "add", "edit", "list", "rm", "mute", "pin", "tick":
 				default:
 					t.Errorf("unexpected cron subcommand %q", sub.Name())
 				}
@@ -147,8 +153,8 @@ func TestCronFamilyRegistered(t *testing.T) {
 					t.Errorf("cron %s does not inherit the -L/--server flag", sub.Name())
 				}
 			}
-			if len(c.Commands()) != 6 {
-				t.Errorf("cron has %d subcommands, want exactly 6 (add, list, rm, mute, pin, tick)", len(c.Commands()))
+			if len(c.Commands()) != 7 {
+				t.Errorf("cron has %d subcommands, want exactly 7 (add, edit, list, rm, mute, pin, tick)", len(c.Commands()))
 			}
 			found = true
 		}

@@ -112,6 +112,11 @@ function CronRow({
 }) {
   const name = entry.name ?? entry.id;
   const dimmed = isCronDimmed(entry);
+  // The norm (immediate) adds zero chrome — only a non-default policy marks.
+  const deliverMarker =
+    entry.deliver != null && entry.deliver !== "" && entry.deliver !== "immediate"
+      ? entry.deliver
+      : null;
   const flyout = useRowFlyout({
     content: ({ close }) => (
       <>
@@ -181,7 +186,17 @@ function CronRow({
       </td>
       <td className="pr-3 py-1 whitespace-nowrap text-text-secondary">{targetChip(entry)}</td>
       <td className="pr-3 py-1 text-text-secondary">
-        <span className="block truncate max-w-[32ch]">{describeSchedule(entry)}</span>
+        <span className="block truncate max-w-[32ch]">
+          {describeSchedule(entry)}
+          {deliverMarker && (
+            <span
+              className="ml-1 text-[10px] uppercase text-text-secondary"
+              data-testid="crons-row-deliver"
+            >
+              {deliverMarker}
+            </span>
+          )}
+        </span>
       </td>
       <td className="pr-3 py-1 whitespace-nowrap" data-testid="crons-row-state">
         {cronStateLabel(entry, sessions, nowSeconds)}

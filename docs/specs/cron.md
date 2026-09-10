@@ -112,7 +112,7 @@ entries:
     wake_on: { event: agent-state-change, scope: server, debounce: 60s }
     target: { kind: role, role: operator }
     payload: "operator tick"
-    deliver: immediate           # immediate | when-idle
+    deliver: immediate           # immediate | when-idle | skip-if-busy
     if_absent: respawn           # skip | notify | respawn
     respawn: ["rk", "operator", "-L", "{server}"]   # argv; {server} → the stamped server name
     pinned: true                 # never orphan-expired
@@ -131,14 +131,14 @@ entries:
 Runtime facts (`last_fired`, `next_fire`, backoff rung, orphaned-since) are
 **not** stored in the file — they are derived (see § Schedules) or held
 in-memory and re-derived on restart. The file changes only on add / rm /
-pin / mute.
+pin / mute / edit.
 
 ## Schedules
 
 | Kind | Semantics | State stored |
 |------|-----------|--------------|
 | `every` | Fixed interval from creation; fires when `now − last_delivery ≥ interval` | none — last delivery derives from the delivery log line |
-| `backoff` | Duration-based, anchored on a **derived epoch**: fire times are `anchor + min·(2ⁿ − 1)` (i.e. +1m, +3m, +7m, +15m…), capped at `max` | **none** — the schedule is a pure function of the anchor |
+| `backoff` | Duration-based, anchored on a **derived epoch**: fire times are `anchor + min·(2ⁿ − 1)` (i.e. +1m, +3m, +7m, +15m…), capped at `max`; `min = max` collapses the ladder to a flat "every `min` of quiet" reminder (`--idle-every`) | **none** — the schedule is a pure function of the anchor |
 | `cron` | Classic 5-field expression | none | 
 
 The `backoff` anchor for the operator tick is the **agent idle epoch** already
@@ -151,6 +151,22 @@ makes the operator busy, resets the raw epoch, and pins the ladder at rung 1
 forever (the self-resetting-ladder bug). Both inputs live on disk, so the
 schedule stays a pure function and a restart at worst re-fires one due tick —
 every payload must tolerate that (ticks are idempotent by contract).
+
+**Flat ladder = idle reminder.** `min = max` is legal (validation rejects only
+`max < min`) and collapses the ladder to a flat "every `min` of quiet": every
+gap is `min`, anchored on the same last-genuine-idle epoch under the same
+anchor-join rule — the clock's own pings never restart the count, real
+activity does. `rk cron add --idle-every <dur>` is sugar that writes exactly
+`{kind: backoff, min: dur, max: dur}` — no new kind, no schema field. The two
+idle-aware clocks are not interchangeable:
+
+| Expression | Fires when | An agent idle for 5 s at a boundary | An agent that went idle 5 s after a boundary |
+|---|---|---|---|
+| `--idle-every 3m` (flat backoff, `min == max`) | 3 m after the last *genuine* idle moment, then every 3 m while it stays quiet; own pings don't restart the count | not pinged until it has been quiet 3 m | pinged 3 m after it went idle |
+| `--every 3m --deliver skip-if-busy` (fixed grid, idleness checked at each boundary) | at every 3 m grid point at which the agent happens to be idle; busy boundaries are skipped, not held | pinged now | waits nearly 3 m for the next boundary |
+
+The operator's "wake me every 3 minutes of quiet" reminder is the flat
+backoff, not the grid version.
 
 **Union predicate** (optional per entry, derivable):
 
@@ -243,17 +259,32 @@ never a bare `-t _rk-operator` (exact-match targets only).
 ## Delivery
 
 1. Resolve target → pane (above).
-2. `deliver: when-idle` gates on `@rk_pane_agent_state` (busy ⇒ hold until the
-   state clears, bounded by `DefaultHoldWindow` — 2h from the fire's scheduled
-   due time: past it the hold expires with a logged `held-expired` outcome
-   that advances the anchor and drops the fire, never force-delivering into a
-   busy pane); `immediate` sends now.
+2. The `deliver` policy decides what happens when the agent is busy at fire
+   time — three values. `immediate` sends now. `when-idle` gates on
+   `@rk_pane_agent_state` (busy ⇒ hold until the state clears, bounded by
+   `DefaultHoldWindow` — 2h from the fire's scheduled due time: past it the
+   hold expires with a logged `held-expired` outcome that advances the anchor
+   and drops the fire, never force-delivering into a busy pane).
+   `skip-if-busy` reads the agent state once at due time and, on
+   `active | waiting`, drops the fire with a logged `skipped-busy` outcome
+   that advances the anchor (the next attempt is the next due period, never
+   the next poll) and does not count toward the rate cap; `idle` and unknown
+   states deliver. No hold bound applies to `skip-if-busy` — the check happens
+   once, at due time.
 3. Send through the injection engine (the write channel of the communication
    standard — [`agent-messaging.md`](agent-messaging.md)), inheriting the
    pane-mode guard, paste probe, and submit verification.
 4. Append one line to a per-server delivery log (`cron/<slug>.log`,
    size-capped) — the derivation source for `last fired / delivered` in UI and
    `every` schedules. A log is history, not live state (recovery-backup class).
+   `missed` and `rescheduled` are schedule-history lines, not deliveries: each
+   advances the anchor without being a delivery (`rescheduled` is appended by
+   `rk cron edit` when the schedule or deliver policy changes). Two
+   `rescheduled` boundary rules: the backoff ladder walk reads only lines
+   newer than the entry's newest `rescheduled` line (the edit cuts the streak,
+   so pre-edit deliveries are not misread as rungs of the new ladder), and
+   orphan GC skips `rescheduled` lines (they are neither resolution evidence
+   nor absent-class, so they never start an absent run).
 
 **Evaluator guards** (all load-bearing):
 
@@ -337,7 +368,10 @@ reuses a shipped (or already-reserved) mechanism:
    tile area, desktop-only (the mobile answer is the Activity feed), with the
    CRONS row flyout carrying Mute/Pin/Delete and `+ New entry` opening the
    existing create dialog; the palette entry `Server: Clock dashboard`
-   navigates to `/$server` and scrolls the CRONS heading into view.
+   navigates to `/$server` and scrolls the CRONS heading into view. The CLOCK
+   row and the CRONS row carry a `deliver` marker when the policy is not
+   `immediate`, the entry detail sheet shows a `Deliver` row, and the create
+   dialog's Delivery group sets it.
 
    **Superseded (2026-09-10) — the agents-tile dashboard.** The earlier
    design landed tier 2 in the reserved `agents` surface kind
@@ -403,8 +437,8 @@ tmux event — the safety-poll lesson).
 | Surface | Form |
 |---------|------|
 | Read | `GET /api/cron?server=<slug>` — entries + derived next-fire + orphan state; watchlist rides the existing SSE state doc |
-| Mutate | `POST /api/cron/create`, `POST /api/cron/delete`, `POST /api/cron/mute` — POST-only (Constitution IX) |
-| CLI | `rk cron add <prompt> --every 1h \| --backoff \| --cron "<expr>" [--name N] [--deliver when-idle] [--if-absent skip] [--respawn <arg>…]`, `rk cron list [--json]`, `rk cron rm <id>`, `rk cron mute <id> [--for <dur>] [--off]` — agent-friendly: no flags beyond the schedule are required |
+| Mutate | `POST /api/cron/create`, `POST /api/cron/delete`, `POST /api/cron/mute`, `POST /api/cron/edit` (partial-merge body; immutable target; returns the entry) — POST-only (Constitution IX) |
+| CLI | `rk cron add <prompt> --every 1h \| --idle-every 3m \| --backoff \| --cron "<expr>" [--name N] [--deliver when-idle\|skip-if-busy] [--if-absent skip] [--respawn <arg>…]`, `rk cron edit <id> [<schedule flag>] [--deliver P] [--name N] [--if-absent P] [--respawn <arg>…]` (target and creator immutable; a schedule or deliver change logs `rescheduled`), `rk cron list [--json]`, `rk cron rm <id>`, `rk cron mute <id> [--for <dur>] [--off]` — agent-friendly: no flags beyond the schedule are required |
 
 `rk cron mute <id> --for <dur>` mutes until now+dur; expiry unmutes
 automatically with no further call — the evaluator reads an expired lease as

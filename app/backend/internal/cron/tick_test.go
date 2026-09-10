@@ -185,6 +185,70 @@ func TestTickHeldOutcomeSkipsLog(t *testing.T) {
 	}
 }
 
+// TestTickSkippedBusyAdvancesAnchor: a non-held skipped-busy outcome IS
+// logged, and the append is the mechanism — the anchor moves to the skip, so
+// the next attempt lands one full interval later, never on the next 30s poll.
+func TestTickSkippedBusyAdvancesAnchor(t *testing.T) {
+	dir := t.TempDir()
+	T := backoffBase
+	fk := livePaneRig(t, dir, T)
+	// An every-5m entry anchored at T; deliver: skip-if-busy.
+	writeEntryFile(t, dir, "live1", fmt.Sprintf(`
+entries:
+  - id: a3f9
+    name: frequent sweep
+    schedule: { kind: every, interval: 5m }
+    target: { kind: pane, pane: "%%42" }
+    payload: "sweep"
+    deliver: skip-if-busy
+    created_by: { session: 4fe2, pane: "%%42", at: %d }
+`, T.Unix()))
+	logPath := filepath.Join(dir, "live1.log")
+
+	del := &heldAwareDeliverer{outcomes: []Outcome{
+		{Status: "skipped-busy", Detail: "active"},
+		{Status: "delivered"},
+	}}
+
+	// Tick at T+5m: due, busy pane — one logged skipped-busy line, no
+	// delivery-held diagnostic (the skip is not a hold).
+	res := tickOnce(t, dir, T.Add(5*time.Minute), fk, del)
+	if res.Fires != 1 {
+		t.Errorf("skip tick: fires = %d, want 1 (the skip is logged)", res.Fires)
+	}
+	if hasDiag(res.Diags, "delivery-held") {
+		t.Errorf("skip tick: diags = %v, want no delivery-held (Held is unset)", diagReasons(res.Diags))
+	}
+	lines := ReadLog(logPath)
+	if len(lines) != 1 || lines[0].Outcome != "skipped-busy: active" {
+		t.Fatalf("log after skip = %+v, want one skipped-busy: active line", lines)
+	}
+
+	// Tick at T+5m30s: the anchor moved to T+5m, so the entry is not due —
+	// nothing appended, no deliverer call.
+	res = tickOnce(t, dir, T.Add(5*time.Minute+30*time.Second), fk, del)
+	if res.Fires != 0 {
+		t.Errorf("next-poll tick: fires = %d, want 0 (the anchor advanced)", res.Fires)
+	}
+	if lines := ReadLog(logPath); len(lines) != 1 {
+		t.Fatalf("log after next poll = %+v, want the same one skip line", lines)
+	}
+	if del.calls != 1 {
+		t.Errorf("deliverer calls = %d, want 1 (no re-fire on the next poll)", del.calls)
+	}
+
+	// Tick at T+10m: due again — one full interval after the skip — and the
+	// now-free pane delivers.
+	res = tickOnce(t, dir, T.Add(10*time.Minute), fk, del)
+	if res.Fires != 1 {
+		t.Errorf("next-interval tick: fires = %d, want 1", res.Fires)
+	}
+	lines = ReadLog(logPath)
+	if len(lines) != 2 || lines[1].Outcome != "delivered" {
+		t.Fatalf("log after next interval = %+v, want the skip line plus the delivery", lines)
+	}
+}
+
 // fakeNotifier records notify calls and can be scripted to fail.
 type fakeNotifier struct {
 	calls []notifyCall
@@ -438,11 +502,12 @@ func TestTickRateCapTrips(t *testing.T) {
 }
 
 // TestTickRateCapOutcomeClasses: only delivery-attempt outcomes count —
-// suppressions (rate-capped), recorded misses (skipped-absent, missed), and
-// expired holds (held-expired) do not, and held outcomes never reach the log
-// at all.
+// suppressions (rate-capped), recorded misses (skipped-absent, missed),
+// expired holds (held-expired), busy-pane skips (skipped-busy — a dropped
+// fire, not an attempt), and schedule history (rescheduled) do not, and held
+// outcomes never reach the log at all.
 func TestTickRateCapOutcomeClasses(t *testing.T) {
-	for _, outcome := range []string{"rate-capped", "skipped-absent", "missed", "held-expired"} {
+	for _, outcome := range []string{"rate-capped", "skipped-absent", "missed", "held-expired", "skipped-busy: active", "rescheduled"} {
 		t.Run(outcome+" does not count", func(t *testing.T) {
 			dir := t.TempDir()
 			T := backoffBase

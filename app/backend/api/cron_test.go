@@ -551,6 +551,28 @@ func TestCronCreate(t *testing.T) {
 		expectNoWake(t, tracker, before, "cron create respawn-less role respawn rejected")
 	})
 
+	t.Run("unknown deliver value is a 400 through the schema gate, persists nothing", func(t *testing.T) {
+		dir := setupCronState(t)
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/cron/create?server=default", strings.NewReader(
+			`{"schedule":{"kind":"every","interval":"1h"},"target":{"kind":"role","role":"operator"},"payload":"nope","deliver":"bogus"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		if got := cronErrorText(t, rec); got != `unknown deliver value "bogus"` {
+			t.Errorf("error = %q, want the schema's validation text", got)
+		}
+		if entries := loadCronEntries(t, dir, "default"); len(entries) != 0 {
+			t.Errorf("persisted entries = %d after a rejected create, want 0", len(entries))
+		}
+		expectNoWake(t, tracker, before, "cron create bogus deliver rejected")
+	})
+
 	t.Run("invalid schedule is a 400, persists nothing, does not wake", func(t *testing.T) {
 		dir := setupCronState(t)
 		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
@@ -807,5 +829,215 @@ func TestCronPin(t *testing.T) {
 		if entries := loadCronEntries(t, dir, "default"); len(entries) != 1 || entries[0].Pinned {
 			t.Errorf("entries after un-pin = %+v, want the seeded entry unpinned", entries)
 		}
+	})
+}
+
+// cronEditFixture is one backoff entry the edit route's subtests mutate.
+const cronEditFixture = `entries:
+  - id: ed01
+    name: operator tick
+    schedule: {kind: backoff, min: 60s, max: 30m}
+    target: {kind: role, role: operator}
+    payload: tick
+`
+
+// postCronEdit fires one POST /api/cron/edit round-trip with the raw body.
+func postCronEdit(t *testing.T, router http.Handler, raw string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/cron/edit?server=default", strings.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+// rescheduledLines counts the entry's `rescheduled` lines in its server's log.
+func rescheduledLines(t *testing.T, dir, slug, id string) []cron.LogLine {
+	t.Helper()
+	path, err := cron.LogPath(dir, slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []cron.LogLine
+	for _, l := range cron.ReadLog(path) {
+		if l.Entry == id && l.Outcome == "rescheduled" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// cronErrorText decodes the {"error": msg} envelope of a rejected request.
+func cronErrorText(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decoding error body: %v", err)
+	}
+	return body.Error
+}
+
+func TestCronEditRoute(t *testing.T) {
+	t.Run("partial merge: a deliver edit keeps the schedule, logs rescheduled, wakes, returns the entry", func(t *testing.T) {
+		dir := setupCronState(t)
+		writeCronEntries(t, dir, "default", cronEditFixture)
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		rec := postCronEdit(t, router, `{"id":"ed01","deliver":"skip-if-busy"}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var updated cronEntryJSON
+		if err := json.NewDecoder(rec.Body).Decode(&updated); err != nil {
+			t.Fatal(err)
+		}
+		if updated.ID != "ed01" || updated.Deliver != "skip-if-busy" ||
+			updated.Schedule.Kind != "backoff" || updated.Schedule.Min != "1m0s" || updated.Schedule.Max != "30m0s" ||
+			updated.Target.Role != "operator" {
+			t.Errorf("response entry wrong: %+v", updated)
+		}
+		entries := loadCronEntries(t, dir, "default")
+		if len(entries) != 1 {
+			t.Fatalf("entries = %d, want 1", len(entries))
+		}
+		e := entries[0]
+		if e.Deliver != cron.DeliverSkipIfBusy || e.Schedule.Kind != cron.ScheduleBackoff ||
+			e.Schedule.Min.Duration != time.Minute || e.Schedule.Max.Duration != 30*time.Minute ||
+			e.Name != "operator tick" || e.Target.Role != cron.RoleOperator {
+			t.Errorf("stored entry wrong: %+v", e)
+		}
+		lines := rescheduledLines(t, dir, "default", "ed01")
+		if len(lines) != 1 || lines[0].Reason != "edit" || lines[0].Target != "" {
+			t.Errorf("rescheduled lines = %+v, want exactly one {reason: edit, no target}", lines)
+		}
+		expectWake(t, tracker, before, "cron edit")
+	})
+
+	t.Run("schedule present replaces the whole schedule and logs rescheduled", func(t *testing.T) {
+		dir := setupCronState(t)
+		writeCronEntries(t, dir, "default", cronEditFixture)
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		router := server.buildRouter()
+		rec := postCronEdit(t, router, `{"id":"ed01","schedule":{"kind":"every","interval":"3m"}}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var updated cronEntryJSON
+		if err := json.NewDecoder(rec.Body).Decode(&updated); err != nil {
+			t.Fatal(err)
+		}
+		if updated.Schedule.Kind != "every" || updated.Schedule.Interval != "3m0s" ||
+			updated.Schedule.Min != "" || updated.Schedule.Max != "" {
+			t.Errorf("response schedule = %+v, want every/3m0s with the backoff knobs gone", updated.Schedule)
+		}
+		entries := loadCronEntries(t, dir, "default")
+		if len(entries) != 1 || entries[0].Schedule.Kind != cron.ScheduleEvery ||
+			entries[0].Schedule.Interval.Duration != 3*time.Minute {
+			t.Errorf("stored entries = %+v, want the schedule replaced", entries)
+		}
+		if lines := rescheduledLines(t, dir, "default", "ed01"); len(lines) != 1 {
+			t.Errorf("rescheduled lines = %+v, want exactly one", lines)
+		}
+	})
+
+	t.Run("name-only edit writes the field but no rescheduled line", func(t *testing.T) {
+		dir := setupCronState(t)
+		writeCronEntries(t, dir, "default", cronEditFixture)
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		router := server.buildRouter()
+		rec := postCronEdit(t, router, `{"id":"ed01","name":"renamed tick"}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		entries := loadCronEntries(t, dir, "default")
+		if len(entries) != 1 || entries[0].Name != "renamed tick" {
+			t.Errorf("stored entries = %+v, want the name edited", entries)
+		}
+		if lines := rescheduledLines(t, dir, "default", "ed01"); len(lines) != 0 {
+			t.Errorf("rescheduled lines = %+v, want none for a name-only edit", lines)
+		}
+	})
+
+	t.Run("unknown id is a 404, no write, no wake", func(t *testing.T) {
+		dir := setupCronState(t)
+		writeCronEntries(t, dir, "default", cronEditFixture)
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		rec := postCronEdit(t, router, `{"id":"zzzz","deliver":"skip-if-busy"}`)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "cron entry not found") {
+			t.Errorf("body = %s, want the not-found text", rec.Body.String())
+		}
+		if entries := loadCronEntries(t, dir, "default"); len(entries) != 1 || entries[0].Deliver != "" {
+			t.Errorf("entries after failed edit = %+v, want the fixture untouched", entries)
+		}
+		expectNoWake(t, tracker, before, "cron edit unknown id")
+	})
+
+	t.Run("a target key is a 400, no write, no wake", func(t *testing.T) {
+		dir := setupCronState(t)
+		writeCronEntries(t, dir, "default", cronEditFixture)
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		rec := postCronEdit(t, router, `{"id":"ed01","target":{"kind":"role","role":"other"}}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "target is immutable") {
+			t.Errorf("body = %s, want the immutability text", rec.Body.String())
+		}
+		if entries := loadCronEntries(t, dir, "default"); len(entries) != 1 || entries[0].Target.Role != cron.RoleOperator {
+			t.Errorf("entries after rejected edit = %+v, want the fixture untouched", entries)
+		}
+		expectNoWake(t, tracker, before, "cron edit target key rejected")
+	})
+
+	t.Run("a bad deliver value is a 400, no write, no wake", func(t *testing.T) {
+		dir := setupCronState(t)
+		writeCronEntries(t, dir, "default", cronEditFixture)
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		rec := postCronEdit(t, router, `{"id":"ed01","deliver":"bogus"}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		if got := cronErrorText(t, rec); got != `unknown deliver value "bogus"` {
+			t.Errorf("error = %q, want the validation text", got)
+		}
+		if entries := loadCronEntries(t, dir, "default"); len(entries) != 1 || entries[0].Deliver != "" {
+			t.Errorf("entries after rejected edit = %+v, want the fixture untouched", entries)
+		}
+		expectNoWake(t, tracker, before, "cron edit bad deliver rejected")
+	})
+
+	t.Run("a schedule with max < min is a 400 from the merged-entry validation, no write", func(t *testing.T) {
+		dir := setupCronState(t)
+		writeCronEntries(t, dir, "default", cronEditFixture)
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		rec := postCronEdit(t, router, `{"id":"ed01","schedule":{"kind":"backoff","min":"5m","max":"1m"}}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "backoff max must be ≥ min") {
+			t.Errorf("body = %s, want the validate() text", rec.Body.String())
+		}
+		entries := loadCronEntries(t, dir, "default")
+		if len(entries) != 1 || entries[0].Schedule.Min.Duration != time.Minute {
+			t.Errorf("entries after rejected edit = %+v, want the fixture untouched", entries)
+		}
+		if lines := rescheduledLines(t, dir, "default", "ed01"); len(lines) != 0 {
+			t.Errorf("rescheduled lines = %+v, want none after a rejected edit", lines)
+		}
+		expectNoWake(t, tracker, before, "cron edit max<min rejected")
 	})
 }

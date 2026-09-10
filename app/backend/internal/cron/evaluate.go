@@ -140,7 +140,7 @@ func Evaluate(in EvalInput) EvalResult {
 			case facts.StateEpoch <= 0:
 				diag("anchor-unavailable", "target pane carries no agent-state epoch")
 			default:
-				ladder := JoinAnchor(facts.StateEpoch, OwnDeliveries(in.Log, e.ID),
+				ladder := JoinAnchor(facts.StateEpoch, ScheduleHistory(in.Log, e.ID),
 					e.Schedule.Min.Duration, e.Schedule.Max.Duration)
 				schedDue = ladder.Due(in.Now, e.Schedule.Min.Duration, e.Schedule.Max.Duration)
 				dueAt = ladder.NextFire(e.Schedule.Min.Duration, e.Schedule.Max.Duration)

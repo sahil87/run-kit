@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -159,6 +160,63 @@ func TestEngineDelivererHoldBound(t *testing.T) {
 		}
 		if len(*calls) != 1 {
 			t.Errorf("sends = %d, want 1", len(*calls))
+		}
+	})
+}
+
+// TestEngineDelivererSkipIfBusy: active and waiting drop the fire —
+// outcome skipped-busy with Held UNSET (logged, anchor-advancing) and nothing
+// sent; idle and unknown deliver. No hold bound applies: past
+// DefaultHoldWindow the outcome is still skipped-busy, and a state-read error
+// is failed with the agent-state read prefix, byte-identical to when-idle.
+func TestEngineDelivererSkipIfBusy(t *testing.T) {
+	cases := []struct {
+		state      string
+		wantStatus string
+		wantSends  int
+	}{
+		{tmux.AgentStateActive, "skipped-busy", 0},
+		{tmux.AgentStateWaiting, "skipped-busy", 0},
+		{tmux.AgentStateIdle, "delivered", 1},
+		{"", "delivered", 1},
+	}
+	for _, tc := range cases {
+		t.Run("state="+tc.state, func(t *testing.T) {
+			d, calls := newTestDeliverer(map[string]string{"%42": tc.state}, nil)
+			outcome := d.Deliver(context.Background(), deliverFire(DeliverSkipIfBusy, "sweep"))
+			if outcome.Held || outcome.Status != tc.wantStatus {
+				t.Errorf("outcome = %+v, want status %q with Held unset", outcome, tc.wantStatus)
+			}
+			if tc.wantStatus == "skipped-busy" && outcome.Detail != tc.state {
+				t.Errorf("detail = %q, want the busy state %q", outcome.Detail, tc.state)
+			}
+			if len(*calls) != tc.wantSends {
+				t.Errorf("sends = %d, want %d", len(*calls), tc.wantSends)
+			}
+		})
+	}
+
+	t.Run("no hold bound applies", func(t *testing.T) {
+		d, calls := newTestDeliverer(map[string]string{"%42": tmux.AgentStateActive}, nil)
+		d.now = func() time.Time { return backoffBase.Add(DefaultHoldWindow + time.Minute) }
+		outcome := d.Deliver(context.Background(), deliverFire(DeliverSkipIfBusy, "sweep"))
+		if outcome.Held || outcome.Status != "skipped-busy" {
+			t.Errorf("outcome = %+v, want skipped-busy (skip-if-busy never consults DefaultHoldWindow)", outcome)
+		}
+		if len(*calls) != 0 {
+			t.Errorf("sends = %d, want 0", len(*calls))
+		}
+	})
+
+	t.Run("state read failure", func(t *testing.T) {
+		d, calls := newTestDeliverer(nil, errors.New("pane gone"))
+		outcome := d.Deliver(context.Background(), deliverFire(DeliverSkipIfBusy, "sweep"))
+		if outcome.Held || outcome.Status != "failed" ||
+			!strings.HasPrefix(outcome.Detail, "agent-state read:") {
+			t.Errorf("outcome = %+v, want failed with the agent-state read prefix", outcome)
+		}
+		if len(*calls) != 0 {
+			t.Errorf("sends = %d, want 0", len(*calls))
 		}
 	})
 }

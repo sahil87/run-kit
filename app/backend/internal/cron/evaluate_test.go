@@ -558,3 +558,42 @@ func TestEvaluateEntryCapDefense(t *testing.T) {
 		t.Errorf("entry-cap-exceeded diagnostics = %d, want 2; diags = %v", capDiags, diagReasons(res.Diags))
 	}
 }
+
+// TestRescheduledResetsEveryAnchor: a `rescheduled` line is the every-anchor
+// (LastDelivery is outcome-agnostic), so an every 30m entry edited to 3m at
+// T+20m fires at edit+3m, not on the first poll after the edit.
+func TestRescheduledResetsEveryAnchor(t *testing.T) {
+	T := backoffBase
+	entry := Entry{
+		ID:       "a3f9",
+		Schedule: Schedule{Kind: ScheduleEvery, Interval: Duration{3 * time.Minute}},
+		Target:   Target{Kind: TargetSession, Session: "4fe2"},
+		Payload:  "sweep",
+	}
+	log := []LogLine{
+		{TS: unix(T, 0), Entry: "a3f9", Outcome: "delivered"},
+		{TS: unix(T, 20*time.Minute), Entry: "a3f9", Reason: "edit", Outcome: "rescheduled"},
+	}
+	facts := map[string]TargetFacts{"a3f9": resolvedFacts("idle", T.Unix())}
+
+	// Half a minute after the edit the new interval has not elapsed.
+	res := Evaluate(EvalInput{
+		Server: "dev", Now: T.Add(20*time.Minute + 30*time.Second),
+		Entries: []Entry{entry}, Facts: facts, Log: log,
+	})
+	if len(res.Fires) != 0 {
+		t.Fatalf("fires at T+20m30s = %+v, want none", res.Fires)
+	}
+
+	// At edit+3m the entry fires, due exactly on the anchor + interval.
+	res = Evaluate(EvalInput{
+		Server: "dev", Now: T.Add(23 * time.Minute),
+		Entries: []Entry{entry}, Facts: facts, Log: log,
+	})
+	if len(res.Fires) != 1 {
+		t.Fatalf("fires at T+23m = %+v, want one", res.Fires)
+	}
+	if want := T.Add(23 * time.Minute); !res.Fires[0].DueAt.Equal(want) {
+		t.Errorf("DueAt = %v, want %v (anchor T+20m + 3m)", res.Fires[0].DueAt, want)
+	}
+}

@@ -52,6 +52,17 @@ describe("CronEntryDetailSheet", () => {
     expect(screen.getByTestId("cron-entry-next-fire")).toHaveTextContent("unknown");
   });
 
+  it("renders the Deliver fact row as the describeDeliver sentence", () => {
+    installFetch();
+    renderSheet({ ...ENTRY, deliver: "when-idle" });
+    expect(screen.getByTestId("cron-entry-deliver")).toHaveTextContent(
+      "held until the agent is idle (up to 2h)",
+    );
+    cleanup();
+    renderSheet();
+    expect(screen.getByTestId("cron-entry-deliver")).toHaveTextContent("delivered immediately");
+  });
+
   it("mute toggle POSTs the flipped value and reflects it optimistically", async () => {
     const { calls } = installFetch();
     renderSheet();

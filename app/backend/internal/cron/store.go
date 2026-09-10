@@ -102,6 +102,15 @@ func loadForMutate(dir, slug string) (path string, entries []Entry, err error) {
 // processes only the first cap-many entries of a (hand-edited) larger file.
 const MaxEntriesPerServer = 50
 
+// EntryValidationError wraps a merged-entry validation failure from Update
+// (validate / ValidateRespawnIntent) so Edit callers can tell a client-fixable
+// body problem (HTTP 400, CLI usage error) apart from a store failure (HTTP
+// 500, CLI exit 1). The message is exactly the underlying validation text.
+type EntryValidationError struct{ Err error }
+
+func (e *EntryValidationError) Error() string { return e.Err.Error() }
+func (e *EntryValidationError) Unwrap() error { return e.Err }
+
 // ValidateRespawnIntent is the add-time gate for if_absent: respawn: role and
 // pane targets have no built-in way back (only session targets default to the
 // closed-ring resume), so they REQUIRE a caller-supplied respawn argv. It is
@@ -226,6 +235,39 @@ func Remove(dir, slug, id string) (bool, error) {
 		return false, nil
 	}
 	return true, saveEntries(path, kept)
+}
+
+// Update merges caller edits into the entry with the given id: apply mutates a
+// copy of the stored entry, and the merged entry must pass validate() and
+// ValidateRespawnIntent before anything is written — a failing merge returns
+// the error and leaves the file untouched. Returns (Entry{}, false, nil) when
+// absent (the Remove shape). Update writes no fields of its own; identity and
+// flag fields (ID, Target, CreatedBy, Muted, MutedUntil, Pinned) survive
+// because the caller's apply leaves them alone.
+func Update(dir, slug, id string, apply func(*Entry)) (Entry, bool, error) {
+	path, entries, err := loadForMutate(dir, slug)
+	if err != nil {
+		return Entry{}, false, err
+	}
+	for i, e := range entries {
+		if e.ID != id {
+			continue
+		}
+		merged := e
+		apply(&merged)
+		if err := merged.validate(); err != nil {
+			return Entry{}, false, &EntryValidationError{Err: err}
+		}
+		if err := ValidateRespawnIntent(merged); err != nil {
+			return Entry{}, false, &EntryValidationError{Err: err}
+		}
+		entries[i] = merged
+		if err := saveEntries(path, entries); err != nil {
+			return Entry{}, false, err
+		}
+		return merged, true, nil
+	}
+	return Entry{}, false, nil
 }
 
 // setFlag flips a bool field on the entry with the given id.

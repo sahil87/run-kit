@@ -751,35 +751,43 @@ twentieth surface measured against the same checks
   role taxonomy, the default user-facing filter vs `--all`, and the 6-key
   `--json` schema, within the page's 150-line budget.
 
-The `rk cron` family (`cron.go` + per-verb files — six members: `add`, `list`,
-`rm`, `mute`, `pin`, `tick`; the subsystem contract in
+The `rk cron` family (`cron.go` + per-verb files — seven members: `add`,
+`edit`, `list`, `rm`, `mute`, `pin`, `tick`; the subsystem contract in
 [cron](/run-kit/cron.md)) is the twenty-first surface measured against the same
 checks (260906-bi3v-rk-cron-cli):
 
-- **help-dump: six members dump.** `cronCmd` is registered unconditionally on
+- **help-dump: seven members dump.** `cronCmd` is registered unconditionally on
   `rootCmd` (`root.go`'s `init()`) and every node carries a `Long:` block, so
   the cobra tree walk picks the subtree up with no help-dump code change and
   the dumped contract is identical on every platform — nothing about the family
   is build- or host-conditional (the outside-tmux target requirement and the
   `tick -L` refusal are run-time usage errors, not registration conditions).
-  The help-dump test asserts the six-member subtree dynamically in
+  The help-dump test asserts the seven-member subtree dynamically in
   `TestCaptureNodeRealTreeSelfExcludesAndDepth`'s captured-children check.
 - **Principle 9: confirmations and listings are data, notes are chatter.**
   Every verb routes through the shared `outputSink` (`newSink(cmd)`): `add`'s
-  assigned-id summary line, the `rm`/`mute`/`pin` one-line confirmations,
-  `list`'s table and `--json` array, and `tick`'s one-line sweep summary are
-  data on stdout, surviving `--quiet`; `add`'s `--cron` not-yet-evaluated note
-  and the window-role-unreadable degrade note are chatter on stderr. A held
-  tick lock is the deliberate silent success — zero output, exit 0 (a summary
-  there would misreport a skipped sweep as work done).
+  assigned-id summary line, `edit`'s one `edited <id> <name> [<schedule> ->
+  <target>]` data line (the `rescheduled` log append is not separately
+  announced), the `rm`/`mute`/`pin` one-line confirmations, `list`'s table and
+  `--json` array, and `tick`'s one-line sweep summary are data on stdout,
+  surviving `--quiet`; `add`'s `--cron` not-yet-evaluated note and the
+  window-role-unreadable degrade note are chatter on stderr. A held tick lock
+  is the deliberate silent success — zero output, exit 0 (a summary there would
+  misreport a skipped sweep as work done).
 - **Exit-code convention (P4)**: usage errors exit 2 via the CLI-local
   `usageError` path — the verbs re-wrap their `Args` validators with
   `usageArgs` (root's central wrap loop covers only `rootCmd`'s direct
-  children), and the schedule-flag mutual exclusion, `--min`/`--max` without
-  `--backoff`, enum values outside the schema's closed sets, invalid
-  `--pane`/`--role`, an explicitly-set `-L` on `tick`, and a missing target
-  outside tmux all take the same path; operational failures (a corrupt entry
-  file refusing to mutate, `no entry <id>`, dir/lock failures) exit 1.
+  children), and the four-way schedule-flag mutual exclusion
+  (`--every`/`--idle-every`/`--backoff`/`--cron`, shared by `add` and `edit`
+  via `cronScheduleFromFlags`), `--min`/`--max` without `--backoff`, enum
+  values outside the schema's closed sets, invalid `--pane`/`--role`, an
+  explicitly-set `-L` on `tick`, a missing target outside tmux, and `edit`'s
+  own classes (a bare `edit <id>` — the nothing-to-edit error; the immutable
+  target flags `--role`/`--session`/`--pane`, rejected as unknown flags;
+  `--respawn` without `--if-absent respawn` on the merged entry) all take the
+  same path; operational failures (a corrupt entry file refusing to mutate,
+  `no entry <id>`, dir/lock failures, `edit`'s tick-flock contention
+  `cron tick in progress — retry`) exit 1.
 - **The `skill` standard is a deliberate no-op here** — no cron topic page
   exists yet; the bundle is a capability briefing, not a command enumeration,
   and the help-dump walk already covers the family.

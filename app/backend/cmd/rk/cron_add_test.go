@@ -96,6 +96,49 @@ func TestCronAddEvery(t *testing.T) {
 	}
 }
 
+// TestCronAddSkipIfBusyStored: --deliver skip-if-busy round-trips to disk.
+func TestCronAddSkipIfBusyStored(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	stubCronAddSeams(t, "", nil)
+	t.Setenv("TMUX_PANE", "%12")
+
+	if _, _, err := runCronCmd(t, "add", "morning digest", "--cron", "0 9 * * *", "--deliver", "skip-if-busy"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	entries := loadCronEntries(t, dir, "work")
+	if len(entries) != 1 || entries[0].Deliver != cron.DeliverSkipIfBusy {
+		t.Fatalf("entries = %+v, want one entry with deliver skip-if-busy", entries)
+	}
+}
+
+// TestCronAddIdleEvery: --idle-every is sugar for a flat backoff ladder —
+// the stored entry says {backoff, 3m, 3m} (no new kind on disk) and the
+// success line renders the on-disk truth (backoff 3m→3m).
+func TestCronAddIdleEvery(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	stubCronAddSeams(t, "", nil)
+	t.Setenv("TMUX_PANE", "%12")
+
+	stdout, _, err := runCronCmd(t, "add", "wake up", "--idle-every", "3m")
+	if err != nil {
+		t.Fatalf("add --idle-every: %v", err)
+	}
+	entries := loadCronEntries(t, dir, "work")
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(entries))
+	}
+	s := entries[0].Schedule
+	if s.Kind != cron.ScheduleBackoff ||
+		s.Min.Duration != 3*time.Minute || s.Max.Duration != 3*time.Minute {
+		t.Errorf("schedule = %+v, want the flat ladder backoff 3m→3m", s)
+	}
+	if !strings.Contains(stdout, entries[0].ID) || !strings.Contains(stdout, "backoff 3m→3m") {
+		t.Errorf("stdout = %q, want the assigned id and the backoff 3m→3m summary", stdout)
+	}
+}
+
 // TestCronAddScheduleFlagMatrix: exactly one schedule flag is required;
 // --min/--max are backoff-only; --every must be positive. All are usage-class
 // (exit 2) and leave the state dir untouched.
@@ -107,11 +150,16 @@ func TestCronAddScheduleFlagMatrix(t *testing.T) {
 	}{
 		{"no schedule flag", []string{"add", "x"}, "exactly one schedule flag"},
 		{"two schedule flags", []string{"add", "x", "--every", "1h", "--backoff"}, "exactly one schedule flag"},
+		{"idle-every with every", []string{"add", "x", "--idle-every", "3m", "--every", "1h"}, "exactly one schedule flag"},
+		{"idle-every with min", []string{"add", "x", "--idle-every", "3m", "--min", "1m"}, "--min/--max only apply with --backoff"},
+		{"idle-every with catch-up", []string{"add", "x", "--idle-every", "3m", "--catch-up", "once"}, "--catch-up only applies with --cron"},
+		{"zero idle-every", []string{"add", "x", "--idle-every", "0s"}, "--idle-every must be a positive duration"},
 		{"min without backoff", []string{"add", "x", "--every", "1h", "--min", "2m"}, "--min/--max only apply with --backoff"},
 		{"min with backoff is legal", []string{"add", "x", "--backoff", "--min", "1m"}, ""},
 		{"zero every", []string{"add", "x", "--every", "0s"}, "--every must be a positive duration"},
 		{"negative every", []string{"add", "x", "--every", "-1h"}, "--every must be a positive duration"},
 		{"bad deliver", []string{"add", "x", "--every", "1h", "--deliver", "sometimes"}, "invalid --deliver value"},
+		{"skip-if-busy deliver is accepted", []string{"add", "x", "--every", "1h", "--deliver", "skip-if-busy"}, ""},
 		{"bad if-absent", []string{"add", "x", "--every", "1h", "--if-absent", "poke"}, "invalid --if-absent value"},
 		{"cron wrong field count", []string{"add", "x", "--cron", "0 3 *"}, "--cron must be a 5-field cron expression"},
 		{"cron empty", []string{"add", "x", "--cron", ""}, "--cron must be a 5-field cron expression"},
@@ -691,10 +739,15 @@ func TestCronAddRespawnMatrix(t *testing.T) {
 // TestCronAddHelpText: the add usage names the positional <prompt> and the Long
 // states it is text for an agent typed into its chat (never a command),
 // documents --respawn and the {server} placeholder, and describes --backoff as
-// an idle-epoch ladder.
+// an idle-epoch ladder. --idle-every is layered in beside it (flag usage names
+// the quiet/idle semantics, the Long contrasts it with --every), the stale
+// "delivery wave" clause is gone, and both new examples appear.
 func TestCronAddHelpText(t *testing.T) {
 	if !strings.Contains(cronAddCmd.Use, "add <prompt>") {
 		t.Errorf("add Use = %q, want the <prompt> positional", cronAddCmd.Use)
+	}
+	if !strings.Contains(cronAddCmd.Use, "--idle-every <dur>") {
+		t.Errorf("add Use = %q, want --idle-every in the schedule-flag alternation", cronAddCmd.Use)
 	}
 	for _, want := range []string{
 		"text for an agent",
@@ -702,10 +755,29 @@ func TestCronAddHelpText(t *testing.T) {
 		"--respawn",
 		"{server}",
 		"idle epoch",
+		"--idle-every",
+		"the count restarts on genuine activity",
+		"skip-if-busy",
+		"validated at add time and enforced at fire time",
 	} {
 		if !strings.Contains(cronAddCmd.Long, want) {
 			t.Errorf("add Long missing %q", want)
 		}
+	}
+	if strings.Contains(cronAddCmd.Long, "delivery wave") {
+		t.Errorf("add Long still carries the stale \"delivery wave\" clause:\n%s", cronAddCmd.Long)
+	}
+	for _, want := range []string{
+		`rk cron add "wake up" --idle-every 3m`,
+		`rk cron add "morning digest" --cron "0 9 * * *" --deliver skip-if-busy`,
+	} {
+		if !strings.Contains(cronAddCmd.Example, want) {
+			t.Errorf("add Example missing %q", want)
+		}
+	}
+	if f := cronAddCmd.Flags().Lookup("idle-every"); f == nil ||
+		!strings.Contains(f.Usage, "quiet") || !strings.Contains(f.Usage, "idle") {
+		t.Errorf("--idle-every usage = %q, want the agent-quiet/idle semantics", f.Usage)
 	}
 	if bf := cronAddCmd.Flags().Lookup("backoff"); bf == nil || !strings.Contains(bf.Usage, "idle epoch") {
 		t.Errorf("--backoff usage = %q, want the idle-epoch ladder wording", bf.Usage)
@@ -713,7 +785,7 @@ func TestCronAddHelpText(t *testing.T) {
 	if rf := cronAddCmd.Flags().Lookup("role"); rf == nil || !strings.Contains(rf.Usage, "@rk_win_role") {
 		t.Errorf("--role usage = %q, want the @rk_win_role wording", rf.Usage)
 	}
-	for _, want := range []string{"not a system cron", "never run as a command"} {
+	for _, want := range []string{"not a system cron", "never run as a command", "--idle-every"} {
 		if !strings.Contains(cronCmd.Long, want) {
 			t.Errorf("the cron parent Long must carry %q", want)
 		}

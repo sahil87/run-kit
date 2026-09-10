@@ -144,6 +144,43 @@ func TestCronListJSON(t *testing.T) {
 	}
 }
 
+// TestCronListSkipIfBusyDeliver: a skip-if-busy entry renders its policy in
+// the DELIVER column and in --json (the column predates the value — this pins
+// the round-trip, no renderer change).
+func TestCronListSkipIfBusyDeliver(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	writeCronFixture(t, dir, "work", `
+entries:
+  - id: s1kp
+    name: busy skip
+    schedule: { kind: every, interval: 5m }
+    target: { kind: pane, pane: "%42" }
+    payload: "sweep"
+    deliver: skip-if-busy
+`)
+
+	stdout, _, err := runCronCmd(t, "list")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(stdout, "skip-if-busy") {
+		t.Errorf("stdout missing the skip-if-busy DELIVER cell:\n%s", stdout)
+	}
+
+	stdout, _, err = runCronCmd(t, "list", "--json")
+	if err != nil {
+		t.Fatalf("list --json: %v", err)
+	}
+	var records []cronListRecord
+	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+		t.Fatalf("unmarshal: %v (stdout %q)", err, stdout)
+	}
+	if len(records) != 1 || records[0].Deliver != cron.DeliverSkipIfBusy {
+		t.Errorf("records = %+v, want the s1kp row with deliver skip-if-busy", records)
+	}
+}
+
 // TestCronListToleratesCorruptEntries: a file mixing a valid entry with a
 // malformed one lists the valid entry, prints a diagnostic to stderr, and
 // exits 0 (the tolerant-load posture).

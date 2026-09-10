@@ -19,16 +19,29 @@ const OrphanTTL = 7 * 24 * time.Hour
 // line back from the newest until the newest resolved-class line (outcome
 // prefix delivered or respawned, the only evidence the target resolved).
 // Absent-class and neutral lines (skipped-absent, notified-absent,
-// respawn-failed, rate-capped, failed…) never terminate the run. An entry
-// with no log lines at all falls back to created_by.at. Zero means the log
-// holds no unresolved evidence (the trailing run is empty — the newest own
-// line resolved); consumers MUST treat zero as never-expiring, never as a
-// streak that started at the unix epoch. log is the server's full delivery
-// log; the entry's own lines are filtered internally.
+// respawn-failed, rate-capped, failed…) never terminate the run. The
+// `rescheduled` line (an edit's anchor reset) is dropped before the walk: it
+// is neither resolution evidence nor absent-class, so it never starts or ends
+// a run — and an entry whose ONLY own line is `rescheduled` derives zero, not
+// the created_by.at fallback (the log holds history, just no unresolved
+// evidence). An entry with no log lines at all falls back to created_by.at.
+// Zero means the log holds no unresolved evidence (the trailing run is empty —
+// the newest own line resolved); consumers MUST treat zero as never-expiring,
+// never as a streak that started at the unix epoch. log is the server's full
+// delivery log; the entry's own lines are filtered internally.
 func OrphanedSince(log []LogLine, e Entry) int64 {
-	lines := OwnDeliveries(log, e.ID)
-	if len(lines) == 0 {
+	own := OwnDeliveries(log, e.ID)
+	if len(own) == 0 {
 		return e.CreatedBy.At
+	}
+	var lines []LogLine
+	for _, l := range own {
+		if l.Outcome != "rescheduled" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) == 0 {
+		return 0
 	}
 	run := lines
 	for i := len(lines) - 1; i >= 0; i-- {

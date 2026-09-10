@@ -208,7 +208,7 @@ eval "$(rk shell-init zsh)"   # in ~/.zshrc — also: bash, fish, powershell
 | `rk skill` | Print the agent skill bundle — a static usage briefing for agents operating run-kit. |
 | `rk notify` | Send a Web Push notification to your subscribed devices. Fail-silent. |
 | `rk present` | Show a file, directory, `:port`, or URL to the user as a web tile on the current window. |
-| `rk cron` | Scheduled agent prompts (`add`, `list`, `rm`, `mute`, `pin`, `tick`). |
+| `rk cron` | Scheduled agent prompts (`add`, `edit`, `list`, `rm`, `mute`, `pin`, `tick`). |
 | `rk doctor` | Check runtime dependencies. Run this first when something breaks. |
 | `rk agent` | Agent instrumentation — `setup` installs the state hooks + tmux guard shim, usually via `shll setup agent` (see [Agent state](#agent-state)). |
 | `rk code` | Run VS Code palette commands in the open `code` lens editor from the shell. |

@@ -12,7 +12,8 @@ import { BellIcon, BellOffIcon, CloseIcon } from "./icons";
 
 /**
  * The CLOCK section's body — one condensed row per cron entry on the current
- * server (name, target chip, live backoff rung, human-relative next fire).
+ * server (name, target chip, a deliver chip for non-immediate policies, live
+ * backoff rung, human-relative next fire).
  * The panel fetches on mount, on server change, and whenever the server's
  * sessions slice changes identity (every cron mutation wakes the SSE hub,
  * which rebroadcasts the slice — the same SSE-derived signal ServerPanel/
@@ -100,6 +101,11 @@ function ClockRow({ server, entry }: { server: string; entry: CronEntry }) {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const badge =
     entry.orphaned === true ? "orphaned" : entry.muted === true ? mutedLabel(entry, nowSeconds) : null;
+  // The norm (immediate) adds zero chrome — only a non-default policy chips.
+  const deliverChip =
+    entry.deliver != null && entry.deliver !== "" && entry.deliver !== "immediate"
+      ? entry.deliver
+      : null;
   // Static text derived from the already-fetched entry — the panel holds no
   // clock, so the relative time is as of the last fetch (the flyout card's
   // render-performance contract).
@@ -122,6 +128,14 @@ function ClockRow({ server, entry }: { server: string; entry: CronEntry }) {
         <span className="shrink-0 text-[10px] uppercase text-text-secondary">{badge}</span>
       )}
       <span className="shrink-0 text-text-secondary">{targetChip(entry)}</span>
+      {deliverChip && (
+        <span
+          className="shrink-0 text-[10px] uppercase text-text-secondary"
+          data-testid="clock-row-deliver"
+        >
+          {deliverChip}
+        </span>
+      )}
       {entry.schedule.kind === "backoff" && entry.rung != null && (
         <span className="shrink-0 text-text-secondary">{`rung ${entry.rung}`}</span>
       )}

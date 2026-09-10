@@ -41,11 +41,20 @@ const (
 	WakeScopeServer      = "server"
 )
 
-// Delivery / absence policies (carried, not enforced — C3 owns enforcement).
+// Delivery policies (Entry.Deliver), enforced by the deliverer at fire time:
+// immediate (or "") sends now; when-idle holds a busy-pane fire, bounded by
+// DefaultHoldWindow; skip-if-busy drops a busy-pane fire with a logged
+// skipped-busy outcome that advances the anchor. The empty default is
+// immediate.
 const (
-	DeliverImmediate = "immediate"
-	DeliverWhenIdle  = "when-idle"
+	DeliverImmediate  = "immediate"
+	DeliverWhenIdle   = "when-idle"
+	DeliverSkipIfBusy = "skip-if-busy"
+)
 
+// Absence policies (Entry.IfAbsent), applied by the tick when the target does
+// not resolve.
+const (
 	IfAbsentSkip    = "skip"
 	IfAbsentNotify  = "notify"
 	IfAbsentRespawn = "respawn"
@@ -184,6 +193,11 @@ func (e Entry) validate() error {
 		if e.Schedule.CatchUp != CatchUpOnce {
 			return fmt.Errorf("unknown catch_up value %q (only %q)", e.Schedule.CatchUp, CatchUpOnce)
 		}
+	}
+	switch e.Deliver {
+	case "", DeliverImmediate, DeliverWhenIdle, DeliverSkipIfBusy:
+	default:
+		return fmt.Errorf("unknown deliver value %q", e.Deliver)
 	}
 	switch e.Target.Kind {
 	case TargetRole:

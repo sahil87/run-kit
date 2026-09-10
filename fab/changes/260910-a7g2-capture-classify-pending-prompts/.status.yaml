@@ -37,6 +37,7 @@ stage_metrics:
     review-pr: {started_at: "2026-09-10T18:45:28Z", driver: git-pr, iterations: 1}
 prs:
     - ""
+    - https://github.com/sahil87/run-kit/pull/922
 change_type_source: explicit
 true_impact:
     added: 917
@@ -54,4 +55,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'rk mux capture --classify: pending-prompt classification of captured screen text (new internal/promptscan, fab pane questions parity) — question: header line, opt-in questions JSON object, raw-exclusive, no state gate'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-10T18:45:28Z
+last_updated: 2026-09-10T18:46:09Z

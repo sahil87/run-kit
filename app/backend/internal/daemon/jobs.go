@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"rk/internal/shellq"
 	"rk/internal/validate"
 )
 
@@ -76,13 +77,6 @@ var jobRunTmuxOutput = runTmuxOutput
 // package seam (mirroring codeServerUserHomeDir) so tests point the log at a
 // temp dir and never touch the real ~/.rk.
 var jobUserHomeDir = os.UserHomeDir
-
-// shellQuote single-quotes s for a POSIX shell (pipe-pane's command string is
-// shell-interpreted by tmux), escaping embedded single quotes with the
-// canonical '\'' sequence — paths like /Users/Jane Doe survive intact.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
 
 // jobTargetFor returns the exact-match window target (=rk-jobs:=<window>) used
 // for every dedup/probe/kill/options call — prefix-match hijack is the class
@@ -227,7 +221,7 @@ func RunJob(ctx context.Context, window string, argv []string) (target JobTarget
 		// interpreted by tmux. window passed the ValidateToolName class above
 		// (no whitespace, quotes, or metacharacters), but home is arbitrary
 		// (e.g. /Users/Jane Doe), so the path is single-quoted for the shell.
-		if err := jobRunTmux(cmdCtx, "pipe-pane", "-o", "-t", winTarget, "cat >> "+shellQuote(logPath)); err != nil {
+		if err := jobRunTmux(cmdCtx, "pipe-pane", "-o", "-t", winTarget, "cat >> "+shellq.Quote(logPath)); err != nil {
 			slog.Warn("job window log pipe failed; output lives in scrollback only", "window", window, "err", err)
 		}
 	}

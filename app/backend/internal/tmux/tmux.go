@@ -2816,28 +2816,77 @@ func CreateWindowWithOptions(session, name, cwd, server string, ops []WindowOpti
 	return err
 }
 
+// WindowBirth is what `new-window -P` reports for a freshly created window.
+type WindowBirth struct {
+	Session  string // #{session_name} as tmux reports it (confirms where the window landed)
+	WindowID string // @N
+	PaneID   string // %N — the window's initial pane
+}
+
+// buildCreateWindowWithCommandArgs composes the argv for
+// `new-window -P -F '#{session_name}\t#{window_id}\t#{pane_id}' -a -t =S:
+// -n NAME [-c CWD] [SHELL-CMD] [\; set-option -w …]`: the shell-command
+// positional sits before the \; option ops (tmux grammar: new-window [flags]
+// [shell-command], then \; starts the next command), and an empty shellCmd
+// omits the positional entirely (the window boots tmux's default-shell).
+// shellCmd is one opaque argv element — the caller composes it from quoted
+// tokens; this builder never touches a shell itself (§I). Pure.
+func buildCreateWindowWithCommandArgs(session, name, cwd, shellCmd string, ops []WindowOptionOp) []string {
+	args := []string{"new-window", "-P", "-F",
+		"#{session_name}" + listDelim + "#{window_id}" + listDelim + "#{pane_id}",
+		"-a", "-t", ExactSessionTarget(session), "-n", name}
+	if cwd != "" {
+		args = append(args, "-c", cwd)
+	}
+	if shellCmd != "" {
+		args = append(args, shellCmd)
+	}
+	return appendOptionOps(args, "", ops)
+}
+
+// parseWindowBirth parses the single tab-separated line `new-window -P`
+// prints for the buildCreateWindowWithCommandArgs format; any other field
+// count is an error naming the expected fields. Pure.
+func parseWindowBirth(line string) (WindowBirth, error) {
+	parts := strings.Split(line, listDelim)
+	if len(parts) != 3 {
+		return WindowBirth{}, fmt.Errorf("new-window -P returned %q, want session, window id, pane id", line)
+	}
+	return WindowBirth{Session: parts[0], WindowID: parts[1], PaneID: parts[2]}, nil
+}
+
+// CreateWindowWithCommandID is CreateWindowWithOptions plus the full birth
+// triple — the tmux-reported session, the new window's @N, and its initial
+// pane's %N, printed by the same creation call — and an optional
+// shell-command positional for the window's initial pane ("" = tmux's
+// default-shell). Callers needing only the id use the CreateWindowWithOptionsID
+// delegate.
+func CreateWindowWithCommandID(session, name, cwd, server, shellCmd string, ops []WindowOptionOp) (WindowBirth, error) {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	lines, err := tmuxExecServer(ctx, server, buildCreateWindowWithCommandArgs(session, name, cwd, shellCmd, ops)...)
+	if err != nil {
+		return WindowBirth{}, err
+	}
+	if len(lines) == 0 {
+		return WindowBirth{}, fmt.Errorf("new-window -P returned no output, want session, window id, pane id")
+	}
+	return parseWindowBirth(lines[0])
+}
+
 // CreateWindowWithOptionsID is CreateWindowWithOptions plus the new window's
 // id, reported via `new-window -P -F '#{window_id}'`. Callers that must embed
 // the fresh @N in a follow-up write (rk present --window composing a
 // /present/<windowId>/ URL) create with the creation-time options atomically,
-// then apply the id-dependent options via SetWindowOptions.
+// then apply the id-dependent options via SetWindowOptions. A delegate of
+// CreateWindowWithCommandID with no shell-command, returning the WindowID.
 func CreateWindowWithOptionsID(session, name, cwd, server string, ops []WindowOptionOp) (string, error) {
-	ctx, cancel := withTimeout()
-	defer cancel()
-
-	args := []string{"new-window", "-P", "-F", "#{window_id}", "-a", "-t", ExactSessionTarget(session), "-n", name}
-	if cwd != "" {
-		args = append(args, "-c", cwd)
-	}
-	args = appendOptionOps(args, "", ops)
-	lines, err := tmuxExecServer(ctx, server, args...)
+	birth, err := CreateWindowWithCommandID(session, name, cwd, server, "", ops)
 	if err != nil {
 		return "", err
 	}
-	if len(lines) == 0 {
-		return "", fmt.Errorf("new-window -P returned no window id")
-	}
-	return lines[0], nil
+	return birth.WindowID, nil
 }
 
 // KillWindow kills a window by its window ID on the specified server.

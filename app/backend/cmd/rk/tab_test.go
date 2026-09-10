@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -11,7 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/inject"
 	"rk/internal/tmux"
+
+	"github.com/spf13/pflag"
 )
 
 // tabTestServer starts an isolated tmux server ("boot" session) and points
@@ -123,7 +127,13 @@ func resetTabFlagState(t *testing.T) {
 	t.Helper()
 	reset := func() {
 		resetFlagChanged(tabCmd, "server")
-		resetFlagChanged(tabNewCmd, "session", "cwd", "name", "layout")
+		resetFlagChanged(tabNewCmd, "session", "cwd", "name", "layout", "json", "ready", "timeout", "no-shell-fallback")
+		// pflag resets argsLenAtDash only in Init, never in Parse, so a `--`
+		// from one Execute() run leaks into the next on the shared global
+		// commands. Init re-applies the name/error-handling cobra created the
+		// set with and clears the stale dash marker; registered flags and
+		// their values are untouched.
+		tabNewCmd.Flags().Init(tabNewCmd.DisplayName(), pflag.ContinueOnError)
 		resetFlagChanged(tabLayoutCmd, "add", "rm", "promote", "cycle")
 		resetFlagChanged(tabWebAddCmd, "show")
 		resetFlagChanged(tabWebLsCmd, "json")
@@ -135,6 +145,8 @@ func resetTabFlagState(t *testing.T) {
 		resetFlagChanged(tabOwnerCmd, "off")
 		tabServerFlag = ""
 		tabNewSessionFlag, tabNewCwdFlag, tabNewNameFlag, tabNewLayoutFlag = "", "", "", ""
+		tabNewJSONFlag, tabNewReadyFlag, tabNewNoShellFallbackFlag = false, false, false
+		tabNewTimeoutFlag = awaitDefaultTimeoutSec
 		tabLayoutAddFlag, tabLayoutRmFlag, tabLayoutPromoteFlag, tabLayoutCycleFlag = "", "", "", false
 		tabWebAddShowFlag, tabWebLsJSONFlag = false, false
 		tabShowJSONFlag = false
@@ -193,6 +205,244 @@ func TestTabNewBadLayoutExitsTwoAndCreatesNothing(t *testing.T) {
 	}
 	if after := tabTmuxOut(t, env.server, "list-windows", "-t", "=boot:", "-F", "#{window_id}"); after != before {
 		t.Errorf("windows changed on a failed new: %q → %q", before, after)
+	}
+}
+
+// tabPollUntil polls cond every 50ms until it holds or the budget expires —
+// tmux applies command exits and window deaths asynchronously, so pane
+// liveness/death assertions poll instead of sleeping a fixed duration.
+func tabPollUntil(budget time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(budget)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return cond()
+}
+
+// tabWindowExists reports whether window @N is still listed on the server.
+func tabWindowExists(t *testing.T, server, windowID string) bool {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tmux", "-L", server, "list-windows", "-a", "-F", "#{window_id}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("list-windows: %v\n%s", err, string(out))
+	}
+	for line := range strings.Lines(string(out)) {
+		if strings.TrimSpace(line) == windowID {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTabNewCommandRunsArgvVerbatim(t *testing.T) {
+	withTabTestServer(t)
+	dir := t.TempDir()
+
+	stdout, _, err := runTabCmd(t, "new", "--cwd", dir, "--",
+		"sh", "-c", `printf %s "$1" > OUT`, "_", "$(echo pwned)")
+	if err != nil {
+		t.Fatalf("tab new: %v", err)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(stdout), "@") {
+		t.Fatalf("stdout = %q, want @N", stdout)
+	}
+	outPath := filepath.Join(dir, "OUT")
+	if !tabPollUntil(3*time.Second, func() bool {
+		_, statErr := os.Stat(outPath)
+		return statErr == nil
+	}) {
+		t.Fatalf("%s never appeared — the command did not run", outPath)
+	}
+	content, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read OUT: %v", err)
+	}
+	if string(content) != "$(echo pwned)" {
+		t.Errorf("OUT = %q, want the literal $(echo pwned) — a token is never expanded", string(content))
+	}
+}
+
+func TestTabNewShellFallbackKeepsPaneAlive(t *testing.T) {
+	env := withTabTestServer(t)
+
+	stdout, _, err := runTabCmd(t, "new", "--", "sh", "-c", "exit 0")
+	if err != nil {
+		t.Fatalf("tab new: %v", err)
+	}
+	id := strings.TrimSpace(stdout)
+	// Give the command time to exit and the fallback exec to land, then the
+	// window must still exist — the pane dropped into a shell instead of dying.
+	time.Sleep(1500 * time.Millisecond)
+	if !tabWindowExists(t, env.server, id) {
+		t.Errorf("window %s gone after the command exited — the fallback should keep a shell alive", id)
+	}
+	if got := tabTmuxOut(t, env.server, "display-message", "-pt", id, "#{pane_dead}"); got != "0" {
+		t.Errorf("pane_dead = %q, want 0 (fallback shell running)", got)
+	}
+}
+
+func TestTabNewNoShellFallbackPaneDies(t *testing.T) {
+	env := withTabTestServer(t)
+
+	stdout, _, err := runTabCmd(t, "new", "--no-shell-fallback", "--", "sh", "-c", "exit 0")
+	if err != nil {
+		t.Fatalf("tab new: %v", err)
+	}
+	id := strings.TrimSpace(stdout)
+	if !tabPollUntil(3*time.Second, func() bool { return !tabWindowExists(t, env.server, id) }) {
+		t.Errorf("window %s still alive 3s after the command exited — --no-shell-fallback should let the pane die", id)
+	}
+}
+
+func TestTabNewJSONEnvelope(t *testing.T) {
+	withTabTestServer(t)
+
+	stdout, _, err := runTabCmd(t, "new", "--json", "--", "sh", "-c", "sleep 30")
+	if err != nil {
+		t.Fatalf("tab new --json: %v", err)
+	}
+	if !strings.Contains(stdout, "\n  \"session\":") {
+		t.Errorf("stdout = %q, want two-space-indented JSON", stdout)
+	}
+	var obj map[string]string
+	if err := json.Unmarshal([]byte(stdout), &obj); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
+	}
+	if obj["session"] != "boot" {
+		t.Errorf("session = %q, want boot (tmux-reported)", obj["session"])
+	}
+	if !strings.HasPrefix(obj["window_id"], "@") {
+		t.Errorf("window_id = %q, want @N", obj["window_id"])
+	}
+	if !strings.HasPrefix(obj["pane_id"], "%") {
+		t.Errorf("pane_id = %q, want %%N", obj["pane_id"])
+	}
+	if _, ok := obj["ready"]; ok {
+		t.Errorf("json = %q, want no ready key without --ready", stdout)
+	}
+	if len(obj) != 3 {
+		t.Errorf("json keys = %v, want exactly session/window_id/pane_id", obj)
+	}
+}
+
+func TestTabNewUsageErrorsCreateNothing(t *testing.T) {
+	env := withTabTestServer(t)
+	before := tabTmuxOut(t, env.server, "list-windows", "-t", "=boot:", "-F", "#{window_id}")
+
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"positional without --", []string{"new", "claude"}, "command must follow --"},
+		{"positional before --", []string{"new", "claude", "--", "--model", "opus"}, "command must follow --"},
+		{"--ready without --json", []string{"new", "--ready", "--", "true"}, "--ready reports through --json"},
+		{"--ready without a command", []string{"new", "--json", "--ready"}, "--ready needs a command after --"},
+		{"--timeout without --ready", []string{"new", "--timeout", "5", "--", "true"}, "--timeout requires --ready"},
+		{"--no-shell-fallback without a command", []string{"new", "--no-shell-fallback"}, "--no-shell-fallback needs a command after --"},
+		{"negative timeout", []string{"new", "--json", "--ready", "--timeout=-5", "--", "true"}, "--timeout must be >= 0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, _, err := runTabCmd(t, tc.args...)
+			if err == nil || exitCode(err) != exitUsage {
+				t.Fatalf("err = %v (code %d), want usage exit 2", err, exitCode(err))
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("err = %v, want it to name %q", err, tc.want)
+			}
+			if stdout != "" {
+				t.Errorf("stdout = %q, want empty on failure", stdout)
+			}
+		})
+	}
+	if after := tabTmuxOut(t, env.server, "list-windows", "-t", "=boot:", "-F", "#{window_id}"); after != before {
+		t.Errorf("windows changed on failed news: %q → %q", before, after)
+	}
+}
+
+// TestTabNewReadyReports drives --ready through the stubAwaitReady seam (the
+// mux_await_test.go idiom): the creation is real, the readiness verdict is
+// stubbed per word, and the JSON envelope must carry it — `gone` still prints
+// the envelope before exiting 1.
+func TestTabNewReadyReports(t *testing.T) {
+	cases := []struct {
+		name       string
+		readiness  inject.Readiness
+		stubErr    error
+		wantWord   string
+		wantExit   int
+		wantStderr string
+	}{
+		{"state signal", inject.ReadyByState, nil, "ready", 0, ""},
+		{"echo signal", inject.ReadyByEcho, nil, "ready", 0, ""},
+		{"parked", 0, &inject.ParkedError{Snippet: "Do you trust this folder?"}, "parked", 0, "Do you trust this folder?"},
+		{"narrow", 0, &inject.NarrowError{Width: 60, Height: 10}, "narrow", 0, "60x10"},
+		{"timeout reports running", 0, fmt.Errorf("%w after 5s", inject.ErrNotReady), "running", 0, ""},
+		{"gone exits 1 after the JSON", 0, fmt.Errorf("%w: can't find pane", inject.ErrGone), "gone", 1, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTabTestServer(t)
+			stubAwaitReady(t, tc.readiness, tc.stubErr)
+
+			stdout, stderr, err := runTabCmd(t, "new", "--json", "--ready", "--", "sh", "-c", "sleep 30")
+			if got := exitCode(err); got != tc.wantExit {
+				t.Fatalf("err = %v (code %d), want exit %d", err, got, tc.wantExit)
+			}
+			var obj map[string]string
+			if jerr := json.Unmarshal([]byte(stdout), &obj); jerr != nil {
+				t.Fatalf("stdout is not JSON: %v\n%s", jerr, stdout)
+			}
+			if obj["ready"] != tc.wantWord {
+				t.Errorf("ready = %q, want %q (stdout %s)", obj["ready"], tc.wantWord, stdout)
+			}
+			if tc.wantStderr != "" && !strings.Contains(stderr, tc.wantStderr) {
+				t.Errorf("stderr = %q, want it to carry %q", stderr, tc.wantStderr)
+			}
+		})
+	}
+}
+
+// TestTabNewReadyTimeoutReachesSeam: --timeout seconds reach the wait seam as
+// a duration (default 300s, 0 = indefinite), aimed at the created pane.
+func TestTabNewReadyTimeoutReachesSeam(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want time.Duration
+	}{
+		{"default", nil, 300 * time.Second},
+		{"explicit", []string{"--timeout", "120"}, 120 * time.Second},
+		{"zero is indefinite", []string{"--timeout", "0"}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTabTestServer(t)
+			rec := stubAwaitReady(t, inject.ReadyByState, nil)
+
+			args := append([]string{"new", "--json", "--ready"}, tc.args...)
+			args = append(args, "--", "sh", "-c", "sleep 30")
+			stdout, _, err := runTabCmd(t, args...)
+			if err != nil {
+				t.Fatalf("tab new: %v", err)
+			}
+			if rec.timeout != tc.want {
+				t.Errorf("wait timeout = %s, want %s", rec.timeout, tc.want)
+			}
+			var obj map[string]string
+			if jerr := json.Unmarshal([]byte(stdout), &obj); jerr != nil {
+				t.Fatalf("stdout is not JSON: %v\n%s", jerr, stdout)
+			}
+			if rec.pane != obj["pane_id"] {
+				t.Errorf("wait pane = %q, want the created pane %q", rec.pane, obj["pane_id"])
+			}
+		})
 	}
 }
 

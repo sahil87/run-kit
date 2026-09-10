@@ -31,7 +31,7 @@ var tabCmd = &cobra.Command{
 		"web/<n>, or a bare <n> (own tab). -L/--server names a foreign tmux server\n" +
 		"and then requires an explicit @N.\n\n" +
 		"Subcommands:\n" +
-		"  new      Create a window, optionally born with a layout\n" +
+		"  new      Create a window, optionally born with a layout and/or a command\n" +
 		"  layout   Set or mutate @rk_win_layout (add/rm/promote/cycle)\n" +
 		"  web      Add, remove, move, select, or list web tabs\n" +
 		"  code     Set the code surface's folder\n" +

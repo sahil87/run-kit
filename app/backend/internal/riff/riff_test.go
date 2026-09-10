@@ -75,30 +75,6 @@ func TestParseWorktreePath(t *testing.T) {
 	}
 }
 
-func TestEscapeSingleQuotes(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"no quotes", "/fab-discuss", "/fab-discuss"},
-		{"one quote", "say 'hi'", `say '\''hi'\''`},
-		{"multiple quotes", "'a'b'c'", `'\''a'\''b'\''c'\''`},
-		{"only a quote", "'", `'\''`},
-		{"empty string", "", ""},
-		{"mixed content", `it's a "test"`, `it'\''s a "test"`},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := escapeSingleQuotes(tc.in)
-			if got != tc.want {
-				t.Errorf("escapeSingleQuotes(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
-	}
-}
-
 // TestBuildSkillShellString asserts the three-layer skill-pane shell string
 // composition (the task-injection seam the HTTP endpoint reuses). Pure — no
 // tmux/exec. Replaces the old cmd/rk TestBuildNewWindowArgs, which asserted the
@@ -200,49 +176,6 @@ func TestRenderSkillRef(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := RenderSkillRef(tc.prefix, tc.value); got != tc.want {
 				t.Errorf("RenderSkillRef(%q, %q) = %q, want %q", tc.prefix, tc.value, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestShellWrap(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{
-			name: "empty input produces only the exec suffix",
-			in:   "",
-			want: `exec "${SHELL:-/bin/sh}"`,
-		},
-		{
-			name: "whitespace-only input produces only the exec suffix",
-			in:   "   \t  ",
-			want: `exec "${SHELL:-/bin/sh}"`,
-		},
-		{
-			name: "simple command",
-			in:   "claude '/fab-discuss'",
-			want: `claude '/fab-discuss'; exec "${SHELL:-/bin/sh}"`,
-		},
-		{
-			name: "command with embedded single quotes",
-			in:   `echo 'hello '\''world'\'''`,
-			want: `echo 'hello '\''world'\'''; exec "${SHELL:-/bin/sh}"`,
-		},
-		{
-			name: "command with embedded double quotes",
-			in:   `echo "hello \"world\""`,
-			want: `echo "hello \"world\""; exec "${SHELL:-/bin/sh}"`,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := shellWrap(tc.in)
-			if got != tc.want {
-				t.Errorf("shellWrap(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}

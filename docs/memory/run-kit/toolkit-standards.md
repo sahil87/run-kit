@@ -295,7 +295,7 @@ the sixth surface measured against the same checks
 The `rk tab` family (`new`/`layout`/`web add|rm|mv|select|ls`/`code set`/`show` —
 see [architecture](/run-kit/architecture.md) § CLI Subcommands, `tab` row) is
 the seventeenth surface measured against the same checks
-(260829-c143-rk-tab-cli-present-sugar, 260901-s36e-web-tab-strip-drafts-reorder):
+(260829-c143-rk-tab-cli-present-sugar, 260901-s36e-web-tab-strip-drafts-reorder, 260910-wzve-tab-new-command-json-ready):
 
 - **help-dump: the family tree is platform-stable.** `tabCmd`, its five direct
   members, and the nested `web`/`code` members all register unconditionally on
@@ -305,7 +305,12 @@ the seventeenth surface measured against the same checks
   the web verbs. The help-dump test's real-tree walk covers the family
   automatically.
 - **Principle 9: one datum per verb on stdout — data.** Every verb routes
-  through `newSink(cmd)`: `tab new` prints `@N`, `tab web add` prints
+  through `newSink(cmd)`: `tab new` prints `@N` bare, or under `--json`
+  (Principle 2's opt-in envelope) the `{session, window_id, pane_id}` object
+  — two-space indented, through the data sink so it survives `--quiet` —
+  carrying one extra `ready` key when `--ready` gated the create (the verdict
+  word rides the envelope because the bare datum has no room for a second
+  word); `tab web add` prints
   `@N/web/<n>` (the resolved URL echoes to stderr), `tab web mv` prints the
   resulting `@N/web/<m>` address, `tab layout` prints the resulting layout
   value, `tab web ls` prints `index`/`marker`/`url` rows and `tab show` prints
@@ -313,13 +318,21 @@ the seventeenth surface measured against the same checks
   success — all `Dataf` on stdout, surviving `--quiet`; diagnostics are
   `Notef`/stderr.
 - **Exit-code convention (P4)** — 0 success, 1 operational (family full, index
-  out of range, missing dir, not in tmux), 2 usage (malformed address or
-  layout, unknown surface, flag conflicts, arg counts): every nested member
+  out of range, missing dir, not in tmux, a `gone` readiness verdict under
+  `tab new --ready` — printed after the JSON), 2 usage (malformed address or
+  layout, unknown surface, flag conflicts, arg counts, a `tab new` positional
+  without `--`, `--ready` without `--json` or without a command, `--timeout`
+  without `--ready`, `--no-shell-fallback` without a command, a negative
+  `--timeout`): every nested member
   re-wraps its `Args` validator with `usageArgs` at its own add site (root's
   central wrap loop covers only direct children — the `code.go` idiom), and an
   `-L` naming a foreign server without an explicit `@N` is a usage error.
 - **The `skill` standard teaches the family** — the core bundle
-  `docs/site/skill.md` carries a "drive the tab UI" capability line and one
+  `docs/site/skill.md` carries a "drive the tab UI" capability line —
+  `rk tab new [--layout L] [--name N] [--json] [--ready] [-- CMD…]` with the
+  argv-after-`--` rule, the `-- sh -c "…"` expansion recipe, the shell-fallback
+  / `--no-shell-fallback` note, and the `{session, window_id, pane_id}`
+  `--json` envelope — and one
   quickref row per verb group; `docs/site/skill/display.md`'s follow-up-moves
   section teaches `rk tab web ls|select|rm` and `rk tab layout` after the
   `rk present` recipe; `docs/site/skill/code.md` teaches `rk code exec --tab`.

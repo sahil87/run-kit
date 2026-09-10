@@ -389,6 +389,10 @@ pattern — tmux is the store, the daemon is a renderer).
 
 ```
 rk tab new [--session =S] [--cwd DIR] [--name N] [--layout L]      → prints @N
+           [--json] [--ready [--timeout S]] [--no-shell-fallback] [-- CMD [ARG…]]
+           # --json prints {session, window_id, pane_id[, ready]} instead;
+           # CMD after -- is argv (rk-quoted, one literal word per token) with
+           # the `; exec "${SHELL:-/bin/sh}"` fallback unless --no-shell-fallback
 rk tab layout [@N] <shape>:<surface,…>                            # set
 rk tab layout [@N] --add <surface> | --rm <surface> | --promote <surface> | --cycle
 rk tab web add    [@N] <target> [--show]                           → prints @N/web/<n>

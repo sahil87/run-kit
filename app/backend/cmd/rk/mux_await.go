@@ -375,6 +375,61 @@ func (awaitReadyTmux) PaneSize(ctx context.Context, paneID, server string) (int,
 	return tmux.PaneSizeCtx(rctx, paneID, server)
 }
 
+// readyReport is the shared readiness→report mapping consumed by both
+// `rk mux await --ready` and `rk tab new --ready` (word + pane form, the
+// stderr diagnostic for the parked/narrow verdicts, and the exit-classifying
+// error for `gone`).
+type readyReport struct {
+	line      string // stdout report line (e.g. "ready %5 (state)", "gone")
+	diag      string // stderr diagnostic ("" when none): parked snippet / narrow remedy
+	reportErr error  // non-nil for gone (exit 1); the line still prints first
+}
+
+// mapReadyReport classifies one muxAwaitReadyFn verdict into its report. The
+// verdicts are the await family's contract: a timeout is `running` (a report,
+// not a failure); parked and narrow classify successfully and carry their
+// evidence (screen snippet / geometry + remedy) as ungated stderr diagnostics
+// — --quiet drops chatter, never actionable diagnostics; gone reports `gone`
+// with the error (exit 1). Any other error passes through as (zero, err) and
+// aborts without a report line.
+func mapReadyReport(paneID string, readiness inject.Readiness, err error) (readyReport, error) {
+	switch {
+	case err == nil:
+		signal := "state"
+		if readiness == inject.ReadyByEcho {
+			signal = "echo"
+		}
+		return readyReport{line: fmt.Sprintf("ready %s (%s)", paneID, signal)}, nil
+	case errors.Is(err, inject.ErrNotReady):
+		return readyReport{line: "running"}, nil
+	case errors.Is(err, inject.ErrParked):
+		// Parked is wake-worthy and returns immediately: the caller must act.
+		var parked *inject.ParkedError
+		rep := readyReport{line: fmt.Sprintf("parked %s", paneID)}
+		if errors.As(err, &parked) && parked.Snippet != "" {
+			rep.diag = parked.Snippet + "\n"
+		}
+		return rep, nil
+	case errors.Is(err, inject.ErrNarrow):
+		// Narrow is wake-worthy and returns immediately: the pane is below the
+		// readiness floor, so the probe cannot be trusted.
+		var narrow *inject.NarrowError
+		size := ""
+		rep := readyReport{}
+		if errors.As(err, &narrow) {
+			size = fmt.Sprintf(" (%dx%d)", narrow.Width, narrow.Height)
+			rep.diag = fmt.Sprintf("pane %s is %dx%d, below the %dx%d readiness floor — resize or relocate the pane and re-run\n",
+				paneID, narrow.Width, narrow.Height, inject.ReadyMinCols, inject.ReadyMinRows)
+		}
+		rep.line = fmt.Sprintf("narrow %s%s", paneID, size)
+		return rep, nil
+	case errors.Is(err, inject.ErrGone):
+		return readyReport{line: "gone", reportErr: err}, nil
+	default:
+		return readyReport{}, err
+	}
+}
+
 // runMuxAwaitReady runs the --ready condition: block until the target pane is
 // boot-ready, report the outcome (`ready %N (state)` / `ready %N (echo)` /
 // `parked %N` / `narrow %N (WxH)` — exit 0, with the parked screen snippet or
@@ -386,61 +441,24 @@ func runMuxAwaitReady(cmd *cobra.Command, parent context.Context, server, paneID
 	timeout := time.Duration(awaitTimeoutFlag) * time.Second
 	readiness, err := muxAwaitReadyFn(parent, server, paneID, timeout)
 
-	sink := newSink(cmd)
-	var line string
-	var reportErr error
-	switch {
-	case err == nil:
-		signal := "state"
-		if readiness == inject.ReadyByEcho {
-			signal = "echo"
-		}
-		line = fmt.Sprintf("ready %s (%s)", paneID, signal)
-	case errors.Is(err, inject.ErrNotReady):
-		// The family's timeout contract: `running` is a report, not a failure.
-		line = "running"
-	case errors.Is(err, inject.ErrParked):
-		// Parked is wake-worthy and returns immediately: the caller must act.
-		// Classification succeeded, so this is a report (exit 0), not a
-		// failure; the snippet rides stderr as diagnostics. The snippet is
-		// the caller's evidence for judging the wall, so it is written
-		// ungated — --quiet drops chatter, never actionable diagnostics.
-		var parked *inject.ParkedError
-		if errors.As(err, &parked) && parked.Snippet != "" {
-			fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", parked.Snippet)
-		}
-		line = fmt.Sprintf("parked %s", paneID)
-	case errors.Is(err, inject.ErrNarrow):
-		// Narrow is wake-worthy and returns immediately: the pane is below
-		// the readiness floor, so the probe cannot be trusted. Classification
-		// succeeded, so this is a report (exit 0), not a failure; the
-		// geometry and the remedy ride stderr ungated (--quiet drops chatter,
-		// never actionable diagnostics — the parked-snippet rule).
-		var narrow *inject.NarrowError
-		size := ""
-		if errors.As(err, &narrow) {
-			size = fmt.Sprintf(" (%dx%d)", narrow.Width, narrow.Height)
-			fmt.Fprintf(cmd.ErrOrStderr(), "pane %s is %dx%d, below the %dx%d readiness floor — resize or relocate the pane and re-run\n",
-				paneID, narrow.Width, narrow.Height, inject.ReadyMinCols, inject.ReadyMinRows)
-		}
-		line = fmt.Sprintf("narrow %s%s", paneID, size)
-	case errors.Is(err, inject.ErrGone):
-		// The family's death contract: report `gone`, exit 1 with diagnostics.
-		line = "gone"
-		reportErr = err
-	default:
+	rep, err := mapReadyReport(paneID, readiness, err)
+	if err != nil {
 		return err
 	}
-	sink.Dataf("%s\n", line)
+	sink := newSink(cmd)
+	if rep.diag != "" {
+		fmt.Fprint(cmd.ErrOrStderr(), rep.diag)
+	}
+	sink.Dataf("%s\n", rep.line)
 	// --notify fires on the report, fail-silent per the rk notify contract.
 	if cmd.Flags().Changed("notify") {
 		msg := awaitNotifyFlag
 		if msg == awaitFlagAuto {
-			msg = fmt.Sprintf("agent %s is %s", paneID, strings.Fields(line)[0])
+			msg = fmt.Sprintf("agent %s is %s", paneID, strings.Fields(rep.line)[0])
 		}
 		deps.notify(parent, "", msg)
 	}
-	return reportErr
+	return rep.reportErr
 }
 
 // awaitParams are the observer's inputs, already flag-validated.

@@ -20,7 +20,7 @@ type StatusDeps struct {
 	// dead rk-daemon socket births a server.
 	DaemonRunning  func() bool
 	SessionExists  func(ctx context.Context) bool
-	SessionOptions func(ctx context.Context) (display, backend string, ok bool)
+	SessionOptions func(ctx context.Context) (display, backend, wm string, ok bool)
 	SessionCreated func(ctx context.Context) (time.Time, bool)
 	// PanePids is the rk-gui pane's process-tree pid set (backend, WM,
 	// supervise) — RunningApps' exclude set. Nil/unavailable excludes nothing.
@@ -64,8 +64,8 @@ func Assemble(ctx context.Context, d StatusDeps) Status {
 		return st
 	}
 	if d.SessionOptions != nil {
-		if display, backend, ok := d.SessionOptions(ctx); ok {
-			st.Display, st.Backend = display, backend
+		if display, backend, wm, ok := d.SessionOptions(ctx); ok {
+			st.Display, st.Backend, st.WM = display, backend, wm
 		}
 	}
 	if d.SessionCreated != nil && d.Now != nil {
@@ -84,6 +84,11 @@ func Assemble(ctx context.Context, d StatusDeps) Status {
 	if !st.Reachable {
 		st.Reason = NotRunningReason(true, st.Backend, d.LookPath)
 		return st
+	}
+	// A reachable display with no window manager runs bare — the status
+	// document carries the install hint so every reader renders the same line.
+	if st.WM == "" {
+		st.WMHint = WMInstallHint(d.LookPath)
 	}
 	if d.RunningApps != nil {
 		var exclude map[int]bool

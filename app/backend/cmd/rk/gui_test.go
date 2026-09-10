@@ -56,7 +56,7 @@ func withGuiCLISeams(t *testing.T) (ensures, kills, restarts *int) {
 	guiKillFn = func() (bool, error) { *kills++; return true, nil }
 	guiRestartFn = func() error { *restarts++; return nil }
 	guiSessionExistsFn = func(context.Context) bool { return true }
-	guiSessionOptionsFn = func(context.Context) (string, string, bool) { return ":10", "Xtigervnc", true }
+	guiSessionOptionsFn = func(context.Context) (string, string, string, bool) { return ":10", "Xtigervnc", "", true }
 	guiSessionCreatedFn = func(context.Context) (time.Time, bool) { return guiNowFn().Add(-4*time.Hour - 12*time.Minute), true }
 	guiPanePidsFn = func(context.Context) map[int]bool { return map[int]bool{4242: true} }
 	guiProbeFn = func(context.Context, string, string) (gui.Info, error) {
@@ -114,7 +114,7 @@ func TestGuiTreeRegistered(t *testing.T) {
 	if parent.Long == "" {
 		t.Error("parent command has no Long block")
 	}
-	want := map[string]bool{"on": false, "off": false, "status": false, "env": false, "restart": false, "exec": false, "shot": false}
+	want := map[string]bool{"on": false, "off": false, "status": false, "env": false, "restart": false, "exec": false, "shot": false, "launch": false}
 	var supervise *cobra.Command
 	for _, c := range parent.Commands() {
 		if c.Name() == "supervise" {
@@ -180,16 +180,53 @@ func TestGuiOnStartedNamesBackendAndDisplay(t *testing.T) {
 	}
 }
 
+func TestGuiOnStartedNamesWindowManager(t *testing.T) {
+	withGuiCLISeams(t)
+	guiSessionOptionsFn = func(context.Context) (string, string, string, bool) { return ":10", "Xtigervnc", "icewm-session", true }
+
+	var out, errOut bytes.Buffer
+	if err := runGuiOn(bareCmd(&out, &errOut), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), "started (Xtigervnc :10)\n"; got != want {
+		t.Errorf("stdout = %q, want %q (the datum stays one line)", got, want)
+	}
+	if got, want := errOut.String(), "  window manager: icewm-session\n"; got != want {
+		t.Errorf("stderr = %q, want %q", got, want)
+	}
+}
+
+func TestGuiOnBarePrintsWMHint(t *testing.T) {
+	withGuiCLISeams(t)
+	// The default seams stamp wm "" (bare) and resolve apt-get on PATH.
+
+	var out, errOut bytes.Buffer
+	if err := runGuiOn(bareCmd(&out, &errOut), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), "started (Xtigervnc :10)\n"; got != want {
+		t.Errorf("stdout = %q, want %q", got, want)
+	}
+	want := "  no window manager — running bare. Install one: sudo apt install --no-install-recommends icewm\n" +
+		"  then: rk gui restart\n"
+	if got := errOut.String(); got != want {
+		t.Errorf("stderr = %q, want exactly %q", got, want)
+	}
+}
+
 func TestGuiOnStartedFallsBackWhenStampsLag(t *testing.T) {
 	withGuiCLISeams(t)
-	guiSessionOptionsFn = func(context.Context) (string, string, bool) { return "", "", false }
+	guiSessionOptionsFn = func(context.Context) (string, string, string, bool) { return "", "", "", false }
 
-	var out bytes.Buffer
-	if err := runGuiOn(bareCmd(&out, &bytes.Buffer{}), nil); err != nil {
+	var out, errOut bytes.Buffer
+	if err := runGuiOn(bareCmd(&out, &errOut), nil); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := out.String(), "started\n"; got != want {
 		t.Errorf("stdout = %q, want %q (generic fallback when stamps are not yet readable)", got, want)
+	}
+	if got := errOut.String(); got != "" {
+		t.Errorf("stderr = %q, want empty — no WM lines without the stamps", got)
 	}
 }
 
@@ -214,7 +251,7 @@ func TestGuiOnNoBackendStillEnables(t *testing.T) {
 	if err := runGuiOn(bareCmd(&out, &bytes.Buffer{}), nil); err != nil {
 		t.Fatal(err)
 	}
-	want := "enabled — no VNC backend installed: " + gui.InstallHint() + "\n"
+	want := "enabled — no VNC backend installed: " + gui.InstallHint(guiLookPathFn) + "\n"
 	if got := out.String(); got != want {
 		t.Errorf("stdout = %q, want %q", got, want)
 	}
@@ -373,7 +410,7 @@ func TestGuiOffNothingRunningSkipsPrompt(t *testing.T) {
 	_, kills, _ := withGuiCLISeams(t)
 	seedGuiOn(t)
 	guiSessionExistsFn = func(context.Context) bool { return false }
-	guiSessionOptionsFn = func(context.Context) (string, string, bool) { return "", "", false }
+	guiSessionOptionsFn = func(context.Context) (string, string, string, bool) { return "", "", "", false }
 	guiSessionCreatedFn = func(context.Context) (time.Time, bool) { return time.Time{}, false }
 	guiKillFn = func() (bool, error) { *kills++; return false, nil }
 
@@ -420,8 +457,26 @@ func TestGuiStatusReachable(t *testing.T) {
 	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
 		t.Fatal(err)
 	}
-	want := "gui: on (Xtigervnc, :10, 1920x1080, 2 viewers)\n  apps: chromium ×3, xterm ×1\n"
+	want := "gui: on (Xtigervnc, :10, 1920x1080, 2 viewers, no window manager)\n  apps: chromium ×3, xterm ×1\n"
 	if got := out.String(); got != want {
+		t.Errorf("stdout = %q, want %q", got, want)
+	}
+}
+
+// The status line pluralizes the viewer count (singular at exactly 1) and
+// names the stamped WM; the bare form stays hint-free (the hint suffix is
+// doctor-only).
+func TestGuiStatusSingularViewerNamesWM(t *testing.T) {
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiViewersFn = func() int { return 1 }
+	guiSessionOptionsFn = func(context.Context) (string, string, string, bool) { return ":10", "Xtigervnc", "icewm-session", true }
+
+	var out bytes.Buffer
+	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, false), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), "gui: on (Xtigervnc, :10, 1920x1080, 1 viewer, icewm-session)\n"; got != want {
 		t.Errorf("stdout = %q, want %q", got, want)
 	}
 }
@@ -604,5 +659,40 @@ func TestGuiRestartSuccess(t *testing.T) {
 	}
 	if got, want := out.String(), "restarted (Xtigervnc :10)\n"; got != want {
 		t.Errorf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestGuiRestartNamesWindowManager(t *testing.T) {
+	_, _, restarts := withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiSessionOptionsFn = func(context.Context) (string, string, string, bool) { return ":10", "Xtigervnc", "icewm-session", true }
+
+	var out, errOut bytes.Buffer
+	if err := runGuiRestart(bareCmd(&out, &errOut), nil); err != nil {
+		t.Fatal(err)
+	}
+	if *restarts != 1 {
+		t.Errorf("restart calls = %d, want 1", *restarts)
+	}
+	if got, want := out.String(), "restarted (Xtigervnc :10)\n"; got != want {
+		t.Errorf("stdout = %q, want %q", got, want)
+	}
+	if got, want := errOut.String(), "  window manager: icewm-session\n"; got != want {
+		t.Errorf("stderr = %q, want %q", got, want)
+	}
+}
+
+func TestGuiRestartBarePrintsWMHint(t *testing.T) {
+	_, _, _ = withGuiCLISeams(t)
+	seedGuiOn(t)
+
+	var out, errOut bytes.Buffer
+	if err := runGuiRestart(bareCmd(&out, &errOut), nil); err != nil {
+		t.Fatal(err)
+	}
+	want := "  no window manager — running bare. Install one: sudo apt install --no-install-recommends icewm\n" +
+		"  then: rk gui restart\n"
+	if got := errOut.String(); got != want {
+		t.Errorf("stderr = %q, want exactly %q", got, want)
 	}
 }

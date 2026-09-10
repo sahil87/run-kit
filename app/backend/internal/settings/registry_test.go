@@ -13,7 +13,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 	infos := Registry()
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
-		"instance_name", "auto_name", "cron_ticker", "gui.enabled", "tmux_conf",
+		"instance_name", "auto_name", "cron_ticker", "gui.enabled", "gui.wm", "tmux_conf",
 		"log_level", "server_colors", "server_flairs", "board_order",
 	}
 	if len(infos) != len(wantKeys) {
@@ -40,6 +40,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 		{"auto_name", "bool", "false", "behavior", true, true, nil},
 		{"cron_ticker", "bool", "true", "behavior", true, true, nil},
 		{"gui.enabled", "bool", "false", "behavior", true, true, nil},
+		{"gui.wm", "string", "", "behavior", true, false, nil},
 		{"log_level", "enum", "info", "advanced", true, false, []string{"info", "debug"}},
 		{"server_colors", "map", "{}", "appearance", true, true, nil},
 		{"server_flairs", "map", "{}", "appearance", true, true, nil},
@@ -95,6 +96,7 @@ func TestReadValue_defaultSettings(t *testing.T) {
 		{"auto_name", false},
 		{"cron_ticker", true},
 		{"gui.enabled", false},
+		{"gui.wm", ""},
 		{"tmux_conf", (*string)(nil)},
 		{"log_level", ptr("info")},
 		{"server_colors", map[string]string(nil)},

@@ -41,8 +41,8 @@ func (s *guiProbeStub) count() int {
 // stubGuiSeams installs the session-option reader and prober on ONE hub
 // (per-hub seams — a stub never leaks into another test's poll loop).
 func stubGuiSeams(hub *sseHub, display, backend string, ok bool, prober func(ctx context.Context, network, addr string) (gui.Info, error)) {
-	hub.guiSessionOptionsFn = func(ctx context.Context) (string, string, bool) {
-		return display, backend, ok
+	hub.guiSessionOptionsFn = func(ctx context.Context) (string, string, string, bool) {
+		return display, backend, "", ok
 	}
 	hub.guiProbeFn = prober
 }
@@ -73,9 +73,24 @@ func TestGuiTickDisabledPayloadShape(t *testing.T) {
 	isolateSettings(t) // fresh HOME ⇒ gui.enabled false by default
 	hub := newGuiTestHub()
 	hub.guiTick()
-	want := `[{"id":"host","enabled":false,"backend":"","reachable":false,"display":"","width":0,"height":0,"viewers":0}]`
+	want := `[{"id":"host","enabled":false,"backend":"","reachable":false,"display":"","width":0,"height":0,"viewers":0,"wm":""}]`
 	if got := hub.cachedGui(t); got != want {
 		t.Fatalf("disabled payload = %s, want %s", got, want)
+	}
+}
+
+func TestGuiTickPayloadCarriesWM(t *testing.T) {
+	enableGuiSettings(t)
+	stub := &guiProbeStub{info: gui.Info{Reachable: true, Width: 1920, Height: 1080}}
+	hub := newGuiTestHub()
+	hub.guiSessionOptionsFn = func(ctx context.Context) (string, string, string, bool) {
+		return ":10", "Xtigervnc", "icewm-session", true
+	}
+	hub.guiProbeFn = stub.probe
+
+	hub.guiTick()
+	if got := hub.cachedGui(t); !strings.Contains(got, `"wm":"icewm-session"`) {
+		t.Fatalf("payload = %s, want \"wm\":\"icewm-session\" from the stamp", got)
 	}
 }
 

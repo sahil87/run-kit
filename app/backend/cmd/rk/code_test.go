@@ -226,6 +226,9 @@ func TestCodeExecPrintsResultJSON(t *testing.T) {
 		return codebridge.Response{OK: true, Result: json.RawMessage(`{"opened":true}`), Ms: 7}
 	}
 	withCodeTargetFolder(t, "/repo")
+	// A built VSIX in build/codebridge (post-`just build`) would fire the skew
+	// note against the fake host's pinned extension version.
+	withCodeEmbedded(t, "", false)
 
 	stdout, stderr, err := runCodeCmd(t, "exec", "workbench.open", "2908")
 	if err != nil {

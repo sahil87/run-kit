@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME; test-only RK_CONFIG_DIR override); the internal/settings registry and 14-key inventory incl. gui.enabled behind /api/settings; override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the rk-owned hash-stamped managed tmux.conf + `@rk_srv_managed`-gated reloads; breadcrumb migrations, ~/.rk tenants, cb/ + code/ + gui/ state tenants."
+description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME; test-only RK_CONFIG_DIR override); the internal/settings registry and 15-key inventory incl. gui.enabled behind /api/settings; override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the rk-owned hash-stamped managed tmux.conf + `@rk_srv_managed`-gated reloads; breadcrumb migrations, ~/.rk tenants, cb/ + code/ + gui/ state tenants."
 ---
 # Configuration
 
@@ -44,7 +44,7 @@ The path segment, worktree badge, and git branch are **read from daemon-stamped 
 
 Serialization stays hand-rolled (line-scanner parse + string-builder serialize — no yaml.v3) and byte-stable: tolerant reads per key (quote-strip, `validate.NormalizeColorValue`, flair-set membership, `strconv.ParseBool`, malformed-entry skip), omit-when-default/empty, nested sections with sorted map keys and quoted values. An untouched settings file round-trips byte-identically.
 
-The 14-key inventory:
+The 15-key inventory:
 
 | key | type | default | category | ui | live | notes |
 |---|---|---|---|---|---|---|
@@ -60,6 +60,7 @@ The 14-key inventory:
 | `auto_name` | bool | `false` | behavior | yes | yes | a settings POST rewires the hub's auto-name tracker live (see [architecture](/run-kit/architecture.md) § SSE Hub) |
 | `cron_ticker` | bool | `true` | behavior | yes | yes | gates the daemon cron ticker per iteration (see [cron](/run-kit/cron.md) § Daemon Ticker Invoker) |
 | `gui.enabled` | bool | `false` | behavior | yes | yes | the GUI surface switch — flat dotted YAML line, no env form; a settings POST ensures/kills the `rk-gui` session and flips the stream synchronously (see [gui](/run-kit/gui.md)) |
+| `gui.wm` | string | `""` | behavior | yes | no | pins the window manager the GUI supervisor starts; empty picks the first installed ladder rung (icewm-session → openbox → xfwm4 → i3 → kwin_x11 → x-session-manager); takes effect on `rk gui restart`; no env form (see [gui](/run-kit/gui.md)) (2jl3) |
 | `tmux_conf` | path string | `""` | advanced | yes | no | user owns the file; rk performs no ensure/refresh/doctor on it |
 | `log_level` | enum (`info`/`debug`) | `info` | advanced | yes | no | read at serve startup |
 

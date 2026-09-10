@@ -12,11 +12,16 @@ type Status struct {
 	Width         int    `json:"width"`
 	Height        int    `json:"height"`
 	Viewers       int    `json:"viewers"`
+	WM            string `json:"wm"`
 	Socket        string `json:"socket"`
 	Session       bool   `json:"session"`
 	Reason        string `json:"reason"`
 	Apps          []App  `json:"apps"`
 	UptimeSeconds int64  `json:"uptime_seconds"`
+	// WMHint is the install line for the window manager, present only on a
+	// reachable display running bare (the unreachable reason already carries
+	// the backend hint).
+	WMHint string `json:"wm_hint,omitempty"`
 }
 
 // App is one running application on the GUI display, grouped by process comm.
@@ -26,7 +31,7 @@ type App struct {
 }
 
 // StreamEntry is the per-id element of the host-global `event: gui` state
-// payload — the first eight fields of Status.
+// payload — the first nine fields of Status.
 type StreamEntry struct {
 	ID        string `json:"id"`
 	Enabled   bool   `json:"enabled"`
@@ -36,6 +41,7 @@ type StreamEntry struct {
 	Width     int    `json:"width"`
 	Height    int    `json:"height"`
 	Viewers   int    `json:"viewers"`
+	WM        string `json:"wm"`
 }
 
 // Info is the result of an RFB probe (Probe): reachability plus the geometry
@@ -55,12 +61,16 @@ const (
 	// SessionAbsentReason: enabled, but no rk-gui session exists (the daemon
 	// spawns it on start).
 	SessionAbsentReason = "rk-gui session absent; the daemon starts it on 'rk daemon start'"
-	// NoBackendReason: enabled, but Linux has no VNC backend on PATH.
-	NoBackendReason = "no VNC backend: sudo apt install tigervnc-standalone-server openbox"
 	// ScreenSharingOffReason: macOS Screen Sharing is not answering on
 	// 127.0.0.1:5900.
 	ScreenSharingOffReason = "Screen Sharing is off: System Settings › General › Sharing › Screen Sharing"
 )
+
+// NoBackendReason: enabled, but Linux has no VNC backend on PATH — the
+// package-manager-aware install line.
+func NoBackendReason(lookPath func(string) (string, error)) string {
+	return "no VNC backend: " + InstallHint(lookPath)
+}
 
 // BackendExitedReason: the session exists and the backend was running (or the
 // binary still resolves) but the socket no longer answers — the supervisor is
@@ -84,7 +94,7 @@ func NotRunningReason(session bool, stampedBackend string, lookPath func(string)
 	}
 	resolved, _ := ResolveBackend(lookPath)
 	if resolved == "" {
-		return NoBackendReason
+		return NoBackendReason(lookPath)
 	}
 	bin := stampedBackend
 	if bin == "" {

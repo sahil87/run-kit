@@ -82,6 +82,10 @@ type Settings struct {
 	// Strictly opt-in (default false) — no code path other than an explicit
 	// user write may set it true. A settings POST applies the flip live.
 	GUIEnabled bool
+	// GUIWM pins the window manager the GUI supervisor starts. Empty picks
+	// the first installed rung of the ladder. Read at supervise start, so a
+	// change applies on the next rk gui restart.
+	GUIWM string
 	// TmuxConf is the path to the tmux.conf rk passes to tmux. Empty means
 	// "unset": tmux resolution falls back to its built-in default. The user
 	// owns the file — rk performs no ensure/refresh on it. Read at tmux
@@ -402,6 +406,15 @@ var registry = []registryEntry{
 		},
 		read:  func(s *Settings) any { return s.GUIEnabled },
 		apply: boolValue(func(s *Settings) *bool { return &s.GUIEnabled }, false),
+	},
+	{
+		key: "gui.wm", kind: "string", def: "",
+		desc:     "Pin the window manager the GUI supervisor starts. Empty picks the first installed one from the ladder (icewm-session → openbox → xfwm4 → i3 → kwin_x11 → x-session-manager). Takes effect on rk gui restart.",
+		category: "behavior", ui: true, live: false,
+		parse:     quoteTrimmedScalar(func(s *Settings) *string { return &s.GUIWM }),
+		serialize: quotedScalar("gui.wm", func(s *Settings) *string { return &s.GUIWM }),
+		read:      func(s *Settings) any { return s.GUIWM },
+		apply:     plainScalar(func(s *Settings) *string { return &s.GUIWM }),
 	},
 	{
 		key: "tmux_conf", kind: "path", def: "",

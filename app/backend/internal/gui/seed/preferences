@@ -1,0 +1,11 @@
+# run-kit seeded IceWM preferences — edit freely; delete to re-seed.
+Theme="NanoBlue/default.theme"
+TaskBarShowCPUStatus=0
+TaskBarShowMailboxStatus=0
+TaskBarShowNetStatus=0
+TaskBarShowAPMStatus=0
+TaskBarShowWorkspaces=0
+TaskBarShowShowDesktopButton=0
+TaskBarShowWindowListMenu=0
+TaskBarClockLeds=0
+WorkspaceNames=" run-kit "

@@ -58,6 +58,7 @@ Agents: fill your row when you create the change; mark Done when merged.
 | C4 | `gui-agent-verbs` | C2 merged (∥ C3) | M | 260909-bbv1-gui-agent-verbs | https://github.com/sahil87/run-kit/pull/894 | Done |
 | C5 | `gui-perf-measure` | C3, C4 merged | S | 260910-xy7q-gui-perf-measure | https://github.com/sahil87/run-kit/pull/903 | Done — see § C5 verdict |
 | C6 | `gui-kasm-backend` *(picked up by C5's verdict)* | C5 verdict | M | | | not started — scope note in § C5 verdict |
+| G1/G2 | *(child plan — the desktop leg)* see [`26-09-10-gui-desktop.md`](26-09-10-gui-desktop.md) | C5 merged | M/S | | | tracked in the child plan |
 
 C1 ∥ C0. C3 ∥ C4 after C2. C6 only if C5 misses D9's targets and C0 did not already make KasmVNC the default — C5 missed the fps target on a bandwidth-capped link (§ C5 verdict), so C6 proceeds.
 

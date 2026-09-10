@@ -11,11 +11,21 @@ import (
 	"strings"
 )
 
+// wmHelperComms are window-manager processes excluded from RunningApps by
+// comm name (on top of the pid-tree exclude). By name, not ancestry: apps
+// launched from the IceWM toolbar are children of icewm and must stay listed.
+var wmHelperComms = map[string]bool{
+	"icewm-session": true, "icewm": true, "icewmbg": true, "icewmtray": true,
+	"icesound": true, "icewmhint": true, "openbox": true, "xfwm4": true,
+	"i3": true, "kwin_x11": true, "xsetroot": true,
+}
+
 // RunningApps lists the applications running on the given display (":N") by
 // scanning <procRoot>/[0-9]*/environ for an exact DISPLAY=:N entry, grouped
 // by process comm and sorted by count desc then name asc. Pids in exclude
-// (the supervisor's own backend/WM/supervise pids) are skipped; unreadable or
-// vanished pids are skipped silently. Production callers pass "/proc".
+// (the supervisor's own backend/WM/supervise pids) are skipped; WM helper
+// processes (wmHelperComms) are skipped by comm name; unreadable or vanished
+// pids are skipped silently. Production callers pass "/proc".
 func RunningApps(procRoot, display string, exclude map[int]bool) ([]App, error) {
 	entries, err := os.ReadDir(procRoot)
 	if err != nil {
@@ -36,7 +46,7 @@ func RunningApps(procRoot, display string, exclude map[int]bool) ([]App, error) 
 		if err != nil {
 			continue
 		}
-		if name := strings.TrimSpace(string(comm)); name != "" {
+		if name := strings.TrimSpace(string(comm)); name != "" && !wmHelperComms[name] {
 			counts[name]++
 		}
 	}

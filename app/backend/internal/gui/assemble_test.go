@@ -21,7 +21,7 @@ func assembleDeps(t *testing.T) StatusDeps {
 			return true
 		},
 		SessionExists:  func(context.Context) bool { return true },
-		SessionOptions: func(context.Context) (string, string, bool) { return ":10", "Xtigervnc", true },
+		SessionOptions: func(context.Context) (string, string, string, bool) { return ":10", "Xtigervnc", "", true },
 		SessionCreated: func(context.Context) (time.Time, bool) { return time.Unix(1_000_000, 0), true },
 		PanePids:       func(context.Context) map[int]bool { return map[int]bool{200: true, 202: true} },
 		Probe: func(context.Context, string, string) (Info, error) {
@@ -103,6 +103,9 @@ func TestAssembleReachablePassesThePaneTreeExclude(t *testing.T) {
 		Display: ":10", Width: 1920, Height: 1080, Viewers: 2, Session: true,
 		Apps:          []App{{Name: "chromium", Count: 3}},
 		UptimeSeconds: 4*3600 + 12*60,
+		// wm "" on a reachable display carries the install hint; the
+		// resolve-everything LookPath stub detects apt.
+		WMHint: "sudo apt install --no-install-recommends icewm",
 	}
 	if st.Socket == "" {
 		t.Error("socket empty, want the state-dir host.sock path")
@@ -110,6 +113,53 @@ func TestAssembleReachablePassesThePaneTreeExclude(t *testing.T) {
 	st.Socket = "" // path shape is state-dir-dependent; asserted non-empty above
 	if !reflect.DeepEqual(st, want) {
 		t.Errorf("status = %+v, want %+v", st, want)
+	}
+}
+
+func TestAssembleWMStampedCarriesNoHint(t *testing.T) {
+	d := assembleDeps(t)
+	d.SessionOptions = func(context.Context) (string, string, string, bool) {
+		return ":10", "Xtigervnc", "icewm-session", true
+	}
+
+	st := Assemble(context.Background(), d)
+	if st.WM != "icewm-session" {
+		t.Errorf("WM = %q, want icewm-session (the stamped value)", st.WM)
+	}
+	if st.WMHint != "" {
+		t.Errorf("WMHint = %q with a WM stamped, want empty", st.WMHint)
+	}
+}
+
+func TestAssembleReachableBareCarriesTheWMHint(t *testing.T) {
+	d := assembleDeps(t)
+	d.LookPath = stubLookPath("apt-get")
+
+	st := Assemble(context.Background(), d)
+	if !st.Reachable {
+		t.Fatalf("status = %+v, want reachable", st)
+	}
+	if st.WM != "" {
+		t.Errorf("WM = %q, want empty (nothing stamped)", st.WM)
+	}
+	if want := "sudo apt install --no-install-recommends icewm"; st.WMHint != want {
+		t.Errorf("WMHint = %q, want %q", st.WMHint, want)
+	}
+}
+
+func TestAssembleUnreachableCarriesNoWMHint(t *testing.T) {
+	d := assembleDeps(t)
+	d.LookPath = stubLookPath("apt-get")
+	d.Probe = func(context.Context, string, string) (Info, error) {
+		return Info{Reason: "not running"}, nil
+	}
+
+	st := Assemble(context.Background(), d)
+	if st.Reachable {
+		t.Fatalf("status = %+v, want unreachable", st)
+	}
+	if st.WMHint != "" {
+		t.Errorf("WMHint = %q while unreachable, want empty (the reason carries the backend hint)", st.WMHint)
 	}
 }
 
@@ -156,8 +206,8 @@ func TestAssembleNoBackendReason(t *testing.T) {
 	d.LookPath = func(name string) (string, error) { return "", errors.New("not found: " + name) }
 
 	st := Assemble(context.Background(), d)
-	if st.Reason != NoBackendReason {
-		t.Errorf("reason = %q, want %q", st.Reason, NoBackendReason)
+	if want := NoBackendReason(d.LookPath); st.Reason != want {
+		t.Errorf("reason = %q, want %q", st.Reason, want)
 	}
 }
 
@@ -165,7 +215,7 @@ func TestAssembleDarwinScreenSharingReason(t *testing.T) {
 	defer func(saved string) { goos = saved }(goos)
 	goos = "darwin"
 	d := assembleDeps(t)
-	d.SessionOptions = func(context.Context) (string, string, bool) { return "", MacBackend, true }
+	d.SessionOptions = func(context.Context) (string, string, string, bool) { return "", MacBackend, "", true }
 	d.Probe = func(context.Context, string, string) (Info, error) {
 		return Info{Reason: "dial failed"}, nil
 	}

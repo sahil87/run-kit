@@ -35,7 +35,7 @@ func newGuiAPIServer(t *testing.T, enabled bool) (*Server, http.Handler) {
 		hostname:            "test-host",
 		guiDaemonUpFn:       func() bool { return true },
 		guiSessionExistsFn:  func(context.Context) bool { return true },
-		guiSessionOptionsFn: func(context.Context) (string, string, bool) { return ":10", "Xtigervnc", true },
+		guiSessionOptionsFn: func(context.Context) (string, string, string, bool) { return ":10", "Xtigervnc", "", true },
 		guiSessionCreatedFn: func(context.Context) (time.Time, bool) { return time.Now().Add(-time.Hour), true },
 		guiPanePidsFn:       func(context.Context) map[int]bool { return map[int]bool{4242: true} },
 		guiProbeFn: func(context.Context, string, string) (gui.Info, error) {
@@ -43,6 +43,7 @@ func newGuiAPIServer(t *testing.T, enabled bool) (*Server, http.Handler) {
 		},
 		guiAppsFn:     func(string, map[int]bool) ([]gui.App, error) { return []gui.App{{Name: "chromium", Count: 3}}, nil },
 		guiLookPathFn: func(name string) (string, error) { return "/usr/bin/" + name, nil },
+		guiStatFn:     func(string) (os.FileInfo, error) { return nil, nil },
 	}
 	return server, server.buildRouter()
 }
@@ -235,9 +236,157 @@ func TestGuiRestartFailure500(t *testing.T) {
 	}
 }
 
-// The family is exactly GET /api/gui/{id} + POST /api/gui/{id}/restart —
-// nothing else under /api/gui exists (mutations ride POST, on/off ride
-// /api/settings).
+// --- POST /api/gui/{id}/launch ---
+
+func TestGuiLaunchInvalidID(t *testing.T) {
+	_, router := newGuiAPIServer(t, true)
+	rec := postJSON(t, router, "/api/gui/nope/launch", `{"app":"terminal"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.TrimSpace(rec.Body.String()) != `{"error":"gui id must be \"host\""}` {
+		t.Errorf("body = %s, want the validation message", rec.Body.String())
+	}
+}
+
+// The body carries a role, never argv: an unparsable body, a non-string app,
+// an unknown role, and extra keys are all the same 400.
+func TestGuiLaunchBadBody(t *testing.T) {
+	for _, body := range []string{
+		`{`,
+		`{"app":1}`,
+		`{"app":"xterm"}`,
+		`{"app":"terminal","argv":["rm","-rf","/"]}`,
+	} {
+		_, router := newGuiAPIServer(t, true)
+		rec := postJSON(t, router, "/api/gui/host/launch", body)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("body %s: status = %d, want 400; resp=%s", body, rec.Code, rec.Body.String())
+			continue
+		}
+		if strings.TrimSpace(rec.Body.String()) != `{"error":"app must be terminal or browser"}` {
+			t.Errorf("body %s: resp = %s, want the role error", body, rec.Body.String())
+		}
+	}
+}
+
+func TestGuiLaunchDisabled409(t *testing.T) {
+	server, router := newGuiAPIServer(t, false)
+	server.guiLaunchFn = func([]string, []string) (int, error) {
+		t.Error("launch seam called with the GUI disabled")
+		return 0, nil
+	}
+
+	rec := postJSON(t, router, "/api/gui/host/launch", `{"app":"terminal"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.TrimSpace(rec.Body.String()) != `{"error":"gui disabled"}` {
+		t.Errorf("body = %s, want exactly the gui-disabled error", rec.Body.String())
+	}
+}
+
+func TestGuiLaunchNotRunning409(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	server.guiProbeFn = func(context.Context, string, string) (gui.Info, error) {
+		return gui.Info{Reason: "not running"}, nil
+	}
+	server.guiLaunchFn = func([]string, []string) (int, error) {
+		t.Error("launch seam called while unreachable")
+		return 0, nil
+	}
+
+	rec := postJSON(t, router, "/api/gui/host/launch", `{"app":"terminal"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.TrimSpace(rec.Body.String()) != `{"error":"gui is on but not running — see 'rk gui status'"}` {
+		t.Errorf("body = %s, want exactly the not-running error", rec.Body.String())
+	}
+}
+
+func TestGuiLaunchLadderMissOKFalse(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	server.guiLookPathFn = func(name string) (string, error) {
+		if name == "apt-get" {
+			return "/usr/bin/apt-get", nil
+		}
+		return "", errors.New("not found: " + name)
+	}
+	server.guiLaunchFn = func([]string, []string) (int, error) {
+		t.Error("launch seam called on a ladder miss")
+		return 0, nil
+	}
+
+	rec := postJSON(t, router, "/api/gui/host/launch", `{"app":"browser"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (ok:false rides the success path); body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["ok"] != false || body["app"] != "browser" {
+		t.Errorf("body = %v, want ok:false app:browser", body)
+	}
+	if body["hint"] != "no browser on the GUI host — sudo apt install chromium-browser" {
+		t.Errorf("hint = %v, want the apt browser install line", body["hint"])
+	}
+}
+
+func TestGuiLaunchStartFailure500(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	server.guiLaunchFn = func([]string, []string) (int, error) { return 0, errors.New("fork/exec: permission denied") }
+
+	rec := postJSON(t, router, "/api/gui/host/launch", `{"app":"terminal"}`)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.TrimSpace(rec.Body.String()) != `{"error":"x-terminal-emulator: fork/exec: permission denied"}` {
+		t.Errorf("body = %s, want <name>: <reason>", rec.Body.String())
+	}
+}
+
+func TestGuiLaunchOK(t *testing.T) {
+	server, router := newGuiAPIServer(t, true)
+	var calls [][]string
+	server.guiLaunchFn = func(argv, env []string) (int, error) {
+		calls = append(calls, append(argv, env...))
+		return 4321, nil
+	}
+
+	rec := postJSON(t, router, "/api/gui/host/launch", `{"app":"terminal"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["ok"] != true || body["app"] != "terminal" || body["argv0"] != "x-terminal-emulator" || body["pid"] != float64(4321) {
+		t.Errorf("body = %v, want ok:true app:terminal argv0:x-terminal-emulator pid:4321", body)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("launch calls = %d, want 1", len(calls))
+	}
+	call := calls[0]
+	if call[0] != "/usr/bin/x-terminal-emulator" {
+		t.Errorf("launch argv = %v, want [/usr/bin/x-terminal-emulator] (the resolved path only)", call[:1])
+	}
+	foundDisplay := false
+	for _, kv := range call[1:] {
+		if kv == "DISPLAY=:10" {
+			foundDisplay = true
+		}
+	}
+	if !foundDisplay {
+		t.Errorf("launch env lacks DISPLAY=:10: %v", call[1:])
+	}
+}
+
+// The family is exactly GET /api/gui/{id} + POST /api/gui/{id}/restart +
+// POST /api/gui/{id}/launch — nothing else under /api/gui exists (mutations
+// ride POST, on/off ride /api/settings).
 func TestGuiNoOtherRoutes(t *testing.T) {
 	_, router := newGuiAPIServer(t, true)
 	for _, tc := range []struct {

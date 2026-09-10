@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"rk/internal/gui"
+	"rk/internal/settings"
 	"rk/internal/testutil"
 )
 
@@ -79,6 +80,17 @@ func withGuiSuperviseLookPath(t *testing.T, resolvable map[string]string) {
 	}
 }
 
+// withGuiSuperviseSettingsLoad stubs the settings seam with the given gui.wm
+// pin ("" = no pin) so supervisor tests never read a real config file.
+func withGuiSuperviseSettingsLoad(t *testing.T, pin string) {
+	t.Helper()
+	orig := guiSuperviseSettingsLoad
+	t.Cleanup(func() { guiSuperviseSettingsLoad = orig })
+	guiSuperviseSettingsLoad = func() settings.Settings {
+		return settings.Settings{GUIWM: pin}
+	}
+}
+
 // waitForGuiLog polls until the captured log contains want (deadline-bounded).
 func waitForGuiLog(t *testing.T, buf *guiSupLogBuf, want string) {
 	t.Helper()
@@ -99,9 +111,33 @@ func TestGuiSuperviseLineFormats(t *testing.T) {
 		"gui: Xtigervnc up on :11 (socket /x/gui/host.sock)"; got != want {
 		t.Errorf("up line = %q, want %q", got, want)
 	}
-	if got, want := guiNoWMLine(),
-		"gui: no window manager found (tried openbox, xfwm4, i3, kwin_x11, x-session-manager); running bare — apt install openbox"; got != want {
+	if got, want := guiNoWMLine("sudo apt install --no-install-recommends icewm"),
+		"gui: no window manager found (tried icewm-session, openbox, xfwm4, i3, kwin_x11, x-session-manager); running bare — sudo apt install --no-install-recommends icewm, then rk gui restart"; got != want {
 		t.Errorf("no-WM line = %q, want %q", got, want)
+	}
+	if got, want := guiPinMissLine("xfwm4"),
+		"gui: gui.wm=xfwm4 not on PATH; falling back to the ladder"; got != want {
+		t.Errorf("pin-miss line = %q, want %q", got, want)
+	}
+	if got, want := guiSeedFailedLine("/s/gui/icewm", errors.New("disk full")),
+		"gui: seeding the IceWM profile at /s/gui/icewm failed: disk full; starting icewm with its defaults"; got != want {
+		t.Errorf("seed-failed line = %q, want %q", got, want)
+	}
+	if got, want := guiWMLine("icewm-session", "/s/gui/icewm", true),
+		"gui: window manager icewm-session (config /s/gui/icewm, seeded preferences)"; got != want {
+		t.Errorf("icewm seeded line = %q, want %q", got, want)
+	}
+	if got, want := guiWMLine("icewm-session", "/s/gui/icewm", false),
+		"gui: window manager icewm-session (config /s/gui/icewm)"; got != want {
+		t.Errorf("icewm re-run line = %q, want %q (no seeded suffix)", got, want)
+	}
+	if got, want := guiWMLine("openbox", "", false),
+		"gui: window manager openbox"; got != want {
+		t.Errorf("non-icewm line = %q, want %q (no config segment)", got, want)
+	}
+	if got, want := guiToolbarLine("x-terminal-emulator", ""),
+		"gui: toolbar: terminal=x-terminal-emulator browser=none"; got != want {
+		t.Errorf("toolbar line = %q, want %q", got, want)
 	}
 	if got, want := guiBackendExitLine("Xtigervnc", 1, ":10"),
 		"gui: Xtigervnc exited (status 1) — display :10 is down; run 'rk gui restart' or turn the GUI off"; got != want {
@@ -242,10 +278,12 @@ func TestGuiSuperviseLinuxSignalTeardown(t *testing.T) {
 	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
 	withGuiSuperviseLookPath(t, map[string]string{
 		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
-		// no WM resolves ⇒ the bare line must be logged
+		// no WM resolves ⇒ the bare line must be logged (the no-manager hint —
+		// no apt-get/dnf/pacman on the fake PATH)
 	})
 	buf := captureGuiSuperviseLog(t)
 	stamps := captureGuiStamps(t)
+	withGuiSuperviseSettingsLoad(t, "")
 
 	sock, err := gui.SocketPath("host")
 	if err != nil {
@@ -266,7 +304,7 @@ func TestGuiSuperviseLinuxSignalTeardown(t *testing.T) {
 	if !found {
 		t.Errorf("stamps = %v, want one %v", *stamps, wantStamp)
 	}
-	if !strings.Contains(buf.String(), guiNoWMLine()) {
+	if !strings.Contains(buf.String(), guiNoWMLine("install icewm with your package manager")) {
 		t.Errorf("log =\n%s\nwant the bare-WM line", buf.String())
 	}
 	// The socket must be 0600 in a 0700 dir.
@@ -300,6 +338,7 @@ func TestGuiSuperviseLinuxLaunchesWMWithDisplay(t *testing.T) {
 	})
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
+	withGuiSuperviseSettingsLoad(t, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -318,7 +357,7 @@ func TestGuiSuperviseLinuxLaunchesWMWithDisplay(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(data)) != ":12" {
 		t.Errorf("WM DISPLAY file = %q (%v), want :12", data, err)
 	}
-	if strings.Contains(buf.String(), guiNoWMLine()) {
+	if strings.Contains(buf.String(), "gui: no window manager found") {
 		t.Errorf("log =\n%s\nwant no bare-WM line when kwin_x11 resolves", buf.String())
 	}
 	cancel()
@@ -340,6 +379,7 @@ func TestGuiSuperviseLinuxPaintsRootBackground(t *testing.T) {
 	})
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
+	withGuiSuperviseSettingsLoad(t, "")
 
 	type run struct {
 		argv    []string
@@ -399,6 +439,7 @@ func TestGuiSuperviseLinuxNoXsetrootLogsHint(t *testing.T) {
 	})
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
+	withGuiSuperviseSettingsLoad(t, "")
 	orig := guiSuperviseRunOnDisplay
 	t.Cleanup(func() { guiSuperviseRunOnDisplay = orig })
 	guiSuperviseRunOnDisplay = func(context.Context, []string, string) error {
@@ -429,6 +470,7 @@ func TestGuiSuperviseLinuxXsetrootFailureIsLogged(t *testing.T) {
 	})
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
+	withGuiSuperviseSettingsLoad(t, "")
 	orig := guiSuperviseRunOnDisplay
 	t.Cleanup(func() { guiSuperviseRunOnDisplay = orig })
 	guiSuperviseRunOnDisplay = func(context.Context, []string, string) error {
@@ -457,6 +499,7 @@ func TestGuiSuperviseLinuxBackendExitStaysIdle(t *testing.T) {
 	})
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
+	withGuiSuperviseSettingsLoad(t, "")
 
 	sock, err := gui.SocketPath("host")
 	if err != nil {
@@ -493,6 +536,7 @@ func TestGuiSuperviseLinuxRemovesStaleSocket(t *testing.T) {
 	})
 	buf := captureGuiSuperviseLog(t)
 	captureGuiStamps(t)
+	withGuiSuperviseSettingsLoad(t, "")
 
 	// A stale socket from a crashed supervisor must not block the bind.
 	sock, err := gui.SocketPath("host")
@@ -540,5 +584,234 @@ func TestGuiSuperviseLinuxSocketWaitTimeoutKillsBackend(t *testing.T) {
 	err = runGuiSuperviseCtx(context.Background(), "host", ":14")
 	if err == nil || !strings.Contains(err.Error(), "did not create "+sock) {
 		t.Errorf("err = %v, want the socket-wait timeout naming %s", err, sock)
+	}
+}
+
+// --- window-manager resolution, seeding, stamps (R2) ---
+
+// guiWMStartRec records guiSuperviseStartWM calls for one test and starts
+// nothing.
+type guiWMStartRec struct {
+	mu       sync.Mutex
+	argv     []string
+	display  string
+	extraEnv []string
+	calls    int
+}
+
+func withGuiSuperviseStartWMRec(t *testing.T) *guiWMStartRec {
+	t.Helper()
+	rec := &guiWMStartRec{}
+	orig := guiSuperviseStartWM
+	t.Cleanup(func() { guiSuperviseStartWM = orig })
+	guiSuperviseStartWM = func(_ context.Context, argv []string, display string, extraEnv []string) (*exec.Cmd, error) {
+		rec.mu.Lock()
+		defer rec.mu.Unlock()
+		rec.calls++
+		rec.argv = append([]string(nil), argv...)
+		rec.display = display
+		rec.extraEnv = append([]string(nil), extraEnv...)
+		return nil, nil
+	}
+	return rec
+}
+
+// stampIndex returns the position of the stamp argv carrying option=value, or
+// -1.
+func stampIndex(stamps [][]string, option, value string) int {
+	for i, s := range stamps {
+		joined := strings.Join(s, " ")
+		if strings.Contains(joined, option+" "+value) {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestGuiSuperviseLinuxIcewmSeedsStampsAndStarts(t *testing.T) {
+	withGuiSuperviseGOOS(t, "linux")
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+	withGuiSuperviseLookPath(t, map[string]string{
+		"Xtigervnc":           filepath.Join(stubDir, "Xtigervnc"),
+		"icewm-session":       "/usr/bin/icewm-session",
+		"x-terminal-emulator": "/usr/bin/x-terminal-emulator",
+	})
+	origStat := guiSuperviseStat
+	t.Cleanup(func() { guiSuperviseStat = origStat })
+	guiSuperviseStat = func(string) (os.FileInfo, error) { return nil, nil }
+	withGuiSuperviseSettingsLoad(t, "")
+	buf := captureGuiSuperviseLog(t)
+	stamps := captureGuiStamps(t)
+	wmRec := withGuiSuperviseStartWMRec(t)
+
+	type seedCall struct {
+		dir, term, browser string
+	}
+	var seeds []seedCall
+	origSeed := guiSuperviseSeed
+	t.Cleanup(func() { guiSuperviseSeed = origSeed })
+	guiSuperviseSeed = func(dir, terminal, browser string) (bool, error) {
+		seeds = append(seeds, seedCall{dir, terminal, browser})
+		return true, nil
+	}
+
+	profileDir := filepath.Join(stateHome, "run-kit", "gui", "icewm")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":15") }()
+
+	waitForGuiLog(t, buf, "gui: toolbar: terminal=x-terminal-emulator browser=none")
+	waitForGuiLog(t, buf, "gui: window manager icewm-session (config "+profileDir+", seeded preferences)")
+
+	if len(seeds) != 1 || seeds[0] != (seedCall{profileDir, "x-terminal-emulator", ""}) {
+		t.Errorf("seed calls = %+v, want one (%s, x-terminal-emulator, \"\")", seeds, profileDir)
+	}
+
+	got := *stamps
+	di, bi, wi := stampIndex(got, "@rk_gui_display", ":15"), stampIndex(got, "@rk_gui_backend", "Xtigervnc"), stampIndex(got, "@rk_gui_wm", "icewm-session")
+	if di < 0 || bi < 0 || wi < 0 {
+		t.Fatalf("stamps = %v, want display/backend/wm stamps", got)
+	}
+	if !(di < bi && bi < wi) {
+		t.Errorf("stamp order = display@%d backend@%d wm@%d, want display before backend before wm (one burst)", di, bi, wi)
+	}
+
+	wmRec.mu.Lock()
+	defer wmRec.mu.Unlock()
+	if wmRec.calls != 1 {
+		t.Fatalf("WM starts = %d, want 1", wmRec.calls)
+	}
+	if want := []string{"icewm-session", "--nobg", "--notray"}; !reflect.DeepEqual(wmRec.argv, want) {
+		t.Errorf("WM argv = %v, want %v", wmRec.argv, want)
+	}
+	if want := []string{"ICEWM_PRIVCFG=" + profileDir}; !reflect.DeepEqual(wmRec.extraEnv, want) {
+		t.Errorf("WM extra env = %v, want %v", wmRec.extraEnv, want)
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("teardown err = %v, want nil", err)
+	}
+}
+
+func TestGuiSuperviseLinuxIcewmUnseededLogVariant(t *testing.T) {
+	withGuiSuperviseGOOS(t, "linux")
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+	withGuiSuperviseLookPath(t, map[string]string{
+		"Xtigervnc":     filepath.Join(stubDir, "Xtigervnc"),
+		"icewm-session": "/usr/bin/icewm-session",
+	})
+	withGuiSuperviseSettingsLoad(t, "")
+	buf := captureGuiSuperviseLog(t)
+	captureGuiStamps(t)
+	withGuiSuperviseStartWMRec(t)
+
+	origSeed := guiSuperviseSeed
+	t.Cleanup(func() { guiSuperviseSeed = origSeed })
+	guiSuperviseSeed = func(string, string, string) (bool, error) { return false, nil }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":16") }()
+
+	profileDir := filepath.Join(stateHome, "run-kit", "gui", "icewm")
+	waitForGuiLog(t, buf, "gui: window manager icewm-session (config "+profileDir+")")
+	if strings.Contains(buf.String(), "seeded preferences") {
+		t.Errorf("log =\n%s\nwant no seeded suffix when seeded=false", buf.String())
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("teardown err = %v, want nil", err)
+	}
+}
+
+func TestGuiSuperviseLinuxNoWMStampsEmptyAndLogsHint(t *testing.T) {
+	withGuiSuperviseGOOS(t, "linux")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+	withGuiSuperviseLookPath(t, map[string]string{
+		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
+		"apt-get":   "/usr/bin/apt-get",
+	})
+	withGuiSuperviseSettingsLoad(t, "")
+	buf := captureGuiSuperviseLog(t)
+	stamps := captureGuiStamps(t)
+	wmRec := withGuiSuperviseStartWMRec(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":17") }()
+
+	waitForGuiLog(t, buf, guiNoWMLine("sudo apt install --no-install-recommends icewm"))
+	line := guiNoWMLine("sudo apt install --no-install-recommends icewm")
+	if !strings.Contains(line, "tried icewm-session, openbox, xfwm4, i3, kwin_x11, x-session-manager") ||
+		!strings.HasSuffix(line, ", then rk gui restart") {
+		t.Errorf("no-WM line = %q, want the six-rung ladder and the restart suffix", line)
+	}
+
+	got := *stamps
+	if i := stampIndex(got, "@rk_gui_wm", ""); i < 0 {
+		t.Errorf("stamps = %v, want an @rk_gui_wm \"\" stamp (bare is stamped deliberately)", got)
+	} else if joined := strings.Join(got[i], " "); !strings.HasSuffix(joined, "@rk_gui_wm ") && !strings.HasSuffix(joined, "@rk_gui_wm") {
+		t.Errorf("wm stamp argv = %v, want the value empty", got[i])
+	}
+
+	wmRec.mu.Lock()
+	calls := wmRec.calls
+	wmRec.mu.Unlock()
+	if calls != 0 {
+		t.Errorf("WM starts = %d with nothing resolved, want 0 (no ICEWM_PRIVCFG either)", calls)
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("teardown err = %v, want nil", err)
+	}
+}
+
+func TestGuiSuperviseLinuxPinMissFallsBackToLadder(t *testing.T) {
+	withGuiSuperviseGOOS(t, "linux")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+	withGuiSuperviseLookPath(t, map[string]string{
+		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
+		"openbox":   "/usr/bin/openbox",
+	})
+	withGuiSuperviseSettingsLoad(t, "xfwm4")
+	buf := captureGuiSuperviseLog(t)
+	stamps := captureGuiStamps(t)
+	wmRec := withGuiSuperviseStartWMRec(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":18") }()
+
+	waitForGuiLog(t, buf, "gui: gui.wm=xfwm4 not on PATH; falling back to the ladder")
+	waitForGuiLog(t, buf, "gui: window manager openbox")
+
+	wmRec.mu.Lock()
+	argv, extraEnv := wmRec.argv, wmRec.extraEnv
+	wmRec.mu.Unlock()
+	if !reflect.DeepEqual(argv, []string{"openbox"}) {
+		t.Errorf("WM argv = %v, want [openbox] (the ladder result, not the missed pin)", argv)
+	}
+	if len(extraEnv) != 0 {
+		t.Errorf("WM extra env = %v, want none for a non-icewm rung", extraEnv)
+	}
+	if i := stampIndex(*stamps, "@rk_gui_wm", "openbox"); i < 0 {
+		t.Errorf("stamps = %v, want @rk_gui_wm openbox", *stamps)
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("teardown err = %v, want nil", err)
 	}
 }

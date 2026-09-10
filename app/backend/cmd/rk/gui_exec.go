@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"syscall"
 	"time"
+
+	"rk/internal/gui"
 
 	"github.com/spf13/cobra"
 )
@@ -27,7 +28,7 @@ import (
 var (
 	guiExecLookPathFn = exec.LookPath
 	guiExecFn         = syscall.Exec
-	guiExecStartFn    = guiExecStartDetached
+	guiExecStartFn    = gui.StartDetached
 )
 
 var guiExecCmd = &cobra.Command{
@@ -58,50 +59,18 @@ view-only, so there is no display to run on.`,
 	RunE:         runGuiExec,
 }
 
-// guiExecEnv composes the exec'd environment: the caller's env with DISPLAY
-// and RK_GUI_SOCKET set — existing entries are replaced, never duplicated
-// (the rk display is the point of the verb). Pure, so tests pin it directly.
+// guiExecEnv composes the exec'd environment — gui.LaunchEnv's rule (DISPLAY
+// and RK_GUI_SOCKET set on the caller's env, replaced never duplicated),
+// shared with the HTTP launcher through internal/gui.
 func guiExecEnv(base []string, display, socket string) []string {
-	env := make([]string, 0, len(base)+2)
-	seenDisplay, seenSocket := false, false
-	for _, kv := range base {
-		switch {
-		case strings.HasPrefix(kv, "DISPLAY="):
-			if !seenDisplay {
-				env = append(env, "DISPLAY="+display)
-				seenDisplay = true
-			}
-		case strings.HasPrefix(kv, "RK_GUI_SOCKET="):
-			if !seenSocket {
-				env = append(env, "RK_GUI_SOCKET="+socket)
-				seenSocket = true
-			}
-		default:
-			env = append(env, kv)
-		}
-	}
-	if !seenDisplay {
-		env = append(env, "DISPLAY="+display)
-	}
-	if !seenSocket {
-		env = append(env, "RK_GUI_SOCKET="+socket)
-	}
-	return env
+	return gui.LaunchEnv(base, display, socket)
 }
 
-// guiExecStartDetached is the default guiExecStartFn: the command starts as
-// its own session (Setsid — it outlives the caller's shell) with stdio on
-// /dev/null, and is never waited on. Returns the started pid.
+// guiExecStartDetached is gui.StartDetached: the command starts as its own
+// session (Setsid — it outlives the caller's shell) with stdio on /dev/null
+// and is never waited on. Returns the started pid.
 func guiExecStartDetached(argv []string, env []string) (int, error) {
-	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Env = env
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	// nil stdio streams read/write /dev/null — the agent's Bash tool must not
-	// hang on a pipe the GUI app never closes.
-	if err := cmd.Start(); err != nil {
-		return 0, err
-	}
-	return cmd.Process.Pid, nil
+	return gui.StartDetached(argv, env)
 }
 
 // runGuiExec gates on the OS and the switch, then either execs (foreground,

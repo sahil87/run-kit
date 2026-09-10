@@ -278,20 +278,23 @@ type Server struct {
 	cronFactsFn func(ctx context.Context, server string, entries []cron.Entry) cron.ServerFacts
 
 	// The gui*Fn group is the injectable seam layer behind GET /api/gui/{id},
-	// POST /api/gui/{id}/restart, and the gui.enabled settings POST side
-	// effect (see api/gui.go and settings.go). Nil falls back to the
-	// production daemon/gui calls, mirroring the hub's gui seams in sse.go.
+	// POST /api/gui/{id}/restart, POST /api/gui/{id}/launch, and the
+	// gui.enabled settings POST side effect (see api/gui.go and settings.go).
+	// Nil falls back to the production daemon/gui calls, mirroring the hub's
+	// gui seams in sse.go.
 	guiEnsureFn         func() (daemon.GUIEnsureOutcome, error)
 	guiKillFn           func() (bool, error)
 	guiRestartFn        func() error
 	guiDaemonUpFn       func() bool
 	guiSessionExistsFn  func(ctx context.Context) bool
-	guiSessionOptionsFn func(ctx context.Context) (display, backend string, ok bool)
+	guiSessionOptionsFn func(ctx context.Context) (display, backend, wm string, ok bool)
 	guiSessionCreatedFn func(ctx context.Context) (time.Time, bool)
 	guiPanePidsFn       func(ctx context.Context) map[int]bool
 	guiProbeFn          func(ctx context.Context, network, addr string) (gui.Info, error)
 	guiAppsFn           func(display string, exclude map[int]bool) ([]gui.App, error)
 	guiLookPathFn       func(name string) (string, error)
+	guiStatFn           func(path string) (os.FileInfo, error)
+	guiLaunchFn         func(argv, env []string) (int, error)
 
 	// tintCacheMu guards tintCache.
 	tintCacheMu sync.Mutex
@@ -955,10 +958,12 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/settings", s.handlePostSettings)
 
 	// GUI surface — the status document (GET, incl. the apps list the
-	// off-confirm renders) and the supervisor restart (POST per §IX). On/off
-	// ride POST /api/settings (the gui.enabled side effect). See api/gui.go.
+	// off-confirm renders), the supervisor restart, and the allowlisted
+	// terminal/browser launcher (POST per §IX). On/off ride POST /api/settings
+	// (the gui.enabled side effect). See api/gui.go.
 	r.Get("/api/gui/{id}", s.handleGuiStatus)
 	r.Post("/api/gui/{id}/restart", s.handleGuiRestart)
+	r.Post("/api/gui/{id}/launch", s.handleGuiLaunch)
 
 	// Web Push: VAPID key (read), subscribe + notify (mutations, POST per §IX)
 	r.Get("/api/push/vapid-public-key", s.handlePushVAPIDPublicKey)

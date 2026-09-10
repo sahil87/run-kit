@@ -48,17 +48,3 @@ func ValidateSocketPath(path string) error {
 	}
 	return nil
 }
-
-// InstallHint is the per-OS remediation line for a missing GUI backend.
-// Linux needs a VNC X server and a window manager; macOS needs Screen Sharing
-// enabled. Other OSes have no supported backend and get no hint.
-func InstallHint() string {
-	switch goos {
-	case "linux":
-		return "install a VNC X server and a window manager: sudo apt install tigervnc-standalone-server openbox"
-	case "darwin":
-		return "enable System Settings › General › Sharing › Screen Sharing"
-	default:
-		return ""
-	}
-}

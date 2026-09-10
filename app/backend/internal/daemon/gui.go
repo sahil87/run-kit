@@ -31,6 +31,10 @@ const (
 	// the state-stream probe) treat unset options as "not running".
 	GUIOptionDisplay = "@rk_gui_display"
 	GUIOptionBackend = "@rk_gui_backend"
+	// GUIOptionWM is the supervisor-stamped window-manager name ("" when the
+	// display runs bare). Best-effort for readers: an unset option reads as
+	// "" and never affects the ok of GUISessionOptions.
+	GUIOptionWM = "@rk_gui_wm"
 	// guiDisplayStart is the lowest display the ensure ladder hands out —
 	// below :10 belongs to the host's desktop session.
 	guiDisplayStart = 10
@@ -126,7 +130,7 @@ func ensureGUICore(cli bool) (GUIEnsureOutcome, error) {
 		_, xvncErr := guiLookPath("Xvnc")
 		if tigerErr != nil && xvncErr != nil {
 			if !cli {
-				slog.Warn("gui not started: no VNC backend on PATH", "hint", gui.InstallHint())
+				slog.Warn("gui not started: no VNC backend on PATH", "hint", gui.InstallHint(guiLookPath))
 			}
 			// Nil error in both postures: the outcome carries the install
 			// hint and enabling stays the user's intent.
@@ -298,22 +302,24 @@ var guiSessionOption = func(ctx context.Context, option string) (string, error) 
 	return strings.TrimSpace(string(out)), nil
 }
 
-// GUISessionOptions returns the display and backend the supervisor stamped on
-// the rk-gui session. ok=false for an absent session or unset options — both
-// mean "not running" to callers.
-func GUISessionOptions(ctx context.Context) (display, backend string, ok bool) {
+// GUISessionOptions returns the display, backend, and window manager the
+// supervisor stamped on the rk-gui session. ok=false for an absent session or
+// unset display/backend options — both mean "not running" to callers. wm is
+// best-effort: an unset or empty stamp reads as "" without affecting ok.
+func GUISessionOptions(ctx context.Context) (display, backend, wm string, ok bool) {
 	if !guiSessionExists(ctx) {
-		return "", "", false
+		return "", "", "", false
 	}
 	display, err := guiSessionOption(ctx, GUIOptionDisplay)
 	if err != nil || display == "" {
-		return "", "", false
+		return "", "", "", false
 	}
 	backend, err = guiSessionOption(ctx, GUIOptionBackend)
 	if err != nil || backend == "" {
-		return "", "", false
+		return "", "", "", false
 	}
-	return display, backend, true
+	wm, _ = guiSessionOption(ctx, GUIOptionWM)
+	return display, backend, wm, true
 }
 
 // guiSessionCreated reads the rk-gui session's session_created format. A

@@ -88,29 +88,87 @@ func TestBackendArgv(t *testing.T) {
 }
 
 func TestResolveWM(t *testing.T) {
-	t.Run("ladder order", func(t *testing.T) {
-		argv, ok := ResolveWM(stubLookPath("xfwm4", "openbox", "i3"))
-		if !ok || !reflect.DeepEqual(argv, []string{"openbox"}) {
-			t.Errorf("ResolveWM() = %v, %v, want [openbox], true (first ladder hit)", argv, ok)
+	t.Run("ladder order: icewm wins over an installed openbox", func(t *testing.T) {
+		argv, pinMissed, ok := ResolveWM(stubLookPath("openbox", "icewm-session"), "")
+		if !ok || pinMissed || !reflect.DeepEqual(argv, []string{"icewm-session", "--nobg", "--notray"}) {
+			t.Errorf("ResolveWM() = %v, %v, %v, want [icewm-session --nobg --notray], false, true", argv, pinMissed, ok)
 		}
-		argv, ok = ResolveWM(stubLookPath("kwin_x11", "i3"))
-		if !ok || !reflect.DeepEqual(argv, []string{"i3"}) {
-			t.Errorf("ResolveWM() = %v, %v, want [i3], true", argv, ok)
+		argv, pinMissed, ok = ResolveWM(stubLookPath("kwin_x11", "i3"), "")
+		if !ok || pinMissed || !reflect.DeepEqual(argv, []string{"i3"}) {
+			t.Errorf("ResolveWM() = %v, %v, %v, want [i3], false, true", argv, pinMissed, ok)
 		}
 	})
 
-	t.Run("x-session-manager wraps in dbus-run-session", func(t *testing.T) {
-		argv, ok := ResolveWM(stubLookPath("x-session-manager"))
-		if !ok || !reflect.DeepEqual(argv, []string{"dbus-run-session", "--", "x-session-manager"}) {
-			t.Errorf("ResolveWM() = %v, %v, want [dbus-run-session -- x-session-manager], true", argv, ok)
+	t.Run("pin hit wins over the ladder", func(t *testing.T) {
+		argv, pinMissed, ok := ResolveWM(stubLookPath("icewm-session", "openbox"), "openbox")
+		if !ok || pinMissed || !reflect.DeepEqual(argv, []string{"openbox"}) {
+			t.Errorf("ResolveWM(pin=openbox) = %v, %v, %v, want [openbox], false, true", argv, pinMissed, ok)
+		}
+	})
+
+	t.Run("pin miss falls back to the ladder", func(t *testing.T) {
+		argv, pinMissed, ok := ResolveWM(stubLookPath("openbox"), "xfwm4")
+		if !ok || !pinMissed || !reflect.DeepEqual(argv, []string{"openbox"}) {
+			t.Errorf("ResolveWM(pin=xfwm4) = %v, %v, %v, want [openbox], true, true", argv, pinMissed, ok)
+		}
+	})
+
+	t.Run("pin miss with an empty ladder resolves nothing", func(t *testing.T) {
+		argv, pinMissed, ok := ResolveWM(stubLookPath(), "xfwm4")
+		if ok || !pinMissed || argv != nil {
+			t.Errorf("ResolveWM(pin=xfwm4) = %v, %v, %v, want nil, true, false", argv, pinMissed, ok)
+		}
+	})
+
+	t.Run("x-session-manager wraps in dbus-run-session on both paths", func(t *testing.T) {
+		want := []string{"dbus-run-session", "--", "x-session-manager"}
+		if argv, _, ok := ResolveWM(stubLookPath("x-session-manager"), ""); !ok || !reflect.DeepEqual(argv, want) {
+			t.Errorf("ResolveWM(ladder) = %v, %v, want %v, true", argv, ok, want)
+		}
+		if argv, pinMissed, ok := ResolveWM(stubLookPath("x-session-manager"), "x-session-manager"); !ok || pinMissed || !reflect.DeepEqual(argv, want) {
+			t.Errorf("ResolveWM(pin) = %v, %v, %v, want %v, false, true", argv, pinMissed, ok, want)
+		}
+	})
+
+	t.Run("icewm flags on both paths", func(t *testing.T) {
+		want := []string{"icewm-session", "--nobg", "--notray"}
+		if argv, _, ok := ResolveWM(stubLookPath("icewm-session"), ""); !ok || !reflect.DeepEqual(argv, want) {
+			t.Errorf("ResolveWM(ladder) = %v, %v, want %v, true", argv, ok, want)
+		}
+		if argv, pinMissed, ok := ResolveWM(stubLookPath("icewm-session"), "icewm-session"); !ok || pinMissed || !reflect.DeepEqual(argv, want) {
+			t.Errorf("ResolveWM(pin) = %v, %v, %v, want %v, false, true", argv, pinMissed, ok, want)
 		}
 	})
 
 	t.Run("none found", func(t *testing.T) {
-		if argv, ok := ResolveWM(stubLookPath()); ok || argv != nil {
-			t.Errorf("ResolveWM() = %v, %v, want nil, false", argv, ok)
+		if argv, pinMissed, ok := ResolveWM(stubLookPath(), ""); ok || pinMissed || argv != nil {
+			t.Errorf("ResolveWM() = %v, %v, %v, want nil, false, false", argv, pinMissed, ok)
 		}
 	})
+}
+
+func TestWMArgv(t *testing.T) {
+	for name, want := range map[string][]string{
+		"icewm-session":     {"icewm-session", "--nobg", "--notray"},
+		"x-session-manager": {"dbus-run-session", "--", "x-session-manager"},
+		"openbox":           {"openbox"},
+	} {
+		if got := WMArgv(name); !reflect.DeepEqual(got, want) {
+			t.Errorf("WMArgv(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestWMLadderOrder(t *testing.T) {
+	want := []string{"icewm-session", "openbox", "xfwm4", "i3", "kwin_x11", "x-session-manager"}
+	if got := WMLadder(); !reflect.DeepEqual(got, want) {
+		t.Errorf("WMLadder() = %v, want %v", got, want)
+	}
+	// The accessor must return a copy: mutating it must not poison the ladder.
+	WMLadder()[0] = "mutated"
+	if got := WMLadder(); !reflect.DeepEqual(got, want) {
+		t.Errorf("WMLadder() after mutation = %v, want %v", got, want)
+	}
 }
 
 func TestRootBackgroundArgv(t *testing.T) {

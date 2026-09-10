@@ -9,11 +9,13 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
 	"rk/internal/daemon"
 	"rk/internal/gui"
+	"rk/internal/settings"
 	"rk/internal/tmux"
 	"rk/internal/validate"
 
@@ -43,6 +45,18 @@ var guiSuperviseGOOS = runtime.GOOS
 // so tests script the resolution ladder without depending on the host's PATH.
 var guiSuperviseLookPath = exec.LookPath
 
+// guiSuperviseStat follows a resolved path (the launcher ladders' dangling
+// Debian-alternative guard). A package seam so tests script broken symlinks.
+var guiSuperviseStat = os.Stat
+
+// guiSuperviseSettingsLoad reads the settings file (the gui.wm pin). A
+// package seam so tests pin the WM without a config dir.
+var guiSuperviseSettingsLoad = settings.Load
+
+// guiSuperviseSeed seeds the IceWM profile dir. A package seam so tests
+// script seeded/not-seeded and the best-effort failure path.
+var guiSuperviseSeed = gui.SeedProfile
+
 // guiSuperviseLog writes one line to the pane — the supervisor's stdout IS
 // the GUI log (the rk-gui pane is the display for these lines). A package
 // seam so tests capture lines.
@@ -59,10 +73,12 @@ var guiSuperviseStartBackend = func(ctx context.Context, argv []string) (*exec.C
 }
 
 // guiSuperviseStartWM starts the window manager with DISPLAY set in its env —
-// the tmux window's env does not carry the rk-managed display.
-var guiSuperviseStartWM = func(ctx context.Context, argv []string, display string) (*exec.Cmd, error) {
+// the tmux window's env does not carry the rk-managed display. extraEnv adds
+// rung-specific variables (the icewm rung's ICEWM_PRIVCFG); nil for every
+// other rung.
+var guiSuperviseStartWM = func(ctx context.Context, argv []string, display string, extraEnv []string) (*exec.Cmd, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Env = append(os.Environ(), "DISPLAY="+display)
+	cmd.Env = append(os.Environ(), append([]string{"DISPLAY=" + display}, extraEnv...)...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd, cmd.Start()
@@ -96,8 +112,45 @@ func guiBackendUpLine(bin, display, sock string) string {
 	return fmt.Sprintf("gui: %s up on %s (socket %s)", bin, display, sock)
 }
 
-func guiNoWMLine() string {
-	return "gui: no window manager found (tried openbox, xfwm4, i3, kwin_x11, x-session-manager); running bare — apt install openbox"
+func guiNoWMLine(hint string) string {
+	return fmt.Sprintf("gui: no window manager found (tried %s); running bare — %s, then rk gui restart",
+		strings.Join(gui.WMLadder(), ", "), hint)
+}
+
+func guiPinMissLine(pin string) string {
+	return fmt.Sprintf("gui: gui.wm=%s not on PATH; falling back to the ladder", pin)
+}
+
+func guiProfileDirFailedLine(err error) string {
+	return fmt.Sprintf("gui: resolving the IceWM profile dir failed: %v; starting icewm with its defaults", err)
+}
+
+func guiSeedFailedLine(dir string, err error) string {
+	return fmt.Sprintf("gui: seeding the IceWM profile at %s failed: %v; starting icewm with its defaults", dir, err)
+}
+
+// guiWMLine is the per-rung "window manager" line: the icewm rung names its
+// config dir (with a "seeded preferences" suffix on the first seed); every
+// other rung is the bare name.
+func guiWMLine(name, profileDir string, seeded bool) string {
+	if name != "icewm-session" || profileDir == "" {
+		return "gui: window manager " + name
+	}
+	line := fmt.Sprintf("gui: window manager %s (config %s", name, profileDir)
+	if seeded {
+		line += ", seeded preferences"
+	}
+	return line + ")"
+}
+
+func guiToolbarLine(terminal, browser string) string {
+	orNone := func(name string) string {
+		if name == "" {
+			return "none"
+		}
+		return name
+	}
+	return fmt.Sprintf("gui: toolbar: terminal=%s browser=%s", orNone(terminal), orNone(browser))
 }
 
 func guiNoRootBackgroundLine() string {
@@ -140,9 +193,13 @@ func newGuiSuperviseCmd() *cobra.Command {
 pane executes. Its stdout/stderr IS the supervisor log.
 
 Linux: starts the VNC backend (Xtigervnc, Xvnc fallback) on a unix socket,
-stamps @rk_gui_display/@rk_gui_backend on the rk-gui session, and launches the
-first window manager found. macOS: spawns nothing and logs the Screen Sharing
-probe once a minute.
+stamps @rk_gui_display/@rk_gui_backend/@rk_gui_wm on the rk-gui session, and
+launches the window manager — the gui.wm pin, else the first ladder rung on
+PATH (icewm-session first, then openbox, xfwm4, i3, kwin_x11,
+x-session-manager). The icewm rung gets a seeded profile under
+<state>/run-kit/gui/icewm (passed as ICEWM_PRIVCFG; preferences is write-once,
+toolbar/menu regenerate on every start). macOS: spawns nothing and logs the
+Screen Sharing probe once a minute.
 
 When the backend exits on its own the supervisor logs the exit, cleans up, and
 stays alive idle — the pane keeps the log readable; 'rk gui restart' is the
@@ -182,10 +239,12 @@ func runGuiSuperviseCtx(ctx context.Context, id, display string) error {
 }
 
 // runGuiSuperviseLinux is the R5 ladder: state dir, stale-socket removal,
-// backend exec, socket wait + chmod, session stamps, WM launch, then wait for
-// either a signal (teardown, exit 0) or the backend's own exit (log, clean
-// up, block until signalled — R6: no auto-respawn, no process exit, so the
-// pane stays readable and the session still "exists").
+// backend exec, socket wait + chmod, WM resolution (gui.wm pin, then the
+// ladder) + launcher-app resolution + icewm profile seed, the one-burst
+// session stamps, WM launch, then wait for either a signal (teardown, exit 0)
+// or the backend's own exit (log, clean up, block until signalled — R6: no
+// auto-respawn, no process exit, so the pane stays readable and the session
+// still "exists").
 func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 	dir, err := gui.StateDir()
 	if err != nil {
@@ -209,7 +268,7 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 
 	bin, _ := gui.ResolveBackend(guiSuperviseLookPath)
 	if bin == "" {
-		return fmt.Errorf("no VNC backend installed — %s", gui.InstallHint())
+		return fmt.Errorf("no VNC backend installed — %s", gui.InstallHint(guiSuperviseLookPath))
 	}
 
 	backend, err := guiSuperviseStartBackend(ctx, gui.BackendArgv(bin, display, sock))
@@ -227,18 +286,67 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 		guiSuperviseLog(fmt.Sprintf("gui: chmod 0600 %s failed: %v", sock, err))
 	}
 	guiSuperviseLog(guiBackendUpLine(bin, display, sock))
+
+	// Resolve the WM (pin first, ladder fallback) and the launcher apps, seed
+	// the icewm profile, and only then stamp display/backend/wm in one burst:
+	// rk gui on reads the stamps once with a single bounded await, so wm must
+	// land in the same burst as display/backend (seeding needs no X server).
+	pin := guiSuperviseSettingsLoad().GUIWM
+	wmArgv, pinMissed, wmOK := gui.ResolveWM(guiSuperviseLookPath, pin)
+	if pinMissed {
+		guiSuperviseLog(guiPinMissLine(pin))
+	}
+	term, _, _ := gui.ResolveApp(gui.AppTerminal, guiSuperviseLookPath, guiSuperviseStat)
+	browser, _, _ := gui.ResolveApp(gui.AppBrowser, guiSuperviseLookPath, guiSuperviseStat)
+
+	icewm := wmOK && wmArgv[0] == "icewm-session"
+	profileDir := ""
+	seeded := false
+	if icewm {
+		if dir, derr := gui.ProfileDir(); derr != nil {
+			guiSuperviseLog(guiProfileDirFailedLine(derr))
+		} else {
+			profileDir = dir
+			// Best-effort: a seed failure must not keep the desktop from
+			// coming up — icewm runs on its defaults.
+			if s, serr := guiSuperviseSeed(dir, term, browser); serr != nil {
+				guiSuperviseLog(guiSeedFailedLine(dir, serr))
+			} else {
+				seeded = s
+			}
+		}
+	}
+
+	wmName := ""
+	if wmOK {
+		wmName = wmArgv[0]
+	}
+	// Stamping "" when bare is deliberate: "bare" and "unset" both render wm:"".
 	guiStampSessionOption(daemon.GUIOptionDisplay, display)
 	guiStampSessionOption(daemon.GUIOptionBackend, bin)
+	guiStampSessionOption(daemon.GUIOptionWM, wmName)
+
+	switch {
+	case !wmOK:
+		guiSuperviseLog(guiNoWMLine(gui.WMInstallHint(guiSuperviseLookPath)))
+	case icewm:
+		guiSuperviseLog(guiWMLine(wmName, profileDir, seeded))
+		guiSuperviseLog(guiToolbarLine(term, browser))
+	default:
+		guiSuperviseLog(guiWMLine(wmName, "", false))
+	}
 
 	var wm *exec.Cmd
-	if wmArgv, ok := gui.ResolveWM(guiSuperviseLookPath); ok {
-		if w, werr := guiSuperviseStartWM(ctx, wmArgv, display); werr != nil {
+	if wmOK {
+		var extraEnv []string
+		if icewm && profileDir != "" {
+			extraEnv = []string{"ICEWM_PRIVCFG=" + profileDir}
+		}
+		if w, werr := guiSuperviseStartWM(ctx, wmArgv, display, extraEnv); werr != nil {
 			guiSuperviseLog(fmt.Sprintf("gui: window manager %s failed to start: %v; running bare", wmArgv[0], werr))
 		} else {
 			wm = w
 		}
-	} else {
-		guiSuperviseLog(guiNoWMLine())
 	}
 	paintGuiRootBackground(ctx, display)
 

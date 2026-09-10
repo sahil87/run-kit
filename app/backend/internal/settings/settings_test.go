@@ -475,6 +475,7 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 		"auto_name":      registryValueFixture(`true`, true, `false`, false, false),
 		"cron_ticker":    registryValueFixture(`false`, false, `true`, true, true),
 		"gui.enabled":    registryValueFixture(`true`, true, `false`, false, false),
+		"gui.wm":         registryValueFixture(`"openbox"`, "openbox", `"xfwm4"`, "xfwm4", ""),
 		"tmux_conf":      registryValueFixture(`"/my/tmux.conf"`, ptr("/my/tmux.conf"), `"/other/tmux.conf"`, ptr("/other/tmux.conf"), (*string)(nil)),
 		"log_level":      registryValueFixture(`"debug"`, ptr("debug"), `"info"`, ptr("info"), ptr("info")),
 		"server_colors": stringValueFixture("6", "1+3", func(v *string) error {
@@ -737,6 +738,43 @@ func TestGUIEnabled(t *testing.T) {
 		}
 		if Load().GUIEnabled {
 			t.Error("Load() after Save(off): GUIEnabled = true, want false")
+		}
+	})
+}
+
+func TestGUIWM(t *testing.T) {
+	t.Run("round-trips as a quoted dotted line, omitted when empty", func(t *testing.T) {
+		s := Default()
+		if out := serialize(s); strings.Contains(out, "gui.wm") {
+			t.Errorf("gui.wm emitted for the empty default — files without the key must serialize byte-identically:\n%s", out)
+		}
+		s.GUIWM = "openbox"
+		out := serialize(s)
+		if !strings.Contains(out, "gui.wm: \"openbox\"\n") {
+			t.Errorf("serialize(GUIWM=openbox) missing the quoted dotted line:\n%s", out)
+		}
+		if got := parse(out); got.GUIWM != "openbox" {
+			t.Errorf("GUIWM lost in serialize/parse round-trip: %q", got.GUIWM)
+		}
+	})
+
+	t.Run("null unsets", func(t *testing.T) {
+		entry := findEntry("gui.wm")
+		if entry == nil {
+			t.Fatal("no gui.wm registry entry")
+		}
+		s := Default()
+		if err := entry.apply(&s, json.RawMessage(`"openbox"`)); err != nil {
+			t.Fatalf("apply: %v", err)
+		}
+		if s.GUIWM != "openbox" {
+			t.Errorf("GUIWM = %q after apply, want openbox", s.GUIWM)
+		}
+		if err := entry.apply(&s, json.RawMessage(`null`)); err != nil {
+			t.Fatalf("apply null: %v", err)
+		}
+		if s.GUIWM != "" {
+			t.Errorf("GUIWM = %q after null, want unset", s.GUIWM)
 		}
 	})
 }

@@ -291,13 +291,15 @@ type sseHub struct {
 	// payload ({"reachable"}), replayed on connect like
 	// cachedServicesJSON so late-joining clients see the signal immediately.
 	cachedCodeServerJSON string
-	// The guiEnabled/guiProbeAt/guiInfo/guiBackend/guiDisplay/guiViewers/
+	// The guiEnabled/guiProbeAt/guiInfo/guiBackend/guiDisplay/guiWM/guiViewers/
 	// cachedGuiJSON group implements the host-global `event: gui` slot
 	// (mirroring the code-server slot). guiEnabled is re-read from the
 	// settings file every tick — a CLI-side `rk gui on` writes the file
 	// directly and must surface without a settings POST. guiProbeAt/guiInfo
-	// are the TTL-cached probe result; guiBackend/guiDisplay are the
-	// supervisor's stamped session options from the last probe pass;
+	// are the TTL-cached probe result; guiBackend/guiDisplay/guiWM are the
+	// supervisor's stamped session options from the last probe pass (the
+	// viewers>0 short-circuit keeps the last values — the stamps do not
+	// change while the session lives);
 	// guiViewers counts live /ws/gui/{id} relay connections (≥ 1 viewer
 	// skips the probe dial — the live relay is stronger evidence, and each
 	// dial would log accept/close lines into the supervisor pane).
@@ -309,6 +311,7 @@ type sseHub struct {
 	guiInfo       gui.Info
 	guiBackend    string
 	guiDisplay    string
+	guiWM         string
 	guiViewers    map[string]int
 	cachedGuiJSON string
 	// prStatus, when non-nil, supplies the in-memory PR-status snapshot the
@@ -436,7 +439,7 @@ type sseHub struct {
 	// Production defaults are wired in newSSEHub; tests substitute per-hub
 	// (the captureFn idiom — per-hub, so a stub never leaks into another
 	// test's still-running poll loop).
-	guiSessionOptionsFn func(ctx context.Context) (display, backend string, ok bool)
+	guiSessionOptionsFn func(ctx context.Context) (display, backend, wm string, ok bool)
 	guiProbeFn          func(ctx context.Context, network, addr string) (gui.Info, error)
 }
 
@@ -774,7 +777,7 @@ func (h *sseHub) guiTick() {
 			h.mu.Unlock()
 		} else {
 			ctx, cancel := context.WithTimeout(context.Background(), guiTickTimeout)
-			display, backend, ok := h.guiSessionOptionsFn(ctx)
+			display, backend, wm, ok := h.guiSessionOptionsFn(ctx)
 			if ok && display != "" {
 				// An unparsable stamped display reads as "not running".
 				if _, derr := gui.ParseDisplay(display); derr != nil {
@@ -785,7 +788,7 @@ func (h *sseHub) guiTick() {
 			switch {
 			case !ok:
 				info = gui.Info{Reason: "session absent"}
-				display, backend = "", ""
+				display, backend, wm = "", "", ""
 			default:
 				network, addr, aerr := guiBackendAddr()
 				switch {
@@ -805,6 +808,7 @@ func (h *sseHub) guiTick() {
 			h.mu.Lock()
 			h.guiDisplay = display
 			h.guiBackend = backend
+			h.guiWM = wm
 			h.guiInfo = info
 			h.guiProbeAt = time.Now()
 			h.mu.Unlock()
@@ -833,6 +837,7 @@ func (h *sseHub) guiPayloadLocked() string {
 		entry.Width = h.guiInfo.Width
 		entry.Height = h.guiInfo.Height
 		entry.Viewers = h.guiViewers[daemon.GUIWindowName]
+		entry.WM = h.guiWM
 	}
 	b, err := json.Marshal([]gui.StreamEntry{entry})
 	if err != nil {
@@ -857,6 +862,7 @@ func (h *sseHub) setGUIEnabled(enabled bool) {
 	h.guiInfo = gui.Info{}
 	h.guiBackend = ""
 	h.guiDisplay = ""
+	h.guiWM = ""
 	str := h.guiPayloadLocked()
 	if str == "" {
 		return

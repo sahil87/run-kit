@@ -404,7 +404,7 @@ func TestRestartGUIKillsThenSpawns(t *testing.T) {
 func TestGUISessionOptionsAbsentSession(t *testing.T) {
 	withGUISeams(t, false)
 
-	_, _, ok := GUISessionOptions(context.Background())
+	_, _, _, ok := GUISessionOptions(context.Background())
 	if ok {
 		t.Error("ok = true, want false for an absent session")
 	}
@@ -420,13 +420,35 @@ func TestGUISessionOptionsReadsStamps(t *testing.T) {
 			return ":10", nil
 		case GUIOptionBackend:
 			return "Xtigervnc", nil
+		case GUIOptionWM:
+			return "icewm-session", nil
 		}
 		return "", fmt.Errorf("unknown option %q", option)
 	}
 
-	display, backend, ok := GUISessionOptions(context.Background())
-	if !ok || display != ":10" || backend != "Xtigervnc" {
-		t.Errorf("got (%q, %q, %v), want (\":10\", \"Xtigervnc\", true)", display, backend, ok)
+	display, backend, wm, ok := GUISessionOptions(context.Background())
+	if !ok || display != ":10" || backend != "Xtigervnc" || wm != "icewm-session" {
+		t.Errorf("got (%q, %q, %q, %v), want (\":10\", \"Xtigervnc\", \"icewm-session\", true)", display, backend, wm, ok)
+	}
+}
+
+func TestGUISessionOptionsUnsetWMReadsEmpty(t *testing.T) {
+	withGUISeams(t, true)
+	orig := guiSessionOption
+	t.Cleanup(func() { guiSessionOption = orig })
+	guiSessionOption = func(_ context.Context, option string) (string, error) {
+		switch option {
+		case GUIOptionDisplay:
+			return ":10", nil
+		case GUIOptionBackend:
+			return "Xtigervnc", nil
+		}
+		return "", fmt.Errorf("invalid option") // the wm stamp is best-effort: an unset option must not flip ok
+	}
+
+	_, _, wm, ok := GUISessionOptions(context.Background())
+	if !ok || wm != "" {
+		t.Errorf("got (wm=%q, ok=%v), want (\"\", true) — an unset wm stamp reads empty", wm, ok)
 	}
 }
 
@@ -438,7 +460,7 @@ func TestGUISessionOptionsUnsetOptionIsAbsent(t *testing.T) {
 		return "", fmt.Errorf("invalid option") // show-options -v hard-fails on an unset user option
 	}
 
-	_, _, ok := GUISessionOptions(context.Background())
+	_, _, _, ok := GUISessionOptions(context.Background())
 	if ok {
 		t.Error("ok = true, want false when the stamps are unset")
 	}

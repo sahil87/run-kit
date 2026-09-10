@@ -66,24 +66,51 @@ func BackendArgv(bin, display, socket string) []string {
 	}
 }
 
-// wmLadder is the fixed window-manager probe order. x-session-manager (a full
-// DE session) must run under dbus-run-session.
-var wmLadder = []string{"openbox", "xfwm4", "i3", "kwin_x11", "x-session-manager"}
+// wmLadder is the fixed window-manager probe order: IceWM first (a taskbar,
+// start menu, and clock are built in and it costs ~29 MB idle), then the
+// lighter WMs, then x-session-manager (a full DE session) last.
+var wmLadder = []string{"icewm-session", "openbox", "xfwm4", "i3", "kwin_x11", "x-session-manager"}
 
-// ResolveWM returns the argv for the first window manager on the ladder that
-// lookPath resolves, or ok=false when none is installed (the display runs
-// bare — still usable).
-func ResolveWM(lookPath func(string) (string, error)) (argv []string, ok bool) {
+// WMLadder returns the window-manager probe order — the one place the
+// supervisor's no-WM log line and tests read it from.
+func WMLadder() []string {
+	return append([]string(nil), wmLadder...)
+}
+
+// WMArgv returns the launch argv for one window-manager binary name:
+// icewm-session runs --nobg --notray (icewmbg would paint a theme wallpaper
+// over rk's xsetroot ground; the tray is dead weight on a single-user
+// display), x-session-manager runs under dbus-run-session, anything else
+// runs bare. The flags belong to the binary, not to how it was chosen — a
+// pinned name gets the same argv as its ladder rung.
+func WMArgv(name string) []string {
+	switch name {
+	case "icewm-session":
+		return []string{"icewm-session", "--nobg", "--notray"}
+	case "x-session-manager":
+		return []string{"dbus-run-session", "--", name}
+	}
+	return []string{name}
+}
+
+// ResolveWM picks the window manager: the pin (gui.wm) when non-empty and on
+// PATH, else the first ladder rung on PATH. pinMissed reports a non-empty pin
+// that did not resolve (the caller logs the fallback line); ok=false means
+// nothing resolved and the display runs bare — still usable.
+func ResolveWM(lookPath func(string) (string, error), pin string) (argv []string, pinMissed, ok bool) {
+	if pin != "" {
+		if _, err := lookPath(pin); err == nil {
+			return WMArgv(pin), false, true
+		}
+		pinMissed = true
+	}
 	for _, wm := range wmLadder {
 		if _, err := lookPath(wm); err != nil {
 			continue
 		}
-		if wm == "x-session-manager" {
-			return []string{"dbus-run-session", "--", wm}, true
-		}
-		return []string{wm}, true
+		return WMArgv(wm), pinMissed, true
 	}
-	return nil, false
+	return nil, pinMissed, false
 }
 
 // RootBackground is the solid color painted onto the X root window once the

@@ -105,6 +105,7 @@ Subcommands:
   restart  Kill and respawn the rk-gui session (recovery for a dead backend)
   exec     Run a command on the GUI display (DISPLAY set); --detach to launch and return
   shot     Screenshot the display to a PNG and print its path
+  launch   Open a terminal or browser on the GUI display (the allowlisted launcher)
 
 See 'run-kit gui <subcommand> --help' for details.`,
 }
@@ -146,10 +147,10 @@ var guiStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show the GUI state",
 	Long: `Show the GUI state: 'gui: off', 'gui: on (<backend>, :N, WxH, k
-viewers)' when the desktop is reachable, or 'gui: on — not running (<reason>)'
-with the reason (session absent, no VNC backend, backend exited, Screen
-Sharing off) when it is not. When running, the apps on the display are listed
-indented below.
+viewers, <wm>)' when the desktop is reachable, or 'gui: on — not running
+(<reason>)' with the reason (session absent, no VNC backend, backend exited,
+Screen Sharing off) when it is not. When running, the apps on the display are
+listed indented below.
 
 --json emits the machine-readable status document (the same document GET
 /api/gui/host serves). Always exits 0 — this is state, not a verdict.`,
@@ -202,6 +203,7 @@ func init() {
 	guiCmd.AddCommand(guiRestartCmd)
 	guiCmd.AddCommand(guiExecCmd)
 	guiCmd.AddCommand(guiShotCmd)
+	guiCmd.AddCommand(guiLaunchCmd)
 
 	// Arg-count violations on the children are usage-class (exit 2) — root.go's
 	// central wrap loop covers only rootCmd's direct children (the code-server
@@ -241,8 +243,9 @@ func runGuiOn(cmd *cobra.Command, _ []string) error {
 	}
 	switch outcome {
 	case daemon.GUIEnsureStarted:
-		if bin, display := guiAwaitStamps(cmd); bin != "" {
+		if bin, display, wm, ok := guiAwaitStamps(cmd); ok {
 			sink.Dataf("started (%s %s)\n", bin, display)
+			guiWMLines(sink, wm)
 		} else {
 			// The stamps land once the backend is up; a slow first paint must
 			// not fail the verb — the setting is on and the session spawned.
@@ -251,7 +254,7 @@ func runGuiOn(cmd *cobra.Command, _ []string) error {
 	case daemon.GUIEnsureAlreadyRunning:
 		sink.Dataf("already running\n")
 	case daemon.GUIEnsureNoBackend:
-		sink.Dataf("enabled — no VNC backend installed: %s\n", gui.InstallHint())
+		sink.Dataf("enabled — no VNC backend installed: %s\n", gui.InstallHint(guiLookPathFn))
 	default:
 		sink.Dataf("enabled\n")
 	}
@@ -271,7 +274,7 @@ func runGuiOff(cmd *cobra.Command, _ []string) error {
 	if guiDaemonRunningFn() {
 		ctx, cancel := context.WithTimeout(guiCmdCtx(cmd), 5*time.Second)
 		defer cancel()
-		if d, _, ok := guiSessionOptionsFn(ctx); ok {
+		if d, _, _, ok := guiSessionOptionsFn(ctx); ok {
 			display = d
 			// The pane's process tree (supervise, backend, WM) is excluded:
 			// the WM carries DISPLAY in its environ and must not count as a
@@ -374,12 +377,26 @@ func runGuiRestart(cmd *cobra.Command, _ []string) error {
 	if err := guiRestartFn(); err != nil {
 		return err
 	}
-	if bin, display := guiAwaitStamps(cmd); bin != "" {
+	if bin, display, wm, ok := guiAwaitStamps(cmd); ok {
 		sink.Dataf("restarted (%s %s)\n", bin, display)
+		guiWMLines(sink, wm)
 	} else {
 		sink.Dataf("restarted\n")
 	}
 	return nil
+}
+
+// guiWMLines prints the window-manager chatter after a started/restarted
+// datum: the resolved WM name, or the bare-display install hint pair when the
+// supervisor stamped an empty @rk_gui_wm. Chatter-class (Notef) so --quiet and
+// scripts keep the one-line datum.
+func guiWMLines(sink outputSink, wm string) {
+	if wm != "" {
+		sink.Notef("  window manager: %s\n", wm)
+		return
+	}
+	sink.Notef("  no window manager — running bare. Install one: %s\n", gui.WMInstallHint(guiLookPathFn))
+	sink.Notef("  then: rk gui restart\n")
 }
 
 // gatherGUIStatus assembles the shared gui.Status document for the CLI verbs
@@ -414,15 +431,24 @@ func guiStatusSummary(st gui.Status) string {
 		if bin == "" {
 			bin, _ = gui.ResolveBackend(guiLookPathFn)
 		}
-		return "gui: " + guiOnSummary(bin, st.Display, st.Width, st.Height, st.Viewers)
+		return "gui: " + guiOnSummary(bin, st.Display, st.Width, st.Height, st.Viewers, st.WM)
 	}
 	return "gui: on — not running (" + st.Reason + ")"
 }
 
-// guiOnSummary is the shared "on (<bin>, :N, WxH, k viewers)" rendering — the
-// status line's tail and the doctor row's reachable note.
-func guiOnSummary(bin, display string, width, height, viewers int) string {
-	return fmt.Sprintf("on (%s, %s, %dx%d, %d viewers)", bin, display, width, height, viewers)
+// guiOnSummary is the shared "on (<bin>, :N, WxH, k viewer(s), <wm>)" rendering
+// — the status line's tail and the doctor row's reachable note. An empty wm
+// renders the bare "no window manager" (the doctor appends the install hint
+// itself; the status line does not).
+func guiOnSummary(bin, display string, width, height, viewers int, wm string) string {
+	noun := "viewers"
+	if viewers == 1 {
+		noun = "viewer"
+	}
+	if wm == "" {
+		wm = "no window manager"
+	}
+	return fmt.Sprintf("on (%s, %s, %dx%d, %d %s, %s)", bin, display, width, height, viewers, noun, wm)
 }
 
 // guiAppsSummary renders the apps list as "<name> ×<count>, …" (the off
@@ -451,20 +477,21 @@ func guiUptimeString(d time.Duration) string {
 	return fmt.Sprintf("%dm", mins)
 }
 
-// guiAwaitStamps polls for the supervisor's @rk_gui_display/@rk_gui_backend
-// stamps so `on`/`restart` can name the backend and display in their outcome
-// line. ("", "") on timeout — the caller falls back to the bare line.
-func guiAwaitStamps(cmd *cobra.Command) (bin, display string) {
+// guiAwaitStamps polls for the supervisor's @rk_gui_display/@rk_gui_backend/
+// @rk_gui_wm stamps so `on`/`restart` can name the backend, display, and
+// window manager in their outcome line. ok=false on timeout — the caller
+// falls back to the bare line.
+func guiAwaitStamps(cmd *cobra.Command) (bin, display, wm string, ok bool) {
 	deadline := guiNowFn().Add(guiStampWaitTimeout)
 	for {
 		ctx, cancel := context.WithTimeout(guiCmdCtx(cmd), 5*time.Second)
-		d, b, ok := guiSessionOptionsFn(ctx)
+		d, b, w, stamped := guiSessionOptionsFn(ctx)
 		cancel()
-		if ok {
-			return b, d
+		if stamped {
+			return b, d, w, true
 		}
 		if !guiNowFn().Before(deadline) {
-			return "", ""
+			return "", "", "", false
 		}
 		time.Sleep(guiStampPollTick)
 	}

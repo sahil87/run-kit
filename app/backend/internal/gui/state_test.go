@@ -56,20 +56,3 @@ func TestValidateSocketPath(t *testing.T) {
 		t.Errorf("%d-byte path accepted, want the sun_path cap error", maxSocketPathBytes+1)
 	}
 }
-
-func TestInstallHint(t *testing.T) {
-	defer func(saved string) { goos = saved }(goos)
-
-	goos = "linux"
-	if got := InstallHint(); got != "install a VNC X server and a window manager: sudo apt install tigervnc-standalone-server openbox" {
-		t.Errorf("linux InstallHint() = %q", got)
-	}
-	goos = "darwin"
-	if got := InstallHint(); got != "enable System Settings › General › Sharing › Screen Sharing" {
-		t.Errorf("darwin InstallHint() = %q", got)
-	}
-	goos = "plan9"
-	if got := InstallHint(); got != "" {
-		t.Errorf("unsupported OS InstallHint() = %q, want empty", got)
-	}
-}

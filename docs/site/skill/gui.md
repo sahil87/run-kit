@@ -36,6 +36,15 @@ rk gui exec -- xdotool key --clearmodifiers minus   # `--` ends flag parsing
 
 Runs the command with `DISPLAY` pointed at the rk display (an existing `DISPLAY` is **overridden** — the rk display is the point) and `RK_GUI_SOCKET` set. Foreground is a process-replacing passthrough: the app's tty, signals, and exit status are its own — good for one-shot tools like `xdotool`. `--detach` (`-d`) starts the app as its own session with stdio on `/dev/null`, prints `started <pid> on :N`, and returns — the shape a Bash tool needs for a long-lived app (it would otherwise time out on a foreground chromium). Unknown program → `error: <cmd>: not found on PATH`, exit 1.
 
+## `rk gui launch` — the allowlisted terminal/browser launcher
+
+```sh
+rk gui launch terminal    # started x-terminal-emulator (pid 12345) on :10
+rk gui launch browser
+```
+
+The argument is a **role, never an arbitrary command** (that is `rk gui exec`). Each role resolves server-side through a fixed ladder of known binaries — terminal `x-terminal-emulator, xterm, uxterm, lxterm, foot, alacritty, kitty, gnome-terminal, xfce4-terminal`; browser `chromium, chromium-browser, google-chrome, google-chrome-stable, firefox, x-www-browser` — first on PATH wins, dangling Debian alternatives skipped. **Prefer it over `exec --detach` for these two roles**: one ladder is shared by this verb, the dashboard's `POST /api/gui/{id}/launch`, and the IceWM toolbar, so "the terminal" is the same binary everywhere. Nothing on the ladder → exit 1 with the package-manager-aware install line (`no browser on the GUI host — sudo apt install chromium-browser`); the HTTP twin returns `200 {"ok":false,"app","hint"}` instead, so the dashboard toasts the hint through the success path. A bad role is a usage error (exit 2).
+
 ## `rk gui shot` — screenshot the display
 
 ```sh
@@ -44,6 +53,10 @@ rk gui shot --out /tmp/x/y.png # creates the parent dir, overwrites
 ```
 
 stdout is **only the absolute PNG path** — read that file to *look* at the display. Uses the first tool on PATH: `import` (ImageMagick), then `scrot`, then `xwd`+`convert`. None installed → exit 1 with `sudo apt install imagemagick`. Screenshot tools are never installed for you; the same goes for `xdotool` (`sudo apt install xdotool`).
+
+## The IceWM profile directory
+
+With IceWM (the window-manager ladder head) the desktop runs off a seeded profile at `$XDG_STATE_HOME/run-kit/gui/icewm/` (dir 0700, files 0600), passed to icewm as `ICEWM_PRIVCFG`. Two file classes: `preferences` is **write-once** — seeded when absent, the user's edits persist, delete it to re-seed; `toolbar` and `menu` are **regenerated on every `rk gui supervise` start** from the launcher ladders, rows only for binaries that resolve (the header comment says so) — edit `preferences` instead. Deleting the whole directory restores every default on the next start.
 
 ## Recipe: the screenshot loop
 
@@ -66,9 +79,9 @@ Pairing: `rk notify` for out-of-band pings, `rk present` when the content is HTM
 
 ## Exit codes
 
-- `0` success — stdout carries only the datum (`rk gui shot`: the PNG path; `exec --detach`: the `started <pid> on :N` line; `rk gui env`: the export lines). Diagnostics go to stderr.
-- `1` operational — the gate refusals (`gui is off — turn it on with 'rk gui on'` / `gui is on but not running — see 'rk gui status'`), `not found on PATH`, a failed screenshot tool (`error: <tool> failed: <stderr tail>`), no screenshot tool installed (the apt hint).
-- `2` usage — missing command word, stray arg, unknown flag. A literal `--` ends flag parsing for `exec`.
+- `0` success — stdout carries only the datum (`rk gui shot`: the PNG path; `exec --detach`: the `started <pid> on :N` line; `launch`: `started <name> (pid <n>) on :N`; `rk gui env`: the export lines). Diagnostics go to stderr.
+- `1` operational — the gate refusals (`gui is off — turn it on with 'rk gui on'` / `gui is on but not running — see 'rk gui status'`), `not found on PATH`, nothing on a launch role's ladder (the install line), a failed screenshot tool (`error: <tool> failed: <stderr tail>`), no screenshot tool installed (the apt hint).
+- `2` usage — missing command word, stray arg, unknown flag, a launch role other than `terminal`/`browser`. A literal `--` ends flag parsing for `exec`.
 
 ## Gotchas
 

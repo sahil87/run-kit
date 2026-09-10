@@ -23,7 +23,7 @@ ground (C5 painted it) and a right-click menu whose entries point at
 desktop, nothing is reachable by tap on a phone, and a missing browser fails
 silently.
 
-**Status (2026-09-10)**: spike done (§ Spike verdict). G1 and G2 not started.
+**Status (2026-09-10)**: spike done (§ Spike verdict). G1 in progress (`260910-2jl3-gui-desktop-icewm-and-launcher`); G2 not started.
 
 ---
 
@@ -217,7 +217,7 @@ against a stubbed stream alone. Prefer two.
 
 | # | Slug (suggested) | Depends on | Size | Change folder | PR | Status |
 |---|------------------|-----------|------|---------------|----|--------|
-| G1 | `gui-desktop-icewm-and-launcher` | parent C5 merged (it is) | M | | | not started |
+| G1 | `gui-desktop-icewm-and-launcher` | parent C5 merged (it is) | M | 260910-2jl3-gui-desktop-icewm-and-launcher | | in progress (intake 2026-09-10) |
 | G2 | `gui-desktop-tile-strip-and-palette` | G1 merged | S | | | not started |
 
 ---

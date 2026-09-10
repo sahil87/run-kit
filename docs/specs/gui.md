@@ -45,10 +45,10 @@ sibling tmux session on the `rk-daemon` socket, pane command `rk gui
 supervise host`, and that pane's tty IS the supervisor log (R3 for a host
 singleton — D8). The relay path and the state payload are list-shaped
 (`/ws/gui/{id}`, `gui: [{id, enabled, backend, reachable, display, width,
-height, viewers}]`) so per-session displays can land later without reshaping.
+height, viewers, wm}]`) so per-session displays can land later without reshaping.
 
 ```
- browser tile (GuiSurface: noVNC RFB → <canvas>)         state stream: gui[{id:"host", enabled, backend, reachable, display, width, height, viewers}]
+ browser tile (GuiSurface: noVNC RFB → <canvas>)         state stream: gui[{id:"host", enabled, backend, reachable, display, width, height, viewers, wm}]
         │  wss  /ws/gui/host                                      ▲
         ▼                                                         │ probe (dial socket, TTL-cached like codeServerReachable; skipped while a relay viewer is live)
  rk daemon ── WS⇄stream relay (api/gui_ws.go, sibling of terminals_ws.go) ── Linux: unix  $XDG_STATE_HOME/run-kit/gui/host.sock
@@ -61,8 +61,32 @@ height, viewers}]`) so per-session displays can land later without reshaping.
    └─ rk-gui           (new sibling; window "host")
          └─ rk gui supervise host        ← the pane command; its tty IS the supervisor log (R3)
                ├─ Xtigervnc :N -rfbunixpath …/host.sock -rfbport -1 -SecurityTypes None -AlwaysShared -AcceptSetDesktopSize -geometry 1920x1080 -FrameRate=60
-               └─ WM (openbox | xfwm4 | kwin_x11 …) with DISPLAY=:N
+               └─ WM (icewm-session --nobg --notray | openbox | …) ICEWM_PRIVCFG=…/gui/icewm
 ```
+
+---
+
+## The supervisor
+
+The pane command `rk gui supervise host` owns the desktop end to end. The
+window manager comes from a fixed ladder — `icewm-session`, `openbox`,
+`xfwm4`, `i3`, `kwin_x11`, `x-session-manager` — first on PATH wins, or the
+`gui.wm` pin when set (an unresolvable pin logs and falls back to the
+ladder). `icewm-session` runs `--nobg --notray`: icewmbg would paint a theme
+wallpaper over the `xsetroot -solid #3b4252` ground, and the tray is dead
+weight on a single-user display. `x-session-manager` keeps its
+`dbus-run-session` wrap.
+
+For the icewm rung the supervisor seeds a private profile at
+`$XDG_STATE_HOME/run-kit/gui/icewm/` (dir 0700, files 0600), passed as
+`ICEWM_PRIVCFG` — two file classes: `preferences` is write-once (seeded when
+absent; user edits persist; delete to re-seed), `toolbar` and `menu` are
+regenerated on every start from the launcher ladders (rows only for resolved
+binaries). `~/.icewm` is never touched. Before starting the WM the supervisor
+stamps `@rk_gui_display`, `@rk_gui_backend`, and `@rk_gui_wm` (`<argv[0]>`, or
+`""` when bare) on the `rk-gui` session in one burst; every reader — the
+status document (`wm`, `wm_hint`), the `event: gui` stream entry, `rk gui
+status`, doctor — derives the WM from that stamp.
 
 ---
 
@@ -70,7 +94,10 @@ height, viewers}]`) so per-session displays can land later without reshaping.
 
 **Off by default. One switch, `gui.enabled`** — a settings-registry bool,
 default `false`, home `~/.config/run-kit/config.yaml`, **no env form** (env
-stays the three binding keys — Constitution IV) — D3.
+stays the three binding keys — Constitution IV) — D3. A second registry key,
+**`gui.wm`** (string, default `""`, no env form), pins the window manager;
+empty picks the first ladder rung on PATH (§ The supervisor). It takes effect
+on `rk gui restart`.
 
 | Entry point | Form | Notes |
 |-------------|------|-------|
@@ -78,6 +105,13 @@ stays the three binding keys — Constitution IV) — D3.
 | Settings dialog | a **GUI** row with a toggle | registry-driven; the off direction opens the confirm listing running apps |
 | Palette | `GUI: Turn on` / `GUI: Turn off` | Constitution V parity for the dialog toggle; same confirm |
 | Tile empty state | appears only when enabled but unreachable | "GUI is on but not running" → Restart supervisor · Open supervisor logs · install hint; there is deliberately **no Start button on a disabled host** — the button itself doesn't exist there |
+
+Install hints are package-manager-aware (apt/dnf/pacman probed by presence —
+wording only, never executed). `rk gui on` on a host with no backend prints
+`enabled — no VNC backend installed: <pm-line-backend>` (backend + WM, e.g.
+`sudo apt install --no-install-recommends tigervnc-standalone-server icewm`);
+on a backend with no WM it starts, then notes `no window manager — running
+bare. Install one: <pm-line>` and `then: rk gui restart`.
 
 **On** ⇒ the supervisor is ensured now and re-ensured on daemon boot (the
 `ensureCodeServer` boot-hook shape, gated on the setting); the 4th toggle
@@ -113,8 +147,10 @@ binary frames ⇄ the backend stream, a sibling of the terminal relay. VNC is
 never on TCP on Linux — a unix socket by convention under
 `$XDG_STATE_HOME/run-kit/gui/` (`host.sock`; dir 0700, socket 0600); auth
 `None` (the same trust boundary as code-server's `--auth none`: the only
-client is rk on the same user). Mutations are `POST /api/gui/{id}/restart`
-plus the `gui.enabled` key on `POST /api/settings`; there is no route family
+client is rk on the same user). Mutations are `POST /api/gui/{id}/restart`,
+`POST /api/gui/{id}/launch` (the allowlisted two-role launcher; body
+`{"app":"terminal"|"browser"}`, never argv), plus the `gui.enabled` key on
+`POST /api/settings`; there is no route family
 beyond `/ws/gui/*` and `/api/gui/*`.
 
 ---
@@ -152,6 +188,11 @@ otherwise (plan C4, study §10):
 - `rk gui env` — prints `DISPLAY=:N` and the socket path for `eval`.
 - `rk gui exec <cmd…>` — runs a command on the display (the `rk code exec`
   shape).
+- `rk gui launch <terminal|browser>` — the allowlisted launcher: two roles
+  resolved server-side over fixed ladders (first on PATH wins, dangling
+  alternatives skipped); a miss exits 1 with the install hint (the HTTP twin
+  returns `{"ok":false,"hint"}`). Prefer it over `exec --detach` for the two
+  roles — one ladder shared by the CLI, HTTP, and the IceWM toolbar.
 - `rk gui shot [--out <png>]` — screenshots the display; macOS refuses in v1
   (view-only mirror).
 - `rk agent setup` — exports `DISPLAY` into managed panes when enabled
@@ -204,7 +245,10 @@ control", the macOS virtual-display backend, board pins of `(window, gui)`.
 ## Phasing
 
 The execution plan's C0–C6, condensed (scope and acceptance live in
-[`fab/plans/sahil/26-09-09-gui-surface.md`](../../fab/plans/sahil/26-09-09-gui-surface.md)):
+[`fab/plans/sahil/26-09-09-gui-surface.md`](../../fab/plans/sahil/26-09-09-gui-surface.md);
+the desktop leg — the IceWM rung, the seeded profile, the WM stamp, the
+launcher — lives in the child plan
+[`fab/plans/sahil/26-09-10-gui-desktop.md`](../../fab/plans/sahil/26-09-10-gui-desktop.md)):
 
 | # | Change | One line |
 |---|--------|----------|
@@ -217,6 +261,6 @@ The execution plan's C0–C6, condensed (scope and acceptance live in
 | C6 | KasmVNC backend | Picked up by C5's verdict; its intake weighs the in-tree Tight quality lever against the Kasm backend's byte reduction before committing to a second renderer |
 
 Picked with the user at C2/C3 (recorded as open, not decided here): the 4th
-toggle's glyph (`▣` placeholder — C3); the WM probe order (`openbox`,
-`xfwm4`, `i3`, `kwin_x11`, `x-session-manager` proposed — C2); the
-off-confirm dialog copy listing running apps (C2/C3).
+toggle's glyph (`▣` placeholder — C3); the off-confirm dialog copy listing
+running apps (C2/C3). The WM probe order is decided — the child plan heads
+the ladder with `icewm-session --nobg --notray` (G-D1).

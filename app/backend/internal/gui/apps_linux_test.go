@@ -113,3 +113,22 @@ func TestRunningApps(t *testing.T) {
 		}
 	})
 }
+
+func TestRunningAppsExcludesWMHelpersByName(t *testing.T) {
+	// WM helpers carry the display in their env like any X client; without the
+	// comm-name exclusion they would show in the apps list whenever the pid
+	// exclude set is unavailable.
+	procRoot := t.TempDir()
+	writeFakeProc(t, procRoot, 201, "icewm", "DISPLAY=:10")
+	writeFakeProc(t, procRoot, 202, "icewm-session", "DISPLAY=:10")
+	writeFakeProc(t, procRoot, 300, "xterm", "DISPLAY=:10")
+
+	apps, err := RunningApps(procRoot, ":10", nil)
+	if err != nil {
+		t.Fatalf("RunningApps: %v", err)
+	}
+	want := []App{{Name: "xterm", Count: 1}}
+	if !reflect.DeepEqual(apps, want) {
+		t.Errorf("RunningApps(:10) = %v, want %v — WM helpers excluded by name", apps, want)
+	}
+}

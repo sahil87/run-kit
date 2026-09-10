@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-09-10T15:16:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T15:43:08Z"}
     review: {started_at: "2026-09-10T15:43:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T15:52:08Z"}
     hydrate: {started_at: "2026-09-10T15:52:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T15:58:27Z"}
-    ship: {started_at: "2026-09-10T15:58:27Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-10T15:58:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T16:00:01Z"}
+    review-pr: {started_at: "2026-09-10T16:00:01Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/914
 true_impact:
-    added: 185
-    deleted: 0
-    net: 185
+    added: 1844
+    deleted: 94
+    net: 1750
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1111
+        deleted: 73
+        net: 1038
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-10T15:58:27Z"
-    computed_at_stage: hydrate
+        added: 305
+        deleted: 16
+        net: 289
+    computed_at: "2026-09-10T16:00:01Z"
+    computed_at_stage: ship
 summary: Terminal route keeps the tile grid mounted across same-server window switches (server-keyed SurfaceLayout, effect-driven per-window reset, deferred clear() on the same-session ride); SSE switch confirmation is byte-gated with an unconditional 5s rescue
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-10T15:58:27Z
+last_updated: 2026-09-10T16:00:01Z

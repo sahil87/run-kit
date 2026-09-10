@@ -159,8 +159,9 @@ func guiCDPChromium(name, path string) bool {
 	return guiCDPFamily[filepath.Base(resolved)]
 }
 
-// guiWaitCDPPort polls 127.0.0.1:<port> until it accepts TCP or the budget
-// expires.
+// guiWaitCDPPort polls 127.0.0.1:<port> until it accepts TCP, the budget
+// expires, or ctx is canceled — the poll sleep is a select so an interrupt
+// returns at once instead of running out the remaining budget.
 func guiWaitCDPPort(ctx context.Context, port int) error {
 	deadline := time.Now().Add(guiCDPWaitTimeout)
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
@@ -171,6 +172,10 @@ func guiWaitCDPPort(ctx context.Context, port int) error {
 		if !time.Now().Before(deadline) {
 			return errors.New("timeout")
 		}
-		time.Sleep(guiCDPWaitPoll)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(guiCDPWaitPoll):
+		}
 	}
 }

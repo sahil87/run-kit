@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"errors"
+	"io/fs"
 	"os"
 	"strings"
 	"testing"
@@ -63,7 +63,7 @@ func TestGuiOpenMissingFile(t *testing.T) {
 	starts := withGuiOpenSeams(t)
 	withGuiCLISeams(t)
 	seedGuiOn(t)
-	guiStatFn = func(string) (os.FileInfo, error) { return nil, errors.New("no such file") }
+	guiStatFn = func(string) (os.FileInfo, error) { return nil, fs.ErrNotExist }
 
 	err := runGuiOpen(bareCmd(&bytes.Buffer{}, &bytes.Buffer{}), []string{"nope.png"})
 	if err == nil || err.Error() != "open: nope.png: no such file" {
@@ -128,5 +128,17 @@ func TestGuiOpenFileWithoutXdgOpenRefuses(t *testing.T) {
 	}
 	if len(*starts) != 0 {
 		t.Errorf("start called %d times without xdg-open for a file", len(*starts))
+	}
+}
+
+func TestGuiOpenStatErrorIsNotMissingFile(t *testing.T) {
+	withGuiOpenSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	guiStatFn = func(string) (os.FileInfo, error) { return nil, fs.ErrPermission }
+
+	err := runGuiOpen(bareCmd(&bytes.Buffer{}, &bytes.Buffer{}), []string{"locked.png"})
+	if err == nil || !strings.Contains(err.Error(), "error: open locked.png: ") || strings.Contains(err.Error(), "no such file") {
+		t.Errorf("err = %v, want a wrapped operational error, not the missing-file refusal", err)
 	}
 }

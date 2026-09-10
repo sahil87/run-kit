@@ -313,3 +313,22 @@ func TestGuiLaunchCDPPortZeroIsUsage(t *testing.T) {
 		t.Errorf("start called %d times for --port 0", len(*startCalls))
 	}
 }
+
+func TestGuiWaitCDPPortStopsOnCancel(t *testing.T) {
+	origDial := guiDialFn
+	origTimeout, origPoll := guiCDPWaitTimeout, guiCDPWaitPoll
+	t.Cleanup(func() { guiDialFn, guiCDPWaitTimeout, guiCDPWaitPoll = origDial, origTimeout, origPoll })
+	guiDialFn = func(context.Context, string) error { return errors.New("connection refused") }
+	guiCDPWaitTimeout, guiCDPWaitPoll = 10*time.Second, 5*time.Second
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	err := guiWaitCDPPort(ctx, 9222)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Errorf("wait ran %s after cancel, want an immediate return", time.Since(start))
+	}
+}

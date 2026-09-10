@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -61,7 +62,12 @@ func runGuiOpen(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("error: open %s: %w", target, aerr)
 		}
 		if _, serr := guiStatFn(abs); serr != nil {
-			return fmt.Errorf("open: %s: no such file", target)
+			// Only a genuinely absent path is "no such file"; a permission
+			// or IO failure is a different fact and keeps its own message.
+			if errors.Is(serr, fs.ErrNotExist) {
+				return fmt.Errorf("open: %s: no such file", target)
+			}
+			return fmt.Errorf("error: open %s: %w", target, serr)
 		}
 		target = abs
 	}

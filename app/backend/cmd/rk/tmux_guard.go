@@ -120,6 +120,12 @@ const (
 // script skips can never disagree.
 const rkShimsRelDir = ".local/share/rk/shims"
 
+// rkBinRelDir is the per-machine pointer directory relative to $HOME — a
+// sibling of the shims dir that MUST stay off PATH (see guiPointerPath). Shared
+// by rkBinDir (Go) and the gui display block's shell literal, so the path the
+// block execs and the path rk links can never disagree.
+const rkBinRelDir = ".local/share/rk/bin"
+
 // tmuxShimNormPathFunc is the shim's separator-normalizing helper, kept OUT of
 // tmuxShimTemplate and passed in as an argument: its ${x%%//*} / ${x%/}
 // expansions would otherwise have to be %-escaped for fmt.Sprintf, which is
@@ -370,6 +376,11 @@ func tmuxShimExecTarget(content string) string {
 // directory the guard skips when resolving the real tmux.
 func rkShimsDir(home string) string {
 	return filepath.Join(home, filepath.FromSlash(rkShimsRelDir))
+}
+
+// rkBinDir is the per-machine pointer directory for a given home.
+func rkBinDir(home string) string {
+	return filepath.Join(home, filepath.FromSlash(rkBinRelDir))
 }
 
 // --- guard decision ---------------------------------------------------------

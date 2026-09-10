@@ -2117,23 +2117,28 @@ func installGuiDisplayBlock(t *testing.T, home, rkPath string) {
 }
 
 func TestGuiDisplayBlockText(t *testing.T) {
-	block := guiDisplayBlock("/opt/homebrew/bin/rk")
+	block := guiDisplayBlock
 	if !strings.HasPrefix(block, guiDisplayBlockBegin+"\n") || !strings.HasSuffix(block, guiDisplayBlockEnd+"\n") {
 		t.Errorf("block is not delimited by its markers: %q", block)
 	}
-	// The three guards are the read-time-derivation contract: pane-scoped,
-	// never overriding a pre-set DISPLAY, stderr discarded so an off GUI is
-	// silent. The block embeds no display number or other GUI state.
-	for _, want := range []string{`[ -n "$TMUX_PANE" ]`, `[ -z "${DISPLAY-}" ]`, `2>/dev/null`, `eval "$("/opt/homebrew/bin/rk" gui env 2>/dev/null)"`} {
-		if !strings.Contains(block, want) {
-			t.Errorf("block missing %q: %q", want, block)
-		}
+	// The body is pinned byte-for-byte: docs/memory replicates it, and its
+	// host-independence (no interpolated path — only $HOME, expanded by the
+	// shell) is the whole point of the pointer split. The four guards are the
+	// read-time-derivation contract: pane-scoped, never overriding a pre-set
+	// DISPLAY, silent on a missing/dangling pointer, stderr discarded so an off
+	// GUI is silent. The block embeds no display number or other GUI state.
+	want := "# >>> rk gui display >>>\n" +
+		`[ -n "$TMUX_PANE" ] && [ -z "${DISPLAY-}" ] && [ -x "$HOME/.local/share/rk/bin/run-kit" ] && eval "$("$HOME/.local/share/rk/bin/run-kit" gui env 2>/dev/null)"` + "\n" +
+		"# <<< rk gui display <<<\n"
+	if block != want {
+		t.Errorf("block body drifted:\n got: %q\nwant: %q", block, want)
 	}
 	if strings.Contains(block, "DISPLAY=:") {
 		t.Errorf("block embeds a display number — the value is derived at each shell start: %q", block)
 	}
-	if got := len(strings.Split(strings.TrimSuffix(block, "\n"), "\n")); got != 3 {
-		t.Errorf("block is %d lines, want exactly 3", got)
+	// The shell literal and the Go-side pointer path must name the same file.
+	if got := guiPointerPath("/h"); got != "/h/.local/share/rk/bin/run-kit" {
+		t.Errorf("guiPointerPath = %q, want /h/.local/share/rk/bin/run-kit", got)
 	}
 }
 
@@ -2143,12 +2148,32 @@ func TestGuiDisplayBlockFreshInstall(t *testing.T) {
 
 	for _, name := range []string{".zshenv", ".bashrc"} {
 		content := readFileOrEmpty(t, filepath.Join(home, name))
-		if !strings.HasSuffix(content, guiDisplayBlock("/opt/homebrew/bin/rk")) {
+		if !strings.HasSuffix(content, guiDisplayBlock) {
 			t.Errorf("%s does not end with the gui display block: %q", name, content)
+		}
+		if strings.Contains(content, "/opt/homebrew") {
+			t.Errorf("%s embeds the host rk path — the block must be host-independent: %q", name, content)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(home, ".bash_profile")); !os.IsNotExist(err) {
 		t.Errorf(".bash_profile must not be created by the install; stat err = %v", err)
+	}
+	assertGuiPointer(t, home, "/opt/homebrew/bin/rk")
+}
+
+// assertGuiPointer checks the per-machine pointer is a symlink to want.
+func assertGuiPointer(t *testing.T, home, want string) {
+	t.Helper()
+	link := guiPointerPath(home)
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatalf("pointer %s: %v", link, err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("pointer %s is not a symlink (mode %v)", link, info.Mode())
+	}
+	if got, _ := os.Readlink(link); got != want {
+		t.Errorf("pointer %s -> %q, want %q", link, got, want)
 	}
 }
 
@@ -2188,6 +2213,9 @@ func TestGuiDisplayBlockIdempotentReinstall(t *testing.T) {
 	if got := strings.Count(out.String(), "block already present"); got != 2 {
 		t.Errorf("re-run reported %d already-present notes, want 2 (one per file): %q", got, out.String())
 	}
+	if !strings.Contains(out.String(), "pointer already links") {
+		t.Errorf("re-run did not report the pointer no-op: %q", out.String())
+	}
 	for i, f := range files {
 		if got := readFileOrEmpty(t, f); got != first[i] {
 			t.Errorf("%s changed on idempotent re-run:\nfirst:  %q\nsecond: %q", f, first[i], got)
@@ -2214,6 +2242,12 @@ func TestGuiDisplayBlockUninstallRemovesExactly(t *testing.T) {
 	}
 	if got := readFileOrEmpty(t, filepath.Join(home, ".bashrc")); got != "" {
 		t.Errorf(".bashrc after uninstall = %q, want empty (install created it for the block alone)", got)
+	}
+	if _, err := os.Lstat(guiPointerPath(home)); !os.IsNotExist(err) {
+		t.Errorf("pointer still present after uninstall; lstat err = %v", err)
+	}
+	if _, err := os.Stat(rkBinDir(home)); !os.IsNotExist(err) {
+		t.Errorf("empty bin dir not pruned after uninstall; stat err = %v", err)
 	}
 
 	// A second uninstall is silent — absence needs no narration.
@@ -2242,6 +2276,12 @@ func TestGuiDisplayBlockDryRunWritesNothing(t *testing.T) {
 			t.Errorf("--dry-run created %s", name)
 		}
 	}
+	if _, err := os.Stat(rkBinDir(home)); !os.IsNotExist(err) {
+		t.Errorf("--dry-run created the bin dir; stat err = %v", err)
+	}
+	if !strings.Contains(out.String(), "gui display: dry run — "+guiPointerPath(home)+" not written.") {
+		t.Errorf("dry-run output lacks the pointer note: %q", out.String())
+	}
 }
 
 func TestGuiDisplayBlockMalformedRefused(t *testing.T) {
@@ -2263,7 +2303,7 @@ func TestGuiDisplayBlockMalformedRefused(t *testing.T) {
 	if !strings.Contains(out.String(), "leaving the file untouched") {
 		t.Errorf("missing the skip note for the malformed block: %q", out.String())
 	}
-	if got := readFileOrEmpty(t, filepath.Join(home, ".bashrc")); !strings.HasSuffix(got, guiDisplayBlock("/opt/homebrew/bin/rk")) {
+	if got := readFileOrEmpty(t, filepath.Join(home, ".bashrc")); !strings.HasSuffix(got, guiDisplayBlock) {
 		t.Errorf(".bashrc did not receive the block (the malformed .zshenv must not stop it): %q", got)
 	}
 }
@@ -2271,7 +2311,7 @@ func TestGuiDisplayBlockMalformedRefused(t *testing.T) {
 // TestGuiDisplayBlockIndependentOfShim pins the install-gating difference from
 // the PATH block: a foreign marker-less shim (or a declined shim write) leaves
 // the PATH block unwritten, but the gui display block still installs — it
-// embeds the rk path directly and fronts nothing.
+// gates on its OWN pointer, not on the tmux shim.
 func TestGuiDisplayBlockIndependentOfShim(t *testing.T) {
 	home := t.TempDir()
 	shimPath := tmuxShimPath(home)
@@ -2297,5 +2337,287 @@ func TestGuiDisplayBlockIndependentOfShim(t *testing.T) {
 	}
 	if !strings.Contains(zshenv, guiDisplayBlockBegin) {
 		t.Errorf("gui display block skipped with the PATH block: %q", zshenv)
+	}
+	assertGuiPointer(t, home, "/opt/homebrew/bin/rk")
+}
+
+// TestGuiDisplayBlockTwoHostsByteIdentical is the regression for the synced-
+// dotfiles fight: two hosts with different Homebrew prefixes must write the
+// SAME block, so a synced ~/.zshenv converges and every re-run on either host
+// is the "already present" no-op instead of a "replaced in position" rewrite.
+func TestGuiDisplayBlockTwoHostsByteIdentical(t *testing.T) {
+	mac, linux := t.TempDir(), t.TempDir()
+	installGuiDisplayBlock(t, mac, "/opt/homebrew/bin/run-kit")
+	installGuiDisplayBlock(t, linux, "/home/linuxbrew/.linuxbrew/bin/run-kit")
+
+	macEnv := readFileOrEmpty(t, filepath.Join(mac, ".zshenv"))
+	linuxEnv := readFileOrEmpty(t, filepath.Join(linux, ".zshenv"))
+	if macEnv != linuxEnv {
+		t.Fatalf(".zshenv differs between hosts:\nmac:   %q\nlinux: %q", macEnv, linuxEnv)
+	}
+	assertGuiPointer(t, mac, "/opt/homebrew/bin/run-kit")
+	assertGuiPointer(t, linux, "/home/linuxbrew/.linuxbrew/bin/run-kit")
+
+	// Simulate the sync: the mac's file lands on the linux host, then the
+	// linux host re-runs setup. It must not want to write anything.
+	if err := os.WriteFile(filepath.Join(linux, ".zshenv"), []byte(macEnv), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), linux, "", "/home/linuxbrew/.linuxbrew/bin/run-kit", false, consent{}); err != nil {
+		t.Fatalf("re-run on the synced file must not need consent, got: %v", err)
+	}
+	if strings.Contains(out.String(), "replaced in position") || strings.Contains(out.String(), "will add") {
+		t.Errorf("re-run on the synced file proposed a write: %q", out.String())
+	}
+}
+
+// TestGuiDisplayBlockOldBodyReplacedInPosition pins the migration: a block
+// carrying the pre-pointer absolute-path body (same markers) is rewritten in
+// place once, and the next run is a no-op.
+func TestGuiDisplayBlockOldBodyReplacedInPosition(t *testing.T) {
+	home := t.TempDir()
+	old := "# mine\n" + guiDisplayBlockBegin + "\n" +
+		`[ -n "$TMUX_PANE" ] && [ -z "${DISPLAY-}" ] && eval "$("/opt/homebrew/bin/run-kit" gui env 2>/dev/null)"` + "\n" +
+		guiDisplayBlockEnd + "\n# after\n"
+	zshenv := filepath.Join(home, ".zshenv")
+	if err := os.WriteFile(zshenv, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/run-kit", false, consent{yes: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if !strings.Contains(out.String(), "replaced in position") {
+		t.Errorf("first run should replace the old body in position: %q", out.String())
+	}
+	if got, want := readFileOrEmpty(t, zshenv), "# mine\n"+guiDisplayBlock+"# after\n"; got != want {
+		t.Errorf(".zshenv after migration:\n got: %q\nwant: %q", got, want)
+	}
+
+	out.Reset()
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/run-kit", false, consent{}); err != nil {
+		t.Fatalf("second run must not need consent, got: %v", err)
+	}
+	if !strings.Contains(out.String(), "block already present in "+zshenv) {
+		t.Errorf("second run did not no-op on the migrated file: %q", out.String())
+	}
+}
+
+// TestGuiDisplayPointerRelink covers the moved-install and dangling cases: a
+// symlink with any other target is rk-owned and relinked (wording names the
+// old target); the block itself is untouched.
+func TestGuiDisplayPointerRelink(t *testing.T) {
+	home := t.TempDir()
+	installGuiDisplayBlock(t, home, "/opt/homebrew/bin/run-kit")
+	before := readFileOrEmpty(t, filepath.Join(home, ".zshenv"))
+
+	// Point it somewhere stale (and dangling — the target need not exist).
+	link := guiPointerPath(home)
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/usr/local/Cellar/run-kit/0.0.1/bin/run-kit", link); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/home/linuxbrew/.linuxbrew/bin/run-kit", false, consent{yes: true}); err != nil {
+		t.Fatalf("relink run: %v", err)
+	}
+	if !strings.Contains(out.String(), "will relink "+link+" -> /home/linuxbrew/.linuxbrew/bin/run-kit (currently -> /usr/local/Cellar/run-kit/0.0.1/bin/run-kit)") {
+		t.Errorf("relink wording missing or wrong: %q", out.String())
+	}
+	assertGuiPointer(t, home, "/home/linuxbrew/.linuxbrew/bin/run-kit")
+	if got := readFileOrEmpty(t, filepath.Join(home, ".zshenv")); got != before {
+		t.Errorf("block changed on a pointer relink: %q", got)
+	}
+	if entries, _ := os.ReadDir(rkBinDir(home)); len(entries) != 1 {
+		t.Errorf("bin dir has %d entries after relink, want 1 (no temp leftovers)", len(entries))
+	}
+}
+
+// TestGuiDisplayForeignPointerSkipsBlock pins the gate: a regular file at the
+// pointer path is the user's — rk never replaces it and never writes a block
+// that would exec it from every pane shell's startup. Uninstall leaves it too.
+func TestGuiDisplayForeignPointerSkipsBlock(t *testing.T) {
+	home := t.TempDir()
+	link := guiPointerPath(home)
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := "#!/bin/sh\n# the user's own thing\n"
+	if err := os.WriteFile(link, []byte(foreign), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/run-kit", false, consent{yes: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if !strings.Contains(out.String(), "is not a symlink — leaving it untouched") || !strings.Contains(out.String(), "skipping the startup-file block") {
+		t.Errorf("missing the foreign-pointer skip notes: %q", out.String())
+	}
+	for _, name := range []string{".zshenv", ".bashrc"} {
+		if _, err := os.Stat(filepath.Join(home, name)); !os.IsNotExist(err) {
+			t.Errorf("%s was created despite the foreign pointer", name)
+		}
+	}
+	if got := readFileOrEmpty(t, link); got != foreign {
+		t.Errorf("foreign pointer file modified: %q", got)
+	}
+
+	out.Reset()
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if got := readFileOrEmpty(t, link); got != foreign {
+		t.Errorf("uninstall touched the foreign pointer file: %q", got)
+	}
+	if !strings.Contains(out.String(), "rk only removes pointers it owns") {
+		t.Errorf("uninstall did not note the foreign pointer: %q", out.String())
+	}
+}
+
+// TestGuiDisplayDeclinedPointerSkipsBlock: declining the pointer prompt leaves
+// the bin dir uncreated and skips the block — the same posture as a declined
+// shim write skipping the PATH block.
+func TestGuiDisplayDeclinedPointerSkipsBlock(t *testing.T) {
+	home := t.TempDir()
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("n\n")), home, "", "/opt/homebrew/bin/run-kit", false, consent{stdinIsTTY: true})
+	if err != nil {
+		t.Fatalf("declined install: %v", err)
+	}
+	if !strings.Contains(out.String(), "skipped (no pointer written)") || !strings.Contains(out.String(), "skipping the startup-file block") {
+		t.Errorf("missing the declined-pointer notes: %q", out.String())
+	}
+	if _, err := os.Stat(rkBinDir(home)); !os.IsNotExist(err) {
+		t.Errorf("bin dir created despite the declined prompt; stat err = %v", err)
+	}
+	for _, name := range []string{".zshenv", ".bashrc"} {
+		if _, err := os.Stat(filepath.Join(home, name)); !os.IsNotExist(err) {
+			t.Errorf("%s was created despite the declined pointer", name)
+		}
+	}
+}
+
+// TestGuiDisplayForeignPointerStripsExistingBlock pins the re-install half of
+// the gate: a block a previous install left behind must not survive a foreign
+// file appearing at the pointer path — its own -x check would pass on that
+// file and every pane shell would exec it.
+func TestGuiDisplayForeignPointerStripsExistingBlock(t *testing.T) {
+	home := t.TempDir()
+	installGuiDisplayBlock(t, home, "/opt/homebrew/bin/run-kit")
+	user := "# mine\n"
+	zshenv := filepath.Join(home, ".zshenv")
+	if err := os.WriteFile(zshenv, []byte(user+guiDisplayBlock), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := guiPointerPath(home)
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(link, []byte("#!/bin/sh\necho pwned\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/run-kit", false, consent{yes: true}); err != nil {
+		t.Fatalf("re-install: %v", err)
+	}
+	if got := readFileOrEmpty(t, zshenv); got != user {
+		t.Errorf("block retained behind a foreign pointer: %q", got)
+	}
+	if got := readFileOrEmpty(t, filepath.Join(home, ".bashrc")); strings.Contains(got, guiDisplayBlockBegin) {
+		t.Errorf(".bashrc block retained behind a foreign pointer: %q", got)
+	}
+	if !strings.Contains(out.String(), "will remove the 3-line rk gui display block") {
+		t.Errorf("strip not narrated: %q", out.String())
+	}
+}
+
+// TestGuiDisplayDeclinedRelinkKeepsExistingBlock: declining a relink leaves an
+// rk-owned (stale) symlink in place, so the existing block stays — it is not
+// the foreign case.
+func TestGuiDisplayDeclinedRelinkKeepsExistingBlock(t *testing.T) {
+	home := t.TempDir()
+	installGuiDisplayBlock(t, home, "/opt/homebrew/bin/run-kit")
+	before := readFileOrEmpty(t, filepath.Join(home, ".zshenv"))
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("n\n")), home, "", "/home/linuxbrew/.linuxbrew/bin/run-kit", false, consent{stdinIsTTY: true}); err != nil {
+		t.Fatalf("declined relink: %v", err)
+	}
+	assertGuiPointer(t, home, "/opt/homebrew/bin/run-kit")
+	if got := readFileOrEmpty(t, filepath.Join(home, ".zshenv")); got != before {
+		t.Errorf("block changed on a declined relink: %q", got)
+	}
+	if !strings.Contains(out.String(), "skipping the startup-file block") || strings.Contains(out.String(), "will remove") {
+		t.Errorf("declined relink must skip, not strip: %q", out.String())
+	}
+}
+
+// TestGuiDisplayUninstallLeavesSymlinkedBinDir: the prune after removing the
+// pointer must not remove a user's symlink standing in for bin/.
+func TestGuiDisplayUninstallLeavesSymlinkedBinDir(t *testing.T) {
+	home := t.TempDir()
+	real := filepath.Join(home, "elsewhere")
+	if err := os.MkdirAll(filepath.Dir(rkBinDir(home)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, rkBinDir(home)); err != nil {
+		t.Fatal(err)
+	}
+	installGuiDisplayBlock(t, home, "/opt/homebrew/bin/run-kit")
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if _, err := os.Lstat(guiPointerPath(home)); !os.IsNotExist(err) {
+		t.Errorf("pointer still present; lstat err = %v", err)
+	}
+	if fi, err := os.Lstat(rkBinDir(home)); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the user's bin symlink was removed by the prune (err=%v)", err)
+	}
+}
+
+// TestReplaceSymlinkSweepsStaleTemp: a temp symlink from a crashed earlier run
+// is cleared; a regular file under the temp pattern is not rk's and stays.
+func TestReplaceSymlinkSweepsStaleTemp(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "run-kit")
+	staleLink := filepath.Join(dir, ".run-kit.tmp-1")
+	staleFile := filepath.Join(dir, ".run-kit.tmp-2")
+	if err := os.Symlink("/old", staleLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staleFile, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceSymlink("/new", link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(staleLink); !os.IsNotExist(err) {
+		t.Errorf("stale temp symlink not swept; err=%v", err)
+	}
+	if _, err := os.Lstat(staleFile); err != nil {
+		t.Errorf("regular file under the temp pattern was removed: %v", err)
+	}
+	if got, _ := os.Readlink(link); got != "/new" {
+		t.Errorf("link -> %q, want /new", got)
 	}
 }

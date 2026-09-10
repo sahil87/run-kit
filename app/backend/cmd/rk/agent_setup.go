@@ -653,8 +653,9 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 		return err
 	}
 	// The gui display block is likewise user-global and runs after the shim.
-	// Unlike the PATH block it does NOT depend on the shim being in place — it
-	// embeds the validated rk path directly and fronts nothing.
+	// It does NOT depend on the shim being in place: it reaches rk through its
+	// own per-machine pointer (~/.local/share/rk/bin/run-kit, which carries the
+	// validated path) and gates on that pointer instead.
 	return applyGuiDisplayBlocks(sink, reader, home, os.Getenv("ZDOTDIR"), rkPath, uninstall, cons)
 }
 
@@ -1567,33 +1568,277 @@ func applyTmuxGuardPathBlocks(sink outputSink, reader *bufio.Reader, home, zdotd
 // in the file and turning the GUI on later needs no re-setup — the block is
 // inert while off (`rk gui env` prints nothing and exits 1, so eval "" is a
 // no-op). It lives in the SAME startup files as the guard PATH block
-// (tmuxGuardStartupFiles) and reuses the PATH block's entire flow, but it is
-// independent on install: it embeds the validated absolute rk path and fronts
-// nothing, so a declined shim write does not skip it.
+// (tmuxGuardStartupFiles) and reuses the PATH block's entire flow.
+//
+// The artifact is split in two, exactly like the tmux guard's PATH block and
+// shim: a HOST-INDEPENDENT block in the startup files, and a PER-MACHINE
+// pointer under ~/.local/share/rk/ that carries the absolute rk path. Startup
+// files are commonly dotfile-synced across hosts whose Homebrew prefixes
+// differ (/opt/homebrew vs /home/linuxbrew/.linuxbrew), so a block embedding
+// the host path can never converge — every re-run on either host rewrote the
+// other's block. A synced file may carry only relocatable content.
 
 // guiDisplayBlockBegin/End delimit the marker-owned gui display block — the
 // ownership contract of the other marker blocks: re-install replaces exactly
 // the region between them, --uninstall removes exactly it, and a malformed
-// region is refused.
+// region is refused. The marker TEXT is frozen — it matches blocks already
+// installed on user machines, which is how the old absolute-path body is
+// found and replaced in position.
 const (
 	guiDisplayBlockBegin = "# >>> rk gui display >>>"
 	guiDisplayBlockEnd   = "# <<< rk gui display <<<"
 )
 
-// guiDisplayBlock is the full marker-owned block. The guards are load-bearing:
-// $TMUX_PANE scopes the eval to tmux panes (the same gate the installed agent
-// hooks use); ${DISPLAY-} keeps a real X session's DISPLAY (desktop Linux,
-// SSH X-forwarding) untouched and skips the exec in nested shells; stderr is
-// discarded so an off/unreachable GUI stays silent. rkPath is the
-// resolveRkPath/validateHookPath-validated absolute binary path — embedded
-// double-quoted so the block is PATH-independent at read time.
-func guiDisplayBlock(rkPath string) string {
-	return guiDisplayBlockBegin + "\n" +
-		fmt.Sprintf(`[ -n "$TMUX_PANE" ] && [ -z "${DISPLAY-}" ] && eval "$("%s" gui env 2>/dev/null)"`, rkPath) + "\n" +
-		guiDisplayBlockEnd + "\n"
+// guiPointerShellPath is the pointer's path as the BLOCK spells it: $HOME is
+// expanded by the shell at source time (deliberately — the block is
+// home-relocatable), and the relative tail is the same constant the Go side
+// resolves through guiPointerPath, so the two can never disagree.
+const guiPointerShellPath = `"$HOME/` + rkBinRelDir + `/run-kit"`
+
+// guiDisplayBlock is the full marker-owned block. Nothing in it is
+// interpolated — it is byte-identical on every host, so a dotfile-synced
+// startup file converges and re-runs are the "already present" no-op. The
+// guards are load-bearing: $TMUX_PANE scopes the eval to tmux panes (the same
+// gate the installed agent hooks use); ${DISPLAY-} keeps a real X session's
+// DISPLAY (desktop Linux, SSH X-forwarding) untouched and skips the exec in
+// nested shells; -x on the pointer keeps a missing or dangling pointer silent
+// by construction (one stat per shell start) rather than by relying on the
+// redirection to swallow the shell's exec-failure message; stderr is
+// discarded so an off/unreachable GUI stays silent.
+const guiDisplayBlock = guiDisplayBlockBegin + "\n" +
+	`[ -n "$TMUX_PANE" ] && [ -z "${DISPLAY-}" ] && [ -x ` + guiPointerShellPath + ` ] && eval "$(` + guiPointerShellPath + ` gui env 2>/dev/null)"` + "\n" +
+	guiDisplayBlockEnd + "\n"
+
+// guiPointerPath is the per-machine pointer: a symlink at
+// ~/.local/share/rk/bin/run-kit whose target is the
+// resolveRkPath/validateHookPath-validated absolute rk path. The bin dir is a
+// sibling of the shims dir and MUST stay off PATH: resolveRkPath prefers
+// exec.LookPath("run-kit"), so a pointer on PATH would resolve to itself on
+// the next re-run and the link would loop. rk only ever writes a symlink
+// here, so "is a symlink" is the ownership test — a regular file or directory
+// at this path is the user's and is never touched.
+func guiPointerPath(home string) string {
+	return filepath.Join(rkBinDir(home), "run-kit")
 }
 
-// applyGuiDisplayBlocks upserts (install) or strips (uninstall) the
+// applyGuiDisplayBlocks installs (pointer, then the gated block upsert) or
+// uninstalls (block strip, then pointer removal) the gui display artifact.
+// Install gating mirrors the PATH block ↔ shim rule, for the same reason: a
+// block that execs the pointer path in front of a foreign file would run a
+// non-rk executable from every pane shell's startup, and in front of nothing
+// it would be silently inert — so the block is written only when the pointer
+// is in place (freshly linked, already current, or a dry-run previewing the
+// link). The gate must hold on RE-install too: a foreign non-symlink at the
+// pointer path is untrusted, so any block a previous install left behind is
+// stripped (the block's own -x check would pass on the foreign file). A
+// declined write is different — the pointer there is still an rk-owned
+// symlink, stale or dangling, so an existing block stays. The block is
+// independent of the tmux SHIM's outcome. Uninstall keeps the pieces
+// independent: a declined pointer removal never skips the block strip and
+// vice versa. The strip runs first so a shell starting mid-uninstall never
+// execs a vanished target (the -x guard covers the window anyway).
+func applyGuiDisplayBlocks(sink outputSink, reader *bufio.Reader, home, zdotdir, rkPath string, uninstall bool, cons consent) error {
+	if uninstall {
+		if err := applyGuiDisplayStartupBlocks(sink, reader, home, zdotdir, true, cons); err != nil {
+			return err
+		}
+		return removeGuiDisplayPointer(sink, reader, home, cons)
+	}
+	state, err := installGuiDisplayPointer(sink, reader, home, rkPath, cons)
+	if err != nil {
+		return err
+	}
+	switch state {
+	case guiPointerInPlace:
+		return applyGuiDisplayStartupBlocks(sink, reader, home, zdotdir, false, cons)
+	case guiPointerForeign:
+		sink.Notef("gui display: skipping the startup-file block (the pointer is not in place).\n")
+		return applyGuiDisplayStartupBlocks(sink, reader, home, zdotdir, true, cons)
+	default:
+		sink.Notef("gui display: skipping the startup-file block (the pointer is not in place).\n")
+		return nil
+	}
+}
+
+// guiPointerState is installGuiDisplayPointer's verdict on the pointer path,
+// for block-writing purposes.
+type guiPointerState int
+
+const (
+	// guiPointerDeclined: the user declined the link/relink (or an rk-owned
+	// symlink could not be written). Whatever is at the path is still rk's.
+	guiPointerDeclined guiPointerState = iota
+	// guiPointerInPlace: freshly linked, already current, or a dry-run
+	// previewing the link — safe to write the block.
+	guiPointerInPlace
+	// guiPointerForeign: a non-symlink occupies the path; rk never touches
+	// it and a block must not exec it.
+	guiPointerForeign
+)
+
+// installGuiDisplayPointer links guiPointerPath → rkPath. An already-current
+// symlink is a reported no-op; a symlink with any other target (a moved
+// install, a dangling brew-rename leftover) is relinked on consent; a
+// non-symlink at the path is foreign and left untouched. The link is replaced
+// atomically (temp symlink in the same dir + rename) so a shell starting
+// mid-update never sees a missing pointer, and the bin dir is created only
+// AFTER consent so dry-run and declined prompts leave the filesystem
+// untouched. rkPath has already been validated by validateHookPath.
+//
+// The returned state tells the caller whether a block may be written
+// (guiPointerInPlace), must be withheld but an existing one left alone
+// (guiPointerDeclined), or must be withheld AND an existing one stripped
+// (guiPointerForeign).
+func installGuiDisplayPointer(sink outputSink, reader *bufio.Reader, home, rkPath string, cons consent) (guiPointerState, error) {
+	linkPath := guiPointerPath(home)
+	current, exists, foreign, err := guiPointerProbe(linkPath)
+	if err != nil {
+		return guiPointerDeclined, err
+	}
+	if foreign {
+		sink.Notef("gui display: %s exists and is not a symlink — leaving it untouched (rk only replaces pointers it owns).\n", linkPath)
+		return guiPointerForeign, nil
+	}
+	if exists && current == rkPath {
+		sink.Notef("gui display: pointer already links %s -> %s — nothing to do.\n", linkPath, rkPath)
+		return guiPointerInPlace, nil
+	}
+
+	out := cons.diffWriter(sink)
+	if exists {
+		fmt.Fprintf(out, "gui display: will relink %s -> %s (currently -> %s).\n", linkPath, rkPath, current)
+	} else {
+		fmt.Fprintf(out, "gui display: will link %s -> %s.\n", linkPath, rkPath)
+	}
+	dryRunNote := fmt.Sprintf("gui display: dry run — %s not written.", linkPath)
+	ok, err := cons.authorizeWrite(sink.data, reader, dryRunNote, "\nWrite the pointer? [y/N] ")
+	if err != nil {
+		return guiPointerDeclined, err
+	}
+	if !ok {
+		if cons.dryRun {
+			// Nothing was written, but the dry run previews the full install —
+			// report "in place" so the block preview follows, matching what a
+			// consented run would do (the shim's dry-run posture).
+			return guiPointerInPlace, nil
+		}
+		sink.Notef("gui display: skipped (no pointer written).\n")
+		return guiPointerDeclined, nil
+	}
+
+	// Re-probe right before the write: the prompt above may have been pending
+	// for a while, and rename would clobber whatever now sits at the path. A
+	// non-symlink that appeared meanwhile is the user's — refuse, never replace.
+	if _, _, foreign, err := guiPointerProbe(linkPath); err != nil {
+		return guiPointerDeclined, err
+	} else if foreign {
+		sink.Notef("gui display: %s changed to a non-symlink while the prompt was pending — leaving it untouched (rk only replaces pointers it owns).\n", linkPath)
+		return guiPointerForeign, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o755); err != nil {
+		return guiPointerDeclined, fmt.Errorf("gui display: create %s: %w", filepath.Dir(linkPath), err)
+	}
+	if err := replaceSymlink(rkPath, linkPath); err != nil {
+		return guiPointerDeclined, fmt.Errorf("gui display: link %s: %w", linkPath, err)
+	}
+	sink.Notef("gui display: linked %s -> %s.\n", linkPath, rkPath)
+	return guiPointerInPlace, nil
+}
+
+// guiPointerProbe classifies what sits at the pointer path: absent
+// (exists=false), an rk-owned symlink (exists=true, target in current), or a
+// foreign non-symlink (foreign=true). Lstat, never Stat — a dangling symlink
+// is still rk's.
+func guiPointerProbe(linkPath string) (current string, exists, foreign bool, err error) {
+	info, err := os.Lstat(linkPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, false, nil
+		}
+		return "", false, false, fmt.Errorf("gui display: stat %s: %w", linkPath, err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return "", true, true, nil
+	}
+	current, err = os.Readlink(linkPath)
+	if err != nil {
+		return "", true, false, fmt.Errorf("gui display: readlink %s: %w", linkPath, err)
+	}
+	return current, true, false, nil
+}
+
+// replaceSymlink atomically points linkPath at target: the new symlink is
+// created under a temporary name in the same directory and renamed over the
+// old one, so no reader ever observes the path missing. Rename replaces an
+// existing symlink in place on every platform rk runs on. The temp entry is
+// removed on any failure, and temp SYMLINKS left by an earlier run that
+// crashed between Symlink and Rename are swept first (only symlinks — a
+// regular file under the temp pattern is not rk's).
+func replaceSymlink(target, linkPath string) error {
+	pattern := filepath.Join(filepath.Dir(linkPath), "."+filepath.Base(linkPath)+".tmp-*")
+	if stale, _ := filepath.Glob(pattern); len(stale) > 0 {
+		for _, p := range stale {
+			if fi, err := os.Lstat(p); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+				_ = os.Remove(p)
+			}
+		}
+	}
+	tmp := filepath.Join(filepath.Dir(linkPath), fmt.Sprintf(".%s.tmp-%d", filepath.Base(linkPath), os.Getpid()))
+	if err := os.Symlink(target, tmp); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, linkPath); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// removeGuiDisplayPointer removes an rk-owned pointer on --uninstall. An
+// absent pointer is silent (a machine that never installed it must see zero
+// output); a non-symlink at the path is left untouched with a note; a symlink
+// is removed on consent, and the bin dir is pruned afterwards if empty (best
+// effort — os.Remove refuses non-empty directories, and the prune runs only
+// when the parent is a REAL directory: a user's symlink named bin/ would
+// otherwise be removed as an ordinary entry).
+func removeGuiDisplayPointer(sink outputSink, reader *bufio.Reader, home string, cons consent) error {
+	linkPath := guiPointerPath(home)
+	info, err := os.Lstat(linkPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		sink.Notef("gui display: %s: cannot stat (%v) — leaving it untouched (repair or remove it by hand, then re-run).\n", linkPath, err)
+		return nil
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		sink.Notef("gui display: %s is not a symlink — leaving it untouched (rk only removes pointers it owns).\n", linkPath)
+		return nil
+	}
+
+	sink.Notef("gui display: found the rk pointer at %s.\n\n", linkPath)
+	promptSuffix := fmt.Sprintf("Remove %s? [y/N] ", linkPath)
+	ok, err := cons.authorizeWrite(sink.data, reader, "gui display: dry run — pointer left in place (nothing removed).", promptSuffix)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if !cons.dryRun {
+			sink.Notef("gui display: pointer left in place (nothing removed).\n")
+		}
+		return nil
+	}
+	if err := os.Remove(linkPath); err != nil {
+		return fmt.Errorf("gui display: remove %s: %w", linkPath, err)
+	}
+	if fi, err := os.Lstat(filepath.Dir(linkPath)); err == nil && fi.IsDir() {
+		_ = os.Remove(filepath.Dir(linkPath))
+	}
+	sink.Notef("gui display: removed %s.\n", linkPath)
+	return nil
+}
+
+// applyGuiDisplayStartupBlocks upserts (install) or strips (uninstall) the
 // marker-owned gui display block in each startup file, one diff + consent per
 // file — the applyTmuxGuardPathBlocks flow verbatim: per-file tolerant read,
 // malformed-block refusal with a skip note, "already present" no-op note on
@@ -1601,8 +1846,8 @@ func guiDisplayBlock(rkPath string) string {
 // one-line summary plus the block lines otherwise), consent through
 // authorizeWrite, and a mode-preserving write with the parent MkdirAll'd only
 // after consent.
-func applyGuiDisplayBlocks(sink outputSink, reader *bufio.Reader, home, zdotdir, rkPath string, uninstall bool, cons consent) error {
-	block := guiDisplayBlock(rkPath)
+func applyGuiDisplayStartupBlocks(sink outputSink, reader *bufio.Reader, home, zdotdir string, uninstall bool, cons consent) error {
+	block := guiDisplayBlock
 	for _, path := range tmuxGuardStartupFiles(home, zdotdir) {
 		current, err := readSkill(path)
 		if err != nil {

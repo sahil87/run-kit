@@ -229,6 +229,47 @@ answer (a launcher-ladder miss — a 200 by design) toasts the server's `hint`
 verbatim, a success toasts nothing, and a thrown error (409/500/network)
 toasts the error message.
 
+### Zoom, pointer modes, and the key bar
+
+Zoom is a per-viewer posture, `rk-gui-zoom` (localStorage): `fit` (the
+default — the uniform letterboxed scale) or a percentage from {50, 75, 100,
+125, 150, 200}. The ladder steps asymmetrically: zooming in from `fit` lands
+on 100 (1:1); zooming out below 100 runs 75 → 50 → `fit`. At a percentage the
+noVNC host is sized to exactly z/100 CSS px per framebuffer px, so pointer
+mapping stays exact, and the tile is a clipping viewport over it;
+`resizeSession` is held false while zoomed, since the deliberately larger
+host would otherwise be requested back as the remote desktop size. Every zoom
+change shows a monospace corner badge (`150%`, `fit`) that hides after 1.5 s.
+Chords on the focused tile — Ctrl+= / Ctrl+- / Ctrl+0 and Ctrl+wheel (a mac
+trackpad pinch arrives as Ctrl+wheel and rides the same path) — step the
+ladder or return to fit; they are ctrl-tier, gui-only registry rows, so under
+a focused terminal the same keys reach the pane. The palette mirrors them:
+`GUI: Zoom in` / `Zoom out` / `Zoom to fit`, plus `GUI: 1:1` as the alias of
+the 100% step.
+
+When the scaled desktop exceeds the tile, the viewport pans, clamped so the
+canvas always covers the tile: a fine pointer drags on the canvas (no mouse
+drag reaches the guest); a coarse pointer in `touch` mode drags one finger
+(noVNC's native pan); in `trackpad` mode the viewport follows the virtual
+cursor at the edges. At `fit` no pan gesture exists.
+
+The pointer posture `rk-gui-pointer` is `touch` or `trackpad`, defaulting to
+`trackpad` on coarse pointers and `touch` on fine. `touch` is a verbatim
+noVNC passthrough — tap where you touch, native pinch sends Ctrl+wheel to the
+guest. `trackpad` translates touches into synthetic mouse/wheel events on the
+canvas: one-finger drag moves the cursor relative (gain 1.25), tap clicks,
+two-finger tap right-clicks, two-finger drag scrolls 1:1, a 500 ms long-press
+is press-and-hold, and a pinch steps the zoom ladder. On coarse pointers the
+palette pair `GUI: Pointer → Trackpad` / `→ Touch` flips it.
+
+On coarse pointers a key bar docks under the canvas: `Esc Tab Ctrl Alt ⇧ ← ↑
+↓ → ⌨`. Modifiers latch — one tap arms for the next key, a second tap locks
+(rendered `Ctrl ●`), a third releases; an armed modifier is consumed by the
+chord it composes, a locked one persists. `⌨` focuses a hidden input to raise
+the platform keyboard, forwarding its keystrokes through the same chord path.
+Decisions V-D6/7/8 of `fab/plans/sahil/26-09-10-gui-viewer-ergonomics.md` are
+the design log for this subsection.
+
 ---
 
 ## Protocol and relay

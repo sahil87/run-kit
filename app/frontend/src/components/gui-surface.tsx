@@ -3,12 +3,17 @@ import RFB from "@novnc/novnc";
 import { fetchGuiStatus } from "@/api/client";
 import type { GuiSignal } from "@/contexts/session-context";
 import { copyToClipboard } from "@/lib/clipboard";
+import { createWheelAccumulator } from "@/lib/zoom-gesture";
 import {
   readGuiWmStripDismissed,
+  stepGuiZoom,
   writeGuiWmStripDismissed,
-  type GuiViewMode,
+  type GuiPointerMode,
+  type GuiZoom,
 } from "@/lib/gui-posture";
 import { Control } from "./control";
+import { attachGuiPointer } from "./gui-pointer";
+import { GuiKeyBar } from "./gui-keybar";
 
 /**
  * GuiSurface — the renderer for the `gui` lens (spec docs/specs/gui.md § The
@@ -48,9 +53,51 @@ import { Control } from "./control";
  *   `scaleViewport`). Under `auto` the two pins keep their meaning:
  *   `hostLocked` is the host-side pin (`rk gui lock`, streamed as the entry's
  *   `locked`) — an AND term beside the viewer-local `resizeLocked`, not a
- *   replacement. Coarse viewers scale client-side (`scaleViewport` in fit,
- *   `clipViewport` + `dragViewport` in 1:1) and can never resize the shared
- *   desktop.
+ *   replacement. Coarse viewers scale client-side only and can never resize
+ *   the shared desktop.
+ * - **Zoom (the sized host)**: `scaleViewport` stays ON at every zoom and
+ *   `clipViewport` off; a percentage zoom sizes the noVNC host div to
+ *   `fb × z/100` CSS px (the framebuffer from the gui signal's width/height)
+ *   so noVNC's autoscale yields exactly z/100 and `_display.scale` equals the
+ *   canvas's visual scale by construction (pointer mapping stays exact). At
+ *   `fit` the host div is tile-sized, today's behavior. While zoomed
+ *   `resizeSession` is held false: noVNC's ResizeObserver watches that screen
+ *   div, and its deliberately-larger size must never be requested as the
+ *   remote desktop size (the gui-signal echo would feed back and grow the
+ *   framebuffer unboundedly); the five-clause formula is untouched and
+ *   resumes at `fit`.
+ * - **Pan**: the wrapper clips (`overflow: hidden`) and pans via clamped
+ *   scroll offsets so the scaled canvas always covers the tile. A fine
+ *   pointer left-drag pans — the press is swallowed in the capture phase so
+ *   it never reaches noVNC as a guest button, and a release under
+ *   PAN_DRAG_THRESHOLD_PX is replayed to the canvas as a plain click. A
+ *   coarse one-finger drag in `touch` mode pans via an observing (passive,
+ *   capture-phase) touch tracker while `dragViewport` keeps noVNC from
+ *   sending the drag to the guest as a left-drag — noVNC's own viewport pan
+ *   only moves a CLIPPING display and is a visual no-op under scaleViewport.
+ *   The `trackpad` mode's cursor-follow rides the `ensureCursorVisible` seam
+ *   (its caller is the trackpad layer). No pan gesture exists at fit.
+ * - **Trackpad mode (the translation layer)**: while `pointerMode ===
+ *   "trackpad"` on a coarse pointer with a live RFB, `attachGuiPointer`
+ *   (gui-pointer.ts) owns every touch in the capture phase and re-emits
+ *   synthetic mouse/wheel events on noVNC's canvas — a one-finger drag moves
+ *   the virtual cursor (the rk-owned `gui-trackpad-cursor` indicator), tap
+ *   left-clicks, two-finger tap right-clicks, two-finger drag scrolls,
+ *   long-press drag-and-drops, pinch steps the zoom ladder. `dragViewport`
+ *   is forced false while attached (applyRfbProps gates it to touch mode);
+ *   `touch` mode is the untouched noVNC passthrough.
+ * - **Key bar**: on coarse pointers a `GuiKeyBar` strip (gui-keybar.tsx)
+ *   docks under the canvas as a flex sibling of the host div (the fit
+ *   subtracts its height) with latching modifiers and a hidden-input ⌨
+ *   path; every key rides `rfb.sendKey` through a ref-bound callback — a
+ *   no-op without a live RFB.
+ * - **Zoom badge + wheel**: any zoom prop change shows the corner
+ *   `gui-zoom-badge` for ZOOM_BADGE_MS (a change restarts the timer); a
+ *   capture-phase non-passive wheel listener steps the ladder one notch per
+ *   WHEEL_STEP_THRESHOLD of Ctrl+wheel deltaY (lib/zoom-gesture.ts createWheelAccumulator) (mac trackpad pinch
+ *   arrives as ctrl+wheel) and swallows the event so neither the browser's
+ *   page zoom nor noVNC's wheel handler sees it; a wheel without Ctrl passes
+ *   to noVNC untouched.
  * - **Chord gate**: a capture-phase keydown on the canvas wrapper intercepts
  *   registry chords (`shouldReclaimChord`, bound to kind "gui") BEFORE
  *   noVNC's canvas-attached handler sees them and re-dispatches a synthetic
@@ -76,6 +123,26 @@ const VISIBILITY_DISCONNECT_MS = 15_000;
 /** How long the strip's Copy button reads `Copied` after a successful write. */
 const COPIED_FEEDBACK_MS = 1_500;
 
+/** How long the corner zoom badge stays visible after a zoom change. */
+const ZOOM_BADGE_MS = 1_500;
+
+/** Fine-pointer displacement (px) before a held press becomes a pan drag
+ *  instead of a replayed click. */
+const PAN_DRAG_THRESHOLD_PX = 10;
+
+/** Pan the scroll container, clamped so the scaled canvas always covers the
+ *  tile (no overscroll gap). */
+function clampScrollBy(el: HTMLElement, dx: number, dy: number): void {
+  el.scrollLeft = Math.min(
+    Math.max(el.scrollLeft + dx, 0),
+    Math.max(el.scrollWidth - el.clientWidth, 0),
+  );
+  el.scrollTop = Math.min(
+    Math.max(el.scrollTop + dy, 0),
+    Math.max(el.scrollHeight - el.clientHeight, 0),
+  );
+}
+
 /** The imperative seams the palette's `GUI:` verbs drive (app.tsx holds the
  *  ref; the component fills it while mounted). */
 export interface GuiSurfaceCommands {
@@ -97,8 +164,13 @@ interface GuiSurfaceProps {
   focused: boolean;
   /** Coarse pointer — never drives resize, gets the low quality preset. */
   coarsePointer: boolean;
-  /** Per-viewer view posture (localStorage `rk-gui-view`, owned by app.tsx). */
-  viewMode: GuiViewMode;
+  /** Per-viewer zoom posture (localStorage `rk-gui-zoom`, owned by app.tsx). */
+  zoom: GuiZoom;
+  /** Per-viewer pointer mode (`rk-gui-pointer`): `touch` is the noVNC
+   *  passthrough, `trackpad` the rk translation layer. */
+  pointerMode: GuiPointerMode;
+  /** Zoom-change seam (chords, Ctrl+wheel); app.tsx owns persistence. */
+  onZoomChange: (z: GuiZoom) => void;
   /** Viewer-local resize lock (localStorage `rk-gui-lock`). */
   resizeLocked: boolean;
   /** RFB connection report — the top-bar toggle dot (R6). */
@@ -122,7 +194,9 @@ export default function GuiSurface({
   visible,
   focused,
   coarsePointer,
-  viewMode,
+  zoom,
+  pointerMode,
+  onZoomChange,
   resizeLocked,
   onConnectionChange,
   onInteract,
@@ -141,6 +215,8 @@ export default function GuiSurface({
   const bare = enabled && reachable && wm === "" && backend !== "screen-sharing";
 
   const hostRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const trackpadCursorRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<RFB | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backoffAttemptRef = useRef(0);
@@ -168,12 +244,24 @@ export default function GuiSurface({
   const [wmStripDismissed, setWmStripDismissed] = useState(readGuiWmStripDismissed);
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The zoom badge: `null` = hidden. A zoom prop CHANGE shows it for
+  // ZOOM_BADGE_MS (never on initial mount — nothing changed yet).
+  const [badge, setBadge] = useState<GuiZoom | null>(null);
+  const badgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastZoomRef = useRef(zoom);
+  // An in-flight fine-pointer pan drag; its window-level listeners' remover.
+  const panCleanupRef = useRef<(() => void) | null>(null);
+  // Reentrancy guard for the replayed click (it bubbles through this
+  // wrapper's own capture handlers).
+  const panReplayRef = useRef(false);
 
   // Latest-value refs for the listener/effect closures that outlive renders.
-  const propsRef = useRef({ coarsePointer, focused, resizeLocked, viewMode, backend: gui?.backend ?? "", hostLocked: gui?.locked ?? false, geometry: gui?.geometry ?? "" });
-  propsRef.current = { coarsePointer, focused, resizeLocked, viewMode, backend: gui?.backend ?? "", hostLocked: gui?.locked ?? false, geometry: gui?.geometry ?? "" };
+  const propsRef = useRef({ coarsePointer, focused, resizeLocked, zoom, pointerMode, backend: gui?.backend ?? "", hostLocked: gui?.locked ?? false, geometry: gui?.geometry ?? "" });
+  propsRef.current = { coarsePointer, focused, resizeLocked, zoom, pointerMode, backend: gui?.backend ?? "", hostLocked: gui?.locked ?? false, geometry: gui?.geometry ?? "" };
   const onConnectionChangeRef = useRef(onConnectionChange);
   onConnectionChangeRef.current = onConnectionChange;
+  const onZoomChangeRef = useRef(onZoomChange);
+  onZoomChangeRef.current = onZoomChange;
   const onInteractRef = useRef(onInteract);
   onInteractRef.current = onInteract;
   const reclaimRef = useRef(shouldReclaimChord);
@@ -181,13 +269,24 @@ export default function GuiSurface({
 
   // D7: only the focused fine-pointer viewer on an unlocked host (neither the
   // viewer-local pin nor `rk gui lock` set) whose host setting is `auto`
-  // drives SetDesktopSize.
+  // drives SetDesktopSize. While zoomed the screen div is deliberately larger
+  // than the tile, so resizeSession is held false — noVNC would request the
+  // SCALED size as the remote desktop size and the signal echo would grow the
+  // framebuffer unboundedly. The formula resumes verbatim at `fit`.
   const applyRfbProps = (rfb: RFB) => {
     const p = propsRef.current;
-    rfb.resizeSession = !p.coarsePointer && p.focused && !p.resizeLocked && !p.hostLocked && p.geometry === "auto";
-    rfb.scaleViewport = p.viewMode === "fit";
-    rfb.clipViewport = p.viewMode === "1:1";
-    rfb.dragViewport = p.viewMode === "1:1";
+    rfb.resizeSession = !p.coarsePointer && p.focused && !p.resizeLocked && !p.hostLocked && p.geometry === "auto" && p.zoom === "fit";
+    // The sized host (see the header): scaleViewport is always on and
+    // clipViewport always off — a percentage zoom sizes the host div so
+    // autoscale lands on exactly z/100.
+    rfb.scaleViewport = true;
+    rfb.clipViewport = false;
+    // noVNC's dragViewport pan moves only a CLIPPING viewport (a visual no-op
+    // under scaleViewport) — its role here is to keep a coarse one-finger
+    // drag from reaching the guest as a left-drag while the wrapper's own
+    // touch tracker scrolls. Trackpad mode forces it off (the translation
+    // layer owns the touches).
+    rfb.dragViewport = p.zoom !== "fit" && p.coarsePointer && p.pointerMode === "touch";
     rfb.qualityLevel = p.coarsePointer ? 4 : 6;
     rfb.compressionLevel = p.coarsePointer ? 6 : 2;
     rfb.showDotCursor = true;
@@ -300,6 +399,194 @@ export default function GuiSurface({
     const rfb = rfbRef.current;
     if (rfb) applyRfbProps(rfb);
   });
+
+  // The zoom badge: shows on every zoom prop CHANGE (never on mount), hides
+  // ZOOM_BADGE_MS later; a change mid-show restarts the timer.
+  useEffect(() => {
+    if (lastZoomRef.current === zoom) return;
+    lastZoomRef.current = zoom;
+    setBadge(zoom);
+    if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    badgeTimerRef.current = setTimeout(() => setBadge(null), ZOOM_BADGE_MS);
+  }, [zoom]);
+
+  // The badge timer must not outlive the component.
+  useEffect(() => {
+    return () => {
+      if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    };
+  }, []);
+
+  // Ctrl+wheel zoom — a NATIVE capture-phase non-passive listener (React
+  // attaches wheel passively, where preventDefault is ignored). The event is
+  // swallowed before noVNC's canvas wheel handler or the browser's page zoom
+  // can see it; a wheel without Ctrl passes through untouched. The delta→step
+  // reduction (sub-threshold deltas — mac trackpad pinch — accumulate into
+  // single steps; a direction flip drops the leftover) is the shared
+  // zoom-gesture accumulator; the ladder itself is stepGuiZoom.
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const accumulate = createWheelAccumulator();
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      let steps = accumulate(e.deltaY);
+      let z = propsRef.current.zoom;
+      while (steps > 0) {
+        z = stepGuiZoom(z, 1);
+        steps -= 1;
+      }
+      while (steps < 0) {
+        z = stepGuiZoom(z, -1);
+        steps += 1;
+      }
+      if (z !== propsRef.current.zoom) onZoomChangeRef.current(z);
+    };
+    el.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    return () => el.removeEventListener("wheel", onWheel, { capture: true });
+    // The wrapper exists only in the canvas branch — re-attach on a branch
+    // switch (the empty state renders no wrapper).
+  }, [enabled, reachable, credEscaped]);
+
+  // Coarse `touch`-mode pan: OBSERVE one-finger drags (passive capture — the
+  // events still reach noVNC, whose dragViewport swallows them as a viewport
+  // gesture instead of a guest left-drag) and scroll the wrapper to match.
+  useEffect(() => {
+    if (zoom === "fit" || !coarsePointer || pointerMode !== "touch") return;
+    const el = wrapperRef.current;
+    if (!el) return;
+    let last: { x: number; y: number } | null = null;
+    const onStart = (e: TouchEvent) => {
+      last = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+    };
+    const onMove = (e: TouchEvent) => {
+      if (!last || e.touches.length !== 1) {
+        last = null;
+        return;
+      }
+      const t = e.touches[0];
+      clampScrollBy(el, last.x - t.clientX, last.y - t.clientY);
+      last = { x: t.clientX, y: t.clientY };
+    };
+    const onEnd = () => {
+      last = null;
+    };
+    el.addEventListener("touchstart", onStart, { capture: true, passive: true });
+    el.addEventListener("touchmove", onMove, { capture: true, passive: true });
+    el.addEventListener("touchend", onEnd, { capture: true, passive: true });
+    el.addEventListener("touchcancel", onEnd, { capture: true, passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onStart, { capture: true });
+      el.removeEventListener("touchmove", onMove, { capture: true });
+      el.removeEventListener("touchend", onEnd, { capture: true });
+      el.removeEventListener("touchcancel", onEnd, { capture: true });
+    };
+  }, [enabled, reachable, credEscaped, zoom, coarsePointer, pointerMode]);
+
+  // An in-flight pan drag's window listeners must not outlive the component.
+  useEffect(() => {
+    return () => panCleanupRef.current?.();
+  }, []);
+
+  // Fine-pointer pan: the press is swallowed in the capture phase (the JSX
+  // onMouseDownCapture) so it never reaches noVNC as a guest button; the
+  // drag scrolls the wrapper, and a release under the threshold replays a
+  // plain click to the canvas so clicking still works while zoomed.
+  const startPanDrag = (clientX: number, clientY: number) => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    panCleanupRef.current?.();
+    const drag = { startX: clientX, startY: clientY, lastX: clientX, lastY: clientY, panning: false };
+    const onMove = (ev: MouseEvent) => {
+      const dx = drag.lastX - ev.clientX;
+      const dy = drag.lastY - ev.clientY;
+      drag.lastX = ev.clientX;
+      drag.lastY = ev.clientY;
+      if (!drag.panning) {
+        if (Math.abs(ev.clientX - drag.startX) <= PAN_DRAG_THRESHOLD_PX &&
+            Math.abs(ev.clientY - drag.startY) <= PAN_DRAG_THRESHOLD_PX) {
+          return;
+        }
+        drag.panning = true;
+      }
+      ev.stopPropagation();
+      ev.preventDefault();
+      clampScrollBy(wrapper, dx, dy);
+    };
+    const onUp = (ev: MouseEvent) => {
+      panCleanupRef.current = null;
+      window.removeEventListener("mousemove", onMove, true);
+      window.removeEventListener("mouseup", onUp, true);
+      ev.stopPropagation();
+      ev.preventDefault();
+      if (!drag.panning) {
+        // Never became a drag: replay the swallowed press as a plain click.
+        // The replayed events bubble through this wrapper's own capture
+        // handlers — the flag keeps them from starting a fresh pan drag.
+        const canvas = hostRef.current?.querySelector("canvas");
+        if (canvas) {
+          panReplayRef.current = true;
+          try {
+            canvas.dispatchEvent(new MouseEvent("mousedown", { clientX: ev.clientX, clientY: ev.clientY, button: 0, buttons: 1, bubbles: true }));
+            canvas.dispatchEvent(new MouseEvent("mouseup", { clientX: ev.clientX, clientY: ev.clientY, button: 0, buttons: 0, bubbles: true }));
+          } finally {
+            panReplayRef.current = false;
+          }
+        }
+      }
+    };
+    window.addEventListener("mousemove", onMove, true);
+    window.addEventListener("mouseup", onUp, true);
+    panCleanupRef.current = () => {
+      window.removeEventListener("mousemove", onMove, true);
+      window.removeEventListener("mouseup", onUp, true);
+    };
+  };
+
+  // The trackpad layer's cursor-follow seam: scroll the wrapper so the
+  // framebuffer point is inside the visible window. A no-op at fit (nothing
+  // to pan); clamped like any other pan.
+  const ensureCursorVisible = (fbX: number, fbY: number) => {
+    const el = wrapperRef.current;
+    const z = propsRef.current.zoom;
+    if (!el || z === "fit") return;
+    const cssX = (fbX * z) / 100;
+    const cssY = (fbY * z) / 100;
+    let dx = 0;
+    let dy = 0;
+    if (cssX < el.scrollLeft) dx = cssX - el.scrollLeft;
+    else if (cssX > el.scrollLeft + el.clientWidth) dx = cssX - el.clientWidth - el.scrollLeft;
+    if (cssY < el.scrollTop) dy = cssY - el.scrollTop;
+    else if (cssY > el.scrollTop + el.clientHeight) dy = cssY - el.clientHeight - el.scrollTop;
+    if (dx !== 0 || dy !== 0) clampScrollBy(el, dx, dy);
+  };
+  const ensureCursorVisibleRef = useRef(ensureCursorVisible);
+  ensureCursorVisibleRef.current = ensureCursorVisible;
+
+  // Trackpad mode: the translation layer (gui-pointer.ts) owns every touch on
+  // the wrapper in the capture phase and re-emits synthetic mouse/wheel
+  // events on noVNC's canvas. dragViewport stays false while attached —
+  // applyRfbProps gates it to touch mode, so the two never fight over the
+  // same input. Deps mirror the connection effect's: a re-dial (epoch bump)
+  // re-attaches against the fresh RFB (React runs all cleanups before all
+  // setups on a re-render, so the detach never races the disconnect), and a
+  // mode flip or branch switch detaches. The layer also detaches while the
+  // credentials prompt is up: the modal overlay is not a gesture surface and
+  // no gesture state may track across it.
+  useEffect(() => {
+    if (pointerMode !== "trackpad" || !coarsePointer || !wantConnection || credentials) return;
+    const rfb = rfbRef.current;
+    const wrapper = wrapperRef.current;
+    if (!rfb || !wrapper) return;
+    return attachGuiPointer(wrapper, {
+      rfb,
+      cursorEl: trackpadCursorRef.current,
+      onZoomStep: (dir) => onZoomChangeRef.current(stepGuiZoom(propsRef.current.zoom, dir)),
+      ensureCursorVisible: (fbX, fbY) => ensureCursorVisibleRef.current(fbX, fbY),
+    });
+  }, [wantConnection, epoch, pointerMode, coarsePointer, enabled, reachable, credEscaped, credentials]);
 
   // The palette seams (GUI: Paste clipboard / GUI: Reconnect) — live only
   // while mounted; paste no-ops without a live RFB.
@@ -465,11 +752,34 @@ export default function GuiSurface({
     setCredentials(null);
   };
 
+  // The sized host: at fit the host div is tile-sized (flex-1, today's fit);
+  // a percentage zoom sizes it to fb × z/100 CSS px so noVNC's autoscale
+  // yields exactly z/100. shrink-0 keeps the flex layout from shrinking it
+  // back to the tile.
+  const fbW = gui.width;
+  const fbH = gui.height;
+  const hostStyle =
+    zoom !== "fit" && fbW > 0 && fbH > 0
+      ? { width: (fbW * zoom) / 100, height: (fbH * zoom) / 100 }
+      : undefined;
+
   return (
     <div
+      ref={wrapperRef}
       data-testid="gui-surface-canvas"
       className="flex-1 min-h-0 relative overflow-hidden flex flex-col"
       onPointerDownCapture={() => onInteractRef.current?.()}
+      onMouseDownCapture={(e) => {
+        // Fine-pointer pan: a zoomed left-press inside the noVNC host subtree
+        // is a pan gesture, never a guest button — swallow it before noVNC's
+        // canvas listeners (a release under the threshold replays a click).
+        if (panReplayRef.current) return;
+        if (propsRef.current.zoom === "fit" || propsRef.current.coarsePointer || e.button !== 0) return;
+        if (!(e.target instanceof Node) || !hostRef.current?.contains(e.target)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        startPanDrag(e.clientX, e.clientY);
+      }}
       onKeyDownCapture={(e) => {
         onInteractRef.current?.();
         if (!reclaimRef.current?.(e.nativeEvent)) return;
@@ -526,7 +836,41 @@ export default function GuiSurface({
           switch (canvas ⇄ empty state) can reuse the node for a same-position
           sibling, and the connect effect's cleanup (`hostEl.replaceChildren()`)
           would then wipe THAT element's content. */}
-      <div ref={hostRef} className="flex-1 min-h-0" key="novnc-host" />
+      <div
+        ref={hostRef}
+        data-testid="gui-novnc-host"
+        className={hostStyle ? "shrink-0" : "flex-1 min-h-0"}
+        style={hostStyle}
+        key="novnc-host"
+      />
+      {/* Trackpad mode's virtual cursor — noVNC's local cursor is a CSS
+          `cursor`, invisible under touch. The layer positions it; it ignores
+          all input. */}
+      {coarsePointer && pointerMode === "trackpad" ? (
+        <div
+          ref={trackpadCursorRef}
+          data-testid="gui-trackpad-cursor"
+          className="absolute z-10 left-0 top-0 w-3 h-3 -ml-1.5 -mt-1.5 rounded-full bg-accent-green/80 border border-bg-primary pointer-events-none"
+        />
+      ) : null}
+      {/* The coarse-pointer key bar docks under the canvas as a flex sibling
+          (the fit subtracts its height); sendKey rides the live RFB and is a
+          no-op without one. */}
+      {coarsePointer && !credentials ? (
+        <GuiKeyBar
+          sendKey={(keysym, code, down) => {
+            rfbRef.current?.sendKey(keysym, code, down);
+          }}
+        />
+      ) : null}
+      {badge !== null ? (
+        <div
+          data-testid="gui-zoom-badge"
+          className="absolute top-2 right-2 z-10 px-1.5 py-0.5 rounded border border-border bg-bg-primary/80 text-text-secondary text-xs font-mono select-none pointer-events-none"
+        >
+          {badge === "fit" ? "fit" : `${badge}%`}
+        </div>
+      ) : null}
       {reconnecting && !credentials ? (
         <div
           data-testid="gui-surface-reconnecting"

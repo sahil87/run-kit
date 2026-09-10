@@ -34,7 +34,14 @@ import {
 // the palette's disabled Lock row / hidden Auto row gating across a
 // fixed→`auto` flip and stub `POST /api/gui/host/resize` to capture the
 // preset row's request body. Both desktop (1280px) and mobile (375px,
-// hasTouch) forks run.
+// hasTouch) forks run. The zoom/pointer/keybar tests live here too: the
+// desktop fork drives the zoom chords and Ctrl+wheel against the badge, the
+// mobile fork drives the key bar's latch rendering and a CDP two-finger
+// pinch. The mocked /ws/gui/ socket is held open without an RFB handshake,
+// so the tile's RFB NEVER reaches `connected` in this half — the chords,
+// badge, and latch rendering are the observable surface, and the `sendKey`
+// call-order assertions live in the vitest suites (gui-keybar/gui-pointer
+// unit tests).
 //
 // (b) XVNC-GATED, real rig: skips cleanly when Xtigervnc is not on PATH (CI
 // lacks it). Turns the gui switch on with a real POST /api/settings against
@@ -490,6 +497,78 @@ test.describe("gui surface — mocked signal, desktop (1280px)", () => {
 
     await expect.poll(() => resizeBody).toEqual({ geometry: "1280x720" });
   });
+
+  /**
+   * Proves: while the gui tile owns tile focus, the Ctrl-tier zoom chords
+   * drive the zoom posture and the corner badge reports every change —
+   * Ctrl+= pressed twice steps fit→100→125 (the badge reads `125%`) and
+   * Ctrl+0 returns to fit (the badge reads `fit`).
+   *
+   * Steps:
+   * 1. Mock the backend with the reachable icewm entry; open @1; toggle the
+   *    gui tile on and click the canvas wrapper so the tile owns focus (the
+   *    guiOnly chord handlers mount only then).
+   * 2. Press Control+Equal twice; assert `gui-zoom-badge` reads `125%`.
+   * 3. Press Control+Digit0; assert the badge reads `fit`.
+   */
+  test("zoom chords: Ctrl+= twice reads 125% on the badge; Ctrl+0 returns to fit", async ({
+    page,
+  }) => {
+    await mockGuiBackend(page, GUI_ON_ICEWM);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await toggleButton(page, "GUI tile").click();
+    const tile = page.getByTestId("gui-surface-canvas");
+    await expect(tile).toBeVisible({ timeout: READY_TIMEOUT });
+    await tile.click();
+
+    const badge = page.getByTestId("gui-zoom-badge");
+    await page.keyboard.press("Control+Equal");
+    await page.keyboard.press("Control+Equal");
+    await expect(badge).toHaveText("125%");
+
+    await page.keyboard.press("Control+Digit0");
+    await expect(badge).toHaveText("fit");
+  });
+
+  /**
+   * Proves: a Ctrl+wheel over the gui tile steps the zoom ladder one notch
+   * per threshold of accumulated deltaY (the badge reads `100%` after one
+   * up-step from fit) while a wheel WITHOUT Ctrl is left for noVNC and never
+   * moves the zoom.
+   *
+   * Steps:
+   * 1. Mock the backend with the reachable icewm entry; open @1; toggle the
+   *    gui tile on; hover the canvas wrapper's centre.
+   * 2. Send a plain wheel (no Ctrl); after a settle beat assert no badge
+   *    appeared.
+   * 3. Hold Control and send one wheel notch above the step threshold;
+   *    release Control; assert `gui-zoom-badge` reads `100%`.
+   */
+  test("Ctrl+wheel steps the zoom once; a plain wheel never zooms", async ({ page }) => {
+    await mockGuiBackend(page, GUI_ON_ICEWM);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await toggleButton(page, "GUI tile").click();
+    const tile = page.getByTestId("gui-surface-canvas");
+    await expect(tile).toBeVisible({ timeout: READY_TIMEOUT });
+    const box = await tile.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+
+    const badge = page.getByTestId("gui-zoom-badge");
+    await page.mouse.wheel(0, -120);
+    await page.waitForTimeout(200);
+    await expect(badge).toHaveCount(0);
+
+    // -60px of deltaY clears the 50px step threshold exactly once.
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -60);
+    await page.keyboard.up("Control");
+    await expect(badge).toHaveText("100%");
+  });
 });
 
 test.describe("gui surface — mocked signal, mobile (375px)", () => {
@@ -559,6 +638,150 @@ test.describe("gui surface — mocked signal, mobile (375px)", () => {
 
     await page.getByRole("button", { name: "Dismiss" }).click();
     await expect(strip).toHaveCount(0);
+  });
+
+  /**
+   * Proves: on a coarse 375px viewport the key bar docks under the canvas
+   * with all ten buttons (Esc Tab Ctrl Alt ⇧ ← ↑ ↓ → ⌨); the bar itself
+   * fits the viewport and every button is tap-reachable inside it (the strip
+   * scrolls horizontally, so both ends of the row provably land inside 375px).
+   *
+   * Steps:
+   * 1. Mock the backend with the reachable icewm entry; open @1 at 375px;
+   *    tap the GUI button in the switch group.
+   * 2. Assert `gui-keybar` renders, its own box sits inside the 375px
+   *    viewport, and exactly the ten buttons are listed.
+   * 3. Assert the first button's box is inside the viewport, then scroll the
+   *    strip's last button (⌨) into view and assert its box is too.
+   */
+  test("key bar: ten buttons dock under the canvas, tap-reachable inside the 375px viewport", async ({
+    page,
+  }) => {
+    await mockGuiBackend(page, GUI_ON_ICEWM);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await toggleButton(page, "GUI tile").click();
+    await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    const bar = page.getByTestId("gui-keybar");
+    await expect(bar).toBeVisible({ timeout: READY_TIMEOUT });
+    const barBox = await bar.boundingBox();
+    expect(barBox).not.toBeNull();
+    expect(barBox!.x).toBeGreaterThanOrEqual(0);
+    expect(barBox!.x + barBox!.width).toBeLessThanOrEqual(375);
+
+    for (const name of ["Esc", "Tab", "Ctrl", "Alt", "⇧", "←", "↑", "↓", "→"]) {
+      await expect(bar.getByRole("button", { name, exact: true })).toBeVisible();
+    }
+    const keyboard = bar.getByRole("button", { name: "Toggle on-screen keyboard" });
+    await expect(keyboard).toBeVisible();
+    await expect(bar.getByRole("button")).toHaveCount(10);
+
+    const first = bar.getByRole("button", { name: "Esc", exact: true });
+    const firstBox = await first.boundingBox();
+    expect(firstBox).not.toBeNull();
+    expect(firstBox!.x).toBeGreaterThanOrEqual(0);
+    expect(firstBox!.x + firstBox!.width).toBeLessThanOrEqual(375);
+
+    await keyboard.scrollIntoViewIfNeeded();
+    const lastBox = await keyboard.boundingBox();
+    expect(lastBox).not.toBeNull();
+    expect(lastBox!.x).toBeGreaterThanOrEqual(0);
+    expect(lastBox!.x + lastBox!.width).toBeLessThanOrEqual(375);
+  });
+
+  /**
+   * Proves: the key bar's modifier latch is visible state — tapping Ctrl
+   * arms it (the chip renders pressed, without the locked `●` mark) and
+   * tapping a non-modifier key (Esc) consumes the arm, returning Ctrl to
+   * off. The ungated RFB never reaches `connected`, so the bar's rendered
+   * latch is the observable here; the sendKey call order is unit-tested.
+   *
+   * Steps:
+   * 1. Mock the backend with the reachable icewm entry; open @1 at 375px;
+   *    open the gui tile; assert Ctrl starts unpressed.
+   * 2. Tap Ctrl; assert it renders pressed with the plain `Ctrl` label.
+   * 3. Tap Esc; assert Ctrl is unpressed again (the arm was consumed).
+   */
+  test("key bar latch: tapping Ctrl arms it; tapping Esc consumes the arm", async ({ page }) => {
+    await mockGuiBackend(page, GUI_ON_ICEWM);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await toggleButton(page, "GUI tile").click();
+    const bar = page.getByTestId("gui-keybar");
+    await expect(bar).toBeVisible({ timeout: READY_TIMEOUT });
+
+    const ctrl = bar.getByRole("button", { name: "Ctrl", exact: true });
+    await expect(ctrl).toHaveAttribute("aria-pressed", "false");
+
+    await ctrl.tap();
+    await expect(ctrl).toHaveAttribute("aria-pressed", "true");
+    await expect(ctrl).toHaveText("Ctrl");
+
+    await bar.getByRole("button", { name: "Esc", exact: true }).tap();
+    await expect(ctrl).toHaveAttribute("aria-pressed", "false");
+  });
+
+  /**
+   * Proves: in the coarse-default trackpad pointer mode a two-finger spread
+   * on the canvas steps the zoom ladder — a symmetric pinch past the dead
+   * zone moves the badge to `100%`, and spreading further moves it to
+   * `125%` — while the fingers' centroid never moves (a spread, not a
+   * two-finger scroll).
+   *
+   * Steps:
+   * 1. Mock the backend with the reachable icewm entry; open @1 at 375px;
+   *    open the gui tile; measure the noVNC host's centre.
+   * 2. Via CDP `Input.dispatchTouchEvent`: touch down with finger 1, then
+   *    finger 2, 120px apart and symmetric about the centre.
+   * 3. Spread to 170px (dead zone plus one step); assert `gui-zoom-badge`
+   *    reads `100%`.
+   * 4. Spread to 210px (one more step); assert the badge reads `125%`; lift
+   *    both fingers.
+   */
+  test("pinch: a two-finger spread steps the zoom badge to 100% then 125%", async ({ page }) => {
+    await mockGuiBackend(page, GUI_ON_ICEWM);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await toggleButton(page, "GUI tile").click();
+    await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
+    const hostBox = await page.getByTestId("gui-novnc-host").boundingBox();
+    expect(hostBox).not.toBeNull();
+    const cx = Math.round(hostBox!.x + hostBox!.width / 2);
+    const cy = Math.round(hostBox!.y + hostBox!.height / 2);
+
+    const client = await page.context().newCDPSession(page);
+    // Two fingers land staggered (one touchStart each), then spread
+    // symmetrically about the tile centre so the centroid never moves.
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x: cx - 60, y: cy, id: 1 }],
+    });
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [
+        { x: cx - 60, y: cy, id: 1 },
+        { x: cx + 60, y: cy, id: 2 },
+      ],
+    });
+    const spreadTo = (halfDistance: number) =>
+      client.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [
+          { x: cx - halfDistance, y: cy, id: 1 },
+          { x: cx + halfDistance, y: cy, id: 2 },
+        ],
+      });
+
+    const badge = page.getByTestId("gui-zoom-badge");
+    await spreadTo(85); // 120 → 170px: the dead zone plus one 40px step
+    await expect(badge).toHaveText("100%");
+    await spreadTo(105); // 170 → 210px: one more step
+    await expect(badge).toHaveText("125%");
+    await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   });
 });
 

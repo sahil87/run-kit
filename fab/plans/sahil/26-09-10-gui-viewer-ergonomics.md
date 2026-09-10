@@ -143,7 +143,7 @@ polish that can wait for a second sitting.
 | # | Slug (suggested) | Depends on | Size | Change folder | PR | Status |
 |---|------------------|-----------|------|---------------|----|--------|
 | V1 | `gui-fixed-geometry-and-resize` | G3 merged (it is) | M | 260910-zuci-gui-fixed-geometry-and-resize | | in progress |
-| V2 | `gui-zoom-and-touch-pointer` | V1 merged | M | | | not started |
+| V2 | `gui-zoom-and-touch-pointer` | V1 merged | M | 260910-0aur-gui-zoom-and-touch-pointer | | in progress |
 | V3 | `gui-quality-presets-and-stats` | V2 merged (shares the posture module and toolbar seam) | S | | | not started |
 | V4 | `gui-toolbar-keybar-hidpi-sendkey` | V2 merged (∥ V3) | M | | | not started |
 

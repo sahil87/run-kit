@@ -34,9 +34,11 @@ import type { ViewName } from "./window-view";
  *   decision (B): letter consistency over chord weight).
  * - `cmd` — unshifted `CmdOrCtrl` (legacy punctuation chords: ⌘K ⌘; ⌘[⌘]).
  *   Matches Meta OR Ctrl, preserving each legacy listener's exact predicate.
- * - `ctrl` — plain Ctrl on BOTH platforms. `focus-hop` is the one shipped
- *   default on it (mac only, via `macTier` — plain Ctrl belongs to the pane
- *   on Win/Linux, so the base tier there is shifted); the tier otherwise
+ * - `ctrl` — plain Ctrl on BOTH platforms. Shipped defaults: `focus-hop`
+ *   (mac only, via `macTier` — plain Ctrl belongs to the pane on Win/Linux,
+ *   so the base tier there is shifted) and the gui-zoom trio (every platform:
+ *   ⌘=/⌘-/⌘0 are the browser's zoom chords on mac, and the `guiOnly` gate
+ *   keeps plain Ctrl with the pane under terminal focus); the tier otherwise
  *   keeps a mac chord capture reading plain Ctrl distinct from ⌘ (macOS
  *   window/system territory the page must not claim).
  */
@@ -113,6 +115,13 @@ export type KeyBinding = {
    *  arrived inside a WEB lens iframe — inside the code iframe ⌘F stays with
    *  code-server's own find. */
   webOnly?: boolean;
+  /** The `webOnly` mirror for the gui tile: this chord is only meaningful
+   *  when the gui tile owns focus. The dispatcher handler map treats a
+   *  `guiOnly` binding's handler as absent unless the focused tile is gui,
+   *  the reclaim predicate intercepts it only for kind `"gui"`, and the
+   *  terminal seam never refuses it — plain Ctrl+=/−/0 belong to the pane
+   *  under terminal focus on every platform. */
+  guiOnly?: boolean;
   /** This binding fires ANOTHER action's handler — the named `actionId` — so
    *  one action can answer to a second chord. The dispatcher resolves the
    *  handler through this; nothing is registered under the alias's own id.
@@ -380,6 +389,15 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // readline's clear-screen under Win/Linux terminal focus). `ignoreInputs`:
   // a chrome-level opener, it fires from inside the address input itself.
   { actionId: "web-address", code: "KeyL", tier: "cmd", scope: "terminal", kind: "builtin", label: "Focus address bar", description: "focus the web tile's address bar", mapLabel: "address", ignoreInputs: true, webOnly: true },
+  // Ctrl+= / Ctrl+- / Ctrl+0 gui zoom — the ctrl tier on EVERY platform:
+  // ⌘=/⌘-/⌘0 are the browser's (and the mac shell menu's) own zoom
+  // accelerators, so no mac demotion exists, and plain Ctrl+=/−/0 belongs to
+  // the pane under terminal focus, so the `guiOnly` gate confines the chords
+  // to gui-tile focus (handler presence + the reclaim predicate) and the
+  // terminal seam never refuses them.
+  { actionId: "gui-zoom-in", code: "Equal", tier: "ctrl", scope: "terminal", kind: "builtin", label: "Zoom GUI in", mapLabel: "gui +", ignoreInputs: true, guiOnly: true },
+  { actionId: "gui-zoom-out", code: "Minus", tier: "ctrl", scope: "terminal", kind: "builtin", label: "Zoom GUI out", mapLabel: "gui −", ignoreInputs: true, guiOnly: true },
+  { actionId: "gui-zoom-fit", code: "Digit0", tier: "ctrl", scope: "terminal", kind: "builtin", label: "Zoom GUI to fit", mapLabel: "gui fit", ignoreInputs: true, guiOnly: true },
   { actionId: "board-cycle-next", code: "BracketRight", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus →" },
   { actionId: "board-cycle-prev", code: "BracketLeft", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus ←" },
 ];
@@ -565,7 +583,10 @@ export function findMatches(
  * pane-targeting) is never reclaimed: it belongs to the embedded app's own
  * keybinding service (code-server's ⌘D add-selection-to-next-match). A
  * `webOnly` match (⌘F web find) is reclaimable only inside a WEB iframe — in
- * the code iframe ⌘F stays with code-server's own find. A chord matching BOTH
+ * the code iframe ⌘F stays with code-server's own find. A `guiOnly` match
+ * (the Ctrl+=/−/0 zoom chords) is reclaimable only for kind `"gui"` — the
+ * gui tile's capture-phase gate then wins over noVNC's canvas handler. A
+ * chord matching BOTH
  * a gated and an ungated binding is still reclaimed (`.some` semantics) — the
  * ungated match has a global meaning. For `"code"` the result is
  * byte-identical to the pre-kind-aware predicate on every pre-ie2i binding.
@@ -578,6 +599,7 @@ export function hasReclaimableMatch(
   return findMatches(e, bindings).some((b) => {
     if (b.ttyOnly) return false;
     if (b.webOnly) return kind === "web";
+    if (b.guiOnly) return kind === "gui";
     return true;
   });
 }
@@ -585,7 +607,9 @@ export function hasReclaimableMatch(
 /**
  * Whether the terminal's custom key handler must REFUSE this keydown so it
  * bubbles to the window dispatcher instead of reaching the pane
- * (`terminal-client.tsx`). Three rules:
+ * (`terminal-client.tsx`). `guiOnly` matches are filtered out first: their
+ * chords belong to the pane under terminal focus, so rule 3 must never fire
+ * on them. Three rules:
  *
  * 1. Any enabled SHIFTED-tier match, on every platform (260730-g40a): legacy
  *    TTY encoding cannot distinguish Ctrl+Shift+letter from Ctrl+letter, so
@@ -606,14 +630,16 @@ export function hasReclaimableMatch(
  *    encodes to) from the pane: near-zero cost, the same trade VS Code makes
  *    for its own ⌃`. Win/Linux stays byte-identical — no ctrl-tier default
  *    resolves there (focus-hop's base tier is shifted), and the rule is
- *    platform-gated to mac.
+ *    platform-gated to mac. The `guiOnly` filter above is load-bearing here:
+ *    the gui-zoom trio is ctrl-tier on every platform, and without the
+ *    filter this rule would steal plain Ctrl+=/−/0 from a focused pane.
  */
 export function shouldRefuseTerminalChord(
   e: ChordEvent,
   bindings: readonly EffectiveBinding[],
   platform: BindingPlatform,
 ): boolean {
-  const matches = findMatches(e, bindings);
+  const matches = findMatches(e, bindings).filter((b) => !b.guiOnly);
   if (matches.some((b) => b.tier === "shifted")) return true;
   if (platform === "mac" && e.metaKey && matches.some((b) => b.tier === "cmd")) return true;
   return platform === "mac" && e.ctrlKey && !e.metaKey && matches.some((b) => b.tier === "ctrl");

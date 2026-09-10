@@ -9,6 +9,7 @@ import { stubMatchMedia } from "@/test-utils/match-media";
 import { makeWindow } from "@/test-utils/fixtures";
 import { entryKey, useWindowStore } from "@/store/window-store";
 import type { GuiSurfaceCommands } from "./gui-surface";
+import type { GuiPointerMode, GuiZoom } from "@/lib/gui-posture";
 import { focusMemoryKey, recallFocus, resetFocusMemory } from "@/lib/focus-memory";
 
 // jsdom does not implement matchMedia — Tip's coarse-pointer check needs it.
@@ -130,7 +131,9 @@ type LayoutOverrides = {
   statusWindow?: WindowInfo | null;
   ttyDockContent?: React.ReactNode;
   gui?: Parameters<typeof SurfaceLayout>[0]["gui"];
-  guiViewMode?: "fit" | "1:1";
+  guiZoom?: GuiZoom;
+  guiPointerMode?: GuiPointerMode;
+  onGuiZoomChange?: (z: GuiZoom) => void;
   guiResizeLocked?: boolean;
   onGuiConnection?: (connected: boolean) => void;
   onGuiRestart?: () => Promise<{ ok: boolean; disabled?: boolean }>;
@@ -189,7 +192,9 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       statusWindow={overrides.statusWindow}
       ttyDockContent={overrides.ttyDockContent}
       gui={overrides.gui}
-      guiViewMode={overrides.guiViewMode}
+      guiZoom={overrides.guiZoom}
+      guiPointerMode={overrides.guiPointerMode}
+      onGuiZoomChange={overrides.onGuiZoomChange}
       guiResizeLocked={overrides.guiResizeLocked}
       onGuiConnection={overrides.onGuiConnection ?? vi.fn()}
       onGuiRestart={overrides.onGuiRestart ?? vi.fn()}
@@ -1897,7 +1902,9 @@ describe("SurfaceLayout gui tile", () => {
     renderLayout({
       layout: { shape: "split-h", order: ["tty", "gui"] },
       gui: GUI_ON,
-      guiViewMode: "1:1",
+      guiZoom: 150,
+      guiPointerMode: "trackpad",
+      onGuiZoomChange: vi.fn(),
       guiResizeLocked: true,
       shouldReclaimChord: () => () => true,
     });
@@ -1907,7 +1914,9 @@ describe("SurfaceLayout gui tile", () => {
     expect(tile.textContent).toContain("GUI");
     const props = lastGuiProps();
     expect(props?.gui).toEqual(GUI_ON);
-    expect(props?.viewMode).toBe("1:1");
+    expect(props?.zoom).toBe(150);
+    expect(props?.pointerMode).toBe("trackpad");
+    expect(typeof props?.onZoomChange).toBe("function");
     expect(props?.resizeLocked).toBe(true);
     expect(props?.visible).toBe(true);
     // Fine-pointer matchMedia stub → coarsePointer false; slot 1 is not the

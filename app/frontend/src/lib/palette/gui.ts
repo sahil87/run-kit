@@ -34,10 +34,19 @@
  *                                 fallback where requestFullscreen is absent).
  *  - `GUI: Paste clipboard`     — gui tile open AND connected (readText needs a
  *                                 user gesture — palette selection is one).
- *  - `GUI: Fit` / `GUI: 1:1`    — gui tile open; destination-only pair — the
- *                                 entry shows the mode it switches TO, never
- *                                 the current one (the `buildViewActions`
- *                                 pattern).
+ *  - `GUI: Zoom in` / `GUI: Zoom out` / `GUI: Zoom to fit` / `GUI: 1:1` —
+ *                                 gui tile open; destination-only zoom rows
+ *                                 (Zoom in hides at 200, Zoom out and Zoom to
+ *                                 fit hide at fit, 1:1 hides at 100 — it is
+ *                                 the 100% alias of the ladder). The three
+ *                                 zoom ids ARE the registry actionIds, so
+ *                                 `withShortcutHints` decorates the Ctrl
+ *                                 chords for free.
+ *  - `GUI: Pointer → Trackpad` / `GUI: Pointer → Touch` — gui tile open AND
+ *                                 coarse pointer only (a fine pointer has no
+ *                                 translation layer to toggle);
+ *                                 destination-only pair toggling the
+ *                                 viewer-local `rk-gui-pointer` posture.
  *  - `GUI: Lock resolution` / `GUI: Unlock resolution` — gui tile open, fine
  *                                 pointer only (coarse viewers never drive
  *                                 resize, so there is nothing to lock);
@@ -59,8 +68,8 @@
 
 import type { GuiLaunchApp } from "../../api/client";
 import type { PaletteAction } from "../../components/command-palette";
-import type { GuiViewMode } from "../gui-posture";
 import { GUI_GEOMETRY_PRESETS, presetLabel } from "../gui-geometry";
+import { stepGuiZoom, type GuiPointerMode, type GuiZoom } from "../gui-posture";
 
 export type GuiPaletteAction = {
   id: string;
@@ -85,9 +94,13 @@ export type GuiPaletteInput = {
   tileOpen: boolean;
   /** The tile's RFB connection state (the R11 dot seam). */
   connected: boolean;
-  /** Coarse pointer — the resize lock is a fine-pointer-only verb. */
+  /** Coarse pointer — the resize lock is fine-pointer-only, the pointer-mode
+   *  pair coarse-only. */
   coarsePointer: boolean;
-  viewMode: GuiViewMode;
+  /** The viewer's zoom posture (`rk-gui-zoom`). */
+  zoom: GuiZoom;
+  /** The viewer's pointer mode (`rk-gui-pointer`). */
+  pointerMode: GuiPointerMode;
   resizeLocked: boolean;
   /** The host signal's `geometry` — the `gui.geometry` setting: a fixed `WxH`,
    *  or `auto` (the desktop follows the focused fine-pointer viewer). */
@@ -110,7 +123,8 @@ export type GuiPaletteInput = {
   onMatchTile: () => void;
   onFullscreen: () => void;
   onPaste: () => void;
-  onViewMode: (mode: GuiViewMode) => void;
+  onZoom: (z: GuiZoom) => void;
+  onPointerMode: (m: GuiPointerMode) => void;
   onLockChange: (locked: boolean) => void;
   onOpenLogs: () => void;
   onReconnect: () => void;
@@ -184,12 +198,51 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
         onSelect: input.onPaste,
       });
     }
-    // Destination-only pairs — the entry shows the posture it switches to.
-    actions.push(
-      input.viewMode === "fit"
-        ? { id: "gui-view-1to1", label: "GUI: 1:1", onSelect: () => input.onViewMode("1:1") }
-        : { id: "gui-view-fit", label: "GUI: Fit", onSelect: () => input.onViewMode("fit") },
-    );
+    // Destination-only zoom rows — each shows the rung it switches TO. The
+    // zoom ids ARE the registry actionIds (the chord-hint contract).
+    if (input.zoom !== 200) {
+      actions.push({
+        id: "gui-zoom-in",
+        label: "GUI: Zoom in",
+        onSelect: () => input.onZoom(stepGuiZoom(input.zoom, 1)),
+      });
+    }
+    if (input.zoom !== "fit") {
+      actions.push(
+        {
+          id: "gui-zoom-out",
+          label: "GUI: Zoom out",
+          onSelect: () => input.onZoom(stepGuiZoom(input.zoom, -1)),
+        },
+        { id: "gui-zoom-fit", label: "GUI: Zoom to fit", onSelect: () => input.onZoom("fit") },
+      );
+    }
+    if (input.zoom !== 100) {
+      actions.push({
+        id: "gui-view-1to1",
+        label: "GUI: 1:1",
+        description: "100% — same as zoom",
+        onSelect: () => input.onZoom(100),
+      });
+    }
+    if (input.coarsePointer) {
+      // Destination-only pair — the entry shows the mode it switches to.
+      actions.push(
+        input.pointerMode === "touch"
+          ? {
+              id: "gui-pointer-trackpad",
+              label: "GUI: Pointer → Trackpad",
+              description: "one finger moves, tap clicks, two-finger tap right-clicks, two-finger drag scrolls",
+              onSelect: () => input.onPointerMode("trackpad"),
+            }
+          : {
+              id: "gui-pointer-touch",
+              label: "GUI: Pointer → Touch",
+              description: "tap where you touch",
+              onSelect: () => input.onPointerMode("touch"),
+            },
+      );
+    }
     if (!input.coarsePointer) {
       // Under a fixed geometry the pins are inert (no viewer can drive
       // SetDesktopSize) — the row stays, disabled, saying why. Only a real

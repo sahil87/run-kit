@@ -31,7 +31,7 @@ import { clampBoundary } from "@/lib/right-panel";
 import { codeRootFor } from "@/lib/code-folder-latch";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import type { GuiSignal } from "@/contexts/session-context";
-import type { GuiViewMode } from "@/lib/gui-posture";
+import type { GuiPointerMode, GuiZoom } from "@/lib/gui-posture";
 import type { GuiRestartResult, GuiSurfaceCommands } from "@/components/gui-surface";
 
 // noVNC's core is ~150 KB min — the gui tile lazy-loads so tabs that never
@@ -222,8 +222,12 @@ interface SurfaceLayoutProps {
    *  vs the enabled-but-unreachable empty state); availability is the
    *  signal's `enabled`, applied upstream by the layout degradation. */
   gui?: GuiSignal | null;
-  /** Per-viewer gui postures (app.tsx owns the localStorage-backed state). */
-  guiViewMode?: GuiViewMode;
+  /** Per-viewer gui postures (app.tsx owns the localStorage-backed state).
+   *  `guiPointerMode` falls back to the pointer-class default (trackpad on
+   *  coarse, touch on fine) when absent. */
+  guiZoom?: GuiZoom;
+  guiPointerMode?: GuiPointerMode;
+  onGuiZoomChange?: (z: GuiZoom) => void;
   guiResizeLocked?: boolean;
   /** RFB connection report — app.tsx folds it into the toggle dot. */
   onGuiConnection?: (connected: boolean) => void;
@@ -577,7 +581,9 @@ export function SurfaceLayout({
   onSessionNotFound,
   codeReachable,
   gui = null,
-  guiViewMode = "fit",
+  guiZoom = "fit",
+  guiPointerMode,
+  onGuiZoomChange,
   guiResizeLocked = false,
   onGuiConnection,
   onGuiRestart,
@@ -1619,7 +1625,9 @@ export function SurfaceLayout({
               visible={!hidden && slot >= 0}
               focused={slot >= 0 && slot === focusedSlot}
               coarsePointer={coarsePointer}
-              viewMode={guiViewMode}
+              zoom={guiZoom}
+              pointerMode={guiPointerMode ?? (coarsePointer ? "trackpad" : "touch")}
+              onZoomChange={onGuiZoomChange ?? (() => {})}
               resizeLocked={guiResizeLocked}
               onConnectionChange={onGuiConnection}
               onRestart={onGuiRestart}

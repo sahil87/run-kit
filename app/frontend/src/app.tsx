@@ -61,11 +61,15 @@ import { closestAspectPreset } from "@/lib/gui-geometry";
 import { buildDesktopPaletteRows } from "@/lib/gui-desktop";
 import { useDesktopPick } from "@/hooks/use-desktop-pick";
 import {
+  readGuiPointerMode,
   readGuiResizeLocked,
-  readGuiViewMode,
+  readGuiZoom,
+  stepGuiZoom,
+  writeGuiPointerMode,
   writeGuiResizeLocked,
-  writeGuiViewMode,
-  type GuiViewMode,
+  writeGuiZoom,
+  type GuiPointerMode,
+  type GuiZoom,
 } from "@/lib/gui-posture";
 import { buildZenActions } from "@/lib/palette/zen";
 import { resolveZenToggle } from "@/lib/zen-mode";
@@ -1238,18 +1242,30 @@ function AppShell() {
   // across a switch.
   const [guiConnected, setGuiConnected] = useState(false);
   useEffect(() => setGuiConnected(false), [server, windowParam]);
+  const coarsePointer = useCoarsePointer();
   // Per-viewer render postures (lib/gui-posture.ts — validated localStorage
-  // reads, try/catch-noop writes): the view mode and the viewer-local resize
-  // lock. The ONLY new state the gui surface adds anywhere.
-  const [guiViewMode, setGuiViewMode] = useState<GuiViewMode>(() => readGuiViewMode());
+  // reads, try/catch-noop writes): the zoom, the pointer mode (defaulting to
+  // the pointer class), and the viewer-local resize lock. The ONLY new state
+  // the gui surface adds anywhere.
+  const [guiZoom, setGuiZoom] = useState<GuiZoom>(() => readGuiZoom());
+  const [guiPointerMode, setGuiPointerMode] = useState<GuiPointerMode>(() =>
+    readGuiPointerMode(coarsePointer),
+  );
   const [guiResizeLocked, setGuiResizeLocked] = useState(() => readGuiResizeLocked());
+  const handleGuiZoomChange = useCallback((z: GuiZoom) => {
+    setGuiZoom(z);
+    writeGuiZoom(z);
+  }, []);
+  const handleGuiPointerModeChange = useCallback((m: GuiPointerMode) => {
+    setGuiPointerMode(m);
+    writeGuiPointerMode(m);
+  }, []);
   // The Custom… geometry prompt's open state (the palette's `GUI: Resolution →
   // Custom…` row opens it; the prompt owns validation).
   const [guiGeometryPromptOpen, setGuiGeometryPromptOpen] = useState(false);
   // The palette seams into the live RFB (GUI: Paste clipboard / GUI:
   // Reconnect) — GuiSurface fills it while mounted.
   const guiCommandsRef = useRef<GuiSurfaceCommands | null>(null);
-  const coarsePointer = useCoarsePointer();
 
   // ⏶ Zoom palette seam (T012/R11): the zoom itself is SurfaceLayout-internal
   // transient state (R6 — no URL/localStorage); the palette's `Layout: Expand`/
@@ -1411,7 +1427,8 @@ function AppShell() {
       tileOpen: layout.order.includes("gui"),
       connected: guiConnected,
       coarsePointer,
-      viewMode: guiViewMode,
+      zoom: guiZoom,
+      pointerMode: guiPointerMode,
       resizeLocked: guiResizeLocked,
       geometry: gui?.geometry ?? "",
       supervisorAvailable: rkGuiWindow !== null,
@@ -1446,10 +1463,8 @@ function AppShell() {
             /* clipboard read needs a permission — skip silently */
           });
       },
-      onViewMode: (mode) => {
-        setGuiViewMode(mode);
-        writeGuiViewMode(mode);
-      },
+      onZoom: handleGuiZoomChange,
+      onPointerMode: handleGuiPointerModeChange,
       onLockChange: (locked) => {
         setGuiResizeLocked(locked);
         writeGuiResizeLocked(locked);
@@ -1471,7 +1486,10 @@ function AppShell() {
     layout.order,
     guiConnected,
     coarsePointer,
-    guiViewMode,
+    guiZoom,
+    handleGuiZoomChange,
+    guiPointerMode,
+    handleGuiPointerModeChange,
     guiResizeLocked,
     rkGuiWindow,
     guiOffRequest,
@@ -4638,6 +4656,16 @@ function AppShell() {
       bindingByAction.get(id)?.webOnly && focusedTileKind !== "web"
         ? undefined
         : fromPalette(id);
+    // guiOnly gate — the webOnly mirror: a `guiOnly` binding's handler is
+    // treated as ABSENT unless the gui tile owns focus, so plain Ctrl+=/−/0
+    // stay with the pane everywhere else. The gate consults the registry flag
+    // as data, never an actionId list. The bodies are direct (not fromPalette):
+    // the zoom rows' palette entries gate on tile state, while the chord's
+    // reclaim path already implies a focused gui tile.
+    const guiGated = (id: string, run: () => void) =>
+      bindingByAction.get(id)?.guiOnly && focusedTileKind !== "gui"
+        ? undefined
+        : run;
     // `window-prev`/`window-next` and `session-prev`/`session-next` resolve
     // through their palette bodies — the `Tab: Previous` / `Tab: Next` /
     // `Session: Previous` / `Session: Next` entries own the flattened
@@ -4759,6 +4787,13 @@ function AppShell() {
       // focus). The mac-browser cmd-tier KeyL claim is REMOVED — ⌘L is
       // page-interceptable (the ⌘D/⌘J class).
       "web-address": webGated("web-address"),
+      // Ctrl+= / Ctrl+- / Ctrl+0 gui zoom — present only while the gui tile
+      // owns focus (the guiOnly gate); the tile's capture-phase keydown gate
+      // reclaims the chord over noVNC's canvas handler and re-dispatches it
+      // here. Stepping the posture re-renders the tile, which shows the badge.
+      "gui-zoom-in": guiGated("gui-zoom-in", () => handleGuiZoomChange(stepGuiZoom(guiZoom, 1))),
+      "gui-zoom-out": guiGated("gui-zoom-out", () => handleGuiZoomChange(stepGuiZoom(guiZoom, -1))),
+      "gui-zoom-fit": guiGated("gui-zoom-fit", () => handleGuiZoomChange("fit")),
       // ⌘1/⌘2/⌘3 tile chords (R4) — see `tileChord` above for the three-state
       // rule, gating, and the recording constraint. A window without the
       // surface (`availableTiles`) mounts no handler and the chord falls
@@ -4804,7 +4839,7 @@ function AppShell() {
       // ring) gates the chord for free.
       "layout-cycle": fromPalette("layout-cycle"),
     };
-  }, [paletteActions, paletteGlobals, server, windowParam, macros, sessionName, executeMacro, toggleComposeStrip, composeStripEnabled, addToast, isMobile, panelSurfaces, togglePanel, restoreFocus, bindingByAction, focusedTileKind, layout, toggleZen]);
+  }, [paletteActions, paletteGlobals, server, windowParam, macros, sessionName, executeMacro, toggleComposeStrip, composeStripEnabled, addToast, isMobile, panelSurfaces, togglePanel, restoreFocus, bindingByAction, focusedTileKind, layout, toggleZen, guiZoom, handleGuiZoomChange]);
   useKeybindingDispatch(keybindingHandlers);
 
   const displayName = currentWindow?.name ?? windowParam ?? "";
@@ -5260,7 +5295,9 @@ function AppShell() {
               // per-viewer postures, the RFB connection report (the toggle
               // dot), the empty-state verbs, and the palette command seam.
               gui={gui}
-              guiViewMode={guiViewMode}
+              guiZoom={guiZoom}
+              guiPointerMode={guiPointerMode}
+              onGuiZoomChange={handleGuiZoomChange}
               guiResizeLocked={guiResizeLocked}
               onGuiConnection={setGuiConnected}
               onGuiRestart={restartGui}

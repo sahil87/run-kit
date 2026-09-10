@@ -813,6 +813,9 @@ describe("palette parity invariant", () => {
     "tty-toggle": ["tile-show-tty", "tile-hide-tty", "tile-focus-tty"],
     "web-toggle": ["tile-show-web", "tile-hide-web", "tile-focus-web"],
     "gui-toggle": ["tile-show-gui", "tile-hide-gui", "tile-focus-gui"],
+    "gui-zoom-in": ["gui-zoom-in"], // GUI: Zoom in
+    "gui-zoom-out": ["gui-zoom-out"], // GUI: Zoom out
+    "gui-zoom-fit": ["gui-zoom-fit"], // GUI: Zoom to fit
     "zen-toggle": ["view-zen-enter", "view-zen-exit"],
     "focus-hop": ["tile-focus-tty", "tile-focus-code"],
     "web-find": ["web-find"], // Web: Find in page (260819-ie2i)
@@ -2393,6 +2396,94 @@ describe("webOnly — the web-find data flag (260819-ie2i)", () => {
       const bindings = resolved(host);
       expect(byId(bindings, "web-find").webOnly).toBe(true);
       expect(byId(bindings, "command-palette").webOnly).toBeUndefined();
+    }
+  });
+});
+
+describe("guiOnly — the gui-zoom data flag", () => {
+  it("exactly the three gui-zoom rows carry the flag in the shipped defaults", () => {
+    const flagged = DEFAULT_BINDINGS.filter((b) => b.guiOnly).map((b) => b.actionId);
+    expect(flagged).toEqual(["gui-zoom-in", "gui-zoom-out", "gui-zoom-fit"]);
+  });
+
+  it("ships the three rows ctrl-tier on Equal/Minus/Digit0, terminal scope, ignoreInputs — no mac refinement", () => {
+    // Full-row equality: the ctrl-tier-everywhere shape is the constraint —
+    // ⌘=/⌘-/⌘0 are the browser's own zoom chords on mac, so no demotion
+    // exists, and the guiOnly gate (not the seam) confines plain Ctrl+=/−/0
+    // to gui-tile focus.
+    expect(DEFAULT_BINDINGS.find((b) => b.actionId === "gui-zoom-in")).toEqual({
+      actionId: "gui-zoom-in",
+      code: "Equal",
+      tier: "ctrl",
+      scope: "terminal",
+      kind: "builtin",
+      label: "Zoom GUI in",
+      mapLabel: "gui +",
+      ignoreInputs: true,
+      guiOnly: true,
+    });
+    expect(DEFAULT_BINDINGS.find((b) => b.actionId === "gui-zoom-out")).toEqual({
+      actionId: "gui-zoom-out",
+      code: "Minus",
+      tier: "ctrl",
+      scope: "terminal",
+      kind: "builtin",
+      label: "Zoom GUI out",
+      mapLabel: "gui −",
+      ignoreInputs: true,
+      guiOnly: true,
+    });
+    expect(DEFAULT_BINDINGS.find((b) => b.actionId === "gui-zoom-fit")).toEqual({
+      actionId: "gui-zoom-fit",
+      code: "Digit0",
+      tier: "ctrl",
+      scope: "terminal",
+      kind: "builtin",
+      label: "Zoom GUI to fit",
+      mapLabel: "gui fit",
+      ignoreInputs: true,
+      guiOnly: true,
+    });
+    for (const host of ALL_HOSTS) {
+      const bindings = resolved(host);
+      expect(byId(bindings, "gui-zoom-in")).toMatchObject({ code: "Equal", tier: "ctrl", enabled: true, isDefault: true });
+      expect(byId(bindings, "gui-zoom-out")).toMatchObject({ code: "Minus", tier: "ctrl", enabled: true, isDefault: true });
+      expect(byId(bindings, "gui-zoom-fit")).toMatchObject({ code: "Digit0", tier: "ctrl", enabled: true, isDefault: true });
+      expect(byId(bindings, "command-palette").guiOnly).toBeUndefined();
+    }
+  });
+
+  it("matches plain Ctrl+=/−/0 on every platform", () => {
+    for (const host of ALL_HOSTS) {
+      const bindings = resolved(host);
+      expect(findMatches(chord({ code: "Equal", ctrlKey: true }), bindings).map((b) => b.actionId)).toEqual(["gui-zoom-in"]);
+      expect(findMatches(chord({ code: "Minus", ctrlKey: true }), bindings).map((b) => b.actionId)).toEqual(["gui-zoom-out"]);
+      expect(findMatches(chord({ code: "Digit0", ctrlKey: true }), bindings).map((b) => b.actionId)).toEqual(["gui-zoom-fit"]);
+    }
+  });
+
+  it("hasReclaimableMatch reclaims the chords only for kind 'gui'", () => {
+    for (const host of ALL_HOSTS) {
+      const bindings = resolved(host);
+      for (const code of ["Equal", "Minus", "Digit0"]) {
+        const e = chord({ code, ctrlKey: true });
+        expect(hasReclaimableMatch(e, bindings, "gui")).toBe(true);
+        expect(hasReclaimableMatch(e, bindings, "tty")).toBe(false);
+        expect(hasReclaimableMatch(e, bindings, "code")).toBe(false);
+        expect(hasReclaimableMatch(e, bindings, "web")).toBe(false);
+      }
+    }
+  });
+
+  it("the terminal seam never refuses the guiOnly chords — plain Ctrl+=/−/0 reach a focused pane on every platform", () => {
+    // Regression guard: mac rule 3 (an enabled ctrl-tier match pressed with
+    // ctrlKey) would otherwise steal the chords from the pane.
+    for (const code of ["Equal", "Minus", "Digit0"]) {
+      const e = chord({ code, ctrlKey: true });
+      expect(shouldRefuseTerminalChord(e, resolved(SHELL_MAC), "mac")).toBe(false);
+      expect(shouldRefuseTerminalChord(e, resolved(BROWSER_MAC), "mac")).toBe(false);
+      expect(shouldRefuseTerminalChord(e, resolved(SHELL_OTHER), "other")).toBe(false);
+      expect(shouldRefuseTerminalChord(e, resolved(BROWSER_OTHER), "other")).toBe(false);
     }
   });
 });

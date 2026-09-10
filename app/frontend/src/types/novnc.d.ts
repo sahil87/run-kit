@@ -43,6 +43,7 @@ declare module "@novnc/novnc" {
     disconnect(): void;
     sendCredentials(credentials: RfbCredentials): void;
     clipboardPasteFrom(text: string): void;
+    sendKey(keysym: number, code: string | null, down?: boolean): void;
     focus(): void;
 
     addEventListener<K extends keyof RfbEventMap>(

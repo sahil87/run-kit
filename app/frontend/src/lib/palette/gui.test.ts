@@ -9,7 +9,8 @@ function input(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput {
     tileOpen: true,
     connected: true,
     coarsePointer: false,
-    viewMode: "fit",
+    zoom: "fit",
+    pointerMode: "touch",
     resizeLocked: false,
     geometry: "auto",
     supervisorAvailable: true,
@@ -22,7 +23,8 @@ function input(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput {
     onMatchTile: vi.fn(),
     onFullscreen: vi.fn(),
     onPaste: vi.fn(),
-    onViewMode: vi.fn(),
+    onZoom: vi.fn(),
+    onPointerMode: vi.fn(),
     onLockChange: vi.fn(),
     onOpenLogs: vi.fn(),
     onReconnect: vi.fn(),
@@ -87,6 +89,7 @@ describe("buildGuiActions — tile-open gating", () => {
       "gui-res-custom",
       "gui-fullscreen",
       "gui-paste",
+      "gui-zoom-in",
       "gui-view-1to1",
       "gui-lock",
       "gui-logs",
@@ -175,29 +178,90 @@ describe("buildGuiActions — connection gating", () => {
   });
 });
 
+describe("buildGuiActions — zoom and pointer rows", () => {
+  it("zoom fit + fine pointer: Zoom in and 1:1 show; Zoom out, Zoom to fit, and both pointer rows hide", () => {
+    const list = ids(input({ zoom: "fit" }));
+    expect(list).toContain("gui-zoom-in");
+    expect(list).toContain("gui-view-1to1");
+    expect(list).not.toContain("gui-zoom-out");
+    expect(list).not.toContain("gui-zoom-fit");
+    expect(list).not.toContain("gui-pointer-trackpad");
+    expect(list).not.toContain("gui-pointer-touch");
+  });
+
+  it("zoom 200 + coarse pointer in trackpad: Zoom out, Zoom to fit, 1:1, and Pointer → Touch show; Zoom in and Pointer → Trackpad hide", () => {
+    const list = ids(input({ zoom: 200, coarsePointer: true, pointerMode: "trackpad" }));
+    expect(list).toContain("gui-zoom-out");
+    expect(list).toContain("gui-zoom-fit");
+    expect(list).toContain("gui-view-1to1");
+    expect(list).toContain("gui-pointer-touch");
+    expect(list).not.toContain("gui-zoom-in");
+    expect(list).not.toContain("gui-pointer-trackpad");
+  });
+
+  it("GUI: 1:1 is the 100% alias — onSelect calls onZoom(100) and the row hides at zoom 100", () => {
+    const inp = input({ zoom: "fit" });
+    const row = buildGuiActions(inp).find((a) => a.id === "gui-view-1to1")!;
+    expect(row.description).toBe("100% — same as zoom");
+    row.onSelect();
+    expect(inp.onZoom).toHaveBeenCalledWith(100);
+
+    expect(ids(input({ zoom: 100 }))).not.toContain("gui-view-1to1");
+  });
+
+  it("Zoom in / Zoom out step the ladder through onZoom", () => {
+    const fit = input({ zoom: "fit" });
+    buildGuiActions(fit).find((a) => a.id === "gui-zoom-in")!.onSelect();
+    expect(fit.onZoom).toHaveBeenCalledWith(100);
+
+    const zoomed = input({ zoom: 150 });
+    buildGuiActions(zoomed).find((a) => a.id === "gui-zoom-in")!.onSelect();
+    expect(zoomed.onZoom).toHaveBeenCalledWith(200);
+    buildGuiActions(zoomed).find((a) => a.id === "gui-zoom-out")!.onSelect();
+    expect(zoomed.onZoom).toHaveBeenCalledWith(125);
+
+    const top = input({ zoom: 200 });
+    buildGuiActions(top).find((a) => a.id === "gui-zoom-fit")!.onSelect();
+    expect(top.onZoom).toHaveBeenCalledWith("fit");
+  });
+
+  it("the pointer pair is coarse-only and destination-only, routing the destination mode", () => {
+    expect(ids(input({ coarsePointer: true, pointerMode: "touch" }))).toContain(
+      "gui-pointer-trackpad",
+    );
+    expect(ids(input({ coarsePointer: true, pointerMode: "trackpad" }))).toContain(
+      "gui-pointer-touch",
+    );
+    for (const fine of [input({ pointerMode: "touch" }), input({ pointerMode: "trackpad" })]) {
+      expect(ids(fine)).not.toContain("gui-pointer-trackpad");
+      expect(ids(fine)).not.toContain("gui-pointer-touch");
+    }
+
+    const touch = input({ coarsePointer: true, pointerMode: "touch" });
+    const trackpadRow = buildGuiActions(touch).find((a) => a.id === "gui-pointer-trackpad")!;
+    expect(trackpadRow.description).toBe(
+      "one finger moves, tap clicks, two-finger tap right-clicks, two-finger drag scrolls",
+    );
+    trackpadRow.onSelect();
+    expect(touch.onPointerMode).toHaveBeenCalledWith("trackpad");
+
+    const trackpad = input({ coarsePointer: true, pointerMode: "trackpad" });
+    const touchRow = buildGuiActions(trackpad).find((a) => a.id === "gui-pointer-touch")!;
+    expect(touchRow.description).toBe("tap where you touch");
+    touchRow.onSelect();
+    expect(trackpad.onPointerMode).toHaveBeenCalledWith("touch");
+  });
+
+  it("the zoom and pointer rows are tileOpen-gated", () => {
+    const list = ids(input({ tileOpen: false, coarsePointer: true }));
+    expect(list).not.toContain("gui-zoom-in");
+    expect(list).not.toContain("gui-view-1to1");
+    expect(list).not.toContain("gui-pointer-trackpad");
+    expect(list).not.toContain("gui-pointer-touch");
+  });
+});
+
 describe("buildGuiActions — destination-only pairs", () => {
-  it("shows GUI: 1:1 in fit mode and GUI: Fit in 1:1 mode", () => {
-    const fit = buildGuiActions(input({ viewMode: "fit" }));
-    const fitEntry = fit.find((a) => a.id === "gui-view-1to1")!;
-    expect(fitEntry.label).toBe("GUI: 1:1");
-    expect(fit.some((a) => a.id === "gui-view-fit")).toBe(false);
-
-    const oneToOne = buildGuiActions(input({ viewMode: "1:1" }));
-    const back = oneToOne.find((a) => a.id === "gui-view-fit")!;
-    expect(back.label).toBe("GUI: Fit");
-    expect(oneToOne.some((a) => a.id === "gui-view-1to1")).toBe(false);
-  });
-
-  it("the view entries call onViewMode with the destination mode", () => {
-    const inp = input({ viewMode: "fit" });
-    buildGuiActions(inp).find((a) => a.id === "gui-view-1to1")!.onSelect();
-    expect(inp.onViewMode).toHaveBeenCalledWith("1:1");
-
-    const back = input({ viewMode: "1:1" });
-    buildGuiActions(back).find((a) => a.id === "gui-view-fit")!.onSelect();
-    expect(back.onViewMode).toHaveBeenCalledWith("fit");
-  });
-
   it("shows Lock when unlocked and Unlock when locked, routing the target state", () => {
     const unlocked = input({ resizeLocked: false });
     expect(ids(unlocked)).toContain("gui-lock");
@@ -255,6 +319,7 @@ describe("buildGuiActions — resolution rows", () => {
       "gui-res-auto",
       "gui-fullscreen",
       "gui-paste",
+      "gui-zoom-in",
       "gui-view-1to1",
       "gui-lock",
       "gui-logs",

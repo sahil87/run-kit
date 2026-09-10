@@ -82,8 +82,11 @@ in `parsePanes` (which requires `< 11` fields to skip a line):
   lacking the colon, an unknown state token, or a non-integer epoch all yield
   `("", 0)` — degrades to unknown, never panics.
 - **Shell-command reconciler** — applied in `parsePanes` right after parse: if
-  `isShellCommand(command)` (the pane's `#{pane_current_command}` is one of the
-  set `shellCommands = {bash, zsh, fish, sh, dash}`, matched case-sensitively),
+  `tmux.IsShellCommand(command)` (the pane's `#{pane_current_command}` is one of
+  the set `shellCommands = {sh, bash, zsh, fish, dash, ksh, tcsh, csh, nu}`,
+  matched case-sensitively — the ONE shell predicate, also read by the `rk mux
+  send` unknown-state warning and as the `rk mux panes` liveness-walk trigger;
+  see [agent-messaging](/run-kit/agent-messaging.md)),
   **both** `AgentState` and `AgentStateEpoch` are zeroed regardless of a leftover
   option value. This auto-clears a stranded `active` left by an Esc-interrupted or
   killed agent (the guppi lesson) — a real agent command like `claude` keeps its

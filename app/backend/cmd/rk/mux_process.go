@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -15,14 +16,18 @@ import (
 
 // rk mux process <target> — discover the process tree running in a pane (the
 // pane's shell PID from #{pane_pid}, then its descendants) and print it with a
-// per-process classification: agent / node / git / other. Agent-state-aware:
-// when the pane's reconciled @rk_agent_state carries a live pid (a 3-segment
-// value), the tree node with that PID is classified agent regardless of comm —
-// the instrumentation is authoritative, comm heuristics are the fallback.
-// `has_agent` is true iff any node classifies agent by either route. No daemon
-// dependency (the rk present pattern). Exit codes follow the toolkit
-// convention: 0 success, 1 operational (missing pane, tmux failure, discovery
-// failure), 2 usage.
+// per-process classification: agent / node / git / other. The agent set is the
+// agent setup registry's binary and comm names (plus claude-code), matched on
+// the comm basename or on either of the first two cmdline token basenames (the
+// bounded fallback that catches node-hosted CLIs such as gemini).
+// Agent-state-aware: when the pane's reconciled @rk_agent_state carries a live
+// pid (a 3-segment value), the tree node with that PID is classified agent
+// regardless of comm — the instrumentation is authoritative, comm heuristics
+// are the fallback. `has_agent` is true iff any node classifies agent by
+// either route; the same walk (paneHasAgent) backs the `rk mux panes` row
+// field. No daemon dependency (the rk present pattern). Exit codes follow the
+// toolkit convention: 0 success, 1 operational (missing pane, tmux failure,
+// discovery failure), 2 usage.
 //
 // Human output:
 //
@@ -39,7 +44,9 @@ var muxProcessCmd = &cobra.Command{
 	Short: "Show the process tree running in a pane",
 	Long: "Discover the process tree running in the target pane: the pane's shell " +
 		"PID (#{pane_pid}) and its descendants, classified agent / node / git / " +
-		"other. A pane whose "+tmux.AgentStateOption+" carries a live agent pid has that " +
+		"other. Agent names are the `rk agent setup` registry's binaries and comm " +
+		"literals, matched on the comm or on the first two command-line tokens. " +
+		"A pane whose " + tmux.AgentStateOption + " carries a live agent pid has that " +
 		"tree node classified agent regardless of its comm — the instrumentation " +
 		"is authoritative, comm heuristics are the fallback. Prints the tree, " +
 		"plus a trailing `Agent process detected.` when any node classifies " +
@@ -92,12 +99,55 @@ var (
 	}
 )
 
-// classifyProcess classifies a process by its comm name (lowercased): agent
-// for the known agent CLIs, node, git, else other.
-func classifyProcess(comm string) string {
-	switch strings.ToLower(comm) {
-	case "claude", "claude-code", "codex", "gemini", "copilot":
+// agentCommNames is the set of process basenames that identify an agent
+// process: every runtime's binary and comm literal from the agent setup
+// registry (the one source of harness names — a new harness registered there
+// is recognized here without a second table), plus `claude-code`. `node` is
+// excluded even though it is gemini's comm: a bare node process is not agent
+// evidence, and node-hosted CLIs are caught by the cmdline fallback instead.
+var agentCommNames = buildAgentCommNames()
+
+func buildAgentCommNames() map[string]bool {
+	names := map[string]bool{"claude-code": true}
+	for _, rt := range agentRuntimes() {
+		for _, n := range []string{rt.binary, rt.comm} {
+			if n != "" && n != "node" {
+				names[strings.ToLower(n)] = true
+			}
+		}
+	}
+	return names
+}
+
+// processBasename normalizes a comm or cmdline token for set matching: quotes
+// stripped, directory prefix dropped, lowercased. Empty stays empty.
+func processBasename(token string) string {
+	token = strings.Trim(token, `"'`)
+	if token == "" {
+		return ""
+	}
+	return strings.ToLower(filepath.Base(token))
+}
+
+// classifyProcess classifies a process: agent when its comm basename — or the
+// basename of either of the first two cmdline tokens — is in agentCommNames;
+// else node, git (git/gh), or other. The cmdline fallback is bounded to two
+// tokens so prompt text later in argv can never become liveness evidence.
+func classifyProcess(comm, cmdline string) string {
+	lower := processBasename(comm)
+	if agentCommNames[lower] {
 		return "agent"
+	}
+	fields := strings.Fields(cmdline)
+	if len(fields) > 2 {
+		fields = fields[:2]
+	}
+	for _, tok := range fields {
+		if agentCommNames[processBasename(tok)] {
+			return "agent"
+		}
+	}
+	switch lower {
 	case "node":
 		return "node"
 	case "git", "gh":
@@ -164,6 +214,21 @@ func hasAgentInTree(nodes []processNode) bool {
 	return false
 }
 
+// paneHasAgent discovers pid's process tree, reclassifies the node carrying
+// agentPID as agent when agentPID > 0 (the pane's reconciled agent-state pid —
+// instrumentation beats the comm heuristics), and reports whether any node
+// classifies agent. It is the ONE liveness walk: `rk mux process` prints the
+// returned tree, `rk mux panes` consumes only the bool. Discovery goes through
+// muxProcessDiscoverFn so both verbs share one seam and one fake.
+func paneHasAgent(ctx context.Context, pid, agentPID int) ([]processNode, bool, error) {
+	tree, err := muxProcessDiscoverFn(ctx, pid)
+	if err != nil {
+		return nil, false, err
+	}
+	markAgentPID(tree, agentPID)
+	return tree, hasAgentInTree(tree), nil
+}
+
 // runMuxProcess is the testable core: parse → resolve → pid → tree →
 // cross-check → render (human / json).
 func runMuxProcess(cmd *cobra.Command, target string) error {
@@ -192,23 +257,22 @@ func runMuxProcess(cmd *cobra.Command, target string) error {
 		return fmt.Errorf("get pane PID: %w", err)
 	}
 
-	tree, err := muxProcessDiscoverFn(ctx, pid)
-	if err != nil {
-		return fmt.Errorf("process discovery: %w", err)
-	}
-
 	// Agent-state pid cross-check: a reconciled 3-segment @rk_agent_state
 	// carries the instrumented agent's live pid — reclassify that node as
 	// agent regardless of comm. A failed state read degrades to comm-only
 	// classification (the tree is still the data); the pane's existence was
 	// already proven by the pid read.
+	agentPID := 0
 	if facts, ferr := muxProcessFactsFn(ctx, paneID, server); ferr != nil {
 		sink.Notef("warning: agent-state read failed (%v) — comm heuristics only\n", ferr)
 	} else if facts.AgentState != "" {
-		markAgentPID(tree, facts.AgentPID)
+		agentPID = facts.AgentPID
 	}
 
-	hasAgent := hasAgentInTree(tree)
+	tree, hasAgent, err := paneHasAgent(ctx, pid, agentPID)
+	if err != nil {
+		return fmt.Errorf("process discovery: %w", err)
+	}
 
 	if muxProcessJSONFlag {
 		out := muxProcessJSON{

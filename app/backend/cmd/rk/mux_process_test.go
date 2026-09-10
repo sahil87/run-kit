@@ -8,26 +8,53 @@ import (
 	"rk/internal/tmux"
 )
 
-// TestClassifyProcess pins the classification table (R5b): the extended agent
-// set, node, git, and the other fallback, all case-insensitive.
+// TestClassifyProcess pins the classification rule: the agent set is every
+// registry runtime's binary and comm (minus node) plus claude-code, matched on
+// the comm basename or on either of the first two cmdline token basenames;
+// node, git, and the other fallback; all case-insensitive.
 func TestClassifyProcess(t *testing.T) {
-	cases := map[string]string{
-		"claude":      "agent",
-		"claude-code": "agent",
-		"codex":       "agent",
-		"gemini":      "agent",
-		"copilot":     "agent",
-		"Claude":      "agent", // lowercased before lookup
-		"node":        "node",
-		"git":         "git",
-		"gh":          "git",
-		"zsh":         "other",
-		"my-wrapper":  "other",
-		"":            "other",
+	cases := []struct {
+		comm, cmdline, want string
+	}{
+		{"claude", "", "agent"},
+		{"claude-code", "", "agent"},
+		{"codex", "", "agent"},
+		{"gemini", "", "agent"},
+		{"copilot", "", "agent"},
+		{"kimi", "", "agent"},
+		{"kimi-code", "", "agent"},
+		{"opencode", "", "agent"},
+		{"agy", "", "agent"},
+		{"Claude", "", "agent"}, // lowercased before lookup
+		{"/usr/local/bin/claude", "", "agent"},
+		// Bounded cmdline fallback: a node-hosted CLI is agent by its second
+		// token; a third token never counts, so prompt text is not evidence.
+		{"node", "node /usr/local/bin/gemini --yolo", "agent"},
+		{"node", "/usr/bin/node /opt/agy/cli.js", "node"},
+		{"node", `node server.js "please run claude now"`, "node"},
+		{"node", "", "node"},
+		{"git", "", "git"},
+		{"gh", "", "git"},
+		{"zsh", "-zsh", "other"},
+		{"my-wrapper", "my-wrapper claude --resume", "agent"},
+		{"my-wrapper", "my-wrapper --run claude", "other"},
+		{"", "", "other"},
 	}
-	for comm, want := range cases {
-		if got := classifyProcess(comm); got != want {
-			t.Errorf("classifyProcess(%q) = %q, want %q", comm, got, want)
+	for _, tc := range cases {
+		if got := classifyProcess(tc.comm, tc.cmdline); got != tc.want {
+			t.Errorf("classifyProcess(%q, %q) = %q, want %q", tc.comm, tc.cmdline, got, tc.want)
+		}
+	}
+	// Every registry runtime is recognized by both of its names — a harness
+	// added to agentRuntimes() must never silently fall out of the walk.
+	for _, rt := range agentRuntimes() {
+		for _, n := range []string{rt.binary, rt.comm} {
+			if n == "node" {
+				continue
+			}
+			if got := classifyProcess(n, ""); got != "agent" {
+				t.Errorf("registry name %q classifies %q, want agent", n, got)
+			}
 		}
 	}
 }

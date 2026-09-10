@@ -255,7 +255,9 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 
 	// panes enumeration seams. Default fixture: one session "work" ($3) whose
 	// window @3 "editor" (index 0, active) carries an idle agent pane %5 (at
-	// the fixed reference epoch) and an uninstrumented shell pane %6.
+	// the fixed reference epoch) and an uninstrumented shell pane %6 with pane
+	// pid 1234 — the default discover fixture above hangs a claude child under
+	// that pid, so %6's liveness walk reads true.
 	if !f.paneSessionsSet && f.paneSessions == nil {
 		f.paneSessions = []tmux.SessionInfo{{Name: "work", ID: "$3"}}
 	}
@@ -271,7 +273,7 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 			Panes: []tmux.PaneInfo{
 				{PaneID: "%5", PaneIndex: 0, IsActive: true, Cwd: "/home/x/code/repo", Command: "node",
 					AgentState: tmux.AgentStateIdle, AgentStateEpoch: 1_800_000_000},
-				{PaneID: "%6", PaneIndex: 1, Cwd: "/home/x/code/repo", Command: "zsh"},
+				{PaneID: "%6", PaneIndex: 1, Cwd: "/home/x/code/repo", Command: "zsh", PanePID: 1234},
 			},
 		}}, nil
 	}

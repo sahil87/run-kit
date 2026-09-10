@@ -1,0 +1,55 @@
+id: 7pek
+name: 260910-7pek-mux-panes-has-agent
+created: 2026-09-10T18:11:22Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 19
+    acceptance_completed: 19
+confidence:
+    certain: 6
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 3.8
+    fuzzy: true
+    dimensions:
+        signal: 69.2
+        reversibility: 85.4
+        competence: 78.8
+        disambiguation: 72.1
+stage_metrics:
+    intake: {started_at: "2026-09-10T18:11:22Z", driver: fab-new, iterations: 1, completed_at: "2026-09-10T18:29:22Z"}
+    apply: {started_at: "2026-09-10T18:29:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T18:41:11Z"}
+    review: {started_at: "2026-09-10T18:41:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T18:46:00Z"}
+    hydrate: {started_at: "2026-09-10T18:46:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T18:47:22Z"}
+    ship: {started_at: "2026-09-10T18:47:22Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-10T18:47:22Z"
+    computed_at_stage: hydrate
+summary: rk mux panes --json rows gain a trailing tri-state has_agent (lazy shell-row process-tree liveness walk shared with rk mux process); agent classification derives from the agent setup registry with a bounded two-token cmdline fallback; pane_pid rides paneFormat unserialized; IsShellCommand widened to nine shells
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-10T18:47:22Z

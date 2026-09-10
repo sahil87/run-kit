@@ -1255,14 +1255,18 @@ func paneLineAlt(windowID string, paneID string, paneIndex int, cwd, command str
 	return paneLineFull(windowID, paneID, paneIndex, cwd, command, active, agentState, agentSession, alt, "", "")
 }
 
-// paneLineFull builds an 11-field tab-delimited list-panes line with full
+// paneLineFull builds a 12-field tab-delimited list-panes line with full
 // control over both generations of the agent-state/agent-session fields:
 // legacy agent-state at 6, alternate_on at 7, scope-named agent-state at 8,
-// the retired @rk_pane_chat at 9, and @rk_pane_agent_session at 10.
+// the retired @rk_pane_chat at 9, and @rk_pane_agent_session at 10; pane_pid
+// (field 11) is pinned to fixturePanePID.
 func paneLineFull(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState, agentSession, alt, newAgentState, newAgentSession string) string {
-	return fmt.Sprintf("%s%s%s%s%d%s%s%s%s%s%d%s%s%s%s%s%s%s%s%s%s",
-		windowID, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active, listDelim, agentState, listDelim, alt, listDelim, newAgentState, listDelim, agentSession, listDelim, newAgentSession)
+	return fmt.Sprintf("%s%s%s%s%d%s%s%s%s%s%d%s%s%s%s%s%s%s%s%s%s%s%d",
+		windowID, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active, listDelim, agentState, listDelim, alt, listDelim, newAgentState, listDelim, agentSession, listDelim, newAgentSession, listDelim, fixturePanePID)
 }
+
+// fixturePanePID is the pane_pid every paneLine* fixture carries.
+const fixturePanePID = 1234
 
 // totalPanes sums the number of panes across all windows in the map.
 func totalPanes(byWindow map[string][]PaneInfo) int {
@@ -1311,6 +1315,9 @@ func TestParsePanes(t *testing.T) {
 		}
 		if p.Command != "zsh" {
 			t.Errorf("Command = %q, want zsh", p.Command)
+		}
+		if p.PanePID != fixturePanePID {
+			t.Errorf("PanePID = %d, want %d", p.PanePID, fixturePanePID)
 		}
 		if p.IsActive {
 			t.Errorf("IsActive = true, want false")
@@ -1451,7 +1458,7 @@ func TestParsePanes(t *testing.T) {
 	})
 
 	t.Run("legacy shell-command reconciler zeros a two-segment leftover state", func(t *testing.T) {
-		for _, shell := range []string{"bash", "zsh", "fish", "sh", "dash"} {
+		for _, shell := range []string{"sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu"} {
 			lines := []string{paneLineAgent("@0", "%1", 0, "/tmp", shell, 1, "active:1751790000")}
 			p := parsePanes(lines)["@0"][0]
 			if p.AgentState != "" || p.AgentStateEpoch != 0 {
@@ -1524,8 +1531,8 @@ func TestParsePanes(t *testing.T) {
 		}
 	})
 
-	t.Run("back-compat: a 9-field line (no scope-named fields) is skipped by the < 11 guard", func(t *testing.T) {
-		// The 11th field is required now; a pane emitted without it is skipped
+	t.Run("back-compat: a 9-field line (no scope-named fields) is skipped by the < 12 guard", func(t *testing.T) {
+		// All 12 fields are required now; a pane emitted without them is skipped
 		// (the format always emits both generations — tmux resolves an unset
 		// option to an empty field — so a short line is a parse anomaly).
 		nineField := fmt.Sprintf("0%s%%1%s0%s/tmp%sclaude%s1%sactive:1751790000%s%s0",

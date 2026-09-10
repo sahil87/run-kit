@@ -86,7 +86,7 @@ func buildNodeFromPS(entry psEntry, childrenMap map[int][]psEntry, cmdlines map[
 		PPID:           entry.ppid,
 		Comm:           entry.comm,
 		Cmdline:        cmdlines[entry.pid],
-		Classification: classifyProcess(entry.comm),
+		Classification: classifyProcess(entry.comm, cmdlines[entry.pid]),
 		Children:       []processNode{},
 	}
 

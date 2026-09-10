@@ -487,14 +487,24 @@ a `/proc` walk (`comm`, NUL-joined `cmdline`, children via
 two-pass `ps` (one `pid,ppid,comm -ax` enumeration plus one `pid=,args=` cmdline
 pass joined by PID — TOCTOU-free; a PID missing from the cmdline pass degrades
 to `""`), with the pure `parsePSCmdlines` parser in an un-tagged file so it
-unit-tests on every platform. Classification by lowercased comm: `agent` for
-`claude`, `claude-code`, `codex`, `gemini`, `copilot`; `node` for `node`;
-`git` for `git`/`gh`; else `other`. Additionally, when the pane's reconciled
+unit-tests on every platform. Classification (`classifyProcess(comm, cmdline)`):
+`agent` when the comm basename — or the basename of either of the **first two**
+cmdline tokens (a bounded fallback that catches node-hosted CLIs such as
+`gemini`; a third token never counts, so prompt text in argv is never liveness
+evidence) — is in the agent name set, which is **derived from the agent setup
+registry** (`agentRuntimes()`: every runtime's `binary` and `comm` literal —
+`claude`, `codex`, `gemini`, `copilot`, `kimi`/`kimi-code`, `opencode`, `agy` —
+plus `claude-code`, minus `node`, so a bare `node` stays `node`); `node` for
+`node`; `git` for `git`/`gh`; else `other`. Additionally, when the pane's reconciled
 `@rk_pane_agent_state` carries a live pid (3-segment value), the tree node with that
 PID SHALL be classified `agent` regardless of comm — the instrumentation is
 authoritative, comm heuristics are fallback; a failed state read degrades to
 comm-only with a stderr warning. `has_agent` is true iff any node classifies
-`agent` by either route. Human output: `Pane %5 (PID 1234)` plus indented
+`agent` by either route. The discover → pid-cross-check → `hasAgentInTree` core
+is the single helper `paneHasAgent(ctx, pid, agentPID)` (discovery through the
+`muxProcessDiscoverFn` seam), shared with the `rk mux panes` row field below —
+`process` prints the tree it returns, `panes` consumes only the bool. Human
+output: `Pane %5 (PID 1234)` plus indented
 `PID comm [class]` lines (the tag omitted for `other`) plus a trailing
 `Agent process detected.` when `has_agent`. `--json` emits (two-space-indented):
 `{"pane", "pane_pid", "processes": [{pid, ppid, comm, cmdline, classification,
@@ -525,10 +535,30 @@ agent state + duration, command, cwd) on stdout; diagnostics go to stderr.
 `--json` emits a two-space-indented array, one object per pane, with exactly
 `session`, `session_id`, `window_index`, `window_id`, `window_name`,
 `window_active`, `pane`, `pane_index`, `pane_active`, `command`, `cwd`,
-`agent_state`, `agent_state_duration`; the agent fields are `null` when the pane
+`agent_state`, `agent_state_duration`, `has_agent` — in that order, `has_agent`
+last so the preceding key set is byte-stable for prefix decoders (fab's
+`rkPaneRow`); the agent fields are `null` when the pane
 is uninstrumented or the reconciler rejects the value (the `mux capture --json`
 semantics), and the duration appears only for `idle`/`waiting` (epoch > 0),
-never `active`, formatted via `sessions.FormatAgentDuration`. Exit codes follow
+never `active`, formatted via `sessions.FormatAgentDuration`. **`has_agent` is
+liveness, not instrumentation** — a tri-state `*bool` computed lazily by the
+`paneHasAgent` walk (the `rk mux process` walk above, comm/cmdline classification
+plus the agent-state pid cross-check): the walk runs only for rows whose
+foreground `command` is a shell (`tmux.IsShellCommand` — `sh bash zsh fish dash
+ksh tcsh csh nu`) AND whose `PanePID` is non-zero, yielding `true` when the tree
+holds an `agent` node, else `false`; a shell row whose walk failed (`PanePID`
+0, discovery error) is `null`; every non-shell row is `null` — "not evaluated",
+never "no agent". The walk root and cross-check pid ride the enumeration's
+existing `list-panes` call (`paneFormat` field 11 `#{pane_pid}` →
+`PaneInfo.PanePID`; the reconciled agent pid → `PaneInfo.AgentPID`; both
+`json:"-"`, so the dashboard `/ws/state` payload is unchanged) — no per-row
+tmux round trip. A failed walk never fails the enumeration and writes nothing
+to stderr; the consumer's exited predicate is `IsShellCommand(command) &&
+has_agent == false`, and a `null` on a shell row is missing evidence for the
+consumer to judge. The default table has no `has_agent` column. This row
+schema is the primary declaration of the pane identity-key contract fab's
+`fab pane map` re-emits (`pane` + `server` context and `window_id` are the
+identity keys; `session`/`window_index` are display columns). Exit codes follow
 the toolkit convention: **0** success — including an alive server with nothing
 to list (`[]` under `--json`; an empty enumeration is liveness-probed via
 `tmux.ServerAlive` to separate "alive, empty" from "no server"); **1**
@@ -542,6 +572,14 @@ diagnostic on stderr; **2** usage.
   `nope`, **WHEN** `rk mux panes -L nope` runs, **THEN** exit is 1 with tmux's
   diagnostic on stderr; **AND GIVEN** a stray positional argument, **THEN**
   exit 2.
+
+#### Scenario: `has_agent` answers only where a shell owns the tty
+- **GIVEN** a `zsh`-foreground pane whose tree holds a `claude` child, a
+  `zsh`-foreground pane whose tree holds only `git`, a `node`-foreground pane,
+  and a `fish`-foreground pane whose `/proc` walk fails
+- **WHEN** `rk mux panes --json` runs
+- **THEN** the rows read `has_agent` `true`, `false`, `null`, `null`
+  respectively, exit is 0, and stderr is empty.
 
 ### Requirement: `rk mux sessions` — session enumeration with derived roles
 `rk mux sessions [--json] [--all]` SHALL enumerate the sessions of the resolved
@@ -886,6 +924,50 @@ for pinned windows; an enrichment consumer wants one row per real pane.
 **Rejected**: raw unfiltered enumeration (duplicates pinned windows, leaks
 internal sessions).
 *Introduced by*: `260820-hol4-mux-panes-native-pane-map`
+
+### `panes` carries liveness as a lazy, tri-state `has_agent`
+**Decision**: `rk mux panes --json` rows end with `has_agent`; the process-tree
+walk runs only for shell-foreground rows (yielding `true`/`false`) and every
+other row — non-shell foreground, or a failed walk — is `null`.
+**Why**: `agent_state` is instrumentation and can outlive its agent (a legacy
+two-segment value has no pid to reconcile), so a consumer asking "did the agent
+exit?" needs process evidence; that question is open only when a shell owns the
+tty (an agent TUI in the foreground is not a candidate), so the walk cost is
+bounded to those rows, and `null` states honestly that rk has no evidence
+rather than guessing. Putting the bit on the enumeration lets fab's operator
+tick drop its own duplicate tree walker (cli-layering: rk owns the substrate
+fact).
+**Rejected**: walking every row (pays the darwin `ps` cost on rows nobody
+consults); deriving liveness from `agent_state` alone (the stale-value problem
+is the reason the walk exists); a bulk `rk mux process --all` verb (a second
+enumeration surface).
+*Introduced by*: `260910-7pek-mux-panes-has-agent`
+
+### Agent classification derives from the agent setup registry
+**Decision**: `classifyProcess`'s agent name set is the union of every
+`agentRuntimes()` entry's `binary` and `comm` (minus `node`) plus `claude-code`,
+matched on the comm basename or on either of the first two cmdline token
+basenames.
+**Why**: for an uninstrumented agent (no agent-state pid to cross-check) the
+comm table is the only liveness defense, so it must cover every harness `rk
+agent setup` knows — the registry is that single source; the two-token cmdline
+fallback catches node-hosted CLIs (gemini) without letting prompt text in argv
+count as evidence.
+**Rejected**: a second hand-written comm table (drifts from the registry);
+matching the whole cmdline (argv prompt text becomes liveness evidence).
+*Introduced by*: `260910-7pek-mux-panes-has-agent`
+
+### `#{pane_pid}` and the agent pid ride `paneFormat`, unserialized
+**Decision**: `paneFormat` carries `#{pane_pid}` (field 11) and `parsePanes`
+stores it as `PaneInfo.PanePID` alongside the reconciled `PaneInfo.AgentPID`,
+both tagged `json:"-"`.
+**Why**: the `panes` liveness walk needs a walk root and a cross-check pid per
+row without a per-pane `display-message` round trip; the dashboard pre-renders
+and fans out `PaneInfo`, so the new fields must not reach `/ws/state`.
+**Rejected**: per-row `PanePIDCtx`/`PaneFactsCtx` reads (N extra subprocesses
+on every enumeration — right for the target-scoped `process` verb, wrong for an
+enumeration).
+*Introduced by*: `260910-7pek-mux-panes-has-agent`
 
 ### Duration semantics follow rk's sessions rollup, not fab's idle-only
 **Decision**: the capture duration shows for `idle` and `waiting` (JSON field

@@ -30,11 +30,18 @@ import (
 // Output shapes: default is an aligned one-pane-per-row table (rows are data —
 // stdout; diagnostics go to stderr); --json emits a two-space-indented array
 // with agent_state/agent_state_duration null for uninstrumented panes and the
-// duration present only for idle/waiting (the mux capture --json semantics).
-// Exit codes follow the toolkit convention: 0 success — including an alive
-// server with nothing to list (prints [] under --json), 1 operational (no
-// server on the resolved socket, tmux failure — carrying tmux's diagnostic),
-// 2 usage.
+// duration present only for idle/waiting (the mux capture --json semantics),
+// plus a trailing tri-state has_agent: the pane-pid process-tree liveness walk
+// (paneHasAgent, shared with rk mux process) runs only for rows whose
+// foreground command is a shell — the one case where "did the agent exit?" is
+// open, since an agent TUI owning the tty is not a candidate — and yields
+// true/false there; every other row, and a shell row whose walk failed, is
+// null (no evidence). A consumer's exited predicate is therefore
+// `IsShellCommand(command) && has_agent == false`. The walk never fails the
+// enumeration and never writes to stderr. Exit codes follow the toolkit
+// convention: 0 success — including an alive server with nothing to list
+// (prints [] under --json), 1 operational (no server on the resolved socket,
+// tmux failure — carrying tmux's diagnostic), 2 usage.
 
 var muxPanesJSONFlag bool
 
@@ -43,10 +50,12 @@ var muxPanesCmd = &cobra.Command{
 	Short: "Enumerate every pane on the server with substrate facts",
 	Long: "List one row per pane across all sessions of the resolved tmux server: " +
 		"session, window (index:name), pane id, active markers, command, cwd, and " +
-		"the pane's reconciled "+tmux.AgentStateOption+" with idle/waiting duration. " +
+		"the pane's reconciled " + tmux.AgentStateOption + " with idle/waiting duration. " +
 		"Internal sessions (`_rk-pin-*` pin-sessions, the `_rk-ctl` anchor) are " +
 		"excluded; a pinned window lists once, via its home session. Substrate " +
-		"facts only — no change/stage fields.\n\n" +
+		"facts only — no change/stage fields. Under --json each row also carries " +
+		"has_agent: true/false for shell-foreground panes (a process-tree walk for " +
+		"a live agent), null otherwise.\n\n" +
 		"--json emits the machine-readable array. The server resolves via the " +
 		"family's -L/--server flag (default: your own server, from $TMUX).",
 	Example: `  rk mux panes
@@ -97,6 +106,9 @@ type muxPanesRow struct {
 	CWD                string  `json:"cwd"`
 	AgentState         *string `json:"agent_state"`
 	AgentStateDuration *string `json:"agent_state_duration"`
+	// HasAgent is last so the preceding key set stays byte-stable for
+	// consumers that decode a prefix of the row.
+	HasAgent *bool `json:"has_agent"`
 }
 
 // runMuxPanes is the testable core: resolve server → enumerate → render
@@ -157,6 +169,17 @@ func runMuxPanes(cmd *cobra.Command) error {
 						if d := sessions.FormatAgentDuration(nowUnix - p.AgentStateEpoch); d != "" {
 							row.AgentStateDuration = &d
 						}
+					}
+				}
+				// Liveness walk, lazily: only a shell foreground leaves the
+				// question open (a wrapper shell over a live agent, or the
+				// shell left behind by one that exited). PanePID 0 has no walk
+				// root; a discovery error leaves null — the consumer decides
+				// how to treat missing evidence, and one bad row never fails
+				// the enumeration.
+				if tmux.IsShellCommand(p.Command) && p.PanePID > 0 {
+					if _, has, err := paneHasAgent(ctx, p.PanePID, p.AgentPID); err == nil {
+						row.HasAgent = &has
 					}
 				}
 				rows = append(rows, row)

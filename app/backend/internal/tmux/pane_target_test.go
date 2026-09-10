@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -172,7 +173,7 @@ func TestAgentStateStale(t *testing.T) {
 	if agentStateStale(4242, "bash") {
 		t.Error("live pid must be trusted even on a shell-named pane (wrapped launch)")
 	}
-	for _, shell := range []string{"bash", "zsh", "fish", "sh", "dash"} {
+	for _, shell := range []string{"sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu"} {
 		if !agentStateStale(0, shell) {
 			t.Errorf("legacy two-segment value on shell %q must be stale", shell)
 		}
@@ -181,17 +182,42 @@ func TestAgentStateStale(t *testing.T) {
 		t.Error("legacy two-segment value on a non-shell command must be trusted")
 	}
 
-	// And the same decision reaches the parsePanes rollup.
+	// And the same decision reaches the parsePanes rollup — a dead pid zeros
+	// AgentPID together with AgentState, while the pane pid (field 11) stays.
 	agentProcessAlive = func(int) bool { return false }
-	lines := []string{"@1\t%1\t0\t/tmp\tvim\t1\tactive:1700000000:4242\t\t0\t\t"}
+	// Field layout: window, pane, index, cwd, command, active, legacy state,
+	// alternate_on, scoped state, legacy session, scoped session, pane_pid.
+	lines := []string{"@1\t%1\t0\t/tmp\tvim\t1\tactive:1700000000:4242\t0\t\t\t\t1234"}
 	got := parsePanes(lines)["@1"]
-	if len(got) != 1 || got[0].AgentState != "" {
-		t.Errorf("dead-pid pane = %+v, want reconciled to unknown", got)
+	if len(got) != 1 || got[0].AgentState != "" || got[0].AgentPID != 0 {
+		t.Errorf("dead-pid pane = %+v, want reconciled to unknown with AgentPID 0", got)
 	}
-	legacy := []string{"@1\t%1\t0\t/tmp\tbash\t1\tactive:1700000000\t\t0\t\t"}
+	if len(got) == 1 && got[0].PanePID != 1234 {
+		t.Errorf("dead-pid pane PanePID = %d, want 1234", got[0].PanePID)
+	}
+	legacy := []string{"@1\t%1\t0\t/tmp\tbash\t1\tactive:1700000000\t0\t\t\t\t1234"}
 	got = parsePanes(legacy)["@1"]
 	if len(got) != 1 || got[0].AgentState != "" {
 		t.Errorf("legacy shell pane = %+v, want reconciled to unknown", got)
+	}
+
+	// A live pid is kept on the pane for the liveness-walk cross-check.
+	agentProcessAlive = func(pid int) bool { return pid == 4242 }
+	live := []string{"@1\t%1\t0\t/tmp\tvim\t1\tactive:1700000000:4242\t0\t\t\t\t1234"}
+	got = parsePanes(live)["@1"]
+	if len(got) != 1 || got[0].AgentPID != 4242 || got[0].PanePID != 1234 {
+		t.Errorf("live-pid pane = %+v, want AgentPID 4242 and PanePID 1234", got)
+	}
+	// Neither pid is a dashboard field.
+	if len(got) == 1 {
+		b, err := json.Marshal(got[0])
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if strings.Contains(string(b), "PanePID") || strings.Contains(string(b), "AgentPID") ||
+			strings.Contains(string(b), "panePid") || strings.Contains(string(b), "agentPid") {
+			t.Errorf("PaneInfo JSON leaks a pid field: %s", b)
+		}
 	}
 }
 
@@ -392,7 +418,7 @@ func TestPanePIDCtx(t *testing.T) {
 // TestIsShellCommand pins the shell/non-shell split the unknown-state warning
 // and the reconciler's legacy fallback share.
 func TestIsShellCommand(t *testing.T) {
-	for _, shell := range []string{"bash", "zsh", "fish", "sh", "dash"} {
+	for _, shell := range []string{"sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu"} {
 		if !IsShellCommand(shell) {
 			t.Errorf("IsShellCommand(%q) = false, want true", shell)
 		}

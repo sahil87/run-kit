@@ -589,18 +589,28 @@ func GetPaneOption(ctx context.Context, paneID, server, option string) (string, 
 // auto-clear lesson: a killed agent can strand a stale `active`). Pid-carrying
 // values use the precise PID-liveness reconciler instead (agentProcessAlive)
 // and never consult this set. See docs/specs/agent-state.md § Reader rules.
+//
+// The same set is the `rk mux panes` liveness-walk trigger: a shell foreground
+// is the only case where "did the agent exit?" is an open question (an agent
+// TUI owning the tty is not a candidate), so the nine common login shells are
+// all listed — a shell missing here silently exempts its panes from the walk.
 var shellCommands = map[string]bool{
+	"sh":   true,
 	"bash": true,
 	"zsh":  true,
 	"fish": true,
-	"sh":   true,
 	"dash": true,
+	"ksh":  true,
+	"tcsh": true,
+	"csh":  true,
+	"nu":   true,
 }
 
 // IsShellCommand reports whether cmd is one of the plain shells the reconciler
 // treats as having no agent. The ONE predicate over shellCommands — readers
 // needing the shell/non-shell split (the reconciler's legacy fallback, the
-// mux send gate's unknown-state warning) share it; never copy the set.
+// mux send gate's unknown-state warning, the mux panes liveness-walk trigger)
+// share it; never copy the set.
 func IsShellCommand(cmd string) bool {
 	return shellCommands[cmd]
 }
@@ -757,6 +767,14 @@ type PaneInfo struct {
 	Command   string `json:"command"`
 	IsActive  bool   `json:"isActive"`
 	GitBranch string `json:"gitBranch,omitempty"`
+	// PanePID is the pane's shell PID (#{pane_pid}) — the root of the process
+	// tree the mux verbs walk. AgentPID is the pid segment of a 3-segment
+	// agent-state value after reconciliation (0 when absent or stale) — the
+	// instrumented agent's pid that cross-checks the walk. Neither is a
+	// dashboard field: they exist so `rk mux panes` can walk lazily without a
+	// per-pane tmux round trip, and the /ws/state payload must not grow.
+	PanePID  int `json:"-"`
+	AgentPID int `json:"-"`
 	// CwdMissing is true when Cwd is non-empty but no longer exists on disk —
 	// e.g. a worktree that was deleted (archived) out from under a still-live
 	// tmux pane. tmux keeps reporting the stale path until the shell's cwd
@@ -1347,7 +1365,7 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 	byWindow := make(map[string][]PaneInfo)
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
-		if len(parts) < 11 {
+		if len(parts) < 12 {
 			continue
 		}
 		windowID := strings.TrimSpace(parts[0])
@@ -1361,6 +1379,9 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 		}
 		isActive := strings.TrimSpace(parts[5]) == "1"
 		command := strings.TrimSpace(parts[4])
+		// An unparseable pane_pid is 0 (no walk root), never a skipped pane —
+		// the pid is an enrichment, the row is the data.
+		panePID, _ := strconv.Atoi(strings.TrimSpace(parts[11]))
 		// Dual-read: the scope-named field wins when its trimmed value is
 		// non-empty, else the retired previous-name field (both ride the same
 		// list-panes call during the deprecation window). Trimming per field
@@ -1394,7 +1415,7 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 		// agent-session fields, and a plain-shell pane never surfaces an agent
 		// session.
 		if agentStateStale(agentPID, command) {
-			agentState, agentEpoch = "", 0
+			agentState, agentEpoch, agentPID = "", 0, 0
 			agentProvider, agentSessionRef = "", ""
 		}
 		p := PaneInfo{
@@ -1403,6 +1424,8 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 			Cwd:             parts[3],
 			Command:         command,
 			IsActive:        isActive,
+			PanePID:         panePID,
+			AgentPID:        agentPID,
 			AgentState:      agentState,
 			AgentStateEpoch: agentEpoch,
 			AgentProvider:   agentProvider,
@@ -1619,15 +1642,16 @@ func parseNoteValue(raw string) (string, int64) {
 
 // paneFormat is the list-panes format string: window_id, pane_id, pane_index,
 // pane_current_path, pane_current_command, pane_active, @rk_agent_state,
-// alternate_on, @rk_pane_agent_state, @rk_pane_chat, @rk_pane_agent_session
-// (11 fields). Each pair dual-reads a retired name under its scope-named
-// successor — agent-state: field 6 (unscoped, retired) under field 8;
-// agent-session: field 9 (@rk_pane_chat) under field 10 — new wins during the
-// deprecation window (the @rk_win_note dual-read precedent); the follow-up
+// alternate_on, @rk_pane_agent_state, @rk_pane_chat, @rk_pane_agent_session,
+// pane_pid (12 fields). Each pair dual-reads a retired name under its
+// scope-named successor — agent-state: field 6 (unscoped, retired) under field
+// 8; agent-session: field 9 (@rk_pane_chat) under field 10 — new wins during
+// the deprecation window (the @rk_win_note dual-read precedent); the follow-up
 // removal change drops 6 and 9. The agent-state/agent-session fields carry the
 // generic agent-lifecycle state and the pane→agent-session mapping (see
-// AgentStateOption / AgentSessionOption / docs/specs/agent-state.md); they
-// cost no extra subprocess since they ride the existing list-panes call.
+// AgentStateOption / AgentSessionOption / docs/specs/agent-state.md); field 11
+// (pane_pid) is the walk root for the mux panes liveness check. None of them
+// cost an extra subprocess since they ride the existing list-panes call.
 var paneFormat = strings.Join([]string{
 	"#{window_id}",
 	"#{pane_id}",
@@ -1640,6 +1664,7 @@ var paneFormat = strings.Join([]string{
 	"#{" + AgentStateOption + "}",
 	"#{" + LegacyAgentSessionOption + "}",
 	"#{" + AgentSessionOption + "}",
+	"#{pane_pid}",
 }, listDelim)
 
 // ListWindows returns windows for a given session on the specified server.

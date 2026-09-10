@@ -31,7 +31,7 @@ func buildNodeFromProc(pid, ppid int) (processNode, error) {
 		PPID:           ppid,
 		Comm:           comm,
 		Cmdline:        cmdline,
-		Classification: classifyProcess(comm),
+		Classification: classifyProcess(comm, cmdline),
 		Children:       []processNode{},
 	}
 

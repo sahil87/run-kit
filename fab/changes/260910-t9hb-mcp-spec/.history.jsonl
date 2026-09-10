@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-10T15:28:09Z"}
+{"args":"Execute row W0 (mcp-spec) of fab/plans/sahil/26-09-10-rk-mcp.md: spec-only change creating docs/specs/mcp.md and amending api.md, cli-layering.md, agent-messaging.md","cmd":"fab-new","event":"command","ts":"2026-09-10T15:28:09Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-09-10T15:32:40Z"}
+{"delta":"-0.1","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-09-10T15:33:35Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-09-10T15:33:51Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-10T15:37:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-10T15:38:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-10T15:43:50Z"}
+{"event":"review","result":"failed","ts":"2026-09-10T15:49:21Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-10T15:49:21Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-10T15:49:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-10T15:52:18Z"}
+{"event":"review","result":"passed","ts":"2026-09-10T15:52:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-10T15:52:19Z"}

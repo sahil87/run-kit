@@ -11,7 +11,7 @@
 
 | Layer | Tool | Owns |
 |-------|------|------|
-| **Substrate** | `rk` | tmux conventions (the `@rk_*` option registry), agent instrumentation (`agent setup`/`agent hook`, the `@rk_pane_agent_state` lifecycle), pane interaction verbs (`mux send`/`mux await`; future `capture`/`kill`/`process`), server hygiene (guard shim, reaper, layout snapshots, tmux.conf scaffold) — with the daemon, web UI, and desktop shell as consumers of this layer, not its definition |
+| **Substrate** | `rk` | tmux conventions (the `@rk_*` option registry), agent instrumentation (`agent setup`/`agent hook`, the `@rk_pane_agent_state` lifecycle), pane interaction verbs (`mux send`/`mux await`; future `capture`/`kill`/`process`), server hygiene (guard shim, reaper, layout snapshots, tmux.conf scaffold) — with the daemon, web UI, and desktop shell as consumers of this layer, not its definition. The MCP proxy (`rk mcp`, the daemon's `/mcp` route — [mcp.md](mcp.md)) is one more consumer: a mechanical, allowlisted door onto the same verbs, never a second contract |
 | **Choreography** | `fab` | changes, stages, dispatch records, provider/profile resolution, confidence scoring, memory indexes, PR metadata — everything keyed to a change or a pipeline stage |
 
 ## Delegation rules
@@ -48,6 +48,19 @@ Root noise is reduced by two mechanisms: **families** (for human-facing verbs, m
 
 `role` stays at root — it marks the operator window, an operator-workflow verb, not instrumentation.
 
+### New families for API-only capabilities
+
+Rule: **a capability that exists only as a daemon route gets a CLI verb before it gets
+any other door** ([mcp.md](mcp.md) Principle 1) — the verb is the contract, the route is
+its implementation. Two families exist for exactly this reason; both are thin wrappers
+over the daemon via the CLI's existing origin-resolution pattern (the `notify` /
+`present` / `tab wake` door).
+
+| Member | Wraps | Shape |
+|--------|-------|-------|
+| `rk operator request <template> [--window @N] [--text] [--session] [--list] [--json]` | `POST /api/windows/{windowId}/operator-request`, `POST /api/operator-request` | Subcommand of the existing `operator` verb; `--list` prints the closed template registry; busy ⇒ `queued:true` in the receipt (a door onto the existing request lane, not a new one) |
+| `rk board show [name] [--json]` · `pin <name> <@N>` · `unpin <name> <@N>` · `reorder <name> <@N> [--before] [--after]` | `GET /api/boards[/{name}]`, `POST /api/boards/{name}/pin\|unpin\|reorder` | New flat root family (like `tab`, sharing its `@N` grammar); `-L` fills the routes' `server` field |
+
 ### Hidden plumbing (visible today, machine-invoked)
 
 `shell-init` (sourced from shell rc) becomes hidden; `help-dump` already is. The permanent aliases above (`agent-hook`, `tmux-guard`) are hidden. `skill` stays visible — agents discover it by name and the toolkit skill standard governs it.
@@ -57,8 +70,10 @@ Root noise is reduced by two mechanisms: **families** (for human-facing verbs, m
 - **Conversation verbs**: `present`, `notify`, `riff` — flagship, established, typed constantly.
 - **Lifecycle core**: `serve` (default), `daemon` (already a family), `url`, `status`, `doctor`, `update`.
 - **Client families**: `desktop`, `code-server`, `remote` — already families; no super-family.
+- **`mcp`**: the stdio MCP server — a transport verb typed into connector configs (`ssh <box> rk mcp`), not by humans; kept visible so the connector command is documentable and discoverable ([mcp.md](mcp.md) § Transports).
+- **`board`**: a new flat family (see § New families for API-only capabilities) — flat like `tab`, whose `@N` grammar it shares.
 
-Net effect at `rk -h`: ~23 visible root commands → ~15.
+Net effect at `rk -h`: ~23 visible root commands → ~15 after the grouping plan, ~17 once `mcp` and `board` land.
 
 **Conformance**: every surface change above must pass the shll toolkit standards check (`shll standards` — help-dump, ten principles, skill topic pages) before landing.
 
@@ -102,3 +117,4 @@ backlog, whichever the operator is driving from.
 - No third binary, ever, for this layer split.
 - No big-bang rename of shipped rk commands — every move ships with its alias per rule 3.
 - No rk reimplementation of provider/profile resolution (that is fab's; riff keeps delegating).
+- No MCP tool that is not an `rk` verb; the MCP server is a consumer of this layer, not a third layer ([mcp.md](mcp.md)).

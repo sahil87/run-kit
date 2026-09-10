@@ -8,7 +8,7 @@
 
 ## Design Principles
 
-1. **POST for all mutations** — every write operation uses POST. Intent communicated by URL path, not HTTP method. Simplifies the client, avoids CORS preflight for non-simple methods.
+1. **POST for all mutations** — every write operation uses POST. Intent communicated by URL path, not HTTP method. Simplifies the client, avoids CORS preflight for non-simple methods. One documented exception: `/mcp` (§ MCP) is bound by the MCP streamable-HTTP transport to `POST` + `GET` + `DELETE` on a single path. The exception is scoped to that route alone and does not extend to `/api/*`.
 2. **GET for all reads** — session listing, directory autocomplete, SSE stream, health check.
 3. **Consistent error shape** — every error returns `{ "error": "<message>" }` with an appropriate HTTP status.
 4. **Validated at the boundary** — all user input validated before reaching tmux; invalid input never touches a subprocess.
@@ -498,6 +498,46 @@ checks are side-channel and never reach this slot).
 
 ---
 
+### MCP
+
+The daemon hosts the streamable-HTTP transport of the rk MCP server — the same
+`internal/mcp` policy table and argv executor `rk mcp` (stdio) uses. Tools, the
+allowlist, the `--json` envelope, and the timeout contract are owned by
+[`mcp.md`](mcp.md); this section owns only the route.
+
+#### `/mcp`
+
+| Method | Role in the transport |
+|--------|-----------------------|
+| `POST` | Client → server JSON-RPC messages (tool calls, initialize, notifications) |
+| `GET` | Server → client SSE stream for the session |
+| `DELETE` | Session termination |
+
+**Handler:** the official Go SDK's streamable-HTTP handler
+(`github.com/modelcontextprotocol/go-sdk`), mounted on the root router. No protocol
+code of our own.
+
+**Stance:**
+- **Tailnet-only, no auth of its own** — the same posture as every other daemon
+  route; never exposed publicly. Its clients are MCP clients already on the tailnet
+  (Claude Code and kin); the Claude Desktop app reaches run-kit over stdio via
+  `ssh <box> rk mcp`, not this route.
+- **Origin validation** — when a request carries an `Origin` header, the handler
+  rejects it unless the origin's host matches the request `Host` (same origin) or is
+  loopback (the MCP transport's DNS-rebinding guard, Constitution I).
+- **CORS allowlist unchanged** — § Middleware's `GET POST OPTIONS` stays as is. MCP
+  clients are not browsers; CORS governs only browser preflights.
+- **Session state** — per-connection SDK state in memory for the connection's life
+  only; nothing persisted (Constitution II).
+
+**Constitution IX exception.** This is the only route on the daemon that uses a
+verb other than `GET`/`POST`. The transport mandates all three methods on one path;
+bending the transport would mean a non-conformant server no client could use. The
+exception is recorded here, where the route table lives, so the constraint stays
+visible; it grants nothing to any `/api/*` route.
+
+---
+
 ### SPA Fallback
 
 #### `GET /*` (catch-all, lowest priority)
@@ -577,4 +617,15 @@ checks are side-channel and never reach this slot).
 | `POST` | `/api/update` | `update.go` | One-click toolkit upgrade (scoped/force) |
 | `POST` | `/api/updates/check` | `update.go` | On-demand update check (inline checker pass, synchronous verdict) |
 | `WS` | `/ws/terminals` | `terminals_ws.go` | Terminals mux (all pane relays, one socket/tab) |
+| `POST` | `/api/windows/:windowId/send` | `send.go` | Compose-strip send into a window's pane (the injection engine's HTTP door) |
+| `POST` | `/api/windows/:windowId/operator-request` | `operator.go` | Window-scoped operator request (closed template registry; busy ⇒ 202 queued) |
+| `POST` | `/api/operator-request` | `operator.go` | Server-scoped operator request (same registry) |
+| `POST` | `/api/notify` | `push.go` | Web Push notification to subscribed devices |
+| `POST` | `/api/riff` | `riff.go` | Spawn worktree + window + agent (riff engine) |
+| `GET` | `/api/boards` | `boards.go` | List boards |
+| `GET` | `/api/boards/:name` | `boards.go` | Board entries (server, windowId, session, windowIndex, windowName, orderKey, panes) |
+| `POST` | `/api/boards/:name/pin` | `boards.go` | Pin a window to a board (`{server, windowId}`) |
+| `POST` | `/api/boards/:name/unpin` | `boards.go` | Unpin a window from a board |
+| `POST` | `/api/boards/:name/reorder` | `boards.go` | Reorder a pinned window (`{server, windowId, before?, after?}`) |
+| `POST` `GET` `DELETE` | `/mcp` | `mcp.go` | MCP streamable-HTTP transport (Constitution IX exception, see § MCP) |
 | `GET` | `/*` | `spa.go` | SPA static + fallback |

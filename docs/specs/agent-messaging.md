@@ -14,7 +14,7 @@
 |-------|-------|---------|
 | **Mechanism** | `internal/inject` | The one typing engine: sanitize → named-buffer bracketed paste → novelty echo probe → probe-gated Enter → post-Enter observation → evidence-gated recovery. Every rk-owned code path that types into a pane goes through it — **no exceptions** (the single-engine invariant). |
 | **Safety convention** | `@rk_pane_agent_state` + gates | The three-state lifecycle (`active`/`waiting`/`idle` + unknown), the send/kill gate matrices, probe-fail-closed delivery, toolkit exit codes, first-token report words. |
-| **Surface** | `rk mux` (pane-scoped verbs) | `send` / `await` / `capture` / `kill` / `process` / `panes` — the de-facto cross-agent CLI. The daemon routes (`/send`, operator actuation, selection broadcast) are HTTP doors onto the same engine, not a second standard. |
+| **Surface** | `rk mux` (pane-scoped verbs) | `send` / `await` / `capture` / `kill` / `process` / `panes` — the de-facto cross-agent CLI. The daemon routes (`/send`, operator actuation, selection broadcast) are HTTP doors onto the same engine, not a second standard. The MCP `send` / `answer` / `await` tools ([mcp.md](mcp.md)) are a **fourth door** — `rk mux send --json` executed as argv — onto the same engine; the `--json` receipt is the frozen report word plus the engine's evidence, never a new lane. |
 | **Policy** | Callers (fab-operator, skills, humans) | Who to message, when, what a trust wall wants, retry budgets, escalation. Never encoded in the binary. |
 
 **Terminals vs agents are one standard, not two.** Whether the target pane runs
@@ -33,7 +33,7 @@ words.
 | **Read: state** | `rk mux await`, `rk mux panes`, `rk mux process` | Lifecycle without scraping |
 | **Read: results** | **Artifact files** the worker is told to write (`{stage}-result.yaml`, `await --file`) | Unambiguous, survives scrollback, readable without the pane. Agent TUIs run alt-screen with zero scrollback, so transcript-shaped reads from the screen are structurally impossible — artifact-first is a consequence, not a preference |
 | **Wait** | `rk mux await` (`--until` / `--any` / `--file` / `--ready`), composed `send --await` | Event-shaped, first-sweep-before-sleep, fleet wake |
-| **Conversation** (multi-turn cross-provider) | MCP bridge (e.g. `codex mcp-server`) | Tool-mediated dialogue is not pane-driving; see `_cli-agents` § Codex MCP Bridge |
+| **Conversation** (multi-turn cross-provider) | Outbound MCP bridge (e.g. `codex mcp-server`) | Tool-mediated dialogue is not pane-driving; see `_cli-agents` § Codex MCP Bridge. The *inbound* direction — a chat client with no shell driving run-kit — is `rk mcp` ([mcp.md](mcp.md)), a door onto these same channels |
 
 ## Messaging the operator — three lanes
 
@@ -50,6 +50,10 @@ probe, no queue); **a request is work handed over** — a busy operator queues i
 | **Operator chat, direct** | `POST /api/windows/{operatorWindowId}/send` (`target:"agent"`) | The user's raw text, verbatim | Allow + probe — no busy gate, no queue |
 | **Operator chat, templated** *(target)* | window-scoped `POST /api/windows/{windowId}/operator-request`, a chat template (e.g. `user-message`) | Server-derived **source envelope** + the user's text delimited as data | Allow + probe — the registry entry declares `chatDelivery: true`, which skips the busy gate and the queue |
 | **Operator request** | the two `/operator-request` routes, closed template registry | Fully server-rendered work item (Constitution X facts; optional delimited client text) | Busy ⇒ enqueue (`202 {"queued":true}`), in-memory per-server queue drained on idle |
+
+`rk operator request` ([mcp.md](mcp.md) § New verb families) is a **CLI door onto the
+request lane** — same closed registry, same busy ⇒ 202 posture, surfaced in its
+`--json` receipt as `queued:true` — not a fourth lane. The lane count stays three.
 
 The templated chat lane is the console's context-carrying send. When the
 operator console (⌘J) is opened on a terminal route, the message rides the chat
@@ -133,7 +137,11 @@ new gate mode; `--force` is the pairing for panes that will never carry state.
   `narrow` / `idle` / `waiting` / `file` / `running` / `gone` / `killed` /
   `created` / `adopted`), diagnostics on stderr, toolkit exit codes (0 success /
   1 operational / 2 usage). Agent-friendliness lives in this contract, not in
-  command names.
+  command names. `--json` ([mcp.md](mcp.md) § Envelope) wraps the report word in the
+  toolkit envelope — `{"ok":true,"result":{"report":"delivered",…}}` — while the
+  word itself and the exit code are unchanged. Failure reasons reuse the `/send`
+  route's 409 codes (`probe_failure`, `staged_send_failure`, `submit_unverified`):
+  one engine, one evidence vocabulary.
 
 ## Surface and naming — settled
 

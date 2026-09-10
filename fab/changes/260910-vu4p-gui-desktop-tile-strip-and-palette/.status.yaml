@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-10T07:10:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T08:09:24Z"}
     review: {started_at: "2026-09-10T08:09:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T08:13:01Z"}
     hydrate: {started_at: "2026-09-10T08:13:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T08:17:35Z"}
-    ship: {started_at: "2026-09-10T08:17:35Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-10T08:17:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-10T08:19:14Z"}
+    review-pr: {started_at: "2026-09-10T08:19:14Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/908
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1378
+    deleted: 48
+    net: 1330
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 814
+        deleted: 34
+        net: 780
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-10T08:17:35Z"
-    computed_at_stage: hydrate
+        added: 386
+        deleted: 25
+        net: 361
+    computed_at: "2026-09-10T08:19:14Z"
+    computed_at_stage: ship
 summary: 'GUI desktop frontend: the gui tile''s bare-WM strip (wm_hint install line, Copy/Restart/×, per-viewer dismiss) and the GUI: Open terminal/browser palette rows behind launchGuiApp; memory hydrated'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-10T08:17:35Z
+last_updated: 2026-09-10T08:19:14Z

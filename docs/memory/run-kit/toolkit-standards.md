@@ -1259,8 +1259,13 @@ only says a bounded caller "should also consider" it, and the generous bound +
 
 ### version — PASS
 `--version` exits 0 with the version token on the first non-empty line
-(`run-kit version vX.Y.Z`, cobra's default template — the RECOMMENDED canonical
+(`hexokit version vX.Y.Z`, cobra's default template — the RECOMMENDED canonical
 shape, satisfying `versionPrefixRE`), responds within 2s with no network I/O
+The version line's first word is the root command name `hexokit` while the
+roster, binary, and formula names stay `run-kit` until the rebrand plan's R1/R2
+rows (`fab/plans/sahil/26-09-10-hexokit-rebrand.md`) — the standard's parse is
+`<word> version <rest>`, so shll's roster-name-keyed probes are unaffected by
+the divergence (260911-mvuv-hexokit-brand-surfaces).
 (pure local ldflags string), and the on-PATH binary name equals the tool name.
 The release-shape path is unit-pinned: `TestDisplayVersion` in `root_test.go`
 covers `displayVersion`'s three input shapes — `"1.2.3" → "v1.2.3"` (the release

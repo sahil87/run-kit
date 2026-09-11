@@ -3,14 +3,10 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 )
-
-// appName is the running application's name as osascript addresses it —
-// derived from AppBundleName so the quit target can never drift from the
-// bundle the installer manages.
-var appName = strings.TrimSuffix(AppBundleName, ".app")
 
 // Restart bounds. The quit poll mirrors the intake's VSCode-pattern sizing: a
 // graceful Electron quit normally completes in a second or two, so a 30s cap
@@ -24,16 +20,18 @@ const (
 	relaunchTimeout  = 30 * time.Second
 )
 
-// quitApp asks the running app to quit gracefully via AppleScript. A graceful
-// quit (vs pkill) matters twice over: Electron gets its shutdown hooks, and
-// the shell's window `close` handler captures lastPath so the relaunch
-// restores the user's route.
-func (ins *Installer) quitApp(ctx context.Context) error {
+// quitApp asks the running app to quit gracefully via AppleScript, addressing
+// the name of the bundle that probed live at the swap boundary (the current
+// name, or the legacy pre-rename one when it is the running install). A
+// graceful quit (vs pkill) matters twice over: Electron gets its shutdown
+// hooks, and the shell's window `close` handler captures lastPath so the
+// relaunch restores the user's route.
+func (ins *Installer) quitApp(ctx context.Context, name string) error {
 	quitCtx, cancel := context.WithTimeout(ctx, quitTimeout)
 	defer cancel()
-	script := fmt.Sprintf("tell application %q to quit", appName)
+	script := fmt.Sprintf("tell application %q to quit", name)
 	if _, err := ins.Run(quitCtx, "osascript", "-e", script); err != nil {
-		return fmt.Errorf("asking %s to quit: %w", appName, err)
+		return fmt.Errorf("asking %s to quit: %w", name, err)
 	}
 	return nil
 }
@@ -56,7 +54,7 @@ func (ins *Installer) waitAppExit(ctx context.Context) error {
 			return err
 		}
 		if waitCtx.Err() != nil {
-			return fmt.Errorf("%s did not exit within %s — quit the app manually, then re-run this command", appName, ins.QuitWait)
+			return fmt.Errorf("%s did not exit within %s — quit the app manually, then re-run this command", ins.installedAppName(), ins.QuitWait)
 		}
 		if !running {
 			return nil
@@ -75,7 +73,7 @@ func (ins *Installer) relaunchApp(ctx context.Context, appPath string) error {
 	openCtx, cancel := context.WithTimeout(ctx, relaunchTimeout)
 	defer cancel()
 	if _, err := ins.Run(openCtx, "open", "-a", appPath); err != nil {
-		return fmt.Errorf("relaunching %s: %w", appName, err)
+		return fmt.Errorf("relaunching %s: %w", strings.TrimSuffix(filepath.Base(appPath), ".app"), err)
 	}
 	return nil
 }

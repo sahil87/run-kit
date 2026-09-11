@@ -31,12 +31,12 @@ var errDesktopMacOnly = fmt.Errorf("rk desktop is macOS-only (the shell is packa
 // desktopRestartAnnouncement is the auto-restart outcome line — data (stdout,
 // survives --quiet): a caller must be able to tell "updated in place" from
 // "updated and the running app was restarted" (Toolkit Principle 9).
-const desktopRestartAnnouncement = "Run Kit was running — restarted on the new version.\n"
+const desktopRestartAnnouncement = "HexoKit was running — restarted on the new version.\n"
 
 var desktopCmd = &cobra.Command{
 	Use:   "desktop",
-	Short: "Install and update the Run Kit desktop app (macOS)",
-	Long: `Install and update the Run Kit desktop app — the Electron shell that wraps an
+	Short: "Install and update the HexoKit desktop app (macOS)",
+	Long: `Install and update the HexoKit desktop app — the Electron shell that wraps an
 rk serve dashboard (macOS only).
 
 Why not just download the DMG? A browser download stamps the app with
@@ -68,7 +68,7 @@ See 'run-kit desktop <subcommand> --help' for flags on each.`,
 
 var desktopInstallCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Download and install the Run Kit desktop app (quarantine-free)",
+	Short: "Download and install the HexoKit desktop app (quarantine-free)",
 	Long: `Download the latest desktop release DMG (or a specific release via --version)
 and install it, quarantine-free.
 
@@ -78,7 +78,7 @@ release digest when the API supplies one, plus codesign --verify --deep
 target and swapped in atomically, so a failed download or copy never destroys
 an existing install.
 
-A running Run Kit app is handled automatically: it is asked to quit gracefully
+A running HexoKit app is handled automatically: it is asked to quit gracefully
 just before the swap, then relaunched on the new version. If it does not quit
 within the wait bound, the install aborts with the existing app untouched.
 
@@ -95,8 +95,8 @@ managed Mac where /Applications is not writable.`,
 
 var desktopUpdateCmd = &cobra.Command{
 	Use:   "update",
-	Short: "Update the Run Kit desktop app when a newer release exists",
-	Long: `Update the Run Kit desktop app to the latest release. A no-op (exit 0) when
+	Short: "Update the HexoKit desktop app when a newer release exists",
+	Long: `Update the HexoKit desktop app to the latest release. A no-op (exit 0) when
 the installed app is already current; errors when no app is installed (run
 'run-kit desktop install' first).
 
@@ -105,7 +105,7 @@ never assumed equal to the CLI version. There is deliberately no --version
 flag: update means "go to latest"; to pin a specific release use
 'run-kit desktop install --version <tag>'.
 
-A running Run Kit app is handled automatically: the new version is staged
+A running HexoKit app is handled automatically: the new version is staged
 while the app runs, then the app is quit gracefully, swapped, and relaunched.
 If it does not quit within the wait bound, the update aborts with the existing
 app untouched.
@@ -122,8 +122,8 @@ managed Mac where /Applications is not writable.`,
 
 var desktopStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show installed vs latest Run Kit desktop app version (read-only)",
-	Long: `Show the installed Run Kit desktop app version against the latest GitHub
+	Short: "Show installed vs latest HexoKit desktop app version (read-only)",
+	Long: `Show the installed HexoKit desktop app version against the latest GitHub
 release, and whether an update is available. Read-only: nothing is downloaded
 or modified. The report is the requested result (data), so --quiet changes
 nothing.
@@ -198,7 +198,7 @@ func runDesktopInstall(cmd *cobra.Command, _ []string) error {
 	}
 	if !force && installed == rel.Version {
 		// Outcome line — data: silence would misreport the no-op.
-		sink.Dataf("Run Kit v%s is already installed (%s). Use --force to reinstall.\n", installed, ins.AppPath())
+		sink.Dataf("HexoKit v%s is already installed (%s). Use --force to reinstall.\n", installed, ins.AppPath())
 		return nil
 	}
 
@@ -206,7 +206,7 @@ func runDesktopInstall(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	sink.Dataf("Installed Run Kit v%s to %s\n", res.Version, res.Path)
+	sink.Dataf("Installed HexoKit v%s to %s\n", res.Version, res.Path)
 	if res.Restarted {
 		sink.Dataf(desktopRestartAnnouncement)
 	}
@@ -228,7 +228,7 @@ func runDesktopUpdate(cmd *cobra.Command, _ []string) error {
 	}
 	if installed == "" {
 		// An update of nothing is a user error, not a silent no-op.
-		return fmt.Errorf("Run Kit is not installed at %s — run 'rk desktop install' first", ins.AppPath())
+		return fmt.Errorf("HexoKit is not installed at %s — run 'rk desktop install' first", ins.AppPath())
 	}
 
 	return desktopUpdateToLatest(ctx, ins, sink, installed, force)
@@ -256,7 +256,7 @@ func desktopUpdateToLatest(ctx context.Context, ins *desktop.Installer, sink out
 	if err != nil {
 		return err
 	}
-	sink.Dataf("Updated Run Kit v%s -> v%s (%s)\n", installed, res.Version, res.Path)
+	sink.Dataf("Updated HexoKit v%s -> v%s (%s)\n", installed, res.Version, res.Path)
 	if res.Restarted {
 		sink.Dataf(desktopRestartAnnouncement)
 	}

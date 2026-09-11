@@ -13,14 +13,28 @@ import (
 const releaseJSON = `{
   "tag_name": "v3.13.0",
   "assets": [
-    {"name": "run-kit-desktop-3.13.0-arm64.dmg",
+    {"name": "hexokit-desktop-3.13.0-arm64.dmg",
      "browser_download_url": "https://example.invalid/arm64.dmg",
      "digest": "sha256:aabbcc"},
-    {"name": "run-kit-desktop-3.13.0-x64.dmg",
+    {"name": "hexokit-desktop-3.13.0-x64.dmg",
      "browser_download_url": "https://example.invalid/x64.dmg",
      "digest": "sha256:ddeeff"},
-    {"name": "run-kit-desktop-3.13.0-arm64.dmg.blockmap",
+    {"name": "hexokit-desktop-3.13.0-arm64.dmg.blockmap",
      "browser_download_url": "https://example.invalid/arm64.dmg.blockmap"}
+  ]
+}`
+
+// legacyReleaseJSON carries only the pre-rename asset names; resolution must
+// still find them via the legacy-prefix fallback.
+const legacyReleaseJSON = `{
+  "tag_name": "v3.12.2",
+  "assets": [
+    {"name": "run-kit-desktop-3.12.2-arm64.dmg",
+     "browser_download_url": "https://example.invalid/legacy-arm64.dmg",
+     "digest": "sha256:112233"},
+    {"name": "run-kit-desktop-3.12.2-x64.dmg",
+     "browser_download_url": "https://example.invalid/legacy-x64.dmg",
+     "digest": "sha256:445566"}
   ]
 }`
 
@@ -43,8 +57,8 @@ func TestResolveReleaseLatestSelectsArchAsset(t *testing.T) {
 	cases := []struct {
 		goarch, wantAsset, wantDigest string
 	}{
-		{"arm64", "run-kit-desktop-3.13.0-arm64.dmg", "aabbcc"},
-		{"amd64", "run-kit-desktop-3.13.0-x64.dmg", "ddeeff"},
+		{"arm64", "hexokit-desktop-3.13.0-arm64.dmg", "aabbcc"},
+		{"amd64", "hexokit-desktop-3.13.0-x64.dmg", "ddeeff"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.goarch, func(t *testing.T) {
@@ -74,6 +88,71 @@ func TestResolveReleaseLatestSelectsArchAsset(t *testing.T) {
 				t.Errorf("digest = %q, want %q", rel.Digest, tc.wantDigest)
 			}
 		})
+	}
+}
+
+func TestResolveReleaseLegacyPrefixFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(legacyReleaseJSON))
+	}))
+	defer srv.Close()
+
+	ins := newTestInstaller(t, srv)
+	ins.Arch = "arm64"
+	rel, err := ins.ResolveRelease(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ResolveRelease: %v", err)
+	}
+	if rel.AssetName != "run-kit-desktop-3.12.2-arm64.dmg" {
+		t.Errorf("asset = %q, want the legacy-prefixed run-kit-desktop asset", rel.AssetName)
+	}
+	if rel.Version != "3.12.2" {
+		t.Errorf("version = %q, want 3.12.2", rel.Version)
+	}
+}
+
+func TestResolveReleasePrefersCurrentPrefix(t *testing.T) {
+	// A release carrying BOTH namings resolves to the current prefix.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{
+		  "tag_name": "v3.13.0",
+		  "assets": [
+		    {"name": "run-kit-desktop-3.13.0-arm64.dmg",
+		     "browser_download_url": "https://example.invalid/legacy-arm64.dmg"},
+		    {"name": "hexokit-desktop-3.13.0-arm64.dmg",
+		     "browser_download_url": "https://example.invalid/arm64.dmg"}
+		  ]
+		}`))
+	}))
+	defer srv.Close()
+
+	ins := newTestInstaller(t, srv)
+	ins.Arch = "arm64"
+	rel, err := ins.ResolveRelease(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ResolveRelease: %v", err)
+	}
+	if rel.AssetName != "hexokit-desktop-3.13.0-arm64.dmg" {
+		t.Errorf("asset = %q, want the current-prefix hexokit-desktop asset", rel.AssetName)
+	}
+}
+
+func TestResolveReleaseNeitherPrefixNamesBoth(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"tag_name": "v3.13.0", "assets": [
+			{"name": "source.tar.gz", "browser_download_url": "https://example.invalid/src.tgz"}
+		]}`))
+	}))
+	defer srv.Close()
+
+	ins := newTestInstaller(t, srv)
+	ins.Arch = "arm64"
+	_, err := ins.ResolveRelease(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected a missing-asset error, got nil")
+	}
+	if !strings.Contains(err.Error(), assetPrefix) || !strings.Contains(err.Error(), legacyAssetPrefix) {
+		t.Errorf("error = %v, want it to name both asset prefixes (%s and %s)", err, assetPrefix, legacyAssetPrefix)
 	}
 }
 

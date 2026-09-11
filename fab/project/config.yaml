@@ -2,7 +2,7 @@ checklist:
     extra_categories: []
 project:
     description: Web based agent orchestration framework
-    name: run-kit
+    name: hexokit
 providers:
     claude:
         interactive_command: claude --dangerously-skip-permissions -n "$(basename "$(pwd)")" --model {model} --effort {effort}

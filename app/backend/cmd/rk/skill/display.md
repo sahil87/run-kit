@@ -1,8 +1,8 @@
-# run-kit skill: display
+# HexoKit skill: display
 
-Depth for one job: **putting visual content in front of the user** — a generated HTML report, a diagram, a dev server — from inside a tmux pane run-kit manages. This is a static topic page (`rk skill display`); the [core bundle](../skill.md) covers when to reach for run-kit at all. Everything here is byte-identical on every invocation; live values are symbolic — resolve the server URL at use-time with `rk url`.
+Depth for one job: **putting visual content in front of the user** — a generated HTML report, a diagram, a dev server — from inside a tmux pane HexoKit manages. This is a static topic page (`rk skill display`); the [core bundle](../skill.md) covers when to reach for HexoKit at all. Everything here is byte-identical on every invocation; live values are symbolic — resolve the server URL at use-time with `rk url`.
 
-Gate first, as always — run-kit is optional and may be absent:
+Gate first, as always — HexoKit is optional and may be absent:
 
 ```sh
 command -v rk >/dev/null 2>&1 && [ -n "$TMUX_PANE" ] || exit 0
@@ -67,7 +67,7 @@ Address another tab with a leading `@N` (`rk tab web ls @5`); `-L <server>` name
 
 ## Proxy
 
-Reach a local service through the run-kit server using the proxy path:
+Reach a local service through the HexoKit server using the proxy path:
 
 ```
 /proxy/{port}/...
@@ -87,7 +87,7 @@ The retired `@rk_win_url` / `@rk_win_lens` / `@rk_win_present_root` are accepted
 
 ### SSE reactivity
 
-Changes to tmux window options are picked up automatically by the run-kit server via SSE polling — no manual refresh, no API call.
+Changes to tmux window options are picked up automatically by the HexoKit server via SSE polling — no manual refresh, no API call.
 
 ### Window lifecycle
 
@@ -104,4 +104,4 @@ tmux set-option -w @rk_win_web_1 /proxy/<port>/<filename>
 tmux set-option -w @rk_win_web_active 1
 ```
 
-Change the page later by re-setting `@rk_win_web_1`. Every step SHALL fail silently if its prerequisite is unavailable (run-kit missing, port in use, server fails to start) — skip the remaining steps without surfacing an error.
+Change the page later by re-setting `@rk_win_web_1`. Every step SHALL fail silently if its prerequisite is unavailable (HexoKit missing, port in use, server fails to start) — skip the remaining steps without surfacing an error.

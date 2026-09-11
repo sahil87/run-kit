@@ -6,7 +6,7 @@ An interactive explainer for `rk cron`: the three schedule kinds (`every`, `cron
 
 <div class="rk-cron-clocks not-content"><div class="wrap">
   <header>
-    <div class="eyebrow">run-kit · rk cron</div>
+    <div class="eyebrow">HexoKit · rk cron</div>
     <div class="title" role="heading" aria-level="2">Four ways a clock can wake an agent</div>
     <p>An <code>rk cron</code> entry is a small intent file: <em>what</em> text to deliver, <em>which</em> pane to deliver it to, and <em>when</em>. The “when” comes in three schedule kinds plus one optional edge trigger, and a <code>deliver</code> policy on the entry says what to do if the agent is busy at that moment — send anyway, hold until idle, or skip the fire. A ticker polls every 30 seconds and asks a pure function, “given the entries, the delivery log and the panes’ agent states on disk right now, what is due?” Nothing is remembered in memory, so a restart never loses the clock.</p>
     <div class="legend">

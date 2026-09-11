@@ -1,6 +1,6 @@
-# run-kit Reimplementation Plan
+# HexoKit Reimplementation Plan
 
-> Step-by-step plan for reimplementing run-kit with a clean API, robust testing,
+> Step-by-step plan for reimplementing HexoKit with a clean API, robust testing,
 > and an `app/backend` + `app/frontend` structure. Each phase is independently
 > verifiable before moving to the next.
 

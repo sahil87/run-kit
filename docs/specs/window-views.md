@@ -1,6 +1,6 @@
 # Window Views — Rows Are Substrates, Views Are Lenses
 
-> The model for every "parallel view" of a tmux window run-kit renders: what a
+> The model for every "parallel view" of a tmux window HexoKit renders: what a
 > window row *is*, what a view *is*, how view availability is derived, and how
 > view choice is expressed. This spec unified three features that grew up with
 > three unrelated mechanisms — iframe windows (`@rk_win_lens=iframe`), desktop
@@ -127,7 +127,7 @@ on the `rk-daemon` server; the tile's empty state and the palette carry a
 `GUI: Open supervisor logs` action that navigates there
 ([`gui.md`](gui.md)). No relay sniffing, no window-name typing, no
 `@rk_vnc_port`-style per-window option. A headless codex-server pane's tty
-shows the server logs. Watching the raw process is the run-kit ethos — no
+shows the server logs. Watching the raw process is the HexoKit ethos — no
 lens may hide it, and no relay may sniff-and-branch it away.
 
 The `web` lens is likewise always *reachable* (always tileable): a `?view=web`

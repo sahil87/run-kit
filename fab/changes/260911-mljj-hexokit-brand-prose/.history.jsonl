@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-11T19:37:05Z"}
+{"args":"Per fab/plans/sahil/26-09-10-hexokit-rebrand.md row C3a (hexokit-brand-prose): the prose-only half split out of run-kit#950 (change mvuv) — README H1/tagline/identity prose (badge URLs stay sahil87/run-kit), docs/site identity lines + skill H1s, embedded cmd/rk/skill/*.md, docs/specs present-tense identity lines, memory hydrate. Zero runtime effect. The app-identity half stays on #950 as Phase 3 row R0.","cmd":"fab-new","event":"command","ts":"2026-09-11T19:37:05Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"apply","ts":"2026-09-11T19:40:00Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"review","ts":"2026-09-11T19:40:00Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"hydrate","ts":"2026-09-11T19:40:00Z"}
+{"event":"review","result":"passed","ts":"2026-09-11T19:40:00Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"ship","ts":"2026-09-11T19:40:00Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-11T19:40:39Z"}

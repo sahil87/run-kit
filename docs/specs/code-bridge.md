@@ -1,13 +1,13 @@
 # Code Bridge — run VS Code commands in the `code` lens from the shell
 
-> Design record for `rk code exec` and the `rk-code-bridge` code-server extension. Baseline: run-kit
+> Design record for `rk code exec` and the `rk-code-bridge` code-server extension. Baseline: HexoKit
 > v3.18.1, code-server 4.112. Companion to [`right-panel.md`](right-panel.md) § The `code` lens, which
 > owns the code-server topology (`/code/` route, `RK_PORT+2`, the per-window folder latch); this spec
 > adds the one thing that lens lacks — a channel *into* the extension host.
 
 ## Problem
 
-Agents in run-kit panes can open windows, present web content (`rk present`), and the `code` lens
+Agents in HexoKit panes can open windows, present web content (`rk present`), and the `code` lens
 renders code-server on a latched folder. But nothing can act *inside* the editor: code-server exposes no
 command channel — its CLI only opens files, the URL `payload=` parameter only supports `openFile`, and
 the GitHub Pull Requests extension's URI handler is for auth callbacks. That extension's 171 `pr.*`
@@ -103,7 +103,7 @@ carries the fields.
 
 ### No `rk code open` (yet)
 
-An earlier draft had `rk code open <folder>` as sugar over `rk present`. That is wrong for run-kit: the
+An earlier draft had `rk code open <folder>` as sugar over `rk present`. That is wrong for HexoKit: the
 `code` lens's folder is a **per-viewer latch** in localStorage (`right-panel.md`), seeded once from the
 active pane's git root and moved only by the editor's own navigation. A CLI cannot set it today. The
 right hook is the deferred `@rk_code_folder` tmux-option upgrade path named in `right-panel.md`; when
@@ -251,7 +251,7 @@ The bridge is a capability; nothing invokes it until the agent side is wired. In
 3. **Close the latch gap — `@rk_code_folder` + `rk code open`.** The recipe above keeps one human step
    (open the code surface once so the folder latches). Landing the deferred `@rk_code_folder`
    tmux-option store from `right-panel.md` and wrapping it as `rk code open <folder>` removes the only
-   manual step in the loop. Own run-kit change, not this one.
+   manual step in the loop. Own HexoKit change, not this one.
 4. **Fold into existing review skills.** Consumer `git-pr-review`-style skills that review via `gh` in
    the terminal can additionally stage the review visually in the code tile — an amendment, not a new
    skill.

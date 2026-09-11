@@ -160,7 +160,7 @@ the shared switcher; the panel is merely its natural home.
   the tile grid remounts, the code iframe reloads, and the workbench calls
   `focus()` once at editor-restore time — a programmatic steal no VS Code /
   code-server setting suppresses (the upstream anti-steal guard is scoped to
-  the iframe's own document, so it always passes when embedded). run-kit
+  the iframe's own document, so it always passes when embedded). HexoKit
   answers with per-window **focus memory** plus a **steal guard**
   (`src/lib/focus-memory.ts`, wired in `app.tsx`): each window remembers which
   of `tty`/`compose`/`code` the user last focused, and a desktop-only restore
@@ -289,7 +289,7 @@ the palette gains `Panel: Code` / `Panel: Web` /
 ## Open Questions
 
 1. **Keyboard capture** — focus handed to the code-server iframe swallows
-   run-kit shortcuts (and `⌘K` collides). The same-origin proxy provides the
+   HexoKit shortcuts (and `⌘K` collides). The same-origin proxy provides the
    likely answer: the parent can attach a capture-phase `keydown` listener on
    `iframe.contentDocument` and reclaim rk chords before VS Code's keybinding
    service sees them — possible *only* because of the same-origin design.
@@ -309,7 +309,7 @@ code-server's relative-base design fits the prefix-stripping proxy exactly,
 no frame-blocking headers, auth cookie is deliberately sub-path-scoped. The
 feared **service-worker collision is benign**: `Service-Worker-Allowed: /` is
 a ceiling, not a claim — the registration requests a base-relative scope
-(`./` → `/proxy/{port}/`), so run-kit's root-scope Web Push worker is not
+(`./` → `/proxy/{port}/`), so HexoKit's root-scope Web Push worker is not
 evicted; registrations at different scopes coexist.
 
 ---

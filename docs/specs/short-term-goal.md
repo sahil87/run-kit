@@ -9,6 +9,6 @@ At the minimum, I need:
 * Its ok if only one terminal is linked to a worktree
 * Primary way of working will be via worktrees
 * Read the batch-scripts from fab-kit source code to understand how orchestration works currently
-* There needs to be an easy improvement loop inbuilt in run-kit - it should be easy to restart run-kit after improvments (after run-kit works on itself for example) - include rollbacks in case of errors
+* There needs to be an easy improvement loop inbuilt in HexoKit - it should be easy to restart HexoKit after improvments (after HexoKit works on itself for example) - include rollbacks in case of errors
 * Use fab-kit as the engine. Many utilites already exist - eg: idea for backlog management, wt-* from worktree management, fab- commands for the agent.
 * The UI should be slick (like ao)

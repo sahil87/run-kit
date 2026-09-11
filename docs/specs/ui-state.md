@@ -37,9 +37,9 @@
 ## Goal
 
 An agent (or the operator at a shell) can **fully address and drive the
-run-kit UI with tmux commands alone** — open a tab, choose its layout, add a
+HexoKit UI with tmux commands alone** — open a tab, choose its layout, add a
 web tab, point the code surface at a folder, collapse it to one surface — and every
-viewer looking at that tab sees the result. run-kit's frontend becomes a
+viewer looking at that tab sees the result. HexoKit's frontend becomes a
 faithful *renderer of tmux state*, not a second store that must be nudged.
 
 Corollary: `rk present`, the layout verbs, the surface toggles, the code
@@ -50,11 +50,11 @@ over `set-option`**.
 
 ## The Layer Stack
 
-Two axes. The first is tmux's and needs nothing new; the second is run-kit's
+Two axes. The first is tmux's and needs nothing new; the second is HexoKit's
 and this spec defines it.
 
 ```
-axis 1 — tmux substrate                     axis 2 — run-kit lenses over a tab
+axis 1 — tmux substrate                     axis 2 — HexoKit lenses over a tab
 host ─ server (-L) ─ session ─ window ─ pane         tab ─ surface ─ [web tab]
                               └─ "tab" ─────────────► @N
 ```
@@ -94,7 +94,7 @@ localStorage keys die.
 
 Why shared is *correct*, not a compromise: tmux already shares pane layout,
 active pane, and window order across every attached client. Two people
-attached to the same tmux window see the same panes. run-kit's per-viewer
+attached to the same tmux window see the same panes. HexoKit's per-viewer
 layout was the deviation from the substrate it renders; this spec removes
 the deviation. Mobile is handled by a **degradation rule**, not by separate
 state (§ Layout in tmux).
@@ -367,7 +367,7 @@ question: **which tab is the viewer on?**
 | "look at this" (`--notify`) | already looking | Web Push with a deep link, as `rk present --notify` today |
 
 Navigation is deliberately **not** tmux state in v1. tmux's own "active
-window" is per-session-per-client and run-kit's route is the analogue; an
+window" is per-session-per-client and HexoKit's route is the analogue; an
 agent that could yank every viewer's route would make the dashboard
 unusable with two people or two agents. The nudge channel is push
 notification + sidebar attention (right-panel P4: hidden must never mean

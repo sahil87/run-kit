@@ -1,20 +1,20 @@
-# <img src="https://raw.githubusercontent.com/sahil87/run-kit/main/assets/logo.svg" alt="run-kit logo" width="32" height="32"> run-kit
+# <img src="https://raw.githubusercontent.com/sahil87/run-kit/main/assets/logo.svg" alt="HexoKit logo" width="32" height="32"> HexoKit
 
-> Part of the [shll toolkit](https://shll.ai) — see all projects there.
+> Part of [HexoKit](https://hexokit.com) — see all projects there.
 
 [![Latest release](https://img.shields.io/github/v/release/sahil87/run-kit)](https://github.com/sahil87/run-kit/releases) [![Downloads](https://img.shields.io/github/downloads/sahil87/run-kit/total)](https://github.com/sahil87/run-kit/releases) [![Stars](https://img.shields.io/github/stars/sahil87/run-kit?style=social)](https://github.com/sahil87/run-kit/stargazers)
 
-**Your tmux, in the browser and on your phone.** run-kit is a remote console for the machine you actually work on — every tmux session and pane as a live terminal, in a sidebar, from your desk or your couch. It's the modern, terminal-native answer to the old server web-console: nothing to configure, no database, state read straight from tmux.
+**Your tmux, in the browser and on your phone.** HexoKit is a remote console for the machine you actually work on — every tmux session and pane as a live terminal, in a sidebar, from your desk or your couch. It's the modern, terminal-native answer to the old server web-console: nothing to configure, no database, state read straight from tmux.
 
-What makes it so good right now is what tends to run in those panes: **AI coding agents, many at once.** `rk riff` spawns each one in its own [git worktree](https://github.com/sahil87/wt), and the dashboard lets you watch the whole fleet. But run-kit never wraps the agent — a pane is just a pane. It's equally a build, a REPL, an ssh session, `htop`. **The agent is one of the things you run, not the thing run-kit is.** That's the point: when the agent tooling churns underneath you (and it does, monthly), the terminal layer stays put.
+What makes it so good right now is what tends to run in those panes: **AI coding agents, many at once.** `rk riff` spawns each one in its own [git worktree](https://github.com/sahil87/wt), and the dashboard lets you watch the whole fleet. But HexoKit never wraps the agent — a pane is just a pane. It's equally a build, a REPL, an ssh session, `htop`. **The agent is one of the things you run, not the thing HexoKit is.** That's the point: when the agent tooling churns underneath you (and it does, monthly), the terminal layer stays put.
 
 ## Install
 
 ```sh
-curl -fsSL https://shll.ai/install | sh
+curl -fsSL https://hexokit.com/install | sh
 ```
 
-Installs the entire shll toolkit via Homebrew, handling tap trust automatically. run-kit relies on its sibling tools (`wt` for the riff worktree flow), so the full-toolkit install is the supported path. The formula also installs `rk` as a fully interchangeable short alias of `run-kit` — every command here works with either.
+Installs the entire HexoKit toolkit via Homebrew, handling tap trust automatically. HexoKit relies on its sibling tools (`wt` for the riff worktree flow), so the full-toolkit install is the supported path. The formula also installs `rk` as a fully interchangeable short alias of `run-kit` — every command here works with either.
 
 Requires **tmux ≥ 3.4** (checked at runtime; `rk doctor` reports your version). See the [install & access guide](docs/site/install.md) for prerequisites, upgrades, and troubleshooting.
 
@@ -45,9 +45,9 @@ Two optional extras:
 
 To upgrade later, `rk update` pulls the latest version via Homebrew and restarts the daemon. Coming from the old `rk` Homebrew formula, or something failing? See the [install & access guide](docs/site/install.md) and `rk doctor`.
 
-## Why run-kit?
+## Why HexoKit?
 
-|  | run-kit |
+|  | HexoKit |
 |--|---------|
 | **It is** | A remote, phone-first **console for your tmux** — agent-agnostic, no database, state derived from tmux + filesystem. A spawner (`rk riff`) and a dashboard (`rk serve`) that compose. |
 | **It isn't** | An agent wrapper. It doesn't speak any agent's protocol, parse any agent's output, or care what's in the pane. That's deliberate — it's what makes it outlive whichever agent you run. |
@@ -55,7 +55,7 @@ To upgrade later, `rk update` pulls the latest version via Homebrew and restarts
 - **One command per parallel agent** — `rk riff` creates a worktree, opens a tmux window in it, and launches your agent. `rk riff -N 3` spawns three workspaces in parallel; failures roll back cleanly.
 - **Watch a whole fleet, from anywhere** — every tmux session and pane shows up in a sidebar. Click for a live browser terminal; pin several into a [board](#boards--watch-many-panes-at-once); open the same dashboard on your phone over Tailscale.
 - **Mobile-first, keyboard-first** — `Cmd+K` command palette is the primary discovery surface. Touch targets are tuned for mobile so you can steer a session from your phone while away from your desk.
-- **The dashboard layer over [`fab-kit`](https://github.com/sahil87/fab-kit) and [`wt`](https://github.com/sahil87/wt)** — `rk riff --skill /fab-fff` launches a full fab-kit pipeline in an isolated worktree. Reach for run-kit when you have more parallel changes than one terminal can hold.
+- **The dashboard layer over [`fab-kit`](https://github.com/sahil87/fab-kit) and [`wt`](https://github.com/sahil87/wt)** — `rk riff --skill /fab-fff` launches a full fab-kit pipeline in an isolated worktree. Reach for HexoKit when you have more parallel changes than one terminal can hold.
 
 ## Screenshots
 
@@ -71,7 +71,7 @@ To upgrade later, `rk update` pulls the latest version via Homebrew and restarts
 
 ## The mental model
 
-run-kit is two independent halves that compose:
+HexoKit is two independent halves that compose:
 
 ```
 rk riff              rk serve
@@ -135,12 +135,12 @@ Windows running an AI agent can report a live lifecycle state in the sidebar and
 This is opt-in and needs a one-time setup per machine — the toolkit-wide wiring covers it (and runs automatically at the end of a toolkit install):
 
 ```bash
-shll setup agent            # places the shll toolkit skill + installs run-kit's dashboard hooks
+shll setup agent            # places the shll toolkit skill + installs HexoKit's dashboard hooks
 ```
 
-It delegates the hook install to `rk agent setup`, which shows the settings diff and asks before writing; `rk agent setup --uninstall` removes exactly the run-kit-owned entries.
+It delegates the hook install to `rk agent setup`, which shows the settings diff and asks before writing; `rk agent setup --uninstall` removes exactly the HexoKit-owned entries.
 
-The setup installs agent-harness hooks into your user-global agent configs — Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, and Antigravity CLI, each wired when its binary is on `PATH` — that stamp a `@rk_pane_agent_state` tmux pane option on lifecycle events. Each hook is a thin wrapper delegating to `rk agent hook`, so hook fixes ship in the binary and track `rk update` — no settings changes, no session restarts. Hooks work for any session, in any repo, under any workflow; re-running the setup is idempotent and never touches your other hooks. Until it's run (and agent sessions are restarted), agent state shows `—`. Codex additionally needs its native trust review: open `codex` and trust the run-kit entries via `/hooks`.
+The setup installs agent-harness hooks into your user-global agent configs — Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, and Antigravity CLI, each wired when its binary is on `PATH` — that stamp a `@rk_pane_agent_state` tmux pane option on lifecycle events. Each hook is a thin wrapper delegating to `rk agent hook`, so hook fixes ship in the binary and track `rk update` — no settings changes, no session restarts. Hooks work for any session, in any repo, under any workflow; re-running the setup is idempotent and never touches your other hooks. Until it's run (and agent sessions are restarted), agent state shows `—`. Codex additionally needs its native trust review: open `codex` and trust the HexoKit entries via `/hooks`.
 
 The per-harness capability matrix (verified versions, event mappings, transcript support, honest gaps) lives in the [agent hook integrations guide](docs/site/agent-hooks.md); the cross-repo convention is documented in [`docs/specs/agent-state.md`](https://github.com/sahil87/run-kit/blob/main/docs/specs/agent-state.md); upgrading from an older hook generation is covered in the [install & access guide](docs/site/install.md#upgrade).
 
@@ -158,7 +158,7 @@ The GUI surface runs the host's desktop as a fourth tile beside `tty`/`code`/`we
 
 ## Drive it from your phone (HTTPS over Tailscale)
 
-Some browser features (clipboard, secure context) require HTTPS. Accessing run-kit from another machine on your tailnet also requires HTTPS:
+Some browser features (clipboard, secure context) require HTTPS. Accessing HexoKit from another machine on your tailnet also requires HTTPS:
 
 1. Enable HTTPS at [DNS > HTTPS Certificates](https://login.tailscale.com/admin/dns).
 2. Run `sudo tailscale set --operator=$USER` (one-time — lets `tailscale serve` run without sudo).
@@ -176,7 +176,7 @@ rk desktop install    # fetch the latest release DMG, install to /Applications
 rk desktop update     # same, but a no-op when already current
 ```
 
-The CLI path matters: it produces a quarantine-free, digest-verified install that opens cleanly — a browser-downloaded DMG gets blocked by Gatekeeper on every install and update. The app's welcome page connects three ways: **This Mac** (one-click daemon start), **over SSH** (bootstraps run-kit on the remote box via `rk remote`), or **a URL**. It never starts, stops, or updates anything on its own, and your tmux sessions survive every daemon action. Details and the manual fallback are in the [install & access guide](docs/site/install.md#desktop-app-macos).
+The CLI path matters: it produces a quarantine-free, digest-verified install that opens cleanly — a browser-downloaded DMG gets blocked by Gatekeeper on every install and update. The app's welcome page connects three ways: **This Mac** (one-click daemon start), **over SSH** (bootstraps HexoKit on the remote box via `rk remote`), or **a URL**. It never starts, stops, or updates anything on its own, and your tmux sessions survive every daemon action. Details and the manual fallback are in the [install & access guide](docs/site/install.md#desktop-app-macos).
 
 ## Push notifications
 
@@ -208,8 +208,8 @@ eval "$(rk shell-init zsh)"   # in ~/.zshrc — also: bash, fish, powershell
 | `rk serve` | Start the HTTP server (foreground). |
 | `rk daemon` | Manage the background daemon (`start`, `restart`, `stop`, `status`). |
 | `rk status` | Show a tmux session summary. |
-| `rk url` | Print the run-kit server URL (config-derived; a heuristic for agents, not a liveness probe). `--mcp` prints the `/mcp` MCP endpoint. |
-| `rk skill` | Print the agent skill bundle — a static usage briefing for agents operating run-kit. |
+| `rk url` | Print the HexoKit server URL (config-derived; a heuristic for agents, not a liveness probe). `--mcp` prints the `/mcp` MCP endpoint. |
+| `rk skill` | Print the agent skill bundle — a static usage briefing for agents operating HexoKit. |
 | `rk mcp` | MCP server over stdio — an allowlisted proxy over rk verbs for chat clients with no shell on the box (Claude Desktop connector command: `ssh <box> rk mcp`). |
 | `rk notify` | Send a Web Push notification to your subscribed devices. Fail-silent. |
 | `rk present` | Show a file, directory, `:port`, or URL to the user as a web tile on the current window. |
@@ -225,7 +225,7 @@ eval "$(rk shell-init zsh)"   # in ~/.zshrc — also: bash, fish, powershell
 | `rk role` | Mark or unmark the current window as the server's operator. |
 | `rk update` | Upgrade via Homebrew and restart the daemon. |
 | `rk desktop` | Install/update the macOS desktop app, quarantine-free (`install`, `update`, `status`). |
-| `rk remote` | Use SSH-only machines as run-kit hosts (`add`, `connect`, `list`, `status`, `disconnect`, `remove`). |
+| `rk remote` | Use SSH-only machines as HexoKit hosts (`add`, `connect`, `list`, `status`, `disconnect`, `remove`). |
 | `rk completion` | Generate shell completion scripts (or use `rk shell-init` for eval-safe output). |
 
 Run `rk <command> --help` for full flag details, or see the [full command reference](https://shll.ai/run-kit/commands/) for every command and flag.

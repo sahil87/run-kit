@@ -1,6 +1,6 @@
 # Customizing tmux
 
-run-kit owns its default tmux configuration as a **managed file**: `~/.config/run-kit/tmux.conf`. rk writes it, stamps it, and refreshes it — you never edit it. Your customizations live next door in `~/.config/run-kit/tmux.d/`, which the managed file sources at the end (`source-file -q ~/.config/run-kit/tmux.d/*.conf`), so your settings always win.
+HexoKit owns its default tmux configuration as a **managed file**: `~/.config/run-kit/tmux.conf`. rk writes it, stamps it, and refreshes it — you never edit it. Your customizations live next door in `~/.config/run-kit/tmux.d/`, which the managed file sources at the end (`source-file -q ~/.config/run-kit/tmux.d/*.conf`), so your settings always win.
 
 ## The managed header
 

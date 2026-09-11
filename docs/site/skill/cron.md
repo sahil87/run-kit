@@ -1,8 +1,8 @@
-# run-kit skill: cron
+# HexoKit skill: cron
 
-Depth for one job: **scheduling a prompt for later or on a cadence** — durable, per-tmux-server cron entries whose fire types the prompt into a target agent's chat. This is a static topic page (`rk skill cron`); the [core bundle](../skill.md) covers when to reach for run-kit at all. Everything here is byte-identical on every invocation.
+Depth for one job: **scheduling a prompt for later or on a cadence** — durable, per-tmux-server cron entries whose fire types the prompt into a target agent's chat. This is a static topic page (`rk skill cron`); the [core bundle](../skill.md) covers when to reach for HexoKit at all. Everything here is byte-identical on every invocation.
 
-Gate first — run-kit is optional and may be absent:
+Gate first — HexoKit is optional and may be absent:
 
 ```sh
 command -v rk >/dev/null 2>&1 || exit 0

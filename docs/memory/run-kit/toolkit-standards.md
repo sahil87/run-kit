@@ -990,21 +990,25 @@ matrix. `agent-hooks` is a non-reserved page name inside the published set, and
 its outbound links (vendor documentation) are absolute, so link closure still
 holds. (nnqu)
 
-**Toolkit "shll toolkit" naming.** The toolkit's name is **"shll toolkit"**
-(sahil87/shll#56), and the readme-extraction standard's canonical README
+**HexoKit README head.** The readme-extraction standard's canonical README
 blockquote is
-`> Part of the [shll toolkit](https://shll.ai) — see all projects there.`
-run-kit's `README.md` line 3 is that blockquote **byte-exact** (mandated head
-order H1 → blockquote → badges), and the constitution § Toolkit Standards clause
-reads "part of the shll toolkit". Identifiers stay by design: `sahil87/tap`
-formula names, `github.com/sahil87/…` / `raw.githubusercontent.com/sahil87/…`
-URLs, and the constitution's `sahil87/shll` canonical-source reference.
-(260718-oa9b-shll-toolkit-rename)
+`> Part of [HexoKit](https://hexokit.com) — see all projects there.`
+and `README.md` line 3 carries it **byte-exact** under the mandated head order
+H1 → blockquote → badges; the H1 reads `HexoKit` with the logo `src` URL
+unchanged, and the badge lines stay pointed at `sahil87/run-kit` (the GitHub
+repo rename is a later rebrand-plan row). Identifiers stay by design:
+`sahil87/tap` formula names, `github.com/sahil87/…` /
+`raw.githubusercontent.com/sahil87/…` URLs, and the constitution's
+`sahil87/shll` canonical-source reference.
+(260718-oa9b-shll-toolkit-rename, 260911-mljj-hexokit-brand-prose)
 
 ### skill — PASS
 `rk skill` + `docs/site/skill.md` exist at HEAD (PR #381), so the standard's
 "deferred, not yet adopted" contingency does NOT apply — it passes in full:
 byte-identical stdout to canonical, ≤150 lines, static-only, in-genre briefing.
+The bundle pages' H1s name the product — `# HexoKit skill` and
+`# HexoKit skill: <topic>` — with the embedded copies byte-identical under the
+drift guards (260911-mljj-hexokit-brand-prose).
 See [cli](/run-kit/architecture/cli.md) § CLI Subcommands (`skill` row) for
 the embed mechanism and drift guard.
 (260717-agst-rk-skill-agent-setup-hooks-only)
@@ -1269,12 +1273,14 @@ above. It has two halves, each audited and passing: **Policy A** (no
 inter-tool Homebrew dependencies; a sibling invoked at runtime is *probed*, never
 assumed, and degrades with an actionable install hint) audited @ **`shll
 v0.1.18`** (260814-mx8e-install-policy-a-binary-audit), and **Policy B**
-(install *documentation* is centralized on shll.ai — per-tool READMEs and doc
-pages MUST NOT carry per-formula `brew install sahil87/tap/<tool>` install
+(install *documentation* is centralized on hexokit.com — per-tool READMEs and
+doc pages MUST NOT carry per-formula `brew install sahil87/tap/<tool>` install
 *instructions*; they point at the curl bootstrap
-`curl -fsSL https://shll.ai/install | sh` and `shll install <tool>` for subsets)
-audited @ **`shll v0.1.12`** (260720-ec6i-install-docs-policy-b). Policy A
-binds all seven tap formulas + every sibling-invoking binary; Policy B binds the
+`curl -fsSL https://hexokit.com/install | sh` and `shll install <tool>` for
+subsets)
+audited @ **`shll v0.1.12`** (260720-ec6i-install-docs-policy-b; the
+hexokit.com bootstrap host per the standard's current text,
+260911-mljj-hexokit-brand-prose). Policy A binds all seven tap formulas + every sibling-invoking binary; Policy B binds the
 six roster-tool repos + the tap README. Individual formula installs remain
 *supported* — only *documenting* them per-repo is prohibited.
 
@@ -1282,10 +1288,10 @@ six roster-tool repos + the tap README. Individual formula installs remain
 run-kit's install *documentation* — `README.md` and `docs/site/`, the pages the
 shll.ai site extracts — MUST NOT carry per-formula `brew install sahil87/tap/…`
 install instructions, and MUST NOT reference the retired `sahil87/tap/all`
-meta-formula. Install guidance points to the centralized shll.ai bootstrap
-(`curl -fsSL https://shll.ai/install | sh`, subset `sh -s -- run-kit`) and, for
-sibling-tool prerequisites, `shll install <tool>` + a https://shll.ai link.
-(260720-ec6i-install-docs-policy-b)
+meta-formula. Install guidance points to the centralized hexokit.com bootstrap
+(`curl -fsSL https://hexokit.com/install | sh`, subset `sh -s -- run-kit`) and,
+for sibling-tool prerequisites, `shll install <tool>` + a https://shll.ai link.
+(260720-ec6i-install-docs-policy-b, 260911-mljj-hexokit-brand-prose)
 
 ### install-composition — Policy B (docs half) PASS
 The docs half passes: `README.md` and `docs/site/` carry **no per-formula
@@ -1299,14 +1305,18 @@ grep produces must be classified, and today the rename note is the only one. The
 install guidance matches the wording in the conformant sibling READMEs
 (wt/hop/idea/tu):
 
-- **`README.md`** — the Install section carries both curl bootstrap blocks and no
-  per-formula escape hatch; the Quick-start `wt`-prereq fragment and the
+- **`README.md`** — the Install section carries the centralized
+  `curl -fsSL https://hexokit.com/install | sh` one-liner and no per-formula
+  escape hatch; the Quick-start `wt`-prereq fragment and the
   Troubleshooting *"wt not found"* entry both point at `shll install wt` + a
   https://shll.ai link. The Troubleshooting entry earns its place: it is
   doc-carried install guidance, not the Policy-A binary hint.
-- **`docs/site/install.md`** — the Install lead-in names the shll.ai bootstrap and
-  carries the curl block plus the PATH sentence; the Prerequisites `wt` bullet
-  points at the full-toolkit shll.ai link + `shll install wt`. The heading
+- **`docs/site/install.md`** — the Install lead-in names the bootstrap and
+  carries the curl block (`curl -fsSL https://hexokit.com/install | sh -s --
+  run-kit` — the hexokit.com host per Policy B; the `run-kit` tool argument is
+  the roster name and stays) plus the PATH sentence; the
+  Prerequisites `wt` bullet points at the full-toolkit shll.ai link + `shll
+  install wt`. The heading
   structure is load-bearing — shll.ai extraction anchors key on it.
 - **No `sahil87/tap/all` reference** in `README.md` or `docs/site/` — the
   standard's Precedent states the meta-formula "is retired in favor of
@@ -1324,8 +1334,8 @@ behavior/pointer/history, not install instructions — outside Policy B's reach.
 - **WHEN** `grep -rn -iE 'brew install|sahil87/tap' README.md docs/site/` runs
 - **THEN** its only hit is the `README.md` formula-rename troubleshooting note
   (migration guidance, deliberately kept) — no per-formula install instruction and
-  no `sahil87/tap/all` reference; install guidance points to the shll.ai bootstrap
-  + `shll install <tool>`
+  no `sahil87/tap/all` reference; install guidance points to the hexokit.com
+  bootstrap + `shll install <tool>`
 - **AND** the desktop-app install section introduces no new hit — it leads with
   `run-kit desktop install` and its manual fallback is a GitHub Releases download,
   never a brew formula (260730-pl4v-rk-desktop-install)

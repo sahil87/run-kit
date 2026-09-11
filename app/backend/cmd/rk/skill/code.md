@@ -1,10 +1,10 @@
-# run-kit skill: code
+# HexoKit skill: code
 
-Depth for one job: **acting inside the `code` lens editor** — running any VS Code palette command (and the 171 `pr.*` commands of the GitHub Pull Requests extension, plus everything else in the open window) from the shell. This is a static topic page (`rk skill code`); the [core bundle](../skill.md) covers when to reach for run-kit at all. Everything here is byte-identical on every invocation.
+Depth for one job: **acting inside the `code` lens editor** — running any VS Code palette command (and the 171 `pr.*` commands of the GitHub Pull Requests extension, plus everything else in the open window) from the shell. This is a static topic page (`rk skill code`); the [core bundle](../skill.md) covers when to reach for HexoKit at all. Everything here is byte-identical on every invocation.
 
 The bridge is an agent-reachable `executeCommand`: the `rk-code-bridge` extension (installed by `rk code-server install`/`update`) opens one same-user Unix socket per open folder and serves one-request-per-connection NDJSON; `rk code exec` is the shell side. It exists because code-server exposes no command channel — its CLI only opens files, and a URL's `payload=` only supports `openFile`. Reach for it when the job is a palette command: refresh a PR list, focus a sidebar, open a diff.
 
-Gate first, as always — run-kit is optional and the bridge may have no live host:
+Gate first, as always — HexoKit is optional and the bridge may have no live host:
 
 ```sh
 command -v rk >/dev/null 2>&1 || exit 0

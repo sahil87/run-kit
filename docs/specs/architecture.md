@@ -1,6 +1,6 @@
-# run-kit Architecture Specification
+# HexoKit Architecture Specification
 
-> Target architecture for run-kit. This document describes the system as it should be built,
+> Target architecture for HexoKit. This document describes the system as it should be built,
 > not as it currently exists. Implementation conforms to this spec.
 
 ---
@@ -13,7 +13,7 @@ Two independent processes in production, three in development:
 2. **Bash supervisor** (`supervisor.sh`) — builds Go + frontend, manages the server process, health checks, rollback
 3. **Vite dev server** (dev only, `:5173`) — HMR, proxies `/api/*` and `/relay/*` to Go
 
-The tmux server is an external dependency — never started or stopped by run-kit.
+The tmux server is an external dependency — never started or stopped by HexoKit.
 
 ---
 
@@ -145,7 +145,7 @@ Playwright tests live inside the frontend package. Config at `app/frontend/playw
 
 ### Removed: `internal/worktree/`
 
-The worktree package wraps fab-kit's `wt-*` scripts but is **not exposed through any API endpoint**. Worktree management is done through tmux sessions (creating windows with CWD pointing to worktrees). The `wt-*` scripts are called directly by the orchestrator agent, not by run-kit's API. Removing this package eliminates dead code.
+The worktree package wraps fab-kit's `wt-*` scripts but is **not exposed through any API endpoint**. Worktree management is done through tmux sessions (creating windows with CWD pointing to worktrees). The `wt-*` scripts are called directly by the orchestrator agent, not by HexoKit's API. Removing this package eliminates dead code.
 
 ### Removed: `dev.sh`
 
@@ -196,7 +196,7 @@ Browser                    Go Backend                      tmux server
 | Input validation | All user input passes through `internal/validate` before reaching tmux |
 | Path security | All paths must resolve under `$HOME` — rejects `..` traversal, `~user`, absolute paths outside home |
 | Upload safety | 50 MB limit via `http.MaxBytesReader`, filename sanitized, written via `os.Create` (not subprocess) |
-| CORS | Permissive (`*` origin) — run-kit is a local dev tool, not a public service |
+| CORS | Permissive (`*` origin) — HexoKit is a local dev tool, not a public service |
 
 ---
 

@@ -1,7 +1,7 @@
-# run-kit UI Design Philosophy
+# HexoKit UI Design Philosophy
 
 > Living document. Captures UI principles, layout architecture, and interaction patterns
-> for run-kit's web interface. Written during exploratory discussion sessions.
+> for HexoKit's web interface. Written during exploratory discussion sessions.
 
 ---
 
@@ -9,7 +9,7 @@
 
 ### 1. Terminal-Native Aesthetic
 
-run-kit is a terminal orchestrator. The UI should feel like a **polished terminal**, not a web app that happens to embed terminals. Monospace everywhere, minimal color, dark-only, no rounded corners on primary surfaces, no gradients.
+HexoKit is a terminal orchestrator. The UI should feel like a **polished terminal**, not a web app that happens to embed terminals. Monospace everywhere, minimal color, dark-only, no rounded corners on primary surfaces, no gradients.
 
 ### 2. Keyboard-First (Constitution V)
 
@@ -40,11 +40,11 @@ No settings pages, no admin panels. Configuration lives on disk.
 
 ### 5. Derive, Don't Configure (Constitution VII)
 
-Project identity from tmux session names. State from `tmux list-sessions` + filesystem. No database, no user accounts, no setup wizard. If tmux knows about it, run-kit knows about it.
+Project identity from tmux session names. State from `tmux list-sessions` + filesystem. No database, no user accounts, no setup wizard. If tmux knows about it, HexoKit knows about it.
 
 ### 6. Phone-Usable (iOS First)
 
-run-kit must be fully usable on a phone. This is a primary use case, not an afterthought — checking on agent sessions from the couch, sending a quick command from your phone, monitoring progress while away from the desk.
+HexoKit must be fully usable on a phone. This is a primary use case, not an afterthought — checking on agent sessions from the couch, sending a quick command from your phone, monitoring progress while away from the desk.
 
 **What this means for every design decision**:
 
@@ -357,7 +357,7 @@ This data is already wired — `lib/fab.ts` calls `statusman.sh progress-line` p
 
 ### Two Levels of Identity
 
-run-kit operates at two conceptual levels:
+HexoKit operates at two conceptual levels:
 
 1. **Project** — a tmux session. Represents a codebase (e.g., `run-kit`, `ao-server`). Identified by session name. Contains multiple windows.
 2. **Worktree** — a tmux window within a session. Each window's CWD points to either the main checkout or a git worktree. The worktree is the unit of work — one change per worktree.

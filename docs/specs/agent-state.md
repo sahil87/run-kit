@@ -1,6 +1,6 @@
 # Agent-State Convention (`@rk_pane_agent_state`)
 
-> The cross-repo contract for generic agent-lifecycle state. run-kit is the
+> The cross-repo contract for generic agent-lifecycle state. HexoKit is the
 > writer (`rk agent setup` installs the hooks) and native reader (backend
 > `internal/tmux`/`internal/sessions`); fab-kit's `fab pane send`/`pane map`
 > become convention *readers* against this same option (fab-kit backlog
@@ -16,11 +16,11 @@ Agent status splits into two tiers with distinct owners:
 - **Tier 1 — fab pipeline state** (change / stage / display-state): owned by the
   fab pipeline, read from `.status.yaml`. Stays fab's.
 - **Tier 2 — generic agent-lifecycle state** (active / waiting / idle): owned by
-  run-kit, carried in the `@rk_pane_agent_state` tmux pane user option, written by
+  HexoKit, carried in the `@rk_pane_agent_state` tmux pane user option, written by
   agent-harness hooks for **any** agent (Claude, codex, copilot, gemini,
   opencode, …) in **any** directory under **any** workflow.
 
-This inverts the previous model, where run-kit consumed a Claude-only,
+This inverts the previous model, where HexoKit consumed a Claude-only,
 fab-root-coupled `_agents` pipeline via `fab pane map`. Per constitution
 **Principle X — Hooks Carry Only the Underivable**, hooks push only ephemeral
 in-flight lifecycle state; everything derivable (PR links, branches, worktrees)
@@ -68,16 +68,16 @@ Hook commands that write the option MUST:
    the agent is not inside a tmux pane).
 3. **Never fail the agent** — every path exits 0 (`… 2>/dev/null || true`); a
    broken hook must never break the agent's turn.
-4. **Never require the run-kit *server*, and never fail or block the agent** —
+4. **Never require the HexoKit *server*, and never fail or block the agent** —
    the hook body SHOULD be the stable `rk agent hook` interface (a thin wrapper
    installed into harness config; all logic lives in the rk binary). The
    `@rk_pane_agent_state` write happens inside the binary via
    `tmux set-option -pt "$TMUX_PANE" @rk_pane_agent_state "<state>:<epoch>[:<pid>]"`;
-   no run-kit **server** need be running at hook-fire time. *(The earlier form
+   no HexoKit **server** need be running at hook-fire time. *(The earlier form
    of this rule banned the rk **binary** too — "depend on nothing but tmux",
    written in reaction to the old `fab hook` model that died outside a fab root.
    That ban is **lifted**: the rule's real intent — hooks must never fail,
-   block, or slow the agent, and must not require the run-kit server — is
+   block, or slow the agent, and must not require the HexoKit server — is
    preserved, but the logic now living in the binary is what lets a hook fix
    reach running agents on `brew upgrade rk` with no settings churn and no
    session restarts. Rationale: hook logic was formerly frozen twice — once in

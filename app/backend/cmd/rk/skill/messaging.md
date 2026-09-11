@@ -1,8 +1,8 @@
-# run-kit skill: messaging
+# HexoKit skill: messaging
 
 Depth for one job: **choosing the right channel when agents talk to agents** — which verb answers which need, and how to spawn-then-deliver safely past boot screens and trust walls. This is the concept page; verb-reference depth (flags, gate matrices, report words, gotchas) lives in [`rk skill mux`](mux.md). Everything here is static and byte-identical on every invocation.
 
-Gate first, as always — run-kit is optional and may be absent:
+Gate first, as always — HexoKit is optional and may be absent:
 
 ```sh
 command -v rk >/dev/null 2>&1 && [ -n "$TMUX_PANE" ] || exit 0

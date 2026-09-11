@@ -9,7 +9,7 @@
 > `docs/memory/run-kit/`.
 
 **What this is.** A chat client with no shell on the box — the Claude desktop app
-first, any MCP client on the tailnet later — sees and steers the run-kit estate
+first, any MCP client on the tailnet later — sees and steers the HexoKit estate
 through a **mechanical, allowlisted proxy over existing `rk` verbs**. The CLI stays
 the single contract; MCP is one more door onto it. Every improvement made for MCP
 lands in a verb, so every pane agent gets it for free.
@@ -55,7 +55,7 @@ lands in a verb, so every pane agent gets it for free.
    (read-only — the `help-dump` pattern); introspection is not execution.
 9. **Protocol via the official SDK.** The MCP wire protocol, both transports, and tool
    annotations come from `github.com/modelcontextprotocol/go-sdk`, pinned in
-   `go.mod`. run-kit writes no protocol code (Constitution III).
+   `go.mod`. HexoKit writes no protocol code (Constitution III).
 
 ## Target rule
 

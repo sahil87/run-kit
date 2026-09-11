@@ -1,6 +1,6 @@
-# run-kit skill
+# HexoKit skill
 
-The agent skill bundle for **run-kit** — the tmux session manager with a web UI that may be hosting the pane you are running in. This is a static usage briefing: when to reach for run-kit, what it can do, how it composes with the rest of your session, and the traps to avoid. It never changes between invocations; live values (your location, the server URL) you derive directly — see [Where am I](#where-am-i).
+The agent skill bundle for **HexoKit** — the tmux session manager with a web UI that may be hosting the pane you are running in. This is a static usage briefing: when to reach for HexoKit, what it can do, how it composes with the rest of your session, and the traps to avoid. It never changes between invocations; live values (your location, the server URL) you derive directly — see [Where am I](#where-am-i).
 
 ## Topics
 
@@ -17,18 +17,18 @@ Depth for a specific job lives in topic pages — pull one at use-time:
 
 ## When to use
 
-You are an agent working inside a tmux pane, and run-kit may be managing it. Reach for run-kit to:
+You are an agent working inside a tmux pane, and HexoKit may be managing it. Reach for HexoKit to:
 
 - **Notify the human out-of-band** — surface a result or a question to their browser/phone without blocking your loop.
 - **Show web content visually** — render generated HTML, a diagram, a report, or a local dev server as a window the user can see, instead of describing it in text.
 
-Gate first — run-kit is optional and may be absent:
+Gate first — HexoKit is optional and may be absent:
 
 ```sh
 command -v rk >/dev/null 2>&1 && [ -n "$TMUX_PANE" ] || exit 0
 ```
 
-If either check fails, skip every run-kit step silently. Never error, never warn — fall back to describing output in text.
+If either check fails, skip every HexoKit step silently. Never error, never warn — fall back to describing output in text.
 
 > `rk` is the short alias; `run-kit` is the full binary name. Both work everywhere.
 
@@ -37,7 +37,7 @@ If either check fails, skip every run-kit step silently. Never error, never warn
 One line each, keyed to the subcommand or tmux option that does it:
 
 - `rk notify <message> [--title <t>]` — Web Push a message to every subscribed browser/device. Fail-silent by contract (see Output contracts).
-- `rk url` — print the run-kit **server URL** (config-derived: RK_HOST/RK_PORT, default `http://127.0.0.1:3000`). It is a heuristic, not a liveness probe. Run it at use-time; never hardcode the value.
+- `rk url` — print the HexoKit **server URL** (config-derived: RK_HOST/RK_PORT, default `http://127.0.0.1:3000`). It is a heuristic, not a liveness probe. Run it at use-time; never hardcode the value.
 - `rk present <path|url>` — attach web content beside your own terminal: a file, a directory, a `:port`, a localhost URL, or an external URL. Prints the resolved URL to stdout. Alias of `rk tab web add <target> --show` — it also opens the web tile. Depth: `rk skill display`.
 - `rk tab new [--layout L] [--name N] [--json] [--ready] [-- CMD…]` — create a window (born with a layout when given); prints `@N`. A command after `--` is argv, never a shell string — each token reaches the process as one literal word; for in-window shell expansion pass `-- sh -c "…"`. The pane drops into an interactive shell when the command exits (`--no-shell-fallback` lets it die instead). `--json` prints the `{session, window_id, pane_id}` object; `--ready` (requires `--json` + a command) waits for boot readiness and adds the verdict as `"ready"`.
 - `rk tab layout [@N] [L|--add S|--rm S|--promote S|--cycle]` — read or mutate the tab's surface layout (`split-h:tty,web`, …); unset reads as `single:tty`.
@@ -58,7 +58,7 @@ One line each, keyed to the subcommand or tmux option that does it:
 - `rk code exec <command> [json-arg…]` — act inside the `code` lens editor: run a VS Code palette command in an open code-server window, resolving its host via `--host`/`--tab` (the tab's `@rk_win_code_root`)/`--folder`/the cwd's git toplevel. `rk code hosts` lists live hosts; `rk code commands` grep-lists command ids. Depth: `rk skill code`.
 - `rk gui exec <cmd…>` / `rk gui shot [--out f.png]` — run a command on the host GUI display (DISPLAY set; `--detach` launches and returns) and screenshot it to a PNG whose path prints to stdout. Gated on the user's `gui.enabled` switch — exit 1 with the hint when off; never run `rk gui on` yourself. Depth: `rk skill gui`.
 - `rk skill display` — the visual-display topic page: target forms, attach vs. standalone windows, the proxy, and the canonical Visual Display Recipe, in depth.
-- **Proxy** — reach a local service through the run-kit server:
+- **Proxy** — reach a local service through the HexoKit server:
 
   ```
   {server_url}/proxy/{port}/...
@@ -69,7 +69,7 @@ One line each, keyed to the subcommand or tmux option that does it:
   1. **Generate HTML** to a known location (a temp dir or the project tree).
   2. **`rk present ./file.html`** — serves it live and attaches it to your window's web tile; re-run the same command to refresh.
   3. **Optionally `--notify`** — push the user when they may be away.
-  4. **Fail silently** — if any prerequisite is unavailable (run-kit missing, not in tmux), skip the rest without surfacing an error.
+  4. **Fail silently** — if any prerequisite is unavailable (HexoKit missing, not in tmux), skip the rest without surfacing an error.
 
 ## Where am I
 
@@ -86,7 +86,7 @@ rk url                                           # server URL (config-derived)
 ## Composition patterns
 
 - **Discover the server URL at use-time** via `rk url`, never hardcode it — it is config-derived from this environment (see [Where am I](#where-am-i)).
-- **`rk skill` is the static briefing; you derive the live details.** Read the bundle to learn *what* run-kit does; run the [Where am I](#where-am-i) derivations to learn *where* you are, and `rk skill display` for the visual-display recipe in depth.
+- **`rk skill` is the static briefing; you derive the live details.** Read the bundle to learn *what* HexoKit does; run the [Where am I](#where-am-i) derivations to learn *where* you are, and `rk skill display` for the visual-display recipe in depth.
 - **`rk notify` is the default non-blocking escalation channel** for out-of-band messages to the human, gated on `command -v rk`:
 
   ```sh
@@ -109,4 +109,4 @@ rk url                                           # server URL (config-derived)
 - Killing a tmux window kills the backing process — no separate cleanup step is needed.
 - `set-option -w` targets the **current** window: create the window first, then set options from within it (or pass `-t <window>`).
 - The server URL is config-derived from this environment — always get it from `rk url`, never hardcode.
-- run-kit may not be installed and you may not be in a tmux pane — gate every step and skip silently when the gate fails.
+- HexoKit may not be installed and you may not be in a tmux pane — gate every step and skip silently when the gate fails.

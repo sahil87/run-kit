@@ -1,6 +1,6 @@
 # `rk riff` — spawn agent workspaces
 
-`rk riff` creates a git worktree, opens a new tmux window inside it, and launches one or more Claude Code panes — all in a single command. It's the primary way to start agent work in run-kit.
+`rk riff` creates a git worktree, opens a new tmux window inside it, and launches one or more Claude Code panes — all in a single command. It's the primary way to start agent work in HexoKit.
 
 A "riff" is one disposable workspace: one branch, one worktree, one tmux window, one or more agent panes. Tear it down by closing the window and deleting the worktree (`wt delete`).
 
@@ -20,7 +20,7 @@ rk riff --skill /review                   # 1 pane, specific slash-command
 rk riff --skill /fab-fff --cmd "just dev" # 2 panes (agent + dev server)
 ```
 
-Open the resulting window in the browser to drive it from the run-kit UI, or stay in tmux — both work, since the agent is just a tmux pane.
+Open the resulting window in the browser to drive it from the HexoKit UI, or stay in tmux — both work, since the agent is just a tmux pane.
 
 ## Pane array model
 

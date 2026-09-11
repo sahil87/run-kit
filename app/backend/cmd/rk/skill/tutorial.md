@@ -1,8 +1,8 @@
-# run-kit skill: tutorial
+# HexoKit skill: tutorial
 
-An agent-run, live first-use tour of run-kit: five chapters in about ten minutes. This is a static topic page (`rk skill tutorial`); the [core bundle](../skill.md) is the general usage briefing.
+An agent-run, live first-use tour of HexoKit: five chapters in about ten minutes. This is a static topic page (`rk skill tutorial`); the [core bundle](../skill.md) is the general usage briefing.
 
-**Who it serves**: a first-time run-kit user — assume a product manager, not a terminal native. They care about outcomes: delegating work, knowing when an agent needs them, seeing results, running several at once. Teach through **their** actions, never command narration. Don't explain internals (tmux, options, state models) unless asked — answer briefly, return to the tour.
+**Who it serves**: a first-time HexoKit user — assume a product manager, not a terminal native. They care about outcomes: delegating work, knowing when an agent needs them, seeing results, running several at once. Teach through **their** actions, never command narration. Don't explain internals (tmux, options, state models) unless asked — answer briefly, return to the tour.
 
 Gate first:
 
@@ -10,7 +10,7 @@ Gate first:
 command -v rk >/dev/null 2>&1 && [ -n "$TMUX_PANE" ]
 ```
 
-If either check fails, STOP: tell the user to open the run-kit dashboard, create a session/window for this directory, run the agent inside it, then ask again.
+If either check fails, STOP: tell the user to open the HexoKit dashboard, create a session/window for this directory, run the agent inside it, then ask again.
 
 ## Pacing and failure posture
 
@@ -34,7 +34,7 @@ If either check fails, STOP: tell the user to open the run-kit dashboard, create
    tmux list-windows -a -f '#{||:#{==:#{@rk_win_role},operator},#{==:#{window_name},operator}}' -F '#{window_id} #{window_name}' || true
    ```
 
-**Greeting** (the whole first turn — no mechanics): run-kit is **mission control for AI agents** — start, watch, and unblock them from any browser, phone included; one operator agent can drive all of it. Promise: *delegate, get interrupted only when needed, run two at once, get pinged when done — in ~10 minutes.* **next / skip / stop**; plain language; nothing can break. One ask: **enable notifications now** (the top-bar bell) — how agents reach you in Chapter 4. End the turn.
+**Greeting** (the whole first turn — no mechanics): HexoKit is **mission control for AI agents** — start, watch, and unblock them from any browser, phone included; one operator agent can drive all of it. Promise: *delegate, get interrupted only when needed, run two at once, get pinged when done — in ~10 minutes.* **next / skip / stop**; plain language; nothing can break. One ask: **enable notifications now** (the top-bar bell) — how agents reach you in Chapter 4. End the turn.
 
 ## Chapter 1 — You have an agent (`#ch1`)
 
@@ -58,7 +58,7 @@ Teach the phrase: end any request with **"…and present it to me"** — results
 rk present "$RK/tutorial/tutorial.html#ch3"
 ```
 
-run-kit is agents in **parallel**, and the operator hires — from anywhere: **⌘J** (⇧Ctrl+J) drops the operator console under the top bar; type into the top-bar box ("Ask…"), Enter sends, the reply streams in the drawer; ⌘J or Esc tucks it away. Everything can start from that box.
+HexoKit is agents in **parallel**, and the operator hires — from anywhere: **⌘J** (⇧Ctrl+J) drops the operator console under the top bar; type into the top-bar box ("Ask…"), Enter sends, the reply streams in the drawer; ⌘J or Esc tucks it away. Everything can start from that box.
 
 - **Console path (preferred)**: operator found in Preflight → the **user** presses ⌘J and types: *"Start an agent in a new window — call it tour-worker — that builds a one-page brief of this project; have it ask me ONE question first, then present the result and notify me."*
 - **No operator**: run `rk operator` — it opens the pinned singleton and boots the operator agent; hire via ⌘J as above. If fab is missing it fails — one line, then hire directly: `rk tab new --name tour-worker`, start the same agent CLI, deliver the same brief (one question — "exec or engineer?" — then present + notify).

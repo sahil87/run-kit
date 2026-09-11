@@ -33,7 +33,7 @@ type ThemePalette = {
 
 ### ANSI Semantic Roles
 
-| Index | Name | Semantic role in run-kit |
+| Index | Name | Semantic role in HexoKit |
 |-------|------|------------------------|
 | 0 | black | Deep background, text-on-accent fallback |
 | 1 | red | Errors |
@@ -67,7 +67,7 @@ The 8 CSS custom properties are derived, not stored:
 Sidebar rows and server tiles carry a user-assignable color. Rather than deriving
 that color from the active theme's ANSI palette (which made a "orange" label read
 tan-gray on one theme and brownish-pink on another, and capped the set at what
-ANSI offers), run-kit owns **10 fixed hue families** and *adapts* them to the
+ANSI offers), HexoKit owns **10 fixed hue families** and *adapts* them to the
 theme so hue identity stays stable while the colors still feel native.
 
 ### Owned hue families

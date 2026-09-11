@@ -33,7 +33,7 @@ words.
 | **Read: state** | `rk mux await`, `rk mux panes`, `rk mux process` | Lifecycle without scraping |
 | **Read: results** | **Artifact files** the worker is told to write (`{stage}-result.yaml`, `await --file`) | Unambiguous, survives scrollback, readable without the pane. Agent TUIs run alt-screen with zero scrollback, so transcript-shaped reads from the screen are structurally impossible — artifact-first is a consequence, not a preference |
 | **Wait** | `rk mux await` (`--until` / `--any` / `--file` / `--ready`), composed `send --await` | Event-shaped, first-sweep-before-sleep, fleet wake |
-| **Conversation** (multi-turn cross-provider) | Outbound MCP bridge (e.g. `codex mcp-server`) | Tool-mediated dialogue is not pane-driving; see `_cli-agents` § Codex MCP Bridge. The *inbound* direction — a chat client with no shell driving run-kit — is `rk mcp` ([mcp.md](mcp.md)), a door onto these same channels |
+| **Conversation** (multi-turn cross-provider) | Outbound MCP bridge (e.g. `codex mcp-server`) | Tool-mediated dialogue is not pane-driving; see `_cli-agents` § Codex MCP Bridge. The *inbound* direction — a chat client with no shell driving HexoKit — is `rk mcp` ([mcp.md](mcp.md)), a door onto these same channels |
 
 ## Messaging the operator — three lanes
 

@@ -1,6 +1,6 @@
-# run-kit API Specification
+# HexoKit API Specification
 
-> Defines the HTTP, SSE, and WebSocket surface for run-kit's Go backend.
+> Defines the HTTP, SSE, and WebSocket surface for HexoKit's Go backend.
 > This is the **target spec** — the source of truth for what the API should be.
 > Implementation and tests conform to this document, not the other way around.
 

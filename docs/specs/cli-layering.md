@@ -1,7 +1,7 @@
 # CLI Layering — Two Tools, Two Layers
 
 > Decided 2026-08-15 (discussion session; alongside intake 260815-a5vf `rk send`/`rk await`).
-> run-kit (`rk`) and fab-kit (`fab`) are the **only two CLIs**. A third "tmux management"
+> HexoKit (`rk`) and fab-kit (`fab`) are the **only two CLIs**. A third "tmux management"
 > binary was considered and rejected: the substrate verbs are only valuable with rk's
 > conventions present (`@rk_pane_agent_state`, hooks, reconcilers), a third binary would add a
 > third axis of version skew and distribution overhead, and the hexokit rename already
@@ -93,7 +93,7 @@ Net effect at `rk -h`: ~23 visible root commands → ~15 after the grouping plan
 Each part is **one fab change**, sized for a single pipeline run, and names its repo — the
 operator coordinates across both repos on one tmux server. Parts marked *(released)* gate on
 the dependency being **shipped in a release** (brew-installable), not merely merged: the
-consuming repo's agents run the installed binary. Every run-kit part that touches the CLI
+consuming repo's agents run the installed binary. Every HexoKit part that touches the CLI
 surface intrinsically includes the standards audit (`shll standards`), the help-dump test,
 and `rk skill` topic-page updates — not listed per-row.
 

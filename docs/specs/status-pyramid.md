@@ -1,6 +1,6 @@
 # Status Pyramid — What Wins When
 
-> The precedence model for every status signal run-kit renders: which signal owns
+> The precedence model for every status signal HexoKit renders: which signal owns
 > which visual channel, on which surface, under what preconditions. This spec is
 > the design intent for the UI-surfacing change that follows the Generic
 > Agent-State Tier (PR #314); sections marked **[target]** differ from shipped
@@ -40,7 +40,7 @@ L0 is the **floor**: the only layer whose precondition is "always", and therefor
 the only signal for the non-agent majority of a terminal console — builds,
 REPLs, ssh sessions, `htop`, dev servers, log tails. Dropping it would make the
 pyramid describe only agent/fab/PR panes: an agent-dashboard model, contradicting
-run-kit's terminal-underneath positioning (an agent is just one thing you run in
+HexoKit's terminal-underneath positioning (an agent is just one thing you run in
 a pane).
 
 L0 speaks about **bytes, not intent** — it answers "is output happening", never

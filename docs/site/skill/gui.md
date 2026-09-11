@@ -1,10 +1,10 @@
-# run-kit skill: gui
+# HexoKit skill: gui
 
-Depth for one job: **driving and screenshotting the host GUI display** — the host's desktop, run by the `rk-gui` session and rendered for the human as the GUI tile: they see the same pixels you act on. This is a static topic page (`rk skill gui`); the [core bundle](../skill.md) covers when to reach for run-kit at all. Everything here is byte-identical on every invocation.
+Depth for one job: **driving and screenshotting the host GUI display** — the host's desktop, run by the `rk-gui` session and rendered for the human as the GUI tile: they see the same pixels you act on. This is a static topic page (`rk skill gui`); the [core bundle](../skill.md) covers when to reach for HexoKit at all. Everything here is byte-identical on every invocation.
 
 Reach for it when the job needs a real display: chromium, `xdg-open`, Playwright headed mode, or a computer-use loop. One screen per host (`id = host`), shared with the human.
 
-Gate first — run-kit is optional, and the GUI surface exists **only when the user turned it on**:
+Gate first — HexoKit is optional, and the GUI surface exists **only when the user turned it on**:
 
 ```sh
 command -v rk >/dev/null 2>&1 || exit 0

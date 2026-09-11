@@ -42,15 +42,19 @@ export function urlSegmentToWindowId(segment: string): string {
 // chat subject. It passes through as a raw string like `layout` — the
 // consumer validates it against the sessions payload, so an unknown or
 // foreign id degrades to absent rather than a route error. `tab` is the
-// mobile operator route's Terminal|Activity segment selector (the notify
-// deep-link carrier); unknown values drop to absent, which reads as
-// "terminal" — the default segment.
+// mobile operator route's segment selector (the notify deep-link carrier;
+// Operator Terminal | Activity | Operator Tasks). Unknown values drop to
+// absent, which reads as "terminal" — the default segment. The union is
+// spelled out as literals here (NOT imported from terminal-activity-tabs.tsx)
+// because this module is a deliberately dependency-free leaf — importing the
+// component module would drag the router (and transitively xterm) into its
+// unit tests; a Vitest agreement test guards the two spellings instead.
 export type TerminalSearch = {
   view?: "web" | "code";
   panel?: "web" | "code";
   layout?: string;
   from?: string;
-  tab?: "terminal" | "activity";
+  tab?: "terminal" | "activity" | "tasks";
 };
 
 // Exported as a pure function so the unknown-value drop is unit-testable.
@@ -68,6 +72,8 @@ export function validateTerminalSearch(
   if (typeof search.from === "string" && search.from.length > 0) {
     out.from = search.from;
   }
-  if (search.tab === "terminal" || search.tab === "activity") out.tab = search.tab;
+  if (search.tab === "terminal" || search.tab === "activity" || search.tab === "tasks") {
+    out.tab = search.tab;
+  }
   return out;
 }

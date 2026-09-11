@@ -38,3 +38,18 @@ export function buildOperatorConsoleActivityAction(): OperatorConsolePaletteActi
     onSelect: () => requestOperatorConsole({ action: "open", segment: "activity" }),
   };
 }
+
+/**
+ * The `Operator: Show tasks` entry — the console opened straight onto its
+ * Operator Tasks segment (the operator watchlist). No registry chord: the
+ * segment is a view inside the console, one Tab-reachable click past ⌘J; the
+ * palette entry is its keyboard-parity path (Constitution V). On mobile the
+ * seam maps it to the operator route's `?tab=tasks`.
+ */
+export function buildOperatorConsoleTasksAction(): OperatorConsolePaletteAction {
+  return {
+    id: "operator-console-tasks",
+    label: "Operator: Show tasks",
+    onSelect: () => requestOperatorConsole({ action: "open", segment: "tasks" }),
+  };
+}

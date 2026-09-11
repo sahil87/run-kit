@@ -1,5 +1,6 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
+import type { ConsoleSegment } from "@/components/terminal-activity-tabs";
 import { sendOperatorRequest, sendToWindow, uploadFile } from "@/api/client";
 import { SessionContext, useCurrentServerFromRoute } from "@/contexts/session-context";
 import { resolveFocusedWindow } from "@/lib/focused-pane-window";
@@ -78,11 +79,14 @@ export type OperatorConsoleRequest = {
    *  of auto-sending. */
   send?: string;
   /** The body segment to select on open. Desktop applies it to the drawer's
-   *  Terminal|Activity state (and bypasses the already-on-operator-route hint
-   *  — the Activity view is not visible on the desktop route itself); mobile
-   *  maps `activity` to the operator route's `?tab=activity` search param.
-   *  Absent = no segment change. */
-  segment?: "terminal" | "activity";
+   *  segment state (and bypasses the already-on-operator-route hint — the
+   *  non-terminal views are not visible on the desktop route itself); mobile
+   *  maps any non-terminal segment to the operator route's `?tab=` search
+   *  param. Absent = no segment change. The type derives from the segment
+   *  strip's SEGMENTS; router-url.ts keeps its own literal union (a
+   *  dependency-free leaf) and the two are guarded by a Vitest agreement
+   *  test. */
+  segment?: ConsoleSegment;
 };
 
 /** The most recent request, buffered until the console handles it. The

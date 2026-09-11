@@ -14,10 +14,14 @@ import { mockStateSocket } from "./_state-socket-mock";
 // omnibox ◉ live-state dot on both desktop rungs, and console/omnibox
 // image paste (upload to the operator window's session + insert-delivery)
 // with the route terminals' strip-forward guard. The drawer's
-// Terminal | Activity segment header swaps the body between the embedded
-// terminal and the cron Activity feed (one relay stream max per drawer); a
-// desktop `?tab=activity` deep link on the operator route hands off to the
-// drawer (opens on Activity, param stripped).
+// Operator Terminal | Activity | Operator Tasks segment header swaps the body
+// between the embedded terminal, the cron Activity feed, and the watched
+// worker table (one relay stream max per drawer); a desktop `?tab=activity` or
+// `?tab=tasks` deep link on the operator route hands off to the drawer (opens
+// on that segment, param stripped). The watched-worker specs seed the sessions
+// payload with a `monitored: true` window carrying
+// `monitoredChange`/`monitoredStage`/`monitoredRepo` plus `operatorLastTickAt`
+// on the sessions (the server-clock-dashboard spec's stub shape).
 // On MOBILE there is no
 // sheet: every console entry point navigates to the operator window's
 // ordinary terminal route (the tongue is the standing affordance, an
@@ -51,7 +55,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 const SERVER = "default";
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
-function sessionsPayload(withOperator: boolean, operatorState = "idle") {
+function sessionsPayload(withOperator: boolean, operatorState = "idle", watched = false) {
+  const now = Math.floor(Date.now() / 1000);
   const work = {
     windowId: "@1",
     index: 0,
@@ -65,12 +70,37 @@ function sessionsPayload(withOperator: boolean, operatorState = "idle") {
       { paneId: "%1", paneIndex: 0, cwd: "/tmp/wt", command: "zsh", isActive: true },
     ],
   };
+  // A watched worker (the WATCHED zone / Operator Tasks row): the monitored
+  // facets plus the operator tick stamps that mark the watchlist live.
+  const watchedWorker = {
+    windowId: "@2",
+    index: 1,
+    name: "watched-worker",
+    worktreePath: "/tmp/wt2",
+    activity: "idle",
+    isActiveWindow: false,
+    activityTimestamp: 0,
+    monitored: true,
+    monitoredChange: "wuiu",
+    monitoredStage: "review",
+    monitoredRepo: "/home/user/code/run-kit",
+    agentState: "waiting",
+    agentIdleDuration: "6m",
+    panes: [
+      { paneId: "%2", paneIndex: 0, cwd: "/tmp/wt2", command: "claude", isActive: true },
+    ],
+  };
   return JSON.stringify([
-    { name: "dev", windows: [work] },
+    {
+      name: "dev",
+      ...(watched ? { operatorLastTickAt: now - 60 } : {}),
+      windows: watched ? [work, watchedWorker] : [work],
+    },
     ...(withOperator
       ? [
           {
             name: "_rk-operator",
+            ...(watched ? { operatorLastTickAt: now - 60 } : {}),
             windows: [
               {
                 windowId: "@9",
@@ -119,6 +149,7 @@ async function mockBackend(
   withOperator: boolean,
   behavior: SendBehavior = SEND_OK,
   operatorState = "idle",
+  watched = false,
 ) {
   const sendBodies: Record<string, unknown>[] = [];
   const requestCalls: { url: string; body: Record<string, unknown> }[] = [];
@@ -159,7 +190,7 @@ async function mockBackend(
   await page.route("**/api/cron*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: CRON }),
   );
-  await mockStateSocket(page, { sessions: sessionsPayload(withOperator, operatorState) });
+  await mockStateSocket(page, { sessions: sessionsPayload(withOperator, operatorState, watched) });
   return { sendBodies, requestCalls };
 }
 
@@ -462,17 +493,18 @@ test.describe("Operator console", () => {
   });
 
   /**
-   * Proves: the desktop drawer's Terminal | Activity segment strip swaps the
+   * Proves: the desktop drawer's Operator Terminal | Activity | Operator
+   * Tasks segment strip swaps the
    * body — selecting Activity mounts the cron feed and unmounts the embedded
-   * terminal (one relay stream max per drawer), while Terminal stays the
-   * default segment on open.
+   * terminal (one relay stream max per drawer), while Operator Terminal stays
+   * the default segment on open.
    *
    * Steps:
    * 1. Mock the backend with an operator window (the cron stub gives the feed
    *    a row); land on the @1 terminal route.
    * 2. Open the console via the palette `Operator: Open console` action;
-   *    assert the Terminal tab is selected and the embedded terminal's xterm
-   *    frame is attached.
+   *    assert the Operator Terminal tab is selected and the embedded
+   *    terminal's xterm frame is attached.
    * 3. Click the Activity tab.
    * 4. Assert the feed is visible inside the console and the xterm frame is
    *    gone.
@@ -487,7 +519,7 @@ test.describe("Operator console", () => {
     await expect(console_(page)).toBeVisible();
 
     const tabs = console_(page).getByTestId("terminal-activity-tabs");
-    await expect(tabs.getByRole("tab", { name: "Terminal" })).toHaveAttribute("aria-selected", "true");
+    await expect(tabs.getByRole("tab", { name: "Operator Terminal" })).toHaveAttribute("aria-selected", "true");
     await expect(console_(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
 
     await tabs.getByRole("tab", { name: "Activity" }).click();
@@ -520,6 +552,81 @@ test.describe("Operator console", () => {
     const tabs = console_(page).getByTestId("terminal-activity-tabs");
     await expect(tabs.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "true");
     await expect(console_(page).getByTestId("cron-activity-feed")).toBeVisible({ timeout: 10_000 });
+    await expect(page).toHaveURL(OPERATOR_PATH, { timeout: 10_000 });
+  });
+
+  /**
+   * Proves: the desktop drawer's Operator Tasks segment lists the operator's
+   * watched workers through the shared watched table (the embedded terminal
+   * unmounted — one relay stream max per drawer), and a row-name click
+   * navigates to that worker's terminal route and collapses the drawer.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window plus a monitored @2 worker
+   *    (change/stage/repo facets, tick stamps); land on the @1 terminal route.
+   * 2. Open the console via the palette `Operator: Show tasks` action.
+   * 3. Assert the Operator Tasks tab is selected, the watched table lists the
+   *    worker row with its change + stage, and no xterm frame is mounted.
+   * 4. Click the row's name button; assert the URL becomes the worker's
+   *    terminal route and the drawer is gone.
+   */
+  test("the Operator Tasks segment lists watched workers and a row click navigates and collapses the drawer", async ({
+    page,
+  }) => {
+    await mockBackend(page, true, SEND_OK, "idle", true);
+    await gotoWindow(page);
+
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("Show tasks");
+    await page.getByRole("option", { name: /^Operator: Show tasks/ }).click();
+    await expect(console_(page)).toBeVisible();
+
+    const tabs = console_(page).getByTestId("terminal-activity-tabs");
+    await expect(tabs.getByRole("tab", { name: "Operator Tasks" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    const tasks = console_(page).getByTestId("watched-tasks");
+    await expect(tasks).toBeVisible();
+    await expect(tasks.getByTestId("watched-row")).toHaveCount(1);
+    await expect(tasks.getByText("watched-worker")).toBeVisible();
+    await expect(tasks.getByText("wuiu")).toBeVisible();
+    await expect(tasks.getByText("review")).toBeVisible();
+    await expect(console_(page).locator(".xterm")).toHaveCount(0);
+
+    await tasks.getByTestId("watched-row-navigate").click();
+
+    // The router serializes window @2 as the bare segment `2` (router-url.ts).
+    await expect(page).toHaveURL(`/${SERVER}/2`, { timeout: 10_000 });
+    await expect(console_(page)).toHaveCount(0);
+  });
+
+  /**
+   * Proves: a desktop `?tab=tasks` deep link on the operator window's terminal
+   * route hands off to the console drawer — the route itself has no Operator
+   * Tasks view on desktop, so the drawer opens on the Operator Tasks segment
+   * and the URL param is stripped (a reload does not re-open the drawer).
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window plus a monitored @2 worker;
+   *    navigate directly to the operator route carrying `?tab=tasks`.
+   * 2. Assert the console drawer is visible with the Operator Tasks tab
+   *    selected and the watched table inside it.
+   * 3. Assert the URL is back at the bare operator route (param stripped).
+   */
+  test("desktop ?tab=tasks deep link opens the drawer on Operator Tasks and strips the param", async ({
+    page,
+  }) => {
+    await mockBackend(page, true, SEND_OK, "idle", true);
+    await page.goto(`${OPERATOR_PATH}?tab=tasks`);
+
+    await expect(console_(page)).toBeVisible({ timeout: 10_000 });
+    const tabs = console_(page).getByTestId("terminal-activity-tabs");
+    await expect(tabs.getByRole("tab", { name: "Operator Tasks" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(console_(page).getByTestId("watched-tasks")).toBeVisible({ timeout: 10_000 });
     await expect(page).toHaveURL(OPERATOR_PATH, { timeout: 10_000 });
   });
 

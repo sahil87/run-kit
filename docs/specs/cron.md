@@ -349,15 +349,22 @@ reuses a shipped (or already-reserved) mechanism:
    the pulse threshold dims and dashes the underbar and renders a warning
    strip in the CLOCK header.
 2. **Dashboard — the larger view is server-scoped, split in two** (the
-   desktop-scale view). **(a) The operator console drawer's Activity
-   segment on desktop** (the glimpse; change
-   `260910-6ehs-console-activity-segment-status-chip`): the desktop console
-   gains the `Terminal | Activity` segment the mobile sheet ships, mounting
-   the same Activity feed — computed upcoming fires + recent deliveries
-   across a "now" divider, the pinned staleness banner, the entry detail
-   sheet as an inline in-drawer panel. Entry points: the status-bar `◷`
+   desktop-scale view). **(a) The operator console drawer's segment strip on
+   desktop** (the glimpse; change
+   `260910-6ehs-console-activity-segment-status-chip`, third segment by
+   `260911-2281-console-tasks-segment-watchlist`): the desktop console carries
+   `Operator Terminal | Activity | Operator Tasks` — Activity mounts the
+   Activity feed the mobile sheet ships (computed upcoming fires + recent
+   deliveries across a "now" divider, the pinned staleness banner, the entry
+   detail sheet as an inline in-drawer panel), and Operator Tasks renders the
+   operator watchlist through the SAME shared watched-table component as the
+   Server page's WATCHED zone (tier 2b) — a row click navigates to the
+   worker's terminal and collapses the drawer. Entry points: the status-bar
+   `◷`
    clock chip (soonest next fire; yellow `◷ stale {age}` when the operator
-   loop is stale) and the palette entry `Operator: Show clock activity`;
+   loop is stale) and the palette entries `Operator: Show clock activity` and
+   `Operator: Show tasks` (mobile: the `?tab=tasks` content slot on the
+   operator route);
    the console's title strip also carries the operator tick-age stamp after
    the live agent-state line. **(b) The tmux Server page's WATCHED / CRONS
    / RECENT DELIVERIES zones** (the registry; change
@@ -396,10 +403,14 @@ reuses a shipped (or already-reserved) mechanism:
    the shape (the Calendar-agenda / PagerDuty pattern: mobile ops surfaces
    are time-ordered triage feeds, not management registries):
    - The **mobile console sheet** — already the operator surface on phones —
-     gains a two-segment header, **Terminal | Activity**. Activity is one
+     gains the segment header, **Operator Terminal | Activity | Operator
+     Tasks**. Activity is one
      time-ordered timeline merging *recent deliveries* (from the log) and
      *computed upcoming fires* (the evaluator's next-fire function) across a
-     "now" divider. Pure derivation — the deterministic-render contract
+     "now" divider. Operator Tasks is the watchlist content slot
+     (`?tab=tasks`), the same shared watched-table component as the Server
+     page's WATCHED zone (tier 2b). Pure derivation — the
+     deterministic-render contract
      holds; it inherits the console's server resolution and
      degrade-to-absent gating.
    - **Staleness is the feed's pinned banner** (the healthchecks.io
@@ -413,8 +424,9 @@ reuses a shipped (or already-reserved) mechanism:
    - The sidebar CLOCK section is **desktop-only** (its rail toggle hidden on
      mobile); the tree's watched-row underbars remain on both.
    - **Desktop has parity**: the desktop console drawer ships the same
-     `Terminal | Activity` segments (tier 2a) — one feed, banner, and
-     detail-sheet codebase across both form factors.
+     `Operator Terminal | Activity | Operator Tasks` segments (tier 2a) — one
+     feed, watchlist, banner, and detail-sheet codebase across both form
+     factors.
 
 Rejected: a dedicated `clock` **surface kind** (a dedicated kind would split
 the surface model — the surface set is `tty · web · code · gui`, and crons
@@ -424,10 +436,18 @@ only** (no management affordance — the `◷` readout that rides it is an entry
 point to the console Activity segment, not the surface); **mobile
 registry-in-the-drawer** (the pre-feed mobile design: a pinned-height
 `CollapsiblePanel` in the drawer with flyout-card actions — no glanceability,
-mute two taps deep; superseded by the Activity feed).
+mute two taps deep; superseded by the Activity feed); a **fab-authored HTML
+frame displayed by path** for the Tasks segment (fab writing `<slug>.html`
+beside the operator state YAML every tick, shown by rk through a new
+file-serving route plus a sandboxed iframe, with a polling or mtime-watch
+refresh story and a second cross-repo file contract beside the slug rule —
+an unthemed foreign page inside the drawer; superseded by rendering the
+already-derived watchlist, which the frontend already holds in the sessions
+payload).
 
 Palette-registered per Constitution V (`Panel: Toggle Clock`,
-`Operator: Show clock activity`, `Server: Clock dashboard`, `Cron: new entry`,
+`Operator: Show clock activity`, `Operator: Show tasks`,
+`Server: Clock dashboard`, `Cron: new entry`,
 `Cron: mute…`, `Cron: delete…`).
 Mutations wake the SSE hub explicitly (user-option and file writes emit no
 tmux event — the safety-poll lesson).

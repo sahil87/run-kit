@@ -1,8 +1,12 @@
-// Mobile cron Activity feed — the operator route's Terminal|Activity segmented
-// header and the `?tab=activity` deep link.
+// Mobile cron Activity feed — the operator route's Operator Terminal |
+// Activity | Operator Tasks segmented header and the `?tab=` deep links.
 //
 // Shared setup: fully mocked (no tmux). The sessions payload rides the
-// state-socket mock — a work window `@1` plus an operator window `@9` with
+// state-socket mock — a `dev` session with a work window `@1` plus a
+// `monitored: true` window `@2` (carrying `monitoredChange`/`monitoredStage`/
+// `monitoredRepo`, the Operator Tasks rows; the server-clock-dashboard spec's
+// stub shape) and `operatorLastTickAt` stamped on the sessions, plus an
+// operator window `@9` with
 // `role: "operator"` in `_rk-operator` (the header's gate reads the role from
 // this payload, so the header can only appear after the snapshot lands).
 // `GET /api/cron` is stubbed via page.route (trailing `*` — the client
@@ -18,9 +22,12 @@ const SERVER = "default";
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 const DESKTOP_VIEWPORT = { width: 1024, height: 768 };
 
+const NOW = Math.floor(Date.now() / 1000);
+
 const SESSIONS = JSON.stringify([
   {
     name: "dev",
+    operatorLastTickAt: NOW - 60,
     windows: [
       {
         windowId: "@1",
@@ -32,10 +39,27 @@ const SESSIONS = JSON.stringify([
         activityTimestamp: 0,
         panes: [{ paneId: "%1", paneIndex: 0, cwd: "/tmp/wt", command: "zsh", isActive: true }],
       },
+      {
+        windowId: "@2",
+        index: 1,
+        name: "watched-worker",
+        worktreePath: "/tmp/wt2",
+        activity: "idle",
+        isActiveWindow: false,
+        activityTimestamp: 0,
+        monitored: true,
+        monitoredChange: "wuiu",
+        monitoredStage: "review",
+        monitoredRepo: "/home/user/code/run-kit",
+        agentState: "waiting",
+        agentIdleDuration: "6m",
+        panes: [{ paneId: "%2", paneIndex: 0, cwd: "/tmp/wt2", command: "claude", isActive: true }],
+      },
     ],
   },
   {
     name: "_rk-operator",
+    operatorLastTickAt: NOW - 60,
     windows: [
       {
         windowId: "@9",
@@ -107,14 +131,14 @@ async function gotoWindowMobile(page: Page, windowId: string, search = "") {
 
 test.describe("Mobile cron activity feed", () => {
   /**
-   * Proves: the Terminal|Activity segmented header renders on the mobile
-   * operator window's terminal route.
+   * Proves: the Operator Terminal | Activity | Operator Tasks segmented
+   * header renders on the mobile operator window's terminal route.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend with an operator window.
    * 2. Land on the operator route `/default/9`.
-   * 3. Assert the `Console view` tablist with Terminal/Activity tabs is
-   *    visible, with Terminal selected by default.
+   * 3. Assert the `Console view` tablist with the three tabs is visible, with
+   *    Operator Terminal selected by default.
    */
   test("segmented header appears on the mobile operator route", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
@@ -123,8 +147,9 @@ test.describe("Mobile cron activity feed", () => {
 
     const tabs = page.getByRole("tablist", { name: "Console view" });
     await expect(tabs).toBeVisible({ timeout: 10_000 });
-    await expect(tabs.getByRole("tab", { name: "Terminal" })).toHaveAttribute("aria-selected", "true");
+    await expect(tabs.getByRole("tab", { name: "Operator Terminal" })).toHaveAttribute("aria-selected", "true");
     await expect(tabs.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "false");
+    await expect(tabs.getByRole("tab", { name: "Operator Tasks" })).toHaveAttribute("aria-selected", "false");
   });
 
   /**
@@ -224,5 +249,72 @@ test.describe("Mobile cron activity feed", () => {
 
     await expect(page.getByTestId("cron-activity-feed")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  /**
+   * Proves: tapping the Operator Tasks segment swaps the content in place —
+   * the watchlist (the monitored worker rows) appears, the URL gains
+   * `?tab=tasks`, and the page does NOT reload (an in-page probe survives the
+   * tap, and the terminal's relay registration persists — the terminal is
+   * hidden, not unmounted).
+   *
+   * Steps:
+   * 1. Set the 375×812 viewport; mock the backend (the @2 window carries the
+   *    monitored facets); land on `/default/9`.
+   * 2. Stamp `window.__tasksProbe` as a reload tripwire.
+   * 3. Tap the Operator Tasks tab.
+   * 4. Assert the watchlist renders the worker row, the URL carries
+   *    `tab=tasks`, the probe is still set, and `__rkTerminals["@9"]` is
+   *    still registered.
+   */
+  test("tapping Operator Tasks swaps the content slot without a full reload", async ({ page }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await mockBackend(page);
+    await gotoWindowMobile(page, "@9");
+    await page.evaluate(() => {
+      (window as unknown as { __tasksProbe?: string }).__tasksProbe = "alive";
+    });
+
+    await page.getByRole("tab", { name: "Operator Tasks" }).click();
+
+    const tasks = page.getByTestId("watched-tasks");
+    await expect(tasks).toBeVisible({ timeout: 10_000 });
+    await expect(tasks.getByTestId("watched-row")).toHaveCount(1);
+    await expect(tasks.getByText("watched-worker")).toBeVisible();
+    await expect(page).toHaveURL(/tab=tasks/);
+    await expect
+      .poll(() =>
+        page.evaluate(() => (window as unknown as { __tasksProbe?: string }).__tasksProbe ?? null),
+      )
+      .toBe("alive");
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Boolean((window as unknown as { __rkTerminals?: Record<string, unknown> }).__rkTerminals?.["@9"]),
+        ),
+      )
+      .toBe(true);
+  });
+
+  /**
+   * Proves: a `?tab=tasks` deep link lands directly on the Operator Tasks
+   * segment (the watchlist) with no extra tap.
+   *
+   * Steps:
+   * 1. Set the 375×812 viewport; mock the backend.
+   * 2. Navigate straight to `/default/9?tab=tasks`.
+   * 3. Assert the watchlist renders with the worker row and the Operator
+   *    Tasks tab is selected (the header gate resolves once the sessions
+   *    payload lands).
+   */
+  test("?tab=tasks deep link lands on Operator Tasks", async ({ page }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await mockBackend(page);
+    await page.goto(`/${SERVER}/9?tab=tasks`);
+
+    const tasks = page.getByTestId("watched-tasks");
+    await expect(tasks).toBeVisible({ timeout: 10_000 });
+    await expect(tasks.getByText("watched-worker")).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Operator Tasks" })).toHaveAttribute("aria-selected", "true");
   });
 });

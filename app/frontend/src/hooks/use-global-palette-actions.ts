@@ -18,7 +18,7 @@ import { canCloseShellWindow, canNewShellWindow, closeShellWindow, newShellWindo
 import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
 import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
 import { buildNavActions, type NavMode } from "@/lib/palette/nav";
-import { buildOperatorConsoleAction, buildOperatorConsoleActivityAction } from "@/lib/palette/operator-console";
+import { buildOperatorConsoleAction, buildOperatorConsoleActivityAction, buildOperatorConsoleTasksAction } from "@/lib/palette/operator-console";
 import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette/update";
 import { buildVersionAction, displayVersion } from "@/lib/palette/version";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -347,6 +347,12 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     () => buildOperatorConsoleActivityAction(),
     [],
   );
+  // The Operator Tasks twin — same always-listed gating: an operator-less
+  // server is answered by the segment's hint line, not by hiding the entry.
+  const operatorConsoleTasksEntry: PaletteAction = useMemo(
+    () => buildOperatorConsoleTasksAction(),
+    [],
+  );
 
   // Host switcher (260820-nv0o) — opens the desktop-shell titlebar strip's
   // hosts menu through the HOST_MENU_OPEN_EVENT document seam (the strip
@@ -494,10 +500,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, operatorConsoleEntry, operatorConsoleActivityEntry, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, operatorConsoleEntry, operatorConsoleActivityEntry, operatorConsoleTasksEntry, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, operatorConsoleEntry, operatorConsoleActivityEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, operatorConsoleEntry, operatorConsoleActivityEntry, operatorConsoleTasksEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
   );
 }

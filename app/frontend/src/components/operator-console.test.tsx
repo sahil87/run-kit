@@ -658,7 +658,7 @@ describe("OperatorConsole (activity segment)", () => {
     return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Activity" });
   }
   function terminalTab() {
-    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Terminal" });
+    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Operator Terminal" });
   }
 
   it("the desktop drawer renders the Terminal | Activity strip with Terminal selected", () => {
@@ -816,6 +816,134 @@ describe("OperatorConsole (activity segment)", () => {
     openDrawer();
 
     expect(screen.queryByTestId("operator-console-tick")).toBeNull();
+  });
+});
+
+describe("OperatorConsole (tasks segment)", () => {
+  beforeEach(() => {
+    stubMatchMedia(() => false);
+    setConsoleMachineState("rest");
+    setOperatorComposeText("");
+    mockMatches = [{ params: {} }];
+    mockSearch = {};
+    mockNavigate.mockReset();
+    terminalMounts.length = 0;
+    mockSend.mockReset();
+    mockSend.mockResolvedValue({ ok: true });
+    mockUpload.mockReset();
+    mockUpload.mockResolvedValue({ ok: true, path: "/tmp/op/.uploads/shot.png" });
+    mockOperatorRequest.mockReset();
+    mockOperatorRequest.mockResolvedValue({ outcome: "delivered" });
+    setOperatorChatSubject(null);
+    localStorage.clear();
+    hydrateComposeDrafts();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  function tasksTab() {
+    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Operator Tasks" });
+  }
+  function terminalTab() {
+    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Operator Terminal" });
+  }
+
+  const WATCHED_SESSIONS: ProjectSession[] = [
+    {
+      name: "main",
+      windows: [
+        win({ windowId: "@1" }),
+        win({
+          windowId: "@2",
+          name: "worker",
+          monitored: true,
+          monitoredChange: "wuiu",
+          monitoredStage: "review",
+          monitoredRepo: "/home/user/code/run-kit",
+          agentState: "waiting",
+          agentIdleDuration: "6m",
+        }),
+      ],
+    },
+    { name: "_rk-operator", windows: [OPERATOR_WINDOW], hidden: true },
+  ];
+
+  it("selecting Operator Tasks mounts the watchlist and unmounts the terminal; Operator Terminal reverses it", () => {
+    renderConsole({ sessionsByServer: new Map([["srv1", WATCHED_SESSIONS]]) });
+    openDrawer();
+    expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
+
+    fireEvent.click(tasksTab());
+    expect(screen.getByTestId("watched-tasks")).toBeInTheDocument();
+    expect(screen.getAllByTestId("watched-row")).toHaveLength(1);
+    expect(screen.queryByTestId("embedded-terminal")).toBeNull();
+
+    fireEvent.click(terminalTab());
+    expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
+    expect(screen.queryByTestId("watched-tasks")).toBeNull();
+  });
+
+  it("an open request carrying segment: tasks opens the drawer on the Operator Tasks segment", () => {
+    renderConsole({ sessionsByServer: new Map([["srv1", WATCHED_SESSIONS]]) });
+    act(() => {
+      requestOperatorConsole({ action: "open", segment: "tasks" });
+    });
+
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(tasksTab()).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("watched-tasks")).toBeInTheDocument();
+    expect(screen.queryByTestId("embedded-terminal")).toBeNull();
+  });
+
+  it("segment: tasks on the operator route bypasses the already-viewing toast and opens the drawer", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    renderConsole({ withToasts: true });
+
+    act(() => {
+      requestOperatorConsole({ action: "open", segment: "tasks" });
+    });
+
+    expect(getConsoleMachineState()).toBe("open");
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(tasksTab()).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByText("already viewing the operator — nothing to open")).toBeNull();
+  });
+
+  it("closing the drawer and re-opening with a plain request resets to the Operator Terminal segment", async () => {
+    // Reduced motion so the close is instant — no exit-slide wait.
+    stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
+    renderConsole();
+    act(() => {
+      requestOperatorConsole({ action: "open", segment: "tasks" });
+    });
+    expect(tasksTab()).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+
+    openDrawer();
+    expect(terminalTab()).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("watched-tasks")).toBeNull();
+  });
+
+  it("a watched-row click navigates to the window's terminal route and collapses the drawer", async () => {
+    renderConsole({ sessionsByServer: new Map([["srv1", WATCHED_SESSIONS]]) });
+    act(() => {
+      requestOperatorConsole({ action: "open", segment: "tasks" });
+    });
+    expect(screen.getByTestId("watched-tasks")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("watched-row-navigate"));
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@2" },
+      search: {},
+    });
+    expect(getConsoleMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
   });
 });
 
@@ -980,6 +1108,41 @@ describe("OperatorConsole (mobile navigation)", () => {
     expect(call.replace).toBe(true);
     // The updater merges over the existing search — the ?from= survives.
     expect(call.search({ from: "@1" })).toEqual({ from: "@1", tab: "activity" });
+  });
+
+  it("a segment: tasks request navigates with search.tab = tasks, merged with the ?from= origin", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
+    renderConsole();
+    act(() => {
+      requestOperatorConsole({ action: "open", segment: "tasks" });
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@9" },
+      search: { from: "@1", tab: "tasks" },
+    });
+    expect(screen.queryByTestId("operator-console")).toBeNull();
+  });
+
+  it("already on the operator route, segment: tasks updates the tab search param in place", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    mockSearch = { from: "@1" };
+    renderConsole();
+    act(() => {
+      requestOperatorConsole({ action: "open", segment: "tasks" });
+    });
+
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+    const call = mockNavigate.mock.calls[0][0] as {
+      to: string;
+      search: (prev: Record<string, unknown>) => Record<string, unknown>;
+      replace: boolean;
+    };
+    expect(call.to).toBe(".");
+    expect(call.replace).toBe(true);
+    // The updater merges over the existing search — the ?from= survives.
+    expect(call.search({ from: "@1" })).toEqual({ from: "@1", tab: "tasks" });
   });
 
   it("an operator-less server toasts the hint once and never navigates", () => {

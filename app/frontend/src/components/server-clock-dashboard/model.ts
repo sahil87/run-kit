@@ -1,10 +1,12 @@
 // Pure derivation helpers for the tmux Server page clock dashboard — entry
 // sorting, the state column, target resolution, delivery-outcome phrasing,
-// and day grouping. Leaf module in the lib/cron-schedule.ts mold: no fetch,
-// no timers; every relative time is computed by the caller and passed in as
+// day grouping, and the WATCHED zone's row collection/status derivations.
+// Leaf module in the lib/cron-schedule.ts mold: no fetch, no timers; every
+// relative time is computed by the caller and passed in as
 // `nowSeconds`/`nowMs` so the zones re-derive on the SSE cadence alone.
 
 import { formatDuration } from "@/lib/format";
+import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { CronDelivery, CronEntry } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 
@@ -164,6 +166,46 @@ export function describeOutcome(outcome: string): { label: string; error: boolea
 export function formatClockTime(tsSeconds: number): string {
   const d = new Date(tsSeconds * 1000);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** One watched row per non-ghost window with `monitored === true` (the fab
+ *  operator state file's monitored map, joined onto windows server-side),
+ *  ordered by session order then window index. The single collection loop —
+ *  the Server page WATCHED zone and the console's Operator Tasks segment both
+ *  render through it, so the two surfaces cannot drift. */
+export function collectWatchedRows(
+  sessions: ProjectSession[],
+): { session: string; win: WindowInfo }[] {
+  const rows: { session: string; win: WindowInfo }[] = [];
+  for (const session of sessions) {
+    const windows = [...session.windows].sort((a, b) => a.index - b.index);
+    for (const win of windows) {
+      if (win.monitored === true && !isGhostWindow(win)) {
+        rows.push({ session: session.name, win });
+      }
+    }
+  }
+  return rows;
+}
+
+/** The watchlist's zone-level derivations: `stale` = any session reports
+ *  `operatorStale` (the server's own 15-minute verdict — the frontend never
+ *  re-derives the threshold); `tickAgeSeconds` from the max
+ *  `operatorLastTickAt` (`null` when no session carries a tick);
+ *  `hasOperator` = a tick exists or any window carries `role === "operator"`. */
+export function watchlistStatus(
+  sessions: ProjectSession[],
+  nowSeconds: number,
+): { stale: boolean; tickAgeSeconds: number | null; hasOperator: boolean } {
+  const stale = sessions.some((s) => s.operatorStale === true);
+  const tickAt = sessions.reduce(
+    (latest, s) => Math.max(latest, s.operatorLastTickAt ?? 0),
+    0,
+  );
+  const tickAgeSeconds = tickAt > 0 ? Math.max(0, nowSeconds - tickAt) : null;
+  const hasOperator =
+    tickAt > 0 || sessions.some((s) => s.windows.some((w) => w.role === "operator"));
+  return { stale, tickAgeSeconds, hasOperator };
 }
 
 export type DeliveryDayGroup = { label: string; rows: CronDelivery[] };

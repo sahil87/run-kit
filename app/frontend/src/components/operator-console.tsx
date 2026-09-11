@@ -8,6 +8,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { TerminalClient } from "@/components/terminal-client";
 import { ConsoleSegments, type ConsoleSegment } from "@/components/terminal-activity-tabs";
 import { CronActivityFeed } from "@/components/cron-activity-feed";
+import { WatchedTasks } from "@/components/watched-tasks";
 import { Tip } from "@/components/tip";
 import { formatDuration } from "@/lib/format";
 import { useMatches, useNavigate, useRouter, useSearch } from "@tanstack/react-router";
@@ -91,15 +92,22 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * Anatomy (desktop): a title strip (◉ OPERATOR · server, the operator
  * window's live agent state from the sessions payload, the operator loop's
  * tick-age stamp, a server picker on param-less multi-server routes, a
- * collapse affordance), a Terminal | Activity segment header (the shared
+ * collapse affordance), an Operator Terminal | Activity | Operator Tasks
+ * segment header (the shared
  * `ConsoleSegments` strip from terminal-activity-tabs.tsx, driven by
- * console-local ephemeral state), and the body: on Terminal an embedded LIVE
+ * console-local ephemeral state), and the body: on Operator Terminal an
+ * embedded LIVE
  * terminal view of the operator window (a plain TerminalClient over the
  * shared /ws/terminals relay mux — the same mechanism a board pane uses,
  * registerFocus off so the BottomBar keeps its target, `transparent` on so
  * the glass background shows through the cells); on Activity the
  * `CronActivityFeed` (inline variant — the entry detail sheet renders
- * in-container) with the TerminalClient unmounted, so the drawer holds at
+ * in-container); on Operator Tasks the `WatchedTasks` watchlist (the shared
+ * `WatchedTable`, dense variant — a row click navigates through the router to
+ * the window's terminal and collapses the drawer explicitly: the in-console
+ * click bypasses the outside-click collapse, which stands down for
+ * console-DOM clicks). On both non-terminal segments the TerminalClient is
+ * UNMOUNTED, so the drawer holds at
  * most one relay stream. The one-input rule: the
  * compose IS the top-bar omnibox (components/operator-omnibox.tsx); the
  * drawer is output-only, carrying the inline status/error line at its top
@@ -163,8 +171,8 @@ export function OperatorConsole() {
   const [pickerServer, setPickerServer] = useState<string | null>(null);
   const [pendingSend, setPendingSend] = useState<string | null>(null);
   // The drawer's body segment — console-local ephemeral state (no URL, tmux,
-  // or localStorage write), defaulting to Terminal and resetting on close; a
-  // seam request carrying `segment` sets it on open.
+  // or localStorage write), defaulting to Operator Terminal and resetting on
+  // close; a seam request carrying `segment` sets it on open.
   const [segment, setSegment] = useState<ConsoleSegment>("terminal");
   const rootRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -290,9 +298,10 @@ export function OperatorConsole() {
   // `?from=` (never the operator window itself); re-activating while ALREADY
   // on the target operator route skips the navigate entirely, so the
   // existing `?from=` (and the chip it feeds) survives. A request carrying
-  // `segment: "activity"` instead maps to the route's `?tab=activity` search
-  // param (merged with `?from=`; an in-place search update when already on
-  // the route). The palette fallback
+  // any non-terminal `segment` instead maps to the route's `?tab=<segment>`
+  // search param (merged with `?from=`; an in-place search update when
+  // already on the route) — one rule for every drawer-only view. The palette
+  // fallback
   // row's query seeds the operator route's compose-strip draft rather than
   // auto-sending, and an operator-less server toasts the hint (throttled to
   // one per toast lifetime) without navigating. Held in a ref so the
@@ -311,14 +320,16 @@ export function OperatorConsole() {
       return;
     }
     const onOperatorRoute = routeServer === srv && routeWindow === tgt.window.windowId;
-    if (detail.segment === "activity") {
-      // The Activity segment maps to the operator route's `?tab=activity`
-      // search param — merged with the `?from=` origin carrier on a cross-
+    const requestedTab =
+      detail.segment !== undefined && detail.segment !== "terminal" ? detail.segment : undefined;
+    if (requestedTab !== undefined) {
+      // A non-terminal segment maps to the operator route's `?tab=` search
+      // param — merged with the `?from=` origin carrier on a cross-
       // route navigation, an in-place search update when already there.
       if (onOperatorRoute) {
         navigate({
           to: ".",
-          search: (prev) => ({ ...prev, tab: "activity" as const }),
+          search: (prev) => ({ ...prev, tab: requestedTab }),
           replace: true,
         });
       } else {
@@ -326,7 +337,7 @@ export function OperatorConsole() {
         navigate({
           to: "/$server/$window",
           params: { server: srv, window: tgt.window.windowId },
-          search: from ? { from, tab: "activity" as const } : { tab: "activity" as const },
+          search: from ? { from, tab: requestedTab } : { tab: requestedTab },
         });
       }
     } else if (!onOperatorRoute) {
@@ -348,9 +359,9 @@ export function OperatorConsole() {
   // the two-state machine, and `open` always opens with the omnibox focused.
   // While the resolved operator route is already current, every desktop
   // action stops here with one throttled hint instead of changing any console
-  // state — EXCEPT a request carrying `segment: "activity"`: the Activity
-  // view is not visible on the desktop route itself, so the drawer must open
-  // to show it.
+  // state — EXCEPT a request carrying a non-terminal segment: those views
+  // exist only inside the drawer on desktop, so the drawer must open to show
+  // them.
   useEffect(() => {
     function handleRequest(detail: OperatorConsoleRequest) {
       // Handled — clear the seam's buffer so a later mount cannot replay it.
@@ -359,7 +370,10 @@ export function OperatorConsole() {
         mobileRequestRef.current(detail);
         return;
       }
-      if (onOperatorRouteRef.current && detail.segment !== "activity") {
+      if (
+        onOperatorRouteRef.current &&
+        (detail.segment === undefined || detail.segment === "terminal")
+      ) {
         const now = Date.now();
         if (now - alreadyOnOperatorHintAtRef.current >= NO_OPERATOR_HINT_THROTTLE_MS) {
           alreadyOnOperatorHintAtRef.current = now;
@@ -755,7 +769,8 @@ export function OperatorConsole() {
           ▼
         </button>
       </div>
-      {/* The drawer's Terminal | Activity segment header — the shared
+      {/* The drawer's Operator Terminal | Activity | Operator Tasks segment
+          header — the shared
           presentational strip (terminal-activity-tabs.tsx), driven here by
           console-local state instead of the mobile route's `tab` param. */}
       <ConsoleSegments value={segment} onChange={setSegment} />
@@ -781,6 +796,28 @@ export function OperatorConsole() {
         // while Activity shows (the keyed remount on switching back is cheap).
         // An unresolved server renders the feed's own hint line.
         <CronActivityFeed server={server ?? ""} inline />
+      ) : segment === "tasks" ? (
+        // Same one-relay-stream rule: the TerminalClient is UNMOUNTED while
+        // Operator Tasks shows. A row click navigates through the router to
+        // the window's terminal route and collapses the drawer explicitly —
+        // the outside-click collapse stands down for clicks inside the
+        // console's DOM, so the handler drives the machine to rest itself.
+        <WatchedTasks
+          server={server ?? ""}
+          sessions={server ? (sessionsByServer.get(server) ?? []) : []}
+          onNavigate={(windowId) => {
+            if (!server) return;
+            void navigate({
+              to: "/$server/$window",
+              params: { server, window: windowId },
+              // Empty search: the destination window resolves its own stored
+              // layout (the cross-server sidebar-select form).
+              search: {},
+            });
+            setConsoleMachineState("rest");
+          }}
+          dense
+        />
       ) : target && server ? (
         <div className="flex-1 min-h-0 flex flex-col px-1 py-0.5">
           <TerminalClient

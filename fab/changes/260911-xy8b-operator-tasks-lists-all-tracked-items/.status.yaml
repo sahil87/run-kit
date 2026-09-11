@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 11
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-11T16:59:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:06:53Z"}
     hydrate: {started_at: "2026-09-11T17:06:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:13:39Z"}
     ship: {started_at: "2026-09-11T17:13:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:14:42Z"}
-    review-pr: {started_at: "2026-09-11T17:14:42Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-11T17:14:42Z", driver: git-pr, iterations: 1, completed_at: "2026-09-11T18:48:51Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/942
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Operator Tasks tab lists the operator's whole tracked list (pane-less/done items included, done dimmed) via operatorTracked on the sessions payload; the reader is ParseOperatorState/ReadOperatorState with WatchlistEntries() feeding the unchanged pane join
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-11T17:14:43Z
+last_updated: 2026-09-11T18:48:51Z

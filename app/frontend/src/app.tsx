@@ -2084,6 +2084,11 @@ function AppShell() {
   activeWindowRef.current = activeWindow;
   const windowParamRef = useRef(windowParam);
   windowParamRef.current = windowParam;
+  // The console `?tab=` param, read on click by `navigateToWindow`'s
+  // same-window early return without a stale closure (that path decides
+  // whether the no-op tmux switch must still navigate back to the terminal).
+  const searchTabRef = useRef(search.tab);
+  searchTabRef.current = search.tab;
   const serverRef = useRef(server);
   serverRef.current = server;
   // Live isConnected + receipt-tick reads for the freshness-gated bounce
@@ -2508,10 +2513,25 @@ function AppShell() {
       // pending-switch machinery would guarantee a spurious spinner mask at
       // 300ms over the very terminal the user is on, plus a false failure
       // toast at the confirmation window. Keep the ergonomic drawer close;
-      // arm nothing (pre-change behavior: inert).
+      // arm nothing tmux-side. The one navigation the no-op still owes is
+      // leaving a mobile console tab (below).
       if (
         isRedundantSwitch(windowId, windowParamRef.current, activeWindowRef.current?.windowId)
       ) {
+        // Same-window tap from a mobile console tab (R3): a watched row can BE
+        // the active window (the backend joins `monitored` onto all windows),
+        // so the no-op tmux switch above must still leave the tab content slot
+        // — replace the route with a cleared search (dropping `?tab=`) while
+        // arming nothing tmux-side. Mobile-only gate: on desktop the `?tab=`
+        // handoff effect owns the param and strips it itself.
+        if (isMobile && searchTabRef.current) {
+          navigate({
+            to: "/$server/$window",
+            params: { server, window: windowId },
+            search: {},
+            replace: true,
+          });
+        }
         if (isMobile) setSidebarOpen(false);
         return;
       }

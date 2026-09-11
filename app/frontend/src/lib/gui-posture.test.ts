@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
+  GUI_QUALITY_PRESETS,
   GUI_ZOOM_STEPS,
+  readGuiQuality,
+  readGuiStatsVisible,
   readGuiZoom,
+  writeGuiQuality,
+  writeGuiStatsVisible,
   writeGuiZoom,
   stepGuiZoom,
   readGuiPointerMode,
@@ -155,6 +160,86 @@ describe("gui resize lock posture (rk-gui-lock)", () => {
     writeGuiResizeLocked(false);
     expect(readGuiResizeLocked()).toBe(false);
     expect(localStorage.getItem("rk-gui-lock")).toBeNull();
+  });
+});
+
+describe("gui quality posture (rk-gui-quality)", () => {
+  it("maps the three names to their tuples", () => {
+    expect(GUI_QUALITY_PRESETS).toEqual({
+      sharp: { qualityLevel: 8, compressionLevel: 1 },
+      balanced: { qualityLevel: 6, compressionLevel: 2 },
+      smooth: { qualityLevel: 3, compressionLevel: 7 },
+    });
+  });
+
+  it("defaults by pointer class when absent: balanced on fine, smooth on coarse", () => {
+    expect(readGuiQuality(false)).toBe("balanced");
+    expect(readGuiQuality(true)).toBe("smooth");
+  });
+
+  it("defaults by pointer class when invalid", () => {
+    localStorage.setItem("rk-gui-quality", "ultra");
+    expect(readGuiQuality(false)).toBe("balanced");
+    expect(readGuiQuality(true)).toBe("smooth");
+  });
+
+  it("a stored value wins over the pointer-class default", () => {
+    localStorage.setItem("rk-gui-quality", "sharp");
+    expect(readGuiQuality(true)).toBe("sharp");
+    localStorage.setItem("rk-gui-quality", "smooth");
+    expect(readGuiQuality(false)).toBe("smooth");
+  });
+
+  it("round-trips every preset", () => {
+    writeGuiQuality("sharp");
+    expect(readGuiQuality(false)).toBe("sharp");
+    expect(localStorage.getItem("rk-gui-quality")).toBe("sharp");
+    writeGuiQuality("balanced");
+    expect(readGuiQuality(false)).toBe("balanced");
+    writeGuiQuality("smooth");
+    expect(readGuiQuality(false)).toBe("smooth");
+  });
+
+  it("falls to the pointer-class default on a localStorage read failure", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    expect(readGuiQuality(false)).toBe("balanced");
+    expect(readGuiQuality(true)).toBe("smooth");
+  });
+
+  it("swallows a localStorage write failure silently", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    expect(() => writeGuiQuality("sharp")).not.toThrow();
+  });
+});
+
+describe("gui stats overlay visibility (rk-gui-stats-visible)", () => {
+  it("defaults to hidden when absent", () => {
+    expect(readGuiStatsVisible()).toBe(false);
+  });
+
+  it("round-trips the flag; hiding removes the key", () => {
+    writeGuiStatsVisible(true);
+    expect(readGuiStatsVisible()).toBe(true);
+    expect(localStorage.getItem("rk-gui-stats-visible")).toBe("1");
+    writeGuiStatsVisible(false);
+    expect(readGuiStatsVisible()).toBe(false);
+    expect(localStorage.getItem("rk-gui-stats-visible")).toBeNull();
+  });
+
+  it("reads a stray non-'1' value as hidden", () => {
+    localStorage.setItem("rk-gui-stats-visible", "yes");
+    expect(readGuiStatsVisible()).toBe(false);
+  });
+
+  it("swallows a localStorage read failure, returning hidden", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    expect(readGuiStatsVisible()).toBe(false);
   });
 });
 

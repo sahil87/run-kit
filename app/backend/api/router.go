@@ -961,13 +961,14 @@ func (s *Server) buildRouter() chi.Router {
 
 	// GUI surface — the status document (GET, incl. the apps list the
 	// off-confirm renders), the supervisor restart, the allowlisted
-	// terminal/browser launcher, and the live desktop resize (POST per §IX).
-	// On/off ride POST /api/settings (the gui.enabled side effect). See
-	// api/gui.go.
+	// terminal/browser launcher, the live desktop resize, and the no-op ping
+	// (POST per §IX). On/off ride POST /api/settings (the gui.enabled side
+	// effect). See api/gui.go.
 	r.Get("/api/gui/{id}", s.handleGuiStatus)
 	r.Post("/api/gui/{id}/restart", s.handleGuiRestart)
 	r.Post("/api/gui/{id}/launch", s.handleGuiLaunch)
 	r.Post("/api/gui/{id}/resize", s.handleGuiResize)
+	r.Post("/api/gui/{id}/ping", s.handleGuiPing)
 
 	// Web Push: VAPID key (read), subscribe + notify (mutations, POST per §IX)
 	r.Get("/api/push/vapid-public-key", s.handlePushVAPIDPublicKey)

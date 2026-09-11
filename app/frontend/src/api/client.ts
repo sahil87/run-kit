@@ -738,6 +738,18 @@ export async function resizeGui(
   return res.json();
 }
 
+/**
+ * POST /api/gui/{id}/ping with an empty body — a no-op timing endpoint: the
+ * gui stats overlay times this round trip as its RTT sample. Resolves on any
+ * 2xx; non-2xx throws via the shared `throwOnError` path.
+ */
+export async function pingGui(id = "host"): Promise<void> {
+  const res = await deduplicatedFetch(`/api/gui/${encodeURIComponent(id)}/ping`, {
+    method: "POST",
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
 export async function splitWindow(
   server: string,
   windowId: string,

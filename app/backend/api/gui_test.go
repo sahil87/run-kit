@@ -463,9 +463,42 @@ func TestGuiLaunchOK(t *testing.T) {
 	}
 }
 
+// --- POST /api/gui/{id}/ping ---
+
+func TestGuiPingOK(t *testing.T) {
+	_, router := newGuiAPIServer(t, true)
+	rec := postJSON(t, router, "/api/gui/host/ping", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]bool
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["ok"] != true {
+		t.Errorf("body = %s, want {\"ok\":true}", rec.Body.String())
+	}
+}
+
+func TestGuiPingInvalidID(t *testing.T) {
+	_, router := newGuiAPIServer(t, true)
+	rec := postJSON(t, router, "/api/gui/other/ping", "")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	var errBody map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&errBody); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if errBody["error"] != `gui id must be "host"` {
+		t.Errorf("error = %q, want the validation message", errBody["error"])
+	}
+}
+
 // The family is exactly GET /api/gui/{id} + POST /api/gui/{id}/restart +
-// POST /api/gui/{id}/launch + POST /api/gui/{id}/resize — nothing else under
-// /api/gui exists (mutations ride POST, on/off ride /api/settings).
+// POST /api/gui/{id}/launch + POST /api/gui/{id}/resize +
+// POST /api/gui/{id}/ping — nothing else under /api/gui exists (mutations
+// ride POST, on/off ride /api/settings).
 func TestGuiNoOtherRoutes(t *testing.T) {
 	_, router := newGuiAPIServer(t, true)
 	for _, tc := range []struct {
@@ -473,6 +506,7 @@ func TestGuiNoOtherRoutes(t *testing.T) {
 	}{
 		{http.MethodPost, "/api/gui/host"},
 		{http.MethodGet, "/api/gui/host/restart"},
+		{http.MethodGet, "/api/gui/host/ping"},
 		{http.MethodGet, "/api/gui/host/env"},
 		{http.MethodPost, "/api/gui/host/off"},
 	} {

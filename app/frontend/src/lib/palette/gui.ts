@@ -30,6 +30,16 @@
  *                                 (follow this tile)` (hidden while the
  *                                 setting already reads `auto` — the
  *                                 destination-only rule).
+ *  - `GUI: Quality → Sharp / Balanced / Smooth` — the launch rows' gate,
+ *                                 right after the Resolution rows; fixed
+ *                                 descriptions with ` · current` on the
+ *                                 active preset; each selects the
+ *                                 viewer-local `rk-gui-quality` posture via
+ *                                 onQuality.
+ *  - `GUI: Show stats` / `GUI: Hide stats` — gui tile open; destination-only
+ *                                 pair toggling the viewer-local
+ *                                 `rk-gui-stats-visible` posture via
+ *                                 onStatsVisible.
  *  - `GUI: Fullscreen`          — gui tile open; the fullscreen verb (zen
  *                                 fallback where requestFullscreen is absent).
  *  - `GUI: Paste clipboard`     — gui tile open AND connected (readText needs a
@@ -69,7 +79,7 @@
 import type { GuiLaunchApp } from "../../api/client";
 import type { PaletteAction } from "../../components/command-palette";
 import { GUI_GEOMETRY_PRESETS, presetLabel } from "../gui-geometry";
-import { stepGuiZoom, type GuiPointerMode, type GuiZoom } from "../gui-posture";
+import { stepGuiZoom, type GuiPointerMode, type GuiQuality, type GuiZoom } from "../gui-posture";
 
 export type GuiPaletteAction = {
   id: string;
@@ -102,6 +112,10 @@ export type GuiPaletteInput = {
   /** The viewer's pointer mode (`rk-gui-pointer`). */
   pointerMode: GuiPointerMode;
   resizeLocked: boolean;
+  /** The viewer's quality preset (`rk-gui-quality`). */
+  quality: GuiQuality;
+  /** The viewer's stats overlay visibility (`rk-gui-stats-visible`). */
+  statsVisible: boolean;
   /** The host signal's `geometry` — the `gui.geometry` setting: a fixed `WxH`,
    *  or `auto` (the desktop follows the focused fine-pointer viewer). */
   geometry: string;
@@ -126,13 +140,23 @@ export type GuiPaletteInput = {
   onZoom: (z: GuiZoom) => void;
   onPointerMode: (m: GuiPointerMode) => void;
   onLockChange: (locked: boolean) => void;
+  onQuality: (q: GuiQuality) => void;
+  onStatsVisible: (visible: boolean) => void;
   onOpenLogs: () => void;
   onReconnect: () => void;
 };
 
+/** The three `GUI: Quality →` rows in palette order; the active preset's
+ *  description gains the ` · current` suffix (the Resolution rows' marker
+ *  grammar). */
+const GUI_QUALITY_ROWS: { quality: GuiQuality; name: string; description: string }[] = [
+  { quality: "sharp", name: "Sharp", description: "more detail, more bytes" },
+  { quality: "balanced", name: "Balanced", description: "default" },
+  { quality: "smooth", name: "Smooth", description: "fewer bytes, smoother motion on slow links" },
+];
+
 export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
   const actions: GuiPaletteAction[] = [];
-
   if (!input.enabled) {
     actions.push({ id: "gui-turn-on", label: "GUI: Turn on", onSelect: input.onTurnOn });
     return actions;
@@ -183,6 +207,15 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
         label: "GUI: Resolution → Auto (follow this tile)",
         description: "today's behavior — the desktop follows the focused fine-pointer viewer",
         onSelect: () => input.onResize("auto"),
+      });
+    }
+    for (const row of GUI_QUALITY_ROWS) {
+      actions.push({
+        id: `gui-quality-${row.quality}`,
+        label: `GUI: Quality → ${row.name}`,
+        description:
+          row.quality === input.quality ? `${row.description} · current` : row.description,
+        onSelect: () => input.onQuality(row.quality),
       });
     }
   }
@@ -261,6 +294,12 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
           : { id: "gui-lock", label: "GUI: Lock resolution", ...fixedPin, onSelect: () => input.onLockChange(true) },
       );
     }
+    // Destination-only pair — the entry shows the state it switches to.
+    actions.push(
+      input.statsVisible
+        ? { id: "gui-stats-hide", label: "GUI: Hide stats", onSelect: () => input.onStatsVisible(false) }
+        : { id: "gui-stats-show", label: "GUI: Show stats", onSelect: () => input.onStatsVisible(true) },
+    );
     if (!input.connected) {
       actions.push({
         id: "gui-reconnect",

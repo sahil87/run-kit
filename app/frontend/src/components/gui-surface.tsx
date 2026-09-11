@@ -1,19 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import RFB from "@novnc/novnc";
-import { fetchGuiStatus } from "@/api/client";
+import { fetchGuiStatus, pingGui } from "@/api/client";
 import type { GuiSignal } from "@/contexts/session-context";
 import { copyToClipboard } from "@/lib/clipboard";
+import { STATS_PING_MS, STATS_SAMPLE_MS, sampleRates } from "@/lib/gui-stats";
 import { createWheelAccumulator } from "@/lib/zoom-gesture";
 import {
   readGuiWmStripDismissed,
   stepGuiZoom,
   writeGuiWmStripDismissed,
+  GUI_QUALITY_PRESETS,
   type GuiPointerMode,
+  type GuiQuality,
   type GuiZoom,
 } from "@/lib/gui-posture";
 import { Control } from "./control";
 import { attachGuiPointer } from "./gui-pointer";
 import { GuiKeyBar } from "./gui-keybar";
+import { GuiStatsOverlay } from "./gui-stats-overlay";
 
 /**
  * GuiSurface — the renderer for the `gui` lens (spec docs/specs/gui.md § The
@@ -106,6 +110,17 @@ import { GuiKeyBar } from "./gui-keybar";
  *   listens in the bubble phase, so a plain stopPropagation would eat the
  *   chord). Every other key reaches the guest. No steal guard: noVNC grabs
  *   focus only on click (`focusOnClick`), never programmatically.
+ * - **Stats overlay**: the per-viewer `statsVisible` posture
+ *   (`rk-gui-stats-visible`) mounts `GuiStatsOverlay` (gui-stats-overlay.tsx)
+ *   in the zoom badge's corner (suppressing the badge) and, only while
+ *   visible AND connected, runs the collector: fps from canvas-source
+ *   `drawImage` calls wrapped on the tile canvas's 2D context INSTANCE
+ *   (restored on cleanup), Mbit/s from binary bytes on the WebSocket this
+ *   component constructs and hands to `new RFB(hostEl, socket, …)` (noVNC
+ *   1.7's raw-channel form — `Websock.attach` coexists with our
+ *   `addEventListener("message")` counter), and RTT from a timed
+ *   `pingGui()` round trip every `STATS_PING_MS` — all idle while hidden
+ *   (the math lives in lib/gui-stats.ts).
  * - **macOS credentials**: on `credentialsrequired` an inline password field
  *   overlays the canvas; the password lives only in component state (never
  *   storage, never a POST) and is re-asked on every reconnect. A
@@ -162,8 +177,16 @@ interface GuiSurfaceProps {
   visible: boolean;
   /** This tile owns tile focus (focusedTileKind === "gui"). */
   focused: boolean;
-  /** Coarse pointer — never drives resize, gets the low quality preset. */
+  /** Coarse pointer — never drives resize; the pan/trackpad layers key on it. */
   coarsePointer: boolean;
+  /** Per-viewer RFB quality posture (localStorage `rk-gui-quality`, owned by
+   *  app.tsx) — the named preset mapped onto `qualityLevel`/`compressionLevel`. */
+  quality: GuiQuality;
+  /** Per-viewer stats overlay visibility (`rk-gui-stats-visible`, owned by
+   *  app.tsx) — while true AND connected the collector samples fps / Mbit/s /
+   *  RTT and the overlay renders; false means fully idle (no wrap, no
+   *  interval, no ping). */
+  statsVisible: boolean;
   /** Per-viewer zoom posture (localStorage `rk-gui-zoom`, owned by app.tsx). */
   zoom: GuiZoom;
   /** Per-viewer pointer mode (`rk-gui-pointer`): `touch` is the noVNC
@@ -194,6 +217,8 @@ export default function GuiSurface({
   visible,
   focused,
   coarsePointer,
+  quality,
+  statsVisible,
   zoom,
   pointerMode,
   onZoomChange,
@@ -254,10 +279,17 @@ export default function GuiSurface({
   // Reentrancy guard for the replayed click (it bubbles through this
   // wrapper's own capture handlers).
   const panReplayRef = useRef(false);
+  // The stats seam's raw counters: flips (canvas-source drawImage calls on
+  // the tile canvas's 2D context — noVNC's Display.flip) and binary bytes on
+  // the RFB socket. The byte listener rides the socket for its whole life
+  // (a cheap increment); the flip wrap exists only while the collector runs.
+  const statsCountersRef = useRef({ flips: 0, bytes: 0 });
+  const [stats, setStats] = useState<{ fps: number | null; mbit: number | null }>({ fps: null, mbit: null });
+  const [rttMs, setRttMs] = useState<number | null>(null);
 
   // Latest-value refs for the listener/effect closures that outlive renders.
-  const propsRef = useRef({ coarsePointer, focused, resizeLocked, zoom, pointerMode, backend: gui?.backend ?? "", hostLocked: gui?.locked ?? false, geometry: gui?.geometry ?? "" });
-  propsRef.current = { coarsePointer, focused, resizeLocked, zoom, pointerMode, backend: gui?.backend ?? "", hostLocked: gui?.locked ?? false, geometry: gui?.geometry ?? "" };
+  const propsRef = useRef({ coarsePointer, focused, resizeLocked, zoom, pointerMode, quality, backend: gui?.backend ?? "", hostLocked: gui?.locked ?? false, geometry: gui?.geometry ?? "" });
+  propsRef.current = { coarsePointer, focused, resizeLocked, zoom, pointerMode, quality, backend: gui?.backend ?? "", hostLocked: gui?.locked ?? false, geometry: gui?.geometry ?? "" };
   const onConnectionChangeRef = useRef(onConnectionChange);
   onConnectionChangeRef.current = onConnectionChange;
   const onZoomChangeRef = useRef(onZoomChange);
@@ -287,8 +319,10 @@ export default function GuiSurface({
     // touch tracker scrolls. Trackpad mode forces it off (the translation
     // layer owns the touches).
     rfb.dragViewport = p.zoom !== "fit" && p.coarsePointer && p.pointerMode === "touch";
-    rfb.qualityLevel = p.coarsePointer ? 4 : 6;
-    rfb.compressionLevel = p.coarsePointer ? 6 : 2;
+    // The quality posture's named preset, applied live like every prop above.
+    const preset = GUI_QUALITY_PRESETS[p.quality];
+    rfb.qualityLevel = preset.qualityLevel;
+    rfb.compressionLevel = preset.compressionLevel;
     rfb.showDotCursor = true;
     rfb.focusOnClick = true;
     rfb.background = "";
@@ -331,7 +365,21 @@ export default function GuiSurface({
     const hostEl = hostRef.current;
     if (!hostEl) return;
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const rfb = new RFB(hostEl, `${proto}://${window.location.host}/ws/gui/host`, {
+    // The component constructs the socket itself (noVNC 1.7's raw-channel
+    // constructor form — Websock.attach sets binaryType/onmessage, which
+    // coexists with our addEventListener byte counter) so the stats seam
+    // counts bytes on rk's own object, never a global WebSocket wrap.
+    const socket = new WebSocket(`${proto}://${window.location.host}/ws/gui/host`);
+    const onSocketMessage = (e: MessageEvent) => {
+      const data: unknown = e.data;
+      if (data instanceof ArrayBuffer) {
+        statsCountersRef.current.bytes += data.byteLength;
+      } else if (data instanceof Blob) {
+        statsCountersRef.current.bytes += data.size;
+      }
+    };
+    socket.addEventListener("message", onSocketMessage);
+    const rfb = new RFB(hostEl, socket, {
       shared: true,
     });
     rfbRef.current = rfb;
@@ -375,6 +423,7 @@ export default function GuiSurface({
     return () => {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
+      socket.removeEventListener("message", onSocketMessage);
       rfb.removeEventListener("connect", onConnect);
       rfb.removeEventListener("disconnect", onDisconnect);
       rfb.removeEventListener("clipboard", onClipboard);
@@ -399,6 +448,54 @@ export default function GuiSurface({
     const rfb = rfbRef.current;
     if (rfb) applyRfbProps(rfb);
   });
+
+  // The stats collector: runs only while the overlay is visible AND the RFB
+  // is connected — hidden or disconnected means no wrap, no interval, no
+  // ping. fps counts canvas-source drawImage calls on the tile canvas's 2D
+  // context INSTANCE (noVNC's Display.flip — the gui-perf.spec criterion;
+  // never the prototype, never _display), restored on cleanup; the 1 s tick
+  // folds the counters into the snapshot; every 5 s a pingGui round trip is
+  // timed into rttMs (null until the first resolves and after any failure).
+  useEffect(() => {
+    if (!statsVisible || !connected) return;
+    const counters = statsCountersRef.current;
+    setStats({ fps: null, mbit: null });
+    setRttMs(null);
+    const canvas = hostRef.current?.querySelector("canvas");
+    const ctx = canvas?.getContext("2d") ?? null;
+    let restoreDrawImage: (() => void) | null = null;
+    if (ctx) {
+      const original = ctx.drawImage;
+      ctx.drawImage = (image: CanvasImageSource, ...args: number[]): void => {
+        if (image instanceof HTMLCanvasElement) counters.flips += 1;
+        Reflect.apply(original, ctx, [image, ...args]);
+      };
+      restoreDrawImage = () => {
+        ctx.drawImage = original;
+      };
+    }
+    let prev = { ...counters };
+    let prevAt = performance.now();
+    const sampleTimer = setInterval(() => {
+      const now = { ...counters };
+      const nowAt = performance.now();
+      setStats(sampleRates(prev, now, nowAt - prevAt));
+      prev = now;
+      prevAt = nowAt;
+    }, STATS_SAMPLE_MS);
+    // review-ignore: RTT probe — the timed round trip IS the measurement; runs only while the overlay is visible and the RFB is connected
+    const pingTimer = setInterval(() => {
+      const startedAt = performance.now();
+      pingGui()
+        .then(() => setRttMs(performance.now() - startedAt))
+        .catch(() => setRttMs(null));
+    }, STATS_PING_MS);
+    return () => {
+      restoreDrawImage?.();
+      clearInterval(sampleTimer);
+      clearInterval(pingTimer);
+    };
+  }, [statsVisible, connected]);
 
   // The zoom badge: shows on every zoom prop CHANGE (never on mount), hides
   // ZOOM_BADGE_MS later; a change mid-show restarts the timer.
@@ -863,7 +960,21 @@ export default function GuiSurface({
           }}
         />
       ) : null}
-      {badge !== null ? (
+      {statsVisible ? (
+        <GuiStatsOverlay
+          stats={{
+            fps: stats.fps,
+            mbit: stats.mbit,
+            rttMs,
+            width: gui.width,
+            height: gui.height,
+            zoom,
+          }}
+        />
+      ) : null}
+      {/* The zoom badge cedes the corner to the stats overlay while it is
+          visible — same classes, and the overlay's zoom segment is live. */}
+      {!statsVisible && badge !== null ? (
         <div
           data-testid="gui-zoom-badge"
           className="absolute top-2 right-2 z-10 px-1.5 py-0.5 rounded border border-border bg-bg-primary/80 text-text-secondary text-xs font-mono select-none pointer-events-none"

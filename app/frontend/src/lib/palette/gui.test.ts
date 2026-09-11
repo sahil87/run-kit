@@ -12,6 +12,8 @@ function input(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput {
     zoom: "fit",
     pointerMode: "touch",
     resizeLocked: false,
+    quality: "balanced",
+    statsVisible: false,
     geometry: "auto",
     supervisorAvailable: true,
     onTurnOn: vi.fn(),
@@ -26,6 +28,8 @@ function input(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput {
     onZoom: vi.fn(),
     onPointerMode: vi.fn(),
     onLockChange: vi.fn(),
+    onQuality: vi.fn(),
+    onStatsVisible: vi.fn(),
     onOpenLogs: vi.fn(),
     onReconnect: vi.fn(),
     ...overrides,
@@ -70,6 +74,9 @@ describe("buildGuiActions — tile-open gating", () => {
       "gui-res-2560x1440",
       "gui-res-1080x1920",
       "gui-res-custom",
+      "gui-quality-sharp",
+      "gui-quality-balanced",
+      "gui-quality-smooth",
       "gui-logs",
     ]);
   });
@@ -87,11 +94,15 @@ describe("buildGuiActions — tile-open gating", () => {
       "gui-res-1080x1920",
       "gui-res-match",
       "gui-res-custom",
+      "gui-quality-sharp",
+      "gui-quality-balanced",
+      "gui-quality-smooth",
       "gui-fullscreen",
       "gui-paste",
       "gui-zoom-in",
       "gui-view-1to1",
       "gui-lock",
+      "gui-stats-show",
       "gui-logs",
     ]);
   });
@@ -317,11 +328,15 @@ describe("buildGuiActions — resolution rows", () => {
       "gui-res-match",
       "gui-res-custom",
       "gui-res-auto",
+      "gui-quality-sharp",
+      "gui-quality-balanced",
+      "gui-quality-smooth",
       "gui-fullscreen",
       "gui-paste",
       "gui-zoom-in",
       "gui-view-1to1",
       "gui-lock",
+      "gui-stats-show",
       "gui-logs",
     ]);
     expect(actions.find((a) => a.id === "gui-res-1920x1080")!.description).toBe("current");
@@ -408,5 +423,75 @@ describe("buildGuiActions — resolution rows", () => {
     expect(row.description).toBe(
       "today's behavior — the desktop follows the focused fine-pointer viewer",
     );
+  });
+});
+
+describe("buildGuiActions — quality rows", () => {
+  it("renders all three presets in Sharp/Balanced/Smooth order right after the Resolution rows, marking the current one", () => {
+    const actions = buildGuiActions(input({ quality: "balanced" }));
+    const qualityIds = actions.map((a) => a.id).filter((id) => id.startsWith("gui-quality-"));
+    expect(qualityIds).toEqual(["gui-quality-sharp", "gui-quality-balanced", "gui-quality-smooth"]);
+    const resIds = actions.map((a) => a.id).filter((id) => id.startsWith("gui-res-"));
+    expect(actions.map((a) => a.id).indexOf("gui-quality-sharp")).toBe(
+      actions.map((a) => a.id).indexOf(resIds[resIds.length - 1]) + 1,
+    );
+    expect(actions.find((a) => a.id === "gui-quality-sharp")!.description).toBe(
+      "more detail, more bytes",
+    );
+    expect(actions.find((a) => a.id === "gui-quality-balanced")!.description).toBe(
+      "default · current",
+    );
+    expect(actions.find((a) => a.id === "gui-quality-smooth")!.description).toBe(
+      "fewer bytes, smoother motion on slow links",
+    );
+  });
+
+  it("the current marker follows the quality posture", () => {
+    const actions = buildGuiActions(input({ quality: "smooth" }));
+    expect(actions.find((a) => a.id === "gui-quality-smooth")!.description).toBe(
+      "fewer bytes, smoother motion on slow links · current",
+    );
+    expect(actions.find((a) => a.id === "gui-quality-balanced")!.description).toBe("default");
+  });
+
+  it("onSelect routes the preset to onQuality", () => {
+    const inp = input();
+    const actions = buildGuiActions(inp);
+    actions.find((a) => a.id === "gui-quality-smooth")!.onSelect();
+    expect(inp.onQuality).toHaveBeenCalledWith("smooth");
+    actions.find((a) => a.id === "gui-quality-sharp")!.onSelect();
+    expect(inp.onQuality).toHaveBeenCalledWith("sharp");
+  });
+
+  it("shares the launch rows' gate — absent on the screen-sharing mirror, when unreachable, and when off", () => {
+    for (const gated of [
+      input({ backend: "screen-sharing" }),
+      input({ reachable: false }),
+      input({ enabled: false }),
+    ]) {
+      expect(ids(gated).some((id) => id.startsWith("gui-quality-"))).toBe(false);
+    }
+  });
+});
+
+describe("buildGuiActions — stats rows", () => {
+  it("is a destination-only pair routing the target visibility", () => {
+    const hidden = input({ statsVisible: false });
+    expect(ids(hidden)).toContain("gui-stats-show");
+    expect(ids(hidden)).not.toContain("gui-stats-hide");
+    buildGuiActions(hidden).find((a) => a.id === "gui-stats-show")!.onSelect();
+    expect(hidden.onStatsVisible).toHaveBeenCalledWith(true);
+
+    const shown = input({ statsVisible: true });
+    expect(ids(shown)).toContain("gui-stats-hide");
+    expect(ids(shown)).not.toContain("gui-stats-show");
+    buildGuiActions(shown).find((a) => a.id === "gui-stats-hide")!.onSelect();
+    expect(shown.onStatsVisible).toHaveBeenCalledWith(false);
+  });
+
+  it("is tileOpen-gated", () => {
+    const list = ids(input({ tileOpen: false }));
+    expect(list).not.toContain("gui-stats-show");
+    expect(list).not.toContain("gui-stats-hide");
   });
 });

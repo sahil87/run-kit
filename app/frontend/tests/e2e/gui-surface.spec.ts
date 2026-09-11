@@ -33,8 +33,12 @@ import {
 // `geometry` setting (a fixed WxH or `auto`); the geometry tests exercise
 // the palette's disabled Lock row / hidden Auto row gating across a
 // fixed→`auto` flip and stub `POST /api/gui/host/resize` to capture the
-// preset row's request body. Both desktop (1280px) and mobile (375px,
-// hasTouch) forks run. The zoom/pointer/keybar tests live here too: the
+// preset row's request body. The stats/quality tests cover the `GUI: Show
+// stats` → overlay → reload-persistence → `GUI: Hide stats` cycle (against
+// the 1080p fixture on @2, whose persisted `split-h:tty,gui` layout keeps
+// the tile open across the reload) and the `GUI: Quality →` rows'
+// descriptions, ` · current` marker, and `rk-gui-quality` write. Both
+// desktop (1280px) and mobile (375px, hasTouch) forks run. The zoom/pointer/keybar tests live here too: the
 // desktop fork drives the zoom chords and Ctrl+wheel against the badge, the
 // mobile fork drives the key bar's latch rendering and a CDP two-finger
 // pinch. The mocked /ws/gui/ socket is held open without an RFB handshake,
@@ -51,7 +55,10 @@ import {
 // payload width/height stay), and walks the off-confirm → degrade → restore
 // cycle. A resize case POSTs /api/gui/host/resize through page.request,
 // asserts the display's width/height follow within seconds and the fit-mode
-// canvas letterboxes to the desktop's aspect, then resizes back. The settings
+// canvas letterboxes to the desktop's aspect, then resizes back. A stats case
+// shows the overlay, asserts its size segment against the status document and
+// its RTT against the 5 s ping probe, then launches the terminal role and
+// polls for a live fps/Mbit/s sample. The settings
 // file is snapshotted in beforeAll and restored in afterAll
 // (`_gui.ts` snapshotSettings/restoreSettings — the restore also POSTs
 // {"gui.enabled": null} so the rk-gui session is killed and the key unset even
@@ -75,6 +82,8 @@ const GUI_ON_ICEWM = [{ ...GUI_ON_BARE[0], wm: "icewm-session" }];
 // follow-the-tile `auto` value (the palette's Lock/Auto rows key off it).
 const GUI_ON_FIXED = [{ ...GUI_ON_ICEWM[0], geometry: "1600x900" }];
 const GUI_ON_AUTO = [{ ...GUI_ON_ICEWM[0], geometry: "auto" }];
+// A 1080p variant for the stats overlay's size segment.
+const GUI_ON_1080P = [{ ...GUI_ON_ICEWM[0], width: 1920, height: 1080 }];
 const GUI_WM_HINT = "sudo apt install --no-install-recommends icewm";
 const GUI_STATUS_BARE = {
   id: "host",
@@ -134,6 +143,12 @@ async function mockGuiBackend(page: Page, gui: unknown, statusDoc?: unknown) {
     }),
   );
   await page.route("**/api/windows/*/options*", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
+  );
+  // The mount-time tmux alignment POSTs select when the URL window is not the
+  // payload's active one — unstubbed, the failure bounces the route back to
+  // the active window (@1).
+  await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
   );
   await page.route("**/api/gui/host", (route) =>
@@ -568,6 +583,94 @@ test.describe("gui surface — mocked signal, desktop (1280px)", () => {
     await page.mouse.wheel(0, -60);
     await page.keyboard.up("Control");
     await expect(badge).toHaveText("100%");
+  });
+
+  /**
+   * Proves: `GUI: Show stats` mounts the stats overlay on the open gui tile
+   * reading the dash placeholders plus the payload size and zoom (`— fps · —
+   * Mbit/s · — ms · 1920×1080 · fit` — the mocked /ws/gui/ socket never
+   * handshakes, so the collector never connects and nothing samples), the
+   * overlay survives a full page reload (the `rk-gui-stats-visible` posture),
+   * and `GUI: Hide stats` removes it and unsets the posture.
+   *
+   * Steps:
+   * 1. Mock the backend with the reachable 1080p icewm entry and open @2 —
+   *    its persisted `split-h:tty,gui` layout keeps the gui tile open across
+   *    the reload (a toggled-open tile would not survive).
+   * 2. Assert no overlay; palette-select `GUI: Show stats`; assert the
+   *    overlay's exact text and `rk-gui-stats-visible` = "1".
+   * 3. Reload; assert the overlay is back with the same text.
+   * 4. Palette-select `GUI: Hide stats`; assert the overlay is gone and the
+   *    posture key is unset.
+   */
+  test("Show stats mounts the overlay with dash placeholders, it survives a reload, Hide stats removes it", async ({
+    page,
+  }) => {
+    await mockGuiBackend(page, GUI_ON_1080P);
+    await page.goto("/default/2");
+    await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    const overlay = page.getByTestId("gui-stats-overlay");
+    await expect(overlay).toHaveCount(0);
+
+    let paletteInput = await openPalette(page);
+    await paletteInput.fill("GUI: Show stats");
+    await page.getByRole("option", { name: "GUI: Show stats" }).click();
+    await expect(overlay).toHaveText("— fps · — Mbit/s · — ms · 1920×1080 · fit");
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem("rk-gui-stats-visible")))
+      .toBe("1");
+
+    await page.reload();
+    await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(overlay).toHaveText("— fps · — Mbit/s · — ms · 1920×1080 · fit");
+
+    paletteInput = await openPalette(page);
+    await paletteInput.fill("GUI:");
+    await expect(page.getByRole("option", { name: "GUI: Show stats" })).toHaveCount(0);
+    await paletteInput.fill("GUI: Hide stats");
+    await page.getByRole("option", { name: "GUI: Hide stats" }).click();
+    await expect(overlay).toHaveCount(0);
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem("rk-gui-stats-visible")))
+      .toBeNull();
+  });
+
+  /**
+   * Proves: the palette offers the three `GUI: Quality →` rows with their
+   * fixed descriptions and the ` · current` marker on the active preset
+   * (Balanced — the fine-pointer default), and selecting `GUI: Quality →
+   * Smooth` writes the `rk-gui-quality` posture.
+   *
+   * Steps:
+   * 1. Mock the backend with the reachable icewm entry and open @1 (the
+   *    quality rows share the launch rows' gate — no tile needed).
+   * 2. Open the palette, filter to `GUI: Quality`; assert the three options
+   *    and the Balanced row's `default · current` text.
+   * 3. Select `GUI: Quality → Smooth`; assert localStorage `rk-gui-quality`
+   *    reads `smooth`.
+   */
+  test("Quality → Smooth is offered with its description and writes the rk-gui-quality posture", async ({
+    page,
+  }) => {
+    await mockGuiBackend(page, GUI_ON_ICEWM);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("GUI: Quality");
+    await expect(page.getByRole("option", { name: "GUI: Quality → Sharp" })).toBeVisible();
+    await expect(page.getByRole("option", { name: "GUI: Quality → Balanced" })).toHaveText(
+      "GUI: Quality → Balanced — default · current",
+    );
+    await expect(page.getByRole("option", { name: "GUI: Quality → Smooth" })).toHaveText(
+      "GUI: Quality → Smooth — fewer bytes, smoother motion on slow links",
+    );
+
+    await page.getByRole("option", { name: "GUI: Quality → Smooth" }).click();
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem("rk-gui-quality")))
+      .toBe("smooth");
   });
 });
 
@@ -1025,5 +1128,82 @@ test.describe("gui surface — real Xvnc rig", () => {
     });
     expect(back.ok()).toBe(true);
     expect(await pollGuiStatus((s) => s.width === 1920 && s.height === 1080, 10_000)).toBe(true);
+  });
+
+  /**
+   * Proves: on the real rig the stats overlay reports live numbers — its size
+   * segment matches the status document's payload geometry, the RTT segment
+   * resolves to a real millisecond reading (the 5 s `POST /api/gui/host/ping`
+   * probe), and after a terminal launch paints frames the overlay samples
+   * fps ≥ 1 and Mbit/s > 0.
+   *
+   * Steps:
+   * 1. Clean slate (unset gui.enabled, wait out any half-torn-down session),
+   *    POST the switch on, open the seeded window, poll until reachable, and
+   *    open the gui tile (toggle only when not already open — it toggles).
+   * 2. Palette-select `GUI: Show stats`; assert the overlay's size segment
+   *    reads the payload's `width×height`.
+   * 3. Poll the overlay until the RTT segment reads `\d+ ms`.
+   * 4. POST /api/gui/host/launch {"app":"terminal"} via page.request (a
+   *    window opening paints frames); poll the overlay for a sample with
+   *    fps ≥ 1 AND Mbit/s > 0 within 10 s.
+   */
+  test("the stats overlay reads the payload size, a real RTT, and non-zero fps/Mbit after a terminal launch", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    // Retry clean slate: unset first and wait out any half-torn-down session.
+    await postSettingsRaw({ "gui.enabled": null });
+    expect(await pollGuiStatus((s) => !s.session, 15_000)).toBe(true);
+    const on = await page.request.post("/api/settings", {
+      data: { "gui.enabled": true },
+    });
+    expect(on.ok()).toBe(true);
+
+    const win = await resolveWindow(page, TMUX_SERVER, SESSION, "work");
+    await gotoWindow(page, TMUX_SERVER, win.windowId);
+    await expect(toggleButton(page, "GUI tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    expect(await pollGuiStatus((s) => s.reachable)).toBe(true);
+    const canvasHost = page.getByTestId("gui-surface-canvas");
+    const tileOpen = await canvasHost
+      .waitFor({ state: "visible", timeout: 3_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!tileOpen) await toggleButton(page, "GUI tile").click();
+    await expect(canvasHost.locator("canvas")).toBeVisible({ timeout: 30_000 });
+
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("GUI: Show stats");
+    await page.getByRole("option", { name: "GUI: Show stats" }).click();
+    const overlay = page.getByTestId("gui-stats-overlay");
+    await expect(overlay).toBeVisible({ timeout: READY_TIMEOUT });
+
+    const status = await fetchGuiStatusRaw();
+    expect(status).not.toBeNull();
+    await expect(overlay).toContainText(`${status!.width}×${status!.height}`);
+
+    // The ping probe fires every 5 s — the RTT segment leaves the dash.
+    await expect
+      .poll(async () => /\d+ ms/.test((await overlay.textContent()) ?? ""), { timeout: 12_000 })
+      .toBe(true);
+
+    const launch = await page.request.post("/api/gui/host/launch", {
+      data: { app: "terminal" },
+    });
+    expect(launch.ok()).toBe(true);
+
+    // A sample line: `<n> fps · <m> Mbit/s · …` — both rates must be live.
+    await expect
+      .poll(
+        async () => {
+          const text = (await overlay.textContent()) ?? "";
+          const match = /^(\d+) fps · ([\d.]+) Mbit\/s/.exec(text);
+          if (!match) return false;
+          return Number(match[1]) >= 1 && Number(match[2]) > 0;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true);
   });
 });

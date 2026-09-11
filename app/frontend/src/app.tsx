@@ -62,13 +62,18 @@ import { buildDesktopPaletteRows } from "@/lib/gui-desktop";
 import { useDesktopPick } from "@/hooks/use-desktop-pick";
 import {
   readGuiPointerMode,
+  readGuiQuality,
   readGuiResizeLocked,
+  readGuiStatsVisible,
   readGuiZoom,
   stepGuiZoom,
   writeGuiPointerMode,
+  writeGuiQuality,
   writeGuiResizeLocked,
+  writeGuiStatsVisible,
   writeGuiZoom,
   type GuiPointerMode,
+  type GuiQuality,
   type GuiZoom,
 } from "@/lib/gui-posture";
 import { buildZenActions } from "@/lib/palette/zen";
@@ -1245,13 +1250,16 @@ function AppShell() {
   const coarsePointer = useCoarsePointer();
   // Per-viewer render postures (lib/gui-posture.ts — validated localStorage
   // reads, try/catch-noop writes): the zoom, the pointer mode (defaulting to
-  // the pointer class), and the viewer-local resize lock. The ONLY new state
-  // the gui surface adds anywhere.
+  // the pointer class), the viewer-local resize lock, the RFB quality preset,
+  // and the stats overlay's visibility. The ONLY new state the gui surface
+  // adds anywhere.
   const [guiZoom, setGuiZoom] = useState<GuiZoom>(() => readGuiZoom());
   const [guiPointerMode, setGuiPointerMode] = useState<GuiPointerMode>(() =>
     readGuiPointerMode(coarsePointer),
   );
   const [guiResizeLocked, setGuiResizeLocked] = useState(() => readGuiResizeLocked());
+  const [guiQuality, setGuiQuality] = useState<GuiQuality>(() => readGuiQuality(coarsePointer));
+  const [guiStatsVisible, setGuiStatsVisible] = useState(() => readGuiStatsVisible());
   const handleGuiZoomChange = useCallback((z: GuiZoom) => {
     setGuiZoom(z);
     writeGuiZoom(z);
@@ -1259,6 +1267,14 @@ function AppShell() {
   const handleGuiPointerModeChange = useCallback((m: GuiPointerMode) => {
     setGuiPointerMode(m);
     writeGuiPointerMode(m);
+  }, []);
+  const handleGuiQualityChange = useCallback((q: GuiQuality) => {
+    setGuiQuality(q);
+    writeGuiQuality(q);
+  }, []);
+  const handleGuiStatsVisibleChange = useCallback((v: boolean) => {
+    setGuiStatsVisible(v);
+    writeGuiStatsVisible(v);
   }, []);
   // The Custom… geometry prompt's open state (the palette's `GUI: Resolution →
   // Custom…` row opens it; the prompt owns validation).
@@ -1430,6 +1446,8 @@ function AppShell() {
       zoom: guiZoom,
       pointerMode: guiPointerMode,
       resizeLocked: guiResizeLocked,
+      quality: guiQuality,
+      statsVisible: guiStatsVisible,
       geometry: gui?.geometry ?? "",
       supervisorAvailable: rkGuiWindow !== null,
       onTurnOn: () => {
@@ -1465,6 +1483,8 @@ function AppShell() {
       },
       onZoom: handleGuiZoomChange,
       onPointerMode: handleGuiPointerModeChange,
+      onQuality: handleGuiQualityChange,
+      onStatsVisible: handleGuiStatsVisibleChange,
       onLockChange: (locked) => {
         setGuiResizeLocked(locked);
         writeGuiResizeLocked(locked);
@@ -1491,6 +1511,10 @@ function AppShell() {
     guiPointerMode,
     handleGuiPointerModeChange,
     guiResizeLocked,
+    guiQuality,
+    handleGuiQualityChange,
+    guiStatsVisible,
+    handleGuiStatsVisibleChange,
     rkGuiWindow,
     guiOffRequest,
     loadDesktopRows,
@@ -5299,6 +5323,8 @@ function AppShell() {
               guiPointerMode={guiPointerMode}
               onGuiZoomChange={handleGuiZoomChange}
               guiResizeLocked={guiResizeLocked}
+              guiQuality={guiQuality}
+              guiStatsVisible={guiStatsVisible}
               onGuiConnection={setGuiConnected}
               onGuiRestart={restartGui}
               onGuiOpenLogs={openGuiLogs}

@@ -285,6 +285,13 @@ two-finger tap right-clicks, two-finger drag scrolls 1:1, a 500 ms long-press
 is press-and-hold, and a pinch steps the zoom ladder. On coarse pointers the
 palette pair `GUI: Pointer → Trackpad` / `→ Touch` flips it.
 
+The quality preset is likewise a per-viewer posture — `GUI: Quality → Sharp /
+Balanced / Smooth` (§ Smoothness targets) re-tunes noVNC's
+`qualityLevel`/`compressionLevel` live, with ` · current` marking the active
+row. A stats overlay (off by default, `GUI: Show/Hide stats`) replaces the
+zoom badge's corner with a live `fps · Mbit/s · ms · W×H · zoom` line, its
+zoom segment doubling as the badge's.
+
 On coarse pointers a key bar docks under the canvas: `Esc Tab Ctrl Alt ⇧ ← ↑
 ↓ → ⌨`. Modifiers latch — one tap arms for the next key, a second tap locks
 (rendered `Ctrl ●`), a third releases; an armed modifier is consumed by the
@@ -305,7 +312,9 @@ never on TCP on Linux — a unix socket by convention under
 `None` (the same trust boundary as code-server's `--auth none`: the only
 client is rk on the same user). Mutations are `POST /api/gui/{id}/restart`,
 `POST /api/gui/{id}/launch` (the allowlisted two-role launcher; body
-`{"app":"terminal"|"browser"}`, never argv), plus the `gui.enabled` key on
+`{"app":"terminal"|"browser"}`, never argv), `POST /api/gui/{id}/resize` (§
+Resize policy), and `POST /api/gui/{id}/ping` (a no-op timing endpoint the
+stats overlay's RTT probe measures), plus the `gui.enabled` key on
 `POST /api/settings`; there is no route family
 beyond `/ws/gui/*` and `/api/gui/*`.
 
@@ -473,6 +482,21 @@ latency is the link's own RTT); 59 fps on loopback and 34 fps at 260 ms RTT
 uncapped (met), 11 fps at 260 ms / 40 Mbit/s (missed — bytes per frame, not
 latency, bound the rate). The table, method, and re-run recipe live in
 `docs/memory/run-kit/gui.md` § Smoothness (C5).
+
+The user-facing lever behind which C6 later sits is three named quality
+presets — `Sharp` / `Balanced` / `Smooth`, the per-viewer posture
+`rk-gui-quality`, mapping to noVNC `(qualityLevel, compressionLevel)` tuples
+`(8,1)` / `(6,2)` / `(3,7)`; the default is `Balanced` on a fine pointer and
+`Smooth` on a coarse one. The names, not the tuples, are the durable
+contract: C6 can swap a Kasm- or Tight-tuned encoder behind `Smooth` without
+touching the posture, the palette rows (`GUI: Quality → …`), or stored
+viewer values. Beside it, an off-by-default stats overlay (`GUI: Show/Hide
+stats`, posture `rk-gui-stats-visible`) renders the five counters the perf
+audit already instruments — fps (canvas-source `drawImage` on the tile
+canvas, noVNC's `Display.flip`), relay Mbit/s (binary bytes on the
+`/ws/gui/host` socket), RTT (a timed `POST /api/gui/{id}/ping` round trip
+every 5 s), desktop size, and zoom — so a viewer can see what the link is
+doing and validate a later encoder claim against a live number.
 
 ---
 

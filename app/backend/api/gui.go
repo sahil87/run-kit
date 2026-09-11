@@ -278,6 +278,19 @@ func (s *Server) handleGuiLaunch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "app": string(role), "argv0": name, "pid": pid})
 }
 
+// handleGuiPing serves POST /api/gui/{id}/ping — a no-op timing endpoint the
+// tile's stats overlay measures its RTT against: validate the id and answer
+// 200, with no settings read, no body, and no seam call (the cheapest honest
+// round trip).
+func (s *Server) handleGuiPing(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if msg := validate.ValidateGUIID(id); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // guiResizeRequest is the POST /api/gui/{id}/resize body: the target desktop
 // geometry — a fixed WxH, or "auto" to follow the focused viewer's tile.
 type guiResizeRequest struct {

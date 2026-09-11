@@ -7,11 +7,14 @@
  * | "trackpad", absent = the pointer-class default — "trackpad" on coarse,
  * "touch" on fine), the viewer-local resize lock (`rk-gui-lock`: "1" =
  * locked, absent = unlocked — locked viewers never drive SetDesktopSize),
- * and the bare-WM strip dismissal (`runkit-gui-wm-strip-dismissed`: "1" =
+ * the bare-WM strip dismissal (`runkit-gui-wm-strip-dismissed`: "1" =
  * dismissed, absent = shown — cleared by the tile when `wm` becomes
- * non-empty so a LATER bare state shows the strip again). Reads are
- * validated on the way in (untrusted-localStorage discipline); all writes
- * are try/catch-noop.
+ * non-empty so a LATER bare state shows the strip again), the RFB quality
+ * preset (`rk-gui-quality`: "sharp" | "balanced" | "smooth", absent/invalid =
+ * the pointer-class default — "balanced" on fine, "smooth" on coarse), and
+ * the stats overlay's visibility (`rk-gui-stats-visible`: "1" = shown,
+ * absent = hidden — the lock's shape). Reads are validated on the way in
+ * (untrusted-localStorage discipline); all writes are try/catch-noop.
  */
 
 export type GuiZoom = "fit" | 50 | 75 | 100 | 125 | 150 | 200;
@@ -21,9 +24,22 @@ export const GUI_ZOOM_STEPS = [50, 75, 100, 125, 150, 200] as const;
 
 export type GuiPointerMode = "touch" | "trackpad";
 
+/** The three named RFB quality presets — the durable contract is the name;
+ *  the tuple table is internal so a later encoder retune can sit behind it. */
+export type GuiQuality = "sharp" | "balanced" | "smooth";
+
+/** Preset name → noVNC `qualityLevel`/`compressionLevel` tuple. */
+export const GUI_QUALITY_PRESETS: Record<GuiQuality, { qualityLevel: number; compressionLevel: number }> = {
+  sharp: { qualityLevel: 8, compressionLevel: 1 },
+  balanced: { qualityLevel: 6, compressionLevel: 2 },
+  smooth: { qualityLevel: 3, compressionLevel: 7 },
+};
+
 const GUI_ZOOM_KEY = "rk-gui-zoom";
 const GUI_POINTER_KEY = "rk-gui-pointer";
 const GUI_LOCK_KEY = "rk-gui-lock";
+const GUI_QUALITY_KEY = "rk-gui-quality";
+const GUI_STATS_VISIBLE_KEY = "rk-gui-stats-visible";
 const GUI_WM_STRIP_DISMISSED_KEY = "runkit-gui-wm-strip-dismissed";
 
 /** Retired `rk-gui-view` key; read once to seed the zoom posture, removed on write. */
@@ -117,6 +133,46 @@ export function writeGuiResizeLocked(locked: boolean): void {
     } else {
       localStorage.removeItem(GUI_LOCK_KEY);
     }
+  } catch {
+    /* noop — best-effort persistence */
+  }
+}
+
+export function readGuiStatsVisible(): boolean {
+  try {
+    return localStorage.getItem(GUI_STATS_VISIBLE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeGuiStatsVisible(visible: boolean): void {
+  try {
+    if (visible) {
+      localStorage.setItem(GUI_STATS_VISIBLE_KEY, "1");
+    } else {
+      localStorage.removeItem(GUI_STATS_VISIBLE_KEY);
+    }
+  } catch {
+    /* noop — best-effort persistence */
+  }
+}
+
+export function readGuiQuality(coarsePointer: boolean): GuiQuality {
+  try {
+    const raw = localStorage.getItem(GUI_QUALITY_KEY);
+    if (raw === "sharp" || raw === "balanced" || raw === "smooth") {
+      return raw;
+    }
+  } catch {
+    /* fall through to the pointer-class default */
+  }
+  return coarsePointer ? "smooth" : "balanced";
+}
+
+export function writeGuiQuality(q: GuiQuality): void {
+  try {
+    localStorage.setItem(GUI_QUALITY_KEY, q);
   } catch {
     /* noop — best-effort persistence */
   }

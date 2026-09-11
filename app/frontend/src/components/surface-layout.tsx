@@ -31,7 +31,7 @@ import { clampBoundary } from "@/lib/right-panel";
 import { codeRootFor } from "@/lib/code-folder-latch";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import type { GuiSignal } from "@/contexts/session-context";
-import type { GuiPointerMode, GuiZoom } from "@/lib/gui-posture";
+import type { GuiPointerMode, GuiQuality, GuiZoom } from "@/lib/gui-posture";
 import type { GuiRestartResult, GuiSurfaceCommands } from "@/components/gui-surface";
 
 // noVNC's core is ~150 KB min — the gui tile lazy-loads so tabs that never
@@ -224,11 +224,14 @@ interface SurfaceLayoutProps {
   gui?: GuiSignal | null;
   /** Per-viewer gui postures (app.tsx owns the localStorage-backed state).
    *  `guiPointerMode` falls back to the pointer-class default (trackpad on
-   *  coarse, touch on fine) when absent. */
+   *  coarse, touch on fine) when absent; `guiQuality` defaults to
+   *  `"balanced"`, `guiStatsVisible` to hidden. */
   guiZoom?: GuiZoom;
   guiPointerMode?: GuiPointerMode;
   onGuiZoomChange?: (z: GuiZoom) => void;
   guiResizeLocked?: boolean;
+  guiQuality?: GuiQuality;
+  guiStatsVisible?: boolean;
   /** RFB connection report — app.tsx folds it into the toggle dot. */
   onGuiConnection?: (connected: boolean) => void;
   /** Restart supervisor verb for the gui empty state (POSTs the restart
@@ -585,6 +588,8 @@ export function SurfaceLayout({
   guiPointerMode,
   onGuiZoomChange,
   guiResizeLocked = false,
+  guiQuality = "balanced",
+  guiStatsVisible = false,
   onGuiConnection,
   onGuiRestart,
   onGuiOpenLogs,
@@ -1629,6 +1634,8 @@ export function SurfaceLayout({
               pointerMode={guiPointerMode ?? (coarsePointer ? "trackpad" : "touch")}
               onZoomChange={onGuiZoomChange ?? (() => {})}
               resizeLocked={guiResizeLocked}
+              quality={guiQuality}
+              statsVisible={guiStatsVisible}
               onConnectionChange={onGuiConnection}
               onRestart={onGuiRestart}
               onOpenLogs={onGuiOpenLogs}

@@ -5,17 +5,17 @@ created_by: sahil87
 change_type: feat
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 12
+    acceptance_count: 29
+    acceptance_completed: 29
 confidence:
     certain: 5
     confident: 3
@@ -29,8 +29,27 @@ confidence:
         competence: 79.4
         disambiguation: 75.0
 stage_metrics:
-    intake: {started_at: "2026-09-10T15:20:40Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-09-10T15:20:40Z", driver: fab-new, iterations: 1, completed_at: "2026-09-11T00:41:10Z"}
+    apply: {started_at: "2026-09-11T00:41:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T01:03:17Z"}
+    review: {started_at: "2026-09-11T01:03:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T01:09:24Z"}
+    hydrate: {started_at: "2026-09-11T01:09:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T01:15:03Z"}
+    ship: {started_at: "2026-09-11T01:15:03Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-11T01:15:03Z"
+    computed_at_stage: hydrate
+summary: 'GUI quality presets (rk-gui-quality: sharp/balanced/smooth) + opt-in stats overlay (fps/Mbit/RTT via POST /api/gui/{id}/ping), palette rows, raw-channel RFB socket'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-10T15:21:42Z
+last_updated: 2026-09-11T01:15:03Z

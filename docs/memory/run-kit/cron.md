@@ -595,7 +595,7 @@ Inside a tmux pane, `add` SHALL store `created_by: {pane: $TMUX_PANE, at: now}`,
 
 ### Held wake edges are consumed
 **Decision**: a `wake`-reason fire held under `when-idle` does not restore the wake cursor; the payload lands on the entry's next schedule-due or next edge.
-**Why**: `Evaluate` computes `NextCursor` before delivery outcomes exist; re-plumbing cursor persistence around outcomes buys nothing real — the only planned wake user (operator tick) is `deliver: immediate`.
+**Why**: `Evaluate` computes `NextCursor` before delivery outcomes exist; re-plumbing cursor persistence around outcomes buys nothing real — the only planned wake user (operator tick) is `deliver: skip-if-busy` (ntde), under which a busy wake fire is a logged `skipped-busy` drop rather than a hold, and no `when-idle` wake consumer exists.
 **Rejected**: outcome-aware cursor persistence (couples the pure evaluator to delivery results).
 *Introduced by*: 260906-kl1g-daemon-ticker-cron-delivery
 

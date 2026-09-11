@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -148,6 +149,125 @@ func TestSnapshotListCapsWithTruncationNotice(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "pass --all") {
 		t.Errorf("--all must not truncate: %q", buf.String())
+	}
+}
+
+// snapshotListEnvelope parses the `list --json` document in tests.
+type snapshotListEnvelope struct {
+	OK     bool                  `json:"ok"`
+	Result []snapshotListJSONRow `json:"result"`
+}
+
+// TestSnapshotListJSONEmitsEveryRow pins the --json contract on a 14-entry
+// store (13 live + 1 audited tombstone): every row is carried (the 10-row
+// display cap does not apply, and --all is inert), died_at is null exactly on
+// live rows, and the order stays newest-first.
+func TestSnapshotListJSONEmitsEveryRow(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	store := withTestSnapshotStore(t, now)
+	for i := 0; i < 13; i++ {
+		if _, err := store.Write(cliSnap(fmt.Sprintf("srv%02d", i), now.Add(-time.Duration(i)*time.Minute))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	diedAt := now.Add(-time.Hour)
+	if _, err := store.Write(cliSnap("dead", diedAt.Add(-time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Tombstone("dead", diedAt, true); err != nil {
+		t.Fatal(err)
+	}
+
+	list, _, _ := newTestSnapshotTree(t)
+	var buf bytes.Buffer
+	list.SetOut(&buf)
+	if err := list.Flags().Set("json", "true"); err != nil {
+		t.Fatal(err)
+	}
+	run := func() snapshotListEnvelope {
+		t.Helper()
+		buf.Reset()
+		if err := list.RunE(list, nil); err != nil {
+			t.Fatal(err)
+		}
+		var doc snapshotListEnvelope
+		if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+			t.Fatalf("stdout is not the envelope: %v\n%s", err, buf.String())
+		}
+		return doc
+	}
+
+	doc := run()
+	if !doc.OK {
+		t.Errorf("ok = false on a successful list: %s", buf.String())
+	}
+	if len(doc.Result) != 14 {
+		t.Fatalf("result rows = %d, want 14 (the display cap must not apply)", len(doc.Result))
+	}
+	if got, want := doc.Result[0].TakenAt, now.UTC().Format(time.RFC3339); got != want {
+		t.Errorf("first row taken_at = %q, want the newest %q (newest-first)", got, want)
+	}
+	var died *snapshotListJSONRow
+	for i := range doc.Result {
+		row := &doc.Result[i]
+		if row.Server == "dead" {
+			died = row
+			continue
+		}
+		if row.DiedAt != nil {
+			t.Errorf("live row %q carries died_at %q, want null", row.Server, *row.DiedAt)
+		}
+		if row.AuditedKill {
+			t.Errorf("live row %q carries audited_kill true", row.Server)
+		}
+	}
+	if died == nil {
+		t.Fatal("the tombstone row is missing")
+	}
+	if died.DiedAt == nil || *died.DiedAt != diedAt.UTC().Format(time.RFC3339) {
+		t.Errorf("tombstone died_at = %v, want %q", died.DiedAt, diedAt.UTC().Format(time.RFC3339))
+	}
+	if !died.AuditedKill {
+		t.Error("the tombstone row must carry audited_kill true")
+	}
+
+	// --all is accepted but inert under --json.
+	if err := list.Flags().Set("all", "true"); err != nil {
+		t.Fatal(err)
+	}
+	doc = run()
+	if len(doc.Result) != 14 {
+		t.Errorf("--all under --json: result rows = %d, want 14", len(doc.Result))
+	}
+	if strings.Contains(buf.String(), "pass --all") {
+		t.Errorf("--json must never print the truncation notice: %q", buf.String())
+	}
+}
+
+// TestSnapshotListJSONEmptyStoreIsEmptyArray pins "result": [] (never null)
+// for an empty store.
+func TestSnapshotListJSONEmptyStoreIsEmptyArray(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	withTestSnapshotStore(t, now)
+
+	list, _, _ := newTestSnapshotTree(t)
+	var buf bytes.Buffer
+	list.SetOut(&buf)
+	if err := list.Flags().Set("json", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := list.RunE(list, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), `"result": []`) {
+		t.Errorf("empty store must emit \"result\": [], got: %q", buf.String())
+	}
+	var doc snapshotListEnvelope
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+		t.Fatalf("stdout is not the envelope: %v\n%s", err, buf.String())
+	}
+	if !doc.OK || doc.Result == nil || len(doc.Result) != 0 {
+		t.Errorf("parsed envelope = %+v, want ok:true with an empty non-null result", doc)
 	}
 }
 
@@ -330,6 +450,7 @@ func TestMuxSnapshotNoDeprecation(t *testing.T) {
 func TestMuxSnapshotRejectsExplicitServerFlag(t *testing.T) {
 	for _, args := range [][]string{
 		{"mux", "-L", "zzz-nope", "snapshot", "list"},
+		{"mux", "-L", "zzz-nope", "snapshot", "list", "--json"},
 		{"mux", "-L", "zzz-nope", "snapshot", "show", "kit"},
 		{"mux", "-L", "zzz-nope", "snapshot", "restore", "kit"},
 	} {

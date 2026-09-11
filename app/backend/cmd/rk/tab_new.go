@@ -11,12 +11,12 @@ package main
 // single-quoted via internal/shellq so the window's shell receives it as one
 // literal word, and rk's agent-exit fallback (`; exec "${SHELL:-/bin/sh}"`) is
 // appended unless --no-shell-fallback. --json swaps the bare @N datum for the
-// {session, window_id, pane_id} envelope; --ready (requires --json and a
-// command) adds the boot-readiness verdict via the rk mux await --ready seam.
+// {session, window_id, pane_id} object inside the standard envelope; --ready
+// (requires --json and a command) adds the boot-readiness verdict via the
+// rk mux await --ready seam.
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -60,8 +60,9 @@ var tabNewCmd = &cobra.Command{
 		"(; exec \"${SHELL:-/bin/sh}\") so the pane drops into an interactive shell\n" +
 		"when the command exits; --no-shell-fallback omits the tail and lets the\n" +
 		"pane die with the command.\n\n" +
-		"--json prints {\"session\", \"window_id\", \"pane_id\"} instead of the bare\n" +
-		"@N — session is tmux's own report of where the window landed. --ready\n" +
+		"--json prints {\"session\", \"window_id\", \"pane_id\"} inside the standard\n" +
+		"{\"ok\",\"result\"} envelope instead of the bare @N — session is tmux's own\n" +
+		"report of where the window landed. --ready\n" +
 		"(requires --json and a `--` command) also waits for the new pane's boot\n" +
 		"readiness — the rk mux await --ready classification — and adds the verdict\n" +
 		"as the JSON \"ready\" key: ready|parked|narrow|running (exit 0; the parked\n" +
@@ -83,7 +84,7 @@ func init() {
 	tabNewCmd.Flags().StringVar(&tabNewLayoutFlag, "layout", "",
 		"Layout the window is born with, e.g. split-h:tty,web (validated before creation)")
 	tabNewCmd.Flags().BoolVar(&tabNewJSONFlag, "json", false,
-		"Print {session, window_id, pane_id} as JSON instead of the bare @N")
+		"Print {session, window_id, pane_id} as JSON inside the {\"ok\",\"result\"} envelope instead of the bare @N")
 	tabNewCmd.Flags().BoolVar(&tabNewReadyFlag, "ready", false,
 		"Wait for the new pane's boot readiness (the rk mux await --ready classification) and add the verdict as the JSON \"ready\" key; requires --json and a `--` command")
 	tabNewCmd.Flags().IntVar(&tabNewTimeoutFlag, "timeout", awaitDefaultTimeoutSec,
@@ -286,12 +287,7 @@ func runTabNew(cmd *cobra.Command, args []string) error {
 		out.Ready = strings.Fields(rep.line)[0]
 		reportErr = rep.reportErr
 	}
-	enc := json.NewEncoder(sink.data)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(out); err != nil {
-		return fmt.Errorf("encode --json output: %w", err)
-	}
 	// gone exits 1, but only after the JSON is printed — the envelope is the
 	// caller's record of what was created before the pane died.
-	return reportErr
+	return sink.Envelope(out, reportErr)
 }

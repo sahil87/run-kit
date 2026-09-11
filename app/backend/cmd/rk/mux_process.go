@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -50,7 +49,8 @@ var muxProcessCmd = &cobra.Command{
 		"tree node classified agent regardless of its comm — the instrumentation " +
 		"is authoritative, comm heuristics are the fallback. Prints the tree, " +
 		"plus a trailing `Agent process detected.` when any node classifies " +
-		"agent; --json emits the machine-readable shape.\n\n" +
+		"agent; --json emits the machine-readable shape wrapped in the standard " +
+		"{\"ok\":true,\"result\":…} envelope.\n\n" +
 		"Targets: %N (pane), @N (window — resolves to its agent pane), " +
 		"=session:window (exact). Bare session:window names are rejected.",
 	Example: `  rk mux process %5
@@ -281,9 +281,7 @@ func runMuxProcess(cmd *cobra.Command, target string) error {
 			Processes: tree,
 			HasAgent:  hasAgent,
 		}
-		enc := json.NewEncoder(sink.data)
-		enc.SetIndent("", "  ")
-		return enc.Encode(out)
+		return sink.Envelope(out, nil)
 	}
 
 	printProcessTree(sink.data, paneID, pid, tree, hasAgent)

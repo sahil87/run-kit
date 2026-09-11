@@ -70,6 +70,12 @@ stderr always carries 'geometry WxH scale S' — the source geometry and the
 applied scale — so coordinates divide cleanly back into display pixels;
 stdout stays the bare path.
 
+--json replaces the bare path with the standard envelope: stdout carries
+{"ok":true,"result":{…}} whose result keys are path (the absolute PNG),
+width and height (the source geometry), scale (the applied scale), and
+display, plus window only when --window was given. The stderr geometry line
+still prints.
+
 Refuses (exit 1) when the GUI is off or enabled but not running ('rk gui
 status' has the reason); on macOS the surface mirrors your live session
 view-only, so there is no display to screenshot.`,
@@ -82,6 +88,7 @@ func init() {
 	guiShotCmd.Flags().Float64("scale", 0, "Scale the capture by this factor, in (0, 1] (ImageMagick)")
 	guiShotCmd.Flags().Int("max-width", 0, "Scale the capture down to at most this width in px (ImageMagick)")
 	guiShotCmd.Flags().Uint64("window", 0, "Capture this window id (from 'rk gui windows') instead of the root")
+	guiShotCmd.Flags().Bool("json", false, "Emit the capture receipt as a JSON envelope (path, width, height, scale, display)")
 }
 
 // guiShotStage is one stage of the screenshot pipeline: the argv to run plus
@@ -271,15 +278,28 @@ func guiShotCapture(ctx context.Context, st gui.Status, out string, opts guiShot
 	return width, height, scale, nil
 }
 
+// guiShotJSONResult is the `shot --json` receipt: the bare-path line's datum
+// plus the source geometry and applied scale the stderr geometry line
+// carries. Window is present only for a --window capture (a real X window id
+// is never 0, and --window 0 fails before the receipt).
+type guiShotJSONResult struct {
+	Path    string  `json:"path"`
+	Width   int     `json:"width"`
+	Height  int     `json:"height"`
+	Scale   float64 `json:"scale"`
+	Display string  `json:"display"`
+	Window  uint64  `json:"window,omitempty"`
+}
+
 // guiShotScaleText renders the scale for the stderr geometry line (1, 0.5).
 func guiShotScaleText(scale float64) string {
 	return strconv.FormatFloat(scale, 'f', -1, 64)
 }
 
 // runGuiShot gates on the OS and the switch, resolves the output path and the
-// tool ladder, runs the pipeline, and prints only the absolute PNG path
-// (Dataf — the datum survives --quiet; diagnostics go to stderr). stderr
-// always carries the source geometry and applied scale.
+// tool ladder, runs the pipeline, and prints the absolute PNG path (Dataf —
+// the datum survives --quiet; diagnostics go to stderr), or the JSON envelope
+// under --json. stderr always carries the source geometry and applied scale.
 func runGuiShot(cmd *cobra.Command, _ []string) error {
 	if guiGOOS == "darwin" {
 		return guiDarwinRefusal("shot")
@@ -333,6 +353,19 @@ func runGuiShot(cmd *cobra.Command, _ []string) error {
 	}
 	sink := newSink(cmd)
 	sink.Notef("geometry %dx%d scale %s\n", width, height, guiShotScaleText(applied))
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		doc := guiShotJSONResult{
+			Path:    out,
+			Width:   width,
+			Height:  height,
+			Scale:   applied,
+			Display: st.Display,
+		}
+		if opts.windowSet {
+			doc.Window = opts.window
+		}
+		return sink.Envelope(doc, nil)
+	}
 	sink.Dataf("%s\n", out)
 	return nil
 }

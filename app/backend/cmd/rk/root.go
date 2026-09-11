@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"io"
 	"os"
 	"strings"
 
@@ -103,7 +105,7 @@ func init() {
 	// Own-wins inheritance keeps both hook instances shadowing this — do not
 	// remove their funcs.
 	rootCmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
-		return usageError(err)
+		return preRunError{usageError(err)}
 	})
 
 	// Arg-count validator errors (NoArgs / ExactArgs / MaximumNArgs on the
@@ -121,20 +123,87 @@ func init() {
 	}
 }
 
+// preRunError tags an error raised before the invoked command's RunE runs —
+// flag-parse failures (the root FlagErrorFunc) and Args-validator failures
+// (usageArgs). The --json envelope contract starts at RunE entry (spec §
+// Envelope boundary): pre-RunE failures keep cobra's stderr error and exit 2
+// with no stdout document, so jsonErrorEnvelope skips them. Unwrap keeps
+// exitCode's errors.As reaching the carried *exitCodeError.
+type preRunError struct{ err error }
+
+func (e preRunError) Error() string { return e.err.Error() }
+func (e preRunError) Unwrap() error { return e.err }
+
 // usageArgs wraps a cobra positional-args validator so a non-nil validation error
 // is re-tagged as usage-class (exit 2) while preserving the original message. A
 // nil result (valid args) passes through unchanged.
 func usageArgs(v cobra.PositionalArgs) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if err := v(cmd, args); err != nil {
-			return usageError(err)
+			return preRunError{usageError(err)}
 		}
 		return nil
 	}
 }
 
 func execute() {
-	if err := rootCmd.Execute(); err != nil {
+	out := &writeTracker{w: os.Stdout}
+	rootCmd.SetOut(out)
+	execCmd, err := rootCmd.ExecuteC()
+	if err != nil {
+		if !out.wrote {
+			jsonErrorEnvelope(execCmd, err)
+		}
 		os.Exit(exitCode(err))
 	}
+}
+
+// writeTracker is the root's stdout for the process: it records whether any
+// command wrote data, so execute() knows a failing --json verb that already
+// emitted its own envelope (JSONError, or a verdict-bearing Envelope) needs no
+// second document. Subcommands inherit it through cmd.OutOrStdout().
+type writeTracker struct {
+	w     io.Writer
+	wrote bool
+}
+
+func (t *writeTracker) Write(p []byte) (int, error) {
+	if len(p) > 0 {
+		t.wrote = true
+	}
+	return t.w.Write(p)
+}
+
+// jsonErrorEnvelope is execute()'s central --json failure writer: it writes
+// the {"ok":false,"error":{…}} envelope to the executed command's stdout iff
+// the command opted into --json (a parsed `json` bool flag reading true), the
+// failure happened at or after RunE entry (not a preRunError), and Envelope
+// has not already written a document for this error (not an envelopedError);
+// execute() adds the fourth guard — nothing written to stdout yet — for verbs
+// that emit through JSONError and return a plain error.
+// Verbs therefore change only their success-path encoder; every early
+// `return err` inside RunE gets the envelope here. Pure — no os.Exit, no I/O
+// beyond the envelope write — and reports whether it wrote so root_test.go
+// can exercise it without execute().
+func jsonErrorEnvelope(cmd *cobra.Command, err error) bool {
+	if cmd == nil || err == nil {
+		return false
+	}
+	var pre preRunError
+	if errors.As(err, &pre) {
+		return false
+	}
+	var env envelopedError
+	if errors.As(err, &env) {
+		return false
+	}
+	if cmd.Flags().Lookup("json") == nil {
+		return false
+	}
+	if jsonOn, flagErr := cmd.Flags().GetBool("json"); flagErr != nil || !jsonOn {
+		return false
+	}
+	sink := outputSink{data: cmd.OutOrStdout()}
+	_ = sink.Envelope(nil, err)
+	return true
 }

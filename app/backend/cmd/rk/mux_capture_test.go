@@ -47,23 +47,26 @@ func TestMuxCaptureRawByteIdentical(t *testing.T) {
 	}
 }
 
-// TestMuxCaptureJSONShape: --json carries the documented shape with nulls for
-// uninstrumented fields (R2/R3).
+// TestMuxCaptureJSONShape: --json wraps the documented shape in the standard
+// envelope (R8), with nulls for uninstrumented fields (R2/R3).
 func TestMuxCaptureJSONShape(t *testing.T) {
 	f := &muxFake{states: map[string]string{"%5": ""}} // uninstrumented
 	installMuxFakes(t, f)
 
 	stdout, _, err := runMuxCmd(t, "capture", "%5", "--json", "--lines", "200")
 	if err != nil {
-		t.Fatalf("err = %v", err)
+		t.Fatalf("err = %v, want exit 0", err)
 	}
 	want := "{\n" +
-		"  \"pane\": \"%5\",\n" +
-		"  \"lines\": 200,\n" +
-		"  \"content\": \"line one\\nline two\\n\",\n" +
-		"  \"cwd\": \"/home/x/code/repo\",\n" +
-		"  \"agent_state\": null,\n" +
-		"  \"agent_state_duration\": null\n" +
+		"  \"ok\": true,\n" +
+		"  \"result\": {\n" +
+		"    \"pane\": \"%5\",\n" +
+		"    \"lines\": 200,\n" +
+		"    \"content\": \"line one\\nline two\\n\",\n" +
+		"    \"cwd\": \"/home/x/code/repo\",\n" +
+		"    \"agent_state\": null,\n" +
+		"    \"agent_state_duration\": null\n" +
+		"  }\n" +
 		"}\n"
 	if stdout != want {
 		t.Errorf("stdout = %q, want %q", stdout, want)
@@ -202,19 +205,19 @@ func TestMuxCaptureClassifyJSON(t *testing.T) {
 	}{
 		{
 			"matched", "building...\nOverwrite file [y/N]\n", []string{"--json", "--classify"},
-			"  \"questions\": {\n" +
-				"    \"indicator\": \"yes_no\",\n" +
-				"    \"snippet\": \"Overwrite file [y/N]\",\n" +
-				"    \"reason\": null\n" +
-				"  }\n",
+			"    \"questions\": {\n" +
+				"      \"indicator\": \"yes_no\",\n" +
+				"      \"snippet\": \"Overwrite file [y/N]\",\n" +
+				"      \"reason\": null\n" +
+				"    }\n",
 		},
 		{
 			"none with reason", "   \n", []string{"--json", "--classify"},
-			"  \"questions\": {\n" +
-				"    \"indicator\": \"none\",\n" +
-				"    \"snippet\": \"\",\n" +
-				"    \"reason\": \"blank_capture\"\n" +
-				"  }\n",
+			"    \"questions\": {\n" +
+				"      \"indicator\": \"none\",\n" +
+				"      \"snippet\": \"\",\n" +
+				"      \"reason\": \"blank_capture\"\n" +
+				"    }\n",
 		},
 		{"absent without flag", "Overwrite file [y/N]\n", []string{"--json"}, ""},
 	}
@@ -236,8 +239,8 @@ func TestMuxCaptureClassifyJSON(t *testing.T) {
 			if !strings.Contains(stdout, tc.wantQ) {
 				t.Errorf("stdout = %q, want questions block %q", stdout, tc.wantQ)
 			}
-			// The six existing keys still precede it in order.
-			if !strings.HasSuffix(stdout, "  \"agent_state_duration\": null,\n"+tc.wantQ+"}\n") {
+			// The six existing keys still precede it in order, inside the envelope.
+			if !strings.HasSuffix(stdout, "    \"agent_state_duration\": null,\n"+tc.wantQ+"  }\n}\n") {
 				t.Errorf("stdout = %q, want questions as the trailing key", stdout)
 			}
 		})

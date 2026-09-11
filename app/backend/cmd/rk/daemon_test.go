@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
@@ -104,13 +103,11 @@ func TestDaemonStatusJSON_ShapeIsValid(t *testing.T) {
 	t.Cleanup(func() { rootCmd.SetArgs(nil) })
 
 	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("rk daemon status --json failed: %v", err)
+		t.Fatalf("rk daemon status --json failed: %v, want exit 0", err)
 	}
 
 	var got statusReport
-	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
-		t.Fatalf("status output is not valid JSON: %v\noutput: %q", err, buf.String())
-	}
+	unwrapEnvelopeResult(t, buf.String(), &got)
 	if got.Daemon.Running {
 		t.Errorf("expected daemon.running=false (no production daemon), got true")
 	}

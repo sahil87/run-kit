@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"text/tabwriter"
 
@@ -23,8 +22,9 @@ import (
 // The default listing is the user-facing candidate set (`role: user` only);
 // --all includes infrastructure sessions labeled with their roles. Output
 // shapes and exit codes mirror `rk mux panes`: aligned table by default
-// (stdout carries rows, stderr diagnostics), --json a two-space-indented
-// array; exit 0 on success including an alive-but-empty server ([] under
+// (stdout carries rows, stderr diagnostics), --json the two-space-indented
+// array inside the standard {"ok","result"} envelope; exit 0 on success
+// including an alive-but-empty server ("result": [] under
 // --json, liveness-probed to separate it from a dead socket), 1 operational,
 // 2 usage.
 
@@ -46,7 +46,8 @@ var muxSessionsCmd = &cobra.Command{
 		"rows labeled with their roles. Session-group copies fold onto their " +
 		"leader, and the attached count credits viewers to the leader row. " +
 		"Substrate facts only — no change/stage fields.\n\n" +
-		"--json emits the machine-readable array. The server resolves via the " +
+		"--json emits the machine-readable array, wrapped in the standard " +
+		"{\"ok\":true,\"result\":…} envelope. The server resolves via the " +
 		"family's -L/--server flag (default: your own server, from $TMUX).",
 	Example: `  rk mux sessions
   rk mux sessions --all
@@ -113,9 +114,7 @@ func runMuxSessions(cmd *cobra.Command) error {
 	}
 
 	if muxSessionsJSONFlag {
-		enc := json.NewEncoder(sink.data)
-		enc.SetIndent("", "  ")
-		return enc.Encode(rows)
+		return sink.Envelope(rows, nil)
 	}
 
 	w := tabwriter.NewWriter(sink.data, 2, 8, 2, ' ', 0)

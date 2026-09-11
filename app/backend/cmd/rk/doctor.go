@@ -795,17 +795,14 @@ var doctorCmd = &cobra.Command{
 	Short: "Check runtime dependencies",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		report := runDoctorChecks()
+		sink := newSink(cmd)
 
 		if doctorJSON {
-			data, err := json.MarshalIndent(report, "", "  ")
-			if err != nil {
-				return fmt.Errorf("encoding doctor JSON: %w", err)
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), string(data))
+			var reportErr error
 			if !report.OK {
-				return fmt.Errorf("one or more dependency checks failed")
+				reportErr = fmt.Errorf("one or more dependency checks failed")
 			}
-			return nil
+			return sink.Envelope(report, reportErr)
 		}
 
 		// Human diagnostic output goes to stderr (Principle 2: this is status,
@@ -813,7 +810,6 @@ var doctorCmd = &cobra.Command{
 		// Under --quiet (Principle 9) the banner, [ OK ] rows, and success tail
 		// are chatter and drop; [FAIL] rows carry the remediation hint (actionable
 		// error detail) and MUST survive, so they write to ungated stderr.
-		sink := newSink(cmd)
 		stderr := cmd.ErrOrStderr()
 		sink.Notef("Checking runtime dependencies...\n")
 		for _, c := range report.Checks {
@@ -835,7 +831,7 @@ var doctorCmd = &cobra.Command{
 }
 
 func init() {
-	doctorCmd.Flags().BoolVar(&doctorJSON, "json", false, "Emit the dependency report as JSON to stdout")
+	doctorCmd.Flags().BoolVar(&doctorJSON, "json", false, "Emit the dependency report as JSON to stdout, wrapped in the {\"ok\",\"result\"} envelope")
 }
 
 // --- agent hooks check -----------------------------------------------------

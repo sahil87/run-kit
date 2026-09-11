@@ -1,0 +1,55 @@
+id: ehm2
+name: 260911-ehm2-cli-json-read-verbs
+created: 2026-09-11T16:56:29Z
+created_by: sahil87
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 17
+    acceptance_count: 29
+    acceptance_completed: 29
+confidence:
+    certain: 10
+    confident: 10
+    tentative: 0
+    unresolved: 0
+    score: 3.7
+    fuzzy: true
+    dimensions:
+        signal: 77.8
+        reversibility: 83.5
+        competence: 86.3
+        disambiguation: 77.0
+stage_metrics:
+    intake: {started_at: "2026-09-11T16:56:29Z", driver: fab-new, iterations: 1, completed_at: "2026-09-11T17:04:29Z"}
+    apply: {started_at: "2026-09-11T17:04:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:01:11Z"}
+    review: {started_at: "2026-09-11T18:01:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:08:11Z"}
+    hydrate: {started_at: "2026-09-11T18:08:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:17:03Z"}
+    ship: {started_at: "2026-09-11T18:17:03Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-11T18:17:03Z"
+    computed_at_stage: hydrate
+summary: --json envelope on every rk read verb, --json on mux snapshot list and gui shot, MCP tools snapshot_list and gui_shot (12 tools)
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-11T18:17:03Z

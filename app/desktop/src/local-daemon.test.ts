@@ -174,6 +174,48 @@ test("parseDaemonStatusRunning reads full rk daemon status reports", () => {
   assert.equal(parseDaemonStatusRunning(stopped), false);
 });
 
+test("parseDaemonStatusRunning reads the envelope form from current rk", () => {
+  const running = `{
+  "ok": true,
+  "result": {
+    "daemon": { "running": true, "socket": "rk-daemon", "pid": 4242 },
+    "port": { "host": "127.0.0.1", "port": 3000, "state": "held-by-daemon" }
+  }
+}
+`;
+  const stopped = `{
+  "ok": true,
+  "result": {
+    "daemon": { "running": false },
+    "port": { "host": "127.0.0.1", "port": 3000, "state": "free" }
+  }
+}
+`;
+  assert.equal(parseDaemonStatusRunning(running), true);
+  assert.equal(parseDaemonStatusRunning(stopped), false);
+});
+
+test("parseDaemonStatusRunning still reads the bare form from an older rk", () => {
+  assert.equal(parseDaemonStatusRunning('{"daemon":{"running":false}}'), false);
+  assert.equal(parseDaemonStatusRunning('{"daemon":{"running":true}}'), true);
+});
+
+test("parseDaemonStatusRunning degrades to null on an ok:false envelope", () => {
+  const failure = `{
+  "ok": false,
+  "error": { "code": "daemon_unreachable", "message": "socket gone" }
+}
+`;
+  assert.equal(parseDaemonStatusRunning(failure), null);
+});
+
+test("parseDaemonStatusRunning tolerates malformed envelope payloads", () => {
+  assert.equal(parseDaemonStatusRunning('{"ok":true}'), null);
+  assert.equal(parseDaemonStatusRunning('{"ok":true,"result":{}}'), null);
+  assert.equal(parseDaemonStatusRunning('{"ok":true,"result":{"daemon":{}}}'), null);
+  assert.equal(parseDaemonStatusRunning('{"ok":true,"result":{"daemon":{"running":"yes"}}}'), null);
+});
+
 test("parseDaemonStatusRunning tolerates missing or malformed output", () => {
   assert.equal(parseDaemonStatusRunning('{"daemon":{}}'), null);
   assert.equal(parseDaemonStatusRunning('{"other":{"running":true}}'), null);

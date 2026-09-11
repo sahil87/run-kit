@@ -56,7 +56,7 @@ rk present --window=report ./dist/                # explicit name
 `rk present` is sugar over the `rk tab` family; the same verbs drive the follow-up:
 
 ```sh
-rk tab web ls                    # the strip: index, '*' on active, url (--json for machines)
+rk tab web ls                    # the strip: index, '*' on active, url (--json for machines: {"ok":true,"result":{…}})
 rk tab web select 2              # switch the tile to tab 2 (also @N/web/2 on another tab)
 rk tab web rm 2                  # drop tab 2; slots above shift down
 rk tab layout                    # print the effective layout (unset ⇒ single:tty)

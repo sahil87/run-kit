@@ -59,7 +59,7 @@ rk cron edit a3f9 --idle-every 3m  # replace one field in place, keeping id + hi
 rk cron rm a3f9                    # remove by id
 ```
 
-`list` is disk-derived — zero tmux probes, so listing never resurrects a dead server; `--json` emits the same records as a JSON array. `edit` REPLACES each field passed and keeps the rest; a bare `edit <id>` is a usage error. **Target and creator are immutable** — to retarget, `rm` + `add`. A schedule or deliver change logs a `rescheduled` line and resets the schedule's anchor.
+`list` is disk-derived — zero tmux probes, so listing never resurrects a dead server; `--json` emits the same records as a JSON array inside the standard envelope (`{"ok":true,"result":[…]}`). `edit` REPLACES each field passed and keeps the rest; a bare `edit <id>` is a usage error. **Target and creator are immutable** — to retarget, `rm` + `add`. A schedule or deliver change logs a `rescheduled` line and resets the schedule's anchor.
 
 Every entry-file verb resolves one server via `-L/--server` — else your own server (from `$TMUX`), else `default`. `rk cron tick` runs one flock-guarded evaluation sweep across every live server (the debug invoker — the daemon ticks on its own, so `tick` rejects `-L`).
 
@@ -76,7 +76,7 @@ rk cron add "post a status line on where you are" --idle-every 5m --session 4fe2
 rk cron add "morning standup soon — summarize what I have open" --cron "0 9 * * *" --catch-up once --role operator
 
 # Mute the operator tick for 2h (the lease lapses on its own):
-rk cron mute "$(rk cron list --json | jq -r '.[] | select(.name == "operator tick") | .id')" --for 2h
+rk cron mute "$(rk cron list --json | jq -r '.result[] | select(.name == "operator tick") | .id')" --for 2h
 
 # Move an entry to a new cadence:
 rk cron edit a3f9 --every 2h

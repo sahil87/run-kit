@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,12 +66,10 @@ func TestCronListEmpty(t *testing.T) {
 
 	stdout, _, err = runCronCmd(t, "list", "--json")
 	if err != nil {
-		t.Fatalf("list --json: %v", err)
+		t.Fatalf("list --json: %v, want exit 0", err)
 	}
 	var records []cronListRecord
-	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
-		t.Fatalf("unmarshal: %v (stdout %q)", err, stdout)
-	}
+	unwrapEnvelopeResult(t, stdout, &records)
 	if len(records) != 0 {
 		t.Errorf("records = %v, want empty array", records)
 	}
@@ -122,12 +119,10 @@ func TestCronListJSON(t *testing.T) {
 
 	stdout, _, err := runCronCmd(t, "list", "--json")
 	if err != nil {
-		t.Fatalf("list --json: %v", err)
+		t.Fatalf("list --json: %v, want exit 0", err)
 	}
 	var records []cronListRecord
-	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
-		t.Fatalf("unmarshal: %v (stdout %q)", err, stdout)
-	}
+	unwrapEnvelopeResult(t, stdout, &records)
 	if len(records) != 3 {
 		t.Fatalf("records = %d, want 3", len(records))
 	}
@@ -180,12 +175,10 @@ entries:
 
 	stdout, _, err = runCronCmd(t, "list", "--json")
 	if err != nil {
-		t.Fatalf("list --json: %v", err)
+		t.Fatalf("list --json: %v, want exit 0", err)
 	}
 	var records []cronListRecord
-	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
-		t.Fatalf("unmarshal: %v (stdout %q)", err, stdout)
-	}
+	unwrapEnvelopeResult(t, stdout, &records)
 	if len(records) != 1 || records[0].Deliver != cron.DeliverSkipIfBusy {
 		t.Errorf("records = %+v, want the s1kp row with deliver skip-if-busy", records)
 	}
@@ -203,12 +196,10 @@ func TestCronListJSONIntentFields(t *testing.T) {
 
 	stdout, _, err := runCronCmd(t, "list", "--json")
 	if err != nil {
-		t.Fatalf("list --json: %v", err)
+		t.Fatalf("list --json: %v, want exit 0", err)
 	}
 	var raw []map[string]any
-	if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
-		t.Fatalf("unmarshal: %v (stdout %q)", err, stdout)
-	}
+	unwrapEnvelopeResult(t, stdout, &raw)
 	if len(raw) != 3 {
 		t.Fatalf("records = %d, want 3", len(raw))
 	}
@@ -299,12 +290,10 @@ entries:
 
 	stdout, stderr, err := runCronCmd(t, "list", "--json")
 	if err != nil {
-		t.Fatalf("list: %v — a corrupt entry must not fail the listing", err)
+		t.Fatalf("list: %v — a corrupt entry must not fail the listing (want exit 0)", err)
 	}
 	var records []cronListRecord
-	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
-		t.Fatalf("unmarshal: %v (stdout %q)", err, stdout)
-	}
+	unwrapEnvelopeResult(t, stdout, &records)
 	if len(records) != 1 || records[0].ID != "a3f9" {
 		t.Fatalf("records = %+v, want only the valid entry", records)
 	}
@@ -352,12 +341,10 @@ entries:
 
 	stdout, _, err = runCronCmd(t, "list", "--json")
 	if err != nil {
-		t.Fatalf("list --json: %v", err)
+		t.Fatalf("list --json: %v, want exit 0", err)
 	}
 	var raw []map[string]any
-	if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
-		t.Fatalf("unmarshal: %v (stdout %q)", err, stdout)
-	}
+	unwrapEnvelopeResult(t, stdout, &raw)
 	if len(raw) != 2 {
 		t.Fatalf("records = %d, want 2", len(raw))
 	}

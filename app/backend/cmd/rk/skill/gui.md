@@ -32,7 +32,7 @@ rk gui exec -- xdotool key --clearmodifiers minus  # `--` ends flag parsing
 
 ```sh
 rk gui windows          # ID PID GEOMETRY TITLE rows, sorted by X id; the active row ends in " *"
-rk gui windows --json   # [{id, pid, x, y, width, height, title, active, app}]
+rk gui windows --json   # {"ok":true,"result":[{id, pid, x, y, width, height, title, active, app}]}
 rk gui focus --title Terminal   # or: rk gui focus <id>
 ```
 
@@ -59,9 +59,10 @@ Coordinates are **display pixels**, integers ≥ 0. Typed text rides stdin to `x
 rk gui shot [--out x.png]                # full-res; default prints an absolute temp PNG path
 rk gui shot --scale 0.5                  # 960x540 on a 1920x1080 display — the loop's cheap look (--max-width derives the scale)
 rk gui shot --window <id>                # one window (id from `windows`)
+rk gui shot --json                       # {"ok":true,"result":{path,width,height,scale,display[,window]}}
 ```
 
-stdout is **only the absolute PNG path** — read that file to *look* at the display. stderr always carries `geometry WxH scale S` (the source geometry and applied scale): divide shot coordinates by S to get the display pixels the input verbs take. Tool ladder: `import`, then `scrot`, then `xwd`+`convert`; none installed → the apt hint, exit 1. Scaling and `--window` need ImageMagick (`--scale needs imagemagick — sudo apt install imagemagick`; scrot has no by-id capture, so `--window` refuses on that rung). `--scale` (0, 1] with `--max-width` is usage (exit 2).
+stdout is **only the absolute PNG path** — read that file to *look* at the display; under `--json` stdout is the envelope instead, `result` carrying the `path` plus the source `width`/`height`, the applied `scale`, the `display`, and `window` only with `--window`. stderr always carries `geometry WxH scale S` (the source geometry and applied scale — the same three facts `result` carries under `--json`): divide shot coordinates by S to get the display pixels the input verbs take. Tool ladder: `import`, then `scrot`, then `xwd`+`convert`; none installed → the apt hint, exit 1. Scaling and `--window` need ImageMagick (`--scale needs imagemagick — sudo apt install imagemagick`; scrot has no by-id capture, so `--window` refuses on that rung). `--scale` (0, 1] with `--max-width` is usage (exit 2).
 
 ## `rk gui wait` — stop guessing sleeps
 

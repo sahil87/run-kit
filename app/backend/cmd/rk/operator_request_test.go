@@ -202,7 +202,7 @@ func TestOperatorRequestWindowScopedHappyPath(t *testing.T) {
 	if len(rec.gotBody) != 1 || rec.gotBody["template"] != "annotate-tab" {
 		t.Errorf("body = %v (%s), want exactly the template key", rec.gotBody, rec.gotRawBody)
 	}
-	want := "{\"ok\":true,\"result\":{\"template\":\"annotate-tab\",\"window\":\"@7\",\"queued\":false}}\n"
+	want := "{\n  \"ok\": true,\n  \"result\": {\n    \"template\": \"annotate-tab\",\n    \"window\": \"@7\",\n    \"queued\": false\n  }\n}\n"
 	if stdout != want {
 		t.Errorf("stdout = %q, want exactly %q (fixed receipt field order)", stdout, want)
 	}
@@ -279,7 +279,7 @@ func TestOperatorRequest202QueuedIsSuccess(t *testing.T) {
 		if err != nil {
 			t.Fatalf("err = %v, want exit 0 — a 202 is a success", err)
 		}
-		want := "{\"ok\":true,\"result\":{\"template\":\"brief-me\",\"queued\":true}}\n"
+		want := "{\n  \"ok\": true,\n  \"result\": {\n    \"template\": \"brief-me\",\n    \"queued\": true\n  }\n}\n"
 		if stdout != want {
 			t.Errorf("stdout = %q, want exactly %q (no window key server-scoped)", stdout, want)
 		}
@@ -303,7 +303,7 @@ func TestOperatorRequestChatTemplateReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
-	want := "{\"ok\":true,\"result\":{\"template\":\"user-message\",\"window\":\"@2\",\"queued\":false}}\n"
+	want := "{\n  \"ok\": true,\n  \"result\": {\n    \"template\": \"user-message\",\n    \"window\": \"@2\",\n    \"queued\": false\n  }\n}\n"
 	if stdout != want {
 		t.Errorf("stdout = %q, want exactly %q", stdout, want)
 	}
@@ -330,7 +330,7 @@ func TestOperatorRequest400MapsToUsage(t *testing.T) {
 	if err == nil || exitCode(err) != 2 {
 		t.Fatalf("--json err = %v, want exit 2", err)
 	}
-	want := "{\"ok\":false,\"error\":{\"code\":\"usage\",\"message\":\"operator template \\\"brief-me\\\" requires a non-empty text\"}}\n"
+	want := "{\n  \"ok\": false,\n  \"error\": {\n    \"code\": \"usage\",\n    \"message\": \"operator template \\\"brief-me\\\" requires a non-empty text\"\n  }\n}\n"
 	if stdout != want {
 		t.Errorf("stdout = %q, want exactly %q", stdout, want)
 	}
@@ -349,7 +349,7 @@ func TestOperatorRequest409CarriesReasonCode(t *testing.T) {
 	if err == nil || exitCode(err) != 1 {
 		t.Fatalf("err = %v, want exit 1", err)
 	}
-	want := "{\"ok\":false,\"error\":{\"code\":\"operational\",\"message\":\"staged send failed: tmux refused\",\"reason\":\"staged_send_failure\"}}\n"
+	want := "{\n  \"ok\": false,\n  \"error\": {\n    \"code\": \"operational\",\n    \"message\": \"staged send failed: tmux refused\",\n    \"reason\": \"staged_send_failure\"\n  }\n}\n"
 	if stdout != want {
 		t.Errorf("stdout = %q, want exactly %q", stdout, want)
 	}

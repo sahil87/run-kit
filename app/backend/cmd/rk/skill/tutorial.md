@@ -28,7 +28,7 @@ If either check fails, STOP: tell the user to open the HexoKit dashboard, create
 
    ```sh
    mkdir -p /tmp/rk-tutorial
-   rk tab show --json > /tmp/rk-tutorial/original-state.json
+   rk tab show --json > /tmp/rk-tutorial/original-state.json   # envelope — the tab data sits under .result
    rk tab web ls --json > /tmp/rk-tutorial/original-webtabs.json 2>/dev/null || true
    RK="$(rk url)"
    tmux list-windows -a -f '#{||:#{==:#{@rk_win_role},operator},#{==:#{window_name},operator}}' -F '#{window_id} #{window_name}' || true
@@ -83,6 +83,6 @@ Three closers, user-driven. **Phone**: same address, any device — offer `rk no
 
 ## Cleanup and recap
 
-Ask first: keep or remove the worker window and its brief (their first artifact — default keep). Restore this tab: compare `rk tab web ls --json` with the web-tab capture and remove tabs absent from it, highest index first; restore every `@rk_win_*` key from the original-state capture with `tmux set-option -w <key> <value>`; unset (`tmux set-option -wu <key>`) current keys absent from it; verify with `rk tab show --json`; then `rm -rf /tmp/rk-tutorial`.
+Ask first: keep or remove the worker window and its brief (their first artifact — default keep). Restore this tab: both captures and the live reads are envelopes, so compare `rk tab web ls --json`'s `.result` with the web-tab capture's `.result` and remove tabs absent from it, highest index first; restore every `@rk_win_*` key from the original-state capture's `.result` with `tmux set-option -w <key> <value>`; unset (`tmux set-option -wu <key>`) current keys absent from it; verify with `rk tab show --json` (again reading `.result`); then `rm -rf /tmp/rk-tutorial`.
 
 Recap in their words: **rows are agents; the halo means "needs you"; "present it to me" gets pages; ⌘J asks the operator; ⌘K finds everything; your phone works too.** Invite the solo experiment and end.

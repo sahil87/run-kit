@@ -280,14 +280,20 @@ func TestCodeExecJSONEnvelope(t *testing.T) {
 
 	stdout, _, err := runCodeCmd(t, "exec", "workbench.open", "--json")
 	if err != nil {
-		t.Fatalf("exec --json error: %v", err)
+		t.Fatalf("exec --json error: %v, want exit 0", err)
 	}
-	var env codebridge.Response
-	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
-		t.Fatalf("stdout is not the response envelope: %v (%q)", err, stdout)
+	// The bridge Response nests verbatim under the rk envelope's result (R9):
+	// the outer ok is rk's, the inner the bridge's.
+	var resp codebridge.Response
+	unwrapEnvelopeResult(t, stdout, &resp)
+	var opened struct {
+		Opened bool `json:"opened"`
 	}
-	if !env.OK || string(env.Result) != `{"opened":true}` || env.Ms != 7 || env.ID == "" {
-		t.Errorf("envelope = %+v, want ok:true result:{\"opened\":true} ms:7 with a fresh id", env)
+	if jerr := json.Unmarshal(resp.Result, &opened); jerr != nil || !opened.Opened {
+		t.Errorf("result = %s, want {\"opened\":true}", resp.Result)
+	}
+	if !resp.OK || resp.Ms != 7 || resp.ID == "" {
+		t.Errorf("response = %+v, want ok:true ms:7 with a fresh id", resp)
 	}
 }
 
@@ -508,12 +514,10 @@ func TestCodeExecAllJSON(t *testing.T) {
 
 	stdout, _, err := runCodeCmd(t, "exec", "--all", "--json", "some.cmd")
 	if err != nil {
-		t.Fatalf("exec --all --json error: %v", err)
+		t.Fatalf("exec --all --json error: %v, want exit 0", err)
 	}
 	var results []codeAllResult
-	if err := json.Unmarshal([]byte(stdout), &results); err != nil {
-		t.Fatalf("stdout is not the --all array: %v (%q)", err, stdout)
-	}
+	unwrapEnvelopeResult(t, stdout, &results)
 	if len(results) != 2 {
 		t.Fatalf("results = %d entries, want 2", len(results))
 	}
@@ -550,16 +554,27 @@ func TestCodeExecAllPartialFailureExitsOne(t *testing.T) {
 		t.Errorf("stderr = %q, want the failing host's error line", stderr)
 	}
 
-	// --json still carries one entry per live host, the failure as a not-ok
-	// envelope.
+	// --json still carries one entry per live host under result, the failure as
+	// a not-ok bridge envelope; the outer envelope is ok:false with the verdict.
 	stdout, _, err = runCodeCmd(t, "exec", "--all", "--json", "some.cmd")
 	if err == nil || exitCode(err) != 1 {
 		t.Fatalf("--json: err = %v (code %d), want exit 1", err, exitCode(err))
 	}
-	var results []codeAllResult
-	if err := json.Unmarshal([]byte(stdout), &results); err != nil {
-		t.Fatalf("--all --json stdout: %v (%q)", err, stdout)
+	var env struct {
+		OK     bool            `json:"ok"`
+		Result []codeAllResult `json:"result"`
+		Error  *envelopeError  `json:"error"`
 	}
+	if jerr := json.Unmarshal([]byte(stdout), &env); jerr != nil {
+		t.Fatalf("--all --json stdout: %v (%q)", jerr, stdout)
+	}
+	if env.OK {
+		t.Errorf("ok = true, want false when a host failed (stdout %s)", stdout)
+	}
+	if env.Error == nil || env.Error.Message != "at least one host failed" {
+		t.Errorf("error = %+v, want the %q verdict beside result", env.Error, "at least one host failed")
+	}
+	results := env.Result
 	if len(results) != 2 || results[1].Response.OK || results[1].Response.Error == nil ||
 		results[1].Response.Error.Kind != codebridge.ErrKindThrew {
 		t.Errorf("results = %+v, want the failing host as a not-ok threw envelope", results)
@@ -603,12 +618,10 @@ func TestCodeHostsJSON(t *testing.T) {
 
 	stdout, _, err := runCodeCmd(t, "hosts", "--json")
 	if err != nil {
-		t.Fatalf("hosts --json error: %v", err)
+		t.Fatalf("hosts --json error: %v, want exit 0", err)
 	}
 	var records []codebridge.HostRecord
-	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
-		t.Fatalf("stdout is not a host-record array: %v (%q)", err, stdout)
-	}
+	unwrapEnvelopeResult(t, stdout, &records)
 	if len(records) != 2 || records[0].HostID != "aa01" || records[1].HostID != "bb02" {
 		t.Errorf("records = %+v, want aa01 and bb02 sorted by host id", records)
 	}
@@ -627,10 +640,10 @@ func TestCodeHostsEmpty(t *testing.T) {
 
 	stdout, _, err = runCodeCmd(t, "hosts", "--json")
 	if err != nil {
-		t.Fatalf("hosts --json error: %v", err)
+		t.Fatalf("hosts --json error: %v, want exit 0", err)
 	}
-	if stdout != "[]\n" {
-		t.Errorf("stdout = %q, want %q for zero hosts under --json", stdout, "[]\n")
+	if want := "{\n  \"ok\": true,\n  \"result\": []\n}\n"; stdout != want {
+		t.Errorf("stdout = %q, want %q for zero hosts under --json", stdout, want)
 	}
 }
 
@@ -942,12 +955,10 @@ func TestCodeHostsTableTabColumns(t *testing.T) {
 	// --json carries the fields (omitempty on the record: absent when unset).
 	stdout, _, err = runCodeCmd(t, "hosts", "--json")
 	if err != nil {
-		t.Fatalf("hosts --json error: %v", err)
+		t.Fatalf("hosts --json error: %v, want exit 0", err)
 	}
 	var records []codebridge.HostRecord
-	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
-		t.Fatalf("stdout is not a host-record array: %v (%q)", err, stdout)
-	}
+	unwrapEnvelopeResult(t, stdout, &records)
 	if len(records) != 2 || records[0].Tab != "@3" || records[0].Server != "dev" ||
 		records[1].Tab != "" || records[1].Server != "" {
 		t.Errorf("records = %+v, want aa01 with tab/server and bb02 without", records)

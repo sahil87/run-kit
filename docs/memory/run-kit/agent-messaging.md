@@ -77,6 +77,14 @@ aliases that run byte-identically while printing cobra's deprecation pointer;
 `rk tmux-guard` survives as a PERMANENT hidden root alias (never warns, never
 removed — installed shims exec the literal name).
 
+The four `--json` read verbs — `sessions`, `panes`, `capture`, `process` — emit
+the standard rk JSON envelope (convention in [cli](/run-kit/architecture/cli.md)):
+`{"ok":true,"result":<document>}` on success, with the verb's document nested
+byte-for-byte under `result` (no key renames or reordering), and
+`{"ok":false,"error":{"code":"usage"|"operational","message":…}}` on failure.
+`ok` mirrors the exit code; exit codes are unchanged. Machine consumers read
+`.result` (jq `.result[]`, not `.[]`). (260911-ehm2-cli-json-read-verbs)
+
 ## Requirements
 
 ### Requirement: Strict target grammar and agent-pane resolution
@@ -476,7 +484,8 @@ trip by `tmux.PaneFactsCtx` (the parse + pid-liveness reconcile shared with
 change/stage fields are NOT carried (choreography facts, fab's layer). The
 duration shows for `idle` **and** `waiting` (epoch > 0), never `active`,
 formatted floor `Ns`/`Nm`/`Nh` via `sessions.FormatAgentDuration` (the
-`rollupAgentState` semantics). `--json` emits (two-space-indented):
+`rollupAgentState` semantics). Under `--json` the envelope's `result` document
+carries (two-space-indented):
 `{"pane", "lines", "content", "cwd", "agent_state", "agent_state_duration"}`
 with the agent fields `null` when the pane is uninstrumented. A missing pane or
 tmux failure is operational (exit 1) carrying tmux's stderr diagnostic.
@@ -501,7 +510,7 @@ so exit stays 0. It scans exactly the captured `--lines` window (fab passes
 — raw output is byte-identical by contract. Human output gains exactly one
 header line after the context line (or directly after `--- pane %N ---` when
 that line is omitted): `question: {indicator} — {snippet}` or `question: none
-({reason})`. `--json` gains a `questions` object as the trailing key — present
+({reason})`. Under `--json` the `result` document gains a `questions` object as the trailing key — present
 **only** under `--classify`, so the six-key shape is otherwise byte-identical —
 with fixed keys `indicator` (class name or `none`), `snippet` (`""` when none),
 `reason` (`null` when matched, else the reason).
@@ -516,7 +525,7 @@ with fixed keys `indicator` (class name or `none`), `snippet` (`""` when none),
 #### Scenario: Classify reports a pending prompt on a hook-less pane
 - **GIVEN** an uninstrumented pane whose last screen line is `Overwrite file [y/N]`
 - **WHEN** `rk mux capture %5 --lines 20 --classify --json` runs
-- **THEN** the output ends with `"questions": {"indicator": "yes_no", "snippet":
+- **THEN** the `result` document ends with `"questions": {"indicator": "yes_no", "snippet":
   "Overwrite file [y/N]", "reason": null}` and exit is 0; **AND GIVEN** the last
   two lines are `done` / `>`, **THEN** `questions` is `{"indicator": "none",
   "snippet": "", "reason": "turn_boundary"}`; **AND WHEN** `--classify --raw` is
@@ -592,7 +601,8 @@ is the single helper `paneHasAgent(ctx, pid, agentPID)` (discovery through the
 `process` prints the tree it returns, `panes` consumes only the bool. Human
 output: `Pane %5 (PID 1234)` plus indented
 `PID comm [class]` lines (the tag omitted for `other`) plus a trailing
-`Agent process detected.` when `has_agent`. `--json` emits (two-space-indented):
+`Agent process detected.` when `has_agent`. Under `--json` the envelope's
+`result` document is (two-space-indented):
 `{"pane", "pane_pid", "processes": [{pid, ppid, comm, cmdline, classification,
 children}], "has_agent"}`.
 
@@ -618,7 +628,8 @@ facts only** — no change/stage/display-state keys (choreography enrichment is
 the fab layer's job, per cli-layering Part 8). The default output is an aligned
 one-pane-per-row table (session, window `index:name`, pane ID, active markers,
 agent state + duration, command, cwd) on stdout; diagnostics go to stderr.
-`--json` emits a two-space-indented array, one object per pane, with exactly
+Under `--json` the envelope's `result` is a two-space-indented array, one
+object per pane, with exactly
 `session`, `session_id`, `window_index`, `window_id`, `window_name`,
 `window_active`, `pane`, `pane_index`, `pane_active`, `command`, `cwd`,
 `agent_state`, `agent_state_duration`, `has_agent` — in that order, `has_agent`
@@ -646,7 +657,7 @@ schema is the primary declaration of the pane identity-key contract fab's
 `fab pane map` re-emits (`pane` + `server` context and `window_id` are the
 identity keys; `session`/`window_index` are display columns). Exit codes follow
 the toolkit convention: **0** success — including an alive server with nothing
-to list (`[]` under `--json`; an empty enumeration is liveness-probed via
+to list (`"result": []` under `--json`; an empty enumeration is liveness-probed via
 `tmux.ServerAlive` to separate "alive, empty" from "no server"); **1**
 operational (no server on the resolved socket, tmux failure) carrying tmux's
 diagnostic on stderr; **2** usage.
@@ -654,7 +665,7 @@ diagnostic on stderr; **2** usage.
 #### Scenario: Empty enumeration succeeds; a dead socket is operational
 - **GIVEN** an alive server with no sessions
 - **WHEN** `rk mux panes --json` runs
-- **THEN** it prints `[]` and exits 0; **AND GIVEN** no server on socket
+- **THEN** the envelope's `result` is `[]` and exit is 0; **AND GIVEN** no server on socket
   `nope`, **WHEN** `rk mux panes -L nope` runs, **THEN** exit is 1 with tmux's
   diagnostic on stderr; **AND GIVEN** a stray positional argument, **THEN**
   exit 2.
@@ -689,13 +700,14 @@ human clients via the `ListClients` group-key join (control-mode/ignore-size
 attaches excluded, group-copy viewers credited to the leader). Output and exit
 codes are the `panes` conventions: aligned table
 (`NAME ROLE ATTACHED WINDOWS PATH`) on stdout / diagnostics on stderr, `--json`
-a two-space-indented array; **0** success including alive-but-empty (`[]`,
+the envelope with `result` a two-space-indented array; **0** success including
+alive-but-empty (`result` `[]`,
 `ServerAlive`-probed), **1** operational, **2** usage.
 
 #### Scenario: Default lists the spawn-candidate set; --all labels infrastructure
 - **GIVEN** a server holding `_rk-ctl`, `_rk-operator`, and `fabKit`
 - **WHEN** `rk mux sessions --json` runs
-- **THEN** the array carries exactly the `fabKit` row (`role: user`)
+- **THEN** the `result` array carries exactly the `fabKit` row (`role: user`)
 - **AND WHEN** `rk mux sessions --all --json` runs
 - **THEN** all three rows appear with roles `control`, `operator`, `user`
 

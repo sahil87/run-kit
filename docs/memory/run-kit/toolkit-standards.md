@@ -305,12 +305,13 @@ the seventeenth surface measured against the same checks
   the web verbs. The help-dump test's real-tree walk covers the family
   automatically.
 - **Principle 9: one datum per verb on stdout — data.** Every verb routes
-  through `newSink(cmd)`: `tab new` prints `@N` bare, or under `--json`
-  (Principle 2's opt-in envelope) the `{session, window_id, pane_id}` object
-  — two-space indented, through the data sink so it survives `--quiet` —
-  carrying one extra `ready` key when `--ready` gated the create (the verdict
-  word rides the envelope because the bare datum has no room for a second
-  word); `tab web add` prints
+  through `newSink(cmd)`: `tab new` prints `@N` bare, or under `--json` the
+  `{session, window_id, pane_id}` object inside `result` of the Principle 2
+  `{ok,result|error}` envelope — two-space indented, through the data sink so
+  it survives `--quiet` — carrying one extra `ready` key when `--ready` gated
+  the create (the verdict key rides `result` because the bare datum has no
+  room for a second word; a `gone` verdict emits `ok:false` with the object
+  still in `result`); `tab web add` prints
   `@N/web/<n>` (the resolved URL echoes to stderr), `tab web mv` prints the
   resulting `@N/web/<m>` address, `tab layout` prints the resulting layout
   value, `tab web ls` prints `index`/`marker`/`url` rows and `tab show` prints
@@ -331,8 +332,8 @@ the seventeenth surface measured against the same checks
   `docs/site/skill.md` carries a "drive the tab UI" capability line —
   `rk tab new [--layout L] [--name N] [--json] [--ready] [-- CMD…]` with the
   argv-after-`--` rule, the `-- sh -c "…"` expansion recipe, the shell-fallback
-  / `--no-shell-fallback` note, and the `{session, window_id, pane_id}`
-  `--json` envelope — and one
+  / `--no-shell-fallback` note, and the standard `--json` envelope
+  (`{"ok":true,"result":{session, window_id, pane_id}}`) — and one
   quickref row per verb group; `docs/site/skill/display.md`'s follow-up-moves
   section teaches `rk tab web ls|select|rm` and `rk tab layout` after the
   `rk present` recipe; `docs/site/skill/code.md` teaches `rk code exec --tab`.
@@ -1075,9 +1076,24 @@ PASS — no principle gaps remain open. The conformance mechanisms:
 - **P1 (Non-interactive by default)** — `rk agent setup` consents non-interactively
   via `--yes`/`-y` + `--dry-run`, and refuses a non-TTY prompt naming `--yes`. See
   [agent-state](/run-kit/agent-state.md) § `rk agent setup` for the consent flow.
-- **P2 (stdout is data)** — `status` and `doctor` carry a machine format via
-  `--json` (data to stdout; `doctor`'s human diagnostic stays on stderr). See
+- **P2 (stdout is data)** — every `rk … --json` read verb emits one stable
+  machine format: the `{ok,result|error}` envelope —
+  `{"ok":true,"result":<doc>}` on success,
+  `{"ok":false,"error":{"code":"usage"|"operational","message":…}}` on failure
+  (verdict-bearing verbs also carry `result` on the failure branch). `ok`
+  mirrors the exit code; the verb's document keeps its shape verbatim inside
+  `result` — the envelope wraps, never reshapes, so shape-stability guarantees
+  apply to the document inside `result`. Seventeen verbs emit it (`mux
+  sessions`/`panes`/`capture`/`process`, `status`, `cron list`, `gui
+  status`/`windows`, `tab show`/`web ls`/`new`, `code exec` (single and
+  `--all`), `code hosts`, `doctor`, `daemon status`, `mux snapshot list`,
+  `gui shot`); the convention is owned by `outputSink.Envelope`
+  (`cmd/rk/output.go`) plus the central failure writer (`cmd/rk/root.go`), and
+  there is no unwrapped `--json` form. The one boundary: pre-`RunE` usage
+  errors (flag-parse, `Args` validators) emit no envelope — bare stderr, exit
+  2. `doctor`'s human diagnostic stays on stderr. See
   [cli](/run-kit/architecture/cli.md) § CLI Subcommands.
+  (260911-ehm2-cli-json-read-verbs)
 - **P5 (Visible mutation boundaries)** — the `agent-setup --dry-run` above also
   satisfies P5's destructive-write preview requirement.
 
@@ -1452,7 +1468,8 @@ socket) is **empty-success** — `[]` on stdout, exit 0, stderr empty — delibe
 `internal/tmux.ListSessions` behavior, matching the human path's
 `No tmux sessions found` + exit 0. An **errorful unreachability** (stale socket,
 permission error — a genuine tmux failure) surfaces the error on stderr with a
-non-zero exit and **no partial JSON** on stdout.
+non-zero exit and a complete `{"ok":false,"error":{…}}` envelope on stdout —
+**never a partial JSON document**.
 **Why**: an empty result is data, not a failure, so a machine consumer must be
 able to distinguish "nothing running" (parse `[]`) from "tmux broke" (non-zero
 exit) — and must never parse a truncated document as complete. Both paths were

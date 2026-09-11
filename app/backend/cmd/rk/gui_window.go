@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -29,8 +28,9 @@ rows of 'ID PID GEOMETRY TITLE' (geometry WxH+X+Y), the active window's row
 suffixed ' *'. A window whose client sets no _NET_WM_PID lists pid 0; a bare
 display (no EWMH window manager) marks nothing active — neither is an error.
 
---json emits [{id, pid, x, y, width, height, title, active, app}] (app is the
-pid's /proc comm; an empty display emits []).
+--json emits the standard {"ok":true,"result":…} envelope around
+[{id, pid, x, y, width, height, title, active, app}] (app is the
+pid's /proc comm; an empty display emits "result": []).
 
 Refuses (exit 1) when the GUI is off or enabled but not running, or when
 xdotool is not installed (the apt hint).`,
@@ -128,11 +128,9 @@ func runGuiWindows(cmd *cobra.Command, _ []string) error {
 	}
 	sink := newSink(cmd)
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-		data, err := json.Marshal(windows)
-		if err != nil {
+		if err := sink.Envelope(windows, nil); err != nil {
 			return fmt.Errorf("encoding the window list: %w", err)
 		}
-		sink.Dataf("%s\n", data)
 		return nil
 	}
 	for _, w := range windows {

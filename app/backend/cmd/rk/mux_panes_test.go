@@ -9,7 +9,8 @@ import (
 	"rk/internal/tmux"
 )
 
-// TestMuxPanesJSONShape: --json carries exactly the documented key set, with
+// TestMuxPanesJSONShape: --json wraps exactly the documented key set in the
+// standard envelope (R8), with
 // null agent fields for the uninstrumented shell pane and an idle duration for
 // the instrumented one (R2), and has_agent last: null for the node-foreground
 // pane (not walked), true for the shell pane whose default discover fixture
@@ -22,42 +23,45 @@ func TestMuxPanesJSONShape(t *testing.T) {
 
 	stdout, _, err := runMuxCmd(t, "panes", "--json")
 	if err != nil {
-		t.Fatalf("err = %v", err)
+		t.Fatalf("err = %v, want exit 0", err)
 	}
-	want := "[\n" +
-		"  {\n" +
-		"    \"session\": \"work\",\n" +
-		"    \"session_id\": \"$3\",\n" +
-		"    \"window_index\": 0,\n" +
-		"    \"window_id\": \"@3\",\n" +
-		"    \"window_name\": \"editor\",\n" +
-		"    \"window_active\": true,\n" +
-		"    \"pane\": \"%5\",\n" +
-		"    \"pane_index\": 0,\n" +
-		"    \"pane_active\": true,\n" +
-		"    \"command\": \"node\",\n" +
-		"    \"cwd\": \"/home/x/code/repo\",\n" +
-		"    \"agent_state\": \"idle\",\n" +
-		"    \"agent_state_duration\": \"5m\",\n" +
-		"    \"has_agent\": null\n" +
-		"  },\n" +
-		"  {\n" +
-		"    \"session\": \"work\",\n" +
-		"    \"session_id\": \"$3\",\n" +
-		"    \"window_index\": 0,\n" +
-		"    \"window_id\": \"@3\",\n" +
-		"    \"window_name\": \"editor\",\n" +
-		"    \"window_active\": true,\n" +
-		"    \"pane\": \"%6\",\n" +
-		"    \"pane_index\": 1,\n" +
-		"    \"pane_active\": false,\n" +
-		"    \"command\": \"zsh\",\n" +
-		"    \"cwd\": \"/home/x/code/repo\",\n" +
-		"    \"agent_state\": null,\n" +
-		"    \"agent_state_duration\": null,\n" +
-		"    \"has_agent\": true\n" +
-		"  }\n" +
-		"]\n"
+	want := "{\n" +
+		"  \"ok\": true,\n" +
+		"  \"result\": [\n" +
+		"    {\n" +
+		"      \"session\": \"work\",\n" +
+		"      \"session_id\": \"$3\",\n" +
+		"      \"window_index\": 0,\n" +
+		"      \"window_id\": \"@3\",\n" +
+		"      \"window_name\": \"editor\",\n" +
+		"      \"window_active\": true,\n" +
+		"      \"pane\": \"%5\",\n" +
+		"      \"pane_index\": 0,\n" +
+		"      \"pane_active\": true,\n" +
+		"      \"command\": \"node\",\n" +
+		"      \"cwd\": \"/home/x/code/repo\",\n" +
+		"      \"agent_state\": \"idle\",\n" +
+		"      \"agent_state_duration\": \"5m\",\n" +
+		"      \"has_agent\": null\n" +
+		"    },\n" +
+		"    {\n" +
+		"      \"session\": \"work\",\n" +
+		"      \"session_id\": \"$3\",\n" +
+		"      \"window_index\": 0,\n" +
+		"      \"window_id\": \"@3\",\n" +
+		"      \"window_name\": \"editor\",\n" +
+		"      \"window_active\": true,\n" +
+		"      \"pane\": \"%6\",\n" +
+		"      \"pane_index\": 1,\n" +
+		"      \"pane_active\": false,\n" +
+		"      \"command\": \"zsh\",\n" +
+		"      \"cwd\": \"/home/x/code/repo\",\n" +
+		"      \"agent_state\": null,\n" +
+		"      \"agent_state_duration\": null,\n" +
+		"      \"has_agent\": true\n" +
+		"    }\n" +
+		"  ]\n" +
+		"}\n"
 	if stdout != want {
 		t.Errorf("stdout = %q, want %q", stdout, want)
 	}
@@ -271,7 +275,7 @@ func TestMuxPanesTableOutput(t *testing.T) {
 }
 
 // TestMuxPanesEmptyEnumeration: an alive server with nothing to list is a
-// success — [] under --json, the bare header otherwise (R4).
+// success — "result": [] under --json, the bare header otherwise (R4/R8).
 func TestMuxPanesEmptyEnumeration(t *testing.T) {
 	f := &muxFake{paneSessions: []tmux.SessionInfo{}, paneSessionsSet: true}
 	installMuxFakes(t, f)
@@ -280,8 +284,8 @@ func TestMuxPanesEmptyEnumeration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v, want exit 0 on an empty enumeration", err)
 	}
-	if stdout != "[]\n" {
-		t.Errorf("stdout = %q, want []", stdout)
+	if want := "{\n  \"ok\": true,\n  \"result\": []\n}\n"; stdout != want {
+		t.Errorf("stdout = %q, want %q", stdout, want)
 	}
 
 	stdout, _, err = runMuxCmd(t, "panes")

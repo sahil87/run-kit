@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -25,8 +24,9 @@ var tabShowCmd = &cobra.Command{
 	Short: "Dump every @rk_win_* option of a tab",
 	Long: "Dump a tab's @rk_win_* tmux options (layout, web-tab family, code root)\n" +
 		"in one read: key<TAB>value rows sorted by key, so 'rk tab show | grep web_'\n" +
-		"works. --json prints the flat object. An empty tab prints nothing and\n" +
-		"exits 0 — an unset tab is a state, not an error.",
+		"works. --json prints the flat object inside the standard {\"ok\",\"result\"}\n" +
+		"envelope. An empty tab prints nothing and exits 0 — an unset tab is a\n" +
+		"state, not an error.",
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE:         runTabShow,
@@ -34,7 +34,7 @@ var tabShowCmd = &cobra.Command{
 
 func init() {
 	tabShowCmd.Flags().BoolVar(&tabShowJSONFlag, "json", false,
-		"Print the options as a flat JSON object")
+		"Print the options as a flat JSON object inside the {\"ok\",\"result\"} envelope")
 }
 
 func runTabShow(cmd *cobra.Command, args []string) error {
@@ -56,11 +56,9 @@ func runTabShow(cmd *cobra.Command, args []string) error {
 
 	sink := newSink(cmd)
 	if tabShowJSONFlag {
-		b, err := json.Marshal(opts)
-		if err != nil {
+		if err := sink.Envelope(opts, nil); err != nil {
 			return fmt.Errorf("encoding window options: %w", err)
 		}
-		sink.Dataf("%s\n", b)
 		return nil
 	}
 

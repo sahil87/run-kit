@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"rk/internal/riff"
 )
@@ -347,5 +350,132 @@ func TestRiffExitClassMapping(t *testing.T) {
 		if tc.got != tc.want {
 			t.Errorf("riff.%s = %d, want %d", tc.name, tc.got, tc.want)
 		}
+	}
+}
+
+// runFailingVerb builds a minimal root+verb pair and drives it through the
+// exact wiring execute() runs — ExecuteC, then jsonErrorEnvelope on a non-nil
+// error — without os.Exit, so the central --json failure writer is testable
+// in-process. It returns the captured stdout and the ExecuteC error.
+func runFailingVerb(t *testing.T, withJSONFlag bool, argv []string, runErr error) (string, error, bool) {
+	t.Helper()
+	root := &cobra.Command{Use: "rk", SilenceUsage: true, SilenceErrors: true}
+	var out bytes.Buffer
+	root.SetOut(&out)
+	verb := &cobra.Command{
+		Use:  "verb",
+		RunE: func(*cobra.Command, []string) error { return runErr },
+	}
+	if withJSONFlag {
+		verb.Flags().Bool("json", false, "")
+	}
+	root.AddCommand(verb)
+	root.SetArgs(argv)
+	execCmd, err := root.ExecuteC()
+	if err == nil {
+		t.Fatalf("rk %v: expected the RunE error, got nil", argv)
+	}
+	wrote := jsonErrorEnvelope(execCmd, err)
+	return out.String(), err, wrote
+}
+
+// TestJSONErrorEnvelope pins the central failure-writer contract (R3): a
+// --json command's RunE error gets exactly one {"ok":false,"error":{…}}
+// document on its stdout with code derived from exitCode; already-enveloped,
+// pre-RunE-tagged, and non-json-flagged failures get nothing; and the write
+// never changes the exit-code classification of the error.
+func TestJSONErrorEnvelope(t *testing.T) {
+	cases := []struct {
+		name         string
+		withJSONFlag bool
+		argv         []string
+		runErr       error
+		wantWrote    bool
+		wantCode     string
+		wantExit     int
+	}{
+		{"operational RunE error under --json → envelope", true, []string{"verb", "--json"}, errors.New("tmux is dead"), true, "operational", 1},
+		{"usage RunE error under --json → code usage", true, []string{"verb", "--json"}, usageError(errors.New("accepts 1 arg(s), received 0")), true, "usage", exitUsage},
+		{"already-enveloped error → no second write", true, []string{"verb", "--json"}, envelopedError{errors.New("boom")}, false, "", 1},
+		{"pre-RunE tagged error → no write", true, []string{"verb", "--json"}, preRunError{usageError(errors.New("unknown flag: --bogus"))}, false, "", exitUsage},
+		{"json flag registered but not set → no write", true, []string{"verb"}, errors.New("boom"), false, "", 1},
+		{"no json flag at all → no write", false, []string{"verb"}, errors.New("boom"), false, "", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, err, wrote := runFailingVerb(t, tc.withJSONFlag, tc.argv, tc.runErr)
+
+			if wrote != tc.wantWrote {
+				t.Errorf("jsonErrorEnvelope wrote = %v, want %v (stdout: %q)", wrote, tc.wantWrote, stdout)
+			}
+			if got := exitCode(err); got != tc.wantExit {
+				t.Errorf("exitCode(%v) = %d, want %d — the envelope write must not change exit codes", err, got, tc.wantExit)
+			}
+			if !tc.wantWrote {
+				if stdout != "" {
+					t.Errorf("stdout = %q, want empty", stdout)
+				}
+				return
+			}
+			var doc map[string]any
+			if uErr := json.Unmarshal([]byte(stdout), &doc); uErr != nil {
+				t.Fatalf("stdout must be one JSON document: %v\ngot %q", uErr, stdout)
+			}
+			if doc["ok"] != false {
+				t.Errorf("ok = %v, want false", doc["ok"])
+			}
+			if _, hasResult := doc["result"]; hasResult {
+				t.Errorf("central writer carries no result: %v", doc)
+			}
+			envErr, ok := doc["error"].(map[string]any)
+			if !ok {
+				t.Fatalf("error key missing or wrong type: %v", doc)
+			}
+			if envErr["code"] != tc.wantCode {
+				t.Errorf("error.code = %v, want %q", envErr["code"], tc.wantCode)
+			}
+			if envErr["message"] != tc.runErr.Error() {
+				t.Errorf("error.message = %v, want %q", envErr["message"], tc.runErr.Error())
+			}
+		})
+	}
+}
+
+// TestJSONErrorEnvelope_FlagParseFailureStaysBare pins the R4 boundary
+// end-to-end through real cobra machinery: `verb --json --bogus` fails flag
+// parsing AFTER pflag has already applied --json (pflag parses sequentially),
+// so the parsed json flag reads true — yet stdout must stay empty because the
+// root FlagErrorFunc tags the failure preRunError and RunE never ran. Exit
+// stays 2.
+func TestJSONErrorEnvelope_FlagParseFailureStaysBare(t *testing.T) {
+	root := &cobra.Command{Use: "rk", SilenceUsage: true, SilenceErrors: true}
+	var out bytes.Buffer
+	root.SetOut(&out)
+	verb := &cobra.Command{
+		Use: "verb",
+		RunE: func(*cobra.Command, []string) error {
+			t.Error("RunE must not run on a flag-parse failure")
+			return nil
+		},
+	}
+	verb.Flags().Bool("json", false, "")
+	root.AddCommand(verb)
+	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return preRunError{usageError(err)}
+	})
+	root.SetArgs([]string{"verb", "--json", "--bogus"})
+
+	execCmd, err := root.ExecuteC()
+	if err == nil {
+		t.Fatal("expected a flag-parse error, got nil")
+	}
+	if jsonErrorEnvelope(execCmd, err) {
+		t.Error("pre-RunE flag-parse failure must not emit an envelope")
+	}
+	if got := out.String(); got != "" {
+		t.Errorf("stdout = %q, want empty (R4: no envelope before RunE)", got)
+	}
+	if got := exitCode(err); got != exitUsage {
+		t.Errorf("exitCode = %d, want %d (usage)", got, exitUsage)
 	}
 }

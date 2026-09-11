@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -237,5 +238,68 @@ func TestMapImageResult(t *testing.T) {
 	res = MapResult("gui_shot", row, ToolTimeoutCap, Outcome{Stderr: []byte("no display\n"), ExitCode: 1})
 	if !res.IsError || !strings.Contains(textOf(t, res), "exit 1: no display") {
 		t.Errorf("exit!=0 image row = %v %v", res.IsError, res.Content)
+	}
+}
+
+// TestMapImageResultEnvelope: an --json envelope stdout is unwrapped — ok:true
+// reads result.path and carries the result document beside the image;
+// ok:false renders the error with no file read; a missing or non-string
+// result.path is an error naming the field.
+func TestMapImageResultEnvelope(t *testing.T) {
+	row := Row{Tool: "gui_shot", Result: ResultImage}
+	dir := t.TempDir()
+	png := filepath.Join(dir, "shot.png")
+	if err := os.WriteFile(png, append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, 1, 2, 3), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	envelope := fmt.Sprintf(`{"ok":true,"result":{"path":%q,"width":8,"height":8,"scale":1,"display":":1"}}`, png)
+	res := MapResult("gui_shot", row, ToolTimeoutCap, Outcome{Stdout: []byte(envelope)})
+	if res.IsError {
+		t.Fatalf("IsError on an enveloped success: %v", res.Content)
+	}
+	if len(res.Content) != 2 {
+		t.Fatalf("content blocks = %d, want 2", len(res.Content))
+	}
+	img, ok := res.Content[0].(*mcpsdk.ImageContent)
+	if !ok {
+		t.Fatalf("content[0] is %T, want *ImageContent", res.Content[0])
+	}
+	if img.MIMEType != "image/png" || len(img.Data) != 11 {
+		t.Errorf("image block = %v bytes, mime %q", len(img.Data), img.MIMEType)
+	}
+	tc, ok := res.Content[1].(*mcpsdk.TextContent)
+	if !ok {
+		t.Fatalf("content[1] is %T, want *TextContent", res.Content[1])
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(tc.Text), &doc); err != nil {
+		t.Fatalf("text block is not JSON: %v", err)
+	}
+	if doc["width"] != float64(8) || doc["display"] != ":1" || doc["path"] != png {
+		t.Errorf("text block = %v, want the result document (width 8, display :1, path)", doc)
+	}
+
+	// ok:false renders mapEnvelope's error document without touching the
+	// filesystem — the named path must never be read.
+	gone := filepath.Join(dir, "gone.png")
+	res = MapResult("gui_shot", row, ToolTimeoutCap, Outcome{
+		Stdout:   []byte(fmt.Sprintf(`{"ok":false,"result":{"path":%q},"error":{"code":"operational","message":"no display"}}`, gone)),
+		ExitCode: 1,
+	})
+	if !res.IsError {
+		t.Fatal("enveloped failure must be IsError")
+	}
+	if text := textOf(t, res); !strings.Contains(text, "no display") || strings.Contains(text, gone) {
+		t.Errorf("enveloped failure text = %q, want the error message and no path probe", text)
+	}
+
+	res = MapResult("gui_shot", row, ToolTimeoutCap, Outcome{Stdout: []byte(`{"ok":true,"result":{"width":8}}`)})
+	if !res.IsError || !strings.Contains(textOf(t, res), "path") {
+		t.Errorf("missing result.path = %v %v", res.IsError, res.Content)
+	}
+	res = MapResult("gui_shot", row, ToolTimeoutCap, Outcome{Stdout: []byte(`{"ok":true,"result":{"path":42}}`)})
+	if !res.IsError || !strings.Contains(textOf(t, res), "path") {
+		t.Errorf("non-string result.path = %v %v", res.IsError, res.Content)
 	}
 }

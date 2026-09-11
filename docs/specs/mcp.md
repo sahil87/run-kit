@@ -98,10 +98,14 @@ stdout; diagnostics stay on stderr. Two shapes:
 - `ok` mirrors the exit code, and **exit codes are unchanged by `--json`**:
   exit 0 ⇔ `ok:true`; exit 2 ⇔ `code:"usage"`; exit 1 (and `riff`'s 3, subprocess)
   ⇔ `code:"operational"`.
+- A verdict-bearing verb (`doctor`, `tab new` on `gone`, `code exec --all`) that
+  fails with its document still in hand emits **both** `result` (its document) and
+  `error` in one envelope, with `ok:false` mirroring the non-zero exit code.
 - `result` is the verb's own shape. Verbs that already emit `--json` today
   (`mux sessions`, `mux panes`, `mux capture`, `mux process`, `status`, `cron list`,
-  `gui status`, `gui windows`, `tab show`, `tab web ls`, `code exec`, `code hosts`,
-  `doctor`, `daemon status`) keep their current document **verbatim inside `result`**
+  `gui status`, `gui windows`, `tab show`, `tab new`, `tab web ls`, `code exec`,
+  `code hosts`, `doctor`, `daemon status`) keep their current document **verbatim
+  inside `result`**
   — the envelope wraps, it never reshapes. The unwrapped form retires when the
   envelope lands on that verb; there is no compatibility flag.
 - `error.message` is the same text the human path prints to stderr. `error.hint` is
@@ -212,10 +216,10 @@ not this spec's.
 | See | `capture` | `mux capture <target> --json` | ro | yes |
 | See | `process` | `mux process <target> --json` | ro | yes |
 | See | `status` | `status --json` | ro | yes |
-| See | `snapshot_list` | `mux snapshot list [server]` | ro | no |
+| See | `snapshot_list` | `mux snapshot list [server] --json` | ro | yes |
 | See | `cron_list` | `cron list --json` | ro | yes |
 | See | `gui_status` | `gui status --json` | ro | yes |
-| See | `gui_shot` | `gui shot` → image block | ro | no (prints a path) |
+| See | `gui_shot` | `gui shot --json` → image block | ro | yes |
 | See | `tab_show` | `tab show @N --json` | ro | yes |
 | See | `tab_web_ls` | `tab web ls @N --json` | ro | yes |
 | Talk | `send` | `mux send <target> -` (body on stdin) | — | yes (envelope) |

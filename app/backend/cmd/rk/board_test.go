@@ -170,8 +170,10 @@ func TestBoardShowListJSONPassThrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("show --json: %v", err)
 	}
-	if stdout != body+"\n" {
-		t.Errorf("stdout = %q, want the body byte-for-byte plus a newline", stdout)
+	var got []map[string]any
+	unwrapEnvelopeResult(t, stdout, &got)
+	if len(got) != 1 || got[0]["name"] != "work" || got[0]["pinCount"] != float64(3) || got[0]["futureField"] != true {
+		t.Errorf("result = %v, want the route body's keys passed through undecoded (incl. futureField)", got)
 	}
 }
 
@@ -246,8 +248,10 @@ func TestBoardPinJSONReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pin --json: %v", err)
 	}
-	if stdout != `{"board":"work","window":"@7"}`+"\n" {
-		t.Errorf("stdout = %q", stdout)
+	var got map[string]string
+	unwrapEnvelopeResult(t, stdout, &got)
+	if len(got) != 2 || got["board"] != "work" || got["window"] != "@7" {
+		t.Errorf("result = %v, want {board:work window:@7}", got)
 	}
 }
 
@@ -285,8 +289,10 @@ func TestBoardUnpin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unpin --json: %v", err)
 	}
-	if stdout != `{"board":"work","window":"@7"}`+"\n" {
-		t.Errorf("stdout = %q", stdout)
+	var got map[string]string
+	unwrapEnvelopeResult(t, stdout, &got)
+	if len(got) != 2 || got["board"] != "work" || got["window"] != "@7" {
+		t.Errorf("result = %v, want {board:work window:@7}", got)
 	}
 }
 
@@ -321,8 +327,10 @@ func TestBoardReorderNeighbours(t *testing.T) {
 	if v, present := h.body["before"]; !present || v != nil {
 		t.Errorf("before = %v (present %v), want JSON null", v, present)
 	}
-	if stdout != `{"board":"work","window":"@7","orderKey":"a0V"}`+"\n" {
-		t.Errorf("stdout = %q", stdout)
+	var reorderGot map[string]string
+	unwrapEnvelopeResult(t, stdout, &reorderGot)
+	if len(reorderGot) != 3 || reorderGot["board"] != "work" || reorderGot["window"] != "@7" || reorderGot["orderKey"] != "a0V" {
+		t.Errorf("result = %v, want {board:work window:@7 orderKey:a0V}", reorderGot)
 	}
 
 	// Neither neighbour means append: both null.

@@ -49,7 +49,7 @@ var snapshotRestoreFn = snapshot.Restore
 // would never print for `rk snapshot <sub>`. Hidden on the parent alone
 // suffices — it drops the whole subtree from help and the help-dump.
 func newSnapshotCmd(deprecated bool) *cobra.Command {
-	var listAll bool
+	var listAll, listJSON bool
 	var showAt, restoreAt int64
 
 	parent := &cobra.Command{
@@ -63,13 +63,14 @@ is kept as a ` + "`{server}.died-{ts}.json`" + ` tombstone.
 
 Subcommands:
   list     show available snapshots (live + died) with ages and counts
+           (--json emits the machine form — every row, no cap)
   show     print a stored layout without touching tmux
   restore  recreate a dead server's layout (fresh shells at the recorded
            working directories — former commands are reported, never relaunched)`,
 	}
 
 	list := &cobra.Command{
-		Use:   "list [<server>]",
+		Use:   "list [<server>] [--json]",
 		Short: "List available layout snapshots (live + died)",
 		Args:  usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -90,6 +91,11 @@ Subcommands:
 			rows, err := store.List(filter)
 			if err != nil {
 				return err
+			}
+			// --json carries every row: snapshotListCap and --all bound only the
+			// rendered table.
+			if listJSON {
+				return newSink(cmd).Envelope(snapshotListJSONRows(rows), nil)
 			}
 			renderSnapshotList(cmd.OutOrStdout(), rows, listAll)
 			return nil
@@ -149,6 +155,8 @@ window). Refuses to run when the target server is alive with sessions.`,
 
 	list.Flags().BoolVar(&listAll, "all", false,
 		"print the full list instead of the default 10-row cap (display-only)")
+	list.Flags().BoolVar(&listJSON, "json", false,
+		"emit the snapshot list as a JSON envelope (every row; the cap and --all are display-only)")
 	show.Flags().Int64Var(&showAt, "at", 0,
 		"select a history/tombstone entry by its unix timestamp (default: latest)")
 	restore.Flags().Int64Var(&restoreAt, "at", 0,
@@ -210,6 +218,41 @@ func formatSnapshotAge(t time.Time) string {
 	default:
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
+}
+
+// snapshotListJSONRow is one `list --json` row: a snapshot.Entry with
+// snake_case keys and RFC 3339 UTC timestamps; died_at is null exactly when
+// the server is live.
+type snapshotListJSONRow struct {
+	Server       string  `json:"server"`
+	TakenAt      string  `json:"taken_at"`
+	DiedAt       *string `json:"died_at"`
+	AuditedKill  bool    `json:"audited_kill"`
+	Sessions     int     `json:"sessions"`
+	Windows      int     `json:"windows"`
+	HistoryCount int     `json:"history_count"`
+}
+
+// snapshotListJSONRows maps Store.List's newest-first entries to --json rows.
+// The result is never nil, so an empty store emits "result": [] — never null.
+func snapshotListJSONRows(entries []snapshot.Entry) []snapshotListJSONRow {
+	rows := make([]snapshotListJSONRow, 0, len(entries))
+	for _, e := range entries {
+		row := snapshotListJSONRow{
+			Server:       e.Server,
+			TakenAt:      e.TakenAt.UTC().Format(time.RFC3339),
+			AuditedKill:  e.AuditedKill,
+			Sessions:     e.Sessions,
+			Windows:      e.Windows,
+			HistoryCount: e.HistoryCount,
+		}
+		if e.DiedAt != nil {
+			died := e.DiedAt.UTC().Format(time.RFC3339)
+			row.DiedAt = &died
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 // renderSnapshotList prints one row per snapshot entry, capped at

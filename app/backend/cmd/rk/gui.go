@@ -276,7 +276,8 @@ Screen Sharing off) when it is not. When running, the apps on the display
 are listed indented below.
 
 --json emits the machine-readable status document (the same document GET
-/api/gui/host serves). Always exits 0 — this is state, not a verdict.`,
+/api/gui/host serves) wrapped in the standard {"ok":true,"result":…} envelope.
+Always exits 0 — this is state, not a verdict.`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runGuiStatus,
@@ -511,11 +512,9 @@ func runGuiStatus(cmd *cobra.Command, _ []string) error {
 		if fetchedOK {
 			doc = fetched
 		}
-		data, err := json.MarshalIndent(doc, "", "  ")
-		if err != nil {
+		if err := sink.Envelope(doc, nil); err != nil {
 			return fmt.Errorf("encoding gui status: %w", err)
 		}
-		sink.Dataf("%s\n", data)
 		return nil
 	}
 	sink.Dataf("%s\n", guiStatusSummary(st))

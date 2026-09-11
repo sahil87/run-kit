@@ -76,7 +76,8 @@ var boardShowCmd = &cobra.Command{
 		"order) or, with a name, one board's pinned windows (windowId, server,\n" +
 		"session, windowIndex, windowName, pane count — in orderKey order).\n" +
 		"An empty list prints nothing and exits 0. --json prints the route body\n" +
-		"verbatim. -L is accepted and ignored: the list aggregates across servers.",
+		"verbatim inside the {ok, result} envelope. -L is accepted and ignored: the\n" +
+		"list aggregates across servers.",
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE:         runBoardShow,
@@ -89,7 +90,7 @@ var boardPinCmd = &cobra.Command{
 		"The window addresses as @N or =session:window exactly as in rk tab; -L\n" +
 		"names the tmux server the window lives on (default: the caller's own\n" +
 		"server from $TMUX, else the default server). Prints 'pinned @N to <name>';\n" +
-		"--json prints {\"board\",\"window\"}.",
+		"--json prints {\"board\",\"window\"} inside the {ok, result} envelope.",
 	Args:         cobra.ExactArgs(2),
 	SilenceUsage: true,
 	RunE:         runBoardPin,
@@ -101,7 +102,7 @@ var boardUnpinCmd = &cobra.Command{
 	Long: "Remove a window from a board; the window stays alive in its home\n" +
 		"session. The window addresses as @N or =session:window exactly as in\n" +
 		"rk tab; -L names the tmux server the window lives on. Prints\n" +
-		"'unpinned @N from <name>'; --json prints {\"board\",\"window\"}.",
+		"'unpinned @N from <name>'; --json prints {\"board\",\"window\"} inside the {ok, result} envelope.",
 	Args:         cobra.ExactArgs(2),
 	SilenceUsage: true,
 	RunE:         runBoardUnpin,
@@ -114,7 +115,7 @@ var boardReorderCmd = &cobra.Command{
 		"windows by id (@N only — the API takes window ids, so =session:window\n" +
 		"does not resolve here); passing neither appends, passing both places the\n" +
 		"window between them. Prints 'reordered @N on <name> → <orderKey>';\n" +
-		"--json prints {\"board\",\"window\",\"orderKey\"}.",
+		"--json prints {\"board\",\"window\",\"orderKey\"} inside the {ok, result} envelope.",
 	Args:         cobra.ExactArgs(2),
 	SilenceUsage: true,
 	RunE:         runBoardReorder,
@@ -162,7 +163,7 @@ type boardReorderBody struct {
 
 // boardEntryRow mirrors api.BoardEntryResponse for the human show <name> path
 // (Panes decodes only for its count). The --json path never decodes — it
-// passes the body through byte-for-byte.
+// hands the body to the envelope as a RawMessage, keys untouched.
 type boardEntryRow struct {
 	Server      string            `json:"server"`
 	WindowID    string            `json:"windowId"`
@@ -260,10 +261,10 @@ func runBoardShow(cmd *cobra.Command, args []string) error {
 
 	sink := newSink(cmd)
 	if boardJSONFlag {
-		// Byte-for-byte pass-through (no re-marshal): a daemon-side field
-		// addition arrives without a CLI release.
-		sink.Dataf("%s\n", body)
-		return nil
+		// The route body rides inside the envelope's result as a RawMessage —
+		// keys pass through undecoded, so a daemon-side field addition arrives
+		// without a CLI release (only the indentation is the encoder's).
+		return sink.Envelope(json.RawMessage(body), nil)
 	}
 
 	if name == "" {
@@ -345,12 +346,7 @@ func runBoardPinLike(cmd *cobra.Command, args []string, action string) error {
 
 	sink := newSink(cmd)
 	if boardJSONFlag {
-		b, err := json.Marshal(boardReceipt{Board: name, Window: windowID})
-		if err != nil {
-			return fmt.Errorf("board: encode receipt: %w", err)
-		}
-		sink.Dataf("%s\n", b)
-		return nil
+		return sink.Envelope(boardReceipt{Board: name, Window: windowID}, nil)
 	}
 	if action == "pin" {
 		sink.Dataf("pinned %s to %s\n", windowID, name)
@@ -404,12 +400,7 @@ func runBoardReorder(cmd *cobra.Command, args []string) error {
 			Window   string `json:"window"`
 			OrderKey string `json:"orderKey"`
 		}{Board: name, Window: windowID, OrderKey: resp.NewOrderKey}
-		b, err := json.Marshal(receipt)
-		if err != nil {
-			return fmt.Errorf("board: encode receipt: %w", err)
-		}
-		sink.Dataf("%s\n", b)
-		return nil
+		return sink.Envelope(receipt, nil)
 	}
 	sink.Dataf("reordered %s on %s → %s\n", windowID, name, resp.NewOrderKey)
 	return nil

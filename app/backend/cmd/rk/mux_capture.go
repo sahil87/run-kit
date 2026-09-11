@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -31,7 +30,8 @@ import (
 //
 // (the context line joins only the parts that resolved and is omitted entirely
 // when empty); --raw prints the captured text only, byte-identical to tmux's
-// output; --json emits the metadata wrapper. A duration shows for idle and
+// output; --json emits the metadata wrapper inside the standard
+// {"ok","result"} envelope. A duration shows for idle and
 // waiting (the rollupAgentState semantics — how long at rest / how long the
 // human has been the blocker), never for active. Exit codes follow the toolkit
 // convention: 0 success, 1 operational (missing pane, tmux failure), 2 usage.
@@ -56,7 +56,7 @@ var muxCaptureCmd = &cobra.Command{
 		"plain text — no ANSI escapes — enriched with substrate facts only: the " +
 		"pane's cwd and its reconciled " + tmux.AgentStateOption + " with idle/waiting duration. " +
 		"--raw prints the captured text only (byte-identical to tmux's output); " +
-		"--json emits the metadata wrapper. The content is never trimmed.\n\n" +
+		"--json emits the metadata wrapper inside the standard {\"ok\":true,\"result\":…} envelope. The content is never trimmed.\n\n" +
 		"--classify scans the captured text for a pending prompt (yes/no, numbered " +
 		"menu, colon prompt, open question, press-key) and reports the indicator " +
 		"class with the matched line, or none with a reason — as a question: header " +
@@ -211,9 +211,7 @@ func runMuxCapture(cmd *cobra.Command, target string) error {
 		if muxCaptureClassifyFlag {
 			out.Questions = newMuxCaptureQuestions(classification)
 		}
-		enc := json.NewEncoder(sink.data)
-		enc.SetIndent("", "  ")
-		return enc.Encode(out)
+		return sink.Envelope(out, nil)
 	}
 
 	sink.Dataf("--- pane %s ---\n", paneID)

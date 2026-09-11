@@ -304,15 +304,13 @@ func TestTabNewJSONEnvelope(t *testing.T) {
 
 	stdout, _, err := runTabCmd(t, "new", "--json", "--", "sh", "-c", "sleep 30")
 	if err != nil {
-		t.Fatalf("tab new --json: %v", err)
+		t.Fatalf("tab new --json: %v, want exit 0", err)
 	}
-	if !strings.Contains(stdout, "\n  \"session\":") {
-		t.Errorf("stdout = %q, want two-space-indented JSON", stdout)
+	if !strings.Contains(stdout, "\n    \"session\":") {
+		t.Errorf("stdout = %q, want the identity object nested under result", stdout)
 	}
 	var obj map[string]string
-	if err := json.Unmarshal([]byte(stdout), &obj); err != nil {
-		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
-	}
+	unwrapEnvelopeResult(t, stdout, &obj)
 	if obj["session"] != "boot" {
 		t.Errorf("session = %q, want boot (tmux-reported)", obj["session"])
 	}
@@ -395,12 +393,24 @@ func TestTabNewReadyReports(t *testing.T) {
 			if got := exitCode(err); got != tc.wantExit {
 				t.Fatalf("err = %v (code %d), want exit %d", err, got, tc.wantExit)
 			}
-			var obj map[string]string
-			if jerr := json.Unmarshal([]byte(stdout), &obj); jerr != nil {
-				t.Fatalf("stdout is not JSON: %v\n%s", jerr, stdout)
+			var env struct {
+				OK     bool              `json:"ok"`
+				Result map[string]string `json:"result"`
+				Error  *envelopeError    `json:"error"`
 			}
-			if obj["ready"] != tc.wantWord {
-				t.Errorf("ready = %q, want %q (stdout %s)", obj["ready"], tc.wantWord, stdout)
+			if jerr := json.Unmarshal([]byte(stdout), &env); jerr != nil {
+				t.Fatalf("stdout is not the envelope: %v\n%s", jerr, stdout)
+			}
+			if env.OK != (tc.wantExit == 0) {
+				t.Errorf("ok = %v, want it to mirror exit %d (stdout %s)", env.OK, tc.wantExit, stdout)
+			}
+			if env.Result["ready"] != tc.wantWord {
+				t.Errorf("ready = %q, want %q (stdout %s)", env.Result["ready"], tc.wantWord, stdout)
+			}
+			if tc.wantExit != 0 {
+				if env.Error == nil || env.Error.Message != err.Error() {
+					t.Errorf("error = %+v, want the verdict message %q beside result", env.Error, err.Error())
+				}
 			}
 			if tc.wantStderr != "" && !strings.Contains(stderr, tc.wantStderr) {
 				t.Errorf("stderr = %q, want it to carry %q", stderr, tc.wantStderr)
@@ -436,9 +446,7 @@ func TestTabNewReadyTimeoutReachesSeam(t *testing.T) {
 				t.Errorf("wait timeout = %s, want %s", rec.timeout, tc.want)
 			}
 			var obj map[string]string
-			if jerr := json.Unmarshal([]byte(stdout), &obj); jerr != nil {
-				t.Fatalf("stdout is not JSON: %v\n%s", jerr, stdout)
-			}
+			unwrapEnvelopeResult(t, stdout, &obj)
 			if rec.pane != obj["pane_id"] {
 				t.Errorf("wait pane = %q, want the created pane %q", rec.pane, obj["pane_id"])
 			}
@@ -824,10 +832,10 @@ func TestTabWebLsHumanAndJSON(t *testing.T) {
 
 	stdout, _, err = runTabCmd(t, "web", "ls", id, "--json")
 	if err != nil {
-		t.Fatalf("web ls --json: %v", err)
+		t.Fatalf("web ls --json: %v, want exit 0", err)
 	}
-	if !strings.Contains(stdout, `"windowId":"`+id+`"`) || !strings.Contains(stdout, `"active":2`) ||
-		!strings.Contains(stdout, `"index":1`) || !strings.Contains(stdout, `"url":"/proxy/2/"`) {
+	if !strings.Contains(stdout, `"windowId": "`+id+`"`) || !strings.Contains(stdout, `"active": 2`) ||
+		!strings.Contains(stdout, `"index": 1`) || !strings.Contains(stdout, `"url": "/proxy/2/"`) {
 		t.Errorf("json = %q", stdout)
 	}
 	if strings.Contains(stdout, "root") {
@@ -844,9 +852,9 @@ func TestTabWebLsEmpty(t *testing.T) {
 	}
 	stdout, _, err = runTabCmd(t, "web", "ls", env.bootID, "--json")
 	if err != nil {
-		t.Fatalf("ls --json: %v", err)
+		t.Fatalf("ls --json: %v, want exit 0", err)
 	}
-	if !strings.Contains(stdout, `"tabs":[]`) {
+	if !strings.Contains(stdout, `"tabs": []`) {
 		t.Errorf("json = %q, want tabs: []", stdout)
 	}
 }
@@ -909,10 +917,10 @@ func TestTabShow(t *testing.T) {
 
 	stdout, _, err = runTabCmd(t, "show", id, "--json")
 	if err != nil {
-		t.Fatalf("show --json: %v", err)
+		t.Fatalf("show --json: %v, want exit 0", err)
 	}
-	if !strings.Contains(stdout, `"@rk_win_layout":"split-h:tty,web"`) ||
-		!strings.Contains(stdout, `"@rk_win_web_1":"/proxy/8080/"`) {
+	if !strings.Contains(stdout, `"@rk_win_layout": "split-h:tty,web"`) ||
+		!strings.Contains(stdout, `"@rk_win_web_1": "/proxy/8080/"`) {
 		t.Errorf("json = %q", stdout)
 	}
 }
@@ -934,9 +942,9 @@ func TestTabForeignServerAddress(t *testing.T) {
 	// resolves there without a pane.
 	stdout, _, err := runTabCmd(t, "-L", env.server, "web", "ls", env.bootID, "--json")
 	if err != nil {
-		t.Fatalf("ls -L: %v", err)
+		t.Fatalf("ls -L: %v, want exit 0", err)
 	}
-	if !strings.Contains(stdout, `"windowId":"`+env.bootID+`"`) {
+	if !strings.Contains(stdout, `"windowId": "`+env.bootID+`"`) {
 		t.Errorf("json = %q", stdout)
 	}
 }

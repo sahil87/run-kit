@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -71,12 +70,10 @@ func TestGuiWindowsJSON(t *testing.T) {
 
 	var out bytes.Buffer
 	if err := runGuiWindows(windowsCmdWith(&out, &bytes.Buffer{}, true), nil); err != nil {
-		t.Fatal(err)
+		t.Fatalf("runGuiWindows: %v, want exit 0", err)
 	}
 	var windows []gui.Window
-	if err := json.Unmarshal(out.Bytes(), &windows); err != nil {
-		t.Fatalf("--json output is not the window list: %v (%q)", err, out.String())
-	}
+	unwrapEnvelopeResult(t, out.String(), &windows)
 	if len(windows) != 2 {
 		t.Fatalf("windows = %+v, want 2 rows", windows)
 	}
@@ -93,7 +90,8 @@ func TestGuiWindowsJSON(t *testing.T) {
 }
 
 // xdotool exits 1 with empty stdout when the search matches nothing — an
-// empty display is an empty inventory, never an error.
+// empty display is an empty inventory ("result": [] inside the envelope),
+// never an error.
 func TestGuiWindowsEmptyDisplayEmitsEmptyJSON(t *testing.T) {
 	withGuiXdoSeams(t, map[string][]xdoResult{
 		"search --onlyvisible --name ": {{out: "", err: errors.New("exit status 1")}},
@@ -103,9 +101,9 @@ func TestGuiWindowsEmptyDisplayEmitsEmptyJSON(t *testing.T) {
 
 	var out bytes.Buffer
 	if err := runGuiWindows(windowsCmdWith(&out, &bytes.Buffer{}, true), nil); err != nil {
-		t.Fatal(err)
+		t.Fatalf("runGuiWindows: %v, want exit 0", err)
 	}
-	if got, want := out.String(), "[]\n"; got != want {
+	if got, want := out.String(), "{\n  \"ok\": true,\n  \"result\": []\n}\n"; got != want {
 		t.Errorf("stdout = %q, want %q", got, want)
 	}
 }

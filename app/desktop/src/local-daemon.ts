@@ -176,7 +176,14 @@ export function parseSessionCount(body: unknown): number | null {
   return Array.isArray(body) ? body.length : null;
 }
 
-/** Parse the read-only `rk daemon status --json` running bit. */
+/**
+ * Parse the read-only `rk daemon status --json` running bit. Current rk wraps
+ * the report in an envelope (`{"ok":true,"result":{daemon:…,port:…}}` /
+ * `{"ok":false,"error":…}`); an older rk behind a newer shell emits the bare
+ * report (`{"daemon":{…},"port":{…}}`). The envelope form is detected by a
+ * boolean `ok`; `ok:false` yields null (the daemon detail line degrades,
+ * never an error state).
+ */
 export function parseDaemonStatusRunning(output: string): boolean | null {
   let value: unknown;
   try {
@@ -184,8 +191,14 @@ export function parseDaemonStatusRunning(output: string): boolean | null {
   } catch {
     return null;
   }
-  if (typeof value !== "object" || value === null || !("daemon" in value)) return null;
-  const daemon = value.daemon;
+  if (typeof value !== "object" || value === null) return null;
+  let report: unknown = value;
+  if ("ok" in value && typeof value.ok === "boolean") {
+    if (!value.ok) return null;
+    report = "result" in value ? value.result : undefined;
+  }
+  if (typeof report !== "object" || report === null || !("daemon" in report)) return null;
+  const daemon = report.daemon;
   if (typeof daemon !== "object" || daemon === null || !("running" in daemon)) return null;
   return typeof daemon.running === "boolean" ? daemon.running : null;
 }

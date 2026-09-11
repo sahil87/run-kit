@@ -170,38 +170,42 @@ func TestMuxProcessPIDCrossCheck(t *testing.T) {
 	}
 }
 
-// TestMuxProcessJSONShape: --json emits the documented shape (R5a).
+// TestMuxProcessJSONShape: --json emits the documented shape inside the
+// standard envelope (R5a, R8).
 func TestMuxProcessJSONShape(t *testing.T) {
 	f := &muxFake{}
 	installMuxFakes(t, f)
 
 	stdout, _, err := runMuxCmd(t, "process", "%5", "--json")
 	if err != nil {
-		t.Fatalf("err = %v", err)
+		t.Fatalf("err = %v, want exit 0", err)
 	}
 	want := "{\n" +
-		"  \"pane\": \"%5\",\n" +
-		"  \"pane_pid\": 1234,\n" +
-		"  \"processes\": [\n" +
-		"    {\n" +
-		"      \"pid\": 1234,\n" +
-		"      \"ppid\": 0,\n" +
-		"      \"comm\": \"zsh\",\n" +
-		"      \"cmdline\": \"-zsh\",\n" +
-		"      \"classification\": \"other\",\n" +
-		"      \"children\": [\n" +
-		"        {\n" +
-		"          \"pid\": 1250,\n" +
-		"          \"ppid\": 1234,\n" +
-		"          \"comm\": \"claude\",\n" +
-		"          \"cmdline\": \"claude\",\n" +
-		"          \"classification\": \"agent\",\n" +
-		"          \"children\": []\n" +
-		"        }\n" +
-		"      ]\n" +
-		"    }\n" +
-		"  ],\n" +
-		"  \"has_agent\": true\n" +
+		"  \"ok\": true,\n" +
+		"  \"result\": {\n" +
+		"    \"pane\": \"%5\",\n" +
+		"    \"pane_pid\": 1234,\n" +
+		"    \"processes\": [\n" +
+		"      {\n" +
+		"        \"pid\": 1234,\n" +
+		"        \"ppid\": 0,\n" +
+		"        \"comm\": \"zsh\",\n" +
+		"        \"cmdline\": \"-zsh\",\n" +
+		"        \"classification\": \"other\",\n" +
+		"        \"children\": [\n" +
+		"          {\n" +
+		"            \"pid\": 1250,\n" +
+		"            \"ppid\": 1234,\n" +
+		"            \"comm\": \"claude\",\n" +
+		"            \"cmdline\": \"claude\",\n" +
+		"            \"classification\": \"agent\",\n" +
+		"            \"children\": []\n" +
+		"          }\n" +
+		"        ]\n" +
+		"      }\n" +
+		"    ],\n" +
+		"    \"has_agent\": true\n" +
+		"  }\n" +
 		"}\n"
 	if stdout != want {
 		t.Errorf("stdout = %q, want %q", stdout, want)

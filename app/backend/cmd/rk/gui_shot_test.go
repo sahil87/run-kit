@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -584,6 +585,79 @@ func TestGuiShotWindowUsesWindowGeometry(t *testing.T) {
 	joined := strings.Join(argv, " ")
 	if !strings.Contains(joined, "-window 42") {
 		t.Errorf("capture argv = %q, want -window 42", joined)
+	}
+}
+
+// shotJSONCmdWith builds a bare command carrying the shot verb's capture
+// modifiers plus --out and --json.
+func shotJSONCmdWith(out, errOut *bytes.Buffer, flags map[string]string) *cobra.Command {
+	cmd := shotFlagsCmdWith(out, errOut, flags)
+	cmd.Flags().Bool("json", false, "")
+	setFlags(cmd, map[string]string{"json": "true"})
+	return cmd
+}
+
+// TestGuiShotJSONEmitsEnvelope pins the --json receipt on a root capture with
+// --max-width: the envelope carries path/width/height/scale/display, no
+// window key, and the stderr geometry line still prints.
+func TestGuiShotJSONEmitsEnvelope(t *testing.T) {
+	withGuiShotSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+
+	var out, errOut bytes.Buffer
+	if err := runGuiShot(shotJSONCmdWith(&out, &errOut, map[string]string{"max-width": "960"}), nil); err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		OK     bool              `json:"ok"`
+		Result guiShotJSONResult `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("stdout is not the envelope: %v\n%s", err, out.String())
+	}
+	wantPath := filepath.Join(os.TempDir(), "rk-gui-shot-20260909-140506.png")
+	want := guiShotJSONResult{Path: wantPath, Width: 1920, Height: 1080, Scale: 0.5, Display: ":10"}
+	if !doc.OK || doc.Result != want {
+		t.Errorf("envelope = ok:%v result:%+v, want ok:true result:%+v", doc.OK, doc.Result, want)
+	}
+	if strings.Contains(out.String(), `"window"`) {
+		t.Errorf("a root capture must omit the window key: %q", out.String())
+	}
+	if got, want := errOut.String(), "geometry 1920x1080 scale 0.5\n"; got != want {
+		t.Errorf("stderr = %q, want the geometry line %q even under --json", got, want)
+	}
+}
+
+// TestGuiShotJSONWindowKey pins the window key on a --window capture under
+// --json.
+func TestGuiShotJSONWindowKey(t *testing.T) {
+	withGuiShotSeams(t)
+	withGuiXdoSeams(t, map[string][]xdoResult{
+		"getwindowgeometry --shell 42": {{out: "WINDOW=42\nX=10\nY=20\nWIDTH=800\nHEIGHT=600\nSCREEN=0"}},
+	})
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+
+	var out, errOut bytes.Buffer
+	if err := runGuiShot(shotJSONCmdWith(&out, &errOut, map[string]string{"window": "42"}), nil); err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		OK     bool              `json:"ok"`
+		Result guiShotJSONResult `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("stdout is not the envelope: %v\n%s", err, out.String())
+	}
+	if !doc.OK || doc.Result.Window != 42 {
+		t.Errorf("envelope = ok:%v window:%d, want ok:true window:42", doc.OK, doc.Result.Window)
+	}
+	if doc.Result.Width != 800 || doc.Result.Height != 600 {
+		t.Errorf("geometry = %dx%d, want the window's 800x600", doc.Result.Width, doc.Result.Height)
+	}
+	if got, want := errOut.String(), "geometry 800x600 scale 1\n"; got != want {
+		t.Errorf("stderr = %q, want %q", got, want)
 	}
 }
 

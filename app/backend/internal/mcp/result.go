@@ -215,10 +215,32 @@ func mapTextResult(out Outcome) *mcpsdk.CallToolResult {
 	return errorText(fmt.Sprintf("exit %d: %s", out.ExitCode, msg))
 }
 
-// mapImageResult reads the PNG at the path the verb printed (its first
-// non-empty stdout line) and returns an image content block plus the path as
-// JSON text. Only the PNG signature is accepted — no globbing, no other type.
+// mapImageResult turns an image verb's outcome into an image content block.
+// An --json envelope stdout is unwrapped first and wins even on a non-zero
+// exit (symmetric with mapJSONResult): ok:false ⇒ mapEnvelope's error
+// rendering, no file read; ok:true ⇒ result.path names the PNG and the
+// re-serialized result rides beside the image so width/height/scale/display
+// reach the model. Non-envelope stdout keeps the interim form: the first
+// non-empty line is the path, and a non-zero exit is the text rule. Only the
+// PNG signature is accepted — no globbing, no other type.
 func mapImageResult(out Outcome) *mcpsdk.CallToolResult {
+	stdout := bytes.TrimSpace(out.Stdout)
+	var doc any
+	if len(stdout) > 0 && json.Unmarshal(stdout, &doc) == nil {
+		if obj, ok := doc.(map[string]any); ok {
+			if okVal, isBool := obj["ok"].(bool); isBool {
+				if !okVal {
+					return mapEnvelope(obj, false)
+				}
+				result, _ := obj["result"].(map[string]any)
+				path, isString := result["path"].(string)
+				if !isString || path == "" {
+					return errorText("envelope result.path is missing or not a string")
+				}
+				return imageResult(path, obj["result"])
+			}
+		}
+	}
 	if out.ExitCode != 0 {
 		return mapTextResult(out)
 	}
@@ -232,6 +254,12 @@ func mapImageResult(out Outcome) *mcpsdk.CallToolResult {
 	if path == "" {
 		return errorText("image verb printed no path on stdout")
 	}
+	return imageResult(path, map[string]string{"path": path})
+}
+
+// imageResult reads the PNG at path and returns an image content block plus a
+// text block carrying payload re-serialized (the receipt the model reads).
+func imageResult(path string, payload any) *mcpsdk.CallToolResult {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return errorText(fmt.Sprintf("cannot read image at %s: %v", path, err))
@@ -239,11 +267,14 @@ func mapImageResult(out Outcome) *mcpsdk.CallToolResult {
 	if len(data) < len(pngSignature) || !bytes.Equal(data[:len(pngSignature)], pngSignature) {
 		return errorText(fmt.Sprintf("%s is not a PNG file", path))
 	}
-	pathDoc, _ := json.Marshal(map[string]string{"path": path})
+	payloadDoc, err := json.Marshal(payload)
+	if err != nil {
+		return errorText(fmt.Sprintf("image payload is not serializable: %v", err))
+	}
 	return &mcpsdk.CallToolResult{
 		Content: []mcpsdk.Content{
 			&mcpsdk.ImageContent{Data: data, MIMEType: "image/png"},
-			&mcpsdk.TextContent{Text: string(pathDoc)},
+			&mcpsdk.TextContent{Text: string(payloadDoc)},
 		},
 	}
 }

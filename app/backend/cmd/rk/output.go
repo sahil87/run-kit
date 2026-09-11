@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 
@@ -78,7 +77,8 @@ const (
 )
 
 // envelopeError is the --json error object (docs/specs/mcp.md § Envelope).
-// Hint and Reason are omitted when empty.
+// Hint and Reason are omitted when empty; a verb sets them only when it holds
+// a machine-neutral next step or a daemon-defined reason token to carry.
 type envelopeError struct {
 	Code    string `json:"code"` // envelopeCodeUsage | envelopeCodeOperational
 	Message string `json:"message"`
@@ -86,39 +86,102 @@ type envelopeError struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
-// JSONResult writes {"ok":true,"result":v} to the data channel — exactly one
-// document, newline-terminated, never gated by --quiet (data survives). The
-// field order is fixed by the anonymous struct (ok before result).
+// envelopedError marks an error whose envelope document has already been
+// written to stdout (by Envelope or JSONError), so execute()'s central failure
+// writer (see root.go) does not write a second one. Unwrap delegates to the
+// inner error so exitCode's errors.As still finds a carried *exitCodeError and
+// the exit code is unchanged; Error() delegates so cobra's stderr "Error: …"
+// text is unchanged.
+type envelopedError struct{ err error }
+
+func (e envelopedError) Error() string { return e.err.Error() }
+func (e envelopedError) Unwrap() error { return e.err }
+
+// envelopeOK and envelopeFail are the two wire shapes (spec § Envelope): on
+// success result is always present (even when null); on failure result rides
+// along only when non-nil — the verdict-bearing verbs (doctor, tab new on
+// gone, code exec --all) print their document and still exit non-zero.
+type envelopeOK struct {
+	OK     bool `json:"ok"`
+	Result any  `json:"result"`
+}
+
+type envelopeFail struct {
+	OK     bool           `json:"ok"`
+	Result any            `json:"result,omitempty"`
+	Error  *envelopeError `json:"error"`
+}
+
+// writeEnvelope is the single encoder every envelope document goes through:
+// exactly one two-space-indented JSON document, newline-terminated, on the
+// data channel (stdout — never gated by --quiet). Verbs never hand-format an
+// envelope.
+func (s outputSink) writeEnvelope(doc any) error {
+	b, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	s.Dataf("%s\n", b)
+	return nil
+}
+
+// Envelope writes the --json document for a verb's outcome and returns err
+// wrapped as an envelopedError (nil in, nil out) so the caller's RunE keeps
+// its exit code while execute() knows the document is already written:
+//
+//	err == nil → {"ok":true,"result":<result>}
+//	err != nil → {"ok":false,"error":{code,message}} plus "result":<result>
+//	             when result is non-nil (verdict-bearing verbs)
+//
+// error.code is envelopeCodeUsage iff exitCode(err) == 2, else
+// envelopeCodeOperational; error.message is err.Error() — the same text cobra
+// prints to stderr. A document that fails to encode returns the encode error
+// unwrapped (no envelope was written, so the central writer may still emit
+// one). Verbs that compose their own error object (a daemon hint or reason
+// token) use JSONError instead.
+//
+// The failure document is written once: verbs that hold an error value call
+// Envelope (the marker below tells execute() so), verbs that composed their
+// own error object call JSONError and return a plain error — execute() then
+// sees bytes already on stdout and writes nothing.
+//
+// Boundary: the envelope contract starts at RunE entry. Flag-parse failures
+// (FlagErrorFunc) and Args-validator failures happen before that and emit NO
+// envelope — cobra's stderr error and exit 2 only (root.go tags them
+// preRunError so execute() skips them; the MCP proxy's exit-code fallback
+// classifies them as usage).
+func (s outputSink) Envelope(result any, err error) error {
+	if err == nil {
+		return s.writeEnvelope(envelopeOK{OK: true, Result: result})
+	}
+	doc := envelopeFail{Result: result, Error: &envelopeError{Code: envelopeCodeForErr(err), Message: err.Error()}}
+	if wErr := s.writeEnvelope(doc); wErr != nil {
+		return wErr
+	}
+	return envelopedError{err: err}
+}
+
+// JSONResult writes {"ok":true,"result":v} — Envelope's success half for a
+// caller holding no error value (an encode failure writes nothing).
 func (s outputSink) JSONResult(v any) {
-	doc, err := json.Marshal(struct {
-		OK     bool `json:"ok"`
-		Result any  `json:"result"`
-	}{OK: true, Result: v})
-	if err != nil {
-		return
-	}
-	s.Dataf("%s\n", doc)
+	_ = s.writeEnvelope(envelopeOK{OK: true, Result: v})
 }
 
-// JSONError writes {"ok":false,"error":e} to the data channel — exactly one
-// document, newline-terminated.
+// JSONError writes {"ok":false,"error":e} for a verb that composed its own
+// error object (a daemon hint or reason token — send/await/operator request)
+// and then returns its RunE error as usual; e.Code is the caller's to keep in
+// step with that error's exit class (envelopeCodeForErr). execute()'s central
+// writer adds no second document because stdout already carries bytes (the
+// root out-writer tracker in root.go), so no marker rides the error here.
 func (s outputSink) JSONError(e envelopeError) {
-	doc, err := json.Marshal(struct {
-		OK    bool          `json:"ok"`
-		Error envelopeError `json:"error"`
-	}{OK: false, Error: e})
-	if err != nil {
-		return
-	}
-	s.Dataf("%s\n", doc)
+	_ = s.writeEnvelope(envelopeFail{Error: &e})
 }
 
-// envelopeCodeForErr classifies a RunE error into the envelope code: the
-// usageError wrap (exit 2) is usage; everything else is operational — `ok`
-// mirrors the exit code (docs/specs/mcp.md § Envelope).
+// envelopeCodeForErr classifies a RunE error into the envelope code through
+// the one exit-code classifier: exit 2 is usage; everything else is
+// operational — `ok` mirrors the exit code (docs/specs/mcp.md § Envelope).
 func envelopeCodeForErr(err error) string {
-	var ece *exitCodeError
-	if errors.As(err, &ece) && ece.code == exitUsage {
+	if exitCode(err) == exitUsage {
 		return envelopeCodeUsage
 	}
 	return envelopeCodeOperational

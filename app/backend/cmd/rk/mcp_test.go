@@ -15,7 +15,7 @@ import (
 // TestMCPTableResolves is the drift guard against the real Cobra tree: every
 // policy row's path and flags resolve (docs/specs/mcp.md § Policy table rules
 // — a renamed or re-flagged verb fails the build, never the model). Also pins
-// the eleven seeded tool names, the timeout cap, and the never-tools exclusion.
+// the thirteen seeded tool names, the timeout cap, and the never-tools exclusion.
 func TestMCPTableResolves(t *testing.T) {
 	resolved, err := mcp.Resolve(rootCmd, mcp.Table)
 	if err != nil {
@@ -29,7 +29,7 @@ func TestMCPTableResolves(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	want := []string{"answer", "await", "board", "capture", "cron_list", "gui_status", "operator_request", "panes", "process", "send", "sessions", "status", "tab_show", "tab_web_ls"}
+	want := []string{"answer", "await", "board", "capture", "cron_list", "gui_shot", "gui_status", "operator_request", "panes", "process", "send", "sessions", "snapshot_list", "status", "tab_show", "tab_web_ls"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("tool names = %v, want %v", names, want)
 	}

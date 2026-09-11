@@ -8,10 +8,11 @@ import (
 )
 
 // TestTableShape pins the seeded allowlist: exactly the fourteen tools (the
-// nine See rows, the three Talk rows, board, and operator_request), every
+// nine See rows, the three Talk rows, board, operator_request, snapshot_list,
+// gui_shot), every
 // timeout within the cap, and no row exposing a forbidden flag form.
 func TestTableShape(t *testing.T) {
-	want := []string{"sessions", "panes", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request", "answer", "await"}
+	want := []string{"sessions", "panes", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request", "answer", "await", "snapshot_list", "gui_shot"}
 	if len(Table) != len(want) {
 		t.Fatalf("Table has %d rows, want %d", len(Table), len(want))
 	}
@@ -313,7 +314,8 @@ func TestTableNeverTools(t *testing.T) {
 }
 
 // TestReadOnlyAnnotations pins the annotation semantics of every See row plus
-// await (read-only even though it blocks) — the mutating rows (send, board,
+// await (read-only even though it blocks) — readOnlyAnn, and ResultJSON for all
+// but gui_shot (the one ResultImage row); the mutating rows (send, board,
 // operator_request, answer) carry all-false annotations instead.
 func TestReadOnlyAnnotations(t *testing.T) {
 	seen := 0
@@ -325,11 +327,15 @@ func TestReadOnlyAnnotations(t *testing.T) {
 		if row.Annotations != readOnlyAnn {
 			t.Errorf("row %q annotations = %+v, want readOnlyAnn", row.Tool, row.Annotations)
 		}
-		if row.Result != ResultJSON {
-			t.Errorf("row %q result = %v, want ResultJSON", row.Tool, row.Result)
+		wantResult := ResultJSON
+		if row.Tool == "gui_shot" {
+			wantResult = ResultImage
+		}
+		if row.Result != wantResult {
+			t.Errorf("row %q result = %v, want %v", row.Tool, row.Result, wantResult)
 		}
 	}
-	if seen != 10 {
-		t.Errorf("%d read-only rows, want the nine See rows plus await", seen)
+	if seen != 12 {
+		t.Errorf("%d read-only rows, want the nine See rows plus await, snapshot_list and gui_shot", seen)
 	}
 }

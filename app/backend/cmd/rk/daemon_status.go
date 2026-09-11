@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"rk/internal/config"
@@ -99,7 +98,7 @@ Not to be confused with 'run-kit status' (top-level tmux session summary).`,
 }
 
 func init() {
-	daemonStatusCmd.Flags().Bool("json", false, "Emit a machine-readable JSON object")
+	daemonStatusCmd.Flags().Bool("json", false, "Emit a machine-readable JSON object inside the {\"ok\",\"result\"} envelope")
 }
 
 func writeStatusJSON(cmd *cobra.Command, running bool, innerPID int, host string, port int, state string, owner *ports.PortOwner, lookupErr error) error {
@@ -124,12 +123,7 @@ func writeStatusJSON(cmd *cobra.Command, running bool, innerPID int, host string
 		report.Port.LookupError = lookupErr.Error()
 	}
 
-	enc := json.NewEncoder(cmd.OutOrStdout())
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(report); err != nil {
-		return fmt.Errorf("encoding status JSON: %w", err)
-	}
-	return nil
+	return newSink(cmd).Envelope(report, nil)
 }
 
 func writeStatusText(cmd *cobra.Command, running bool, innerPID int, host string, port int, state string, owner *ports.PortOwner, lookupErr error) {

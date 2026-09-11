@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"rk/internal/tmux"
@@ -56,7 +55,8 @@ var statusCmd = &cobra.Command{
 	},
 }
 
-// writeSessionStatusJSON emits the session summary as a JSON array to stdout. Unlike
+// writeSessionStatusJSON emits the session summary array as the result of the
+// standard --json envelope on stdout. Unlike
 // the human path (which prints a per-session error line and continues), a
 // window-listing failure here fails the whole command with a non-zero exit and
 // a stderr error — a machine consumer must never receive a partial document it
@@ -71,14 +71,12 @@ func writeSessionStatusJSON(ctx context.Context, cmd *cobra.Command, server stri
 		out = append(out, statusSession{Name: s.Name, Windows: len(windows)})
 	}
 
-	data, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
+	if err := newSink(cmd).Envelope(out, nil); err != nil {
 		return fmt.Errorf("encoding status JSON: %w", err)
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), string(data))
 	return nil
 }
 
 func init() {
-	statusCmd.Flags().BoolVar(&statusJSON, "json", false, "Emit the session summary as JSON to stdout")
+	statusCmd.Flags().BoolVar(&statusJSON, "json", false, "Emit the session summary as JSON to stdout, wrapped in the {\"ok\",\"result\"} envelope")
 }

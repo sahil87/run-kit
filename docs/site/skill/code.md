@@ -17,10 +17,10 @@ If either check fails, skip every bridge step silently — describe the output i
 
 ```sh
 rk code hosts                 # aligned rows: ID FOLDER TAB SERVER PID AGE EXT
-rk code hosts --json          # the host records as an array
+rk code hosts --json          # the host records as an array inside {"ok":true,"result":[…]}
 ```
 
-A host is one open code-server window with the bridge extension active. Hosts opened from an rk-derived workspace file register their tab and server (`TAB`/`SERVER` columns, `-` when absent); tab-less hosts (user-opened windows, the `?folder=` degrade path) match by folder only. Host records live under the run-kit state dir, but liveness is re-derived on every call: a record counts only if its pid is alive AND its socket answers a ping; records failing either check are pruned as a side effect. Zero hosts prints nothing (`[]` under `--json`) and still exits 0 — gate on empty output, not on the exit code.
+A host is one open code-server window with the bridge extension active. Hosts opened from an rk-derived workspace file register their tab and server (`TAB`/`SERVER` columns, `-` when absent); tab-less hosts (user-opened windows, the `?folder=` degrade path) match by folder only. Host records live under the run-kit state dir, but liveness is re-derived on every call: a record counts only if its pid is alive AND its socket answers a ping; records failing either check are pruned as a side effect. Zero hosts prints nothing (`"result": []` under `--json`) and still exits 0 — gate on empty output, not on the exit code.
 
 ## `rk code commands` — the palette, grep-able
 
@@ -37,7 +37,7 @@ Resolves a host exactly like `exec` does, sends the bridge-internal `__commands`
 rk code exec pr.refreshList                                   # no args
 rk code exec pr.checkoutByNumber 2908                         # a number arg (JSON literal)
 rk code exec vscode.open '{"$uri":"file:///tmp/a.ts"}'        # object args pass verbatim
-rk code exec workbench.action.focusFirstEditorGroup --json    # raw envelope instead of result
+rk code exec workbench.action.focusFirstEditorGroup --json    # the bridge envelope nested in rk's (see Output)
 ```
 
 **Arg rules** — each positional after the command id is parsed as a JSON literal:
@@ -52,7 +52,7 @@ rk code exec workbench.action.focusFirstEditorGroup --json    # raw envelope ins
 rk code exec vscode.diff '{"$uri":"file:///…/a.ts"}' '{"$uri":"file:///…/b.ts"}' "review: a.ts"
 ```
 
-**Output**: on success stdout carries the result JSON (`null` prints `null`); `--json` prints the raw response envelope instead. Failures print `error: <kind>: <message>` on stderr; `kind` ∈ `unknown-command` · `threw` · `timeout` (default 30s, tune with `--timeout`) · `bad-request`. A dial/read failure prints `error: <message>` with no kind.
+**Output**: on success stdout carries the result JSON (`null` prints `null`); `--json` prints the bridge's response envelope nested verbatim inside rk's standard envelope — `{"ok":true,"result":{"ok":…,"result":…}}`, where the outer `ok` mirrors rk's exit code and the inner `ok` is the bridge's. Failures print `error: <kind>: <message>` on stderr; `kind` ∈ `unknown-command` · `threw` · `timeout` (default 30s, tune with `--timeout`) · `bad-request`. A dial/read failure prints `error: <message>` with no kind.
 
 ### Host resolution
 
@@ -61,7 +61,7 @@ rk code exec vscode.diff '{"$uri":"file:///…/a.ts"}' '{"$uri":"file:///…/b.t
 - With no flags, a caller inside tmux tries its **own tab** first (skipped silently outside tmux), then the folder ladder below; an explicit `--folder` skips the own-tab step.
 - Else the target folder — `--folder <path>`, or by default the git toplevel of the cwd — is matched against each host's folder: exact match first, then longest-prefix (path-component aware, so a worktree under a registered repo resolves to the repo's host instead of matching nothing).
 - No match and exactly one live host → it is used, with a `using host <id> (<folder>)` note on stderr. Several → exit 1 listing them. None → exit 1 with the open-the-lens hint.
-- `--all` fans out to every live host (ignoring `--tab`): one `<hostId>\t<result JSON>` row per host on stdout (`--json` → an array of `{hostId, folder, response}`); exit is 1 when any host errored, else 0.
+- `--all` fans out to every live host (ignoring `--tab`): one `<hostId>\t<result JSON>` row per host on stdout (`--json` → `{"ok":true,"result":[{hostId, folder, response}]}`); exit is 1 when any host errored, else 0 (under `--json` that failure reads `ok:false` with the per-host array still carried in `result`).
 
 `--host`, `--tab`, and `--folder` are mutually exclusive (usage error). `rk code commands` takes the same three flags.
 

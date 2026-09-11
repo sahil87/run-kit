@@ -1,5 +1,5 @@
 ---
-description: "The rk CLI — app/backend/cmd/rk on Cobra: root defaults and version wiring, the persistent --quiet/outputSink output convention (plus the shared `--json` envelope helper `JSONResult`/`JSONError`), and the alphabetized subcommand table (agent, board, code, code-server, daemon, desktop, doctor, gui, help-dump, mcp, mux, notify, operator, present, remote, riff, role, serve, shell-init, skill, status, tab, tutorial, update, url) with each verb's files and behavior."
+description: "The rk CLI — app/backend/cmd/rk on Cobra: root defaults and version wiring, the persistent --quiet/outputSink output convention with the shared --json envelope (outputSink.Envelope, its JSONResult/JSONError wrappers, and the central ExecuteC failure writer), and the alphabetized subcommand table (agent, board, code, code-server, daemon, desktop, doctor, gui, help-dump, mcp, mux, notify, operator, present, remote, riff, role, serve, shell-init, skill, status, tab, tutorial, update, url) with each verb's files and behavior."
 type: memory
 ---
 # run-kit Architecture — CLI Subcommands
@@ -9,6 +9,8 @@ type: memory
 `app/backend/cmd/rk/` uses `spf13/cobra` for CLI management. `root.go` declares `var version = "dev"` (overridden by ldflags) and registers all subcommands. `main.go` just calls `execute()`. Version info via `--version`/`-v` global flag (Cobra built-in, not a subcommand).
 
 **Shared output convention — persistent `--quiet` + `outputSink`** (toolkit Principle 9) (260717-f8yv-cli-output-volume-controls). A single **persistent `--quiet` bool** is registered on `rootCmd` (`root.go`, bound to package-level `quiet`), so every present and future subcommand accepts it uniformly and inherits it with zero registration work; it is a deliberate no-op on any command not yet routed through the sink (incremental adoption). The convention, decided once, lives in `cmd/rk/output.go` (package `main`, no `internal/` package for a CLI-only concern): **`outputSink{data, chatter io.Writer}`** with `Dataf` (data channel) / `Notef` (chatter channel). **stdout carries data** — machine-consumable results (outcome lines, `--json` documents, requested previews/lists) — never gated by `--quiet`; **stderr carries chatter** — progress/decoration — routed to `io.Discard` under `--quiet`. **Errors always survive** (they flow through `RunE` returns and ungated stderr writes); `--quiet` never changes exit codes; a successful run with nothing to report is silent under `--quiet`. Built on `cmd.OutOrStdout()`/`cmd.ErrOrStderr()` (never bare `os.Stdout`/`os.Stderr`) so gating is unit-testable — the idiom `doctor.go`/`agent_setup.go` already used; `newSink(cmd)` reads `--quiet` off the invoked command (falling back to the package var for a bare test command), `newSinkWriters(data, chatter)` builds a test sink from explicit writers. **Adopted by `update`/`doctor`/`agent setup`** (the audit-named chatter carriers — see their rows); `mux reap` takes a display cap instead of a quiet conversion (its output is all data — see its row). This satisfies toolkit Principle 9 — see [toolkit-standards](/run-kit/toolkit-standards.md) § Requirement: Bounded, high-signal output (Principle 9). The sink also carries the shared **`--json` envelope helper** (`docs/specs/mcp.md` § Envelope): `JSONResult(v)` / `JSONError(envelopeError)` write exactly one newline-terminated `{"ok":…}` document to the data channel — never gated by `--quiet` — with the error codes as the named constants `envelopeCodeUsage`/`envelopeCodeOperational` and `envelopeCodeForErr` classifying a RunE error into one (the `usageError` wrap ⇒ `usage`, else `operational`); the consumers are `operator request` (sjs1), `mux send`, and `mux await` (260911-i2vm-cli-send-await-receipts).
+
+**Shared `--json` envelope — `outputSink.Envelope` as the single writer** (toolkit Principle 2) (260911-ehm2-cli-json-read-verbs). Every `--json` verb emits exactly one two-space-indented JSON envelope (newline-terminated) as the only bytes it writes to stdout, through **`outputSink.Envelope(result any, err error)`** in `cmd/rk/output.go` — no verb hand-formats an envelope. `Envelope`, **`JSONResult(v)`** (the success half for a caller holding no error value) and **`JSONError(e envelopeError, err error) error`** (for a verb that composed its own error object — a daemon `hint` or `reason` token, as `operator request` does) all go through one private encoder, `writeEnvelope`; `envelopeCodeForErr` (over `exitCode`) is the shared code classifier. The document shape: success `{"ok":true,"result":<the verb's document, verbatim>}`; failure `{"ok":false,"error":{"code":"usage"|"operational","message":<err text>}}`, with `result` present on the failure branch only for verdict-bearing verbs. **`ok` mirrors the exit code** (`--json` never changes exit codes); `code` derives from `exitCode(err)` — 2 ⇒ `usage`, else `operational` (riff's 3 included); `message` is `err.Error()`, the same text cobra prints to stderr as `Error: …`. The machine-error half is `envelopeError{Code, Message, Hint, Reason}` with `hint`/`reason` omitempty (no verb sets them yet). `Envelope` writes through the sink's **data channel** (survives `--quiet`) and returns the verb's error wrapped in **`envelopedError{err}`** — a stateless "already written" marker whose `Unwrap`/`Error` delegate to the inner error, so `exitCode`'s `errors.As` for `*exitCodeError` and cobra's stderr text pass through untouched. **Central failure writer** (`root.go`): `execute()` calls `rootCmd.ExecuteC()` — the only cobra API returning the executed command — and the pure helper `jsonErrorEnvelope(cmd, err)` writes the ok:false envelope to the executed command's `OutOrStdout()` iff (a) that command has a `json` flag parsed true, (b) the error is not an `envelopedError`, (c) the error does not carry the **`preRunError`** tag, and (d) nothing has reached stdout yet — `execute()` installs a `writeTracker` as the root's out-writer, which every subcommand inherits through `OutOrStdout()`, so a verb that already emitted its own document through the fire-and-forget `JSONError` (`mux send`/`mux await`/`operator request`) and returned a plain error gets no second one — so a verb edits only its success-path encoder call and every early `return err` inside RunE is enveloped for free. **Pre-RunE boundary**: `preRunError` tags errors raised before the invoked command's RunE runs — flag-parse failures (the root `FlagErrorFunc`) and `Args`-validator failures (`usageArgs`) — and `jsonErrorEnvelope` skips them, so they stay bare: cobra's stderr error, exit 2, no stdout document. Cobra flag-group / required-flag errors are pre-RunE but untagged, so they DO get an envelope (`code:"usage"`, exit 2) — a harmless known gap. **Verdict-bearing verbs** — `doctor --json` (report printed, exit 1 when `!report.OK`), `tab new --json` (identity object, exit 1 on `ready:gone`), `code exec --all --json` (per-host array, exit 1 when any host failed) — emit `{"ok":false,"result":<their document>,"error":{"code":"operational","message":…}}`; `ok` still mirrors the exit code and `result` on the failure branch is additive. **Wrapped verbs**: `mux sessions`, `mux panes`, `mux capture`, `mux process`, `status`, `cron list`, `gui status`, `gui windows`, `tab show`, `tab web ls`, `tab new`, `code exec` (single-host — the code-bridge `Response` nests verbatim under `result`, so `result.ok` is the bridge's own ok), `code exec --all`, `code hosts`, `doctor`, `daemon status`. Each wraps its document verbatim inside `result`; there is no unwrapped `--json` form and no compatibility flag. `mux snapshot list` and `gui shot` carry a `--json` flag of their own — see [layout-snapshots](/run-kit/layout-snapshots.md) and [gui](/run-kit/gui.md).
 
 | Subcommand | File | Behavior |
 |------------|------|----------|
@@ -44,12 +46,6 @@ type: memory
 
 ## Design Decisions
 
-### Bare `--json` documents until W2a's envelope wraps them
-**Decision**: `rk board … --json` prints the route body or the receipt as a bare JSON document; no `{ok, result}` envelope.
-**Why**: the plan assigns the envelope helper to W2a and W3b needs only W1; the MCP `ResultJSON` parser accepts bare documents with `ok` taken from the exit code; avoids a conflict in `output.go`.
-**Rejected**: adding the envelope helper here (collides with W2a; a second author of one shared helper).
-*Introduced by*: 260911-u49l-rk-board-verb
-
 ### `board` is not fail-silent, unlike `notify`
 **Decision**: transport and daemon errors exit 1 with a message; nothing is swallowed.
 **Why**: a pin that did not happen must say so — `notify`'s fail-silent contract exists because a notification must never stall an operator loop, which does not apply to a mutation a caller is waiting on.
@@ -61,6 +57,30 @@ type: memory
 **Why**: the single MCP tool exposes `server` for every action; a model passing it with `show` should not get a usage error; the GET routes aggregate across servers and have no server filter to honour.
 **Rejected**: rejecting `-L` on `show` as usage.
 *Introduced by*: 260911-u49l-rk-board-verb
+
+### Central failure envelope via ExecuteC
+**Decision**: execute() uses rootCmd.ExecuteC() to learn the executed command and writes the ok:false envelope when that command's json flag is true and the error is not already enveloped.
+**Why**: fifteen verbs have many early return err sites; one hook covers every RunE failure path and keeps verbs' edits to the success encoder. ExecuteC is the only cobra API that returns the executed command.
+**Rejected**: per-verb RunE wrappers (a wrapper per registration site, and each still needs a "written already" signal); a package-level envelopeWritten flag (hidden global state, test-order hazards); a PersistentPreRun recorder (desktop already defines its own PersistentPreRunE, which would shadow it).
+*Introduced by*: 260911-ehm2-cli-json-read-verbs
+
+### envelopedError as the stateless "already written" marker
+**Decision**: Envelope returns the verb's error wrapped in envelopedError{err} (with Unwrap); execute() skips the central write when errors.As finds it.
+**Why**: the signal rides the error value that already flows to execute(); exitCode's errors.As for *exitCodeError keeps working through Unwrap, so exit codes are untouched.
+**Rejected**: a bool on the sink or package (state), or having verbs return nil after writing an ok:false document (changes the exit code — forbidden).
+*Introduced by*: 260911-ehm2-cli-json-read-verbs
+
+### Verdict-bearing verbs carry result beside error
+**Decision**: doctor, tab new (gone), and code exec --all emit ok:false with both result and error.
+**Why**: their exit-1 is a verdict over data the human path already prints as the datum; ok must still mirror the exit code, and dropping the report would make --json strictly worse than the bare form.
+**Rejected**: exit 0 with an ok:true envelope (changes exit codes); dropping the report (loses the datum); a separate verdict top-level key (a synonym for ok).
+*Introduced by*: 260911-ehm2-cli-json-read-verbs
+
+### gui_shot exposes only max_width
+**Decision**: the tool's sole optional input is max_width → --max-width.
+**Why**: --scale is a float64 pflag and --window a uint64, both outside the drift guard's bool/int/int64/string compatibility set; window ids are undiscoverable without the tier-two gui windows tool; --out is a filesystem path outside the target rule, and the proxy returns the bytes anyway.
+**Rejected**: widening the drift guard's type set now (scope creep for one input); exposing --out (path input).
+*Introduced by*: 260911-ehm2-cli-json-read-verbs
 
 ### Argv after `--`, shell expansion opt-in
 **Decision**: The trailing command is argv only; rk quotes each token. Callers needing in-window expansion pass `-- sh -c "<string>"`.
@@ -168,8 +188,8 @@ paths; a `--relative` flag that adds surface for one caller.
 *Introduced by*: 260819-a8bf-doctor-tmux-drift-note
 
 ### The `--json` envelope helper lives on `outputSink`
-**Decision**: `JSONResult`/`JSONError` (with `envelopeError` and the named `usage`/`operational` codes) live in `output.go` as methods on the shared sink; `operator request` is the first consumer.
-**Why**: `docs/specs/mcp.md` § Envelope names the sink as the helper's home, and the convention is decided once — every later `--json` verb adopts the same two methods.
-**Rejected**: a verb-local envelope marshal in `operator_request.go` (a second envelope implementation later verbs would then dedupe).
+**Decision**: `envelopeError` (with the named `envelopeCodeUsage`/`envelopeCodeOperational` codes), `Envelope`, `JSONResult`, and `JSONError` live in `output.go` as methods on the shared sink over one private encoder; `operator request` is the `JSONError` consumer (it carries the daemon's `hint`/`reason`), every read verb uses `Envelope`.
+**Why**: `docs/specs/mcp.md` § Envelope names the sink as the helper's home, and the convention is decided once — a verb picks the entry point that matches what it holds (an error value, or a composed error object), never a second encoder.
+**Rejected**: a verb-local envelope marshal in `operator_request.go`; two independent encoders (W3a's `JSONResult`/`JSONError` and W2a's `Envelope` were built in parallel and folded together at W2a's rebase).
 *Introduced by*: 260911-sjs1-rk-operator-request-verb
 

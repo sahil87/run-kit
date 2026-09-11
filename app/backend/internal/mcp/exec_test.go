@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -18,6 +19,46 @@ func TestBuildArgvOrder(t *testing.T) {
 	want := []string{"mux", "capture", "-L", "s", "-l", "100", "%3", "--json"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("argv = %v, want %v", got, want)
+	}
+}
+
+// TestBuildArgvSeededNewRows pins argv assembly for the snapshot_list and
+// gui_shot rows against the shipped table.
+func TestBuildArgvSeededNewRows(t *testing.T) {
+	byName := map[string]Row{}
+	for _, row := range Table {
+		byName[row.Tool] = row
+	}
+	got := BuildArgv(byName["snapshot_list"], map[string]any{"server": "runkit"})
+	want := []string{"mux", "snapshot", "list", "runkit", "--json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("snapshot_list argv = %v, want %v", got, want)
+	}
+	got = BuildArgv(byName["gui_shot"], map[string]any{"max_width": float64(800)})
+	want = []string{"gui", "shot", "--max-width", "800", "--json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("gui_shot argv = %v, want %v", got, want)
+	}
+}
+
+// TestValidateArgsSnapshotListServer: the positional server filter rejects
+// anything ValidateServerName would, before exec.
+func TestValidateArgsSnapshotListServer(t *testing.T) {
+	var row Row
+	for _, r := range Table {
+		if r.Tool == "snapshot_list" {
+			row = r
+			break
+		}
+	}
+	if row.Tool == "" {
+		t.Fatal("Table has no snapshot_list row")
+	}
+	if _, err := ValidateArgs(row, json.RawMessage(`{"server":"bad name"}`)); err == nil || !strings.Contains(err.Error(), `"server"`) {
+		t.Errorf("bad server name = %v, want a rejection naming \"server\"", err)
+	}
+	if _, err := ValidateArgs(row, json.RawMessage(`{"server":"runkit"}`)); err != nil {
+		t.Errorf("valid server name rejected: %v", err)
 	}
 }
 

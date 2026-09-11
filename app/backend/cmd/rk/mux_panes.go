@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"text/tabwriter"
 	"time"
@@ -28,8 +27,9 @@ import (
 // not call muxRejectInheritedServerFlag).
 //
 // Output shapes: default is an aligned one-pane-per-row table (rows are data —
-// stdout; diagnostics go to stderr); --json emits a two-space-indented array
-// with agent_state/agent_state_duration null for uninstrumented panes and the
+// stdout; diagnostics go to stderr); --json wraps a two-space-indented array in
+// the standard {"ok","result"} envelope, with agent_state/agent_state_duration
+// null for uninstrumented panes and the
 // duration present only for idle/waiting (the mux capture --json semantics),
 // plus a trailing tri-state has_agent: the pane-pid process-tree liveness walk
 // (paneHasAgent, shared with rk mux process) runs only for rows whose
@@ -40,7 +40,7 @@ import (
 // `IsShellCommand(command) && has_agent == false`. The walk never fails the
 // enumeration and never writes to stderr. Exit codes follow the toolkit
 // convention: 0 success — including an alive server with nothing to list
-// (prints [] under --json), 1 operational (no server on the resolved socket,
+// ("result": [] under --json), 1 operational (no server on the resolved socket,
 // tmux failure — carrying tmux's diagnostic), 2 usage.
 
 var muxPanesJSONFlag bool
@@ -56,7 +56,8 @@ var muxPanesCmd = &cobra.Command{
 		"facts only — no change/stage fields. Under --json each row also carries " +
 		"has_agent: true/false for shell-foreground panes (a process-tree walk for " +
 		"a live agent), null otherwise.\n\n" +
-		"--json emits the machine-readable array. The server resolves via the " +
+		"--json emits the machine-readable array, wrapped in the standard " +
+		"{\"ok\":true,\"result\":…} envelope. The server resolves via the " +
 		"family's -L/--server flag (default: your own server, from $TMUX).",
 	Example: `  rk mux panes
   rk mux panes --json
@@ -188,9 +189,7 @@ func runMuxPanes(cmd *cobra.Command) error {
 	}
 
 	if muxPanesJSONFlag {
-		enc := json.NewEncoder(sink.data)
-		enc.SetIndent("", "  ")
-		return enc.Encode(rows)
+		return sink.Envelope(rows, nil)
 	}
 
 	w := tabwriter.NewWriter(sink.data, 2, 8, 2, ' ', 0)

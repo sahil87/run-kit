@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"text/tabwriter"
 	"time"
@@ -30,7 +29,8 @@ var cronListCmd = &cobra.Command{
 		"the entry file and delivery log only — no tmux commands are issued, so " +
 		"listing never resurrects a dead server. Corrupt entries are skipped with " +
 		"a stderr diagnostic; an absent or empty file yields an empty listing " +
-		"with exit 0. --json emits the same records as a JSON array, with the " +
+		"with exit 0. --json emits the same records as a JSON array inside the " +
+		"standard {\"ok\":true,\"result\":…} envelope, with the " +
 		"schedule as a structured object (kind plus its parameters) beside the " +
 		"intent fields wake_on, if_absent and respawn; schedule_summary carries " +
 		"the table's rendering.",
@@ -187,9 +187,7 @@ func runCronList(cmd *cobra.Command) error {
 	}
 
 	if cronListJSONFlag {
-		enc := json.NewEncoder(sink.data)
-		enc.SetIndent("", "  ")
-		return enc.Encode(records)
+		return sink.Envelope(records, nil)
 	}
 
 	w := tabwriter.NewWriter(sink.data, 2, 8, 2, ' ', 0)

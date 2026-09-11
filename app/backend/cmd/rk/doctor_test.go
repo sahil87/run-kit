@@ -72,8 +72,10 @@ func TestDoctorReportOKMatchesChecks(t *testing.T) {
 	}
 }
 
-// TestDoctorJSONToStdoutErrEmpty verifies --json emits the report as JSON to
-// stdout with the human diagnostic absent from stdout (it belongs on stderr).
+// TestDoctorJSONToStdoutErrEmpty verifies --json emits the report inside the
+// {"ok","result"} envelope to stdout with the human diagnostic absent from
+// stdout (it belongs on stderr); a failing report keeps exit 1 with the
+// verdict in error beside result.
 func TestDoctorJSONToStdoutErrEmpty(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	doctorCmd.SetOut(&stdout)
@@ -86,15 +88,30 @@ func TestDoctorJSONToStdoutErrEmpty(t *testing.T) {
 	doctorJSON = true
 
 	// RunE returns a non-nil error when a check fails (tmux absent); either way
-	// stdout must carry valid JSON and stderr must stay empty on the JSON path.
-	_ = doctorCmd.RunE(doctorCmd, nil)
+	// stdout must carry the envelope and stderr must stay empty on the JSON path.
+	err := doctorCmd.RunE(doctorCmd, nil)
 
-	var report doctorReport
-	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
-		t.Fatalf("stdout is not valid doctor JSON: %v (got %q)", err, stdout.String())
+	var env struct {
+		OK     bool           `json:"ok"`
+		Result doctorReport   `json:"result"`
+		Error  *envelopeError `json:"error"`
 	}
-	if len(report.Checks) == 0 {
-		t.Error("JSON report has no checks")
+	if uerr := json.Unmarshal(stdout.Bytes(), &env); uerr != nil {
+		t.Fatalf("stdout is not the doctor envelope: %v (got %q)", uerr, stdout.String())
+	}
+	if len(env.Result.Checks) == 0 {
+		t.Error("envelope result has no checks")
+	}
+	if env.OK != (err == nil) {
+		t.Errorf("ok = %v, want it to mirror the exit (err = %v)", env.OK, err)
+	}
+	if err != nil {
+		if got := exitCode(err); got != 1 {
+			t.Errorf("failing report: exit code = %d, want 1", got)
+		}
+		if env.Error == nil || env.Error.Message != "one or more dependency checks failed" {
+			t.Errorf("error = %+v, want the verdict message beside result", env.Error)
+		}
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("--json path wrote to stderr: %q", stderr.String())
@@ -159,8 +176,8 @@ func TestDoctorQuietDropsChatterKeepsFailAndExit(t *testing.T) {
 }
 
 // TestDoctorQuietJSONEmitsExactlyJSON pins R4's --json clause: --quiet --json
-// emits exactly the JSON report to stdout with empty stderr (the flag never
-// gates the machine-data path).
+// emits exactly the envelope (report under result) to stdout with empty stderr
+// (the flag never gates the machine-data path).
 func TestDoctorQuietJSONEmitsExactlyJSON(t *testing.T) {
 	withQuiet(t, true)
 	var stdout, stderr bytes.Buffer
@@ -175,9 +192,15 @@ func TestDoctorQuietJSONEmitsExactlyJSON(t *testing.T) {
 
 	_ = doctorCmd.RunE(doctorCmd, nil)
 
-	var report doctorReport
-	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
-		t.Fatalf("--quiet --json stdout is not valid doctor JSON: %v (got %q)", err, stdout.String())
+	var env struct {
+		OK     bool         `json:"ok"`
+		Result doctorReport `json:"result"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("--quiet --json stdout is not the doctor envelope: %v (got %q)", err, stdout.String())
+	}
+	if len(env.Result.Checks) == 0 {
+		t.Error("envelope result has no checks")
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("--quiet --json wrote to stderr: %q", stderr.String())

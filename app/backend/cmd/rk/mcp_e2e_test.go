@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/snapshot"
 	"rk/internal/testutil"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -78,16 +79,33 @@ func TestMCPEndToEnd(t *testing.T) {
 	pane := strings.TrimSpace(string(paneOut))
 
 	// Connect a real MCP client over the command transport, TMUX/TMUX_PANE
-	// unset in the child (the stdio server has no pane of its own).
+	// unset in the child (the stdio server has no pane of its own) and
+	// XDG_STATE_HOME pointed at an isolated snapshot store.
+	xdgState := t.TempDir()
 	serverCmd := exec.Command(bin, "mcp")
 	env := make([]string, 0, len(os.Environ()))
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "TMUX=") || strings.HasPrefix(kv, "TMUX_PANE=") {
+		if strings.HasPrefix(kv, "TMUX=") || strings.HasPrefix(kv, "TMUX_PANE=") || strings.HasPrefix(kv, "XDG_STATE_HOME=") {
 			continue
 		}
 		env = append(env, kv)
 	}
-	serverCmd.Env = env
+	serverCmd.Env = append(env, "XDG_STATE_HOME="+xdgState)
+
+	// Seed one snapshot in the isolated store so snapshot_list round-trips a
+	// real entry (the store API writes under XDG_STATE_HOME/run-kit/snapshots).
+	store := snapshot.NewStore(filepath.Join(xdgState, "run-kit", "snapshots"))
+	written, err := store.Write(&snapshot.Snapshot{
+		Server:  "e2esnap",
+		TakenAt: time.Now().UTC(),
+		Sessions: []snapshot.Session{{
+			Name:    "boot",
+			Windows: []snapshot.Window{{Index: 0, ID: "@1", Name: "shell"}},
+		}},
+	})
+	if err != nil || !written {
+		t.Fatalf("seed snapshot store: written=%v err=%v", written, err)
+	}
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "rk-e2e"}, nil)
 	connectCtx, connectCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer connectCancel()
@@ -102,7 +120,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		t.Errorf("instructions mismatch: got %d bytes, want the %d-byte skill bundle", len(got), len(skillBundle))
 	}
 
-	// ListTools: exactly the eleven seeded tools, with annotations and schemas.
+	// ListTools: exactly the thirteen seeded tools, with annotations and schemas.
 	tools, err := session.ListTools(connectCtx, nil)
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
@@ -114,7 +132,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := []string{"answer", "await", "board", "capture", "cron_list", "gui_status", "operator_request", "panes", "process", "send", "sessions", "status", "tab_show", "tab_web_ls"}
+	want := []string{"answer", "await", "board", "capture", "cron_list", "gui_shot", "gui_status", "operator_request", "panes", "process", "send", "sessions", "snapshot_list", "status", "tab_show", "tab_web_ls"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
@@ -281,6 +299,27 @@ func TestMCPEndToEnd(t *testing.T) {
 		if !res.IsError || !strings.Contains(textOf(res), "exactly one") {
 			t.Errorf("answer with %s payload = IsError %v, text %q, want the one-of rejection", name, res.IsError, textOf(res))
 		}
+	}
+
+	// snapshot_list: the seeded entry round-trips through the envelope — the
+	// text content is the unwrapped result array, one row per store entry.
+	res = call("snapshot_list", nil)
+	if res.IsError {
+		t.Fatalf("snapshot_list IsError: %s", textOf(res))
+	}
+	var snapRows []map[string]any
+	if err := json.Unmarshal([]byte(textOf(res)), &snapRows); err != nil {
+		t.Fatalf("snapshot_list text is not a JSON array: %v\n%s", err, textOf(res))
+	}
+	if len(snapRows) != 1 {
+		t.Fatalf("snapshot_list rows = %v, want exactly the seeded entry", snapRows)
+	}
+	row := snapRows[0]
+	if row["server"] != "e2esnap" || row["sessions"] != float64(1) || row["windows"] != float64(1) {
+		t.Errorf("snapshot_list row = %v, want server e2esnap with 1 session / 1 window", row)
+	}
+	if diedAt, present := row["died_at"]; !present || diedAt != nil {
+		t.Errorf("snapshot_list died_at = %v (present %v), want an explicit null for a live row", diedAt, present)
 	}
 
 	// Close ends the server process — CommandTransport closes stdin, escalates

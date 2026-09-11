@@ -886,13 +886,13 @@ func TestMuxAwaitReadyFlagConflicts(t *testing.T) {
 // parseJSONEnvelope parses the single --json document from stdout.
 func parseJSONEnvelope(t *testing.T, stdout string) map[string]any {
 	t.Helper()
-	trimmed := strings.TrimSpace(stdout)
-	if strings.Contains(trimmed, "\n") {
-		t.Fatalf("stdout carries more than one document: %q", stdout)
-	}
+	dec := json.NewDecoder(strings.NewReader(stdout))
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(trimmed), &doc); err != nil {
+	if err := dec.Decode(&doc); err != nil {
 		t.Fatalf("stdout is not one JSON document: %v (%q)", err, stdout)
+	}
+	if dec.More() {
+		t.Fatalf("stdout carries more than one document: %q", stdout)
 	}
 	return doc
 }

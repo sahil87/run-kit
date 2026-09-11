@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -553,12 +552,10 @@ func TestGuiStatusJSONDocument(t *testing.T) {
 
 	var out bytes.Buffer
 	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, true), nil); err != nil {
-		t.Fatal(err)
+		t.Fatalf("runGuiStatus: %v, want exit 0", err)
 	}
 	var st gui.Status
-	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
-		t.Fatalf("--json output is not the status document: %v (%q)", err, out.String())
-	}
+	unwrapEnvelopeResult(t, out.String(), &st)
 	if st.ID != "host" || !st.Enabled || !st.Reachable || !st.Session {
 		t.Errorf("document = %+v, want id=host enabled/reachable/session", st)
 	}
@@ -595,12 +592,10 @@ func TestGuiStatusSessionStarterSuffix(t *testing.T) {
 
 	out.Reset()
 	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, true), nil); err != nil {
-		t.Fatal(err)
+		t.Fatalf("runGuiStatus: %v, want exit 0", err)
 	}
 	var st gui.Status
-	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
-		t.Fatalf("--json output is not the status document: %v (%q)", err, out.String())
-	}
+	unwrapEnvelopeResult(t, out.String(), &st)
 	if st.WM != "startlxqt" {
 		t.Errorf("--json wm = %q, want the plain binary name (no suffix)", st.WM)
 	}
@@ -992,12 +987,10 @@ func TestGuiStatusJSONPrefersFetchedDocument(t *testing.T) {
 
 	var out bytes.Buffer
 	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, true), nil); err != nil {
-		t.Fatal(err)
+		t.Fatalf("runGuiStatus: %v, want exit 0", err)
 	}
 	var st gui.Status
-	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
-		t.Fatalf("--json output is not the status document: %v (%q)", err, out.String())
-	}
+	unwrapEnvelopeResult(t, out.String(), &st)
 	if st.Viewers != 7 {
 		t.Errorf("viewers = %d, want 7 from the fetched daemon document", st.Viewers)
 	}
@@ -1005,12 +998,10 @@ func TestGuiStatusJSONPrefersFetchedDocument(t *testing.T) {
 	guiFetchDaemonStatusFn = func(context.Context) (gui.Status, bool) { return gui.Status{}, false }
 	out.Reset()
 	if err := runGuiStatus(statusCmdWith(&out, &bytes.Buffer{}, true), nil); err != nil {
-		t.Fatal(err)
+		t.Fatalf("runGuiStatus: %v, want exit 0", err)
 	}
 	st = gui.Status{}
-	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
-		t.Fatalf("--json output is not the status document: %v (%q)", err, out.String())
-	}
+	unwrapEnvelopeResult(t, out.String(), &st)
 	if st.Viewers != 3 {
 		t.Errorf("viewers = %d, want 3 from the local assembly when the fetch fails", st.Viewers)
 	}

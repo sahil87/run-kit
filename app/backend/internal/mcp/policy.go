@@ -188,6 +188,16 @@ var operatorTemplateIDs = []string{
 // not obvious from a report word.
 const operatorRequestDescription = "Hand the server's operator agent a templated work item through run-kit's operator-request lane (the same closed registry the dashboard's operator actions use). Window-scoped templates (fix-tab-name, annotate-tab, user-message) REQUIRE `window`; every other template is server-scoped and REJECTS it. `text` is accepted only by spawn-task, find-discussion, and user-message; `session` only by update-annotations. A busy operator queues the request and the result reports `queued:true` — the work is not lost, it drains when the operator goes idle (user-message skips the gate and is never queued). whats-stuck refuses when nothing on the server is waiting. The verb's `--list` is the source of truth for the template set and its flags."
 
+// snapshotListDescription overrides `mux snapshot list`'s Cobra help: the verb
+// has no Long of its own, and the parent's help describes the unexposed
+// show/restore subcommands (docs/specs/mcp.md § Policy table rules).
+const snapshotListDescription = "List layout-recovery snapshots of tmux servers, newest first. Each row is {server, taken_at, died_at, audited_kill, sessions, windows, history_count}; died_at is null for a live server and set on a died tombstone. `show` and `restore` are not exposed."
+
+// guiShotDescription overrides `gui shot`'s Cobra help because its Long
+// promises "the absolute path on stdout" (true only without --json) and names
+// three flags this tool does not expose.
+const guiShotDescription = "Capture a screenshot of the rk GUI display. Result is an image block (PNG) plus a text block carrying {path, width, height, scale, display}; width/height are the source geometry and scale the applied downscale. `--out`, `--scale`, and `--window` are not exposed — the capture always lands at the verb's temp path and covers the full display."
+
 // Table is the compiled-in policy table — the allowlist (docs/specs/mcp.md
 // § Policy table). Seeded with the verbs that are already MCP-shaped: the nine
 // structured-today read verbs ride result: json on their existing bare
@@ -352,5 +362,36 @@ var Table = []Row{
 		Result:      ResultJSON,
 		Annotations: readOnlyAnn, // read-only even though it blocks
 		Description: awaitDescription,
+	},
+	{
+		// No serverArg: the verb rejects the inherited -L at runtime while the
+		// drift guard would still resolve it — the positional filter is the
+		// only server input. The pattern mirrors ValidateServerName
+		// (serverNamePattern + MaxServerNameLength).
+		Tool: "snapshot_list", Path: "mux snapshot list",
+		Args: []Arg{
+			{
+				Name: "server", Positional: 1, Type: ArgString,
+				Pattern:     `^[a-zA-Z0-9_-]{1,64}$`,
+				Description: "Only this server's snapshots (live latest + died tombstones); omit for the store-wide list across every server",
+			},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: readOnlyAnn,
+		Description: snapshotListDescription,
+	},
+	{
+		// max_width is the only exposed input: --scale is float64 and --window
+		// uint64 (both outside the drift guard's type set), and --out is a
+		// filesystem path outside the target rule.
+		Tool: "gui_shot", Path: "gui shot",
+		Args: []Arg{
+			{Name: "max_width", Flag: "--max-width", Type: ArgInteger, Minimum: intPtr(1)},
+			jsonLiteral,
+		},
+		Result:      ResultImage,
+		Annotations: readOnlyAnn,
+		Description: guiShotDescription,
 	},
 }

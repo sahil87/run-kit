@@ -47,10 +47,11 @@ func TestStatusJSONShape(t *testing.T) {
 }
 
 // TestStatusJSONEmptyIsArray confirms an empty session list makes
-// writeSessionStatusJSON emit a JSON array (`[]`), not `null` — a consumer
-// iterating the result must never get a null it has to special-case. This drives
+// writeSessionStatusJSON emit the envelope with `result: []`, not `null` — a
+// consumer iterating the result must never get a null it has to special-case.
+// This drives
 // the real emit path (the `make([]statusSession, 0, ...)` slice that guarantees
-// `[]`, and the trailing-newline Fprintln), not a parallel json.Marshal — an
+// `[]`), not a parallel json.Marshal — an
 // empty session list means the window-listing loop never runs, so no tmux
 // subprocess is touched.
 func TestStatusJSONEmptyIsArray(t *testing.T) {
@@ -59,10 +60,10 @@ func TestStatusJSONEmptyIsArray(t *testing.T) {
 	cmd.SetOut(&out)
 
 	if err := writeSessionStatusJSON(context.Background(), cmd, "runkit", []tmux.SessionInfo{}); err != nil {
-		t.Fatalf("writeSessionStatusJSON error: %v", err)
+		t.Fatalf("writeSessionStatusJSON error: %v, want exit 0", err)
 	}
-	if got := out.String(); got != "[]\n" {
-		t.Errorf("empty status JSON stdout = %q, want %q", got, "[]\n")
+	if got, want := out.String(), "{\n  \"ok\": true,\n  \"result\": []\n}\n"; got != want {
+		t.Errorf("empty status JSON stdout = %q, want %q", got, want)
 	}
 }
 

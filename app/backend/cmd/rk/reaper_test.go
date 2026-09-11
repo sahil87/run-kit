@@ -206,7 +206,7 @@ func runRootArgs(t *testing.T, args ...string) (string, string, error) {
 		resetFlagChanged(initConfAliasCmd, "force")
 		for _, parent := range []*cobra.Command{snapshotFamilyCmd, snapshotAliasCmd} {
 			for _, sub := range parent.Commands() {
-				resetFlagChanged(sub, "all", "at")
+				resetFlagChanged(sub, "all", "at", "json")
 			}
 		}
 	})

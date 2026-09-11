@@ -8,7 +8,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -109,7 +108,8 @@ var tabWebLsCmd = &cobra.Command{
 	Long: "List a tab's web-tab slots, one row per slot: index, an '*' on the active\n" +
 		"slot, and the URL. Zero tabs prints nothing and exits 0. --json prints\n" +
 		"{\"windowId\":\"@N\",\"active\":<n>,\"tabs\":[{\"index\":1,\"url\":\"…\",\"root\":\"…\"}]}\n" +
-		"(root omitted when empty; tabs is [] never null).",
+		"inside the standard {\"ok\":true,\"result\":…} envelope (root omitted when\n" +
+		"empty; tabs is [] never null).",
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE:         runTabWebLs,
@@ -119,7 +119,7 @@ func init() {
 	tabWebAddCmd.Flags().BoolVar(&tabWebAddShowFlag, "show", false,
 		"Ensure web is in the tab's layout after adding, then select the tab")
 	tabWebLsCmd.Flags().BoolVar(&tabWebLsJSONFlag, "json", false,
-		"Print the family as a JSON object")
+		"Print the family as a JSON object inside the {\"ok\",\"result\"} envelope")
 	tabWebCmd.AddCommand(tabWebAddCmd)
 	tabWebCmd.AddCommand(tabWebRmCmd)
 	tabWebCmd.AddCommand(tabWebSelectCmd)
@@ -414,11 +414,9 @@ func runTabWebLs(cmd *cobra.Command, args []string) error {
 			Active   int                 `json:"active"`
 			Tabs     []tabWebLsJSONEntry `json:"tabs"`
 		}{WindowID: windowID, Active: fam.Active, Tabs: tabs}
-		b, err := json.Marshal(doc)
-		if err != nil {
+		if err := sink.Envelope(doc, nil); err != nil {
 			return fmt.Errorf("encoding web-tab family: %w", err)
 		}
-		sink.Dataf("%s\n", b)
 		return nil
 	}
 

@@ -65,7 +65,7 @@ func TestMuxSessionsAllIncludesRoles(t *testing.T) {
 }
 
 // TestMuxSessionsJSONShape: --json carries exactly the documented key set in
-// the documented order (R4).
+// the documented order (R4), wrapped in the standard envelope (R8).
 func TestMuxSessionsJSONShape(t *testing.T) {
 	f := &muxFake{sessionFacts: []tmux.SessionFacts{
 		{Name: "fabKit", Role: tmux.SessionRoleUser, Attached: 1, Windows: 15, Path: "/home/x/fab-kit", Grouped: true},
@@ -74,18 +74,21 @@ func TestMuxSessionsJSONShape(t *testing.T) {
 
 	stdout, _, err := runMuxCmd(t, "sessions", "--json")
 	if err != nil {
-		t.Fatalf("err = %v", err)
+		t.Fatalf("err = %v, want exit 0", err)
 	}
-	want := "[\n" +
-		"  {\n" +
-		"    \"name\": \"fabKit\",\n" +
-		"    \"role\": \"user\",\n" +
-		"    \"attached\": 1,\n" +
-		"    \"windows\": 15,\n" +
-		"    \"path\": \"/home/x/fab-kit\",\n" +
-		"    \"grouped\": true\n" +
-		"  }\n" +
-		"]\n"
+	want := "{\n" +
+		"  \"ok\": true,\n" +
+		"  \"result\": [\n" +
+		"    {\n" +
+		"      \"name\": \"fabKit\",\n" +
+		"      \"role\": \"user\",\n" +
+		"      \"attached\": 1,\n" +
+		"      \"windows\": 15,\n" +
+		"      \"path\": \"/home/x/fab-kit\",\n" +
+		"      \"grouped\": true\n" +
+		"    }\n" +
+		"  ]\n" +
+		"}\n"
 	if stdout != want {
 		t.Errorf("stdout = %q, want %q", stdout, want)
 	}
@@ -98,17 +101,17 @@ func TestMuxSessionsJSONShape(t *testing.T) {
 }
 
 // TestMuxSessionsEmptyAlive: an alive server with nothing to list is success —
-// `[]` under --json, exit 0 (R4).
+// "result": [] under --json, exit 0 (R4/R8).
 func TestMuxSessionsEmptyAlive(t *testing.T) {
 	f := &muxFake{sessionFactsSet: true}
 	installMuxFakes(t, f)
 
 	stdout, _, err := runMuxCmd(t, "sessions", "--json")
 	if err != nil {
-		t.Fatalf("err = %v", err)
+		t.Fatalf("err = %v, want exit 0", err)
 	}
-	if stdout != "[]\n" {
-		t.Errorf("stdout = %q, want %q", stdout, "[]\n")
+	if want := "{\n  \"ok\": true,\n  \"result\": []\n}\n"; stdout != want {
+		t.Errorf("stdout = %q, want %q", stdout, want)
 	}
 }
 

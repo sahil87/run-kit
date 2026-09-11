@@ -104,8 +104,10 @@ own tab when inside tmux, then the git toplevel of the cwd) matched exact,
 then longest-prefix, against the hosts' folders; then a single live host as
 fallback. --all fans out to every live host (ignoring --tab).
 
-Output: the result JSON on stdout ('null' prints null); --json prints the raw
-response envelope (with --all, a JSON array of {hostId, folder, response}).
+Output: the result JSON on stdout ('null' prints null); --json wraps the
+bridge response envelope verbatim in the standard {"ok":true,"result":…}
+envelope — the outer ok is rk's, the inner the bridge's (with --all, a JSON
+array of {hostId, folder, response}, ok:false when any host failed).
 Exit codes: 0 ok; 1 operational (no host, dial failure, timeout, threw,
 unknown-command, bad-request); 2 usage. On unknown-command the closest
 matches from the host's command list print as a did-you-mean list on stderr.`,
@@ -124,7 +126,8 @@ without one, age humanised from the record's startedAt) on stdout.
 Liveness is re-derived on every call: a record counts only when its pid is
 alive AND its socket answers a ping within 2s; records failing either check
 are pruned as a side effect. Zero hosts prints nothing ([] under --json) and
-exits 0. --json prints the host records as a JSON array.`,
+exits 0. --json prints the host records as a JSON array inside the standard
+{"ok":true,"result":…} envelope.`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runCodeHosts,
@@ -159,13 +162,13 @@ func init() {
 	codeExecCmd.Flags().DurationVar(&codeExecTimeoutFlag, "timeout", codeDefaultTimeout,
 		"Timeout the extension enforces on the command (the Go deadline adds 2s)")
 	codeExecCmd.Flags().BoolVar(&codeExecJSONFlag, "json", false,
-		"Print the raw response envelope instead of the result")
+		"Print the bridge response nested under result in the {\"ok\",\"result\"} envelope instead of the bare result")
 	codeExecCmd.MarkFlagsMutuallyExclusive("host", "folder")
 	codeExecCmd.MarkFlagsMutuallyExclusive("tab", "host")
 	codeExecCmd.MarkFlagsMutuallyExclusive("tab", "folder")
 
 	codeHostsCmd.Flags().BoolVar(&codeHostsJSONFlag, "json", false,
-		"Print the host records as a JSON array")
+		"Print the host records as a JSON array inside the {\"ok\",\"result\"} envelope")
 
 	codeCommandsCmd.Flags().StringVar(&codeCmdsFolderFlag, "folder", "",
 		"Target host by workspace folder (default: git toplevel of the cwd)")
@@ -481,12 +484,7 @@ func runCodeExec(cmd *cobra.Command, args []string) error {
 		return codeBridgeError(cmd, ctx, host, args[0], resp)
 	}
 	if codeExecJSONFlag {
-		env, err := json.Marshal(resp)
-		if err != nil {
-			return fmt.Errorf("encoding response envelope: %w", err)
-		}
-		sink.Dataf("%s\n", env)
-		return nil
+		return sink.Envelope(resp, nil)
 	}
 	sink.Dataf("%s\n", codeResultJSON(resp))
 	return nil
@@ -503,7 +501,8 @@ type codeAllResult struct {
 
 // runCodeExecAll fans one request out to every live host: default output is
 // one `<hostId>\t<result JSON>` row per successful host; --json prints the
-// {hostId, folder, response} array. The exit is 1 when any host errored.
+// {hostId, folder, response} array inside the envelope (ok:false alongside the
+// array when any host failed). The exit is 1 when any host errored.
 func runCodeExecAll(cmd *cobra.Command, sink outputSink, ctx context.Context, live []codebridge.HostRecord, command string, args []json.RawMessage) error {
 	if len(live) == 0 {
 		folder, err := codeTargetFolderFn(ctx)
@@ -545,18 +544,15 @@ func runCodeExecAll(cmd *cobra.Command, sink outputSink, ctx context.Context, li
 		}
 	}
 
-	if codeExecJSONFlag {
-		b, err := json.Marshal(results)
-		if err != nil {
-			return fmt.Errorf("encoding --all results: %w", err)
-		}
-		sink.Dataf("%s\n", b)
-	}
+	var verdictErr error
 	if failed {
 		cmd.SilenceErrors = true
-		return errors.New("at least one host failed")
+		verdictErr = errors.New("at least one host failed")
 	}
-	return nil
+	if codeExecJSONFlag {
+		return sink.Envelope(results, verdictErr)
+	}
+	return verdictErr
 }
 
 func runCodeHosts(cmd *cobra.Command, _ []string) error {
@@ -569,12 +565,7 @@ func runCodeHosts(cmd *cobra.Command, _ []string) error {
 		if live == nil {
 			live = []codebridge.HostRecord{}
 		}
-		b, err := json.Marshal(live)
-		if err != nil {
-			return fmt.Errorf("encoding host records: %w", err)
-		}
-		sink.Dataf("%s\n", b)
-		return nil
+		return sink.Envelope(live, nil)
 	}
 	if len(live) == 0 {
 		return nil // zero hosts print nothing (still exit 0)

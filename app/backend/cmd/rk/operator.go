@@ -409,10 +409,10 @@ func seedOperatorTick(cmd *cobra.Command, slug string) {
 }
 
 // operatorTickEntrySpec builds the seeded entry with the spec's fixed
-// operator-tick field values (backoff 60s→30m, wake on server-scoped
+// operator-tick field values (backoff 3m→24m, wake on server-scoped
 // agent-state-change held 60s after the entry's own delivery — an edge that
 // lands right after a tick waits for the poll after next, never lost —
-// role:operator target, immediate delivery,
+// role:operator target, skip-if-busy delivery,
 // if_absent respawn with the caller-supplied argv `rk operator -L {server}` —
 // the {server} placeholder resolves to the stamped server at fire time —
 // pinned). created_by auto-captures the caller's pane + now, the same inputs
@@ -423,8 +423,8 @@ func operatorTickEntrySpec() cron.Entry {
 		Name: "operator tick",
 		Schedule: cron.Schedule{
 			Kind: cron.ScheduleBackoff,
-			Min:  cron.Duration{Duration: 60 * time.Second},
-			Max:  cron.Duration{Duration: 30 * time.Minute},
+			Min:  cron.Duration{Duration: 3 * time.Minute},
+			Max:  cron.Duration{Duration: 24 * time.Minute},
 		},
 		WakeOn: &cron.WakeOn{
 			Event:    cron.WakeAgentStateChange,
@@ -433,7 +433,7 @@ func operatorTickEntrySpec() cron.Entry {
 		},
 		Target:    cron.Target{Kind: cron.TargetRole, Role: cron.RoleOperator},
 		Payload:   "operator tick",
-		Deliver:   cron.DeliverImmediate,
+		Deliver:   cron.DeliverSkipIfBusy,
 		IfAbsent:  cron.IfAbsentRespawn,
 		Respawn:   []string{"rk", "operator", "-L", "{server}"},
 		Pinned:    true,

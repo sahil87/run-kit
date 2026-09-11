@@ -738,12 +738,137 @@ func TestCronAddRespawnMatrix(t *testing.T) {
 	}
 }
 
+// TestCronAddWakeOnDefaults: --wake-on alone persists the block with the
+// server/60s defaults filling the knobs not given.
+func TestCronAddWakeOnDefaults(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	stubCronAddSeams(t, "", nil)
+	t.Setenv("TMUX_PANE", "%12")
+
+	if _, _, err := runCronCmd(t, "add", "operator tick", "--backoff", "--role", "operator", "--wake-on", "agent-state-change"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	entries := loadCronEntries(t, dir, "work")
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(entries))
+	}
+	want := &cron.WakeOn{Event: cron.WakeAgentStateChange, Scope: cron.WakeScopeServer, Debounce: cron.Duration{Duration: 60 * time.Second}}
+	if got := entries[0].WakeOn; got == nil || *got != *want {
+		t.Errorf("wake_on = %+v, want %+v", got, want)
+	}
+}
+
+// TestCronAddWakeOnExplicit: --wake-scope/--wake-debounce refine the stored
+// block; an explicit zero debounce persists as the no-hold.
+func TestCronAddWakeOnExplicit(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	stubCronAddSeams(t, "", nil)
+	t.Setenv("TMUX_PANE", "%12")
+
+	if _, _, err := runCronCmd(t, "add", "tick", "--every", "1h",
+		"--wake-on", "agent-state-change", "--wake-scope", "server", "--wake-debounce", "2m"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, _, err := runCronCmd(t, "add", "tick2", "--every", "1h",
+		"--wake-on", "agent-state-change", "--wake-debounce", "0s"); err != nil {
+		t.Fatalf("add --wake-debounce 0s: %v", err)
+	}
+	entries := loadCronEntries(t, dir, "work")
+	if len(entries) != 2 {
+		t.Fatalf("entries = %d, want 2", len(entries))
+	}
+	want := &cron.WakeOn{Event: cron.WakeAgentStateChange, Scope: cron.WakeScopeServer, Debounce: cron.Duration{Duration: 2 * time.Minute}}
+	if got := entries[0].WakeOn; got == nil || *got != *want {
+		t.Errorf("wake_on = %+v, want %+v", got, want)
+	}
+	if got := entries[1].WakeOn; got == nil || got.Debounce.Duration != 0 {
+		t.Errorf("wake_on = %+v, want the explicit zero debounce stored", got)
+	}
+}
+
+// TestCronAddNoWakeOnOmitsKey: without --wake-on the entry has no block and
+// the file omits the key (the respawn empty-set posture).
+func TestCronAddNoWakeOnOmitsKey(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	stubCronAddSeams(t, "", nil)
+	t.Setenv("TMUX_PANE", "%12")
+
+	if _, _, err := runCronCmd(t, "add", "x", "--every", "1h"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	entries := loadCronEntries(t, dir, "work")
+	if len(entries) != 1 || entries[0].WakeOn != nil {
+		t.Fatalf("entries = %+v, want one entry with wake_on nil", entries)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "work.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "wake_on:") {
+		t.Errorf("entry file carries wake_on: for a wake-less add:\n%s", raw)
+	}
+}
+
+// TestCronAddWakeOnMatrix: the wake-flag usage errors — a bad event, a bad
+// scope, a negative debounce, either knob without --wake-on (Changed-based, so
+// the explicit default value still errors), and the edit-only clear spellings
+// rejected on add. All exit 2 and leave the state dir untouched.
+func TestCronAddWakeOnMatrix(t *testing.T) {
+	cases := []struct {
+		name      string
+		args      []string
+		wantInErr string
+	}{
+		{"bad event",
+			[]string{"add", "x", "--every", "1h", "--wake-on", "foo"},
+			"invalid --wake-on value"},
+		{"bad scope",
+			[]string{"add", "x", "--every", "1h", "--wake-on", "agent-state-change", "--wake-scope", "pane"},
+			"invalid --wake-scope value"},
+		{"negative debounce",
+			[]string{"add", "x", "--every", "1h", "--wake-on", "agent-state-change", "--wake-debounce", "-1s"},
+			"--wake-debounce must not be negative"},
+		{"wake-scope without wake-on",
+			[]string{"add", "x", "--every", "1h", "--wake-scope", "server"},
+			"--wake-scope/--wake-debounce only apply with --wake-on"},
+		{"wake-debounce without wake-on",
+			[]string{"add", "x", "--every", "1h", "--wake-debounce", "2m"},
+			"--wake-scope/--wake-debounce only apply with --wake-on"},
+		{"none is not an event on add",
+			[]string{"add", "x", "--every", "1h", "--wake-on", "none"},
+			"invalid --wake-on value"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := stubCronDir(t)
+			stubCronAddSeams(t, "", nil)
+			t.Setenv("TMUX_PANE", "%12")
+
+			_, _, err := runCronCmd(t, tc.args...)
+			if err == nil || !strings.Contains(err.Error(), tc.wantInErr) {
+				t.Fatalf("%v: err = %v, want %q", tc.args, err, tc.wantInErr)
+			}
+			if code := exitCode(err); code != exitUsage {
+				t.Errorf("%v: exit code = %d, want %d", tc.args, code, exitUsage)
+			}
+			if fis, _ := os.ReadDir(dir); len(fis) != 0 {
+				t.Errorf("%v: state dir gained %v, want untouched", tc.args, fis)
+			}
+		})
+	}
+}
+
 // TestCronAddHelpText: the add usage names the positional <prompt> and the Long
 // states it is text for an agent typed into its chat (never a command),
 // documents --respawn and the {server} placeholder, and describes --backoff as
 // an idle-epoch ladder. --idle-every is layered in beside it (flag usage names
 // the quiet/idle semantics, the Long contrasts it with --every), the stale
-// "delivery wave" clause is gone, and both new examples appear.
+// "delivery wave" clause is gone, and both new examples appear. The wake flags
+// are named as the reactive channel and the Example carries the full operator
+// entry shape.
 func TestCronAddHelpText(t *testing.T) {
 	if !strings.Contains(cronAddCmd.Use, "add <prompt>") {
 		t.Errorf("add Use = %q, want the <prompt> positional", cronAddCmd.Use)
@@ -772,10 +897,17 @@ func TestCronAddHelpText(t *testing.T) {
 	for _, want := range []string{
 		`rk cron add "wake up" --idle-every 3m`,
 		`rk cron add "morning digest" --cron "0 9 * * *" --deliver skip-if-busy`,
+		`rk cron add "operator tick" --backoff --min 3m --max 24m --wake-on agent-state-change --deliver skip-if-busy --role operator --if-absent respawn --respawn rk --respawn operator --respawn -L --respawn '{server}' --pinned`,
 	} {
 		if !strings.Contains(cronAddCmd.Example, want) {
 			t.Errorf("add Example missing %q", want)
 		}
+	}
+	if wf := cronAddCmd.Flags().Lookup("wake-on"); wf == nil || !strings.Contains(wf.Usage, "agent-state-change") {
+		t.Errorf("--wake-on usage = %q, want it naming agent-state-change", wf.Usage)
+	}
+	if !strings.Contains(cronAddCmd.Long, "--wake-on") {
+		t.Errorf("add Long missing the wake-flag reactive-channel sentence")
 	}
 	if f := cronAddCmd.Flags().Lookup("idle-every"); f == nil ||
 		!strings.Contains(f.Usage, "quiet") || !strings.Contains(f.Usage, "idle") {

@@ -636,9 +636,9 @@ func TestOperatorListWindowsFailure(t *testing.T) {
 // affecting the exit code or the window open.
 
 // TestOperatorSeedsOperatorTickEntry: a fresh state dir gains exactly one
-// entry carrying the spec's fixed operator-tick field values (backoff 60s→30m,
-// wake_on agent-state-change/server/10s, role:operator target, "operator tick"
-// payload, immediate delivery, if_absent respawn with the caller-supplied
+// entry carrying the spec's fixed operator-tick field values (backoff 3m→24m,
+// wake_on agent-state-change/server/60s, role:operator target, "operator tick"
+// payload, skip-if-busy delivery, if_absent respawn with the caller-supplied
 // `rk operator -L {server}` argv, pinned), with created_by auto-captured from
 // the caller's pane.
 func TestOperatorSeedsOperatorTickEntry(t *testing.T) {
@@ -659,8 +659,8 @@ func TestOperatorSeedsOperatorTickEntry(t *testing.T) {
 	}
 	wantSched := cron.Schedule{
 		Kind: cron.ScheduleBackoff,
-		Min:  cron.Duration{Duration: 60 * time.Second},
-		Max:  cron.Duration{Duration: 30 * time.Minute},
+		Min:  cron.Duration{Duration: 3 * time.Minute},
+		Max:  cron.Duration{Duration: 24 * time.Minute},
 	}
 	if e.Schedule != wantSched {
 		t.Errorf("schedule = %+v, want %+v", e.Schedule, wantSched)
@@ -674,8 +674,8 @@ func TestOperatorSeedsOperatorTickEntry(t *testing.T) {
 	if e.Name != "operator tick" || e.Payload != "operator tick" {
 		t.Errorf("name/payload = %q/%q, want \"operator tick\"/\"operator tick\"", e.Name, e.Payload)
 	}
-	if e.Deliver != cron.DeliverImmediate || e.IfAbsent != cron.IfAbsentRespawn || !e.Pinned || e.Muted {
-		t.Errorf("deliver/if_absent/pinned/muted = %q/%q/%v/%v, want immediate/respawn/true/false",
+	if e.Deliver != cron.DeliverSkipIfBusy || e.IfAbsent != cron.IfAbsentRespawn || !e.Pinned || e.Muted {
+		t.Errorf("deliver/if_absent/pinned/muted = %q/%q/%v/%v, want skip-if-busy/respawn/true/false",
 			e.Deliver, e.IfAbsent, e.Pinned, e.Muted)
 	}
 	if want := []string{"rk", "operator", "-L", "{server}"}; strings.Join(e.Respawn, " ") != strings.Join(want, " ") {

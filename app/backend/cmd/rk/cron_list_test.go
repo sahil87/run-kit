@@ -358,3 +358,40 @@ entries:
 		t.Errorf("expired lease record carries muted_until: %v", raw[1])
 	}
 }
+
+// TestCronListJSONWakeOnRoundTrip: an entry added with --wake-on lists its
+// block under --json (debounce in the cronListDur rendering); one added
+// without lists wake_on: null. No list-side code is involved — the flag-to-
+// file-to-JSON round-trip is the contract.
+func TestCronListJSONWakeOnRoundTrip(t *testing.T) {
+	stubCronDir(t)
+	stubCronTMUX(t)
+	stubCronAddSeams(t, "", nil)
+	t.Setenv("TMUX_PANE", "%12")
+
+	if _, _, err := runCronCmd(t, "add", "waking", "--every", "1h",
+		"--wake-on", "agent-state-change", "--wake-debounce", "2m"); err != nil {
+		t.Fatalf("add with --wake-on: %v", err)
+	}
+	if _, _, err := runCronCmd(t, "add", "plain", "--every", "1h"); err != nil {
+		t.Fatalf("add without --wake-on: %v", err)
+	}
+
+	stdout, _, err := runCronCmd(t, "list", "--json")
+	if err != nil {
+		t.Fatalf("list --json: %v", err)
+	}
+	var raw []map[string]any
+	unwrapEnvelopeResult(t, stdout, &raw)
+	if len(raw) != 2 {
+		t.Fatalf("records = %d, want 2", len(raw))
+	}
+	wakeOn, ok := raw[0]["wake_on"].(map[string]any)
+	if !ok || wakeOn["event"] != "agent-state-change" || wakeOn["scope"] != "server" || wakeOn["debounce"] != "2m0s" {
+		t.Errorf("row 0 wake_on = %v, want {event: agent-state-change, scope: server, debounce: 2m0s}", raw[0]["wake_on"])
+	}
+	v, ok := raw[1]["wake_on"]
+	if !ok || v != nil {
+		t.Errorf("row 1 wake_on = %v (present %v), want the key present and null", v, ok)
+	}
+}

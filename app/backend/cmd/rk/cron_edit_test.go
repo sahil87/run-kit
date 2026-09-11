@@ -142,8 +142,9 @@ func TestCronEditNoopNoLogLine(t *testing.T) {
 // TestCronEditFlagMatrix: the usage-error classes — bare edit, two schedule
 // flags, --min without --backoff (even on a stored backoff entry), the
 // immutable target flags (cobra's unknown-flag path, exit 2), a bad --deliver,
-// and --respawn without the respawn policy. All exit 2 and leave the entry
-// file byte-identical.
+// --respawn without the respawn policy, and the wake matrix (bad enum, knobs
+// without --wake-on, knobs with the none clear form). All exit 2 and leave the
+// entry file byte-identical.
 func TestCronEditFlagMatrix(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -158,6 +159,14 @@ func TestCronEditFlagMatrix(t *testing.T) {
 		{"pane is immutable", []string{"edit", "a3f9", "--pane", "%9"}, "unknown flag"},
 		{"bad deliver", []string{"edit", "a3f9", "--deliver", "sometimes"}, "invalid --deliver value"},
 		{"respawn without if-absent respawn", []string{"edit", "a3f9", "--respawn", "rk"}, "--respawn only applies with --if-absent respawn"},
+		{"bare edit names --wake-on", []string{"edit", "a3f9"}, "--wake-on"},
+		{"bad wake-on event", []string{"edit", "a3f9", "--wake-on", "foo"}, "invalid --wake-on value"},
+		{"bad wake-scope", []string{"edit", "a3f9", "--wake-on", "agent-state-change", "--wake-scope", "pane"}, "invalid --wake-scope value"},
+		{"negative wake-debounce", []string{"edit", "a3f9", "--wake-on", "agent-state-change", "--wake-debounce", "-1s"}, "--wake-debounce must not be negative"},
+		{"wake-scope without wake-on", []string{"edit", "a3f9", "--wake-scope", "server"}, "--wake-scope/--wake-debounce only apply with --wake-on"},
+		{"wake-debounce without wake-on", []string{"edit", "a3f9", "--wake-debounce", "2m"}, "--wake-scope/--wake-debounce only apply with --wake-on"},
+		{"none with wake-scope", []string{"edit", "a3f9", "--wake-on", "none", "--wake-scope", "server"}, "--wake-scope/--wake-debounce do not apply with --wake-on none"},
+		{"none with wake-debounce", []string{"edit", "a3f9", "--wake-on", "none", "--wake-debounce", "2m"}, "--wake-scope/--wake-debounce do not apply with --wake-on none"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -270,8 +279,116 @@ entries:
 	wantRescheduledLine(t, dir, "work", "a3f9")
 }
 
+// TestCronEditWakeOnAdds: an entry without a wake_on block gains one from
+// --wake-on, with --wake-scope/--wake-debounce refining and the server default
+// filling the knob not given.
+func TestCronEditWakeOnAdds(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	writeCronFixture(t, dir, "work", cronEditFixture)
+
+	if _, _, err := runCronCmd(t, "edit", "a3f9", "--wake-on", "agent-state-change", "--wake-debounce", "2m"); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	entries := loadCronEntries(t, dir, "work")
+	want := &cron.WakeOn{Event: cron.WakeAgentStateChange, Scope: cron.WakeScopeServer, Debounce: cron.Duration{Duration: 2 * time.Minute}}
+	if got := entries[0].WakeOn; got == nil || *got != *want {
+		t.Errorf("wake_on = %+v, want %+v", got, want)
+	}
+}
+
+// TestCronEditWakeOnReplacesWholeBlock: --wake-on replaces the whole block —
+// the defaults refill every knob not given, so a stored 2m debounce drops back
+// to 60s when --wake-debounce is omitted (the --backoff --min/--max ladder
+// precedent).
+func TestCronEditWakeOnReplacesWholeBlock(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	writeCronFixture(t, dir, "work", `
+entries:
+  - id: w8k2
+    name: waking
+    schedule: { kind: every, interval: 1h }
+    wake_on: { event: agent-state-change, scope: server, debounce: 2m }
+    target: { kind: pane, pane: "%42" }
+    payload: "tick"
+`)
+
+	if _, _, err := runCronCmd(t, "edit", "w8k2", "--wake-on", "agent-state-change"); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	entries := loadCronEntries(t, dir, "work")
+	want := &cron.WakeOn{Event: cron.WakeAgentStateChange, Scope: cron.WakeScopeServer, Debounce: cron.Duration{Duration: 60 * time.Second}}
+	if got := entries[0].WakeOn; got == nil || *got != *want {
+		t.Errorf("wake_on = %+v, want %+v (whole-block replace, debounce back at the default)", got, want)
+	}
+}
+
+// TestCronEditWakeOnClears: --wake-on none (and the off alias) nils the block,
+// the file drops the key, and every other field survives untouched.
+func TestCronEditWakeOnClears(t *testing.T) {
+	for _, clear := range []string{"none", "off"} {
+		t.Run(clear, func(t *testing.T) {
+			dir := stubCronDir(t)
+			stubCronTMUX(t)
+			writeCronFixture(t, dir, "work", `
+entries:
+  - id: w8k2
+    name: waking
+    schedule: { kind: every, interval: 1h }
+    wake_on: { event: agent-state-change, scope: server, debounce: 2m }
+    target: { kind: pane, pane: "%42" }
+    payload: "tick"
+    deliver: skip-if-busy
+    pinned: true
+`)
+
+			if _, _, err := runCronCmd(t, "edit", "w8k2", "--wake-on", clear); err != nil {
+				t.Fatalf("edit --wake-on %s: %v", clear, err)
+			}
+			entries := loadCronEntries(t, dir, "work")
+			if len(entries) != 1 || entries[0].WakeOn != nil {
+				t.Fatalf("entries = %+v, want wake_on nil after --wake-on %s", entries, clear)
+			}
+			e := entries[0]
+			if e.Name != "waking" || e.Schedule.Kind != cron.ScheduleEvery || e.Schedule.Interval.Duration != time.Hour ||
+				e.Deliver != cron.DeliverSkipIfBusy || e.Target.Pane != "%42" || e.Payload != "tick" || !e.Pinned {
+				t.Errorf("entry = %+v, want every other field untouched by the clear", e)
+			}
+			raw, err := os.ReadFile(filepath.Join(dir, "work.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(raw), "wake_on:") {
+				t.Errorf("entry file still carries wake_on: after --wake-on %s:\n%s", clear, raw)
+			}
+		})
+	}
+}
+
+// TestCronEditWakeOnlyNoLogLine: a wake_on-only edit appends no rescheduled
+// line — wake_on carries no schedule anchor (the name-only precedent).
+func TestCronEditWakeOnlyNoLogLine(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	writeCronFixture(t, dir, "work", cronEditFixture)
+
+	if _, _, err := runCronCmd(t, "edit", "a3f9", "--wake-on", "agent-state-change"); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	entries := loadCronEntries(t, dir, "work")
+	if entries[0].WakeOn == nil || entries[0].WakeOn.Event != cron.WakeAgentStateChange {
+		t.Errorf("wake_on = %+v, want the block added", entries[0].WakeOn)
+	}
+	if lines := cronEditLogLines(t, dir, "work"); len(lines) != 0 {
+		t.Errorf("log lines = %+v, want none for a wake-only edit", lines)
+	}
+}
+
 // TestCronEditHelpText: the verb's help states the replace semantics and the
-// target/creator immutability rule, and the parent lists the new verb.
+// target/creator immutability rule, the parent lists the new verb, and the
+// wake flags appear in Use/Long/Example with the replace-block and none-clear
+// semantics.
 func TestCronEditHelpText(t *testing.T) {
 	if !strings.Contains(cronEditCmd.Use, "edit <id>") {
 		t.Errorf("edit Use = %q, want the <id> positional", cronEditCmd.Use)
@@ -280,9 +397,21 @@ func TestCronEditHelpText(t *testing.T) {
 		"to retarget, add a new entry — a target change is a different entry",
 		"REPLACES",
 		"rescheduled",
+		"--wake-on",
 	} {
 		if !strings.Contains(cronEditCmd.Long, want) {
 			t.Errorf("edit Long missing %q", want)
+		}
+	}
+	if !strings.Contains(cronEditCmd.Use, "--wake-on <event>|none") {
+		t.Errorf("edit Use = %q, want the --wake-on alternation", cronEditCmd.Use)
+	}
+	for _, want := range []string{
+		`rk cron edit a3f9 --wake-on agent-state-change --wake-debounce 2m`,
+		`rk cron edit a3f9 --wake-on none`,
+	} {
+		if !strings.Contains(cronEditCmd.Example, want) {
+			t.Errorf("edit Example missing %q", want)
 		}
 	}
 	if !strings.Contains(cronCmd.Short, "edit") {

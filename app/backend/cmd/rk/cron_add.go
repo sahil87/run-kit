@@ -34,22 +34,25 @@ import (
 const cronAddNameMaxRunes = 40
 
 var (
-	cronAddEvery     time.Duration
-	cronAddIdleEvery time.Duration
-	cronAddBackoff   bool
-	cronAddCronExpr  string
-	cronAddCatchUp   string
-	cronAddMin       time.Duration
-	cronAddMax       time.Duration
-	cronAddName      string
-	cronAddDeliver   string
-	cronAddIfAbsent  string
-	cronAddRespawn   []string
-	cronAddPinned    bool
-	cronAddRole      string
-	cronAddPane      string
-	cronAddSession   string
-	cronAddJSON      bool
+	cronAddEvery        time.Duration
+	cronAddIdleEvery    time.Duration
+	cronAddBackoff      bool
+	cronAddCronExpr     string
+	cronAddCatchUp      string
+	cronAddMin          time.Duration
+	cronAddMax          time.Duration
+	cronAddName         string
+	cronAddDeliver      string
+	cronAddIfAbsent     string
+	cronAddRespawn      []string
+	cronAddPinned       bool
+	cronAddRole         string
+	cronAddPane         string
+	cronAddSession      string
+	cronAddJSON         bool
+	cronAddWakeOn       string
+	cronAddWakeScope    string
+	cronAddWakeDebounce time.Duration
 )
 
 // cronAddReceipt is the --json success document: exactly the four fields the
@@ -85,6 +88,11 @@ var cronAddCmd = &cobra.Command{
 		"--session, or --pane is required. --name defaults to a prompt prefix; " +
 		"--deliver (immediate | when-idle | skip-if-busy) and --if-absent are " +
 		"validated at add time and enforced at fire time. " +
+		"--wake-on <event> adds the reactive channel: the entry also fires " +
+		"when an agent in scope goes waiting/idle or vanishes, in addition to " +
+		"the schedule; --wake-scope sets the fingerprint scope (server) and " +
+		"--wake-debounce holds the fire after the entry's own newest delivery " +
+		"(default 60s), so a burst coalesces into one fire. " +
 		"With --if-absent respawn, repeat --respawn <arg> to give " +
 		"the command that brings the target back (one argv element per " +
 		"occurrence; the exact text {server} in any element is replaced with the " +
@@ -96,7 +104,7 @@ var cronAddCmd = &cobra.Command{
   rk cron add "tick" --backoff --min 2m --max 30m
   rk cron add "nightly" --cron "0 3 * * *" --role operator
   rk cron add "morning digest" --cron "0 9 * * *" --deliver skip-if-busy
-  rk cron add "operator tick" --backoff --role operator --if-absent respawn --respawn rk --respawn operator --respawn -L --respawn '{server}'
+  rk cron add "operator tick" --backoff --min 3m --max 24m --wake-on agent-state-change --deliver skip-if-busy --role operator --if-absent respawn --respawn rk --respawn operator --respawn -L --respawn '{server}' --pinned
   rk cron add "follow up" --every 2h --session 4fe2abc-1c3b-4f7e-9a2d-8b5c4e1f0a37`,
 	Args: usageArgs(cobra.ExactArgs(1)),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -122,6 +130,9 @@ func init() {
 	f.StringVar(&cronAddPane, "pane", "", "Target a pane id (%N)")
 	f.StringVar(&cronAddSession, "session", "", "Target an agent session ref (e.g. 4fe2abc-…)")
 	f.BoolVar(&cronAddJSON, "json", false, "Emit the machine-readable envelope (exactly one JSON document on stdout)")
+	f.StringVar(&cronAddWakeOn, "wake-on", "", "Also fire on an actionable agent-state edge (only: agent-state-change)")
+	f.StringVar(&cronAddWakeScope, "wake-scope", cron.WakeScopeServer, "Fingerprint scope for --wake-on (only: server)")
+	f.DurationVar(&cronAddWakeDebounce, "wake-debounce", cronWakeDebounceDefault, "Hold a --wake-on fire this long after the entry's own newest delivery")
 }
 
 // Seams so runCronAdd is testable without a live tmux server: the clock, the
@@ -171,6 +182,10 @@ func runCronAdd(cmd *cobra.Command, payload string) error {
 	if len(cronAddRespawn) > 0 && cronAddIfAbsent != cron.IfAbsentRespawn {
 		return usageError(fmt.Errorf("--respawn only applies with --if-absent respawn"))
 	}
+	wakeOn, err := cronWakeOnFromFlags(cmd, cronAddWakeOn, cronAddWakeScope, cronAddWakeDebounce, false)
+	if err != nil {
+		return err
+	}
 
 	parent := cmd.Context()
 	if parent == nil {
@@ -219,6 +234,7 @@ func runCronAdd(cmd *cobra.Command, payload string) error {
 		IfAbsent:  cronAddIfAbsent,
 		Respawn:   respawn,
 		Pinned:    cronAddPinned,
+		WakeOn:    wakeOn,
 		CreatedBy: createdBy,
 	})
 	if err != nil {
@@ -345,6 +361,54 @@ func cronAddValidateEnum(flag, value string, valid ...string) error {
 		}
 	}
 	return usageError(fmt.Errorf("invalid %s value %q: want one of %v", flag, value, valid))
+}
+
+// The edit-only clear spellings for --wake-on; add validates against the
+// event enum only (there is nothing to clear on a fresh entry).
+const (
+	cronWakeClearNone = "none"
+	cronWakeClearOff  = "off"
+	// cronWakeDebounceDefault is the --wake-debounce default shared by add and
+	// edit; the two verbs bind separate flag vars and must agree.
+	cronWakeDebounceDefault = 60 * time.Second
+)
+
+// cronWakeOnFromFlags validates the wake flag set and builds the wake_on
+// block, returning w=nil when --wake-on was not given (the entry file omits
+// the key). --wake-scope/--wake-debounce refine the block and are a usage
+// error without --wake-on (the --min/--max rule), detected via Changed so an
+// explicit default-value knob still errors. When allowClear (edit), the
+// none/off spellings also return nil — the caller nils the stored block
+// under Changed("wake-on") — and combining them with a knob is a usage error. Shared by add and
+// edit, which bind their own flag vars.
+func cronWakeOnFromFlags(cmd *cobra.Command, on, scope string, debounce time.Duration, allowClear bool) (*cron.WakeOn, error) {
+	flags := cmd.Flags()
+	if !flags.Changed("wake-on") {
+		if flags.Changed("wake-scope") || flags.Changed("wake-debounce") {
+			return nil, usageError(fmt.Errorf("--wake-scope/--wake-debounce only apply with --wake-on"))
+		}
+		return nil, nil
+	}
+	if allowClear && (on == cronWakeClearNone || on == cronWakeClearOff) {
+		if flags.Changed("wake-scope") || flags.Changed("wake-debounce") {
+			return nil, usageError(fmt.Errorf("--wake-scope/--wake-debounce do not apply with --wake-on none"))
+		}
+		return nil, nil
+	}
+	if err := cronAddValidateEnum("--wake-on", on, cron.WakeAgentStateChange); err != nil {
+		return nil, err
+	}
+	if err := cronAddValidateEnum("--wake-scope", scope, cron.WakeScopeServer); err != nil {
+		return nil, err
+	}
+	if debounce < 0 {
+		return nil, usageError(fmt.Errorf("--wake-debounce must not be negative, got %s", debounce))
+	}
+	return &cron.WakeOn{
+		Event:    on,
+		Scope:    scope,
+		Debounce: cron.Duration{Duration: debounce},
+	}, nil
 }
 
 // cronAddTarget resolves the entry's target and creator provenance. Explicit

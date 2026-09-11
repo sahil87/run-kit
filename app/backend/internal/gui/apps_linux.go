@@ -27,6 +27,21 @@ var wmHelperComms = map[string]bool{
 	"dbus-daemon": true, "dbus-run-session": true,
 }
 
+// commLenCap is the kernel's TASK_COMM_LEN-1: /proc/<pid>/comm truncates
+// longer names, so helper matching must also compare the truncated form of
+// every wmHelperComms entry (dbus-run-session reads as dbus-run-sessio).
+const commLenCap = 15
+
+var wmHelperCommsTruncated = func() map[string]bool {
+	m := make(map[string]bool, len(wmHelperComms))
+	for name := range wmHelperComms {
+		if len(name) > commLenCap {
+			m[name[:commLenCap]] = true
+		}
+	}
+	return m
+}()
+
 // RunningApps lists the applications running on the given display (":N") by
 // scanning <procRoot>/[0-9]*/environ for an exact DISPLAY=:N entry, grouped
 // by process comm and sorted by count desc then name asc. Pids in exclude
@@ -53,7 +68,7 @@ func RunningApps(procRoot, display string, exclude map[int]bool) ([]App, error) 
 		if err != nil {
 			continue
 		}
-		if name := strings.TrimSpace(string(comm)); name != "" && !wmHelperComms[name] {
+		if name := strings.TrimSpace(string(comm)); name != "" && !wmHelperComms[name] && !wmHelperCommsTruncated[name] {
 			counts[name]++
 		}
 	}

@@ -100,6 +100,13 @@ func IsSessionStarter(name string) bool {
 	return sessionStarters[name]
 }
 
+// IsLXQt reports whether name is an LXQt session-starter binary — the rung the
+// supervisor seeds the XDG_CONFIG_DIRS defaults for. LXQt is the one seeded
+// desktop; every other session starter runs unseeded.
+func IsLXQt(name string) bool {
+	return name == "startlxqt" || name == "lxqt-session"
+}
+
 // WMOwnsProcessGroup reports whether a launch argv must run in — and be
 // stopped via — its own process group: true exactly for a session starter.
 // Under the dbus-run-session wrap the direct child is the wrapper; signalling

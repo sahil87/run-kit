@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=XScreenSaver (disabled by rk)
+Exec=xscreensaver -no-splash
+Hidden=true
+OnlyShowIn=LXQt;

@@ -199,6 +199,19 @@ func TestIsSessionStarter(t *testing.T) {
 	}
 }
 
+func TestIsLXQt(t *testing.T) {
+	for _, name := range []string{"startlxqt", "lxqt-session"} {
+		if !IsLXQt(name) {
+			t.Errorf("IsLXQt(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"icewm-session", "openbox", "startxfce4", "xfce4-session", "startplasma-x11", "x-session-manager", ""} {
+		if IsLXQt(name) {
+			t.Errorf("IsLXQt(%q) = true, want false", name)
+		}
+	}
+}
+
 func TestWMOwnsProcessGroup(t *testing.T) {
 	for argv, want := range map[string]bool{
 		"dbus-run-session -- startlxqt":      true,

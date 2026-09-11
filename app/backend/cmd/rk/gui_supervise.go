@@ -61,6 +61,11 @@ var guiSuperviseSettingsLoad = settings.Load
 // script seeded/not-seeded and the best-effort failure path.
 var guiSuperviseSeed = gui.SeedProfile
 
+// guiSuperviseSeedLXQt seeds the LXQt defaults dir (the XDG_CONFIG_DIRS
+// layer). A package seam so tests script seeded/not-seeded and the
+// best-effort failure path.
+var guiSuperviseSeedLXQt = gui.SeedLXQtDefaults
+
 // guiSuperviseLog writes one line to the pane — the supervisor's stdout IS
 // the GUI log (the rk-gui pane is the display for these lines). A package
 // seam so tests capture lines.
@@ -78,8 +83,8 @@ var guiSuperviseStartBackend = func(ctx context.Context, argv []string) (*exec.C
 
 // guiSuperviseStartWM starts the window manager with DISPLAY set in its env —
 // the tmux window's env does not carry the rk-managed display. extraEnv adds
-// rung-specific variables (the icewm rung's ICEWM_PRIVCFG); nil for every
-// other rung. ownGroup (session starters under dbus-run-session) puts the
+// rung-specific variables (the icewm rung's ICEWM_PRIVCFG, the LXQt rungs'
+// XDG_CONFIG_DIRS); nil for every other rung. ownGroup (session starters under dbus-run-session) puts the
 // child in its own process group so teardown can signal the whole tree —
 // killing the wrapper alone orphans dbus-daemon and the session's modules —
 // and overrides Cancel so a ctx cancel SIGTERMs the group instead of the
@@ -162,20 +167,36 @@ func guiSeedFailedLine(dir string, err error) string {
 	return fmt.Sprintf("gui: seeding the IceWM profile at %s failed: %v; starting icewm with its defaults", dir, err)
 }
 
+func guiLXQtDefaultsDirFailedLine(name string, err error) string {
+	return fmt.Sprintf("gui: resolving the LXQt defaults dir failed: %v; starting %s with its defaults", err, name)
+}
+
+func guiLXQtSeedFailedLine(dir, name string, err error) string {
+	return fmt.Sprintf("gui: seeding the LXQt defaults at %s failed: %v; starting %s with its defaults", dir, err, name)
+}
+
 // guiWMLine is the per-rung "window manager" line: the icewm rung names its
 // config dir (with a "seeded preferences" suffix on the first seed); a
-// session starter names its dbus-run-session wrap; every other rung is the
-// bare name.
-func guiWMLine(name, profileDir string, seeded bool) string {
-	if name == "icewm-session" && profileDir != "" {
-		line := fmt.Sprintf("gui: window manager %s (config %s", name, profileDir)
+// session starter names its dbus-run-session wrap and — when dir is non-empty
+// (the seeded LXQt rungs) — the defaults dir with a "seeded" suffix on the
+// first seed; every other rung is the bare name.
+func guiWMLine(name, dir string, seeded bool) string {
+	if name == "icewm-session" && dir != "" {
+		line := fmt.Sprintf("gui: window manager %s (config %s", name, dir)
 		if seeded {
 			line += ", seeded preferences"
 		}
 		return line + ")"
 	}
 	if gui.IsSessionStarter(name) {
-		return fmt.Sprintf("gui: window manager %s (session under dbus-run-session)", name)
+		line := fmt.Sprintf("gui: window manager %s (session under dbus-run-session", name)
+		if dir != "" {
+			line += "; defaults " + dir
+			if seeded {
+				line += ", seeded"
+			}
+		}
+		return line + ")"
 	}
 	return "gui: window manager " + name
 }
@@ -235,8 +256,11 @@ launches the window manager — the gui.wm pin, else the first ladder rung on
 PATH (icewm-session first, then openbox, xfwm4, i3, kwin_x11,
 x-session-manager). The icewm rung gets a seeded profile under
 <state>/run-kit/gui/icewm (passed as ICEWM_PRIVCFG; preferences is write-once,
-toolbar/menu regenerate on every start). macOS: spawns nothing and logs the
-Screen Sharing probe once a minute.
+toolbar/menu regenerate on every start). The LXQt rungs (startlxqt,
+lxqt-session) get seeded defaults under <state>/run-kit/gui/lxqt/etc,
+prepended to XDG_CONFIG_DIRS (the five files are write-once; the panel's
+quick-launch entries regenerate on every start). macOS: spawns nothing and
+logs the Screen Sharing probe once a minute.
 
 When the backend exits on its own the supervisor logs the exit, cleans up, and
 stays alive idle — the pane keeps the log readable; 'rk gui restart' is the
@@ -277,7 +301,8 @@ func runGuiSuperviseCtx(ctx context.Context, id, display string) error {
 
 // runGuiSuperviseLinux is the R5 ladder: state dir, stale-socket removal,
 // backend exec, socket wait + chmod, WM resolution (gui.wm pin, then the
-// ladder) + launcher-app resolution + icewm profile seed, the one-burst
+// ladder) + launcher-app resolution + the icewm profile / LXQt defaults
+// seeds, the one-burst
 // session stamps, WM launch, then wait for either a signal (teardown, exit 0)
 // or the backend's own exit (log, clean up, block until signalled — R6: no
 // auto-respawn, no process exit, so the pane stays readable and the session
@@ -342,7 +367,8 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 	guiSuperviseLog(desktopLine)
 
 	// Resolve the WM (pin first, ladder fallback) and the launcher apps, seed
-	// the icewm profile, and only then stamp display/backend/wm in one burst:
+	// the icewm profile / LXQt defaults, and only then stamp
+	// display/backend/wm in one burst:
 	// rk gui on reads the stamps once with a single bounded await, so wm must
 	// land in the same burst as display/backend (seeding needs no X server).
 	pin := guiSuperviseSettingsLoad().GUIWM
@@ -350,9 +376,13 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 	if pinMissed {
 		guiSuperviseLog(guiPinMissLine(pin, gui.PinInstallHint(pin, guiSuperviseLookPath)))
 	}
-	term, _, _ := gui.ResolveApp(gui.AppTerminal, guiSuperviseLookPath, guiSuperviseStat)
-	browser, _, _ := gui.ResolveApp(gui.AppBrowser, guiSuperviseLookPath, guiSuperviseStat)
+	term, termPath, _ := gui.ResolveApp(gui.AppTerminal, guiSuperviseLookPath, guiSuperviseStat)
+	browser, browserPath, _ := gui.ResolveApp(gui.AppBrowser, guiSuperviseLookPath, guiSuperviseStat)
 
+	wmName := ""
+	if wmOK {
+		wmName = gui.WMName(wmArgv)
+	}
 	icewm := wmOK && wmArgv[0] == "icewm-session"
 	profileDir := ""
 	seeded := false
@@ -374,10 +404,28 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 		}
 	}
 
-	wmName := ""
-	if wmOK {
-		wmName = gui.WMName(wmArgv)
+	lxqt := wmOK && gui.IsLXQt(wmName)
+	lxqtDir := ""
+	lxqtSeeded := false
+	if lxqt {
+		if dir, derr := gui.LXQtDefaultsDir(); derr != nil {
+			guiSuperviseLog(guiLXQtDefaultsDirFailedLine(wmName, derr))
+		} else {
+			// Best-effort, the icewm seed's posture: a failure logs and the
+			// session starts with NO XDG_CONFIG_DIRS override — a failed or
+			// partial seed is never handed to LXQt.
+			if s, serr := guiSuperviseSeedLXQt(dir, gui.LaunchResolution{
+				Terminal: gui.LaunchApp{Name: term, Path: termPath},
+				Browser:  gui.LaunchApp{Name: browser, Path: browserPath},
+			}); serr != nil {
+				guiSuperviseLog(guiLXQtSeedFailedLine(dir, wmName, serr))
+			} else {
+				lxqtDir = dir
+				lxqtSeeded = s
+			}
+		}
 	}
+
 	// Stamping "" when bare is deliberate: "bare" and "unset" both render wm:"".
 	guiStampSessionOption(daemon.GUIOptionDisplay, display)
 	guiStampSessionOption(daemon.GUIOptionBackend, bin)
@@ -390,7 +438,7 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 		guiSuperviseLog(guiWMLine(wmName, profileDir, seeded))
 		guiSuperviseLog(guiToolbarLine(term, browser))
 	default:
-		guiSuperviseLog(guiWMLine(wmName, "", false))
+		guiSuperviseLog(guiWMLine(wmName, lxqtDir, lxqtSeeded))
 	}
 
 	var wm *exec.Cmd
@@ -400,6 +448,9 @@ func runGuiSuperviseLinux(ctx context.Context, id, display string) error {
 		var extraEnv []string
 		if icewm && profileDir != "" {
 			extraEnv = []string{"ICEWM_PRIVCFG=" + profileDir}
+		}
+		if lxqt && lxqtDir != "" {
+			extraEnv = []string{gui.LXQtConfigDirsEnv(lxqtDir, os.Getenv("XDG_CONFIG_DIRS"))}
 		}
 		if w, werr := guiSuperviseStartWM(ctx, wmArgv, display, extraEnv, wmGroup); werr != nil {
 			guiSuperviseLog(fmt.Sprintf("gui: window manager %s failed to start: %v; running bare", wmName, werr))

@@ -133,6 +133,27 @@ func TestRunningAppsExcludesDEDaemonsByName(t *testing.T) {
 	}
 }
 
+func TestRunningAppsExcludesTruncatedHelperComms(t *testing.T) {
+	// /proc/<pid>/comm truncates to 15 bytes; the long LXQt/dbus helper names
+	// must still be excluded in their truncated form.
+	procRoot := t.TempDir()
+	writeFakeProc(t, procRoot, 201, "dbus-run-sessio", "DISPLAY=:10")
+	writeFakeProc(t, procRoot, 202, "lxqt-globalkeys", "DISPLAY=:10")
+	writeFakeProc(t, procRoot, 203, "lxqt-notificati", "DISPLAY=:10")
+	writeFakeProc(t, procRoot, 204, "lxqt-policykit-", "DISPLAY=:10")
+	writeFakeProc(t, procRoot, 205, "xfce4-power-man", "DISPLAY=:10")
+	writeFakeProc(t, procRoot, 300, "xterm", "DISPLAY=:10")
+
+	apps, err := RunningApps(procRoot, ":10", nil)
+	if err != nil {
+		t.Fatalf("RunningApps: %v", err)
+	}
+	want := []App{{Name: "xterm", Count: 1}}
+	if !reflect.DeepEqual(apps, want) {
+		t.Errorf("RunningApps(:10) = %v, want %v — truncated helper comms excluded", apps, want)
+	}
+}
+
 func TestRunningAppsExcludesWMHelpersByName(t *testing.T) {
 	// WM helpers carry the display in their env like any X client; without the
 	// comm-name exclusion they would show in the apps list whenever the pid

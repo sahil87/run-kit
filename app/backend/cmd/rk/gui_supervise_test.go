@@ -152,6 +152,22 @@ func TestGuiSuperviseLineFormats(t *testing.T) {
 		"gui: window manager startlxqt (session under dbus-run-session)"; got != want {
 		t.Errorf("session-starter line = %q, want %q", got, want)
 	}
+	if got, want := guiWMLine("startlxqt", "/s/gui/lxqt/etc", true),
+		"gui: window manager startlxqt (session under dbus-run-session; defaults /s/gui/lxqt/etc, seeded)"; got != want {
+		t.Errorf("lxqt seeded line = %q, want %q", got, want)
+	}
+	if got, want := guiWMLine("lxqt-session", "/s/gui/lxqt/etc", false),
+		"gui: window manager lxqt-session (session under dbus-run-session; defaults /s/gui/lxqt/etc)"; got != want {
+		t.Errorf("lxqt re-run line = %q, want %q (no seeded suffix)", got, want)
+	}
+	if got, want := guiLXQtSeedFailedLine("/s/gui/lxqt/etc", "startlxqt", errors.New("disk full")),
+		"gui: seeding the LXQt defaults at /s/gui/lxqt/etc failed: disk full; starting startlxqt with its defaults"; got != want {
+		t.Errorf("lxqt-seed-failed line = %q, want %q", got, want)
+	}
+	if got, want := guiLXQtDefaultsDirFailedLine("lxqt-session", errors.New("no home")),
+		"gui: resolving the LXQt defaults dir failed: no home; starting lxqt-session with its defaults"; got != want {
+		t.Errorf("lxqt-dir-failed line = %q, want %q", got, want)
+	}
 	if got, want := guiToolbarLine("x-terminal-emulator", ""),
 		"gui: toolbar: terminal=x-terminal-emulator browser=none"; got != want {
 		t.Errorf("toolbar line = %q, want %q", got, want)
@@ -945,35 +961,231 @@ func TestGuiSuperviseLinuxSessionStarterResolvesUnderDBus(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
 	withGuiSuperviseLookPath(t, map[string]string{
-		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
-		"startlxqt": "/usr/bin/startlxqt",
+		"Xtigervnc":  filepath.Join(stubDir, "Xtigervnc"),
+		"startxfce4": "/usr/bin/startxfce4",
 	})
-	withGuiSuperviseSettingsLoad(t, "startlxqt", gui.GeometryDefault)
+	withGuiSuperviseSettingsLoad(t, "startxfce4", gui.GeometryDefault)
 	buf := captureGuiSuperviseLog(t)
 	stamps := captureGuiStamps(t)
 	wmRec := withGuiSuperviseStartWMRec(t)
+	seedCalls := 0
+	origSeed := guiSuperviseSeedLXQt
+	t.Cleanup(func() { guiSuperviseSeedLXQt = origSeed })
+	guiSuperviseSeedLXQt = func(string, gui.LaunchResolution) (bool, error) {
+		seedCalls++
+		return false, nil
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":20") }()
 
-	waitForGuiLog(t, buf, "gui: window manager startlxqt (session under dbus-run-session)")
+	waitForGuiLog(t, buf, "gui: window manager startxfce4 (session under dbus-run-session)")
 
 	wmRec.mu.Lock()
 	argv, extraEnv := wmRec.argv, wmRec.extraEnv
 	wmRec.mu.Unlock()
-	if want := []string{"dbus-run-session", "--", "startlxqt"}; !reflect.DeepEqual(argv, want) {
+	if want := []string{"dbus-run-session", "--", "startxfce4"}; !reflect.DeepEqual(argv, want) {
 		t.Errorf("WM argv = %v, want %v (the dbus wrap)", argv, want)
 	}
 	if len(extraEnv) != 0 {
-		t.Errorf("WM extra env = %v, want none for a non-icewm rung", extraEnv)
+		t.Errorf("WM extra env = %v, want none — XFCE is never seeded (LXQt is the one seeded DE)", extraEnv)
+	}
+	if seedCalls != 0 {
+		t.Errorf("LXQt seed calls = %d, want 0 for the xfce rung", seedCalls)
 	}
 	if !wmRec.ownGroup {
 		t.Error("WM ownGroup = false, want true for a session starter (process-group teardown)")
 	}
-	if i := stampIndex(*stamps, "@rk_gui_wm", "startlxqt"); i < 0 {
-		t.Errorf("stamps = %v, want @rk_gui_wm startlxqt", *stamps)
+	if i := stampIndex(*stamps, "@rk_gui_wm", "startxfce4"); i < 0 {
+		t.Errorf("stamps = %v, want @rk_gui_wm startxfce4", *stamps)
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("teardown err = %v, want nil", err)
+	}
+}
+
+// withGuiSuperviseSeedLXQtRec swaps the LXQt seed seam for a recorder that
+// appends "seed" to events; the WM-start recorder appends "wm", so the test
+// proves the seed runs before the WM starts.
+func withGuiSuperviseSeedLXQtRec(t *testing.T, events *[]string, mu *sync.Mutex, seeded bool, err error) *int {
+	t.Helper()
+	calls := new(int)
+	orig := guiSuperviseSeedLXQt
+	t.Cleanup(func() { guiSuperviseSeedLXQt = orig })
+	guiSuperviseSeedLXQt = func(string, gui.LaunchResolution) (bool, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		*calls++
+		*events = append(*events, "seed")
+		return seeded, err
+	}
+	return calls
+}
+
+// withGuiSuperviseStartWMRecEvents is withGuiSuperviseStartWMRec plus an
+// "wm" event appended to the shared ordering log.
+func withGuiSuperviseStartWMRecEvents(t *testing.T, events *[]string, mu *sync.Mutex) *guiWMStartRec {
+	t.Helper()
+	rec := &guiWMStartRec{}
+	orig := guiSuperviseStartWM
+	t.Cleanup(func() { guiSuperviseStartWM = orig })
+	guiSuperviseStartWM = func(_ context.Context, argv []string, display string, extraEnv []string, ownGroup bool) (*exec.Cmd, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		rec.calls++
+		rec.argv = append([]string(nil), argv...)
+		rec.display = display
+		rec.extraEnv = append([]string(nil), extraEnv...)
+		rec.ownGroup = ownGroup
+		*events = append(*events, "wm")
+		return nil, nil
+	}
+	return rec
+}
+
+func TestGuiSuperviseLinuxLxqtSeedsAndSetsConfigDirs(t *testing.T) {
+	for i, wmName := range []string{"startlxqt", "lxqt-session"} {
+		t.Run(wmName, func(t *testing.T) {
+			withGuiSuperviseGOOS(t, "linux")
+			stateHome := t.TempDir()
+			t.Setenv("XDG_STATE_HOME", stateHome)
+			// An empty XDG_CONFIG_DIRS must behave as unset (the /etc/xdg
+			// substitution in LXQtConfigDirsEnv).
+			t.Setenv("XDG_CONFIG_DIRS", "")
+			stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+			withGuiSuperviseLookPath(t, map[string]string{
+				"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
+				wmName:      "/usr/bin/" + wmName,
+			})
+			withGuiSuperviseSettingsLoad(t, wmName, gui.GeometryDefault)
+			buf := captureGuiSuperviseLog(t)
+			captureGuiStamps(t)
+			var mu sync.Mutex
+			var events []string
+			seedCalls := withGuiSuperviseSeedLXQtRec(t, &events, &mu, true, nil)
+			wmRec := withGuiSuperviseStartWMRecEvents(t, &events, &mu)
+
+			display := fmt.Sprintf(":%d", 22+i)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- runGuiSuperviseCtx(ctx, "host", display) }()
+
+			defaultsDir := filepath.Join(stateHome, "run-kit", "gui", "lxqt", "etc")
+			waitForGuiLog(t, buf, "gui: window manager "+wmName+" (session under dbus-run-session; defaults "+defaultsDir+", seeded)")
+
+			mu.Lock()
+			gotEvents := append([]string(nil), events...)
+			gotSeedCalls := *seedCalls
+			extraEnv, ownGroup, argv := wmRec.extraEnv, wmRec.ownGroup, wmRec.argv
+			calls := wmRec.calls
+			mu.Unlock()
+
+			if gotSeedCalls != 1 {
+				t.Errorf("seed calls = %d, want exactly 1", gotSeedCalls)
+			}
+			if want := []string{"seed", "wm"}; !reflect.DeepEqual(gotEvents, want) {
+				t.Errorf("events = %v, want %v (the seed runs before the WM starts)", gotEvents, want)
+			}
+			if calls != 1 {
+				t.Errorf("WM starts = %d, want 1", calls)
+			}
+			if want := []string{"dbus-run-session", "--", wmName}; !reflect.DeepEqual(argv, want) {
+				t.Errorf("WM argv = %v, want %v", argv, want)
+			}
+			if want := []string{"XDG_CONFIG_DIRS=" + defaultsDir + ":/etc/xdg"}; !reflect.DeepEqual(extraEnv, want) {
+				t.Errorf("extraEnv = %v, want %v", extraEnv, want)
+			}
+			if !ownGroup {
+				t.Error("ownGroup = false, want true for a session starter")
+			}
+
+			cancel()
+			if err := <-done; err != nil {
+				t.Errorf("teardown err = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestGuiSuperviseLinuxLxqtUnseededLogVariant(t *testing.T) {
+	withGuiSuperviseGOOS(t, "linux")
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_CONFIG_DIRS", "")
+	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+	withGuiSuperviseLookPath(t, map[string]string{
+		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
+		"startlxqt": "/usr/bin/startlxqt",
+	})
+	withGuiSuperviseSettingsLoad(t, "startlxqt", gui.GeometryDefault)
+	buf := captureGuiSuperviseLog(t)
+	captureGuiStamps(t)
+	var mu sync.Mutex
+	var events []string
+	withGuiSuperviseSeedLXQtRec(t, &events, &mu, false, nil)
+	wmRec := withGuiSuperviseStartWMRecEvents(t, &events, &mu)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":24") }()
+
+	defaultsDir := filepath.Join(stateHome, "run-kit", "gui", "lxqt", "etc")
+	waitForGuiLog(t, buf, "gui: window manager startlxqt (session under dbus-run-session; defaults "+defaultsDir+")")
+	if strings.Contains(buf.String(), ", seeded)") {
+		t.Errorf("log =\n%s\nwant no seeded suffix when seeded=false", buf.String())
+	}
+	wmRec.mu.Lock()
+	extraEnv := wmRec.extraEnv
+	wmRec.mu.Unlock()
+	if want := []string{"XDG_CONFIG_DIRS=" + defaultsDir + ":/etc/xdg"}; !reflect.DeepEqual(extraEnv, want) {
+		t.Errorf("extraEnv = %v, want %v (the env rides a present seed dir, seeded or not)", extraEnv, want)
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Errorf("teardown err = %v, want nil", err)
+	}
+}
+
+func TestGuiSuperviseLinuxLxqtSeedFailureStartsWithDefaults(t *testing.T) {
+	withGuiSuperviseGOOS(t, "linux")
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	stubDir := testutil.StubOnPath(t, "Xtigervnc", guiBackendStubUp)
+	withGuiSuperviseLookPath(t, map[string]string{
+		"Xtigervnc": filepath.Join(stubDir, "Xtigervnc"),
+		"startlxqt": "/usr/bin/startlxqt",
+	})
+	withGuiSuperviseSettingsLoad(t, "startlxqt", gui.GeometryDefault)
+	buf := captureGuiSuperviseLog(t)
+	captureGuiStamps(t)
+	var mu sync.Mutex
+	var events []string
+	withGuiSuperviseSeedLXQtRec(t, &events, &mu, false, os.ErrPermission)
+	wmRec := withGuiSuperviseStartWMRecEvents(t, &events, &mu)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":25") }()
+
+	defaultsDir := filepath.Join(stateHome, "run-kit", "gui", "lxqt", "etc")
+	waitForGuiLog(t, buf, guiLXQtSeedFailedLine(defaultsDir, "startlxqt", os.ErrPermission))
+	waitForGuiLog(t, buf, "gui: window manager startlxqt (session under dbus-run-session)\n")
+
+	wmRec.mu.Lock()
+	defer wmRec.mu.Unlock()
+	if wmRec.calls != 1 {
+		t.Fatalf("WM starts = %d, want 1 (LXQt still runs on its defaults)", wmRec.calls)
+	}
+	if len(wmRec.extraEnv) != 0 {
+		t.Errorf("WM extra env = %v after a seed failure, want none (a failed seed is never handed to LXQt)", wmRec.extraEnv)
 	}
 
 	cancel()

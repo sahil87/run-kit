@@ -142,6 +142,29 @@ next `rk gui on`/`restart`. XFCE stays reachable but unseeded (`rk gui wm
 xfce`) — turn off xfwm4 compositing in Settings → Window Manager Tweaks or
 the relay pays for it.
 
+The LXQt rung is the one seeded desktop. When the resolved WM is `startlxqt`
+or `lxqt-session`, the supervisor writes five defaults files under
+`<state>/run-kit/gui/lxqt/etc` before the session starts and prepends that
+directory to `XDG_CONFIG_DIRS` in the session's environment, so LXQt reads
+rk's values as system defaults while the user's own `~/.config` stays an
+override layer (no `XDG_CONFIG_HOME` redirect — a local LXQt user's
+preferences are never relocated). The files: `lxqt/session.conf` (openbox as
+the window manager, no power/locker prompts), `lxqt/panel.conf` (one bottom
+panel — main menu, quick-launch, task bar, tray, status-notifier, and a
+minutes-only clock), `lxqt/lxqt.conf` (the `dark` theme plus an `icon_theme`
+probed from the installed icon themes, omitted when none is),
+`pcmanfm-qt/lxqt/settings.conf` (the solid `#3b4252` desktop, icons off), and
+`autostart/lxqt-xscreensaver-autostart.desktop` (`Hidden=true`, shadowing the
+system entry so an installed xscreensaver never locks the passwordless
+display). Every file is write-once — a hand edit survives restarts, and
+deleting a file (or the whole `lxqt` dir) re-seeds it on the next start —
+with one exception: `panel.conf`'s `[quicklaunch]` `apps\*` keys regenerate
+on every start from the resolved terminal/browser (`.desktop` paths for roles
+that resolve, nothing for ones that don't), leaving every other line of a
+hand-edited `panel.conf` intact. The supervisor's log line names the seeded
+dir: `gui: window manager startlxqt (session under dbus-run-session; defaults
+<dir>[, seeded])`.
+
 ---
 
 ## The switch

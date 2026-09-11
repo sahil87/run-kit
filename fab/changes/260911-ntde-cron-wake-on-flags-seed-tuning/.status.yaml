@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 15
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-11T19:46:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T19:52:44Z"}
     hydrate: {started_at: "2026-09-11T19:52:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T19:56:48Z"}
     ship: {started_at: "2026-09-11T19:56:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T20:00:12Z"}
-    review-pr: {started_at: "2026-09-11T20:00:12Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-11T20:00:12Z", driver: git-pr, iterations: 1, completed_at: "2026-09-11T20:09:12Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/954
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'rk cron add/edit gain --wake-on/--wake-scope/--wake-debounce (edit: whole-block replace, --wake-on none clears); operator-tick seed spec moves to 3m→24m + skip-if-busy; ownership reworded: rk owns the clock, fab tunes its entry, seed removal pending'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-11T20:00:12Z
+last_updated: 2026-09-11T20:09:12Z

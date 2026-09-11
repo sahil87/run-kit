@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-11T17:03:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:00:23Z"}
     review: {started_at: "2026-09-11T18:00:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:07:25Z"}
     hydrate: {started_at: "2026-09-11T18:07:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:13:09Z"}
-    ship: {started_at: "2026-09-11T18:13:09Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-11T18:13:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:15:07Z"}
+    review-pr: {started_at: "2026-09-11T18:15:07Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/948
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2616
+    deleted: 426
+    net: 2190
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1713
+        deleted: 393
+        net: 1320
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-11T18:13:09Z"
-    computed_at_stage: hydrate
+        added: 310
+        deleted: 3
+        net: 307
+    computed_at: "2026-09-11T18:15:07Z"
+    computed_at_stage: ship
 summary: GUI toolbar pill mounts for every viewer with hover reveal, a status-labelled resolution menu chip, fullscreen toggle, launch/input/health chips, and a width-based ⋯ overflow
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-11T18:13:09Z
+last_updated: 2026-09-11T18:15:07Z

@@ -1,4 +1,4 @@
-// Package desktop installs and updates the Run Kit desktop app (the Electron
+// Package desktop installs and updates the HexoKit desktop app (the Electron
 // viewer shell, app/desktop) from GitHub release DMGs.
 //
 // Why this exists: the desktop DMGs are ad-hoc signed (no notarization), so a
@@ -43,12 +43,20 @@ const (
 	// via the --path flag for managed-Mac / non-writable scenarios.
 	DefaultInstallDir = "/Applications"
 	// AppBundleName is the installed bundle name (electron-builder's
-	// productName "Run Kit" + .app).
-	AppBundleName = "Run Kit.app"
+	// productName "HexoKit" + .app).
+	AppBundleName = "HexoKit.app"
+	// legacyAppBundleName is the pre-rename bundle name. One release window:
+	// status/install detect it so the rk-installed app upgrades in place
+	// instead of leaving two Dock entries.
+	legacyAppBundleName = "Run Kit.app"
 	// assetPrefix is the leading segment of every desktop DMG asset name
-	// (run-kit-desktop-{version}-{arch}.dmg, per the release CI's
+	// (hexokit-desktop-{version}-{arch}.dmg, per the release CI's
 	// artifactName convention).
-	assetPrefix = "run-kit-desktop-"
+	assetPrefix = "hexokit-desktop-"
+	// legacyAssetPrefix covers releases published under the pre-rename
+	// artifactName (run-kit-desktop-…); matched only when no assetPrefix
+	// asset fits the host arch.
+	legacyAssetPrefix = "run-kit-desktop-"
 	// defaultAPIBase is the GitHub REST API origin.
 	defaultAPIBase = "https://api.github.com"
 )
@@ -147,7 +155,7 @@ func githubToken() string {
 }
 
 // AppPath returns the install target bundle path
-// (e.g. /Applications/Run Kit.app).
+// (e.g. /Applications/HexoKit.app).
 func (ins *Installer) AppPath() string {
 	return filepath.Join(ins.InstallDir, AppBundleName)
 }

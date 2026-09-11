@@ -21,7 +21,7 @@ open http://localhost:3000      # open the dashboard in your browser
 run-kit riff                    # spawn an agent workspace (--skill /name picks the slash-command)
 ```
 
-On a Mac, the [desktop app](#desktop-app-macos) is an alternative front door: `run-kit desktop install`, then open **Run Kit.app** — its welcome page starts the daemon for you (one **Start & connect** click) and can also connect to HexoKit on other machines over SSH or a URL, so the `daemon start` and `open` steps above collapse into opening the app.
+On a Mac, the [desktop app](#desktop-app-macos) is an alternative front door: `run-kit desktop install`, then open **HexoKit.app** — its welcome page starts the daemon for you (one **Start & connect** click) and can also connect to HexoKit on other machines over SSH or a URL, so the `daemon start` and `open` steps above collapse into opening the app.
 
 The last step also needs [`wt`](https://github.com/sahil87/wt) and your agent CLI on `PATH` — see [Prerequisites](#prerequisites) below.
 
@@ -67,7 +67,7 @@ run-kit desktop status     # installed vs latest version (read-only)
 
 The CLI path is the primary one for a reason: the DMGs are ad-hoc signed (no notarization), so a browser download is stamped with `com.apple.quarantine` and Gatekeeper blocks the app on every install and update. Quarantine comes from the *downloading application* — command-line tools don't apply it — so the CLI produces a quarantine-free install that opens cleanly every time, verifying the download itself (SHA256 against the release digest when available, plus `codesign --verify --deep --strict`) before installing. Use `--path <dir>` to install somewhere other than `/Applications`, and `--version <tag>` to pin a specific release.
 
-Without the CLI, the fallback is manual: download the DMG for your architecture from [GitHub Releases](https://github.com/sahil87/run-kit/releases), drag **Run Kit.app** into Applications, and clear quarantine via System Settings → Privacy & Security → **Open Anyway** (or `xattr -dr com.apple.quarantine "/Applications/Run Kit.app"`) — repeated on every manual update.
+Without the CLI, the fallback is manual: download the DMG for your architecture from [GitHub Releases](https://github.com/sahil87/run-kit/releases), drag **HexoKit.app** into Applications, and clear quarantine via System Settings → Privacy & Security → **Open Anyway** (or `xattr -dr com.apple.quarantine "/Applications/HexoKit.app"`) — repeated on every manual update.
 
 Inside the app, the welcome page offers three ways to connect, in descending order of "already have it here": **This Mac** (detects the local install and daemon state; one **Start & connect** button starts the daemon when needed — post-connect control lives under **Hosts → Local Daemon** in the menu), **over SSH** (`run-kit remote` under the hood: registers the machine, installs HexoKit there if missing, starts its daemon, opens a tunnel), and **a URL** (any reachable `run-kit serve` instance, e.g. the Tailscale HTTPS endpoint below). The app never starts or stops the daemon on its own — every daemon action is an explicit click, and your tmux sessions survive all of them.
 

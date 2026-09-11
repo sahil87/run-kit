@@ -50,7 +50,7 @@ import {
 } from "electron";
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -133,6 +133,7 @@ import {
   WindowBounds,
   WindowRecord,
 } from "./windows";
+import { carryForwardLegacyUserData } from "./user-data-migration";
 import {
   captureWindowRecord,
   hostRemovedFallback,
@@ -263,7 +264,7 @@ const rawAccentReported = new Map<string, boolean>();
  *  persisted. */
 const DEV_HOST_ID = "__dev__";
 
-const PRODUCT_NAME = "Run Kit";
+const PRODUCT_NAME = "HexoKit";
 
 const userDataDir = (): string => app.getPath("userData");
 
@@ -2179,6 +2180,17 @@ app.on("web-contents-created", (_event, contents) => {
 // No 'certificate-error' handler: TLS errors fail closed (no bypass).
 
 void app.whenReady().then(() => {
+  // userData is keyed on the app name, so the rename moved the stores to a
+  // fresh directory — carry the legacy "Run Kit" sibling's stores forward
+  // once, before any loadHosts/loadWindows read (./user-data-migration).
+  const { copied } = carryForwardLegacyUserData(
+    userDataDir(),
+    join(dirname(userDataDir()), "Run Kit"),
+  );
+  if (copied.length > 0) {
+    console.log(`carried forward legacy userData stores: ${copied.join(", ")}`);
+  }
+
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(ALLOWED_PERMISSIONS.has(permission));
   });

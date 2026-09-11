@@ -174,7 +174,7 @@ independent legs:
                via --skip-brew-update), brew upgrade, then a daemon restart so
                the server picks up the new binary. A non-brew install prints
                manual-update guidance instead and moves on.
-  Desktop leg  (macOS) When the Run Kit desktop app is installed at
+  Desktop leg  (macOS) When the HexoKit desktop app is installed at
                /Applications: update it to the latest release, auto-restarting
                a running app (staged download, graceful quit, atomic swap,
                relaunch). Skipped silently when no app is installed.
@@ -341,7 +341,7 @@ func runUpdateCodeServerLeg(cmd *cobra.Command, sink outputSink) {
 	}
 }
 
-// runUpdateDesktopLeg updates the Run Kit desktop app when one is installed
+// runUpdateDesktopLeg updates the HexoKit desktop app when one is installed
 // at the default /Applications location — the umbrella's "whichever is
 // installed" desktop half. darwin-only (desktopGOOS); a non-darwin platform
 // and a missing app are both silent exit-0 skips (absence is a valid state

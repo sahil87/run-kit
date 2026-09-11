@@ -72,8 +72,8 @@ func desktopReleaseServer(t *testing.T, version string, assetHits *int) *httptes
 		}
 		base := "http://" + r.Host
 		fmt.Fprintf(w, `{"tag_name":"v%s","assets":[
-			{"name":"run-kit-desktop-%s-arm64.dmg","browser_download_url":"%s/dl/arm64.dmg"},
-			{"name":"run-kit-desktop-%s-x64.dmg","browser_download_url":"%s/dl/x64.dmg"}]}`,
+			{"name":"hexokit-desktop-%s-arm64.dmg","browser_download_url":"%s/dl/arm64.dmg"},
+			{"name":"hexokit-desktop-%s-x64.dmg","browser_download_url":"%s/dl/x64.dmg"}]}`,
 			version, version, base, version, base)
 	}))
 	t.Cleanup(srv.Close)
@@ -145,7 +145,7 @@ func desktopFakeRunner(t *testing.T, installedVersion string, running bool) desk
 	}
 }
 
-// writeDesktopBundle creates <dir>/Run Kit.app/Contents/Info.plist so the
+// writeDesktopBundle creates <dir>/HexoKit.app/Contents/Info.plist so the
 // installed-version probe finds an installed app.
 func writeDesktopBundle(t *testing.T, dir string) {
 	t.Helper()
@@ -323,7 +323,7 @@ func TestDesktopInstallForceReinstalls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install --force: %v", err)
 	}
-	if !strings.Contains(stdout, "Installed Run Kit v3.13.0") {
+	if !strings.Contains(stdout, "Installed HexoKit v3.13.0") {
 		t.Errorf("stdout = %q, want an installed outcome line", stdout)
 	}
 	if assetHits != 1 {
@@ -379,7 +379,7 @@ func TestDesktopUpdateInstallsNewer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	if !strings.Contains(stdout, "Updated Run Kit v3.12.2 -> v3.13.0") {
+	if !strings.Contains(stdout, "Updated HexoKit v3.12.2 -> v3.13.0") {
 		t.Errorf("stdout = %q, want the updated outcome line", stdout)
 	}
 	if assetHits != 1 {
@@ -401,10 +401,10 @@ func TestDesktopUpdateRunningAppAutoRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update with a running app must auto-restart, not refuse: %v", err)
 	}
-	if !strings.Contains(stdout, "Updated Run Kit v3.12.2 -> v3.13.0") {
+	if !strings.Contains(stdout, "Updated HexoKit v3.12.2 -> v3.13.0") {
 		t.Errorf("stdout = %q, want the updated outcome line", stdout)
 	}
-	if !strings.Contains(stdout, "Run Kit was running — restarted on the new version.") {
+	if !strings.Contains(stdout, "HexoKit was running — restarted on the new version.") {
 		t.Errorf("stdout = %q, want the restart announcement data line", stdout)
 	}
 	if assetHits != 1 {
@@ -425,7 +425,7 @@ func TestDesktopInstallForceRunningAppAutoRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install --force with a running app must auto-restart, not refuse: %v", err)
 	}
-	if !strings.Contains(stdout, "Installed Run Kit v3.13.0") {
+	if !strings.Contains(stdout, "Installed HexoKit v3.13.0") {
 		t.Errorf("stdout = %q, want the installed outcome line", stdout)
 	}
 	if !strings.Contains(stdout, "restarted on the new version") {

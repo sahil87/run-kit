@@ -12,7 +12,7 @@ description: "Version management (VERSION file + ldflags), build pipeline (Vite 
 - **Build injection**: `scripts/build.sh` reads `VERSION` and passes `-X main.version=$(cat VERSION)` via ldflags
 - **Go variable**: `var version = "dev"` in `root.go` — defaults to `"dev"` for local `go build` without ldflags
 - **Displayed by**: the `--version`/`-v` global flag (Cobra built-in — there is no `version` subcommand; `rk version` exits 1 `unknown command`); also read by `rk update` (shows current version, compares with latest via `brew info --json=v2`)
-- **Version output string**: both `rk --version` and `run-kit --version` print `run-kit version <v>` (dev builds: `run-kit version dev`). The string flows from Cobra's version template, which prints the root's display name (`Use: "run-kit"`), so it is invocation-name-agnostic — no per-name divergence (260709-gidk-swap-canonical-cli-name-run-kit)
+- **Version output string**: every invocation name (`rk --version`, `run-kit --version`) prints `hexokit version <v>` (dev builds: `hexokit version dev`). The string flows from Cobra's version template, which prints the root's display name (`Use: "hexokit"`), so it is invocation-name-agnostic — no per-name divergence. The first word is the root command name while the roster/binary/formula names stay `run-kit` until the rebrand plan's R1/R2 rows; the shll version standard's `<word> version <rest>` parse is word-agnostic, so probes are unaffected (260709-gidk-swap-canonical-cli-name-run-kit, 260911-mvuv-hexokit-brand-surfaces)
 - **Exposed to the web UI over the state socket**: `cmd/rk/serve.go` plumbs the ldflags `main.version` into `*api.Server` via `SetVersion(version)` after `NewRouterAndServer`, which seeds the server-global `version` cached global slot (replayed once after `hello` — the version is fixed for the process lifetime). There is deliberately **no `GET /api/version`** (see § Design Decisions). Also fed to `internal/updatecheck.New(version, selfBrew)` (the running version is the run-kit-row comparison source; `selfBrew` gates its self-match). See § State Socket (global-slot replay), § SSE Hub (`event: version`) and § API Server version/checker wiring below (260713-4zap-update-notify-one-click-upgrade, 260716-qf3j-state-socket)
 
 
@@ -53,6 +53,8 @@ Cross-compile targets: `darwin/arm64`, `darwin/amd64`, `linux/arm64`, `linux/amd
 | `desktop-linux` | ubuntu-latest | `--linux` | `release/*.AppImage` + `release/*.deb` |
 | `desktop-windows` | windows-latest | `--win` | `release/*.exe` |
 
+**Desktop artifact naming**: the packages carry electron-builder's global `artifactName` `hexokit-desktop-${version}-${arch}.${ext}` (see [desktop-shell](/run-kit/desktop-shell.md) § Packaging), and the upload globs are extension-based (`*.dmg` / `*.AppImage` / `*.deb` / `*.exe`), so the workflow is indifferent to the prefix. `rk desktop`'s release resolution matches `hexokit-desktop-` first and falls back to the legacy `run-kit-desktop-` prefix, so a release carrying either naming installs (260911-mvuv-hexokit-brand-surfaces).
+
 The **shared step shape** (identical across all three, same pinned action SHAs):
 
 1. **Checkout at `ref: ${{ needs.release.outputs.tag }}`** — never `github.ref`. On workflow_dispatch the tag is created *inside* the `release` job, so the triggering ref points at pre-bump `main`; the desktop jobs must check out the tag they are packaging. No `fetch-depth: 0` — the version rides the job output, so no step needs git history.
@@ -84,10 +86,10 @@ Install flow: `brew install sahil87/tap/run-kit` (fully qualified — the shll m
 **Canonical command name — `run-kit`, with `rk` as the permanent alias**: `run-kit` is the **canonical** command; `rk` is a permanently-supported, fully-interchangeable short alias (rationale in § Design Decisions). What the canonical-name model entails:
 
 - **Formula real-vs-alias**: `def install` does `bin.install "rk" => "run-kit"` then `bin.install_symlink bin/"run-kit" => "rk"` — the tarball's `rk` member is **installed under the name `run-kit`** (the real binary), and `rk` becomes the symlink back. The formula class is `RunKit`, published as `Formula/run-kit.rb`; the `test do` block asserts BOTH `#{bin}/run-kit --version` and `#{bin}/rk --version` match `"run-kit version"` (the `--version` flag, NOT a `version` subcommand; see § Version Management).
-- **Cobra root**: `Use: "run-kit"` + matching `Short` (static string, not argv[0]-dynamic — see § Design Decisions). Version output prints `run-kit version <v>` for both invocation names.
-- **help-dump**: `tool: "run-kit"` (`schema_version` stays `1`) — see § CLI Subcommands (`help-dump` row).
+- **Cobra root**: `Use: "hexokit"` + matching `Short` (static string, not argv[0]-dynamic — see § Design Decisions). Version output prints `hexokit version <v>` for every invocation name.
+- **help-dump**: `tool` follows the root name (`hexokit`; `schema_version` stays `1`) — see § CLI Subcommands (`help-dump` row).
 - **`upgrade.go` uses `run-kit` markers exclusively**: `/Cellar/run-kit/` install-detection marker, `sahil87/tap/run-kit` brew refs, `/bin/run-kit` daemon-restart bin path. There is **no dual-marker (`/Cellar/rk/`) detection** in code (see § Design Decisions).
-- **Shell completion binds BOTH names** (zsh/bash): cobra generates completion for `run-kit` only, so `shell_init.go` appends an extra `compdef _run-kit rk` (zsh) and an extra `complete … rk` line reusing `__start_run-kit` (bash) so the daily-typed `rk` keeps tab completion. fish/powershell keep cobra's single-name binding.
+- **Shell completion binds all three invocation names** (zsh/bash): cobra generates completion for the root name `hexokit` only, so `shell_init.go` appends `compdef _hexokit run-kit` / `compdef _hexokit rk` (zsh) and `complete … -F __start_hexokit run-kit` / `… rk` lines (bash) so both installed names keep tab completion. fish/powershell keep cobra's single-name binding.
 
 **Invariants — internals stay `rk`**: the Go module path (`module rk`), `cmd/rk/` directory, `RK_*` env vars, `rk-daemon` socket/session names, `~/.rk/` config dir, `dist/rk`/`bin/rk` build outputs, and release-artifact/tarball names (`rk-{os}-{arch}.tar.gz`, single `rk` member — the physical binary keeps its `rk` name; the formula renames at install time) are all `rk`. `rk` is a real on-PATH executable name **indefinitely** — installed `rk agent setup` hooks embed `/opt/homebrew/bin/rk` and fab-kit skills gate on `command -v rk`. Both names are fully interchangeable for every subcommand; the tap-repo `formula_renames.json` `{"rk": "run-kit"}` mapping is what lets pre-existing `rk` installs upgrade (see § Homebrew Distribution).
 
@@ -161,7 +163,7 @@ Install flow: `brew install sahil87/tap/run-kit` (fully qualified — the shll m
 *Introduced by*: 260709-gidk-swap-canonical-cli-name-run-kit, 260707-ook7-run-kit-command-alias
 
 ### Static Cobra `Use` string, not argv[0]-dynamic
-**Decision**: `Use: "run-kit"` + matching `Short` are static strings.
+**Decision**: `Use: "hexokit"` + matching `Short` are static strings.
 **Why**: help-dump determinism — shll.ai regenerates the help JSON on a schedule and its output must not depend on which name invoked the CLI.
 **Rejected**: argv[0]-dynamic `Use`.
 *Introduced by*: 260709-gidk-swap-canonical-cli-name-run-kit

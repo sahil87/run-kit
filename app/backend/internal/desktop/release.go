@@ -118,17 +118,22 @@ func (ins *Installer) ResolveRelease(ctx context.Context, tag string) (Release, 
 	}
 
 	suffix := "-" + label + ".dmg"
-	for _, a := range rel.Assets {
-		if strings.HasPrefix(a.Name, assetPrefix) && strings.HasSuffix(a.Name, suffix) {
-			return Release{
-				Version:   strings.TrimPrefix(rel.TagName, "v"),
-				AssetName: a.Name,
-				AssetURL:  a.BrowserDownloadURL,
-				Digest:    parseSHA256Digest(a.Digest),
-			}, nil
+	// Prefer the current prefix; fall back to the pre-rename prefix so a
+	// release carrying either artifact naming resolves (the rename ships one
+	// release ahead of any consumer that still publishes the old name).
+	for _, prefix := range []string{assetPrefix, legacyAssetPrefix} {
+		for _, a := range rel.Assets {
+			if strings.HasPrefix(a.Name, prefix) && strings.HasSuffix(a.Name, suffix) {
+				return Release{
+					Version:   strings.TrimPrefix(rel.TagName, "v"),
+					AssetName: a.Name,
+					AssetURL:  a.BrowserDownloadURL,
+					Digest:    parseSHA256Digest(a.Digest),
+				}, nil
+			}
 		}
 	}
-	return Release{}, fmt.Errorf("release %s has no %s DMG asset (looked for %s*%s)", rel.TagName, label, assetPrefix, suffix)
+	return Release{}, fmt.Errorf("release %s has no %s DMG asset (looked for %s*%s or %s*%s)", rel.TagName, label, assetPrefix, suffix, legacyAssetPrefix, suffix)
 }
 
 // parseSHA256Digest extracts the hex digest from a GitHub asset digest value

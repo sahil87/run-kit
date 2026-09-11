@@ -1,0 +1,57 @@
+id: mvuv
+name: 260911-mvuv-hexokit-brand-surfaces
+created: 2026-09-11T17:48:52Z
+created_by: sahil-noon
+change_type: chore
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 28
+    acceptance_completed: 28
+confidence:
+    certain: 6
+    confident: 11
+    tentative: 0
+    unresolved: 0
+    score: 3.3
+    fuzzy: true
+    dimensions:
+        signal: 66.8
+        reversibility: 85.6
+        competence: 78.5
+        disambiguation: 74.7
+stage_metrics:
+    intake: {started_at: "2026-09-11T17:48:52Z", driver: fab-new, iterations: 1, completed_at: "2026-09-11T17:55:59Z"}
+    apply: {started_at: "2026-09-11T17:55:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:13:52Z"}
+    review: {started_at: "2026-09-11T18:13:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:20:16Z"}
+    hydrate: {started_at: "2026-09-11T18:20:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:28:05Z"}
+    ship: {started_at: "2026-09-11T18:28:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:31:13Z"}
+    review-pr: {started_at: "2026-09-11T18:31:13Z", driver: git-pr, iterations: 1, completed_at: "2026-09-11T18:50:56Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/950
+change_type_source: explicit
+true_impact:
+    added: 1406
+    deleted: 386
+    net: 1020
+    excluding:
+        added: 635
+        deleted: 229
+        net: 406
+    tests:
+        added: 358
+        deleted: 71
+        net: 287
+    computed_at: "2026-09-11T18:31:13Z"
+    computed_at_stage: ship
+summary: flips brand surfaces to HexoKit — README head + hexokit.com install bootstrap, cobra root name hexokit (version/help-dump/shell-completion follow; run-kit+rk stay installed invocation names), desktop productName HexoKit with legacy Run Kit.app detection and userData carry-forward
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-11T18:50:56Z

@@ -33,7 +33,11 @@ type InstallResult struct {
 //  3. Mount read-only via `hdiutil attach -nobrowse -readonly -mountpoint`.
 //  4. Validate the mounted bundle is named AppBundleName (the install target
 //     is derived from that constant, so an unexpectedly-named bundle is
-//     refused rather than installed beside the real app).
+//     refused rather than installed beside the real app). A pre-rename
+//     legacyAppBundleName is also accepted — ResolveRelease's legacy-prefix
+//     fallback can resolve a DMG carrying it, and the staged ditto copy below
+//     lands it under the current name, so the rename happens as part of the
+//     install.
 //  5. Verify the mounted .app with `codesign --verify --deep --strict` —
 //     this installer is precisely the code path that bypasses Gatekeeper's
 //     own check, so it MUST do the verification itself. A DMG failing either
@@ -94,8 +98,8 @@ func (ins *Installer) Install(ctx context.Context, rel Release) (InstallResult, 
 	if err != nil {
 		return InstallResult{}, err
 	}
-	if base := filepath.Base(srcApp); base != AppBundleName {
-		return InstallResult{}, fmt.Errorf("mounted DMG contains %q, expected %q — refusing to install an unexpected bundle", base, AppBundleName)
+	if base := filepath.Base(srcApp); base != AppBundleName && base != legacyAppBundleName {
+		return InstallResult{}, fmt.Errorf("mounted DMG contains %q, expected %q (or pre-rename %q) — refusing to install an unexpected bundle", base, AppBundleName, legacyAppBundleName)
 	}
 
 	codesignCtx, cancelCodesign := context.WithTimeout(ctx, codesignTimeout)
@@ -128,11 +132,15 @@ func (ins *Installer) Install(ctx context.Context, rel Release) (InstallResult, 
 	// app gone. A running app is quit gracefully and relaunched after the
 	// swap; if it will not exit within the bound, abort without swapping (the
 	// existing install is untouched; the staged bundle's deterministic name
-	// self-heals on the next run).
-	wasRunning := ins.AppRunning(ctx)
-	if wasRunning {
-		fmt.Fprintf(ins.Progress, "%s is running — quitting it for the update...\n", appName)
-		if err := ins.quitApp(ctx); err != nil {
+	// self-heals on the next run). The probe covers both bundle names — when
+	// the legacy install is the live one, it is the quit target.
+	runningName := ""
+	if path := ins.runningBundlePath(ctx); path != "" {
+		runningName = strings.TrimSuffix(filepath.Base(path), ".app")
+	}
+	if runningName != "" {
+		fmt.Fprintf(ins.Progress, "%s is running — quitting it for the update...\n", runningName)
+		if err := ins.quitApp(ctx, runningName); err != nil {
 			return InstallResult{}, err
 		}
 		if err := ins.waitAppExit(ctx); err != nil {
@@ -149,9 +157,22 @@ func (ins *Installer) Install(ctx context.Context, rel Release) (InstallResult, 
 		return InstallResult{}, fmt.Errorf("moving staged bundle into place at %s: %w", dest, err)
 	}
 
+	// With the new bundle in place, drop the pre-rename install: it is the
+	// same rk-installed app under its old bundle name, and leaving it beside
+	// the new one yields two Dock entries. Removal is best-effort — a failure
+	// must not misreport the completed install.
+	legacy := filepath.Join(ins.InstallDir, legacyAppBundleName)
+	if _, err := os.Stat(legacy); err == nil {
+		if err := os.RemoveAll(legacy); err != nil {
+			fmt.Fprintf(ins.Progress, "warning: could not remove legacy %s: %v\n", legacy, err)
+		} else {
+			fmt.Fprintf(ins.Progress, "Removed legacy %s\n", legacy)
+		}
+	}
+
 	restarted := false
-	if wasRunning {
-		fmt.Fprintf(ins.Progress, "Relaunching %s...\n", appName)
+	if runningName != "" {
+		fmt.Fprintf(ins.Progress, "Relaunching %s...\n", ins.installedAppName())
 		if err := ins.relaunchApp(ctx, dest); err != nil {
 			// Non-fatal: the swap succeeded — failing here would misreport a
 			// completed update. The user can open the app themselves.

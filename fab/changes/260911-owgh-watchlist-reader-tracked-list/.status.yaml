@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 4
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-11T13:45:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T13:49:33Z"}
     review: {started_at: "2026-09-11T13:49:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T13:53:11Z"}
     hydrate: {started_at: "2026-09-11T13:53:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T13:54:23Z"}
-    ship: {started_at: "2026-09-11T13:54:23Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-11T13:54:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T13:55:52Z"}
+    review-pr: {started_at: "2026-09-11T13:55:52Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/940
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 643
+    deleted: 35
+    net: 608
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 240
+        deleted: 23
+        net: 217
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-11T13:54:23Z"
-    computed_at_stage: hydrate
+        added: 142
+        deleted: 4
+        net: 138
+    computed_at: "2026-09-11T13:55:52Z"
+    computed_at_stage: ship
 summary: 'The operator watchlist reader parses fab-kit 2.25''s tracked: list (pane-bearing, not-done items; paused kept; kind not a filter; tracked wins over a residual monitored: map), keeping the legacy monitored: map as a one-release dual read — the Operator Tasks tab, WATCHED zone, watched underbar and opr register repopulate on every server'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-11T13:54:23Z
+last_updated: 2026-09-11T13:55:52Z

@@ -305,9 +305,10 @@ never a bare `-t _rk-operator` (exact-match targets only).
 The complementary visibility surface — and it requires **no push at all**.
 The fab operator binary already maintains a server-keyed state file
 (`$XDG_STATE_HOME/fab/operator/<slug>.yaml`, written only through
-`fab operator` verbs — `tick-start`, `enroll`, `update`, …) carrying
-`tick_count`, `last_tick_at`, and the full `monitored:` set: change ID, pane
-ID (the join key), repo, stage, last-known agent state, branch. The slug is a
+`fab operator` verbs — `tick-start`, `track add|update|observe|rm|list|clock`)
+carrying `tick_count`, `last_tick_at`, and the `tracked:` list of items whose
+`scope` names the pane ID (the join key), repo, session, stage, last-known
+agent state, and branch. The slug is a
 **cross-repo contract**: fab-kit owns the file and derives `<slug>` from the
 server's tmux socket path — escape `-` as `--` FIRST, strip the leading `/`,
 replace every remaining `/` with `-`, empty ⇒ `default` (e.g.
@@ -317,7 +318,8 @@ replace every remaining `/` with `-`, empty ⇒ `default` (e.g.
 falls back to slug `default` on a socket-path query failure — matching fab.
 rk **derives** the watchlist from this file — the same posture as its
 `.status.yaml` and `.fab-dispatch/` reads (Constitution II) — joining
-`monitored` entries to windows by pane ID. Constitution X is satisfied by
+pane-bearing, not-done `tracked:` items to windows by pane ID (the pre-2.25
+`monitored:` map stays readable for one release). Constitution X is satisfied by
 there being nothing underivable left: the earlier tick-doc-push design is
 superseded.
 

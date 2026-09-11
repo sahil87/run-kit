@@ -699,7 +699,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	operatorStale := operatorStaleness(operatorLastTickAt, nowUnix)
 	result := make([]ProjectSession, len(data))
 	for i, sd := range data {
-		// Watchlist tier: the monitored:-map join by pane ID, over all of the
+		// Watchlist tier: the operator-watchlist join by pane ID, over all of the
 		// session's windows in one pass.
 		joinWatchlist(sd.windows, watchlistByPane)
 		for j := range sd.windows {

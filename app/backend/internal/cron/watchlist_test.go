@@ -8,10 +8,12 @@ import (
 	"time"
 )
 
-// TestParseWatchlist is the tolerant-parse table (R2): the verified fab-kit
-// monitoredEntry schema parses fully; unknown top-level and per-entry keys are
-// ignored; an entry missing pane is skipped (nothing to join against); a
-// non-map monitored shape yields no entries; corrupt YAML fails the parse.
+// TestParseWatchlist is the tolerant-parse table over both file shapes: the
+// fab-kit ≥ 2.25 tracked: list (pane-bearing, not-done items become entries;
+// pane-less, done, and malformed items are skipped; paused items stay; kind is
+// not a filter; a non-list value yields nothing; tracked wins over a residual
+// monitored: map by key presence) and the legacy monitored: map (parsed only
+// when tracked is absent). Unknown keys are ignored; corrupt YAML fails.
 func TestParseWatchlist(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -85,6 +87,124 @@ monitored:
 			body:   "{{{{ not yaml",
 			wantOK: false,
 		},
+		// --- fab-kit ≥ 2.25 tracked: list ---
+		{
+			name: "tracked list mirroring a live 2.25 state file",
+			body: `branch_map:
+    pa9n:
+        branch: 260911-pa9n-gk-cleanup-10-cursio-owns-cursor
+        repo: /home/sahil/code/wvrdz/loom
+last_full_at: "2026-09-11T13:38:24Z"
+last_tick_at: "2026-09-11T13:38:24Z"
+tick_count: 2816
+tracked:
+    - id: pa9n
+      kind: fab-change
+      probe:
+        mode: pane
+      check_every: null
+      done_when: null
+      then: null
+      depends_on: []
+      scope:
+        agent: idle
+        branch: 260911-pa9n-gk-cleanup-10-cursio-owns-cursor
+        merge_mode: null
+        pane: '%180'
+        repo: /home/sahil/code/wvrdz/loom
+        session: loom
+        spawned_by: null
+        stage: apply
+        stop_stage: null
+      last: {}
+      checked_at: null
+      unchanged: 0
+      failures: 0
+      paused: false
+      done_at: null
+      added_at: "2026-09-11T13:20:14Z"
+      updated_at: "2026-09-11T13:20:14Z"
+`,
+			wantEntries: []WatchlistEntry{{
+				ChangeID: "pa9n", Pane: "%180", Repo: "/home/sahil/code/wvrdz/loom", Session: "loom",
+				Stage: "apply", Agent: "idle", Branch: "260911-pa9n-gk-cleanup-10-cursio-owns-cursor", Kind: "fab-change",
+			}},
+			wantTickAt: time.Date(2026, 9, 11, 13, 38, 24, 0, time.UTC).Unix(),
+			wantOK:     true,
+		},
+		{
+			name: "tracked: pane-less items are skipped, null scope fields read as empty",
+			body: `tracked:
+  - {id: queued, kind: fab-change, scope: {pane: null, repo: /r, branch: b}}
+  - {id: pr77, kind: github-pr, scope: {repo: /r, pr: 77}}
+  - {id: live, kind: fab-change, scope: {pane: "%5", repo: /r, session: s, stage: null, agent: null, branch: b}}
+`,
+			wantEntries: []WatchlistEntry{{ChangeID: "live", Pane: "%5", Repo: "/r", Session: "s", Branch: "b", Kind: "fab-change"}},
+			wantOK:      true,
+		},
+		{
+			name: "tracked: done items are skipped, paused items are included",
+			body: `tracked:
+  - {id: finished, kind: fab-change, scope: {pane: "%1"}, done_at: "2026-09-11T12:00:00Z"}
+  - {id: napping, kind: fab-change, scope: {pane: "%2"}, paused: true, failures: 3, done_at: null}
+`,
+			wantEntries: []WatchlistEntry{{ChangeID: "napping", Pane: "%2", Kind: "fab-change"}},
+			wantOK:      true,
+		},
+		{
+			name:        "tracked: kind is not a filter — any item with a pane is watched",
+			body:        "tracked:\n  - {id: probe, kind: shell, scope: {pane: \"%9\", repo: /r}}\n",
+			wantEntries: []WatchlistEntry{{ChangeID: "probe", Pane: "%9", Repo: "/r", Kind: "shell"}},
+			wantOK:      true,
+		},
+		{
+			name: "tracked: malformed items are skipped, the well-formed sibling parses",
+			body: `tracked:
+  - just-a-string
+  - {kind: fab-change, scope: {pane: "%3"}}
+  - {id: badscope, kind: fab-change, scope: "not-a-map"}
+  - {id: good, kind: fab-change, scope: {pane: "%4"}}
+`,
+			wantEntries: []WatchlistEntry{{ChangeID: "good", Pane: "%4", Kind: "fab-change"}},
+			wantOK:      true,
+		},
+		{
+			name:        "tracked: a map-shaped value yields no entries",
+			body:        "tracked:\n  pa9n: {id: pa9n, scope: {pane: \"%1\"}}\n",
+			wantEntries: nil,
+			wantOK:      true,
+		},
+		{
+			name:        "tracked: a scalar value yields no entries",
+			body:        "tracked: 3\n",
+			wantEntries: nil,
+			wantOK:      true,
+		},
+		{
+			name: "both present: tracked wins, the legacy map is ignored",
+			body: `monitored:
+  legacy: {pane: "%1", repo: /old}
+tracked:
+  - {id: new, kind: fab-change, scope: {pane: "%2"}}
+`,
+			wantEntries: []WatchlistEntry{{ChangeID: "new", Pane: "%2", Kind: "fab-change"}},
+			wantOK:      true,
+		},
+		{
+			name:        "both present: an empty tracked list still wins by key presence",
+			body:        "monitored:\n  legacy: {pane: \"%1\"}\ntracked: []\n",
+			wantEntries: nil,
+			wantOK:      true,
+		},
+		{
+			name: "tracked: entries sort by id, not list order",
+			body: `tracked:
+  - {id: zz, kind: fab-change, scope: {pane: "%2"}}
+  - {id: aa, kind: fab-change, scope: {pane: "%1"}}
+`,
+			wantEntries: []WatchlistEntry{{ChangeID: "aa", Pane: "%1", Kind: "fab-change"}, {ChangeID: "zz", Pane: "%2", Kind: "fab-change"}},
+			wantOK:      true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -102,6 +222,24 @@ monitored:
 				t.Errorf("lastTickAt = %d, want %d", tickAt, tc.wantTickAt)
 			}
 		})
+	}
+}
+
+// TestReadWatchlistTrackedRoundTrip: a 2.25 tracked:-shaped file reads back
+// present with its pane-bearing items and last_tick_at through the file path.
+func TestReadWatchlistTrackedRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dev.yaml")
+	body := "last_tick_at: 1700000000\ntracked:\n  - {id: pa9n, kind: fab-change, scope: {pane: \"%180\", stage: apply}}\n  - {id: queued, kind: fab-change, scope: {pane: null}}\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entries, tickAt, present := ReadWatchlist(path)
+	if !present || tickAt != 1700000000 {
+		t.Fatalf("present=%v tickAt=%d, want true/1700000000", present, tickAt)
+	}
+	want := []WatchlistEntry{{ChangeID: "pa9n", Pane: "%180", Stage: "apply", Kind: "fab-change"}}
+	if !reflect.DeepEqual(entries, want) {
+		t.Errorf("entries = %+v, want %+v", entries, want)
 	}
 }
 

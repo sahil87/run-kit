@@ -7,9 +7,15 @@
  * | "trackpad", absent = the pointer-class default — "trackpad" on coarse,
  * "touch" on fine), the viewer-local resize lock (`rk-gui-lock`: "1" =
  * locked, absent = unlocked — locked viewers never drive SetDesktopSize),
- * the bare-WM strip dismissal (`runkit-gui-wm-strip-dismissed`: "1" =
- * dismissed, absent = shown — cleared by the tile when `wm` becomes
- * non-empty so a LATER bare state shows the strip again), the RFB quality
+ * the HiDPI rendering switch (`rk-gui-hidpi`: "1" = on, absent/other = off —
+ * divides the percentage-zoom host CSS size by `devicePixelRatio` so a 100%
+ * zoom maps one framebuffer pixel to one device pixel; client-side rendering
+ * only, never a server-facing size), the key-bar visibility
+ * (`rk-gui-keybar`: "0" = hidden, absent/other = shown — the default keeps
+ * the bar rendering as it always has), the bare-WM strip dismissal
+ * (`runkit-gui-wm-strip-dismissed`: "1" = dismissed, absent = shown —
+ * cleared by the tile when `wm` becomes non-empty so a LATER bare state
+ * shows the strip again), the RFB quality
  * preset (`rk-gui-quality`: "sharp" | "balanced" | "smooth", absent/invalid =
  * the pointer-class default — "balanced" on fine, "smooth" on coarse), and
  * the stats overlay's visibility (`rk-gui-stats-visible`: "1" = shown,
@@ -40,6 +46,8 @@ const GUI_POINTER_KEY = "rk-gui-pointer";
 const GUI_LOCK_KEY = "rk-gui-lock";
 const GUI_QUALITY_KEY = "rk-gui-quality";
 const GUI_STATS_VISIBLE_KEY = "rk-gui-stats-visible";
+const GUI_HIDPI_KEY = "rk-gui-hidpi";
+const GUI_KEYBAR_KEY = "rk-gui-keybar";
 const GUI_WM_STRIP_DISMISSED_KEY = "runkit-gui-wm-strip-dismissed";
 
 /** Retired `rk-gui-view` key; read once to seed the zoom posture, removed on write. */
@@ -196,4 +204,64 @@ export function writeGuiWmStripDismissed(dismissed: boolean): void {
   } catch {
     /* noop — best-effort persistence */
   }
+}
+
+export function readGuiHidpi(): boolean {
+  try {
+    return localStorage.getItem(GUI_HIDPI_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeGuiHidpi(on: boolean): void {
+  try {
+    if (on) {
+      localStorage.setItem(GUI_HIDPI_KEY, "1");
+    } else {
+      localStorage.removeItem(GUI_HIDPI_KEY);
+    }
+  } catch {
+    /* noop — best-effort persistence */
+  }
+}
+
+export function readGuiKeyBarVisible(): boolean {
+  try {
+    return localStorage.getItem(GUI_KEYBAR_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function writeGuiKeyBarVisible(visible: boolean): void {
+  try {
+    if (visible) {
+      localStorage.removeItem(GUI_KEYBAR_KEY);
+    } else {
+      localStorage.setItem(GUI_KEYBAR_KEY, "0");
+    }
+  } catch {
+    /* noop — best-effort persistence */
+  }
+}
+
+/**
+ * The noVNC host div's CSS size at a percentage zoom: `fb × zoom / (100 ×
+ * dpr)`. With HiDPI on the caller passes `window.devicePixelRatio`, so one
+ * framebuffer pixel maps to exactly one device pixel at 100% (crisp 1:1 on a
+ * Retina display); the canvas backing store is noVNC's, so the CSS size is
+ * the only client-side lever — nothing server-facing ever reads this. `fit`
+ * (the uniform letterboxed scale, tile-bound) and a zero framebuffer
+ * dimension (no desktop size yet) return `undefined` — the host stays
+ * tile-sized.
+ */
+export function zoomedHostSize(
+  fbW: number,
+  fbH: number,
+  zoom: GuiZoom,
+  dpr: number,
+): { width: number; height: number } | undefined {
+  if (zoom === "fit" || fbW <= 0 || fbH <= 0) return undefined;
+  return { width: (fbW * zoom) / (100 * dpr), height: (fbH * zoom) / (100 * dpr) };
 }

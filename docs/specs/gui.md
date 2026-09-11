@@ -300,6 +300,44 @@ the platform keyboard, forwarding its keystrokes through the same chord path.
 Decisions V-D6/7/8 of `fab/plans/sahil/26-09-10-gui-viewer-ergonomics.md` are
 the design log for this subsection.
 
+### The toolbar pill, HiDPI, and Send key
+
+A floating session-toolbar pill rides top-center of the tile in exactly two
+contexts — a coarse-pointer viewer, or a fullscreen tile (fine or coarse) —
+the two places the palette is unreachable or clumsy; a fine-pointer
+non-fullscreen viewer never sees it, and the empty/credentials states never
+show it. It appears on mount, on a tap on the tile (coarse), and on pointer
+movement within 24 px of the tile's top edge (fullscreen), and hides 3 s
+after the last reveal or pill interaction. Its controls — `−`/`fit`/`+`
+zoom, the pointer-mode toggle and key-bar toggle (coarse only), exit
+fullscreen (fullscreen only) — call the same callbacks the corresponding
+palette rows call: the pill is the coarse-and-fullscreen *mirror* of the
+`GUI:` family, never a separate action surface (Constitution V), so the key
+bar's visibility is the per-viewer posture `rk-gui-keybar` (`0` = hidden,
+absent = shown) with the palette pair `GUI: Hide/Show key bar`. The pill is
+chrome for the trackpad translation layer (its taps are never gestures).
+Decision V-D10 of `fab/plans/sahil/26-09-10-gui-viewer-ergonomics.md` is the
+design log for this paragraph.
+
+HiDPI is an opt-in per-viewer posture, `rk-gui-hidpi` (default off), with the
+palette pair `GUI: HiDPI on` / `off`. On, it divides the percentage-zoom host
+CSS size by `devicePixelRatio`, so a 100% zoom maps one framebuffer pixel to
+one device pixel — crisp 1:1 text on a Retina display. It is rendering-only:
+`fit` is unaffected (the fit scale is tile-bound), and it never touches
+`resizeSession`, `gui.geometry`, or any request to the server — under a fixed
+geometry it moves no bytes at all (the crisp Retina workflow is a larger
+`GUI: Resolution →` preset plus HiDPI on at 1:1; under `auto` the desktop
+already follows the tile). V-D12 is the design log.
+
+`GUI: Send key…` (tile open and connected) opens a small prompt offering five
+suggested chords — `Ctrl+Alt+Del`, `Ctrl+Alt+T`, `Alt+F4`, `Super`, `Print` —
+plus a free-typed chord field (`+`-joined modifiers and a key). Selecting one
+sends it through noVNC's `sendKey`, purely viewer-side with no server round
+trip; on the macOS view-only mirror it is refused with the backend's
+view-only message (`gui send key is not supported on macOS in v1 — the GUI
+mirrors your live session view-only`) and nothing is sent. V-D13 is the
+design log.
+
 ---
 
 ## Protocol and relay

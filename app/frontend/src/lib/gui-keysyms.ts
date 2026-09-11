@@ -18,6 +18,13 @@ export const KEYSYM_DOWN = 0xff54;
 export const KEYSYM_SHIFT_L = 0xffe1;
 export const KEYSYM_CONTROL_L = 0xffe3;
 export const KEYSYM_ALT_L = 0xffe9;
+export const KEYSYM_SUPER_L = 0xffeb;
+export const KEYSYM_DELETE = 0xffff;
+export const KEYSYM_PRINT = 0xff61;
+export const KEYSYM_SPACE = 0x20;
+/** F1..F12 run consecutively: KEYSYM_F1 + n. */
+export const KEYSYM_F1 = 0xffbe;
+export const KEYSYM_F12 = 0xffc9;
 
 const UNICODE_KEYSYM_PREFIX = 0x01000000;
 const LATIN1_MAX = 0xff;

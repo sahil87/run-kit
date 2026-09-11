@@ -34,10 +34,10 @@
  * drag) — a drag start never produces a click (A-023).
  *
  * Chrome pass-through: touches targeted inside the wrapper's own chrome (the
- * key bar, the bare-WM strip) are never owned — swallowing their touchstart
- * would suppress the compatibility mouse events and leave the buttons
- * untappable. A touch keeps its start target for its whole life, so the
- * per-event target check decides ownership per gesture: a canvas drag
+ * key bar, the toolbar pill, the bare-WM strip) are never owned — swallowing
+ * their touchstart would suppress the compatibility mouse events and leave
+ * the buttons untappable. A touch keeps its start target for its whole life,
+ * so the per-event target check decides ownership per gesture: a canvas drag
  * passing over the bar stays owned, a bar tap never enters gesture state.
  *
  * jsdom has no TouchEvent constructor — the handlers read only the
@@ -137,7 +137,7 @@ function readPoints(list: ArrayLike<RawTouch>): { id: number; x: number; y: numb
 }
 
 const CHROME_SELECTOR =
-  '[data-testid="gui-keybar"], [data-testid="gui-wm-strip"], [data-testid="gui-surface-credentials"]';
+  '[data-testid="gui-keybar"], [data-testid="gui-wm-strip"], [data-testid="gui-surface-credentials"], [data-testid="gui-toolbar"]';
 
 /** The layer owns only canvas/desktop touches. Touches targeted at the
  *  wrapper's own chrome (the key bar's buttons, the bare-WM strip's

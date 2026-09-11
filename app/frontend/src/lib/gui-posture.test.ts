@@ -15,6 +15,11 @@ import {
   writeGuiResizeLocked,
   readGuiWmStripDismissed,
   writeGuiWmStripDismissed,
+  readGuiHidpi,
+  writeGuiHidpi,
+  readGuiKeyBarVisible,
+  writeGuiKeyBarVisible,
+  zoomedHostSize,
 } from "./gui-posture";
 
 beforeEach(() => localStorage.clear());
@@ -269,5 +274,90 @@ describe("gui bare-WM strip dismissal (runkit-gui-wm-strip-dismissed)", () => {
       throw new Error("SecurityError");
     });
     expect(() => writeGuiWmStripDismissed(true)).not.toThrow();
+  });
+});
+
+describe("gui HiDPI posture (rk-gui-hidpi)", () => {
+  it("defaults to off when absent or any value other than 1", () => {
+    expect(readGuiHidpi()).toBe(false);
+    localStorage.setItem("rk-gui-hidpi", "true");
+    expect(readGuiHidpi()).toBe(false);
+    localStorage.setItem("rk-gui-hidpi", "0");
+    expect(readGuiHidpi()).toBe(false);
+  });
+
+  it("round-trips; off removes the key", () => {
+    writeGuiHidpi(true);
+    expect(readGuiHidpi()).toBe(true);
+    expect(localStorage.getItem("rk-gui-hidpi")).toBe("1");
+    writeGuiHidpi(false);
+    expect(readGuiHidpi()).toBe(false);
+    expect(localStorage.getItem("rk-gui-hidpi")).toBeNull();
+  });
+
+  it("swallows a localStorage read failure, returning off", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    expect(readGuiHidpi()).toBe(false);
+  });
+
+  it("swallows a localStorage write failure silently", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    expect(() => writeGuiHidpi(true)).not.toThrow();
+  });
+});
+
+describe("gui key-bar visibility posture (rk-gui-keybar)", () => {
+  it("defaults to shown when absent or any value other than 0", () => {
+    expect(readGuiKeyBarVisible()).toBe(true);
+    localStorage.setItem("rk-gui-keybar", "1");
+    expect(readGuiKeyBarVisible()).toBe(true);
+    localStorage.setItem("rk-gui-keybar", "hidden");
+    expect(readGuiKeyBarVisible()).toBe(true);
+  });
+
+  it("round-trips; shown removes the key", () => {
+    writeGuiKeyBarVisible(false);
+    expect(readGuiKeyBarVisible()).toBe(false);
+    expect(localStorage.getItem("rk-gui-keybar")).toBe("0");
+    writeGuiKeyBarVisible(true);
+    expect(readGuiKeyBarVisible()).toBe(true);
+    expect(localStorage.getItem("rk-gui-keybar")).toBeNull();
+  });
+
+  it("swallows a localStorage read failure, returning shown", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    expect(readGuiKeyBarVisible()).toBe(true);
+  });
+});
+
+describe("zoomedHostSize", () => {
+  it("sizes the host to fb × zoom/100 at dpr 1", () => {
+    expect(zoomedHostSize(1920, 1080, 100, 1)).toEqual({ width: 1920, height: 1080 });
+    expect(zoomedHostSize(1920, 1080, 150, 1)).toEqual({ width: 2880, height: 1620 });
+    expect(zoomedHostSize(1920, 1080, 50, 1)).toEqual({ width: 960, height: 540 });
+  });
+
+  it("divides by dpr — 100% at dpr 2 maps one framebuffer pixel to one device pixel", () => {
+    expect(zoomedHostSize(1920, 1080, 100, 2)).toEqual({ width: 960, height: 540 });
+  });
+
+  it("divides by a fractional dpr — 150% at dpr 1.5 lands back on the fb size", () => {
+    expect(zoomedHostSize(1920, 1080, 150, 1.5)).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it("returns undefined at fit regardless of dpr", () => {
+    expect(zoomedHostSize(1920, 1080, "fit", 1)).toBeUndefined();
+    expect(zoomedHostSize(1920, 1080, "fit", 2)).toBeUndefined();
+  });
+
+  it("returns undefined when a framebuffer dimension is 0", () => {
+    expect(zoomedHostSize(0, 1080, 100, 1)).toBeUndefined();
+    expect(zoomedHostSize(1920, 0, 100, 2)).toBeUndefined();
   });
 });

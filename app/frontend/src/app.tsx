@@ -66,16 +66,21 @@ import {
   readGuiResizeLocked,
   readGuiStatsVisible,
   readGuiZoom,
+  readGuiHidpi,
+  readGuiKeyBarVisible,
   stepGuiZoom,
   writeGuiPointerMode,
   writeGuiQuality,
   writeGuiResizeLocked,
   writeGuiStatsVisible,
   writeGuiZoom,
+  writeGuiHidpi,
+  writeGuiKeyBarVisible,
   type GuiPointerMode,
   type GuiQuality,
   type GuiZoom,
 } from "@/lib/gui-posture";
+import { GUI_SEND_KEY_MIRROR_REFUSAL, sendKeyChord, type KeyChord } from "@/lib/gui-send-key";
 import { buildZenActions } from "@/lib/palette/zen";
 import { resolveZenToggle } from "@/lib/zen-mode";
 import { buildStatusRefreshAction } from "@/lib/palette/status-refresh";
@@ -221,6 +226,7 @@ const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m =>
 const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
 const SessionNamePrompt = lazy(() => import("@/components/session-name-prompt").then(m => ({ default: m.SessionNamePrompt })));
 const GuiGeometryPrompt = lazy(() => import("@/components/gui-geometry-prompt").then(m => ({ default: m.GuiGeometryPrompt })));
+const GuiSendKeyPrompt = lazy(() => import("@/components/gui-send-key-prompt").then(m => ({ default: m.GuiSendKeyPrompt })));
 const WindowNotePrompt = lazy(() => import("@/components/window-note-prompt").then(m => ({ default: m.WindowNotePrompt })));
 const SpawnAgentDialog = lazy(() => import("@/components/spawn-agent-dialog").then(m => ({ default: m.SpawnAgentDialog })));
 const OperatorComposeDialog = lazy(() => import("@/components/operator-compose-dialog").then(m => ({ default: m.OperatorComposeDialog })));
@@ -1276,12 +1282,45 @@ function AppShell() {
     setGuiStatsVisible(v);
     writeGuiStatsVisible(v);
   }, []);
+  // HiDPI (`rk-gui-hidpi`) and key-bar visibility (`rk-gui-keybar`) postures —
+  // the same seed-from-storage + write-through grammar as the zoom posture.
+  const [guiHidpi, setGuiHidpi] = useState(() => readGuiHidpi());
+  const [guiKeyBarVisible, setGuiKeyBarVisible] = useState(() => readGuiKeyBarVisible());
+  const handleGuiHidpiChange = useCallback((on: boolean) => {
+    setGuiHidpi(on);
+    writeGuiHidpi(on);
+  }, []);
+  const handleGuiKeyBarVisibleChange = useCallback((visible: boolean) => {
+    setGuiKeyBarVisible(visible);
+    writeGuiKeyBarVisible(visible);
+  }, []);
+  // The Send key prompt's open state (the palette's `GUI: Send key…` row opens
+  // it; the prompt owns parsing/validation).
+  const [guiSendKeyOpen, setGuiSendKeyOpen] = useState(false);
   // The Custom… geometry prompt's open state (the palette's `GUI: Resolution →
   // Custom…` row opens it; the prompt owns validation).
   const [guiGeometryPromptOpen, setGuiGeometryPromptOpen] = useState(false);
   // The palette seams into the live RFB (GUI: Paste clipboard / GUI:
-  // Reconnect) — GuiSurface fills it while mounted.
+  // Reconnect / GUI: Send key…) — GuiSurface fills it while mounted.
   const guiCommandsRef = useRef<GuiSurfaceCommands | null>(null);
+
+  // Send key (spec gui.md § The tile): viewer-side through noVNC's sendKey —
+  // no server round trip. The macOS view-only mirror refuses with the
+  // backend's shared `gui <verb> is not supported…` wording (the relay would
+  // silently drop the input otherwise); every other backend sends the parsed
+  // chord. No live RFB ⇒ the seam no-ops (nothing throws).
+  const submitGuiSendKey = useCallback(
+    (chord: KeyChord) => {
+      setGuiSendKeyOpen(false);
+      if (gui?.backend === "screen-sharing") {
+        addToast(GUI_SEND_KEY_MIRROR_REFUSAL, "error");
+        return;
+      }
+      const sendKey = guiCommandsRef.current?.sendKey;
+      if (sendKey) sendKeyChord(sendKey, chord);
+    },
+    [gui, addToast],
+  );
 
   // ⏶ Zoom palette seam (T012/R11): the zoom itself is SurfaceLayout-internal
   // transient state (R6 — no URL/localStorage); the palette's `Layout: Expand`/
@@ -1448,6 +1487,8 @@ function AppShell() {
       resizeLocked: guiResizeLocked,
       quality: guiQuality,
       statsVisible: guiStatsVisible,
+      hidpi: guiHidpi,
+      keyBarVisible: guiKeyBarVisible,
       geometry: gui?.geometry ?? "",
       supervisorAvailable: rkGuiWindow !== null,
       onTurnOn: () => {
@@ -1489,6 +1530,9 @@ function AppShell() {
         setGuiResizeLocked(locked);
         writeGuiResizeLocked(locked);
       },
+      onHidpiChange: handleGuiHidpiChange,
+      onKeyBarVisibleChange: handleGuiKeyBarVisibleChange,
+      onSendKey: () => setGuiSendKeyOpen(true),
       onOpenLogs: openGuiLogs,
       onReconnect: () => guiCommandsRef.current?.reconnect(),
     });
@@ -1515,6 +1559,10 @@ function AppShell() {
     handleGuiQualityChange,
     guiStatsVisible,
     handleGuiStatsVisibleChange,
+    guiHidpi,
+    handleGuiHidpiChange,
+    guiKeyBarVisible,
+    handleGuiKeyBarVisibleChange,
     rkGuiWindow,
     guiOffRequest,
     loadDesktopRows,
@@ -5322,6 +5370,11 @@ function AppShell() {
               guiZoom={guiZoom}
               guiPointerMode={guiPointerMode}
               onGuiZoomChange={handleGuiZoomChange}
+              onGuiPointerModeChange={handleGuiPointerModeChange}
+              guiHidpi={guiHidpi}
+              guiKeyBarVisible={guiKeyBarVisible}
+              onGuiKeyBarVisibleChange={handleGuiKeyBarVisibleChange}
+              onGuiFullscreen={guiFullscreen}
               guiResizeLocked={guiResizeLocked}
               guiQuality={guiQuality}
               guiStatsVisible={guiStatsVisible}
@@ -5436,6 +5489,15 @@ function AppShell() {
               resizeGuiDesktop(geometry);
             }}
             onClose={() => setGuiGeometryPromptOpen(false)}
+          />
+        </Suspense>
+      )}
+
+      {guiSendKeyOpen && (
+        <Suspense fallback={null}>
+          <GuiSendKeyPrompt
+            onSubmit={submitGuiSendKey}
+            onClose={() => setGuiSendKeyOpen(false)}
           />
         </Suspense>
       )}

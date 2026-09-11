@@ -75,7 +75,7 @@ The LXQt plan's own § Execution order (L0 ∥ L1 first, then L2 ∥ L3, L2 gate
 | S4 | | | | |
 | S5 | | | | |
 | S6 | | | | |
-| S7 | | | | |
+| S7 | t2lv | 260910-t2lv-gui-toolbar-keybar-hidpi-sendkey | | |
 
 ---
 

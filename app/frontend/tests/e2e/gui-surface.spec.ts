@@ -38,10 +38,13 @@ import {
 // the 1080p fixture on @2, whose persisted `split-h:tty,gui` layout keeps
 // the tile open across the reload) and the `GUI: Quality →` rows'
 // descriptions, ` · current` marker, and `rk-gui-quality` write. Both
-// desktop (1280px) and mobile (375px, hasTouch) forks run. The zoom/pointer/keybar tests live here too: the
-// desktop fork drives the zoom chords and Ctrl+wheel against the badge, the
-// mobile fork drives the key bar's latch rendering and a CDP two-finger
-// pinch. The mocked /ws/gui/ socket is held open without an RFB handshake,
+// desktop (1280px) and mobile (375px, hasTouch) forks run. The
+// zoom/pointer/keybar/toolbar tests live here too:
+// the desktop fork drives the zoom chords and Ctrl+wheel against the badge,
+// the mobile fork drives the key bar's latch rendering, a CDP two-finger
+// pinch, and the toolbar pill's show → auto-hide → tap-to-reshow cycle plus
+// its Zoom in chip (the badge is the RFB-mock-free observable). The mocked
+// /ws/gui/ socket is held open without an RFB handshake,
 // so the tile's RFB NEVER reaches `connected` in this half — the chords,
 // badge, and latch rendering are the observable surface, and the `sendKey`
 // call-order assertions live in the vitest suites (gui-keybar/gui-pointer
@@ -885,6 +888,59 @@ test.describe("gui surface — mocked signal, mobile (375px)", () => {
     await spreadTo(105); // 170 → 210px: one more step
     await expect(badge).toHaveText("125%");
     await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  });
+
+  /**
+   * Proves: on a coarse 375px viewport the session toolbar pill (the palette's
+   * coarse mirror) shows when the tile opens, auto-hides within ~5 s of no
+   * interaction, and a tap on the noVNC host brings it back.
+   *
+   * Steps:
+   * 1. Mock the backend with the reachable icewm entry; open @1 at 375px;
+   *    open the gui tile; assert `gui-toolbar` is visible.
+   * 2. Wait for the auto-hide; assert the pill is gone from the DOM.
+   * 3. Tap the noVNC host; assert the pill is visible again.
+   */
+  test("toolbar pill: shows on open, auto-hides, a tap re-shows it", async ({ page }) => {
+    await mockGuiBackend(page, GUI_ON_ICEWM);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await toggleButton(page, "GUI tile").click();
+    await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
+    const pill = page.getByTestId("gui-toolbar");
+    await expect(pill).toBeVisible({ timeout: READY_TIMEOUT });
+
+    // The 3 s auto-hide; while hidden the pill renders nothing at all.
+    await expect(pill).toHaveCount(0, { timeout: 5000 });
+
+    await page.getByTestId("gui-novnc-host").tap();
+    await expect(pill).toBeVisible();
+  });
+
+  /**
+   * Proves: the pill's `Zoom in` chip steps the per-viewer zoom posture — the
+   * same callback the palette's `GUI: Zoom in` row calls — observable without
+   * a live RFB as the corner badge reading `100%` (from the default `fit`).
+   *
+   * Steps:
+   * 1. Mock the backend with the reachable icewm entry; open @1 at 375px;
+   *    open the gui tile; wait for the pill.
+   * 2. Tap the pill's `Zoom in` chip.
+   * 3. Assert `gui-zoom-badge` reads `100%`.
+   */
+  test("toolbar pill: the Zoom in chip moves the badge to 100%", async ({ page }) => {
+    await mockGuiBackend(page, GUI_ON_ICEWM);
+    await page.goto("/default/%401");
+    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await toggleButton(page, "GUI tile").click();
+    await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
+    const pill = page.getByTestId("gui-toolbar");
+    await expect(pill).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await pill.getByRole("button", { name: "Zoom in" }).tap();
+    await expect(page.getByTestId("gui-zoom-badge")).toHaveText("100%");
   });
 });
 

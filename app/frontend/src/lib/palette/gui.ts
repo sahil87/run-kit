@@ -44,6 +44,15 @@
  *                                 fallback where requestFullscreen is absent).
  *  - `GUI: Paste clipboard`     — gui tile open AND connected (readText needs a
  *                                 user gesture — palette selection is one).
+ *  - `GUI: Send key…`           — gui tile open AND connected (the paste gate);
+ *                                 opens the caller's Send key prompt.
+ *  - `GUI: HiDPI on` / `GUI: HiDPI off` — gui tile open; destination-only pair
+ *                                 toggling the viewer-local `rk-gui-hidpi`
+ *                                 posture (client-side rendering only).
+ *  - `GUI: Hide key bar` / `GUI: Show key bar` — gui tile open AND coarse
+ *                                 pointer (the bar itself is coarse-only);
+ *                                 destination-only pair toggling the
+ *                                 viewer-local `rk-gui-keybar` posture.
  *  - `GUI: Zoom in` / `GUI: Zoom out` / `GUI: Zoom to fit` / `GUI: 1:1` —
  *                                 gui tile open; destination-only zoom rows
  *                                 (Zoom in hides at 200, Zoom out and Zoom to
@@ -116,6 +125,10 @@ export type GuiPaletteInput = {
   quality: GuiQuality;
   /** The viewer's stats overlay visibility (`rk-gui-stats-visible`). */
   statsVisible: boolean;
+  /** The viewer's HiDPI posture (`rk-gui-hidpi`). */
+  hidpi: boolean;
+  /** The viewer's key-bar visibility (`rk-gui-keybar`). */
+  keyBarVisible: boolean;
   /** The host signal's `geometry` — the `gui.geometry` setting: a fixed `WxH`,
    *  or `auto` (the desktop follows the focused fine-pointer viewer). */
   geometry: string;
@@ -142,6 +155,10 @@ export type GuiPaletteInput = {
   onLockChange: (locked: boolean) => void;
   onQuality: (q: GuiQuality) => void;
   onStatsVisible: (visible: boolean) => void;
+  onHidpiChange: (on: boolean) => void;
+  onKeyBarVisibleChange: (visible: boolean) => void;
+  /** Opens the Send key prompt (the caller owns the dialog). */
+  onSendKey: () => void;
   onOpenLogs: () => void;
   onReconnect: () => void;
 };
@@ -225,12 +242,26 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
       { id: "gui-fullscreen", label: "GUI: Fullscreen", onSelect: input.onFullscreen },
     );
     if (input.connected) {
-      actions.push({
-        id: "gui-paste",
-        label: "GUI: Paste clipboard",
-        onSelect: input.onPaste,
-      });
+      actions.push(
+        {
+          id: "gui-paste",
+          label: "GUI: Paste clipboard",
+          onSelect: input.onPaste,
+        },
+        { id: "gui-send-key", label: "GUI: Send key…", onSelect: input.onSendKey },
+      );
     }
+    // Destination-only HiDPI pair — the entry shows the state it switches TO.
+    actions.push(
+      input.hidpi
+        ? { id: "gui-hidpi-off", label: "GUI: HiDPI off", onSelect: () => input.onHidpiChange(false) }
+        : {
+            id: "gui-hidpi-on",
+            label: "GUI: HiDPI on",
+            description: "render at device pixels — 1:1 is crisp on a Retina display",
+            onSelect: () => input.onHidpiChange(true),
+          },
+    );
     // Destination-only zoom rows — each shows the rung it switches TO. The
     // zoom ids ARE the registry actionIds (the chord-hint contract).
     if (input.zoom !== 200) {
@@ -274,6 +305,9 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
               description: "tap where you touch",
               onSelect: () => input.onPointerMode("touch"),
             },
+        input.keyBarVisible
+          ? { id: "gui-keybar-hide", label: "GUI: Hide key bar", onSelect: () => input.onKeyBarVisibleChange(false) }
+          : { id: "gui-keybar-show", label: "GUI: Show key bar", onSelect: () => input.onKeyBarVisibleChange(true) },
       );
     }
     if (!input.coarsePointer) {

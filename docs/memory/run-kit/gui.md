@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "GUI surface — gui.enabled/gui.wm/gui.geometry settings, desktop picker (wm_candidates), rk gui family (on/off/status/env/restart/exec/launch/open/wm/resize; windows/input/shot/wait/clip; lock/unlock; supervise), the rk-gui supervisor (Xvnc argv, WM ladder/session starters, process-group teardown, seeded IceWM/LXQt defaults, @rk_gui_* stamps), live RandR resize, /ws/gui RFB relay, event: gui, /api/gui/* routes incl. the /ping RTT probe, rk-gui-quality presets + stats overlay, C5/C6 verdicts."
+description: "GUI surface — gui.enabled/gui.wm/gui.geometry settings, desktop picker (wm_candidates), rk gui family (display + agent verbs, lock/unlock, resize, supervise), the rk-gui supervisor (Xvnc argv, WM ladder/session starters, process-group teardown, seeded IceWM/LXQt defaults, @rk_gui_* stamps), live RandR resize, /ws/gui RFB relay, event: gui, /api/gui/* routes incl. /ping, quality presets + stats overlay, toolbar pill/HiDPI/send-key rules, C5/C6 verdicts."
 ---
 # GUI Surface
 
@@ -254,7 +254,13 @@ When the backend process exits on its own, the supervisor MUST log the exit line
 - **THEN** the pane shows the exit line, `host.sock` is gone, the stream reports `reachable:false`, and `rk gui status` reads `on — not running (<bin> exited …)` until `rk gui restart`
 
 ### Requirement: The macOS backend is view-only
-On `GOOS=darwin` the supervisor SHALL spawn nothing (the Screen Sharing mirror is probed, never driven), and the relay MUST drop client→server KeyEvent (type 4) and PointerEvent (type 5) messages after the RFB handshake when the backend is `screen-sharing`.
+On `GOOS=darwin` the supervisor SHALL spawn nothing (the Screen Sharing mirror is probed, never driven), and the relay MUST drop client→server KeyEvent (type 4) and PointerEvent (type 5) messages after the RFB handshake when the backend is `screen-sharing`. Viewer-side input paths SHALL refuse with the same vocabulary: the palette's `GUI: Send key…` sends chords viewer-side through noVNC's `sendKey` — no server round trip — so on the mirror the frontend refuses with the backend's `gui <verb> is not supported on macOS in v1 — the GUI mirrors your live session view-only` template (verb `send key`; § The `rk gui` CLI family → the shared gate) and sends nothing ([lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § GUI Surface). (t2lv)
+
+### Requirement: The toolbar pill mirrors the palette, in exactly two contexts
+The gui tile's session toolbar pill SHALL mount only for a coarse-pointer viewer or a fullscreen tile — never for a fine-pointer, non-fullscreen viewer — and every control on it SHALL invoke the same callback its `GUI:` palette row calls (Constitution V — no toolbar-only functionality). The tile-level chrome (timers, chips, gating) lives in [lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § GUI Surface. (t2lv)
+
+### Requirement: HiDPI is rendering-only
+The per-viewer `rk-gui-hidpi` posture SHALL change only client-side rendering — the percentage-zoom host CSS size divided by `devicePixelRatio`, so a 100% zoom maps one framebuffer pixel to one device pixel; it MUST NOT write `gui.geometry`, drive `resizeSession`/SetDesktopSize, or reach any server endpoint. Under a fixed geometry the crisp-Retina workflow is a larger `GUI: Resolution →` preset plus HiDPI at 1:1. (t2lv)
 
 ### Requirement: Agent verbs never flip the switch
 No agent-facing verb (`env`, `exec`, `shot`, `launch`, `open`, `resize`, `windows`, `focus`, `click`, `move`, `scroll`, `type`, `key`, `wait`, `clip`, `lock`, `unlock`) SHALL write `gui.enabled`; a gated refusal exits 1 with the shared hint and starts no process and writes no file. The switch remains the user's alone — the "Never on by default" rule extended to the agent surface. (bbv1) (d0za) (zuci)
@@ -550,3 +556,15 @@ The six input verbs (`click`, `move`, `scroll`, `type`, `key`, `focus`) — and 
 **Why**: the setting must stay truthful to what happened on the display; a restart then lands on the same size.
 **Rejected**: persist-then-resize (a failed resize would leave the stream claiming a size the display never took).
 *Introduced by*: 260910-zuci-gui-fixed-geometry-and-resize
+
+### Every pill control mirrors an existing palette action — no toolbar-only functionality
+**Decision**: every control on the gui tile's toolbar pill invokes the identical callback object its `buildGuiActions` palette row calls, threaded unchanged from `app.tsx`; the pill is the coarse-and-fullscreen mirror of the `GUI:` family, never a third action surface.
+**Why**: Constitution V — the palette is the complete action registry; a control that shares the callback object cannot drift from its row, and the two contexts the pill serves (coarse pointer, fullscreen) are exactly where the palette is unreachable or clumsy.
+**Rejected**: a toolbar-only action (a Constitution V violation — a fine-pointer non-fullscreen viewer never sees the pill, so the action would be unreachable there); duplicating the row logic in the pill (two implementations to keep in step).
+*Introduced by*: 260910-t2lv-gui-toolbar-keybar-hidpi-sendkey
+
+### Send key refuses on the mirror in the frontend, with the backend's wording
+**Decision**: the refusal is a frontend constant in the backend's `gui <verb> is not supported on macOS in v1 — the GUI mirrors your live session view-only` template (verb `send key`), toasted at submit.
+**Why**: the send is viewer-side (no route to answer 409), and the relay silently drops input on the mirror — a silent no-op would leave the user guessing; the shared template keeps one refusal vocabulary.
+**Rejected**: hiding the row on the mirror (the user would not learn why the feature is absent).
+*Introduced by*: 260910-t2lv-gui-toolbar-keybar-hidpi-sendkey

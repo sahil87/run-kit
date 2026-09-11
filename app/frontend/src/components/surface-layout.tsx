@@ -229,6 +229,14 @@ interface SurfaceLayoutProps {
   guiZoom?: GuiZoom;
   guiPointerMode?: GuiPointerMode;
   onGuiZoomChange?: (z: GuiZoom) => void;
+  onGuiPointerModeChange?: (m: GuiPointerMode) => void;
+  /** HiDPI (`rk-gui-hidpi`) and key-bar visibility (`rk-gui-keybar`) postures
+   *  — both default to today's behavior (off / shown). */
+  guiHidpi?: boolean;
+  guiKeyBarVisible?: boolean;
+  onGuiKeyBarVisibleChange?: (visible: boolean) => void;
+  /** The fullscreen toggle verb (app.tsx's guiFullscreen) for the toolbar pill's ⤢. */
+  onGuiFullscreen?: () => void;
   guiResizeLocked?: boolean;
   guiQuality?: GuiQuality;
   guiStatsVisible?: boolean;
@@ -587,6 +595,11 @@ export function SurfaceLayout({
   guiZoom = "fit",
   guiPointerMode,
   onGuiZoomChange,
+  onGuiPointerModeChange,
+  guiHidpi = false,
+  guiKeyBarVisible = true,
+  onGuiKeyBarVisibleChange,
+  onGuiFullscreen,
   guiResizeLocked = false,
   guiQuality = "balanced",
   guiStatsVisible = false,
@@ -1633,6 +1646,11 @@ export function SurfaceLayout({
               zoom={guiZoom}
               pointerMode={guiPointerMode ?? (coarsePointer ? "trackpad" : "touch")}
               onZoomChange={onGuiZoomChange ?? (() => {})}
+              onPointerModeChange={onGuiPointerModeChange ?? (() => {})}
+              hidpi={guiHidpi}
+              keyBarVisible={guiKeyBarVisible}
+              onKeyBarVisibleChange={onGuiKeyBarVisibleChange ?? (() => {})}
+              onFullscreen={onGuiFullscreen ?? (() => {})}
               resizeLocked={guiResizeLocked}
               quality={guiQuality}
               statsVisible={guiStatsVisible}

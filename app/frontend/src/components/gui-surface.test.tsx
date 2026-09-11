@@ -161,6 +161,11 @@ function guiProps(overrides: Partial<Parameters<typeof GuiSurface>[0]> = {}) {
     zoom: "fit" as const,
     pointerMode: "touch" as const,
     onZoomChange: vi.fn(),
+    onPointerModeChange: vi.fn(),
+    hidpi: false,
+    keyBarVisible: true,
+    onKeyBarVisibleChange: vi.fn(),
+    onFullscreen: vi.fn(),
     resizeLocked: false,
     onConnectionChange: vi.fn(),
     onRestart: vi.fn().mockResolvedValue({ ok: true }),
@@ -1214,5 +1219,113 @@ describe("GuiSurface — the stats seam and overlay", () => {
     expect(pingGui).not.toHaveBeenCalled();
     expect(fakeCtxFor(canvas).drawImage).toBe(original);
     expect(screen.queryByTestId("gui-stats-overlay")).toBeNull();
+  });
+});
+
+describe("GuiSurface — toolbar pill contexts", () => {
+  it("a fine-pointer, non-fullscreen viewer never sees the pill", () => {
+    renderGui();
+    expect(screen.queryByTestId("gui-toolbar")).toBeNull();
+  });
+
+  it("a coarse-pointer viewer gets the pill in the canvas state", () => {
+    renderGui({ coarsePointer: true });
+    expect(screen.getByTestId("gui-toolbar")).toBeInTheDocument();
+  });
+
+  it("a fine-pointer viewer in fullscreen gets the pill", () => {
+    renderGui();
+    const wrapper = screen.getByTestId("gui-surface-canvas");
+    const original = Object.getOwnPropertyDescriptor(Document.prototype, "fullscreenElement");
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      get: () => wrapper,
+    });
+    try {
+      act(() => {
+        document.dispatchEvent(new Event("fullscreenchange"));
+      });
+      expect(screen.getByTestId("gui-toolbar")).toBeInTheDocument();
+    } finally {
+      if (original) Object.defineProperty(document, "fullscreenElement", original);
+      else Reflect.deleteProperty(document, "fullscreenElement");
+    }
+  });
+
+  it("the credentials prompt suppresses the pill", () => {
+    renderGui({ coarsePointer: true, gui: { ...GUI_ON, backend: "screen-sharing" } });
+    expect(screen.getByTestId("gui-toolbar")).toBeInTheDocument();
+    act(() => latestRfb().emit("credentialsrequired"));
+    expect(screen.getByTestId("gui-surface-credentials")).toBeInTheDocument();
+    expect(screen.queryByTestId("gui-toolbar")).toBeNull();
+  });
+});
+
+describe("GuiSurface — key bar visibility posture", () => {
+  it("the bar renders by default on a coarse pointer", () => {
+    renderGui({ coarsePointer: true });
+    expect(screen.getByTestId("gui-keybar")).toBeInTheDocument();
+  });
+
+  it("keyBarVisible=false hides the bar; the pill's ⌨ chip flips it", () => {
+    const onKeyBarVisibleChange = vi.fn();
+    renderGui({ coarsePointer: true, keyBarVisible: false, onKeyBarVisibleChange });
+    expect(screen.queryByTestId("gui-keybar")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Toggle key bar"));
+    expect(onKeyBarVisibleChange).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("GuiSurface — HiDPI host sizing", () => {
+  function stubDpr(value: number) {
+    const original = Object.getOwnPropertyDescriptor(window, "devicePixelRatio");
+    Object.defineProperty(window, "devicePixelRatio", { configurable: true, value });
+    return () => {
+      if (original) Object.defineProperty(window, "devicePixelRatio", original);
+      else Reflect.deleteProperty(window, "devicePixelRatio");
+    };
+  }
+
+  it("hidpi divides the percentage-zoom host CSS size by devicePixelRatio", () => {
+    const restore = stubDpr(2);
+    try {
+      renderGui({ zoom: 100, hidpi: true });
+      const host = screen.getByTestId("gui-novnc-host");
+      expect(host.style.width).toBe("960px");
+      expect(host.style.height).toBe("540px");
+    } finally {
+      restore();
+    }
+  });
+
+  it("without hidpi the same dpr leaves the host at fb × z/100", () => {
+    const restore = stubDpr(2);
+    try {
+      renderGui({ zoom: 100, hidpi: false });
+      expect(screen.getByTestId("gui-novnc-host").style.width).toBe("1920px");
+    } finally {
+      restore();
+    }
+  });
+
+  it("fit is unaffected by hidpi (the host stays tile-sized)", () => {
+    const restore = stubDpr(2);
+    try {
+      renderGui({ zoom: "fit", hidpi: true });
+      expect(screen.getByTestId("gui-novnc-host").style.width).toBe("");
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("GuiSurface — sendKey command seam", () => {
+  it("commandsRef.sendKey reaches the live RFB and no-ops without one", () => {
+    const commandsRef: { current: GuiSurfaceCommands | null } = { current: null };
+    const { unmount } = renderGui({ commandsRef });
+    act(() => commandsRef.current!.sendKey(0xffe9, "AltLeft", true));
+    expect(latestRfb().sendKey).toHaveBeenCalledWith(0xffe9, "AltLeft", true);
+    unmount();
+    expect(commandsRef.current).toBeNull();
   });
 });

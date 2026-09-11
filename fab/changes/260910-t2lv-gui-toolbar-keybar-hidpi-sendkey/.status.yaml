@@ -5,17 +5,17 @@ created_by: sahil87
 change_type: feat
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 14
+    acceptance_count: 26
+    acceptance_completed: 26
 confidence:
     certain: 4
     confident: 4
@@ -29,8 +29,27 @@ confidence:
         competence: 81.9
         disambiguation: 76.3
 stage_metrics:
-    intake: {started_at: "2026-09-10T15:21:45Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-09-10T15:21:45Z", driver: fab-new, iterations: 1, completed_at: "2026-09-11T01:58:31Z"}
+    apply: {started_at: "2026-09-11T01:58:31Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T02:58:31Z"}
+    review: {started_at: "2026-09-11T02:58:31Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T03:09:03Z"}
+    hydrate: {started_at: "2026-09-11T03:09:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T03:16:35Z"}
+    ship: {started_at: "2026-09-11T03:16:35Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-11T03:16:35Z"
+    computed_at_stage: hydrate
+summary: 'GUI tile: coarse/fullscreen toolbar pill mirroring palette rows, rk-gui-hidpi device-pixel rendering, rk-gui-keybar posture, GUI: Send key… viewer-side chords with the mirror refusal'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-10T15:22:53Z
+last_updated: 2026-09-11T03:16:35Z

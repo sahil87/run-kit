@@ -18,6 +18,8 @@ import { Control } from "./control";
 import { attachGuiPointer } from "./gui-pointer";
 import { GuiKeyBar } from "./gui-keybar";
 import { GuiStatsOverlay } from "./gui-stats-overlay";
+import { GuiToolbar, TOOLBAR_REVEAL_EDGE_PX } from "./gui-toolbar";
+import { zoomedHostSize } from "@/lib/gui-posture";
 
 /**
  * GuiSurface — the renderer for the `gui` lens (spec docs/specs/gui.md § The
@@ -94,7 +96,24 @@ import { GuiStatsOverlay } from "./gui-stats-overlay";
  *   docks under the canvas as a flex sibling of the host div (the fit
  *   subtracts its height) with latching modifiers and a hidden-input ⌨
  *   path; every key rides `rfb.sendKey` through a ref-bound callback — a
- *   no-op without a live RFB.
+ *   no-op without a live RFB. Its visibility is the per-viewer
+ *   `rk-gui-keybar` posture (the `keyBarVisible` prop).
+ * - **Toolbar pill**: a `GuiToolbar` (gui-toolbar.tsx) mounts in the canvas
+ *   state when the viewer is coarse-pointer OR this wrapper is the document's
+ *   fullscreen element — the two contexts where the palette is unreachable or
+ *   clumsy; a fine-pointer non-fullscreen viewer never sees it, and the
+ *   credentials prompt suppresses it. It auto-hides 3 s after the last
+ *   reveal; the wrapper's pointerdown (a tap) and, while fullscreen, a
+ *   pointermove within TOOLBAR_REVEAL_EDGE_PX of the top edge bump the
+ *   `revealSignal` counter that re-shows it. Every chip rides the same
+ *   callbacks the palette rows call (the props are app.tsx's handlers,
+ *   threaded unchanged).
+ * - **HiDPI**: with `hidpi` on (`rk-gui-hidpi`) the sized host's CSS size
+ *   divides by `window.devicePixelRatio` (zoomedHostSize), so a 100% zoom
+ *   maps one framebuffer pixel to one device pixel — crisp 1:1 on a Retina
+ *   display. Client-side rendering only: `resizeSession`, `gui.geometry`, and
+ *   every server-facing value are untouched; `fit` is unaffected (the fit
+ *   scale is tile-bound).
  * - **Zoom badge + wheel**: any zoom prop change shows the corner
  *   `gui-zoom-badge` for ZOOM_BADGE_MS (a change restarts the timer); a
  *   capture-phase non-passive wheel listener steps the ladder one notch per
@@ -165,6 +184,9 @@ export interface GuiSurfaceCommands {
   paste(text: string): void;
   /** Drop and re-dial the RFB connection (palette: GUI: Reconnect). */
   reconnect(): void;
+  /** Forward a key to the guest (palette: GUI: Send key…) — a no-op without a
+   *  live RFB. */
+  sendKey(keysym: number, code: string | null, down?: boolean): void;
 }
 
 export type GuiRestartResult = { ok: boolean; disabled?: boolean };
@@ -194,6 +216,17 @@ interface GuiSurfaceProps {
   pointerMode: GuiPointerMode;
   /** Zoom-change seam (chords, Ctrl+wheel); app.tsx owns persistence. */
   onZoomChange: (z: GuiZoom) => void;
+  /** Pointer-mode seam for the toolbar pill's ⌖ chip (app.tsx owns persistence). */
+  onPointerModeChange: (m: GuiPointerMode) => void;
+  /** HiDPI posture (`rk-gui-hidpi`): divides the percentage-zoom host CSS size
+   *  by `devicePixelRatio` — rendering only, never server-facing. */
+  hidpi: boolean;
+  /** Key-bar visibility posture (`rk-gui-keybar`). */
+  keyBarVisible: boolean;
+  /** Key-bar visibility seam for the toolbar pill's ⌨ chip. */
+  onKeyBarVisibleChange: (visible: boolean) => void;
+  /** The fullscreen toggle verb (app.tsx's guiFullscreen — exits when fullscreen). */
+  onFullscreen: () => void;
   /** Viewer-local resize lock (localStorage `rk-gui-lock`). */
   resizeLocked: boolean;
   /** RFB connection report — the top-bar toggle dot (R6). */
@@ -222,6 +255,11 @@ export default function GuiSurface({
   zoom,
   pointerMode,
   onZoomChange,
+  onPointerModeChange,
+  hidpi,
+  keyBarVisible,
+  onKeyBarVisibleChange,
+  onFullscreen,
   resizeLocked,
   onConnectionChange,
   onInteract,
@@ -274,6 +312,13 @@ export default function GuiSurface({
   const [badge, setBadge] = useState<GuiZoom | null>(null);
   const badgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastZoomRef = useRef(zoom);
+  // Fullscreen is tracked from the DOM (the verb is app.tsx's): this wrapper
+  // is the element the verb requests fullscreen on.
+  const [fullscreen, setFullscreen] = useState(false);
+  // The toolbar pill's reveal signal — a counter bumped by a tap on the tile
+  // (pointerdown capture below) and, while fullscreen, by a pointermove near
+  // the top edge; GuiToolbar owns the show/auto-hide machine.
+  const [revealSignal, setRevealSignal] = useState(0);
   // An in-flight fine-pointer pan drag; its window-level listeners' remover.
   const panCleanupRef = useRef<(() => void) | null>(null);
   // Reentrancy guard for the replayed click (it bubbles through this
@@ -342,6 +387,15 @@ export default function GuiSurface({
     const onVis = () => setDocVisible(document.visibilityState !== "hidden");
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  // Fullscreen flips arrive only as DOM events (the verb is a callback, Esc
+  // bypasses it entirely) — track whether THIS wrapper is the fullscreen
+  // element for the toolbar pill's second context.
+  useEffect(() => {
+    const onFsChange = () => setFullscreen(document.fullscreenElement === wrapperRef.current);
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
   // The 15s hidden-disconnect rule: invisible starts the budget, visible
@@ -685,12 +739,14 @@ export default function GuiSurface({
     });
   }, [wantConnection, epoch, pointerMode, coarsePointer, enabled, reachable, credEscaped, credentials]);
 
-  // The palette seams (GUI: Paste clipboard / GUI: Reconnect) — live only
-  // while mounted; paste no-ops without a live RFB.
+  // The palette seams (GUI: Paste clipboard / GUI: Reconnect / GUI: Send
+  // key…) — live only while mounted; paste and sendKey no-op without a live
+  // RFB.
   useEffect(() => {
     if (!commandsRef) return;
     commandsRef.current = {
       paste: (text) => rfbRef.current?.clipboardPasteFrom(text),
+      sendKey: (keysym, code, down) => rfbRef.current?.sendKey(keysym, code, down),
       reconnect: () => {
         backoffAttemptRef.current = 0;
         if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
@@ -851,21 +907,30 @@ export default function GuiSurface({
 
   // The sized host: at fit the host div is tile-sized (flex-1, today's fit);
   // a percentage zoom sizes it to fb × z/100 CSS px so noVNC's autoscale
-  // yields exactly z/100. shrink-0 keeps the flex layout from shrinking it
-  // back to the tile.
+  // yields exactly z/100 — divided by the device pixel ratio under HiDPI, so
+  // 100% maps one framebuffer pixel to one device pixel (a client-side
+  // rendering choice; no server-facing value ever reads it). shrink-0 keeps
+  // the flex layout from shrinking it back to the tile.
   const fbW = gui.width;
   const fbH = gui.height;
-  const hostStyle =
-    zoom !== "fit" && fbW > 0 && fbH > 0
-      ? { width: (fbW * zoom) / 100, height: (fbH * zoom) / 100 }
-      : undefined;
+  const hostStyle = zoomedHostSize(fbW, fbH, zoom, hidpi ? window.devicePixelRatio : 1);
 
   return (
     <div
       ref={wrapperRef}
       data-testid="gui-surface-canvas"
       className="flex-1 min-h-0 relative overflow-hidden flex flex-col"
-      onPointerDownCapture={() => onInteractRef.current?.()}
+      onPointerDownCapture={() => {
+        onInteractRef.current?.();
+        // A tap anywhere on the tile reveals the toolbar pill.
+        setRevealSignal((n) => n + 1);
+      }}
+      onPointerMove={(e) => {
+        // Fullscreen reveal: hover near the top edge shows the pill.
+        if (!fullscreen) return;
+        const top = wrapperRef.current?.getBoundingClientRect().top ?? 0;
+        if (e.clientY - top <= TOOLBAR_REVEAL_EDGE_PX) setRevealSignal((n) => n + 1);
+      }}
       onMouseDownCapture={(e) => {
         // Fine-pointer pan: a zoomed left-press inside the noVNC host subtree
         // is a pan gesture, never a guest button — swallow it before noVNC's
@@ -952,8 +1017,9 @@ export default function GuiSurface({
       ) : null}
       {/* The coarse-pointer key bar docks under the canvas as a flex sibling
           (the fit subtracts its height); sendKey rides the live RFB and is a
-          no-op without one. */}
-      {coarsePointer && !credentials ? (
+          no-op without one. `keyBarVisible` is the `rk-gui-keybar` posture —
+          the toolbar pill's ⌨ chip toggles it. */}
+      {coarsePointer && keyBarVisible && !credentials ? (
         <GuiKeyBar
           sendKey={(keysym, code, down) => {
             rfbRef.current?.sendKey(keysym, code, down);
@@ -970,6 +1036,25 @@ export default function GuiSurface({
             height: gui.height,
             zoom,
           }}
+        />
+      ) : null}
+      {/* The session toolbar pill: the coarse/fullscreen mirror of the
+          palette's GUI: rows (fine-pointer non-fullscreen viewers have the
+          palette and never see it). Its chips call the same callbacks the
+          palette rows call; the trackpad layer passes its touches through
+          (it is chrome, per CHROME_SELECTOR). */}
+      {(coarsePointer || fullscreen) && !credentials ? (
+        <GuiToolbar
+          zoom={zoom}
+          pointerMode={pointerMode}
+          coarsePointer={coarsePointer}
+          fullscreen={fullscreen}
+          keyBarVisible={keyBarVisible}
+          revealSignal={revealSignal}
+          onZoom={onZoomChange}
+          onPointerMode={onPointerModeChange}
+          onKeyBarVisibleChange={onKeyBarVisibleChange}
+          onFullscreen={onFullscreen}
         />
       ) : null}
       {/* The zoom badge cedes the corner to the stats overlay while it is

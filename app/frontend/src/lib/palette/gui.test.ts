@@ -30,6 +30,11 @@ function input(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput {
     onLockChange: vi.fn(),
     onQuality: vi.fn(),
     onStatsVisible: vi.fn(),
+    onHidpiChange: vi.fn(),
+    onKeyBarVisibleChange: vi.fn(),
+    onSendKey: vi.fn(),
+    hidpi: false,
+    keyBarVisible: true,
     onOpenLogs: vi.fn(),
     onReconnect: vi.fn(),
     ...overrides,
@@ -99,6 +104,8 @@ describe("buildGuiActions — tile-open gating", () => {
       "gui-quality-smooth",
       "gui-fullscreen",
       "gui-paste",
+      "gui-send-key",
+      "gui-hidpi-on",
       "gui-zoom-in",
       "gui-view-1to1",
       "gui-lock",
@@ -333,6 +340,8 @@ describe("buildGuiActions — resolution rows", () => {
       "gui-quality-smooth",
       "gui-fullscreen",
       "gui-paste",
+      "gui-send-key",
+      "gui-hidpi-on",
       "gui-zoom-in",
       "gui-view-1to1",
       "gui-lock",
@@ -493,5 +502,66 @@ describe("buildGuiActions — stats rows", () => {
     const list = ids(input({ tileOpen: false }));
     expect(list).not.toContain("gui-stats-show");
     expect(list).not.toContain("gui-stats-hide");
+  });
+});
+
+describe("buildGuiActions — Send key row", () => {
+  it("is gated on tile open AND connected (the paste gate)", () => {
+    expect(ids(input())).toContain("gui-send-key");
+    expect(ids(input({ tileOpen: false }))).not.toContain("gui-send-key");
+    expect(ids(input({ connected: false }))).not.toContain("gui-send-key");
+    expect(ids(input({ enabled: false }))).not.toContain("gui-send-key");
+  });
+
+  it("onSelect routes to onSendKey", () => {
+    const inp = input();
+    buildGuiActions(inp).find((a) => a.id === "gui-send-key")!.onSelect();
+    expect(inp.onSendKey).toHaveBeenCalledOnce();
+  });
+});
+
+describe("buildGuiActions — HiDPI pair", () => {
+  it("is destination-only and tile-open-gated, routing the target state", () => {
+    const off = input({ hidpi: false });
+    expect(ids(off)).toContain("gui-hidpi-on");
+    expect(ids(off)).not.toContain("gui-hidpi-off");
+    const on = buildGuiActions(off).find((a) => a.id === "gui-hidpi-on")!;
+    expect(on.label).toBe("GUI: HiDPI on");
+    expect(on.description).toBe("render at device pixels — 1:1 is crisp on a Retina display");
+    on.onSelect();
+    expect(off.onHidpiChange).toHaveBeenCalledWith(true);
+
+    const onState = input({ hidpi: true });
+    expect(ids(onState)).toContain("gui-hidpi-off");
+    expect(ids(onState)).not.toContain("gui-hidpi-on");
+    buildGuiActions(onState).find((a) => a.id === "gui-hidpi-off")!.onSelect();
+    expect(onState.onHidpiChange).toHaveBeenCalledWith(false);
+
+    expect(ids(input({ tileOpen: false }))).not.toContain("gui-hidpi-on");
+  });
+});
+
+describe("buildGuiActions — key bar pair", () => {
+  it("is destination-only and coarse-only, routing the target visibility", () => {
+    const shown = input({ coarsePointer: true, keyBarVisible: true });
+    expect(ids(shown)).toContain("gui-keybar-hide");
+    expect(ids(shown)).not.toContain("gui-keybar-show");
+    buildGuiActions(shown).find((a) => a.id === "gui-keybar-hide")!.onSelect();
+    expect(shown.onKeyBarVisibleChange).toHaveBeenCalledWith(false);
+
+    const hidden = input({ coarsePointer: true, keyBarVisible: false });
+    expect(ids(hidden)).toContain("gui-keybar-show");
+    expect(ids(hidden)).not.toContain("gui-keybar-hide");
+    buildGuiActions(hidden).find((a) => a.id === "gui-keybar-show")!.onSelect();
+    expect(hidden.onKeyBarVisibleChange).toHaveBeenCalledWith(true);
+  });
+
+  it("is absent on a fine pointer and without an open tile", () => {
+    const fine = ids(input({ coarsePointer: false }));
+    expect(fine).not.toContain("gui-keybar-hide");
+    expect(fine).not.toContain("gui-keybar-show");
+    const closed = ids(input({ tileOpen: false, coarsePointer: true }));
+    expect(closed).not.toContain("gui-keybar-hide");
+    expect(closed).not.toContain("gui-keybar-show");
   });
 });

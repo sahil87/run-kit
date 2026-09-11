@@ -33,7 +33,7 @@ hardcoded presets (fine 6/2, coarse 4/6) nobody can change, even though the
 C5 verdict says bytes per frame are what cap the frame rate on the user's
 Tailscale link.
 
-**Status (2026-09-10)**: plan written; V1 not started. Execution order and operator handover: [`26-09-10-gui-combined-execution.md`](26-09-10-gui-combined-execution.md) (stages S2, S4, S6, S7).
+**Status (2026-09-11)**: V1 (PR #919) and V2 (PR #931) merged; V4 in progress as `260910-t2lv-gui-toolbar-keybar-hidpi-sendkey`; V3 not started. Execution order and operator handover: [`26-09-10-gui-combined-execution.md`](26-09-10-gui-combined-execution.md) (stages S2, S4, S6, S7).
 
 ---
 
@@ -142,10 +142,10 @@ polish that can wait for a second sitting.
 
 | # | Slug (suggested) | Depends on | Size | Change folder | PR | Status |
 |---|------------------|-----------|------|---------------|----|--------|
-| V1 | `gui-fixed-geometry-and-resize` | G3 merged (it is) | M | 260910-zuci-gui-fixed-geometry-and-resize | | in progress |
-| V2 | `gui-zoom-and-touch-pointer` | V1 merged | M | 260910-0aur-gui-zoom-and-touch-pointer | | in progress |
+| V1 | `gui-fixed-geometry-and-resize` | G3 merged (it is) | M | 260910-zuci-gui-fixed-geometry-and-resize | #919 | Done |
+| V2 | `gui-zoom-and-touch-pointer` | V1 merged | M | 260910-0aur-gui-zoom-and-touch-pointer | #931 | Done |
 | V3 | `gui-quality-presets-and-stats` | V2 merged (shares the posture module and toolbar seam) | S | | | not started |
-| V4 | `gui-toolbar-keybar-hidpi-sendkey` | V2 merged (∥ V3) | M | | | not started |
+| V4 | `gui-toolbar-keybar-hidpi-sendkey` | V2 merged (∥ V3) | M | 260910-t2lv-gui-toolbar-keybar-hidpi-sendkey | | in progress |
 
 ---
 

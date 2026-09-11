@@ -1,5 +1,5 @@
 ---
-description: "Boards: link-based pinning, board page layout, pane cards, kill confirm, autofit, pane reorder, relay-connection suspension, mobile carousel, sidebar boards section, pin entry points, board/pin/view palette actions, frontend hooks, architecture placement."
+description: "Boards: link-based pinning, board page layout, pane cards, kill confirm, autofit, pane reorder, relay-connection suspension, mobile carousel, sidebar boards section, pin entry points (incl. the `rk board` CLI door), board/pin/view palette actions, frontend hooks, architecture placement."
 type: memory
 ---
 # run-kit UI — Boards
@@ -169,8 +169,9 @@ When the current route is `/board/<name>`, the cue for a window pinned to **that
 | Command palette | `boardActions` block in `app.tsx` (AppShell mount) and BoardPage's own mount | Direct `Pin: Current Window to <board>` per unpinned board + `Pin: Current Window to new board…` (opens the popover) — the keyboard-first pin path (Constitution V). See § Boards Command Palette (260718-gxrq) |
 | Board pane header | `BoardHeader` (only on `/board/<name>`) | Per-pane unpin button (a pin-glyph SVG, § Board Tile Header) — no confirmation (pin is cheap to restore) (260715-6jwn) |
 | Drag window row onto board row | Sidebar window rows (drag source) → sidebar BOARDS panel rows (drop target) | Direct-manipulation pin — gated on the marker MIME `application/x-window-drag` with a copy cursor + drop-target ring; drop calls `usePinActions.pin` unchanged (§ Sidebar Boards Section) (260811-g0t1) |
+| CLI (`rk board`) | Any shell or pane agent (`app/backend/cmd/rk/board.go`) | `rk board pin <name> <@N>` / `unpin` / `reorder` (and `show` for reading) ride the same five routes, so a CLI pin fires the same `board-changed` SSE broadcast and open dashboards repaint; needs `rk serve` up. See [cli](/run-kit/architecture/cli.md) (260911-u49l-rk-board-verb) |
 
-There is no right-click context-menu pin entry — no context-menu pattern exists in the sidebar to extend, and the four entry points above cover all flows.
+There is no right-click context-menu pin entry — no context-menu pattern exists in the sidebar to extend, and the five entry points above cover all flows.
 
 ### Board Tile Header
 
@@ -298,6 +299,8 @@ Pane boards are named collections of pinned tmux windows rendered as a horizonta
 | HTTP handlers | `app/backend/api/boards.go` | `handleBoardsList` (rank-aware sort via the pure `sortBoardsByStoredOrder` helper + `settings.GetBoardOrder`), `handleBoardGet`, `handleBoardPin`, `handleBoardUnpin`, `handleBoardReorder` — register in `router.go` `buildRouter()`; the pin/unpin/reorder trio each emits its own per-server `board-changed` SSE event. The board-DISPLAY-order write path lives in `api/settings.go` (`POST /api/settings` with the `board_order` key — validate/dedup/persist, then the server-global `board-order` broadcast) |
 | Interface | `app/backend/api/router.go` `TmuxOps` | `ListBoards`, `GetBoard`, `ListBoardEntries`, `PinBoard`→`tmux.Pin`, `UnpinBoard`→`tmux.Unpin`, `ReorderBoard` (uses `lookupNeighbourKeys` + `ComputeOrderKey` then `tmux.Reorder`). **Cross-server neighbour resolution** (260708-rmiq-board-pane-reorder): `lookupNeighbourKeys` enumerates `ListServers` and aggregates the board's `windowId → orderKey` map across EVERY reachable server (mirroring `GetBoard`/`handleGetBoard`'s cross-server aggregation, `boards.go`), NOT just the moved pane's own server — because a board spans servers (`move-window` can't cross servers, but a board is the union of `_rk-pin-*` sessions sharing an `@rk_ses_pin_board` on ANY server). The `400 neighbour window not found on board` (`neighbourNotFoundError`) fires ONLY when the `before`/`after` windowId is absent from the board on every server. A server-scoped lookup would 400 any move on a mixed-server board whose new neighbour was pinned from a different server, failing the reorder and permanently desyncing the client's optimistic preview. A per-server `ListBoardEntries` error is `slog.Warn("board: ListBoardEntries failed", ...)` + skipped (log-and-continue like `GetBoard`/`ListBoards`), so an unreachable server leaves a trace rather than silently degrading to a 400 |
 | SSE | `app/backend/api/sse.go` | `BoardEntriesFetcher` (a one-method `ListBoardEntries` interface for test stubbing), `broadcastBoardChanged(server, payload)`, `event: board-changed` (kebab-case; `change` ∈ `pin`/`unpin`/`reorder` only). There is NO `previousBoardJSON` cache, NO bootstrap-on-first-poll, NO cached-snapshot replay, NO window-kill `cleanup` diff — a killed pinned window's pin-session just disappears from the next live `ListBoardEntries` read (260602-qn62-move-based-board-pin-sessions). **Separately, `broadcastBoardOrder(order)` + `event: board-order` + the single `cachedBoardOrderJSON` replay slot** (260708-a2qd-board-list-reorder) — the server-global board-DISPLAY-order broadcast, distinct from the per-server `board-changed`; see the § SSE Hub `broadcastBoardOrder` note |
+
+The five routes are also reachable from a CLI door (`rk board` — see [cli](/run-kit/architecture/cli.md)) and an MCP tool (`board` — see [mcp](/run-kit/mcp.md)); both ride the same handlers and therefore the same `board-changed` SSE broadcast, with no frontend involvement.
 
 ### Constitution Alignment
 

@@ -4,11 +4,12 @@ A **board** is a named, cross-server pane dashboard. Pin any tmux window from an
 
 ## Pinning a window
 
-Three ways to pin a window to a board:
+Four ways to pin a window to a board:
 
 1. **Sidebar pin icon** — every window row in the sidebar has a pin icon. Click it to open a popover listing existing boards (click to pin/unpin), plus a "Pin to new board…" input that creates a new board on first pin.
 2. **Command palette (`Cmd+K`)** — `Board: Pin Current Window`, `Board: Unpin Current Window`, `Board: Switch to <name>`, `Board: Leave Board View`.
 3. **Board pane header** — each pinned pane shows an unpin button in its header for one-click removal.
+4. **From the shell / an agent** — `rk board pin <name> @N` pins a window by id (needs `rk serve` up); `rk board show|unpin|reorder` cover the rest of the board surface.
 
 ## Inside a board
 

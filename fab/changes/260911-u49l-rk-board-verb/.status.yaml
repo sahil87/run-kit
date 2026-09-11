@@ -1,0 +1,55 @@
+id: u49l
+name: 260911-u49l-rk-board-verb
+created: 2026-09-11T17:00:35Z
+created_by: sahil87
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 26
+    acceptance_completed: 26
+confidence:
+    certain: 9
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 75.0
+        reversibility: 88.8
+        competence: 83.8
+        disambiguation: 78.8
+stage_metrics:
+    intake: {started_at: "2026-09-11T17:00:35Z", driver: fab-new, iterations: 1, completed_at: "2026-09-11T17:09:17Z"}
+    apply: {started_at: "2026-09-11T17:09:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:39:58Z"}
+    review: {started_at: "2026-09-11T17:39:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:43:41Z"}
+    hydrate: {started_at: "2026-09-11T17:43:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:48:57Z"}
+    ship: {started_at: "2026-09-11T17:48:57Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-11T17:48:57Z"
+    computed_at_stage: hydrate
+summary: rk board show|pin|unpin|reorder — CLI door onto the five board routes via resolveOrigin, and the board action-enum MCP policy row (11 tools)
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-11T17:48:57Z

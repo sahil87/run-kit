@@ -231,7 +231,7 @@ not this spec's.
 | Clean up | `kill` | `mux kill <target>` | destr | report word (text) |
 | Clean up | `cron_rm` | `cron rm <id>` | destr | no |
 | Clean up | `cron_mute` | `cron mute <id> [--for] [--off]` | idem | no |
-| See/Steer | `board` | `board show [name]` / `pin` / `unpin` / `reorder` (action enum) | — | new verb |
+| See/Steer | `board` | `board show [name]` / `pin` / `unpin` / `reorder` (action enum) | — | yes |
 
 Row-level rules:
 

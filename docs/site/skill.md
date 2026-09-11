@@ -43,6 +43,7 @@ One line each, keyed to the subcommand or tmux option that does it:
 - `rk tab layout [@N] [L|--add S|--rm S|--promote S|--cycle]` — read or mutate the tab's surface layout (`split-h:tty,web`, …); unset reads as `single:tty`.
 - `rk tab web add|rm|select|ls` — manage the tab's web-tab strip (add takes a `present` target; rm/select address `@N/web/<n>` or bare `<n>`; `ls [--json]` lists).
 - `rk tab code set [@N] <folder>` — point the tab's code surface at a folder; `rk tab show [@N] [--json]` dumps every `@rk_win_*` option.
+- `rk board show [name] [--json]` · `pin|unpin <name> <@N>` · `reorder <name> <@N> [--before @N] [--after @N]` — pin windows onto the cross-server board dashboards; needs `rk serve` up (it rides the daemon, unlike `rk tab`).
 - `rk tab color|mark|note|flair [@N] <v> | --off` — set or clear the sidebar signal options below (validated against the same closed sets the dashboard renders).
 - **Sidebar signals** — annotate your window's sidebar row so a human scanning many agents sees your state at a glance. Write through the `rk tab` verbs (validated, epoch-stamped for you); `[@N]` omitted writes your own tab, and `--off` clears:
   - `rk tab color <v>` — row color: an ANSI index `0`–`15`, a palette family name, or a blend `a+b`; stored and printed normalized.

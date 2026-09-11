@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator`/`gui` (incl. `gui wm --list`/`--json`)/`mcp` + the `mux` and `cron` families."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator`/`gui` (incl. `gui wm --list`/`--json`)/`mcp`/`board` + the `mux` and `cron` families."
 ---
 # Toolkit Standards Conformance
 
@@ -852,6 +852,37 @@ The `rk url --mcp` flag (a flag on an existing verb, not a new surface — see
 same two checks by inheritance: the cobra tree walk publishes the flag via
 `UsageString` with no help-dump change, and stdout stays one data line (the
 endpoint) with empty stderr. (260911-cl9j-mcp-http-route)
+
+The `rk board` family (`board.go` + `board_test.go` — four members: `show`,
+`pin`, `unpin`, `reorder`; the subsystem contract in
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `board` row) is the
+twenty-fourth surface measured against the same checks (260911-u49l-rk-board-verb):
+
+- **help-dump: the family tree dumps.** `boardCmd` is registered
+  unconditionally on `rootCmd` (`root.go`'s `init()`, immediately after
+  `tabCmd`) and the parent plus all four children carry `Short`/`Long` blocks,
+  so the cobra tree walk publishes the `board` node with its
+  `show`/`pin`/`unpin`/`reorder` leaves with no help-dump code change; nothing
+  about the family is build- or host-conditional (the daemon-down refusal is a
+  run-time operational outcome, not a registration condition).
+- **Principle 9: every member prints one data line (or document) on stdout.**
+  `show`'s tabwriter rows and its byte-for-byte `--json` body, the mutations'
+  one report line (`pinned @N to <board>` / `unpinned @N from <board>` /
+  `reordered @N on <board> → <key>`), and the `--json` receipts are each the
+  verb's one bounded stdout datum (`newSink(cmd).Dataf`, surviving `--quiet`;
+  an empty `show` prints nothing and exits 0); nothing is written to stdout on
+  failure, and diagnostics ride stderr.
+- **Exit-code convention (P4)**: 0 success, 1 operational (an unreachable
+  daemon — the `unreachable at <origin>` hint — or a daemon non-2xx with the
+  body's `error` verbatim), 2 usage (a bad board name, a malformed `@N` window
+  or neighbour id, `--before`/`--after` off `reorder`, and arg-count
+  violations via the family's own `usageArgs` re-wrap — root's central wrap
+  loop covers only `rootCmd`'s direct children), each CLI-side class failing
+  before any HTTP request.
+- **The `skill` standard's core bundle carries the capability** —
+  `docs/site/skill.md` carries one `rk board` bullet next to the `rk tab`
+  bullets (the four verbs; needs `rk serve` up), synced to the embedded copy
+  by `scripts/sync-skill.sh` and byte-drift-guarded by the skill embed tests.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

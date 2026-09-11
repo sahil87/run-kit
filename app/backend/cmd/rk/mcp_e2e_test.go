@@ -102,7 +102,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		t.Errorf("instructions mismatch: got %d bytes, want the %d-byte skill bundle", len(got), len(skillBundle))
 	}
 
-	// ListTools: exactly the ten seeded tools, with annotations and schemas.
+	// ListTools: exactly the eleven seeded tools, with annotations and schemas.
 	tools, err := session.ListTools(connectCtx, nil)
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
@@ -114,7 +114,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := []string{"capture", "cron_list", "gui_status", "panes", "process", "send", "sessions", "status", "tab_show", "tab_web_ls"}
+	want := []string{"board", "capture", "cron_list", "gui_status", "panes", "process", "send", "sessions", "status", "tab_show", "tab_web_ls"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}

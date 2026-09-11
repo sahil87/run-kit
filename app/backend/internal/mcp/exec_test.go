@@ -47,6 +47,25 @@ func TestBuildArgvOmissions(t *testing.T) {
 	}
 }
 
+// TestBuildArgvBoardActionEnum pins argv assembly for the action-enum row:
+// flags (in Args order) before positionals (by slot), then the literal — the
+// reorder call yields `board -L s --after @3 reorder work @7 --json`, which
+// Cobra parses on the reorder child because the flags are persistent on the
+// parent.
+func TestBuildArgvBoardActionEnum(t *testing.T) {
+	row := Table[len(Table)-1] // board is appended last (TestTableShape)
+	if row.Tool != "board" {
+		t.Fatalf("last row = %q, want board", row.Tool)
+	}
+	got := BuildArgv(row, map[string]any{
+		"action": "reorder", "name": "work", "window": "@7", "after": "@3", "server": "s",
+	})
+	want := []string{"board", "-L", "s", "--after", "@3", "reorder", "work", "@7", "--json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("argv = %v, want %v", got, want)
+	}
+}
+
 // TestExecutorStdinRoundTrip: a stub that cats stdin proves the plumbing, and
 // echoing argv proves no shell string is involved.
 func TestExecutorStdinRoundTrip(t *testing.T) {

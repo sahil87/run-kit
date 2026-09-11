@@ -137,11 +137,17 @@ const statusDescription = "Session summary of the `runkit` tmux server only (the
 // submission verification, not an acknowledgment from the agent.
 const sendDescription = "Deliver a message into an agent's pane through run-kit's injection engine, gated on the pane's agent state (idle sends; waiting and active refuse; unknown warns and sends). Result is the verb's report line: `delivered %N` means the engine verified the text was submitted — it does NOT mean the agent has acted on it; read the pane with `capture` to see the effect. `staged`/`sent` do not occur through this tool. A refusal or `unverified %N` is returned as an error with the verb's diagnostic. `--force`, `--answer`, `--key`, and `--await` are not exposed."
 
+// boardDescription overrides `board`'s Cobra help — the family Long is
+// terminal prose; the row description names each action's required inputs and
+// the receipt shapes (docs/specs/mcp.md § New verb families).
+const boardDescription = "List boards and pin/unpin/reorder windows on the cross-server board dashboards; rides the daemon, so rk serve must be up. Actions: `show` lists boards (no `name`) or one board's pinned windows (with `name`); `pin`, `unpin`, and `reorder` mutate and require `name` and `window`. `server` applies to the three mutations and defaults to `default`. `before`/`after` are reorder-only neighbour window ids (@N); passing neither appends. The result is the route body for `show` (a bare JSON array) or a {board, window, orderKey?} receipt for the mutations (orderKey on reorder only)."
+
 // Table is the compiled-in policy table — the allowlist (docs/specs/mcp.md
 // § Policy table). Seeded with the verbs that are already MCP-shaped: the nine
 // structured-today read verbs ride result: json on their existing bare
-// documents until the --json envelope lands, and send rides result: text on
-// its report-word receipt.
+// documents until the --json envelope lands, send rides result: text on its
+// report-word receipt, and board rides result: json on its route bodies
+// (show) and {board, window, orderKey?} receipts (pin/unpin/reorder).
 var Table = []Row{
 	{
 		Tool: "sessions", Path: "mux sessions",
@@ -215,5 +221,28 @@ var Table = []Row{
 		Result:      ResultText,
 		Annotations: Annotations{},
 		Description: sendDescription,
+	},
+	{
+		// The one action-enum row besides tab_web: the parent path carries the
+		// flags (BuildArgv emits them before positionals), so -L/--json/
+		// --before/--after MUST be persistent on the board command — defining
+		// them on a child fails this drift guard.
+		Tool: "board", Path: "board",
+		Args: []Arg{
+			serverArg,
+			{Name: "action", Positional: 1, Type: ArgString, Required: true,
+				Enum:        []string{"show", "pin", "unpin", "reorder"},
+				Description: "show lists boards (no name) or one board's entries (with name); pin/unpin/reorder mutate and require name and window"},
+			{Name: "name", Positional: 2, Type: ArgString, Pattern: `^[A-Za-z0-9_-]{1,32}$`,
+				Description: "Board name; optional for show, required for pin/unpin/reorder"},
+			{Name: "window", Positional: 3, Type: ArgString, Pattern: `^@\d+$`,
+				Description: "The window to pin/unpin/reorder, by window id (@N); required for the three mutations"},
+			{Name: "before", Flag: "--before", Type: ArgString, Pattern: `^@\d+$`},
+			{Name: "after", Flag: "--after", Type: ArgString, Pattern: `^@\d+$`},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{}, // mixed read/write tool: no hints
+		Description: boardDescription,
 	},
 }

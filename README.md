@@ -221,6 +221,7 @@ eval "$(rk shell-init zsh)"   # in ~/.zshrc — also: bash, fish, powershell
 | `rk code-server` | Manage the rk-owned code-server install (`install`, `update`). |
 | `rk mux` | Tmux substrate operations — server create/adopt/reap, messaging, pane capture, config scaffold, tmux guard. |
 | `rk tab` | Drive a tab's UI state — layout, web tabs, code root, sidebar signals (`color`/`mark`/`note`/`flair`/`owner`) — from the shell. |
+| `rk board` | List boards and pin/unpin/reorder windows on the cross-server board dashboards (`show`/`pin`/`unpin`/`reorder`). Needs `rk serve` up. |
 | `rk role` | Mark or unmark the current window as the server's operator. |
 | `rk update` | Upgrade via Homebrew and restart the daemon. |
 | `rk desktop` | Install/update the macOS desktop app, quarantine-free (`install`, `update`, `status`). |

@@ -81,6 +81,7 @@ func init() {
 	rootCmd.AddCommand(codeCmd)
 	rootCmd.AddCommand(presentCmd)
 	rootCmd.AddCommand(tabCmd)
+	rootCmd.AddCommand(boardCmd)
 	rootCmd.AddCommand(muxCmd)
 	rootCmd.AddCommand(cronCmd)
 	// Hidden root aliases for the mux family (see mux.go): these three are

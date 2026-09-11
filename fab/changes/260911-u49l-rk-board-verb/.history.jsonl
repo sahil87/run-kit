@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-11T17:00:35Z"}
+{"args":"rk board verb — rk board show [name] [--json], rk board pin|unpin \u003cname\u003e \u003cwindow\u003e, rk board reorder \u003cname\u003e … over the five existing board routes; policy row for board (plan W3b)","cmd":"fab-new","event":"command","ts":"2026-09-11T17:00:35Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-11T17:02:55Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-11T17:03:16Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-11T17:08:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-11T17:09:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-11T17:39:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-11T17:43:41Z"}
+{"event":"review","result":"passed","ts":"2026-09-11T17:43:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-11T17:48:57Z"}

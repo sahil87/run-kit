@@ -147,10 +147,14 @@ function WatchedRow({
   const noteAgeSeconds = noteEpoch > 0 ? Math.max(0, nowSeconds - noteEpoch) : null;
   const noteStale = noteAgeSeconds !== null && noteAgeSeconds > NOTE_STALE_SECONDS;
 
-  const change = facets?.change ?? win.monitoredChange;
-  const stage = facets?.stage ?? win.monitoredStage;
-  const repoBase = repoBasename(facets?.repo ?? win.monitoredRepo ?? "");
-  const repo = facets?.repo ?? win.monitoredRepo ?? "";
+  // With `facets` the row describes the ITEM, never the window: a done item's
+  // window may since have been claimed by a different live item, whose
+  // monitored* facets must not leak into this row. Only an un-faceted row
+  // reads the window's own join facets.
+  const change = facets ? facets.change : win.monitoredChange;
+  const stage = facets ? facets.stage : win.monitoredStage;
+  const repo = (facets ? facets.repo : win.monitoredRepo) ?? "";
+  const repoBase = repoBasename(repo);
 
   return (
     <tr data-testid="watched-row" data-done={done ? "true" : undefined} className={done ? "opacity-50" : undefined}>

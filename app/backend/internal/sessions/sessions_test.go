@@ -878,8 +878,10 @@ func TestProjectTrackedItems(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("projectTrackedItems() = %+v, want %+v", got, want)
 	}
-	if got := projectTrackedItems(nil, nil); got != nil {
-		t.Errorf("nil items must project to nil (the key stays omitted), got %+v", got)
+	// Never nil: the caller pointers the slice onto the payload, and an empty
+	// tracked list must serialize as [] (present, empty), not vanish.
+	if got := projectTrackedItems(nil, nil); got == nil || len(got) != 0 {
+		t.Errorf("nil items must project to an empty non-nil slice, got %#v", got)
 	}
 }
 
@@ -888,13 +890,11 @@ func TestProjectTrackedItems(t *testing.T) {
 // and is omitted entirely when nil (absent operator-state file / older
 // backend).
 func TestProjectSessionOperatorTrackedJSON(t *testing.T) {
-	with, err := json.Marshal(ProjectSession{
-		Name: "s1", Windows: []tmux.WindowInfo{},
-		OperatorTracked: []OperatorTrackedItem{
-			{ID: "pa9n", Kind: "fab-change", Pane: "%5", WindowID: "@1", Stage: "apply", UpdatedAt: 1700000100},
-			{ID: "n3", Kind: "note", Text: "archive once merged", Refs: []string{"bf1l"}, DoneAt: 1700000200},
-		},
-	})
+	tracked := []OperatorTrackedItem{
+		{ID: "pa9n", Kind: "fab-change", Pane: "%5", WindowID: "@1", Stage: "apply", UpdatedAt: 1700000100},
+		{ID: "n3", Kind: "note", Text: "archive once merged", Refs: []string{"bf1l"}, DoneAt: 1700000200},
+	}
+	with, err := json.Marshal(ProjectSession{Name: "s1", Windows: []tmux.WindowInfo{}, OperatorTracked: &tracked})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -915,6 +915,17 @@ func TestProjectSessionOperatorTrackedJSON(t *testing.T) {
 	}
 	if strings.Contains(string(without), "operatorTracked") {
 		t.Errorf("nil OperatorTracked must omit the key: %s", without)
+	}
+
+	// A present-but-empty tracked list (the state file exists, tracked: [])
+	// must stay distinguishable from an absent file: the key is emitted as [].
+	empty := []OperatorTrackedItem{}
+	withEmpty, err := json.Marshal(ProjectSession{Name: "s3", Windows: []tmux.WindowInfo{}, OperatorTracked: &empty})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(withEmpty), `"operatorTracked":[]`) {
+		t.Errorf("empty OperatorTracked must serialize as []: %s", withEmpty)
 	}
 }
 
@@ -1052,8 +1063,28 @@ func TestFetchSessionsWatchlistSlug(t *testing.T) {
 			{ID: changeKey, Kind: "fab-change", Pane: paneID, WindowID: "@1", Repo: "/repo", Stage: "apply", Agent: "claude", Branch: "feat/x"},
 			{ID: "n3", Kind: "note", Text: "archive once merged", Refs: []string{"bf1l"}},
 		}
-		if !reflect.DeepEqual(got[0].OperatorTracked, wantTracked) {
+		if got[0].OperatorTracked == nil || !reflect.DeepEqual(*got[0].OperatorTracked, wantTracked) {
 			t.Errorf("OperatorTracked = %+v, want %+v", got[0].OperatorTracked, wantTracked)
+		}
+	})
+
+	t.Run("a present file with an empty tracked list stamps an empty, non-nil list", func(t *testing.T) {
+		xdg := t.TempDir()
+		t.Setenv("XDG_STATE_HOME", xdg)
+		stubFetchSeams(t, "/tmp/tmux-1001/runKit", nil)
+		dir := filepath.Join(xdg, "fab", "operator")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "tmp-tmux--1001-runKit.yaml"), []byte("last_tick_at: 1700000000\ntracked: []\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got := fetch(t)
+		if got[0].OperatorTracked == nil || len(*got[0].OperatorTracked) != 0 {
+			t.Errorf("OperatorTracked = %+v, want a present empty list", got[0].OperatorTracked)
+		}
+		if got[0].Windows[0].Monitored {
+			t.Errorf("window = %+v, want unmonitored with an empty tracked list", got[0].Windows[0])
 		}
 	})
 

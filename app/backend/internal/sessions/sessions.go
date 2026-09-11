@@ -102,9 +102,14 @@ type ProjectSession struct {
 	// file's whole tracked: list — server-scoped like OperatorLastTickAt/
 	// OperatorStale and stamped identically on every session of one
 	// FetchSessions call. Display only: the frontend's Operator Tasks segment
-	// lists these; nothing in rk acts on them. Nil when the operator state
-	// file is absent (the key is omitted — an older backend's signal).
-	OperatorTracked []OperatorTrackedItem `json:"operatorTracked,omitempty"`
+	// lists these; nothing in rk acts on them. A pointer so the two empties
+	// stay distinguishable on the wire: nil when the operator state file is
+	// absent or corrupt (the key is omitted — the same shape an older backend
+	// emits, so the frontend falls back to the monitored-derived rows), and a
+	// pointer to an EMPTY slice when the file was read but tracks nothing
+	// (`"operatorTracked":[]` — a present, empty list). A plain slice with
+	// omitempty would collapse the second case into the first.
+	OperatorTracked *[]OperatorTrackedItem `json:"operatorTracked,omitempty"`
 }
 
 // OperatorTrackedItem is the sessions-payload projection of one tracked item
@@ -243,9 +248,8 @@ func paneToWindowMap(data []sessionData) map[string]string {
 // order is the state's list order — the operator's ledger order. Pure (no
 // I/O), unit-testable.
 func projectTrackedItems(items []cron.TrackedItem, paneToWindow map[string]string) []OperatorTrackedItem {
-	if items == nil {
-		return nil
-	}
+	// Never nil: the caller takes the address, and an empty list must reach the
+	// wire as [] (present, empty) rather than vanish under omitempty.
 	out := make([]OperatorTrackedItem, len(items))
 	for i, item := range items {
 		out[i] = OperatorTrackedItem{
@@ -759,7 +763,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	// "default" slug, fab's own cold-name fallback, and is never surfaced.
 	var watchlistByPane map[string]cron.WatchlistEntry
 	var operatorLastTickAt int64
-	var operatorTracked []OperatorTrackedItem
+	var operatorTracked *[]OperatorTrackedItem
 	slug := "default"
 	if sock, sockErr := socketPathFn(ctx, server); sockErr == nil {
 		slug = cron.FabOperatorSlug(sock)
@@ -773,7 +777,8 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			for _, we := range entries {
 				watchlistByPane[we.Pane] = we
 			}
-			operatorTracked = projectTrackedItems(state.Items, paneToWindowMap(data))
+			tracked := projectTrackedItems(state.Items, paneToWindowMap(data))
+			operatorTracked = &tracked
 		}
 	}
 

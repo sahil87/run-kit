@@ -188,6 +188,30 @@ describe("WatchedTable", () => {
     expect(onNavigate).toHaveBeenCalledWith("@1");
   });
 
+  it("a done worker row never borrows the window's live monitored* facets", () => {
+    // The done item's window has since been claimed by a different live item
+    // (the join stamped that item's facets on the window); the done row must
+    // describe its own item, not the newcomer.
+    renderTable([
+      workerRow(
+        makeWindow({
+          windowId: "@1",
+          name: "worker-one",
+          monitored: true,
+          monitoredChange: "newb",
+          monitoredStage: "review",
+          monitoredRepo: "/home/user/code/other-repo",
+        }),
+        { item: { id: "olda", kind: "fab-change", pane: "%1", windowId: "@1", doneAt: NOW - 300 }, done: true },
+      ),
+    ]);
+    const row = screen.getByTestId("watched-row");
+    expect(row).toHaveTextContent("olda");
+    expect(row).not.toHaveTextContent("newb");
+    expect(row).not.toHaveTextContent("review");
+    expect(row).not.toHaveTextContent("other-repo");
+  });
+
   it("a paused worker row marks paused after the stage badge", () => {
     renderTable([
       workerRow(

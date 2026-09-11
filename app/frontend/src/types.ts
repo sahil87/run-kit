@@ -133,9 +133,10 @@ export type ProjectSession = {
   /** The operator's whole tracked list (the fab operator state file's
    *  `tracked:` — every kind, pane-bearing or not, done or not), stamped onto
    *  every session of the server like the tick facts. The Operator Tasks
-   *  segment lists these; display only — nothing in rk acts on them. Absent
-   *  on payloads from an older backend (fall back to the `monitored`-derived
-   *  rows). */
+   *  segment lists these; display only — nothing in rk acts on them. An
+   *  empty array when the operator state file exists but tracks nothing;
+   *  absent on payloads from an older backend or when the file is absent
+   *  (fall back to the `monitored`-derived rows). */
   operatorTracked?: OperatorTrackedItem[];
   windows: WindowInfo[];
 };

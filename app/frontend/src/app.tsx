@@ -5378,6 +5378,8 @@ function AppShell() {
               guiResizeLocked={guiResizeLocked}
               guiQuality={guiQuality}
               guiStatsVisible={guiStatsVisible}
+              onGuiQualityChange={handleGuiQualityChange}
+              onGuiStatsVisibleChange={handleGuiStatsVisibleChange}
               onGuiConnection={setGuiConnected}
               onGuiRestart={restartGui}
               onGuiOpenLogs={openGuiLogs}

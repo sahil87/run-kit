@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, cleanup, fireEvent, screen, act } from "@testing-library/react";
 import { GuiToolbar, TOOLBAR_HIDE_MS } from "./gui-toolbar";
 import { buildGuiActions, type GuiPaletteInput } from "@/lib/palette/gui";
-import type { GuiPointerMode, GuiZoom } from "@/lib/gui-posture";
+import type { GuiPointerMode, GuiQuality, GuiZoom } from "@/lib/gui-posture";
 
 afterEach(cleanup);
 
@@ -17,8 +17,8 @@ interface ToolbarProps {
   onPointerMode?: (m: GuiPointerMode) => void;
   onKeyBarVisibleChange?: (visible: boolean) => void;
   onFullscreen?: () => void;
-  quality?: { label: string; onCycle: () => void };
-  stats?: { onToggle: () => void };
+  quality?: { value: GuiQuality; onChange: (q: GuiQuality) => void };
+  stats?: { visible: boolean; onVisibleChange: (visible: boolean) => void };
 }
 
 function renderToolbar(props: ToolbarProps = {}) {
@@ -134,13 +134,19 @@ describe("GuiToolbar — gating", () => {
     expect(screen.queryByLabelText("Quality")).toBeNull();
     expect(screen.queryByLabelText("Toggle stats")).toBeNull();
     cleanup();
-    const onCycle = vi.fn();
-    const onToggle = vi.fn();
-    renderToolbar({ quality: { label: "Balanced", onCycle }, stats: { onToggle } });
+    const onChange = vi.fn();
+    const onVisibleChange = vi.fn();
+    renderToolbar({
+      quality: { value: "smooth", onChange },
+      stats: { visible: true, onVisibleChange },
+    });
+    expect(screen.getByLabelText("Quality")).toHaveTextContent("◐ Smooth");
+    expect(screen.getByLabelText("Toggle stats")).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByLabelText("Quality"));
     fireEvent.click(screen.getByLabelText("Toggle stats"));
-    expect(onCycle).toHaveBeenCalledTimes(1);
-    expect(onToggle).toHaveBeenCalledTimes(1);
+    // The cycle wraps: Smooth → Sharp.
+    expect(onChange).toHaveBeenCalledWith("sharp");
+    expect(onVisibleChange).toHaveBeenCalledWith(false);
   });
 });
 
@@ -242,5 +248,26 @@ describe("GuiToolbar — shared callbacks with the palette rows", () => {
     fireEvent.click(screen.getByLabelText("Exit fullscreen"));
     row(paletteInput({ onZoom: vi.fn(), onPointerMode: vi.fn(), onKeyBarVisibleChange: vi.fn(), onFullscreen }), "gui-fullscreen").onSelect();
     expect(onFullscreen).toHaveBeenCalledTimes(2);
+  });
+
+  it("the ◐ chip and GUI: Quality → Smooth call the identical onQuality with identical arguments", () => {
+    const onQuality = vi.fn();
+    renderToolbar({ quality: { value: "balanced", onChange: onQuality } });
+    fireEvent.click(screen.getByLabelText("Quality"));
+    const input = paletteInput({ onZoom: vi.fn(), onPointerMode: vi.fn(), onKeyBarVisibleChange: vi.fn(), onFullscreen: vi.fn() });
+    input.onQuality = onQuality;
+    row(input, "gui-quality-smooth").onSelect();
+    expect(onQuality.mock.calls).toEqual([["smooth"], ["smooth"]]);
+  });
+
+  it("the ∿ chip and GUI: Show stats call the identical onStatsVisible with identical arguments", () => {
+    const onStatsVisible = vi.fn();
+    renderToolbar({ stats: { visible: false, onVisibleChange: onStatsVisible } });
+    fireEvent.click(screen.getByLabelText("Toggle stats"));
+    const input = paletteInput({ onZoom: vi.fn(), onPointerMode: vi.fn(), onKeyBarVisibleChange: vi.fn(), onFullscreen: vi.fn() });
+    input.statsVisible = false;
+    input.onStatsVisible = onStatsVisible;
+    row(input, "gui-stats-show").onSelect();
+    expect(onStatsVisible.mock.calls).toEqual([[true], [true]]);
   });
 });

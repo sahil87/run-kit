@@ -240,6 +240,8 @@ interface SurfaceLayoutProps {
   guiResizeLocked?: boolean;
   guiQuality?: GuiQuality;
   guiStatsVisible?: boolean;
+  onGuiQualityChange?: (q: GuiQuality) => void;
+  onGuiStatsVisibleChange?: (visible: boolean) => void;
   /** RFB connection report — app.tsx folds it into the toggle dot. */
   onGuiConnection?: (connected: boolean) => void;
   /** Restart supervisor verb for the gui empty state (POSTs the restart
@@ -603,6 +605,8 @@ export function SurfaceLayout({
   guiResizeLocked = false,
   guiQuality = "balanced",
   guiStatsVisible = false,
+  onGuiQualityChange,
+  onGuiStatsVisibleChange,
   onGuiConnection,
   onGuiRestart,
   onGuiOpenLogs,
@@ -1654,6 +1658,8 @@ export function SurfaceLayout({
               resizeLocked={guiResizeLocked}
               quality={guiQuality}
               statsVisible={guiStatsVisible}
+              onQualityChange={onGuiQualityChange ?? (() => {})}
+              onStatsVisibleChange={onGuiStatsVisibleChange ?? (() => {})}
               onConnectionChange={onGuiConnection}
               onRestart={onGuiRestart}
               onOpenLogs={onGuiOpenLogs}

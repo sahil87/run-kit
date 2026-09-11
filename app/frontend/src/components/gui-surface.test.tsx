@@ -165,6 +165,8 @@ function guiProps(overrides: Partial<Parameters<typeof GuiSurface>[0]> = {}) {
     hidpi: false,
     keyBarVisible: true,
     onKeyBarVisibleChange: vi.fn(),
+    onQualityChange: vi.fn(),
+    onStatsVisibleChange: vi.fn(),
     onFullscreen: vi.fn(),
     resizeLocked: false,
     onConnectionChange: vi.fn(),
@@ -1258,6 +1260,19 @@ describe("GuiSurface — toolbar pill contexts", () => {
     act(() => latestRfb().emit("credentialsrequired"));
     expect(screen.getByTestId("gui-surface-credentials")).toBeInTheDocument();
     expect(screen.queryByTestId("gui-toolbar")).toBeNull();
+  });
+});
+
+describe("GuiSurface — the pill's quality and stats slots", () => {
+  it("◐ cycles the quality preset and ∿ toggles the overlay through the app.tsx seams", () => {
+    const onQualityChange = vi.fn();
+    const onStatsVisibleChange = vi.fn();
+    renderGui({ coarsePointer: true, quality: "balanced", statsVisible: false, onQualityChange, onStatsVisibleChange });
+    expect(screen.getByLabelText("Quality")).toHaveTextContent("◐ Balanced");
+    fireEvent.click(screen.getByLabelText("Quality"));
+    fireEvent.click(screen.getByLabelText("Toggle stats"));
+    expect(onQualityChange).toHaveBeenCalledWith("smooth");
+    expect(onStatsVisibleChange).toHaveBeenCalledWith(true);
   });
 });
 

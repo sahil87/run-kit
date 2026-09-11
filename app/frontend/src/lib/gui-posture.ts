@@ -41,6 +41,21 @@ export const GUI_QUALITY_PRESETS: Record<GuiQuality, { qualityLevel: number; com
   smooth: { qualityLevel: 3, compressionLevel: 7 },
 };
 
+/** The presets in palette order; the toolbar pill's ◐ chip cycles through it. */
+export const GUI_QUALITY_ORDER: readonly GuiQuality[] = ["sharp", "balanced", "smooth"];
+
+/** Preset name → its user-facing label (the palette rows and the pill share it). */
+export const GUI_QUALITY_LABELS: Record<GuiQuality, string> = {
+  sharp: "Sharp",
+  balanced: "Balanced",
+  smooth: "Smooth",
+};
+
+/** Sharp → Balanced → Smooth → Sharp. */
+export function nextGuiQuality(q: GuiQuality): GuiQuality {
+  return GUI_QUALITY_ORDER[(GUI_QUALITY_ORDER.indexOf(q) + 1) % GUI_QUALITY_ORDER.length];
+}
+
 const GUI_ZOOM_KEY = "rk-gui-zoom";
 const GUI_POINTER_KEY = "rk-gui-pointer";
 const GUI_LOCK_KEY = "rk-gui-lock";

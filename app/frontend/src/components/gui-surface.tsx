@@ -107,7 +107,9 @@ import { zoomedHostSize } from "@/lib/gui-posture";
  *   pointermove within TOOLBAR_REVEAL_EDGE_PX of the top edge bump the
  *   `revealSignal` counter that re-shows it. Every chip rides the same
  *   callbacks the palette rows call (the props are app.tsx's handlers,
- *   threaded unchanged).
+ *   threaded unchanged) — including the ◐ quality cycle and the ∿ stats
+ *   toggle, fed from the tile's `quality`/`statsVisible` props and the
+ *   `onQualityChange`/`onStatsVisibleChange` seams.
  * - **HiDPI**: with `hidpi` on (`rk-gui-hidpi`) the sized host's CSS size
  *   divides by `window.devicePixelRatio` (zoomedHostSize), so a 100% zoom
  *   maps one framebuffer pixel to one device pixel — crisp 1:1 on a Retina
@@ -225,6 +227,10 @@ interface GuiSurfaceProps {
   keyBarVisible: boolean;
   /** Key-bar visibility seam for the toolbar pill's ⌨ chip. */
   onKeyBarVisibleChange: (visible: boolean) => void;
+  /** Quality preset seam (the pill's ◐ cycles it); app.tsx owns persistence. */
+  onQualityChange: (q: GuiQuality) => void;
+  /** Stats overlay visibility seam (the pill's ∿); app.tsx owns persistence. */
+  onStatsVisibleChange: (visible: boolean) => void;
   /** The fullscreen toggle verb (app.tsx's guiFullscreen — exits when fullscreen). */
   onFullscreen: () => void;
   /** Viewer-local resize lock (localStorage `rk-gui-lock`). */
@@ -259,6 +265,8 @@ export default function GuiSurface({
   hidpi,
   keyBarVisible,
   onKeyBarVisibleChange,
+  onQualityChange,
+  onStatsVisibleChange,
   onFullscreen,
   resizeLocked,
   onConnectionChange,
@@ -1055,6 +1063,8 @@ export default function GuiSurface({
           onPointerMode={onPointerModeChange}
           onKeyBarVisibleChange={onKeyBarVisibleChange}
           onFullscreen={onFullscreen}
+          quality={{ value: quality, onChange: onQualityChange }}
+          stats={{ visible: statsVisible, onVisibleChange: onStatsVisibleChange }}
         />
       ) : null}
       {/* The zoom badge cedes the corner to the stats overlay while it is

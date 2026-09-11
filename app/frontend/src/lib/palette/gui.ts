@@ -88,7 +88,7 @@
 import type { GuiLaunchApp } from "../../api/client";
 import type { PaletteAction } from "../../components/command-palette";
 import { GUI_GEOMETRY_PRESETS, presetLabel } from "../gui-geometry";
-import { stepGuiZoom, type GuiPointerMode, type GuiQuality, type GuiZoom } from "../gui-posture";
+import { GUI_QUALITY_LABELS, stepGuiZoom, type GuiPointerMode, type GuiQuality, type GuiZoom } from "../gui-posture";
 
 export type GuiPaletteAction = {
   id: string;
@@ -166,10 +166,10 @@ export type GuiPaletteInput = {
 /** The three `GUI: Quality →` rows in palette order; the active preset's
  *  description gains the ` · current` suffix (the Resolution rows' marker
  *  grammar). */
-const GUI_QUALITY_ROWS: { quality: GuiQuality; name: string; description: string }[] = [
-  { quality: "sharp", name: "Sharp", description: "more detail, more bytes" },
-  { quality: "balanced", name: "Balanced", description: "default" },
-  { quality: "smooth", name: "Smooth", description: "fewer bytes, smoother motion on slow links" },
+const GUI_QUALITY_ROWS: { quality: GuiQuality; description: string }[] = [
+  { quality: "sharp", description: "more detail, more bytes" },
+  { quality: "balanced", description: "default" },
+  { quality: "smooth", description: "fewer bytes, smoother motion on slow links" },
 ];
 
 export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
@@ -229,7 +229,7 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
     for (const row of GUI_QUALITY_ROWS) {
       actions.push({
         id: `gui-quality-${row.quality}`,
-        label: `GUI: Quality → ${row.name}`,
+        label: `GUI: Quality → ${GUI_QUALITY_LABELS[row.quality]}`,
         description:
           row.quality === input.quality ? `${row.description} · current` : row.description,
         onSelect: () => input.onQuality(row.quality),

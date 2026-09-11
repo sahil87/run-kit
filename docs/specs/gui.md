@@ -309,8 +309,9 @@ non-fullscreen viewer never sees it, and the empty/credentials states never
 show it. It appears on mount, on a tap on the tile (coarse), and on pointer
 movement within 24 px of the tile's top edge (fullscreen), and hides 3 s
 after the last reveal or pill interaction. Its controls — `−`/`fit`/`+`
-zoom, the pointer-mode toggle and key-bar toggle (coarse only), exit
-fullscreen (fullscreen only) — call the same callbacks the corresponding
+zoom, the pointer-mode toggle and key-bar toggle (coarse only), the quality
+cycle (`◐ Balanced` → Sharp → Balanced → Smooth), the stats toggle (`∿`),
+exit fullscreen (fullscreen only) — call the same callbacks the corresponding
 palette rows call: the pill is the coarse-and-fullscreen *mirror* of the
 `GUI:` family, never a separate action surface (Constitution V), so the key
 bar's visibility is the per-viewer posture `rk-gui-keybar` (`0` = hidden,

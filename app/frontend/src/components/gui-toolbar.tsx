@@ -8,9 +8,10 @@
  *
  * Every chip calls the SAME callback object its `buildGuiActions` row calls
  * (Constitution V — the palette is the complete action registry, so the pill
- * shares handlers instead of duplicating logic). `◐`/`∿` are optional slots
- * (the quality/stats feature ships separately): they render only when their
- * slot prop is supplied.
+ * shares handlers instead of duplicating logic). `◐` cycles the quality
+ * preset (Sharp → Balanced → Smooth) through the palette rows' `onQuality`
+ * and `∿` toggles the stats overlay through their `onStatsVisible`; both are
+ * slot props so a caller without those postures can omit the chips.
  *
  * The show/hide machine: shown on mount (so a phone user discovers it without
  * knowing to tap) and on every `revealSignal` bump (GuiSurface bumps it on a
@@ -21,7 +22,14 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { Control } from "./control";
-import { stepGuiZoom, type GuiPointerMode, type GuiZoom } from "@/lib/gui-posture";
+import {
+  GUI_QUALITY_LABELS,
+  nextGuiQuality,
+  stepGuiZoom,
+  type GuiPointerMode,
+  type GuiQuality,
+  type GuiZoom,
+} from "@/lib/gui-posture";
 
 /** How long after the last reveal or interaction the pill hides. */
 export const TOOLBAR_HIDE_MS = 3_000;
@@ -47,10 +55,12 @@ interface GuiToolbarProps {
   onKeyBarVisibleChange: (visible: boolean) => void;
   /** The fullscreen toggle verb (it exits when fullscreen). */
   onFullscreen: () => void;
-  /** Optional quality slot — rendered only when supplied. */
-  quality?: { label: string; onCycle: () => void };
-  /** Optional stats slot — rendered only when supplied. */
-  stats?: { onToggle: () => void };
+  /** Optional quality slot — rendered only when supplied; the chip calls
+   *  `onChange(nextGuiQuality(value))`, the palette rows' `onQuality`. */
+  quality?: { value: GuiQuality; onChange: (q: GuiQuality) => void };
+  /** Optional stats slot — rendered only when supplied; the chip calls
+   *  `onVisibleChange(!visible)`, the palette pair's `onStatsVisible`. */
+  stats?: { visible: boolean; onVisibleChange: (visible: boolean) => void };
 }
 
 export function GuiToolbar({
@@ -139,8 +149,12 @@ export function GuiToolbar({
         </Control>
       ) : null}
       {quality ? (
-        <Control variant="chip" aria-label="Quality" onClick={chip(quality.onCycle)}>
-          {`◐ ${quality.label}`}
+        <Control
+          variant="chip"
+          aria-label="Quality"
+          onClick={chip(() => quality.onChange(nextGuiQuality(quality.value)))}
+        >
+          {`◐ ${GUI_QUALITY_LABELS[quality.value]}`}
         </Control>
       ) : null}
       {coarsePointer ? (
@@ -154,7 +168,12 @@ export function GuiToolbar({
         </Control>
       ) : null}
       {stats ? (
-        <Control variant="chip" aria-label="Toggle stats" onClick={chip(stats.onToggle)}>
+        <Control
+          variant="chip"
+          aria-label="Toggle stats"
+          pressed={stats.visible}
+          onClick={chip(() => stats.onVisibleChange(!stats.visible))}
+        >
           ∿
         </Control>
       ) : null}

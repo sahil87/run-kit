@@ -3,6 +3,9 @@ import {
   GUI_QUALITY_PRESETS,
   GUI_ZOOM_STEPS,
   readGuiQuality,
+  nextGuiQuality,
+  GUI_QUALITY_LABELS,
+  GUI_QUALITY_ORDER,
   readGuiStatsVisible,
   readGuiZoom,
   writeGuiQuality,
@@ -359,5 +362,18 @@ describe("zoomedHostSize", () => {
   it("returns undefined when a framebuffer dimension is 0", () => {
     expect(zoomedHostSize(0, 1080, 100, 1)).toBeUndefined();
     expect(zoomedHostSize(1920, 0, 100, 2)).toBeUndefined();
+  });
+});
+
+describe("nextGuiQuality (the pill's ◐ cycle)", () => {
+  it("cycles Sharp → Balanced → Smooth → Sharp over the palette order", () => {
+    expect(GUI_QUALITY_ORDER).toEqual(["sharp", "balanced", "smooth"]);
+    expect(nextGuiQuality("sharp")).toBe("balanced");
+    expect(nextGuiQuality("balanced")).toBe("smooth");
+    expect(nextGuiQuality("smooth")).toBe("sharp");
+  });
+
+  it("labels every preset", () => {
+    for (const q of GUI_QUALITY_ORDER) expect(GUI_QUALITY_LABELS[q]).toMatch(/^[A-Z]/);
   });
 });

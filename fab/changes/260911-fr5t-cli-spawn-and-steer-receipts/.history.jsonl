@@ -1,0 +1,7 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-11T17:02:03Z"}
+{"args":"CLI spawn/steer receipts — --json receipts on riff, mux new, cron add, tab layout|web|code, code exec, gui exec, mux kill, cron rm|mute, operator, notify; policy rows for the W2c tools (plan fab/plans/sahil/26-09-10-rk-mcp.md § Change breakdown W2c)","cmd":"fab-new","event":"command","ts":"2026-09-11T17:02:03Z"}
+{"delta":"+3.6","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-09-11T17:06:12Z"}
+{"delta":"-0.1","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-09-11T17:06:27Z"}
+{"delta":"+0.1","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-09-11T17:08:17Z"}
+{"delta":"+0.0","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-09-11T18:51:40Z"}
+{"delta":"+0.2","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-09-11T18:53:02Z"}

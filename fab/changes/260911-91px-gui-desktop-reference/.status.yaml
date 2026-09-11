@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 9
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-11T17:02:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:39:09Z"}
     review: {started_at: "2026-09-11T17:39:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:43:32Z"}
     hydrate: {started_at: "2026-09-11T17:43:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:52:08Z"}
-    ship: {started_at: "2026-09-11T17:52:08Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-11T17:52:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:53:32Z"}
+    review-pr: {started_at: "2026-09-11T17:53:32Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/946
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1436
+    deleted: 240
+    net: 1196
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 763
+        deleted: 201
+        net: 562
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-11T17:52:08Z"
-    computed_at_stage: hydrate
+        added: 437
+        deleted: 105
+        net: 332
+    computed_at: "2026-09-11T17:53:32Z"
+    computed_at_stage: ship
 summary: Known-desktop table grows (Plasma/LXDE/MATE/Cinnamon starters, aliases, hints); wm_candidates emits missing rows with per-row hints (wm_candidates_hint retired); rk gui wm --list/--json; pickers show disabled not-installed rows + Install more disclosure; new docs/site/gui.md, README section, install bullet
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-11T17:52:08Z
+last_updated: 2026-09-11T17:53:32Z

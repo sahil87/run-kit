@@ -59,14 +59,19 @@ lane count stays three.
 The templated chat lane is the console's context-carrying send. When the
 operator console (⌘J) is opened on a terminal route, the message rides the chat
 template with the **route window as subject**, and the rendered prompt opens
-with an envelope of server-derived facts — subject `@N`, current window name,
-worktree path, fab change + stage when present, and the transcript path when it
-resolves. Facts are derived server-side from the handler's one FetchSessions
-pass, never client-composed (Constitution X); a subject without an agent
-session degrades to an envelope without the transcript line, never an error.
-The user's text stays fenced as data (`delimitUserText`). The envelope frames a
-**conversation, not a work item**: it does not use the `[run-kit request]`
-prefix and carries no action bounds — the operator may reply.
+with a one-line **addressee header** — `[user → operator] The user is speaking
+to you from window @N ("name", worktree …[; fab change … at stage …]). Act on
+it exactly as if typed into this pane.` — naming the operator as the recipient
+and folding the server-derived facts (subject `@N`, current window name,
+worktree path, fab change + stage when present) into the parenthetical. No
+transcript line is rendered. Facts are derived server-side from the handler's
+one FetchSessions pass, never client-composed (Constitution X); a subject
+without an agent session renders the same header, never an error. The user's
+text follows in a bare dynamic fence (`fenceUserText`) with no treat-as-data
+framing — in this lane the user is the principal and the text is the
+instruction. The envelope frames a **conversation, not a work item**: it does
+not use the `[run-kit request]` prefix and carries no action bounds — the
+operator acts on it and may reply.
 
 Console behavior: the compose strip shows the attached context as a visible,
 dismissable chip (`from: @5 "name" ✕`) — the IDE-chat pattern (Cursor/Copilot

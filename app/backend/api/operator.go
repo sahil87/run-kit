@@ -23,7 +23,10 @@ const operatorTextLimit = 4096
 // operatorFacts are the inputs every window-scoped template renders from. All
 // but Text are server-derived (Constitution X — hooks carry only the
 // underivable); Text is the validated client text an acceptsText template
-// carries, rendered as delimited data by the render func.
+// carries. Its framing is per lane: task templates render it as delimited
+// data (delimitUserText — the text is an input to a work item); the chat
+// template renders it in a bare fence (fenceUserText — the text is the user's
+// instruction to the operator).
 type operatorFacts struct {
 	WindowID       string // subject window, @N (survives moves, collision-proof)
 	Name           string // current window name
@@ -114,9 +117,10 @@ type operatorTemplate struct {
 	acceptsSession bool
 	// chatDelivery declares a CHAT template: delivery skips the busy gate and
 	// the queue (allow + probe — a human steer must land now, never a 202).
-	// Requires acceptsText; incompatible with requiresAgentSessionRef (its
-	// transcript line is best-effort, degrading to an omitted line rather
-	// than a 404). The invariant is test-enforced over the whole registry.
+	// Requires acceptsText; incompatible with requiresAgentSessionRef
+	// (transcript resolution is best-effort and never a 404 here; the chat
+	// render carries no transcript line). The invariant is test-enforced over
+	// the whole registry.
 	chatDelivery bool
 	render       func(f operatorFacts) string
 	renderServer func(f serverOperatorFacts) string

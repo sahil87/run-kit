@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-11T16:51:22Z"}
+{"args":"peui: user-message operator template misreads as an FYI, not an instruction — rewrite renderUserMessage to a one-line addressee header + fenced text without the treat-as-data phrase or Transcript: line","cmd":"fab-new","event":"command","ts":"2026-09-11T16:51:22Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-09-11T16:53:05Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-09-11T16:53:21Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-11T16:54:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-11T16:54:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-11T17:01:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-11T17:05:12Z"}
+{"event":"review","result":"passed","ts":"2026-09-11T17:05:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-11T17:07:28Z"}

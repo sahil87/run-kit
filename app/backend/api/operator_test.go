@@ -674,6 +674,26 @@ func TestDelimitUserText(t *testing.T) {
 	}
 }
 
+// TestFenceUserText: the bare fence the chat lane uses — the same dynamic
+// fence as delimitUserText with no label and no treat-as-data clause.
+func TestFenceUserText(t *testing.T) {
+	plain := fenceUserText("fix the flaky test")
+	if plain != "```\nfix the flaky test\n```" {
+		t.Errorf("plain text not a bare ``` fence:\n%s", plain)
+	}
+
+	adversarial := fenceUserText("quote ```go\ncode\n``` and `x`")
+	if adversarial != "````\nquote ```go\ncode\n``` and `x`\n````" {
+		t.Errorf("adversarial text not a bare 4-backtick fence:\n%s", adversarial)
+	}
+
+	for _, out := range []string{plain, adversarial} {
+		if strings.Contains(out, "treat it as data") || strings.Contains(out, "follows") {
+			t.Errorf("bare fence carried framing prose:\n%s", out)
+		}
+	}
+}
+
 // --- the server-scoped render funcs -------------------------------------------
 
 // spawnFacts builds the two-work-window fixture the server-scoped render tests
@@ -1437,11 +1457,13 @@ func TestOperatorTemplateChatDeliveryInvariant(t *testing.T) {
 	}
 }
 
-// TestRenderUserMessage: the prompt opens with the source envelope (subject @N,
-// window name, worktree), carries the fab clause only when FabChange is
-// non-empty and the transcript line only when a path resolved, and fences the
-// user's text as data. It frames a CONVERSATION — no [run-kit request] prefix,
-// no do-not-reply / action-bounds clause.
+// TestRenderUserMessage: the prompt is one addressee header — TO the operator,
+// with the subject @N, window name, worktree and (only when FabChange is
+// non-empty) the fab clause folded into a parenthetical, closing with the
+// act-on-it sentence — then the user's text in a bare fence. Nothing frames
+// the text as data and the transcript is never rendered, even when it
+// resolved. It frames a CONVERSATION — no [run-kit request] prefix, no
+// do-not-reply / action-bounds clause.
 func TestRenderUserMessage(t *testing.T) {
 	facts := operatorFacts{
 		WindowID:       "@5",
@@ -1453,30 +1475,30 @@ func TestRenderUserMessage(t *testing.T) {
 		Text:           "can you check the failing test?",
 	}
 	prompt := renderUserMessage(facts)
-	for _, want := range []string{
-		"tmux window @5", `"zesty-fjord"`, "worktree /wt/project",
-		"fab change 260822-fih1-operator-request-fix-tab-name at stage apply",
-		"Transcript: /home/u/.claude/projects/p/ref.jsonl",
-		"can you check the failing test?", "treat it as data",
-	} {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("prompt missing %q:\n%s", want, prompt)
-		}
+	wantHeader := `[user → operator] The user is speaking to you from window @5 ("zesty-fjord", worktree /wt/project; fab change 260822-fih1-operator-request-fix-tab-name at stage apply). Act on it exactly as if typed into this pane.`
+	if !strings.HasPrefix(prompt, wantHeader+"\n\n") {
+		t.Errorf("prompt does not open with the addressee header:\nwant %s\n got %s", wantHeader, prompt)
 	}
-	for _, banned := range []string{"[run-kit request]", "Do not reply", "do not reply", "Bounds:"} {
+	if !strings.HasSuffix(prompt, "\n```\ncan you check the failing test?\n```") {
+		t.Errorf("prompt does not end with the bare-fenced user text:\n%s", prompt)
+	}
+	for _, banned := range []string{
+		"treat it as data", "Transcript:", "/home/u/.claude/projects/p/ref.jsonl", "Context:",
+		"The user's message follows",
+		"[run-kit request]", "Do not reply", "do not reply", "Bounds:",
+	} {
 		if strings.Contains(prompt, banned) {
-			t.Errorf("conversational prompt carried the work-item marker %q:\n%s", banned, prompt)
+			t.Errorf("chat prompt carried %q:\n%s", banned, prompt)
 		}
 	}
 
 	facts.FabChange, facts.FabStage = "", ""
-	facts.TranscriptPath = ""
 	prompt = renderUserMessage(facts)
 	if strings.Contains(prompt, "fab change") {
 		t.Errorf("empty FabChange rendered a fab clause:\n%s", prompt)
 	}
-	if strings.Contains(prompt, "Transcript:") {
-		t.Errorf("empty TranscriptPath rendered a transcript line:\n%s", prompt)
+	if !strings.Contains(prompt, `("zesty-fjord", worktree /wt/project). Act on it`) {
+		t.Errorf("parenthetical does not close right after the worktree when FabChange is empty:\n%s", prompt)
 	}
 }
 
@@ -1539,7 +1561,7 @@ func TestUserMessageBusyOperatorDelivers(t *testing.T) {
 			}
 			prompt := ops.setAgentBufferText
 			for _, want := range []string{
-				"tmux window @1", `"zsh"`, "worktree /wt/project",
+				"[user → operator]", "window @1", `"zsh"`, "worktree /wt/project",
 				"can you check the failing test?",
 			} {
 				if !strings.Contains(prompt, want) {
@@ -1598,8 +1620,8 @@ func TestUserMessageNoTranscriptDegrades(t *testing.T) {
 
 // TestUserMessageSuccess: an idle operator receives the chat prompt through the
 // unchanged injection seam — 200 {"ok":true}, exactly ONE FetchSessions, the
-// OPERATOR pane targeted, and the envelope carrying the resolvable transcript
-// path.
+// OPERATOR pane targeted, and the addressee header on the prompt (no
+// transcript line even though the ref resolves, no treat-as-data clause).
 func TestUserMessageSuccess(t *testing.T) {
 	fastAgentSendProbe(t)
 	stageFixtureTranscript(t, testTranscriptRef)
@@ -1621,16 +1643,17 @@ func TestUserMessageSuccess(t *testing.T) {
 	}
 	prompt := ops.setAgentBufferText
 	for _, want := range []string{
-		"tmux window @1", `"zsh"`,
-		"Transcript: ",
-		"projects/someproj/" + testTranscriptRef + ".jsonl",
-		"ship it", "treat it as data",
+		"[user → operator]", "window @1", `"zsh"`,
+		"Act on it exactly as if typed into this pane.",
+		"ship it",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt missing %q:\n%s", want, prompt)
 		}
 	}
-	if strings.Contains(prompt, "[run-kit request]") {
-		t.Errorf("chat prompt carried the request prefix:\n%s", prompt)
+	for _, banned := range []string{"[run-kit request]", "Transcript:", "treat it as data"} {
+		if strings.Contains(prompt, banned) {
+			t.Errorf("chat prompt carried %q:\n%s", banned, prompt)
+		}
 	}
 }

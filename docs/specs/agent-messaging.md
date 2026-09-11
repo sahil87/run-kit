@@ -48,7 +48,7 @@ probe, no queue); **a request is work handed over** — a busy operator queues i
 | Lane | Route | Prompt composition | Busy posture |
 |------|-------|--------------------|--------------|
 | **Operator chat, direct** | `POST /api/windows/{operatorWindowId}/send` (`target:"agent"`) | The user's raw text, verbatim | Allow + probe — no busy gate, no queue |
-| **Operator chat, templated** *(target)* | window-scoped `POST /api/windows/{windowId}/operator-request`, a chat template (e.g. `user-message`) | Server-derived **source envelope** + the user's text delimited as data | Allow + probe — the registry entry declares `chatDelivery: true`, which skips the busy gate and the queue |
+| **Operator chat, templated** *(target)* | window-scoped `POST /api/windows/{windowId}/operator-request`, a chat template (e.g. `user-message`) | Server-derived **source envelope** (addressee header) + the user's text fenced | Allow + probe — the registry entry declares `chatDelivery: true`, which skips the busy gate and the queue |
 | **Operator request** | the two `/operator-request` routes, closed template registry | Fully server-rendered work item (Constitution X facts; optional delimited client text) | Busy ⇒ enqueue (`202 {"queued":true}`), in-memory per-server queue drained on idle |
 
 `rk operator request` ([mcp.md](mcp.md) § New verb families) is a **CLI door onto the

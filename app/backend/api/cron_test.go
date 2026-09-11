@@ -745,6 +745,59 @@ func TestCronMute(t *testing.T) {
 		expectWake(t, tracker, before, "cron mute")
 	})
 
+	t.Run("muted with a for duration sets a lease about that far ahead", func(t *testing.T) {
+		dir := setupCronState(t)
+		seeded := seedCronEntry(t, dir, "default")
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		start := time.Now()
+		req := httptest.NewRequest(http.MethodPost, "/api/cron/mute?server=default", strings.NewReader(`{"id":"`+seeded.ID+`","muted":true,"for":"2h"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		entries := loadCronEntries(t, dir, "default")
+		if len(entries) != 1 {
+			t.Fatalf("entries after mute-lease = %+v, want the seeded entry", entries)
+		}
+		lo, hi := start.Add(2*time.Hour).Unix(), time.Now().Add(2*time.Hour).Unix()
+		if entries[0].MutedUntil < lo || entries[0].MutedUntil > hi {
+			t.Errorf("muted_until = %d, want within [%d, %d] (~2h ahead)", entries[0].MutedUntil, lo, hi)
+		}
+		if entries[0].Muted {
+			t.Errorf("muted flag set alongside a lease, want cleared (a lease is a bounded mute)")
+		}
+		expectWake(t, tracker, before, "cron mute lease")
+	})
+
+	t.Run("unparsable for is a 400, no mutation, no wake", func(t *testing.T) {
+		dir := setupCronState(t)
+		seeded := seedCronEntry(t, dir, "default")
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		for _, body := range []string{
+			`{"id":"` + seeded.ID + `","muted":true,"for":"soon"}`,
+			`{"id":"` + seeded.ID + `","muted":true,"for":"-5m"}`,
+		} {
+			req := httptest.NewRequest(http.MethodPost, "/api/cron/mute?server=default", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("body %s: status = %d, want 400; body=%s", body, rec.Code, rec.Body.String())
+			}
+		}
+		entries := loadCronEntries(t, dir, "default")
+		if len(entries) != 1 || entries[0].Muted || entries[0].MutedUntil != 0 {
+			t.Errorf("entries after rejected mute = %+v, want the seeded entry untouched", entries)
+		}
+		expectNoWake(t, tracker, before, "cron mute invalid for")
+	})
+
 	t.Run("unknown id is a 404, no wake", func(t *testing.T) {
 		setupCronState(t)
 		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})

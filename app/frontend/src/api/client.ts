@@ -1839,6 +1839,8 @@ export interface CronEntry {
   payload: string;
   deliver?: string;
   ifAbsent?: string;
+  /** Respawn argv for `ifAbsent: "respawn"` — present only when stored. */
+  respawn?: string[];
   pinned?: boolean;
   /** Effective mute state — the stored flag OR an unexpired lease, resolved
    *  server-side. Consumers key dimming on this without knowing about leases. */
@@ -1910,16 +1912,45 @@ export async function createCron(server: string, body: CronCreateBody): Promise<
   return res.json();
 }
 
-/** POST /api/cron/mute — `{id, muted}`. 404 on an unknown id. */
+/** POST /api/cron/mute — `{id, muted}`, plus `for` when `forDuration` is
+ *  given: a Go duration string setting a mute lease that expires on its own.
+ *  Absent keeps the flag-only behavior (also the shape for unmute, which
+ *  clears any stored lease server-side). 404 on an unknown id. */
 export async function muteCron(
   server: string,
   id: string,
   muted: boolean,
+  forDuration?: string,
 ): Promise<{ ok: boolean }> {
+  const body: { id: string; muted: boolean; for?: string } = { id, muted };
+  if (forDuration !== undefined) body.for = forDuration;
   const res = await fetch(withServer("/api/cron/mute", server), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, muted }),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Body for POST /api/cron/edit — only the fields being changed, alongside
+ *  `id`. `respawn: []` clears the stored argv. */
+export interface CronEditBody {
+  id: string;
+  name?: string;
+  schedule?: CronSchedule;
+  deliver?: string;
+  ifAbsent?: string;
+  respawn?: string[];
+}
+
+/** POST /api/cron/edit — 200 with the updated entry; 400 carries the server's
+ *  validation text; 409 when a cron tick is in progress (retryable). */
+export async function editCron(server: string, body: CronEditBody): Promise<CronEntry> {
+  const res = await fetch(withServer("/api/cron/edit", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
   if (!res.ok) await throwOnError(res);
   return res.json();

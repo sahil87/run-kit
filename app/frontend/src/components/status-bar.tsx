@@ -282,9 +282,9 @@ function useClockChipState(server: string | null | undefined): ClockChipState {
 }
 
 /** The chip and its overflow row share the one open action: the operator
- *  console on its Activity segment. */
-function openClockActivity(): void {
-  requestOperatorConsole({ action: "open", segment: "activity" });
+ *  console on its Cron List segment. */
+function openCronList(): void {
+  requestOperatorConsole({ action: "open", segment: "list" });
 }
 
 /** The `◷` clock chip — the right-cluster glance at the server's cron clock.
@@ -305,9 +305,9 @@ function ClockChip({ state }: { state: Exclude<ClockChipState, { kind: "omitted"
     <Tip label={tip} placement="top">
       <button
         type="button"
-        aria-label="Clock activity"
+        aria-label="Cron list"
         data-testid="status-bar-clock"
-        onClick={openClockActivity}
+        onClick={openCronList}
         className={`${stale ? "flex" : "hidden xl:flex"} items-center rounded border px-1 transition-colors ${
           stale
             ? "border-signal-yellow/50 text-signal-yellow hover:border-signal-yellow"
@@ -652,7 +652,7 @@ function OverflowMenu({
   // The clock chip's mirror row — only its next-fire state drops below xl, so
   // only that state gets a row (the stale chip never leaves the strip).
   if (clock?.kind === "next") {
-    rows.push(actionRow("clk", "◷ Clock activity", openClockActivity));
+    rows.push(actionRow("clk", "◷ Cron List", openCronList));
   }
   rows.push(
     actionRow("palette", "⌘K Command palette", () =>

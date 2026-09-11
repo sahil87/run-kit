@@ -14,14 +14,18 @@ import { mockStateSocket } from "./_state-socket-mock";
 // omnibox ◉ live-state dot on both desktop rungs, and console/omnibox
 // image paste (upload to the operator window's session + insert-delivery)
 // with the route terminals' strip-forward guard. The drawer's
-// Operator Terminal | Activity | Operator Tasks segment header swaps the body
-// between the embedded terminal, the cron Activity feed, and the watched
-// worker table (one relay stream max per drawer); a desktop `?tab=activity` or
-// `?tab=tasks` deep link on the operator route hands off to the drawer (opens
-// on that segment, param stripped). The watched-worker specs seed the sessions
-// payload with a `monitored: true` window carrying
+// Operator Terminal | Operator Tasks | Cron List | Cron Log segment header
+// swaps the body between the embedded terminal, the watched worker table, and
+// the cron tabs (one relay stream max per drawer); the status-bar ◷ chip
+// opens the drawer on Cron List; a desktop `?tab=` deep link (`tasks`,
+// `list`, `log`) on the operator route hands off to the drawer (opens on that
+// segment, param stripped) — the legacy `?tab=activity` token normalizes to
+// `log`. The palette carries `Operator: Show tasks` plus `Operator: Show cron
+// list` before `Operator: Show cron log`; the retired `Panel: Toggle Clock`
+// and `Server: Clock dashboard` entries stay gone. The watched-worker specs
+// seed the sessions payload with a `monitored: true` window carrying
 // `monitoredChange`/`monitoredStage`/`monitoredRepo` plus `operatorLastTickAt`
-// on the sessions (the server-clock-dashboard spec's stub shape).
+// on the sessions (the server-watched-zone spec's stub shape).
 // On MOBILE there is no
 // sheet: every console entry point navigates to the operator window's
 // ordinary terminal route (the tongue is the standing affordance, an
@@ -39,7 +43,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 // operator window `@9` with `role: "operator"` in `_rk-operator` — and BOTH
 // send endpoints (window send + window operator-request) are stubbed via
 // page.route with recorded call lists. `GET /api/cron` is stubbed with one
-// entry and no deliveries so the drawer Activity segment's feed has rows.
+// entry (carrying a `nextFire`, so the status bar's ◷ chip renders) and one
+// delivery, so the drawer's Cron List / Cron Log segments each have a row.
 // The route mocks carry a trailing `*` — the client appends `?server=`
 // (withServer), so a bare glob would silently miss. `/ws/terminals`
 // is a no-op socket mock: the console's embedded terminal mounts its xterm
@@ -55,8 +60,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 const SERVER = "default";
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
+const NOW = Math.floor(Date.now() / 1000);
+
 function sessionsPayload(withOperator: boolean, operatorState = "idle", watched = false) {
-  const now = Math.floor(Date.now() / 1000);
   const work = {
     windowId: "@1",
     index: 0,
@@ -93,14 +99,14 @@ function sessionsPayload(withOperator: boolean, operatorState = "idle", watched 
   return JSON.stringify([
     {
       name: "dev",
-      ...(watched ? { operatorLastTickAt: now - 60 } : {}),
+      ...(watched ? { operatorLastTickAt: NOW - 60 } : {}),
       windows: watched ? [work, watchedWorker] : [work],
     },
     ...(withOperator
       ? [
           {
             name: "_rk-operator",
-            ...(watched ? { operatorLastTickAt: now - 60 } : {}),
+            ...(watched ? { operatorLastTickAt: NOW - 60 } : {}),
             windows: [
               {
                 windowId: "@9",
@@ -127,8 +133,8 @@ type SendBehavior = { status: number; body: Record<string, unknown> };
 
 const SEND_OK: SendBehavior = { status: 200, body: { ok: true } };
 
-// The cron payload — one entry, no deliveries, so the Activity segment's
-// feed has an upcoming row.
+// The cron payload — one entry with a next fire (the status-bar ◷ chip reads
+// it) and one delivery, so both cron segments of the drawer have a row.
 const CRON = JSON.stringify({
   entries: [
     {
@@ -137,10 +143,20 @@ const CRON = JSON.stringify({
       schedule: { kind: "backoff", min: "60s", max: "30m" },
       target: { kind: "role", role: "operator" },
       payload: "tick",
-      lastFired: 0,
+      lastFired: NOW - 120,
+      nextFire: NOW + 3600,
     },
   ],
-  deliveries: [],
+  deliveries: [
+    {
+      ts: NOW - 120,
+      entry: "a3f9",
+      name: "operator tick",
+      target: "%9",
+      reason: "schedule",
+      outcome: "delivered",
+    },
+  ],
 });
 
 /** Install the fully-mocked backend; returns the recorded send/request calls. */
@@ -493,23 +509,28 @@ test.describe("Operator console", () => {
   });
 
   /**
-   * Proves: the desktop drawer's Operator Terminal | Activity | Operator
-   * Tasks segment strip swaps the
-   * body — selecting Activity mounts the cron feed and unmounts the embedded
-   * terminal (one relay stream max per drawer), while Operator Terminal stays
-   * the default segment on open.
+   * Proves: the desktop drawer's Operator Terminal | Operator Tasks | Cron
+   * List | Cron Log segment strip renders the four segments in that fixed
+   * order (Operator Terminal the default), no label truncates, and selecting
+   * a cron segment swaps the body — the cron tab mounts and the embedded
+   * terminal unmounts (one relay stream max per drawer), until Operator
+   * Terminal restores it.
    *
    * Steps:
-   * 1. Mock the backend with an operator window (the cron stub gives the feed
-   *    a row); land on the @1 terminal route.
+   * 1. Mock the backend with an operator window (the cron stub gives both
+   *    cron tabs a row); land on the @1 terminal route.
    * 2. Open the console via the palette `Operator: Open console` action;
-   *    assert the Operator Terminal tab is selected and the embedded
-   *    terminal's xterm frame is attached.
-   * 3. Click the Activity tab.
-   * 4. Assert the feed is visible inside the console and the xterm frame is
-   *    gone.
+   *    assert the four tab labels in exact order, Operator Terminal
+   *    selected, no tab truncated (scrollWidth ≤ clientWidth), and the
+   *    embedded terminal's xterm frame attached.
+   * 3. Click Cron Log; assert the log body renders its delivery row inside
+   *    the console and the xterm frame is gone.
+   * 4. Click Cron List; assert the list body renders its entry row.
+   * 5. Click Operator Terminal; assert the xterm frame is back.
    */
-  test("the Activity segment swaps the drawer body to the cron feed", async ({ page }) => {
+  test("the segment strip swaps the drawer body between the terminal and the cron tabs", async ({
+    page,
+  }) => {
     await mockBackend(page, true);
     await gotoWindow(page);
 
@@ -519,30 +540,126 @@ test.describe("Operator console", () => {
     await expect(console_(page)).toBeVisible();
 
     const tabs = console_(page).getByTestId("terminal-activity-tabs");
-    await expect(tabs.getByRole("tab", { name: "Operator Terminal" })).toHaveAttribute("aria-selected", "true");
+    const buttons = tabs.getByRole("tab");
+    await expect(buttons).toHaveCount(4);
+    expect(await buttons.allTextContents()).toEqual([
+      "Operator Terminal",
+      "Operator Tasks",
+      "Cron List",
+      "Cron Log",
+    ]);
+    await expect(buttons.nth(0)).toHaveAttribute("aria-selected", "true");
+    const noTruncation = await tabs.evaluate((el) =>
+      Array.from(el.querySelectorAll('[role="tab"]')).every((b) => b.scrollWidth <= b.clientWidth),
+    );
+    expect(noTruncation).toBe(true);
     await expect(console_(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
 
-    await tabs.getByRole("tab", { name: "Activity" }).click();
-
-    await expect(console_(page).getByTestId("cron-activity-feed")).toBeVisible({ timeout: 10_000 });
+    await tabs.getByRole("tab", { name: "Cron Log" }).click();
+    await expect(console_(page).getByTestId("cron-log")).toBeVisible({ timeout: 10_000 });
+    await expect(console_(page).getByTestId("cron-delivery-row-a3f9")).toBeVisible();
     await expect(console_(page).locator(".xterm")).toHaveCount(0);
+
+    await tabs.getByRole("tab", { name: "Cron List" }).click();
+    await expect(console_(page).getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
+    await expect(console_(page).getByTestId("cron-list-row-a3f9")).toBeVisible();
+
+    await tabs.getByRole("tab", { name: "Operator Terminal" }).click();
+    await expect(console_(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
   });
 
   /**
-   * Proves: a desktop `?tab=activity` deep link on the operator window's
-   * terminal route hands off to the console drawer — the route itself has no
-   * Activity view on desktop, so the drawer opens on the Activity segment and
-   * the URL param is stripped (a reload does not re-open the drawer).
+   * Proves: the status-bar ◷ chip (visually unchanged, next-fire readout)
+   * opens the console drawer on its Cron List segment.
    *
    * Steps:
-   * 1. Mock the backend with an operator window (the cron stub gives the feed
+   * 1. Mock the backend with an operator window (the cron stub's entry
+   *    carries a next fire, so the chip renders); land on the @1 terminal
+   *    route.
+   * 2. Click the ◷ chip.
+   * 3. Assert the drawer is visible with the Cron List tab selected and the
+   *    Cron List body rendering its entry row.
+   */
+  test("the ◷ chip opens the drawer on Cron List", async ({ page }) => {
+    await mockBackend(page, true);
+    await gotoWindow(page);
+
+    const chip = page.getByTestId("status-bar-clock");
+    await expect(chip).toBeVisible({ timeout: 10_000 });
+    await chip.click();
+
+    await expect(console_(page)).toBeVisible();
+    const tabs = console_(page).getByTestId("terminal-activity-tabs");
+    await expect(tabs.getByRole("tab", { name: "Cron List" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(console_(page).getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
+    await expect(console_(page).getByTestId("cron-list-row-a3f9")).toBeVisible();
+  });
+
+  /**
+   * Proves: the palette registers `Operator: Show cron list` BEFORE
+   * `Operator: Show cron log` — the registry order a `cron` query shows.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window; land on the terminal route.
+   * 2. Open the palette and filter to `cron`.
+   * 3. Assert both entries render and the cron-list row sits above the
+   *    cron-log row in the option list.
+   */
+  test("palette lists 'Operator: Show cron list' above 'Operator: Show cron log'", async ({
+    page,
+  }) => {
+    await mockBackend(page, true);
+    await gotoWindow(page);
+
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("cron");
+
+    const names = await page.getByRole("option").allTextContents();
+    const listIndex = names.findIndex((n) => n.includes("Operator: Show cron list"));
+    const logIndex = names.findIndex((n) => n.includes("Operator: Show cron log"));
+    expect(listIndex).toBeGreaterThanOrEqual(0);
+    expect(logIndex).toBeGreaterThan(listIndex);
+  });
+
+  /**
+   * Proves: the retired clock palette entries stay gone — a `clock` query
+   * surfaces neither `Panel: Toggle Clock` nor `Server: Clock dashboard`.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window; land on the terminal route.
+   * 2. Open the palette and filter to `clock`.
+   * 3. Assert no option matches either retired label.
+   */
+  test("the retired clock palette entries are absent", async ({ page }) => {
+    await mockBackend(page, true);
+    await gotoWindow(page);
+
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("clock");
+
+    await expect(page.getByRole("option", { name: /Toggle Clock/ })).toHaveCount(0);
+    await expect(page.getByRole("option", { name: /Clock dashboard/ })).toHaveCount(0);
+  });
+
+  /**
+   * Proves: a desktop `?tab=activity` deep link (the legacy alias, normalized
+   * to `log`) on the operator window's terminal route hands off to the
+   * console drawer — the route itself has no cron view on desktop, so the
+   * drawer opens on the Cron Log segment and the URL param is stripped (a
+   * reload does not re-open the drawer).
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window (the cron stub gives the log
    *    a row); navigate directly to the operator route carrying
    *    `?tab=activity`.
-   * 2. Assert the console drawer is visible with the Activity tab selected
-   *    and the cron feed inside it.
+   * 2. Assert the console drawer is visible with the Cron Log tab selected
+   *    and the cron log body inside it.
    * 3. Assert the URL is back at the bare operator route (param stripped).
    */
-  test("desktop ?tab=activity deep link opens the drawer on Activity and strips the param", async ({
+  test("desktop ?tab=activity deep link opens the drawer on Cron Log and strips the param", async ({
     page,
   }) => {
     await mockBackend(page, true);
@@ -550,8 +667,8 @@ test.describe("Operator console", () => {
 
     await expect(console_(page)).toBeVisible({ timeout: 10_000 });
     const tabs = console_(page).getByTestId("terminal-activity-tabs");
-    await expect(tabs.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "true");
-    await expect(console_(page).getByTestId("cron-activity-feed")).toBeVisible({ timeout: 10_000 });
+    await expect(tabs.getByRole("tab", { name: "Cron Log" })).toHaveAttribute("aria-selected", "true");
+    await expect(console_(page).getByTestId("cron-log")).toBeVisible({ timeout: 10_000 });
     await expect(page).toHaveURL(OPERATOR_PATH, { timeout: 10_000 });
   });
 

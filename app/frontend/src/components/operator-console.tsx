@@ -7,7 +7,9 @@ import {
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { TerminalClient } from "@/components/terminal-client";
 import { ConsoleSegments, type ConsoleSegment } from "@/components/terminal-activity-tabs";
-import { CronActivityFeed } from "@/components/cron-activity-feed";
+import { CronList } from "@/components/cron-list";
+import { CronLog } from "@/components/cron-log";
+import { CronStaleBanner } from "@/components/cron-stale-banner";
 import { WatchedTasks } from "@/components/watched-tasks";
 import { Tip } from "@/components/tip";
 import { formatDuration } from "@/lib/format";
@@ -92,21 +94,23 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * Anatomy (desktop): a title strip (◉ OPERATOR · server, the operator
  * window's live agent state from the sessions payload, the operator loop's
  * tick-age stamp, a server picker on param-less multi-server routes, a
- * collapse affordance), an Operator Terminal | Activity | Operator Tasks
- * segment header (the shared
+ * collapse affordance), an Operator Terminal | Operator Tasks | Cron List |
+ * Cron Log segment header (the shared
  * `ConsoleSegments` strip from terminal-activity-tabs.tsx, driven by
  * console-local ephemeral state), and the body: on Operator Terminal an
  * embedded LIVE
  * terminal view of the operator window (a plain TerminalClient over the
  * shared /ws/terminals relay mux — the same mechanism a board pane uses,
  * registerFocus off so the BottomBar keeps its target, `transparent` on so
- * the glass background shows through the cells); on Activity the
- * `CronActivityFeed` (inline variant — the entry detail sheet renders
- * in-container); on Operator Tasks the `WatchedTasks` watchlist (the shared
+ * the glass background shows through the cells); on Operator Tasks the
+ * `WatchedTasks` watchlist (the shared
  * `WatchedTable`, dense variant — a row click navigates through the router to
  * the window's terminal and collapses the drawer explicitly: the in-console
  * click bypasses the outside-click collapse, which stands down for
- * console-DOM clicks). On both non-terminal segments the TerminalClient is
+ * console-DOM clicks); on Cron List / Cron Log the
+ * `CronStaleBanner` (mounted once above either cron body) over the `CronList`
+ * or `CronLog` (inline variant — the entry detail sheet renders
+ * in-container). On every non-terminal segment the TerminalClient is
  * UNMOUNTED, so the drawer holds at
  * most one relay stream. The one-input rule: the
  * compose IS the top-bar omnibox (components/operator-omnibox.tsx); the
@@ -400,7 +404,7 @@ export function OperatorConsole() {
     }
     document.addEventListener(OPERATOR_CONSOLE_EVENT, onRequest);
     // Mount drain: this module loads lazily behind Suspense, so a request
-    // dispatched before the listener attached (a cold `?tab=activity` deep
+    // dispatched before the listener attached (a cold `?tab=log` deep
     // link) sits in the seam's buffer — replay it now.
     const pending = drainPendingConsoleRequest();
     if (pending) handleRequest(pending);
@@ -443,7 +447,7 @@ export function OperatorConsole() {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       // A dialog layer nested INSIDE the drawer (the inline cron entry sheet)
-      // owns this Escape — it returns to the feed, never collapses the drawer.
+      // owns this Escape — it dismisses the sheet, never collapses the drawer.
       // A DOM check, not `defaultPrevented`: this listener was registered when
       // the drawer opened, so it runs before the nested layer's focus trap.
       if (rootRef.current?.querySelector('[role="dialog"]')) return;
@@ -769,10 +773,10 @@ export function OperatorConsole() {
           ▼
         </button>
       </div>
-      {/* The drawer's Operator Terminal | Activity | Operator Tasks segment
-          header — the shared
-          presentational strip (terminal-activity-tabs.tsx), driven here by
-          console-local state instead of the mobile route's `tab` param. */}
+      {/* The drawer's Operator Terminal | Operator Tasks | Cron List |
+          Cron Log segment header — the shared presentational strip
+          (terminal-activity-tabs.tsx), driven here by console-local state
+          instead of the mobile route's `tab` param. */}
       <ConsoleSegments value={segment} onChange={setSegment} />
       {/* The status line: the inline-error contract relocated to the
           drawer's top edge, directly under the omnibox (the desktop compose
@@ -791,33 +795,44 @@ export function OperatorConsole() {
           )}
         </div>
       )}
-      {segment === "activity" ? (
-        // One relay stream max per drawer: the TerminalClient is UNMOUNTED
-        // while Activity shows (the keyed remount on switching back is cheap).
-        // An unresolved server renders the feed's own hint line.
-        <CronActivityFeed server={server ?? ""} inline />
-      ) : segment === "tasks" ? (
-        // Same one-relay-stream rule: the TerminalClient is UNMOUNTED while
-        // Operator Tasks shows. A row click navigates through the router to
-        // the window's terminal route and collapses the drawer explicitly —
-        // the outside-click collapse stands down for clicks inside the
-        // console's DOM, so the handler drives the machine to rest itself.
-        <WatchedTasks
-          server={server ?? ""}
-          sessions={server ? (sessionsByServer.get(server) ?? []) : []}
-          onNavigate={(windowId) => {
-            if (!server) return;
-            void navigate({
-              to: "/$server/$window",
-              params: { server, window: windowId },
-              // Empty search: the destination window resolves its own stored
-              // layout (the cross-server sidebar-select form).
-              search: {},
-            });
-            setConsoleMachineState("rest");
-          }}
-          dense
-        />
+      {segment !== "terminal" ? (
+        segment === "tasks" ? (
+          // One relay stream max per drawer: the TerminalClient is UNMOUNTED
+          // while Operator Tasks shows. A row click navigates through the
+          // router to the window's terminal route and collapses the drawer
+          // explicitly — the outside-click collapse stands down for clicks
+          // inside the console's DOM, so the handler drives the machine to
+          // rest itself.
+          <WatchedTasks
+            server={server ?? ""}
+            sessions={server ? (sessionsByServer.get(server) ?? []) : []}
+            onNavigate={(windowId) => {
+              if (!server) return;
+              void navigate({
+                to: "/$server/$window",
+                params: { server, window: windowId },
+                // Empty search: the destination window resolves its own stored
+                // layout (the cross-server sidebar-select form).
+                search: {},
+              });
+              setConsoleMachineState("rest");
+            }}
+            dense
+          />
+        ) : (
+          // Same one-relay-stream rule for the cron tabs (the keyed remount
+          // on switching back is cheap). The stale banner mounts ONCE above
+          // either cron body; an unresolved server renders the tab's own
+          // hint line.
+          <>
+            <CronStaleBanner server={server ?? ""} />
+            {segment === "list" ? (
+              <CronList server={server ?? ""} inline />
+            ) : (
+              <CronLog server={server ?? ""} inline />
+            )}
+          </>
+        )
       ) : target && server ? (
         <div className="flex-1 min-h-0 flex flex-col px-1 py-0.5">
           <TerminalClient

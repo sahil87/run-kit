@@ -147,7 +147,7 @@ describe("CronEntryDetailSheet", () => {
       "true",
     );
     expect(screen.getByRole("button", { name: "Close entry details" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Back to activity" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
   });
 
   it("the inline variant drops the modal shell: no backdrop, no aria-modal, absolute inset-0 panel", () => {
@@ -165,13 +165,13 @@ describe("CronEntryDetailSheet", () => {
     expect(screen.queryByRole("button", { name: "Close entry details" })).toBeNull();
   });
 
-  it("the inline ‹ Activity back control calls onClose", () => {
+  it("the inline ‹ Back control calls onClose", () => {
     installFetch();
     const onClose = vi.fn();
     render(<CronEntryDetailSheet server="srv" entry={ENTRY} onClose={onClose} inline />);
 
-    const back = screen.getByRole("button", { name: "Back to activity" });
-    expect(back).toHaveTextContent("‹ Activity");
+    const back = screen.getByRole("button", { name: "Back" });
+    expect(back).toHaveTextContent("‹ Back");
     fireEvent.click(back);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -185,5 +185,61 @@ describe("CronEntryDetailSheet", () => {
     document.dispatchEvent(event);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("the Edit row opens the create dialog in edit mode", async () => {
+    installFetch();
+    renderSheet();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(await screen.findByRole("dialog", { name: "Edit entry" })).toBeInTheDocument();
+    // Edit mode: read-only payload, prefilled name.
+    expect(screen.getByTestId("cron-edit-payload")).toHaveTextContent("tick");
+    expect(screen.getByLabelText("Name")).toHaveValue("operator tick");
+  });
+
+  it("Mute for… presets POST mute with the additive `for` lease field", async () => {
+    const { calls } = installFetch();
+    renderSheet();
+    fireEvent.click(screen.getByRole("button", { name: "Mute for…" }));
+    fireEvent.click(screen.getByRole("button", { name: "2h" }));
+    // Optimistic: the switch reflects muted before the POST resolves.
+    expect(screen.getByRole("switch", { name: "Mute entry" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await waitFor(() =>
+      expect(calls).toEqual([
+        { url: "/api/cron/mute?server=srv", body: { id: "a3f9", muted: true, for: "2h" } },
+      ]),
+    );
+  });
+
+  it("`until unmuted` and unmute send NO `for` field", async () => {
+    const { calls } = installFetch();
+    renderSheet();
+    fireEvent.click(screen.getByRole("button", { name: "Mute for…" }));
+    fireEvent.click(screen.getByRole("button", { name: "until unmuted" }));
+    await waitFor(() =>
+      expect(calls).toEqual([
+        { url: "/api/cron/mute?server=srv", body: { id: "a3f9", muted: true } },
+      ]),
+    );
+    cleanup();
+
+    // Unmute (switch off from a muted entry) carries no `for` either.
+    renderSheet({ ...ENTRY, muted: true });
+    fireEvent.click(screen.getByRole("switch", { name: "Mute entry" }));
+    await waitFor(() =>
+      expect(calls).toEqual([
+        { url: "/api/cron/mute?server=srv", body: { id: "a3f9", muted: true } },
+        { url: "/api/cron/mute?server=srv", body: { id: "a3f9", muted: false } },
+      ]),
+    );
+  });
+
+  it("the Mute for… row is hidden while muted (the switch is the unmute path)", () => {
+    installFetch();
+    renderSheet({ ...ENTRY, muted: true });
+    expect(screen.queryByRole("button", { name: "Mute for…" })).toBeNull();
   });
 });

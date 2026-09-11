@@ -49,8 +49,6 @@ import { readLastWindow, resolveServerLandingWindow } from "@/lib/last-window-pe
 import { BoardsSection, WINDOW_DRAG_MIME } from "./boards-section";
 import { SectionRail } from "./section-rail";
 import { HostPanel } from "./host-panel";
-import { ClockPanel, ClockStaleWarning } from "./clock-panel";
-import { CollapsiblePanel } from "./collapsible-panel";
 import { KillDialog } from "./kill-dialog";
 import { ServerPanel } from "./server-panel";
 import { SessionRow } from "./session-row";
@@ -992,7 +990,6 @@ export function Sidebar({
   const [serverSectionVisible] = useSidebarSectionVisible("server");
   const [paneSectionVisible] = useSidebarSectionVisible("pane");
   const [hostSectionVisible] = useSidebarSectionVisible("host");
-  const [clockSectionVisible] = useSidebarSectionVisible("clock");
   const { sidebarOpen } = useChromeState();
   const navRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -1913,11 +1910,10 @@ export function Sidebar({
           Toggle-off fully unmounts the panel; its CollapsiblePanel
           collapse/height storage keys are untouched, so re-toggling restores
           the section exactly as left. */}
-      {(paneSectionVisible || hostSectionVisible || (clockSectionVisible && !isMobile)) && (
+      {(paneSectionVisible || hostSectionVisible) && (
         <BottomPanels
           showPane={paneSectionVisible}
           showHost={hostSectionVisible}
-          showClock={clockSectionVisible && !isMobile}
           currentServer={currentServer}
           currentSessionName={currentSession}
           currentWindowId={currentWindowId}
@@ -2130,7 +2126,6 @@ function SidebarFooter({ isConnected }: { isConnected: boolean }) {
 function BottomPanels({
   showPane,
   showHost,
-  showClock,
   currentServer,
   currentSessionName,
   currentWindowId,
@@ -2139,10 +2134,6 @@ function BottomPanels({
    *  under its own boolean, on every viewport. */
   showPane: boolean;
   showHost: boolean;
-  /** CLOCK section gate (wuiu) — already ANDed with `!isMobile` by the
-   *  caller: the section is desktop-only, its mobile home is the console
-   *  sheet (C7's scope). */
-  showClock: boolean;
   currentServer: string | null;
   currentSessionName: string | null;
   currentWindowId: string | null;
@@ -2184,16 +2175,6 @@ function BottomPanels({
     <>
       {showPane && <WindowPanel window={selectedWindow} operator={operator} />}
       {showHost && <HostPanel />}
-      {showClock && (
-        <CollapsiblePanel
-          title="Clock"
-          storageKey="runkit-panel-clock"
-          defaultOpen={false}
-          headerRight={<ClockStaleWarning sessions={sessions} />}
-        >
-          <ClockPanel server={currentServer} />
-        </CollapsiblePanel>
-      )}
     </>
   );
 }

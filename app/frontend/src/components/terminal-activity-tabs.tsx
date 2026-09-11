@@ -1,10 +1,15 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { controlClass } from "@/components/control";
 
+// The strip renders the FOUR-label set `Operator Terminal · Operator Tasks ·
+// Cron List · Cron Log` in that fixed order. Content-sized, non-wrapping
+// buttons (never equal-share) are what keep every label from truncating at
+// the desktop drawer width or a 375px mobile header.
 const SEGMENTS = [
   { tab: "terminal", label: "Operator Terminal" },
-  { tab: "activity", label: "Activity" },
   { tab: "tasks", label: "Operator Tasks" },
+  { tab: "list", label: "Cron List" },
+  { tab: "log", label: "Cron Log" },
 ] as const;
 
 export type ConsoleSegment = (typeof SEGMENTS)[number]["tab"];
@@ -15,14 +20,14 @@ export type ConsoleSegment = (typeof SEGMENTS)[number]["tab"];
 export { SEGMENTS };
 
 /**
- * The presentational `Operator Terminal | Activity | Operator Tasks` segment
- * strip — one controlled
- * render shared by the mobile operator route's tabs (`TerminalActivityTabs`
- * below, driven by the router `tab` search param) and the desktop operator
- * console drawer (driven by console-local component state). Both consumers
- * get identical markup, roles, and test ids. The file name and the
- * `terminal-activity-tabs` test id predate the third segment and stay —
- * renaming would churn every spec for no behavior gain.
+ * The presentational `Operator Terminal | Operator Tasks | Cron List |
+ * Cron Log` segment strip — one controlled render shared by the mobile
+ * operator route's tabs (`TerminalActivityTabs` below, driven by the router
+ * `tab` search param) and the desktop operator console drawer (driven by
+ * console-local component state). Both consumers get identical markup,
+ * roles, and test ids. The file name and the `terminal-activity-tabs` test
+ * id predate the extra segments and stay — renaming would churn every spec
+ * for no behavior gain.
  */
 export function ConsoleSegments({
   value,
@@ -47,7 +52,7 @@ export function ConsoleSegments({
             role="tab"
             aria-selected={pressed}
             onClick={() => onChange(tab)}
-            className={`rk-glint flex-1 py-2 text-center text-[11px] font-mono transition-colors coarse:min-h-[36px] ${controlClass({ variant: "segment", pressed, rest: "border-transparent text-text-secondary hover:text-text-primary" })}`}
+            className={`rk-glint shrink-0 whitespace-nowrap px-1.5 py-2 text-center text-[11px] font-mono transition-colors coarse:min-h-[36px] ${controlClass({ variant: "segment", pressed, rest: "border-transparent text-text-secondary hover:text-text-primary" })}`}
           >
             {label}
           </button>
@@ -62,19 +67,21 @@ export function ConsoleSegments({
  * by AppShell only when the shared `useIsMobile()` rule holds AND the
  * resolved window's role is `operator`). Each segment drives the terminal
  * route's `tab` search param through the router's search-param setter — a
- * client-side search update, never a full navigation — and `tab` absent reads
- * as `terminal`.
+ * client-side search update, never a full navigation — and `tab` absent
+ * reads as `terminal`.
  *
  * The `pt-9` wrapper clears the mobile tongue's hit area: the tongue hangs
  * `absolute top-0 h-9 w-16` centered over the content column (app.tsx), and
- * with three equal-width segments the middle segment's center would land
- * squarely under it — the strip must start below the tongue's 36px box.
+ * with four segments a middle segment's center would land under it — the
+ * strip must start below the tongue's 36px box.
  */
 export function TerminalActivityTabs() {
   const navigate = useNavigate();
   const search = useSearch({ strict: false });
   const active: ConsoleSegment =
-    search.tab === "activity" || search.tab === "tasks" ? search.tab : "terminal";
+    search.tab === "tasks" || search.tab === "list" || search.tab === "log"
+      ? search.tab
+      : "terminal";
 
   return (
     <div className="shrink-0 pt-9">

@@ -5,8 +5,8 @@ import { collectWatchedRows, watchlistStatus } from "./model";
 import type { ProjectSession } from "@/types";
 
 /**
- * The WATCHED zone — the detail table of the server's operator watchlist that
- * the sidebar CLOCK section trims to a glance. One row per window with
+ * The WATCHED zone — the tmux Server page's detail table of the server's
+ * operator watchlist. One row per window with
  * `monitored === true` (the fab operator state file's monitored map, joined
  * onto windows server-side; ghost windows excluded), ordered by session order
  * then window index. Read-only by design: the watchlist is derived, edits are

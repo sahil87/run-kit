@@ -14,10 +14,11 @@
 > [`api.md`](api.md) (endpoint surface). Visual design:
 > [`docs/wiki/cron-clock-design-studies.html`](../wiki/cron-clock-design-studies.html)
 > (the three-tier UI mocks, backoff timeline, resolution ladder). The UI is
-> tiered (§ UI): a sidebar `CLOCK` section for the glance, the operator
-> console's desktop Activity segment and the tmux Server page zones as the
-> larger views, boards for immersion — the right panel is retired, so no
-> panel/rail placement exists. Cross-repo: this spec supersedes the
+> tiered (§ UI): the status-bar `◷` clock chip for the glance, the operator
+> console's four-segment strip (`Operator Terminal | Operator Tasks | Cron
+> List | Cron Log`) as the larger view on both form factors, the tmux Server
+> page's WATCHED zone as the fleet view, boards for immersion — the right
+> panel is retired, so no panel/rail placement exists. Cross-repo: this spec supersedes the
 > **Clock B ownership** half of fab-kit's operator pulse plan
 > (`fab/plans/sahil/26-09-03-operator-pulse-plan.md`, apt-marten worktree) —
 > the clock moves into rk; fab keeps owning what a tick *means*. The operator
@@ -322,8 +323,8 @@ superseded.
 
 `last_tick_at` is the **single staleness timestamp** serving every consumer:
 the UI tick-age stamp, the dimmed-and-dashed watched-row underbar, and the
-CLOCK-header warning. A stale watchlist in the UI *is* the dead-loop alarm's
-evidence.
+cron tabs' pinned staleness banner. A stale watchlist in the UI *is* the
+dead-loop alarm's evidence.
 
 Cross-tool contract note: rk parses a fab-owned schema. The read is tolerant
 (unknown keys ignored, absent file = empty watchlist) and documented as an
@@ -331,54 +332,54 @@ external contract, the same class as the dispatch-record reads.
 
 ## UI — Three Tiers: Glance, Dashboard, Immersion
 
-Crons and the watchlist are server-scoped monitoring facts. The sidebar is
-run-kit's ambient monitoring surface, but it is ~260px — enough for a glance,
-not for "what all is the operator doing." The design is tiered; each tier
-reuses a shipped (or already-reserved) mechanism:
+Crons and the watchlist are server-scoped monitoring facts. The design is
+tiered; each tier reuses a shipped mechanism:
 
-1. **Glance — a `CLOCK` sidebar section** (always cheap, always there): a
-   fifth `CollapsiblePanel` gated by the section-visibility rail (Boards ·
-   Server · **Clock** · Pane · Host — the rail is "the designated home for
-   future sidebar-level controls"), default **off**, scoped to the active
-   server. Condensed rows: name, target chip, live backoff rung, next fire,
-   orphaned/muted treatment; mute/delete on the row's flyout card (the
-   sidebar's action-row idiom). The **watchlist stays out of the sidebar** —
+1. **Glance — the status-bar `◷` clock chip** (always cheap, always there):
+   one chip on the desktop status bar showing the soonest next fire (`◷ in
+   12m` / `◷ due`), flipping to the yellow `◷ stale {age}` when the operator
+   loop is stale, and omitted when the server has no entries and no staleness.
+   Its click (and its overflow-menu mirror row `◷ Cron List`) opens the
+   console on `Cron List`. The **watchlist stays out of the sidebar** —
    watched workers are already window rows in the tree, so the ambient signal
    is the StatusDot's watched underbar on the row plus an `opr` register line
    on the row's existing flyout card (beside `@rk_win_note`). Staleness past
-   the pulse threshold dims and dashes the underbar and renders a warning
-   strip in the CLOCK header.
-2. **Dashboard — the larger view is server-scoped, split in two** (the
-   desktop-scale view). **(a) The operator console drawer's segment strip on
-   desktop** (the glimpse; change
-   `260910-6ehs-console-activity-segment-status-chip`, third segment by
-   `260911-2281-console-tasks-segment-watchlist`): the desktop console carries
-   `Operator Terminal | Activity | Operator Tasks` — Activity mounts the
-   Activity feed the mobile sheet ships (computed upcoming fires + recent
-   deliveries across a "now" divider, the pinned staleness banner, the entry
-   detail sheet as an inline in-drawer panel), and Operator Tasks renders the
-   operator watchlist through the SAME shared watched-table component as the
-   Server page's WATCHED zone (tier 2b) — a row click navigates to the
-   worker's terminal and collapses the drawer. Entry points: the status-bar
-   `◷`
-   clock chip (soonest next fire; yellow `◷ stale {age}` when the operator
-   loop is stale) and the palette entries `Operator: Show clock activity` and
-   `Operator: Show tasks` (mobile: the `?tab=tasks` content slot on the
-   operator route);
-   the console's title strip also carries the operator tick-age stamp after
-   the live agent-state line. **(b) The tmux Server page's WATCHED / CRONS
-   / RECENT DELIVERIES zones** (the registry; change
-   `260910-1rx0-server-page-clock-dashboard`): watched workers with full
-   detail (state, rung, what it awaits, age, last note), cron entries with
-   next/last/history, and the recent delivery log, on `/$server`. **Shipped**
-   — the three zones mount below the Sessions grid inside the same scrolling
-   tile area, desktop-only (the mobile answer is the Activity feed), with the
-   CRONS row flyout carrying Mute/Pin/Delete and `+ New entry` opening the
-   existing create dialog; the palette entry `Server: Clock dashboard`
-   navigates to `/$server` and scrolls the CRONS heading into view. The CLOCK
-   row and the CRONS row carry a `deliver` marker when the policy is not
-   `immediate`, the entry detail sheet shows a `Deliver` row, and the create
-   dialog's Delivery group sets it.
+   the pulse threshold dims and dashes the underbar and drives the cron tabs'
+   pinned staleness banner.
+2. **Dashboard — the larger view is server-scoped: the operator console's
+   four-segment strip on both form factors.** The strip is
+   `Operator Terminal | Operator Tasks | Cron List | Cron Log` in that fixed
+   order — on desktop the quake drawer's segment header, on mobile the
+   operator route's segmented header (change
+   `260911-hcon-cron-surface-consolidation`, building on
+   `260910-6ehs-console-activity-segment-status-chip` and
+   `260911-2281-console-tasks-segment-watchlist`). `Cron List` is the
+   registry: every entry with the API's live derived columns (schedule in
+   plain words, target chip, backoff rung, deliver marker, next fire, muted
+   with lease remaining, pinned, orphan state), sorted soonest-fire-first
+   with undated entries last, muted/orphaned rows dimmed never omitted, a
+   `+ New entry` affordance, and row actions on the entry detail sheet —
+   mute/unmute with `Mute for…` lease presets, pin, edit (the create dialog's
+   edit mode over `POST /api/cron/edit`), delete. `Cron Log` is the delivery
+   history: the log's lines (fires, `missed`, `skipped-absent`,
+   `rate-capped`, `rescheduled`, respawn outcomes) newest first, a tap
+   opening the entry's detail sheet when the entry still exists. The pinned
+   operator-staleness banner renders above both cron tabs. Operator Tasks
+   renders the operator watchlist through the SAME shared watched-table
+   component as the Server page's WATCHED zone — a row click navigates to
+   the worker's terminal and collapses the drawer. Entry points: the
+   status-bar `◷` clock chip and the palette entries `Operator: Show tasks`,
+   `Operator: Show cron list`, and `Operator: Show cron log` (mobile: the
+   `?tab=tasks|list|log` content slots on the operator route); the console's
+   title strip also carries the operator tick-age stamp after the live
+   agent-state line. The tmux Server page keeps only the **WATCHED** zone
+   (the fleet view, change `260910-1rx0-server-page-clock-dashboard`):
+   watched workers with full detail (state, rung, what it awaits, age, last
+   note) on `/$server`. Rejected names for the cron tabs:
+   "Watches"/"Cron Watches" collide with the operator's worker watchlist
+   (the StatusDot underbar, the WATCHED zone, the `opr` register);
+   "Logs"/"Cron Logs" misdescribe the merged feed the log half came from
+   (half of it was computed upcoming fires, not logs).
 
    **Superseded (2026-09-10) — the agents-tile dashboard.** The earlier
    design landed tier 2 in the reserved `agents` surface kind
@@ -390,6 +391,20 @@ reuses a shipped (or already-reserved) mechanism:
    longer a reserved surface kind — `SURFACE_KINDS` is now
    `tty · web · code · gui` (the `gui` surface took the fourth kind). The
    study's § 1b mock stays as the record of the rejected direction.
+
+   **Superseded (2026-09-11) — the CLOCK section and the Server-page CRONS
+   / RECENT DELIVERIES zones.** Tier 1's glance lived in a desktop-only
+   sidebar `CLOCK` section (a default-off `CollapsiblePanel` behind the
+   section rail, mute/delete on the row's flyout card, `Panel: Toggle
+   Clock`), and tier 2b put the registry on `/$server` as CRONS and RECENT
+   DELIVERIES zones beside WATCHED (`Server: Clock dashboard` scrolling the
+   CRONS heading into view). Both retired in favor of the console's `Cron
+   List | Cron Log` tabs — one surface on both form factors instead of three
+   renderers of the same entries, with the `◷` chip as the glance entry; the
+   earlier merged Activity feed (upcoming fires + deliveries across a "now"
+   divider) split into the two tabs at the same time. The `?tab=activity`
+   deep-link token survives one release as an alias for `log`, so
+   already-sent push notifications keep landing.
 3. **Immersion — an operator board** (zero new machinery, optional): boards
    already render pinned windows as live terminal cards. The operator (an
    actuating agent) can pin its watched windows to a `watched` board as the
@@ -398,45 +413,45 @@ reuses a shipped (or already-reserved) mechanism:
    `/board/watched`. This is a *usage pattern* of shipped boards, not a
    feature; at most P3 adds a cron payload that reconciles the board to the
    watchlist.
-4. **Mobile — a feed, not a registry.** The desktop tiers collapse badly on
-   a phone (a 50px drawer panel + flyout-buried actions), so mobile inverts
-   the shape (the Calendar-agenda / PagerDuty pattern: mobile ops surfaces
-   are time-ordered triage feeds, not management registries):
-   - The **mobile console sheet** — already the operator surface on phones —
-     gains the segment header, **Operator Terminal | Activity | Operator
-     Tasks**. Activity is one
-     time-ordered timeline merging *recent deliveries* (from the log) and
-     *computed upcoming fires* (the evaluator's next-fire function) across a
-     "now" divider. Operator Tasks is the watchlist content slot
-     (`?tab=tasks`), the same shared watched-table component as the Server
-     page's WATCHED zone (tier 2b). Pure derivation — the
-     deterministic-render contract
+4. **Mobile — the same four segments, no separate surface.** The desktop
+   tiers collapse badly on a phone (a 50px drawer panel + flyout-buried
+   actions), so mobile carries the identical strip on the operator route
+   (`?tab=terminal|tasks|list|log`), gated on the operator window:
+   - The **mobile console** — already the operator surface on phones —
+     carries the segment header, **Operator Terminal | Operator Tasks |
+     Cron List | Cron Log**. `Cron Log` is the time-ordered delivery log
+     (the Calendar-agenda / PagerDuty triage pattern: mobile ops surfaces
+     are time-ordered feeds), `Cron List` the registry with its actions,
+     and Operator Tasks the watchlist content slot (`?tab=tasks`), the
+     same shared watched-table component as the Server page's WATCHED
+     zone. Pure derivation — the deterministic-render contract
      holds; it inherits the console's server resolution and
      degrade-to-absent gating.
-   - **Staleness is the feed's pinned banner** (the healthchecks.io
+   - **Staleness is the cron tabs' pinned banner** (the healthchecks.io
      dead-man's-switch model): a stale operator loop is the most important
-     item on the timeline, not a side warning.
-   - **Tap a feed item → an entry detail sheet** with the alarm-app anatomy:
-     name, schedule in plain words, last/next, a first-class **mute toggle
-     switch**, delete and pin rows. No flyout cards on mobile.
+     item, not a side warning — the banner renders above both `Cron List`
+     and `Cron Log`.
+   - **Tap a row → an entry detail sheet** with the alarm-app anatomy:
+     name, schedule in plain words, last/next, mute with `Mute for…`
+     lease presets, an edit row, delete and pin rows. No flyout cards on
+     mobile.
    - **Push is the mobile entry point**: escalations, orphans, and staleness
-     ride `rk notify`; the notification deep-links to the Activity segment.
-   - The sidebar CLOCK section is **desktop-only** (its rail toggle hidden on
-     mobile); the tree's watched-row underbars remain on both.
+     ride `rk notify`; the notification deep-links to the `Cron Log` tab
+     (`?tab=log`; `?tab=activity` resolves there for one release).
+   - The tree's watched-row underbars remain on both form factors.
    - **Desktop has parity**: the desktop console drawer ships the same
-     `Operator Terminal | Activity | Operator Tasks` segments (tier 2a) — one
-     feed, watchlist, banner, and detail-sheet codebase across both form
-     factors.
+     four segments (tier 2) — one registry, log, watchlist, banner, and
+     detail-sheet codebase across both form factors.
 
 Rejected: a dedicated `clock` **surface kind** (a dedicated kind would split
 the surface model — the surface set is `tty · web · code · gui`, and crons
 ride the console and Server page instead); **Host page** (checking crons
 must not cost a navigation); **status bar
 only** (no management affordance — the `◷` readout that rides it is an entry
-point to the console Activity segment, not the surface); **mobile
+point to the console's `Cron List` tab, not the surface); **mobile
 registry-in-the-drawer** (the pre-feed mobile design: a pinned-height
 `CollapsiblePanel` in the drawer with flyout-card actions — no glanceability,
-mute two taps deep; superseded by the Activity feed); a **fab-authored HTML
+mute two taps deep; superseded by the console's cron tabs); a **fab-authored HTML
 frame displayed by path** for the Tasks segment (fab writing `<slug>.html`
 beside the operator state YAML every tick, shown by rk through a new
 file-serving route plus a sandboxed iframe, with a polling or mtime-watch
@@ -445,10 +460,10 @@ an unthemed foreign page inside the drawer; superseded by rendering the
 already-derived watchlist, which the frontend already holds in the sessions
 payload).
 
-Palette-registered per Constitution V (`Panel: Toggle Clock`,
-`Operator: Show clock activity`, `Operator: Show tasks`,
-`Server: Clock dashboard`, `Cron: new entry`,
-`Cron: mute…`, `Cron: delete…`).
+Palette-registered per Constitution V (`Operator: Open console`,
+`Operator: Show tasks`, `Operator: Show cron list`, `Operator: Show cron
+log`, `Cron: new entry`,
+`Cron: mute…`, `Cron: pin…`, `Cron: delete…`).
 Mutations wake the SSE hub explicitly (user-option and file writes emit no
 tmux event — the safety-poll lesson).
 
@@ -457,7 +472,7 @@ tmux event — the safety-poll lesson).
 | Surface | Form |
 |---------|------|
 | Read | `GET /api/cron?server=<slug>` — entries + derived next-fire + orphan state; watchlist rides the existing SSE state doc |
-| Mutate | `POST /api/cron/create`, `POST /api/cron/delete`, `POST /api/cron/mute`, `POST /api/cron/edit` (partial-merge body; immutable target; returns the entry) — POST-only (Constitution IX) |
+| Mutate | `POST /api/cron/create`, `POST /api/cron/delete`, `POST /api/cron/mute` (optional `for` duration leases the mute), `POST /api/cron/edit` (partial-merge body; immutable target; returns the entry) — POST-only (Constitution IX) |
 | CLI | `rk cron add <prompt> --every 1h \| --idle-every 3m \| --backoff \| --cron "<expr>" [--name N] [--deliver when-idle\|skip-if-busy] [--if-absent skip] [--respawn <arg>…]`, `rk cron edit <id> [<schedule flag>] [--deliver P] [--name N] [--if-absent P] [--respawn <arg>…]` (target and creator immutable; a schedule or deliver change logs `rescheduled`), `rk cron list [--json]`, `rk cron rm <id>`, `rk cron mute <id> [--for <dur>] [--off]` — agent-friendly: no flags beyond the schedule are required |
 
 `rk cron mute <id> --for <dur>` mutes until now+dur; expiry unmutes
@@ -479,7 +494,7 @@ move.
 | VI (tmux independent) | The clock lives in the daemon; tmux sessions and agents are untouched by daemon restarts — at worst one duplicate idempotent fire |
 | IX (POST-only) | All mutations are POST |
 | X (hooks carry only the underivable) | Nothing is pushed — the watchlist derives from the fab-owned operator state file, staleness from its `last_tick_at`; no new hook exists |
-| IV (minimal surface) | No new page or tile — a sidebar section behind the existing section rail; the watchlist reuses the tree rows instead of duplicating them |
+| IV (minimal surface) | No new page or tile — the cron surface lives in the console's existing segment strip; the watchlist reuses the tree rows instead of duplicating them |
 
 ## Phasing
 
@@ -504,13 +519,12 @@ move.
   one backoff step; with the lease renewing, no double ticks while the loop
   is healthy; `rk cron add/list/rm` works from inside a pane. Kills the
   incident class.
-- **P2 — visibility**: the `CLOCK` sidebar section + rail toggle (desktop),
-  the console's desktop **Activity** segment and the Server page's
-  WATCHED / CRONS / RECENT DELIVERIES zones (shipped), the mobile console sheet's
-  **Activity** feed segment + staleness banner + entry detail sheet,
-  watched-row underbar + the `opr` register line (watchlist and
-  `last_tick_at` read from the fab operator state file), SSE wiring,
-  palette actions, notify deep-links.
+- **P2 — visibility**: the console's four-segment strip (`Operator
+  Terminal | Operator Tasks | Cron List | Cron Log`) on the desktop drawer
+  and the mobile operator route + staleness banner + entry detail sheet,
+  the Server page's WATCHED zone, watched-row underbar + the `opr` register
+  line (watchlist and `last_tick_at` read from the fab operator state file),
+  SSE wiring, palette actions, notify deep-links.
 - **P3 — generalization + replacement posture**: `session` targets with
   auto-capture, orphan GC, the closed-session resume default for
   `if_absent: respawn`, `cron` expressions; then the fab-kit skill change —

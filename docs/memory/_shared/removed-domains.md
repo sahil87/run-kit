@@ -13,3 +13,7 @@ From `run-kit/ui/index.md` (removed by 260904-39bp-remove-chat-lens):
 From `run-kit/index.md` (removed by 260904-owue-chat-lens-residual-renames):
 
 | [chat](chat.md) | Renamed to [agent-send](/run-kit/agent-send.md) — the file's scope (internal/transcript provider registry + transcript.Path resolution, and the shared pane-typed injection engine behind POST /api/windows/{id}/send and the operator-request routes) lives there under its post-rename identifiers. |
+
+From `run-kit/ui/index.md` (removed by 260911-hcon-cron-surface-consolidation):
+
+| [cron-activity](cron-activity.md) | The cron Activity feed — a timeline merging upcoming fires with recent deliveries around a now-divider (muted/orphaned dimmed, never omitted), mounted on the mobile operator route's ?tab=activity segment and as the desktop console drawer's Activity segment via the ConsoleSegments strip; the pinned operator-staleness banner, the entry detail sheet (mute/pin/delete, Deliver row, optimistic toggles, inline variant), the describeSchedule/describeDeliver helpers, and useCronData on the SSE cadence. | (superseded by [cron-console-tabs](/run-kit/ui/cron-console-tabs.md))

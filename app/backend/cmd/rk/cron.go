@@ -46,7 +46,7 @@ var cronCmd = &cobra.Command{
 		"every live server — flock-guarded, idempotent, safe to invoke " +
 		"repeatedly. Entry files live under $XDG_STATE_HOME/run-kit/cron/, keyed " +
 		"by tmux server name: -L wins, else your own server (from $TMUX), else " +
-		"the default server.",
+		"the default server. Agent briefing: `run-kit skill cron`.",
 }
 
 func init() {

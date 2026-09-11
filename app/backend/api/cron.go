@@ -377,14 +377,17 @@ func (s *Server) handleCronDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCronMute serves POST /api/cron/mute ← {"id": "<4char>", "muted":
-// <bool>}: set the flag via cron.SetMuted (its clearing rules: muted:true
-// clears any lease, muted:false clears both flag and lease); unknown id ⇒ 404;
-// success ⇒ 200 {"ok": true} + SSE wake. Lease writes stay CLI-only — this body
-// carries no duration.
+// <bool>, "for"?: "<Go duration>"}: muted:true with a valid positive `for`
+// sets a bounded lease via cron.SetMuteLease (until = now + for); muted:true
+// without `for` sets the indefinite flag via cron.SetMuted (its clearing
+// rules: muted:true clears any lease, muted:false clears both flag and
+// lease). An unparsable or non-positive `for` ⇒ 400; unknown id ⇒ 404;
+// success ⇒ 200 {"ok": true} + SSE wake.
 func (s *Server) handleCronMute(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID    string `json:"id"`
 		Muted bool   `json:"muted"`
+		For   string `json:"for"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
@@ -399,7 +402,18 @@ func (s *Server) handleCronMute(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	found, err := cron.SetMuted(dir, server, body.ID, body.Muted)
+	var found bool
+	var err error
+	if body.Muted && body.For != "" {
+		dur, derr := time.ParseDuration(body.For)
+		if derr != nil || dur <= 0 {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid for duration %q", body.For))
+			return
+		}
+		found, err = cron.SetMuteLease(dir, server, body.ID, s.now().Add(dur).Unix())
+	} else {
+		found, err = cron.SetMuted(dir, server, body.ID, body.Muted)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

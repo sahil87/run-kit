@@ -25,17 +25,25 @@ export function buildOperatorConsoleAction(): OperatorConsolePaletteAction {
 }
 
 /**
- * The `Operator: Show clock activity` entry — the console opened straight
- * onto its Activity segment (the cron-clock glimpse). No registry chord: the
- * segment is a view inside the console, one Tab-reachable click past ⌘J; the
- * palette entry is its keyboard-parity path (Constitution V). On mobile the
- * seam maps it to the operator route's `?tab=activity`.
+ * The cron-segment twins — the console opened straight onto its Cron List /
+ * Cron Log segment. No registry chord: the segment is a view inside the
+ * console, one Tab-reachable click past ⌘J; the palette entries are its
+ * keyboard-parity path (Constitution V). On mobile the seam maps them to the
+ * operator route's `?tab=` param. List registers before log everywhere.
  */
-export function buildOperatorConsoleActivityAction(): OperatorConsolePaletteAction {
+export function buildOperatorConsoleListAction(): OperatorConsolePaletteAction {
   return {
-    id: "operator-console-activity",
-    label: "Operator: Show clock activity",
-    onSelect: () => requestOperatorConsole({ action: "open", segment: "activity" }),
+    id: "operator-console-list",
+    label: "Operator: Show cron list",
+    onSelect: () => requestOperatorConsole({ action: "open", segment: "list" }),
+  };
+}
+
+export function buildOperatorConsoleLogAction(): OperatorConsolePaletteAction {
+  return {
+    id: "operator-console-log",
+    label: "Operator: Show cron log",
+    onSelect: () => requestOperatorConsole({ action: "open", segment: "log" }),
   };
 }
 

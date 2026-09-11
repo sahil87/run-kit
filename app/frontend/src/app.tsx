@@ -167,7 +167,9 @@ import { Sidebar } from "@/components/sidebar";
 import { HeadsetIcon } from "@/components/sidebar/icons";
 import { canRequestWindowOperatorAction } from "@/components/sidebar/row-flyout-card";
 import { SurfaceLayout } from "@/components/surface-layout";
-import { CronActivityFeed } from "@/components/cron-activity-feed";
+import { CronList } from "@/components/cron-list";
+import { CronLog } from "@/components/cron-log";
+import { CronStaleBanner } from "@/components/cron-stale-banner";
 import { WatchedTasks } from "@/components/watched-tasks";
 import { TerminalActivityTabs } from "@/components/terminal-activity-tabs";
 import { BottomBar } from "@/components/bottom-bar";
@@ -196,8 +198,7 @@ import type { ServerInfo, SelectWindowResult } from "@/api/client";
 import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions, type CronActionHandlers } from "@/lib/palette/cron";
-import { requestCronsScroll } from "@/lib/server-clock-dashboard-scroll";
-import { ServerClockDashboard } from "@/components/server-clock-dashboard";
+import { ServerWatchedZone } from "@/components/server-watched-zone";
 import { CronCreateDialog } from "@/components/cron-create-dialog";
 import { buildWebTabActions } from "@/lib/palette/web-tabs";
 import { operatorRequestToast } from "@/lib/operator-request";
@@ -940,13 +941,14 @@ function AppShell() {
   // window's own terminal route. `tab` absent/"terminal" (or the gate false)
   // renders the pre-existing tree byte-identically; the role is known only
   // once the sessions payload resolves the window, so a cold `?tab=` deep link
-  // swaps in a beat after mount.
+  // swaps in a beat after mount. The legacy `tab=activity` token is
+  // normalized to `log` by validateTerminalSearch before this read.
   const operatorConsoleTabs = isMobile && windowParam != null && currentWindow?.role === "operator";
   const consoleTab = operatorConsoleTabs ? (search.tab ?? "terminal") : "terminal";
-  const activityTabActive = consoleTab === "activity";
+  const cronTabActive = consoleTab === "list" || consoleTab === "log";
   const tasksTabActive = consoleTab === "tasks";
-  // Either non-terminal tab hides (never unmounts) the terminal column.
-  const terminalHidden = activityTabActive || tasksTabActive;
+  // Any non-terminal tab hides (never unmounts) the terminal column.
+  const terminalHidden = cronTabActive || tasksTabActive;
   // Desktop `?tab=` handoff (the notify deep-link): the segment param
   // is inert on desktop — the tabs above are mobile-only and the route itself
   // has no non-terminal view — so on the operator window's terminal route the
@@ -956,7 +958,7 @@ function AppShell() {
     if (isMobile || !windowParam || currentWindow?.role !== "operator") {
       return;
     }
-    if (search.tab !== "activity" && search.tab !== "tasks") {
+    if (search.tab !== "tasks" && search.tab !== "list" && search.tab !== "log") {
       return;
     }
     requestOperatorConsole({ action: "open", segment: search.tab });
@@ -4313,31 +4315,6 @@ function AppShell() {
       ...(instanceDisplayName
         ? [copyPaletteEntry("copy-host-name", "Copy: Host Name", "Host name", instanceDisplayName)]
         : []),
-      // `Server: Clock dashboard` — navigate to `/$server` and scroll the
-      // CRONS heading into view via the document-event seam (the dashboard
-      // consumes the pending flag if it mounts after the dispatch). No URL
-      // hash — the route contract keeps URLs identity-only. On mobile the
-      // entry still navigates; the dashboard is absent there, so nothing
-      // scrolls.
-      ...(server
-        ? [
-            {
-              id: "server-clock-dashboard",
-              label: "Server: Clock dashboard",
-              onSelect: () => {
-                const dispatchScroll = () =>
-                  requestAnimationFrame(() => requestCronsScroll());
-                if (windowParam != null) {
-                  void Promise.resolve(
-                    navigate({ to: "/$server", params: { server } }),
-                  ).then(dispatchScroll);
-                } else {
-                  dispatchScroll();
-                }
-              },
-            },
-          ]
-        : []),
       // Per-server kill entries (bylc): with the hover ✕ removed from the
       // SERVER-panel tiles, this listing is the keyboard escape hatch that
       // keeps every server killable — including non-current servers, which
@@ -4634,9 +4611,8 @@ function AppShell() {
   const cronData = useCronData(server);
   const [cronCreateOpen, setCronCreateOpen] = useState(false);
   const [cronDeleteTarget, setCronDeleteTarget] = useState<CronEntry | null>(null);
-  // One shared handler set for the palette's cronActions AND the Server
-  // page's clock dashboard — a single delete-confirm path and toast-on-error
-  // posture for both surfaces.
+  // One shared handler set for the palette's cronActions — a single
+  // delete-confirm path and toast-on-error posture.
   const cronHandlers: CronActionHandlers = useMemo(
     () => ({
       onCreate: () => setCronCreateOpen(true),
@@ -5342,8 +5318,8 @@ function AppShell() {
               applyLayout — R12) and the right-panel surface mount (the panel
               slot is a
               tile now — R6). Open-tile toggles (R10) live in the top bar's
-              surface-toggle group. On a non-terminal tab (Activity, Operator
-              Tasks) this column stays
+              surface-toggle group. On a non-terminal tab (Operator Tasks,
+              Cron List, Cron Log) this column stays
               MOUNTED-but-hidden (the `hidden` class — the same
               hide-never-unmount posture SurfaceLayout applies to its own
               hidden tiles), so the terminal stream survives the tab swap and
@@ -5475,22 +5451,30 @@ function AppShell() {
               onCreateSession={handleCreateSessionInstant}
               onCreateWindow={handleCreateWindow}
               footer={
-                <ServerClockDashboard
+                <ServerWatchedZone
                   sessions={sessions}
-                  cronData={cronData}
                   onNavigate={navigateToWindow}
-                  cronHandlers={cronHandlers}
                 />
               }
             />
           )}
           </div>
-          {/* The non-terminal tabs' content swap: the feed/watchlist takes the
-              slot the SurfaceLayout column vacates (hidden, not unmounted,
-              above). */}
-          {activityTabActive && <CronActivityFeed server={server} />}
+          {/* The non-terminal tabs' content swap: the watchlist / cron body
+              takes the slot the SurfaceLayout column vacates (hidden, not
+              unmounted, above). The cron tabs pin the stale banner above
+              the body. */}
           {tasksTabActive && (
             <WatchedTasks server={server} sessions={sessions} onNavigate={navigateToWindow} />
+          )}
+          {cronTabActive && (
+            <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+              <CronStaleBanner server={server} />
+              {consoleTab === "list" ? (
+                <CronList server={server} />
+              ) : (
+                <CronLog server={server} />
+              )}
+            </div>
           )}
         </div>
       </main>

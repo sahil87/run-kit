@@ -112,13 +112,17 @@ describe("validateTerminalSearch (?from= pass-through)", () => {
   });
 });
 
-// The `?tab=` param selects the mobile operator route's Operator
-// Terminal|Activity|Operator Tasks segment — handled exactly like `?view=`:
-// the three known values pass, anything else is DROPPED (absent reads as
-// "terminal"), never thrown.
+// The `?tab=` param selects the operator route's segment — handled exactly
+// like `?view=`: the four known values pass, anything else is DROPPED (absent
+// reads as "terminal"), never thrown. The legacy `activity` token
+// (already-sent push notifications) is normalized to `log` for one release.
 describe("validateTerminalSearch (?tab= drop)", () => {
-  it.each(["terminal", "activity", "tasks"] as const)("accepts tab=%s", (tab) => {
+  it.each(["terminal", "tasks", "list", "log"] as const)("accepts tab=%s", (tab) => {
     expect(validateTerminalSearch({ tab })).toEqual({ tab });
+  });
+
+  it("normalizes the legacy tab=activity to log", () => {
+    expect(validateTerminalSearch({ tab: "activity" })).toEqual({ tab: "log" });
   });
 
   it("drops an unknown value without throwing (?tab=bogus → tab undefined)", () => {

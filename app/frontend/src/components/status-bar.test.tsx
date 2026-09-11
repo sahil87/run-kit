@@ -368,7 +368,7 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(chip.className).not.toContain("hidden");
     });
 
-    it("clicking the chip dispatches the console request with segment: activity", () => {
+    it("clicking the chip dispatches the console request with segment: list", () => {
       const nowSec = Math.floor(Date.now() / 1000);
       mockCronEntries = [{ id: "a1", name: "deploy", nextFire: nowSec + 300 }];
       const seen: unknown[] = [];
@@ -381,7 +381,7 @@ describe("StatusBar (260814-ldbs)", () => {
         document.removeEventListener("rk:operator-console", listener);
       }
 
-      expect(seen).toEqual([{ action: "open", segment: "activity" }]);
+      expect(seen).toEqual([{ action: "open", segment: "list" }]);
     });
 
     it("the overflow clk row renders only in the next-fire state, not in the stale state", () => {
@@ -389,7 +389,7 @@ describe("StatusBar (260814-ldbs)", () => {
       mockCronEntries = [{ id: "a1", name: "deploy", nextFire: nowSec + 300 }];
       renderBar({ server: "alpha" });
       fireEvent.click(screen.getByTestId("status-bar-overflow"));
-      expect(screen.getByRole("menuitem", { name: "◷ Clock activity" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: "◷ Cron List" })).toBeInTheDocument();
       cleanup();
 
       // Stale: the chip never drops from the strip, so no mirror row exists.
@@ -399,7 +399,7 @@ describe("StatusBar (260814-ldbs)", () => {
       renderBar({ server: "alpha" });
       expect(screen.getByTestId("status-bar-clock")).toHaveTextContent("◷ stale 2m");
       fireEvent.click(screen.getByTestId("status-bar-overflow"));
-      expect(screen.queryByRole("menuitem", { name: "◷ Clock activity" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "◷ Cron List" })).not.toBeInTheDocument();
     });
   });
 

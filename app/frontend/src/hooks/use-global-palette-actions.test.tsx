@@ -214,25 +214,22 @@ describe("useGlobalPaletteActions", () => {
     expect(screen.getByText("Settings: Appearance")).toBeInTheDocument();
   });
 
-  it("registers the five Panel: Toggle actions, each flipping its section's persisted boolean (iha5 R6, wuiu R13)", () => {
+  it("registers the four Panel: Toggle actions, each flipping its section's persisted boolean (iha5 R6, wuiu R13)", () => {
     renderHook();
     const byId = new Map(captured.map((a) => [a.id, a]));
     expect(byId.get("panel-toggle-boards")?.label).toBe("Panel: Toggle Boards");
     expect(byId.get("panel-toggle-server")?.label).toBe("Panel: Toggle Servers");
     expect(byId.get("panel-toggle-pane")?.label).toBe("Panel: Toggle Pane");
     expect(byId.get("panel-toggle-host")?.label).toBe("Panel: Toggle Host");
-    expect(byId.get("panel-toggle-clock")?.label).toBe("Panel: Toggle Clock");
+    expect(byId.get("panel-toggle-clock")).toBeUndefined();
 
-    // Defaults: boards/server on, pane/host/clock off.
+    // Defaults: boards/server on, pane/host off.
     act(() => byId.get("panel-toggle-pane")?.onSelect());
     expect(localStorage.getItem("runkit-sidebar-section-pane")).toBe("true");
     expect(localStorage.getItem("runkit-sidebar-section-host")).toBeNull();
 
     act(() => byId.get("panel-toggle-boards")?.onSelect());
     expect(localStorage.getItem("runkit-sidebar-section-boards")).toBe("false");
-
-    act(() => byId.get("panel-toggle-clock")?.onSelect());
-    expect(localStorage.getItem("runkit-sidebar-section-clock")).toBe("true");
   });
 
   it("Sidebar: Toggle flips the persisted visibility; Sidebar: Focus is the show+focus arm", () => {

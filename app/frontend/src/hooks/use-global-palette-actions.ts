@@ -18,7 +18,7 @@ import { canCloseShellWindow, canNewShellWindow, closeShellWindow, newShellWindo
 import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
 import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
 import { buildNavActions, type NavMode } from "@/lib/palette/nav";
-import { buildOperatorConsoleAction, buildOperatorConsoleActivityAction, buildOperatorConsoleTasksAction } from "@/lib/palette/operator-console";
+import { buildOperatorConsoleAction, buildOperatorConsoleListAction, buildOperatorConsoleLogAction, buildOperatorConsoleTasksAction } from "@/lib/palette/operator-console";
 import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette/update";
 import { buildVersionAction, displayVersion } from "@/lib/palette/version";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -207,21 +207,19 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   const [serverVisible, setServerVisible] = useSidebarSectionVisible("server");
   const [paneVisible, setPaneVisible] = useSidebarSectionVisible("pane");
   const [hostVisible, setHostVisible] = useSidebarSectionVisible("host");
-  const [clockVisible, setClockVisible] = useSidebarSectionVisible("clock");
   const panelActions: PaletteAction[] = useMemo(
     () => [
       { id: "panel-toggle-boards", label: "Panel: Toggle Boards", onSelect: () => setBoardsVisible(!boardsVisible) },
       { id: "panel-toggle-server", label: "Panel: Toggle Servers", onSelect: () => setServerVisible(!serverVisible) },
       { id: "panel-toggle-pane", label: "Panel: Toggle Pane", onSelect: () => setPaneVisible(!paneVisible) },
       { id: "panel-toggle-host", label: "Panel: Toggle Host", onSelect: () => setHostVisible(!hostVisible) },
-      { id: "panel-toggle-clock", label: "Panel: Toggle Clock", onSelect: () => setClockVisible(!clockVisible) },
     ],
-    [boardsVisible, setBoardsVisible, serverVisible, setServerVisible, paneVisible, setPaneVisible, hostVisible, setHostVisible, clockVisible, setClockVisible],
+    [boardsVisible, setBoardsVisible, serverVisible, setServerVisible, paneVisible, setPaneVisible, hostVisible, setHostVisible],
   );
 
   // Cron entry actions (wuiu R14) — the keyboard-first mute/delete path for
-  // the current server's cron entries (the CLOCK panel's row flyout is the
-  // pointer path). The entry list is fetched on server change and patched
+  // the current server's cron entries (the Cron List tab's entry detail sheet
+  // is the pointer path). The entry list is fetched on server change and patched
   // locally from each mutation's own outcome — the hook lives outside the
   // per-server SSE slice plumbing, so it does not re-fetch on ticks. Both
   // actions pick ONE entry through the optionPicker sub-step (the palette's
@@ -341,10 +339,15 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   // effective ⌘J/⇧Ctrl+J hint attaches and the chord resolves this same
   // toggle seam.
   const operatorConsoleEntry: PaletteAction = useMemo(() => buildOperatorConsoleAction(), []);
-  // The Activity-segment twin — same always-listed gating as the opener (a
+  // The cron-segment twins — same always-listed gating as the opener (a
   // server without an operator is answered by the console's own hint line).
-  const operatorConsoleActivityEntry: PaletteAction = useMemo(
-    () => buildOperatorConsoleActivityAction(),
+  // List registers before log.
+  const operatorConsoleListEntry: PaletteAction = useMemo(
+    () => buildOperatorConsoleListAction(),
+    [],
+  );
+  const operatorConsoleLogEntry: PaletteAction = useMemo(
+    () => buildOperatorConsoleLogAction(),
     [],
   );
   // The Operator Tasks twin — same always-listed gating: an operator-less
@@ -500,10 +503,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, operatorConsoleEntry, operatorConsoleActivityEntry, operatorConsoleTasksEntry, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, operatorConsoleEntry, operatorConsoleTasksEntry, operatorConsoleListEntry, operatorConsoleLogEntry, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, operatorConsoleEntry, operatorConsoleActivityEntry, operatorConsoleTasksEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, operatorConsoleEntry, operatorConsoleTasksEntry, operatorConsoleListEntry, operatorConsoleLogEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
   );
 }

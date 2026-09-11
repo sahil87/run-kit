@@ -62,6 +62,8 @@ import {
   isInfraServer,
   compareServers,
   compareServersRanked,
+  muteCron,
+  editCron,
 } from "./client";
 import type { ServerInfo } from "./client";
 
@@ -1733,5 +1735,84 @@ describe("gui client (host-global /api/gui/*)", () => {
       expect(err.status).toBe(400);
       expect(err.message).toBe("geometry 100x100 out of range (320–7680 per side)");
     }
+  });
+
+  it("muteCron POSTs {id, muted} to /api/cron/mute with the server query", async () => {
+    let capturedUrl = "";
+    let capturedBody: unknown = null;
+    mswServer.use(
+      http.post("/api/cron/mute", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedBody = await request.json();
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await expect(muteCron("runkit", "c_1", true)).resolves.toEqual({ ok: true });
+    expect(capturedUrl).toContain("/api/cron/mute?server=runkit");
+    expect(capturedBody).toEqual({ id: "c_1", muted: true });
+  });
+
+  it("muteCron omits `for` unless a duration is given", async () => {
+    const bodies: unknown[] = [];
+    mswServer.use(
+      http.post("/api/cron/mute", async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await muteCron("runkit", "c_1", true);
+    await muteCron("runkit", "c_1", false);
+    expect(bodies).toEqual([
+      { id: "c_1", muted: true },
+      { id: "c_1", muted: false },
+    ]);
+  });
+
+  it("muteCron includes `for` when a duration is given", async () => {
+    let capturedBody: unknown = null;
+    mswServer.use(
+      http.post("/api/cron/mute", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await muteCron("runkit", "c_1", true, "2h");
+    expect(capturedBody).toEqual({ id: "c_1", muted: true, for: "2h" });
+  });
+
+  it("editCron POSTs the body to /api/cron/edit with the server query and resolves the entry", async () => {
+    let capturedUrl = "";
+    let capturedBody: unknown = null;
+    const entry = {
+      id: "c_1",
+      name: "renamed",
+      schedule: { kind: "every", interval: "30m" },
+      target: { kind: "role", role: "operator" },
+      payload: "ping",
+      lastFired: 0,
+    };
+    mswServer.use(
+      http.post("/api/cron/edit", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedBody = await request.json();
+        return HttpResponse.json(entry);
+      }),
+    );
+    await expect(
+      editCron("runkit", { id: "c_1", name: "renamed" }),
+    ).resolves.toEqual(entry);
+    expect(capturedUrl).toContain("/api/cron/edit?server=runkit");
+    expect(capturedBody).toEqual({ id: "c_1", name: "renamed" });
+  });
+
+  it("editCron surfaces the server's 400 error text", async () => {
+    mswServer.use(
+      http.post("/api/cron/edit", () =>
+        HttpResponse.json({ error: "unknown schedule kind" }, { status: 400 }),
+      ),
+    );
+    await expect(
+      editCron("runkit", { id: "c_1", schedule: { kind: "nope" } }),
+    ).rejects.toThrow("unknown schedule kind");
   });
 });

@@ -404,17 +404,17 @@ test.describe("Status bar (260814-ldbs)", () => {
   /**
    * Proves: with a cron entry carrying a `nextFire`, the status bar's `◷`
    * clock chip renders in the right cluster, and clicking it opens the
-   * operator console drawer directly on the Activity segment's feed.
+   * operator console drawer directly on the Cron List segment.
    *
    * Steps:
    * 1. Stub `GET /api/cron` with one nextFire-bearing entry (the chip's
    *    next-fire state); navigate to `/default/1`.
    * 2. Assert the `status-bar-clock` chip is visible — the default 1280px
    *    viewport is the xl rung the next-fire chip shows at.
-   * 3. Click the chip; assert the console drawer opens with the Activity tab
-   *    selected and the cron feed visible.
+   * 3. Click the chip; assert the console drawer opens with the Cron List tab
+   *    selected and the cron registry visible.
    */
-  test("the clock chip opens the console on the Activity feed", async ({ page }) => {
+  test("the clock chip opens the console on Cron List", async ({ page }) => {
     await page.route("**/api/cron*", (route) =>
       route.fulfill({
         status: 200,
@@ -444,8 +444,8 @@ test.describe("Status bar (260814-ldbs)", () => {
     const drawer = page.getByTestId("operator-console");
     await expect(drawer).toBeVisible();
     await expect(
-      drawer.getByTestId("terminal-activity-tabs").getByRole("tab", { name: "Activity" }),
+      drawer.getByTestId("terminal-activity-tabs").getByRole("tab", { name: "Cron List" }),
     ).toHaveAttribute("aria-selected", "true");
-    await expect(drawer.getByTestId("cron-activity-feed")).toBeVisible({ timeout: 10_000 });
+    await expect(drawer.getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
   });
 });

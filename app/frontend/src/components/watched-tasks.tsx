@@ -1,5 +1,5 @@
 import { WatchedTable } from "@/components/watched-table";
-import { collectWatchedRows, watchlistStatus } from "@/components/server-clock-dashboard/model";
+import { collectWatchedRows, watchlistStatus } from "@/components/server-watched-zone/model";
 import { formatDuration } from "@/lib/format";
 import type { ProjectSession } from "@/types";
 

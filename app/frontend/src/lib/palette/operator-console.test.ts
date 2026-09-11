@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildOperatorConsoleAction, buildOperatorConsoleActivityAction, buildOperatorConsoleTasksAction } from "./operator-console";
+import {
+  buildOperatorConsoleAction,
+  buildOperatorConsoleListAction,
+  buildOperatorConsoleLogAction,
+  buildOperatorConsoleTasksAction,
+} from "./operator-console";
 import { OPERATOR_CONSOLE_EVENT, isOperatorConsoleRequest } from "@/lib/operator-console";
 
 describe("buildOperatorConsoleAction", () => {
@@ -28,32 +33,42 @@ describe("buildOperatorConsoleAction", () => {
   });
 });
 
-describe("buildOperatorConsoleActivityAction", () => {
+describe.each([
+  {
+    build: buildOperatorConsoleListAction,
+    id: "operator-console-list",
+    label: "Operator: Show cron list",
+    segment: "list",
+  },
+  {
+    build: buildOperatorConsoleLogAction,
+    id: "operator-console-log",
+    label: "Operator: Show cron log",
+    segment: "log",
+  },
+])("the cron-segment entry $label", ({ build, id, label, segment }) => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("is the chord-less Operator: Show clock activity entry", () => {
-    const action = buildOperatorConsoleActivityAction();
-    expect(action).toMatchObject({
-      id: "operator-console-activity",
-      label: "Operator: Show clock activity",
-    });
+  it("is the chord-less palette entry", () => {
+    const action = build();
+    expect(action).toMatchObject({ id, label });
     expect(action.shortcut).toBeUndefined();
   });
 
-  it("onSelect dispatches the seam event with segment: activity", () => {
+  it(`onSelect dispatches the seam event with segment: ${segment}`, () => {
     const seen: unknown[] = [];
     const listener = (e: Event) => seen.push((e as CustomEvent<unknown>).detail);
     document.addEventListener(OPERATOR_CONSOLE_EVENT, listener);
     try {
-      buildOperatorConsoleActivityAction().onSelect();
+      build().onSelect();
     } finally {
       document.removeEventListener(OPERATOR_CONSOLE_EVENT, listener);
     }
     expect(seen).toHaveLength(1);
     expect(isOperatorConsoleRequest(seen[0])).toBe(true);
-    expect(seen[0]).toEqual({ action: "open", segment: "activity" });
+    expect(seen[0]).toEqual({ action: "open", segment });
   });
 });
 

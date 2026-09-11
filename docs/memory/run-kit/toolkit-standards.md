@@ -801,9 +801,16 @@ checks (260906-bi3v-rk-cron-cli):
   same path; operational failures (a corrupt entry file refusing to mutate,
   `no entry <id>`, dir/lock failures, `edit`'s tick-flock contention
   `cron tick in progress — retry`) exit 1.
-- **The `skill` standard is a deliberate no-op here** — no cron topic page
-  exists yet; the bundle is a capability briefing, not a command enumeration,
-  and the help-dump walk already covers the family.
+- **The `skill` standard covers the `cron` topic page** — canonical
+  `docs/site/skill/cron.md` (≤150 lines, static-only), synced to the embedded
+  copy by `scripts/sync-skill.sh`, drift-guarded and budget-tested by the
+  shared `TestSkillTopics*` tables, and registered as `skillTopics["cron"]` so
+  the `Topics:` help line and `rk skill topics` enumerate it; the core
+  bundle's § Topics carries the capability line. The `rk cron` parent `Long`
+  closes with the pointer `Agent briefing: `run-kit skill cron`.` — tolerated
+  by the help-dump check (the standard's discovery mandates are the `Topics:`
+  line and `rk skill topics`; the pointer is help text, not a new surface).
+  (hcon)
 
 The `rk gui` family (`gui.go` + `gui_supervise.go` + `gui_exec.go` + `gui_shot.go` + `gui_launch.go` — eight visible members: `on`, `off`, `status`, `env`, `restart`, `exec`, `shot`, `launch`, plus the hidden `supervise` pane command; the subsystem contract in [gui](/run-kit/gui.md)) is the twenty-second surface measured against the same checks (260909-fkh1-gui-backend-switch-and-relay; `exec`/`shot` audited with 260909-bbv1-gui-agent-verbs; `launch` audited with 260910-2jl3-gui-desktop-icewm-and-launcher):
 
@@ -941,8 +948,8 @@ installs no skill — the `rk skill` bundle owns usage knowledge. The legacy
 **Topic pages.** The shll skill standard has **topic pages** (`<tool> skill
 <topic>`, each canonical at `docs/site/skill/<topic>.md`, ≤150 lines, static-only,
 byte-identical, drift-guarded, rendered at `/<tool>/skill/<topic>` on shll.ai —
-shll PR #47). run-kit ships six topic pages: `code`, `display`, `gui`,
-`messaging`, `mux`, and `tutorial` (fvpu) (bbv1). Each uses the per-topic embed mechanism and the shared
+shll PR #47). run-kit ships seven topic pages: `code`, `cron`, `display`,
+`gui`, `messaging`, `mux`, and `tutorial` (fvpu) (bbv1) (hcon). Each uses the per-topic embed mechanism and the shared
 `TestSkillTopicsMatchCanonical` / `TestSkillTopicsWithinLineBudget` guards; the
 command cases in `TestSkillTopicsPrintByteIdentical` pin the stdout contract.
 The tutorial uses a bidirectional page↔companion guard:
@@ -952,7 +959,7 @@ companion page `tutorial/tutorial.html` at each of its five chapter hashes
 `app/frontend/public/tutorial/`, and rejects any other `.html` file there;
 `TestTutorialLayoutValuesParse` checks the tour's layout and surface literals.
 The standard's fail-fast rule holds: an **unknown topic** exits usage-class (2)
-via the `usageError` helper with all six valid topics named on stderr and
+via the `usageError` helper with all seven valid topics named on stderr and
 **empty stdout** — never a silent empty document; bare `rk skill` **never
 inlines** a topic page. Topic pages are a clause of the already-passing `skill`
 standard, not a separate standard. (6uu0)

@@ -1,0 +1,55 @@
+id: hcon
+name: 260911-hcon-cron-surface-consolidation
+created: 2026-09-11T08:59:53Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 22
+    acceptance_count: 37
+    acceptance_completed: 37
+confidence:
+    certain: 16
+    confident: 6
+    tentative: 1
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 77.8
+        reversibility: 81.5
+        competence: 84.8
+        disambiguation: 80.9
+stage_metrics:
+    intake: {started_at: "2026-09-11T08:59:53Z", driver: fab-new, iterations: 1, completed_at: "2026-09-11T09:12:26Z"}
+    apply: {started_at: "2026-09-11T10:46:06Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-11T11:17:23Z"}
+    review: {started_at: "2026-09-11T11:17:23Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-11T11:20:49Z"}
+    hydrate: {started_at: "2026-09-11T11:20:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T11:34:56Z"}
+    ship: {started_at: "2026-09-11T11:34:56Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-11T11:34:56Z"
+    computed_at_stage: hydrate
+summary: The cron clock's web UI consolidates into the operator console's four-segment strip — Cron List (registry with mute-lease, edit, pin, delete actions) and Cron Log (deliveries) on the desktop drawer and mobile operator route, with the ◷ chip and palette entries as entry points; the sidebar CLOCK section and the Server-page CRONS / RECENT DELIVERIES zones are retired; the mute API gains an optional lease field, notify deep-links emit ?tab=log (activity aliased for one release), and rk skill gains a cron topic
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-11T11:34:56Z

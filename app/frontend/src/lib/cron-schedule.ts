@@ -1,4 +1,4 @@
-// Pure schedule-to-sentence helper for the cron UI (the Activity feed's row
+// Pure schedule-to-sentence helper for the cron UI (the Cron List row
 // summaries and the entry detail sheet share it). Dependency-free leaf module
 // (the router-url.ts convention): the input type is declared locally and
 // structural, so api/client.ts's CronEntry is assignable without an import

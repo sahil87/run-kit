@@ -23,6 +23,14 @@ import (
 //go:embed skill/skill.md
 var skillBundle []byte
 
+// skillCronTopic holds the `cron` topic page, canonical at
+// docs/site/skill/cron.md and synced into skill/cron.md alongside the core
+// bundle. Same embed + drift-guard mechanism as the display topic, same
+// static-only rules, independently bounded at ≤150 lines.
+//
+//go:embed skill/cron.md
+var skillCronTopic []byte
+
 // skillDisplayTopic holds the `display` topic page, canonical at
 // docs/site/skill/display.md and synced into skill/display.md alongside the
 // core bundle. Same embed + drift-guard mechanism (TestSkillDisplayEmbedMatchesCanonical),
@@ -81,6 +89,7 @@ const tutorialTopicName = "tutorial"
 // row per topic page shipped.
 var skillTopics = map[string][]byte{
 	"code":            skillCodeTopic,
+	"cron":            skillCronTopic,
 	"display":         skillDisplayTopic,
 	"gui":             skillGuiTopic,
 	"messaging":       skillMessagingTopic,

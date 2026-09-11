@@ -7,7 +7,7 @@ import type { WindowInfo } from "@/types";
 /**
  * The watched-workers table — the ONE rendering of the operator watchlist's
  * rows, mounted by the Server page's WATCHED zone
- * (components/server-clock-dashboard/watched-zone.tsx, which derives the rows
+ * (components/server-watched-zone/watched-zone.tsx, which derives the rows
  * and status via ./model.ts's `collectWatchedRows`/`watchlistStatus`) and by
  * the operator console's Operator Tasks segment (components/watched-tasks.tsx).
  * Six columns — status (`StatusDot` + the window-name navigate button),

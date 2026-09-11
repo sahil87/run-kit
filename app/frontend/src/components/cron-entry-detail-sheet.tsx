@@ -10,8 +10,17 @@ import {
 import { deleteCron, muteCron, pinCron, type CronEntry } from "@/api/client";
 import { describeDeliver, describeSchedule } from "@/lib/cron-schedule";
 import { formatDuration } from "@/lib/format";
+import { CronCreateDialog } from "@/components/cron-create-dialog";
 
-/** "3m ago" for a unix-seconds timestamp. Render-time only — the feed's
+/** The `Mute for…` preset choices; `undefined` = no lease (until unmuted). */
+const MUTE_FOR_PRESETS: { label: string; forDuration?: string }[] = [
+  { label: "30m", forDuration: "30m" },
+  { label: "2h", forDuration: "2h" },
+  { label: "8h", forDuration: "8h" },
+  { label: "until unmuted" },
+];
+
+/** "3m ago" for a unix-seconds timestamp. Render-time only — the
  *  SSE-cadence refetch is the clock (the recovery-section precedent: no
  *  ticking timer). */
 function agoLabel(ts: number, nowMs: number): string {
@@ -59,10 +68,12 @@ function SwitchTrack({ on }: { on: boolean }) {
  *
  * The `inline` variant is the same sheet without the modal shell: no fixed
  * full-viewport backdrop and no `aria-modal` — the panel fills its parent's
- * relative container (`absolute inset-0`, the desktop console drawer's
- * Activity segment mounts it this way) and its header leads with a
- * `‹ Activity` back control in place of the ✕. Rows are identical in both
- * variants.
+ * relative container (`absolute inset-0`, the desktop console drawer's cron
+ * tabs mount it this way) and its header leads with a `‹ Back` control in
+ * place of the ✕. Rows are identical in both variants.
+ *
+ * The Edit row opens CronCreateDialog's edit mode as a nested modal (the
+ * sheet's focus trap stands down while it is open).
  */
 export function CronEntryDetailSheet({
   server,
@@ -82,6 +93,8 @@ export function CronEntryDetailSheet({
   const [pinnedOverride, setPinnedOverride] = useState<boolean | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [muteForOpen, setMuteForOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [error, setError] = useState("");
 
   const entryMuted = entry.muted === true;
@@ -98,14 +111,17 @@ export function CronEntryDetailSheet({
   const muted = mutedOverride ?? entryMuted;
   const pinned = pinnedOverride ?? entryPinned;
 
-  const toggleMute = () => {
-    const next = !muted;
+  const setMutedState = (next: boolean, forDuration?: string) => {
     setError("");
     setMutedOverride(next);
-    muteCron(server, entry.id, next).catch((err: unknown) => {
+    muteCron(server, entry.id, next, forDuration).catch((err: unknown) => {
       setMutedOverride(null);
       setError(err instanceof Error && err.message ? err.message : "Mute failed");
     });
+  };
+  const toggleMute = () => {
+    setMuteForOpen(false);
+    setMutedState(!muted);
   };
   const togglePin = () => {
     const next = !pinned;
@@ -141,11 +157,11 @@ export function CronEntryDetailSheet({
         {inline && (
           <button
             type="button"
-            aria-label="Back to activity"
+            aria-label="Back"
             onClick={onClose}
             className="rk-glint inline-flex shrink-0 items-center rounded px-1 text-text-secondary transition-colors hover:text-text-primary coarse:min-h-[36px]"
           >
-            ‹ Activity
+            ‹ Back
           </button>
         )}
         <h2 className="min-w-0 flex-1 truncate text-xs font-medium text-text-primary">
@@ -194,6 +210,41 @@ export function CronEntryDetailSheet({
           <span className={labelClass}>Mute</span>
           <SwitchTrack on={muted} />
         </button>
+        {/* The lease arm — presets POST mute with the additive `for` field;
+            `until unmuted` and unmute carry no `for`. Hidden while muted (the
+            switch is the unmute path then). */}
+        {!muted && (
+          <div className="border-t border-border px-3 py-2.5">
+            <button
+              type="button"
+              aria-expanded={muteForOpen}
+              onClick={() => setMuteForOpen((v) => !v)}
+              className="w-full text-left text-xs text-text-primary coarse:min-h-[44px]"
+            >
+              Mute for…
+            </button>
+            {muteForOpen && (
+              <div className="flex flex-wrap gap-1.5 pt-1.5" role="group" aria-label="Mute duration">
+                {MUTE_FOR_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      setMuteForOpen(false);
+                      setMutedState(true, preset.forDuration);
+                    }}
+                    className={controlClass({
+                      variant: "toggle",
+                      base: "px-2 py-1 border rounded text-xs transition-colors",
+                    })}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <button
           type="button"
           role="switch"
@@ -205,6 +256,15 @@ export function CronEntryDetailSheet({
           <span className={labelClass}>Pin</span>
           <SwitchTrack on={pinned} />
         </button>
+        <div className="border-t border-border px-3 py-2.5">
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="w-full text-left text-xs text-text-primary coarse:min-h-[44px]"
+          >
+            Edit
+          </button>
+        </div>
         <div className="border-t border-border px-3 py-2.5">
           {confirmingDelete ? (
             <div className="flex items-center gap-2">
@@ -240,6 +300,9 @@ export function CronEntryDetailSheet({
         <p role="alert" className="px-3 py-2 text-xs text-signal-red">
           {error}
         </p>
+      )}
+      {editing && (
+        <CronCreateDialog server={server} entry={entry} onClose={() => setEditing(false)} />
       )}
     </>
   );

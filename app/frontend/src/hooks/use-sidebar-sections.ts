@@ -2,28 +2,22 @@ import { useLocalStorageBoolean } from "./use-local-storage-boolean";
 
 /** The sidebar's toggleable sections. Sessions is deliberately excluded — the
  *  session tree is the always-on core nav surface and must not be hideable. */
-export type SidebarSection = "boards" | "server" | "pane" | "host" | "clock";
+export type SidebarSection = "boards" | "server" | "pane" | "host";
 
 /** Ordered rail vocabulary: key, default visibility, and display label per
  *  section. Defaults reproduce the pre-rail rendering on both viewports
- *  (Boards/Server on, Pane/Host off); Clock defaults off and is
- *  `desktopOnly` — the rail hides its toggle on mobile, where the mobile
- *  console sheet owns cron visibility instead. One shared key per section —
+ *  (Boards/Server on, Pane/Host off). One shared key per section —
  *  no per-viewport fork, no per-route state. */
 export const SIDEBAR_SECTIONS: readonly {
   section: SidebarSection;
   key: string;
   defaultValue: boolean;
   label: string;
-  /** Desktop-only sections never render a rail toggle on mobile viewports
-   *  (the panel mount is gated separately, at the sidebar). */
-  desktopOnly?: boolean;
 }[] = [
   { section: "boards", key: "runkit-sidebar-section-boards", defaultValue: true, label: "Boards" },
   { section: "server", key: "runkit-sidebar-section-server", defaultValue: true, label: "Servers" },
   { section: "pane", key: "runkit-sidebar-section-pane", defaultValue: false, label: "Pane" },
   { section: "host", key: "runkit-sidebar-section-host", defaultValue: false, label: "Host" },
-  { section: "clock", key: "runkit-sidebar-section-clock", defaultValue: false, label: "Clock", desktopOnly: true },
 ];
 
 const SECTION_ENTRY = Object.fromEntries(

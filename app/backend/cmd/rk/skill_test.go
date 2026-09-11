@@ -27,6 +27,7 @@ func TestSkillTopicsPrintByteIdentical(t *testing.T) {
 		want  []byte
 	}{
 		{name: "core", want: skillBundle},
+		{name: "cron", topic: "cron", want: skillCronTopic},
 		{name: "display", topic: "display", want: skillDisplayTopic},
 		{name: "gui", topic: "gui", want: skillGuiTopic},
 		{name: "code", topic: "code", want: skillCodeTopic},
@@ -72,6 +73,7 @@ func TestSkillTopicsMatchCanonical(t *testing.T) {
 		canonical string
 	}{
 		{name: "core", embedded: skillBundle, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill.md")},
+		{name: "cron", embedded: skillCronTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "cron.md")},
 		{name: "display", embedded: skillDisplayTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "display.md")},
 		{name: "gui", embedded: skillGuiTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "gui.md")},
 		{name: "code", embedded: skillCodeTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "code.md")},
@@ -110,6 +112,7 @@ func TestSkillTopicsWithinLineBudget(t *testing.T) {
 		content []byte
 	}{
 		{name: "core", content: skillBundle},
+		{name: "cron", content: skillCronTopic},
 		{name: "display", content: skillDisplayTopic},
 		{name: "gui", content: skillGuiTopic},
 		{name: "code", content: skillCodeTopic},
@@ -249,7 +252,7 @@ func TestSkillUnknownTopicFailsFast(t *testing.T) {
 	if exitCode(err) != exitUsage {
 		t.Errorf("skill bogus exit code = %d, want %d (usage)", exitCode(err), exitUsage)
 	}
-	for _, want := range []string{"unknown topic", "code, display, gui, messaging, mux, " + tutorialTopicName} {
+	for _, want := range []string{"unknown topic", "code, cron, display, gui, messaging, mux, " + tutorialTopicName} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("skill bogus error %q missing %q", err.Error(), want)
 		}

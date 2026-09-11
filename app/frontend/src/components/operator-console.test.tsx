@@ -51,7 +51,7 @@ vi.mock("@/api/client", async (importActual) => ({
   sendOperatorRequest: mockOperatorRequest,
 }));
 
-// The Activity segment mounts the real CronActivityFeed; its cron fetch is
+// The cron segments mount the real CronList/CronLog; their cron fetch is
 // mocked out here (controllable shape) so no request fires from these tests.
 const mockCronData = vi.hoisted(() => ({
   current: {
@@ -629,7 +629,7 @@ describe("OperatorConsole", () => {
   });
 });
 
-describe("OperatorConsole (activity segment)", () => {
+describe("OperatorConsole (cron segments)", () => {
   beforeEach(() => {
     stubMatchMedia(() => false);
     setConsoleMachineState("rest");
@@ -654,64 +654,90 @@ describe("OperatorConsole (activity segment)", () => {
     vi.unstubAllGlobals();
   });
 
-  function activityTab() {
-    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Activity" });
+  function listTab() {
+    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Cron List" });
+  }
+  function logTab() {
+    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Cron Log" });
   }
   function terminalTab() {
     return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Operator Terminal" });
   }
 
-  it("the desktop drawer renders the Terminal | Activity strip with Terminal selected", () => {
+  it("the desktop drawer renders the four segments in order with Operator Terminal selected", () => {
     renderConsole();
     openDrawer();
 
     const strip = screen.getByTestId("terminal-activity-tabs");
     expect(strip).toHaveAttribute("role", "tablist");
+    expect(within(strip).getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "Operator Terminal",
+      "Operator Tasks",
+      "Cron List",
+      "Cron Log",
+    ]);
     expect(terminalTab()).toHaveAttribute("aria-selected", "true");
-    expect(activityTab()).toHaveAttribute("aria-selected", "false");
+    expect(listTab()).toHaveAttribute("aria-selected", "false");
+    expect(logTab()).toHaveAttribute("aria-selected", "false");
   });
 
-  it("selecting Activity mounts the feed and unmounts the terminal; Terminal reverses it", () => {
+  it("selecting a cron tab mounts its body and unmounts the terminal; Operator Terminal reverses it", () => {
     renderConsole();
     openDrawer();
     expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
 
-    fireEvent.click(activityTab());
-    expect(screen.getByTestId("cron-activity-feed")).toBeInTheDocument();
+    fireEvent.click(listTab());
+    expect(screen.getByTestId("cron-list")).toBeInTheDocument();
     expect(screen.queryByTestId("embedded-terminal")).toBeNull();
+
+    fireEvent.click(logTab());
+    expect(screen.getByTestId("cron-log")).toBeInTheDocument();
+    expect(screen.queryByTestId("cron-list")).toBeNull();
 
     fireEvent.click(terminalTab());
     expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
-    expect(screen.queryByTestId("cron-activity-feed")).toBeNull();
+    expect(screen.queryByTestId("cron-log")).toBeNull();
   });
 
-  it("an open request carrying segment: activity opens the drawer on the Activity segment", () => {
+  it("an open request carrying segment: log opens the drawer on the Cron Log segment", () => {
     renderConsole();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "activity" });
+      requestOperatorConsole({ action: "open", segment: "log" });
     });
 
     expect(screen.getByTestId("operator-console")).toBeInTheDocument();
-    expect(activityTab()).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByTestId("cron-activity-feed")).toBeInTheDocument();
+    expect(logTab()).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("cron-log")).toBeInTheDocument();
     expect(screen.queryByTestId("embedded-terminal")).toBeNull();
   });
 
-  it("segment: activity on the operator route bypasses the already-viewing toast and opens the drawer", () => {
+  it("an open request carrying segment: list opens the drawer on the Cron List segment", () => {
+    renderConsole();
+    act(() => {
+      requestOperatorConsole({ action: "open", segment: "list" });
+    });
+
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(listTab()).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("cron-list")).toBeInTheDocument();
+    expect(screen.queryByTestId("embedded-terminal")).toBeNull();
+  });
+
+  it("segment: log on the operator route bypasses the already-viewing toast and opens the drawer", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
     renderConsole({ withToasts: true });
 
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "activity" });
+      requestOperatorConsole({ action: "open", segment: "log" });
     });
 
     expect(getConsoleMachineState()).toBe("open");
     expect(screen.getByTestId("operator-console")).toBeInTheDocument();
-    expect(activityTab()).toHaveAttribute("aria-selected", "true");
+    expect(logTab()).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByText("already viewing the operator — nothing to open")).toBeNull();
   });
 
-  it("Escape inside the inline entry sheet returns to the feed without collapsing the drawer", () => {
+  it("Escape inside the inline entry sheet returns to the list without collapsing the drawer", () => {
     const nowSec = Math.floor(Date.now() / 1000);
     mockCronData.current = {
       entries: [
@@ -731,34 +757,34 @@ describe("OperatorConsole (activity segment)", () => {
     };
     renderConsole();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "activity" });
+      requestOperatorConsole({ action: "open", segment: "list" });
     });
 
-    fireEvent.click(screen.getByTestId("cron-upcoming-row-a3f9"));
+    fireEvent.click(screen.getByTestId("cron-list-row-a3f9"));
     expect(screen.getByTestId("cron-entry-sheet")).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByTestId("cron-entry-sheet")).toBeNull();
-    expect(screen.getByTestId("cron-activity-feed")).toBeInTheDocument();
+    expect(screen.getByTestId("cron-list")).toBeInTheDocument();
     expect(screen.getByTestId("operator-console")).toBeInTheDocument();
     expect(getConsoleMachineState()).toBe("open");
   });
 
-  it("closing the drawer and re-opening with a plain request resets to the Terminal segment", async () => {
+  it("closing the drawer and re-opening with a plain request resets to the Operator Terminal segment", async () => {
     // Reduced motion so the close is instant — no exit-slide wait.
     stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
     renderConsole();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "activity" });
+      requestOperatorConsole({ action: "open", segment: "log" });
     });
-    expect(activityTab()).toHaveAttribute("aria-selected", "true");
+    expect(logTab()).toHaveAttribute("aria-selected", "true");
 
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
 
     openDrawer();
     expect(terminalTab()).toHaveAttribute("aria-selected", "true");
-    expect(screen.queryByTestId("cron-activity-feed")).toBeNull();
+    expect(screen.queryByTestId("cron-log")).toBeNull();
   });
 
   it("the title strip carries the tick-age stamp from the first session with operatorLastTickAt > 0", () => {
@@ -1075,27 +1101,27 @@ describe("OperatorConsole (mobile navigation)", () => {
     expect(mockOperatorRequest).not.toHaveBeenCalled();
   });
 
-  it("a segment: activity request navigates with search.tab = activity, merged with the ?from= origin", () => {
+  it("a segment: list request navigates with search.tab = list, merged with the ?from= origin", () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
     renderConsole();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "activity" });
+      requestOperatorConsole({ action: "open", segment: "list" });
     });
 
     expect(mockNavigate).toHaveBeenCalledWith({
       to: "/$server/$window",
       params: { server: "srv1", window: "@9" },
-      search: { from: "@1", tab: "activity" },
+      search: { from: "@1", tab: "list" },
     });
     expect(screen.queryByTestId("operator-console")).toBeNull();
   });
 
-  it("already on the operator route, segment: activity updates the tab search param in place", () => {
+  it("already on the operator route, segment: log updates the tab search param in place", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
     mockSearch = { from: "@1" };
     renderConsole();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "activity" });
+      requestOperatorConsole({ action: "open", segment: "log" });
     });
 
     expect(mockNavigate).toHaveBeenCalledTimes(1);
@@ -1107,7 +1133,7 @@ describe("OperatorConsole (mobile navigation)", () => {
     expect(call.to).toBe(".");
     expect(call.replace).toBe(true);
     // The updater merges over the existing search — the ?from= survives.
-    expect(call.search({ from: "@1" })).toEqual({ from: "@1", tab: "activity" });
+    expect(call.search({ from: "@1" })).toEqual({ from: "@1", tab: "log" });
   });
 
   it("a segment: tasks request navigates with search.tab = tasks, merged with the ?from= origin", () => {

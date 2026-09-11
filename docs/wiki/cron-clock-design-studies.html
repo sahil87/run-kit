@@ -112,6 +112,7 @@
 <p class="sub">Visual design for <code>docs/specs/cron.md</code> — sidebar placement (the right panel is retired), entry anatomy, the idle-anchored backoff schedule, fire-time target resolution, and the watched-row overlay. All mocks are [target].</p>
 
 <h2>1 · Placement — a CLOCK sidebar section + watched rows in the tree</h2>
+<p style="border:1px solid color-mix(in srgb, var(--amber) 55%, transparent); background:color-mix(in srgb, var(--amber) 9%, transparent); color:var(--amber); padding:6px 10px; border-radius:5px; font-size:12px"><b>Superseded (2026-09-11)</b> — the CLOCK section / CRONS and RECENT DELIVERIES zones were retired in favor of the console <code>Cron List | Cron Log</code> tabs. The mocks below stay as the record.</p>
 <p>Crons and the watchlist are <b>server-scoped monitoring facts</b>, and the sidebar is run-kit's server-scoped monitoring surface (agent dots, markers, notes live there) — present on the terminal route, costing no navigation and no center real estate. The section-visibility rail is explicitly "the designated home for future sidebar-level controls": CLOCK joins it as a fifth toggle (default off), a standard <code>CollapsiblePanel</code>. The watchlist is deliberately <b>not a separate list</b> — watched workers are already window rows in the tree, so the operator's attention set renders as a row-level indicator, with detail on the row's existing flyout card.</p>
 
 <div class="study">
@@ -274,6 +275,7 @@
 </div>
 
 <h2>1d · The registry — tmux Server page</h2>
+<p style="border:1px solid color-mix(in srgb, var(--amber) 55%, transparent); background:color-mix(in srgb, var(--amber) 9%, transparent); color:var(--amber); padding:6px 10px; border-radius:5px; font-size:12px"><b>Superseded (2026-09-11)</b> — the CLOCK section / CRONS and RECENT DELIVERIES zones were retired in favor of the console <code>Cron List | Cron Log</code> tabs; the Server page keeps the WATCHED zone only. The mock below stays as the record.</p>
 <p><b>Shipped</b> (the registry half of the tier-2 split — § 1b's dashboard content re-homed). The tmux Server page (<code>/$server</code>) is the one existing route whose scope matches the clock's, so the full view lands there as three zones below the Sessions grid, inside the same single scrolling tile area, each headed by the shared bracketed <code>SectionHeading</code> with its stats in the side slot: <b>WATCHED</b> (one row per monitored window — the detail table the sidebar cannot afford), <b>CRONS</b> (the full registry the CLOCK section trims — plain-words schedule, derived state, last/next, row actions), <b>RECENT DELIVERIES</b> (the server-capped log, newest first, day dividers). Desktop-only — the mobile answer is the console sheet's Activity feed (§ 1c). No new route, no settings, no per-zone toggles (Constitution IV).</p>
 
 <div class="study">
@@ -370,6 +372,7 @@
 </div>
 
 <h2>4 · Interaction inventory</h2>
+<p style="border:1px solid color-mix(in srgb, var(--amber) 55%, transparent); background:color-mix(in srgb, var(--amber) 9%, transparent); color:var(--amber); padding:6px 10px; border-radius:5px; font-size:12px"><b>Superseded (2026-09-11)</b> — the CLOCK section / CRONS and RECENT DELIVERIES zones were retired in favor of the console <code>Cron List | Cron Log</code> tabs; the <code>Panel: Toggle Clock</code>, <code>Operator: Show clock activity</code>, and <code>Server: Clock dashboard</code> rows below describe the retired surfaces.</p>
 <table>
   <tr><th>Action</th><th>Surface</th><th>Palette (Constitution V)</th></tr>
   <tr><td>Show/hide CLOCK section</td><td>section-rail ◷ toggle</td><td><code>Panel: Toggle Clock</code></td></tr>

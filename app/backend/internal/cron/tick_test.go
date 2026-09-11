@@ -679,7 +679,7 @@ func TestTickIfAbsentNotifyFailSilent(t *testing.T) {
 }
 
 // TestTickIfAbsentNotifyDeepLink: the notify carries the operator window's
-// activity-tab deep link when a role:operator window resolves on the server,
+// cron-log-tab deep link when a role:operator window resolves on the server,
 // and an empty url (tick completing normally) when none does.
 func TestTickIfAbsentNotifyDeepLink(t *testing.T) {
 	t.Run("operator window resolves", func(t *testing.T) {
@@ -693,7 +693,7 @@ func TestTickIfAbsentNotifyDeepLink(t *testing.T) {
 		if len(nt.calls) != 1 {
 			t.Fatalf("notify calls = %d, want 1", len(nt.calls))
 		}
-		if want := "/live1/7?tab=activity"; nt.calls[0].url != want {
+		if want := "/live1/7?tab=log"; nt.calls[0].url != want {
 			t.Errorf("notify url = %q, want %q", nt.calls[0].url, want)
 		}
 	})

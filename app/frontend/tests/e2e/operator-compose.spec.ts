@@ -210,9 +210,9 @@ test.describe("Operator compose (260822-wyn3)", () => {
   /**
    * Proves: the degrade-to-absent gate — with no `role: "operator"` window in
    * the sessions payload, both compose-dialog `Operator:` palette entries are
-   * omitted (not disabled). The three console openers — `Operator: Open
-   * console`, its Activity-segment twin `Operator: Show clock activity`, and
-   * the Operator Tasks twin `Operator: Show tasks` —
+   * omitted (not disabled). The four console openers — `Operator: Open
+   * console`, the Operator Tasks opener `Operator: Show tasks`, and the cron
+   * openers `Operator: Show cron list` / `Operator: Show cron log` —
    * are deliberately ungated: the console itself opens and shows the
    * no-operator hint (and the cron clock is server-wide, operator or not), so
    * they remain the only listed `Operator:` entries.
@@ -220,7 +220,7 @@ test.describe("Operator compose (260822-wyn3)", () => {
    * Steps:
    * 1. Mock the backend WITHOUT an operator window.
    * 2. Open the palette, filter to `Operator:`.
-   * 3. Assert both compose entries are absent and only the three console
+   * 3. Assert both compose entries are absent and only the four console
    *    openers remain.
    */
   test("compose palette entries are omitted when the server has no operator window", async ({ page }) => {
@@ -230,9 +230,10 @@ test.describe("Operator compose (260822-wyn3)", () => {
     await openPaletteWith(page, "Operator:");
     await expect(page.getByRole("option", { name: "Operator: Spawn task…" })).toHaveCount(0);
     await expect(page.getByRole("option", { name: "Operator: Find discussion…" })).toHaveCount(0);
-    await expect(page.getByRole("option", { name: /^Operator:/ })).toHaveCount(3);
+    await expect(page.getByRole("option", { name: /^Operator:/ })).toHaveCount(4);
     await expect(page.getByRole("option", { name: "Operator: Open console" })).toHaveCount(1);
-    await expect(page.getByRole("option", { name: "Operator: Show clock activity" })).toHaveCount(1);
     await expect(page.getByRole("option", { name: "Operator: Show tasks" })).toHaveCount(1);
+    await expect(page.getByRole("option", { name: "Operator: Show cron list" })).toHaveCount(1);
+    await expect(page.getByRole("option", { name: "Operator: Show cron log" })).toHaveCount(1);
   });
 });

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 14
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-11T01:58:31Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T02:58:31Z"}
     review: {started_at: "2026-09-11T02:58:31Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T03:09:03Z"}
     hydrate: {started_at: "2026-09-11T03:09:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T03:16:35Z"}
-    ship: {started_at: "2026-09-11T03:16:35Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-11T03:16:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T03:17:58Z"}
+    review-pr: {started_at: "2026-09-11T03:17:58Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/934
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1924
+    deleted: 60
+    net: 1864
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1473
+        deleted: 28
+        net: 1445
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-11T03:16:35Z"
-    computed_at_stage: hydrate
+        added: 369
+        deleted: 4
+        net: 365
+    computed_at: "2026-09-11T03:17:58Z"
+    computed_at_stage: ship
 summary: 'GUI tile: coarse/fullscreen toolbar pill mirroring palette rows, rk-gui-hidpi device-pixel rendering, rk-gui-keybar posture, GUI: Send key… viewer-side chords with the mirror refusal'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-11T03:16:35Z
+last_updated: 2026-09-11T03:17:58Z

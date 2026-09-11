@@ -147,7 +147,7 @@ Two fab changes, disjoint in code, sharing only `docs/specs/gui.md` (different s
 
 | Stage | Change | Lane | Depends on | Change ID | PR | Status |
 |---|---|---|---|---|---|---|
-| R1 | Desktop reference: table + hints, `wm_candidates` missing rows, picker rows, `rk gui wm --list` + help, site guide + README + install line, skill gotcha | full | — | | | |
+| R1 | Desktop reference: table + hints, `wm_candidates` missing rows, picker rows, `rk gui wm --list` + help, site guide + README + install line, skill gotcha | full | — | `91px` | | intake drafted 2026-09-11 (inactive) |
 | T1 | Toolbar: mount-for-all + hover reveal, resolution menu chip, fullscreen toggle, launch/input/health chips, `⋯` overflow by width | full | — | | | |
 
 ### R1 — Desktop reference

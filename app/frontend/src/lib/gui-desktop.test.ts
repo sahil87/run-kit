@@ -6,6 +6,7 @@ import {
   DESKTOP_SET_OFF_TOAST,
   buildWMOptions,
   buildDesktopPaletteRows,
+  missingWMs,
   isOtherWM,
   guiRestartBody,
 } from "./gui-desktop";
@@ -34,6 +35,13 @@ function status(overrides: Partial<GuiStatus> = {}): GuiStatus {
 
 const ICEWM = { name: "icewm-session", label: "IceWM", kind: "wm" as const, installed: true };
 const LXQT = { name: "startlxqt", label: "LXQt", kind: "session" as const, installed: true };
+const XFCE_MISSING = {
+  name: "startxfce4",
+  label: "XFCE",
+  kind: "session" as const,
+  installed: false,
+  hint: "sudo apt install --no-install-recommends xfce4",
+};
 
 describe("buildWMOptions", () => {
   it("orders Auto → candidates by label → Other…", () => {
@@ -41,6 +49,15 @@ describe("buildWMOptions", () => {
       { value: AUTO_WM, label: "Auto (ladder)" },
       { value: "icewm-session", label: "IceWM" },
       { value: "startlxqt", label: "LXQt" },
+      { value: OTHER_WM, label: "Other…" },
+    ]);
+  });
+
+  it("missing desktops become disabled '<label> — not installed' options before Other…", () => {
+    expect(buildWMOptions(status({ wm_candidates: [ICEWM, XFCE_MISSING] }))).toEqual([
+      { value: AUTO_WM, label: "Auto (ladder)" },
+      { value: "icewm-session", label: "IceWM" },
+      { value: "startxfce4", label: "XFCE — not installed", disabled: true },
       { value: OTHER_WM, label: "Other…" },
     ]);
   });
@@ -57,6 +74,21 @@ describe("buildWMOptions", () => {
       { value: AUTO_WM, label: "Auto (ladder)" },
       { value: OTHER_WM, label: "Other…" },
     ]);
+  });
+});
+
+describe("missingWMs", () => {
+  it("returns the installed:false rows in document order", () => {
+    const plasmaMissing = { ...XFCE_MISSING, name: "startplasma-x11", label: "Plasma" };
+    expect(missingWMs(status({ wm_candidates: [ICEWM, XFCE_MISSING, LXQT, plasmaMissing] }))).toEqual([
+      XFCE_MISSING,
+      plasmaMissing,
+    ]);
+  });
+
+  it("is empty when everything is installed or the field is absent", () => {
+    expect(missingWMs(status({ wm_candidates: [ICEWM] }))).toEqual([]);
+    expect(missingWMs(status())).toEqual([]);
   });
 });
 
@@ -80,26 +112,26 @@ describe("buildDesktopPaletteRows", () => {
     expect(rows[1].description).toBeUndefined();
   });
 
-  it("appends the install hint as a trailing disabled row when present", () => {
-    const rows = buildDesktopPaletteRows(
-      status({
-        wm_candidates: [ICEWM],
-        wm_candidates_hint: "sudo apt install --no-install-recommends lxqt-core",
-      }),
-      "",
-      vi.fn(),
-    );
-    const hint = rows[rows.length - 1];
-    expect(hint.label).toBe("Install more: sudo apt install --no-install-recommends lxqt-core");
-    expect(hint.disabled).toBe(true);
+  it("missing desktops trail as disabled '<label> (not installed)' rows with the hint as description", () => {
+    const rows = buildDesktopPaletteRows(status({ wm_candidates: [ICEWM, XFCE_MISSING] }), "", vi.fn());
+    expect(rows.map((r) => [r.label, r.description, r.disabled ?? false])).toEqual([
+      ["Auto (ladder)", "current", false],
+      ["IceWM", undefined, false],
+      ["XFCE (not installed)", "sudo apt install --no-install-recommends xfce4", true],
+    ]);
   });
 
-  it("omits the hint row when the field is absent or empty", () => {
+  it("a missing row with an empty hint omits the description, and its onSelect is inert", () => {
     const onPick = vi.fn();
-    expect(buildDesktopPaletteRows(status({ wm_candidates: [ICEWM] }), "", onPick)).toHaveLength(2);
-    expect(
-      buildDesktopPaletteRows(status({ wm_candidates: [ICEWM], wm_candidates_hint: "" }), "", onPick),
-    ).toHaveLength(2);
+    const rows = buildDesktopPaletteRows(
+      status({ wm_candidates: [{ ...XFCE_MISSING, hint: undefined }] }),
+      "",
+      onPick,
+    );
+    expect(rows[1].description).toBeUndefined();
+    expect(rows[1].disabled).toBe(true);
+    rows[1].onSelect();
+    expect(onPick).not.toHaveBeenCalled();
   });
 
   it("has no Other… row and routes selections to onPick by name", () => {

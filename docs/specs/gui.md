@@ -76,7 +76,8 @@ ladder). `icewm-session` runs `--nobg --notray`: icewmbg would paint a theme
 wallpaper over the `xsetroot -solid #3b4252` ground, and the tray is dead
 weight on a single-user display. Every session starter — `startlxqt`,
 `lxqt-session`, `startxfce4`, `xfce4-session`, `startplasma-x11`,
-`x-session-manager` — runs under `dbus-run-session -- <name>`: a desktop
+`startlxde`, `mate-session`, `cinnamon-session`, `x-session-manager` — runs
+under `dbus-run-session -- <name>`: a desktop
 environment without a session bus fails its panel, tray, and policy agents
 silently, and libdbus autolaunch on a headless X display is not dependable.
 Bare window managers run unwrapped. A session starter also runs in its own
@@ -100,17 +101,24 @@ the WM from that stamp.
 
 ## Switching desktops
 
-`rk gui wm [auto|icewm|lxqt|xfce|<binary>] [--restart] [--force]` is the CLI
-face of the `gui.wm` pin (§ The switch). With no argument it reports the pin
-and the live rung (`wm: auto → icewm-session (running)`, `wm: startlxqt
-(pinned; not running)`) — state, exit 0 always. The aliases map `auto` ⇒ the
-ladder, `icewm` ⇒ `icewm-session`, `lxqt` ⇒ `startlxqt`, `xfce` ⇒
-`startxfce4`; anything else is a literal binary name. A name not on PATH is
-refused with the package-manager-aware install line (the desktop's packages
-for a session starter, the icewm line for a bare WM) unless `--force` pins
-anyway — the supervisor then logs the miss and falls back to the ladder. The
-pin takes effect on `rk gui restart`; `--restart` chains into that verb and
-inherits its refusals (gui off, daemon down).
+`rk gui wm [auto|icewm|lxqt|xfce|plasma|lxde|mate|cinnamon|<binary>]
+[--restart] [--force] [--list] [--json]` is the CLI face of the `gui.wm` pin
+(§ The switch). With no argument it reports the pin and the live rung (`wm:
+auto → icewm-session (running)`, `wm: startlxqt (pinned; not running)`) —
+state, exit 0 always. The aliases map `auto` ⇒ the ladder, `icewm` ⇒
+`icewm-session`, `lxqt` ⇒ `startlxqt`, `xfce` ⇒ `startxfce4`, `plasma` ⇒
+`startplasma-x11`, `lxde` ⇒ `startlxde`, `mate` ⇒ `mate-session`, `cinnamon`
+⇒ `cinnamon-session`; anything else is a literal binary name. A name not on
+PATH is refused with the package-manager-aware install line (the desktop's
+packages for a session starter, the icewm line for a bare WM) unless `--force`
+pins anyway — the supervisor then logs the miss and falls back to the ladder.
+The pin takes effect on `rk gui restart`; `--restart` chains into that verb
+and inherits its refusals (gui off, daemon down). `--list` prints the
+candidate table the pickers read (installed desktops first, then the
+known-but-missing ones with their install lines, worded for the detected
+package manager) — read-only, `LookPath` only — and `--list --json` emits the
+`wm_candidates` array verbatim; combining `--list` with a positional argument,
+`--restart`, or `--force` is a usage error (exit 2).
 
 ```
 $ rk gui wm lxqt
@@ -128,14 +136,20 @@ restarted (Xtigervnc :10)
 The same pin has two UI doors sharing one picker. Settings → All settings →
 `gui.wm` renders a select — `Auto (ladder)` first, then every installed
 candidate the server detected (`IceWM`, `LXQt`, `XFCE`, bare WMs by name),
-then `Other…` revealing a free-text field for a typed binary — and the
-palette gains `GUI: Desktop…` (⌘K) opening the same picker as a sub-list.
-The candidates ride the status document: `GET /api/gui/host` gains
-`wm_candidates: [{name, label, kind: wm|session, installed: true}]` —
-derived by `LookPath` over the ladder ∪ session-starter set on every read,
-never stored and never in the stream — plus `wm_candidates_hint` (the L-D7
-LXQt install line) when no LXQt candidate is installed, rendered as the
-picker's `Install more: …` footer. Choosing a value writes `gui.wm` through
+then one disabled `<label> — not installed` option per known-but-missing
+desktop, then `Other…` revealing a free-text field for a typed binary — with
+an `Install more ▾` disclosure beneath the select listing each missing
+desktop's install line (`<label>: <hint>`, monospace and selectable) whenever
+any exist. The palette's `GUI: Desktop…` (⌘K) opens the same picker as a
+sub-list: the installed rows, then the missing desktops as disabled
+`<label> (not installed)` rows carrying the install line as their
+description. The candidates ride the status document: `GET /api/gui/host`
+gains `wm_candidates: [{name, label, kind: wm|session, installed, hint?}]` —
+installed rows first (the ladder, then the session-starter order,
+alias-collapsed), then on Linux the known-but-missing desktops (the IceWM
+ladder head, then each desktop by primary starter name) with `hint` carrying
+the package-manager-aware install line — derived by `LookPath` on every read,
+never stored and never in the stream. Choosing a value writes `gui.wm` through
 `POST /api/settings` and then asks `Restart the desktop now?` with the
 running-apps list, `Restart` / `Later`; `Later` leaves the pin set for the
 next `rk gui on`/`restart`. XFCE stays reachable but unseeded (`rk gui wm

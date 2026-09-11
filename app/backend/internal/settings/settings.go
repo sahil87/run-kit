@@ -415,7 +415,7 @@ var registry = []registryEntry{
 	},
 	{
 		key: "gui.wm", kind: "string", def: "",
-		desc:     "Pin the window manager the GUI supervisor starts. Empty picks the first installed one from the ladder (icewm-session → openbox → xfwm4 → i3 → kwin_x11 → x-session-manager). Takes effect on rk gui restart.",
+		desc:     "Pin the window manager the GUI supervisor starts. Empty picks the first installed one from the ladder (icewm-session → openbox → xfwm4 → i3 → kwin_x11 → x-session-manager). Takes effect on rk gui restart. Run rk gui wm --list for installed and installable desktops.",
 		category: "behavior", ui: true, live: false,
 		parse:     quoteTrimmedScalar(func(s *Settings) *string { return &s.GUIWM }),
 		serialize: quotedScalar("gui.wm", func(s *Settings) *string { return &s.GUIWM }),

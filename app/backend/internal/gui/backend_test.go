@@ -158,6 +158,9 @@ func TestWMArgv(t *testing.T) {
 		"startxfce4":        {"dbus-run-session", "--", "startxfce4"},
 		"xfce4-session":     {"dbus-run-session", "--", "xfce4-session"},
 		"startplasma-x11":   {"dbus-run-session", "--", "startplasma-x11"},
+		"startlxde":         {"dbus-run-session", "--", "startlxde"},
+		"mate-session":      {"dbus-run-session", "--", "mate-session"},
+		"cinnamon-session":  {"dbus-run-session", "--", "cinnamon-session"},
 		"x-session-manager": {"dbus-run-session", "--", "x-session-manager"},
 	} {
 		if got := WMArgv(name); !reflect.DeepEqual(got, want) {
@@ -186,7 +189,7 @@ func TestWMName(t *testing.T) {
 func TestIsSessionStarter(t *testing.T) {
 	for _, name := range []string{
 		"startlxqt", "lxqt-session", "startxfce4", "xfce4-session",
-		"startplasma-x11", "x-session-manager",
+		"startplasma-x11", "startlxde", "mate-session", "cinnamon-session", "x-session-manager",
 	} {
 		if !IsSessionStarter(name) {
 			t.Errorf("IsSessionStarter(%q) = false, want true", name)

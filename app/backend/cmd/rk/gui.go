@@ -351,6 +351,8 @@ func init() {
 	guiShotCmd.Flags().StringP("out", "o", "", "Write the PNG to this path (parent created, existing file overwritten)")
 	guiWmCmd.Flags().Bool("restart", false, "Restart the rk-gui session after pinning (kills apps on the display)")
 	guiWmCmd.Flags().Bool("force", false, "Pin even when the binary is not on PATH")
+	guiWmCmd.Flags().Bool("list", false, "Print the desktop candidate table (installed first, then known-but-missing with install hints)")
+	guiWmCmd.Flags().Bool("json", false, "With --list, emit the wm_candidates array as JSON")
 
 	guiCmd.AddCommand(guiOnCmd)
 	guiCmd.AddCommand(guiOffCmd)

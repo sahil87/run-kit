@@ -21,16 +21,28 @@ export const OTHER_WM = "__other__";
 /** The info toast when the pin is written while the GUI is off. */
 export const DESKTOP_SET_OFF_TOAST = "Desktop set — takes effect when the GUI turns on";
 
-export type WMOption = { value: string; label: string };
+export type WMOption = { value: string; label: string; disabled?: boolean };
 
 function candidatesOf(status: GuiStatus): GuiWMCandidate[] {
   return status.wm_candidates ?? [];
 }
 
-/** The Settings select's options: Auto, one per installed candidate, Other…. */
+/** The known-but-missing desktops (the disclosure's source), in document order. */
+export function missingWMs(status: GuiStatus): GuiWMCandidate[] {
+  return candidatesOf(status).filter((c) => !c.installed);
+}
+
+/** The Settings select's options: Auto, one per installed candidate, one
+ *  disabled option per missing desktop, Other…. */
 export function buildWMOptions(status: GuiStatus): WMOption[] {
   const options: WMOption[] = [{ value: AUTO_WM, label: "Auto (ladder)" }];
-  for (const c of candidatesOf(status)) options.push({ value: c.name, label: c.label });
+  for (const c of candidatesOf(status)) {
+    if (c.installed) {
+      options.push({ value: c.name, label: c.label });
+    } else {
+      options.push({ value: c.name, label: `${c.label} — not installed`, disabled: true });
+    }
+  }
   options.push({ value: OTHER_WM, label: "Other…" });
   return options;
 }
@@ -41,9 +53,10 @@ export function isOtherWM(value: string, candidates: GuiWMCandidate[]): boolean 
 }
 
 /**
- * The palette sub-list's rows: Auto first, one per candidate (the stored pin's
- * row marked `current`), and the install hint as a trailing disabled row. No
- * `Other…` — a typed binary needs the Settings row's text field.
+ * The palette sub-list's rows: Auto first, one per installed candidate (the
+ * stored pin's row marked `current`), then one disabled row per missing
+ * desktop carrying its install line as the description. No `Other…` — a typed
+ * binary needs the Settings row's text field.
  */
 export function buildDesktopPaletteRows(
   status: GuiStatus,
@@ -59,19 +72,21 @@ export function buildDesktopPaletteRows(
     },
   ];
   for (const c of candidatesOf(status)) {
+    if (!c.installed) {
+      rows.push({
+        id: `desktop-${c.name}`,
+        label: `${c.label} (not installed)`,
+        ...(c.hint ? { description: c.hint } : {}),
+        disabled: true,
+        onSelect: () => {},
+      });
+      continue;
+    }
     rows.push({
       id: `desktop-${c.name}`,
       label: c.label,
       ...(c.name === currentWM ? { description: "current" } : {}),
       onSelect: () => onPick(c.name),
-    });
-  }
-  if (typeof status.wm_candidates_hint === "string" && status.wm_candidates_hint !== "") {
-    rows.push({
-      id: "desktop-install-hint",
-      label: `Install more: ${status.wm_candidates_hint}`,
-      disabled: true,
-      onSelect: () => {},
     });
   }
   return rows;

@@ -61,6 +61,14 @@ function status(overrides: Partial<GuiStatus> = {}): GuiStatus {
   };
 }
 
+const XFCE_MISSING = {
+  name: "startxfce4",
+  label: "XFCE",
+  kind: "session" as const,
+  installed: false,
+  hint: "sudo apt install --no-install-recommends xfce4",
+};
+
 function renderPicker(value = "", commit = vi.fn().mockResolvedValue(undefined)) {
   return {
     commit,
@@ -166,29 +174,53 @@ describe("GuiWMPicker", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(commit).toHaveBeenCalledWith("openbox"));
     expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByTestId("gui-wm-install-more")).toBeNull();
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("renders the install hint footer only when the document carries it", async () => {
+  it("missing desktops render as disabled options and an 'Install more' disclosure with their install lines", async () => {
     vi.mocked(fetchGuiStatus).mockResolvedValue(
-      status({
-        wm_candidates: [
-          { name: "icewm-session", label: "IceWM", kind: "wm", installed: true },
-        ],
-        wm_candidates_hint: "sudo apt install --no-install-recommends lxqt-core",
-      }),
+      status({ wm_candidates: [...status().wm_candidates!, XFCE_MISSING] }),
     );
-    const { unmount } = renderPicker();
-    await screen.findByRole("combobox");
-    expect(screen.getByTestId("gui-wm-install-hint").textContent).toBe(
-      "Install more: sudo apt install --no-install-recommends lxqt-core",
-    );
-    unmount();
+    renderPicker();
+    const select = await screen.findByRole("combobox");
+    const options = Array.from(select.querySelectorAll("option")).map((o) => [
+      o.value,
+      o.textContent,
+      o.disabled,
+    ]);
+    expect(options).toEqual([
+      ["", "Auto (ladder)", false],
+      ["icewm-session", "IceWM", false],
+      ["startlxqt", "LXQt", false],
+      ["startxfce4", "XFCE — not installed", true],
+      [OTHER_WM, "Other…", false],
+    ]);
 
+    // The disclosure starts collapsed and expands to one line per desktop.
+    const disclosure = screen.getByTestId("gui-wm-install-more");
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("gui-wm-install-line")).toBeNull();
+    fireEvent.click(disclosure);
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("gui-wm-install-line").textContent).toBe(
+      "XFCE: sudo apt install --no-install-recommends xfce4",
+    );
+  });
+
+  it("no disclosure renders when every candidate is installed", async () => {
     vi.mocked(fetchGuiStatus).mockResolvedValue(status());
     renderPicker();
     await screen.findByRole("combobox");
-    expect(screen.queryByTestId("gui-wm-install-hint")).toBeNull();
+    expect(screen.queryByTestId("gui-wm-install-more")).toBeNull();
+  });
+
+  it("the Other… field's placeholder names a starter binary", async () => {
+    vi.mocked(fetchGuiStatus).mockResolvedValue(status());
+    renderPicker();
+    const select = await screen.findByRole("combobox");
+    fireEvent.change(select, { target: { value: OTHER_WM } });
+    expect(screen.getByRole("textbox")).toHaveAttribute("placeholder", "binary name, e.g. startlxde");
   });
 
   it("a disabled GUI writes, skips the confirm, and toasts the takes-effect-later line", async () => {

@@ -55,6 +55,8 @@ func TestAssembleDisabledShortCircuits(t *testing.T) {
 }
 
 func TestAssembleDisabledCarriesWMCandidates(t *testing.T) {
+	defer func(saved string) { goos = saved }(goos)
+	goos = "linux"
 	d := assembleDeps(t)
 	d.Enabled = false
 	d.LookPath = stubLookPath("icewm-session", "startlxqt")
@@ -63,35 +65,37 @@ func TestAssembleDisabledCarriesWMCandidates(t *testing.T) {
 	want := []WMCandidate{
 		{Name: "icewm-session", Label: "IceWM", Kind: "wm", Installed: true},
 		{Name: "startlxqt", Label: "LXQt", Kind: "session", Installed: true},
+		{Name: "startxfce4", Label: "XFCE", Kind: "session", Hint: "install xfce4 with your package manager"},
+		{Name: "startplasma-x11", Label: "Plasma", Kind: "session", Hint: "install plasma with your package manager"},
+		{Name: "startlxde", Label: "LXDE", Kind: "session", Hint: "install lxde with your package manager"},
+		{Name: "mate-session", Label: "MATE", Kind: "session", Hint: "install mate with your package manager"},
+		{Name: "cinnamon-session", Label: "Cinnamon", Kind: "session", Hint: "install cinnamon with your package manager"},
 	}
 	if !reflect.DeepEqual(st.WMCandidates, want) {
 		t.Errorf("disabled WMCandidates = %+v, want %+v (PATH-only derivation precedes the short-circuit)", st.WMCandidates, want)
 	}
-	if st.WMCandidatesHint != "" {
-		t.Errorf("disabled WMCandidatesHint = %q, want empty (startlxqt is installed)", st.WMCandidatesHint)
-	}
 }
 
-func TestAssembleWMCandidatesHint(t *testing.T) {
-	t.Run("present when no LXQt candidate resolves", func(t *testing.T) {
-		d := assembleDeps(t)
-		d.LookPath = stubLookPath("apt-get", "icewm-session")
+// The disabled document lists every known desktop with its install line when
+// nothing resolves — the picker shows choices, not inventory.
+func TestAssembleMissingDesktopsCarryHints(t *testing.T) {
+	defer func(saved string) { goos = saved }(goos)
+	goos = "linux"
+	d := assembleDeps(t)
+	d.LookPath = stubLookPath("apt-get")
 
-		st := Assemble(context.Background(), d)
-		if want := "sudo apt install --no-install-recommends lxqt-core"; st.WMCandidatesHint != want {
-			t.Errorf("WMCandidatesHint = %q, want %q", st.WMCandidatesHint, want)
+	st := Assemble(context.Background(), d)
+	if len(st.WMCandidates) != 7 {
+		t.Fatalf("WMCandidates = %+v, want seven missing rows (IceWM + six DEs)", st.WMCandidates)
+	}
+	if st.WMCandidates[0].Name != "icewm-session" || st.WMCandidates[0].Kind != "wm" {
+		t.Errorf("first missing row = %+v, want the IceWM ladder head (kind wm)", st.WMCandidates[0])
+	}
+	for _, c := range st.WMCandidates {
+		if c.Installed || c.Hint == "" {
+			t.Errorf("row %+v, want installed:false with a non-empty hint", c)
 		}
-	})
-
-	t.Run("absent when startlxqt is installed", func(t *testing.T) {
-		d := assembleDeps(t)
-		d.LookPath = stubLookPath("apt-get", "startlxqt")
-
-		st := Assemble(context.Background(), d)
-		if st.WMCandidatesHint != "" {
-			t.Errorf("WMCandidatesHint = %q, want empty", st.WMCandidatesHint)
-		}
-	})
+	}
 }
 
 func TestAssembleDaemonDownGatesTmux(t *testing.T) {
@@ -157,10 +161,11 @@ func TestAssembleReachablePassesThePaneTreeExclude(t *testing.T) {
 			{Name: "x-session-manager", Label: "x-session-manager", Kind: "session", Installed: true},
 			{Name: "startlxqt", Label: "LXQt", Kind: "session", Installed: true},
 			{Name: "startxfce4", Label: "XFCE", Kind: "session", Installed: true},
-			{Name: "startplasma-x11", Label: "startplasma-x11", Kind: "session", Installed: true},
+			{Name: "startplasma-x11", Label: "Plasma", Kind: "session", Installed: true},
+			{Name: "startlxde", Label: "LXDE", Kind: "session", Installed: true},
+			{Name: "mate-session", Label: "MATE", Kind: "session", Installed: true},
+			{Name: "cinnamon-session", Label: "Cinnamon", Kind: "session", Installed: true},
 		},
-		// startlxqt resolves under the stub, so no LXQt install hint.
-		WMCandidatesHint: "",
 	}
 	if st.Socket == "" {
 		t.Error("socket empty, want the state-dir host.sock path")

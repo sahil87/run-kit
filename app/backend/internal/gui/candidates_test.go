@@ -6,7 +6,10 @@ import (
 )
 
 func TestSessionStartersFixedOrder(t *testing.T) {
-	want := []string{"startlxqt", "lxqt-session", "startxfce4", "xfce4-session", "startplasma-x11", "x-session-manager"}
+	want := []string{
+		"startlxqt", "lxqt-session", "startxfce4", "xfce4-session", "startplasma-x11",
+		"startlxde", "mate-session", "cinnamon-session", "x-session-manager",
+	}
 	if got := SessionStarters(); !reflect.DeepEqual(got, want) {
 		t.Errorf("SessionStarters() = %v, want %v", got, want)
 	}
@@ -29,8 +32,11 @@ func TestWMCandidateLabel(t *testing.T) {
 		"lxqt-session":      "LXQt",
 		"startxfce4":        "XFCE",
 		"xfce4-session":     "XFCE",
+		"startplasma-x11":   "Plasma",
+		"startlxde":         "LXDE",
+		"mate-session":      "MATE",
+		"cinnamon-session":  "Cinnamon",
 		"openbox":           "openbox",
-		"startplasma-x11":   "startplasma-x11",
 		"x-session-manager": "x-session-manager",
 	} {
 		if got := WMCandidateLabel(name); got != want {
@@ -40,54 +46,72 @@ func TestWMCandidateLabel(t *testing.T) {
 }
 
 func TestWMCandidates(t *testing.T) {
+	defer func(saved string) { goos = saved }(goos)
+	goos = "linux"
+	icewm := WMCandidate{Name: "icewm-session", Label: "IceWM", Kind: "wm", Installed: true}
+	lxqt := WMCandidate{Name: "startlxqt", Label: "LXQt", Kind: "session", Installed: true}
+	xfce := WMCandidate{Name: "startxfce4", Label: "XFCE", Kind: "session", Installed: true}
+	missing := func(name, label, hint string) WMCandidate {
+		return WMCandidate{Name: name, Label: label, Kind: "session", Hint: hint}
+	}
 	cases := []struct {
 		name    string
 		present []string
 		want    []WMCandidate
 	}{
 		{
-			"ladder order then starter order, deduped by name",
+			"ladder order then starter order, deduped by name; missing DEs follow",
 			[]string{"openbox", "icewm-session", "x-session-manager", "startlxqt"},
 			[]WMCandidate{
-				{Name: "icewm-session", Label: "IceWM", Kind: "wm", Installed: true},
+				icewm,
 				{Name: "openbox", Label: "openbox", Kind: "wm", Installed: true},
 				{Name: "x-session-manager", Label: "x-session-manager", Kind: "session", Installed: true},
-				{Name: "startlxqt", Label: "LXQt", Kind: "session", Installed: true},
+				lxqt,
+				missing("startxfce4", "XFCE", "install xfce4 with your package manager"),
+				missing("startplasma-x11", "Plasma", "install plasma with your package manager"),
+				missing("startlxde", "LXDE", "install lxde with your package manager"),
+				missing("mate-session", "MATE", "install mate with your package manager"),
+				missing("cinnamon-session", "Cinnamon", "install cinnamon with your package manager"),
 			},
 		},
 		{
-			"aliases collapse into their primaries",
+			"aliases collapse into their primaries; the IceWM ladder head leads the missing rows",
 			[]string{"startlxqt", "lxqt-session", "startxfce4", "xfce4-session"},
 			[]WMCandidate{
-				{Name: "startlxqt", Label: "LXQt", Kind: "session", Installed: true},
-				{Name: "startxfce4", Label: "XFCE", Kind: "session", Installed: true},
+				lxqt,
+				xfce,
+				{Name: "icewm-session", Label: "IceWM", Kind: "wm", Hint: "install icewm with your package manager"},
+				missing("startplasma-x11", "Plasma", "install plasma with your package manager"),
+				missing("startlxde", "LXDE", "install lxde with your package manager"),
+				missing("mate-session", "MATE", "install mate with your package manager"),
+				missing("cinnamon-session", "Cinnamon", "install cinnamon with your package manager"),
 			},
 		},
 		{
-			"an alias alone keeps its row and the DE label",
+			"an alias alone keeps its installed row and suppresses the missing row",
 			[]string{"lxqt-session"},
 			[]WMCandidate{
 				{Name: "lxqt-session", Label: "LXQt", Kind: "session", Installed: true},
+				{Name: "icewm-session", Label: "IceWM", Kind: "wm", Hint: "install icewm with your package manager"},
+				missing("startxfce4", "XFCE", "install xfce4 with your package manager"),
+				missing("startplasma-x11", "Plasma", "install plasma with your package manager"),
+				missing("startlxde", "LXDE", "install lxde with your package manager"),
+				missing("mate-session", "MATE", "install mate with your package manager"),
+				missing("cinnamon-session", "Cinnamon", "install cinnamon with your package manager"),
 			},
 		},
 		{
-			"xfce alias alone keeps its row and the DE label",
-			[]string{"xfce4-session"},
-			[]WMCandidate{
-				{Name: "xfce4-session", Label: "XFCE", Kind: "session", Installed: true},
-			},
-		},
-		{
-			"lookPath misses are omitted, never installed:false",
-			[]string{"openbox"},
-			[]WMCandidate{
-				{Name: "openbox", Label: "openbox", Kind: "wm", Installed: true},
-			},
-		},
-		{
-			"nothing resolves",
+			"nothing resolves — IceWM first, then the DEs in table order",
 			nil,
-			[]WMCandidate{},
+			[]WMCandidate{
+				{Name: "icewm-session", Label: "IceWM", Kind: "wm", Hint: "install icewm with your package manager"},
+				missing("startlxqt", "LXQt", "install lxqt with your package manager"),
+				missing("startxfce4", "XFCE", "install xfce4 with your package manager"),
+				missing("startplasma-x11", "Plasma", "install plasma with your package manager"),
+				missing("startlxde", "LXDE", "install lxde with your package manager"),
+				missing("mate-session", "MATE", "install mate with your package manager"),
+				missing("cinnamon-session", "Cinnamon", "install cinnamon with your package manager"),
+			},
 		},
 	}
 	for _, tc := range cases {
@@ -103,6 +127,25 @@ func TestWMCandidates(t *testing.T) {
 	}
 }
 
+// Missing rows carry the detected package manager's wording.
+func TestWMCandidatesMissingRowHintsFollowThePackageManager(t *testing.T) {
+	defer func(saved string) { goos = saved }(goos)
+	goos = "linux"
+	got := WMCandidates(stubLookPath("apt-get", "icewm-session", "lxqt-session"))
+	want := []WMCandidate{
+		{Name: "icewm-session", Label: "IceWM", Kind: "wm", Installed: true},
+		{Name: "lxqt-session", Label: "LXQt", Kind: "session", Installed: true},
+		{Name: "startxfce4", Label: "XFCE", Kind: "session", Hint: "sudo apt install --no-install-recommends xfce4"},
+		{Name: "startplasma-x11", Label: "Plasma", Kind: "session", Hint: "sudo apt install --no-install-recommends plasma-desktop"},
+		{Name: "startlxde", Label: "LXDE", Kind: "session", Hint: "sudo apt install --no-install-recommends lxde-core"},
+		{Name: "mate-session", Label: "MATE", Kind: "session", Hint: "sudo apt install --no-install-recommends mate-desktop-environment-core"},
+		{Name: "cinnamon-session", Label: "Cinnamon", Kind: "session", Hint: "sudo apt install --no-install-recommends cinnamon-core"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("WMCandidates = %+v, want %+v (alias-installed LXQt: one installed row, no missing row)", got, want)
+	}
+}
+
 func TestWMCandidatesNilLookPathIsEmpty(t *testing.T) {
 	got := WMCandidates(nil)
 	if got == nil || len(got) != 0 {
@@ -110,21 +153,15 @@ func TestWMCandidatesNilLookPathIsEmpty(t *testing.T) {
 	}
 }
 
-func TestWMCandidatesHint(t *testing.T) {
+// Missing desktops are emitted only where they can be installed — off Linux
+// the list stays installed-only.
+func TestWMCandidatesOffLinuxHasNoMissingRows(t *testing.T) {
 	defer func(saved string) { goos = saved }(goos)
-	goos = "linux"
-	apt := stubLookPath("apt-get")
-	lxqtApt := "sudo apt install --no-install-recommends lxqt-core"
-
-	if got := WMCandidatesHint(WMCandidates(stubLookPath("openbox")), apt); got != lxqtApt {
-		t.Errorf("hint with no LXQt candidate = %q, want %q", got, lxqtApt)
-	}
-	if got := WMCandidatesHint(WMCandidates(stubLookPath()), apt); got != lxqtApt {
-		t.Errorf("hint with an empty list = %q, want %q", got, lxqtApt)
-	}
-	for _, present := range [][]string{{"startlxqt"}, {"lxqt-session"}, {"startlxqt", "lxqt-session"}} {
-		if got := WMCandidatesHint(WMCandidates(stubLookPath(present...)), apt); got != "" {
-			t.Errorf("hint with %v installed = %q, want empty", present, got)
+	for _, os := range []string{"darwin", "plan9"} {
+		goos = os
+		got := WMCandidates(stubLookPath())
+		if len(got) != 0 {
+			t.Errorf("%s WMCandidates(nothing) = %+v, want empty (no missing rows off Linux)", os, got)
 		}
 	}
 }

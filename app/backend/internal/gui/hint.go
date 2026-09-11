@@ -56,9 +56,9 @@ type dePackages struct {
 	apt, dnf, pacman, generic string
 }
 
-// lxqtPackages / xfce4Packages are the per-manager install lines for the two
-// supported full desktops. dnf names the explicit package list, never the
-// @lxqt-desktop group. Non-apt package names are best-effort wording.
+// lxqtPackages / xfce4Packages and friends are the per-manager install lines
+// for the known full desktops. dnf names the explicit package list, never a
+// @group id. Non-apt package names are best-effort wording.
 var (
 	lxqtPackages = dePackages{
 		apt:     "sudo apt install --no-install-recommends lxqt-core",
@@ -72,16 +72,46 @@ var (
 		pacman:  "sudo pacman -S xfce4",
 		generic: "install xfce4 with your package manager",
 	}
+	lxdePackages = dePackages{
+		apt:     "sudo apt install --no-install-recommends lxde-core",
+		dnf:     "sudo dnf install lxde-common lxsession lxpanel pcmanfm openbox lxterminal",
+		pacman:  "sudo pacman -S lxde",
+		generic: "install lxde with your package manager",
+	}
+	matePackages = dePackages{
+		apt:     "sudo apt install --no-install-recommends mate-desktop-environment-core",
+		dnf:     "sudo dnf install mate-session-manager mate-panel marco caja",
+		pacman:  "sudo pacman -S mate",
+		generic: "install mate with your package manager",
+	}
+	cinnamonPackages = dePackages{
+		apt:     "sudo apt install --no-install-recommends cinnamon-core",
+		dnf:     "sudo dnf install cinnamon cinnamon-session nemo",
+		pacman:  "sudo pacman -S cinnamon",
+		generic: "install cinnamon with your package manager",
+	}
+	// Fedora 40+ ships Plasma Wayland-only (the KDE Plasma 6 change dropped the
+	// X11 session), so the dnf entry is an honest sentence, not a command.
+	plasmaPackages = dePackages{
+		apt:     "sudo apt install --no-install-recommends plasma-desktop",
+		dnf:     "Fedora 40+ ships no Plasma X11 session (startplasma-x11 is not packaged) — pick another desktop",
+		pacman:  "sudo pacman -S plasma-desktop plasma-x11-session",
+		generic: "install plasma with your package manager",
+	}
 )
 
 // sessionStarterDEs maps the session-starter binaries with a known packaging
-// line to their desktop's package set. Starters without an entry
-// (startplasma-x11, x-session-manager) have no DE hint.
+// line to their desktop's package set. A starter without an entry
+// (x-session-manager) has no DE hint.
 var sessionStarterDEs = map[string]dePackages{
-	"startlxqt":     lxqtPackages,
-	"lxqt-session":  lxqtPackages,
-	"startxfce4":    xfce4Packages,
-	"xfce4-session": xfce4Packages,
+	"startlxqt":        lxqtPackages,
+	"lxqt-session":     lxqtPackages,
+	"startxfce4":       xfce4Packages,
+	"xfce4-session":    xfce4Packages,
+	"startplasma-x11":  plasmaPackages,
+	"startlxde":        lxdePackages,
+	"mate-session":     matePackages,
+	"cinnamon-session": cinnamonPackages,
 }
 
 // DEInstallHint is the install line for a session-starter binary name,

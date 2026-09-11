@@ -8,7 +8,7 @@ import {
   TextSettingError,
 } from "@/components/text-setting-core";
 import { useDesktopPick } from "@/hooks/use-desktop-pick";
-import { AUTO_WM, OTHER_WM, buildWMOptions, isOtherWM } from "@/lib/gui-desktop";
+import { AUTO_WM, OTHER_WM, buildWMOptions, isOtherWM, missingWMs } from "@/lib/gui-desktop";
 
 /**
  * GuiWMPicker — the `gui.wm` named-key override in the All-settings table
@@ -17,9 +17,12 @@ import { AUTO_WM, OTHER_WM, buildWMOptions, isOtherWM } from "@/lib/gui-desktop"
  * document once (never polled — the off-dialog precedent); until the document
  * resolves, and permanently if the fetch rejects, the row renders today's
  * free-text control unchanged. Once resolved it renders a select — Auto
- * (ladder), one option per installed candidate, Other… — whose commits run the
- * shared pick flow (write, then the enabled-check/restart confirm via
- * `useDesktopPick`); a selection alone never calls the restart route.
+ * (ladder), one option per installed candidate, one disabled `— not
+ * installed` option per known-but-missing desktop, Other… — whose commits run
+ * the shared pick flow (write, then the enabled-check/restart confirm via
+ * `useDesktopPick`); a selection alone never calls the restart route. When
+ * missing desktops exist, an `Install more ▾` disclosure below the select
+ * lists each one's install line.
  */
 
 /** The revealed free-text field under the select — the TextSetting contract
@@ -43,7 +46,7 @@ function OtherWMField({
         onChange={onChange}
         onBlur={handleCommit}
         onKeyDown={onKeyDown}
-        placeholder={entry.default || "unset"}
+        placeholder="binary name, e.g. startlxde"
         className={textSettingInputClass}
       />
       <TextSettingError error={error} />
@@ -65,6 +68,7 @@ export function GuiWMPicker({
   const desktopPick = useDesktopPick();
   const [status, setStatus] = useState<GuiStatus | null>(null);
   const [showOther, setShowOther] = useState(false);
+  const [showInstallMore, setShowInstallMore] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -89,10 +93,10 @@ export function GuiWMPicker({
   }
 
   const candidates = status.wm_candidates ?? [];
-  // A stored pin naming no installed candidate selects Other… with the field
-  // revealed and pre-filled.
+  // A stored pin naming no candidate (installed or known-missing) selects
+  // Other… with the field revealed and pre-filled.
   const otherSelected = showOther || isOtherWM(value, candidates);
-  const hint = status.wm_candidates_hint;
+  const missing = missingWMs(status);
 
   return (
     <div>
@@ -116,17 +120,38 @@ export function GuiWMPicker({
         className={`w-full max-w-[320px] bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS}`}
       >
         {buildWMOptions(status).map((o) => (
-          <option key={o.value === AUTO_WM ? "auto" : o.value} value={o.value}>
+          <option key={o.value === AUTO_WM ? "auto" : o.value} value={o.value} disabled={o.disabled}>
             {o.label}
           </option>
         ))}
       </select>
       {otherSelected && <OtherWMField entry={entry} value={value} pick={pick} />}
       <TextSettingError error={error} />
-      {typeof hint === "string" && hint !== "" && (
-        <p data-testid="gui-wm-install-hint" className="text-[10px] text-text-secondary mt-1">
-          Install more: {hint}
-        </p>
+      {missing.length > 0 && (
+        <div className="mt-1">
+          <button
+            type="button"
+            data-testid="gui-wm-install-more"
+            aria-expanded={showInstallMore}
+            onClick={() => setShowInstallMore((v) => !v)}
+            className={`text-[10px] text-text-secondary ${INPUT_FOCUS}`}
+          >
+            Install more ▾
+          </button>
+          {showInstallMore && (
+            <div className="mt-0.5">
+              {missing.map((c) => (
+                <div
+                  key={c.name}
+                  data-testid="gui-wm-install-line"
+                  className="font-mono text-[10px] text-text-secondary select-text"
+                >
+                  {c.label}: {c.hint}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

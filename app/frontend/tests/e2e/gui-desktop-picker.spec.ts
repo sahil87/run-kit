@@ -14,10 +14,10 @@ import { mockStateSocket } from "./_state-socket-mock";
 // enabled+reachable `gui` global slot (delivered on hello), `/ws/terminals`
 // is accepted and held open, and `/api/servers` is stubbed. On top of that:
 //   - `GET /api/gui/host` is route-stubbed with a document carrying two
-//     candidates (IceWM `icewm-session`, LXQt `startlxqt`) and apps
-//     `chromium ×2`, enabled+reachable on display `:10`, and deliberately NO
-//     `wm_candidates_hint` (LXQt is present, so the install-hint footer must
-//     not render).
+//     installed candidates (IceWM `icewm-session`, LXQt `startlxqt`) plus one
+//     known-but-missing desktop (XFCE `startxfce4`, `installed:false` with
+//     its apt install hint), and apps `chromium ×2`, enabled+reachable on
+//     display `:10`.
 //   - `GET /api/settings` is route-stubbed with a registry carrying `gui.wm`
 //     unset (`value: ""` — Auto), so the picker's `current` marker sits on
 //     `Auto (ladder)`; `POST /api/settings` is fulfilled with the request
@@ -54,6 +54,13 @@ const GUI_STATUS = {
   wm_candidates: [
     { name: "icewm-session", label: "IceWM", kind: "wm", installed: true },
     { name: "startlxqt", label: "LXQt", kind: "session", installed: true },
+    {
+      name: "startxfce4",
+      label: "XFCE",
+      kind: "session",
+      installed: false,
+      hint: "sudo apt install --no-install-recommends xfce4",
+    },
   ],
   socket: "",
   session: "rk-gui",
@@ -224,19 +231,23 @@ test.describe("gui desktop picker — mocked signal, desktop (1280px)", () => {
   /**
    * Proves: the All-settings `gui.wm` row renders a select once the status
    * document resolves, listing exactly `Auto (ladder)`, one option per
-   * candidate label, and `Other…` in that order — and, with LXQt installed
-   * (no `wm_candidates_hint` on the document), the install-hint footer is
-   * absent.
+   * installed candidate, a disabled `XFCE — not installed` option for the
+   * known-but-missing desktop, and `Other…` — and the `Install more ▾`
+   * disclosure starts collapsed and expands to the exact `XFCE: <hint>` line.
    *
    * Steps:
-   * 1. Mock the backend as above; open @1.
+   * 1. Mock the backend as above (status document with the missing XFCE row);
+   *    open @1.
    * 2. Open the Settings dialog via the `Settings: All` palette deep-link;
    *    assert the All settings tab is selected.
    * 3. Wait for the `gui.wm` select; assert its options are exactly
-   *    `Auto (ladder)`, `IceWM`, `LXQt`, `Other…` in order.
-   * 4. Assert no `gui-wm-install-hint` footer renders.
+   *    `Auto (ladder)`, `IceWM`, `LXQt`, `XFCE — not installed`, `Other…` in
+   *    order, and that only the XFCE option is disabled.
+   * 4. Assert the `gui-wm-install-more` disclosure renders collapsed; click
+   *    it and assert it expands to one `gui-wm-install-line` reading exactly
+   *    `XFCE: sudo apt install --no-install-recommends xfce4`.
    */
-  test("settings row: the select lists Auto, both candidates, Other…; no install hint", async ({
+  test("settings row: disabled missing-desktop option + the Install more disclosure's hint line", async ({
     page,
   }) => {
     await mockDesktopBackend(page);
@@ -254,7 +265,63 @@ test.describe("gui desktop picker — mocked signal, desktop (1280px)", () => {
 
     const select = dialog.locator('select[id="setting-gui.wm"]');
     await expect(select).toBeVisible({ timeout: READY_TIMEOUT });
-    await expect(select.locator("option")).toHaveText(["Auto (ladder)", "IceWM", "LXQt", "Other…"]);
-    await expect(dialog.getByTestId("gui-wm-install-hint")).toHaveCount(0);
+    await expect(select.locator("option")).toHaveText([
+      "Auto (ladder)",
+      "IceWM",
+      "LXQt",
+      "XFCE — not installed",
+      "Other…",
+    ]);
+    await expect(select.locator("option[disabled]")).toHaveText(["XFCE — not installed"]);
+
+    const disclosure = dialog.getByTestId("gui-wm-install-more");
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(dialog.getByTestId("gui-wm-install-line")).toHaveCount(0);
+    await disclosure.click();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    await expect(dialog.getByTestId("gui-wm-install-line")).toHaveText([
+      "XFCE: sudo apt install --no-install-recommends xfce4",
+    ]);
+  });
+
+  /**
+   * Proves: the palette's `GUI: Desktop…` sub-list renders the
+   * known-but-missing desktop as a disabled `XFCE (not installed)` row whose
+   * description is the install hint — and Enter on it is inert: the palette
+   * stays open and no settings POST fires.
+   *
+   * Steps:
+   * 1. Mock the backend as above; open @1.
+   * 2. Open the palette, select `GUI: Desktop…`; wait out the lazy loader.
+   * 3. Assert the sub-list shows an `XFCE (not installed)` row carrying the
+   *    apt hint text, marked `aria-disabled`.
+   * 4. Arrow down onto the row and press Enter; assert the sub-list is still
+   *    on screen (the read-only `Pick a desktop` input remains) and the
+   *    captured settings POSTs are empty.
+   */
+  test("palette sub-list: the missing desktop row is disabled and inert", async ({ page }) => {
+    const { settingsPosts } = await mockDesktopBackend(page);
+    await gotoWorkWindow(page);
+
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("GUI: Desktop");
+    await page.getByRole("option", { name: "GUI: Desktop…" }).click();
+    await expect(page.getByPlaceholder("Pick a desktop — Enter select · Esc cancel")).toBeVisible();
+
+    const row = page.getByRole("option", { name: /XFCE \(not installed\)/ });
+    await expect(row).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(row).toHaveAttribute("aria-disabled", "true");
+    await expect(row).toContainText("sudo apt install --no-install-recommends xfce4");
+
+    // Arrow down onto the disabled row (Auto → IceWM → LXQt → XFCE) and press
+    // Enter — inert: the sub-list stays open and nothing is written.
+    const subInput = page.getByPlaceholder("Pick a desktop — Enter select · Esc cancel");
+    await subInput.press("ArrowDown");
+    await subInput.press("ArrowDown");
+    await subInput.press("ArrowDown");
+    await expect(row).toHaveAttribute("aria-selected", "true");
+    await subInput.press("Enter");
+    await expect(subInput).toBeVisible();
+    await expect.poll(() => settingsPosts).toEqual([]);
   });
 });

@@ -37,14 +37,12 @@ type Status struct {
 	// reachable display running bare (the unreachable reason already carries
 	// the backend hint).
 	WMHint string `json:"wm_hint,omitempty"`
-	// WMCandidates lists the installed desktop pickers, derived from PATH on
-	// every read and never stored; always serialized ([] never null, the Apps
-	// precedent) and present on the disabled document so the picker works
-	// with the GUI off.
+	// WMCandidates lists the desktop picker entries — installed rows first,
+	// then the known-but-missing desktops with their install hints (Linux
+	// only) — derived from PATH on every read and never stored; always
+	// serialized ([] never null, the Apps precedent) and present on the
+	// disabled document so the picker works with the GUI off.
 	WMCandidates []WMCandidate `json:"wm_candidates"`
-	// WMCandidatesHint is the LXQt install line when no LXQt candidate is
-	// listed; omitted otherwise (and off Linux, where DEInstallHint is empty).
-	WMCandidatesHint string `json:"wm_candidates_hint,omitempty"`
 }
 
 // App is one running application on the GUI display, grouped by process comm.

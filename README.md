@@ -152,6 +152,10 @@ The per-harness capability matrix (verified versions, event mappings, transcript
 
 A **board** is a named, cross-server pane dashboard: pin any tmux window from any server into it, and the board renders all pinned panes side-by-side — perfect for watching three parallel agent sessions next to the `just dev` server they're editing. Pin from the sidebar's pin icon or the `Cmd+K` palette; pin state lives in tmux, so the same board URL shows the same panes on your phone. See the [boards guide](docs/site/boards.md) for pinning, keyboard cycling, resizing, and mobile behavior.
 
+## GUI — the host's desktop in a tile
+
+The GUI surface runs the host's desktop as a fourth tile beside `tty`/`code`/`web`, off by default and shared by every viewer and every agent. `rk gui on` starts a private X display with a window manager and reveals the 4th tile button (⌘4). IceWM is the default desktop; pick another (LXQt, XFCE, Plasma, LXDE, MATE, Cinnamon) from Settings → `gui.wm` or with `rk gui wm <name>` — `rk gui wm --list` shows what's installed and what each missing one takes to install. See the [GUI guide](docs/site/gui.md) for desktops, resolution, phone controls, and troubleshooting.
+
 ## Drive it from your phone (HTTPS over Tailscale)
 
 Some browser features (clipboard, secure context) require HTTPS. Accessing run-kit from another machine on your tailnet also requires HTTPS:
@@ -210,6 +214,7 @@ eval "$(rk shell-init zsh)"   # in ~/.zshrc — also: bash, fish, powershell
 | `rk notify` | Send a Web Push notification to your subscribed devices. Fail-silent. |
 | `rk present` | Show a file, directory, `:port`, or URL to the user as a web tile on the current window. |
 | `rk cron` | Scheduled agent prompts (`add`, `edit`, `list`, `rm`, `mute`, `pin`, `tick`). |
+| `rk gui` | The host's desktop as a tile — `on`/`off`/`status`, `wm` (pick a desktop; `--list` shows installed and installable ones), `resize`, and the agent verbs (`exec`, `shot`, `key`). |
 | `rk doctor` | Check runtime dependencies. Run this first when something breaks. |
 | `rk agent` | Agent instrumentation — `setup` installs the state hooks + tmux guard shim, usually via `shll setup agent` (see [Agent state](#agent-state)). |
 | `rk code` | Run VS Code palette commands in the open `code` lens editor from the shell. |

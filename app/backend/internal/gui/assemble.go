@@ -61,7 +61,6 @@ func Assemble(ctx context.Context, d StatusDeps) Status {
 	// precede the disabled short-circuit: the picker must work with the GUI
 	// off (the bare-set-while-off rule).
 	st.WMCandidates = WMCandidates(d.LookPath)
-	st.WMCandidatesHint = WMCandidatesHint(st.WMCandidates, d.LookPath)
 	if !st.Enabled {
 		return st
 	}

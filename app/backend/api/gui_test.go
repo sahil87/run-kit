@@ -187,16 +187,26 @@ func TestGuiStatusWMCandidates(t *testing.T) {
 	want := []gui.WMCandidate{
 		{Name: "icewm-session", Label: "IceWM", Kind: "wm", Installed: true},
 		{Name: "startlxqt", Label: "LXQt", Kind: "session", Installed: true},
+		{Name: "startxfce4", Label: "XFCE", Kind: "session", Hint: "install xfce4 with your package manager"},
+		{Name: "startplasma-x11", Label: "Plasma", Kind: "session", Hint: "install plasma with your package manager"},
+		{Name: "startlxde", Label: "LXDE", Kind: "session", Hint: "install lxde with your package manager"},
+		{Name: "mate-session", Label: "MATE", Kind: "session", Hint: "install mate with your package manager"},
+		{Name: "cinnamon-session", Label: "Cinnamon", Kind: "session", Hint: "install cinnamon with your package manager"},
 	}
 	if !reflect.DeepEqual(st.WMCandidates, want) {
 		t.Errorf("wm_candidates = %+v, want %+v", st.WMCandidates, want)
 	}
-	if strings.Contains(rec.Body.String(), "wm_candidates_hint") {
-		t.Errorf("body = %s, want wm_candidates_hint omitted (startlxqt is installed)", rec.Body.String())
+	// The retired footer field must never serialize (named without the literal
+	// so a repo grep for the old key stays clean).
+	retiredKey := "wm_candidates" + "_hint"
+	if strings.Contains(rec.Body.String(), retiredKey) {
+		t.Errorf("body = %s, want no %s (the footer field is retired)", rec.Body.String(), retiredKey)
 	}
 }
 
-func TestGuiStatusWMCandidatesEmptyCarriesHint(t *testing.T) {
+// A Linux lookPath resolving nothing but apt-get yields the seven
+// known-desktop missing rows, each with its apt install line.
+func TestGuiStatusWMCandidatesMissingRows(t *testing.T) {
 	server, router := newGuiAPIServer(t, true)
 	server.guiLookPathFn = func(name string) (string, error) {
 		if name == "apt-get" {
@@ -209,15 +219,25 @@ func TestGuiStatusWMCandidatesEmptyCarriesHint(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"wm_candidates":[]`) {
-		t.Errorf("body = %s, want wm_candidates serialized as [] (never null)", rec.Body.String())
+	retiredKey := "wm_candidates" + "_hint"
+	if strings.Contains(rec.Body.String(), retiredKey) {
+		t.Errorf("body = %s, want no %s (the footer field is retired)", rec.Body.String(), retiredKey)
 	}
 	var st gui.Status
 	if err := json.NewDecoder(rec.Body).Decode(&st); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if want := "sudo apt install --no-install-recommends lxqt-core"; st.WMCandidatesHint != want {
-		t.Errorf("wm_candidates_hint = %q, want %q", st.WMCandidatesHint, want)
+	want := []gui.WMCandidate{
+		{Name: "icewm-session", Label: "IceWM", Kind: "wm", Hint: "sudo apt install --no-install-recommends icewm"},
+		{Name: "startlxqt", Label: "LXQt", Kind: "session", Hint: "sudo apt install --no-install-recommends lxqt-core"},
+		{Name: "startxfce4", Label: "XFCE", Kind: "session", Hint: "sudo apt install --no-install-recommends xfce4"},
+		{Name: "startplasma-x11", Label: "Plasma", Kind: "session", Hint: "sudo apt install --no-install-recommends plasma-desktop"},
+		{Name: "startlxde", Label: "LXDE", Kind: "session", Hint: "sudo apt install --no-install-recommends lxde-core"},
+		{Name: "mate-session", Label: "MATE", Kind: "session", Hint: "sudo apt install --no-install-recommends mate-desktop-environment-core"},
+		{Name: "cinnamon-session", Label: "Cinnamon", Kind: "session", Hint: "sudo apt install --no-install-recommends cinnamon-core"},
+	}
+	if !reflect.DeepEqual(st.WMCandidates, want) {
+		t.Errorf("wm_candidates = %+v, want %+v", st.WMCandidates, want)
 	}
 }
 

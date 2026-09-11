@@ -118,7 +118,22 @@ func TestDEInstallHint(t *testing.T) {
 		{"xfce none", "startxfce4", nil, "install xfce4 with your package manager"},
 		{"xfce4-session apt", "xfce4-session", []string{"apt-get"}, "sudo apt install --no-install-recommends xfce4"},
 		{"bare WM", "openbox", []string{"apt-get"}, ""},
-		{"starter without packaging", "startplasma-x11", []string{"apt-get"}, ""},
+		{"plasma apt", "startplasma-x11", []string{"apt-get"}, "sudo apt install --no-install-recommends plasma-desktop"},
+		{"plasma dnf is a sentence", "startplasma-x11", []string{"dnf"}, "Fedora 40+ ships no Plasma X11 session (startplasma-x11 is not packaged) — pick another desktop"},
+		{"plasma pacman", "startplasma-x11", []string{"pacman"}, "sudo pacman -S plasma-desktop plasma-x11-session"},
+		{"plasma none", "startplasma-x11", nil, "install plasma with your package manager"},
+		{"lxde apt", "startlxde", []string{"apt-get"}, "sudo apt install --no-install-recommends lxde-core"},
+		{"lxde dnf", "startlxde", []string{"dnf"}, "sudo dnf install lxde-common lxsession lxpanel pcmanfm openbox lxterminal"},
+		{"lxde pacman", "startlxde", []string{"pacman"}, "sudo pacman -S lxde"},
+		{"lxde none", "startlxde", nil, "install lxde with your package manager"},
+		{"mate apt", "mate-session", []string{"apt-get"}, "sudo apt install --no-install-recommends mate-desktop-environment-core"},
+		{"mate dnf", "mate-session", []string{"dnf"}, "sudo dnf install mate-session-manager mate-panel marco caja"},
+		{"mate pacman", "mate-session", []string{"pacman"}, "sudo pacman -S mate"},
+		{"mate none", "mate-session", nil, "install mate with your package manager"},
+		{"cinnamon apt", "cinnamon-session", []string{"apt-get"}, "sudo apt install --no-install-recommends cinnamon-core"},
+		{"cinnamon dnf", "cinnamon-session", []string{"dnf"}, "sudo dnf install cinnamon cinnamon-session nemo"},
+		{"cinnamon pacman", "cinnamon-session", []string{"pacman"}, "sudo pacman -S cinnamon"},
+		{"cinnamon none", "cinnamon-session", nil, "install cinnamon with your package manager"},
 		{"x-session-manager", "x-session-manager", []string{"apt-get"}, ""},
 	}
 	for _, tc := range cases {
@@ -159,8 +174,11 @@ func TestPinInstallHintFallsBackToWM(t *testing.T) {
 	if got, want := PinInstallHint("openbox", apt), "sudo apt install --no-install-recommends icewm"; got != want {
 		t.Errorf("PinInstallHint(openbox) = %q, want %q (bare WM falls back)", got, want)
 	}
-	if got, want := PinInstallHint("startplasma-x11", apt), "sudo apt install --no-install-recommends icewm"; got != want {
-		t.Errorf("PinInstallHint(startplasma-x11) = %q, want %q (no DE packaging line falls back)", got, want)
+	if got, want := PinInstallHint("startplasma-x11", apt), "sudo apt install --no-install-recommends plasma-desktop"; got != want {
+		t.Errorf("PinInstallHint(startplasma-x11) = %q, want %q (the DE line wins)", got, want)
+	}
+	if got, want := PinInstallHint("startlxde", apt), "sudo apt install --no-install-recommends lxde-core"; got != want {
+		t.Errorf("PinInstallHint(startlxde) = %q, want %q (the DE line wins)", got, want)
 	}
 }
 

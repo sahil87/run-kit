@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-10T23:36:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T00:11:01Z"}
     review: {started_at: "2026-09-11T00:11:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T00:14:53Z"}
     hydrate: {started_at: "2026-09-11T00:14:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T00:20:09Z"}
-    ship: {started_at: "2026-09-11T00:20:09Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-11T00:20:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T00:21:23Z"}
+    review-pr: {started_at: "2026-09-11T00:21:23Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/932
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1780
+    deleted: 49
+    net: 1731
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1345
+        deleted: 28
+        net: 1317
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-11T00:20:09Z"
-    computed_at_stage: hydrate
+        added: 923
+        deleted: 9
+        net: 914
+    computed_at: "2026-09-11T00:21:23Z"
+    computed_at_stage: ship
 summary: 'LXQt rung seeded through XDG_CONFIG_DIRS: five write-once defaults under <state>/run-kit/gui/lxqt/etc (panel quick-launch regenerated), supervisor env/log wiring, truncated wmHelperComms matching, capability-gated integration test'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-11T00:20:09Z
+last_updated: 2026-09-11T00:21:23Z

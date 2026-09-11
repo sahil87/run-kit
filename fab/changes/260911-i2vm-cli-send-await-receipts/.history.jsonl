@@ -1,0 +1,6 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-11T16:58:27Z"}
+{"args":"CLI send/await receipts — mux send --json returns delivery evidence (D6); --answer/--key receipt; mux await --json returns final state + elapsed honoring the 45s cap with a running result (D7); policy rows for answer, await; send graduates from its interim receipt (rk-mcp plan W2b)","cmd":"fab-new","event":"command","ts":"2026-09-11T16:58:27Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-09-11T17:01:39Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-09-11T17:02:10Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-11T17:03:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-11T17:03:49Z"}

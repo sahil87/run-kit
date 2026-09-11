@@ -846,6 +846,12 @@ measured against the same checks (260910-nuf6-rk-mcp-stdio):
   transport, not an agent capability, so no topic page changes and the 150-line
   budget is untouched.
 
+The `rk url --mcp` flag (a flag on an existing verb, not a new surface — see
+[cli](/run-kit/architecture/cli.md) § CLI Subcommands, `url` row) satisfies the
+same two checks by inheritance: the cobra tree walk publishes the flag via
+`UsageString` with no help-dump change, and stdout stays one data line (the
+endpoint) with empty stderr. (260911-cl9j-mcp-http-route)
+
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host
 - **WHEN** `rk desktop install` runs

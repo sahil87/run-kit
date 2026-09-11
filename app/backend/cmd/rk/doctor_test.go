@@ -1817,3 +1817,89 @@ func TestMCPDoctorRowPresent(t *testing.T) {
 		t.Error("runDoctorChecks must append the mcp row")
 	}
 }
+
+// TestMCPRouteCheckBranches drives the pure route-row classifier over every
+// probe outcome: the row is always OK (a state row, never a verdict flipper)
+// and the note matches the probe's classification.
+func TestMCPRouteCheckBranches(t *testing.T) {
+	origin := "http://127.0.0.1:3000"
+	cases := []struct {
+		name     string
+		status   int
+		err      error
+		tools    int
+		wantNote string
+	}{
+		{"dial error", 0, fmt.Errorf("dial tcp: connection refused"), 10,
+			"not reachable at http://127.0.0.1:3000/mcp — is the daemon running? (rk daemon start)"},
+		{"404 predates the route", 404, nil, 10,
+			"daemon at http://127.0.0.1:3000 answers 404 for /mcp — it predates the route; restart it (rk daemon restart)"},
+		{"503 transport unconfigured", 503, nil, 10,
+			"route present but the transport is not configured — the daemon logged why at start (see the mcp row above)"},
+		{"400 mounted with tools", 400, nil, 10,
+			"mounted at http://127.0.0.1:3000/mcp (10 tools)"},
+		{"400 mounted, drift guard failed (no count)", 400, nil, 0,
+			"mounted at http://127.0.0.1:3000/mcp"},
+		{"405 mounted", 405, nil, 3,
+			"mounted at http://127.0.0.1:3000/mcp (3 tools)"},
+		{"200 mounted", 200, nil, 10,
+			"mounted at http://127.0.0.1:3000/mcp (10 tools)"},
+		{"unexpected 500", 500, nil, 10,
+			"unexpected 500 from http://127.0.0.1:3000/mcp"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			gotURL := ""
+			check := mcpRouteCheck(origin, c.tools, func(url string) (int, string, error) {
+				gotURL = url
+				return c.status, "", c.err
+			})
+			if !check.OK {
+				t.Errorf("OK = false, want true — the mcp route row is never a verdict flipper")
+			}
+			if check.Name != "mcp route" {
+				t.Errorf("Name = %q, want %q", check.Name, "mcp route")
+			}
+			if check.Note != c.wantNote {
+				t.Errorf("Note = %q, want exactly %q", check.Note, c.wantNote)
+			}
+			if want := origin + "/mcp"; gotURL != want {
+				t.Errorf("probe URL = %q, want %q", gotURL, want)
+			}
+		})
+	}
+}
+
+// TestMCPRouteDoctorRowPresent: under a stubbed probe the row appears in
+// runDoctorChecks (and therefore in doctor --json) immediately after the mcp
+// row, always OK, and the report verdict is unaffected by a dial error.
+func TestMCPRouteDoctorRowPresent(t *testing.T) {
+	orig := doctorHTTPGet
+	doctorHTTPGet = func(string) (int, string, error) {
+		return 0, "", fmt.Errorf("dial tcp: connection refused")
+	}
+	t.Cleanup(func() { doctorHTTPGet = orig })
+
+	report := runDoctorChecks()
+	mcpIdx, routeIdx := -1, -1
+	for i, c := range report.Checks {
+		switch c.Name {
+		case "mcp":
+			mcpIdx = i
+		case "mcp route":
+			routeIdx = i
+			if !c.OK {
+				t.Errorf("mcp route row must be OK under a dial error, got %+v", c)
+			}
+			if !strings.Contains(c.Note, "not reachable at ") {
+				t.Errorf("mcp route note = %q", c.Note)
+			}
+		}
+	}
+	if routeIdx < 0 {
+		t.Fatal("runDoctorChecks must append the mcp route row")
+	}
+	if mcpIdx < 0 || routeIdx != mcpIdx+1 {
+		t.Errorf("mcp route row must immediately follow the mcp row (mcp at %d, route at %d)", mcpIdx, routeIdx)
+	}
+}

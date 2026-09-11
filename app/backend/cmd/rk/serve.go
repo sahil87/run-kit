@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -21,6 +22,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/cron"
 	"rk/internal/daemon"
+	"rk/internal/mcp"
 	"rk/internal/selfpath"
 	"rk/internal/settings"
 	"rk/internal/snapshot"
@@ -189,6 +191,10 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		updateChecker.Start(ctx)
 		apiServer.SetUpdateChecker(updateChecker)
 
+		// /mcp — the streamable-HTTP transport over the same policy table and
+		// executor `rk mcp` serves on stdio. See wireMCP.
+		wireMCP(ctx, cmd, apiServer, cfg, version, logger)
+
 		// Start the tmuxctl supervisor AFTER tmux.EnsureConfig() (above) and
 		// BEFORE the HTTP listen, so the SSE hub never races an empty Client map
 		// for sockets that already exist on disk.
@@ -295,4 +301,34 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 
 		return nil
 	},
+}
+
+// wireMCP builds the MCP server from the live Cobra tree and mounts its
+// streamable-HTTP handler on /mcp. Fail-soft: a table that cannot resolve is
+// a defect `rk doctor`'s mcp row already reports, and the daemon must still
+// come up (Constitution VI posture — availability first); the route then
+// answers 503 until a fixed binary is restarted. The tailscale probe inside
+// LiveTailnetIdentity is the only subprocess this adds to daemon start — a
+// bounded argv exec (Constitution I / Process Execution).
+//
+// The root arrives via cmd.Root() rather than the rootCmd package var:
+// rootCmd's no-args default delegates here (rootCmd → serveCmd), so a package
+// var reference back would be an initialization cycle.
+//
+// Exe is os.Executable() for parity with `rk mcp`: every upgrade path
+// (`rk update`, POST /api/update) restarts the daemon, so the running
+// binary's own path is the right verb executable for its lifetime.
+func wireMCP(ctx context.Context, cmd *cobra.Command, apiServer *api.Server, cfg config.Config, version string, logger *slog.Logger) {
+	exe, _ := os.Executable()
+	mcpServer, err := mcp.New(mcp.Config{Root: cmd.Root(), Exe: exe, Version: version, Instructions: string(skillBundle), Logger: logger})
+	if err != nil {
+		slog.Warn("mcp: /mcp disabled — policy table did not resolve", "err", err)
+		return
+	}
+	hostname, _ := os.Hostname()
+	addrs, _ := net.InterfaceAddrs()
+	tailnet := mcp.LiveTailnetIdentity(ctx)
+	policy := mcp.NewOriginPolicy(mcp.DeriveAllowedOrigins(cfg.Host, cfg.Port, hostname, addrs, tailnet))
+	slog.Info("mcp: /mcp mounted", "tools", len(mcpServer.Tools()), "origins", policy.Origins())
+	apiServer.SetMCPHandler(mcpServer.HTTPHandler(policy, logger))
 }

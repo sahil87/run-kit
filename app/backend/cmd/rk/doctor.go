@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -113,11 +115,18 @@ func runDoctorChecks() doctorReport {
 
 	// mcp — the policy-table drift guard. Unlike the state rows above, a table
 	// that cannot resolve is a real defect, so this row is a verdict flipper.
-	c := mcpDoctorCheck()
+	c, mcpTools := mcpDoctorCheck()
 	report.Checks = append(report.Checks, c)
 	if !c.OK {
 		report.OK = false
 	}
+
+	// mcp route — the daemon's /mcp streamable-HTTP transport, probed over the
+	// resolved origin. Always OK-shaped (the code-server state posture): a
+	// stopped or pre-route daemon is a state, not a dependency failure — the
+	// mcp row above remains the verdict flipper. The tool count rides the
+	// drift guard's resolution (0 when it failed, dropping the tools suffix).
+	report.Checks = append(report.Checks, mcpRouteDoctorCheck(context.Background(), mcpTools))
 
 	// Ephemeral servers — informational hygiene count, always OK-shaped (the
 	// code-server/drift posture): scratch servers are deliberate creator
@@ -683,13 +692,78 @@ func mcpCheck(n int, err error) doctorCheck {
 }
 
 // mcpDoctorCheck resolves the shipped policy table in-process (introspection
-// only — no exec, no tmux) and reports the tool count.
-func mcpDoctorCheck() doctorCheck {
+// only — no exec, no tmux), reports the tool count, and returns the resolved
+// count alongside so the mcp route row can quote it without re-resolving (0
+// on failure).
+func mcpDoctorCheck() (doctorCheck, int) {
 	resolved, err := mcp.Resolve(rootCmd, mcp.Table)
 	if err != nil {
-		return mcpCheck(0, err)
+		return mcpCheck(0, err), 0
 	}
-	return mcpCheck(len(resolved), nil)
+	return mcpCheck(len(resolved), nil), len(resolved)
+}
+
+// doctorMCPClientTimeout bounds the /mcp route probe's HTTP client;
+// doctorMCPBodyCap caps the response body read — the probe keys on the
+// status, the body is diagnostic only.
+const (
+	doctorMCPClientTimeout = 2 * time.Second
+	doctorMCPBodyCap       = 1 << 10
+)
+
+// doctorHTTPGet is the seam for the mcp route row's live probe (the dialTCP
+// idiom): a session-less GET with the SSE accept header — the SDK's stateful
+// handler answers it 400 without opening an MCP session, which is the
+// "route is mounted" signature. Tests substitute it so runDoctorChecks never
+// dials.
+var doctorHTTPGet = func(url string) (int, string, error) {
+	client := &http.Client{Timeout: doctorMCPClientTimeout}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return 0, "", err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, doctorMCPBodyCap))
+	if err != nil {
+		return resp.StatusCode, "", err
+	}
+	return resp.StatusCode, string(body), nil
+}
+
+// mcpRouteCheck classifies a bounded GET <origin>/mcp. The SDK's stateful
+// handler answers a session-less GET with 400 ("GET requires an
+// Mcp-Session-Id header"), which is the positive signature — no MCP session
+// is opened by the probe. Pure over the injected probe so tests never dial.
+func mcpRouteCheck(origin string, tools int, get func(url string) (int, string, error)) doctorCheck {
+	check := doctorCheck{Name: "mcp route", OK: true}
+	status, _, err := get(origin + mcp.HTTPRoutePath)
+	switch {
+	case err != nil:
+		check.Note = fmt.Sprintf("not reachable at %s/mcp — is the daemon running? (rk daemon start)", origin)
+	case status == http.StatusNotFound:
+		check.Note = fmt.Sprintf("daemon at %s answers 404 for /mcp — it predates the route; restart it (rk daemon restart)", origin)
+	case status == http.StatusServiceUnavailable:
+		check.Note = "route present but the transport is not configured — the daemon logged why at start (see the mcp row above)"
+	case status == http.StatusBadRequest || status == http.StatusMethodNotAllowed || (status >= 200 && status < 300):
+		check.Note = fmt.Sprintf("mounted at %s/mcp", origin)
+		if tools > 0 {
+			check.Note += fmt.Sprintf(" (%d tools)", tools)
+		}
+	default:
+		check.Note = fmt.Sprintf("unexpected %d from %s/mcp", status, origin)
+	}
+	return check
+}
+
+// mcpRouteDoctorCheck is the live wrapper: the caller's resolved origin plus
+// the production probe.
+func mcpRouteDoctorCheck(ctx context.Context, tools int) doctorCheck {
+	return mcpRouteCheck(resolveOrigin(ctx), tools, doctorHTTPGet)
 }
 
 // doctorFailLabel returns the human [FAIL] row's lead-in. Pre-existing checks

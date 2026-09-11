@@ -20,6 +20,7 @@ import (
 	"rk/internal/cron"
 	"rk/internal/daemon"
 	"rk/internal/gui"
+	"rk/internal/mcp"
 	"rk/internal/metrics"
 	"rk/internal/ports"
 	"rk/internal/prstatus"
@@ -305,6 +306,12 @@ type Server struct {
 	// §II) — and the key space is bounded (10 owned families × 4 assets).
 	// Lazily initialized by tintCached.
 	tintCache map[string][]byte
+
+	// mcpHandler is the MCP streamable-HTTP handler behind /mcp, wired by
+	// `rk serve` via SetMCPHandler (the api package cannot import cmd/rk's
+	// rootCmd, so the MCP server is built there). Nil answers 503 — see
+	// handleMCP.
+	mcpHandler http.Handler
 }
 
 // now returns the server clock, defaulting to time.Now when unseeded (the test
@@ -802,6 +809,18 @@ func NewTestRouter(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, hostname
 	return s.buildRouter()
 }
 
+// NewTestRouterAndServer is NewTestRouter plus the *Server, so tests can
+// drive the setter-wired surfaces (SetMCPHandler).
+func NewTestRouterAndServer(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, hostname string) (chi.Router, *Server) {
+	s := &Server{
+		logger:   logger,
+		sessions: sf,
+		tmux:     ops,
+		hostname: hostname,
+	}
+	return s.buildRouter(), s
+}
+
 // NewTestRouterWithRiff is NewTestRouter plus an injected RiffEngine, used by the
 // riff handler tests to supply a mock engine without touching the shared
 // TmuxOps/mockTmuxOps surface.
@@ -834,6 +853,13 @@ func NewTestRouterWithWt(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, wt
 // tests use this seam directly (mirrors SetVersion).
 func (s *Server) SetSSHUser(user string) {
 	s.sshUser = user
+}
+
+// SetMCPHandler wires the MCP streamable-HTTP handler behind /mcp (the
+// SetVersion/SetUpdateChecker precedent — called by `rk serve` before
+// ListenAndServe). Until set, /mcp answers 503 (see handleMCP).
+func (s *Server) SetMCPHandler(h http.Handler) {
+	s.mcpHandler = h
 }
 
 func (s *Server) buildRouter() chi.Router {
@@ -1013,6 +1039,14 @@ func (s *Server) buildRouter() chi.Router {
 	// GUI relay — the raw RFB byte stream of the host desktop over WS (binary
 	// frames only; the backend never listens on TCP itself). See api/gui_ws.go.
 	r.Get("/ws/gui/{id}", s.handleGuiWS)
+
+	// MCP streamable-HTTP transport — POST (client→server), GET (SSE stream),
+	// DELETE (session end) on ONE path, the single recorded Constitution IX
+	// exception (docs/specs/api.md § MCP). chi's Handle matches every method;
+	// the SDK handler answers 405 for anything else. CORS stays
+	// [GET POST OPTIONS]: MCP clients are not browsers, and rs/cors passes a
+	// non-preflight DELETE through without headers. See api/mcp.go.
+	r.Handle(mcp.HTTPRoutePath, http.HandlerFunc(s.handleMCP))
 
 	// PWA identity assets — explicit GET routes registered BEFORE the SPA
 	// catch-all so the instance accent (config.yaml instance_color, read per

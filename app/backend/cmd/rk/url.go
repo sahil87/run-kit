@@ -3,8 +3,17 @@ package main
 import (
 	"fmt"
 
+	"rk/internal/mcp"
+
 	"github.com/spf13/cobra"
 )
+
+// urlMCP switches `rk url` to the MCP streamable-HTTP endpoint form.
+var urlMCP bool
+
+func init() {
+	urlCmd.Flags().BoolVar(&urlMCP, "mcp", false, "Print the MCP streamable-HTTP endpoint (<url>/mcp) instead of the server root")
+}
 
 // urlCmd prints the run-kit server origin resolved for the CALLER,
 // newline-terminated, to stdout. It is the stable seam an agent uses to
@@ -29,11 +38,18 @@ var urlCmd = &cobra.Command{
 		"covering that server) is used next; otherwise the config default " +
 		"(127.0.0.1:3000) applies. This is a heuristic: it reports " +
 		"what the server WOULD bind, not proof that a server is running. It " +
-		"performs no liveness or port-owner probe.",
+		"performs no liveness or port-owner probe. --mcp prints the MCP " +
+		"streamable-HTTP endpoint (<url>/mcp) instead — the endpoint an MCP client " +
+		"on the tailnet (Claude Code and kin) is pointed at; the Claude desktop app " +
+		"uses `ssh <box> rk mcp` instead.",
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		_, err := fmt.Fprintln(cmd.OutOrStdout(), resolveOrigin(cmd.Context()))
+		origin := resolveOrigin(cmd.Context())
+		if urlMCP {
+			origin += mcp.HTTPRoutePath
+		}
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), origin)
 		return err
 	},
 }

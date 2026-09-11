@@ -24,7 +24,9 @@ type Config struct {
 
 // Server wraps the SDK server with the resolved policy table and the executor.
 // It holds no state beyond the SDK session (Constitution II) and nothing in it
-// assumes stdio — the daemon's /mcp route reuses New.
+// assumes a transport — `rk mcp` serves it over stdio (RunStdio) and the
+// daemon's /mcp route serves the same instance over streamable HTTP
+// (HTTPHandler).
 type Server struct {
 	sdk      *mcpsdk.Server
 	executor Executor

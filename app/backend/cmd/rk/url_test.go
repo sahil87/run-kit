@@ -12,15 +12,23 @@ import (
 // root flag/arg state is reset first so a prior test's Execute() cannot bleed in.
 func runURL(t *testing.T) (string, string) {
 	t.Helper()
+	return runURLArgs(t, "url")
+}
+
+// runURLArgs is runURL with explicit argv (the --mcp variant); it also resets
+// the urlMCP package var so a flag run cannot bleed into a later bare run.
+func runURLArgs(t *testing.T, args ...string) (string, string) {
+	t.Helper()
 	resetRootFlagState(t)
 	var stdout, stderr bytes.Buffer
 	rootCmd.SetOut(&stdout)
 	rootCmd.SetErr(&stderr)
-	rootCmd.SetArgs([]string{"url"})
+	rootCmd.SetArgs(args)
 	t.Cleanup(func() {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
+		urlMCP = false
 	})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("url Execute err = %v, want nil (exit 0)", err)
@@ -104,5 +112,29 @@ func TestURLHelpStatesHeuristic(t *testing.T) {
 		if !bytes.Contains([]byte(long), []byte(want)) {
 			t.Errorf("url Long text missing %q; got:\n%s", want, long)
 		}
+	}
+}
+
+// TestURLMCPFlag: --mcp prints the resolved origin plus /mcp,
+// newline-terminated, with empty stderr.
+func TestURLMCPFlag(t *testing.T) {
+	t.Setenv("RK_HOST", "10.0.0.5")
+	t.Setenv("RK_PORT", "3210")
+	stubOriginSeams(t, "", "", nil)
+
+	stdout, stderr := runURLArgs(t, "url", "--mcp")
+
+	if want := "http://10.0.0.5:3210/mcp\n"; stdout != want {
+		t.Errorf("stdout = %q, want %q", stdout, want)
+	}
+	if stderr != "" {
+		t.Errorf("url --mcp wrote to stderr: %q", stderr)
+	}
+}
+
+// TestURLMCPFlagHelp: the Long text names the flag and its consumer.
+func TestURLMCPFlagHelp(t *testing.T) {
+	if !bytes.Contains([]byte(urlCmd.Long), []byte("--mcp")) {
+		t.Errorf("url Long text does not name --mcp:\n%s", urlCmd.Long)
 	}
 }

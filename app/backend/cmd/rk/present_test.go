@@ -102,8 +102,9 @@ func installPresentFakes(t *testing.T) *presentFake {
 		f.probed = append(f.probed, port)
 		return nil
 	}
-	presentNotifyFn = func(_ context.Context, title, body string) {
+	presentNotifyFn = func(_ context.Context, title, body string) bool {
 		f.notified = append(f.notified, body)
+		return true
 	}
 	tabWakeFn = func(_ context.Context, server string) {
 		f.wakes = append(f.wakes, server)

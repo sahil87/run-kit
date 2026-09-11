@@ -35,15 +35,37 @@ var cronRmCmd = &cobra.Command{
 		if !ok {
 			return fmt.Errorf("no entry %s", args[0])
 		}
-		newSink(cmd).Dataf("removed %s\n", args[0])
+		sink := newSink(cmd)
+		if cronRmJSONFlag {
+			sink.JSONResult(cronRmReceipt{ID: args[0], Removed: true})
+			return nil
+		}
+		sink.Dataf("removed %s\n", args[0])
 		return nil
 	},
 }
 
+// cronRmReceipt is the `cron rm` --json success document.
+type cronRmReceipt struct {
+	ID      string `json:"id"`
+	Removed bool   `json:"removed"`
+}
+
+// cronMuteReceipt is the `cron mute` --json success document: until is
+// present only on the --for lease (the same RFC3339 string the human line
+// prints); --off reports muted:false.
+type cronMuteReceipt struct {
+	ID    string `json:"id"`
+	Muted bool   `json:"muted"`
+	Until string `json:"until,omitempty"`
+}
+
 var (
-	cronMuteOffFlag bool
-	cronMuteForFlag time.Duration
-	cronPinOffFlag  bool
+	cronMuteOffFlag  bool
+	cronMuteForFlag  time.Duration
+	cronMuteJSONFlag bool
+	cronPinOffFlag   bool
+	cronRmJSONFlag   bool
 )
 
 var cronMuteCmd = &cobra.Command{
@@ -63,7 +85,7 @@ var cronMuteCmd = &cobra.Command{
 		if cmd.Flags().Changed("for") {
 			return runCronMuteLease(cmd, args[0])
 		}
-		return runCronSetFlag(cmd, args[0], "muted", !cronMuteOffFlag, cron.SetMuted)
+		return runCronMuteFlag(cmd, args[0])
 	},
 }
 
@@ -84,7 +106,29 @@ var cronPinCmd = &cobra.Command{
 func init() {
 	cronMuteCmd.Flags().BoolVar(&cronMuteOffFlag, "off", false, "Unmute instead of mute")
 	cronMuteCmd.Flags().DurationVar(&cronMuteForFlag, "for", 0, "Mute until now+<dur> (a self-expiring lease; positive Go duration; mutually exclusive with --off)")
+	cronMuteCmd.Flags().BoolVar(&cronMuteJSONFlag, "json", false, "Emit the machine-readable envelope (exactly one JSON document on stdout)")
 	cronPinCmd.Flags().BoolVar(&cronPinOffFlag, "off", false, "Unpin instead of pin")
+	cronRmCmd.Flags().BoolVar(&cronRmJSONFlag, "json", false, "Emit the machine-readable envelope (exactly one JSON document on stdout)")
+}
+
+// runCronMuteFlag implements the bare/--off mute forms; the --json receipt
+// replaces the human confirmation line.
+func runCronMuteFlag(cmd *cobra.Command, id string) error {
+	on := !cronMuteOffFlag
+	if err := cronSetEntryFlag(id, on, cron.SetMuted); err != nil {
+		return err
+	}
+	sink := newSink(cmd)
+	if cronMuteJSONFlag {
+		sink.JSONResult(cronMuteReceipt{ID: id, Muted: on})
+		return nil
+	}
+	if on {
+		sink.Dataf("muted %s\n", id)
+	} else {
+		sink.Dataf("unmuted %s\n", id)
+	}
+	return nil
 }
 
 // runCronMuteLease implements `mute --for <dur>`: SetMuteLease(now+dur) via
@@ -108,7 +152,12 @@ func runCronMuteLease(cmd *cobra.Command, id string) error {
 	if !ok {
 		return fmt.Errorf("no entry %s", id)
 	}
-	newSink(cmd).Dataf("muted %s until %s\n", id, until.Format(time.RFC3339))
+	sink := newSink(cmd)
+	if cronMuteJSONFlag {
+		sink.JSONResult(cronMuteReceipt{ID: id, Muted: true, Until: until.Format(time.RFC3339)})
+		return nil
+	}
+	sink.Dataf("muted %s until %s\n", id, until.Format(time.RFC3339))
 	return nil
 }
 
@@ -126,9 +175,9 @@ func cronMutTarget() (slug, dir string, err error) {
 	return slug, dir, nil
 }
 
-// runCronSetFlag is the shared mute/pin core: set the named bool flag on one
-// entry via the cron helper, erroring `no entry <id>` when absent.
-func runCronSetFlag(cmd *cobra.Command, id, flagName string, on bool, set func(dir, slug, id string, v bool) (bool, error)) error {
+// cronSetEntryFlag performs the atomic flag set on one entry, erroring
+// `no entry <id>` when absent. The caller prints the confirmation.
+func cronSetEntryFlag(id string, on bool, set func(dir, slug, id string, v bool) (bool, error)) error {
 	slug, dir, err := cronMutTarget()
 	if err != nil {
 		return err
@@ -139,6 +188,15 @@ func runCronSetFlag(cmd *cobra.Command, id, flagName string, on bool, set func(d
 	}
 	if !ok {
 		return fmt.Errorf("no entry %s", id)
+	}
+	return nil
+}
+
+// runCronSetFlag is the shared pin core: set the named bool flag on one
+// entry via the cron helper, then print the human confirmation.
+func runCronSetFlag(cmd *cobra.Command, id, flagName string, on bool, set func(dir, slug, id string, v bool) (bool, error)) error {
+	if err := cronSetEntryFlag(id, on, set); err != nil {
+		return err
 	}
 	if on {
 		newSink(cmd).Dataf("%s %s\n", flagName, id)

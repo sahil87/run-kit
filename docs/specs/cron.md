@@ -486,7 +486,7 @@ tmux event — the safety-poll lesson).
 |---------|------|
 | Read | `GET /api/cron?server=<slug>` — entries + derived next-fire + orphan state; watchlist rides the existing SSE state doc |
 | Mutate | `POST /api/cron/create`, `POST /api/cron/delete`, `POST /api/cron/mute` (optional `for` duration leases the mute), `POST /api/cron/edit` (partial-merge body; immutable target; returns the entry) — POST-only (Constitution IX) |
-| CLI | `rk cron add <prompt> --every 1h \| --idle-every 3m \| --backoff \| --cron "<expr>" [--name N] [--deliver when-idle\|skip-if-busy] [--if-absent skip] [--respawn <arg>…]`, `rk cron edit <id> [<schedule flag>] [--deliver P] [--name N] [--if-absent P] [--respawn <arg>…]` (target and creator immutable; a schedule or deliver change logs `rescheduled`), `rk cron list [--json]`, `rk cron rm <id>`, `rk cron mute <id> [--for <dur>] [--off]` — agent-friendly: no flags beyond the schedule are required |
+| CLI | `rk cron add <prompt> --every 1h \| --idle-every 3m \| --backoff \| --cron "<expr>" [--json] [--name N] [--deliver when-idle\|skip-if-busy] [--if-absent skip] [--respawn <arg>…]`, `rk cron edit <id> [<schedule flag>] [--deliver P] [--name N] [--if-absent P] [--respawn <arg>…]` (target and creator immutable; a schedule or deliver change logs `rescheduled`), `rk cron list [--json]`, `rk cron rm <id> [--json]`, `rk cron mute <id> [--for <dur>] [--off] [--json]` — agent-friendly: no flags beyond the schedule are required |
 
 `rk cron mute <id> --for <dur>` mutes until now+dur; expiry unmutes
 automatically with no further call — the evaluator reads an expired lease as

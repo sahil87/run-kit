@@ -26,7 +26,18 @@ import (
 // 1 operational (collision, tmux failure, mark failure), 2 usage. No daemon
 // dependency (the rk present pattern).
 
-var muxNewEphemeralFlag bool
+var (
+	muxNewEphemeralFlag bool
+	muxNewJSONFlag      bool
+)
+
+// muxNewReceipt is the --json success document: the report word the human
+// line prints plus the flag echo, so the receipt says what was created.
+type muxNewReceipt struct {
+	Report    string `json:"report"`
+	Server    string `json:"server"`
+	Ephemeral bool   `json:"ephemeral"`
+}
 
 var muxNewCmd = &cobra.Command{
 	Use:   "new <name> [--ephemeral]",
@@ -36,7 +47,7 @@ var muxNewCmd = &cobra.Command{
 		"environment, home-anchored CWD) — the sanctioned way for agents and " +
 		"scripts to create scratch servers instead of improvising raw " +
 		"new-session calls.\n\n" +
-		"Pass --ephemeral to mark the new server "+tmux.EphemeralOption+" 1 before the " +
+		"Pass --ephemeral to mark the new server " + tmux.EphemeralOption + " 1 before the " +
 		"command returns, opting it into the `rk mux reap --ephemeral` bulk " +
 		"cleanup sweep and out of layout-snapshot coverage. If the mark fails, " +
 		"the just-created server is killed — a --ephemeral invocation never " +
@@ -55,6 +66,8 @@ var muxNewCmd = &cobra.Command{
 func init() {
 	muxNewCmd.Flags().BoolVar(&muxNewEphemeralFlag, "ephemeral", false,
 		"Mark the new server "+tmux.EphemeralOption+" 1 (creator opt-out: reaped by rk mux reap --ephemeral, skipped by layout snapshots)")
+	muxNewCmd.Flags().BoolVar(&muxNewJSONFlag, "json", false,
+		"Emit the machine-readable envelope (exactly one JSON document on stdout)")
 }
 
 // muxNew*Fn are package-level seams so runMuxNew can be tested without a
@@ -126,6 +139,10 @@ func runMuxNew(cmd *cobra.Command, name string) error {
 	}
 
 	sink := newSink(cmd)
+	if muxNewJSONFlag {
+		sink.JSONResult(muxNewReceipt{Report: "created", Server: name, Ephemeral: muxNewEphemeralFlag})
+		return nil
+	}
 	sink.Dataf("created %s\n", name)
 	return nil
 }

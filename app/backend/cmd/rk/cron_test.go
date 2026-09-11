@@ -20,6 +20,7 @@ func resetCronFlags() {
 	cronAddRespawn = nil
 	cronAddPinned = false
 	cronAddRole, cronAddPane, cronAddSession = "", "", ""
+	cronAddJSON = false
 	cronEditEvery, cronEditIdleEvery, cronEditBackoff, cronEditCronExpr = 0, 0, false, ""
 	cronEditCatchUp = ""
 	cronEditMin, cronEditMax = time.Minute, 30*time.Minute
@@ -27,10 +28,12 @@ func resetCronFlags() {
 	cronEditRespawn = nil
 	cronListJSONFlag = false
 	cronMuteOffFlag, cronMuteForFlag, cronPinOffFlag = false, 0, false
-	resetFlagChanged(cronAddCmd, "every", "idle-every", "backoff", "cron", "catch-up", "min", "max", "name", "deliver", "if-absent", "respawn", "pinned", "role", "pane", "session")
+	cronMuteJSONFlag, cronRmJSONFlag = false, false
+	resetFlagChanged(cronAddCmd, "every", "idle-every", "backoff", "cron", "catch-up", "min", "max", "name", "deliver", "if-absent", "respawn", "pinned", "role", "pane", "session", "json")
 	resetFlagChanged(cronEditCmd, "every", "idle-every", "backoff", "cron", "catch-up", "min", "max", "name", "deliver", "if-absent", "respawn")
 	resetFlagChanged(cronListCmd, "json")
-	resetFlagChanged(cronMuteCmd, "off", "for")
+	resetFlagChanged(cronMuteCmd, "off", "for", "json")
+	resetFlagChanged(cronRmCmd, "json")
 	resetFlagChanged(cronPinCmd, "off")
 	// The parent's persistent -L is shared by every cron invocation, so an
 	// explicit `-L x` from one test would otherwise leak into the next.

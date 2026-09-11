@@ -338,27 +338,88 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 	}, nil
 }
 
+// SpawnReceipt is one spawned window's identity, returned by Run in index
+// order (one per spawned window for --count N, one for count 1) for the CLI's
+// --json receipt. PaneIDs is every pane of the window (pane 0 first),
+// collected after the split phase; Branch is the worktree's branch. Both
+// derivations are best-effort — a failure leaves PaneIDs as the captured
+// pane-0 id and Branch empty, and never fails the spawn.
+type SpawnReceipt struct {
+	WindowID     string
+	WindowName   string
+	Server       string
+	PaneIDs      []string
+	WorktreePath string
+	Branch       string
+}
+
 // Run is the CLI entry: it dispatches count==1 to a direct spawn and count≥2 to
 // the fan-out orchestrator. The CLI has already resolved the effective spec
 // (panes/layout/count/passthrough), launcher, server label (""), and
 // OriginalTMUX. Returns an ExitCodeError on failure (the CLI maps Code to
 // os.Exit).
-func Run(ctx context.Context, spec EffectiveSpec) error {
+func Run(ctx context.Context, spec EffectiveSpec) ([]SpawnReceipt, error) {
 	if spec.Count <= 1 {
 		worktreePath, err := runWtCreate(ctx, spec, spec.Passthrough)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		name, _, paneID, err := spawnRiffReturningName(ctx, worktreePath, spec)
+		name, windowID, paneID, err := spawnRiffReturningName(ctx, worktreePath, spec)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		// Typed-mode task delivery is synchronous on the CLI path; a failure
 		// warns without failing the spawn (deliver.go).
 		deliverCliTask(ctx, spec, name, paneID)
-		return nil
+		return []SpawnReceipt{{
+			WindowID:     windowID,
+			WindowName:   name,
+			Server:       spec.Server,
+			PaneIDs:      collectPaneIDs(ctx, spec, windowID, paneID),
+			WorktreePath: worktreePath,
+			Branch:       worktreeBranch(ctx, worktreePath),
+		}}, nil
 	}
 	return runCount(ctx, spec)
+}
+
+// collectPaneIDs lists the window's panes (`list-panes -t <windowID> -F
+// '#{pane_id}'`, pane 0 first) after the split phase. Best-effort: a failure —
+// or an unresolved window id — degrades to the captured pane-0 id; the window
+// exists either way.
+func collectPaneIDs(parent context.Context, spec EffectiveSpec, windowID, paneID string) []string {
+	if windowID == "" {
+		return []string{paneID}
+	}
+	ctx, cancel := context.WithTimeout(parent, TmuxTimeout)
+	defer cancel()
+	out, err := tmux.RunOutput(ctx, tmuxArgv(spec, "list-panes", "-t", windowID, "-F", "#{pane_id}"), tmux.RunOpts{Env: childEnv(spec)})
+	if err != nil {
+		return []string{paneID}
+	}
+	var ids []string
+	for _, raw := range strings.Split(string(out), "\n") {
+		if line := strings.TrimSpace(raw); line != "" {
+			ids = append(ids, line)
+		}
+	}
+	if len(ids) == 0 {
+		return []string{paneID}
+	}
+	return ids
+}
+
+// worktreeBranch derives the worktree's branch (`git -C <wt> rev-parse
+// --abbrev-ref HEAD`) — wt create prints a Path: line but no branch line.
+// Best-effort: "" on any failure.
+func worktreeBranch(parent context.Context, worktreePath string) string {
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", worktreePath, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // ResolvedAgent is fab's fully-resolved agent for a tier: the launcher shell
@@ -742,11 +803,14 @@ func resolveWindowName(existing []string, base string) string {
 
 // --- Fan-out (CLI-only; the HTTP endpoint fixes count at 1) ---
 
-// fanOutResult records one goroutine's outcome for rollback planning.
+// fanOutResult records one goroutine's outcome for rollback planning and the
+// success receipt.
 type fanOutResult struct {
 	Index        int
 	WorktreePath string
 	WindowName   string
+	WindowID     string
+	PaneID       string
 	Err          error
 }
 
@@ -776,8 +840,10 @@ func planFanOutRollback(results []fanOutResult, failureIdx int) rollbackPlan {
 }
 
 // runCount spawns spec.Count worktree/window pairs in parallel, rolling back
-// successful ones on any failure. The first-reported error propagates out.
-func runCount(ctx context.Context, spec EffectiveSpec) error {
+// successful ones on any failure. The first-reported error propagates out. On
+// success the receipts are built in index order (pane/branch derivation is
+// best-effort and runs after the parallel phase).
+func runCount(ctx context.Context, spec EffectiveSpec) ([]SpawnReceipt, error) {
 	n := spec.Count
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -811,8 +877,10 @@ func runCount(ctx context.Context, spec EffectiveSpec) error {
 			}
 			res.WorktreePath = worktreePath
 
-			windowName, _, paneID, err := spawnRiffReturningName(ctx, worktreePath, spec)
+			windowName, windowID, paneID, err := spawnRiffReturningName(ctx, worktreePath, spec)
 			res.WindowName = windowName
+			res.WindowID = windowID
+			res.PaneID = paneID
 			if err != nil {
 				res.Err = err
 				recordFailure(i, err)
@@ -828,7 +896,18 @@ func runCount(ctx context.Context, spec EffectiveSpec) error {
 	wg.Wait()
 
 	if firstFailErr == nil {
-		return nil
+		receipts := make([]SpawnReceipt, n)
+		for i, res := range results {
+			receipts[i] = SpawnReceipt{
+				WindowID:     res.WindowID,
+				WindowName:   res.WindowName,
+				Server:       spec.Server,
+				PaneIDs:      collectPaneIDs(ctx, spec, res.WindowID, res.PaneID),
+				WorktreePath: res.WorktreePath,
+				Branch:       worktreeBranch(ctx, res.WorktreePath),
+			}
+		}
+		return receipts, nil
 	}
 	failureIdx := firstFailIdx
 	firstErr := firstFailErr
@@ -838,9 +917,9 @@ func runCount(ctx context.Context, spec EffectiveSpec) error {
 
 	var ece *ExitCodeError
 	if errors.As(firstErr, &ece) {
-		return ece
+		return nil, ece
 	}
-	return SubprocessErr("run-kit riff: fan-out failed: %v", firstErr)
+	return nil, SubprocessErr("run-kit riff: fan-out failed: %v", firstErr)
 }
 
 // rollbackFanOut invokes `wt delete` per worktree and `tmux kill-window` per

@@ -455,7 +455,8 @@ otherwise (plan C4, study §10):
 
 - `rk gui env` — prints `DISPLAY=:N` and the socket path for `eval`.
 - `rk gui exec <cmd…>` — runs a command on the display (the `rk code exec`
-  shape).
+  shape); `--detach [--json]` starts it as its own session and prints the
+  `{pid, display}` receipt.
 - `rk gui launch <terminal|browser> [--cdp [--port 9222]]` — the allowlisted
   launcher: two roles resolved server-side over fixed ladders (first on PATH
   wins, dangling alternatives skipped); a miss exits 1 with the install hint

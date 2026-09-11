@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -789,5 +791,70 @@ func TestCronAddHelpText(t *testing.T) {
 		if !strings.Contains(cronCmd.Long, want) {
 			t.Errorf("the cron parent Long must carry %q", want)
 		}
+	}
+}
+
+// TestCronAddJSONReceipt: --json prints exactly one envelope document whose
+// four fields are the same strings the human line prints (the stored entry's
+// id, name, cronScheduleSummary, cronTargetSummary).
+func TestCronAddJSONReceipt(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	stubCronAddSeams(t, "", nil)
+
+	stdout, _, err := runCronCmd(t, "add", "check PRs", "--every", "1h", "--role", "operator", "--json")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	entries := loadCronEntries(t, dir, "work")
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(entries))
+	}
+	var doc struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			Schedule string `json:"schedule"`
+			Target   string `json:"target"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace([]byte(stdout)), &doc); err != nil {
+		t.Fatalf("stdout is not one JSON document: %v (%q)", err, stdout)
+	}
+	if !doc.OK {
+		t.Errorf("ok = false on success: %q", stdout)
+	}
+	if doc.Result.ID != entries[0].ID {
+		t.Errorf("id = %q, want the stored entry's %q", doc.Result.ID, entries[0].ID)
+	}
+	if doc.Result.Schedule != "every 1h" || doc.Result.Target != "role:operator" || doc.Result.Name != "check PRs" {
+		t.Errorf("receipt = %+v, want {name check PRs, schedule every 1h, target role:operator}", doc.Result)
+	}
+}
+
+// TestCronAddJSONUsageError: a --json usage failure emits the usage envelope
+// on stdout and keeps exit 2.
+func TestCronAddJSONUsageError(t *testing.T) {
+	stubCronDir(t)
+	stubCronTMUX(t)
+	stubCronAddSeams(t, "", nil)
+
+	stdout, _, err := runCronCmd(t, "add", "check PRs", "--json")
+	if err == nil || exitCode(err) != exitUsage {
+		t.Fatalf("err = %v, want an exit-2 usage error (no schedule flag)", err)
+	}
+	stdout = centralFailureEnvelope(t, stdout, err)
+	var doc struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if jsonErr := json.Unmarshal(bytes.TrimSpace([]byte(stdout)), &doc); jsonErr != nil {
+		t.Fatalf("stdout is not one JSON document: %v (%q)", jsonErr, stdout)
+	}
+	if doc.OK || doc.Error.Code != "usage" {
+		t.Errorf("envelope = %q, want ok:false usage", stdout)
 	}
 }

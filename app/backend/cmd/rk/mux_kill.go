@@ -21,7 +21,17 @@ import (
 // 1 operational (refusal, missing pane, tmux failure), 2 usage. No daemon
 // dependency (the rk present pattern).
 
-var muxKillForceFlag bool
+var (
+	muxKillForceFlag bool
+	muxKillJSONFlag  bool
+)
+
+// muxKillReceipt is the --json success document: the report word and the
+// resolved pane id the human line prints.
+type muxKillReceipt struct {
+	Report string `json:"report"`
+	Target string `json:"target"`
+}
 
 var muxKillCmd = &cobra.Command{
 	Use:   "kill <target> [--force]",
@@ -46,6 +56,8 @@ var muxKillCmd = &cobra.Command{
 func init() {
 	muxKillCmd.Flags().BoolVar(&muxKillForceFlag, "force", false,
 		"Skip the agent-state and protected-server gates (the target must still exist)")
+	muxKillCmd.Flags().BoolVar(&muxKillJSONFlag, "json", false,
+		"Emit the machine-readable envelope (exactly one JSON document on stdout)")
 }
 
 // muxKill*Fn are package-level seams so runMuxKill can be tested without a
@@ -118,6 +130,10 @@ func runMuxKill(cmd *cobra.Command, target string) error {
 
 	if err := muxKillPaneFn(ctx, paneID, server); err != nil {
 		return fmt.Errorf("kill-pane: %w", err)
+	}
+	if muxKillJSONFlag {
+		sink.JSONResult(muxKillReceipt{Report: "killed", Target: paneID})
+		return nil
 	}
 	sink.Dataf("killed %s\n", paneID)
 	return nil

@@ -75,14 +75,18 @@ The MCP server has no pane, no `$TMUX`, no `$TMUX_PANE`. Therefore:
   layer makes the argument required at the schema level so the model never sees
   that error.
 - **Server selection.** Every tool whose verb accepts `-L` exposes an optional
-  `server` string input mapped to `-L <server>`. Absent ⇒ the verb's own rule applies,
-  which with no `$TMUX` resolves to `default`. The `sessions` tool's result carries
-  server names, so a model can discover what to pass.
+  `server` string input mapped to `-L <server>` — optional *except* where the
+  verb's own defaults are unsatisfiable under the executor (no `$TMUX`, no repo
+  cwd): `riff` marks `server` **and** `repo` required (an absolute git-toplevel
+  path the verb validates), and `operator` marks `server` required. Absent ⇒ the
+  verb's own rule applies, which with no `$TMUX` resolves to `default`. The
+  `sessions` tool's result carries server names, so a model can discover what
+  to pass.
 - No tool takes a shell string, a raw tmux target expression beyond the three forms
   above, or a filesystem path beyond what the verb already validates. `riff`'s
   `--cmd` (a pane shell command; its bare form drops into `$SHELL`) is therefore
-  **excluded** from the `riff` tool's inputs — the tool exposes `preset`, `skill`,
-  `layout`, and `count` only.
+  **excluded** from the `riff` tool's inputs — the tool exposes `server`, `repo`,
+  `session`, `preset`, `skill`, `layout`, and `count` only.
 
 ## Envelope (`--json`)
 
@@ -129,16 +133,19 @@ below are the contract; a verb MAY add fields, never rename these.
 | Talk | `mux send` | `{"report":"delivered"\|"staged"\|"sent","target":"%N","server":"<name>","enter":bool,"await":{…}?}` — `report` is the frozen report word the human path prints (agent-messaging.md § Report-word contract); `await` is present only with `--await` and carries the `mux await` result. Failure: `ok:false`, `code:"operational"`, `reason ∈ {probe_failure, staged_send_failure, submit_unverified}` — the same three tokens `POST /api/windows/{id}/send` returns as its 409 `code` |
 | Talk | `mux send --answer` / `--key` | Same shape; `report:"sent"` for key-only sends |
 | Talk | `mux await` | `{"report":"idle"\|"waiting"\|"ready"\|"parked"\|"narrow"\|"file"\|"gone"\|"running","target":"%N","elapsed_ms":n,"detail":"<state\|echo\|WxH>"?}`. `running` is a **success** result (`ok:true`): the wait expired, nothing failed |
-| Talk | `notify` | `{"delivered":true}` |
+| Talk | `notify` | `{"delivered":bool}` — `true` on a 2xx from `/api/notify`; `false` when the send was swallowed. Exit stays 0 either way (the fail-silent contract); the receipt is where the truth goes |
 | Talk | `operator request` | `{"template":"<id>","window":"@N"?,"queued":bool}` — `queued:true` ⇔ the daemon answered `202` |
-| Spawn | `riff` | `{"windows":[{"id":"@N","name":"…","server":"…","panes":["%N",…],"worktree":"/abs/path","branch":"…"}]}` |
-| Spawn | `tab new` / `mux new` | `{"window":"@N","server":"…"}` / `{"server":"<name>"}` |
+| Spawn | `riff` | `{"windows":[{"id":"@N","name":"…","server":"…","panes":["%N",…],"worktree":"/abs/path","branch":"…"}]}` — one element per spawned window (`--count N` ⇒ N elements, in index order); `panes[0]` is the task pane. The verb gains `-L`/`--session =S`/`--repo` targeting flags so the tool is satisfiable with `$TMUX` stripped |
+| Spawn | `tab new` | `{"session":"<name>","window_id":"@N","pane_id":"%N"[,"ready":…]}` — the shipped document, verbatim inside `result` (the envelope wraps, never reshapes) |
+| Spawn | `mux new` | `{"report":"created","server":"<name>","ephemeral":bool}` |
 | Spawn | `operator` | `{"window":"@N","server":"…","created":bool}` — idempotent; `created:false` when the operator tab already existed |
-| Spawn | `cron add` | `{"id":"<entry id>","name":"…","schedule":"…","target":"…"}` (the four fields the human line already prints) |
-| Steer UI | `tab layout` / `tab web *` / `tab code set` | `{"window":"@N", …}` plus the resulting addressed state the verb already prints in prose (layout string, web-tab list, code root) |
+| Spawn | `cron add` | `{"id":"<entry id>","name":"…","schedule":"…","target":"…"}` (the four fields the human line already prints, as the same strings) |
+| Steer UI | `tab layout` | `{"window":"@N","layout":"<shape>:<surfaces>"}` — read and mutate forms alike |
+| Steer UI | `tab web *` | `{"window":"@N","index":n,"url":"<resolved>"?,"tabs":[{"index","url","root"?},…]}` — `index` is the affected slot (mv: the destination), `url` is add's resolved target, `tabs` is the post-mutation family in the `tab web ls --json` entry shape; a failed read-back is a stderr note with `tabs` omitted, never an error |
+| Steer UI | `tab code set` | `{"window":"@N","code_root":"/abs/path"}` |
 | Steer UI | `code exec` / `gui exec --detach` | `code exec` keeps its existing `--json` document; `gui exec --detach` returns `{"pid":n,"display":"<name>"}` (the two facts its `started <pid> on <display>` line already prints) |
 | Clean up | `mux kill` | `{"report":"killed","target":"%N"}` |
-| Clean up | `cron rm` / `cron mute` | `{"id":"…","removed":true}` / `{"id":"…","muted":bool,"until":"<RFC3339>"?}` |
+| Clean up | `cron rm` / `cron mute` | `{"id":"…","removed":true}` / `{"id":"…","muted":bool,"until":"<RFC3339>"?}` — `until` only on the `--for` lease, the same string the human line prints |
 | See/Steer | `board` | `show` → the `GET /api/boards[/{name}]` body verbatim; `pin`/`unpin`/`reorder` → `{"board":"…","window":"@N","orderKey":"…"?}` |
 
 ## Timeout contract
@@ -165,7 +172,10 @@ that exposes a verb. Shown as YAML for readability:
 ```yaml
 tool: capture                 # MCP tool name — snake_case, unique, stable
 path: mux capture             # Cobra command path; MUST resolve at startup (test-enforced)
-args:                         # ordered input → argv mapping
+args:                         # ordered input → argv mapping: a single ordered walk —
+                              # every flag, flag-shaped literal, positional, and bare literal
+                              # is emitted where it sits in args (so gui_exec places
+                              # `--detach --json --` before its positionals)
   - { name: server, flag: "-L", type: string }                              # optional unless required: true
   - { name: target, positional: 1, type: string, required: true, pattern: "^(%\\d+|@\\d+|=.+:.+)$" }
   - { name: lines,  flag: "-l", type: integer, minimum: 1, maximum: 2000 }
@@ -180,6 +190,26 @@ annotations: { readOnly: true, destructive: false, idempotent: true, openWorld: 
 timeout: 45s                  # ≤ ToolTimeoutCap
 description: null             # optional override of Cobra Short/Long when terminal prose misleads a model
 ```
+
+Two input shapes extend the scalar model:
+
+- `type: array` (string array, optional `maxItems`) — a flag form maps to a
+  repeated flag (`--skill a --skill b`); a positional form contributes one argv
+  element per item (`code_exec`/`gui_exec` `args`). Compatible pflag types:
+  `stringArray`, `stringSlice`, and riff's custom `skill`.
+- `format:` on a positional — the argv token is rendered from named schema-only
+  inputs (an arg with neither `flag` nor `positional` nor `literal`, and not the
+  `stdin` input): `{name}` substitutes the input's value, `[…]` is an optional
+  segment dropped when any input inside it is absent. `tab_web` renders its
+  composite address this way: `{window}[/web/{slot}]` → `@3/web/2` (or `@3` when
+  `slot` is absent). A `format` naming an input the row lacks fails Resolve.
+
+The two action-enum tools (`board`, `tab_web`) share one shape: a positional
+`action` enum on the parent path, the flags **persistent on the parent** (the
+drift guard resolves flags on the row's path), and per-action required-ness
+enforced by the verb's own usage errors and stated in the row's description.
+A duration-string input (e.g. `cron_add`'s `every`) is `type: string` with a
+Go-duration pattern over a pflag `duration` flag.
 
 Rules:
 
@@ -225,20 +255,20 @@ not this spec's.
 | Talk | `send` | `mux send <target> -` (body on stdin) | — | yes (envelope) |
 | Talk | `answer` | `mux send <target> --answer` / `--key <k>` (bounded enum) | — | yes (envelope) |
 | Talk | `await` | `mux await <target> --until … --timeout ≤40` | ro | yes (envelope) |
-| Talk | `notify` | `notify <message> [--title]` | — | no |
+| Talk | `notify` | `notify <message> [--title]` | — | yes (`--json`) |
 | Talk | `operator_request` | `operator request <template> [--window @N] [--text] [--session]` | — | yes |
-| Spawn | `riff` | `riff [preset] [--skill…] [--layout] [--count]` (no `--cmd`) | — | no |
-| Spawn | `new_window` | `tab new [--session =S] [--cwd] [--name] [--layout]` | — | no (prints `@N`) |
-| Spawn | `operator` | `operator [--workers] [-L]` | idem | no |
-| Spawn | `cron_add` | `cron add <prompt> (--every\|--backoff\|--cron) (--pane\|--session\|--role)` | — | no (prints an id line) |
-| Steer UI | `tab_layout` | `tab layout @N [L \| --add S \| --rm S \| --promote S \| --cycle]` | — | no |
-| Steer UI | `tab_web` | `tab web add\|rm\|select\|mv` (action enum) | — | no |
-| Steer UI | `tab_code` | `tab code set @N <folder>` | — | no |
+| Spawn | `riff` | `riff [preset] [--skill…] [--layout] [--count]` (no `--cmd`) | — | yes (`--json`; plus `-L`/`--session`/`--repo` targeting flags) |
+| Spawn | `new_window` | `tab new [--session =S] [--cwd] [--name] [--layout]` | — | yes (`--json`; a bare document until the envelope lands) |
+| Spawn | `operator` | `operator [--workers] [-L]` | idem | yes (`--json`) |
+| Spawn | `cron_add` | `cron add <prompt> (--every\|--backoff\|--cron) (--pane\|--session\|--role)` | — | yes (`--json`) |
+| Steer UI | `tab_layout` | `tab layout @N [L \| --add S \| --rm S \| --promote S \| --cycle]` | — | yes (`--json`) |
+| Steer UI | `tab_web` | `tab web add\|rm\|select\|mv` (action enum) | — | yes (`--json`) |
+| Steer UI | `tab_code` | `tab code set @N <folder>` | — | yes (`--json`) |
 | Steer UI | `code_exec` | `code exec <command> [json-arg…] --json` | — | yes |
-| Steer UI | `gui_exec` | `gui exec --detach <cmd> [args…]` (fixed `--detach`) | — | no (prints `started <pid> on <display>`) |
-| Clean up | `kill` | `mux kill <target>` | destr | report word (text) |
-| Clean up | `cron_rm` | `cron rm <id>` | destr | no |
-| Clean up | `cron_mute` | `cron mute <id> [--for] [--off]` | idem | no |
+| Steer UI | `gui_exec` | `gui exec --detach <cmd> [args…]` (fixed `--detach`) | — | yes (`--json`) |
+| Clean up | `kill` | `mux kill <target>` | destr | yes (`--json`) |
+| Clean up | `cron_rm` | `cron rm <id>` | destr | yes (`--json`) |
+| Clean up | `cron_mute` | `cron mute <id> [--for] [--off]` | idem | yes (`--json`) |
 | See/Steer | `board` | `board show [name]` / `pin` / `unpin` / `reorder` (action enum) | — | yes |
 
 Row-level rules:

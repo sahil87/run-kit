@@ -30,7 +30,7 @@ Exactly one schedule flag per entry:
 - `--backoff [--min <dur>] [--max <dur>]` — a backoff ladder keyed on the target pane's idle epoch — resets on genuine activity, continues otherwise; `60s`→`30m` by default.
 - `--cron "<expr>"` — a 5-field cron expression in the daemon's local time, validated at add time; `--catch-up once` opts into one late fire after a gap.
 
-`--name` defaults to a prompt prefix.
+`--name` defaults to a prompt prefix. Success prints `<id> <name> [<schedule> -> <target>]`; `--json` prints the receipt `{"id","name","schedule","target"}` (the same four fields, as the same strings).
 
 ## Targets: auto-capture down the ladder
 
@@ -59,7 +59,7 @@ rk cron edit a3f9 --idle-every 3m  # replace one field in place, keeping id + hi
 rk cron rm a3f9                    # remove by id
 ```
 
-`list` is disk-derived — zero tmux probes, so listing never resurrects a dead server; `--json` emits the same records as a JSON array inside the standard envelope (`{"ok":true,"result":[…]}`). `edit` REPLACES each field passed and keeps the rest; a bare `edit <id>` is a usage error. **Target and creator are immutable** — to retarget, `rm` + `add`. A schedule or deliver change logs a `rescheduled` line and resets the schedule's anchor.
+`list` is disk-derived — zero tmux probes, so listing never resurrects a dead server; `--json` emits the same records as a JSON array inside the standard envelope (`{"ok":true,"result":[…]}`). `rm --json` prints `{"id","removed":true}` and `mute --json` prints `{"id","muted","until"?}` inside the same envelope — `until` (RFC 3339) only on a `--for` lease, `muted:false` on `--off`. `edit` REPLACES each field passed and keeps the rest; a bare `edit <id>` is a usage error. **Target and creator are immutable** — to retarget, `rm` + `add`. A schedule or deliver change logs a `rescheduled` line and resets the schedule's anchor.
 
 Every entry-file verb resolves one server via `-L/--server` — else your own server (from `$TMUX`), else `default`. `rk cron tick` runs one flock-guarded evaluation sweep across every live server (the debug invoker — the daemon ticks on its own, so `tick` rejects `-L`).
 

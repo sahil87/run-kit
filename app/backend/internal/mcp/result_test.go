@@ -303,3 +303,34 @@ func TestMapImageResultEnvelope(t *testing.T) {
 		t.Errorf("non-string result.path = %v %v", res.IsError, res.Content)
 	}
 }
+
+// TestValidateArgsStringArray pins array validation: a valid string array
+// passes; a non-array, a non-string element, and a MaxItems overflow are
+// rejected with messages naming the input.
+func TestValidateArgsStringArray(t *testing.T) {
+	row := Row{
+		Tool: "x", Path: "x",
+		Args: []Arg{
+			{Name: "skill", Type: ArgStringArray, MaxItems: intPtr(2)},
+		},
+	}
+	if _, err := ValidateArgs(row, json.RawMessage(`{"skill":["/a","/b"]}`)); err != nil {
+		t.Errorf("valid array rejected: %v", err)
+	}
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"not an array", `{"skill":"/a"}`, `"skill"`},
+		{"non-string element", `{"skill":["/a",3]}`, `"skill"`},
+		{"maxItems overflow", `{"skill":["/a","/b","/c"]}`, `"skill"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ValidateArgs(row, json.RawMessage(tc.raw)); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("ValidateArgs = %v, want an error naming %s", err, tc.want)
+			}
+		})
+	}
+}

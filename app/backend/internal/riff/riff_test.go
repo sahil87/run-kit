@@ -1798,3 +1798,129 @@ func TestTmuxArgv(t *testing.T) {
 		}
 	})
 }
+
+// stubTmuxWithPanesScript extends stubTmuxScript with a list-panes answer so
+// the receipt's pane collection can be pinned (pane 0 first).
+func stubTmuxWithPanesScript(newWindowLog, panes string) string {
+	return "#!/bin/sh\n" +
+		"case \"$1\" in\n" +
+		"  list-windows) exit 0 ;;\n" +
+		"  new-window) printf '%s\\n' \"$*\" >> " + newWindowLog + "; echo '%20' ;;\n" +
+		"  select-pane) exit 0 ;;\n" +
+		"  display-message) echo '@9' ;;\n" +
+		"  list-panes) printf '%s\\n' " + panes + " ;;\n" +
+		"  *) exit 0 ;;\n" +
+		"esac\n"
+}
+
+// TestRunReceiptCountOne: a count-1 Run returns one SpawnReceipt carrying the
+// resolved window id/name, the full pane list (pane 0 first), the worktree
+// path, and the branch derived from git.
+func TestRunReceiptCountOne(t *testing.T) {
+	dir := t.TempDir()
+	worktree := t.TempDir()
+	newWindowLog := filepath.Join(dir, "new-window.log")
+
+	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+	testutil.WriteStub(t, dir, "tmux", stubTmuxWithPanesScript(newWindowLog, "'%20' '%21'"))
+	testutil.WriteStub(t, dir, "git", "#!/bin/sh\necho 'feature-x'\n")
+	t.Setenv("PATH", dir)
+	stubDeliverTask(t, func(int) error { return nil })
+
+	spec := EffectiveSpec{
+		Count:    1,
+		Panes:    []PaneSpec{{Kind: PaneKindSkill, Value: "do X"}},
+		Launcher: "kimi --auto",
+		RepoRoot: t.TempDir(),
+	}
+	receipts, err := Run(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	if len(receipts) != 1 {
+		t.Fatalf("receipts = %d, want 1", len(receipts))
+	}
+	r := receipts[0]
+	if r.WindowID != "@9" || r.WindowName != "riff-"+filepath.Base(worktree) {
+		t.Errorf("receipt window = %q/%q, want @9/riff-%s", r.WindowID, r.WindowName, filepath.Base(worktree))
+	}
+	if len(r.PaneIDs) != 2 || r.PaneIDs[0] != "%20" || r.PaneIDs[1] != "%21" {
+		t.Errorf("panes = %v, want [%%20 %%21] (pane 0 first)", r.PaneIDs)
+	}
+	if r.WorktreePath != worktree || r.Branch != "feature-x" {
+		t.Errorf("worktree/branch = %q/%q, want %q/feature-x", r.WorktreePath, r.Branch, worktree)
+	}
+}
+
+// TestRunReceiptDegraded: a failed list-panes leaves the captured pane-0 id
+// and a failed git leaves the branch empty — neither fails the spawn.
+func TestRunReceiptDegraded(t *testing.T) {
+	dir := t.TempDir()
+	worktree := t.TempDir()
+	newWindowLog := filepath.Join(dir, "new-window.log")
+
+	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+	testutil.WriteStub(t, dir, "tmux", "#!/bin/sh\n"+
+		"case \"$1\" in\n"+
+		"  list-windows) exit 0 ;;\n"+
+		"  new-window) printf '%s\\n' \"$*\" >> "+newWindowLog+"; echo '%20' ;;\n"+
+		"  select-pane) exit 0 ;;\n"+
+		"  display-message) echo '@9' ;;\n"+
+		"  list-panes) exit 1 ;;\n"+
+		"  *) exit 0 ;;\n"+
+		"esac\n")
+	testutil.WriteStub(t, dir, "git", "#!/bin/sh\nexit 1\n")
+	t.Setenv("PATH", dir)
+	stubDeliverTask(t, func(int) error { return nil })
+
+	spec := EffectiveSpec{
+		Count:    1,
+		Panes:    []PaneSpec{{Kind: PaneKindSkill, Value: "do X"}},
+		Launcher: "kimi --auto",
+		RepoRoot: t.TempDir(),
+	}
+	receipts, err := Run(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Run() = %v, want nil (derivation failures never fail the spawn)", err)
+	}
+	r := receipts[0]
+	if len(r.PaneIDs) != 1 || r.PaneIDs[0] != "%20" {
+		t.Errorf("panes = %v, want the degraded [%%20]", r.PaneIDs)
+	}
+	if r.Branch != "" {
+		t.Errorf("branch = %q, want empty on a git failure", r.Branch)
+	}
+}
+
+// TestRunReceiptFanOutOrder: a count-2 fan-out returns one receipt per window
+// in index order.
+func TestRunReceiptFanOutOrder(t *testing.T) {
+	dir := t.TempDir()
+	worktree := t.TempDir()
+	newWindowLog := filepath.Join(dir, "new-window.log")
+
+	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+	testutil.WriteStub(t, dir, "tmux", stubTmuxWithPanesScript(newWindowLog, "'%20'"))
+	testutil.WriteStub(t, dir, "git", "#!/bin/sh\necho 'main'\n")
+	t.Setenv("PATH", dir)
+	stubDeliverTask(t, func(int) error { return nil })
+
+	spec := EffectiveSpec{
+		Count:    2,
+		Panes:    []PaneSpec{{Kind: PaneKindSkill, Value: "do X"}},
+		Launcher: "kimi --auto",
+		RepoRoot: t.TempDir(),
+	}
+	receipts, err := Run(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	if len(receipts) != 2 {
+		t.Fatalf("receipts = %d, want 2", len(receipts))
+	}
+	for i, r := range receipts {
+		if r.WindowID != "@9" || r.WorktreePath != worktree || r.Branch != "main" {
+			t.Errorf("receipt %d = %+v", i, r)
+		}
+	}
+}

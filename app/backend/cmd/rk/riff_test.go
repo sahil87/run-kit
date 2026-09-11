@@ -2,17 +2,23 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"rk/internal/fabconfig"
 	"rk/internal/riff"
+	"rk/internal/testutil"
 )
 
 // These tests cover the CLI FRONTEND surface that stays in cmd/rk after the
@@ -178,7 +184,7 @@ func freshPaneFlagSet(skill, cmd *paneFlag) *pflag.FlagSet {
 func TestPrintPresets(t *testing.T) {
 	t.Run("empty map prints no-presets line", func(t *testing.T) {
 		var buf bytes.Buffer
-		if err := printPresets(map[string]fabconfig.Preset{}, &buf); err != nil {
+		if err := printPresets(map[string]fabconfig.Preset{}, &buf, ""); err != nil {
 			t.Fatalf("err: %v", err)
 		}
 		if !strings.Contains(buf.String(), "No presets defined in fab/project/config.yaml") {
@@ -207,7 +213,7 @@ func TestPrintPresets(t *testing.T) {
 			},
 		}
 		var buf bytes.Buffer
-		if err := printPresets(presets, &buf); err != nil {
+		if err := printPresets(presets, &buf, ""); err != nil {
 			t.Fatalf("err: %v", err)
 		}
 		out := buf.String()
@@ -265,5 +271,192 @@ func TestRiffFanOutFlagRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "fan-out") {
 		t.Errorf("error message should reference 'fan-out': %v", err)
+	}
+}
+
+// riffTargetFixture wires the stub-binaries harness for the -L/--repo/--json
+// path: wt/tmux/git/fab stubs on PATH (tmux logs its argv), a temp repo with a
+// .git dir, and the riff flag vars reset on cleanup.
+func riffTargetFixture(t *testing.T) (repoRoot, tmuxLog, wtLog string) {
+	t.Helper()
+	dir := t.TempDir()
+	repoRoot = filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	worktree := filepath.Join(t.TempDir(), "swift-fox")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("mkdir worktree: %v", err)
+	}
+	tmuxLog = filepath.Join(dir, "tmux.log")
+	wtLog = filepath.Join(dir, "wt.log")
+	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf '%s\n' \"$PWD\" >> "+wtLog+"\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+	testutil.WriteStub(t, dir, "tmux", "#!/bin/sh\nprintf '%s\n' \"$*\" >> "+tmuxLog+"\n"+
+		"last=\"${!#}\"\n"+
+		"case \" $* \" in\n"+
+		"  *\" list-windows \"*) exit 0 ;;\n"+
+		"esac\n"+
+		"case \"$1\" in\n"+
+		"  -L) shift 2 ;;\n"+
+		"esac\n"+
+		"case \"$1\" in\n"+
+		"  list-windows) exit 0 ;;\n"+
+		"  new-window) echo '%20' ;;\n"+
+		"  select-pane) exit 0 ;;\n"+
+		"  display-message) echo '@9' ;;\n"+
+		"  list-panes) printf '%s\n' '%20' '%21' ;;\n"+
+		"  *) exit 0 ;;\n"+
+		"esac\n")
+	testutil.WriteStub(t, dir, "git", "#!/bin/sh\necho 'feature-x'\n")
+	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\nprintf 'command: claude --dangerously-skip-permissions\\nskill_prefix: /\\n'\n")
+	t.Setenv("PATH", dir)
+
+	origServer, origSession, origRepo, origJSON := riffServerFlag, riffSessionFlag, riffRepoFlag, riffJSONFlag
+	origSess := riffCurrentSessionFn
+	riffCurrentSessionFn = func(_ context.Context, _ string) (string, error) { return "boot", nil }
+	t.Cleanup(func() {
+		riffServerFlag, riffSessionFlag, riffRepoFlag, riffJSONFlag = origServer, origSession, origRepo, origJSON
+		riffCurrentSessionFn = origSess
+	})
+	return repoRoot, tmuxLog, wtLog
+}
+
+// TestRiffTargetingFlagsJSONReceipt pins the R10/R9 contract: with $TMUX
+// unusable (the -L form), `rk riff -L scratch --repo <root> --json` skips the
+// $TMUX precondition (wt on PATH still required — the stubs provide it),
+// addresses every tmux call with -L scratch, runs wt create with Dir = the
+// --repo root, and prints exactly one envelope whose windows[0] carries the
+// spawned window's id, panes, worktree, and branch.
+func TestRiffTargetingFlagsJSONReceipt(t *testing.T) {
+	repoRoot, tmuxLog, wtLog := riffTargetFixture(t)
+	riffServerFlag = "scratch"
+	riffRepoFlag = repoRoot
+	riffJSONFlag = true
+	riffPaneSpecs = nil
+	riffLayoutFlag = "auto"
+	riffCountFlag = 1
+
+	var stdout bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetContext(context.Background())
+
+	if err := runRiff(cmd, nil); err != nil {
+		t.Fatalf("runRiff: %v", err)
+	}
+
+	var doc struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			Windows []struct {
+				ID       string   `json:"id"`
+				Name     string   `json:"name"`
+				Server   string   `json:"server"`
+				Panes    []string `json:"panes"`
+				Worktree string   `json:"worktree"`
+				Branch   string   `json:"branch"`
+			} `json:"windows"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &doc); err != nil {
+		t.Fatalf("stdout is not one JSON document: %v (%q)", err, stdout.String())
+	}
+	if !doc.OK || len(doc.Result.Windows) != 1 {
+		t.Fatalf("receipt = %q, want ok:true with one window", stdout.String())
+	}
+	w := doc.Result.Windows[0]
+	if w.ID != "@9" || w.Server != "scratch" || w.Branch != "feature-x" {
+		t.Errorf("window = %+v, want id @9, server scratch, branch feature-x", w)
+	}
+	if len(w.Panes) != 2 || w.Panes[0] != "%20" || w.Panes[1] != "%21" {
+		t.Errorf("panes = %v, want [%%20 %%21]", w.Panes)
+	}
+	if !strings.HasSuffix(w.Worktree, "swift-fox") {
+		t.Errorf("worktree = %q, want the wt-created path", w.Worktree)
+	}
+
+	tmuxData, err := os.ReadFile(tmuxLog)
+	if err != nil {
+		t.Fatalf("read tmux log: %v", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(tmuxData)), "\n") {
+		if !strings.HasPrefix(line, "-L scratch ") {
+			t.Errorf("tmux call lacks the -L scratch prefix: %q", line)
+		}
+	}
+	wtData, err := os.ReadFile(wtLog)
+	if err != nil {
+		t.Fatalf("read wt log: %v", err)
+	}
+	if got := strings.TrimSpace(string(wtData)); got != repoRoot {
+		t.Errorf("wt create ran in %q, want the --repo root %q", got, repoRoot)
+	}
+}
+
+// TestRiffSessionFlagValidation: --session without the =S exact form and
+// --repo naming a non-toplevel directory are usage errors (exit 2) before any
+// subprocess.
+func TestRiffSessionFlagValidation(t *testing.T) {
+	repoRoot, _, _ := riffTargetFixture(t)
+
+	bare := &cobra.Command{}
+	bare.SetContext(context.Background())
+	riffSessionFlag = "boot" // no "=" prefix
+	if err := runRiff(bare, nil); err == nil || exitCode(err) != exitUsage {
+		t.Errorf("--session boot: err = %v (code %d), want exit 2", err, exitCode(err))
+	}
+	riffSessionFlag = ""
+
+	riffRepoFlag = filepath.Join(repoRoot, "sub")
+	if err := os.MkdirAll(riffRepoFlag, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := runRiff(bare, nil); err == nil || exitCode(err) != exitUsage {
+		t.Errorf("--repo <subdir>: err = %v (code %d), want exit 2", err, exitCode(err))
+	}
+}
+
+// TestRiffJSONPreconditionEnvelope: `rk riff --json` with $TMUX unset and no
+// -L writes the operational error envelope to stdout before the wrapper's
+// os.Exit — observed out of process (the RK_RIFF_SUBPROC re-exec pattern).
+func TestRiffJSONPreconditionEnvelope(t *testing.T) {
+	if os.Getenv("RK_RIFF_SUBPROC") == "json-precondition" {
+		rootCmd.SetArgs([]string{"riff", "--json"})
+		execute()
+		os.Exit(0) // unreachable when the precondition fired
+	}
+	cmd := exec.Command(os.Args[0], "-test.run", "^TestRiffJSONPreconditionEnvelope$")
+	var env []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "TMUX=") || strings.HasPrefix(kv, "TMUX_PANE=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	cmd.Env = append(env, "RK_RIFF_SUBPROC=json-precondition")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		t.Fatalf("expected the child to exit non-zero, got err=%v (stdout %q)", err, stdout.String())
+	}
+	if got := ee.ExitCode(); got != 1 {
+		t.Errorf("exit code = %d, want 1 (precondition)", got)
+	}
+	var doc struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if jsonErr := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &doc); jsonErr != nil {
+		t.Fatalf("child stdout is not one JSON document: %v (%q)", jsonErr, stdout.String())
+	}
+	if doc.OK || doc.Error.Code != "operational" || !strings.Contains(doc.Error.Message, "not inside a tmux session") {
+		t.Errorf("envelope = %q, want ok:false operational naming the precondition", stdout.String())
 	}
 }

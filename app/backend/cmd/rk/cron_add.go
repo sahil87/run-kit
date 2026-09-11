@@ -49,7 +49,18 @@ var (
 	cronAddRole      string
 	cronAddPane      string
 	cronAddSession   string
+	cronAddJSON      bool
 )
+
+// cronAddReceipt is the --json success document: exactly the four fields the
+// human line prints, as the same strings (schedule/target via the summary
+// helpers).
+type cronAddReceipt struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Schedule string `json:"schedule"`
+	Target   string `json:"target"`
+}
 
 var cronAddCmd = &cobra.Command{
 	Use:   `add <prompt> --every <dur> | --idle-every <dur> | --backoff | --cron "<expr>"`,
@@ -110,6 +121,7 @@ func init() {
 	f.StringVar(&cronAddRole, "role", "", "Target a server role (the @rk_win_role value, e.g. operator)")
 	f.StringVar(&cronAddPane, "pane", "", "Target a pane id (%N)")
 	f.StringVar(&cronAddSession, "session", "", "Target an agent session ref (e.g. 4fe2abc-…)")
+	f.BoolVar(&cronAddJSON, "json", false, "Emit the machine-readable envelope (exactly one JSON document on stdout)")
 }
 
 // Seams so runCronAdd is testable without a live tmux server: the clock, the
@@ -211,6 +223,15 @@ func runCronAdd(cmd *cobra.Command, payload string) error {
 	})
 	if err != nil {
 		return err
+	}
+	if cronAddJSON {
+		sink.JSONResult(cronAddReceipt{
+			ID:       entry.ID,
+			Name:     entry.Name,
+			Schedule: cronScheduleSummary(entry.Schedule),
+			Target:   cronTargetSummary(entry.Target),
+		})
+		return nil
 	}
 	sink.Dataf("%s %s [%s -> %s]\n", entry.ID, entry.Name, cronScheduleSummary(entry.Schedule), cronTargetSummary(entry.Target))
 	return nil

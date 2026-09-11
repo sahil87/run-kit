@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // syntheticTree builds a minimal Cobra tree for the schema tests: a mux
@@ -19,6 +20,7 @@ func syntheticTree() *cobra.Command {
 	capture := &cobra.Command{Use: "capture", Short: "Capture a pane's scrollback", Long: "Capture the last N lines of a pane's scrollback."}
 	capture.Flags().IntP("lines", "l", 50, "Number of scrollback lines to capture")
 	capture.Flags().Bool("json", false, "Output as JSON with metadata")
+	capture.Flags().StringArray("skill", nil, "Repeatable skill flag")
 	send := &cobra.Command{Use: "send", Short: "Deliver a message into an agent's pane"}
 	mux.AddCommand(capture, send)
 	status := &cobra.Command{Use: "status", Short: "Show tmux session summary", Long: "Show the runkit server's session summary."}
@@ -332,5 +334,101 @@ func TestInputSchemaOperatorRequest(t *testing.T) {
 	required := schema["required"].([]string)
 	if !slices.Equal(required, []string{"template"}) {
 		t.Errorf("required = %v, want [template] (window is conditional, verb-enforced)", required)
+	}
+}
+
+// stubValue is a pflag.Value with a controllable Type() so checkFlagType can
+// be table-tested over pflag types no synthetic-tree flag carries.
+type stubValue struct{ typ string }
+
+func (v stubValue) String() string   { return "" }
+func (v stubValue) Set(string) error { return nil }
+func (v stubValue) Type() string     { return v.typ }
+
+// TestCheckFlagTypeWidened pins the accepted pflag-type ↔ input-type pairs,
+// including the W2c widenings: duration feeds a string input (the row carries
+// the Go-duration pattern); stringArray/stringSlice and riff's custom skill
+// type feed a string-array input.
+func TestCheckFlagTypeWidened(t *testing.T) {
+	cases := []struct {
+		flagType string
+		argType  ArgType
+		ok       bool
+	}{
+		{"bool", ArgBoolean, true},
+		{"int", ArgInteger, true},
+		{"int64", ArgInteger, true},
+		{"string", ArgString, true},
+		{"duration", ArgString, true},
+		{"duration", ArgInteger, false},
+		{"stringArray", ArgStringArray, true},
+		{"stringSlice", ArgStringArray, true},
+		{"skill", ArgStringArray, true},
+		{"stringArray", ArgString, true}, // one element of a repeatable flag (answer's --key)
+		{"string", ArgStringArray, false},
+	}
+	for _, tc := range cases {
+		flag := &pflag.Flag{Name: "x", Value: stubValue{tc.flagType}}
+		err := checkFlagType("t", Arg{Name: "in", Flag: "--x", Type: tc.argType}, flag)
+		if tc.ok && err != nil {
+			t.Errorf("flag type %q with input type %d: unexpected error %v", tc.flagType, tc.argType, err)
+		}
+		if !tc.ok && err == nil {
+			t.Errorf("flag type %q with input type %d: want an incompatibility error", tc.flagType, tc.argType)
+		}
+	}
+}
+
+// TestResolveFormatErrors pins the Format drift guards: a template naming an
+// input the row lacks is rejected (naming the row and the input), as is a
+// Format on a non-positional arg.
+func TestResolveFormatErrors(t *testing.T) {
+	row := Row{
+		Tool: "capture", Path: "mux capture",
+		Args: []Arg{
+			targetArg,
+			{Positional: 2, Format: "{target}[/web/{slot}]"},
+		},
+	}
+	_, err := Resolve(syntheticTree(), []Row{row})
+	if err == nil || !strings.Contains(err.Error(), `"capture"`) || !strings.Contains(err.Error(), `"slot"`) {
+		t.Errorf("unknown format input = %v, want an error naming the row and slot", err)
+	}
+
+	row.Args[1] = Arg{Name: "lines", Flag: "-l", Type: ArgInteger, Format: "{target}"}
+	_, err = Resolve(syntheticTree(), []Row{row})
+	if err == nil || !strings.Contains(err.Error(), "non-positional") {
+		t.Errorf("non-positional format = %v, want a non-positional error", err)
+	}
+}
+
+// TestInputSchemaStringArray pins the array property shape: type array with
+// string items and maxItems when the row sets MaxItems.
+func TestInputSchemaStringArray(t *testing.T) {
+	row := Row{
+		Tool: "capture", Path: "mux capture",
+		Args: []Arg{
+			targetArg,
+			{Name: "skill", Flag: "--skill", Type: ArgStringArray, MaxItems: intPtr(4), Description: "repeatable"},
+		},
+	}
+	resolved, err := Resolve(syntheticTree(), []Row{row})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	props := InputSchema(resolved[0])["properties"].(map[string]any)
+	skill := props["skill"].(map[string]any)
+	if skill["type"] != "array" {
+		t.Errorf("skill prop = %v, want type array", skill)
+	}
+	items, ok := skill["items"].(map[string]any)
+	if !ok || items["type"] != "string" {
+		t.Errorf("skill items = %v, want {type: string}", skill["items"])
+	}
+	if skill["maxItems"] != 4 {
+		t.Errorf("skill maxItems = %v, want 4", skill["maxItems"])
+	}
+	if skill["description"] != "repeatable" {
+		t.Errorf("skill description = %v", skill["description"])
 	}
 }

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -161,5 +163,50 @@ func TestMuxKillTargetAndErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "can't find pane") {
 		t.Errorf("err = %v, want tmux's stderr diagnostic", err)
+	}
+}
+
+// TestMuxKillJSONReceipt: --json prints exactly one envelope document carrying
+// the report word and resolved pane id, and nothing else reaches stdout.
+func TestMuxKillJSONReceipt(t *testing.T) {
+	f := &muxFake{states: map[string]string{"%5": tmux.AgentStateIdle}}
+	installMuxFakes(t, f)
+
+	stdout, _, err := runMuxCmd(t, "kill", "%5", "--json")
+	if err != nil {
+		t.Fatalf("err = %v, want the kill to proceed", err)
+	}
+	assertEnvelopeResult(t, stdout, map[string]any{"report": "killed", "target": "%5"})
+	if len(f.killCalls) != 1 || f.killCalls[0] != "%5" {
+		t.Errorf("kill calls = %v, want one kill of %%5", f.killCalls)
+	}
+}
+
+// TestMuxKillJSONRefusal: a refusal under --json emits the operational error
+// envelope on stdout and keeps the exit-1 refusal.
+func TestMuxKillJSONRefusal(t *testing.T) {
+	f := &muxFake{states: map[string]string{"%5": tmux.AgentStateActive}}
+	installMuxFakes(t, f)
+
+	stdout, _, err := runMuxCmd(t, "kill", "%5", "--json")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit-1 refusal", err)
+	}
+	stdout = centralFailureEnvelope(t, stdout, err)
+	var doc struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if jsonErr := json.Unmarshal(bytes.TrimSpace([]byte(stdout)), &doc); jsonErr != nil {
+		t.Fatalf("stdout is not one JSON document: %v (%q)", jsonErr, stdout)
+	}
+	if doc.OK || doc.Error.Code != "operational" || !strings.Contains(doc.Error.Message, "active") {
+		t.Errorf("envelope = %+v, want ok:false operational naming the state", doc)
+	}
+	if len(f.killCalls) != 0 {
+		t.Errorf("kill ran on a refusal: %v", f.killCalls)
 	}
 }

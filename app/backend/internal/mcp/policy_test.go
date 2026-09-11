@@ -7,12 +7,12 @@ import (
 	"time"
 )
 
-// TestTableShape pins the seeded allowlist: exactly the fourteen tools (the
-// nine See rows, the three Talk rows, board, operator_request, snapshot_list,
-// gui_shot), every
-// timeout within the cap, and no row exposing a forbidden flag form.
+// TestTableShape pins the seeded allowlist: exactly the twenty-nine tools (the
+// ten W1 seeds, board, operator_request, the answer/await messaging pair,
+// snapshot_list, gui_shot, and the thirteen W2c rows), every timeout within the
+// cap, and no row exposing a forbidden flag form.
 func TestTableShape(t *testing.T) {
-	want := []string{"sessions", "panes", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request", "answer", "await", "snapshot_list", "gui_shot"}
+	want := []string{"sessions", "panes", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request", "answer", "await", "snapshot_list", "gui_shot", "notify", "riff", "new_window", "operator", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec", "kill", "cron_rm", "cron_mute"}
 	if len(Table) != len(want) {
 		t.Fatalf("Table has %d rows, want %d", len(Table), len(want))
 	}
@@ -31,9 +31,14 @@ func TestTableShape(t *testing.T) {
 		for _, arg := range row.Args {
 			// --force and --await stay unexposed on every row; --answer/--key
 			// are the answer row's own surface.
-			banned := []string{"--force", "--await"}
+			banned := []string{"--force", "--await", "--cmd", "--respawn"}
 			if row.Tool != "answer" {
 				banned = append(banned, "--answer", "--key")
+			}
+			if row.Tool != "await" {
+				// --ready is await's boot-readiness input; on tab new it would
+				// be a bounded wait a chat client must not start.
+				banned = append(banned, "--ready")
 			}
 			for _, b := range banned {
 				if arg.Flag == b || arg.Literal == b {
@@ -173,7 +178,9 @@ func TestTableAwaitRow(t *testing.T) {
 
 // TestTableBoardRow pins the action-enum row: parent path, arg order and
 // shapes (enum, patterns), all-false annotations (mixed read/write), JSON
-// result, and the description override.
+// result, and the description override. Flags precede positionals in Args
+// because BuildArgv emits each arg where it sits and the row's historical
+// argv puts flags first.
 func TestTableBoardRow(t *testing.T) {
 	row := findRow(t, "board")
 	if row.Path != "board" {
@@ -198,11 +205,11 @@ func TestTableBoardRow(t *testing.T) {
 		pattern  string
 	}{
 		{name: "server", flag: "-L"},
+		{name: "before", flag: "--before", pattern: `^@\d+$`},
+		{name: "after", flag: "--after", pattern: `^@\d+$`},
 		{name: "action", pos: 1, required: true, enum: []string{"show", "pin", "unpin", "reorder"}},
 		{name: "name", pos: 2, pattern: `^[A-Za-z0-9_-]{1,32}$`},
 		{name: "window", pos: 3, pattern: `^@\d+$`},
-		{name: "before", flag: "--before", pattern: `^@\d+$`},
-		{name: "after", flag: "--after", pattern: `^@\d+$`},
 	}
 	if len(row.Args) != len(wantShapes)+1 { // + jsonLiteral
 		t.Fatalf("board args = %d, want %d", len(row.Args), len(wantShapes)+1)
@@ -315,8 +322,8 @@ func TestTableNeverTools(t *testing.T) {
 
 // TestReadOnlyAnnotations pins the annotation semantics of every See row plus
 // await (read-only even though it blocks) — readOnlyAnn, and ResultJSON for all
-// but gui_shot (the one ResultImage row); the mutating rows (send, board,
-// operator_request, answer) carry all-false annotations instead.
+// but gui_shot (the one ResultImage row); the mutating rows carry all-false (or
+// destructive/idempotent) annotations instead.
 func TestReadOnlyAnnotations(t *testing.T) {
 	seen := 0
 	for _, row := range Table {
@@ -337,5 +344,27 @@ func TestReadOnlyAnnotations(t *testing.T) {
 	}
 	if seen != 12 {
 		t.Errorf("%d read-only rows, want the nine See rows plus await, snapshot_list and gui_shot", seen)
+	}
+}
+
+// TestMutationAnnotations pins the destructive/idempotent hints of the W2c
+// mutation rows: kill and cron_rm are destructive, operator and cron_mute are
+// idempotent, everything else carries no hints.
+func TestMutationAnnotations(t *testing.T) {
+	want := map[string]Annotations{
+		"kill":      {Destructive: true},
+		"cron_rm":   {Destructive: true},
+		"operator":  {Idempotent: true},
+		"cron_mute": {Idempotent: true},
+	}
+	for tool, ann := range want {
+		if row := findRow(t, tool); row.Annotations != ann {
+			t.Errorf("row %q annotations = %+v, want %+v", tool, row.Annotations, ann)
+		}
+	}
+	for _, tool := range []string{"notify", "riff", "new_window", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec"} {
+		if row := findRow(t, tool); row.Annotations != (Annotations{}) {
+			t.Errorf("row %q annotations = %+v, want all false", tool, row.Annotations)
+		}
 	}
 }

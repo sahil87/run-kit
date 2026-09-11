@@ -557,8 +557,12 @@ print to stderr, exit 1, and perform no tmux mutation. The kill runs through
 `tmux.KillPaneCtx` (`kill-pane -t
 %N`) — unlike the best-effort `KillActivePane`, a tmux failure IS returned so
 the verb can surface tmux's stderr. On success stdout carries exactly one
-report line: `killed %N`. A missing pane or tmux kill failure is operational
-(exit 1).
+report line — `killed %N` — or, under `--json`, exactly one envelope document
+`{"ok":true,"result":{"report":"killed","target":"%N"}}` (the family's `--json`
+opt-in changes only what stdout carries; the gates, exit codes, and stderr are
+unchanged, and a failing RunE gets its `{"ok":false}` envelope from `execute()`'s central writer —
+see [mcp](/run-kit/mcp.md) § Design Decisions). A missing pane or tmux kill
+failure is operational (exit 1). (260911-fr5t-cli-spawn-and-steer-receipts)
 
 #### Scenario: Refusal names the state and touches nothing
 - **GIVEN** a pane with `@rk_pane_agent_state=active:<epoch>:<live-pid>`
@@ -723,7 +727,10 @@ character set. The socket SHALL be probed first (`tmux.ServerAlive`): a live
 server refuses with exit 1 (operational) stating the server is already
 running, performing no tmux mutation; a dead/stale socket proceeds —
 `new-session` starts a fresh server over it. On success stdout carries
-exactly one report line: `created <name>`; diagnostics ride stderr. `new` is
+exactly one report line — `created <name>` — or, under `--json`, the envelope
+receipt `{"ok":true,"result":{"report":"created","server":"<name>","ephemeral":<bool>}}`
+(the flag echo, so the receipt says what was created — the family's `--json`
+opt-in changes only what stdout carries); diagnostics ride stderr. (260911-fr5t-cli-spawn-and-steer-receipts) `new` is
 an operator-tier member — the socket name is its positional argument — so it
 rejects an explicitly-set inherited `-L/--server` via
 `muxRejectInheritedServerFlag` (usage error, exit 2), takes exactly one

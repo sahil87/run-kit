@@ -80,69 +80,116 @@ func withoutTmuxEnv(env []string) []string {
 }
 
 // BuildArgv assembles a tool call's argv from the row and its validated
-// arguments: the command path, then flags in Args order, then positionals by
-// slot, then literals in Args order (so capture yields
-// `mux capture -L <server> -l <lines> <target> --json`). Booleans map to a bare
-// flag when true, nothing when false; an absent Flag input carrying a Default
-// emits `flag Default` at its Args position; other absent optional inputs
-// contribute nothing; a Literal whose When input is absent is skipped.
-// args MUST have passed ValidateArgs first — BuildArgv trusts types.
+// arguments: the command path, then a single ordered walk over Args — each
+// flag, flag-shaped literal, positional, and bare literal is emitted where it
+// sits in Args (so gui_exec places `--detach --json --` before its
+// positionals while capture keeps `-L s -l 100 %3 --json`). Booleans map to a
+// bare flag when true, nothing when false; absent optional inputs contribute
+// nothing, except that an absent Flag input carrying a Default emits
+// `flag Default` at its position; a Literal whose When input is absent is
+// skipped; a Format positional renders its token from the named schema-only
+// inputs. args MUST have passed ValidateArgs first — BuildArgv trusts types.
 func BuildArgv(row Row, args map[string]any) []string {
 	argv := strings.Fields(row.Path)
 	for _, arg := range row.Args {
-		if arg.Flag == "" {
-			continue
-		}
-		v, ok := args[arg.Name]
-		if !ok {
-			if arg.Default != "" {
-				argv = append(argv, arg.Flag, arg.Default)
-			}
-			continue
-		}
-		switch arg.Type {
-		case ArgBoolean:
-			if b, _ := v.(bool); b {
-				argv = append(argv, arg.Flag)
-			}
-		case ArgInteger:
-			argv = append(argv, arg.Flag, strconv.Itoa(int(v.(float64))))
-		default:
-			argv = append(argv, arg.Flag, v.(string))
-		}
-	}
-	positionals := positionalArgs(row)
-	for _, arg := range positionals {
-		if v, ok := args[arg.Name]; ok {
-			argv = append(argv, v.(string))
-		}
-	}
-	for _, arg := range row.Args {
-		if arg.Literal == "" {
-			continue
-		}
-		if arg.When != "" {
-			if _, ok := args[arg.When]; !ok {
+		switch {
+		case arg.Flag != "":
+			v, ok := args[arg.Name]
+			if !ok {
+				if arg.Default != "" {
+					argv = append(argv, arg.Flag, arg.Default)
+				}
 				continue
 			}
+			switch arg.Type {
+			case ArgBoolean:
+				if b, _ := v.(bool); b {
+					argv = append(argv, arg.Flag)
+				}
+			case ArgInteger:
+				argv = append(argv, arg.Flag, strconv.Itoa(int(v.(float64))))
+			case ArgStringArray:
+				for _, item := range v.([]any) {
+					argv = append(argv, arg.Flag, item.(string))
+				}
+			default:
+				argv = append(argv, arg.Flag, v.(string))
+			}
+		case arg.Positional > 0:
+			if arg.Format != "" {
+				if token, ok := renderFormat(arg.Format, args); ok {
+					argv = append(argv, token)
+				}
+				continue
+			}
+			v, ok := args[arg.Name]
+			if !ok {
+				continue
+			}
+			switch arg.Type {
+			case ArgStringArray:
+				for _, item := range v.([]any) {
+					argv = append(argv, item.(string))
+				}
+			case ArgInteger:
+				argv = append(argv, strconv.Itoa(int(v.(float64))))
+			default:
+				argv = append(argv, v.(string))
+			}
+		case arg.Literal != "":
+			if arg.When != "" {
+				if _, ok := args[arg.When]; !ok {
+					continue
+				}
+			}
+			argv = append(argv, arg.Literal)
 		}
-		argv = append(argv, arg.Literal)
 	}
 	return argv
 }
 
-// positionalArgs returns the row's positional inputs ordered by slot.
-func positionalArgs(row Row) []Arg {
-	var out []Arg
-	for _, arg := range row.Args {
-		if arg.Positional > 0 {
-			out = append(out, arg)
+// renderFormat renders a formatted positional's argv token: {name} substitutes
+// the named input's string value (integers via strconv.Itoa) and a […]
+// segment is dropped when any input inside it is absent. ok is false when a
+// non-optional input is absent — the positional then contributes nothing.
+func renderFormat(format string, args map[string]any) (string, bool) {
+	var b strings.Builder
+	for i := 0; i < len(format); i++ {
+		switch format[i] {
+		case '{':
+			end := strings.IndexByte(format[i:], '}')
+			if end < 0 {
+				b.WriteByte(format[i])
+				continue
+			}
+			v, ok := args[format[i+1:i+end]]
+			if !ok {
+				return "", false
+			}
+			b.WriteString(formatValue(v))
+			i += end
+		case '[':
+			end := strings.IndexByte(format[i:], ']')
+			if end < 0 {
+				b.WriteByte(format[i])
+				continue
+			}
+			if seg, ok := renderFormat(format[i+1:i+end], args); ok {
+				b.WriteString(seg)
+			}
+			i += end
+		default:
+			b.WriteByte(format[i])
 		}
 	}
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j].Positional < out[j-1].Positional; j-- {
-			out[j], out[j-1] = out[j-1], out[j]
-		}
+	return b.String(), true
+}
+
+// formatValue renders one input value inside a Format token.
+func formatValue(v any) string {
+	if f, ok := v.(float64); ok {
+		return strconv.Itoa(int(f))
 	}
-	return out
+	s, _ := v.(string)
+	return s
 }

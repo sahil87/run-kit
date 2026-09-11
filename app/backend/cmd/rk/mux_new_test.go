@@ -230,3 +230,43 @@ func TestMuxNewUsage(t *testing.T) {
 			f.createCalls, f.markCalls, f.killCalls)
 	}
 }
+
+// TestMuxNewJSONReceipt: --json prints exactly one envelope document with the
+// report word, the server name, and the --ephemeral echo; the human line is
+// unchanged without the flag (pinned by TestMuxNewCreate).
+func TestMuxNewJSONReceipt(t *testing.T) {
+	f := &muxNewFake{aliveErr: deadSocket}
+	installMuxNewFakes(t, f)
+
+	stdout, _, err := runMuxCmd(t, "new", "scratch1", "--ephemeral", "--json")
+	if err != nil {
+		t.Fatalf("err = %v, want success", err)
+	}
+	assertEnvelopeResult(t, stdout, map[string]any{"report": "created", "server": "scratch1", "ephemeral": true})
+
+	f2 := &muxNewFake{aliveErr: deadSocket}
+	installMuxNewFakes(t, f2)
+	stdout, _, err = runMuxCmd(t, "new", "scratch1", "--json")
+	if err != nil {
+		t.Fatalf("err = %v, want success", err)
+	}
+	assertEnvelopeResult(t, stdout, map[string]any{"report": "created", "server": "scratch1", "ephemeral": false})
+}
+
+// TestMuxNewJSONCollision: a live-server refusal under --json emits the
+// operational error envelope on stdout with exit 1.
+func TestMuxNewJSONCollision(t *testing.T) {
+	f := &muxNewFake{aliveErr: nil} // a live server answers
+	installMuxNewFakes(t, f)
+
+	stdout, _, err := runMuxCmd(t, "new", "scratch1", "--json")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit-1 refusal", err)
+	}
+	if doc := parseFailureEnvelope(t, centralFailureEnvelope(t, stdout, err)); doc.Code != "operational" || doc.Message != "server scratch1 is already running" {
+		t.Errorf("failure envelope = %+v, want %s: %s", doc, "operational", "server scratch1 is already running")
+	}
+	if len(f.createCalls) != 0 {
+		t.Errorf("create ran on a collision: %v", f.createCalls)
+	}
+}

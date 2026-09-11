@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -273,5 +274,95 @@ func TestGuiExecDetachRealStartArgv(t *testing.T) {
 	}
 	if pid <= 0 {
 		t.Errorf("pid = %d, want a real pid", pid)
+	}
+}
+
+// execCmdWithJSON builds a bare command carrying the exec verb's --detach and
+// --json flags.
+func execCmdWithJSON(out, errOut *bytes.Buffer, detach, jsonOut bool) *cobra.Command {
+	cmd := execCmdWith(out, errOut, detach)
+	cmd.Flags().Bool("json", false, "")
+	if jsonOut {
+		_ = cmd.Flags().Set("json", "true")
+	}
+	return cmd
+}
+
+// TestGuiExecDetachJSONReceipt: --detach --json prints exactly one envelope
+// document carrying the started pid and display; the exec seam never runs.
+func TestGuiExecDetachJSONReceipt(t *testing.T) {
+	execCalls, startCalls := withGuiExecSeams(t)
+	withGuiCLISeams(t)
+	seedGuiOn(t)
+	record := guiExecStartFn
+	guiExecStartFn = func(argv []string, env []string) (int, error) {
+		if _, err := record(argv, env); err != nil {
+			return 0, err
+		}
+		return 4242, nil
+	}
+
+	var out bytes.Buffer
+	err := runGuiExec(execCmdWithJSON(&out, &bytes.Buffer{}, true, true), []string{"xterm", "-e", "top"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			PID     int    `json:"pid"`
+			Display string `json:"display"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil || strings.Count(out.String(), "\n") != strings.Count(strings.TrimRight(out.String(), "\n"), "\n")+1 {
+		t.Fatalf("stdout is not one JSON document: %v\n%s", err, out.String())
+	}
+	if !doc.OK || doc.Result.PID != 4242 || doc.Result.Display != ":10" {
+		t.Errorf("envelope = %+v, want ok with pid 4242 on :10", doc)
+	}
+	if len(*startCalls) != 1 || len(*execCalls) != 0 {
+		t.Errorf("start/exec calls = %d/%d, want 1/0", len(*startCalls), len(*execCalls))
+	}
+}
+
+// TestGuiExecJSONWithoutDetach: --json without --detach is a usage error
+// raised before the OS and reachability gates — the status seams are never
+// consulted — and the failure envelope is execute()'s central writer's, not the RunE's.
+func TestGuiExecJSONWithoutDetach(t *testing.T) {
+	execCalls, startCalls := withGuiExecSeams(t)
+	guiDaemonRunningFn = func() bool {
+		t.Error("status seams consulted before the flag gate — usage errors come first")
+		return false
+	}
+
+	var out bytes.Buffer
+	c := execCmdWithJSON(&out, &bytes.Buffer{}, false, true)
+	err := runGuiExec(c, []string{"xterm"})
+	if err == nil || exitCode(err) != exitUsage {
+		t.Fatalf("err = %v (code %d), want an exit-2 usage error", err, exitCode(err))
+	}
+	// The failure envelope is execute()'s central writer's job; the RunE
+	// itself writes nothing to stdout.
+	if out.Len() != 0 {
+		t.Errorf("RunE wrote %q to stdout on the usage refusal, want nothing", out.String())
+	}
+	if !jsonErrorEnvelope(c, err) {
+		t.Fatal("jsonErrorEnvelope declined to write for a --json usage error")
+	}
+	var doc struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("stdout is not a JSON document: %v\n%s", err, out.String())
+	}
+	if doc.OK || doc.Error.Code != envelopeCodeUsage || doc.Error.Message != "--json requires --detach (the foreground path replaces the process and can print no receipt)" {
+		t.Errorf("envelope = %+v, want a usage failure naming --detach", doc)
+	}
+	if len(*execCalls) != 0 || len(*startCalls) != 0 {
+		t.Errorf("exec/start called %d/%d times on the usage refusal", len(*execCalls), len(*startCalls))
 	}
 }

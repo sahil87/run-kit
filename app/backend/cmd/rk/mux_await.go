@@ -206,9 +206,11 @@ func prodAwaitDeps(server string) awaitDeps {
 			_, err := os.Stat(path)
 			return err == nil
 		},
-		sleep:  sleepCtxCmd,
-		now:    time.Now,
-		notify: sendNotify,
+		sleep: sleepCtxCmd,
+		now:   time.Now,
+		// sendNotify's 2xx verdict is the notify verb's receipt; await's
+		// --notify stays fire-and-forget, so the bool is dropped here.
+		notify: func(ctx context.Context, title, body string) { sendNotify(ctx, title, body) },
 	}
 }
 

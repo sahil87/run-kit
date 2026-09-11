@@ -393,14 +393,14 @@ rk tab new [--session =S] [--cwd DIR] [--name N] [--layout L]      → prints @N
            # --json prints {session, window_id, pane_id[, ready]} instead;
            # CMD after -- is argv (rk-quoted, one literal word per token) with
            # the `; exec "${SHELL:-/bin/sh}"` fallback unless --no-shell-fallback
-rk tab layout [@N] <shape>:<surface,…>                            # set
-rk tab layout [@N] --add <surface> | --rm <surface> | --promote <surface> | --cycle
-rk tab web add    [@N] <target> [--show]                           → prints @N/web/<n>
-rk tab web rm     [@N/web/<n>]
-rk tab web select [@N/web/<n>]
-rk tab web mv     [@N/web/<n>] <m>                                  → prints @N/web/<m>
+rk tab layout [@N] <shape>:<surface,…> [--json]                   # set
+rk tab layout [@N] --add <surface> | --rm <surface> | --promote <surface> | --cycle [--json]
+rk tab web add    [@N] <target> [--show] [--json]                  → prints @N/web/<n>
+rk tab web rm     [@N/web/<n>] [--json]
+rk tab web select [@N/web/<n>] [--json]
+rk tab web mv     [@N/web/<n>] <m> [--json]                        → prints @N/web/<m>
 rk tab web ls     [@N]
-rk tab code set   [@N] <folder>
+rk tab code set   [@N] <folder> [--json]
 rk tab show       [@N]                                             # dump every @rk_win_* of the tab
 ```
 

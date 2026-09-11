@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -876,5 +878,132 @@ func TestOperatorServerPrefix(t *testing.T) {
 		if got := operatorServerPrefix(tc.in); strings.Join(got, " ") != strings.Join(tc.want, " ") {
 			t.Errorf("operatorServerPrefix(%q) = %v, want %v", tc.in, got, tc.want)
 		}
+	}
+}
+
+// resetOperatorJSON restores the --json package var after a test mutates it
+// (the resetOperatorWorkers pattern).
+func resetOperatorJSON(t *testing.T) {
+	t.Helper()
+	orig := operatorJSONFlag
+	operatorJSONFlag = false
+	t.Cleanup(func() { operatorJSONFlag = orig })
+}
+
+// TestOperatorJSONServerModeSingletonHit: `rk operator -L runKit --json` with
+// an existing operator window prints exactly one envelope with created:false
+// and runs no select-window/switch-client (the R7 singleton-hit contract).
+func TestOperatorJSONServerModeSingletonHit(t *testing.T) {
+	resetOperatorWorkers(t)
+	resetOperatorServer(t)
+	resetOperatorJSON(t)
+	operatorServerFlag = "runKit"
+	operatorJSONFlag = true
+	s := stubOperatorSeams(t, "@7\toperator\tmain\n")
+	origTMUX := operatorOriginalTMUXFn
+	operatorOriginalTMUXFn = func() string { return "" }
+	t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
+
+	cmd, outBuf, _ := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v", err)
+	}
+	assertEnvelopeResult(t, outBuf.String(), map[string]any{"window": "@7", "server": "runKit", "created": false})
+	for _, c := range s.calls {
+		for _, a := range c.args {
+			if a == "select-window" || a == "switch-client" {
+				t.Errorf("call %v must never run on a server-mode singleton hit", c.args)
+			}
+		}
+	}
+}
+
+// TestOperatorJSONInteractiveSingletonHit: the interactive singleton hit
+// prints the same created:false receipt with the caller's socket-basename
+// server label (select/switch still run — that branch is a real switch).
+func TestOperatorJSONInteractiveSingletonHit(t *testing.T) {
+	resetOperatorWorkers(t)
+	resetOperatorJSON(t)
+	operatorJSONFlag = true
+	stubOperatorSeams(t, "@7\toperator\tmain\n")
+
+	cmd, outBuf, _ := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v", err)
+	}
+	assertEnvelopeResult(t, outBuf.String(), map[string]any{"window": "@7", "server": "rk-test-sock", "created": false})
+}
+
+// TestOperatorJSONCreatedReceipt: the create branch resolves the new window's
+// @N via display-message through the tmux seam and prints created:true; the
+// human line and the kickoff delivery are unchanged in shape.
+func TestOperatorJSONCreatedReceipt(t *testing.T) {
+	resetOperatorWorkers(t)
+	resetOperatorJSON(t)
+	operatorJSONFlag = true
+	s := stubOperatorSeams(t, "")
+
+	cmd, outBuf, _ := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v", err)
+	}
+	assertEnvelopeResult(t, outBuf.String(), map[string]any{"window": "@42", "server": "rk-test-sock", "created": true})
+	displayCalls := 0
+	for _, c := range s.calls {
+		if len(c.args) > 0 && c.args[0] == "display-message" {
+			displayCalls++
+		}
+	}
+	if displayCalls != 2 {
+		t.Errorf("display-message calls = %d, want 2 (the create path's resolve + the receipt's)", displayCalls)
+	}
+	if len(s.deliverCalls) != 1 {
+		t.Errorf("deliveries = %v, want the kickoff delivery to still run", s.deliverCalls)
+	}
+}
+
+// TestOperatorJSONPreconditionEnvelope: a riff.ExitCodeError under --json
+// writes the error envelope to stdout BEFORE the wrapper's os.Exit — observed
+// out of process (the RK_RIFF_SUBPROC re-exec pattern): the child runs
+// `rk operator --json` with $TMUX unset, which fails the precondition (exit 1)
+// before any tmux/fab dependency matters.
+func TestOperatorJSONPreconditionEnvelope(t *testing.T) {
+	if os.Getenv("RK_OPERATOR_SUBPROC") == "1" {
+		rootCmd.SetArgs([]string{"operator", "--json"})
+		execute()
+		os.Exit(0) // unreachable when the precondition fired
+	}
+	cmd := exec.Command(os.Args[0], "-test.run", "^TestOperatorJSONPreconditionEnvelope$")
+	env := []string{"RK_OPERATOR_SUBPROC=1"}
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "TMUX=") || strings.HasPrefix(kv, "TMUX_PANE=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	cmd.Env = env
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		t.Fatalf("expected the child to exit non-zero, got err=%v", err)
+	}
+	if got := ee.ExitCode(); got != 1 {
+		t.Errorf("exit code = %d, want 1 (precondition)", got)
+	}
+	var doc struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if jsonErr := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &doc); jsonErr != nil {
+		t.Fatalf("child stdout is not one JSON document: %v (%q)", jsonErr, stdout.String())
+	}
+	if doc.OK || doc.Error.Code != "operational" || !strings.Contains(doc.Error.Message, "not inside a tmux session") {
+		t.Errorf("envelope = %q, want ok:false operational naming the precondition", stdout.String())
 	}
 }

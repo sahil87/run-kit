@@ -85,12 +85,15 @@ func TestMCPEndToEnd(t *testing.T) {
 	serverCmd := exec.Command(bin, "mcp")
 	env := make([]string, 0, len(os.Environ()))
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "TMUX=") || strings.HasPrefix(kv, "TMUX_PANE=") || strings.HasPrefix(kv, "XDG_STATE_HOME=") {
+		if strings.HasPrefix(kv, "TMUX=") || strings.HasPrefix(kv, "TMUX_PANE=") || strings.HasPrefix(kv, "XDG_STATE_HOME=") ||
+			strings.HasPrefix(kv, "RK_HOST=") || strings.HasPrefix(kv, "RK_PORT=") {
 			continue
 		}
 		env = append(env, kv)
 	}
-	serverCmd.Env = append(env, "XDG_STATE_HOME="+xdgState)
+	// The cron tools write under XDG_STATE_HOME too; notify must find no daemon,
+	// so its origin resolves to a refused loopback port.
+	serverCmd.Env = append(env, "XDG_STATE_HOME="+xdgState, "RK_HOST=127.0.0.1", "RK_PORT=1")
 
 	// Seed one snapshot in the isolated store so snapshot_list round-trips a
 	// real entry (the store API writes under XDG_STATE_HOME/run-kit/snapshots).
@@ -132,11 +135,11 @@ func TestMCPEndToEnd(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := []string{"answer", "await", "board", "capture", "cron_list", "gui_shot", "gui_status", "operator_request", "panes", "process", "send", "sessions", "snapshot_list", "status", "tab_show", "tab_web_ls"}
+	want := []string{"answer", "await", "board", "capture", "code_exec", "cron_add", "cron_list", "cron_mute", "cron_rm", "gui_exec", "gui_shot", "gui_status", "kill", "new_window", "notify", "operator", "operator_request", "panes", "process", "riff", "send", "sessions", "snapshot_list", "status", "tab_code", "tab_layout", "tab_show", "tab_web", "tab_web_ls"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
-	for _, banned := range []string{"kill", "serve", "mcp"} {
+	for _, banned := range []string{"serve", "mcp"} {
 		if _, ok := byName[banned]; ok {
 			t.Errorf("never-tool %q must not be listed", banned)
 		}
@@ -320,6 +323,143 @@ func TestMCPEndToEnd(t *testing.T) {
 	}
 	if diedAt, present := row["died_at"]; !present || diedAt != nil {
 		t.Errorf("snapshot_list died_at = %v (present %v), want an explicit null for a live row", diedAt, present)
+	}
+
+	// The mutating loop: new_window → tab_layout → tab_web add → kill on the
+	// isolated server, with each receipt's ids chaining into the next call.
+	res = call("new_window", map[string]any{"server": server, "session": "=boot"})
+	if res.IsError {
+		t.Fatalf("new_window IsError: %s", textOf(res))
+	}
+	var newWin struct {
+		Session  string `json:"session"`
+		WindowID string `json:"window_id"`
+		PaneID   string `json:"pane_id"`
+	}
+	if err := json.Unmarshal([]byte(textOf(res)), &newWin); err != nil {
+		t.Fatalf("new_window text is not the bare JSON document: %v\n%s", err, textOf(res))
+	}
+	if newWin.Session != "boot" || !strings.HasPrefix(newWin.WindowID, "@") || !strings.HasPrefix(newWin.PaneID, "%") {
+		t.Fatalf("new_window receipt = %+v, want session boot + @N/%%N ids", newWin)
+	}
+
+	res = call("tab_layout", map[string]any{"server": server, "window": newWin.WindowID, "layout": "split-h:tty,web"})
+	if res.IsError {
+		t.Fatalf("tab_layout IsError: %s", textOf(res))
+	}
+	var layoutRcpt struct {
+		Window string `json:"window"`
+		Layout string `json:"layout"`
+	}
+	if err := json.Unmarshal([]byte(textOf(res)), &layoutRcpt); err != nil {
+		t.Fatalf("tab_layout text is not the receipt: %v\n%s", err, textOf(res))
+	}
+	if layoutRcpt.Window != newWin.WindowID || layoutRcpt.Layout != "split-h:tty,web" {
+		t.Errorf("tab_layout receipt = %+v, want the chained window and the set layout", layoutRcpt)
+	}
+
+	res = call("tab_web", map[string]any{"action": "add", "server": server, "window": newWin.WindowID, "target": "https://example.com"})
+	if res.IsError {
+		t.Fatalf("tab_web add IsError: %s", textOf(res))
+	}
+	var webRcpt struct {
+		Window string `json:"window"`
+		Index  int    `json:"index"`
+		URL    string `json:"url"`
+		Tabs   []struct {
+			Index int    `json:"index"`
+			URL   string `json:"url"`
+		} `json:"tabs"`
+	}
+	if err := json.Unmarshal([]byte(textOf(res)), &webRcpt); err != nil {
+		t.Fatalf("tab_web add text is not the receipt: %v\n%s", err, textOf(res))
+	}
+	if webRcpt.Window != newWin.WindowID || webRcpt.Index != 1 || webRcpt.URL != "https://example.com" || len(webRcpt.Tabs) != 1 {
+		t.Errorf("tab_web add receipt = %+v, want {window, index 1, url, one tab}", webRcpt)
+	}
+
+	res = call("kill", map[string]any{"server": server, "target": newWin.PaneID})
+	if res.IsError {
+		t.Fatalf("kill IsError: %s", textOf(res))
+	}
+	var killRcpt struct {
+		Report string `json:"report"`
+		Target string `json:"target"`
+	}
+	if err := json.Unmarshal([]byte(textOf(res)), &killRcpt); err != nil {
+		t.Fatalf("kill text is not the receipt: %v\n%s", err, textOf(res))
+	}
+	if killRcpt.Report != "killed" || killRcpt.Target != newWin.PaneID {
+		t.Errorf("kill receipt = %+v, want {report killed, target %s}", killRcpt, newWin.PaneID)
+	}
+	// The created window is gone after the kill.
+	winOut, err := exec.CommandContext(ctx, "tmux", "-L", server, "list-windows", "-F", "#{window_id}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("list-windows: %v\n%s", err, string(winOut))
+	}
+	for _, id := range strings.Split(string(winOut), "\n") {
+		if strings.TrimSpace(id) == newWin.WindowID {
+			t.Errorf("window %s survives the kill", newWin.WindowID)
+		}
+	}
+
+	// The cron loop under the temp XDG_STATE_HOME: add → mute --for → rm, the
+	// id chaining across the three receipts.
+	res = call("cron_add", map[string]any{"server": server, "prompt": "check PRs", "every": "1h", "role": "operator"})
+	if res.IsError {
+		t.Fatalf("cron_add IsError: %s", textOf(res))
+	}
+	var addRcpt struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Schedule string `json:"schedule"`
+		Target   string `json:"target"`
+	}
+	if err := json.Unmarshal([]byte(textOf(res)), &addRcpt); err != nil {
+		t.Fatalf("cron_add text is not the receipt: %v\n%s", err, textOf(res))
+	}
+	if addRcpt.ID == "" || addRcpt.Schedule != "every 1h" || addRcpt.Target != "role:operator" {
+		t.Fatalf("cron_add receipt = %+v, want an id with schedule/target", addRcpt)
+	}
+
+	res = call("cron_mute", map[string]any{"server": server, "id": addRcpt.ID, "for": "30m"})
+	if res.IsError {
+		t.Fatalf("cron_mute IsError: %s", textOf(res))
+	}
+	var muteRcpt struct {
+		ID    string `json:"id"`
+		Muted bool   `json:"muted"`
+		Until string `json:"until"`
+	}
+	if err := json.Unmarshal([]byte(textOf(res)), &muteRcpt); err != nil {
+		t.Fatalf("cron_mute text is not the receipt: %v\n%s", err, textOf(res))
+	}
+	if muteRcpt.ID != addRcpt.ID || !muteRcpt.Muted || muteRcpt.Until == "" {
+		t.Errorf("cron_mute receipt = %+v, want the chained id, muted, and a lease until", muteRcpt)
+	}
+
+	res = call("cron_rm", map[string]any{"server": server, "id": addRcpt.ID})
+	if res.IsError {
+		t.Fatalf("cron_rm IsError: %s", textOf(res))
+	}
+	var rmRcpt struct {
+		ID      string `json:"id"`
+		Removed bool   `json:"removed"`
+	}
+	if err := json.Unmarshal([]byte(textOf(res)), &rmRcpt); err != nil {
+		t.Fatalf("cron_rm text is not the receipt: %v\n%s", err, textOf(res))
+	}
+	if rmRcpt.ID != addRcpt.ID || !rmRcpt.Removed {
+		t.Errorf("cron_rm receipt = %+v, want {id, removed:true}", rmRcpt)
+	}
+
+	// notify with no daemon reachable: delivered:false, no error (fail-silent).
+	res = call("notify", map[string]any{"message": "hi"})
+	if res.IsError {
+		t.Fatalf("notify IsError: %s", textOf(res))
+	}
+	if got := textOf(res); got != `{"delivered":false}` {
+		t.Errorf("notify receipt = %q, want %q", got, `{"delivered":false}`)
 	}
 
 	// Close ends the server process — CommandTransport closes stdin, escalates

@@ -31,7 +31,61 @@ const tabCmdTimeout = 5 * time.Second
 var (
 	tabWebAddShowFlag bool
 	tabWebLsJSONFlag  bool
+	tabWebJSONFlag    bool
 )
+
+// tabWebReceipt is the --json success document of the four web mutations:
+// the window, the affected slot (mv: the destination), add's resolved URL,
+// and the post-mutation family in the `tab web ls --json` entry shape. Tabs
+// is a pointer so a failed read-back omits the key (nil) while an emptied
+// family still marshals as [].
+type tabWebReceipt struct {
+	Window string               `json:"window"`
+	Index  int                  `json:"index"`
+	URL    string               `json:"url,omitempty"`
+	Tabs   *[]tabWebLsJSONEntry `json:"tabs,omitempty"`
+}
+
+// tabWebFamilyEntries maps a family read onto the `tab web ls --json` entry
+// shape (index, url, root omitempty).
+func tabWebFamilyEntries(fam tmux.WebTabFamily) []tabWebLsJSONEntry {
+	tabs := make([]tabWebLsJSONEntry, 0, len(fam.Tabs))
+	for i, u := range fam.Tabs {
+		entry := tabWebLsJSONEntry{Index: i + 1, URL: u}
+		if i < len(fam.Roots) {
+			entry.Root = fam.Roots[i]
+		}
+		tabs = append(tabs, entry)
+	}
+	return tabs
+}
+
+// tabWebEmitReceipt prints a mutation's --json receipt: the post-mutation
+// family is read back through presentReadFamilyFn; a failed read-back is a
+// stderr note with tabs omitted, never an error (the mutation already
+// happened).
+func tabWebEmitReceipt(cmd *cobra.Command, ctx context.Context, windowID, server string, index int, url string) {
+	sink := newSink(cmd)
+	receipt := tabWebReceipt{Window: windowID, Index: index, URL: url}
+	fam, err := presentReadFamilyFn(ctx, windowID, server)
+	if err != nil {
+		sink.Notef("web-tab family read-back failed (%v) — tabs omitted\n", err)
+	} else {
+		entries := tabWebFamilyEntries(fam)
+		receipt.Tabs = &entries
+	}
+	sink.JSONResult(receipt)
+}
+
+// tabWebRejectShow is the --show guard for the mutations that do not take it
+// (--show is persistent on the parent so the MCP drift guard resolves it on
+// the family path; rm/select/mv reject it as usage).
+func tabWebRejectShow(cmd *cobra.Command) error {
+	if cmd.Flags().Changed("show") {
+		return usageError(fmt.Errorf("--show only applies to tab web add"))
+	}
+	return nil
+}
 
 var tabWebCmd = &cobra.Command{
 	Use:   "web",
@@ -72,7 +126,12 @@ var tabWebRmCmd = &cobra.Command{
 		"operational failure naming the family's length.",
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
-	RunE:         runTabWebRm,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := tabWebRejectShow(cmd); err != nil {
+			return err
+		}
+		return runTabWebRm(cmd, args)
+	},
 }
 
 var tabWebSelectCmd = &cobra.Command{
@@ -84,7 +143,12 @@ var tabWebSelectCmd = &cobra.Command{
 		"failure naming the family's length.",
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
-	RunE:         runTabWebSelect,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := tabWebRejectShow(cmd); err != nil {
+			return err
+		}
+		return runTabWebSelect(cmd, args)
+	},
 }
 
 var tabWebMvCmd = &cobra.Command{
@@ -99,7 +163,12 @@ var tabWebMvCmd = &cobra.Command{
 		"length.",
 	Args:         cobra.ExactArgs(2),
 	SilenceUsage: true,
-	RunE:         runTabWebMv,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := tabWebRejectShow(cmd); err != nil {
+			return err
+		}
+		return runTabWebMv(cmd, args)
+	},
 }
 
 var tabWebLsCmd = &cobra.Command{
@@ -116,8 +185,13 @@ var tabWebLsCmd = &cobra.Command{
 }
 
 func init() {
-	tabWebAddCmd.Flags().BoolVar(&tabWebAddShowFlag, "show", false,
-		"Ensure web is in the tab's layout after adding, then select the tab")
+	// --show and --json are persistent on the family: the MCP policy row's
+	// drift guard resolves flags on the row's path (the parent), and the verbs
+	// that do not take --show (rm/select/mv) reject it as usage at run time.
+	tabWebCmd.PersistentFlags().BoolVar(&tabWebAddShowFlag, "show", false,
+		"Ensure web is in the tab's layout after adding, then select the tab (add only)")
+	tabWebCmd.PersistentFlags().BoolVar(&tabWebJSONFlag, "json", false,
+		"Emit the machine-readable envelope (exactly one JSON document on stdout)")
 	tabWebLsCmd.Flags().BoolVar(&tabWebLsJSONFlag, "json", false,
 		"Print the family as a JSON object inside the {\"ok\",\"result\"} envelope")
 	tabWebCmd.AddCommand(tabWebAddCmd)
@@ -271,7 +345,11 @@ func runTabWebAdd(cmd *cobra.Command, args []string) error {
 	}
 	sink := newSink(cmd)
 	sink.Notef("url: %s\n", url)
-	sink.Dataf("%s/web/%d\n", windowID, index)
+	if tabWebJSONFlag {
+		tabWebEmitReceipt(cmd, ctx, windowID, server, index, url)
+	} else {
+		sink.Dataf("%s/web/%d\n", windowID, index)
+	}
 	tabWakeFn(ctx, server)
 	return nil
 }
@@ -316,6 +394,9 @@ func runTabWebRm(cmd *cobra.Command, args []string) error {
 	if err := tmux.WebRemove(ctx, windowID, server, n); err != nil {
 		return webRangeError(ctx, windowID, server, n, err)
 	}
+	if tabWebJSONFlag {
+		tabWebEmitReceipt(cmd, ctx, windowID, server, n, "")
+	}
 	tabWakeFn(ctx, server)
 	return nil
 }
@@ -330,6 +411,9 @@ func runTabWebSelect(cmd *cobra.Command, args []string) error {
 	defer cancel()
 	if err := tmux.WebSelect(ctx, windowID, server, n); err != nil {
 		return webRangeError(ctx, windowID, server, n, err)
+	}
+	if tabWebJSONFlag {
+		tabWebEmitReceipt(cmd, ctx, windowID, server, n, "")
 	}
 	tabWakeFn(ctx, server)
 	return nil
@@ -351,7 +435,11 @@ func runTabWebMv(cmd *cobra.Command, args []string) error {
 		return webMoveRangeError(ctx, windowID, server, n, to, err)
 	}
 	sink := newSink(cmd)
-	sink.Dataf("%s/web/%d\n", windowID, to)
+	if tabWebJSONFlag {
+		tabWebEmitReceipt(cmd, ctx, windowID, server, to, "")
+	} else {
+		sink.Dataf("%s/web/%d\n", windowID, to)
+	}
 	tabWakeFn(ctx, server)
 	return nil
 }
@@ -401,19 +489,11 @@ func runTabWebLs(cmd *cobra.Command, args []string) error {
 
 	sink := newSink(cmd)
 	if tabWebLsJSONFlag {
-		tabs := make([]tabWebLsJSONEntry, 0, len(fam.Tabs))
-		for i, u := range fam.Tabs {
-			entry := tabWebLsJSONEntry{Index: i + 1, URL: u}
-			if i < len(fam.Roots) {
-				entry.Root = fam.Roots[i]
-			}
-			tabs = append(tabs, entry)
-		}
 		doc := struct {
 			WindowID string              `json:"windowId"`
 			Active   int                 `json:"active"`
 			Tabs     []tabWebLsJSONEntry `json:"tabs"`
-		}{WindowID: windowID, Active: fam.Active, Tabs: tabs}
+		}{WindowID: windowID, Active: fam.Active, Tabs: tabWebFamilyEntries(fam)}
 		if err := sink.Envelope(doc, nil); err != nil {
 			return fmt.Errorf("encoding web-tab family: %w", err)
 		}

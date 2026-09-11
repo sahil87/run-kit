@@ -90,6 +90,16 @@ var operatorWorkersRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 var operatorWorkersFlag string
 var operatorServerFlag string
+var operatorJSONFlag bool
+
+// operatorReceipt is the --json success document: the window id, the server
+// label (the -L value in server mode, else the caller's socket basename), and
+// created:false on both singleton hits — the verb is idempotent.
+type operatorReceipt struct {
+	Window  string `json:"window"`
+	Server  string `json:"server"`
+	Created bool   `json:"created"`
+}
 
 var operatorCmd = &cobra.Command{
 	Use:   "operator [--workers <provider>] [-L <server>]",
@@ -152,6 +162,8 @@ func init() {
 		"set FAB_AGENT_WORKERS for the launched operator agent (letters, digits, '_' and '-' only)")
 	operatorCmd.Flags().StringVarP(&operatorServerFlag, "server", "L", "",
 		"address the named tmux server (no $TMUX required; the window opens in the home directory; an existing operator tab is reported, not switched to)")
+	operatorCmd.Flags().BoolVar(&operatorJSONFlag, "json", false,
+		"emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorCmd.AddCommand(operatorRequestCmd)
 }
 
@@ -182,11 +194,13 @@ var (
 	operatorResolveAgentFn = riff.ResolveAgent
 )
 
-// runOperatorWithExitCode is the cobra RunE. The riff ExitCodeError discipline
-// applies (same as runTutorialWithExitCode): the message prints bare to stderr
-// and the process exits with the carried code; any other error returns to
-// main.execute() as a generic exit-1 error (usageError-wrapped ones carry
-// their exit 2 through exitCode's classification).
+// runOperatorWithExitCode is the cobra RunE (execute()'s central writer covers plain --json errors; the
+// plain-error envelope). The riff ExitCodeError discipline applies (same as
+// runTutorialWithExitCode): the message prints bare to stderr and the process
+// exits with the carried code — under --json the error envelope is written
+// first, because no outer wrapper runs after an os.Exit; any other error
+// returns to main.execute() as a generic exit-1 error (usageError-wrapped ones
+// carry their exit 2 through exitCode's classification).
 func runOperatorWithExitCode(cmd *cobra.Command, _ []string) error {
 	err := runOperator(cmd)
 	if err == nil {
@@ -194,6 +208,13 @@ func runOperatorWithExitCode(cmd *cobra.Command, _ []string) error {
 	}
 	var ece *riff.ExitCodeError
 	if errors.As(err, &ece) {
+		if operatorJSONFlag {
+			code := envelopeCodeOperational
+			if ece.Code == riff.ExitValidation {
+				code = envelopeCodeUsage
+			}
+			newSink(cmd).JSONError(envelopeError{Code: code, Message: ece.Msg})
+		}
 		fmt.Fprintln(cmd.ErrOrStderr(), ece.Msg)
 		os.Exit(ece.Code)
 	}
@@ -263,9 +284,14 @@ func runOperator(cmd *cobra.Command) error {
 		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: fmt.Sprintf("run-kit operator: tmux list-windows failed: %v", err)}
 	}
 	if id := findOperatorWindowID(string(out)); id != "" {
+		sink := newSink(cmd)
 		if serverMode {
 			// There is no client to switch — the hit alone satisfies the
 			// command (the message must not claim one happened).
+			if operatorJSONFlag {
+				sink.JSONResult(operatorReceipt{Window: id, Server: serverLabel, Created: false})
+				return nil
+			}
 			fmt.Fprintln(cmd.OutOrStdout(), "Operator tab already present.")
 			return nil
 		}
@@ -276,6 +302,10 @@ func runOperator(cmd *cobra.Command) error {
 		// user's client there — a failure is ignored (the singleton invariant
 		// is already preserved).
 		_ = operatorRunFn(ctx, []string{"switch-client", "-t", id}, env)
+		if operatorJSONFlag {
+			sink.JSONResult(operatorReceipt{Window: id, Server: serverLabel, Created: false})
+			return nil
+		}
 		fmt.Fprintln(cmd.OutOrStdout(), "Switched to existing operator tab.")
 		return nil
 	}
@@ -327,7 +357,17 @@ func runOperator(cmd *cobra.Command) error {
 		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: "run-kit operator: " + err.Error()}
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Opened operator tab (window %q).\n", operatorWindowName)
+	if operatorJSONFlag {
+		// The receipt names the created window's @N, resolved from the new pane
+		// through the same (server-prefixed in server mode) seam.
+		winOut, werr := runOutput(ctx, []string{"display-message", "-p", "-t", paneID, "#{window_id}"}, env)
+		if werr != nil {
+			return fmt.Errorf("run-kit operator: resolve new window id: %w", werr)
+		}
+		newSink(cmd).JSONResult(operatorReceipt{Window: strings.TrimSpace(string(winOut)), Server: serverLabel, Created: true})
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "Opened operator tab (window %q).\n", operatorWindowName)
+	}
 
 	// The kickoff rides the provider's invocation syntax — a codex operator
 	// gets `$fab-operator`, claude gets the canonical `/fab-operator`.

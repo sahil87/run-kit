@@ -89,9 +89,9 @@ func TestSink_JSONResultOneDocument(t *testing.T) {
 	}
 }
 
-// TestSink_JSONErrorOmitsEmptyFields pins the error document: exactly one
-// newline-terminated {"ok":false,"error":…} document, with hint/reason omitted
-// when empty and carried when set.
+// TestJSONRunE pins the wrapper's four paths: usage-class errors emit a "usage"
+// envelope, operational errors an "operational" one, a nil error and an unset
+// --json flag are pure pass-throughs — and the returned error is always the// when empty and carried when set.
 func TestSink_JSONErrorOmitsEmptyFields(t *testing.T) {
 	var data bytes.Buffer
 	s := newSinkWriters(&data, io.Discard)

@@ -24,7 +24,15 @@ var (
 	tabLayoutRmFlag      string
 	tabLayoutPromoteFlag string
 	tabLayoutCycleFlag   bool
+	tabLayoutJSONFlag    bool
 )
+
+// tabLayoutReceipt is the --json success document, on the read and every
+// mutating form alike: the window id and the resulting layout value.
+type tabLayoutReceipt struct {
+	Window string `json:"window"`
+	Layout string `json:"layout"`
+}
 
 var tabLayoutCmd = &cobra.Command{
 	Use:   "layout [@N] [L | --add S | --rm S | --promote S | --cycle]",
@@ -52,6 +60,8 @@ func init() {
 		"Move a surface to slot A")
 	tabLayoutCmd.Flags().BoolVar(&tabLayoutCycleFlag, "cycle", false,
 		"Cycle to the next same-arity shape preset")
+	tabLayoutCmd.Flags().BoolVar(&tabLayoutJSONFlag, "json", false,
+		"Emit the machine-readable envelope (exactly one JSON document on stdout)")
 	tabLayoutCmd.MarkFlagsMutuallyExclusive("add", "rm", "promote", "cycle")
 }
 
@@ -108,7 +118,7 @@ func runTabLayout(cmd *cobra.Command, args []string) error {
 		if err := tabSetWindowOptionsFn(ctx, windowID, server, []tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &v}}); err != nil {
 			return err
 		}
-		sink.Dataf("%s\n", v)
+		tabLayoutReport(sink, windowID, v)
 		tabWakeFn(ctx, server)
 		return nil
 	}
@@ -126,7 +136,7 @@ func runTabLayout(cmd *cobra.Command, args []string) error {
 	}
 
 	if !mutating {
-		sink.Dataf("%s\n", layout.String())
+		tabLayoutReport(sink, windowID, layout.String())
 		return nil
 	}
 
@@ -157,7 +167,17 @@ func runTabLayout(cmd *cobra.Command, args []string) error {
 	if err := tabSetWindowOptionsFn(ctx, windowID, server, []tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &v}}); err != nil {
 		return err
 	}
-	sink.Dataf("%s\n", v)
+	tabLayoutReport(sink, windowID, v)
 	tabWakeFn(ctx, server)
 	return nil
+}
+
+// tabLayoutReport prints the verb's one result line, or the --json receipt
+// when the flag is set.
+func tabLayoutReport(sink outputSink, windowID, layout string) {
+	if tabLayoutJSONFlag {
+		sink.JSONResult(tabLayoutReceipt{Window: windowID, Layout: layout})
+		return
+	}
+	sink.Dataf("%s\n", layout)
 }

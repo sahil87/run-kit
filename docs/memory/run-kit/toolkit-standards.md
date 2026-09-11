@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers P9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` (incl. `operator request`)/`gui` (incl. `gui wm --list`/`--json`)/`mcp`/`board` + the `mux` and `cron` families."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers P9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` (incl. `operator request`)/`gui`/`mcp`/`board` + the `mux` and `cron` families."
 ---
 # Toolkit Standards Conformance
 
@@ -1094,6 +1094,15 @@ PASS — no principle gaps remain open. The conformance mechanisms:
   2. `doctor`'s human diagnostic stays on stderr. See
   [cli](/run-kit/architecture/cli.md) § CLI Subcommands.
   (260911-ehm2-cli-json-read-verbs)
+  The
+  mutating verbs carry the same envelope as opt-in `--json` receipts — exactly
+  one document on stdout, human output and exit codes unchanged: `riff`
+  (`{"windows":[…]}`), `mux new` / `mux kill` (`{report, …}`),
+  `cron add` / `rm` / `mute`, `tab layout` / `tab web add|rm|select|mv` /
+  `tab code set`, `gui exec --detach` (`{pid, display}`), `operator`
+  (`{window, server, created}`), and `notify` (`{delivered}` — the fail-silent
+  contract's verdict field). See [cli](/run-kit/architecture/cli.md) § CLI
+  Subcommands and [mcp](/run-kit/mcp.md) § the seeded table. (260911-fr5t-cli-spawn-and-steer-receipts)
 - **P5 (Visible mutation boundaries)** — the `agent-setup --dry-run` above also
   satisfies P5's destructive-write preview requirement.
 

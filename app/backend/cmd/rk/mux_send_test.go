@@ -308,14 +308,17 @@ func resetMuxFlags() {
 	muxCaptureLinesFlag = 50
 	muxCaptureJSONFlag, muxCaptureRawFlag, muxCaptureClassifyFlag = false, false, false
 	muxKillForceFlag = false
+	muxKillJSONFlag = false
 	muxProcessJSONFlag = false
 	muxPanesJSONFlag = false
 	muxSessionsJSONFlag, muxSessionsAllFlag = false, false
 	muxNewEphemeralFlag = false
+	muxNewJSONFlag = false
 	resetFlagChanged(muxSendCmd, "key", "answer", "force", "no-enter", "await", "timeout", "json")
 	resetFlagChanged(muxAwaitCmd, "until", "file", "after-active", "timeout", "notify", "ready", "json")
 	resetFlagChanged(muxCaptureCmd, "lines", "json", "raw", "classify")
-	resetFlagChanged(muxKillCmd, "force")
+	resetFlagChanged(muxKillCmd, "force", "json")
+	resetFlagChanged(muxNewCmd, "ephemeral", "json")
 	resetFlagChanged(muxProcessCmd, "json")
 	resetFlagChanged(muxPanesCmd, "json")
 	resetFlagChanged(muxSessionsCmd, "json", "all")

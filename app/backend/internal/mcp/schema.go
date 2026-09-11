@@ -103,14 +103,59 @@ func (r *Resolved) checkArg(cmd *cobra.Command, arg Arg) error {
 			return err
 		}
 		r.flagUsage[arg.Name] = flag.Usage
-	case arg.Literal != "" && strings.HasPrefix(arg.Literal, "-") && arg.Literal != "-":
+	case arg.Literal != "" && strings.HasPrefix(arg.Literal, "-") && arg.Literal != "-" && arg.Literal != "--":
 		// Flag-shaped literals ("--json") are how drift in a fixed flag would
-		// otherwise slip through; "-" (stdin marker) is exempt.
+		// otherwise slip through; "-" (stdin marker) and "--" (the
+		// end-of-flags separator, e.g. gui_exec) are exempt.
 		if lookupFlag(cmd, arg.Literal) == nil {
 			return fmt.Errorf("mcp policy row %q: literal flag %q not found on %q", r.Row.Tool, arg.Literal, cmd.CommandPath())
 		}
 	}
+	if arg.Format != "" {
+		if err := r.checkFormat(arg); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// checkFormat validates a formatted positional: Format is positional-only, and
+// every {name} it references — inside or outside an optional […] segment —
+// must name an input of the row.
+func (r *Resolved) checkFormat(arg Arg) error {
+	if arg.Positional == 0 {
+		return fmt.Errorf("mcp policy row %q: format %q on a non-positional input", r.Row.Tool, arg.Format)
+	}
+	for _, name := range formatRefs(arg.Format) {
+		found := false
+		for _, other := range r.Row.Args {
+			if other.Name == name && other.Literal == "" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("mcp policy row %q: format %q names unknown input %q", r.Row.Tool, arg.Format, name)
+		}
+	}
+	return nil
+}
+
+// formatRefs extracts the {name} references of a Format template, in order.
+func formatRefs(format string) []string {
+	var refs []string
+	for i := 0; i < len(format); i++ {
+		if format[i] != '{' {
+			continue
+		}
+		end := strings.IndexByte(format[i:], '}')
+		if end < 0 {
+			break
+		}
+		refs = append(refs, format[i+1:i+end])
+		i += end
+	}
+	return refs
 }
 
 // lookupFlag finds a flag by long name ("--all") or shorthand ("-L") on the
@@ -138,11 +183,17 @@ func checkFlagType(tool string, arg Arg, flag *pflag.Flag) error {
 		ok = arg.Type == ArgBoolean
 	case "int", "int64":
 		ok = arg.Type == ArgInteger
-	case "string":
+	case "string", "duration":
+		// A duration pflag is a string over the wire; the row carries the
+		// Go-duration pattern.
 		ok = arg.Type == ArgString
 	case "stringArray":
-		// A string input maps onto one element of a repeatable flag (`--key`).
-		ok = arg.Type == ArgString
+		// A string input maps onto one element of a repeatable flag (`--key`);
+		// an array input maps onto the whole repeated flag (`--skill`).
+		ok = arg.Type == ArgString || arg.Type == ArgStringArray
+	case "stringSlice", "skill":
+		// "skill" is riff's custom repeatable-flag pflag type.
+		ok = arg.Type == ArgStringArray
 	default:
 		// An unlisted pflag type is incompatible by default — widen here only
 		// when a row genuinely needs it.
@@ -214,10 +265,19 @@ func InputSchema(res Resolved) map[string]any {
 	props := map[string]any{}
 	var required []string
 	for _, arg := range res.Row.Args {
-		if arg.Literal != "" {
+		if arg.Literal != "" || arg.Name == "" {
+			// Literals and anonymous (Format) positionals carry no input.
 			continue
 		}
-		prop := map[string]any{"type": schemaType(arg.Type)}
+		var prop map[string]any
+		if arg.Type == ArgStringArray {
+			prop = map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
+			if arg.MaxItems != nil {
+				prop["maxItems"] = *arg.MaxItems
+			}
+		} else {
+			prop = map[string]any{"type": schemaType(arg.Type)}
+		}
 		if desc := arg.Description; desc != "" {
 			prop["description"] = desc
 		} else if usage := res.flagUsage[arg.Name]; usage != "" {

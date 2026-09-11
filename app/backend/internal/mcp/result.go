@@ -31,7 +31,7 @@ func ValidateArgs(row Row, raw json.RawMessage) (map[string]any, error) {
 	}
 	known := map[string]Arg{}
 	for _, arg := range row.Args {
-		if arg.Literal == "" {
+		if arg.Literal == "" && arg.Name != "" {
 			known[arg.Name] = arg
 		}
 	}
@@ -52,7 +52,7 @@ func ValidateArgs(row Row, raw json.RawMessage) (map[string]any, error) {
 		}
 	}
 	for _, arg := range row.Args {
-		if arg.Literal != "" {
+		if arg.Literal != "" || arg.Name == "" {
 			continue
 		}
 		v, present := args[arg.Name]
@@ -128,6 +128,19 @@ func validateArg(arg Arg, v any) error {
 	case ArgBoolean:
 		if _, ok := v.(bool); !ok {
 			return fmt.Errorf("argument %q must be a boolean", arg.Name)
+		}
+	case ArgStringArray:
+		items, ok := v.([]any)
+		if !ok {
+			return fmt.Errorf("argument %q must be an array of strings", arg.Name)
+		}
+		for _, item := range items {
+			if _, ok := item.(string); !ok {
+				return fmt.Errorf("argument %q must be an array of strings", arg.Name)
+			}
+		}
+		if arg.MaxItems != nil && len(items) > *arg.MaxItems {
+			return fmt.Errorf("argument %q takes at most %d items", arg.Name, *arg.MaxItems)
 		}
 	}
 	return nil

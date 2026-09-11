@@ -367,7 +367,7 @@ func TestRunCliTypedDeliveryWarning(t *testing.T) {
 		Launcher: "kimi --auto",
 		RepoRoot: t.TempDir(),
 	}
-	if err := Run(context.Background(), spec); err != nil {
+	if _, err := Run(context.Background(), spec); err != nil {
 		t.Fatalf("Run() = %v, want nil (a delivery failure never fails the spawn)", err)
 	}
 	got := stderr.String()
@@ -419,7 +419,7 @@ func TestRunCliFanOutDeliveryFailureKeepsWindows(t *testing.T) {
 		Launcher: "kimi --auto",
 		RepoRoot: t.TempDir(),
 	}
-	if err := Run(context.Background(), spec); err != nil {
+	if _, err := Run(context.Background(), spec); err != nil {
 		t.Fatalf("Run() = %v, want nil (delivery failures never fail the fan-out)", err)
 	}
 	if n := strings.Count(stderr.String(), "could not deliver the task"); n != 1 {

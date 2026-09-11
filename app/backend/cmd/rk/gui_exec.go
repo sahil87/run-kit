@@ -59,6 +59,14 @@ view-only, so there is no display to run on.`,
 	RunE:         runGuiExec,
 }
 
+// guiExecReceipt is the --json success document of the --detach path: the
+// two facts the `started <pid> on <display>` line prints. The foreground path
+// replaces the process and can print no receipt, so --json requires --detach.
+type guiExecReceipt struct {
+	PID     int    `json:"pid"`
+	Display string `json:"display"`
+}
+
 // guiExecEnv composes the exec'd environment — gui.LaunchEnv's rule (DISPLAY
 // and RK_GUI_SOCKET set on the caller's env, replaced never duplicated),
 // shared with the HTTP launcher through internal/gui.
@@ -73,9 +81,15 @@ func guiExecStartDetached(argv []string, env []string) (int, error) {
 	return gui.StartDetached(argv, env)
 }
 
-// runGuiExec gates on the OS and the switch, then either execs (foreground,
-// default) or starts detached (--detach).
+// runGuiExec gates on the flag pair, the OS, and the switch, then either
+// execs (foreground, default) or starts detached (--detach).
 func runGuiExec(cmd *cobra.Command, args []string) error {
+	// Flag validation precedes every gate: usage errors first.
+	detach, _ := cmd.Flags().GetBool("detach")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	if jsonOut && !detach {
+		return usageError(fmt.Errorf("--json requires --detach (the foreground path replaces the process and can print no receipt)"))
+	}
 	if guiGOOS == "darwin" {
 		return guiDarwinRefusal("exec")
 	}
@@ -87,13 +101,17 @@ func runGuiExec(cmd *cobra.Command, args []string) error {
 	}
 	env := guiExecEnv(os.Environ(), st.Display, st.Socket)
 
-	detach, _ := cmd.Flags().GetBool("detach")
 	if detach {
 		pid, err := guiExecStartFn(args, env)
 		if err != nil {
 			return fmt.Errorf("error: %s: %w", args[0], err)
 		}
-		newSink(cmd).Dataf("started %d on %s\n", pid, st.Display)
+		sink := newSink(cmd)
+		if jsonOut {
+			sink.JSONResult(guiExecReceipt{PID: pid, Display: st.Display})
+			return nil
+		}
+		sink.Dataf("started %d on %s\n", pid, st.Display)
 		return nil
 	}
 

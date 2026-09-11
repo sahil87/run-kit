@@ -23,6 +23,10 @@ const (
 	ArgString ArgType = iota
 	ArgInteger
 	ArgBoolean
+	// ArgStringArray is a JSON array of strings: a repeated flag
+	// (--skill a --skill b) for a Flag input, one argv element per item for a
+	// Positional input.
+	ArgStringArray
 )
 
 // ResultKind selects how a verb's stdout becomes MCP content.
@@ -48,19 +52,24 @@ type Annotations struct {
 }
 
 // Arg maps one tool input onto argv. Exactly one of Flag / Positional /
-// Literal applies; an input with none of them (e.g. send's message) exists
-// only in the schema and travels on stdin when named by Row.Stdin.
+// Literal applies; an input with none of them (e.g. send's message, tab_web's
+// window/slot) is schema-only and travels on stdin when named by Row.Stdin or
+// feeds a Format positional. BuildArgv is a single ordered walk over Args —
+// every flag, flag-shaped literal, positional, and bare literal is emitted
+// where it sits — so a row's Args order IS its argv order.
 type Arg struct {
-	Name        string   // input property name; "" for Literal
+	Name        string   // input property name; "" for Literal and Format positionals
 	Flag        string   // "-L", "--all", "-l" — mapped as flag [value]
 	Positional  int      // 1-based positional slot (mutually exclusive with Flag)
 	Literal     string   // fixed argv token appended in order ("--json", "-")
-	Type        ArgType  // String | Integer | Boolean
+	Format      string   // positional token template: {name} substitutes an input, […] drops when an input inside is absent
+	Type        ArgType  // String | Integer | Boolean | StringArray
 	Required    bool     //
 	Pattern     string   // JSON-schema pattern (strings)
 	Enum        []string // closed set (strings)
 	Minimum     *int     // integers
 	Maximum     *int
+	MaxItems    *int   // string arrays
 	Description string // "" ⇒ the flag's pflag Usage string (positional args need one)
 	// When (Literal args only) gates the literal on the named input being
 	// present in the call — BuildArgv skips the token when the input is
@@ -198,13 +207,32 @@ const snapshotListDescription = "List layout-recovery snapshots of tmux servers,
 // three flags this tool does not expose.
 const guiShotDescription = "Capture a screenshot of the rk GUI display. Result is an image block (PNG) plus a text block carrying {path, width, height, scale, display}; width/height are the source geometry and scale the applied downscale. `--out`, `--scale`, and `--window` are not exposed — the capture always lands at the verb's temp path and covers the full display."
 
+// goDurationPattern is the JSON-schema pattern for the duration-string inputs
+// (Go duration syntax: one or more number+unit segments).
+const goDurationPattern = `^[0-9]+(ns|us|µs|ms|s|m|h)([0-9]+(ns|us|µs|ms|s|m|h))*$`
+
+// The W2c description overrides: Cobra help written for a terminal misleads a
+// model on these rows (docs/specs/mcp.md § Policy table rules).
+const (
+	notifyDescription    = "Send a Web Push notification to the daemon's subscribed devices. Fail-silent by contract: the exit code is always 0, so the receipt's `delivered` field is the verdict — delivered:false (daemon unreachable, non-2xx, timeout) is NOT a tool error."
+	riffDescription      = "Spawn a worktree + tmux window + agent pane set (optionally a named preset from the repo's fab/project/config.yaml). Over MCP `server` and `repo` are REQUIRED (the executor strips $TMUX and its cwd is not the repo): `server` is the tmux server label, `repo` an absolute path that must be the git toplevel, `session` (=S exact form) defaults to the server's current session. `skill` items are slash commands (e.g. /fab-discuss) rendered for the resolved provider; repeatable, one pane per item in order. `--cmd` (shell panes) is NOT available over MCP. The receipt's `windows[]` entries carry id/name/panes/worktree/branch; panes[0] is the task pane."
+	newWindowDescription = "Open a new idle window (no command form over MCP) in the target session and return {session, window_id, pane_id}. `session` takes the =S exact form; without it the window lands in the caller's current session inside tmux, else the target server's current session. `cwd` sets the window's working directory."
+	operatorDescription  = "Open (or ensure) the server's operator tab — a per-server singleton running the operator-tier agent. Idempotent: `created:false` means an operator already existed on that server (nothing is duplicated). Over MCP `server` is REQUIRED (the executor strips $TMUX). `workers` sets FAB_AGENT_WORKERS for the launched agent."
+	cronAddDescription   = "Schedule a prompt for an agent on a tmux server. The prompt is TEXT TYPED INTO AN AGENT at fire time, never a command. Exactly ONE schedule input (every | idle_every | backoff | cron) and exactly ONE of role / pane / session are required (the verb enforces both and rejects a bad combination). The receipt carries {id, name, schedule, target} — the id feeds cron_mute/cron_rm."
+	guiExecDescription   = "Start a GUI program on the rk desktop's display. ALWAYS detached: the receipt is the started {pid, display}, not the command's output. `command` is resolved on PATH; `args` are its argv (dash-prefixed values are safe — they follow a literal `--`). Pair with gui_status (is the desktop up?) and gui_shot (screenshot) to observe the result."
+	killDescription      = "Kill a pane, gated on the pane's agent state and server protection: a pane whose agent is active or waiting (a pending human question) is REFUSED, as is any pane on a protected server — a refusal arrives as the verb's error. There is NO force path over MCP. `target` is %N (pane), @N (window — resolves to its agent pane), or =session:window (exact)."
+	tabWebDescription    = "Mutate a tab's web-tab strip. Every action requires `window` (@N); the composite address @N/web/<slot> is rendered from `window` and `slot`. `add` requires `target` (a URL, :port, file, or directory) and takes optional `show` (ensure the web surface is in the layout and select the tab); `rm`/`select` require `slot`; `mv` requires `slot` and `to` (the destination slot). The receipt carries {window, index, url?, tabs} — tabs is the post-mutation family."
+)
+
 // Table is the compiled-in policy table — the allowlist (docs/specs/mcp.md
 // § Policy table). Seeded with the verbs that are already MCP-shaped: the nine
 // structured-today read verbs ride result: json on their existing bare
 // documents until the --json envelope lands, send/answer/await ride result:
-// json on the mux verbs' --json receipts, and board rides result: json on its
+// json on the mux verbs' --json receipts, board rides result: json on its
 // route bodies (show) and {board, window, orderKey?} receipts
-// (pin/unpin/reorder).
+// (pin/unpin/reorder), and the thirteen mutating W2c rows (notify…cron_mute)
+// ride the --json envelope their verbs emit (new_window and code_exec are
+// bare-JSON until the envelope lands on those verbs).
 var Table = []Row{
 	{
 		Tool: "sessions", Path: "mux sessions",
@@ -282,12 +310,15 @@ var Table = []Row{
 	},
 	{
 		// The one action-enum row besides tab_web: the parent path carries the
-		// flags (BuildArgv emits them before positionals), so -L/--json/
-		// --before/--after MUST be persistent on the board command — defining
-		// them on a child fails this drift guard.
+		// flags (BuildArgv emits each arg where it sits in Args — flags first
+		// here keeps the historical flags-before-positionals argv), so
+		// -L/--json/--before/--after MUST be persistent on the board command —
+		// defining them on a child fails this drift guard.
 		Tool: "board", Path: "board",
 		Args: []Arg{
 			serverArg,
+			{Name: "before", Flag: "--before", Type: ArgString, Pattern: `^@\d+$`},
+			{Name: "after", Flag: "--after", Type: ArgString, Pattern: `^@\d+$`},
 			{Name: "action", Positional: 1, Type: ArgString, Required: true,
 				Enum:        []string{"show", "pin", "unpin", "reorder"},
 				Description: "show lists boards (no name) or one board's entries (with name); pin/unpin/reorder mutate and require name and window"},
@@ -295,8 +326,6 @@ var Table = []Row{
 				Description: "Board name; optional for show, required for pin/unpin/reorder"},
 			{Name: "window", Positional: 3, Type: ArgString, Pattern: `^@\d+$`,
 				Description: "The window to pin/unpin/reorder, by window id (@N); required for the three mutations"},
-			{Name: "before", Flag: "--before", Type: ArgString, Pattern: `^@\d+$`},
-			{Name: "after", Flag: "--after", Type: ArgString, Pattern: `^@\d+$`},
 			jsonLiteral,
 		},
 		Result:      ResultJSON,
@@ -307,11 +336,11 @@ var Table = []Row{
 		Tool: "operator_request", Path: "operator request",
 		Args: []Arg{
 			serverArg,
-			{Name: "template", Positional: 1, Type: ArgString, Required: true, Enum: operatorTemplateIDs,
-				Description: "The operator template id (closed registry; see the tool description for which take window/text/session)"},
 			{Name: "window", Flag: "--window", Type: ArgString, Pattern: `^@\d+$`},
 			{Name: "text", Flag: "--text", Type: ArgString},
 			{Name: "session", Flag: "--session", Type: ArgString},
+			{Name: "template", Positional: 1, Type: ArgString, Required: true, Enum: operatorTemplateIDs,
+				Description: "The operator template id (closed registry; see the tool description for which take window/text/session)"},
 			jsonLiteral,
 		},
 		Result:      ResultJSON,
@@ -325,11 +354,11 @@ var Table = []Row{
 		Tool: "answer", Path: "mux send",
 		Args: []Arg{
 			serverArg,
-			targetArg,
-			{Name: "message", Type: ArgString, Description: "The reply text for a waiting agent; submitted with Enter (mutually exclusive with key)"},
 			{Name: "key", Flag: "--key", Type: ArgString,
 				Enum:        answerKeyEnum,
 				Description: "One tmux key name to press instead of a message — for trust prompts, pickers, and menus (mutually exclusive with message)"},
+			targetArg,
+			{Name: "message", Type: ArgString, Description: "The reply text for a waiting agent; submitted with Enter (mutually exclusive with key)"},
 			{Literal: "--answer", When: "message"},
 			{Literal: "-", When: "message"},
 			jsonLiteral,
@@ -349,7 +378,6 @@ var Table = []Row{
 		Tool: "await", Path: "mux await",
 		Args: []Arg{
 			serverArg,
-			targetArg,
 			{Name: "until", Flag: "--until", Type: ArgString,
 				Pattern:     `^(idle|waiting|active)(,(idle|waiting|active)){0,2}$`,
 				Description: "Comma-separated agent states that end the wait (default idle); waiting wakes when the agent asks a question back"},
@@ -357,6 +385,7 @@ var Table = []Row{
 				Description: "Seconds to wait before reporting running (1–40; default 40). On running, call again"},
 			{Name: "ready", Flag: "--ready", Type: ArgBoolean,
 				Description: "Wait for a freshly spawned agent's BOOT readiness instead of a state: ready | parked (a trust dialog or wall — read the pane and answer it with answer) | narrow (pane below 80x20). Mutually exclusive with until"},
+			targetArg,
 			jsonLiteral,
 		},
 		Result:      ResultJSON,
@@ -393,5 +422,234 @@ var Table = []Row{
 		Result:      ResultImage,
 		Annotations: readOnlyAnn,
 		Description: guiShotDescription,
+	},
+	{
+		Tool: "notify", Path: "notify",
+		Args: []Arg{
+			{Name: "message", Positional: 1, Type: ArgString, Required: true,
+				Description: "The notification body"},
+			{Name: "title", Flag: "--title", Type: ArgString},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{},
+		Description: notifyDescription,
+	},
+	{
+		// server and repo are required over MCP: the executor strips $TMUX and
+		// its cwd is not the repo, so the verb's own defaults are unreachable
+		// (docs/specs/mcp.md § Target rule). No --cmd — a pane shell command is
+		// a shell string.
+		Tool: "riff", Path: "riff",
+		Args: []Arg{
+			{Name: "server", Flag: "-L", Type: ArgString, Required: true, Pattern: `^[A-Za-z0-9_-]+$`,
+				Description: "The tmux server label to spawn on"},
+			{Name: "repo", Flag: "--repo", Type: ArgString, Required: true,
+				Description: "Absolute path of the repo to spawn from; must be the git toplevel"},
+			{Name: "session", Flag: "--session", Type: ArgString, Pattern: `^=.+$`,
+				Description: "Session the window is created in (=S exact form; default: the server's current session)"},
+			{Name: "preset", Positional: 1, Type: ArgString,
+				Description: "Named preset from the repo's fab/project/config.yaml"},
+			{Name: "skill", Flag: "--skill", Type: ArgStringArray,
+				Description: "Slash command for a pane (repeatable, one pane per item in order; a bare item launches a blank agent)"},
+			{Name: "layout", Flag: "--layout", Type: ArgString},
+			{Name: "count", Flag: "-N", Type: ArgInteger, Minimum: intPtr(1), Maximum: intPtr(8),
+				Description: "Spawn N worktree/window pairs in parallel"},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{},
+		Description: riffDescription,
+	},
+	{
+		Tool: "new_window", Path: "tab new",
+		Args: []Arg{
+			serverArg,
+			{Name: "session", Flag: "--session", Type: ArgString, Pattern: `^=.+$`},
+			{Name: "cwd", Flag: "--cwd", Type: ArgString},
+			{Name: "name", Flag: "--name", Type: ArgString},
+			{Name: "layout", Flag: "--layout", Type: ArgString},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{},
+		Description: newWindowDescription,
+	},
+	{
+		Tool: "operator", Path: "operator",
+		Args: []Arg{
+			{Name: "server", Flag: "-L", Type: ArgString, Required: true, Pattern: `^[A-Za-z0-9_-]+$`,
+				Description: "The tmux server label whose operator to open"},
+			{Name: "workers", Flag: "--workers", Type: ArgString, Pattern: `^[A-Za-z0-9_-]+$`},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{Idempotent: true},
+		Description: operatorDescription,
+	},
+	{
+		Tool: "cron_add", Path: "cron add",
+		Args: []Arg{
+			serverArg,
+			{Name: "prompt", Positional: 1, Type: ArgString, Required: true,
+				Description: "The text typed into the target agent at fire time (never a command)"},
+			{Name: "every", Flag: "--every", Type: ArgString, Pattern: goDurationPattern,
+				Description: "Fire on a fixed interval (Go duration, e.g. 1h, 90s)"},
+			{Name: "idle_every", Flag: "--idle-every", Type: ArgString, Pattern: goDurationPattern,
+				Description: "Fire every <dur> of agent quiet (a flat backoff ladder)"},
+			{Name: "backoff", Flag: "--backoff", Type: ArgBoolean,
+				Description: "Fire on a backoff ladder keyed on the target pane's idle epoch"},
+			{Name: "min", Flag: "--min", Type: ArgString, Pattern: goDurationPattern,
+				Description: "Backoff ladder minimum gap (with backoff)"},
+			{Name: "max", Flag: "--max", Type: ArgString, Pattern: goDurationPattern,
+				Description: "Backoff ladder maximum gap (with backoff)"},
+			{Name: "cron", Flag: "--cron", Type: ArgString,
+				Description: "Fire on a 5-field cron expression (daemon local time)"},
+			{Name: "catch_up", Flag: "--catch-up", Type: ArgString, Enum: []string{"once"},
+				Description: "With cron: fire once late after a gap"},
+			{Name: "name", Flag: "--name", Type: ArgString},
+			{Name: "deliver", Flag: "--deliver", Type: ArgString, Enum: []string{"immediate", "when-idle", "skip-if-busy"}},
+			{Name: "if_absent", Flag: "--if-absent", Type: ArgString, Enum: []string{"skip", "notify"}},
+			{Name: "pinned", Flag: "--pinned", Type: ArgBoolean},
+			{Name: "role", Flag: "--role", Type: ArgString,
+				Description: "Target a server role (the @rk_win_role value, e.g. operator)"},
+			{Name: "pane", Flag: "--pane", Type: ArgString, Pattern: `^%\d+$`,
+				Description: "Target a pane id (%N)"},
+			{Name: "session", Flag: "--session", Type: ArgString,
+				Description: "Target an agent session ref"},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{},
+		Description: cronAddDescription,
+	},
+	{
+		Tool: "tab_layout", Path: "tab layout",
+		Args: []Arg{
+			serverArg,
+			windowArg,
+			{Name: "layout", Positional: 2, Type: ArgString,
+				Description: "The layout value to set (<shape>:<surface,…>); omit for a read, or use one mutation input instead"},
+			{Name: "add", Flag: "--add", Type: ArgString, Enum: []string{"tty", "web", "code", "gui"},
+				Description: "Append a surface to the layout (grows the shape)"},
+			{Name: "rm", Flag: "--rm", Type: ArgString, Enum: []string{"tty", "web", "code", "gui"},
+				Description: "Remove a surface from the layout (collapses the shape)"},
+			{Name: "promote", Flag: "--promote", Type: ArgString, Enum: []string{"tty", "web", "code", "gui"},
+				Description: "Move a surface to slot A"},
+			{Name: "cycle", Flag: "--cycle", Type: ArgBoolean,
+				Description: "Cycle to the next same-arity shape preset"},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{},
+	},
+	{
+		// The board precedent: one row on the parent path, action as positional
+		// 1, the flags persistent on the parent; window/slot are schema-only and
+		// feed the formatted composite address @N[/web/<slot>]. Per-action
+		// required-ness (target for add, slot for rm/select/mv, to for mv) is
+		// enforced by the verb's own usage errors.
+		Tool: "tab_web", Path: "tab web",
+		Args: []Arg{
+			{Name: "action", Positional: 1, Type: ArgString, Required: true,
+				Enum:        []string{"add", "rm", "select", "mv"},
+				Description: "add attaches a target to the strip; rm/select address a slot; mv moves a slot"},
+			serverArg,
+			{Name: "window", Type: ArgString, Required: true, Pattern: `^@\d+$`,
+				Description: "The tab to address, by window id (@N)"},
+			{Name: "slot", Type: ArgInteger, Minimum: intPtr(1), Maximum: intPtr(8),
+				Description: "The web-tab slot (1-8); required for rm/select/mv"},
+			{Positional: 2, Format: "{window}[/web/{slot}]"},
+			{Name: "target", Positional: 3, Type: ArgString,
+				Description: "add's target: a URL, :port, file, or directory"},
+			{Name: "to", Positional: 4, Type: ArgInteger, Minimum: intPtr(1), Maximum: intPtr(8),
+				Description: "mv's destination slot"},
+			{Name: "show", Flag: "--show", Type: ArgBoolean,
+				Description: "add only: ensure the web surface is in the layout and select the tab"},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{},
+		Description: tabWebDescription,
+	},
+	{
+		Tool: "tab_code", Path: "tab code set",
+		Args: []Arg{
+			serverArg,
+			windowArg,
+			{Name: "folder", Positional: 2, Type: ArgString, Required: true,
+				Description: "The folder the code surface opens (must exist)"},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{},
+	},
+	{
+		Tool: "code_exec", Path: "code exec",
+		Args: []Arg{
+			{Name: "command", Positional: 1, Type: ArgString, Required: true,
+				Description: "The code-server CLI command (e.g. ls, read, grep)"},
+			{Name: "args", Positional: 2, Type: ArgStringArray,
+				Description: "The command's arguments (JSON literals as strings, each one argv element)"},
+			{Name: "host", Flag: "--host", Type: ArgString},
+			{Name: "tab", Flag: "--tab", Type: ArgString, Pattern: `^@\d+$`},
+			{Name: "folder", Flag: "--folder", Type: ArgString},
+			{Name: "timeout", Flag: "--timeout", Type: ArgString, Pattern: goDurationPattern},
+			{Name: "all", Flag: "--all", Type: ArgBoolean},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{},
+	},
+	{
+		// Fixed --detach (the foreground path replaces the process and returns
+		// no receipt) and a literal `--` so dash-prefixed program args pass
+		// through — the ordered walk places both before the positionals.
+		Tool: "gui_exec", Path: "gui exec",
+		Args: []Arg{
+			{Literal: "--detach"},
+			jsonLiteral,
+			{Literal: "--"},
+			{Name: "command", Positional: 1, Type: ArgString, Required: true,
+				Description: "The program to start on the GUI display (resolved on PATH)"},
+			{Name: "args", Positional: 2, Type: ArgStringArray,
+				Description: "The program's argv (each item one argv element)"},
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{},
+		Description: guiExecDescription,
+	},
+	{
+		Tool: "kill", Path: "mux kill",
+		Args:        []Arg{serverArg, targetArg, jsonLiteral},
+		Result:      ResultJSON,
+		Annotations: Annotations{Destructive: true},
+		Description: killDescription,
+	},
+	{
+		Tool: "cron_rm", Path: "cron rm",
+		Args: []Arg{
+			serverArg,
+			{Name: "id", Positional: 1, Type: ArgString, Required: true,
+				Description: "The cron entry id (from cron_add's receipt or cron_list)"},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{Destructive: true},
+	},
+	{
+		Tool: "cron_mute", Path: "cron mute",
+		Args: []Arg{
+			serverArg,
+			{Name: "id", Positional: 1, Type: ArgString, Required: true,
+				Description: "The cron entry id (from cron_add's receipt or cron_list)"},
+			{Name: "for", Flag: "--for", Type: ArgString, Pattern: goDurationPattern,
+				Description: "Mute until now+<dur> (a self-expiring lease)"},
+			{Name: "off", Flag: "--off", Type: ArgBoolean,
+				Description: "Unmute instead of mute"},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{Idempotent: true},
 	},
 }

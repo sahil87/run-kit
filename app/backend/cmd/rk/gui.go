@@ -349,6 +349,7 @@ func init() {
 	guiOffCmd.Flags().Bool("yes", false, "Skip the running-apps confirmation")
 	guiStatusCmd.Flags().Bool("json", false, "Emit the status document as JSON")
 	guiExecCmd.Flags().BoolP("detach", "d", false, "Start the command as its own session and return immediately")
+	guiExecCmd.Flags().Bool("json", false, "Emit the machine-readable envelope (requires --detach; exactly one JSON document on stdout)")
 	guiShotCmd.Flags().StringP("out", "o", "", "Write the PNG to this path (parent created, existing file overwritten)")
 	guiWmCmd.Flags().Bool("restart", false, "Restart the rk-gui session after pinning (kills apps on the display)")
 	guiWmCmd.Flags().Bool("force", false, "Pin even when the binary is not on PATH")

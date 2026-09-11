@@ -29,7 +29,7 @@ func TestMCPTableResolves(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	want := []string{"answer", "await", "board", "capture", "cron_list", "gui_shot", "gui_status", "operator_request", "panes", "process", "send", "sessions", "snapshot_list", "status", "tab_show", "tab_web_ls"}
+	want := []string{"answer", "await", "board", "capture", "code_exec", "cron_add", "cron_list", "cron_mute", "cron_rm", "gui_exec", "gui_shot", "gui_status", "kill", "new_window", "notify", "operator", "operator_request", "panes", "process", "riff", "send", "sessions", "snapshot_list", "status", "tab_code", "tab_layout", "tab_show", "tab_web", "tab_web_ls"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("tool names = %v, want %v", names, want)
 	}

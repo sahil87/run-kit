@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -179,5 +181,68 @@ func TestCronMuteForUsageErrors(t *testing.T) {
 				t.Errorf("%v: entry file modified by a rejected mutation", args)
 			}
 		})
+	}
+}
+
+// TestCronRmMuteJSONReceipts: --json prints one envelope document per verb —
+// rm carries {id, removed:true}; the bare mute carries {id, muted:true}; --off
+// carries muted:false; the --for lease adds the RFC3339 until. Pin is
+// unchanged (no --json).
+func TestCronRmMuteJSONReceipts(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	seedCronEntry(t, dir)
+	origNow := cronNowFn
+	cronNowFn = func() time.Time { return time.Unix(cronAddFixedNow, 0).In(time.Local) }
+	t.Cleanup(func() { cronNowFn = origNow })
+
+	stdout, _, err := runCronCmd(t, "mute", "a3f9", "--json")
+	if err != nil {
+		t.Fatalf("mute: %v", err)
+	}
+	assertEnvelopeResult(t, stdout, map[string]any{"id": "a3f9", "muted": true})
+
+	stdout, _, err = runCronCmd(t, "mute", "a3f9", "--off", "--json")
+	if err != nil {
+		t.Fatalf("mute --off: %v", err)
+	}
+	assertEnvelopeResult(t, stdout, map[string]any{"id": "a3f9", "muted": false})
+
+	stdout, _, err = runCronCmd(t, "mute", "a3f9", "--for", "30m", "--json")
+	if err != nil {
+		t.Fatalf("mute --for: %v", err)
+	}
+	var doc struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			ID    string `json:"id"`
+			Muted bool   `json:"muted"`
+			Until string `json:"until"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace([]byte(stdout)), &doc); err != nil {
+		t.Fatalf("mute --for stdout is not one JSON document: %v (%q)", err, stdout)
+	}
+	wantUntil := time.Unix(cronAddFixedNow, 0).In(time.Local).Add(30 * time.Minute).Format(time.RFC3339)
+	if !doc.OK || doc.Result.ID != "a3f9" || !doc.Result.Muted || doc.Result.Until != wantUntil {
+		t.Errorf("mute --for receipt = %+v, want {a3f9, muted, until %s}", doc, wantUntil)
+	}
+
+	stdout, _, err = runCronCmd(t, "rm", "a3f9", "--json")
+	if err != nil {
+		t.Fatalf("rm: %v", err)
+	}
+	assertEnvelopeResult(t, stdout, map[string]any{"id": "a3f9", "removed": true})
+	if e := loadCronEntries(t, dir, "work"); len(e) != 0 {
+		t.Errorf("entries = %d after rm, want 0", len(e))
+	}
+
+	// An unknown id under --json is the operational envelope with exit 1.
+	stdout, _, err = runCronCmd(t, "rm", "zz99", "--json")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("rm unknown id: err = %v, want exit 1", err)
+	}
+	if doc := parseFailureEnvelope(t, centralFailureEnvelope(t, stdout, err)); doc.Code != "operational" || doc.Message != "no entry zz99" {
+		t.Errorf("failure envelope = %+v, want %s: %s", doc, "operational", "no entry zz99")
 	}
 }

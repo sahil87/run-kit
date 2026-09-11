@@ -234,3 +234,130 @@ func TestExecutorFailureExit(t *testing.T) {
 		t.Errorf("stdout=%q stderr=%q", out.Stdout, out.Stderr)
 	}
 }
+
+// TestBuildArgvStringArrayFlag pins the repeated-flag mapping of a
+// string-array input: one `--skill <item>` pair per item, in array order.
+func TestBuildArgvStringArrayFlag(t *testing.T) {
+	row := Row{
+		Tool: "riff", Path: "riff",
+		Args: []Arg{
+			{Name: "skill", Flag: "--skill", Type: ArgStringArray},
+			jsonLiteral,
+		},
+	}
+	got := BuildArgv(row, map[string]any{"skill": []any{"/a", "/b"}})
+	want := []string{"riff", "--skill", "/a", "--skill", "/b", "--json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("argv = %v, want %v", got, want)
+	}
+}
+
+// TestBuildArgvOrderedWalk pins the single ordered walk: literals emit where
+// they sit in Args, so the gui_exec row places `--detach --json --` before
+// its positionals, and a positional string array expands one element per item.
+func TestBuildArgvOrderedWalk(t *testing.T) {
+	row := Row{
+		Tool: "gui_exec", Path: "gui exec",
+		Args: []Arg{
+			{Literal: "--detach"},
+			jsonLiteral,
+			{Literal: "--"},
+			{Name: "command", Positional: 1, Type: ArgString, Required: true},
+			{Name: "args", Positional: 2, Type: ArgStringArray},
+		},
+	}
+	got := BuildArgv(row, map[string]any{"command": "chromium", "args": []any{"--kiosk", "https://x"}})
+	want := []string{"gui", "exec", "--detach", "--json", "--", "chromium", "--kiosk", "https://x"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("argv = %v, want %v", got, want)
+	}
+}
+
+// TestBuildArgvFormatPositional pins Format rendering: {name} substitutes the
+// named input (integers via Itoa), the […] segment drops when an input inside
+// it is absent, and an absent non-optional input drops the whole token.
+func TestBuildArgvFormatPositional(t *testing.T) {
+	row := Row{
+		Tool: "tab_web", Path: "tab web",
+		Args: []Arg{
+			{Name: "action", Positional: 1, Type: ArgString, Required: true, Enum: []string{"add", "rm", "select", "mv"}},
+			{Name: "window", Type: ArgString, Required: true, Pattern: `^@\d+$`},
+			{Name: "slot", Type: ArgInteger, Minimum: intPtr(1)},
+			{Positional: 2, Format: "{window}[/web/{slot}]"},
+			jsonLiteral,
+		},
+	}
+	got := BuildArgv(row, map[string]any{"action": "rm", "window": "@3", "slot": float64(2)})
+	want := []string{"tab", "web", "rm", "@3/web/2", "--json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("argv = %v, want %v", got, want)
+	}
+
+	got = BuildArgv(row, map[string]any{"action": "add", "window": "@3"})
+	want = []string{"tab", "web", "add", "@3", "--json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("argv without slot = %v, want %v (optional segment dropped)", got, want)
+	}
+
+	got = BuildArgv(row, map[string]any{"action": "add"})
+	want = []string{"tab", "web", "add", "--json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("argv without window = %v, want %v (formatted positional contributes nothing)", got, want)
+	}
+}
+
+// TestBuildArgvW2cRows pins the W2c rows' argv shapes end to end: the
+// gui_exec literal prefix before its positionals, the tab_web composite
+// address per action, and the riff row's flag set (no --cmd).
+func TestBuildArgvW2cRows(t *testing.T) {
+	cases := []struct {
+		name string
+		tool string
+		args map[string]any
+		want []string
+	}{
+		{
+			"gui_exec", "gui_exec",
+			map[string]any{"command": "chromium", "args": []any{"--kiosk", "https://x"}},
+			[]string{"gui", "exec", "--detach", "--json", "--", "chromium", "--kiosk", "https://x"},
+		},
+		{
+			"tab_web add", "tab_web",
+			map[string]any{"action": "add", "window": "@3", "target": "https://example.com", "show": true},
+			[]string{"tab", "web", "add", "@3", "https://example.com", "--show", "--json"},
+		},
+		{
+			"tab_web rm", "tab_web",
+			map[string]any{"action": "rm", "window": "@3", "slot": float64(2)},
+			[]string{"tab", "web", "rm", "@3/web/2", "--json"},
+		},
+		{
+			"tab_web select", "tab_web",
+			map[string]any{"action": "select", "window": "@3", "slot": float64(1)},
+			[]string{"tab", "web", "select", "@3/web/1", "--json"},
+		},
+		{
+			"tab_web mv", "tab_web",
+			map[string]any{"action": "mv", "window": "@3", "slot": float64(2), "to": float64(1)},
+			[]string{"tab", "web", "mv", "@3/web/2", "1", "--json"},
+		},
+		{
+			"riff", "riff",
+			map[string]any{"server": "s", "repo": "/r", "session": "=boot", "preset": "ship", "skill": []any{"/a", "/b"}},
+			[]string{"riff", "-L", "s", "--repo", "/r", "--session", "=boot", "ship", "--skill", "/a", "--skill", "/b", "--json"},
+		},
+		{
+			"cron_mute lease", "cron_mute",
+			map[string]any{"id": "a3f9", "for": "30m"},
+			[]string{"cron", "mute", "a3f9", "--for", "30m", "--json"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := BuildArgv(findRow(t, tc.tool), tc.args)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("argv = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

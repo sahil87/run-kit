@@ -24,6 +24,15 @@ var tabCodeCmd = &cobra.Command{
 		"See 'rk tab code <subcommand> --help' for details.",
 }
 
+var tabCodeSetJSONFlag bool
+
+// tabCodeSetReceipt is the --json success document: the window id and the
+// absolute code root the human line prints.
+type tabCodeSetReceipt struct {
+	Window   string `json:"window"`
+	CodeRoot string `json:"code_root"`
+}
+
 var tabCodeSetCmd = &cobra.Command{
 	Use:   "set [@N] <folder>",
 	Short: "Point the tab's code surface at a folder",
@@ -37,6 +46,8 @@ var tabCodeSetCmd = &cobra.Command{
 }
 
 func init() {
+	tabCodeSetCmd.Flags().BoolVar(&tabCodeSetJSONFlag, "json", false,
+		"Emit the machine-readable envelope (exactly one JSON document on stdout)")
 	tabCodeCmd.AddCommand(tabCodeSetCmd)
 	// Arg-count violations are usage-class (exit 2) — wrapped at the add site.
 	for _, c := range tabCodeCmd.Commands() {
@@ -75,7 +86,12 @@ func runTabCodeSet(cmd *cobra.Command, args []string) error {
 	if err := tabSetWindowOptionsFn(ctx, windowID, server, []tmux.WindowOptionOp{{Key: tmux.CodeRootOption, Value: &abs}}); err != nil {
 		return err
 	}
-	newSink(cmd).Dataf("%s\n", abs)
+	sink := newSink(cmd)
+	if tabCodeSetJSONFlag {
+		sink.JSONResult(tabCodeSetReceipt{Window: windowID, CodeRoot: abs})
+	} else {
+		sink.Dataf("%s\n", abs)
+	}
 	tabWakeFn(ctx, server)
 	return nil
 }

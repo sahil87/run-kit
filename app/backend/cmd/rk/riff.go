@@ -1,19 +1,23 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 
 	"rk/internal/config"
 	"rk/internal/fabconfig"
 	"rk/internal/riff"
 	"rk/internal/tmux"
+	"rk/internal/validate"
 
 	"github.com/spf13/cobra"
 )
@@ -37,7 +41,22 @@ var (
 	riffCountFlag      int
 	riffPresetFlag     string
 	riffListPresetsFlg bool
+	riffServerFlag     string
+	riffSessionFlag    string
+	riffRepoFlag       string
+	riffJSONFlag       bool
 )
+
+// riffWindowReceipt is one spawned window in the --json receipt — the engine's
+// SpawnReceipt rendered with the receipt's key names (id/panes/worktree).
+type riffWindowReceipt struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Server   string   `json:"server"`
+	Panes    []string `json:"panes"`
+	Worktree string   `json:"worktree"`
+	Branch   string   `json:"branch"`
+}
 
 var riffCmd = &cobra.Command{
 	Use:   "riff [preset] [--skill <skill>...] [--cmd <cmd>...] [--layout <name>] [--count <N>] [--preset <name>] [--list-presets] [-- <wt-flags>...]",
@@ -136,6 +155,10 @@ func init() {
 	riffCmd.Flags().IntVarP(&riffCountFlag, "count", "N", 1, "Spawn N worktree/window pairs in parallel (N >= 1)")
 	riffCmd.Flags().StringVar(&riffPresetFlag, "preset", "", "Named preset from fab/project/config.yaml (riff.presets.<name>)")
 	riffCmd.Flags().BoolVar(&riffListPresetsFlg, "list-presets", false, "List defined presets and exit")
+	riffCmd.Flags().StringVarP(&riffServerFlag, "server", "L", "", "Address the named tmux server (no $TMUX required; with --session unset and no $TMUX the window lands in the server's current session)")
+	riffCmd.Flags().StringVar(&riffSessionFlag, "session", "", "Session the window is created in (=S exact form, e.g. --session =work)")
+	riffCmd.Flags().StringVar(&riffRepoFlag, "repo", "", "Repo to spawn from (absolute or cwd-relative; must be the git toplevel; default: the process cwd's repo)")
+	riffCmd.Flags().BoolVar(&riffJSONFlag, "json", false, "Emit the machine-readable envelope (exactly one JSON document on stdout)")
 
 	riffCmd.Args = cobra.ArbitraryArgs
 	cobra.OnInitialize() // no-op but retains ordering explicitly
@@ -161,6 +184,10 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 	riffCountFlag = 1
 	riffPresetFlag = ""
 	riffListPresetsFlg = false
+	riffServerFlag = ""
+	riffSessionFlag = ""
+	riffRepoFlag = ""
+	riffJSONFlag = false
 
 	rewritten := rewritePaneSpaceForm(args)
 
@@ -192,6 +219,15 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 	}
 	var ece *riff.ExitCodeError
 	if errors.As(err, &ece) {
+		// Under --json the error envelope is written first — no outer wrapper
+		// runs after an os.Exit (usage ⇔ ExitValidation, else operational).
+		if riffJSONFlag {
+			code := envelopeCodeOperational
+			if ece.Code == riff.ExitValidation {
+				code = envelopeCodeUsage
+			}
+			newSink(cmd).JSONError(envelopeError{Code: code, Message: ece.Msg})
+		}
 		fmt.Fprintln(cmd.ErrOrStderr(), ece.Msg)
 		os.Exit(ece.Code)
 	}
@@ -199,24 +235,52 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 }
 
 // runRiff orchestrates the CLI flow:
+//  0. Targeting flags (-L/--session/--repo) — pure validation, no subprocess
 //  1. --list-presets short-circuit (before any other work — never side-effects)
-//  2. Preconditions ($TMUX set, wt on PATH)
+//  2. Preconditions ($TMUX set unless -L names the server, wt on PATH)
 //  3. Signal wrap on root context
 //  4. Layout / count / preset-conflict validation (fail-fast, no subprocess)
-//  5. Launcher resolution (engine helper, rooted at the process cwd)
+//  5. Launcher resolution (engine helper, rooted at the repo root)
 //  6. Preset resolution (positional or --preset)
 //  7. Effective spec assembly (engine helper)
 //  8. Dispatch to riff.Run (engine owns count==1 direct spawn + count≥2 fan-out)
 func runRiff(cmd *cobra.Command, args []string) error {
+	// Step 0: targeting flags. --repo must name a git toplevel (it replaces the
+	// process-cwd derivation for wt create, launcher resolution, and preset
+	// reads — the MCP executor's cwd is not the repo); --session takes the =S
+	// exact form; -L is a validated server name.
+	repoRoot, err := riffRepoRoot()
+	if err != nil {
+		return err
+	}
+	if riffServerFlag != "" {
+		if msg := validate.ValidateServerName(riffServerFlag); msg != "" {
+			return usageError(fmt.Errorf("invalid --server value: %s", msg))
+		}
+	}
+	session := ""
+	if riffSessionFlag != "" {
+		if !strings.HasPrefix(riffSessionFlag, "=") {
+			return usageError(fmt.Errorf("--session takes the =S exact form (got %q)", riffSessionFlag))
+		}
+		name := riffSessionFlag[1:]
+		if msg := validate.ValidateName(name, "Session name"); msg != "" {
+			return usageError(fmt.Errorf("--session: %s", msg))
+		}
+		session = name
+	}
+
 	// Step 1: --list-presets is a pure read + print. Must short-circuit BEFORE
 	// preconditions — a user outside tmux should still be able to list presets.
 	if riffListPresetsFlg {
-		presets := readPresetsForRepo()
-		return printPresets(presets, cmd.OutOrStdout())
+		presets := readPresetsForRepo(repoRoot)
+		return printPresets(presets, cmd.OutOrStdout(), repoRoot)
 	}
 
-	// Step 2: preconditions (fast-fail order: $TMUX first, wt second).
-	if err := checkPreconditions(); err != nil {
+	// Step 2: preconditions (fast-fail order: $TMUX first, wt second). An
+	// explicit -L waives the $TMUX check (the daemon-invocable form — every
+	// tmux call is addressed with -L <name>).
+	if err := checkPreconditions(riffServerFlag); err != nil {
 		return err
 	}
 
@@ -224,6 +288,17 @@ func runRiff(cmd *cobra.Command, args []string) error {
 	// exec.CommandContext propagation.
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// With -L and no $TMUX there is no caller session to inherit: default to
+	// the server's current session (the tab new rule) so the window lands
+	// somewhere defined.
+	if session == "" && riffServerFlag != "" && tmux.OriginalTMUX == "" {
+		s, err := riffCurrentSessionFn(ctx, riffServerFlag)
+		if err != nil {
+			return fmt.Errorf("run-kit riff: resolve the current session of server %s: %w", riffServerFlag, err)
+		}
+		session = s
+	}
 
 	// Step 4a: count validation — must be ≥ 1.
 	if riffCountFlag < 1 {
@@ -236,22 +311,14 @@ func runRiff(cmd *cobra.Command, args []string) error {
 		return &riff.ExitCodeError{Code: riff.ExitValidation, Msg: err.Error()}
 	}
 
-	// The repo root for launcher resolution + wt create is the process cwd (rk
-	// riff always runs inside the repo). Empty (rare) is tolerated — the engine
-	// then runs subprocesses in the inherited cwd, matching prior behavior.
-	repoRoot := ""
-	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-		repoRoot = config.FindGitRoot(cwd)
-	}
-
-	// Step 5: agent resolution via the engine helper (rooted at the process
-	// cwd so fab resolves this repo). An empty tier = the default tier (`fab
+	// Step 5: agent resolution via the engine helper (rooted at the repo root
+	// so fab resolves this repo). An empty tier = the default tier (`fab
 	// agent -o yaml`), preserving today's CLI behavior — the per-tier picker is
 	// a web-UI-only affordance. Never errors — falls back to the default.
 	agent := riff.ResolveAgent(ctx, repoRoot, "")
 
 	// Step 6: preset resolution.
-	presets := readPresetsForRepo()
+	presets := readPresetsForRepo(repoRoot)
 	positional := ""
 	if len(args) > 0 {
 		positional = args[0]
@@ -270,8 +337,10 @@ func runRiff(cmd *cobra.Command, args []string) error {
 	}
 	spec.Launcher = agent.Launcher
 	// Empty server label → target the user's current tmux server via the
-	// restored $TMUX (captured before internal/tmux's init() stripped it).
-	spec.Server = ""
+	// restored $TMUX (captured before internal/tmux's init() stripped it); an
+	// explicit -L targets that server with the -L argv prefix.
+	spec.Server = riffServerFlag
+	spec.Session = session
 	spec.RepoRoot = repoRoot
 	spec.OriginalTMUX = tmux.OriginalTMUX
 	// Render skill-pane values for the resolved provider exactly once, here at
@@ -280,16 +349,95 @@ func runRiff(cmd *cobra.Command, args []string) error {
 	spec.SkillPrefix = agent.SkillPrefix
 	spec = riff.ApplySkillPrefix(spec)
 
-	// Step 8: dispatch to the engine.
-	return riff.Run(ctx, spec)
+	// Step 8: dispatch to the engine; under --json print the receipts.
+	receipts, err := riff.Run(ctx, spec)
+	if err != nil {
+		return err
+	}
+	if riffJSONFlag {
+		printRiffReceipts(cmd, receipts)
+	}
+	return nil
 }
 
-// checkPreconditions validates that we're inside tmux and that wt is on PATH.
-// $TMUX first, wt second; fast-fail on the first miss. internal/tmux's init()
-// strips $TMUX; we read the original via tmux.OriginalTMUX (captured pre-init).
-func checkPreconditions() error {
-	if tmux.OriginalTMUX == "" {
-		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit riff: not inside a tmux session ($TMUX unset) — start tmux first"}
+// printRiffReceipts renders the --json success document: one window entry per
+// spawned window, in spawn order. The server label is the -L value, else the
+// caller's socket basename.
+func printRiffReceipts(cmd *cobra.Command, receipts []riff.SpawnReceipt) {
+	windows := make([]riffWindowReceipt, 0, len(receipts))
+	for _, r := range receipts {
+		server := r.Server
+		if server == "" {
+			server = cliServerLabel(tmux.OriginalTMUX)
+		}
+		panes := r.PaneIDs
+		if panes == nil {
+			panes = []string{}
+		}
+		windows = append(windows, riffWindowReceipt{
+			ID:       r.WindowID,
+			Name:     r.WindowName,
+			Server:   server,
+			Panes:    panes,
+			Worktree: r.WorktreePath,
+			Branch:   r.Branch,
+		})
+	}
+	newSink(cmd).JSONResult(struct {
+		Windows []riffWindowReceipt `json:"windows"`
+	}{Windows: windows})
+}
+
+// riffRepoRoot resolves the repo root: --repo (a cwd-relative or absolute path
+// that MUST be the git toplevel — a nested directory is a usage error) wins;
+// else the process-cwd derivation (empty tolerated, as before — the engine
+// then runs subprocesses in the inherited cwd).
+func riffRepoRoot() (string, error) {
+	if riffRepoFlag == "" {
+		repoRoot := ""
+		if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+			repoRoot = config.FindGitRoot(cwd)
+		}
+		return repoRoot, nil
+	}
+	abs, err := filepath.Abs(riffRepoFlag)
+	if err != nil {
+		return "", usageError(fmt.Errorf("invalid --repo value %q: %v", riffRepoFlag, err))
+	}
+	if root := config.FindGitRoot(abs); root != abs {
+		return "", usageError(fmt.Errorf("--repo %q is not a git toplevel (resolved root: %q)", riffRepoFlag, root))
+	}
+	return abs, nil
+}
+
+// riffCurrentSessionFn resolves a server's current session name for the -L
+// default (no $TMUX): `display-message -p '#{session_name}'` addressed at the
+// server. Package-level so tests stub it (the ownTabRunOutputFn pattern).
+var riffCurrentSessionFn = func(ctx context.Context, server string) (string, error) {
+	args := []string{"display-message", "-p", "#{session_name}"}
+	if server != "default" {
+		args = append([]string{"-L", server}, args...)
+	}
+	sessCtx, cancel := context.WithTimeout(ctx, tabCmdTimeout)
+	defer cancel()
+	out, err := ownTabRunOutputFn(sessCtx, args)
+	if err != nil {
+		return "", err
+	}
+	session := strings.TrimSpace(string(out))
+	if session == "" {
+		return "", fmt.Errorf("empty response from tmux")
+	}
+	return session, nil
+}
+
+// checkPreconditions validates the CLI-only preconditions: inside tmux (waived
+// when -L names the server explicitly) and wt on PATH — $TMUX first, wt
+// second; fast-fail on the first miss. internal/tmux's init() strips $TMUX; we
+// read the original via tmux.OriginalTMUX (captured pre-init).
+func checkPreconditions(server string) error {
+	if server == "" && tmux.OriginalTMUX == "" {
+		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit riff: not inside a tmux session ($TMUX unset) — start tmux first (or pass -L <server> to address a server by name)"}
 	}
 	if _, err := exec.LookPath("wt"); err != nil {
 		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit riff: wt not found on PATH (required companion tool — see https://github.com/sahil87/wt)"}
@@ -297,40 +445,45 @@ func checkPreconditions() error {
 	return nil
 }
 
-// readPresetsForRepo returns the presets map from fab/project/config.yaml at the
-// current repo root. Returns an empty map on any failure (matching fabconfig's
-// silent-best-effort posture).
-func readPresetsForRepo() map[string]fabconfig.Preset {
-	cwd, err := os.Getwd()
-	if err != nil {
+// readPresetsForRepo returns the presets map from fab/project/config.yaml at
+// the given repo root ("" → the process cwd's repo, the pre---repo path).
+// Returns an empty map on any failure (matching fabconfig's silent-best-effort
+// posture).
+func readPresetsForRepo(repoRoot string) map[string]fabconfig.Preset {
+	if repoRoot == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return map[string]fabconfig.Preset{}
+		}
+		repoRoot = config.FindGitRoot(cwd)
+	}
+	if repoRoot == "" {
 		return map[string]fabconfig.Preset{}
 	}
-	root := config.FindGitRoot(cwd)
-	if root == "" {
-		return map[string]fabconfig.Preset{}
-	}
-	return fabconfig.ReadPresets(root)
+	return fabconfig.ReadPresets(repoRoot)
 }
 
 // readPresetsOrderedForRepo is readPresetsForRepo but preserves YAML source
 // order. Used by printPresets for deterministic --list-presets output.
-func readPresetsOrderedForRepo() []fabconfig.PresetEntry {
-	cwd, err := os.Getwd()
-	if err != nil {
+func readPresetsOrderedForRepo(repoRoot string) []fabconfig.PresetEntry {
+	if repoRoot == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return nil
+		}
+		repoRoot = config.FindGitRoot(cwd)
+	}
+	if repoRoot == "" {
 		return nil
 	}
-	root := config.FindGitRoot(cwd)
-	if root == "" {
-		return nil
-	}
-	return fabconfig.ReadPresetsOrdered(root)
+	return fabconfig.ReadPresetsOrdered(repoRoot)
 }
 
 // printPresets writes the presets map to out as indented YAML-like plain text,
 // in YAML source order (via readPresetsOrderedForRepo). Empty map → a single
 // "no presets defined" line. Returns nil on all paths.
-func printPresets(presets map[string]fabconfig.Preset, out io.Writer) error {
-	ordered := readPresetsOrderedForRepo()
+func printPresets(presets map[string]fabconfig.Preset, out io.Writer, repoRoot string) error {
+	ordered := readPresetsOrderedForRepo(repoRoot)
 	// If ordered is empty but presets is non-empty, the map was supplied by a
 	// test (bypassing disk). Fall back to sorted keys for deterministic output.
 	if len(ordered) == 0 && len(presets) > 0 {

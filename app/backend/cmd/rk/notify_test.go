@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -143,5 +144,81 @@ func TestNotify_envWinsOverTmuxOption(t *testing.T) {
 
 	if !hit {
 		t.Error("expected the POST to target the env-derived origin; no request received")
+	}
+}
+
+// TestNotifyJSONDeliveredTrue: --json against a reachable daemon prints the
+// {delivered:true} envelope, exit 0.
+func TestNotifyJSONDeliveredTrue(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	pointConfigAt(t, srv.URL)
+
+	orig := notifyJSON
+	notifyJSON = true
+	t.Cleanup(func() { notifyJSON = orig })
+	var stdout bytes.Buffer
+	notifyCmd.SetOut(&stdout)
+	t.Cleanup(func() { notifyCmd.SetOut(nil) })
+
+	if err := notifyCmd.RunE(notifyCmd, []string{"hi"}); err != nil {
+		t.Fatalf("RunE = %v, want nil (fail-silent)", err)
+	}
+	assertEnvelopeResult(t, stdout.String(), map[string]any{"delivered": true})
+}
+
+// TestNotifyJSONDeliveredFalse: no daemon reachable — the receipt says
+// delivered:false and the exit code is still 0 (the fail-silent contract is
+// unchanged; the receipt is where the truth goes). Non-2xx is the same.
+func TestNotifyJSONDeliveredFalse(t *testing.T) {
+	orig := notifyJSON
+	notifyJSON = true
+	t.Cleanup(func() { notifyJSON = orig })
+	var stdout bytes.Buffer
+	notifyCmd.SetOut(&stdout)
+	t.Cleanup(func() { notifyCmd.SetOut(nil) })
+
+	t.Setenv("RK_HOST", "127.0.0.1")
+	t.Setenv("RK_PORT", "1") // connection refused
+	if err := notifyCmd.RunE(notifyCmd, []string{"hi"}); err != nil {
+		t.Fatalf("RunE = %v, want nil (fail-silent)", err)
+	}
+	assertEnvelopeResult(t, stdout.String(), map[string]any{"delivered": false})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	pointConfigAt(t, srv.URL)
+	stdout.Reset()
+	if err := notifyCmd.RunE(notifyCmd, []string{"hi"}); err != nil {
+		t.Fatalf("RunE = %v, want nil (fail-silent)", err)
+	}
+	assertEnvelopeResult(t, stdout.String(), map[string]any{"delivered": false})
+}
+
+// TestNotifyWithoutJSONPrintsNothing: the default path stays byte-identical —
+// nothing on stdout, delivered or not.
+func TestNotifyWithoutJSONPrintsNothing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	pointConfigAt(t, srv.URL)
+
+	orig := notifyJSON
+	notifyJSON = false
+	t.Cleanup(func() { notifyJSON = orig })
+	var stdout bytes.Buffer
+	notifyCmd.SetOut(&stdout)
+	t.Cleanup(func() { notifyCmd.SetOut(nil) })
+
+	if err := notifyCmd.RunE(notifyCmd, []string{"hi"}); err != nil {
+		t.Fatalf("RunE = %v, want nil", err)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty without --json", stdout.String())
 	}
 }

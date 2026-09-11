@@ -134,8 +134,9 @@ func resetTabFlagState(t *testing.T) {
 		// set with and clears the stale dash marker; registered flags and
 		// their values are untouched.
 		tabNewCmd.Flags().Init(tabNewCmd.DisplayName(), pflag.ContinueOnError)
-		resetFlagChanged(tabLayoutCmd, "add", "rm", "promote", "cycle")
-		resetFlagChanged(tabWebAddCmd, "show")
+		resetFlagChanged(tabLayoutCmd, "add", "rm", "promote", "cycle", "json")
+		resetFlagChanged(tabCodeSetCmd, "json")
+		resetFlagChanged(tabWebCmd, "show", "json")
 		resetFlagChanged(tabWebLsCmd, "json")
 		resetFlagChanged(tabShowCmd, "json")
 		resetFlagChanged(tabMarkCmd, "off")
@@ -148,7 +149,10 @@ func resetTabFlagState(t *testing.T) {
 		tabNewJSONFlag, tabNewReadyFlag, tabNewNoShellFallbackFlag = false, false, false
 		tabNewTimeoutFlag = awaitDefaultTimeoutSec
 		tabLayoutAddFlag, tabLayoutRmFlag, tabLayoutPromoteFlag, tabLayoutCycleFlag = "", "", "", false
+		tabLayoutJSONFlag = false
+		tabCodeSetJSONFlag = false
 		tabWebAddShowFlag, tabWebLsJSONFlag = false, false
+		tabWebJSONFlag = false
 		tabShowJSONFlag = false
 	}
 	reset()
@@ -1001,5 +1005,206 @@ func TestTabUsageArgCounts(t *testing.T) {
 	}
 	if _, _, err := runTabCmd(t, "show", "@1", "@2"); err == nil || exitCode(err) != exitUsage {
 		t.Errorf("show with two args: err = %v (code %d), want exit 2", err, exitCode(err))
+	}
+}
+
+// TestTabLayoutJSONReceipt: --json prints one envelope {window, layout} on
+// the set, read, and flag-mutation forms alike; the human line is unchanged
+// without the flag (pinned by the tests above).
+func TestTabLayoutJSONReceipt(t *testing.T) {
+	env := withTabTestServer(t)
+
+	stdout, _, err := runTabCmd(t, "layout", env.bootID, "split-h:tty,web", "--json")
+	if err != nil {
+		t.Fatalf("layout set: %v", err)
+	}
+	want := map[string]any{"window": env.bootID, "layout": "split-h:tty,web"}
+	assertEnvelopeResult(t, stdout, want)
+
+	stdout, _, err = runTabCmd(t, "layout", env.bootID, "--json")
+	if err != nil {
+		t.Fatalf("layout read: %v", err)
+	}
+	assertEnvelopeResult(t, stdout, want) // read and mutate share the receipt
+
+	stdout, _, err = runTabCmd(t, "layout", env.bootID, "--add", "code", "--json")
+	if err != nil {
+		t.Fatalf("layout --add: %v", err)
+	}
+	assertEnvelopeResult(t, stdout, map[string]any{"window": env.bootID, "layout": "main-left:tty,web,code"})
+
+	// A usage failure under --json is the usage envelope with exit 2.
+	stdout, _, err = runTabCmd(t, "layout", env.bootID, "bogus", "--json")
+	if err == nil || exitCode(err) != exitUsage {
+		t.Fatalf("malformed: err = %v (code %d), want exit 2", err, exitCode(err))
+	}
+	stdout = centralFailureEnvelope(t, stdout, err)
+	var doc struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if jsonErr := json.Unmarshal([]byte(stdout), &doc); jsonErr != nil {
+		t.Fatalf("stdout is not one JSON document: %v (%q)", jsonErr, stdout)
+	}
+	if doc.OK || doc.Error.Code != "usage" {
+		t.Errorf("envelope = %q, want ok:false usage", stdout)
+	}
+}
+
+// TestTabCodeSetJSONReceipt: --json prints one envelope {window, code_root};
+// the failure under --json is the operational envelope with exit 1.
+func TestTabCodeSetJSONReceipt(t *testing.T) {
+	env := withTabTestServer(t)
+	dir := t.TempDir()
+
+	stdout, _, err := runTabCmd(t, "code", "set", env.bootID, dir, "--json")
+	if err != nil {
+		t.Fatalf("code set: %v", err)
+	}
+	abs, _ := filepath.Abs(dir)
+	assertEnvelopeResult(t, stdout, map[string]any{"window": env.bootID, "code_root": abs})
+	if got := tabWindowOption(t, env.server, env.bootID, tmux.CodeRootOption); got != abs {
+		t.Errorf("@rk_win_code_root = %q, want %q", got, abs)
+	}
+
+	stdout, _, err = runTabCmd(t, "code", "set", env.bootID, filepath.Join(dir, "missing"), "--json")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("missing dir: err = %v (code %d), want exit 1", err, exitCode(err))
+	}
+	stdout = centralFailureEnvelope(t, stdout, err)
+	var doc struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if jsonErr := json.Unmarshal([]byte(stdout), &doc); jsonErr != nil {
+		t.Fatalf("stdout is not one JSON document: %v (%q)", jsonErr, stdout)
+	}
+	if doc.OK || doc.Error.Code != "operational" {
+		t.Errorf("envelope = %q, want ok:false operational", stdout)
+	}
+}
+
+// TestTabWebJSONReceipts: the four mutations print one envelope each under
+// --json — {window, index, url?, tabs} with tabs holding the post-mutation
+// family in the ls entry shape; mv's index is the destination slot.
+func TestTabWebJSONReceipts(t *testing.T) {
+	env := withTabTestServer(t)
+	port := tabTestListener(t)
+
+	stdout, _, err := runTabCmd(t, "web", "add", env.bootID, fmt.Sprintf(":%d", port), "--json")
+	if err != nil {
+		t.Fatalf("web add: %v", err)
+	}
+	var addDoc struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			Window string `json:"window"`
+			Index  int    `json:"index"`
+			URL    string `json:"url"`
+			Tabs   []struct {
+				Index int    `json:"index"`
+				URL   string `json:"url"`
+			} `json:"tabs"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &addDoc); err != nil {
+		t.Fatalf("add stdout is not one JSON document: %v (%q)", err, stdout)
+	}
+	wantURL := fmt.Sprintf("/proxy/%d/", port)
+	if !addDoc.OK || addDoc.Result.Window != env.bootID || addDoc.Result.Index != 1 || addDoc.Result.URL != wantURL {
+		t.Errorf("add receipt = %+v, want {window %s, index 1, url %s}", addDoc, env.bootID, wantURL)
+	}
+	if len(addDoc.Result.Tabs) != 1 || addDoc.Result.Tabs[0].URL != wantURL {
+		t.Errorf("add tabs = %+v, want the one-entry family", addDoc.Result.Tabs)
+	}
+
+	// A second slot so rm's family read-back has a remaining entry.
+	tabTmuxDo(t, env.server, "set-option", "-w", "-t", env.bootID, tmux.WebTabOption(2), "https://example.com")
+
+	stdout, _, err = runTabCmd(t, "web", "rm", env.bootID+"/web/1", "--json")
+	if err != nil {
+		t.Fatalf("web rm: %v", err)
+	}
+	var mutDoc struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			Window string `json:"window"`
+			Index  int    `json:"index"`
+			Tabs   []struct {
+				Index int    `json:"index"`
+				URL   string `json:"url"`
+			} `json:"tabs"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &mutDoc); err != nil {
+		t.Fatalf("rm stdout is not one JSON document: %v (%q)", err, stdout)
+	}
+	if !mutDoc.OK || mutDoc.Result.Window != env.bootID || mutDoc.Result.Index != 1 {
+		t.Errorf("rm receipt = %+v, want {window %s, index 1}", mutDoc, env.bootID)
+	}
+	if len(mutDoc.Result.Tabs) != 1 || mutDoc.Result.Tabs[0].URL != "https://example.com" {
+		t.Errorf("rm tabs = %+v, want the post-removal family (one entry)", mutDoc.Result.Tabs)
+	}
+
+	stdout, _, err = runTabCmd(t, "web", "select", env.bootID+"/web/1", "--json")
+	if err != nil {
+		t.Fatalf("web select: %v", err)
+	}
+	if err := json.Unmarshal([]byte(stdout), &mutDoc); err != nil {
+		t.Fatalf("select stdout is not one JSON document: %v (%q)", err, stdout)
+	}
+	if !mutDoc.OK || mutDoc.Result.Index != 1 || len(mutDoc.Result.Tabs) != 1 {
+		t.Errorf("select receipt = %+v", mutDoc)
+	}
+
+	tabTmuxDo(t, env.server, "set-option", "-w", "-t", env.bootID, tmux.WebTabOption(2), "https://two.example.com")
+	stdout, _, err = runTabCmd(t, "web", "mv", env.bootID+"/web/2", "1", "--json")
+	if err != nil {
+		t.Fatalf("web mv: %v", err)
+	}
+	if err := json.Unmarshal([]byte(stdout), &mutDoc); err != nil {
+		t.Fatalf("mv stdout is not one JSON document: %v (%q)", err, stdout)
+	}
+	if !mutDoc.OK || mutDoc.Result.Index != 1 || len(mutDoc.Result.Tabs) != 2 || mutDoc.Result.Tabs[0].URL != "https://two.example.com" {
+		t.Errorf("mv receipt = %+v, want index 1 (the destination) and the reordered family", mutDoc)
+	}
+}
+
+// TestTabWebShowRejectedOnNonAdd: --show is a persistent family flag, but
+// rm/select/mv reject it as a usage error (exit 2) — under --json with the
+// usage envelope on stdout.
+func TestTabWebShowRejectedOnNonAdd(t *testing.T) {
+	env := withTabTestServer(t)
+	tabTmuxDo(t, env.server, "set-option", "-w", "-t", env.bootID, tmux.WebTabOption(1), "/proxy/1/")
+
+	for _, verb := range []string{"rm", "select"} {
+		stdout, _, err := runTabCmd(t, "web", verb, env.bootID+"/web/1", "--show", "--json")
+		if err == nil || exitCode(err) != exitUsage {
+			t.Errorf("web %s --show: err = %v (code %d), want exit 2", verb, err, exitCode(err))
+		}
+		stdout = centralFailureEnvelope(t, stdout, err)
+		var doc struct {
+			OK    bool `json:"ok"`
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		if jsonErr := json.Unmarshal([]byte(stdout), &doc); jsonErr != nil {
+			t.Fatalf("web %s --show stdout is not one JSON document: %v (%q)", verb, jsonErr, stdout)
+		}
+		if doc.OK || doc.Error.Code != "usage" {
+			t.Errorf("web %s --show envelope = %q, want ok:false usage", verb, stdout)
+		}
+	}
+	stdout, _, err := runTabCmd(t, "web", "mv", env.bootID+"/web/1", "1", "--show")
+	if err == nil || exitCode(err) != exitUsage {
+		t.Errorf("web mv --show: err = %v (code %d), want exit 2", err, exitCode(err))
+	}
+	if stdout != "" {
+		t.Errorf("web mv --show stdout = %q, want empty without --json", stdout)
 	}
 }

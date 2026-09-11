@@ -1811,8 +1811,8 @@ func TestGuiCheckStates(t *testing.T) {
 // resolution success is an OK row with the tool-count note; a resolution
 // failure is a verdict-flipping FAIL row carrying the Resolve error as hint.
 func TestMCPCheckBranches(t *testing.T) {
-	ok := mcpCheck(14, nil)
-	if !ok.OK || ok.Note != "14 tools; all policy rows resolve" || ok.Hint != "" {
+	ok := mcpCheck(27, nil)
+	if !ok.OK || ok.Note != "27 tools; all policy rows resolve" || ok.Hint != "" {
 		t.Errorf("passing mcpCheck = %+v", ok)
 	}
 	fail := mcpCheck(0, fmt.Errorf("mcp policy row %q: path %q does not resolve", "capture", "mux capture"))

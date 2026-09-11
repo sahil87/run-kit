@@ -2,20 +2,20 @@ id: fr5t
 name: 260911-fr5t-cli-spawn-and-steer-receipts
 created: 2026-09-11T17:02:03Z
 created_by: sahil87
-change_type: fix
+change_type: feat
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 17
+    acceptance_count: 30
+    acceptance_completed: 30
 confidence:
     certain: 5
     confident: 14
@@ -29,7 +29,27 @@ confidence:
         competence: 81.6
         disambiguation: 78.9
 stage_metrics:
-    intake: {started_at: "2026-09-11T17:02:03Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-09-11T17:02:03Z", driver: fab-new, iterations: 1, completed_at: "2026-09-11T18:57:03Z"}
+    apply: {started_at: "2026-09-11T18:57:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T19:33:03Z"}
+    review: {started_at: "2026-09-11T19:33:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T19:37:20Z"}
+    hydrate: {started_at: "2026-09-11T19:37:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T19:45:46Z"}
+    ship: {started_at: "2026-09-11T19:45:46Z", driver: fab-fff, iterations: 1}
 prs: []
+change_type_source: explicit
+true_impact:
+    added: 444
+    deleted: 8
+    net: 436
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-11T19:45:46Z"
+    computed_at_stage: hydrate
+summary: JSON receipts on the mutating CLI verbs (riff, mux new|kill, cron add|rm|mute, tab layout|web|code set, gui exec, operator, notify) plus 13 MCP policy rows (25 tools), ArgStringArray/Arg.Format/ordered-BuildArgv model extensions, and riff targeting flags (-L/--session/--repo)
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-11T18:53:02Z
+last_updated: 2026-09-11T19:45:46Z

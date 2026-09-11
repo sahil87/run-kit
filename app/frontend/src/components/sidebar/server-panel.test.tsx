@@ -363,7 +363,7 @@ describe("ServerPanel", () => {
     seedCollapsed();
     renderPanel({ server: "work" });
 
-    expect(screen.getByText("Server")).toBeInTheDocument();
+    expect(screen.getByText("Servers")).toBeInTheDocument();
 
     // The name is shown by the highlighted tile and the top-bar heading — the
     // headerRight slot no longer duplicates it.

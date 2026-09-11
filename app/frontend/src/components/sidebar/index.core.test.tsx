@@ -688,7 +688,7 @@ describe("Sidebar", () => {
       // coupling to nested text-node layout) compared with indexing into
       // `document.body.querySelectorAll("*")`.
       const boardsHeader = screen.getByText("Boards");
-      const serverHeader = screen.getByText("Server", { selector: "span" });
+      const serverHeader = screen.getByText("Servers", { selector: "span" });
       const sessionsHeader = screen.getByText("Sessions", { selector: "span" });
 
       // Node.DOCUMENT_POSITION_FOLLOWING (4): the argument node follows the

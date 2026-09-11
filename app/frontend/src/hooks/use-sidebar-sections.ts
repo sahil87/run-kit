@@ -20,7 +20,7 @@ export const SIDEBAR_SECTIONS: readonly {
   desktopOnly?: boolean;
 }[] = [
   { section: "boards", key: "runkit-sidebar-section-boards", defaultValue: true, label: "Boards" },
-  { section: "server", key: "runkit-sidebar-section-server", defaultValue: true, label: "Server" },
+  { section: "server", key: "runkit-sidebar-section-server", defaultValue: true, label: "Servers" },
   { section: "pane", key: "runkit-sidebar-section-pane", defaultValue: false, label: "Pane" },
   { section: "host", key: "runkit-sidebar-section-host", defaultValue: false, label: "Host" },
   { section: "clock", key: "runkit-sidebar-section-clock", defaultValue: false, label: "Clock", desktopOnly: true },

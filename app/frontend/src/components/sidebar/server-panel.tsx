@@ -119,7 +119,7 @@ export function ServerPanel({
 
   return (
     <CollapsiblePanel
-      title="Server"
+      title="Servers"
       storageKey="runkit-panel-server"
       defaultOpen={true}
       onToggle={handleToggle}

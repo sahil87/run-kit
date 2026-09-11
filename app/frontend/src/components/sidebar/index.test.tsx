@@ -1791,7 +1791,7 @@ describe("Sidebar — section-visibility rail + gating (iha5)", () => {
     renderSidebar();
     expect(screen.getByTestId("section-rail")).toBeInTheDocument();
     expect(railToggle("Boards").getAttribute("aria-pressed")).toBe("true");
-    expect(railToggle("Server").getAttribute("aria-pressed")).toBe("true");
+    expect(railToggle("Servers").getAttribute("aria-pressed")).toBe("true");
     expect(railToggle("Pane").getAttribute("aria-pressed")).toBe("false");
     expect(railToggle("Host").getAttribute("aria-pressed")).toBe("false");
     expect(boardsHeader()).toBeInTheDocument();

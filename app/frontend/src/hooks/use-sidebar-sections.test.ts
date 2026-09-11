@@ -22,7 +22,7 @@ function renderSection(section: SidebarSection) {
 describe("SIDEBAR_SECTIONS", () => {
   it("lists exactly Boards · Server · Pane · Host · Clock in order (no Sessions)", () => {
     expect(SIDEBAR_SECTIONS.map((e) => e.section)).toEqual(["boards", "server", "pane", "host", "clock"]);
-    expect(SIDEBAR_SECTIONS.map((e) => e.label)).toEqual(["Boards", "Server", "Pane", "Host", "Clock"]);
+    expect(SIDEBAR_SECTIONS.map((e) => e.label)).toEqual(["Boards", "Servers", "Pane", "Host", "Clock"]);
   });
 
   it("uses runkit-sidebar-section-{section} keys with boards/server on, pane/host/clock off by default", () => {

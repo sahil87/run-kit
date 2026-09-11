@@ -218,7 +218,7 @@ describe("useGlobalPaletteActions", () => {
     renderHook();
     const byId = new Map(captured.map((a) => [a.id, a]));
     expect(byId.get("panel-toggle-boards")?.label).toBe("Panel: Toggle Boards");
-    expect(byId.get("panel-toggle-server")?.label).toBe("Panel: Toggle Server");
+    expect(byId.get("panel-toggle-server")?.label).toBe("Panel: Toggle Servers");
     expect(byId.get("panel-toggle-pane")?.label).toBe("Panel: Toggle Pane");
     expect(byId.get("panel-toggle-host")?.label).toBe("Panel: Toggle Host");
     expect(byId.get("panel-toggle-clock")?.label).toBe("Panel: Toggle Clock");

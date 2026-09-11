@@ -86,7 +86,7 @@ test.describe("Sidebar section-visibility rail", () => {
     );
     expect(labels).toEqual([
       "Toggle Boards section",
-      "Toggle Server section",
+      "Toggle Servers section",
       "Toggle Pane section",
       "Toggle Host section",
       "Toggle Clock section",
@@ -96,7 +96,7 @@ test.describe("Sidebar section-visibility rail", () => {
     // Defaults: Boards/Server pressed, Pane/Host/Clock not — and the gated
     // sections render accordingly (PANE/HOST/CLOCK absent by default).
     await expect(railToggle(page, "Boards")).toHaveAttribute("aria-pressed", "true");
-    await expect(railToggle(page, "Server")).toHaveAttribute("aria-pressed", "true");
+    await expect(railToggle(page, "Servers")).toHaveAttribute("aria-pressed", "true");
     await expect(railToggle(page, "Pane")).toHaveAttribute("aria-pressed", "false");
     await expect(railToggle(page, "Host")).toHaveAttribute("aria-pressed", "false");
     await expect(railToggle(page, "Clock")).toHaveAttribute("aria-pressed", "false");
@@ -211,7 +211,7 @@ test.describe("Sidebar section-visibility rail", () => {
 
       await expect(drawer.getByRole("button", { name: "Toggle Clock section" })).toHaveCount(0);
       await expect(railToggle(page, "Boards")).toBeVisible();
-      await expect(railToggle(page, "Server")).toBeVisible();
+      await expect(railToggle(page, "Servers")).toBeVisible();
       await expect(railToggle(page, "Pane")).toBeVisible();
       await expect(railToggle(page, "Host")).toBeVisible();
     });

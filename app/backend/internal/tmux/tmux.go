@@ -958,6 +958,45 @@ func tmuxExecServer(ctx context.Context, server string, args ...string) ([]strin
 	return result, nil
 }
 
+// ErrNoFieldDelimiter reports a successful -F read whose lines carry no
+// listDelim. tmux ≥ 3.7 rewrites C0 characters — the tab delimiter included —
+// to '_' for a client without a UTF-8 locale, output that would otherwise
+// parse as an empty (not failed) enumeration.
+var ErrNoFieldDelimiter = errors.New("tmux -F output has no field delimiter — non-UTF-8 client locale?")
+
+// checkDelimited guards the list read paths against sanitized -F output.
+// Every list format here has at least two fields, so a healthy line always
+// contains listDelim; nil for empty output (a genuinely empty enumeration).
+func checkDelimited(lines []string) error {
+	if len(lines) == 0 {
+		return nil
+	}
+	for _, line := range lines {
+		if strings.Contains(line, listDelim) {
+			return nil
+		}
+	}
+	return ErrNoFieldDelimiter
+}
+
+// tmuxExecList is tmuxExecServer for tab-delimited `-F` list reads: the same
+// exec and line split, plus the checkDelimited guard, so a routed list reader
+// cannot map sanitized output to an empty enumeration. Precondition: the -F
+// format has at least two fields — a single-field format would trip the
+// guard on healthy output. Exec errors pass through unchanged (callers keep
+// their own gone-server handling); the guard's failure is
+// ErrNoFieldDelimiter, distinguishable via errors.Is.
+func tmuxExecList(ctx context.Context, server string, args ...string) ([]string, error) {
+	lines, err := tmuxExecServer(ctx, server, args...)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkDelimited(lines); err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
+
 // tmuxExecRawServer runs a tmux command targeting the specified server and
 // returns raw stdout. On non-zero exit, captured stderr is appended to the
 // error message so callers can pattern-match on tmux's diagnostic text
@@ -1150,7 +1189,7 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", sessionListFormat())
+	lines, err := tmuxExecList(ctx, server, "list-sessions", "-F", sessionListFormat())
 	if err != nil {
 		if containsServerGoneText(err.Error()) {
 			return nil, nil
@@ -1735,8 +1774,14 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 	)
 	format := strings.Join(fields, listDelim)
 
-	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget(session), "-F", format)
+	lines, err := tmuxExecList(ctx, server, "list-windows", "-t", ExactSessionTarget(session), "-F", format)
 	if err != nil {
+		// Undelimited output is present but unparseable and must not read as
+		// a window-less session; every other error is the session-gone-mid-tick
+		// tolerance.
+		if errors.Is(err, ErrNoFieldDelimiter) {
+			return nil, err
+		}
 		return nil, nil
 	}
 

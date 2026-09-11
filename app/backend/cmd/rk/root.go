@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 
+	"rk/internal/tmux"
+
 	"github.com/spf13/cobra"
 )
 
@@ -147,6 +149,11 @@ func usageArgs(v cobra.PositionalArgs) cobra.PositionalArgs {
 }
 
 func execute() {
+	// Before any subcommand can fork: every tmux client rk spawns, and every
+	// tmux server rk births (whose global env is a copy of rk's), must pass
+	// tmux's UTF-8 rule or tmux ≥ 3.7 sanitizes the tab delimiter out of -F
+	// output. GUI- and service-launched rk processes commonly carry no LANG.
+	tmux.EnsureUTF8Locale()
 	out := &writeTracker{w: os.Stdout}
 	rootCmd.SetOut(out)
 	execCmd, err := rootCmd.ExecuteC()

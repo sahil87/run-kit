@@ -23,6 +23,28 @@ func sessionLine(name, grouped, group string) string {
 	return strings.Join([]string{name, grouped, group, "0"}, listDelim)
 }
 
+// TestCheckDelimited pins the sanitized-output guard: lines that tmux ≥ 3.7
+// emitted to a non-UTF-8 client (every tab rewritten to '_') are an error,
+// while healthy, empty, and partially healthy output pass — the guard fires
+// only when NO line carries a delimiter.
+func TestCheckDelimited(t *testing.T) {
+	sanitized := []string{"_rk-ctl_0__0_1__$1_/Users/x", "main_0__0_3__$2_/Users/x"}
+	if err := checkDelimited(sanitized); !errors.Is(err, ErrNoFieldDelimiter) {
+		t.Fatalf("sanitized lines: err = %v, want ErrNoFieldDelimiter", err)
+	}
+	healthy := []string{sessionLine("_rk-ctl", "0", ""), sessionLine("main", "0", "")}
+	if err := checkDelimited(healthy); err != nil {
+		t.Fatalf("healthy lines: err = %v, want nil", err)
+	}
+	if err := checkDelimited(nil); err != nil {
+		t.Fatalf("empty output: err = %v, want nil", err)
+	}
+	mixed := []string{"_rk-ctl_0__0", sessionLine("main", "0", "")}
+	if err := checkDelimited(mixed); err != nil {
+		t.Fatalf("mixed lines: err = %v, want nil", err)
+	}
+}
+
 func sessionLineGrouped(name, grouped, group string, groupSize int) string {
 	return strings.Join([]string{name, grouped, group, strconv.Itoa(groupSize)}, listDelim)
 }

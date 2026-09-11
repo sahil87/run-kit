@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-11T17:14:35Z"}
+{"args":"Daemon lists zero sessions without a UTF-8 locale (tmux ≥ 3.7): force a UTF-8 ctype at rk startup, fail loudly on undelimited -F output, add a doctor locale row (PR #935 / [rp54])","cmd":"fab-new","event":"command","ts":"2026-09-11T17:14:35Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-09-11T17:17:17Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-11T17:18:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-11T17:19:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-11T17:36:04Z"}
+{"event":"review","result":"failed","ts":"2026-09-11T17:48:44Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-11T17:48:44Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-11T17:53:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-11T18:08:02Z"}
+{"event":"review","result":"passed","ts":"2026-09-11T18:08:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-11T18:12:14Z"}

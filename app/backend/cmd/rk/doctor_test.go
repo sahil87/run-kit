@@ -1926,3 +1926,111 @@ func TestMCPRouteDoctorRowPresent(t *testing.T) {
 		t.Errorf("mcp route row must immediately follow the mcp row (mcp at %d, route at %d)", mcpIdx, routeIdx)
 	}
 }
+
+// stubLocaleSeams substitutes the locale row's two seams for a test: the
+// forced-locale record and the rk-daemon global-env probe (env nil + err nil
+// models "server not running").
+func stubLocaleSeams(t *testing.T, forcedName, forcedValue string, forcedOK bool, env map[string]string, err error) {
+	t.Helper()
+	origForced, origProbe := localeForced, daemonGlobalEnv
+	localeForced = func() (string, string, bool) { return forcedName, forcedValue, forcedOK }
+	daemonGlobalEnv = func(context.Context) (map[string]string, error) { return env, err }
+	t.Cleanup(func() { localeForced, daemonGlobalEnv = origForced, origProbe })
+}
+
+// TestLocaleCheckNoteShapes pins the four row shapes: a forced process
+// locale names the repaired variable beside a healthy daemon env; a healthy
+// process beside a locale-less daemon env carries the pane consequence and
+// the --full remediation; a gone server omits the daemon fragment; any other
+// probe error degrades to a skip note. Every shape is OK.
+func TestLocaleCheckNoteShapes(t *testing.T) {
+	lookup := func(env map[string]string) func(string) (string, bool) {
+		return func(k string) (string, bool) {
+			v, ok := env[k]
+			return v, ok
+		}
+	}
+	probe := func(env map[string]string, err error) func(context.Context) (map[string]string, error) {
+		return func(context.Context) (map[string]string, error) { return env, err }
+	}
+	forced := func(name, value string, ok bool) func() (string, string, bool) {
+		return func() (string, string, bool) { return name, value, ok }
+	}
+
+	t.Run("forced process locale beside a UTF-8 daemon env", func(t *testing.T) {
+		c := localeCheck(forced("LC_CTYPE", "C.UTF-8", true), lookup(map[string]string{"LC_CTYPE": "C.UTF-8"}),
+			probe(map[string]string{"LANG": "en_IN.UTF-8", "PATH": "/usr/bin"}, nil))
+		want := "process: no UTF-8 locale in environment; forced LC_CTYPE=C.UTF-8; rk-daemon server: LANG=en_IN.UTF-8"
+		if !c.OK || c.Note != want {
+			t.Errorf("got %+v, want OK with note %q", c, want)
+		}
+	})
+
+	t.Run("UTF-8 process beside a locale-less daemon env", func(t *testing.T) {
+		c := localeCheck(forced("", "", false), lookup(map[string]string{"LANG": "en_IN.UTF-8"}),
+			probe(map[string]string{"PATH": "/usr/bin"}, nil))
+		if !c.OK {
+			t.Errorf("locale-less daemon env must stay OK, got %+v", c)
+		}
+		if !strings.HasPrefix(c.Note, "process: LANG=en_IN.UTF-8; ") {
+			t.Errorf("note = %q, want the process fragment first", c.Note)
+		}
+		if !strings.Contains(c.Note, "rk-daemon server env: no UTF-8 locale") || !strings.Contains(c.Note, "rk daemon restart --full") {
+			t.Errorf("note = %q, want the pane consequence and the --full remediation", c.Note)
+		}
+	})
+
+	t.Run("LC_ALL=C in the daemon env defeats its UTF-8 LANG", func(t *testing.T) {
+		c := localeCheck(forced("", "", false), lookup(map[string]string{"LANG": "en_IN.UTF-8"}),
+			probe(map[string]string{"LC_ALL": "C", "LANG": "en_IN.UTF-8"}, nil))
+		if !c.OK || !strings.Contains(c.Note, "rk-daemon server env: no UTF-8 locale") {
+			t.Errorf("got %+v, want the locale-less daemon note", c)
+		}
+	})
+
+	t.Run("unrepaired locale-less process reports plainly", func(t *testing.T) {
+		// Reachable only when EnsureUTF8Locale's Setenv failed: nothing was
+		// forced, yet the environment still has no UTF-8 locale.
+		c := localeCheck(forced("", "", false), lookup(map[string]string{"LANG": "C"}), probe(nil, nil))
+		if !c.OK || c.Note != "process: no UTF-8 locale in environment" {
+			t.Errorf("got %+v, want OK with the plain no-locale note", c)
+		}
+	})
+
+	t.Run("server not running omits the daemon fragment", func(t *testing.T) {
+		c := localeCheck(forced("", "", false), lookup(map[string]string{"LANG": "en_IN.UTF-8"}), probe(nil, nil))
+		if !c.OK || c.Note != "process: LANG=en_IN.UTF-8" {
+			t.Errorf("got %+v, want OK with only the process fragment", c)
+		}
+	})
+
+	t.Run("probe error degrades to a skip note", func(t *testing.T) {
+		c := localeCheck(forced("", "", false), lookup(map[string]string{"LANG": "en_IN.UTF-8"}),
+			probe(nil, fmt.Errorf("socket dir unreadable")))
+		if !c.OK {
+			t.Errorf("probe error must never fail the row, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "probe skipped") || !strings.Contains(c.Note, "socket dir unreadable") {
+			t.Errorf("note = %q, want a skip note naming the failure", c.Note)
+		}
+	})
+}
+
+// TestLocaleCheckNeverFlipsVerdict proves the appended row cannot change the
+// overall report verdict even in its worst shape (locale-less daemon env),
+// and that runDoctorChecks appends it unconditionally.
+func TestLocaleCheckNeverFlipsVerdict(t *testing.T) {
+	stubLocaleSeams(t, "LC_CTYPE", "C.UTF-8", true, map[string]string{"PATH": "/usr/bin"}, nil)
+	found := false
+	for _, c := range runDoctorChecks().Checks {
+		if c.Name == "locale" {
+			found = true
+			if !c.OK {
+				t.Errorf("locale row must always be OK-shaped, got %+v", c)
+			}
+		}
+	}
+	if !found {
+		t.Error("runDoctorChecks must append the locale row unconditionally")
+	}
+}

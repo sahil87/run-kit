@@ -228,7 +228,7 @@ func TestToolDescription(t *testing.T) {
 // template, required == [template] only (window is conditional — the verb
 // enforces it), and the pattern on window.
 func TestInputSchemaOperatorRequest(t *testing.T) {
-	resolved, err := Resolve(syntheticTree(), []Row{rowByTool(t, "operator_request")})
+	resolved, err := Resolve(syntheticTree(), []Row{findRow(t, "operator_request")})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}

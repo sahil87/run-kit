@@ -53,10 +53,7 @@ func TestBuildArgvOmissions(t *testing.T) {
 // Cobra parses on the reorder child because the flags are persistent on the
 // parent.
 func TestBuildArgvBoardActionEnum(t *testing.T) {
-	row := Table[len(Table)-1] // board is appended last (TestTableShape)
-	if row.Tool != "board" {
-		t.Fatalf("last row = %q, want board", row.Tool)
-	}
+	row := findRow(t, "board")
 	got := BuildArgv(row, map[string]any{
 		"action": "reorder", "name": "work", "window": "@7", "after": "@3", "server": "s",
 	})

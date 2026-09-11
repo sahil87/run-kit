@@ -197,7 +197,6 @@ func TestTableOperatorRequestRow(t *testing.T) {
 		if !strings.Contains(row.Description, want) {
 			t.Errorf("description missing %q: %q", want, row.Description)
 		}
-		}
 	}
 }
 

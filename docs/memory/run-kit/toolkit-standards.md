@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator`/`gui` (incl. `gui wm --list`/`--json`)/`mcp`/`board` + the `mux` and `cron` families."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers P9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` (incl. `operator request`)/`gui` (incl. `gui wm --list`/`--json`)/`mcp`/`board` + the `mux` and `cron` families."
 ---
 # Toolkit Standards Conformance
 
@@ -883,6 +883,37 @@ twenty-fourth surface measured against the same checks (260911-u49l-rk-board-ver
   `docs/site/skill.md` carries one `rk board` bullet next to the `rk tab`
   bullets (the four verbs; needs `rk serve` up), synced to the embedded copy
   by `scripts/sync-skill.sh` and byte-drift-guarded by the skill embed tests.
+
+The `rk operator request` verb (`operator_request.go` — the CLI door onto the
+operator-request lane; see [cli](/run-kit/architecture/cli.md) § CLI
+Subcommands, `operator` row, and
+[operator-actuation](/run-kit/operator-actuation.md)) is the twenty-fifth
+surface measured against the same checks (sjs1):
+
+- **help-dump: registered on the existing `operator` parent.**
+  `operatorRequestCmd` registers unconditionally on `operatorCmd` (whose own
+  no-argument behavior is unchanged) with `Short`/`Long` blocks, so the cobra
+  tree walk picks up the child with no help-dump code change and the dumped
+  contract is platform-stable — the pre-flight registry checks are run-time
+  exit 2s, not registration conditions.
+- **Principle 9: the report line or the JSON document is data; the queued note
+  is chatter.** stdout carries exactly one report line
+  (`delivered <template>` / `queued <template>`) or, under `--json`, exactly
+  one envelope document — both `Dataf` on the data channel, surviving
+  `--quiet`; the 202 busy note (`operator is busy; the request is queued and
+  drains when it is idle`) is `Notef` chatter on stderr. `--list` is entirely
+  data (a requested listing).
+- **Exit-code convention (P4)** — 0 success (the 202 queued case included), 1
+  operational (any non-2xx other than 400, a transport failure — carrying the
+  `start it with rk daemon start` hint), 2 usage (every pre-flight registry
+  check — scope, `--text`/`--session` acceptors, malformed `--window`/`-L` —
+  runs before any HTTP).
+- **The `skill` standard covers the verb on the `messaging` topic page** — the
+  `## Handing the operator a request` section (canonical
+  `docs/site/skill/messaging.md`, embedded copy byte-identical under the shared
+  `TestSkillTopics*` guards) teaches `--list`, the window/server split, and the
+  `queued:true` meaning; the README command-reference row carries
+  `request <template>` (readme-extraction stays closed over the tree).
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

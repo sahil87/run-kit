@@ -23,7 +23,15 @@ func syntheticTree() *cobra.Command {
 	mux.AddCommand(capture, send)
 	status := &cobra.Command{Use: "status", Short: "Show tmux session summary", Long: "Show the runkit server's session summary."}
 	status.Flags().Bool("json", false, "Emit JSON")
-	root.AddCommand(mux, status)
+	operator := &cobra.Command{Use: "operator"}
+	request := &cobra.Command{Use: "request", Short: "Hand the operator a templated work item"}
+	request.Flags().StringP("server", "L", "", "tmux server to address")
+	request.Flags().String("window", "", "subject window id")
+	request.Flags().String("text", "", "client text")
+	request.Flags().String("session", "", "session scope")
+	request.Flags().Bool("json", false, "Emit the envelope")
+	operator.AddCommand(request)
+	root.AddCommand(mux, status, operator)
 	return root
 }
 
@@ -212,5 +220,37 @@ func TestToolDescription(t *testing.T) {
 	overridden.Row.Description = "override"
 	if got := ToolDescription(overridden); got != "override" {
 		t.Errorf("override description = %q", got)
+	}
+}
+
+// TestInputSchemaOperatorRequest pins the generated schema of the real
+// operator_request row against the synthetic tree: the closed enum on
+// template, required == [template] only (window is conditional — the verb
+// enforces it), and the pattern on window.
+func TestInputSchemaOperatorRequest(t *testing.T) {
+	resolved, err := Resolve(syntheticTree(), []Row{rowByTool(t, "operator_request")})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	schema := InputSchema(resolved[0])
+	props := schema["properties"].(map[string]any)
+
+	template := props["template"].(map[string]any)
+	enum, ok := template["enum"].([]string)
+	if !ok || !slices.Equal(enum, operatorTemplateIDs) {
+		t.Errorf("template enum = %v, want the mirrored registry ids", template["enum"])
+	}
+	window := props["window"].(map[string]any)
+	if window["pattern"] != `^@\d+$` {
+		t.Errorf("window prop = %v, want the @N pattern", window)
+	}
+	for _, name := range []string{"server", "window", "text", "session", "template"} {
+		if _, ok := props[name]; !ok {
+			t.Errorf("properties missing %q", name)
+		}
+	}
+	required := schema["required"].([]string)
+	if !slices.Equal(required, []string{"template"}) {
+		t.Errorf("required = %v, want [template] (window is conditional, verb-enforced)", required)
 	}
 }

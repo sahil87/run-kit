@@ -142,6 +142,22 @@ const sendDescription = "Deliver a message into an agent's pane through run-kit'
 // the receipt shapes (docs/specs/mcp.md § New verb families).
 const boardDescription = "List boards and pin/unpin/reorder windows on the cross-server board dashboards; rides the daemon, so rk serve must be up. Actions: `show` lists boards (no `name`) or one board's pinned windows (with `name`); `pin`, `unpin`, and `reorder` mutate and require `name` and `window`. `server` applies to the three mutations and defaults to `default`. `before`/`after` are reorder-only neighbour window ids (@N); passing neither appends. The result is the route body for `show` (a bare JSON array) or a {board, window, orderKey?} receipt for the mutations (orderKey on reorder only)."
 
+// operatorTemplateIDs is the closed template registry's id set, mirrored here
+// because internal/mcp must not import rk/api (the daemon's /mcp route would
+// close an import cycle). cmd/rk's TestOperatorRequestEnumMatchesRegistry pins
+// it to api.OperatorTemplateList(); a registry edit that forgets this list
+// fails the build.
+var operatorTemplateIDs = []string{
+	"annotate-tab", "brief-me", "color-tabs", "find-discussion", "fix-tab-name",
+	"spawn-task", "update-annotations", "user-message", "whats-stuck",
+}
+
+// operatorRequestDescription overrides `operator request`'s Cobra help for the
+// model: the conditional-window rule and the acceptor postures are what a
+// model needs to call the tool correctly, and the queued receipt's meaning is
+// not obvious from a report word.
+const operatorRequestDescription = "Hand the server's operator agent a templated work item through run-kit's operator-request lane (the same closed registry the dashboard's operator actions use). Window-scoped templates (fix-tab-name, annotate-tab, user-message) REQUIRE `window`; every other template is server-scoped and REJECTS it. `text` is accepted only by spawn-task, find-discussion, and user-message; `session` only by update-annotations. A busy operator queues the request and the result reports `queued:true` — the work is not lost, it drains when the operator goes idle (user-message skips the gate and is never queued). whats-stuck refuses when nothing on the server is waiting. The verb's `--list` is the source of truth for the template set and its flags."
+
 // Table is the compiled-in policy table — the allowlist (docs/specs/mcp.md
 // § Policy table). Seeded with the verbs that are already MCP-shaped: the nine
 // structured-today read verbs ride result: json on their existing bare
@@ -244,5 +260,20 @@ var Table = []Row{
 		Result:      ResultJSON,
 		Annotations: Annotations{}, // mixed read/write tool: no hints
 		Description: boardDescription,
+	},
+	{
+		Tool: "operator_request", Path: "operator request",
+		Args: []Arg{
+			serverArg,
+			{Name: "template", Positional: 1, Type: ArgString, Required: true, Enum: operatorTemplateIDs,
+				Description: "The operator template id (closed registry; see the tool description for which take window/text/session)"},
+			{Name: "window", Flag: "--window", Type: ArgString, Pattern: `^@\d+$`},
+			{Name: "text", Flag: "--text", Type: ArgString},
+			{Name: "session", Flag: "--session", Type: ArgString},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: Annotations{}, // Talk row: no annotations (spec allowlist "—")
+		Description: operatorRequestDescription,
 	},
 }

@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
+	"rk/api"
 	"rk/internal/mcp"
 )
 
@@ -27,7 +29,7 @@ func TestMCPTableResolves(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	want := []string{"board", "capture", "cron_list", "gui_status", "panes", "process", "send", "sessions", "status", "tab_show", "tab_web_ls"}
+	want := []string{"board", "capture", "cron_list", "gui_status", "operator_request", "panes", "process", "send", "sessions", "status", "tab_show", "tab_web_ls"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("tool names = %v, want %v", names, want)
 	}
@@ -133,5 +135,33 @@ func TestMCPHelpNamesConnectorCommand(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "ssh <box> rk mcp") {
 		t.Errorf("mcp --help does not name the connector command:\n%s", buf.String())
+	}
+}
+
+// TestOperatorRequestEnumMatchesRegistry pins the policy row's mirrored
+// template enum to the daemon's closed registry: internal/mcp must not import
+// rk/api (the /mcp route would close an import cycle), so this cmd/rk test is
+// the drift guard — a registry edit that forgets the mirror fails the build.
+func TestOperatorRequestEnumMatchesRegistry(t *testing.T) {
+	var enum []string
+	for _, row := range mcp.Table {
+		if row.Tool != "operator_request" {
+			continue
+		}
+		for _, arg := range row.Args {
+			if arg.Name == "template" {
+				enum = arg.Enum
+			}
+		}
+	}
+	if enum == nil {
+		t.Fatal("operator_request row has no template arg")
+	}
+	var ids []string
+	for _, info := range api.OperatorTemplateList() {
+		ids = append(ids, info.ID)
+	}
+	if !slices.Equal(enum, ids) {
+		t.Errorf("policy enum = %v, want the registry ids %v", enum, ids)
 	}
 }

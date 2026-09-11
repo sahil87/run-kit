@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Operator messaging into the server's operator window over three lanes: direct chat (compose-send allow+probe), templated chat (`chatDelivery` templates — one addressee header + the user's text in a bare fence, busy gate and queue skipped in the shared core), and templated requests (busy ⇒ enqueue 202, drained on idle). Covers the closed template registry, fact derivation with best-effort transcript fill, the server-derived `conversationAvailable` gate, structured 409s, and auto-name dispatch."
+description: "Operator messaging into the server's operator window over three lanes: direct chat (compose-send allow+probe), templated chat (`chatDelivery` templates — one addressee header + the user's text in a bare fence, busy gate and queue skipped in the shared core), and templated requests (busy ⇒ enqueue 202, drained on idle). Covers the closed template registry, fact derivation with best-effort transcript fill, the server-derived `conversationAvailable` gate, structured 409s, auto-name dispatch, and the `rk operator request` CLI door (`--list`, pre-flight checks, `queued` receipt)."
 ---
 # Operator Actuation
 
@@ -89,6 +89,13 @@ drain on idle).
 - **Request**: the templated work-item seam described above — fully
   server-rendered, busy ⇒ enqueue ⇒ `202 {"queued": true}`.
 
+The request lane's CLI door is `rk operator request` (the Requirement below): a
+thin client over the two routes via `resolveOrigin` — a pane agent (and the MCP
+`operator_request` tool, [mcp](/run-kit/mcp.md)) can hand the operator a work
+item without the dashboard. It adds NO lane — the closed registry is the single
+source of truth for `--list` and the CLI-side pre-flight checks, and the
+daemon's own status codes drive the receipt. (sjs1)
+
 The console is a HUMAN surface driving a pane through the one gated injection
 engine; the spec's Conversation row (multi-turn cross-provider dialogue ⇒ MCP
 bridge) governs agent-to-agent tool-mediated dialogue, not these lanes
@@ -133,6 +140,59 @@ undecodable body (400).
 - **WHEN** the handler runs
 - **THEN** it returns `400` with a `writeError` JSON body and performs no
   session fetch and no tmux call.
+
+### Requirement: The `rk operator request` verb — the CLI door onto the request lane
+`rk operator request <template> [--window @N] [--text <t>] [--session <s>] [-L
+<server>] [--json] | --list [--json]` (`cmd/rk/operator_request.go`, a child of
+`operatorCmd` whose own no-argument behavior is unchanged) SHALL be a thin
+client over the two operator-request routes via `resolveOrigin` (the same door
+`notify`/`present`/`tab wake` use) — it adds NO lane. Before ANY HTTP it
+validates every input against the registry descriptor
+`api.OperatorTemplateList()`, each failure a usage error (exit 2): exactly one
+positional unless `--list`; the template id must be a registry id; `--window`
+is required on a window-scoped template and rejected on a server-scoped one
+(and itself validated via `validate.ValidateWindowID`); non-empty `--text` only
+on an `acceptsText` template; non-empty `--session` only on an `acceptsSession`
+one; `-L` validated via `validate.ValidateServerName`. Route selection:
+window-scoped ⇒ `POST /api/windows/{@N}/operator-request`, server-scoped ⇒
+`POST /api/operator-request`, with `?server=` filled from `-L` else the
+caller's own tmux server label (the `$TMUX` socket basename via
+`cliServerLabel`, else `default`), a JSON body `{"template": "<id>"}` carrying
+`text`/`session` only when non-empty, and the POST bounded by
+`operatorRequestTimeout` (20 s, a test-shrinkable var — well under the MCP
+`ToolTimeoutCap`). The receipt (spec § Receipts) is exactly
+`{"template", "window"?, "queued"}` — `window` present iff the request was
+window-scoped — and the response mapping is: `200` ⇒ `delivered <template>`
+(exit 0); `202` ⇒ `queued <template>` (exit 0 — a busy operator queues the
+work, it is not refused) plus one stderr chatter note (`operator is busy; the
+request is queued and drains when it is idle`); `400` ⇒ usage (exit 2); any
+other non-2xx or a transport error ⇒ operational (exit 1), the daemon's
+optional `code` field riding through as `error.reason` under `--json` and an
+unreachable daemon carrying the hint `start it with rk daemon start`. Unlike
+`notify`/`tab wake` the verb is NOT fail-silent. Under `--json`, stdout carries
+exactly one envelope document via the shared `outputSink` helper
+(`JSONResult`/`JSONError` — [cli](/run-kit/architecture/cli.md) § CLI
+Subcommands). `--list` prints the registry (id, scope word, declared flags; or
+`--json` descriptors under a `templates` key) and never contacts the daemon.
+The registry descriptor is exported read-only — `OperatorTemplateInfo` (id +
+the six declared flags, JSON keys verbatim from the registry) and
+`OperatorTemplateList()` (sorted by id) — while the `operatorTemplates` map
+itself stays unexported and the daemon remains the enforcer. The MCP door onto
+the same verb is the `operator_request` policy row ([mcp](/run-kit/mcp.md)).
+(sjs1)
+
+#### Scenario: A busy operator is a queued success
+- **GIVEN** a valid `rk operator request brief-me` against a busy operator
+- **WHEN** the daemon answers `202 {"queued":true}`
+- **THEN** the verb exits 0, prints `queued brief-me` on stdout and the busy
+  note on stderr, and under `--json` reports `result.queued:true`.
+
+#### Scenario: Pre-flight checks make no HTTP call
+- **GIVEN** `rk operator request brief-me --window @3` (a server-scoped
+  template with `--window`)
+- **WHEN** the verb runs
+- **THEN** it exits 2 naming the server-scoped rule and the daemon receives
+  zero requests.
 
 ### Requirement: The `acceptsText` client-text lane — declared, capped, fenced
 Templates that carry user-typed text SHALL declare `acceptsText: true`; both
@@ -1265,3 +1325,22 @@ line (invites correlating the message with the subject window; the operator
 finds any transcript through the pane map when a message is about that
 window).
 *Introduced by*: 260911-peui-user-message-addressee-envelope
+### Registry exposed to the CLI as an exported read-only descriptor
+**Decision**: `api.OperatorTemplateList()` returns one `OperatorTemplateInfo`
+(id + the six declared flags) per registry entry, sorted by id; the
+`operatorTemplates` map stays unexported and unchanged.
+**Why**: `cmd/rk` already links `rk/api`; `--list` and the pre-flight scope
+checks need only data; the daemon remains the enforcer.
+**Rejected**: a `GET /api/operator-templates` route (new surface for data
+compiled into the same binary, Constitution IV); moving the registry to an
+internal package (churns `api/operator.go` for no behavior gain).
+*Introduced by*: 260911-sjs1-rk-operator-request-verb
+
+### `rk operator request` is not fail-silent
+**Decision**: unlike `notify` and `tab wake`, an unreachable daemon or a
+non-2xx is a non-zero exit with a message (and a `hint` under `--json`).
+**Why**: a request is work handed over — the receipt is the verb's purpose, and
+spec § Envelope requires `ok:false` on failure.
+**Rejected**: the fail-silent posture (it would report success for undelivered
+work).
+*Introduced by*: 260911-sjs1-rk-operator-request-verb

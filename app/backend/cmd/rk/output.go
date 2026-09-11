@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -66,4 +67,47 @@ func (s outputSink) Dataf(format string, a ...any) {
 // progress and decoration that --quiet drops.
 func (s outputSink) Notef(format string, a ...any) {
 	fmt.Fprintf(s.chatter, format, a...)
+}
+
+// Envelope codes for the --json error document (docs/specs/mcp.md § Envelope):
+// exit 2 ⇔ usage, exit 1 ⇔ operational — `ok` mirrors the exit code exactly.
+const (
+	envelopeCodeUsage       = "usage"
+	envelopeCodeOperational = "operational"
+)
+
+// envelopeError is the --json error object (docs/specs/mcp.md § Envelope).
+// Hint and Reason are omitted when empty.
+type envelopeError struct {
+	Code    string `json:"code"` // envelopeCodeUsage | envelopeCodeOperational
+	Message string `json:"message"`
+	Hint    string `json:"hint,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// JSONResult writes {"ok":true,"result":v} to the data channel — exactly one
+// document, newline-terminated, never gated by --quiet (data survives). The
+// field order is fixed by the anonymous struct (ok before result).
+func (s outputSink) JSONResult(v any) {
+	doc, err := json.Marshal(struct {
+		OK     bool `json:"ok"`
+		Result any  `json:"result"`
+	}{OK: true, Result: v})
+	if err != nil {
+		return
+	}
+	s.Dataf("%s\n", doc)
+}
+
+// JSONError writes {"ok":false,"error":e} to the data channel — exactly one
+// document, newline-terminated.
+func (s outputSink) JSONError(e envelopeError) {
+	doc, err := json.Marshal(struct {
+		OK    bool          `json:"ok"`
+		Error envelopeError `json:"error"`
+	}{OK: false, Error: e})
+	if err != nil {
+		return
+	}
+	s.Dataf("%s\n", doc)
 }

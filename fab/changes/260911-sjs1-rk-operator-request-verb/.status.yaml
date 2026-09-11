@@ -1,0 +1,55 @@
+id: sjs1
+name: 260911-sjs1-rk-operator-request-verb
+created: 2026-09-11T17:01:06Z
+created_by: sahil87
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 27
+    acceptance_completed: 27
+confidence:
+    certain: 5
+    confident: 10
+    tentative: 0
+    unresolved: 0
+    score: 3.9
+    fuzzy: true
+    dimensions:
+        signal: 74.3
+        reversibility: 81.3
+        competence: 84.0
+        disambiguation: 77.7
+stage_metrics:
+    intake: {started_at: "2026-09-11T17:01:06Z", driver: fab-new, iterations: 1, completed_at: "2026-09-11T17:09:38Z"}
+    apply: {started_at: "2026-09-11T17:09:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:40:15Z"}
+    review: {started_at: "2026-09-11T17:40:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:44:12Z"}
+    hydrate: {started_at: "2026-09-11T17:44:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:50:07Z"}
+    ship: {started_at: "2026-09-11T17:50:07Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-11T17:50:07Z"
+    computed_at_stage: hydrate
+summary: 'rk operator request verb: CLI door onto the operator-request lane (registry-driven pre-flight checks, queued receipt, --list), the eleventh MCP tool via the operator_request policy row, the shared outputSink --json envelope helper, and the exported OperatorTemplateList registry descriptor'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-11T17:50:07Z

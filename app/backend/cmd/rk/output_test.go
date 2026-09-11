@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"testing"
 
@@ -66,4 +67,52 @@ func TestNewSink_QuietDiscardsChatterKeepsData(t *testing.T) {
 			t.Errorf("chatter channel must be the command's stderr when not quiet, got %v", s.chatter)
 		}
 	})
+}
+
+// TestSink_JSONResultOneDocument pins the envelope's success shape: exactly one
+// newline-terminated {"ok":true,"result":…} document on the data channel,
+// chatter untouched, no --quiet gating.
+func TestSink_JSONResultOneDocument(t *testing.T) {
+	var data, chatter bytes.Buffer
+	s := newSinkWriters(&data, &chatter)
+
+	s.JSONResult(map[string]any{"template": "brief-me", "queued": true})
+
+	want := "{\"ok\":true,\"result\":{\"queued\":true,\"template\":\"brief-me\"}}\n"
+	if got := data.String(); got != want {
+		t.Errorf("JSONResult data = %q, want %q (encoding/json sorts map keys)", got, want)
+	}
+	if chatter.Len() != 0 {
+		t.Errorf("JSONResult must not touch the chatter channel, got %q", chatter.String())
+	}
+}
+
+// TestSink_JSONErrorOmitsEmptyFields pins the error document: exactly one
+// newline-terminated {"ok":false,"error":…} document, with hint/reason omitted
+// when empty and carried when set.
+func TestSink_JSONErrorOmitsEmptyFields(t *testing.T) {
+	var data bytes.Buffer
+	s := newSinkWriters(&data, io.Discard)
+
+	s.JSONError(envelopeError{Code: envelopeCodeUsage, Message: "bad template"})
+	if got, want := data.String(), "{\"ok\":false,\"error\":{\"code\":\"usage\",\"message\":\"bad template\"}}\n"; got != want {
+		t.Errorf("bare JSONError = %q, want %q", got, want)
+	}
+
+	data.Reset()
+	s.JSONError(envelopeError{Code: envelopeCodeOperational, Message: "down", Hint: "start it", Reason: "timeout"})
+	var doc struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code   string `json:"code"`
+			Hint   string `json:"hint"`
+			Reason string `json:"reason"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(data.Bytes()), &doc); err != nil {
+		t.Fatalf("JSONError document does not parse: %v (%q)", err, data.String())
+	}
+	if doc.OK || doc.Error.Code != "operational" || doc.Error.Hint != "start it" || doc.Error.Reason != "timeout" {
+		t.Errorf("full JSONError = %+v, want ok:false + code/hint/reason carried", doc)
+	}
 }

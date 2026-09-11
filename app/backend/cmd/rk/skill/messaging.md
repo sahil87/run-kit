@@ -68,6 +68,21 @@ Branch on the report word, not just the exit code: `parked` and `narrow` also ex
 - **Answering a question**: a `waiting` agent refuses plain sends; `rk mux send %5 "yes, go ahead" --answer` is the reply channel (the send IS the answer).
 - **Never interrupt `active`**: the gate refuses plain and `--answer` sends to a working agent; that refusal is the convention, not an obstacle.
 
+## Handing the operator a request
+
+To hand the server's operator agent a work item — not to chat with a pane — use `rk operator request <template>`, the CLI door onto the operator-request lane (the same closed registry the dashboard's operator actions use):
+
+```sh
+rk operator request --list                       # the registry: ids, scope, declared flags
+rk operator request brief-me                     # server-scoped: a standup digest of every tab
+rk operator request fix-tab-name --window @7     # window-scoped: work about a subject tab
+rk operator request spawn-task --text "add retry to the flaky poll"
+```
+
+Window-scoped templates (`fix-tab-name`, `annotate-tab`, `user-message`) require `--window @N`; the rest are server-scoped and reject it. `--text` is accepted only by `spawn-task`, `find-discussion`, and `user-message`; `--session` only by `update-annotations`. A **busy** operator is not a failure: the request queues and the verb reports `queued <template>` (exit 0) — with `--json` the receipt is `{"ok":true,"result":{"template":"…","queued":true}}` — and it drains when the operator goes idle. `user-message` (the chat template) skips the busy gate and is never queued.
+
+Prefer this over `rk mux send` to the operator pane whenever a template fits: the daemon renders the prompt from facts it derives itself (Constitution X), the closed registry bounds what can be asked, and the busy gate protects a working operator. Raw `send` to the operator pane remains for free-text steering the registry does not cover.
+
 ## Where the depth lives
 
 - [`rk skill mux`](mux.md) — every verb's flags, the send/kill gate matrices, delivery verification and recovery, `--any` fleet-wake protocol, report words, exit codes, gotchas.

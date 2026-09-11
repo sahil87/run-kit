@@ -146,7 +146,7 @@ The per-harness capability matrix (verified versions, event mappings, transcript
 
 ## The operator — one agent to run the server
 
-`rk operator` opens the **operator** — a per-tmux-server singleton window running the fab-kit operator-tier agent, role-marked so the dashboard pins it. Where `rk riff` spawns workers, the operator is the coordinator you talk to: it watches the fleet, dispatches and unblocks changes, and escalates to your phone when something needs you. Requires fab-kit on `PATH`; re-running switches to the existing tab.
+`rk operator` opens the **operator** — a per-tmux-server singleton window running the fab-kit operator-tier agent, role-marked so the dashboard pins it. Where `rk riff` spawns workers, the operator is the coordinator you talk to: it watches the fleet, dispatches and unblocks changes, and escalates to your phone when something needs you. Requires fab-kit on `PATH`; re-running switches to the existing tab. Hand it a templated work item from the shell with `rk operator request <template>` (`--list` prints the registry; a busy operator queues the request and it drains when idle).
 
 ## Boards — watch many panes at once
 
@@ -204,7 +204,7 @@ eval "$(rk shell-init zsh)"   # in ~/.zshrc — also: bash, fish, powershell
 |---------|--------------|
 | `rk riff` | Create a worktree + tmux window + agent/command pane(s). |
 | `rk tutorial` | Open the guided tour — an agent-run `tutorial` tab in this session. |
-| `rk operator` | Open the operator — the server-wide orchestrator agent tab (singleton). |
+| `rk operator` | Open the operator — the server-wide orchestrator agent tab (singleton); `request <template>` hands it a templated work item. |
 | `rk serve` | Start the HTTP server (foreground). |
 | `rk daemon` | Manage the background daemon (`start`, `restart`, `stop`, `status`). |
 | `rk status` | Show a tmux session summary. |

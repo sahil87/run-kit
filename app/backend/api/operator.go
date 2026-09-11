@@ -204,6 +204,46 @@ var operatorTemplates = map[string]operatorTemplate{
 	},
 }
 
+// OperatorTemplateInfo is the read-only descriptor of one closed-registry
+// entry — the id and the six declared flags, nothing renderable. The CLI's
+// `rk operator request --list` and its pre-flight scope checks read this; the
+// daemon remains the enforcer. JSON field names are the registry's own flag
+// names verbatim (the receipt vocabulary rule: reuse the existing name, never
+// a synonym).
+type OperatorTemplateInfo struct {
+	ID                      string `json:"id"`
+	RequiresAgentSessionRef bool   `json:"requiresAgentSessionRef"`
+	AcceptsText             bool   `json:"acceptsText"`
+	ServerScoped            bool   `json:"serverScoped"`
+	RequiresWaiting         bool   `json:"requiresWaiting"`
+	AcceptsSession          bool   `json:"acceptsSession"`
+	ChatDelivery            bool   `json:"chatDelivery"`
+}
+
+// OperatorTemplateList returns every registry entry's descriptor sorted by ID
+// (a stable order for --list output and for the MCP enum drift test).
+func OperatorTemplateList() []OperatorTemplateInfo {
+	ids := make([]string, 0, len(operatorTemplates))
+	for id := range operatorTemplates {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := make([]OperatorTemplateInfo, 0, len(ids))
+	for _, id := range ids {
+		t := operatorTemplates[id]
+		out = append(out, OperatorTemplateInfo{
+			ID:                      id,
+			RequiresAgentSessionRef: t.requiresAgentSessionRef,
+			AcceptsText:             t.acceptsText,
+			ServerScoped:            t.serverScoped,
+			RequiresWaiting:         t.requiresWaiting,
+			AcceptsSession:          t.acceptsSession,
+			ChatDelivery:            t.chatDelivery,
+		})
+	}
+	return out
+}
+
 // renderFixTabName composes the fix-tab-name prompt. It is self-contained (the
 // operator needs no rk-specific knowledge), names the exact actuation command
 // with the @N target, and explicitly bounds the operator's action.

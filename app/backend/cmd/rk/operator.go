@@ -123,6 +123,10 @@ it), every tmux call runs against -L <name>, the window opens in your home
 directory, and an already-present operator tab is reported without switching
 any client.
 
+To hand the operator a templated work item (fix-tab-name, brief-me,
+spawn-task, …) from the shell, use 'rk operator request' — see
+'rk operator request --help'.
+
 Prerequisites (both hard — the command refuses without either):
   - You must be inside a tmux session ($TMUX set), unless -L/--server is given.
   - fab must be on PATH. The operator is meaningless without fab-kit — the
@@ -148,6 +152,7 @@ func init() {
 		"set FAB_AGENT_WORKERS for the launched operator agent (letters, digits, '_' and '-' only)")
 	operatorCmd.Flags().StringVarP(&operatorServerFlag, "server", "L", "",
 		"address the named tmux server (no $TMUX required; the window opens in the home directory; an existing operator tab is reported, not switched to)")
+	operatorCmd.AddCommand(operatorRequestCmd)
 }
 
 // operator*Fn are package-level seams so runOperator can be tested without a

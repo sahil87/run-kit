@@ -218,7 +218,7 @@ not this spec's.
 | Talk | `answer` | `mux send <target> --answer` / `--key <k>` (bounded enum) | — | report word (text) |
 | Talk | `await` | `mux await <target> --until … --timeout ≤40` | ro | report word (text) |
 | Talk | `notify` | `notify <message> [--title]` | — | no |
-| Talk | `operator_request` | `operator request <template> [--window @N] [--text] [--session]` | — | new verb |
+| Talk | `operator_request` | `operator request <template> [--window @N] [--text] [--session]` | — | yes |
 | Spawn | `riff` | `riff [preset] [--skill…] [--layout] [--count]` (no `--cmd`) | — | no |
 | Spawn | `new_window` | `tab new [--session =S] [--cwd] [--name] [--layout]` | — | no (prints `@N`) |
 | Spawn | `operator` | `operator [--workers] [-L]` | idem | no |
@@ -286,8 +286,9 @@ registry: each id and which of `requiresAgentSessionRef` / `acceptsText` /
 `serverScoped` / `requiresWaiting` / `acceptsSession` / `chatDelivery` it declares.
 Window-scoped templates require `--window` and ride
 `POST /api/windows/{windowId}/operator-request`; server-scoped templates reject
-`--window` and ride `POST /api/operator-request`. The daemon's 400/404/409 messages
-pass through as `operational` errors. Busy posture follows the registry, not the
+`--window` and ride `POST /api/operator-request`. The daemon's messages pass through
+verbatim: a 400 is a `usage` error (exit 2 — § Target rule), 404/409/5xx are
+`operational` errors (exit 1). Busy posture follows the registry, not the
 verb: for templates **without** `chatDelivery` a busy operator answers
 `202 {"queued":true}`, surfaced as `result.queued:true` with exit 0; a `chatDelivery`
 template (`user-message`) skips the busy gate and the queue by design and always

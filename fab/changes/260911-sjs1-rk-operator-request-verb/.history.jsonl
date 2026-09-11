@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-11T17:01:06Z"}
+{"args":"rk operator request verb — rk operator request \u003ctemplate\u003e [--window @N] [--json] over the daemon's two operator-request routes via the resolveOrigin pattern; template list from the closed registry via --list; busy target surfaces its 202-queued response in the receipt; policy row for operator_request (plan W3a)","cmd":"fab-new","event":"command","ts":"2026-09-11T17:01:06Z"}
+{"delta":"+3.9","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-09-11T17:04:48Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-11T17:08:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-11T17:09:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-11T17:40:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-11T17:44:12Z"}
+{"event":"review","result":"passed","ts":"2026-09-11T17:44:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-11T17:50:07Z"}

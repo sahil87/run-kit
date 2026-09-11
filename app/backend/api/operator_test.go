@@ -1657,3 +1657,41 @@ func TestUserMessageSuccess(t *testing.T) {
 		}
 	}
 }
+
+// TestOperatorTemplateListMirrorsRegistry pins the read-only descriptor: one
+// row per registry entry, ascending ids, and flags copied verbatim — the CLI's
+// --list and the MCP enum drift test both consume this view.
+func TestOperatorTemplateListMirrorsRegistry(t *testing.T) {
+	list := OperatorTemplateList()
+	if len(list) != len(operatorTemplates) {
+		t.Fatalf("OperatorTemplateList has %d rows, want %d (one per registry entry)", len(list), len(operatorTemplates))
+	}
+	for i, info := range list {
+		if i > 0 && list[i-1].ID >= info.ID {
+			t.Errorf("rows out of ascending order at %d: %q then %q", i, list[i-1].ID, info.ID)
+		}
+		tmpl, ok := operatorTemplates[info.ID]
+		if !ok {
+			t.Errorf("descriptor %q has no registry entry", info.ID)
+			continue
+		}
+		if info.RequiresAgentSessionRef != tmpl.requiresAgentSessionRef ||
+			info.AcceptsText != tmpl.acceptsText ||
+			info.ServerScoped != tmpl.serverScoped ||
+			info.RequiresWaiting != tmpl.requiresWaiting ||
+			info.AcceptsSession != tmpl.acceptsSession ||
+			info.ChatDelivery != tmpl.chatDelivery {
+			t.Errorf("descriptor %q flags %+v do not mirror registry entry %+v", info.ID, info, tmpl)
+		}
+	}
+	byID := make(map[string]OperatorTemplateInfo, len(list))
+	for _, info := range list {
+		byID[info.ID] = info
+	}
+	if um := byID["user-message"]; !(um.AcceptsText && um.ChatDelivery && !um.ServerScoped) {
+		t.Errorf("user-message descriptor = %+v, want acceptsText && chatDelivery && !serverScoped", um)
+	}
+	if ua := byID["update-annotations"]; !(ua.ServerScoped && ua.AcceptsSession) {
+		t.Errorf("update-annotations descriptor = %+v, want serverScoped && acceptsSession", ua)
+	}
+}

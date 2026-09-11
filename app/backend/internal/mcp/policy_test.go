@@ -1,16 +1,17 @@
 package mcp
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
 )
 
-// TestTableShape pins the seeded allowlist: exactly the eleven tools (the ten
-// W1 seeds plus board), every timeout within the cap, and no row exposing a
+// TestTableShape pins the seeded allowlist: exactly the twelve tools (the ten
+// W1 seeds plus board and operator_request), every timeout within the cap, and no row exposing a
 // forbidden flag form.
 func TestTableShape(t *testing.T) {
-	want := []string{"sessions", "panes", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board"}
+	want := []string{"sessions", "panes", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request"}
 	if len(Table) != len(want) {
 		t.Fatalf("Table has %d rows, want %d", len(Table), len(want))
 	}
@@ -120,6 +121,86 @@ func TestTableBoardRow(t *testing.T) {
 	}
 }
 
+// TestTableOperatorRequestRow pins the operator_request Talk row: the path,
+// the closed template enum on the positional, the conditional window flag,
+// the acceptor flags, the --json literal, and the description override naming
+// the window-scoped templates and the queued posture.
+func TestTableOperatorRequestRow(t *testing.T) {
+	row := findRow(t, "operator_request")
+	if row.Path != "operator request" {
+		t.Errorf("path = %q, want %q", row.Path, "operator request")
+	}
+	if row.Result != ResultJSON {
+		t.Errorf("result = %v, want ResultJSON", row.Result)
+	}
+	if row.Annotations.ReadOnly || row.Annotations.Destructive || row.Annotations.Idempotent || row.Annotations.OpenWorld {
+		t.Errorf("annotations = %+v, want all false (a Talk row)", row.Annotations)
+	}
+
+	argsByName := make(map[string]Arg, len(row.Args))
+	var positional *Arg
+	var literals []string
+	for i, arg := range row.Args {
+		if arg.Literal != "" {
+			literals = append(literals, arg.Literal)
+			continue
+		}
+		if arg.Positional != 0 {
+			if positional != nil {
+				t.Errorf("second positional arg %q; want exactly one", arg.Name)
+			}
+			a := row.Args[i]
+			positional = &a
+			continue
+		}
+		argsByName[arg.Name] = arg
+	}
+
+	if positional == nil || positional.Name != "template" || positional.Positional != 1 {
+		t.Fatalf("positional = %+v, want template at slot 1", positional)
+	}
+	if !positional.Required || positional.Type != ArgString {
+		t.Errorf("template = %+v, want a required string", positional)
+	}
+	if !slices.Equal(positional.Enum, operatorTemplateIDs) {
+		t.Errorf("template enum = %v, want the mirrored registry ids %v", positional.Enum, operatorTemplateIDs)
+	}
+	if !slices.IsSorted(operatorTemplateIDs) {
+		t.Errorf("operatorTemplateIDs = %v, want sorted (mirrors the api list order)", operatorTemplateIDs)
+	}
+	if len(operatorTemplateIDs) != 9 {
+		t.Errorf("operatorTemplateIDs has %d ids, want the 9-entry registry", len(operatorTemplateIDs))
+	}
+
+	window, ok := argsByName["window"]
+	if !ok || window.Flag != "--window" || window.Required {
+		t.Errorf("window arg = %+v (present %v), want an optional --window flag", window, ok)
+	}
+	if window.Pattern != `^@\d+$` {
+		t.Errorf("window pattern = %q, want ^@\\d+$", window.Pattern)
+	}
+	for _, name := range []string{"text", "session"} {
+		arg, ok := argsByName[name]
+		if !ok || arg.Flag != "--"+name || arg.Type != ArgString || arg.Required {
+			t.Errorf("%s arg = %+v (present %v), want an optional string flag", name, arg, ok)
+		}
+	}
+	server, ok := argsByName["server"]
+	if !ok || server.Flag != "-L" || server.Required {
+		t.Errorf("server arg = %+v (present %v), want the optional -L mapping", server, ok)
+	}
+	if !slices.Equal(literals, []string{"--json"}) {
+		t.Errorf("literals = %v, want [--json]", literals)
+	}
+
+	for _, want := range []string{"fix-tab-name", "annotate-tab", "user-message", "queued", "--list"} {
+		if !strings.Contains(row.Description, want) {
+			t.Errorf("description missing %q: %q", want, row.Description)
+		}
+		}
+	}
+}
+
 // TestTableNeverTools asserts no row's path names a never-tool.
 func TestTableNeverTools(t *testing.T) {
 	for _, row := range Table {
@@ -132,17 +213,22 @@ func TestTableNeverTools(t *testing.T) {
 }
 
 // TestReadOnlyAnnotations pins the annotation semantics of every See row —
-// the two mutating rows (send, board) carry all-false annotations instead.
+// the three mutating rows (send, board, operator_request) carry all-false annotations instead.
 func TestReadOnlyAnnotations(t *testing.T) {
+	seen := 0
 	for _, row := range Table {
-		if row.Tool == "send" || row.Tool == "board" {
+		if !row.Annotations.ReadOnly {
 			continue
 		}
+		seen++
 		if row.Annotations != readOnlyAnn {
 			t.Errorf("row %q annotations = %+v, want readOnlyAnn", row.Tool, row.Annotations)
 		}
 		if row.Result != ResultJSON {
 			t.Errorf("row %q result = %v, want ResultJSON", row.Tool, row.Result)
 		}
+	}
+	if seen != 9 {
+		t.Errorf("%d read-only rows, want the nine See rows", seen)
 	}
 }

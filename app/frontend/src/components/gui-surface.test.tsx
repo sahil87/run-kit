@@ -6,6 +6,7 @@ import GuiSurface from "./gui-surface";
 import RFB from "@novnc/novnc";
 import { fetchGuiStatus, pingGui } from "@/api/client";
 import { copyToClipboard } from "@/lib/clipboard";
+import { buildGuiActions } from "@/lib/palette/gui";
 
 // Fake RFB: settable plain props, an event registry tests can fire, and vi.fn
 // seams for the verbs. `emit` delivers to every registered listener with a
@@ -151,7 +152,7 @@ function mockBareStatus(hint: string | undefined = WM_HINT) {
 }
 
 function guiProps(overrides: Partial<Parameters<typeof GuiSurface>[0]> = {}) {
-  return {
+  const props = {
     gui: GUI_ON,
     visible: true,
     focused: true,
@@ -174,6 +175,48 @@ function guiProps(overrides: Partial<Parameters<typeof GuiSurface>[0]> = {}) {
     onOpenLogs: vi.fn(),
     ...overrides,
   };
+  // The pill mirrors the palette: the same build app.tsx would produce,
+  // with the pill-consumed rows routed to the seam mocks above.
+  const guiActions =
+    overrides.guiActions ??
+    buildGuiActions({
+      enabled: props.gui?.enabled === true,
+      reachable: props.gui?.reachable === true,
+      backend: props.gui?.backend ?? "",
+      tileOpen: true,
+      connected: true,
+      coarsePointer: props.coarsePointer,
+      zoom: props.zoom,
+      pointerMode: props.pointerMode,
+      resizeLocked: props.resizeLocked,
+      locked: props.gui?.locked ?? false,
+      quality: props.quality,
+      statsVisible: props.statsVisible,
+      hidpi: props.hidpi,
+      keyBarVisible: props.keyBarVisible,
+      geometry: props.gui?.geometry ?? "",
+      supervisorAvailable: true,
+      onTurnOn: vi.fn(),
+      onTurnOff: vi.fn(),
+      loadDesktopRows: vi.fn().mockResolvedValue([]),
+      onLaunch: vi.fn(),
+      onResize: vi.fn(),
+      onResizeCustom: vi.fn(),
+      onMatchTile: vi.fn(),
+      onFullscreen: props.onFullscreen,
+      onPaste: vi.fn(),
+      onZoom: props.onZoomChange,
+      onPointerMode: props.onPointerModeChange,
+      onLockChange: vi.fn(),
+      onQuality: props.onQualityChange,
+      onStatsVisible: props.onStatsVisibleChange,
+      onHidpiChange: vi.fn(),
+      onKeyBarVisibleChange: props.onKeyBarVisibleChange,
+      onSendKey: vi.fn(),
+      onOpenLogs: vi.fn(),
+      onReconnect: vi.fn(),
+    });
+  return { ...props, guiActions };
 }
 
 function guiEl(overrides: Partial<Parameters<typeof GuiSurface>[0]> = {}) {
@@ -1225,9 +1268,13 @@ describe("GuiSurface — the stats seam and overlay", () => {
 });
 
 describe("GuiSurface — toolbar pill contexts", () => {
-  it("a fine-pointer, non-fullscreen viewer never sees the pill", () => {
+  it("a fine-pointer, non-fullscreen viewer gets the pill mounted but hidden; a top-edge hover reveals it", () => {
     renderGui();
     expect(screen.queryByTestId("gui-toolbar")).toBeNull();
+    const wrapper = screen.getByTestId("gui-surface-canvas");
+    // jsdom rects are 0: a move at clientY 10 lands inside the 24px top edge.
+    fireEvent.pointerMove(wrapper, { clientY: 10 });
+    expect(screen.getByTestId("gui-toolbar")).toBeInTheDocument();
   });
 
   it("a coarse-pointer viewer gets the pill in the canvas state", () => {
@@ -1265,14 +1312,25 @@ describe("GuiSurface — toolbar pill contexts", () => {
 
 describe("GuiSurface — the pill's quality and stats slots", () => {
   it("◐ cycles the quality preset and ∿ toggles the overlay through the app.tsx seams", () => {
-    const onQualityChange = vi.fn();
-    const onStatsVisibleChange = vi.fn();
-    renderGui({ coarsePointer: true, quality: "balanced", statsVisible: false, onQualityChange, onStatsVisibleChange });
-    expect(screen.getByLabelText("Quality")).toHaveTextContent("◐ Balanced");
-    fireEvent.click(screen.getByLabelText("Quality"));
-    fireEvent.click(screen.getByLabelText("Toggle stats"));
-    expect(onQualityChange).toHaveBeenCalledWith("smooth");
-    expect(onStatsVisibleChange).toHaveBeenCalledWith(true);
+    // The inline ◐/∿ chips need the wide pill — jsdom's zeroed rects would
+    // fold them into the ⋯ menu (wrapperWidth seeds from the wrapper rect).
+    const wide = {
+      width: 1280, height: 800, top: 0, left: 0, right: 1280, bottom: 800, x: 0, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(wide);
+    try {
+      const onQualityChange = vi.fn();
+      const onStatsVisibleChange = vi.fn();
+      renderGui({ coarsePointer: true, quality: "balanced", statsVisible: false, onQualityChange, onStatsVisibleChange });
+      expect(screen.getByLabelText("Quality")).toHaveTextContent("◐ Balanced");
+      fireEvent.click(screen.getByLabelText("Quality"));
+      fireEvent.click(screen.getByLabelText("Toggle stats"));
+      expect(onQualityChange).toHaveBeenCalledWith("smooth");
+      expect(onStatsVisibleChange).toHaveBeenCalledWith(true);
+    } finally {
+      rectSpy.mockRestore();
+    }
   });
 });
 

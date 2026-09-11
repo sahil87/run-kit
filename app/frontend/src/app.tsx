@@ -56,7 +56,7 @@ import {
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette/move";
 import { buildViewActions } from "@/lib/palette/view";
 import { buildLayoutActions, buildTileSwitchActions } from "@/lib/palette/layout";
-import { buildGuiActions } from "@/lib/palette/gui";
+import { buildGuiActions, type GuiPaletteAction } from "@/lib/palette/gui";
 import { closestAspectPreset } from "@/lib/gui-geometry";
 import { buildDesktopPaletteRows } from "@/lib/gui-desktop";
 import { useDesktopPick } from "@/hooks/use-desktop-pick";
@@ -1483,7 +1483,7 @@ function AppShell() {
       });
     });
   }, [desktopPick, addToast]);
-  const guiActions: PaletteAction[] = useMemo(() => {
+  const guiActions: GuiPaletteAction[] = useMemo(() => {
     if (!windowParam) return [];
     const actions = buildGuiActions({
       enabled: gui?.enabled === true,
@@ -1495,6 +1495,7 @@ function AppShell() {
       zoom: guiZoom,
       pointerMode: guiPointerMode,
       resizeLocked: guiResizeLocked,
+      locked: gui?.locked ?? false,
       quality: guiQuality,
       statsVisible: guiStatsVisible,
       hidpi: guiHidpi,
@@ -5389,6 +5390,8 @@ function AppShell() {
               onGuiRestart={restartGui}
               onGuiOpenLogs={openGuiLogs}
               guiCommandsRef={guiCommandsRef}
+              // The toolbar pill mirrors this exact palette list by row id.
+              guiActions={guiActions}
               // Follow rule: after the seed, the editor's own navigation is
               // the ONLY writer of `@rk_win_code_root`.
               onCodeFolderNavigated={handleCodeFolderNavigated}

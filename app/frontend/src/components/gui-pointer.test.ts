@@ -435,6 +435,20 @@ describe("attachGuiPointer — chrome pass-through", () => {
     expect(chipSpy).toHaveBeenCalledOnce();
     expect(rfb.focus).not.toHaveBeenCalled();
   });
+
+  it("a touch targeted at a toolbar menu row passes through — no gesture state, no swallow", () => {
+    const { wrapper, rfb } = setup();
+    const menu = document.createElement("div");
+    menu.setAttribute("data-testid", "gui-toolbar-menu");
+    const row = document.createElement("button");
+    menu.appendChild(row);
+    wrapper.appendChild(menu);
+    const rowSpy = vi.fn();
+    row.addEventListener("touchstart", rowSpy);
+    expect(row.dispatchEvent(touch("touchstart", [{ id: 1, x: 5, y: 5 }]))).toBe(true);
+    expect(rowSpy).toHaveBeenCalledOnce();
+    expect(rfb.focus).not.toHaveBeenCalled();
+  });
 });
 
 describe("attachGuiPointer — coalesced and simultaneous two-finger delivery", () => {

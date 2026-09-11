@@ -19,6 +19,7 @@ import { attachGuiPointer } from "./gui-pointer";
 import { GuiKeyBar } from "./gui-keybar";
 import { GuiStatsOverlay } from "./gui-stats-overlay";
 import { GuiToolbar, TOOLBAR_REVEAL_EDGE_PX } from "./gui-toolbar";
+import type { GuiPaletteAction } from "@/lib/palette/gui";
 import { zoomedHostSize } from "@/lib/gui-posture";
 
 /**
@@ -99,17 +100,17 @@ import { zoomedHostSize } from "@/lib/gui-posture";
  *   no-op without a live RFB. Its visibility is the per-viewer
  *   `rk-gui-keybar` posture (the `keyBarVisible` prop).
  * - **Toolbar pill**: a `GuiToolbar` (gui-toolbar.tsx) mounts in the canvas
- *   state when the viewer is coarse-pointer OR this wrapper is the document's
- *   fullscreen element — the two contexts where the palette is unreachable or
- *   clumsy; a fine-pointer non-fullscreen viewer never sees it, and the
- *   credentials prompt suppresses it. It auto-hides 3 s after the last
- *   reveal; the wrapper's pointerdown (a tap) and, while fullscreen, a
- *   pointermove within TOOLBAR_REVEAL_EDGE_PX of the top edge bump the
- *   `revealSignal` counter that re-shows it. Every chip rides the same
- *   callbacks the palette rows call (the props are app.tsx's handlers,
- *   threaded unchanged) — including the ◐ quality cycle and the ∿ stats
- *   toggle, fed from the tile's `quality`/`statsVisible` props and the
- *   `onQualityChange`/`onStatsVisibleChange` seams.
+ *   state for EVERY viewer (only the credentials prompt suppresses it); the
+ *   reveal differs by pointer kind — coarse viewers and fullscreen start
+ *   shown, a fine-pointer non-fullscreen viewer starts hidden and appears
+ *   on a pointermove within TOOLBAR_REVEAL_EDGE_PX of the wrapper's top
+ *   edge (fullscreen or not) or on a tap. Entering fullscreen bumps the
+ *   `revealSignal` counter so the always-mounted pill shows on entry. The
+ *   pill hides 3 s after the last reveal or interaction, suspended while
+ *   one of its menus is open. It consumes the `guiActions` prop — the same
+ *   built `GUI:` palette list app.tsx feeds the palette — firing rows by
+ *   id; a ResizeObserver on the wrapper feeds it `wrapperWidth` for the
+ *   overflow fold.
  * - **HiDPI**: with `hidpi` on (`rk-gui-hidpi`) the sized host's CSS size
  *   divides by `window.devicePixelRatio` (zoomedHostSize), so a 100% zoom
  *   maps one framebuffer pixel to one device pixel — crisp 1:1 on a Retina
@@ -203,6 +204,9 @@ interface GuiSurfaceProps {
   focused: boolean;
   /** Coarse pointer — never drives resize; the pan/trackpad layers key on it. */
   coarsePointer: boolean;
+  /** The built `GUI:` palette list app.tsx feeds the palette — the toolbar
+   *  pill mirrors it by row id (Constitution V). */
+  guiActions: GuiPaletteAction[];
   /** Per-viewer RFB quality posture (localStorage `rk-gui-quality`, owned by
    *  app.tsx) — the named preset mapped onto `qualityLevel`/`compressionLevel`. */
   quality: GuiQuality;
@@ -218,18 +222,21 @@ interface GuiSurfaceProps {
   pointerMode: GuiPointerMode;
   /** Zoom-change seam (chords, Ctrl+wheel); app.tsx owns persistence. */
   onZoomChange: (z: GuiZoom) => void;
-  /** Pointer-mode seam for the toolbar pill's ⌖ chip (app.tsx owns persistence). */
+  /** Pointer-mode seam (app.tsx owns persistence); the palette rows and the
+   *  pill's ⌖ chip fire it through `guiActions`. */
   onPointerModeChange: (m: GuiPointerMode) => void;
   /** HiDPI posture (`rk-gui-hidpi`): divides the percentage-zoom host CSS size
    *  by `devicePixelRatio` — rendering only, never server-facing. */
   hidpi: boolean;
   /** Key-bar visibility posture (`rk-gui-keybar`). */
   keyBarVisible: boolean;
-  /** Key-bar visibility seam for the toolbar pill's ⌨ chip. */
+  /** Key-bar visibility seam (the pill's ⌨ chip fires it through `guiActions`). */
   onKeyBarVisibleChange: (visible: boolean) => void;
-  /** Quality preset seam (the pill's ◐ cycles it); app.tsx owns persistence. */
+  /** Quality preset seam; app.tsx owns persistence (the pill's ◐ fires it
+   *  through `guiActions`). */
   onQualityChange: (q: GuiQuality) => void;
-  /** Stats overlay visibility seam (the pill's ∿); app.tsx owns persistence. */
+  /** Stats overlay visibility seam; app.tsx owns persistence (the pill's ∿
+   *  fires it through `guiActions`). */
   onStatsVisibleChange: (visible: boolean) => void;
   /** The fullscreen toggle verb (app.tsx's guiFullscreen — exits when fullscreen). */
   onFullscreen: () => void;
@@ -256,6 +263,7 @@ export default function GuiSurface({
   visible,
   focused,
   coarsePointer,
+  guiActions,
   quality,
   statsVisible,
   zoom,
@@ -324,9 +332,12 @@ export default function GuiSurface({
   // is the element the verb requests fullscreen on.
   const [fullscreen, setFullscreen] = useState(false);
   // The toolbar pill's reveal signal — a counter bumped by a tap on the tile
-  // (pointerdown capture below) and, while fullscreen, by a pointermove near
-  // the top edge; GuiToolbar owns the show/auto-hide machine.
+  // (pointerdown capture below), by a pointermove near the top edge, and on
+  // fullscreen entry; GuiToolbar owns the show/auto-hide machine.
   const [revealSignal, setRevealSignal] = useState(0);
+  // The wrapper's measured width — the pill's overflow fold and the
+  // resolution chip's short label key on it (never the viewport).
+  const [wrapperWidth, setWrapperWidth] = useState(0);
   // An in-flight fine-pointer pan drag; its window-level listeners' remover.
   const panCleanupRef = useRef<(() => void) | null>(null);
   // Reentrancy guard for the replayed click (it bubbles through this
@@ -399,11 +410,32 @@ export default function GuiSurface({
 
   // Fullscreen flips arrive only as DOM events (the verb is a callback, Esc
   // bypasses it entirely) — track whether THIS wrapper is the fullscreen
-  // element for the toolbar pill's second context.
+  // element. Entering fullscreen bumps the pill's reveal signal so the
+  // always-mounted pill shows on entry (it no longer remounts).
   useEffect(() => {
-    const onFsChange = () => setFullscreen(document.fullscreenElement === wrapperRef.current);
+    const onFsChange = () => {
+      const isFullscreen = document.fullscreenElement === wrapperRef.current;
+      setFullscreen(isFullscreen);
+      if (isFullscreen) setRevealSignal((n) => n + 1);
+    };
     document.addEventListener("fullscreenchange", onFsChange);
     return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  // The wrapper width for the pill's overflow fold — a ResizeObserver where
+  // it exists (jsdom has none: the seed stays the initial rect), seeded from
+  // the layout rect.
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    setWrapperWidth(el.getBoundingClientRect().width);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setWrapperWidth(entry.contentRect.width);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
 
   // The 15s hidden-disconnect rule: invisible starts the budget, visible
@@ -934,8 +966,8 @@ export default function GuiSurface({
         setRevealSignal((n) => n + 1);
       }}
       onPointerMove={(e) => {
-        // Fullscreen reveal: hover near the top edge shows the pill.
-        if (!fullscreen) return;
+        // Top-edge reveal: hover near the wrapper's top edge shows the pill
+        // for every viewer (fullscreen or not).
         const top = wrapperRef.current?.getBoundingClientRect().top ?? 0;
         if (e.clientY - top <= TOOLBAR_REVEAL_EDGE_PX) setRevealSignal((n) => n + 1);
       }}
@@ -1046,25 +1078,28 @@ export default function GuiSurface({
           }}
         />
       ) : null}
-      {/* The session toolbar pill: the coarse/fullscreen mirror of the
-          palette's GUI: rows (fine-pointer non-fullscreen viewers have the
-          palette and never see it). Its chips call the same callbacks the
-          palette rows call; the trackpad layer passes its touches through
-          (it is chrome, per CHROME_SELECTOR). */}
-      {(coarsePointer || fullscreen) && !credentials ? (
+      {/* The session toolbar pill: mounted for EVERY canvas-state viewer
+          (the credentials prompt suppresses it); only the reveal differs by
+          pointer kind. Every chip and menu row fires a row of `guiActions`
+          by id — the same array the palette renders; the trackpad layer
+          passes its touches through (it is chrome, per CHROME_SELECTOR). */}
+      {!credentials ? (
         <GuiToolbar
+          actions={guiActions}
           zoom={zoom}
           pointerMode={pointerMode}
           coarsePointer={coarsePointer}
           fullscreen={fullscreen}
           keyBarVisible={keyBarVisible}
+          quality={quality}
+          statsVisible={statsVisible}
+          connected={connected}
+          geometry={gui.geometry}
+          width={gui.width}
+          height={gui.height}
+          locked={gui.locked}
+          wrapperWidth={wrapperWidth}
           revealSignal={revealSignal}
-          onZoom={onZoomChange}
-          onPointerMode={onPointerModeChange}
-          onKeyBarVisibleChange={onKeyBarVisibleChange}
-          onFullscreen={onFullscreen}
-          quality={{ value: quality, onChange: onQualityChange }}
-          stats={{ visible: statsVisible, onVisibleChange: onStatsVisibleChange }}
         />
       ) : null}
       {/* The zoom badge cedes the corner to the stats overlay while it is

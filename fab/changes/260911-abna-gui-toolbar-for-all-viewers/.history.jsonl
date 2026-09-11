@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-11T16:41:33Z"}
+{"args":"Toolbar — mount-for-all + hover reveal, resolution menu chip, fullscreen toggle, launch/input/health chips, ⋯ overflow by width (T1 of fab/plans/sahil/26-09-11-gui-desktop-reference-and-toolbar.md)","cmd":"fab-new","event":"command","ts":"2026-09-11T16:41:33Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-11T16:46:42Z"}
+{"delta":"-0.1","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-11T16:46:56Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-11T17:02:07Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-11T17:02:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-11T17:03:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-11T18:00:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-11T18:07:25Z"}
+{"event":"review","result":"passed","ts":"2026-09-11T18:07:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-11T18:13:09Z"}

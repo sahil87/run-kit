@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { buildGuiActions, type GuiPaletteInput } from "./gui";
+import { buildGuiActions, pickGuiActions, stripGuiLabel, type GuiPaletteInput } from "./gui";
 
 function input(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput {
   return {
@@ -12,6 +12,7 @@ function input(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput {
     zoom: "fit",
     pointerMode: "touch",
     resizeLocked: false,
+    locked: false,
     quality: "balanced",
     statsVisible: false,
     geometry: "auto",
@@ -410,8 +411,7 @@ describe("buildGuiActions — resolution rows", () => {
     expect(ids(input({ enabled: false })).some((id) => id.startsWith("gui-res-"))).toBe(false);
   });
 
-  it("onSelect routes: presets and Auto to onResize, Custom… to onResizeCustom, Match to onMatchTile", () => {
-    const inp = input({ geometry: "1920x1080" });
+  it("onSelect routes: presets and Auto to onResize, Custom… to onResizeCustom, Match to onMatchTile", () => {    const inp = input({ geometry: "1920x1080" });
     const actions = buildGuiActions(inp);
     actions.find((a) => a.id === "gui-res-1600x900")!.onSelect();
     expect(inp.onResize).toHaveBeenCalledWith("1600x900");
@@ -563,5 +563,75 @@ describe("buildGuiActions — key bar pair", () => {
     const closed = ids(input({ tileOpen: false, coarsePointer: true }));
     expect(closed).not.toContain("gui-keybar-hide");
     expect(closed).not.toContain("gui-keybar-show");
+  });
+});
+
+describe("buildGuiActions — the locked host pin", () => {
+  it("disables every gui-res-* row with the `locked` description, replacing `current`", () => {
+    const actions = buildGuiActions(input({ locked: true, geometry: "1920x1080" }));
+    const resRows = actions.filter((a) => a.id.startsWith("gui-res-"));
+    expect(resRows.map((a) => a.id)).toEqual([
+      "gui-res-1280x720",
+      "gui-res-1600x900",
+      "gui-res-1920x1080",
+      "gui-res-2560x1440",
+      "gui-res-1080x1920",
+      "gui-res-match",
+      "gui-res-custom",
+      "gui-res-auto",
+    ]);
+    for (const row of resRows) {
+      expect(row.disabled).toBe(true);
+      expect(row.description).toBe("locked");
+    }
+    // The lock pair's own semantics are untouched by the host pin.
+    const lock = actions.find((a) => a.id === "gui-lock")!;
+    expect(lock.disabled).toBe(true);
+    expect(lock.description).toBe(
+      "resolution is fixed (1920×1080) — pick Auto to follow the tile",
+    );
+  });
+
+  it("leaves every gui-res-* row enabled when unlocked", () => {
+    const actions = buildGuiActions(input({ locked: false, geometry: "1920x1080" }));
+    for (const row of actions.filter((a) => a.id.startsWith("gui-res-"))) {
+      expect(row.disabled).toBeFalsy();
+    }
+    expect(actions.find((a) => a.id === "gui-res-1920x1080")!.description).toBe("current");
+  });
+});
+
+describe("pickGuiActions", () => {
+  it("selects by id in the order `ids` gives; absent ids are absent", () => {
+    const actions = buildGuiActions(input({ geometry: "1920x1080" }));
+    const picked = pickGuiActions(actions, [
+      "gui-res-auto",
+      "gui-res-1280x720",
+      "gui-absent",
+      "gui-lock",
+    ]);
+    expect(picked.map((a) => a.id)).toEqual(["gui-res-auto", "gui-res-1280x720", "gui-lock"]);
+    // The picked rows ARE the list's own objects (same onSelect identity).
+    expect(picked[1]).toBe(actions.find((a) => a.id === "gui-res-1280x720")!);
+  });
+
+  it("returns an empty list when no id matches", () => {
+    expect(pickGuiActions(buildGuiActions(input()), ["gui-nope"])).toEqual([]);
+  });
+});
+
+describe("stripGuiLabel", () => {
+  it("strips the GUI: prefix and an optional arrow prefix", () => {
+    expect(stripGuiLabel("GUI: Resolution → 1280×720", "Resolution → ")).toBe("1280×720");
+    expect(stripGuiLabel("GUI: Resolution → 1080×1920 (portrait)", "Resolution → ")).toBe(
+      "1080×1920 (portrait)",
+    );
+    expect(stripGuiLabel("GUI: Open terminal")).toBe("Open terminal");
+    expect(stripGuiLabel("GUI: Lock resolution")).toBe("Lock resolution");
+  });
+
+  it("leaves labels without the prefixes unchanged", () => {
+    expect(stripGuiLabel("Open terminal")).toBe("Open terminal");
+    expect(stripGuiLabel("GUI: Open terminal", "Resolution → ")).toBe("Open terminal");
   });
 });

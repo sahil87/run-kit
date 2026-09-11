@@ -33,6 +33,7 @@ import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import type { GuiSignal } from "@/contexts/session-context";
 import type { GuiPointerMode, GuiQuality, GuiZoom } from "@/lib/gui-posture";
 import type { GuiRestartResult, GuiSurfaceCommands } from "@/components/gui-surface";
+import type { GuiPaletteAction } from "@/lib/palette/gui";
 
 // noVNC's core is ~150 KB min — the gui tile lazy-loads so tabs that never
 // open it pay nothing.
@@ -252,6 +253,10 @@ interface SurfaceLayoutProps {
   /** Filled with the gui tile's imperative seams (paste/reconnect) while an
    *  RFB is live — the palette's `GUI:` verbs drive them. */
   guiCommandsRef?: { current: GuiSurfaceCommands | null };
+  /** The memoized `buildGuiActions` output app.tsx feeds the palette (the
+   *  zen-fallback description patch included) — the gui tile's toolbar pill
+   *  mirrors it by row id. */
+  guiActions?: GuiPaletteAction[];
   /** Follow-the-editor passthrough (260813-if5d R3): handed straight to the code
    *  tile's `CodeSurface`, which reports the folder the EDITOR navigated itself
    *  to. The parent latches it — this component only carries the prop. */
@@ -611,6 +616,7 @@ export function SurfaceLayout({
   onGuiRestart,
   onGuiOpenLogs,
   guiCommandsRef,
+  guiActions = [],
   onCodeFolderNavigated,
   codeWorkspaceSrc,
   codeFollowSrc,
@@ -1664,6 +1670,7 @@ export function SurfaceLayout({
               onRestart={onGuiRestart}
               onOpenLogs={onGuiOpenLogs}
               commandsRef={guiCommandsRef}
+              guiActions={guiActions}
               shouldReclaimChord={shouldReclaimChord?.("gui")}
               onInteract={
                 slot >= 0

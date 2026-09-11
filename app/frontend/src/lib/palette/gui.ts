@@ -29,7 +29,11 @@
  *                                 `Custom…` (the caller's prompt), and `Auto
  *                                 (follow this tile)` (hidden while the
  *                                 setting already reads `auto` — the
- *                                 destination-only rule).
+ *                                 destination-only rule). While the host pin
+ *                                 (`locked`) is set, EVERY `gui-res-*` row
+ *                                 renders DISABLED with the description
+ *                                 `locked` (replacing `current`), so the
+ *                                 palette and the toolbar pill agree.
  *  - `GUI: Quality → Sharp / Balanced / Smooth` — the launch rows' gate,
  *                                 right after the Resolution rows; fixed
  *                                 descriptions with ` · current` on the
@@ -83,6 +87,10 @@
  * The `gui-toggle` chord (⌘4/⇧Ctrl+4) is NOT built here — its palette parity
  * comes from the registry-inherited `Tile: Show/Hide/Focus GUI` rows plus
  * `withShortcutHints` on the actionId.
+ *
+ * The toolbar pill (components/gui-toolbar.tsx) consumes this SAME list by
+ * stable id (`pickGuiActions`) — no new rows may be added for the pill, and
+ * no pill-only state may live here beyond the `locked` gate.
  */
 
 import type { GuiLaunchApp } from "../../api/client";
@@ -121,6 +129,10 @@ export type GuiPaletteInput = {
   /** The viewer's pointer mode (`rk-gui-pointer`). */
   pointerMode: GuiPointerMode;
   resizeLocked: boolean;
+  /** The host signal's `locked` (the `rk gui lock` pin) — while set, every
+   *  `gui-res-*` row is disabled with the description `locked` (a host-side
+   *  pin, unlike the viewer-local `resizeLocked`). */
+  locked: boolean;
   /** The viewer's quality preset (`rk-gui-quality`). */
   quality: GuiQuality;
   /** The viewer's stats overlay visibility (`rk-gui-stats-visible`). */
@@ -174,6 +186,10 @@ const GUI_QUALITY_ROWS: { quality: GuiQuality; description: string }[] = [
 
 export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
   const actions: GuiPaletteAction[] = [];
+  /** The host-pin gate on every `gui-res-*` row: while locked the size verbs
+   *  stay visible but inert, saying why (the palette's disabled idiom). */
+  const resGate = (row: GuiPaletteAction): GuiPaletteAction =>
+    input.locked ? { ...row, disabled: true, description: "locked" } : row;
   if (!input.enabled) {
     actions.push({ id: "gui-turn-on", label: "GUI: Turn on", onSelect: input.onTurnOn });
     return actions;
@@ -197,34 +213,42 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
       { id: "gui-open-browser", label: "GUI: Open browser", onSelect: () => input.onLaunch("browser") },
     );
     for (const preset of GUI_GEOMETRY_PRESETS) {
-      actions.push({
-        id: `gui-res-${preset}`,
-        label: `GUI: Resolution → ${presetLabel(preset)}`,
-        ...(preset === input.geometry ? { description: "current" } : {}),
-        onSelect: () => input.onResize(preset),
-      });
+      actions.push(
+        resGate({
+          id: `gui-res-${preset}`,
+          label: `GUI: Resolution → ${presetLabel(preset)}`,
+          ...(preset === input.geometry ? { description: "current" } : {}),
+          onSelect: () => input.onResize(preset),
+        }),
+      );
     }
     // Match measures the open tile — without one there is nothing to measure.
     if (input.tileOpen) {
-      actions.push({
-        id: "gui-res-match",
-        label: "GUI: Resolution → Match this tile",
-        onSelect: input.onMatchTile,
-      });
+      actions.push(
+        resGate({
+          id: "gui-res-match",
+          label: "GUI: Resolution → Match this tile",
+          onSelect: input.onMatchTile,
+        }),
+      );
     }
-    actions.push({
-      id: "gui-res-custom",
-      label: "GUI: Resolution → Custom…",
-      onSelect: input.onResizeCustom,
-    });
+    actions.push(
+      resGate({
+        id: "gui-res-custom",
+        label: "GUI: Resolution → Custom…",
+        onSelect: input.onResizeCustom,
+      }),
+    );
     // Destination-only: Auto hides while the setting already reads `auto`.
     if (input.geometry !== "auto") {
-      actions.push({
-        id: "gui-res-auto",
-        label: "GUI: Resolution → Auto (follow this tile)",
-        description: "today's behavior — the desktop follows the focused fine-pointer viewer",
-        onSelect: () => input.onResize("auto"),
-      });
+      actions.push(
+        resGate({
+          id: "gui-res-auto",
+          label: "GUI: Resolution → Auto (follow this tile)",
+          description: "today's behavior — the desktop follows the focused fine-pointer viewer",
+          onSelect: () => input.onResize("auto"),
+        }),
+      );
     }
     for (const row of GUI_QUALITY_ROWS) {
       actions.push({
@@ -353,4 +377,30 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
   });
 
   return actions;
+}
+
+/** Pick rows out of a built `GUI:` list by stable id, in the order `ids`
+ *  gives (the caller owns the menu's row order); absent ids are simply
+ *  absent. */
+export function pickGuiActions(
+  actions: readonly GuiPaletteAction[],
+  ids: readonly string[],
+): GuiPaletteAction[] {
+  const byId = new Map(actions.map((a) => [a.id, a]));
+  const out: GuiPaletteAction[] = [];
+  for (const id of ids) {
+    const row = byId.get(id);
+    if (row) out.push(row);
+  }
+  return out;
+}
+
+/** `GUI: Resolution → 1280×720` → `1280×720` (arrowPrefix `Resolution → `);
+ *  `GUI: Open terminal` → `Open terminal`. A label without the prefixes
+ *  passes through unchanged. */
+export function stripGuiLabel(label: string, arrowPrefix?: string): string {
+  const stripped = label.startsWith("GUI: ") ? label.slice("GUI: ".length) : label;
+  return arrowPrefix && stripped.startsWith(arrowPrefix)
+    ? stripped.slice(arrowPrefix.length)
+    : stripped;
 }

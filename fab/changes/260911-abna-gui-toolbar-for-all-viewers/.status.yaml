@@ -1,0 +1,55 @@
+id: abna
+name: 260911-abna-gui-toolbar-for-all-viewers
+created: 2026-09-11T16:41:33Z
+created_by: sahil87
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 32
+    acceptance_completed: 32
+confidence:
+    certain: 8
+    confident: 9
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 83.2
+        reversibility: 84.7
+        competence: 85.9
+        disambiguation: 78.5
+stage_metrics:
+    intake: {started_at: "2026-09-11T16:41:33Z", driver: fab-new, iterations: 1, completed_at: "2026-09-11T17:03:22Z"}
+    apply: {started_at: "2026-09-11T17:03:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:00:23Z"}
+    review: {started_at: "2026-09-11T18:00:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:07:25Z"}
+    hydrate: {started_at: "2026-09-11T18:07:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:13:09Z"}
+    ship: {started_at: "2026-09-11T18:13:09Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-11T18:13:09Z"
+    computed_at_stage: hydrate
+summary: GUI toolbar pill mounts for every viewer with hover reveal, a status-labelled resolution menu chip, fullscreen toggle, launch/input/health chips, and a width-based ⋯ overflow
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-11T18:13:09Z

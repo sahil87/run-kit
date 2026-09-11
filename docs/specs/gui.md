@@ -316,23 +316,42 @@ the design log for this subsection.
 
 ### The toolbar pill, HiDPI, and Send key
 
-A floating session-toolbar pill rides top-center of the tile in exactly two
-contexts — a coarse-pointer viewer, or a fullscreen tile (fine or coarse) —
-the two places the palette is unreachable or clumsy; a fine-pointer
-non-fullscreen viewer never sees it, and the empty/credentials states never
-show it. It appears on mount, on a tap on the tile (coarse), and on pointer
-movement within 24 px of the tile's top edge (fullscreen), and hides 3 s
-after the last reveal or pill interaction. Its controls — `−`/`fit`/`+`
-zoom, the pointer-mode toggle and key-bar toggle (coarse only), the quality
-cycle (`◐ Balanced` → Sharp → Balanced → Smooth), the stats toggle (`∿`),
-exit fullscreen (fullscreen only) — call the same callbacks the corresponding
-palette rows call: the pill is the coarse-and-fullscreen *mirror* of the
-`GUI:` family, never a separate action surface (Constitution V), so the key
-bar's visibility is the per-viewer posture `rk-gui-keybar` (`0` = hidden,
-absent = shown) with the palette pair `GUI: Hide/Show key bar`. The pill is
-chrome for the trackpad translation layer (its taps are never gestures).
-Decision V-D10 of `fab/plans/sahil/26-09-10-gui-viewer-ergonomics.md` is the
-design log for this paragraph.
+A floating session-toolbar pill rides top-center of the tile for **every**
+viewer of the canvas state — the empty and credentials states never mount it
+— and only the reveal differs by pointer: coarse viewers see it on mount and
+on a tap on the tile; fine-pointer viewers start without it and see it on
+pointer movement within 24 px of the tile's top edge, fullscreen or not
+(entering fullscreen also reveals it, as a fresh mount used to). It hides 3 s
+after the last reveal or pill/menu interaction, suspended while one of its
+menus is open. Its chips sit in 1-px-divided groups — Display: a resolution
+status chip and the fullscreen toggle `⤢` (present for every viewer, toggling
+enter/exit); View: `−`/`fit`/`+` zoom and the quality cycle (`◐ Balanced` →
+Sharp → Balanced → Smooth); Input: the pointer-mode toggle and key-bar toggle
+(coarse only), paste `⎘` and send key `⌥` (connected); Launch: open terminal
+`▣` / browser `◍`; Health: the stats toggle `∿` and reconnect `↻` — and every
+chip and menu row IS a `GUI:` palette row selected by stable id, invoking
+that row's own callback with no logic of its own (Constitution V), so the key
+bar's visibility stays the per-viewer posture `rk-gui-keybar` (`0` = hidden,
+absent = shown) with the palette pair `GUI: Hide/Show key bar`, and Turn off
+/ Desktop… / logs / HiDPI / 1:1 remain palette-only. The resolution chip
+reads the live desktop size — `1920×1080 ▾`, `auto ▾` under the follow-the-
+tile policy, a `🔒` prefix while the host pin is set, a short `1920 ▾` form
+below 400 px of tile width — and changes it only through a second deliberate
+tap on a menu row (the palette's Resolution and Lock rows: `current` marked
+with the check, every size row disabled `locked` while the host pin is set):
+the chip-then-row path is the mis-tap guard for a host setting on a shared
+desktop behind a 3-second auto-hiding pill. Below 560 px of tile width the
+rest of the inventory folds under a `⋯` chip's menu (quality, paste, send
+key, launch, stats, reconnect), so a 375-px phone fits one row and a narrow
+split tile stays honest; overflow is decided by tile width, never pointer
+kind. Both menus anchor under their chip inside the tile, one monospace
+column of menu rows with `label — description`, roving with ↑/↓, closing on
+pick, Escape, or an outside tap. The pill and its menus are chrome for the
+trackpad translation layer (their touches are never gestures). This paragraph
+amends decision V-D10's two-context rule (fine-pointer non-fullscreen viewers
+now get the hover reveal); decisions T-D1–T-D7 of
+`fab/plans/sahil/26-09-11-gui-desktop-reference-and-toolbar.md` are the
+design log.
 
 HiDPI is an opt-in per-viewer posture, `rk-gui-hidpi` (default off), with the
 palette pair `GUI: HiDPI on` / `off`. On, it divides the percentage-zoom host

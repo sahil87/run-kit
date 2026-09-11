@@ -45,11 +45,13 @@ share the pane-level primitives in `internal/tmux/pane_target.go`. Delivery
 reuses the hardened injection engine the daemon's compose-send route also drives
 — the
 shared `internal/inject` package ([agent-send](/run-kit/agent-send.md) § Send Path) — so the
-daemon route and the CLI verb run ONE implementation. The MCP `send` tool is an
-argv door onto the same engine — one invocation of `rk mux send <target> -`
-with the body on stdin, served by the `rk mcp` stdio server
-([mcp](/run-kit/mcp.md)); its receipt is the verb's text report word until the
-`--json` envelope lands. (260910-nuf6-rk-mcp-stdio)
+daemon route and the CLI verb run ONE implementation. The MCP `send`/`answer` tools are argv
+doors onto the same engine — one invocation of `rk mux send <target> -` with
+the body on stdin for `send`, the `--answer`/`--key` forms for `answer` —
+served by the `rk mcp` stdio server alongside the `await` tool
+([mcp](/run-kit/mcp.md)); the tools' receipts are the verbs' `--json` envelope
+documents (see the report-contract requirements). (260910-nuf6-rk-mcp-stdio)
+(260911-i2vm-cli-send-await-receipts)
 
 The family parent (`muxCmd`, `cmd/rk/mux.go`) presents the thirteen members in
 three cobra command groups — *Messaging* (`send`, `await`), *Pane mechanics*
@@ -241,6 +243,24 @@ fab's pane-family 2/3 scheme. The same code convention binds the substrate
 twins: a missing pane is operational (1), a bad target or flag combination is
 usage (2).
 
+Under `--json` stdout carries exactly one envelope document instead of the
+report line (the `unverified %N` line is suppressed — the fact travels as the
+error's `reason`): success is
+`{"ok":true,"result":{"report":<word>,"target":"%N","server":"<name>","enter":<bool>}}`
+with `enter` true only for `delivered` (a `--key` send is not the engine's
+probe-gated Enter, even when the key is Enter); failure is
+`{"ok":false,"error":{"code","message","hint"?,"reason"?}}` where `code` is
+`usage` for the usage-error class (exit 2) and `operational` otherwise (exit
+1), `message` is the same text stderr carries, and the three engine sentinels
+reuse the `/send` route's 409 codes as `reason` with a machine-neutral `hint`:
+`probe_failure` (`check the pane before resending; a resend would duplicate
+the staged text`), `staged_send_failure` (`press Enter in the pane to
+submit`), `submit_unverified` (`capture the pane before resending`); a
+`waiting` gate refusal carries the hint `use --answer if this send is the
+reply the agent waits for`. The error is still returned, so exit codes and
+stderr are byte-identical to the text mode — `ok` mirrors the exit code by
+construction. (260911-i2vm-cli-send-await-receipts)
+
 ### Requirement: `rk mux await` observer
 `rk mux await [--any] <target>... [--until <state>[,<state>]] [--file <path>]
 [--after-active] [--ready] [--timeout <secs>] [--notify[=msg]]` SHALL block until any
@@ -282,6 +302,20 @@ fires (default message `agent <target> is <report>`; under `--any`,
 `await --any is <report>` for `file`/`running`). The observer loop rides the
 caller's parent context with only per-read timeouts (`awaitCmdTimeout` 5s) on
 individual tmux reads, so a wait can outlive any single read by minutes.
+
+Under `--json` the report travels as exactly one envelope document instead of
+the line: success is
+`{"ok":true,"result":{"report":<word>,"target":"%N"?,"elapsed_ms":<int>,"detail":"…"?,"hint":"…"?}}`
+— `target` omitted for the bare words `file`/`running` (under `--any` it is
+the firing pane), `elapsed_ms` the observe-phase wall time measured after
+target resolution, `detail` only for `ready` (`state`/`echo`) and `narrow`
+(`WxH`) — and `running` stays a success (`ok:true`, exit 0) carrying
+`hint:"call again"`. `gone` is
+`{"ok":false,"error":{"code":"operational","reason":"gone",…}}` with exit 1
+(the pane is named in the message, never the error object); an uninstrumented
+pane with no `--file` is operational without a reason; in-`RunE` usage errors
+are `code:"usage"`, exit 2. `--notify` composes unchanged, and the text mode
+is byte-identical without the flag. (260911-i2vm-cli-send-await-receipts)
 
 **`--ready` is the boot-readiness condition** — a single-pane wait (no `--any`)
 for the moment a freshly spawned agent is safe to type into, driven by
@@ -409,6 +443,15 @@ verdict propagates as the final report (stdout) with exit 1. `--await` with
 bounds the await phase (observer only); the one-shot delivery phase runs under
 its own 5s `muxCmdTimeout` while the await rides the parent context, so the
 full `--timeout` is reachable.
+
+Under `--json --await` the delivery receipt keeps its `report` and nests the
+await phase's receipt under `result.await` (its `elapsed_ms` measures the
+whole await phase — grace watch plus observer). A `gone` after a successful
+delivery is `ok:false` with `reason:"gone"` and the hint `the message was
+delivered before the pane died`, exit 1; an await that cannot start (e.g. an
+uninstrumented pane) is `ok:false` with the await error as the message and the
+hint `delivered; the wait could not start`, exit 1.
+(260911-i2vm-cli-send-await-receipts)
 
 #### Scenario: Ask-and-wait in one call
 - **GIVEN** `rk mux send %5 "question" --await --timeout 120`

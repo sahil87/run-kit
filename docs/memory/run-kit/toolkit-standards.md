@@ -360,7 +360,12 @@ surface measured against the same checks
   `outputSink`: the report is `Dataf` (survives `--quiet`), the gate's
   unknown-state warning and other diagnostics are chatter on stderr.
   `--notify`'s send failure is the documented fail-silent exception (the
-  `rk notify` contract), not a Principle 9 violation.
+  `rk notify` contract), not a Principle 9 violation. Both verbs also carry an
+  opt-in `--json` flag (260911-i2vm-cli-send-await-receipts): bounded by
+  construction — exactly one envelope document on stdout with the human report
+  line suppressed and exit codes unchanged — so the one-line-report posture
+  holds in both modes, and help-dump publishes the flags via `UsageString`
+  with no tree change.
 - **Exit-code convention (P4)** — 0 success (including `running` on timeout —
   the bound belongs to the observer, never the pane), 1 operational (gate
   refusal, probe failure, submit-unverified outcome, missing target, tmux

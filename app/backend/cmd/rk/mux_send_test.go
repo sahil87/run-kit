@@ -297,12 +297,14 @@ func resetMuxFlags() {
 	muxSendKeysFlag = nil
 	muxSendAnswerFlag, muxSendForceFlag, muxSendNoEnterFlag = false, false, false
 	muxSendAwaitFlag, muxSendTimeoutFlag = "", awaitDefaultTimeoutSec
+	muxSendJSONFlag = false
 	awaitUntilFlag, awaitFileFlag = tmux.AgentStateIdle, ""
 	awaitAfterActiveFlag = false
 	awaitTimeoutFlag = awaitDefaultTimeoutSec
 	awaitNotifyFlag = ""
 	awaitAnyFlag = false
 	awaitReadyFlag = false
+	awaitJSONFlag = false
 	muxCaptureLinesFlag = 50
 	muxCaptureJSONFlag, muxCaptureRawFlag, muxCaptureClassifyFlag = false, false, false
 	muxKillForceFlag = false
@@ -310,8 +312,8 @@ func resetMuxFlags() {
 	muxPanesJSONFlag = false
 	muxSessionsJSONFlag, muxSessionsAllFlag = false, false
 	muxNewEphemeralFlag = false
-	resetFlagChanged(muxSendCmd, "key", "answer", "force", "no-enter", "await", "timeout")
-	resetFlagChanged(muxAwaitCmd, "until", "file", "after-active", "timeout", "notify", "ready")
+	resetFlagChanged(muxSendCmd, "key", "answer", "force", "no-enter", "await", "timeout", "json")
+	resetFlagChanged(muxAwaitCmd, "until", "file", "after-active", "timeout", "notify", "ready", "json")
 	resetFlagChanged(muxCaptureCmd, "lines", "json", "raw", "classify")
 	resetFlagChanged(muxKillCmd, "force")
 	resetFlagChanged(muxProcessCmd, "json")
@@ -847,5 +849,320 @@ func TestMuxSendAwaitUninstrumentedStillErrors(t *testing.T) {
 	}
 	if stdout != "delivered %5\n" {
 		t.Errorf("stdout = %q, want the delivery report (the send succeeded)", stdout)
+	}
+}
+
+// --- --json envelope (R1/R2/R3) ---------------------------------------------
+
+// TestMuxSendJSONSuccessReceipts: the success receipt carries the frozen
+// report word, the resolved pane, the resolved server, and enter per the
+// delivery path — and the human report line never prints under --json.
+func TestMuxSendJSONSuccessReceipts(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		args       []string
+		wantReport string
+		wantEnter  bool
+	}{
+		{"delivered", []string{"send", "%5", "hi", "--json"}, "delivered", true},
+		{"staged", []string{"send", "%5", "hi", "--no-enter", "--json"}, "staged", false},
+		{"sent (key)", []string{"send", "%5", "--key", "Enter", "--json"}, "sent", false},
+		{"answer message", []string{"send", "%5", "yes", "--answer", "--json"}, "delivered", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &muxFake{}
+			if tc.name == "answer message" {
+				f.states = map[string]string{"%5": tmux.AgentStateWaiting}
+			}
+			installMuxFakes(t, f)
+
+			stdout, _, err := runMuxCmd(t, tc.args...)
+			if err != nil {
+				t.Fatalf("err = %v", err)
+			}
+			result := envelopeResult(t, stdout)
+			if result["report"] != tc.wantReport || result["target"] != "%5" || result["server"] != "default" {
+				t.Errorf("result = %v, want %s on %%5 @ default", result, tc.wantReport)
+			}
+			if result["enter"] != tc.wantEnter {
+				t.Errorf("enter = %v, want %v", result["enter"], tc.wantEnter)
+			}
+			if _, ok := result["await"]; ok {
+				t.Errorf("await must be absent without --await: %v", result)
+			}
+		})
+	}
+}
+
+// TestMuxSendJSONTargetAndServerResolution: a window target resolves to its
+// agent pane before the receipt, and -L is the receipt's server.
+func TestMuxSendJSONTargetAndServerResolution(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+
+	stdout, _, err := runMuxCmd(t, "send", "@3", "hi", "-L", "work", "--json")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	result := envelopeResult(t, stdout)
+	if result["target"] != "%7" || result["server"] != "work" {
+		t.Errorf("result = %v, want the resolved pane %%7 on server work", result)
+	}
+}
+
+// TestMuxSendJSONFailureReasons: the three engine sentinels map to the /send
+// route's 409 codes with their hints; the unverified line is suppressed; the
+// error still returns (exit 1, stderr unchanged).
+func TestMuxSendJSONFailureReasons(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		engineErr  error
+		wantReason string
+		wantHint   string
+	}{
+		{"probe failure", inject.ProbeFailure{}, "probe_failure", "check the pane before resending"},
+		{"staged send failure", inject.StagedSendFailure{}, "staged_send_failure", "press Enter in the pane"},
+		{"submit unverified", inject.SubmitUnverified{}, "submit_unverified", "capture the pane before resending"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &muxFake{engineErr: tc.engineErr}
+			installMuxFakes(t, f)
+
+			stdout, stderr, err := runMuxCmd(t, "send", "%5", "hi", "--json")
+			if err == nil || exitCode(err) != 1 {
+				t.Fatalf("err = %v, want exit 1", err)
+			}
+			errObj := envelopeErrorDoc(t, stdout)
+			if errObj["code"] != "operational" || errObj["reason"] != tc.wantReason {
+				t.Errorf("error = %v, want operational + reason %s", errObj, tc.wantReason)
+			}
+			if hint, _ := errObj["hint"].(string); !strings.Contains(hint, tc.wantHint) {
+				t.Errorf("hint = %v, want it to contain %q", errObj["hint"], tc.wantHint)
+			}
+			if errObj["message"] != tc.engineErr.Error() {
+				t.Errorf("message = %v, want the error text %q", errObj["message"], tc.engineErr.Error())
+			}
+			if !strings.Contains(stderr, strings.Split(tc.engineErr.Error(), ".")[0]) {
+				t.Errorf("stderr = %q, want the diagnostic unchanged", stderr)
+			}
+			if strings.Contains(stdout, "unverified") && tc.wantReason != "submit_unverified" {
+				t.Errorf("stdout = %q unexpectedly carries the unverified line", stdout)
+			}
+		})
+	}
+}
+
+// TestMuxSendJSONSubmitUnverifiedSuppressesLine: under --json the
+// `unverified %N` stdout line is NOT printed — the fact travels as the reason.
+func TestMuxSendJSONSubmitUnverifiedSuppressesLine(t *testing.T) {
+	f := &muxFake{engineErr: inject.SubmitUnverified{}}
+	installMuxFakes(t, f)
+
+	stdout, _, err := runMuxCmd(t, "send", "%5", "hi", "--json")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	if strings.Contains(stdout, "unverified %5") {
+		t.Errorf("stdout = %q, want no unverified line under --json", stdout)
+	}
+	if got := envelopeErrorDoc(t, stdout)["reason"]; got != "submit_unverified" {
+		t.Errorf("reason = %v, want submit_unverified", got)
+	}
+}
+
+// TestMuxSendJSONGateRefusals: a waiting refusal names --answer in the hint;
+// an active refusal carries no hint; both are operational, exit 1.
+func TestMuxSendJSONGateRefusals(t *testing.T) {
+	t.Run("waiting refusal hints --answer", func(t *testing.T) {
+		f := &muxFake{states: map[string]string{"%5": tmux.AgentStateWaiting}}
+		installMuxFakes(t, f)
+
+		stdout, _, err := runMuxCmd(t, "send", "%5", "hi", "--json")
+		if err == nil || exitCode(err) != 1 {
+			t.Fatalf("err = %v, want exit 1", err)
+		}
+		errObj := envelopeErrorDoc(t, stdout)
+		if errObj["code"] != "operational" {
+			t.Errorf("error = %v, want operational", errObj)
+		}
+		if hint, _ := errObj["hint"].(string); !strings.Contains(hint, "--answer") {
+			t.Errorf("hint = %v, want it to name --answer", errObj["hint"])
+		}
+		if !strings.Contains(errObj["message"].(string), "waiting") {
+			t.Errorf("message = %v, want the refusal naming the state", errObj["message"])
+		}
+	})
+
+	t.Run("active refusal has no hint", func(t *testing.T) {
+		f := &muxFake{states: map[string]string{"%5": tmux.AgentStateActive}}
+		installMuxFakes(t, f)
+
+		stdout, _, err := runMuxCmd(t, "send", "%5", "hi", "--json")
+		if err == nil || exitCode(err) != 1 {
+			t.Fatalf("err = %v, want exit 1", err)
+		}
+		errObj := envelopeErrorDoc(t, stdout)
+		if errObj["code"] != "operational" {
+			t.Errorf("error = %v, want operational", errObj)
+		}
+		if _, ok := errObj["hint"]; ok {
+			t.Errorf("hint must be absent for an active refusal: %v", errObj)
+		}
+	})
+}
+
+// TestMuxSendJSONMissingPane: a resolution/existence failure is operational
+// with no reason or hint.
+func TestMuxSendJSONMissingPane(t *testing.T) {
+	f := &muxFake{paneExists: map[string]bool{"%5": false}}
+	installMuxFakes(t, f)
+
+	stdout, _, err := runMuxCmd(t, "send", "%5", "hi", "--force", "--json")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	errObj := envelopeErrorDoc(t, stdout)
+	if errObj["code"] != "operational" {
+		t.Errorf("error = %v, want operational", errObj)
+	}
+	if _, ok := errObj["reason"]; ok {
+		t.Errorf("reason must be absent: %v", errObj)
+	}
+	if !strings.Contains(errObj["message"].(string), "%5") {
+		t.Errorf("message = %v, want it to name the pane", errObj["message"])
+	}
+}
+
+// TestMuxSendJSONUsageErrors: in-RunE usage errors are code "usage", exit 2,
+// and stderr still carries the message.
+func TestMuxSendJSONUsageErrors(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	for _, args := range [][]string{
+		{"send", "%5", "--json"},                                // no payload
+		{"send", "%5", "hi", "--key", "Enter", "--json"},        // mixed payloads
+		{"send", "%5", "hi", "--await", "--no-enter", "--json"}, // nothing to wait on
+		{"send", "%5", "hi", "--timeout", "-5", "--json"},       // negative timeout
+		{"send", "%5", "hi", "--await=busy", "--json"},          // unknown state
+	} {
+		stdout, stderr, err := runMuxCmd(t, args...)
+		if err == nil || exitCode(err) != exitUsage {
+			t.Errorf("args %v: err = %v (exit %d), want usage exit 2", args, err, exitCode(err))
+			continue
+		}
+		errObj := envelopeErrorDoc(t, stdout)
+		if errObj["code"] != "usage" {
+			t.Errorf("args %v: error = %v, want code usage", args, errObj)
+		}
+		if stderr == "" {
+			t.Errorf("args %v: stderr empty, want the message unchanged", args)
+		}
+	}
+}
+
+// TestMuxSendJSONAwaitNesting: --json --await keeps the delivery receipt and
+// nests the await phase's receipt (elapsed covers the grace watch + observer).
+func TestMuxSendJSONAwaitNesting(t *testing.T) {
+	f := &muxFake{awaitReports: []string{"active", "idle"}}
+	installMuxFakes(t, f)
+
+	stdout, _, err := runMuxCmd(t, "send", "%5", "q", "--await", "--json")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	result := envelopeResult(t, stdout)
+	if result["report"] != "delivered" || result["enter"] != true {
+		t.Errorf("delivery = %v, want delivered with enter true", result)
+	}
+	nested, ok := result["await"].(map[string]any)
+	if !ok {
+		t.Fatalf("await receipt missing: %v", result)
+	}
+	if nested["report"] != "idle" || nested["target"] != "%5" {
+		t.Errorf("await = %v, want idle on %%5", nested)
+	}
+	if ms, ok := nested["elapsed_ms"].(float64); !ok || ms < 0 {
+		t.Errorf("elapsed_ms = %v, want a non-negative number", nested["elapsed_ms"])
+	}
+	if strings.Contains(stdout, "delivered %5") || strings.Contains(stdout, "idle %5") {
+		t.Errorf("stdout = %q, want no human report lines under --json", stdout)
+	}
+}
+
+// TestMuxSendJSONAwaitGone: the peer dying after delivery is ok:false with
+// reason "gone" and the delivered fact in the hint, exit 1.
+func TestMuxSendJSONAwaitGone(t *testing.T) {
+	f := &muxFake{
+		awaitReports: []string{"active", "gone"},
+		awaitErr:     errors.New("pane %5 is gone"),
+	}
+	installMuxFakes(t, f)
+
+	stdout, _, err := runMuxCmd(t, "send", "%5", "q", "--await", "--json")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	errObj := envelopeErrorDoc(t, stdout)
+	if errObj["code"] != "operational" || errObj["reason"] != "gone" {
+		t.Errorf("error = %v, want operational + reason gone", errObj)
+	}
+	if errObj["hint"] != "the message was delivered before the pane died" {
+		t.Errorf("hint = %v, want the delivered fact", errObj["hint"])
+	}
+	if !strings.Contains(errObj["message"].(string), "%5") {
+		t.Errorf("message = %v, want the gone diagnostic", errObj["message"])
+	}
+}
+
+// TestMuxSendJSONAwaitCannotStart: the await failing without a report (a still
+// uninstrumented pane) is ok:false, message the await error, the delivered
+// fact in the hint, exit 1.
+func TestMuxSendJSONAwaitCannotStart(t *testing.T) {
+	f := &muxFake{
+		states:       map[string]string{"%5": ""},
+		awaitReports: []string{"", ""},
+		awaitErrs:    []error{errUnobservable, errUnobservable},
+	}
+	installMuxFakes(t, f)
+
+	stdout, _, err := runMuxCmd(t, "send", "%5", "q", "--await", "--json")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	errObj := envelopeErrorDoc(t, stdout)
+	if errObj["code"] != "operational" {
+		t.Errorf("error = %v, want operational", errObj)
+	}
+	if !strings.Contains(errObj["message"].(string), "nothing observable") {
+		t.Errorf("message = %v, want the await error", errObj["message"])
+	}
+	if errObj["hint"] != "delivered; the wait could not start" {
+		t.Errorf("hint = %v, want the delivered fact", errObj["hint"])
+	}
+	if strings.Contains(stdout, "delivered %5") {
+		t.Errorf("stdout = %q, want no delivery report line under --json", stdout)
+	}
+}
+
+// TestMuxSendJSONAwaitRunningNestsCallAgain: a timeout in the await phase is
+// still a success — the nested receipt reports running with the call-again
+// hint and no target.
+func TestMuxSendJSONAwaitRunningNestsCallAgain(t *testing.T) {
+	f := &muxFake{awaitReports: []string{"active", "running"}}
+	installMuxFakes(t, f)
+
+	stdout, _, err := runMuxCmd(t, "send", "%5", "q", "--await", "--json")
+	if err != nil {
+		t.Fatalf("err = %v, want exit 0 (running is a report)", err)
+	}
+	nested, ok := envelopeResult(t, stdout)["await"].(map[string]any)
+	if !ok {
+		t.Fatalf("await receipt missing: %q", stdout)
+	}
+	if nested["report"] != "running" || nested["hint"] != "call again" {
+		t.Errorf("await = %v, want running + call again", nested)
+	}
+	if _, ok := nested["target"]; ok {
+		t.Errorf("target must be omitted for running: %v", nested)
 	}
 }

@@ -58,12 +58,43 @@ var (
 	muxSendNoEnterFlag bool
 	muxSendAwaitFlag   string
 	muxSendTimeoutFlag int
+	muxSendJSONFlag    bool
 )
 
 // sendFlagAuto is the NoOptDefVal sentinel for --await (the present.go
 // pattern): a bare --await parses to this sentinel (use the default state set)
 // while --await=idle,waiting carries the set.
 const sendFlagAuto = "\x00auto"
+
+// Envelope reason tokens and hints for the send/await failure classes. The
+// reason tokens reuse the /send route's 409 codes verbatim (docs/specs/mcp.md
+// § Receipts: one engine, one evidence vocabulary); the hints are the
+// machine-neutral next steps.
+const (
+	sendReasonProbeFailure     = "probe_failure"
+	sendReasonStagedSend       = "staged_send_failure"
+	sendReasonSubmitUnverified = "submit_unverified"
+
+	sendHintProbeFailure     = "check the pane before resending; a resend would duplicate the staged text"
+	sendHintStagedSend       = "press Enter in the pane to submit"
+	sendHintSubmitUnverified = "capture the pane before resending"
+	sendHintWaitingRefusal   = "use --answer if this send is the reply the agent waits for"
+	sendHintAwaitGone        = "the message was delivered before the pane died"
+	sendHintAwaitNoStart     = "delivered; the wait could not start"
+)
+
+// sendReceipt is the `mux send --json` success document (docs/specs/mcp.md
+// § Receipts): the frozen report word, the resolved pane, the resolved server,
+// and whether Enter rode the delivery (delivered only — a --key send is not
+// the engine's probe-gated Enter, even when the key is Enter). Await is
+// present only under --await and nests the await phase's receipt.
+type sendReceipt struct {
+	Report string        `json:"report"`
+	Target string        `json:"target"`
+	Server string        `json:"server"`
+	Enter  bool          `json:"enter"`
+	Await  *awaitReceipt `json:"await,omitempty"`
+}
 
 var muxSendCmd = &cobra.Command{
 	Use:   "send <target> [<message> | -] [--key <key>]... [--answer | --force] [--no-enter] [--await[=<states>]] [--timeout <secs>]",
@@ -85,6 +116,12 @@ var muxSendCmd = &cobra.Command{
 		"Reports: delivered means no non-submission was detected; unverified means " +
 		"Enter was sent but the pane stayed unchanged; staged is --no-enter; sent " +
 		"is --key. An unverified send exits 1 and must be inspected before resending.\n\n" +
+		"--json emits exactly one JSON document on stdout: on success the delivery " +
+		"receipt {\"report\",\"target\",\"server\",\"enter\",\"await\"?} (the report word " +
+		"inside result; the human report line and the unverified line are suppressed); " +
+		"on failure {\"ok\":false,\"error\":{\"code\",\"message\",\"hint\"?,\"reason\"?}} " +
+		"with the injection outcome as reason (probe_failure, staged_send_failure, " +
+		"submit_unverified). Exit codes are unchanged.\n\n" +
 		"Targets: %N (pane), @N (window — resolves to its agent pane), " +
 		"=session:window (exact). Bare session:window names are rejected.",
 	Example: "  rk mux send %5 \"keep going\"\n" +
@@ -110,6 +147,8 @@ func init() {
 	muxSendCmd.Flags().Lookup("await").NoOptDefVal = sendFlagAuto
 	muxSendCmd.Flags().IntVar(&muxSendTimeoutFlag, "timeout", awaitDefaultTimeoutSec,
 		"Seconds the --await phase may run before reporting `running` (0 = indefinite)")
+	muxSendCmd.Flags().BoolVar(&muxSendJSONFlag, "json", false,
+		"Emit exactly one JSON document on stdout (the delivery receipt; the human report line is suppressed)")
 	muxSendCmd.MarkFlagsMutuallyExclusive("answer", "force")
 }
 
@@ -198,12 +237,50 @@ func resolvePaneTarget(ctx context.Context, pt tmux.PaneTarget, server string) (
 	return paneID, nil
 }
 
+// sendEnvelopeError maps a runMuxSend failure onto its envelope document: the
+// code from the exit class (the usageError wrap ⇒ usage, else operational) and
+// the /send route's 409 tokens as reason for the three engine sentinels.
+func sendEnvelopeError(err error) envelopeError {
+	e := envelopeError{Code: envelopeCodeForErr(err), Message: err.Error()}
+	var probeErr inject.ProbeFailure
+	var stagedErr inject.StagedSendFailure
+	var submitErr inject.SubmitUnverified
+	switch {
+	case errors.As(err, &probeErr):
+		e.Reason, e.Hint = sendReasonProbeFailure, sendHintProbeFailure
+	case errors.As(err, &stagedErr):
+		e.Reason, e.Hint = sendReasonStagedSend, sendHintStagedSend
+	case errors.As(err, &submitErr):
+		e.Reason, e.Hint = sendReasonSubmitUnverified, sendHintSubmitUnverified
+	}
+	return e
+}
+
 // runMuxSend is the testable core: parse → payload XOR → resolve → gate →
-// deliver → report → optionally await.
+// deliver → report → optionally await. Under --json every failure raised here
+// first writes the ok:false envelope to stdout and still returns the error —
+// the exit code and stderr are unchanged — and the success receipt replaces
+// the human report line.
 func runMuxSend(cmd *cobra.Command, args []string) error {
+	sink := newSink(cmd)
+	fail := func(err error) error {
+		if muxSendJSONFlag {
+			sink.JSONError(sendEnvelopeError(err))
+		}
+		return err
+	}
+	failHint := func(err error, hint string) error {
+		if muxSendJSONFlag {
+			e := sendEnvelopeError(err)
+			e.Hint = hint
+			sink.JSONError(e)
+		}
+		return err
+	}
+
 	pt, err := tmux.ParsePaneTarget(args[0])
 	if err != nil {
-		return usageError(err)
+		return fail(usageError(err))
 	}
 
 	// Payload XOR (R3): exactly one of positional message / `-` stdin / --key.
@@ -212,34 +289,34 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 	hasMessage := len(args) == 2
 	hasKeys := len(muxSendKeysFlag) > 0
 	if hasMessage == hasKeys {
-		return usageError(fmt.Errorf("exactly one payload is required: a positional message, `-` (stdin), or --key"))
+		return fail(usageError(fmt.Errorf("exactly one payload is required: a positional message, `-` (stdin), or --key")))
 	}
 	if hasMessage {
 		if args[1] == "-" {
 			data, err := io.ReadAll(muxStdinFn())
 			if err != nil {
-				return fmt.Errorf("read message from stdin: %w", err)
+				return fail(fmt.Errorf("read message from stdin: %w", err))
 			}
 			message = inject.Sanitize(string(data))
 		} else {
 			message = inject.Sanitize(args[1])
 		}
 		if strings.TrimSpace(message) == "" {
-			return usageError(fmt.Errorf("message text cannot be empty"))
+			return fail(usageError(fmt.Errorf("message text cannot be empty")))
 		}
 	}
 
 	awaitRequested := cmd.Flags().Changed("await")
 	if awaitRequested && muxSendNoEnterFlag {
-		return usageError(fmt.Errorf("--await requires a submitted message — it cannot combine with --no-enter"))
+		return fail(usageError(fmt.Errorf("--await requires a submitted message — it cannot combine with --no-enter")))
 	}
 	if muxSendTimeoutFlag < 0 {
-		return usageError(fmt.Errorf("--timeout must be >= 0 (0 = indefinite)"))
+		return fail(usageError(fmt.Errorf("--timeout must be >= 0 (0 = indefinite)")))
 	}
 	awaitStates := []string{tmux.AgentStateIdle, tmux.AgentStateWaiting}
 	if awaitRequested && muxSendAwaitFlag != sendFlagAuto {
 		if awaitStates, err = parseUntilStates(muxSendAwaitFlag); err != nil {
-			return usageError(err)
+			return fail(usageError(err))
 		}
 	}
 
@@ -256,11 +333,10 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	server := muxServer()
-	sink := newSink(cmd)
 
 	paneID, err := resolvePaneTarget(ctx, pt, server)
 	if err != nil {
-		return err
+		return fail(err)
 	}
 
 	// The agent-state gate (R4). --force skips it but the target's existence is
@@ -268,15 +344,15 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 	if muxSendForceFlag {
 		ok, err := muxSendPaneExistsFn(ctx, paneID, server)
 		if err != nil {
-			return fmt.Errorf("check target pane: %w", err)
+			return fail(fmt.Errorf("check target pane: %w", err))
 		}
 		if !ok {
-			return fmt.Errorf("pane %s does not exist", paneID)
+			return fail(fmt.Errorf("pane %s does not exist", paneID))
 		}
 	} else {
 		facts, err := muxSendFactsFn(ctx, paneID, server)
 		if err != nil {
-			return fmt.Errorf("read pane facts: %w", err)
+			return fail(fmt.Errorf("read pane facts: %w", err))
 		}
 		switch facts.AgentState {
 		case "":
@@ -288,10 +364,10 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 		case tmux.AgentStateIdle:
 		case tmux.AgentStateWaiting:
 			if !muxSendAnswerFlag {
-				return fmt.Errorf("refusing to send to pane %s: agent is waiting (use --answer if this send is the answer it waits for)", paneID)
+				return failHint(fmt.Errorf("refusing to send to pane %s: agent is waiting (use --answer if this send is the answer it waits for)", paneID), sendHintWaitingRefusal)
 			}
 		case tmux.AgentStateActive:
-			return fmt.Errorf("refusing to send to pane %s: agent is active (never interrupt a working agent)", paneID)
+			return fail(fmt.Errorf("refusing to send to pane %s: agent is active (never interrupt a working agent)", paneID))
 		}
 	}
 
@@ -302,10 +378,10 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 		// The same pane-mode guard the engine runs — a copy-mode pane would
 		// bind the key names to copy-mode instead of the foreground process.
 		if err := muxSendClearModeFn(ctx, paneID, server); err != nil {
-			return fmt.Errorf("clear pane mode: %w", err)
+			return fail(fmt.Errorf("clear pane mode: %w", err))
 		}
 		if err := muxSendKeysFn(ctx, paneID, server, muxSendKeysFlag...); err != nil {
-			return fmt.Errorf("send-keys: %w", err)
+			return fail(fmt.Errorf("send-keys: %w", err))
 		}
 		report = "sent"
 	default:
@@ -317,14 +393,18 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 			if errors.As(err, &probeErr) {
 				// The 409's CLI analog: text stays staged in the composer, no
 				// blind Enter, and the failure is visible to scripts (exit 1).
-				return errors.New(probeErr.Error())
+				return fail(probeErr)
 			}
 			var submitErr inject.SubmitUnverified
 			if errors.As(err, &submitErr) {
-				sink.Dataf("unverified %s\n", paneID)
-				return errors.New(submitErr.Error())
+				// Under --json the fact travels as reason submit_unverified; a
+				// second stdout line would break the one-document contract.
+				if !muxSendJSONFlag {
+					sink.Dataf("unverified %s\n", paneID)
+				}
+				return fail(submitErr)
 			}
-			return err
+			return fail(err)
 		}
 		if recoveryAttempted {
 			sink.Notef("delivery retried after a baseline-matched composer clear\n")
@@ -341,8 +421,27 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 	// await fails WITHOUT a report (e.g. the pane is uninstrumented), the
 	// delivery report still prints — the delivery succeeded, the wait failed.
 	if awaitRequested {
+		delivery := deliveryReceipt(report, paneID, server)
+		awaitReport, elapsed, err := muxSendAwaitPeer(parent, cmd, server, paneID, awaitStates)
+		if muxSendJSONFlag {
+			switch {
+			case err != nil && awaitReport == "gone":
+				sink.JSONError(envelopeError{Code: envelopeCodeOperational, Message: err.Error(), Reason: awaitReasonGone, Hint: sendHintAwaitGone})
+			case err != nil:
+				sink.JSONError(envelopeError{Code: envelopeCodeOperational, Message: err.Error(), Hint: sendHintAwaitNoStart})
+			default:
+				delivery.Await = &awaitReceipt{Report: awaitReport, ElapsedMs: elapsed.Milliseconds()}
+				if awaitReport == "running" {
+					delivery.Await.Hint = awaitHintCallAgain
+				} else {
+					delivery.Await.Target = paneID
+				}
+				sink.JSONResult(delivery)
+			}
+			return err
+		}
 		deliveryReport := report
-		report, err = muxSendAwaitPeer(parent, cmd, server, paneID, awaitStates)
+		report = awaitReport
 		if report == "" && err != nil {
 			report = deliveryReport
 		}
@@ -352,8 +451,19 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if muxSendJSONFlag {
+		sink.JSONResult(deliveryReceipt(report, paneID, server))
+		return nil
+	}
 	sink.Dataf("%s %s\n", report, paneID)
 	return nil
+}
+
+// deliveryReceipt builds the send receipt: enter is true only for delivered —
+// staged (--no-enter) withheld it and a --key send is not the engine's
+// probe-gated Enter, even when the key is Enter.
+func deliveryReceipt(report, paneID, server string) sendReceipt {
+	return sendReceipt{Report: report, Target: paneID, Server: server, Enter: report == "delivered"}
 }
 
 // sendAwaitActiveGrace bounds the post-submit watch for the peer's state to
@@ -373,9 +483,12 @@ var sendAwaitActiveGrace = 10 * time.Second
 // uninstrumented verdict (the pane carries no @rk_agent_state — the delivery
 // already happened, and the await phase re-applies the uninstrumented rule
 // itself in case state appeared in the meantime). A "gone" verdict (or a read
-// failure) propagates as the final report — the peer died.
-func muxSendAwaitPeer(ctx context.Context, cmd *cobra.Command, server, paneID string, states []string) (string, error) {
+// failure) propagates as the final report — the peer died. The returned
+// duration measures the whole await phase (grace watch + observer) for the
+// --json receipt's elapsed_ms.
+func muxSendAwaitPeer(ctx context.Context, cmd *cobra.Command, server, paneID string, states []string) (string, time.Duration, error) {
 	deps := muxAwaitDepsFn(server)
+	start := deps.now()
 	// --await stays single-target (non-goal): the fired-pane return is dropped,
 	// and the report word printed by send stays the bare await report.
 	graceReport, _, err := muxAwaitObserveFn(ctx, deps, []string{paneID}, awaitParams{
@@ -383,7 +496,7 @@ func muxSendAwaitPeer(ctx context.Context, cmd *cobra.Command, server, paneID st
 		timeout: sendAwaitActiveGrace,
 	})
 	if err != nil && !errors.Is(err, errUnobservable) {
-		return graceReport, err
+		return graceReport, deps.now().Sub(start), err
 	}
 	// graceReport is "active" (flip observed) or "running" (grace expired) —
 	// the race window is closed as well as it can be, either way.
@@ -391,5 +504,5 @@ func muxSendAwaitPeer(ctx context.Context, cmd *cobra.Command, server, paneID st
 		until:   states,
 		timeout: time.Duration(muxSendTimeoutFlag) * time.Second,
 	})
-	return report, err
+	return report, deps.now().Sub(start), err
 }

@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-// TestTableShape pins the seeded allowlist: exactly the twelve tools (the ten
-// W1 seeds plus board and operator_request), every timeout within the cap, and no row exposing a
-// forbidden flag form.
+// TestTableShape pins the seeded allowlist: exactly the fourteen tools (the
+// nine See rows, the three Talk rows, board, and operator_request), every
+// timeout within the cap, and no row exposing a forbidden flag form.
 func TestTableShape(t *testing.T) {
-	want := []string{"sessions", "panes", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request"}
+	want := []string{"sessions", "panes", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request", "answer", "await"}
 	if len(Table) != len(want) {
 		t.Fatalf("Table has %d rows, want %d", len(Table), len(want))
 	}
@@ -28,9 +28,15 @@ func TestTableShape(t *testing.T) {
 			t.Errorf("row %q timeout %s exceeds cap", row.Tool, row.Timeout)
 		}
 		for _, arg := range row.Args {
-			for _, banned := range []string{"--force", "--answer", "--key", "--await"} {
-				if arg.Flag == banned || arg.Literal == banned {
-					t.Errorf("row %q exposes %s", row.Tool, banned)
+			// --force and --await stay unexposed on every row; --answer/--key
+			// are the answer row's own surface.
+			banned := []string{"--force", "--await"}
+			if row.Tool != "answer" {
+				banned = append(banned, "--answer", "--key")
+			}
+			for _, b := range banned {
+				if arg.Flag == b || arg.Literal == b {
+					t.Errorf("row %q exposes %s", row.Tool, b)
 				}
 			}
 		}
@@ -50,22 +56,117 @@ func findRow(t *testing.T, tool string) Row {
 	return Row{}
 }
 
-// TestTableSendRow pins the stdin-driven mutating row: body on stdin, text
-// receipt, non-read-only annotations, and the interim-receipt description
-// override.
+// TestTableSendRow pins the stdin-driven mutating row: body on stdin, the
+// --json envelope receipt, non-read-only annotations, and the receipt
+// description override keeping the load-bearing caveat.
 func TestTableSendRow(t *testing.T) {
 	row := findRow(t, "send")
 	if row.Stdin != "message" {
 		t.Errorf("send.Stdin = %q, want message", row.Stdin)
 	}
-	if row.Result != ResultText {
-		t.Errorf("send.Result = %v, want ResultText", row.Result)
+	if row.Result != ResultJSON {
+		t.Errorf("send.Result = %v, want ResultJSON", row.Result)
 	}
 	if row.Annotations.ReadOnly || row.Annotations.Destructive || row.Annotations.Idempotent || row.Annotations.OpenWorld {
 		t.Errorf("send annotations = %+v, want all false", row.Annotations)
 	}
+	if last := row.Args[len(row.Args)-1]; last.Literal != "--json" {
+		t.Errorf("send's last arg = %+v, want the --json literal", last)
+	}
 	if !strings.Contains(row.Description, "does NOT mean the agent has acted") {
-		t.Errorf("send description missing the interim-receipt caveat: %q", row.Description)
+		t.Errorf("send description missing the receipt caveat: %q", row.Description)
+	}
+}
+
+// TestTableAnswerRow pins the answer row: the message/key one-of, the closed
+// key enum, the When-conditional --answer and - literals, stdin on message,
+// JSON result, and no annotations.
+func TestTableAnswerRow(t *testing.T) {
+	row := findRow(t, "answer")
+	if row.Path != "mux send" {
+		t.Errorf("answer.Path = %q, want mux send", row.Path)
+	}
+	if row.Result != ResultJSON || row.Stdin != "message" {
+		t.Errorf("answer Result/Stdin = %v/%q, want ResultJSON/message", row.Result, row.Stdin)
+	}
+	if row.Annotations != (Annotations{}) {
+		t.Errorf("answer annotations = %+v, want all false (a Talk row)", row.Annotations)
+	}
+	if strings.Join(row.OneOf, ",") != "message,key" {
+		t.Errorf("answer.OneOf = %v, want [message key]", row.OneOf)
+	}
+
+	argsByName := map[string]Arg{}
+	var literals []Arg
+	for _, arg := range row.Args {
+		if arg.Literal != "" {
+			literals = append(literals, arg)
+			continue
+		}
+		argsByName[arg.Name] = arg
+	}
+	msg, ok := argsByName["message"]
+	if !ok || msg.Type != ArgString || msg.Required {
+		t.Errorf("message arg = %+v (present %v), want an optional string (OneOf owns the requirement)", msg, ok)
+	}
+	key, ok := argsByName["key"]
+	if !ok || key.Flag != "--key" || key.Type != ArgString {
+		t.Errorf("key arg = %+v (present %v), want an optional --key string flag", key, ok)
+	}
+	if !slices.Equal(key.Enum, answerKeyEnum) {
+		t.Errorf("key enum = %v, want the closed set %v", key.Enum, answerKeyEnum)
+	}
+	if len(literals) != 3 || literals[0].Literal != "--answer" || literals[0].When != "message" ||
+		literals[1].Literal != "-" || literals[1].When != "message" || literals[2].Literal != "--json" {
+		t.Errorf("literals = %v, want [--answer(when message) -(when message) --json]", literals)
+	}
+}
+
+// TestTableAwaitRow pins the await row: the until pattern, the structurally
+// clamped timeout (1–40, default 40), the ready boolean, JSON result, and the
+// read-only annotations (read-only even though it blocks).
+func TestTableAwaitRow(t *testing.T) {
+	row := findRow(t, "await")
+	if row.Path != "mux await" {
+		t.Errorf("await.Path = %q, want mux await", row.Path)
+	}
+	if row.Result != ResultJSON {
+		t.Errorf("await.Result = %v, want ResultJSON", row.Result)
+	}
+	if row.Annotations != readOnlyAnn {
+		t.Errorf("await annotations = %+v, want readOnlyAnn", row.Annotations)
+	}
+	if row.Timeout != 0 {
+		t.Errorf("await.Timeout = %v, want 0 (the cap)", row.Timeout)
+	}
+
+	argsByName := map[string]Arg{}
+	for _, arg := range row.Args {
+		if arg.Literal == "" {
+			argsByName[arg.Name] = arg
+		}
+	}
+	until, ok := argsByName["until"]
+	if !ok || until.Flag != "--until" || until.Pattern != `^(idle|waiting|active)(,(idle|waiting|active)){0,2}$` {
+		t.Errorf("until arg = %+v (present %v), want --until with the state-set pattern", until, ok)
+	}
+	timeout, ok := argsByName["timeout"]
+	if !ok || timeout.Flag != "--timeout" || timeout.Type != ArgInteger {
+		t.Errorf("timeout arg = %+v (present %v), want an integer --timeout flag", timeout, ok)
+	}
+	if timeout.Minimum == nil || *timeout.Minimum != 1 || timeout.Maximum == nil || *timeout.Maximum != 40 || timeout.Default != "40" {
+		t.Errorf("timeout bounds/default = %v/%v/%q, want 1/40/\"40\"", timeout.Minimum, timeout.Maximum, timeout.Default)
+	}
+	ready, ok := argsByName["ready"]
+	if !ok || ready.Flag != "--ready" || ready.Type != ArgBoolean {
+		t.Errorf("ready arg = %+v (present %v), want a boolean --ready flag", ready, ok)
+	}
+	for _, desc := range []string{row.Description} {
+		for _, want := range []string{"running", "ready", "parked", "narrow", "gone"} {
+			if !strings.Contains(desc, want) {
+				t.Errorf("await description missing the report word %q: %q", want, desc)
+			}
+		}
 	}
 }
 
@@ -211,8 +312,9 @@ func TestTableNeverTools(t *testing.T) {
 	}
 }
 
-// TestReadOnlyAnnotations pins the annotation semantics of every See row —
-// the three mutating rows (send, board, operator_request) carry all-false annotations instead.
+// TestReadOnlyAnnotations pins the annotation semantics of every See row plus
+// await (read-only even though it blocks) — the mutating rows (send, board,
+// operator_request, answer) carry all-false annotations instead.
 func TestReadOnlyAnnotations(t *testing.T) {
 	seen := 0
 	for _, row := range Table {
@@ -227,7 +329,7 @@ func TestReadOnlyAnnotations(t *testing.T) {
 			t.Errorf("row %q result = %v, want ResultJSON", row.Tool, row.Result)
 		}
 	}
-	if seen != 9 {
-		t.Errorf("%d read-only rows, want the nine See rows", seen)
+	if seen != 10 {
+		t.Errorf("%d read-only rows, want the nine See rows plus await", seen)
 	}
 }

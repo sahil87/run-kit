@@ -114,7 +114,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := []string{"board", "capture", "cron_list", "gui_status", "operator_request", "panes", "process", "send", "sessions", "status", "tab_show", "tab_web_ls"}
+	want := []string{"answer", "await", "board", "capture", "cron_list", "gui_status", "operator_request", "panes", "process", "send", "sessions", "status", "tab_show", "tab_web_ls"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
@@ -123,7 +123,7 @@ func TestMCPEndToEnd(t *testing.T) {
 			t.Errorf("never-tool %q must not be listed", banned)
 		}
 	}
-	for _, name := range []string{"sessions", "capture"} {
+	for _, name := range []string{"sessions", "capture", "await"} {
 		ann := byName[name].Annotations
 		if ann == nil || !ann.ReadOnlyHint {
 			t.Errorf("%s must carry readOnlyHint:true", name)
@@ -193,13 +193,41 @@ func TestMCPEndToEnd(t *testing.T) {
 	}
 
 	// send: an uninstrumented shell pane is unknown-state — the verb warns on
-	// stderr and sends; the tool maps the report line as the text receipt.
+	// stderr and sends; the tool returns the --json envelope's receipt (the
+	// report word is a structured field now, not a text line).
 	res = call("send", map[string]any{"server": server, "target": pane, "message": "echo MCP_E2E_OK"})
 	if res.IsError {
 		t.Fatalf("send IsError: %s", textOf(res))
 	}
-	if got := textOf(res); got != "delivered "+pane {
-		t.Errorf("send receipt = %q, want %q", got, "delivered "+pane)
+	var sendReceipt map[string]any
+	if err := json.Unmarshal([]byte(textOf(res)), &sendReceipt); err != nil {
+		t.Fatalf("send receipt is not JSON: %v\n%s", err, textOf(res))
+	}
+	if sendReceipt["report"] != "delivered" || sendReceipt["target"] != pane || sendReceipt["enter"] != true {
+		t.Errorf("send receipt = %v, want delivered on %s with enter true", sendReceipt, pane)
+	}
+
+	// answer: a key press on the shell pane rides the plain gate (unknown ⇒
+	// warn + send) and receipts report sent.
+	res = call("answer", map[string]any{"server": server, "target": pane, "key": "Enter"})
+	if res.IsError {
+		t.Fatalf("answer IsError: %s", textOf(res))
+	}
+	var answerReceipt map[string]any
+	if err := json.Unmarshal([]byte(textOf(res)), &answerReceipt); err != nil {
+		t.Fatalf("answer receipt is not JSON: %v\n%s", err, textOf(res))
+	}
+	if answerReceipt["report"] != "sent" || answerReceipt["target"] != pane || answerReceipt["enter"] != false {
+		t.Errorf("answer receipt = %v, want sent on %s with enter false", answerReceipt, pane)
+	}
+
+	// await: the shell pane is uninstrumented — the verb's
+	// nothing-observable diagnostic passes through as IsError.
+	res = call("await", map[string]any{"server": server, "target": pane, "timeout": 1})
+	if !res.IsError {
+		t.Errorf("await on an uninstrumented pane = %q, want IsError", textOf(res))
+	} else if text := textOf(res); !strings.Contains(text, "nothing observable") || !strings.Contains(text, "operational") {
+		t.Errorf("await text = %q, want the verb's diagnostic as an operational error", text)
 	}
 
 	// capture: poll until the echo lands in the scrollback.
@@ -234,6 +262,25 @@ func TestMCPEndToEnd(t *testing.T) {
 	}
 	if text := textOf(res); !strings.Contains(text, "operational") || !strings.Contains(text, "%999") {
 		t.Errorf("nonexistent pane text = %q, want the verb's diagnostic", text)
+	}
+
+	// Negative 3: answer's key input is a closed enum — a control chord is
+	// rejected by the schema before exec.
+	res = call("answer", map[string]any{"server": server, "target": pane, "key": "C-c"})
+	if !res.IsError || !strings.Contains(textOf(res), `"key"`) {
+		t.Errorf("key C-c = IsError %v, text %q, want a schema rejection", res.IsError, textOf(res))
+	}
+
+	// Negative 4: answer requires exactly one payload — both and neither are
+	// rejected by the one-of check before exec.
+	for name, args := range map[string]map[string]any{
+		"both":    {"server": server, "target": pane, "message": "yes", "key": "Enter"},
+		"neither": {"server": server, "target": pane},
+	} {
+		res = call("answer", args)
+		if !res.IsError || !strings.Contains(textOf(res), "exactly one") {
+			t.Errorf("answer with %s payload = IsError %v, text %q, want the one-of rejection", name, res.IsError, textOf(res))
+		}
 	}
 
 	// Close ends the server process — CommandTransport closes stdin, escalates

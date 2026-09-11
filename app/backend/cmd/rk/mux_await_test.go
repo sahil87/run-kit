@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -877,5 +878,305 @@ func TestMuxAwaitReadyFlagConflicts(t *testing.T) {
 		if stdout != "" {
 			t.Errorf("args %v: stdout = %q, want empty", args, stdout)
 		}
+	}
+}
+
+// --- --json envelope (R4/R5) -----------------------------------------------
+
+// parseJSONEnvelope parses the single --json document from stdout.
+func parseJSONEnvelope(t *testing.T, stdout string) map[string]any {
+	t.Helper()
+	trimmed := strings.TrimSpace(stdout)
+	if strings.Contains(trimmed, "\n") {
+		t.Fatalf("stdout carries more than one document: %q", stdout)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &doc); err != nil {
+		t.Fatalf("stdout is not one JSON document: %v (%q)", err, stdout)
+	}
+	return doc
+}
+
+// envelopeResult returns the ok:true document's result object.
+func envelopeResult(t *testing.T, stdout string) map[string]any {
+	t.Helper()
+	doc := parseJSONEnvelope(t, stdout)
+	if doc["ok"] != true {
+		t.Fatalf("envelope ok = %v, want true (%q)", doc["ok"], stdout)
+	}
+	result, ok := doc["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("result is not an object: %q", stdout)
+	}
+	return result
+}
+
+// envelopeErrorDoc returns the ok:false document's error object.
+func envelopeErrorDoc(t *testing.T, stdout string) map[string]any {
+	t.Helper()
+	doc := parseJSONEnvelope(t, stdout)
+	if doc["ok"] != false {
+		t.Fatalf("envelope ok = %v, want false (%q)", doc["ok"], stdout)
+	}
+	errObj, ok := doc["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("error is not an object: %q", stdout)
+	}
+	return errObj
+}
+
+// installAwaitScript points the await deps seam at the scripted fake (the
+// TestMuxAwaitCmdEndToEnd pattern).
+func installAwaitScript(t *testing.T, s *awaitScript) {
+	t.Helper()
+	origDeps := muxAwaitDepsFn
+	muxAwaitDepsFn = func(string) awaitDeps { return s.deps(t) }
+	t.Cleanup(func() { muxAwaitDepsFn = origDeps })
+}
+
+// TestMuxAwaitJSONStateReceipt: a reached --until state reports one document
+// with the word, the single target, and a non-negative elapsed_ms — and no
+// human report line.
+func TestMuxAwaitJSONStateReceipt(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{states: []string{tmux.AgentStateIdle}, goneAt: -1}
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	installAwaitScript(t, s)
+
+	stdout, _, err := runMuxCmd(t, "await", "%5", "--json")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	result := envelopeResult(t, stdout)
+	if result["report"] != "idle" || result["target"] != "%5" {
+		t.Errorf("result = %v, want report idle on %%5", result)
+	}
+	if ms, ok := result["elapsed_ms"].(float64); !ok || ms < 0 {
+		t.Errorf("elapsed_ms = %v, want a non-negative number", result["elapsed_ms"])
+	}
+	if _, ok := result["detail"]; ok {
+		t.Errorf("detail must be absent for a state report: %v", result)
+	}
+}
+
+// TestMuxAwaitJSONRunningCarriesCallAgain: timeout expiry is a SUCCESS receipt
+// — report running, hint "call again", no target (a bare word), exit 0. The
+// fake clock advances one second per poll tick, so elapsed is exact.
+func TestMuxAwaitJSONRunningCarriesCallAgain(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{
+		states: []string{"active", "active", "active", "active"},
+		goneAt: -1,
+	}
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	installAwaitScript(t, s)
+
+	stdout, _, err := runMuxCmd(t, "await", "%5", "--timeout", "3", "--json")
+	if err != nil {
+		t.Fatalf("err = %v, want exit 0 (running is a report, not a failure)", err)
+	}
+	result := envelopeResult(t, stdout)
+	if result["report"] != "running" || result["hint"] != "call again" {
+		t.Errorf("result = %v, want running + call again", result)
+	}
+	if _, ok := result["target"]; ok {
+		t.Errorf("target must be omitted for running: %v", result)
+	}
+	if result["elapsed_ms"] != float64(3000) {
+		t.Errorf("elapsed_ms = %v, want 3000 (three 1s ticks on the fake clock)", result["elapsed_ms"])
+	}
+}
+
+// TestMuxAwaitJSONFileReceiptOmitsTarget: the file signal stays bare — no
+// pane fired.
+func TestMuxAwaitJSONFileReceiptOmitsTarget(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{states: []string{"active"}, goneAt: -1, files: map[string]bool{"/tmp/out": true}}
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	installAwaitScript(t, s)
+
+	stdout, _, err := runMuxCmd(t, "await", "%5", "--file", "/tmp/out", "--json")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	result := envelopeResult(t, stdout)
+	if result["report"] != "file" {
+		t.Errorf("result = %v, want file", result)
+	}
+	if _, ok := result["target"]; ok {
+		t.Errorf("target must be omitted for file: %v", result)
+	}
+}
+
+// TestMuxAwaitJSONAnyNamesFiringPane: under --any the receipt's target is the
+// firing pane.
+func TestMuxAwaitJSONAnyNamesFiringPane(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{byPane: map[string]*awaitPaneScript{
+		"%1": {states: []string{"active"}, goneAt: -1},
+		"%5": {states: []string{"idle"}, goneAt: -1},
+	}}
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	installAwaitScript(t, s)
+
+	stdout, _, err := runMuxCmd(t, "await", "--any", "%1", "%5", "--json")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	result := envelopeResult(t, stdout)
+	if result["report"] != "idle" || result["target"] != "%5" {
+		t.Errorf("result = %v, want idle on the firing pane %%5", result)
+	}
+}
+
+// TestMuxAwaitJSONReadyReceipts: the --ready verdicts carry their detail —
+// state/echo for ready, WxH for narrow, none for parked — with the pane as
+// target.
+func TestMuxAwaitJSONReadyReceipts(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	for _, tc := range []struct {
+		name       string
+		readiness  inject.Readiness
+		readyErr   error
+		wantReport string
+		wantDetail string
+	}{
+		{"state signal", inject.ReadyByState, nil, "ready", "state"},
+		{"echo signal", inject.ReadyByEcho, nil, "ready", "echo"},
+		{"parked wall", 0, &inject.ParkedError{Snippet: "Do you trust this folder?"}, "parked", ""},
+		{"narrow pane", 0, &inject.NarrowError{Width: 54, Height: 14}, "narrow", "54x14"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stubAwaitReady(t, tc.readiness, tc.readyErr)
+			stdout, _, err := runMuxCmd(t, "await", "%5", "--ready", "--json")
+			if err != nil {
+				t.Fatalf("err = %v, want exit 0 (a classification is a report)", err)
+			}
+			result := envelopeResult(t, stdout)
+			if result["report"] != tc.wantReport || result["target"] != "%5" {
+				t.Errorf("result = %v, want %s on %%5", result, tc.wantReport)
+			}
+			if tc.wantDetail == "" {
+				if _, ok := result["detail"]; ok {
+					t.Errorf("detail must be absent for %s: %v", tc.wantReport, result)
+				}
+			} else if result["detail"] != tc.wantDetail {
+				t.Errorf("detail = %v, want %q", result["detail"], tc.wantDetail)
+			}
+		})
+	}
+}
+
+// TestMuxAwaitJSONGoneIsError: a pane death is ok:false with reason "gone",
+// exit 1 — and no bare `gone` line on stdout.
+func TestMuxAwaitJSONGoneIsError(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{states: []string{"active"}, goneAt: 1}
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	installAwaitScript(t, s)
+
+	stdout, _, err := runMuxCmd(t, "await", "%5", "--json")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	errObj := envelopeErrorDoc(t, stdout)
+	if errObj["code"] != "operational" || errObj["reason"] != "gone" {
+		t.Errorf("error = %v, want operational + reason gone", errObj)
+	}
+	if !strings.Contains(errObj["message"].(string), "%5") {
+		t.Errorf("message = %v, want it to name the dead pane", errObj["message"])
+	}
+}
+
+// TestMuxAwaitJSONReadyGoneIsError: the --ready path's pane death is the same
+// ok:false reason "gone" envelope.
+func TestMuxAwaitJSONReadyGoneIsError(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	stubAwaitReady(t, 0, fmt.Errorf("%w: can't find pane: %%5", inject.ErrGone))
+
+	stdout, _, err := runMuxCmd(t, "await", "%5", "--ready", "--json")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	errObj := envelopeErrorDoc(t, stdout)
+	if errObj["code"] != "operational" || errObj["reason"] != "gone" {
+		t.Errorf("error = %v, want operational + reason gone", errObj)
+	}
+}
+
+// TestMuxAwaitJSONUninstrumentedIsOperational: nothing observable to wait on
+// is an operational failure with NO reason token.
+func TestMuxAwaitJSONUninstrumentedIsOperational(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{states: []string{""}, goneAt: -1}
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	installAwaitScript(t, s)
+
+	stdout, _, err := runMuxCmd(t, "await", "%5", "--json")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	errObj := envelopeErrorDoc(t, stdout)
+	if errObj["code"] != "operational" {
+		t.Errorf("error = %v, want operational", errObj)
+	}
+	if _, ok := errObj["reason"]; ok {
+		t.Errorf("reason must be absent for the uninstrumented verdict: %v", errObj)
+	}
+	if !strings.Contains(errObj["message"].(string), "nothing observable") {
+		t.Errorf("message = %v, want the existing diagnostic", errObj["message"])
+	}
+}
+
+// TestMuxAwaitJSONUsageErrors: in-RunE usage errors are code "usage", exit 2.
+func TestMuxAwaitJSONUsageErrors(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	for _, args := range [][]string{
+		{"await", "%5", "--ready", "--until", "idle", "--json"},
+		{"await", "%5", "--timeout", "-1", "--json"},
+		{"await", "%5", "--until", "busy", "--json"},
+		{"await", "--any", "@3", "=work:editor", "--json"}, // both resolve to %7 — duplicate
+	} {
+		stdout, _, err := runMuxCmd(t, args...)
+		if err == nil || exitCode(err) != exitUsage {
+			t.Errorf("args %v: err = %v (exit %d), want usage exit 2", args, err, exitCode(err))
+			continue
+		}
+		errObj := envelopeErrorDoc(t, stdout)
+		if errObj["code"] != "usage" {
+			t.Errorf("args %v: error = %v, want code usage", args, errObj)
+		}
+	}
+}
+
+// TestMuxAwaitJSONGoneStillNotifies: under --json the gone wake fires --notify
+// exactly once with the report word, exactly as the text path does — stdout
+// stays the single ok:false reason:gone document and the exit stays 1.
+func TestMuxAwaitJSONGoneStillNotifies(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{states: []string{"active"}, goneAt: 1}
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	installAwaitScript(t, s)
+
+	stdout, _, err := runMuxCmd(t, "await", "%5", "--json", "--notify")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	errObj := envelopeErrorDoc(t, stdout)
+	if errObj["code"] != "operational" || errObj["reason"] != "gone" {
+		t.Errorf("error = %v, want operational + reason gone", errObj)
+	}
+	if len(s.notified) != 1 || s.notified[0] != "agent %5 is gone" {
+		t.Errorf("notify = %v, want the one default-derived gone notification", s.notified)
 	}
 }

@@ -64,6 +64,7 @@ Branch on the report word, not just the exit code: `parked` and `narrow` also ex
 ## Ask-and-wait, fleets, and answers
 
 - **One round trip**: `rk mux send %5 "review this plan" --await` delivers, then blocks until the peer goes `idle` or `waiting` (asks back). Prefer it over separate `send` + `await`.
+- **Structured receipts**: both verbs take `--json` — `send` returns `{"report","target","server","enter"}` (a nested `await` receipt under `--await`), `await` returns `{"report","target"?,"elapsed_ms","detail"?,"hint"?}` — the same report words as machine fields, so scripts branch without parsing a line (`running` is a success carrying `hint:"call again"`; `gone` is `ok:false` with `reason:"gone"`).
 - **Fleet wake**: `rk mux await --any %1 %5 %9 --until waiting,idle` wakes on the FIRST pane needing attention — block on many agents instead of polling each.
 - **Answering a question**: a `waiting` agent refuses plain sends; `rk mux send %5 "yes, go ahead" --answer` is the reply channel (the send IS the answer).
 - **Never interrupt `active`**: the gate refuses plain and `--answer` sends to a working agent; that refusal is the convention, not an obstacle.

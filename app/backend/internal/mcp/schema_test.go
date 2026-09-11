@@ -158,6 +158,86 @@ func TestResolveDuplicateToolNames(t *testing.T) {
 	}
 }
 
+// TestResolveConditionalErrors drives the When/Default/OneOf drift-guard
+// errors: gated names must be inputs of the row, a Default rides only a
+// string/integer Flag arg, and an Integer default must parse.
+func TestResolveConditionalErrors(t *testing.T) {
+	cases := []struct {
+		name  string
+		build func() []Row
+		want  []string
+	}{
+		{"when names no input", func() []Row {
+			r := syntheticRows()[1]
+			r.Args = append(slices.Clone(r.Args), Arg{Literal: "-", When: "ghost"})
+			return []Row{r}
+		}, []string{`"send"`, "ghost"}},
+		{"one_of names no input", func() []Row {
+			r := syntheticRows()[1]
+			r.OneOf = []string{"message", "ghost"}
+			return []Row{r}
+		}, []string{`"send"`, "ghost"}},
+		{"default on positional", func() []Row {
+			r := syntheticRows()[0]
+			r.Args[2] = targetArg
+			r.Args[2].Default = "%1"
+			return []Row{r}
+		}, []string{`"capture"`, "target"}},
+		{"default on boolean", func() []Row {
+			return []Row{{Tool: "status", Path: "status", Args: []Arg{
+				{Name: "j", Flag: "--json", Type: ArgBoolean, Default: "true"},
+			}}}
+		}, []string{`"status"`, "default"}},
+		{"non-integer default on integer", func() []Row {
+			r := syntheticRows()[0]
+			r.Args[1].Default = "abc"
+			return []Row{r}
+		}, []string{`"capture"`, "lines", "abc"}},
+		{"optional stdin outside one_of", func() []Row {
+			r := syntheticRows()[1]
+			r.Args[2] = Arg{Name: "message", Type: ArgString, Description: "optional but not one_of"}
+			return []Row{r}
+		}, []string{`"send"`, "message"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Resolve(syntheticTree(), tc.build())
+			if err == nil {
+				t.Fatalf("Resolve succeeded, want error containing %v", tc.want)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q missing %q", err.Error(), want)
+				}
+			}
+		})
+	}
+}
+
+// TestInputSchemaDefault: a Flag arg's Default surfaces as the JSON-schema
+// default — a number for Integer args, a string otherwise.
+func TestInputSchemaDefault(t *testing.T) {
+	resolved, err := Resolve(syntheticTree(), []Row{{
+		Tool: "capture", Path: "mux capture",
+		Args: []Arg{
+			serverArg,
+			{Name: "lines", Flag: "-l", Type: ArgInteger, Default: "100"},
+			targetArg,
+			jsonLiteral,
+		},
+	}})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	props := InputSchema(resolved[0])["properties"].(map[string]any)
+	if got := props["lines"].(map[string]any)["default"]; got != 100 {
+		t.Errorf("lines default = %v (%T), want the integer 100", got, got)
+	}
+	if _, ok := props["server"].(map[string]any)["default"]; ok {
+		t.Error("server (no Default) must not carry a schema default")
+	}
+}
+
 // TestInputSchemaShape pins the generated schema: required set, pattern,
 // integer bounds, additionalProperties:false, literals excluded, and the
 // server input's description defaulted from the -L flag's usage.

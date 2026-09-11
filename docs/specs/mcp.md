@@ -166,7 +166,11 @@ args:                         # ordered input → argv mapping
   - { name: target, positional: 1, type: string, required: true, pattern: "^(%\\d+|@\\d+|=.+:.+)$" }
   - { name: lines,  flag: "-l", type: integer, minimum: 1, maximum: 2000 }
   - { literal: "--json" }                                                     # fixed argv appended
+  # optional arg shapes (not on capture):
+  # - { literal: "--answer", when: message }                                  # emit only when the named input is present (answer)
+  # - { name: timeout, flag: "--timeout", type: integer, default: "40" }      # argv value emitted when the input is absent; surfaces as the schema default (await)
 stdin: null                   # or the name of a string input streamed on stdin (send: message)
+one_of: null                  # or input names of which exactly one must be present (answer: [message, key])
 result: json                  # json | text | image — how stdout becomes MCP content
 annotations: { readOnly: true, destructive: false, idempotent: true, openWorld: false }
 timeout: 45s                  # ≤ ToolTimeoutCap
@@ -214,9 +218,9 @@ not this spec's.
 | See | `gui_shot` | `gui shot` → image block | ro | no (prints a path) |
 | See | `tab_show` | `tab show @N --json` | ro | yes |
 | See | `tab_web_ls` | `tab web ls @N --json` | ro | yes |
-| Talk | `send` | `mux send <target> -` (body on stdin) | — | report word (text) |
-| Talk | `answer` | `mux send <target> --answer` / `--key <k>` (bounded enum) | — | report word (text) |
-| Talk | `await` | `mux await <target> --until … --timeout ≤40` | ro | report word (text) |
+| Talk | `send` | `mux send <target> -` (body on stdin) | — | yes (envelope) |
+| Talk | `answer` | `mux send <target> --answer` / `--key <k>` (bounded enum) | — | yes (envelope) |
+| Talk | `await` | `mux await <target> --until … --timeout ≤40` | ro | yes (envelope) |
 | Talk | `notify` | `notify <message> [--title]` | — | no |
 | Talk | `operator_request` | `operator request <template> [--window @N] [--text] [--session]` | — | yes |
 | Spawn | `riff` | `riff [preset] [--skill…] [--layout] [--count]` (no `--cmd`) | — | no |

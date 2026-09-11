@@ -88,6 +88,45 @@ func TestValidateArgsAcceptsValid(t *testing.T) {
 	}
 }
 
+// TestValidateArgsOneOf: a row declaring OneOf rejects a call supplying zero
+// or two of the named inputs — the message names the members — and accepts
+// exactly one.
+func TestValidateArgsOneOf(t *testing.T) {
+	row := Row{
+		Tool: "answer", Path: "mux send",
+		Args: []Arg{
+			{Name: "target", Positional: 1, Type: ArgString, Required: true, Pattern: `^(%\d+|@\d+|=.+:.+)$`},
+			{Name: "message", Type: ArgString},
+			{Name: "key", Flag: "--key", Type: ArgString, Enum: []string{"Enter", "Escape"}},
+		},
+		Stdin: "message",
+		OneOf: []string{"message", "key"},
+	}
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want string // "" = accepted
+	}{
+		{"zero members", `{"target":"%3"}`, `"message"`},
+		{"two members", `{"target":"%3","message":"a","key":"Enter"}`, `"key"`},
+		{"message only", `{"target":"%3","message":"a"}`, ""},
+		{"key only", `{"target":"%3","key":"Enter"}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ValidateArgs(row, json.RawMessage(tc.raw))
+			if tc.want == "" {
+				if err != nil {
+					t.Errorf("ValidateArgs(%s) = %v, want accepted", tc.raw, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "exactly one") {
+				t.Errorf("ValidateArgs(%s) = %v, want a one-of rejection naming %s", tc.raw, err, tc.want)
+			}
+		})
+	}
+}
+
 // TestMapJSONResultTiers drives the three parsing tiers and the failure
 // mapping of a result: json row.
 func TestMapJSONResultTiers(t *testing.T) {

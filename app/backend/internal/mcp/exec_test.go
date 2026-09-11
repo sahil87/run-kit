@@ -63,6 +63,42 @@ func TestBuildArgvBoardActionEnum(t *testing.T) {
 	}
 }
 
+// TestBuildArgvDefaultEmittedWhenAbsent: an absent Flag input carrying a
+// Default emits `flag Default` at its Args position; a supplied value wins
+// over the Default.
+func TestBuildArgvDefaultEmittedWhenAbsent(t *testing.T) {
+	row := findRow(t, "await")
+	got := BuildArgv(row, map[string]any{"server": "s", "target": "%3"})
+	want := []string{"mux", "await", "-L", "s", "--timeout", "40", "%3", "--json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("argv = %v, want %v", got, want)
+	}
+
+	got = BuildArgv(row, map[string]any{"server": "s", "target": "%3", "timeout": float64(12)})
+	want = []string{"mux", "await", "-L", "s", "--timeout", "12", "%3", "--json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("argv with supplied timeout = %v, want %v", got, want)
+	}
+}
+
+// TestBuildArgvWhenConditionalLiterals: a Literal whose When input is absent is
+// skipped — the answer row's `--answer`/`-` pair rides the message form only.
+func TestBuildArgvWhenConditionalLiterals(t *testing.T) {
+	row := findRow(t, "answer")
+
+	got := BuildArgv(row, map[string]any{"target": "%3", "message": "yes"})
+	want := []string{"mux", "send", "%3", "--answer", "-", "--json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("message form argv = %v, want %v", got, want)
+	}
+
+	got = BuildArgv(row, map[string]any{"target": "%3", "key": "Enter"})
+	want = []string{"mux", "send", "--key", "Enter", "%3", "--json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("key form argv = %v, want %v", got, want)
+	}
+}
+
 // TestExecutorStdinRoundTrip: a stub that cats stdin proves the plumbing, and
 // echoing argv proves no shell string is involved.
 func TestExecutorStdinRoundTrip(t *testing.T) {

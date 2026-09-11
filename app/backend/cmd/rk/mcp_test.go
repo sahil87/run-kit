@@ -29,20 +29,48 @@ func TestMCPTableResolves(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	want := []string{"board", "capture", "cron_list", "gui_status", "operator_request", "panes", "process", "send", "sessions", "status", "tab_show", "tab_web_ls"}
+	want := []string{"answer", "await", "board", "capture", "cron_list", "gui_status", "operator_request", "panes", "process", "send", "sessions", "status", "tab_show", "tab_web_ls"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("tool names = %v, want %v", names, want)
 	}
 
-	// The send description override carries the interim-receipt caveat (the
-	// plan's named risk: `delivered` is submission verification, not the
-	// agent acting).
+	// The send description override carries the receipt caveat (the plan's
+	// named risk: `delivered` is submission verification, not the agent
+	// acting).
 	for _, res := range resolved {
 		if res.Row.Tool == "send" {
 			if desc := res.Row.Description; !strings.Contains(desc, "does NOT mean the agent has acted") {
 				t.Errorf("send description missing the caveat: %q", desc)
 			}
 		}
+	}
+
+	// The answer/await schemas: answer's key enum is the closed set and both
+	// payloads stay optional (the one-of is handler-enforced); await's timeout
+	// is bounded 1–40 with the structural default 40.
+	var answer, await *mcp.Resolved
+	for i := range resolved {
+		switch resolved[i].Row.Tool {
+		case "answer":
+			answer = &resolved[i]
+		case "await":
+			await = &resolved[i]
+		}
+	}
+	if answer == nil || await == nil {
+		t.Fatal("answer/await rows missing from the resolved table")
+	}
+	answerProps := mcp.InputSchema(*answer)["properties"].(map[string]any)
+	if got := fmt.Sprint(answerProps["key"].(map[string]any)["enum"]); got != "[Enter Escape Tab Up Down Left Right Space BSpace y n 1 2 3 4 5 6 7 8 9]" {
+		t.Errorf("answer key enum = %v, want the closed set", got)
+	}
+	if got := fmt.Sprint(mcp.InputSchema(*answer)["required"]); got != "[target]" {
+		t.Errorf("answer required = %v, want [target] — the message/key one-of is handler-enforced", got)
+	}
+	awaitProps := mcp.InputSchema(*await)["properties"].(map[string]any)
+	timeout := awaitProps["timeout"].(map[string]any)
+	if timeout["minimum"] != 1 || timeout["maximum"] != 40 || timeout["default"] != 40 {
+		t.Errorf("await timeout schema = %v, want min 1, max 40, default 40", timeout)
 	}
 }
 

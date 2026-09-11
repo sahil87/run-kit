@@ -62,6 +62,16 @@ type Arg struct {
 	Minimum     *int     // integers
 	Maximum     *int
 	Description string // "" ⇒ the flag's pflag Usage string (positional args need one)
+	// When (Literal args only) gates the literal on the named input being
+	// present in the call — BuildArgv skips the token when the input is
+	// absent. Resolve rejects a When naming no input of the row.
+	When string
+	// Default (Flag args only, never Boolean) is the argv value BuildArgv
+	// emits for the flag when the input is absent; InputSchema surfaces it as
+	// the JSON-schema default (a number for Integer args). Resolve rejects a
+	// Default on a positional/Literal/Boolean arg and a non-integer Default on
+	// an Integer arg.
+	Default string
 }
 
 // Row is one allowlisted tool. The table is compiled in; a verb with no row is
@@ -75,6 +85,10 @@ type Row struct {
 	Annotations Annotations   // ReadOnly, Destructive, Idempotent, OpenWorld
 	Timeout     time.Duration // 0 ⇒ ToolTimeoutCap; MUST be ≤ ToolTimeoutCap (test-enforced)
 	Description string        // "" ⇒ Cobra Short + "\n\n" + Long
+	// OneOf lists input names of which exactly one must be present in a call;
+	// ValidateArgs rejects zero or two before anything execs. Resolve rejects
+	// a member naming no input of the row.
+	OneOf []string
 }
 
 // neverTools are command paths that MUST NOT gain a policy row
@@ -132,10 +146,26 @@ func intPtr(n int) *int { return &n }
 // that would mislead a model (docs/specs/mcp.md § Policy table rules).
 const statusDescription = "Session summary of the `runkit` tmux server only (the verb takes no server flag); use `sessions`/`panes` for any other server."
 
-// sendDescription overrides `mux send`'s Cobra help because the interim text
-// receipt misleads a model: `delivered %N` is the injection engine's
-// submission verification, not an acknowledgment from the agent.
-const sendDescription = "Deliver a message into an agent's pane through run-kit's injection engine, gated on the pane's agent state (idle sends; waiting and active refuse; unknown warns and sends). Result is the verb's report line: `delivered %N` means the engine verified the text was submitted — it does NOT mean the agent has acted on it; read the pane with `capture` to see the effect. `staged`/`sent` do not occur through this tool. A refusal or `unverified %N` is returned as an error with the verb's diagnostic. `--force`, `--answer`, `--key`, and `--await` are not exposed."
+// sendDescription overrides `mux send`'s Cobra help for the model: it names
+// the receipt's fields and keeps the load-bearing caveat — `delivered` is the
+// injection engine's submission verification, not an acknowledgment from the
+// agent.
+const sendDescription = "Deliver a message into an agent's pane through run-kit's injection engine, gated on the pane's agent state (idle sends; waiting and active refuse; unknown warns and sends). The result is the delivery receipt: `report` (`delivered` means the engine verified the text was submitted — it does NOT mean the agent has acted on it; call `await` to wait for the agent's state, or `capture` to read the pane), `target` (the resolved pane id), `server`, and `enter` (true when Enter was sent). Failures return code operational with a `reason`: probe_failure (the paste never echoed; check the pane before resending — a resend would duplicate the staged text), staged_send_failure (text landed but Enter was not sent; press Enter in the pane to submit), submit_unverified (Enter was sent but the pane stayed unchanged; capture the pane before resending). `--force` is not exposed; answering a waiting agent or pressing a key is the `answer` tool."
+
+// answerKeyEnum is the closed key set the answer tool may press (spec
+// Allowlist v1: control chords are excluded — interrupting an agent is kill's
+// job).
+var answerKeyEnum = []string{"Enter", "Escape", "Tab", "Up", "Down", "Left", "Right", "Space", "BSpace", "y", "n", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
+
+// answerDescription overrides `mux send`'s Cobra help for the answer tool:
+// the message-vs-key split and the gate posture are what a model needs to call
+// it correctly.
+const answerDescription = "Reply to a waiting agent or press one key in its pane — the two forms of `mux send`'s answer channel. Pass exactly one of `message` (the reply text for a waiting agent, submitted with Enter; receipt report `delivered`, enter true) or `key` (one tmux key name — for trust prompts, pickers, and menus; receipt report `sent`, enter false). A key press rides the plain gate: a `waiting` agent refuses a bare key (use `message` to reply) and an `active` agent refuses everything — never interrupt a working agent. Gate refusals return the verb's diagnostic as an operational error."
+
+// awaitDescription overrides `mux await`'s Cobra help for the model: the
+// report words and the running/re-arm contract are not obvious from terminal
+// prose.
+const awaitDescription = "Block until an agent pane reaches a state, then report the outcome: `report` is a reached `until` state (`idle`, or `waiting` — the agent is asking a question back; answer it with `answer`), or `running` (the timeout expired — nothing failed; call again to keep waiting). With `ready`, wait for a freshly spawned agent's BOOT readiness instead: `ready` (safe to type into; `detail` is `state` or `echo`), `parked` (a trust dialog or wall — read the pane with `capture` and answer it with `answer`), or `narrow` (the pane is below the 80x20 readiness floor; `detail` carries the WxH geometry — resize or relocate the pane). `until` and `ready` are mutually exclusive. The result also carries `target` (the pane; absent on running) and `elapsed_ms`. The pane dying mid-wait is an operational error with reason `gone`."
 
 // boardDescription overrides `board`'s Cobra help — the family Long is
 // terminal prose; the row description names each action's required inputs and
@@ -161,9 +191,10 @@ const operatorRequestDescription = "Hand the server's operator agent a templated
 // Table is the compiled-in policy table — the allowlist (docs/specs/mcp.md
 // § Policy table). Seeded with the verbs that are already MCP-shaped: the nine
 // structured-today read verbs ride result: json on their existing bare
-// documents until the --json envelope lands, send rides result: text on its
-// report-word receipt, and board rides result: json on its route bodies
-// (show) and {board, window, orderKey?} receipts (pin/unpin/reorder).
+// documents until the --json envelope lands, send/answer/await ride result:
+// json on the mux verbs' --json receipts, and board rides result: json on its
+// route bodies (show) and {board, window, orderKey?} receipts
+// (pin/unpin/reorder).
 var Table = []Row{
 	{
 		Tool: "sessions", Path: "mux sessions",
@@ -232,9 +263,10 @@ var Table = []Row{
 			targetArg,
 			{Name: "message", Type: ArgString, Required: true, Description: "The text to deliver; submitted with Enter"},
 			{Literal: "-"},
+			jsonLiteral,
 		},
 		Stdin:       "message",
-		Result:      ResultText,
+		Result:      ResultJSON,
 		Annotations: Annotations{},
 		Description: sendDescription,
 	},
@@ -275,5 +307,50 @@ var Table = []Row{
 		Result:      ResultJSON,
 		Annotations: Annotations{}, // Talk row: no annotations (spec allowlist "—")
 		Description: operatorRequestDescription,
+	},
+	{
+		// One tool for both answer forms: --answer applies only to the message
+		// form (the When literals), so a bare key press rides the plain gate
+		// column — a waiting agent refuses it.
+		Tool: "answer", Path: "mux send",
+		Args: []Arg{
+			serverArg,
+			targetArg,
+			{Name: "message", Type: ArgString, Description: "The reply text for a waiting agent; submitted with Enter (mutually exclusive with key)"},
+			{Name: "key", Flag: "--key", Type: ArgString,
+				Enum:        answerKeyEnum,
+				Description: "One tmux key name to press instead of a message — for trust prompts, pickers, and menus (mutually exclusive with message)"},
+			{Literal: "--answer", When: "message"},
+			{Literal: "-", When: "message"},
+			jsonLiteral,
+		},
+		Stdin:       "message",
+		OneOf:       []string{"message", "key"},
+		Result:      ResultJSON,
+		Annotations: Annotations{}, // Talk row: no annotations (spec allowlist "—")
+		Description: answerDescription,
+	},
+	{
+		// The timeout is structurally clamped to the proxy cap: bounded 1..40
+		// by the schema with Default "40" emitted when absent, so the verb
+		// always reports running before the 45s deadline (docs/specs/mcp.md
+		// § Timeout contract). --any/--file/--after-active/--notify are not
+		// exposed (a path, N targets, and no chat-client use).
+		Tool: "await", Path: "mux await",
+		Args: []Arg{
+			serverArg,
+			targetArg,
+			{Name: "until", Flag: "--until", Type: ArgString,
+				Pattern:     `^(idle|waiting|active)(,(idle|waiting|active)){0,2}$`,
+				Description: "Comma-separated agent states that end the wait (default idle); waiting wakes when the agent asks a question back"},
+			{Name: "timeout", Flag: "--timeout", Type: ArgInteger, Minimum: intPtr(1), Maximum: intPtr(40), Default: "40",
+				Description: "Seconds to wait before reporting running (1–40; default 40). On running, call again"},
+			{Name: "ready", Flag: "--ready", Type: ArgBoolean,
+				Description: "Wait for a freshly spawned agent's BOOT readiness instead of a state: ready | parked (a trust dialog or wall — read the pane and answer it with answer) | narrow (pane below 80x20). Mutually exclusive with until"},
+			jsonLiteral,
+		},
+		Result:      ResultJSON,
+		Annotations: readOnlyAnn, // read-only even though it blocks
+		Description: awaitDescription,
 	},
 }

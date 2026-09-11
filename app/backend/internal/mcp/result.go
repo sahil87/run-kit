@@ -40,6 +40,17 @@ func ValidateArgs(row Row, raw json.RawMessage) (map[string]any, error) {
 			return nil, fmt.Errorf("unknown argument %q", name)
 		}
 	}
+	if len(row.OneOf) > 0 {
+		present := 0
+		for _, name := range row.OneOf {
+			if _, ok := args[name]; ok {
+				present++
+			}
+		}
+		if present != 1 {
+			return nil, fmt.Errorf("exactly one of %s is required, got %d", quotedNames(row.OneOf), present)
+		}
+	}
 	for _, arg := range row.Args {
 		if arg.Literal != "" {
 			continue
@@ -56,6 +67,16 @@ func ValidateArgs(row Row, raw json.RawMessage) (map[string]any, error) {
 		}
 	}
 	return args, nil
+}
+
+// quotedNames renders input names for one-line validation messages:
+// `"message", "key"`.
+func quotedNames(names []string) string {
+	quoted := make([]string, len(names))
+	for i, name := range names {
+		quoted[i] = `"` + name + `"`
+	}
+	return strings.Join(quoted, ", ")
 }
 
 // validateArg checks one supplied value against its Arg's type and bounds.

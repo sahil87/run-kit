@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
@@ -110,4 +111,15 @@ func (s outputSink) JSONError(e envelopeError) {
 		return
 	}
 	s.Dataf("%s\n", doc)
+}
+
+// envelopeCodeForErr classifies a RunE error into the envelope code: the
+// usageError wrap (exit 2) is usage; everything else is operational — `ok`
+// mirrors the exit code (docs/specs/mcp.md § Envelope).
+func envelopeCodeForErr(err error) string {
+	var ece *exitCodeError
+	if errors.As(err, &ece) && ece.code == exitUsage {
+		return envelopeCodeUsage
+	}
+	return envelopeCodeOperational
 }

@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -51,6 +53,9 @@ func Resolve(root *cobra.Command, table []Row) ([]Resolved, error) {
 			if err := res.checkArg(cmd, arg); err != nil {
 				return nil, err
 			}
+		}
+		if err := row.checkConditionals(); err != nil {
+			return nil, err
 		}
 		if row.Stdin != "" {
 			if err := row.checkStdin(); err != nil {
@@ -135,6 +140,9 @@ func checkFlagType(tool string, arg Arg, flag *pflag.Flag) error {
 		ok = arg.Type == ArgInteger
 	case "string":
 		ok = arg.Type == ArgString
+	case "stringArray":
+		// A string input maps onto one element of a repeatable flag (`--key`).
+		ok = arg.Type == ArgString
 	default:
 		// An unlisted pflag type is incompatible by default — widen here only
 		// when a row genuinely needs it.
@@ -145,13 +153,52 @@ func checkFlagType(tool string, arg Arg, flag *pflag.Flag) error {
 	return nil
 }
 
+// checkConditionals validates the When/Default/OneOf model additions: every
+// When and OneOf member names a (non-literal) input of the row, and a Default
+// rides only a Flag arg whose type can carry it — never a Boolean (a bare
+// flag has no value to default), and an Integer default must parse.
+func (r Row) checkConditionals() error {
+	inputs := map[string]bool{}
+	for _, arg := range r.Args {
+		if arg.Literal == "" && arg.Name != "" {
+			inputs[arg.Name] = true
+		}
+	}
+	for _, arg := range r.Args {
+		if arg.When != "" && !inputs[arg.When] {
+			return fmt.Errorf("mcp policy row %q: literal %q gates on %q, which is not an input of the row", r.Tool, arg.Literal, arg.When)
+		}
+		if arg.Default == "" {
+			continue
+		}
+		if arg.Flag == "" || arg.Type == ArgBoolean {
+			return fmt.Errorf("mcp policy row %q: input %q has a default but is not a string/integer flag", r.Tool, arg.Name)
+		}
+		if arg.Type == ArgInteger {
+			if _, err := strconv.Atoi(arg.Default); err != nil {
+				return fmt.Errorf("mcp policy row %q: input %q default %q is not an integer", r.Tool, arg.Name, arg.Default)
+			}
+		}
+	}
+	for _, name := range r.OneOf {
+		if !inputs[name] {
+			return fmt.Errorf("mcp policy row %q: one_of member %q is not an input of the row", r.Tool, name)
+		}
+	}
+	return nil
+}
+
 // checkStdin verifies Row.Stdin names a string input of the row — a send body
-// travels on stdin, never argv.
+// travels on stdin, never argv. An optional (non-required) stdin input must be
+// a OneOf member: otherwise a missing body would exec the verb with no payload.
 func (r Row) checkStdin() error {
 	for _, arg := range r.Args {
 		if arg.Name == r.Stdin {
 			if arg.Type != ArgString {
 				return fmt.Errorf("mcp policy row %q: stdin input %q must be a string", r.Tool, r.Stdin)
+			}
+			if !arg.Required && !slices.Contains(r.OneOf, arg.Name) {
+				return fmt.Errorf("mcp policy row %q: stdin input %q is optional but not a one_of member", r.Tool, r.Stdin)
 			}
 			return nil
 		}
@@ -187,6 +234,17 @@ func InputSchema(res Resolved) map[string]any {
 		}
 		if arg.Maximum != nil {
 			prop["maximum"] = *arg.Maximum
+		}
+		if arg.Default != "" {
+			// Typed default: a JSON number for Integer args, a string
+			// otherwise (Resolve guarantees the parse).
+			if arg.Type == ArgInteger {
+				if n, err := strconv.Atoi(arg.Default); err == nil {
+					prop["default"] = n
+				}
+			} else {
+				prop["default"] = arg.Default
+			}
 		}
 		props[arg.Name] = prop
 		if arg.Required {

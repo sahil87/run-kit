@@ -83,8 +83,10 @@ func withoutTmuxEnv(env []string) []string {
 // arguments: the command path, then flags in Args order, then positionals by
 // slot, then literals in Args order (so capture yields
 // `mux capture -L <server> -l <lines> <target> --json`). Booleans map to a bare
-// flag when true, nothing when false; absent optional inputs contribute
-// nothing. args MUST have passed ValidateArgs first — BuildArgv trusts types.
+// flag when true, nothing when false; an absent Flag input carrying a Default
+// emits `flag Default` at its Args position; other absent optional inputs
+// contribute nothing; a Literal whose When input is absent is skipped.
+// args MUST have passed ValidateArgs first — BuildArgv trusts types.
 func BuildArgv(row Row, args map[string]any) []string {
 	argv := strings.Fields(row.Path)
 	for _, arg := range row.Args {
@@ -93,6 +95,9 @@ func BuildArgv(row Row, args map[string]any) []string {
 		}
 		v, ok := args[arg.Name]
 		if !ok {
+			if arg.Default != "" {
+				argv = append(argv, arg.Flag, arg.Default)
+			}
 			continue
 		}
 		switch arg.Type {
@@ -113,9 +118,15 @@ func BuildArgv(row Row, args map[string]any) []string {
 		}
 	}
 	for _, arg := range row.Args {
-		if arg.Literal != "" {
-			argv = append(argv, arg.Literal)
+		if arg.Literal == "" {
+			continue
 		}
+		if arg.When != "" {
+			if _, ok := args[arg.When]; !ok {
+				continue
+			}
+		}
+		argv = append(argv, arg.Literal)
 	}
 	return argv
 }

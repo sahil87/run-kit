@@ -72,12 +72,34 @@ var (
 	awaitNotifyFlag      string
 	awaitAnyFlag         bool
 	awaitReadyFlag       bool
+	awaitJSONFlag        bool
 )
 
 // awaitFlagAuto is the NoOptDefVal sentinel for --notify (the present.go
 // pattern): a bare --notify parses to this sentinel (derive the default
 // message) while --notify=x carries x.
 const awaitFlagAuto = "\x00auto"
+
+// awaitReasonGone is the envelope reason for a pane that died mid-wait; the
+// pane is named in the error message, never in the error object.
+const awaitReasonGone = "gone"
+
+// awaitHintCallAgain is the hint a `running` receipt carries (docs/specs/mcp.md
+// § Timeout contract: the wait expired, nothing failed — re-arm by calling
+// again).
+const awaitHintCallAgain = "call again"
+
+// awaitReceipt is the `mux await --json` success document (docs/specs/mcp.md
+// § Receipts): the report word, the pane it is about (omitted for the bare
+// words file/running), the observe-phase wall time, the ready/narrow detail,
+// and the running hint.
+type awaitReceipt struct {
+	Report    string `json:"report"`
+	Target    string `json:"target,omitempty"`
+	ElapsedMs int64  `json:"elapsed_ms"`
+	Detail    string `json:"detail,omitempty"`
+	Hint      string `json:"hint,omitempty"`
+}
 
 var muxAwaitCmd = &cobra.Command{
 	Use:   "await [--any] <target>... [--until <state>[,<state>]] [--file <path>] [--after-active] [--ready] [--timeout <secs>] [--notify[=msg]]",
@@ -119,6 +141,11 @@ var muxAwaitCmd = &cobra.Command{
 		"`file`/`running` stay bare. --after-active is tracked per pane, an " +
 		"uninstrumented member with no --file fails the whole arm, and two " +
 		"targets resolving to the same pane are a usage error.\n\n" +
+		"--json emits exactly one JSON document on stdout: on success the receipt " +
+		"{\"report\",\"target\"?,\"elapsed_ms\",\"detail\"?,\"hint\"?} — the report word " +
+		"inside result, target omitted for the bare words file/running, `call again` " +
+		"as running's hint; on failure {\"ok\":false,\"error\":{\"code\",\"message\",\"reason\"?}} " +
+		"(gone carries reason \"gone\"). Exit codes are unchanged.\n\n" +
 		"Targets: %N (pane), @N (window — resolves to its agent pane), " +
 		"=session:window (exact). Bare session:window names are rejected.",
 	Args: usageArgs(cobra.MinimumNArgs(1)),
@@ -143,6 +170,8 @@ func init() {
 		"Accept one-or-more targets and wake on the FIRST to fire (report appends the firing pane)")
 	muxAwaitCmd.Flags().BoolVar(&awaitReadyFlag, "ready", false,
 		"Wait until the pane is boot-ready for typed input (agent state present, else a sentinel echo probe gated on the 80x20 floor: echo = ready, no echo = parked, below floor = narrow %N (WxH); all exit 0, except a pane death mid-wait which reports `gone` with exit 1)")
+	muxAwaitCmd.Flags().BoolVar(&awaitJSONFlag, "json", false,
+		"Emit exactly one JSON document on stdout (the report word inside result; the human report line is suppressed)")
 }
 
 // awaitDeps are the observer's test seams (the present.go pattern): the
@@ -204,22 +233,31 @@ var awaitPollTick = 2 * time.Second
 const awaitDefaultTimeoutSec = 300
 
 // runMuxAwait is the testable core: parse → resolve → observe → report →
-// optionally notify.
+// optionally notify. Under --json every in-RunE failure first writes the
+// ok:false envelope to stdout (code from the exit class, reason only for
+// gone) and still returns the error, so exit code and stderr are unchanged.
 func runMuxAwait(cmd *cobra.Command, args []string) error {
+	sink := newSink(cmd)
+	fail := func(err error) error {
+		if awaitJSONFlag {
+			sink.JSONError(envelopeError{Code: envelopeCodeForErr(err), Message: err.Error()})
+		}
+		return err
+	}
 	if !awaitAnyFlag && len(args) != 1 {
-		return usageError(fmt.Errorf("await takes exactly one target without --any (got %d)", len(args)))
+		return fail(usageError(fmt.Errorf("await takes exactly one target without --any (got %d)", len(args))))
 	}
 	// --ready is a boot-readiness wait on a single pane — mixing it with the
 	// state/file conditions or the multi-target arm has no coherent semantics.
 	if awaitReadyFlag && (cmd.Flags().Changed("until") || awaitFileFlag != "" || awaitAfterActiveFlag || awaitAnyFlag) {
-		return usageError(fmt.Errorf("--ready cannot combine with --until, --file, --after-active, or --any"))
+		return fail(usageError(fmt.Errorf("--ready cannot combine with --until, --file, --after-active, or --any")))
 	}
 	until, err := parseUntilStates(awaitUntilFlag)
 	if err != nil {
-		return usageError(err)
+		return fail(usageError(err))
 	}
 	if awaitTimeoutFlag < 0 {
-		return usageError(fmt.Errorf("--timeout must be >= 0 (0 = indefinite)"))
+		return fail(usageError(fmt.Errorf("--timeout must be >= 0 (0 = indefinite)")))
 	}
 
 	parent := cmd.Context()
@@ -237,16 +275,16 @@ func runMuxAwait(cmd *cobra.Command, args []string) error {
 	for _, arg := range args {
 		pt, err := tmux.ParsePaneTarget(arg)
 		if err != nil {
-			return usageError(err)
+			return fail(usageError(err))
 		}
 		ctx, cancel := context.WithTimeout(parent, muxCmdTimeout)
 		paneID, err := resolvePaneTarget(ctx, pt, server)
 		cancel()
 		if err != nil {
-			return err
+			return fail(err)
 		}
 		if prev, dup := seen[paneID]; dup {
-			return usageError(fmt.Errorf("duplicate target: %s and %s both resolve to pane %s", prev, arg, paneID))
+			return fail(usageError(fmt.Errorf("duplicate target: %s and %s both resolve to pane %s", prev, arg, paneID)))
 		}
 		seen[paneID] = arg
 		panes = append(panes, paneID)
@@ -256,20 +294,35 @@ func runMuxAwait(cmd *cobra.Command, args []string) error {
 	if awaitReadyFlag {
 		return runMuxAwaitReady(cmd, parent, server, panes[0], deps)
 	}
+	observeStart := deps.now()
 	report, firedPane, err := awaitObserve(parent, deps, panes, awaitParams{
 		until:       until,
 		file:        awaitFileFlag,
 		afterActive: awaitAfterActiveFlag,
 		timeout:     time.Duration(awaitTimeoutFlag) * time.Second,
 	})
+	observeElapsed := deps.now().Sub(observeStart)
 
-	sink := newSink(cmd)
-	line := report
-	if awaitAnyFlag && firedPane != "" {
-		line = report + " " + firedPane
-	}
-	if line != "" {
-		sink.Dataf("%s\n", line)
+	if awaitJSONFlag {
+		if err != nil {
+			reason := ""
+			if report == "gone" {
+				reason = awaitReasonGone
+			}
+			sink.JSONError(envelopeError{Code: envelopeCodeForErr(err), Message: err.Error(), Reason: reason})
+			// Fall through: a report-bearing failure (gone) still notifies,
+			// matching the text path and runMuxAwaitReady.
+		} else {
+			sink.JSONResult(awaitObserverReceipt(report, firedPane, panes, observeElapsed))
+		}
+	} else {
+		line := report
+		if awaitAnyFlag && firedPane != "" {
+			line = report + " " + firedPane
+		}
+		if line != "" {
+			sink.Dataf("%s\n", line)
+		}
 	}
 	// --notify fires only on a REAL signal (never on a refusal-class error
 	// before the wait even started), fail-silent per the rk notify contract.
@@ -288,6 +341,25 @@ func runMuxAwait(cmd *cobra.Command, args []string) error {
 		deps.notify(parent, "", msg)
 	}
 	return err
+}
+
+// awaitObserverReceipt builds the --json success document for the observer
+// path: file/running stay bare (no pane fired); a state word names the single
+// target, or under --any the firing pane; running carries the call-again hint.
+func awaitObserverReceipt(report, firedPane string, panes []string, elapsed time.Duration) awaitReceipt {
+	rec := awaitReceipt{Report: report, ElapsedMs: elapsed.Milliseconds()}
+	switch report {
+	case "file":
+	case "running":
+		rec.Hint = awaitHintCallAgain
+	default:
+		if awaitAnyFlag {
+			rec.Target = firedPane
+		} else {
+			rec.Target = panes[0]
+		}
+	}
+	return rec
 }
 
 // muxAwaitReadyFn is the --ready wait seam (the muxAwaitDepsFn pattern):
@@ -378,9 +450,13 @@ func (awaitReadyTmux) PaneSize(ctx context.Context, paneID, server string) (int,
 // readyReport is the shared readiness→report mapping consumed by both
 // `rk mux await --ready` and `rk tab new --ready` (word + pane form, the
 // stderr diagnostic for the parked/narrow verdicts, and the exit-classifying
-// error for `gone`).
+// error for `gone`). word and detail decompose line for the --json receipt
+// (detail is the parenthesised suffix: "state"/"echo" for ready, "WxH" for
+// narrow); line is unchanged for the text consumers.
 type readyReport struct {
 	line      string // stdout report line (e.g. "ready %5 (state)", "gone")
+	word      string // the bare report word (ready, parked, narrow, running, gone)
+	detail    string // ready: "state"|"echo"; narrow: "WxH"; else ""
 	diag      string // stderr diagnostic ("" when none): parked snippet / narrow remedy
 	reportErr error  // non-nil for gone (exit 1); the line still prints first
 }
@@ -399,13 +475,13 @@ func mapReadyReport(paneID string, readiness inject.Readiness, err error) (ready
 		if readiness == inject.ReadyByEcho {
 			signal = "echo"
 		}
-		return readyReport{line: fmt.Sprintf("ready %s (%s)", paneID, signal)}, nil
+		return readyReport{line: fmt.Sprintf("ready %s (%s)", paneID, signal), word: "ready", detail: signal}, nil
 	case errors.Is(err, inject.ErrNotReady):
-		return readyReport{line: "running"}, nil
+		return readyReport{line: "running", word: "running"}, nil
 	case errors.Is(err, inject.ErrParked):
 		// Parked is wake-worthy and returns immediately: the caller must act.
 		var parked *inject.ParkedError
-		rep := readyReport{line: fmt.Sprintf("parked %s", paneID)}
+		rep := readyReport{line: fmt.Sprintf("parked %s", paneID), word: "parked"}
 		if errors.As(err, &parked) && parked.Snippet != "" {
 			rep.diag = parked.Snippet + "\n"
 		}
@@ -415,16 +491,17 @@ func mapReadyReport(paneID string, readiness inject.Readiness, err error) (ready
 		// readiness floor, so the probe cannot be trusted.
 		var narrow *inject.NarrowError
 		size := ""
-		rep := readyReport{}
+		rep := readyReport{word: "narrow"}
 		if errors.As(err, &narrow) {
 			size = fmt.Sprintf(" (%dx%d)", narrow.Width, narrow.Height)
+			rep.detail = fmt.Sprintf("%dx%d", narrow.Width, narrow.Height)
 			rep.diag = fmt.Sprintf("pane %s is %dx%d, below the %dx%d readiness floor — resize or relocate the pane and re-run\n",
 				paneID, narrow.Width, narrow.Height, inject.ReadyMinCols, inject.ReadyMinRows)
 		}
 		rep.line = fmt.Sprintf("narrow %s%s", paneID, size)
 		return rep, nil
 	case errors.Is(err, inject.ErrGone):
-		return readyReport{line: "gone", reportErr: err}, nil
+		return readyReport{line: "gone", word: "gone", reportErr: err}, nil
 	default:
 		return readyReport{}, err
 	}
@@ -436,20 +513,42 @@ func mapReadyReport(paneID string, readiness inject.Readiness, err error) (ready
 // the narrow geometry + remedy on stderr so the caller can judge the wall or
 // resize the pane; `gone` — exit 1), and honor the family's
 // timeout report (`running`, exit 0) and --notify machinery (fired on every
-// report, fail-silent per the rk notify contract).
+// report, fail-silent per the rk notify contract). Under --json the receipt
+// carries the report word and detail instead of the text line; gone is the
+// ok:false envelope with reason "gone".
 func runMuxAwaitReady(cmd *cobra.Command, parent context.Context, server, paneID string, deps awaitDeps) error {
 	timeout := time.Duration(awaitTimeoutFlag) * time.Second
+	observeStart := deps.now()
 	readiness, err := muxAwaitReadyFn(parent, server, paneID, timeout)
+	observeElapsed := deps.now().Sub(observeStart)
 
+	sink := newSink(cmd)
 	rep, err := mapReadyReport(paneID, readiness, err)
 	if err != nil {
+		if awaitJSONFlag {
+			sink.JSONError(envelopeError{Code: envelopeCodeForErr(err), Message: err.Error()})
+		}
 		return err
 	}
-	sink := newSink(cmd)
 	if rep.diag != "" {
 		fmt.Fprint(cmd.ErrOrStderr(), rep.diag)
 	}
-	sink.Dataf("%s\n", rep.line)
+	if awaitJSONFlag {
+		if rep.reportErr != nil {
+			// gone: the pane is named in the message, never the error object.
+			sink.JSONError(envelopeError{Code: envelopeCodeOperational, Message: rep.reportErr.Error(), Reason: awaitReasonGone})
+		} else {
+			rec := awaitReceipt{Report: rep.word, Detail: rep.detail, ElapsedMs: observeElapsed.Milliseconds()}
+			if rep.word == "running" {
+				rec.Hint = awaitHintCallAgain
+			} else {
+				rec.Target = paneID
+			}
+			sink.JSONResult(rec)
+		}
+	} else {
+		sink.Dataf("%s\n", rep.line)
+	}
 	// --notify fires on the report, fail-silent per the rk notify contract.
 	if cmd.Flags().Changed("notify") {
 		msg := awaitNotifyFlag

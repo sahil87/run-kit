@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-11T16:34:40Z"}
+{"args":"Operator Tasks tab lists every tracked item, not only pane-bearing workers — the console Operator Tasks segment (desktop drawer + mobile ?tab=tasks) SHALL list every item in the fab operator's tracked: list (pane-bearing workers AND pane-less notes / queued fab-changes / github-pr / shell / task items), done items shown dimmed, paused marked; the pane-keyed monitored join for the sidebar underbar, opr register and Server page WATCHED zone stays unchanged.","cmd":"fab-new","event":"command","ts":"2026-09-11T16:34:40Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-09-11T16:38:19Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-09-11T16:38:47Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-11T16:39:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-11T16:44:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-11T16:59:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-11T17:06:53Z"}
+{"event":"review","result":"passed","ts":"2026-09-11T17:06:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-11T17:13:39Z"}

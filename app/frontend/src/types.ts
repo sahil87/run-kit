@@ -52,6 +52,29 @@ export type PaneInfo = {
   cwdMissing?: boolean;
 };
 
+/** One item of the operator's tracked list (the fab operator state file's
+ *  `tracked:` — every kind, pane-bearing or not, done or not), stamped onto
+ *  every session of the server like the tick facts. `windowId` is set when
+ *  the item's pane resolves to a live window. Display only. Absent on
+ *  payloads from an older backend. */
+export type OperatorTrackedItem = {
+  id: string;
+  kind?: string;
+  text?: string;
+  refs?: string[];
+  pane?: string;
+  windowId?: string;
+  repo?: string;
+  session?: string;
+  stage?: string;
+  agent?: string;
+  branch?: string;
+  paused?: boolean;
+  doneAt?: number;
+  addedAt?: number;
+  updatedAt?: number;
+};
+
 /** A tmux session with its windows and optional fab enrichment. */
 export type ProjectSession = {
   name: string;
@@ -107,6 +130,13 @@ export type ProjectSession = {
    *  older backend. */
   operatorLastTickAt?: number;
   operatorStale?: boolean;
+  /** The operator's whole tracked list (the fab operator state file's
+   *  `tracked:` — every kind, pane-bearing or not, done or not), stamped onto
+   *  every session of the server like the tick facts. The Operator Tasks
+   *  segment lists these; display only — nothing in rk acts on them. Absent
+   *  on payloads from an older backend (fall back to the `monitored`-derived
+   *  rows). */
+  operatorTracked?: OperatorTrackedItem[];
   windows: WindowInfo[];
 };
 

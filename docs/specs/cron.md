@@ -317,9 +317,15 @@ replace every remaining `/` with `-`, empty ⇒ `default` (e.g.
 (`tmux.SocketPath` + `cron.FabOperatorSlug`), never writes the file, and
 falls back to slug `default` on a socket-path query failure — matching fab.
 rk **derives** the watchlist from this file — the same posture as its
-`.status.yaml` and `.fab-dispatch/` reads (Constitution II) — joining
-pane-bearing, not-done `tracked:` items to windows by pane ID (the pre-2.25
-`monitored:` map stays readable for one release). Constitution X is satisfied by
+`.status.yaml` and `.fab-dispatch/` reads (Constitution II) — in one
+tolerant read with two projections: the whole `tracked:` list (every item —
+any kind, pane-bearing or not, done or not, with its text, refs, paused flag
+and done/added/updated timestamps) is surfaced on the sessions payload for
+the Operator Tasks tab (display only, never a fire input — e.g. a
+`kind: note` item with only `scope.refs` lands on `operatorTracked` and on
+no window's `monitored`), and the pane-bearing, not-done subset joins onto
+windows by pane ID as the watchlist (the pre-2.25 `monitored:` map stays
+readable for one release). Constitution X is satisfied by
 there being nothing underivable left: the earlier tick-doc-push design is
 superseded.
 
@@ -367,9 +373,14 @@ tiered; each tier reuses a shipped mechanism:
    `rate-capped`, `rescheduled`, respawn outcomes) newest first, a tap
    opening the entry's detail sheet when the entry still exists. The pinned
    operator-staleness banner renders above both cron tabs. Operator Tasks
-   renders the operator watchlist through the SAME shared watched-table
-   component as the Server page's WATCHED zone — a row click navigates to
-   the worker's terminal and collapses the drawer. Entry points: the
+   renders the operator's WHOLE tracked list through the SAME shared
+   watched-table component as the Server page's WATCHED zone — pane-bearing
+   workers as rows whose click navigates to the worker's terminal and
+   collapses the drawer, pane-less items (notes, queued changes, github-pr
+   probes, shell probes, held tasks) as item rows with kind chip, refs, text
+   (truncated, expand-in-place), and paused/done state; done-but-unacked
+   items render dimmed until the operator removes them, and the tab's count
+   line matches what `fab operator track list` reports. Entry points: the
    status-bar `◷` clock chip and the palette entries `Operator: Show tasks`,
    `Operator: Show cron list`, and `Operator: Show cron log` (mobile: the
    `?tab=tasks|list|log` content slots on the operator route); the console's

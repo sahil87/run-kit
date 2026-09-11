@@ -9,24 +9,32 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// watchlist.go — the operator-watchlist reader: the per-item parse of the
+// watchlist.go — the operator-state reader: the per-item parse of the
 // fab-owned operator state file's tracked: list, feeding the sessions
-// payload's watchlist join (by pane ID) and the operator staleness timestamp.
+// payload's watchlist join (by pane ID), the operator staleness timestamp,
+// and the per-server tracked-items list the Operator Tasks tab renders.
 //
 // EXTERNAL CONTRACT: the file ($XDG_STATE_HOME/fab/operator/<fab-slug>.yaml,
-// resolved via FabOperatorStatePath) is fab's schema, read tolerantly: unknown
-// keys are ignored, an absent or unparseable file degrades to (nil, 0, false),
-// never an error. rk NEVER writes this file.
+// resolved via FabOperatorStatePath) is fab's schema, read tolerantly for
+// DISPLAY only: unknown keys are ignored, an absent or unparseable file
+// degrades to (zero, false), never an error. rk NEVER writes this file.
+//
+// One parse, two projections. The reader surfaces EVERY tracked item — any
+// kind, pane-bearing or not, done or not — as a TrackedItem in list order:
+// the operator's tracked: list is the ledger a task tab must show whole (a
+// done item stays in the ledger until the operator removes it, so the task
+// list shows it dimmed). The pane join consumes only the pane-bearing,
+// not-done subset (OperatorState.WatchlistEntries): a done-but-unacked item
+// would otherwise pin a watched row onto a finished or dead pane. paused
+// items stay in both projections (a probe backoff or user pause is not a
+// removal) and kind is never a filter.
 //
 // Primary shape (fab-kit ≥ 2.25, kit migration 2.24.9-to-2.25.0): a top-level
-// `tracked:` LIST of items `{id, kind, scope: {pane, repo, session, stage,
-// agent, branch, …}, paused, done_at, …}`. An item is a watchlist entry iff
-// it carries a string id and a non-empty scope.pane (the join key) and its
-// done_at is null: a done-but-unacked item is no longer being watched and
-// would otherwise pin a watched row onto a finished or dead pane. paused items
-// stay (a probe backoff or user pause is not a removal) and kind is not a
-// filter (watched-by-pane is watched, whatever the kind). Malformed items —
-// a non-map element, a missing id, a non-map scope — are skipped, never fatal.
+// `tracked:` LIST of items `{id, kind, text, scope: {pane, repo, session,
+// stage, agent, branch, refs, …}, paused, done_at, added_at, updated_at, …}`.
+// A missing or non-map scope keeps the item with empty scope fields (a note's
+// scope is `{refs: [...]}`, a task may carry none). Malformed items — a
+// non-map element, a missing id — are skipped, never fatal.
 //
 // Legacy shape (fab-kit ≤ 2.24): a top-level `monitored:` MAP keyed by change
 // id. It is read ONLY when the `tracked` key is absent — a one-release dual
@@ -63,14 +71,65 @@ func parseTickAt(v any) int64 {
 	return 0
 }
 
+// TrackedItem is one item of the fab operator state file's tracked: list,
+// read tolerantly for display — every kind, pane-bearing or not, done or
+// not. The watchlist join consumes only the pane-bearing, not-done subset
+// (WatchlistEntries); the sessions payload's operatorTracked list carries
+// all of them. fab's other keys (probe, check_every, done_when, then,
+// depends_on, last, checked_at, unchanged, failures, seen and the scope's
+// stop_stage/spawned_by/merge_mode/pr) are ignored by the tolerant read.
+type TrackedItem struct {
+	ID        string   // tracked item id (fab-change: the change ID; other kinds: a slug) / the legacy monitored map's key
+	Kind      string   // fab-change | github-pr | linear | slack | shell | task | note; "" for a legacy monitored: entry
+	Text      string   // note prose (fab caps it at 500 chars); "" for other kinds unless the item carries text
+	Refs      []string // scope.refs — change ids / branch or worktree names the item is about; nil when absent
+	Pane      string   // scope.pane ("%N") — the join key; "" for pane-less items
+	Repo      string   // scope.repo
+	Session   string   // scope.session
+	Stage     string   // scope.stage
+	Agent     string   // scope.agent
+	Branch    string   // scope.branch
+	Paused    bool     // paused
+	DoneAt    int64    // done_at as unix seconds; 0 = not done (the item is still live in the operator's set)
+	AddedAt   int64    // added_at as unix seconds; 0 when absent
+	UpdatedAt int64    // updated_at as unix seconds; 0 when absent
+}
+
+// OperatorState is the tolerant read of one operator state file.
+type OperatorState struct {
+	Items      []TrackedItem // tracked: list order (fab's insertion order); legacy monitored: map entries sorted by key
+	LastTickAt int64
+}
+
+// WatchlistEntries is the pane join's input: every item with a non-empty
+// Pane and DoneAt == 0 (paused and kind do not filter), sorted by ID — the
+// entry set the pane-keyed join has always consumed.
+func (s OperatorState) WatchlistEntries() []WatchlistEntry {
+	var entries []WatchlistEntry
+	for _, item := range s.Items {
+		if item.Pane == "" || item.DoneAt != 0 {
+			continue
+		}
+		entries = append(entries, WatchlistEntry{
+			ChangeID: item.ID,
+			Pane:     item.Pane,
+			Repo:     item.Repo,
+			Session:  item.Session,
+			Stage:    item.Stage,
+			Agent:    item.Agent,
+			Branch:   item.Branch,
+			Kind:     item.Kind,
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].ChangeID < entries[j].ChangeID })
+	return entries
+}
+
 // WatchlistEntry is one watched item: the tracked item's id plus the fields
 // the watchlist join needs, lifted from its `scope` block (pane/repo/session/
-// stage/agent/branch). fab's other keys (probe, check_every, done_when, then,
-// depends_on, last, checked_at, unchanged, failures, added_at, updated_at and
-// the scope's stop_stage/spawned_by/merge_mode) are ignored by the tolerant
-// read. Kind is the item's `kind` (fab-change, github-pr, shell, …) and is
-// "" for a legacy monitored: entry, which carried none; it is not plumbed to
-// the sessions payload.
+// stage/agent/branch). Kind is the item's `kind` (fab-change, github-pr,
+// shell, …) and is "" for a legacy monitored: entry, which carried none; it
+// is not plumbed to the sessions payload.
 type WatchlistEntry struct {
 	ChangeID string // the tracked item id (fab-change: the change ID) / the legacy monitored map's key
 	Pane     string // "%N" — the join key onto PaneInfo.PaneID
@@ -89,37 +148,52 @@ func strField(m map[string]any, key string) string {
 	return s
 }
 
-// ParseWatchlist distills the file bytes. ok is false only when the YAML
-// itself fails to parse (corrupt). Entries come back sorted by ChangeID so
-// the read is deterministic (the list order and the map order are both
-// irrelevant to the pane-keyed join). The tracked: list is the primary shape;
-// the monitored: map is read only when the tracked key is absent — see the
-// file header for the both-present rule.
-func ParseWatchlist(data []byte) (entries []WatchlistEntry, lastTickAt int64, ok bool) {
+// refsField extracts a string-list key from a tolerantly-decoded map —
+// string elements only, non-string elements skipped; absent or empty ⇒ nil.
+func refsField(m map[string]any, key string) []string {
+	list, _ := m[key].([]any)
+	var refs []string
+	for _, el := range list {
+		if s, ok := el.(string); ok {
+			refs = append(refs, s)
+		}
+	}
+	return refs
+}
+
+// ParseOperatorState distills the file bytes. ok is false only when the YAML
+// itself fails to parse (corrupt). Items come back in the file's own order
+// (the tracked: list's order is the operator's ledger, top-down; the legacy
+// monitored: map is sorted by key for determinism). The tracked: list is the
+// primary shape; the monitored: map is read only when the tracked key is
+// absent — see the file header for the both-present rule.
+func ParseOperatorState(data []byte) (state OperatorState, ok bool) {
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, 0, false
+		return OperatorState{}, false
 	}
 	if raw == nil {
 		raw = map[string]any{}
 	}
 	if tracked, present := raw["tracked"]; present {
-		entries = parseTrackedItems(tracked)
+		state.Items = parseTrackedItems(tracked)
 	} else {
-		entries = parseMonitoredMap(raw["monitored"])
+		state.Items = parseMonitoredMap(raw["monitored"])
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].ChangeID < entries[j].ChangeID })
-	return entries, parseTickAt(raw["last_tick_at"]), true
+	state.LastTickAt = parseTickAt(raw["last_tick_at"])
+	return state, true
 }
 
 // parseTrackedItems is the fab-kit ≥ 2.25 arm: a non-list value yields no
-// entries; each element must be a map with a string id, a map scope carrying a
-// non-empty pane, and a null done_at (yaml.v3 decodes `done_at: null` to a nil
-// interface and a set timestamp to time.Time or string — any non-nil value
-// means done). Everything else about the item is ignored.
-func parseTrackedItems(v any) []WatchlistEntry {
+// items; each element must be a map with a non-empty string id (yaml.v3
+// decodes `done_at: null` to a nil interface and a set timestamp to
+// time.Time or string; a non-nil but unparseable done_at decodes to 0 — the
+// item then reads as live, the tolerant-read posture: the binary writes
+// RFC3339 and nothing else). A missing or non-map scope keeps the item with
+// empty scope fields.
+func parseTrackedItems(v any) []TrackedItem {
 	items, _ := v.([]any)
-	var entries []WatchlistEntry
+	var out []TrackedItem
 	for _, el := range items {
 		item, _ := el.(map[string]any)
 		if item == nil {
@@ -129,38 +203,36 @@ func parseTrackedItems(v any) []WatchlistEntry {
 		if id == "" {
 			continue
 		}
-		if item["done_at"] != nil {
-			continue
-		}
 		scope, _ := item["scope"].(map[string]any)
-		if scope == nil {
-			continue
-		}
-		pane := strField(scope, "pane")
-		if pane == "" {
-			continue // nothing to join against (queued fab-change, github-pr, shell, task, note…)
-		}
-		entries = append(entries, WatchlistEntry{
-			ChangeID: id,
-			Pane:     pane,
-			Repo:     strField(scope, "repo"),
-			Session:  strField(scope, "session"),
-			Stage:    strField(scope, "stage"),
-			Agent:    strField(scope, "agent"),
-			Branch:   strField(scope, "branch"),
-			Kind:     strField(item, "kind"),
+		out = append(out, TrackedItem{
+			ID:        id,
+			Kind:      strField(item, "kind"),
+			Text:      strField(item, "text"),
+			Refs:      refsField(scope, "refs"),
+			Pane:      strField(scope, "pane"),
+			Repo:      strField(scope, "repo"),
+			Session:   strField(scope, "session"),
+			Stage:     strField(scope, "stage"),
+			Agent:     strField(scope, "agent"),
+			Branch:    strField(scope, "branch"),
+			Paused:    item["paused"] == true,
+			DoneAt:    parseTickAt(item["done_at"]),
+			AddedAt:   parseTickAt(item["added_at"]),
+			UpdatedAt: parseTickAt(item["updated_at"]),
 		})
 	}
-	return entries
+	return out
 }
 
 // parseMonitoredMap is the fab-kit ≤ 2.24 arm (one-release dual read): a
 // change-id-keyed map of {pane, repo, session, stage, agent, branch}; a
-// non-map value or an entry without a pane yields nothing. Kind stays "" —
-// the legacy schema carried none and the reader invents no value.
-func parseMonitoredMap(v any) []WatchlistEntry {
+// non-map value or an entry without a pane yields nothing (every legacy
+// entry was pane-bearing and never done). Entries come back sorted by key —
+// a map has no order and the read stays deterministic. Kind stays "" — the
+// legacy schema carried none and the reader invents no value.
+func parseMonitoredMap(v any) []TrackedItem {
 	monitored, _ := v.(map[string]any)
-	var entries []WatchlistEntry
+	var out []TrackedItem
 	for key, mv := range monitored {
 		m, _ := mv.(map[string]any)
 		if m == nil {
@@ -170,29 +242,30 @@ func parseMonitoredMap(v any) []WatchlistEntry {
 		if pane == "" {
 			continue // nothing to join against
 		}
-		entries = append(entries, WatchlistEntry{
-			ChangeID: key,
-			Pane:     pane,
-			Repo:     strField(m, "repo"),
-			Session:  strField(m, "session"),
-			Stage:    strField(m, "stage"),
-			Agent:    strField(m, "agent"),
-			Branch:   strField(m, "branch"),
+		out = append(out, TrackedItem{
+			ID:      key,
+			Pane:    pane,
+			Repo:    strField(m, "repo"),
+			Session: strField(m, "session"),
+			Stage:   strField(m, "stage"),
+			Agent:   strField(m, "agent"),
+			Branch:  strField(m, "branch"),
 		})
 	}
-	return entries
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }
 
-// ReadWatchlist reads the fab operator state file tolerantly: absent or
-// corrupt ⇒ (nil, 0, false), never an error.
-func ReadWatchlist(path string) (entries []WatchlistEntry, lastTickAt int64, present bool) {
+// ReadOperatorState reads the fab operator state file tolerantly: absent or
+// corrupt ⇒ (zero, false), never an error.
+func ReadOperatorState(path string) (state OperatorState, present bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, 0, false
+		return OperatorState{}, false
 	}
-	entries, lastTickAt, ok := ParseWatchlist(data)
+	state, ok := ParseOperatorState(data)
 	if !ok {
-		return nil, 0, false
+		return OperatorState{}, false
 	}
-	return entries, lastTickAt, true
+	return state, true
 }

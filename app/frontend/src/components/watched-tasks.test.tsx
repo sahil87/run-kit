@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { makeSession, makeWindow } from "@/test-utils/fixtures";
 import { WatchedTasks } from "./watched-tasks";
 
@@ -111,17 +111,123 @@ describe("WatchedTasks", () => {
     );
   });
 
-  it("an operator with zero monitored windows renders `No watched workers`", () => {
+  it("an operator with an empty tracked list renders `No tracked items`", () => {
     renderTasks({
       server: "srv1",
       sessions: [
         makeSession({
           operatorLastTickAt: NOW - 10,
+          operatorTracked: [],
           windows: [makeWindow({ windowId: "@9", role: "operator" })],
         }),
       ],
     });
-    expect(screen.getByTestId("watched-tasks-hint")).toHaveTextContent("No watched workers");
+    expect(screen.getByTestId("watched-tasks-hint")).toHaveTextContent("No tracked items");
+  });
+
+  it("renders a note item row (kind chip, id, refs, truncated text, age) beside the worker row, with the summary line", () => {
+    renderTasks({
+      server: "srv1",
+      sessions: [
+        makeSession({
+          name: "dev",
+          operatorLastTickAt: NOW - 30,
+          operatorTracked: [
+            {
+              id: "wuiu",
+              kind: "fab-change",
+              pane: "%1",
+              windowId: "@1",
+              repo: "/home/user/code/run-kit",
+              stage: "review",
+              updatedAt: NOW - 120,
+            },
+            {
+              id: "n3",
+              kind: "note",
+              text: "Daemon reliability plan — archive once merged.",
+              refs: ["bf1l"],
+              updatedAt: NOW - 3600,
+            },
+          ],
+          windows: [MONITORED],
+        }),
+      ],
+    });
+
+    expect(screen.getByTestId("watched-tasks-summary")).toHaveTextContent("2 tracked · 1 watched");
+    expect(screen.getAllByTestId("watched-row")).toHaveLength(1);
+
+    const row = screen.getByTestId("tracked-item-row");
+    expect(within(row).getByText("note").className).toContain("bg-accent/10");
+    expect(within(row).getByText("n3")).toBeInTheDocument();
+    expect(within(row).getByText("bf1l")).toBeInTheDocument();
+    expect(
+      within(row).getByText("Daemon reliability plan — archive once merged."),
+    ).toBeInTheDocument();
+    expect(row.querySelectorAll("td")[5]).toHaveTextContent("updated 1h ago");
+    // No navigation affordance on an item row.
+    expect(row.querySelector('[data-testid="watched-row-navigate"]')).toBeNull();
+  });
+
+  it("a done item renders dimmed with data-done and counts as tracked, not watched", () => {
+    renderTasks({
+      server: "srv1",
+      sessions: [
+        makeSession({
+          name: "dev",
+          operatorLastTickAt: NOW - 30,
+          operatorTracked: [
+            { id: "wuiu", kind: "fab-change", pane: "%1", windowId: "@1", updatedAt: NOW - 60 },
+            { id: "n9", kind: "note", text: "done note", doneAt: NOW - 600, updatedAt: NOW - 600 },
+          ],
+          windows: [MONITORED],
+        }),
+      ],
+    });
+
+    expect(screen.getByTestId("watched-tasks-summary")).toHaveTextContent("2 tracked · 1 watched");
+    const row = screen.getByTestId("tracked-item-row");
+    expect(row).toHaveAttribute("data-done", "true");
+    expect(row.className).toContain("opacity-50");
+    expect(within(row).getByText("done")).toBeInTheDocument();
+  });
+
+  it("the expand toggle reveals the note's full text in place", () => {
+    const text = "A long note body that the cell truncates until expanded.";
+    renderTasks({
+      server: "srv1",
+      sessions: [
+        makeSession({
+          operatorLastTickAt: NOW - 30,
+          operatorTracked: [{ id: "n3", kind: "note", text, updatedAt: NOW - 60 }],
+          windows: [],
+        }),
+      ],
+    });
+
+    const toggle = screen.getByTestId("tracked-item-expand");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle.className).toContain("truncate");
+    fireEvent.click(toggle);
+    const expanded = screen.getByTestId("tracked-item-expand");
+    expect(expanded).toHaveAttribute("aria-expanded", "true");
+    expect(expanded.className).toContain("whitespace-pre-wrap");
+  });
+
+  it("a payload without operatorTracked (older backend) still renders monitored-derived worker rows", () => {
+    const onNavigate = vi.fn();
+    renderTasks({
+      server: "srv1",
+      onNavigate,
+      sessions: [makeSession({ name: "dev", operatorLastTickAt: NOW - 30, windows: [MONITORED] })],
+    });
+
+    expect(screen.getAllByTestId("watched-row")).toHaveLength(1);
+    expect(screen.getByText("worker-one")).toBeInTheDocument();
+    expect(screen.getByTestId("watched-tasks-summary")).toHaveTextContent("1 tracked · 1 watched");
+    fireEvent.click(screen.getByTestId("watched-row-navigate"));
+    expect(onNavigate).toHaveBeenCalledWith("@1");
   });
 
   it("passes dense through to the table padding", () => {

@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-// TestParseWatchlist is the tolerant-parse table over both file shapes: the
-// fab-kit ≥ 2.25 tracked: list (pane-bearing, not-done items become entries;
-// pane-less, done, and malformed items are skipped; paused items stay; kind is
-// not a filter; a non-list value yields nothing; tracked wins over a residual
-// monitored: map by key presence) and the legacy monitored: map (parsed only
-// when tracked is absent). Unknown keys are ignored; corrupt YAML fails.
+// TestParseWatchlist is the tolerant-parse table over both file shapes,
+// re-pointed at the join projection: ParseOperatorState(...).WatchlistEntries()
+// must yield exactly the entry set the reader has always joined by pane
+// (pane-bearing, not-done items, sorted by id) — the fab-kit ≥ 2.25 tracked:
+// list and the legacy monitored: map (parsed only when tracked is absent).
+// Unknown keys are ignored; corrupt YAML fails.
 func TestParseWatchlist(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -133,7 +133,7 @@ tracked:
 			wantOK:     true,
 		},
 		{
-			name: "tracked: pane-less items are skipped, null scope fields read as empty",
+			name: "tracked: pane-less items join nothing, null scope fields read as empty",
 			body: `tracked:
   - {id: queued, kind: fab-change, scope: {pane: null, repo: /r, branch: b}}
   - {id: pr77, kind: github-pr, scope: {repo: /r, pr: 77}}
@@ -143,7 +143,7 @@ tracked:
 			wantOK:      true,
 		},
 		{
-			name: "tracked: done items are skipped, paused items are included",
+			name: "tracked: done items are excluded from the join, paused items stay",
 			body: `tracked:
   - {id: finished, kind: fab-change, scope: {pane: "%1"}, done_at: "2026-09-11T12:00:00Z"}
   - {id: napping, kind: fab-change, scope: {pane: "%2"}, paused: true, failures: 3, done_at: null}
@@ -165,6 +165,8 @@ tracked:
   - {id: badscope, kind: fab-change, scope: "not-a-map"}
   - {id: good, kind: fab-change, scope: {pane: "%4"}}
 `,
+			// badscope is kept in Items (a non-map scope no longer skips) but
+			// joins nothing — the join still requires a pane.
 			wantEntries: []WatchlistEntry{{ChangeID: "good", Pane: "%4", Kind: "fab-change"}},
 			wantOK:      true,
 		},
@@ -208,70 +210,259 @@ tracked:
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			entries, tickAt, ok := ParseWatchlist([]byte(tc.body))
+			state, ok := ParseOperatorState([]byte(tc.body))
 			if ok != tc.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
 			}
 			if !ok {
 				return
 			}
+			entries := state.WatchlistEntries()
 			if !reflect.DeepEqual(entries, tc.wantEntries) {
 				t.Errorf("entries = %+v, want %+v", entries, tc.wantEntries)
 			}
-			if tickAt != tc.wantTickAt {
-				t.Errorf("lastTickAt = %d, want %d", tickAt, tc.wantTickAt)
+			if state.LastTickAt != tc.wantTickAt {
+				t.Errorf("lastTickAt = %d, want %d", state.LastTickAt, tc.wantTickAt)
 			}
 		})
 	}
 }
 
-// TestReadWatchlistTrackedRoundTrip: a 2.25 tracked:-shaped file reads back
-// present with its pane-bearing items and last_tick_at through the file path.
-func TestReadWatchlistTrackedRoundTrip(t *testing.T) {
+// TestParseOperatorStateItems covers the full-list projection: every
+// id-bearing tracked: item lands in Items (pane-less, done, paused,
+// scope-less) with its display fields, in list order — while
+// WatchlistEntries() still yields only the pane-bearing not-done subset.
+func TestParseOperatorStateItems(t *testing.T) {
+	added := time.Date(2026, 9, 3, 6, 19, 19, 0, time.UTC).Unix()
+	updated := time.Date(2026, 9, 3, 9, 57, 8, 0, time.UTC).Unix()
+
+	t.Run("live-file note shape: text, refs, timestamps, no pane, not in the join", func(t *testing.T) {
+		body := `last_tick_at: 1700000000
+tracked:
+  - id: n1
+    kind: note
+    probe: {mode: none}
+    check_every: null
+    done_when: null
+    then: null
+    depends_on: []
+    scope:
+      refs: [y60c, np2w]
+    last: {}
+    text: "A=71yx PR #834 still open — archive once merged"
+    checked_at: null
+    unchanged: 0
+    failures: 0
+    paused: false
+    done_at: null
+    added_at: "2026-09-03T06:19:19Z"
+    updated_at: "2026-09-03T09:57:08Z"
+`
+		state, ok := ParseOperatorState([]byte(body))
+		if !ok {
+			t.Fatal("parse failed")
+		}
+		want := []TrackedItem{{
+			ID: "n1", Kind: "note", Text: "A=71yx PR #834 still open — archive once merged",
+			Refs: []string{"y60c", "np2w"}, DoneAt: 0, AddedAt: added, UpdatedAt: updated,
+		}}
+		if !reflect.DeepEqual(state.Items, want) {
+			t.Errorf("Items = %+v, want %+v", state.Items, want)
+		}
+		if entries := state.WatchlistEntries(); len(entries) != 0 {
+			t.Errorf("WatchlistEntries() = %+v, want empty for a pane-less note", entries)
+		}
+	})
+
+	t.Run("done pane-bearing item: in Items with DoneAt, out of the join", func(t *testing.T) {
+		body := `tracked:
+  - {id: finished, kind: fab-change, scope: {pane: "%1", repo: /r}, done_at: "2026-09-11T10:00:00Z"}
+`
+		state, ok := ParseOperatorState([]byte(body))
+		if !ok || len(state.Items) != 1 {
+			t.Fatalf("ok=%v Items=%+v", ok, state.Items)
+		}
+		item := state.Items[0]
+		if item.DoneAt != time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC).Unix() {
+			t.Errorf("DoneAt = %d, want the RFC3339 done_at as unix seconds", item.DoneAt)
+		}
+		if entries := state.WatchlistEntries(); len(entries) != 0 {
+			t.Errorf("WatchlistEntries() = %+v, want empty — a done item never joins", entries)
+		}
+	})
+
+	t.Run("paused pane-bearing item: in both projections", func(t *testing.T) {
+		body := `tracked:
+  - {id: napping, kind: fab-change, scope: {pane: "%2"}, paused: true, done_at: null}
+`
+		state, ok := ParseOperatorState([]byte(body))
+		if !ok || len(state.Items) != 1 || !state.Items[0].Paused {
+			t.Fatalf("ok=%v Items=%+v, want one paused item", ok, state.Items)
+		}
+		entries := state.WatchlistEntries()
+		if len(entries) != 1 || entries[0].ChangeID != "napping" {
+			t.Errorf("WatchlistEntries() = %+v, want the paused item in the join", entries)
+		}
+	})
+
+	t.Run("an item with no scope key is kept with empty scope fields", func(t *testing.T) {
+		body := "tracked:\n  - {id: chore, kind: task, text: \"sweep the board\"}\n"
+		state, ok := ParseOperatorState([]byte(body))
+		if !ok {
+			t.Fatal("parse failed")
+		}
+		want := []TrackedItem{{ID: "chore", Kind: "task", Text: "sweep the board"}}
+		if !reflect.DeepEqual(state.Items, want) {
+			t.Errorf("Items = %+v, want %+v", state.Items, want)
+		}
+	})
+
+	t.Run("refs keeps string elements only", func(t *testing.T) {
+		body := `tracked:
+  - {id: n3, kind: note, scope: {refs: [y60c, 42, {nested: map}, np2w]}}
+`
+		state, ok := ParseOperatorState([]byte(body))
+		if !ok || len(state.Items) != 1 {
+			t.Fatalf("ok=%v Items=%+v", ok, state.Items)
+		}
+		if want := []string{"y60c", "np2w"}; !reflect.DeepEqual(state.Items[0].Refs, want) {
+			t.Errorf("Refs = %v, want %v", state.Items[0].Refs, want)
+		}
+	})
+
+	t.Run("Items keep list order; WatchlistEntries sorts by id", func(t *testing.T) {
+		body := `tracked:
+  - {id: zz, kind: fab-change, scope: {pane: "%2"}}
+  - {id: note-mid, kind: note, text: middle}
+  - {id: aa, kind: fab-change, scope: {pane: "%1"}}
+`
+		state, ok := ParseOperatorState([]byte(body))
+		if !ok {
+			t.Fatal("parse failed")
+		}
+		var gotOrder []string
+		for _, item := range state.Items {
+			gotOrder = append(gotOrder, item.ID)
+		}
+		if want := []string{"zz", "note-mid", "aa"}; !reflect.DeepEqual(gotOrder, want) {
+			t.Errorf("Items order = %v, want list order %v", gotOrder, want)
+		}
+		entries := state.WatchlistEntries()
+		if len(entries) != 2 || entries[0].ChangeID != "aa" || entries[1].ChangeID != "zz" {
+			t.Errorf("WatchlistEntries() = %+v, want aa, zz", entries)
+		}
+	})
+
+	t.Run("legacy monitored map: kind empty, pane-bearing, sorted by key", func(t *testing.T) {
+		body := `monitored:
+  zz: {pane: "%2"}
+  aa: {pane: "%1", repo: /r}
+`
+		state, ok := ParseOperatorState([]byte(body))
+		if !ok {
+			t.Fatal("parse failed")
+		}
+		want := []TrackedItem{{ID: "aa", Pane: "%1", Repo: "/r"}, {ID: "zz", Pane: "%2"}}
+		if !reflect.DeepEqual(state.Items, want) {
+			t.Errorf("Items = %+v, want %+v", state.Items, want)
+		}
+		if entries := state.WatchlistEntries(); len(entries) != 2 || entries[0].ChangeID != "aa" {
+			t.Errorf("WatchlistEntries() = %+v, want both legacy entries", entries)
+		}
+	})
+
+	t.Run("malformed siblings skipped, the valid item kept", func(t *testing.T) {
+		body := `tracked:
+  - just-a-string
+  - {kind: note, text: "no id"}
+  - {id: good, kind: note, text: kept}
+`
+		state, ok := ParseOperatorState([]byte(body))
+		if !ok {
+			t.Fatal("parse failed")
+		}
+		want := []TrackedItem{{ID: "good", Kind: "note", Text: "kept"}}
+		if !reflect.DeepEqual(state.Items, want) {
+			t.Errorf("Items = %+v, want %+v", state.Items, want)
+		}
+	})
+
+	t.Run("an unparseable done_at reads as live", func(t *testing.T) {
+		// The binary writes RFC3339 and nothing else; a bare word decodes to 0
+		// (tolerant read — the item stays in the operator's set and in the join).
+		body := `tracked:
+  - {id: odd, kind: fab-change, scope: {pane: "%7"}, done_at: eventually}
+`
+		state, ok := ParseOperatorState([]byte(body))
+		if !ok || len(state.Items) != 1 {
+			t.Fatalf("ok=%v Items=%+v", ok, state.Items)
+		}
+		if state.Items[0].DoneAt != 0 {
+			t.Errorf("DoneAt = %d, want 0 for an unparseable done_at", state.Items[0].DoneAt)
+		}
+		if entries := state.WatchlistEntries(); len(entries) != 1 || entries[0].ChangeID != "odd" {
+			t.Errorf("WatchlistEntries() = %+v, want the item in the join (reads as live)", entries)
+		}
+	})
+
+	t.Run("a non-list tracked value yields no items", func(t *testing.T) {
+		state, ok := ParseOperatorState([]byte("tracked: 3\n"))
+		if !ok || state.Items != nil {
+			t.Errorf("ok=%v Items=%v, want true/nil", ok, state.Items)
+		}
+	})
+}
+
+// TestReadOperatorStateTrackedRoundTrip: a 2.25 tracked:-shaped file reads
+// back present with its items and last_tick_at through the file path.
+func TestReadOperatorStateTrackedRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dev.yaml")
 	body := "last_tick_at: 1700000000\ntracked:\n  - {id: pa9n, kind: fab-change, scope: {pane: \"%180\", stage: apply}}\n  - {id: queued, kind: fab-change, scope: {pane: null}}\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	entries, tickAt, present := ReadWatchlist(path)
-	if !present || tickAt != 1700000000 {
-		t.Fatalf("present=%v tickAt=%d, want true/1700000000", present, tickAt)
+	state, present := ReadOperatorState(path)
+	if !present || state.LastTickAt != 1700000000 {
+		t.Fatalf("present=%v LastTickAt=%d, want true/1700000000", present, state.LastTickAt)
+	}
+	if len(state.Items) != 2 {
+		t.Fatalf("Items = %+v, want both items (pane-bearing and pane-less)", state.Items)
 	}
 	want := []WatchlistEntry{{ChangeID: "pa9n", Pane: "%180", Stage: "apply", Kind: "fab-change"}}
-	if !reflect.DeepEqual(entries, want) {
-		t.Errorf("entries = %+v, want %+v", entries, want)
+	if entries := state.WatchlistEntries(); !reflect.DeepEqual(entries, want) {
+		t.Errorf("WatchlistEntries() = %+v, want %+v", entries, want)
 	}
 }
 
-// TestReadWatchlistAbsentAndCorrupt: both degrade to (nil, 0, false) — never
-// an error, never a panic (A-013).
-func TestReadWatchlistAbsentAndCorrupt(t *testing.T) {
-	if entries, tickAt, present := ReadWatchlist(filepath.Join(t.TempDir(), "nope.yaml")); entries != nil || tickAt != 0 || present {
-		t.Errorf("absent: (%v, %d, %v), want (nil, 0, false)", entries, tickAt, present)
+// TestReadOperatorStateAbsentAndCorrupt: both degrade to (zero, false) —
+// never an error, never a panic.
+func TestReadOperatorStateAbsentAndCorrupt(t *testing.T) {
+	if state, present := ReadOperatorState(filepath.Join(t.TempDir(), "nope.yaml")); present || state.Items != nil || state.LastTickAt != 0 {
+		t.Errorf("absent: (%+v, %v), want (zero, false)", state, present)
 	}
 	path := filepath.Join(t.TempDir(), "dev.yaml")
 	if err := os.WriteFile(path, []byte("{{{{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if entries, tickAt, present := ReadWatchlist(path); entries != nil || tickAt != 0 || present {
-		t.Errorf("corrupt: (%v, %d, %v), want (nil, 0, false)", entries, tickAt, present)
+	if state, present := ReadOperatorState(path); present || state.Items != nil || state.LastTickAt != 0 {
+		t.Errorf("corrupt: (%+v, %v), want (zero, false)", state, present)
 	}
 }
 
-// TestReadWatchlistRoundTrip: a populated file reads back present with its
-// entries and last_tick_at.
-func TestReadWatchlistRoundTrip(t *testing.T) {
+// TestReadOperatorStateRoundTrip: a populated legacy file reads back present
+// with its items and last_tick_at.
+func TestReadOperatorStateRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dev.yaml")
 	body := "last_tick_at: 1700000000\nmonitored:\n  gmcp: {pane: \"%23\", stage: active}\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	entries, tickAt, present := ReadWatchlist(path)
-	if !present || tickAt != 1700000000 {
-		t.Fatalf("present=%v tickAt=%d, want true/1700000000", present, tickAt)
+	state, present := ReadOperatorState(path)
+	if !present || state.LastTickAt != 1700000000 {
+		t.Fatalf("present=%v LastTickAt=%d, want true/1700000000", present, state.LastTickAt)
 	}
 	want := []WatchlistEntry{{ChangeID: "gmcp", Pane: "%23", Stage: "active"}}
-	if !reflect.DeepEqual(entries, want) {
-		t.Errorf("entries = %+v, want %+v", entries, want)
+	if entries := state.WatchlistEntries(); !reflect.DeepEqual(entries, want) {
+		t.Errorf("WatchlistEntries() = %+v, want %+v", entries, want)
 	}
 }

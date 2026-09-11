@@ -98,6 +98,35 @@ type ProjectSession struct {
 	// be stale about).
 	OperatorLastTickAt int64 `json:"operatorLastTickAt,omitempty"`
 	OperatorStale      bool  `json:"operatorStale,omitempty"`
+	// OperatorTracked is the sessions-payload projection of the operator state
+	// file's whole tracked: list — server-scoped like OperatorLastTickAt/
+	// OperatorStale and stamped identically on every session of one
+	// FetchSessions call. Display only: the frontend's Operator Tasks segment
+	// lists these; nothing in rk acts on them. Nil when the operator state
+	// file is absent (the key is omitted — an older backend's signal).
+	OperatorTracked []OperatorTrackedItem `json:"operatorTracked,omitempty"`
+}
+
+// OperatorTrackedItem is the sessions-payload projection of one tracked item
+// (cron.TrackedItem). WindowID is the pane's live window when the pane
+// resolves in this fetch — the Tasks row's navigation target — and absent for
+// pane-less items and for a pane that no window carries (a dead pane).
+type OperatorTrackedItem struct {
+	ID        string   `json:"id"`
+	Kind      string   `json:"kind,omitempty"`
+	Text      string   `json:"text,omitempty"`
+	Refs      []string `json:"refs,omitempty"`
+	Pane      string   `json:"pane,omitempty"`
+	WindowID  string   `json:"windowId,omitempty"`
+	Repo      string   `json:"repo,omitempty"`
+	Session   string   `json:"session,omitempty"`
+	Stage     string   `json:"stage,omitempty"`
+	Agent     string   `json:"agent,omitempty"`
+	Branch    string   `json:"branch,omitempty"`
+	Paused    bool     `json:"paused,omitempty"`
+	DoneAt    int64    `json:"doneAt,omitempty"`
+	AddedAt   int64    `json:"addedAt,omitempty"`
+	UpdatedAt int64    `json:"updatedAt,omitempty"`
 }
 
 // foldViewers buckets the size-arbitrating clients onto session names via the
@@ -190,6 +219,54 @@ func joinWatchlist(windows []tmux.WindowInfo, byPane map[string]cron.WatchlistEn
 			break
 		}
 	}
+}
+
+// paneToWindowMap maps every pane ID across the fetch's sessions to the
+// window carrying it — the WindowID resolution for the operatorTracked
+// projection. A pane belongs to one window; a pane no window carries (a dead
+// pane) simply has no entry. Pure (no I/O), unit-testable.
+func paneToWindowMap(data []sessionData) map[string]string {
+	byPane := make(map[string]string)
+	for _, sd := range data {
+		for _, w := range sd.windows {
+			for _, p := range w.Panes {
+				byPane[p.PaneID] = w.WindowID
+			}
+		}
+	}
+	return byPane
+}
+
+// projectTrackedItems lifts the operator state's tracked items into the
+// sessions-payload shape, resolving each item's Pane to its live WindowID
+// through paneToWindow (absent for pane-less items and dead panes). The item
+// order is the state's list order — the operator's ledger order. Pure (no
+// I/O), unit-testable.
+func projectTrackedItems(items []cron.TrackedItem, paneToWindow map[string]string) []OperatorTrackedItem {
+	if items == nil {
+		return nil
+	}
+	out := make([]OperatorTrackedItem, len(items))
+	for i, item := range items {
+		out[i] = OperatorTrackedItem{
+			ID:        item.ID,
+			Kind:      item.Kind,
+			Text:      item.Text,
+			Refs:      item.Refs,
+			Pane:      item.Pane,
+			WindowID:  paneToWindow[item.Pane],
+			Repo:      item.Repo,
+			Session:   item.Session,
+			Stage:     item.Stage,
+			Agent:     item.Agent,
+			Branch:    item.Branch,
+			Paused:    item.Paused,
+			DoneAt:    item.DoneAt,
+			AddedAt:   item.AddedAt,
+			UpdatedAt: item.UpdatedAt,
+		}
+	}
+	return out
 }
 
 // operatorStaleness derives ProjectSession.OperatorStale: true when the
@@ -671,26 +748,32 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 
 	// The operator-watchlist tier: ONE tolerant read of the fab-owned operator
 	// state file per fetch (server-scoped — no per-cwd memo needed, unlike the
-	// fab tier), joined onto windows by pane ID via joinWatchlist; its
-	// last_tick_at doubles as the per-server staleness timestamp populated
-	// identically on every ProjectSession below. The file name is the slugified
-	// SOCKET PATH, not the server name (fab's naming — a cross-repo contract,
-	// see cron.FabOperatorSlug); a failed socket-path query degrades to the
+	// fab tier), yielding two projections: the pane-bearing not-done subset
+	// joined onto windows by pane ID via joinWatchlist, and the whole tracked
+	// list stamped onto every session as OperatorTracked (display only — the
+	// Operator Tasks segment's data). The read's last_tick_at doubles as the
+	// per-server staleness timestamp populated identically on every
+	// ProjectSession below. The file name is the slugified SOCKET PATH, not the
+	// server name (fab's naming — a cross-repo contract, see
+	// cron.FabOperatorSlug); a failed socket-path query degrades to the
 	// "default" slug, fab's own cold-name fallback, and is never surfaced.
 	var watchlistByPane map[string]cron.WatchlistEntry
 	var operatorLastTickAt int64
+	var operatorTracked []OperatorTrackedItem
 	slug := "default"
 	if sock, sockErr := socketPathFn(ctx, server); sockErr == nil {
 		slug = cron.FabOperatorSlug(sock)
 	}
 	if opPath, err := cron.FabOperatorStatePath(slug); err == nil {
-		entries, lastTickAt, present := cron.ReadWatchlist(opPath)
+		state, present := cron.ReadOperatorState(opPath)
 		if present {
-			operatorLastTickAt = lastTickAt
+			operatorLastTickAt = state.LastTickAt
+			entries := state.WatchlistEntries()
 			watchlistByPane = make(map[string]cron.WatchlistEntry, len(entries))
 			for _, we := range entries {
 				watchlistByPane[we.Pane] = we
 			}
+			operatorTracked = projectTrackedItems(state.Items, paneToWindowMap(data))
 		}
 	}
 
@@ -763,7 +846,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			}
 		}
 
-		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, SessionID: sd.info.ID, SessionPath: sd.info.Path, Flair: sd.info.Flair, Windows: sd.windows, Hidden: operatorSessionHidden(sd.info.Name, sd.windows), Viewers: viewers[sd.info.Name], OperatorLastTickAt: operatorLastTickAt, OperatorStale: operatorStale}
+		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, SessionID: sd.info.ID, SessionPath: sd.info.Path, Flair: sd.info.Flair, Windows: sd.windows, Hidden: operatorSessionHidden(sd.info.Name, sd.windows), Viewers: viewers[sd.info.Name], OperatorLastTickAt: operatorLastTickAt, OperatorStale: operatorStale, OperatorTracked: operatorTracked}
 	}
 
 	return result, nil

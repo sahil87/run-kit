@@ -25,7 +25,10 @@ import { mockStateSocket } from "./_state-socket-mock";
 // and `Server: Clock dashboard` entries stay gone. The watched-worker specs
 // seed the sessions payload with a `monitored: true` window carrying
 // `monitoredChange`/`monitoredStage`/`monitoredRepo` plus `operatorLastTickAt`
-// on the sessions (the server-watched-zone spec's stub shape).
+// and `operatorTracked` on the sessions (the server-watched-zone spec's stub
+// shape): `operatorTracked` is the whole tracked set the Operator Tasks
+// segment lists — the @2 worker item (pane %2, windowId @2) and a pane-less
+// n3 note item with refs/text.
 // On MOBILE there is no
 // sheet: every console entry point navigates to the operator window's
 // ordinary terminal route (the tongue is the standing affordance, an
@@ -77,7 +80,9 @@ function sessionsPayload(withOperator: boolean, operatorState = "idle", watched 
     ],
   };
   // A watched worker (the WATCHED zone / Operator Tasks row): the monitored
-  // facets plus the operator tick stamps that mark the watchlist live.
+  // facets plus the operator tick stamps that mark the watchlist live. The
+  // operatorTracked list is the whole tracked set the Operator Tasks segment
+  // renders: the worker item for @2 plus a pane-less note item.
   const watchedWorker = {
     windowId: "@2",
     index: 1,
@@ -96,17 +101,35 @@ function sessionsPayload(withOperator: boolean, operatorState = "idle", watched 
       { paneId: "%2", paneIndex: 0, cwd: "/tmp/wt2", command: "claude", isActive: true },
     ],
   };
+  const operatorTracked = [
+    {
+      id: "wuiu",
+      kind: "fab-change",
+      pane: "%2",
+      windowId: "@2",
+      repo: "/home/user/code/run-kit",
+      stage: "review",
+      updatedAt: NOW - 120,
+    },
+    {
+      id: "n3",
+      kind: "note",
+      refs: ["bf1l"],
+      text: "Daemon reliability plan — A=71yx PR #834 still open, awaiting user merge — archive once merged.",
+      updatedAt: NOW - 3600,
+    },
+  ];
   return JSON.stringify([
     {
       name: "dev",
-      ...(watched ? { operatorLastTickAt: NOW - 60 } : {}),
+      ...(watched ? { operatorLastTickAt: NOW - 60, operatorTracked } : {}),
       windows: watched ? [work, watchedWorker] : [work],
     },
     ...(withOperator
       ? [
           {
             name: "_rk-operator",
-            ...(watched ? { operatorLastTickAt: NOW - 60 } : {}),
+            ...(watched ? { operatorLastTickAt: NOW - 60, operatorTracked } : {}),
             windows: [
               {
                 windowId: "@9",
@@ -674,20 +697,29 @@ test.describe("Operator console", () => {
 
   /**
    * Proves: the desktop drawer's Operator Tasks segment lists the operator's
-   * watched workers through the shared watched table (the embedded terminal
-   * unmounted — one relay stream max per drawer), and a row-name click
-   * navigates to that worker's terminal route and collapses the drawer.
+   * WHOLE tracked set — the monitored @2 worker as a navigating worker row
+   * and the pane-less n3 note as an item row (kind chip, id, truncated text) —
+   * with the `{N} tracked · {W} watched` summary matching the operator's own
+   * count (the embedded terminal unmounted — one relay stream max per
+   * drawer). Expanding the note reveals its full text without navigating or
+   * collapsing the drawer; a worker row-name click navigates to that worker's
+   * terminal route and collapses the drawer.
    *
    * Steps:
    * 1. Mock the backend with an operator window plus a monitored @2 worker
-   *    (change/stage/repo facets, tick stamps); land on the @1 terminal route.
+   *    (change/stage/repo facets, tick stamps) and a two-item operatorTracked
+   *    list (the worker item + the n3 note); land on the @1 terminal route.
    * 2. Open the console via the palette `Operator: Show tasks` action.
-   * 3. Assert the Operator Tasks tab is selected, the watched table lists the
-   *    worker row with its change + stage, and no xterm frame is mounted.
-   * 4. Click the row's name button; assert the URL becomes the worker's
-   *    terminal route and the drawer is gone.
+   * 3. Assert the Operator Tasks tab is selected, the summary reads
+   *    `2 tracked · 1 watched`, the table lists one worker row (change +
+   *    stage) and one tracked-item row (note chip, id, truncated text), and
+   *    no xterm frame is mounted.
+   * 4. Click the note row's expand toggle; assert the full text is revealed
+   *    while the URL and the open drawer are unchanged.
+   * 5. Click the worker row's name button; assert the URL becomes the
+   *    worker's terminal route and the drawer is gone.
    */
-  test("the Operator Tasks segment lists watched workers and a row click navigates and collapses the drawer", async ({
+  test("the Operator Tasks segment lists every tracked item, expands notes in place, and a worker row click navigates and collapses the drawer", async ({
     page,
   }) => {
     await mockBackend(page, true, SEND_OK, "idle", true);
@@ -705,11 +737,34 @@ test.describe("Operator console", () => {
     );
     const tasks = console_(page).getByTestId("watched-tasks");
     await expect(tasks).toBeVisible();
+    await expect(tasks.getByTestId("watched-tasks-summary")).toHaveText("2 tracked · 1 watched");
     await expect(tasks.getByTestId("watched-row")).toHaveCount(1);
     await expect(tasks.getByText("watched-worker")).toBeVisible();
     await expect(tasks.getByText("wuiu")).toBeVisible();
     await expect(tasks.getByText("review")).toBeVisible();
+    const noteRow = tasks.getByTestId("tracked-item-row");
+    await expect(noteRow).toHaveCount(1);
+    await expect(noteRow.getByText("note")).toBeVisible();
+    await expect(noteRow.getByText("n3")).toBeVisible();
+    await expect(noteRow.getByTestId("tracked-item-expand")).toBeVisible();
     await expect(console_(page).locator(".xterm")).toHaveCount(0);
+
+    // Expanding the note is a per-row disclosure, not a navigation.
+    const urlBefore = page.url();
+    const expand = noteRow.getByTestId("tracked-item-expand");
+    await expect(expand).toHaveAttribute("aria-expanded", "false");
+    await expand.click();
+    await expect(noteRow.getByTestId("tracked-item-expand")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await expect(
+      noteRow.getByText(
+        "Daemon reliability plan — A=71yx PR #834 still open, awaiting user merge — archive once merged.",
+      ),
+    ).toBeVisible();
+    expect(page.url()).toBe(urlBefore);
+    await expect(console_(page)).toBeVisible();
 
     await tasks.getByTestId("watched-row-navigate").click();
 

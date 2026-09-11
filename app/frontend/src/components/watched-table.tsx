@@ -1,21 +1,26 @@
+import { useState } from "react";
 import { StatusDot } from "@/components/status-dot";
 import { Tip } from "@/components/tip";
 import { NOTE_STALE_SECONDS } from "@/components/sidebar/row-flyout-card";
 import { formatDuration } from "@/lib/format";
-import type { WindowInfo } from "@/types";
+import type { TrackedRow } from "@/components/server-watched-zone/model";
+import type { OperatorTrackedItem, WindowInfo } from "@/types";
 
 /**
  * The watched-workers table — the ONE rendering of the operator watchlist's
  * rows, mounted by the Server page's WATCHED zone
- * (components/server-watched-zone/watched-zone.tsx, which derives the rows
- * and status via ./model.ts's `collectWatchedRows`/`watchlistStatus`) and by
- * the operator console's Operator Tasks segment (components/watched-tasks.tsx).
- * Six columns — status (`StatusDot` + the window-name navigate button),
- * session, change (`monitoredChange` · `monitoredStage` badge), awaiting
- * (`waiting {dur}` amber / `busy` / `idle {dur}` / `—`), note (truncated +
- * `Tip`, `· {age} ago`, dimmed past `NOTE_STALE_SECONDS`), repo (basename +
- * `Tip`). Read-only by design: the watchlist is derived, edits are
- * `fab operator` verbs — the only interaction is row-name navigation.
+ * (components/server-watched-zone/watched-zone.tsx, which adapts the
+ * `collectWatchedRows` derivation into worker rows via ./model.ts's
+ * `watchlistStatus`) and by the operator console's Operator Tasks segment
+ * (components/watched-tasks.tsx, over `collectTrackedRows`). Six columns —
+ * status, session, change, awaiting, note, repo — rendered per row species:
+ * a `worker` row is a tracked item on a live window (`StatusDot` + the
+ * window-name navigate button, change · stage badge, awaiting, note, repo);
+ * an `item` row is a pane-less or dead-pane tracked item (kind chip + id,
+ * refs, paused/done/`pane gone`, truncated text with expand-in-place toggle,
+ * repo + `updated … ago`) and never navigates. Done rows dim
+ * (`opacity-50` + `data-done`). Read-only by design: the watchlist is
+ * derived, edits are `fab operator` verbs.
  *
  * The table holds no clock: every relative age is computed at render from the
  * already-passed sessions, refreshed by the SSE cadence. A stale watchlist
@@ -29,7 +34,7 @@ export function WatchedTable({
   onNavigate,
   dense = false,
 }: {
-  rows: { session: string; win: WindowInfo }[];
+  rows: TrackedRow[];
   stale: boolean;
   nowSeconds: number;
   onNavigate: (windowId: string) => void;
@@ -55,18 +60,39 @@ export function WatchedTable({
         </tr>
       </thead>
       <tbody>
-        {rows.map(({ session, win }) => (
-          <WatchedRow
-            key={win.windowId}
-            session={session}
-            win={win}
-            stale={stale}
-            nowSeconds={nowSeconds}
-            onNavigate={onNavigate}
-            cellPad={cellPad}
-            lastCellPad={lastCellPad}
-          />
-        ))}
+        {rows.map((row) =>
+          row.kind === "worker" ? (
+            <WatchedRow
+              key={`worker:${row.item.id}`}
+              session={row.session}
+              win={row.win}
+              done={row.done}
+              paused={row.item.paused === true}
+              // A done pane-bearing item no longer joins, so its live window
+              // carries no monitored* facets — the row reads them from the item.
+              facets={
+                row.done
+                  ? { change: row.item.id, stage: row.item.stage, repo: row.item.repo }
+                  : undefined
+              }
+              stale={stale}
+              nowSeconds={nowSeconds}
+              onNavigate={onNavigate}
+              cellPad={cellPad}
+              lastCellPad={lastCellPad}
+            />
+          ) : (
+            <TrackedItemRow
+              key={`item:${row.item.id}`}
+              item={row.item}
+              done={row.done}
+              nowSeconds={nowSeconds}
+              cellPad={cellPad}
+              lastCellPad={lastCellPad}
+              dense={dense}
+            />
+          ),
+        )}
       </tbody>
     </table>
   );
@@ -88,9 +114,16 @@ function awaitingCell(win: WindowInfo): { text: string; waiting: boolean } | nul
   }
 }
 
+function repoBasename(repo: string): string {
+  return repo ? (repo.split("/").filter(Boolean).pop() ?? repo) : "";
+}
+
 function WatchedRow({
   session,
   win,
+  done,
+  paused,
+  facets,
   stale,
   nowSeconds,
   onNavigate,
@@ -99,6 +132,9 @@ function WatchedRow({
 }: {
   session: string;
   win: WindowInfo;
+  done: boolean;
+  paused: boolean;
+  facets?: { change?: string; stage?: string; repo?: string };
   stale: boolean;
   nowSeconds: number;
   onNavigate: (windowId: string) => void;
@@ -111,11 +147,13 @@ function WatchedRow({
   const noteAgeSeconds = noteEpoch > 0 ? Math.max(0, nowSeconds - noteEpoch) : null;
   const noteStale = noteAgeSeconds !== null && noteAgeSeconds > NOTE_STALE_SECONDS;
 
-  const repo = win.monitoredRepo ?? "";
-  const repoBase = repo ? (repo.split("/").filter(Boolean).pop() ?? repo) : "";
+  const change = facets?.change ?? win.monitoredChange;
+  const stage = facets?.stage ?? win.monitoredStage;
+  const repoBase = repoBasename(facets?.repo ?? win.monitoredRepo ?? "");
+  const repo = facets?.repo ?? win.monitoredRepo ?? "";
 
   return (
-    <tr data-testid="watched-row">
+    <tr data-testid="watched-row" data-done={done ? "true" : undefined} className={done ? "opacity-50" : undefined}>
       <td className={cellPad}>
         <button
           type="button"
@@ -129,15 +167,27 @@ function WatchedRow({
       </td>
       <td className={`${cellPad} text-text-secondary`}>{session}</td>
       <td className={cellPad}>
-        {win.monitoredChange ? (
+        {change ? (
           <span className="whitespace-nowrap">
-            <span>{win.monitoredChange}</span>
-            {win.monitoredStage && (
+            <span>{change}</span>
+            {stage && (
               <>
                 {" · "}
                 <span className="px-1.5 py-0.5 rounded bg-accent/10 text-accent">
-                  {win.monitoredStage}
+                  {stage}
                 </span>
+              </>
+            )}
+            {paused && (
+              <>
+                {" · "}
+                <span className="text-signal-yellow">paused</span>
+              </>
+            )}
+            {done && (
+              <>
+                {" · "}
+                <span className="text-text-secondary">done</span>
               </>
             )}
           </span>
@@ -165,6 +215,116 @@ function WatchedRow({
           <Tip label={repo} placement="top">
             <span className="block truncate max-w-[16ch] text-text-secondary">{repoBase}</span>
           </Tip>
+        ) : (
+          <span className="text-text-secondary">—</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/** The item-species row: a pane-less or dead-pane tracked item. It carries no
+ *  terminal, so nothing navigates — the only interaction is the note cell's
+ *  expand-in-place toggle (a native button, so Enter/Space work and the row
+ *  is keyboard-reachable). */
+function TrackedItemRow({
+  item,
+  done,
+  nowSeconds,
+  cellPad,
+  lastCellPad,
+  dense,
+}: {
+  item: OperatorTrackedItem;
+  done: boolean;
+  nowSeconds: number;
+  cellPad: string;
+  lastCellPad: string;
+  dense: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const refs = (item.refs ?? []).join(", ");
+  const repo = item.repo ?? "";
+  const repoBase = repoBasename(repo);
+  const stamp =
+    item.updatedAt !== undefined && item.updatedAt > 0
+      ? `updated ${formatDuration(Math.max(0, nowSeconds - item.updatedAt))} ago`
+      : item.addedAt !== undefined && item.addedAt > 0
+        ? `added ${formatDuration(Math.max(0, nowSeconds - item.addedAt))} ago`
+        : null;
+
+  return (
+    <tr data-testid="tracked-item-row" data-done={done ? "true" : undefined} className={done ? "opacity-50" : undefined}>
+      <td className={cellPad}>
+        <span className="flex items-center gap-1.5 min-w-0 max-w-full">
+          <span className="px-1.5 py-0.5 rounded bg-accent/10 text-accent">
+            {item.kind || "item"}
+          </span>
+          <span className="truncate text-text-primary">{item.id}</span>
+        </span>
+      </td>
+      <td className={`${cellPad} text-text-secondary`}>{item.session || "—"}</td>
+      <td className={cellPad}>
+        {refs ? (
+          <Tip label={refs} placement="top">
+            <span className="block truncate max-w-[24ch]">{refs}</span>
+          </Tip>
+        ) : (
+          <span className="text-text-secondary">—</span>
+        )}
+      </td>
+      <td className={`${cellPad} whitespace-nowrap`}>
+        {item.paused === true ? (
+          <span className="text-signal-yellow">paused</span>
+        ) : done ? (
+          <span>done</span>
+        ) : item.pane ? (
+          <span className="text-text-secondary">pane gone</span>
+        ) : (
+          <span className="text-text-secondary">—</span>
+        )}
+      </td>
+      <td className={cellPad}>
+        {item.text ? (
+          expanded ? (
+            <button
+              type="button"
+              aria-expanded="true"
+              data-testid="tracked-item-expand"
+              onClick={() => setExpanded(false)}
+              className="block w-full text-left whitespace-pre-wrap text-text-secondary"
+            >
+              {item.text}
+            </button>
+          ) : (
+            <Tip label={item.text} placement="top">
+              <button
+                type="button"
+                aria-expanded="false"
+                data-testid="tracked-item-expand"
+                onClick={() => setExpanded(true)}
+                className={`block truncate text-left text-text-secondary ${dense ? "max-w-[40ch]" : "max-w-[24ch]"}`}
+              >
+                {item.text}
+              </button>
+            </Tip>
+          )
+        ) : (
+          <span className="text-text-secondary">—</span>
+        )}
+      </td>
+      <td className={lastCellPad}>
+        {repoBase || stamp ? (
+          <span className="block truncate text-text-secondary whitespace-nowrap">
+            {repoBase && (
+              <Tip label={repo} placement="top">
+                <span>{repoBase}</span>
+              </Tip>
+            )}
+            {repoBase && stamp && " · "}
+            {stamp}
+          </span>
         ) : (
           <span className="text-text-secondary">—</span>
         )}

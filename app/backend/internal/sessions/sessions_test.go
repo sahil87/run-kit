@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -850,6 +851,73 @@ func TestProjectSessionOperatorStalenessJSON(t *testing.T) {
 	}
 }
 
+// TestProjectTrackedItems pins the pane → windowId resolution and field
+// mapping of the operatorTracked projection: a pane-bearing item on a live
+// pane gets WindowID, a pane no window carries and a pane-less item get
+// none, and every other field maps one-to-one in list order.
+func TestProjectTrackedItems(t *testing.T) {
+	data := []sessionData{
+		{info: tmux.SessionInfo{Name: "main"}, windows: []tmux.WindowInfo{
+			{WindowID: "@1", Name: "work", Panes: []tmux.PaneInfo{{PaneID: "%5", IsActive: true}}},
+		}},
+		{info: tmux.SessionInfo{Name: "ops"}, windows: []tmux.WindowInfo{
+			{WindowID: "@9", Name: "operator", Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true}}},
+		}},
+	}
+	items := []cron.TrackedItem{
+		{ID: "pa9n", Kind: "fab-change", Pane: "%5", Repo: "/r", Session: "s", Stage: "apply", Agent: "idle", Branch: "b", UpdatedAt: 1700000100},
+		{ID: "gone", Kind: "fab-change", Pane: "%99", DoneAt: 1700000200},
+		{ID: "n3", Kind: "note", Text: "archive once merged", Refs: []string{"bf1l"}, Paused: true, AddedAt: 1700000000},
+	}
+	got := projectTrackedItems(items, paneToWindowMap(data))
+	want := []OperatorTrackedItem{
+		{ID: "pa9n", Kind: "fab-change", Pane: "%5", WindowID: "@1", Repo: "/r", Session: "s", Stage: "apply", Agent: "idle", Branch: "b", UpdatedAt: 1700000100},
+		{ID: "gone", Kind: "fab-change", Pane: "%99", DoneAt: 1700000200},
+		{ID: "n3", Kind: "note", Text: "archive once merged", Refs: []string{"bf1l"}, Paused: true, AddedAt: 1700000000},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("projectTrackedItems() = %+v, want %+v", got, want)
+	}
+	if got := projectTrackedItems(nil, nil); got != nil {
+		t.Errorf("nil items must project to nil (the key stays omitted), got %+v", got)
+	}
+}
+
+// TestProjectSessionOperatorTrackedJSON pins the payload contract:
+// operatorTracked marshals camelCase with omitempty on every field but id,
+// and is omitted entirely when nil (absent operator-state file / older
+// backend).
+func TestProjectSessionOperatorTrackedJSON(t *testing.T) {
+	with, err := json.Marshal(ProjectSession{
+		Name: "s1", Windows: []tmux.WindowInfo{},
+		OperatorTracked: []OperatorTrackedItem{
+			{ID: "pa9n", Kind: "fab-change", Pane: "%5", WindowID: "@1", Stage: "apply", UpdatedAt: 1700000100},
+			{ID: "n3", Kind: "note", Text: "archive once merged", Refs: []string{"bf1l"}, DoneAt: 1700000200},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(with)
+	for _, want := range []string{
+		`"operatorTracked":[`,
+		`{"id":"pa9n","kind":"fab-change","pane":"%5","windowId":"@1","stage":"apply","updatedAt":1700000100}`,
+		`{"id":"n3","kind":"note","text":"archive once merged","refs":["bf1l"],"doneAt":1700000200}`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("session JSON missing %s: %s", want, s)
+		}
+	}
+
+	without, err := json.Marshal(ProjectSession{Name: "s2", Windows: []tmux.WindowInfo{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(without), "operatorTracked") {
+		t.Errorf("nil OperatorTracked must omit the key: %s", without)
+	}
+}
+
 // TestDeriveConversationAvailable: the capability is true only when the
 // identity is present AND the provider has a transcript adapter AND the
 // bounded resolution succeeds. Identity-only providers (copilot) and
@@ -936,15 +1004,16 @@ func TestFetchSessionsWatchlistSlug(t *testing.T) {
 		}
 	}
 
-	// writeFabState lays down $XDG_STATE_HOME/fab/operator/<slug>.yaml with one
-	// monitored entry for the pane and a last_tick_at stamp.
+	// writeFabState lays down $XDG_STATE_HOME/fab/operator/<slug>.yaml with the
+	// tracked: list holding one pane-bearing change item (the join key) and one
+	// pane-less note, plus a last_tick_at stamp.
 	writeFabState := func(t *testing.T, xdg, slug string) {
 		t.Helper()
 		dir := filepath.Join(xdg, "fab", "operator")
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		body := fmt.Sprintf("last_tick_at: %d\nmonitored:\n  %s:\n    pane: %q\n    repo: /repo\n    stage: apply\n    agent: claude\n    branch: feat/x\n",
+		body := fmt.Sprintf("last_tick_at: %d\ntracked:\n  - id: %s\n    kind: fab-change\n    scope: {pane: %q, repo: /repo, stage: apply, agent: claude, branch: feat/x}\n    done_at: null\n  - id: n3\n    kind: note\n    text: archive once merged\n    scope: {refs: [bf1l]}\n    done_at: null\n",
 			lastTick, changeKey, paneID)
 		if err := os.WriteFile(filepath.Join(dir, slug+".yaml"), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
@@ -977,6 +1046,15 @@ func TestFetchSessionsWatchlistSlug(t *testing.T) {
 		if got[0].OperatorLastTickAt != lastTick {
 			t.Errorf("OperatorLastTickAt = %d, want %d", got[0].OperatorLastTickAt, lastTick)
 		}
+		// The whole tracked list rides every session: the pane-bearing item
+		// with its WindowID resolved, the pane-less note without one.
+		wantTracked := []OperatorTrackedItem{
+			{ID: changeKey, Kind: "fab-change", Pane: paneID, WindowID: "@1", Repo: "/repo", Stage: "apply", Agent: "claude", Branch: "feat/x"},
+			{ID: "n3", Kind: "note", Text: "archive once merged", Refs: []string{"bf1l"}},
+		}
+		if !reflect.DeepEqual(got[0].OperatorTracked, wantTracked) {
+			t.Errorf("OperatorTracked = %+v, want %+v", got[0].OperatorTracked, wantTracked)
+		}
 	})
 
 	t.Run("socket-path query failure falls back to the default slug", func(t *testing.T) {
@@ -1007,6 +1085,9 @@ func TestFetchSessionsWatchlistSlug(t *testing.T) {
 		}
 		if got[0].OperatorLastTickAt != 0 || got[0].OperatorStale {
 			t.Errorf("session = %+v, want zero operator facts with no fab file", got[0])
+		}
+		if got[0].OperatorTracked != nil {
+			t.Errorf("OperatorTracked = %+v, want nil with no fab file", got[0].OperatorTracked)
 		}
 	})
 

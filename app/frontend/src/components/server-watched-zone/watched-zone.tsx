@@ -1,7 +1,7 @@
 import { SectionHeading } from "@/components/section-heading";
 import { WatchedTable } from "@/components/watched-table";
 import { formatDuration } from "@/lib/format";
-import { collectWatchedRows, watchlistStatus } from "./model";
+import { watchedWorkerRows, watchlistStatus } from "./model";
 import type { ProjectSession } from "@/types";
 
 /**
@@ -33,7 +33,8 @@ export function WatchedZone({
 }) {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const { stale, tickAgeSeconds, hasOperator } = watchlistStatus(sessions, nowSeconds);
-  const rows = collectWatchedRows(sessions);
+  // The zone is the workers view: only monitored windows, never pane-less items.
+  const rows = watchedWorkerRows(sessions);
 
   const side = stale ? (
     <span className="text-signal-yellow" data-testid="watched-stale">

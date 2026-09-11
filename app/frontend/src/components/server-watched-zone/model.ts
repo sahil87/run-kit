@@ -5,13 +5,23 @@
 // on the SSE cadence alone.
 
 import { isGhostWindow } from "@/contexts/optimistic-context";
-import type { ProjectSession, WindowInfo } from "@/types";
+import type { OperatorTrackedItem, ProjectSession, WindowInfo } from "@/types";
 
-/** One watched row per non-ghost window with `monitored === true` (the fab
- *  operator state file's monitored map, joined onto windows server-side),
- *  ordered by session order then window index. The single collection loop —
- *  the Server page WATCHED zone and the console's Operator Tasks segment both
- *  render through it, so the two surfaces cannot drift. */
+/** One Operator Tasks row: a `worker` row is a tracked item whose `windowId`
+ *  resolves to a live non-ghost window in `sessions` (its window facets render
+ *  through the watched row and it navigates); every other item — pane-less
+ *  (note / queued fab-change / github-pr / shell / task) or a pane no window
+ *  carries — is an `item` row. */
+export type TrackedRow =
+  | { kind: "worker"; item: OperatorTrackedItem; session: string; win: WindowInfo; done: boolean }
+  | { kind: "item"; item: OperatorTrackedItem; done: boolean };
+
+/** One watched row per non-ghost window with `monitored === true` (the pane
+ *  join of the fab operator state file's tracked list, done items excluded),
+ *  ordered by session order then window index. The Server page WATCHED zone's
+ *  workers view renders through it; the console's Operator Tasks segment
+ *  renders through `collectTrackedRows` and reaches for this only as its
+ *  older-backend fallback (`watchedWorkerRows`). */
 export function collectWatchedRows(
   sessions: ProjectSession[],
 ): { session: string; win: WindowInfo }[] {
@@ -25,6 +35,71 @@ export function collectWatchedRows(
     }
   }
   return rows;
+}
+
+/** `collectWatchedRows` lifted into `worker` rows with the identity facets
+ *  synthesized from the window's `monitored*` fields — the WATCHED zone's row
+ *  set, and the Operator Tasks segment's fallback when no session carries
+ *  `operatorTracked`. One adapter so the two surfaces cannot drift. */
+export function watchedWorkerRows(sessions: ProjectSession[]): TrackedRow[] {
+  return collectWatchedRows(sessions).map(({ session, win }) => ({
+    kind: "worker",
+    item: { id: win.monitoredChange ?? "", windowId: win.windowId },
+    session,
+    win,
+    done: false,
+  }));
+}
+
+/** The Operator Tasks rows: one per tracked item. Order: worker rows first in
+ *  session order then window index (the WATCHED zone's order), then item rows
+ *  in tracked-list order; within each species live items before done ones.
+ *  Returns null when no session carries `operatorTracked` (older backend) so
+ *  the caller can fall back to collectWatchedRows. */
+export function collectTrackedRows(sessions: ProjectSession[]): TrackedRow[] | null {
+  const carrier = sessions.find((s) => s.operatorTracked !== undefined);
+  if (!carrier) {
+    return null;
+  }
+  const items = carrier.operatorTracked ?? [];
+
+  const sessionOrder = new Map(sessions.map((s, i) => [s.name, i]));
+  const winById = new Map<string, { session: string; win: WindowInfo }>();
+  for (const session of sessions) {
+    for (const win of session.windows) {
+      winById.set(win.windowId, { session: session.name, win });
+    }
+  }
+
+  const isDone = (item: OperatorTrackedItem) => (item.doneAt ?? 0) > 0;
+  const liveWorkers: TrackedRow[] = [];
+  const doneWorkers: TrackedRow[] = [];
+  const liveItems: TrackedRow[] = [];
+  const doneItems: TrackedRow[] = [];
+  for (const item of items) {
+    const ref = item.windowId !== undefined ? winById.get(item.windowId) : undefined;
+    if (ref !== undefined && !isGhostWindow(ref.win)) {
+      (isDone(item) ? doneWorkers : liveWorkers).push({
+        kind: "worker",
+        item,
+        session: ref.session,
+        win: ref.win,
+        done: isDone(item),
+      });
+    } else {
+      (isDone(item) ? doneItems : liveItems).push({ kind: "item", item, done: isDone(item) });
+    }
+  }
+  const workerOrder = (a: TrackedRow, b: TrackedRow) => {
+    if (a.kind !== "worker" || b.kind !== "worker") return 0;
+    return (
+      (sessionOrder.get(a.session) ?? 0) - (sessionOrder.get(b.session) ?? 0) ||
+      a.win.index - b.win.index
+    );
+  };
+  liveWorkers.sort(workerOrder);
+  doneWorkers.sort(workerOrder);
+  return [...liveWorkers, ...doneWorkers, ...liveItems, ...doneItems];
 }
 
 /** The watchlist's zone-level derivations: `stale` = any session reports

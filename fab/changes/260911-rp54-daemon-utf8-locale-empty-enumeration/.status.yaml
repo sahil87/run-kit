@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 5
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-09-11T17:48:44Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-11T17:53:38Z"}
     review: {started_at: "2026-09-11T17:53:38Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-11T18:08:02Z"}
     hydrate: {started_at: "2026-09-11T18:08:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:12:14Z"}
-    ship: {started_at: "2026-09-11T18:12:14Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-11T18:12:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:13:12Z"}
+    review-pr: {started_at: "2026-09-11T18:13:12Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/947
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1041
+    deleted: 13
+    net: 1028
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 571
+        deleted: 8
+        net: 563
     tests:
-        added: 0
+        added: 316
         deleted: 0
-        net: 0
-    computed_at: "2026-09-11T18:12:14Z"
-    computed_at_stage: hydrate
+        net: 316
+    computed_at: "2026-09-11T18:13:12Z"
+    computed_at_stage: ship
 summary: rk repairs a missing UTF-8 locale at startup (LC_CTYPE=C.UTF-8) so tmux 3.7 no longer sanitizes the -F tab delimiter into an empty enumeration; list readers return ErrNoFieldDelimiter instead of empty; rk doctor gains an always-OK locale row probing the rk-daemon server env
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-11T18:12:14Z
+last_updated: 2026-09-11T18:13:12Z

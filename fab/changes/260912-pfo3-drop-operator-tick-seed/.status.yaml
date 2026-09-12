@@ -35,7 +35,8 @@ stage_metrics:
     hydrate: {started_at: "2026-09-12T14:12:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-12T14:13:25Z"}
     ship: {started_at: "2026-09-12T14:13:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-12T14:15:07Z"}
     review-pr: {started_at: "2026-09-12T14:15:07Z", driver: git-pr, iterations: 1}
-prs: []
+prs:
+    - https://github.com/sahil87/run-kit/pull/958
 change_type_source: explicit
 true_impact:
     added: 382
@@ -53,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'rk operator is launcher-only: the operator-tick cron seed (seedOperatorTick, operatorTickEntrySpec, cron.EnsureRoleEntry) and its tests are deleted; fab''s clock reconcile owns the entry end-to-end'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-12T14:15:07Z
+last_updated: 2026-09-12T14:15:38Z

@@ -45,7 +45,7 @@ test.describe("Operator session physical promotion (skcr)", () => {
    * ⇒ tmux window-cycling no longer jumps to it) and no _rk-operator session
    * group appears (content-hidden); (2) the pinned operator row still renders
    * once above the groups and, like every other sidebar row, navigates to the
-   * operator window's own terminal route on activation — no console overlay
+   * operator window's own terminal route on activation — no quake terminal overlay
    * opens; (3) after demote, the window reappears under a visible
    * conventional session group, no longer pinned.
    *
@@ -61,7 +61,7 @@ test.describe("Operator session physical promotion (skcr)", () => {
    *    renders exactly once ABOVE the work group (smaller y).
    * 5. Click the pinned row; assert it navigates to the operator window's
    *    terminal route exactly like an ordinary row (the rename-tab button for
-   *    that window becomes visible) and no console overlay opens.
+   *    that window becomes visible) and no quake terminal overlay opens.
    * 6. Demote: POST @rk_win_role: null; assert it succeeds.
    * 7. Assert no _rk-operator session group renders, and the window reappears
    *    under a visible session group exactly once (no longer the pinned
@@ -109,10 +109,10 @@ test.describe("Operator session physical promotion (skcr)", () => {
     expect(rowBox!.y).toBeLessThan(workBox!.y);
 
     // Row activation is ordinary navigation to the operator window's terminal
-    // route — no console overlay opens.
+    // route — no quake terminal overlay opens.
     await row.click();
     await expect(page.getByRole("button", { name: `Rename tab ${opName}` })).toBeVisible();
-    await expect(page.getByTestId("operator-console")).toHaveCount(0);
+    await expect(page.getByTestId("quake-terminal")).toHaveCount(0);
 
     // Demote (null per the partial-merge contract): the window moves OUT to a
     // visible conventional session group and the pinned slot disappears.

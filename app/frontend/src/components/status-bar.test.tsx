@@ -368,17 +368,17 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(chip.className).not.toContain("hidden");
     });
 
-    it("clicking the chip dispatches the console request with segment: list", () => {
+    it("clicking the chip dispatches the quake terminal request with segment: list", () => {
       const nowSec = Math.floor(Date.now() / 1000);
       mockCronEntries = [{ id: "a1", name: "deploy", nextFire: nowSec + 300 }];
       const seen: unknown[] = [];
       const listener = (e: Event) => seen.push((e as CustomEvent<unknown>).detail);
-      document.addEventListener("rk:operator-console", listener);
+      document.addEventListener("rk:quake-terminal", listener);
       try {
         renderBar({ server: "alpha" });
         fireEvent.click(screen.getByTestId("status-bar-clock"));
       } finally {
-        document.removeEventListener("rk:operator-console", listener);
+        document.removeEventListener("rk:quake-terminal", listener);
       }
 
       expect(seen).toEqual([{ action: "open", segment: "list" }]);

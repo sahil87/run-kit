@@ -17,7 +17,7 @@ import { getAllServerColors, setServerColor, getAllServerFlairs, setServerFlair,
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { resetFlyoutWarmState } from "./row-flyout-card";
 import { focusSidebarCurrentRow, registerWindowFocusRestorer } from "@/lib/sidebar-events";
-import { OPERATOR_CONSOLE_EVENT } from "@/lib/operator-console";
+import { QUAKE_TERMINAL_EVENT } from "@/lib/quake-terminal";
 import {
   computeRowTints,
   computeRowBorders,
@@ -3184,24 +3184,24 @@ describe("Sidebar — operator pinned row (260813-ifya)", () => {
     expect(inGroup).toEqual(["alpha:@0"]);
   });
 
-  it("clicking the pinned row selects its operator window without dispatching the console", () => {
+  it("clicking the pinned row selects its operator window without dispatching the quake terminal", () => {
     const onSelectWindow = vi.fn();
-    const onConsoleRequest = vi.fn();
+    const onQuakeRequest = vi.fn();
     renderOperatorSidebar({ onSelectWindow });
-    document.addEventListener(OPERATOR_CONSOLE_EVENT, onConsoleRequest);
+    document.addEventListener(QUAKE_TERMINAL_EVENT, onQuakeRequest);
 
     fireEvent.click(rowByKey("primary:@1")!.querySelector("button")!);
-    document.removeEventListener(OPERATOR_CONSOLE_EVENT, onConsoleRequest);
+    document.removeEventListener(QUAKE_TERMINAL_EVENT, onQuakeRequest);
 
     expect(onSelectWindow).toHaveBeenCalledWith("primary", "main", "@1");
-    expect(onConsoleRequest).not.toHaveBeenCalled();
+    expect(onQuakeRequest).not.toHaveBeenCalled();
   });
 
-  it("Enter/Space on the pinned row selects its operator window without dispatching the console", () => {
+  it("Enter/Space on the pinned row selects its operator window without dispatching the quake terminal", () => {
     const onSelectWindow = vi.fn();
-    const onConsoleRequest = vi.fn();
+    const onQuakeRequest = vi.fn();
     renderOperatorSidebar({ onSelectWindow });
-    document.addEventListener(OPERATOR_CONSOLE_EVENT, onConsoleRequest);
+    document.addEventListener(QUAKE_TERMINAL_EVENT, onQuakeRequest);
 
     // Walk the roving cursor onto the pinned row (it leads the group's rows,
     // one ArrowUp from the session row).
@@ -3211,14 +3211,14 @@ describe("Sidebar — operator pinned row (260813-ifya)", () => {
 
     act(() => { fireEvent.keyDown(tree, { key: "Enter" }); });
     expect(onSelectWindow).toHaveBeenCalledWith("primary", "main", "@1");
-    expect(onConsoleRequest).not.toHaveBeenCalled();
+    expect(onQuakeRequest).not.toHaveBeenCalled();
 
     onSelectWindow.mockClear();
     act(() => { fireEvent.keyDown(tree, { key: " " }); });
-    document.removeEventListener(OPERATOR_CONSOLE_EVENT, onConsoleRequest);
+    document.removeEventListener(QUAKE_TERMINAL_EVENT, onQuakeRequest);
 
     expect(onSelectWindow).toHaveBeenCalledWith("primary", "main", "@1");
-    expect(onConsoleRequest).not.toHaveBeenCalled();
+    expect(onQuakeRequest).not.toHaveBeenCalled();
   });
 
   it("renders the note pulse line under the pinned row when @rk_win_note is set", () => {

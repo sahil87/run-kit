@@ -60,7 +60,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
    * breadcrumb ends at the session) — at BOTH desktop rungs: md–lg carries
    * the full heading with the static `Tab:` prefix visible as a sibling span;
    * ≥ lg carries the compact heading (prefix hidden) beside the standing
-   * omnibox, with rename intact.
+   * quake launcher, with rename intact.
    *
    * Steps:
    * 1. Create a window with a known name; resolve its `@N` id.
@@ -71,7 +71,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
    *    button — it is a sibling span, so clicking it never starts an edit.
    * 3. Click the heading; assert the inline editor opens; cancel with Escape.
    * 4. Resize to ≥ lg (1280px); assert the prefix is hidden, the standing
-   *    omnibox renders, and the rename click + Escape still work.
+   *    quake launcher renders, and the rename click + Escape still work.
    */
   test("renders the current window name as the centered click-to-rename heading", async ({
     page,
@@ -110,10 +110,10 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     await expect(heading).toBeVisible();
 
     // ≥ lg rung: the compact heading — the prefix span hides and the standing
-    // omnibox renders beside `{name} ▾`; the rename click is untouched.
+    // quake launcher renders beside `{name} ▾`; the rename click is untouched.
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(prefix).toBeHidden();
-    await expect(page.getByTestId("operator-omnibox-input")).toBeVisible();
+    await expect(page.getByTestId("quake-launcher-input")).toBeVisible();
     await expect(heading).toBeVisible();
     await expect(heading).toHaveText(name);
     await heading.click();
@@ -585,7 +585,7 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
    * longer than the band grow rightward and the centered box drifts — an
    * accepted tradeoff — so the test deliberately exercises the band, not
    * arbitrarily long names. Measured at the md–lg rung: at ≥ lg the prefix
-   * span hides (the compact heading + standing omnibox take over), so the
+   * span hides (the compact heading + standing quake launcher take over), so the
    * prefix-left-edge probe only exists below lg.
    *
    * Steps:
@@ -642,7 +642,7 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
    * Proves: the terminal-route heading prefix is a static, contiguous `Tab:`
    * run — never the retired lens-following `Terminal:`/`Web:`/`Chat:` prefix —
    * visible at the md–lg rung and hidden at ≥ lg (the compact heading +
-   * standing omnibox render there) — and the hierarchy dropdown that used to
+   * standing quake launcher render there) — and the hierarchy dropdown that used to
    * split the prefix is gone, leaving the window switcher as the heading's
    * single ▾ at BOTH rungs.
    *
@@ -655,7 +655,7 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
    *    and assert its menu lists the current window (the session's windows,
    *    not the ancestor chain); close with Escape.
    * 4. Resize to ≥ lg (1280px); assert the prefix is hidden and the standing
-   *    omnibox renders; open the `Switch tab` ▾ again and assert the menu
+   *    quake launcher renders; open the `Switch tab` ▾ again and assert the menu
    *    still lists the current window.
    */
   test("the heading prefix is a static `Window:` on the terminal route (all lenses), with a single ▾ window switcher", async ({
@@ -687,10 +687,10 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     await page.keyboard.press("Escape");
 
     // ≥ lg rung: the compact heading hides the prefix and the standing
-    // omnibox renders beside `{name} ▾` — the ▾ switcher is untouched.
+    // quake launcher renders beside `{name} ▾` — the ▾ switcher is untouched.
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(page.getByText("Tab:", { exact: true })).toBeHidden();
-    await expect(page.getByTestId("operator-omnibox-input")).toBeVisible();
+    await expect(page.getByTestId("quake-launcher-input")).toBeVisible();
     await page.getByLabel("Switch tab").click();
     await expect(page.getByRole("menuitem", { name })).toBeVisible();
     await page.keyboard.press("Escape");

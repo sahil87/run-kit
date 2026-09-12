@@ -4,7 +4,7 @@ import type { FocusedPane } from "@/contexts/focused-pane-context";
 /**
  * Pure helpers resolving a live `WindowInfo` from the streamed sessions by
  * stable tmux window ID. `resolveFocusedWindow` backs both the sidebar PANE
- * panel's board-route fallback and the operator console's
+ * panel's board-route fallback and the quake terminal's
  * context-chip subject lookup; `thinWindowFromFocusedPane` synthesizes a thin
  * one from the board entry's own pane data when the window is absent from the
  * stream (pin-only: the home session died while the window stayed pinned).

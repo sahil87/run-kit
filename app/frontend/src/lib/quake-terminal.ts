@@ -1,16 +1,16 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
-import type { ConsoleSegment } from "@/components/terminal-activity-tabs";
+import type { QuakeSegment } from "@/components/terminal-activity-tabs";
 import { sendOperatorRequest, sendToWindow, uploadFile } from "@/api/client";
 import { SessionContext, useCurrentServerFromRoute } from "@/contexts/session-context";
 import { resolveFocusedWindow } from "@/lib/focused-pane-window";
 import { urlSegmentToWindowId } from "@/lib/router-url";
 
 /**
- * Operator console support — pure helpers for the pull-down operator console
- * overlay (components/operator-console.tsx) plus its entry-point seams:
+ * Quake terminal support — pure helpers for the pull-down quake terminal
+ * overlay (components/quake-terminal.tsx) plus its entry-point seams:
  *
- *  - `resolveConsoleServer` — the server-context rule: the route's server on
+ *  - `resolveQuakeServer` — the server-context rule: the route's server on
  *    Server/Terminal routes; on Host/Board the sole server when exactly one
  *    exists, else the most recently viewed server (then the first) as the
  *    picker default.
@@ -20,26 +20,28 @@ import { urlSegmentToWindowId } from "@/lib/router-url";
  *  - `shouldShowAskOperatorRow` — the palette free-text fallback gate: zero
  *    action matches + an operator on the resolved server + a trimmed query at
  *    or above the length floor (short typo fragments never fire a send).
- *  - `requestOperatorConsole` — the document-event seam every entry point
+ *  - `requestQuakeTerminal` — the document-event seam every entry point
  *    (chord dispatch, palette action, overflow-menu row, palette fallback row,
  *    mobile tongue) funnels through
- *    to the single layout-mounted console, which forks on form factor:
+ *    to the single layout-mounted quake terminal, which forks on form factor:
  *    desktop drives the ⌘J machine, mobile navigates to the operator
  *    window's terminal route. An event, not a callback chain: the entry
  *    points live in route shells the layout does not compose directly. The
- *    request is buffered until the console handles it, so a dispatch fired
- *    before the lazy console mounts is drained on mount rather than lost.
+ *    request is buffered until the quake terminal handles it, so a dispatch
+ *    fired before the lazy quake terminal mounts is drained on mount rather
+ *    than lost.
  *  - The ⌘J two-state machine (`rest | open`, focus and drawer linked) — the
- *    desktop console's controlling state, shared between the top-bar omnibox
- *    and the drawer (module slot, the open-state idiom).
+ *    desktop quake terminal's controlling state, shared between the top-bar
+ *    quake launcher and the drawer (module slot, the open-state idiom).
  *  - The shared compose seam (`useOperatorCompose` + `sendOperatorMessage` +
  *    `attachOperatorFiles`) — ONE draft/send/upload implementation driving the
- *    desktop omnibox (the console's only input; the drawer is output-only).
+ *    desktop quake launcher (the quake terminal's only input; the drawer is
+ *    output-only).
  *  - The chat-subject store (`setOperatorChatSubject` + `useOperatorChatChip`)
- *    — the templated chat lane's context: on a terminal route the console
- *    stamps the route window here (the validated `?from=` origin on the
- *    operator window's own route), the omnibox and the operator route's
- *    compose strip render the dismissable chip from it, and
+ *    — the templated chat lane's context: on a terminal route the quake
+ *    terminal stamps the route window here (the validated `?from=` origin on
+ *    the operator window's own route), the quake launcher and the operator
+ *    route's compose strip render the dismissable chip from it, and
  *    `sendOperatorMessage` (plus the strip's plain-submit path) reads it AT
  *    SEND TIME to fork between the templated lane (`sendOperatorRequest(...,
  *    "user-message", ...)` — a server-derived source envelope wraps the text;
@@ -47,16 +49,16 @@ import { urlSegmentToWindowId } from "@/lib/router-url";
  *    `sendToWindow` lane.
  *  - Per-viewer persisted preferences (geometry, opacity) — localStorage
  *    stores with the in-module pub/sub idiom (`use-local-storage-enum.ts`).
- *  - The console-origin event predicate and `useOperatorConsoleContext` — the
- *    read-only server/target resolution the omnibox and mobile tongue share
- *    with the console.
+ *  - The quake-terminal-origin event predicate and `useQuakeTerminalContext` —
+ *    the read-only server/target resolution the quake launcher and mobile
+ *    tongue share with the quake terminal.
  */
 
 /** Minimum trimmed query length before the palette's Ask-operator row appears. */
 export const ASK_OPERATOR_MIN_QUERY = 3;
 
-/** Document event name carrying `OperatorConsoleRequest` details. */
-export const OPERATOR_CONSOLE_EVENT = "rk:operator-console";
+/** Document event name carrying `QuakeTerminalRequest` details. */
+export const QUAKE_TERMINAL_EVENT = "rk:quake-terminal";
 
 /** The resolved operator's live state mapped to the shared state-dot color. */
 export const OPERATOR_STATE_DOT: Record<string, string> = {
@@ -64,19 +66,19 @@ export const OPERATOR_STATE_DOT: Record<string, string> = {
   active: "bg-accent-green",
 };
 
-export type OperatorConsoleRequest = {
+export type QuakeTerminalRequest = {
   /** `toggle` steps the desktop ⌘J machine (rest ⇄ open); `open` always
-   *  opens (desktop: drawer plus omnibox focus). On mobile both actions
+   *  opens (desktop: drawer plus quake launcher focus). On mobile both actions
    *  collapse to navigation to the operator window's terminal route. */
   action: "toggle" | "open";
-  /** Pin the console to this server (for example, the palette fallback passes
-   *  its resolved server). Absent = resolve from the route/server list. */
+  /** Pin the quake terminal to this server (for example, the palette fallback
+   *  passes its resolved server). Absent = resolve from the route/server list. */
   server?: string;
   /** Text to deliver on open, once the operator window resolves (the sessions
    *  slice can lag the open). Never delivered when the resolved server has no
-   *  operator window — the console's hint line is the answer there. On mobile
-   *  the text is seeded into the operator route's compose-strip draft instead
-   *  of auto-sending. */
+   *  operator window — the quake terminal's hint line is the answer there. On
+   *  mobile the text is seeded into the operator route's compose-strip draft
+   *  instead of auto-sending. */
   send?: string;
   /** The body segment to select on open. Desktop applies it to the drawer's
    *  segment state (and bypasses the already-on-operator-route hint — the
@@ -86,54 +88,54 @@ export type OperatorConsoleRequest = {
    *  strip's SEGMENTS; router-url.ts keeps its own literal union (a
    *  dependency-free leaf) and the two are guarded by a Vitest agreement
    *  test. */
-  segment?: ConsoleSegment;
+  segment?: QuakeSegment;
 };
 
-/** The most recent request, buffered until the console handles it. The
- *  console is lazy-mounted behind Suspense, so a cold-load event can fire
- *  before its listener attaches; an unhandled request stays here for the
- *  console to drain on mount, and a live console clears it synchronously
- *  inside its event handler. */
-let pendingConsoleRequest: OperatorConsoleRequest | null = null;
+/** The most recent request, buffered until the quake terminal handles it. The
+ *  quake terminal is lazy-mounted behind Suspense, so a cold-load event can
+ *  fire before its listener attaches; an unhandled request stays here for the
+ *  quake terminal to drain on mount, and a live quake terminal clears it
+ *  synchronously inside its event handler. */
+let pendingQuakeRequest: QuakeTerminalRequest | null = null;
 
-/** Dispatch a console request to the layout-mounted OperatorConsole. The
+/** Dispatch a quake terminal request to the layout-mounted QuakeTerminal. The
  *  request is buffered until handled, so a dispatch that precedes the lazy
- *  console's mount is replayed when its listener attaches — the seam is
- *  replayable, never lost. */
-export function requestOperatorConsole(req: OperatorConsoleRequest): void {
-  pendingConsoleRequest = req;
-  document.dispatchEvent(new CustomEvent<OperatorConsoleRequest>(OPERATOR_CONSOLE_EVENT, { detail: req }));
+ *  quake terminal's mount is replayed when its listener attaches — the seam
+ *  is replayable, never lost. */
+export function requestQuakeTerminal(req: QuakeTerminalRequest): void {
+  pendingQuakeRequest = req;
+  document.dispatchEvent(new CustomEvent<QuakeTerminalRequest>(QUAKE_TERMINAL_EVENT, { detail: req }));
 }
 
-/** Clear the buffered request — the console calls this once it has handled a
- *  request, so a later mount cannot replay an already-handled one. */
-export function clearPendingConsoleRequest(): void {
-  pendingConsoleRequest = null;
+/** Clear the buffered request — the quake terminal calls this once it has
+ *  handled a request, so a later mount cannot replay an already-handled one. */
+export function clearPendingQuakeRequest(): void {
+  pendingQuakeRequest = null;
 }
 
-/** Take and clear the buffered request, if any — the console's mount drain
- *  for requests that fired before its listener attached. */
-export function drainPendingConsoleRequest(): OperatorConsoleRequest | null {
-  const req = pendingConsoleRequest;
-  pendingConsoleRequest = null;
+/** Take and clear the buffered request, if any — the quake terminal's mount
+ *  drain for requests that fired before its listener attached. */
+export function drainPendingQuakeRequest(): QuakeTerminalRequest | null {
+  const req = pendingQuakeRequest;
+  pendingQuakeRequest = null;
   return req;
 }
 
 /** Type guard for the event detail (tolerant of foreign CustomEvents). */
-export function isOperatorConsoleRequest(detail: unknown): detail is OperatorConsoleRequest {
+export function isQuakeTerminalRequest(detail: unknown): detail is QuakeTerminalRequest {
   if (typeof detail !== "object" || detail === null) return false;
   const d = detail as Record<string, unknown>;
   return d.action === "toggle" || d.action === "open";
 }
 
 /**
- * Resolve the console's server context. `routeServer` (the current route's
- * server param, when any) always wins; Host/Board routes fall to the sole
- * server, then `lastViewed` (still-listed), then the first listed server.
+ * Resolve the quake terminal's server context. `routeServer` (the current
+ * route's server param, when any) always wins; Host/Board routes fall to the
+ * sole server, then `lastViewed` (still-listed), then the first listed server.
  * `null` only when the server list is empty (still loading or genuinely
- * server-less) — the console degrades to its hint line there.
+ * server-less) — the quake terminal degrades to its hint line there.
  */
-export function resolveConsoleServer(
+export function resolveQuakeServer(
   routeServer: string | null,
   servers: readonly string[],
   lastViewed: string | null,
@@ -173,9 +175,9 @@ export function shouldShowAskOperatorRow(query: string, matchCount: number, hasO
 /**
  * Validate a `?from=` search value against one server's sessions payload: the
  * origin window it names, or null for an absent, self, or unknown id. The ONE
- * validation both consumers apply — the console's chat-subject stamping and
- * the tongue's return tap — so the two paths cannot drift (cross-server ids
- * are excluded by resolving against the route server's own sessions).
+ * validation both consumers apply — the quake terminal's chat-subject stamping
+ * and the tongue's return tap — so the two paths cannot drift (cross-server
+ * ids are excluded by resolving against the route server's own sessions).
  */
 export function resolveFromOrigin(
   raw: unknown,
@@ -192,28 +194,32 @@ export function resolveFromOrigin(
 //
 // Two stores, both following the in-module pub/sub idiom of
 // `use-local-storage-enum.ts` (the native `storage` event fires only across
-// tabs, so same-tab subscribers — the console and the settings-dialog row —
-// need the dispatch). Values are continuous, so the enum hook's allowed-list
-// validation is replaced by numeric clamping; absent/corrupt/out-of-clamp
-// values resolve to the defaults without error.
+// tabs, so same-tab subscribers — the quake terminal and the settings-dialog
+// row — need the dispatch). Values are continuous, so the enum hook's
+// allowed-list validation is replaced by numeric clamping; absent/corrupt/
+// out-of-clamp values resolve to the defaults without error.
 
 /** localStorage key for the desktop drawer geometry (`{heightVh, widthPx}`). */
-export const CONSOLE_GEOMETRY_KEY = "runkit-operator-console-geometry";
+export const QUAKE_GEOMETRY_KEY = "runkit-quake-terminal-geometry";
 /** localStorage key for the desktop drawer background opacity. */
-export const CONSOLE_OPACITY_KEY = "runkit-operator-console-opacity";
+export const QUAKE_OPACITY_KEY = "runkit-quake-terminal-opacity";
+/** Retired key names; read as a fallback so viewers keep their drawer size
+ *  and glass, removed on the next write (the fallback is one-shot). */
+export const LEGACY_QUAKE_GEOMETRY_KEY = "runkit-operator-console-geometry";
+export const LEGACY_QUAKE_OPACITY_KEY = "runkit-operator-console-opacity";
 
-export type ConsoleGeometry = { heightVh: number; widthPx: number };
+export type QuakeGeometry = { heightVh: number; widthPx: number };
 
-export const CONSOLE_GEOMETRY_DEFAULT: ConsoleGeometry = { heightVh: 55, widthPx: 760 };
-export const CONSOLE_HEIGHT_MIN_VH = 25;
-export const CONSOLE_HEIGHT_MAX_VH = 85;
-export const CONSOLE_WIDTH_MIN_PX = 420;
+export const QUAKE_GEOMETRY_DEFAULT: QuakeGeometry = { heightVh: 55, widthPx: 760 };
+export const QUAKE_HEIGHT_MIN_VH = 25;
+export const QUAKE_HEIGHT_MAX_VH = 85;
+export const QUAKE_WIDTH_MIN_PX = 420;
 /** Width ceiling as a fraction of the viewport (96vw). */
-export const CONSOLE_WIDTH_MAX_VW = 0.96;
+export const QUAKE_WIDTH_MAX_VW = 0.96;
 
-export const CONSOLE_OPACITY_DEFAULT = 0.9;
-export const CONSOLE_OPACITY_MIN = 0.5;
-export const CONSOLE_OPACITY_MAX = 1.0;
+export const QUAKE_OPACITY_DEFAULT = 0.9;
+export const QUAKE_OPACITY_MIN = 0.5;
+export const QUAKE_OPACITY_MAX = 1.0;
 
 function viewportWidthPx(): number | undefined {
   return typeof window !== "undefined" && Number.isFinite(window.innerWidth)
@@ -222,53 +228,67 @@ function viewportWidthPx(): number | undefined {
 }
 
 /** Clamp geometry into the supported envelope (25–85vh, 420px–96vw). */
-export function clampConsoleGeometry(
-  geometry: ConsoleGeometry,
+export function clampQuakeGeometry(
+  geometry: QuakeGeometry,
   viewportWidth: number | undefined = viewportWidthPx(),
-): ConsoleGeometry {
-  const heightVh = Math.min(CONSOLE_HEIGHT_MAX_VH, Math.max(CONSOLE_HEIGHT_MIN_VH, geometry.heightVh));
-  const maxWidth = viewportWidth !== undefined ? viewportWidth * CONSOLE_WIDTH_MAX_VW : Infinity;
-  const widthPx = Math.min(maxWidth, Math.max(CONSOLE_WIDTH_MIN_PX, geometry.widthPx));
+): QuakeGeometry {
+  const heightVh = Math.min(QUAKE_HEIGHT_MAX_VH, Math.max(QUAKE_HEIGHT_MIN_VH, geometry.heightVh));
+  const maxWidth = viewportWidth !== undefined ? viewportWidth * QUAKE_WIDTH_MAX_VW : Infinity;
+  const widthPx = Math.min(maxWidth, Math.max(QUAKE_WIDTH_MIN_PX, geometry.widthPx));
   return { heightVh, widthPx: Math.round(widthPx) };
 }
 
 /** Clamp opacity into the supported envelope (0.5–1.0). */
-export function clampConsoleOpacity(opacity: number): number {
-  return Math.min(CONSOLE_OPACITY_MAX, Math.max(CONSOLE_OPACITY_MIN, opacity));
+export function clampQuakeOpacity(opacity: number): number {
+  return Math.min(QUAKE_OPACITY_MAX, Math.max(QUAKE_OPACITY_MIN, opacity));
 }
 
-export function readConsoleGeometry(): ConsoleGeometry {
+function parseStoredGeometry(raw: string): QuakeGeometry | null {
   try {
-    const raw = localStorage.getItem(CONSOLE_GEOMETRY_KEY);
-    if (raw != null) {
-      const parsed: unknown = JSON.parse(raw);
-      if (typeof parsed === "object" && parsed !== null) {
-        const g = parsed as Record<string, unknown>;
-        if (
-          typeof g.heightVh === "number" && Number.isFinite(g.heightVh) &&
-          typeof g.widthPx === "number" && Number.isFinite(g.widthPx)
-        ) {
-          return clampConsoleGeometry({ heightVh: g.heightVh, widthPx: g.widthPx });
-        }
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed === "object" && parsed !== null) {
+      const g = parsed as Record<string, unknown>;
+      if (
+        typeof g.heightVh === "number" && Number.isFinite(g.heightVh) &&
+        typeof g.widthPx === "number" && Number.isFinite(g.widthPx)
+      ) {
+        return clampQuakeGeometry({ heightVh: g.heightVh, widthPx: g.widthPx });
       }
     }
   } catch {
-    // localStorage unavailable (privacy mode, sandboxed iframe) or corrupt JSON
+    // corrupt JSON
   }
-  return CONSOLE_GEOMETRY_DEFAULT;
+  return null;
 }
 
-export function readConsoleOpacity(): number {
+/** Read the stored geometry: the current key first, the retired key only when
+ *  the current one is absent (a present-but-corrupt value does not fall
+ *  through); anything unusable degrades to the default. */
+export function readQuakeGeometry(): QuakeGeometry {
   try {
-    const raw = localStorage.getItem(CONSOLE_OPACITY_KEY);
+    const raw = localStorage.getItem(QUAKE_GEOMETRY_KEY) ?? localStorage.getItem(LEGACY_QUAKE_GEOMETRY_KEY);
+    if (raw != null) {
+      const parsed = parseStoredGeometry(raw);
+      if (parsed) return parsed;
+    }
+  } catch {
+    // localStorage unavailable (privacy mode, sandboxed iframe)
+  }
+  return QUAKE_GEOMETRY_DEFAULT;
+}
+
+/** Read the stored opacity with the same retired-key fallback as the geometry. */
+export function readQuakeOpacity(): number {
+  try {
+    const raw = localStorage.getItem(QUAKE_OPACITY_KEY) ?? localStorage.getItem(LEGACY_QUAKE_OPACITY_KEY);
     if (raw != null) {
       const parsed = Number.parseFloat(raw);
-      if (Number.isFinite(parsed)) return clampConsoleOpacity(parsed);
+      if (Number.isFinite(parsed)) return clampQuakeOpacity(parsed);
     }
   } catch {
     // localStorage unavailable
   }
-  return CONSOLE_OPACITY_DEFAULT;
+  return QUAKE_OPACITY_DEFAULT;
 }
 
 const prefSubscribers = new Map<string, Set<() => void>>();
@@ -294,24 +314,26 @@ function subscribePref(storageKey: string, listener: () => void): () => void {
   };
 }
 
-export function writeConsoleGeometry(geometry: ConsoleGeometry): void {
-  const clamped = clampConsoleGeometry(geometry);
+export function writeQuakeGeometry(geometry: QuakeGeometry): void {
+  const clamped = clampQuakeGeometry(geometry);
   try {
-    localStorage.setItem(CONSOLE_GEOMETRY_KEY, JSON.stringify(clamped));
+    localStorage.setItem(QUAKE_GEOMETRY_KEY, JSON.stringify(clamped));
+    localStorage.removeItem(LEGACY_QUAKE_GEOMETRY_KEY);
   } catch {
     // localStorage unavailable
   }
-  notifyPref(CONSOLE_GEOMETRY_KEY);
+  notifyPref(QUAKE_GEOMETRY_KEY);
 }
 
-export function writeConsoleOpacity(opacity: number): void {
-  const clamped = clampConsoleOpacity(opacity);
+export function writeQuakeOpacity(opacity: number): void {
+  const clamped = clampQuakeOpacity(opacity);
   try {
-    localStorage.setItem(CONSOLE_OPACITY_KEY, String(clamped));
+    localStorage.setItem(QUAKE_OPACITY_KEY, String(clamped));
+    localStorage.removeItem(LEGACY_QUAKE_OPACITY_KEY);
   } catch {
     // localStorage unavailable
   }
-  notifyPref(CONSOLE_OPACITY_KEY);
+  notifyPref(QUAKE_OPACITY_KEY);
 }
 
 /** Shared subscribe effect: re-read on same-tab notify, cross-tab `storage`,
@@ -340,56 +362,58 @@ function usePrefSubscription(storageKey: string, reread: () => void): void {
 
 /** The desktop drawer's persisted geometry — `[value, setter]` like the other
  *  localStorage hooks. */
-export function useConsoleGeometry(): [ConsoleGeometry, (next: ConsoleGeometry) => void] {
-  const [value, setValue] = useState<ConsoleGeometry>(readConsoleGeometry);
-  usePrefSubscription(CONSOLE_GEOMETRY_KEY, () => setValue(readConsoleGeometry()));
-  return [value, writeConsoleGeometry];
+export function useQuakeGeometry(): [QuakeGeometry, (next: QuakeGeometry) => void] {
+  const [value, setValue] = useState<QuakeGeometry>(readQuakeGeometry);
+  usePrefSubscription(QUAKE_GEOMETRY_KEY, () => setValue(readQuakeGeometry()));
+  return [value, writeQuakeGeometry];
 }
 
 /** The desktop drawer's persisted background opacity (0.75–1.0, default 0.90).
  *  1.0 disables the backdrop blur entirely — the zero-cost opaque path. */
-export function useConsoleOpacity(): [number, (next: number) => void] {
-  const [value, setValue] = useState<number>(readConsoleOpacity);
-  usePrefSubscription(CONSOLE_OPACITY_KEY, () => setValue(readConsoleOpacity()));
-  return [value, writeConsoleOpacity];
+export function useQuakeOpacity(): [number, (next: number) => void] {
+  const [value, setValue] = useState<number>(readQuakeOpacity);
+  usePrefSubscription(QUAKE_OPACITY_KEY, () => setValue(readQuakeOpacity()));
+  return [value, writeQuakeOpacity];
 }
 
 // ── ⌘J two-state machine ─────────────────────────────────────────────────────
 //
-// The desktop console is a plain toggle: `rest` (omnibox blurred, drawer
-// closed) ⇄ `open` (drawer down, omnibox focused). Focus and the expanded
-// drawer are LINKED — engaging the machine from any entry point (chord, box
-// click, ghost) both focuses the box and drops the drawer; releasing it does
-// both in reverse. A blur alone does NOT release the machine: the drawer is
-// a peek that outlives the box's focus (clicking into its terminal must not
-// collapse it) — the outside-click collapse and Esc are the release paths.
+// The desktop quake terminal is a plain toggle: `rest` (quake launcher
+// blurred, drawer closed) ⇄ `open` (drawer down, quake launcher focused).
+// Focus and the expanded drawer are LINKED — engaging the machine from any
+// entry point (chord, box click, ghost) both focuses the box and drops the
+// drawer; releasing it does both in reverse. A blur alone does NOT release
+// the machine: the drawer is a peek that outlives the box's focus (clicking
+// into its terminal must not collapse it) — the outside-click collapse and
+// Esc are the release paths.
 // The state lives in a module slot (the open-state slot idiom) because the two
-// halves of the surface — the top-bar omnibox and the layout-mounted drawer —
-// are mounted in different trees and must not own each other's state. The
-// drawer component is the controller (it interprets the document-event seam);
-// the omnibox is a follower that also originates transitions (click-to-focus,
-// Enter). Mobile never engages the machine — its seam arm navigates instead.
+// halves of the surface — the top-bar quake launcher and the layout-mounted
+// drawer — are mounted in different trees and must not own each other's
+// state. The drawer component is the controller (it interprets the
+// document-event seam); the quake launcher is a follower that also originates
+// transitions (click-to-focus, Enter). Mobile never engages the machine — its
+// seam arm navigates instead.
 
-export type ConsoleMachineState = "rest" | "open";
+export type QuakeMachineState = "rest" | "open";
 
-let machineState: ConsoleMachineState = "rest";
-const machineListeners = new Set<(state: ConsoleMachineState) => void>();
+let machineState: QuakeMachineState = "rest";
+const machineListeners = new Set<(state: QuakeMachineState) => void>();
 
-/** Bumped on every `setConsoleMachineState` call, including a same-value
+/** Bumped on every `setQuakeMachineState` call, including a same-value
  *  no-op — the outside-click-collapse effect's "did anything else already
  *  claim this click" signal (a value-equality check alone would miss a
  *  legitimate same-value re-open while already `open`). */
 let machineActivity = 0;
 
-export function getConsoleMachineState(): ConsoleMachineState {
+export function getQuakeMachineState(): QuakeMachineState {
   return machineState;
 }
 
-export function getConsoleMachineActivity(): number {
+export function getQuakeMachineActivity(): number {
   return machineActivity;
 }
 
-export function setConsoleMachineState(next: ConsoleMachineState): void {
+export function setQuakeMachineState(next: QuakeMachineState): void {
   machineActivity++;
   if (machineState === next) return;
   machineState = next;
@@ -397,16 +421,16 @@ export function setConsoleMachineState(next: ConsoleMachineState): void {
 }
 
 /** The chord step: rest ⇄ open. */
-export function cycleConsoleMachine(state: ConsoleMachineState): ConsoleMachineState {
+export function cycleQuakeMachine(state: QuakeMachineState): QuakeMachineState {
   return state === "rest" ? "open" : "rest";
 }
 
-export function useConsoleMachineState(): ConsoleMachineState {
-  const [state, setState] = useState(getConsoleMachineState);
+export function useQuakeMachineState(): QuakeMachineState {
+  const [state, setState] = useState(getQuakeMachineState);
   useEffect(() => {
-    const listener = (next: ConsoleMachineState) => setState(next);
+    const listener = (next: QuakeMachineState) => setState(next);
     machineListeners.add(listener);
-    setState(getConsoleMachineState());
+    setState(getQuakeMachineState());
     return () => {
       machineListeners.delete(listener);
     };
@@ -416,24 +440,24 @@ export function useConsoleMachineState(): ConsoleMachineState {
 
 // ── Shared compose seam ──────────────────────────────────────────────────────
 //
-// ONE compose implementation drives the console's input surface: the desktop
-// omnibox (top-bar center cell). Draft, in-flight flags, and the inline error
-// are module state, and the send/upload logic exists exactly once. Delivery
-// rides the existing lanes: `sendToWindow(..., "submit", "agent")` for
-// messages, `uploadFile` + a `"raw"` insert per returned path for files
-// (staged into the TUI composer, never submitted).
+// ONE compose implementation drives the quake terminal's input surface: the
+// desktop quake launcher (top-bar center cell). Draft, in-flight flags, and
+// the inline error are module state, and the send/upload logic exists exactly
+// once. Delivery rides the existing lanes: `sendToWindow(..., "submit",
+// "agent")` for messages, `uploadFile` + a `"raw"` insert per returned path
+// for files (staged into the TUI composer, never submitted).
 
 // ── Chat-subject store (the templated chat lane's context chip) ──────────────
 //
-// On a terminal route the console stamps the route's window here — or, on the
-// operator window's own route, the validated `?from=` origin window (only when
-// the console's resolved server IS the route's server — window ids are
-// server-scoped, so a pinned/picked cross-server retarget must never attach a
-// foreign id). Module state, like the compose seam, so the omnibox and the
-// operator route's compose strip render one chip in lockstep — and so the
-// send forks read the CURRENT attachment at send time rather than a captured
-// closure (a pendingSend delivered in the same commit as a chip reset must
-// see the reset).
+// On a terminal route the quake terminal stamps the route's window here — or,
+// on the operator window's own route, the validated `?from=` origin window
+// (only when the quake terminal's resolved server IS the route's server —
+// window ids are server-scoped, so a pinned/picked cross-server retarget must
+// never attach a foreign id). Module state, like the compose seam, so the
+// quake launcher and the operator route's compose strip render one chip in
+// lockstep — and so the send forks read the CURRENT attachment at send time
+// rather than a captured closure (a pendingSend delivered in the same commit
+// as a chip reset must see the reset).
 
 export type OperatorChatSubject = {
   /** The server the subject window lives on — the fork applies only when the
@@ -447,7 +471,8 @@ export type OperatorChatSubject = {
 export type OperatorChatChipState = {
   subject: OperatorChatSubject | null;
   /** Dismissal is ephemeral per-viewer state (Constitution IV): it clears on a
-   *  subject change and on `resetOperatorChatChip` (console re-engage). */
+   *  subject change and on `resetOperatorChatChip` (quake terminal
+   *  re-engage). */
   dismissed: boolean;
 };
 
@@ -477,8 +502,8 @@ export function dismissOperatorChatChip(): void {
   patchChatChip({ ...chatChipState, dismissed: true });
 }
 
-/** Re-attach the context — fired when the console re-engages (the machine
- *  leaves rest). */
+/** Re-attach the context — fired when the quake terminal re-engages (the
+ *  machine leaves rest). */
 export function resetOperatorChatChip(): void {
   patchChatChip({ ...chatChipState, dismissed: false });
 }
@@ -505,18 +530,18 @@ export function useOperatorChatChip(): OperatorChatChipState {
   return state;
 }
 
-export type ConsoleComposeState = {
+export type QuakeComposeState = {
   text: string;
   sending: boolean;
   uploading: boolean;
   error: string | null;
 };
 
-const COMPOSE_INITIAL: ConsoleComposeState = { text: "", sending: false, uploading: false, error: null };
-let composeState: ConsoleComposeState = COMPOSE_INITIAL;
+const COMPOSE_INITIAL: QuakeComposeState = { text: "", sending: false, uploading: false, error: null };
+let composeState: QuakeComposeState = COMPOSE_INITIAL;
 const composeListeners = new Set<() => void>();
 
-function patchCompose(patch: Partial<ConsoleComposeState>): void {
+function patchCompose(patch: Partial<QuakeComposeState>): void {
   composeState = { ...composeState, ...patch };
   for (const listener of composeListeners) listener();
 }
@@ -588,7 +613,7 @@ export async function attachOperatorFiles(
 }
 
 /** Subscribe to the shared compose state (draft, in-flight flags, error). */
-export function useOperatorCompose(): ConsoleComposeState {
+export function useOperatorCompose(): QuakeComposeState {
   const [state, setState] = useState(composeState);
   useEffect(() => {
     const listener = () => setState(composeState);
@@ -601,50 +626,51 @@ export function useOperatorCompose(): ConsoleComposeState {
   return state;
 }
 
-// ── Console-origin event predicate ───────────────────────────────────────────
+// ── Quake-terminal-origin event predicate ────────────────────────────────────
 
-/** Attribute on the console's root element, used to recognize paste/drop
- *  events originating inside the console (the route terminals' document-level
- *  file-paste forward must skip them — the console owns its own file path). */
-export const OPERATOR_CONSOLE_ROOT_ATTR = "data-operator-console";
+/** Attribute on the quake terminal's root element, used to recognize
+ *  paste/drop events originating inside the quake terminal (the route
+ *  terminals' document-level file-paste forward must skip them — the quake
+ *  terminal owns its own file path). */
+export const QUAKE_TERMINAL_ROOT_ATTR = "data-quake-terminal";
 
-/** True when an event target sits inside the console dialog (its xterm helper
- *  textarea and compose textarea both resolve here). */
-export function isOperatorConsoleTarget(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest(`[${OPERATOR_CONSOLE_ROOT_ATTR}]`) !== null;
+/** True when an event target sits inside the quake terminal dialog (its xterm
+ *  helper textarea and compose textarea both resolve here). */
+export function isQuakeTerminalTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(`[${QUAKE_TERMINAL_ROOT_ATTR}]`) !== null;
 }
 
-// ── Shared console-context resolution ────────────────────────────────────────
+// ── Shared quake-terminal-context resolution ─────────────────────────────────
 
 /**
- * Pure resolution shared by the console's read-only surfaces (the omnibox and
- * mobile tongue): the console's server rule (route
+ * Pure resolution shared by the quake terminal's read-only surfaces (the
+ * quake launcher and mobile tongue): the quake terminal's server rule (route
  * server wins, then sole/last-viewed/first listed) plus the operator-window
  * lookup on the resolved server's sessions payload.
  */
-export function resolveOperatorConsoleTarget(
+export function resolveQuakeTerminalTarget(
   routeServer: string | null,
   servers: readonly string[],
   sessionsByServer: ReadonlyMap<string, readonly ProjectSession[]> | undefined,
   lastViewed: string | null,
 ): { server: string | null; target: OperatorWindowTarget | undefined } {
-  const server = resolveConsoleServer(routeServer, servers, lastViewed);
+  const server = resolveQuakeServer(routeServer, servers, lastViewed);
   const target = server ? findOperatorWindow(sessionsByServer?.get(server) ?? []) : undefined;
   return { server, target };
 }
 
 /**
- * The console's resolved server + operator window for surfaces that only READ
- * the context and lack their own route server (the mobile tongue) — wraps
- * `resolveOperatorConsoleTarget` with the shared route-server walk.
+ * The quake terminal's resolved server + operator window for surfaces that
+ * only READ the context and lack their own route server (the mobile tongue) —
+ * wraps `resolveQuakeTerminalTarget` with the shared route-server walk.
  * `lastViewed` is tracked ephemerally per consumer (no persistence —
- * Constitution IV), matching the console's own ref.
+ * Constitution IV), matching the quake terminal's own ref.
  *
- * Tolerant of a missing provider: console chrome must
+ * Tolerant of a missing provider: quake terminal chrome must
  * degrade to "no operator" (never crash) when mounted outside SessionProvider
  * — e.g. isolated component tests (the useUpdateNotification precedent).
  */
-export function useOperatorConsoleContext(): {
+export function useQuakeTerminalContext(): {
   server: string | null;
   target: OperatorWindowTarget | undefined;
 } {
@@ -656,7 +682,7 @@ export function useOperatorConsoleContext(): {
   const serverNames = useMemo(() => servers.map((s) => s.name), [servers]);
   const sessionsByServer = ctx?.sessionsByServer;
   return useMemo(
-    () => resolveOperatorConsoleTarget(routeServer, serverNames, sessionsByServer, lastViewedRef.current),
+    () => resolveQuakeTerminalTarget(routeServer, serverNames, sessionsByServer, lastViewedRef.current),
     [routeServer, serverNames, sessionsByServer],
   );
 }

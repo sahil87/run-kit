@@ -366,7 +366,7 @@ const EMPTY_SLICE: ServerSlice = {
 
 /** Read `currentServer` from the matched route. Returns the server param when
  *  the deepest match has one (AppShell routes), otherwise `null` (board, index).
- *  Exported for the other route-param consumers (the operator console, the
+ *  Exported for the other route-param consumers (the quake terminal, the
  *  layout palette's Ask-operator gate) so the walk exists exactly once. */
 export function useCurrentServerFromRoute(): string | null {
   const matches = useMatches();

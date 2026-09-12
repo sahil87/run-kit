@@ -12,10 +12,10 @@ const SEGMENTS = [
   { tab: "log", label: "Cron Log" },
 ] as const;
 
-export type ConsoleSegment = (typeof SEGMENTS)[number]["tab"];
+export type QuakeSegment = (typeof SEGMENTS)[number]["tab"];
 
 // The accepted tab values are exported for the union-agreement guard: the
-// strip's tabs, `OperatorConsoleRequest.segment`, and router-url.ts's literal
+// strip's tabs, `QuakeTerminalRequest.segment`, and router-url.ts's literal
 // `tab` union are three spellings of the same set and must never drift.
 export { SEGMENTS };
 
@@ -23,23 +23,23 @@ export { SEGMENTS };
  * The presentational `Operator Terminal | Operator Tasks | Cron List |
  * Cron Log` segment strip — one controlled render shared by the mobile
  * operator route's tabs (`TerminalActivityTabs` below, driven by the router
- * `tab` search param) and the desktop operator console drawer (driven by
- * console-local component state). Both consumers get identical markup,
+ * `tab` search param) and the desktop quake terminal drawer (driven by
+ * drawer-local component state). Both consumers get identical markup,
  * roles, and test ids. The file name and the `terminal-activity-tabs` test
  * id predate the extra segments and stay — renaming would churn every spec
  * for no behavior gain.
  */
-export function ConsoleSegments({
+export function QuakeSegments({
   value,
   onChange,
 }: {
-  value: ConsoleSegment;
-  onChange: (tab: ConsoleSegment) => void;
+  value: QuakeSegment;
+  onChange: (tab: QuakeSegment) => void;
 }) {
   return (
     <div
       role="tablist"
-      aria-label="Console view"
+      aria-label="Quake terminal segments"
       data-testid="terminal-activity-tabs"
       className="flex shrink-0 border-b border-border bg-bg-primary"
     >
@@ -78,14 +78,14 @@ export function ConsoleSegments({
 export function TerminalActivityTabs() {
   const navigate = useNavigate();
   const search = useSearch({ strict: false });
-  const active: ConsoleSegment =
+  const active: QuakeSegment =
     search.tab === "tasks" || search.tab === "list" || search.tab === "log"
       ? search.tab
       : "terminal";
 
   return (
     <div className="shrink-0 pt-9">
-      <ConsoleSegments
+      <QuakeSegments
         value={active}
         onChange={(tab) =>
           void navigate({

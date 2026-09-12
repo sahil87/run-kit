@@ -305,17 +305,17 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // stay live inside real text inputs — the compose strip is the motivating
   // focus home; the chords are modifier combos that never insert text.
   { actionId: "sidebar-toggle", code: "KeyB", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Toggle sidebar", mapLabel: "sidebar", ignoreInputs: true },
-  // ⌘J/⇧Ctrl+J operator console — a chrome-level opener in the ⌘B
+  // ⌘J/⇧Ctrl+J quake terminal — a chrome-level opener in the ⌘B
   // sidebar-toggle class. KeyJ carries no claim in any tier on either host:
   // ⌘J is page-interceptable in a mac browser (the ⌘L/⌘D class, per the
   // claims data below) and absent from the shell's menu accelerator map; on
   // Win/Linux the shifted tier keeps plain Ctrl+J (readline accept-line) with
   // the pane. On desktop the chord TOGGLES the two-state machine (rest ⇄
   // open+focused — focus and drawer linked), so ignoreInputs lets it release
-  // while the omnibox input has focus; on mobile it plain-toggles the sheet.
-  // The palette action is the guaranteed fallback where a browser eats the
-  // chord.
-  { actionId: "operator-console", code: "KeyJ", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Operator console", description: "toggle the operator console (open+focus ⇄ closed)", mapLabel: "operator", ignoreInputs: true },
+  // while the quake launcher input has focus; on mobile it plain-toggles the
+  // sheet. The palette action is the guaranteed fallback where a browser eats
+  // the chord.
+  { actionId: "quake-terminal", code: "KeyJ", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Quake terminal", description: "toggle the quake terminal (open+focus ⇄ closed)", mapLabel: "quake", ignoreInputs: true },
   // Positional surface digits — ⌘1/2/3/4 on mac, ⇧Ctrl+1/2/3/4 on win/linux —
   // toggle the tty/code/web/gui tiles in tile order. Same demotion class as ⌘B
   // (page-interceptable). In a mac BROWSER the cmd-tier
@@ -661,7 +661,11 @@ function isCombo(value: unknown): value is BindingCombo {
 }
 
 /** Tolerant parse of the stored diff blob: malformed JSON, a non-object root,
- *  or garbage entries all degrade to "no override" rather than throwing. */
+ *  or garbage entries all degrade to "no override" rather than throwing.
+ *  A stored `operator-console` entry (the ⌘J action's retired id) maps onto
+ *  `quake-terminal` when the blob carries no `quake-terminal` entry — the
+ *  new-id entry always wins, and the retired id never survives into the
+ *  returned overrides, so the next write drops it. */
 export function parseOverrides(raw: string | null): BindingOverrides {
   if (!raw) return {};
   let parsed: unknown;
@@ -676,6 +680,10 @@ export function parseOverrides(raw: string | null): BindingOverrides {
     if (value === null) overrides[actionId] = null;
     else if (isCombo(value)) overrides[actionId] = { code: value.code, tier: value.tier };
   }
+  if ("operator-console" in overrides && !("quake-terminal" in overrides)) {
+    overrides["quake-terminal"] = overrides["operator-console"];
+  }
+  delete overrides["operator-console"];
   return overrides;
 }
 

@@ -195,7 +195,7 @@ by two API surfaces over the same `agentSendEngine` + `agentSendTmux` adapter pa
 server-side per request — the client supplies only a windowID + text, never a
 pane or session ref. By default the target is the window's **active** pane with
 no agent-session requirement; the optional `target:"agent"` body field (the
-selection broadcast's and the operator chat console's mode) instead resolves
+selection broadcast's and the quake terminal's mode) instead resolves
 the window's **agent** pane via the
 shared `sessions.ResolveAgentPane` rollup (active-pane-first among
 `@rk_pane_agent_session` carriers, else the first carrier) and fails CLOSED with
@@ -237,16 +237,16 @@ Injection 409 outcomes), recorded the same way. The broadcast's own `200` count
 is what the frontend calls **delivered**, and it drives whether the composed
 prompt is cleared or retained for a retry. (260808-ebgs, 260904-39bp)
 
-**The operator chat console is the other `target:"agent"` consumer**
-([ui/operator-console](/run-kit/ui/operator-console.md)). Its compose strip
+**The quake terminal is the other `target:"agent"` consumer**
+([ui/quake-terminal](/run-kit/ui/quake-terminal.md)). Its compose strip
 delivers via `sendToWindow(server, operatorWindowId, text, "submit", "agent")`
 — one POST per Enter, an in-flight guard against re-send, and a whitespace-trim
 floor. Busy semantics are this path's Allow + probe: no client-side busy gate
-and no operator-queue interaction (a console message is a human steer —
-[operator-actuation](/run-kit/operator-actuation.md)). The console's error
+and no operator-queue interaction (a quake terminal message is a human steer —
+[operator-actuation](/run-kit/operator-actuation.md)). The quake terminal's error
 contract differs from the broadcast's per-recipient accounting: a structured
 `409` (probe failure, `staged_send_failure`, submit-unverified — the thrown
-`ApiError` messages) surfaces INLINE in the console as an error line between
+`ApiError` messages) surfaces INLINE in the quake terminal as an error line between
 terminal and compose, never as a toast, and the composed text is preserved in
 the input for retry or edit. (260904-qa85-operator-chat-console)
 
@@ -1018,7 +1018,7 @@ cross-surface divergence the shared classifier forbids).
 ### Agent-pane targeting is an explicit `target:"agent"` mode that fails closed
 **Decision**: `POST /api/windows/{windowId}/send` carries an optional `target`
 body field: absent means the window's ACTIVE pane (the compose strip's default);
-`"agent"` (the selection broadcast's and the operator chat console's mode)
+`"agent"` (the selection broadcast's and the quake terminal's mode)
 resolves the agent pane via the
 shared `sessions.ResolveAgentPane` rollup — active-pane-first among
 `@rk_pane_agent_session` carriers, else the first carrier — and returns `404`

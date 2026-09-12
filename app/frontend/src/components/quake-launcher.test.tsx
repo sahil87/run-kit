@@ -1,20 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
-import { OperatorConsole } from "./operator-console";
-import { OperatorOmnibox } from "./operator-omnibox";
+import { QuakeTerminal } from "./quake-terminal";
+import { QuakeLauncher } from "./quake-launcher";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import {
   dismissOperatorChatChip,
-  getConsoleMachineState,
-  requestOperatorConsole,
-  setConsoleMachineState,
+  getQuakeMachineState,
+  requestQuakeTerminal,
+  setQuakeMachineState,
   setOperatorChatSubject,
   setOperatorComposeText,
-} from "@/lib/operator-console";
+} from "@/lib/quake-terminal";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import type { ProjectSession, WindowInfo } from "@/types";
 
-// Route params the console/omnibox server-context walk reads; the console's
+// Route params the quake terminal/quake launcher server-context walk reads; the quake terminal's
 // mobile navigation arm's hooks are inert under the desktop stub but must
 // exist on the mock.
 let mockMatches: Array<{ params: Record<string, string> }> = [{ params: {} }];
@@ -71,8 +71,8 @@ function renderPair(sessionsByServer?: Map<string, ProjectSession[]>) {
         sessionsByServer: sessionsByServer ?? new Map([["srv1", operatorSessions()]]),
       }}
     >
-      <OperatorConsole />
-      <OperatorOmnibox routeServer={null} />
+      <QuakeTerminal />
+      <QuakeLauncher routeServer={null} />
     </StandaloneSessionContextProvider>,
   );
 }
@@ -92,9 +92,9 @@ function stubExtraWideDesktop() {
   stubMatchMedia((query) => query === "(min-width: 1024px)" || query === "(min-width: 1536px)");
 }
 
-describe("OperatorOmnibox", () => {
+describe("QuakeLauncher", () => {
   beforeEach(() => {
-    setConsoleMachineState("rest");
+    setQuakeMachineState("rest");
     setOperatorComposeText("");
     setOperatorChatSubject(null);
     mockMatches = [{ params: {} }];
@@ -114,16 +114,16 @@ describe("OperatorOmnibox", () => {
   it("renders nothing on mobile", () => {
     stubMatchMedia(() => true);
     renderPair();
-    expect(screen.queryByTestId("operator-omnibox")).toBeNull();
-    expect(screen.queryByTestId("operator-omnibox-ghost")).toBeNull();
+    expect(screen.queryByTestId("quake-launcher")).toBeNull();
+    expect(screen.queryByTestId("quake-launcher-ghost")).toBeNull();
   });
 
   it("md–lg rung: the ghost renders at rest, the box hidden until engaged", () => {
     stubNarrowDesktop();
     renderPair();
 
-    expect(screen.getByTestId("operator-omnibox-ghost")).toBeInTheDocument();
-    expect(screen.getByTestId("operator-omnibox").className).toContain("hidden lg:flex");
+    expect(screen.getByTestId("quake-launcher-ghost")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-launcher").className).toContain("hidden lg:flex");
   });
 
   it("≥ lg rung: the box stands at rest beside the heading, the ghost is CSS-hidden", () => {
@@ -132,8 +132,8 @@ describe("OperatorOmnibox", () => {
 
     // The ghost stays mounted (the morph rung shares the component) but is
     // display:none at ≥ lg.
-    expect(screen.getByTestId("operator-omnibox-ghost").className).toContain("lg:hidden");
-    const box = screen.getByTestId("operator-omnibox");
+    expect(screen.getByTestId("quake-launcher-ghost").className).toContain("lg:hidden");
+    const box = screen.getByTestId("quake-launcher");
     expect(box.className).toContain("hidden lg:flex");
     // Slim at rest below 2xl — the standing box never eats the crumbs'
     // min-useful-width at lg/xl.
@@ -141,15 +141,15 @@ describe("OperatorOmnibox", () => {
     // Fixed height (matches --ctl-h-bar) — must hold identically once engaged,
     // so focus/blur never reflows the top bar.
     expect(box.className).toContain("h-[28px]");
-    expect(screen.getByTestId("operator-omnibox-input")).toHaveAttribute("placeholder", "Ask…");
+    expect(screen.getByTestId("quake-launcher-input")).toHaveAttribute("placeholder", "Ask…");
   });
 
   it("≥ 2xl rung: the box takes its full rest width and long placeholder", () => {
     stubExtraWideDesktop();
     renderPair();
 
-    expect(screen.getByTestId("operator-omnibox").className).toContain("2xl:w-[20ch]");
-    expect(screen.getByTestId("operator-omnibox-input")).toHaveAttribute("placeholder", "Ask the operator…");
+    expect(screen.getByTestId("quake-launcher").className).toContain("2xl:w-[20ch]");
+    expect(screen.getByTestId("quake-launcher-input")).toHaveAttribute("placeholder", "Ask the operator…");
   });
 
   it.each([
@@ -160,21 +160,21 @@ describe("OperatorOmnibox", () => {
     stubWideDesktop();
     renderPair(new Map([["srv1", operatorSessions(agentState)]]));
 
-    const dot = screen.getByTestId("operator-omnibox-state");
+    const dot = screen.getByTestId("quake-launcher-state");
     expect(dot).toHaveAttribute("data-state", agentState);
     expect(dot.className).toContain(colorClass);
-    expect(screen.getByTestId("operator-omnibox")).toContainElement(dot);
+    expect(screen.getByTestId("quake-launcher")).toContainElement(dot);
   });
 
   it("the md–lg ghost carries the same dot and hands it to the morphed box", () => {
     stubNarrowDesktop();
     renderPair(new Map([["srv1", operatorSessions("active")]]));
 
-    const ghost = screen.getByTestId("operator-omnibox-ghost");
-    expect(ghost).toContainElement(screen.getByTestId("operator-omnibox-state"));
+    const ghost = screen.getByTestId("quake-launcher-ghost");
+    expect(ghost).toContainElement(screen.getByTestId("quake-launcher-state"));
     fireEvent.click(ghost);
-    expect(screen.getByTestId("operator-omnibox")).toContainElement(
-      screen.getByTestId("operator-omnibox-state"),
+    expect(screen.getByTestId("quake-launcher")).toContainElement(
+      screen.getByTestId("quake-launcher-state"),
     );
   });
 
@@ -182,30 +182,30 @@ describe("OperatorOmnibox", () => {
     stubWideDesktop();
     renderPair(new Map([["srv1", [{ name: "main", windows: [win({})] }]]]));
 
-    expect(screen.queryByTestId("operator-omnibox-state")).toBeNull();
+    expect(screen.queryByTestId("quake-launcher-state")).toBeNull();
   });
 
   it("renders no state dot without SessionContext", () => {
     stubWideDesktop();
-    render(<OperatorOmnibox routeServer="srv1" />);
+    render(<QuakeLauncher routeServer="srv1" />);
 
-    expect(screen.getByTestId("operator-omnibox")).toBeInTheDocument();
-    expect(screen.queryByTestId("operator-omnibox-state")).toBeNull();
+    expect(screen.getByTestId("quake-launcher")).toBeInTheDocument();
+    expect(screen.queryByTestId("quake-launcher-state")).toBeNull();
   });
 
   it("the ghost click morphs the box in place, focuses it, and opens the drawer", () => {
     stubNarrowDesktop();
     renderPair();
 
-    fireEvent.click(screen.getByTestId("operator-omnibox-ghost"));
-    expect(getConsoleMachineState()).toBe("open");
-    expect(screen.queryByTestId("operator-omnibox-ghost")).toBeNull();
-    const box = screen.getByTestId("operator-omnibox");
+    fireEvent.click(screen.getByTestId("quake-launcher-ghost"));
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.queryByTestId("quake-launcher-ghost")).toBeNull();
+    const box = screen.getByTestId("quake-launcher");
     expect(box.className).not.toContain("hidden");
     // Engaged height must match the rest-state height exactly — the box must
     // never resize on focus/blur.
     expect(box.className).toContain("h-[28px]");
-    expect(screen.getByTestId("operator-omnibox-input")).toHaveFocus();
+    expect(screen.getByTestId("quake-launcher-input")).toHaveFocus();
   });
 
   it("the chord engages from rest — box focused with any draft selected, drawer open", () => {
@@ -213,10 +213,10 @@ describe("OperatorOmnibox", () => {
     renderPair();
     act(() => setOperatorComposeText("half-written draft"));
 
-    act(() => requestOperatorConsole({ action: "toggle" }));
-    expect(getConsoleMachineState()).toBe("open");
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
-    const input = screen.getByTestId("operator-omnibox-input") as HTMLInputElement;
+    act(() => requestQuakeTerminal({ action: "toggle" }));
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
+    const input = screen.getByTestId("quake-launcher-input") as HTMLInputElement;
     expect(input).toHaveFocus();
     expect(input).toHaveValue("half-written draft");
     expect(input.selectionStart).toBe(0);
@@ -227,14 +227,14 @@ describe("OperatorOmnibox", () => {
     stubWideDesktop();
     renderPair();
 
-    const input = screen.getByTestId("operator-omnibox-input");
+    const input = screen.getByTestId("quake-launcher-input");
     fireEvent.change(input, { target: { value: "restart the worker" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
     await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
     expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "restart the worker", "submit", "agent");
-    expect(getConsoleMachineState()).toBe("open");
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
     expect(input).toHaveFocus();
     await waitFor(() => expect(input).toHaveValue(""));
   });
@@ -243,10 +243,10 @@ describe("OperatorOmnibox", () => {
     stubWideDesktop();
     renderPair();
 
-    const input = screen.getByTestId("operator-omnibox-input");
+    const input = screen.getByTestId("quake-launcher-input");
     fireEvent.keyDown(input, { key: "Enter" });
     expect(mockSend).not.toHaveBeenCalled();
-    expect(getConsoleMachineState()).toBe("rest");
+    expect(getQuakeMachineState()).toBe("rest");
   });
 
   it("Esc releases to rest: the box blurs and prior focus is restored", () => {
@@ -256,11 +256,11 @@ describe("OperatorOmnibox", () => {
     prior.focus();
     renderPair();
 
-    act(() => requestOperatorConsole({ action: "toggle" }));
-    expect(screen.getByTestId("operator-omnibox-input")).toHaveFocus();
+    act(() => requestQuakeTerminal({ action: "toggle" }));
+    expect(screen.getByTestId("quake-launcher-input")).toHaveFocus();
 
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(getConsoleMachineState()).toBe("rest");
+    expect(getQuakeMachineState()).toBe("rest");
     expect(prior).toHaveFocus();
     prior.remove();
   });
@@ -269,20 +269,20 @@ describe("OperatorOmnibox", () => {
     stubNarrowDesktop();
     const { unmount } = renderPair();
 
-    fireEvent.click(screen.getByTestId("operator-omnibox-ghost"));
-    const input = screen.getByTestId("operator-omnibox-input");
+    fireEvent.click(screen.getByTestId("quake-launcher-ghost"));
+    const input = screen.getByTestId("quake-launcher-input");
     fireEvent.blur(input);
-    expect(getConsoleMachineState()).toBe("open");
+    expect(getQuakeMachineState()).toBe("open");
     unmount();
 
-    setConsoleMachineState("rest");
+    setQuakeMachineState("rest");
     stubWideDesktop();
     renderPair();
-    const wideInput = screen.getByTestId("operator-omnibox-input");
+    const wideInput = screen.getByTestId("quake-launcher-input");
     fireEvent.focus(wideInput);
-    expect(getConsoleMachineState()).toBe("open");
+    expect(getQuakeMachineState()).toBe("open");
     fireEvent.blur(wideInput);
-    expect(getConsoleMachineState()).toBe("open");
+    expect(getQuakeMachineState()).toBe("open");
   });
 
   // The focus-ownership cases below move focus for REAL (`el.focus()`), unlike
@@ -299,12 +299,12 @@ describe("OperatorOmnibox", () => {
 
     // Real click-entry: focus lands on the input BEFORE onFocus engages the
     // machine, which is what used to poison the restore origin with the box.
-    const input = screen.getByTestId("operator-omnibox-input") as HTMLInputElement;
+    const input = screen.getByTestId("quake-launcher-input") as HTMLInputElement;
     act(() => input.focus());
-    expect(getConsoleMachineState()).toBe("open");
+    expect(getQuakeMachineState()).toBe("open");
 
     act(() => outside.focus());
-    expect(getConsoleMachineState()).toBe("open");
+    expect(getQuakeMachineState()).toBe("open");
     expect(outside).toHaveFocus();
     expect(input).not.toHaveFocus();
     outside.remove();
@@ -314,12 +314,12 @@ describe("OperatorOmnibox", () => {
     stubWideDesktop();
     renderPair();
 
-    const input = screen.getByTestId("operator-omnibox-input") as HTMLInputElement;
+    const input = screen.getByTestId("quake-launcher-input") as HTMLInputElement;
     act(() => input.focus());
-    expect(getConsoleMachineState()).toBe("open");
+    expect(getQuakeMachineState()).toBe("open");
 
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(getConsoleMachineState()).toBe("rest");
+    expect(getQuakeMachineState()).toBe("rest");
     expect(input).not.toHaveFocus();
   });
 
@@ -329,22 +329,22 @@ describe("OperatorOmnibox", () => {
     document.body.appendChild(outside);
     renderPair();
 
-    act(() => requestOperatorConsole({ action: "open" }));
-    expect(getConsoleMachineState()).toBe("open");
-    expect(screen.getByTestId("operator-omnibox").className).toContain("w-[34ch]");
+    act(() => requestQuakeTerminal({ action: "open" }));
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-launcher").className).toContain("w-[34ch]");
     // The placeholder gate is width-only: engaging below 2xl keeps the short
     // form (the mounted chip leaves the input ~12ch — the long form would clip).
-    expect(screen.getByTestId("operator-omnibox-input")).toHaveAttribute("placeholder", "Ask…");
+    expect(screen.getByTestId("quake-launcher-input")).toHaveAttribute("placeholder", "Ask…");
 
     act(() => outside.focus());
     // The peek outlives the box's focus: the machine and the drawer are
     // untouched, only the chrome stands down.
-    expect(getConsoleMachineState()).toBe("open");
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
-    const box = screen.getByTestId("operator-omnibox");
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
+    const box = screen.getByTestId("quake-launcher");
     expect(box.className).toContain("w-[12ch]");
     expect(box.className).toContain("border-border");
-    expect(screen.queryByTestId("operator-console-context")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal-context")).toBeNull();
     outside.remove();
   });
 
@@ -352,7 +352,7 @@ describe("OperatorOmnibox", () => {
     stubWideDesktop();
     renderPair();
 
-    const input = screen.getByTestId("operator-omnibox-input");
+    const input = screen.getByTestId("quake-launcher-input");
     const file = new File(["png"], "shot.png", { type: "image/png" });
     fireEvent.paste(input, { clipboardData: { files: [file] } });
 
@@ -365,17 +365,17 @@ describe("OperatorOmnibox", () => {
     expect(input).toHaveValue("");
   });
 
-  it("the wrapper carries the console-root attribute (the strip-forward guard skips it)", () => {
+  it("the wrapper carries the quake-terminal-root attribute (the strip-forward guard skips it)", () => {
     stubWideDesktop();
     renderPair();
-    expect(screen.getByTestId("operator-omnibox")).toHaveAttribute("data-operator-console");
+    expect(screen.getByTestId("quake-launcher")).toHaveAttribute("data-quake-terminal");
   });
 });
 
-describe("OperatorOmnibox (templated chat lane)", () => {
+describe("QuakeLauncher (templated chat lane)", () => {
   beforeEach(() => {
     stubMatchMedia((query) => query === "(min-width: 1024px)");
-    setConsoleMachineState("rest");
+    setQuakeMachineState("rest");
     setOperatorComposeText("");
     setOperatorChatSubject(null);
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
@@ -393,7 +393,7 @@ describe("OperatorOmnibox (templated chat lane)", () => {
   it("the chip's ✕ still lands — a within-box focus move never stands the chrome down", () => {
     renderPair();
 
-    const input = screen.getByTestId("operator-omnibox-input") as HTMLInputElement;
+    const input = screen.getByTestId("quake-launcher-input") as HTMLInputElement;
     act(() => input.focus());
     const dismiss = screen.getByRole("button", { name: "Detach window context" });
 
@@ -401,21 +401,21 @@ describe("OperatorOmnibox (templated chat lane)", () => {
     // click lands. If that blur stood the chrome down, the chip would unmount
     // in between and the click would never reach it.
     act(() => dismiss.focus());
-    expect(screen.getByTestId("operator-console-context")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal-context")).toBeInTheDocument();
     fireEvent.click(dismiss);
-    expect(screen.queryByTestId("operator-console-context")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal-context")).toBeNull();
   });
 
   it("the chip's dismiss button fits the box's fixed height — no fine-pointer floor in the compact mount", () => {
     renderPair();
 
-    const input = screen.getByTestId("operator-omnibox-input");
+    const input = screen.getByTestId("quake-launcher-input");
     fireEvent.focus(input);
-    const box = screen.getByTestId("operator-omnibox");
+    const box = screen.getByTestId("quake-launcher");
     expect(box.className).toContain("h-[28px]");
 
     const dismiss = screen.getByRole("button", { name: "Detach window context" });
-    // The compact (omnibox) mount drops the 24px fine-pointer floor so the
+    // The compact (quake launcher) mount drops the 24px fine-pointer floor so the
     // chip fits inside the box's fixed height without overflow; the coarse
     // (touch) floor is untouched.
     expect(dismiss.className).not.toContain("min-h-[24px]");
@@ -427,9 +427,9 @@ describe("OperatorOmnibox (templated chat lane)", () => {
   it("on a terminal route the engaged box shows the chip and Enter rides the templated lane", async () => {
     renderPair();
 
-    const input = screen.getByTestId("operator-omnibox-input");
+    const input = screen.getByTestId("quake-launcher-input");
     fireEvent.focus(input);
-    expect(screen.getByTestId("operator-console-context")).toHaveTextContent('from: @1 "win"');
+    expect(screen.getByTestId("quake-terminal-context")).toHaveTextContent('from: @1 "win"');
 
     fireEvent.change(input, { target: { value: "can you check the failing test?" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -442,10 +442,10 @@ describe("OperatorOmnibox (templated chat lane)", () => {
   it("dismissing the chip drops the envelope — the next send rides the direct lane", async () => {
     renderPair();
 
-    const input = screen.getByTestId("operator-omnibox-input");
+    const input = screen.getByTestId("quake-launcher-input");
     fireEvent.focus(input);
     fireEvent.click(screen.getByRole("button", { name: "Detach window context" }));
-    expect(screen.queryByTestId("operator-console-context")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal-context")).toBeNull();
 
     fireEvent.change(input, { target: { value: "plain message" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -455,23 +455,23 @@ describe("OperatorOmnibox (templated chat lane)", () => {
     expect(mockOperatorRequest).not.toHaveBeenCalled();
   });
 
-  it("the chip resets to attached when the console re-engages", async () => {
+  it("the chip resets to attached when the quake terminal re-engages", async () => {
     renderPair();
 
-    const input = screen.getByTestId("operator-omnibox-input");
+    const input = screen.getByTestId("quake-launcher-input");
     fireEvent.focus(input);
     fireEvent.click(screen.getByRole("button", { name: "Detach window context" }));
-    expect(screen.queryByTestId("operator-console-context")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal-context")).toBeNull();
 
-    // Esc releases to rest (the console's document listener); the engagement
+    // Esc releases to rest (the quake terminal's document listener); the engagement
     // ends only once the exit slide finishes (the drawer unmounts — mid-slide
-    // the console still counts as engaged). The next chord re-engages the
+    // the quake terminal still counts as engaged). The next chord re-engages the
     // machine and re-attaches the chip.
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(getConsoleMachineState()).toBe("rest");
-    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
-    act(() => requestOperatorConsole({ action: "toggle" }));
-    expect(getConsoleMachineState()).toBe("open");
-    expect(screen.getByTestId("operator-console-context")).toBeInTheDocument();
+    expect(getQuakeMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
+    act(() => requestQuakeTerminal({ action: "toggle" }));
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal-context")).toBeInTheDocument();
   });
 });

@@ -66,7 +66,7 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
    * Proves: marking a window as the operator via the options POST moves its
    * row out of its session group to a pinned slot above all session groups
    * with a headset identity glyph, and activating it navigates to the
-   * operator's ordinary terminal route without opening the console overlay.
+   * operator's ordinary terminal route without opening the quake terminal overlay.
    * Clearing the role demotes the window to its cwd-basename session, where
    * the row loses its operator glyph but keeps the same click-to-navigate
    * behavior.
@@ -82,7 +82,7 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
    *    once in the sidebar, its bounding box sits ABOVE the session group's
    *    box, is draggable="false", and carries the headset glyph.
    * 6. Click the pinned row and assert navigation to the operator window's
-   *    terminal route with no console overlay.
+   *    terminal route with no quake terminal overlay.
    * 7. POST @rk_win_role: null (the partial-merge unset); assert 200.
    * 8. Assert the row reappears inside the DESTINATION session group (the
    *    temp dir's basename), is absent from the original test session's
@@ -91,7 +91,7 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
    * 9. Navigate away to the bare server route and assert the operator tab
    *    heading is absent.
    * 10. Click the demoted row and assert fresh navigation to the same terminal
-   *     route with no console overlay.
+   *     route with no quake terminal overlay.
    */
   test("marking a window operator pins its row above the session groups and removes it from its own group; unmarking restores", async ({
     page,
@@ -137,7 +137,7 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
     await row.click();
     // Pinned activation is ordinary navigation to the operator terminal.
     await expect(page.getByRole("button", { name: `Rename tab ${opName}` })).toBeVisible();
-    await expect(page.getByTestId("operator-console")).toHaveCount(0);
+    await expect(page.getByTestId("quake-terminal")).toHaveCount(0);
 
     // Unmark (null per the partial-merge contract): demotion moves the window
     // out of `_rk-operator` into the session named after its pane cwd's
@@ -169,6 +169,6 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
     // and this assertion now observes a fresh route transition.
     await row.click();
     await expect(page.getByRole("button", { name: `Rename tab ${opName}` })).toBeVisible();
-    await expect(page.getByTestId("operator-console")).toHaveCount(0);
+    await expect(page.getByTestId("quake-terminal")).toHaveCount(0);
   });
 });

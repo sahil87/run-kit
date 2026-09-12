@@ -15,7 +15,7 @@ import type { ProjectSession } from "@/types";
  *
  * Thin wrapper: the row collection and stale/tick/operator derivations live in
  * `./model.ts` (`collectWatchedRows`/`watchlistStatus`) and the table itself is
- * the shared `WatchedTable` (also mounted by the operator console's Operator
+ * the shared `WatchedTable` (also mounted by the quake terminal's Operator
  * Tasks segment — one rendering so the two surfaces cannot drift).
  *
  * The zone holds no clock: every relative age is computed at render from the

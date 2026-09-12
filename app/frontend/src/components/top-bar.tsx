@@ -23,7 +23,7 @@ import {
   HelpMenuRow,
   HelpTopicsMenuRow,
   KeyboardMenuRow,
-  OperatorConsoleMenuRow,
+  QuakeTerminalMenuRow,
   type OverflowMenuRow,
   type MenuGroup,
 } from "@/components/top-bar-overflow-menu";
@@ -45,8 +45,8 @@ import {
   TerminalFontGlyph,
 } from "@/components/top-bar-icons";
 import { LayoutChip, LayoutMenuRows } from "@/components/layout-chip";
-import { OperatorOmnibox } from "@/components/operator-omnibox";
-import { useConsoleMachineState } from "@/lib/operator-console";
+import { QuakeLauncher } from "@/components/quake-launcher";
+import { useQuakeMachineState } from "@/lib/quake-terminal";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { computeVisibleCount } from "@/lib/top-bar-overflow";
 import { deriveCrumbsCollapsed } from "@/lib/crumb-collapse";
@@ -531,12 +531,12 @@ export function TopBar({
   const { showChip, key: updateKey } = useUpdateNotification();
   const isMobile = useIsMobile();
   // The ⌘J machine, read for the md–lg morph rung: while the machine is
-  // engaged (omnibox focused or drawer open) below lg, the center heading
-  // yields its cell to the morphed omnibox (hidden via CSS, never unmounted —
+  // engaged (quake launcher focused or drawer open) below lg, the center heading
+  // yields its cell to the morphed quake launcher (hidden via CSS, never unmounted —
   // an in-progress rename edit survives the morph). ≥ lg keeps the compact
-  // heading beside the standing box; mobile renders no omnibox at all.
-  const consoleMachine = useConsoleMachineState();
-  const omniboxMorphed = !isMobile && consoleMachine !== "rest";
+  // heading beside the standing box; mobile renders no quake launcher at all.
+  const quakeMachine = useQuakeMachineState();
+  const launcherMorphed = !isMobile && quakeMachine !== "rest";
 
   // Brand-crumb logo hover: the white glow "detach, orbit, land" sweep over
   // the ring segments (JS-driven, logo-spinner.tsx). Triggered from the whole
@@ -947,16 +947,16 @@ export function TopBar({
       barRender: () => null,
       menuRender: () => <KeyboardMenuRow />,
     },
-    // Operator console — the mobile path to the pull-down operator overlay
+    // Quake terminal — the mobile path to the pull-down operator overlay
     // (a phone has no keyboard for the chord; the palette carries desktop).
     // MENU-ONLY on every mode, in the App section with Help/Keyboard.
     {
-      id: "operator-console",
+      id: "quake-terminal",
       modes: ["terminal", "board", "server", "host"],
       menuOnly: true,
       menuGroup: "app",
       barRender: () => null,
-      menuRender: () => <OperatorConsoleMenuRow />,
+      menuRender: () => <QuakeTerminalMenuRow />,
     },
   ];
 
@@ -1336,7 +1336,7 @@ export function TopBar({
             LEFT-ALIGNS beside the hamburger — its column is content-sized and
             the leftover width goes to the button-heavy right cluster (see the
             grid comment above). At ≥ lg the heading compacts (the prefix span
-            hides) and the standing operator omnibox sits beside it; at md–lg
+            hides) and the standing quake launcher sits beside it; at md–lg
             the engaged ⌘J machine morphs the box in place of the heading. */}
         {/* No flex `gap` here: the single separator between the page-type prefix
             and the instance name is the boot sweep's own `sp` space cell (the
@@ -1363,7 +1363,7 @@ export function TopBar({
           <TipGroup>
           <div
             className={`${
-              omniboxMorphed ? "hidden lg:flex" : "flex"
+              launcherMorphed ? "hidden lg:flex" : "flex"
             } items-center justify-start min-w-0 sm:min-w-[28ch]`}
           >
             {/* The history ◀ ▶ arrows moved to the LEFT cluster (260731-oiho) —
@@ -1447,12 +1447,12 @@ export function TopBar({
             )}
           </div>
           </TipGroup>
-          {/* The operator omnibox — the console's compose relocated into the
+          {/* The quake launcher — the quake terminal's compose relocated into the
               center cell on desktop (standing at ≥ lg beside the compact
               heading, ghost + in-place morph at md–lg). Renders on every mode;
               self-gates to null on mobile. The route server arrives as a prop
               so this center-cell component does not pull router hooks. */}
-          <OperatorOmnibox routeServer={server || null} />
+          <QuakeLauncher routeServer={server || null} />
         </div>
 
         {/* Right cluster — registry-driven overflow (260715-h1ck). The ordered
@@ -1799,7 +1799,7 @@ function HeadingPrefix({
   // owns the separation — do not swap it for a margin/gap on the name).
   // The wide-desktop rung (≥ lg) renders the compact heading — the page-type
   // prefix span hides there too, extending the below-`sm` hiding, so the
-  // standing omnibox fits beside `{name} ▾` (rename and ▾ untouched).
+  // standing quake launcher fits beside `{name} ▾` (rename and ▾ untouched).
   return (
     <span className="hidden sm:inline lg:hidden text-sm text-text-secondary whitespace-pre shrink-0 -mr-1">
       <SweepCells cells={cells} scrambling={scrambling} />

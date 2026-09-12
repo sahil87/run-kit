@@ -11,7 +11,7 @@ import type { OperatorTrackedItem, WindowInfo } from "@/types";
  * rows, mounted by the Server page's WATCHED zone
  * (components/server-watched-zone/watched-zone.tsx, which adapts the
  * `collectWatchedRows` derivation into worker rows via ./model.ts's
- * `watchlistStatus`) and by the operator console's Operator Tasks segment
+ * `watchlistStatus`) and by the quake terminal's Operator Tasks segment
  * (components/watched-tasks.tsx, over `collectTrackedRows`). Six columns —
  * status, session, change, awaiting, note, repo — rendered per row species:
  * a `worker` row is a tracked item on a live window (`StatusDot` + the
@@ -25,7 +25,7 @@ import type { OperatorTrackedItem, WindowInfo } from "@/types";
  * The table holds no clock: every relative age is computed at render from the
  * already-passed sessions, refreshed by the SSE cadence. A stale watchlist
  * (the server's `operatorStale` verdict) dims the whole table. `dense` is the
- * console variant: tighter cell/header padding, all six columns kept.
+ * quake terminal variant: tighter cell/header padding, all six columns kept.
  */
 export function WatchedTable({
   rows,
@@ -38,7 +38,7 @@ export function WatchedTable({
   stale: boolean;
   nowSeconds: number;
   onNavigate: (windowId: string) => void;
-  /** Console variant: tighter cell/header padding only — no column drop. */
+  /** Quake terminal variant: tighter cell/header padding only — no column drop. */
   dense?: boolean;
 }) {
   const headPad = dense ? "pr-2" : "pr-3";

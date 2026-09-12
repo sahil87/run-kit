@@ -6,7 +6,7 @@ import {
 } from "@/contexts/session-context";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { TerminalClient } from "@/components/terminal-client";
-import { ConsoleSegments, type ConsoleSegment } from "@/components/terminal-activity-tabs";
+import { QuakeSegments, type QuakeSegment } from "@/components/terminal-activity-tabs";
 import { CronList } from "@/components/cron-list";
 import { CronLog } from "@/components/cron-log";
 import { CronStaleBanner } from "@/components/cron-stale-banner";
@@ -20,34 +20,34 @@ import { useOptionalToast } from "@/components/toast";
 import { setComposeText } from "@/lib/compose-draft-store";
 import { entryKey } from "@/store/window-store";
 import {
-  OPERATOR_CONSOLE_EVENT,
+  QUAKE_TERMINAL_EVENT,
   attachOperatorFiles,
-  clampConsoleGeometry,
-  clearPendingConsoleRequest,
-  cycleConsoleMachine,
-  drainPendingConsoleRequest,
+  clampQuakeGeometry,
+  clearPendingQuakeRequest,
+  cycleQuakeMachine,
+  drainPendingQuakeRequest,
   findOperatorWindow,
-  getConsoleMachineActivity,
-  isOperatorConsoleRequest,
-  isOperatorConsoleTarget,
-  requestOperatorConsole,
-  resolveConsoleServer,
+  getQuakeMachineActivity,
+  isQuakeTerminalRequest,
+  isQuakeTerminalTarget,
+  requestQuakeTerminal,
+  resolveQuakeServer,
   resolveFromOrigin,
   sendOperatorMessage,
   resetOperatorChatChip,
-  setConsoleMachineState,
+  setQuakeMachineState,
   setOperatorChatSubject,
-  useConsoleGeometry,
-  useConsoleMachineState,
-  useConsoleOpacity,
+  useQuakeGeometry,
+  useQuakeMachineState,
+  useQuakeOpacity,
   useOperatorCompose,
-  useOperatorConsoleContext,
-  type ConsoleGeometry,
-  type OperatorConsoleRequest,
-} from "@/lib/operator-console";
+  useQuakeTerminalContext,
+  type QuakeGeometry,
+  type QuakeTerminalRequest,
+} from "@/lib/quake-terminal";
 
-/** Slide duration — must match the `.rk-console-slide` transition in globals.css. */
-const CONSOLE_SLIDE_MS = 240;
+/** Slide duration — must match the `.rk-quake-slide` transition in globals.css. */
+const QUAKE_SLIDE_MS = 240;
 
 /** The operator-less hint is a toast; repeat activations within one toast
  *  lifetime must not stack duplicates (the toast itself times out at 4s). */
@@ -60,20 +60,23 @@ const NO_OPERATOR_HINT = "no operator on this server — run rk operator";
 const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to open";
 
 /**
- * The operator chat console — a global pull-down drawer overlay on desktop,
- * available on every route. Mounted ONCE at the persistent root layout
+ * The quake terminal — the operator-chat surface: a global pull-down drawer
+ * overlay on desktop, available on every route. Mounted ONCE at the
+ * persistent root layout
  * (app.tsx, beside the single CommandPalette mount); every entry point — the
  * registry chord, the palette action, the palette's Ask-operator fallback row,
  * the mobile tongue, and the overflow-menu row — reaches it through the
- * OPERATOR_CONSOLE_EVENT
- * document seam (lib/operator-console.ts).
+ * QUAKE_TERMINAL_EVENT
+ * document seam (lib/quake-terminal.ts).
  *
  * The seam forks on form factor. Desktop runs the ⌘J two-state machine
- * (lib/operator-console.ts): rest ⇄ open (drawer down, omnibox focused —
+ * (lib/quake-terminal.ts): rest ⇄ open (drawer down, quake launcher focused —
  * focus and the expanded drawer are linked, so one chord engages both and the
- * next releases both). Enter in the omnibox sends; Esc releases to rest; the
+ * next releases both). Enter in the quake launcher sends; Esc releases to
+ * rest; the
  * palette action lands on the open+focused state; a click outside the
- * console's own DOM (the drawer or the omnibox) collapses to rest, same as the
+ * quake terminal's own DOM (the drawer or the quake launcher) collapses to
+ * rest, same as the
  * header button. The machine is the controlling state — the drawer's internal
  * open flag follows it through the slide machinery.
  *
@@ -96,27 +99,28 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * tick-age stamp, a server picker on param-less multi-server routes, a
  * collapse affordance), an Operator Terminal | Operator Tasks | Cron List |
  * Cron Log segment header (the shared
- * `ConsoleSegments` strip from terminal-activity-tabs.tsx, driven by
- * console-local ephemeral state), and the body: on Operator Terminal an
- * embedded LIVE
+ * `QuakeSegments` strip from terminal-activity-tabs.tsx, driven by
+ * the quake terminal's local ephemeral state), and the body: on Operator
+ * Terminal an embedded LIVE
  * terminal view of the operator window (a plain TerminalClient over the
  * shared /ws/terminals relay mux — the same mechanism a board pane uses,
  * registerFocus off so the BottomBar keeps its target, `transparent` on so
  * the glass background shows through the cells); on Operator Tasks the
  * `WatchedTasks` watchlist (the shared
  * `WatchedTable`, dense variant — a row click navigates through the router to
- * the window's terminal and collapses the drawer explicitly: the in-console
- * click bypasses the outside-click collapse, which stands down for
- * console-DOM clicks); on Cron List / Cron Log the
+ * the window's terminal and collapses the drawer explicitly: a click inside
+ * the quake terminal bypasses the outside-click collapse, which stands down
+ * for clicks inside the quake terminal's DOM); on Cron List / Cron Log the
  * `CronStaleBanner` (mounted once above either cron body) over the `CronList`
  * or `CronLog` (inline variant — the entry detail sheet renders
  * in-container). On every non-terminal segment the TerminalClient is
  * UNMOUNTED, so the drawer holds at
  * most one relay stream. The one-input rule: the
- * compose IS the top-bar omnibox (components/operator-omnibox.tsx); the
+ * compose IS the top-bar quake launcher (components/quake-launcher.tsx); the
  * drawer is output-only, carrying the inline status/error line at its top
- * edge, directly under the box. The omnibox drives the ONE shared compose
- * seam (lib/operator-console.ts) — same draft, same `sendToWindow(...,
+ * edge, directly under the box. The quake launcher drives the ONE shared
+ * compose
+ * seam (lib/quake-terminal.ts) — same draft, same `sendToWindow(...,
  * "submit", "agent")` delivery with chat-send busy semantics (allow + probe —
  * no client-side busy gate), same upload path. Structured send failures
  * surface inline (never toasts) and the composed text survives a failure for
@@ -128,8 +132,9 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * ride the templated chat lane (`sendOperatorRequest(server, subjectWindowId,
  * "user-message", text)` — a server-derived source envelope wraps the text,
  * the busy gate and queue are skipped server-side), otherwise the direct
- * lane. The console stamps the subject into the lib's chat-subject store; the
- * omnibox fork lives in `sendOperatorMessage` and the compose strip's
+ * lane. The quake terminal stamps the subject into the lib's chat-subject
+ * store; the
+ * quake launcher fork lives in `sendOperatorMessage` and the compose strip's
  * plain-submit fork keys on the same store, both read AT SEND TIME, so a
  * pendingSend delivered in the same commit as a chip reset sees the reset,
  * never a stale closure.
@@ -147,7 +152,8 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * (default 0.90, settings-dialog row) over a fixed 6px backdrop blur, disabled
  * entirely at α=1.
  *
- * File paste/drop inside the drawer (or the omnibox) uploads via the existing
+ * File paste/drop inside the drawer (or the quake launcher) uploads via the
+ * existing
  * `uploadFile` client scoped to the OPERATOR window's session and
  * insert-delivers each returned path to the operator pane (`"raw"` send mode
  * — staged into the TUI composer, never submitted; the user's own Enter
@@ -160,9 +166,9 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * ABSENT: a server with no operator window renders a single hint line and
  * opens no stream (mobile: a toast, and no navigation).
  */
-export function OperatorConsole() {
+export function QuakeTerminal() {
   const isMobile = useIsMobile();
-  const machine = useConsoleMachineState();
+  const machine = useQuakeMachineState();
   const compose = useOperatorCompose();
   const [open, setOpen] = useState(false);
   // True while the exit slide runs: the component stays mounted with the
@@ -174,10 +180,11 @@ export function OperatorConsole() {
   const [pinnedServer, setPinnedServer] = useState<string | null>(null);
   const [pickerServer, setPickerServer] = useState<string | null>(null);
   const [pendingSend, setPendingSend] = useState<string | null>(null);
-  // The drawer's body segment — console-local ephemeral state (no URL, tmux,
+  // The drawer's body segment — the quake terminal's local ephemeral state
+  // (no URL, tmux,
   // or localStorage write), defaulting to Operator Terminal and resetting on
   // close; a seam request carrying `segment` sets it on open.
-  const [segment, setSegment] = useState<ConsoleSegment>("terminal");
+  const [segment, setSegment] = useState<QuakeSegment>("terminal");
   const rootRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const navigate = useNavigate();
@@ -191,7 +198,8 @@ export function OperatorConsole() {
   // unique across the route tree).
   const routeServer = useCurrentServerFromRoute();
   // Route window — the same deepest-first walk over the window param: a
-  // terminal route yields the console's chat subject (or, on the operator
+  // terminal route yields the quake terminal's chat subject (or, on the
+  // operator
   // window's own route, the `?from=` origin does), every other route none.
   const matches = useMatches();
   let routeWindow: string | null = null;
@@ -214,10 +222,10 @@ export function OperatorConsole() {
   const serverNames = useMemo(() => servers.map((s) => s.name), [servers]);
   const showPicker = routeServer === null && serverNames.length > 1;
   const server =
-    pickerServer ?? pinnedServer ?? resolveConsoleServer(routeServer, serverNames, lastViewedRef.current);
+    pickerServer ?? pinnedServer ?? resolveQuakeServer(routeServer, serverNames, lastViewedRef.current);
 
   // A pinned/picked server is scoped to the route it was requested from — a
-  // navigation retargets the console to the new route's server.
+  // navigation retargets the quake terminal to the new route's server.
   useEffect(() => {
     setPinnedServer(null);
     setPickerServer(null);
@@ -257,7 +265,7 @@ export function OperatorConsole() {
       return;
     }
     setClosing(true);
-    closeTimerRef.current = setTimeout(finishClose, CONSOLE_SLIDE_MS + 120);
+    closeTimerRef.current = setTimeout(finishClose, QUAKE_SLIDE_MS + 120);
   }, [finishClose]);
   const requestCloseRef = useRef(requestClose);
   requestCloseRef.current = requestClose;
@@ -295,7 +303,7 @@ export function OperatorConsole() {
     else if (machine !== "open" && prev === "open") requestCloseRef.current();
   }, [machine, openDrawer]);
 
-  // Mobile arm: every console request — from any entry point, all three
+  // Mobile arm: every quake terminal request — from any entry point, all three
   // actions collapse into this — resolves the operator window and navigates
   // to its ordinary terminal route (there is no sheet to open). A navigation
   // from a terminal route on the same server carries the origin window as
@@ -310,10 +318,10 @@ export function OperatorConsole() {
   // auto-sending, and an operator-less server toasts the hint (throttled to
   // one per toast lifetime) without navigating. Held in a ref so the
   // once-registered seam listener below always reads current-render values.
-  const mobileRequestRef = useRef<(detail: OperatorConsoleRequest) => void>(() => {});
+  const mobileRequestRef = useRef<(detail: QuakeTerminalRequest) => void>(() => {});
   mobileRequestRef.current = (detail) => {
     const srv =
-      detail.server ?? resolveConsoleServer(routeServer, serverNames, lastViewedRef.current);
+      detail.server ?? resolveQuakeServer(routeServer, serverNames, lastViewedRef.current);
     const tgt = srv ? findOperatorWindow(sessionsByServer.get(srv) ?? []) : undefined;
     if (!srv || !tgt) {
       const now = Date.now();
@@ -360,16 +368,18 @@ export function OperatorConsole() {
   // Entry-point seam: chord dispatch, palette action, tongue, overflow-menu
   // row and the palette fallback row all
   // dispatch here. Mobile navigates (the arm above); desktop `toggle` steps
-  // the two-state machine, and `open` always opens with the omnibox focused.
+  // the two-state machine, and `open` always opens with the quake launcher
+  // focused.
   // While the resolved operator route is already current, every desktop
-  // action stops here with one throttled hint instead of changing any console
+  // action stops here with one throttled hint instead of changing any quake
+  // terminal
   // state — EXCEPT a request carrying a non-terminal segment: those views
   // exist only inside the drawer on desktop, so the drawer must open to show
   // them.
   useEffect(() => {
-    function handleRequest(detail: OperatorConsoleRequest) {
+    function handleRequest(detail: QuakeTerminalRequest) {
       // Handled — clear the seam's buffer so a later mount cannot replay it.
-      clearPendingConsoleRequest();
+      clearPendingQuakeRequest();
       if (isMobileRef.current) {
         mobileRequestRef.current(detail);
         return;
@@ -387,9 +397,9 @@ export function OperatorConsole() {
       }
       const state = machineRef.current;
       if (detail.action === "toggle") {
-        setConsoleMachineState(cycleConsoleMachine(state));
+        setQuakeMachineState(cycleQuakeMachine(state));
       } else {
-        setConsoleMachineState("open");
+        setQuakeMachineState("open");
       }
       if (detail.server) setPinnedServer(detail.server);
       if (detail.send !== undefined) setPendingSend(detail.send);
@@ -399,16 +409,16 @@ export function OperatorConsole() {
     }
     function onRequest(e: Event) {
       const detail = (e as CustomEvent<unknown>).detail;
-      if (!isOperatorConsoleRequest(detail)) return;
+      if (!isQuakeTerminalRequest(detail)) return;
       handleRequest(detail);
     }
-    document.addEventListener(OPERATOR_CONSOLE_EVENT, onRequest);
+    document.addEventListener(QUAKE_TERMINAL_EVENT, onRequest);
     // Mount drain: this module loads lazily behind Suspense, so a request
     // dispatched before the listener attached (a cold `?tab=log` deep
     // link) sits in the seam's buffer — replay it now.
-    const pending = drainPendingConsoleRequest();
+    const pending = drainPendingQuakeRequest();
     if (pending) handleRequest(pending);
-    return () => document.removeEventListener(OPERATOR_CONSOLE_EVENT, onRequest);
+    return () => document.removeEventListener(QUAKE_TERMINAL_EVENT, onRequest);
   }, []);
 
   // The gate owns the frames AND the effects: a desktop→mobile flip resets
@@ -416,7 +426,7 @@ export function OperatorConsole() {
   // timers, and its poses never survive onto mobile.
   useEffect(() => {
     if (!isMobile) return;
-    setConsoleMachineState("rest");
+    setQuakeMachineState("rest");
     finishClose();
   }, [isMobile, finishClose]);
 
@@ -437,8 +447,10 @@ export function OperatorConsole() {
 
   // Esc releases the machine (bubble phase, so an already-claimed Escape — a
   // nested modal's — wins via defaultPrevented): the drawer closes and the
-  // omnibox blur + focus restore is the omnibox's machine-follower effect.
-  // Owning the release here — rather than letting the omnibox input handle
+  // quake launcher blur + focus restore is the quake launcher's
+  // machine-follower effect.
+  // Owning the release here — rather than letting the quake launcher input
+  // handle
   // its own Esc — keeps one Esc from being handled twice. The stream closes
   // with the unmount; the conversation itself lives in the operator window
   // regardless.
@@ -451,24 +463,27 @@ export function OperatorConsole() {
       // A DOM check, not `defaultPrevented`: this listener was registered when
       // the drawer opened, so it runs before the nested layer's focus trap.
       if (rootRef.current?.querySelector('[role="dialog"]')) return;
-      if (machineRef.current !== "rest") setConsoleMachineState("rest");
+      if (machineRef.current !== "rest") setQuakeMachineState("rest");
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, machine]);
 
-  // Click outside: the drawer is a peek that survives omnibox blur (see
+  // Click outside: the drawer is a peek that survives quake launcher blur
+  // (see
   // above), so it never closes on its own — a click landing outside the
-  // console's own DOM (the drawer + the top-bar omnibox both carry
-  // OPERATOR_CONSOLE_ROOT_ATTR) collapses it, same destination as the header
+  // quake terminal's own DOM (the drawer + the top-bar quake launcher both
+  // carry
+  // QUAKE_TERMINAL_ROOT_ATTR) collapses it, same destination as the header
   // button. Two things a plain "collapse on any outside click" would get
   // wrong, both handled below by DEFERRING the decision rather than acting
   // inline:
-  //   (1) An entry-point trigger outside the console's DOM (a palette or menu
+  //   (1) An entry-point trigger outside the quake terminal's DOM (a palette
+  //       or menu
   //       opener's retarget) reads and
   //       re-writes the machine itself in response to the SAME click — the
   //       collapse must never race that write. Capturing
-  //       `getConsoleMachineActivity()` in the CAPTURE phase (before the
+  //       `getQuakeMachineActivity()` in the CAPTURE phase (before the
   //       trigger's own bubble-phase onClick runs) and re-checking it after a
   //       macrotask settle catches this: if the trigger's handler already
   //       changed activity — even a same-VALUE re-open while already `open`,
@@ -476,13 +491,15 @@ export function OperatorConsole() {
   //       increments activity — this handler backs off and leaves whatever
   //       that handler decided standing.
   //   (2) A click that opens an unrelated modal (the settings dialog, the
-  //       command palette) is outside the console's DOM but must NOT
-  //       collapse it — the settings dialog in particular needs the console
+  //       command palette) is outside the quake terminal's DOM but must NOT
+  //       collapse it — the settings dialog in particular needs the quake
+  //       terminal
   //       to stay open so its opacity control can live-apply. The trigger
-  //       trigger itself may carry no console marker, so
+  //       trigger itself may carry no quake terminal marker, so
   //       this checks for ANY currently-open `role="dialog"` at settle time
   //       instead of the clicked target's ancestry — a modal owns the
-  //       interaction while open, so the console holding still behind it is
+  //       interaction while open, so the quake terminal holding still behind
+  //       it is
   //       the correct call regardless of where inside (or outside) the
   //       dialog the click landed.
   // A macrotask (not a microtask) is the settle mechanism: it runs after
@@ -492,17 +509,17 @@ export function OperatorConsole() {
   useEffect(() => {
     if (machine !== "open") return;
     function onClickCapture(e: MouseEvent) {
-      if (isOperatorConsoleTarget(e.target)) return;
-      const activityAtClick = getConsoleMachineActivity();
+      if (isQuakeTerminalTarget(e.target)) return;
+      const activityAtClick = getQuakeMachineActivity();
       setTimeout(() => {
-        if (getConsoleMachineActivity() !== activityAtClick) return;
+        if (getQuakeMachineActivity() !== activityAtClick) return;
         // The drawer itself carries role="dialog" — only an UNRELATED open
         // dialog (settings, palette) should hold the collapse back.
         const dialogs = document.querySelectorAll('[role="dialog"]');
         for (const d of dialogs) {
-          if (!isOperatorConsoleTarget(d)) return;
+          if (!isQuakeTerminalTarget(d)) return;
         }
-        setConsoleMachineState("rest");
+        setQuakeMachineState("rest");
       }, 0);
     }
     document.addEventListener("click", onClickCapture, true);
@@ -521,7 +538,8 @@ export function OperatorConsole() {
   // window (the mobile navigation's context carrier — the numeric segment
   // form is accepted like the path parse, and an unknown, cross-server, or
   // self id attaches nothing: a subject must never be the send's own target).
-  // Either way it attaches only when the console's resolved server IS the
+  // Either way it attaches only when the quake terminal's resolved server IS
+  // the
   // route's server (a pinned/picked cross-server retarget must not attach a
   // foreign window id — window ids are server-scoped). Stamped into the lib's
   // chat-subject store — both compose surfaces render the chip from it, and
@@ -553,7 +571,8 @@ export function OperatorConsole() {
     );
   }, [server, subjectWindowId, subjectName]);
 
-  // Chip dismissal is scoped to one engagement: re-engaging the console — the
+  // Chip dismissal is scoped to one engagement: re-engaging the quake
+  // terminal — the
   // machine leaving rest — re-attaches the context (Constitution IV ephemeral
   // state; subject changes reset inside the store itself, which is what
   // re-attaches the chip on mobile route arrivals).
@@ -563,11 +582,13 @@ export function OperatorConsole() {
     if (engaged && !prevEngagedRef.current) resetOperatorChatChip();
     prevEngagedRef.current = engaged;
   }, [engaged]);
-  // The palette fallback row's pre-filled query: sent once the console is open
+  // The palette fallback row's pre-filled query: sent once the quake terminal
+  // is open
   // AND the operator window resolves — the sessions slice can lag the open, so
   // the send waits for `target` instead of being dropped. A genuinely
   // operator-less server never resolves it (the hint line is the answer
-  // there), and closing the console abandons it: the send is scoped to the
+  // there), and closing the quake terminal abandons it: the send is scoped to
+  // the
   // open it arrived with.
   useEffect(() => {
     if (!open || pendingSend == null || !target) return;
@@ -579,21 +600,21 @@ export function OperatorConsole() {
   }, [open]);
 
   // ── Geometry (desktop drawer) + glass ─────────────────────────────────────
-  const [geometry, writeGeometry] = useConsoleGeometry();
-  const [opacity] = useConsoleOpacity();
+  const [geometry, writeGeometry] = useQuakeGeometry();
+  const [opacity] = useQuakeOpacity();
   // Live drag state: the override drives the drawer's box while a grip is held
   // (transition suspended via the dragging class); the store write lands on
   // pointer-up.
-  const [dragOverride, setDragOverride] = useState<ConsoleGeometry | null>(null);
+  const [dragOverride, setDragOverride] = useState<QuakeGeometry | null>(null);
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{
     kind: "height" | "left" | "right";
     startX: number;
     startY: number;
-    start: ConsoleGeometry;
+    start: QuakeGeometry;
   } | null>(null);
 
-  const effectiveGeometry = clampConsoleGeometry(dragOverride ?? geometry);
+  const effectiveGeometry = clampQuakeGeometry(dragOverride ?? geometry);
 
   const onGripPointerDown = useCallback(
     (kind: "height" | "left" | "right") => (e: React.PointerEvent<HTMLDivElement>) => {
@@ -625,7 +646,7 @@ export function OperatorConsole() {
             // the left grip) and the drawer stays centered.
             widthPx: drag.start.widthPx + 2 * (e.clientX - drag.startX) * (drag.kind === "left" ? -1 : 1),
           };
-    setDragOverride(clampConsoleGeometry(next));
+    setDragOverride(clampQuakeGeometry(next));
   }, []);
   const onGripPointerUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -685,9 +706,9 @@ export function OperatorConsole() {
     <div
       ref={rootRef}
       role="dialog"
-      aria-label="Operator console"
-      data-testid="operator-console"
-      data-operator-console=""
+      aria-label="Quake terminal"
+      data-testid="quake-terminal"
+      data-quake-terminal=""
       onTransitionEnd={(e) => {
         if (e.target === rootRef.current && e.propertyName === "transform" && closingRef.current) {
           finishClose();
@@ -715,9 +736,9 @@ export function OperatorConsole() {
         if (files.length === 0) return;
         void attachOperatorFiles(server, target, files);
       }}
-      className={`rk-console-slide pointer-events-auto absolute top-0 left-1/2 -translate-x-1/2 flex flex-col border border-t-0 border-border rounded-b-lg shadow-2xl${
-        entered && !closing ? "" : " rk-console-closed"
-      }${dragging ? " rk-console-dragging" : ""}`}
+      className={`rk-quake-slide pointer-events-auto absolute top-0 left-1/2 -translate-x-1/2 flex flex-col border border-t-0 border-border rounded-b-lg shadow-2xl${
+        entered && !closing ? "" : " rk-quake-closed"
+      }${dragging ? " rk-quake-dragging" : ""}`}
       style={{
         // maxWidth (not a min() width) so the 96vw ceiling keeps
         // tracking live viewport resizes.
@@ -746,7 +767,7 @@ export function OperatorConsole() {
           server && <span className="text-text-secondary">· {server}</span>
         )}
         {agentState && (
-          <span className="text-text-secondary" data-testid="operator-console-state">
+          <span className="text-text-secondary" data-testid="quake-terminal-state">
             {agentState}
             {agentIdle ? ` ${agentIdle}` : ""}
           </span>
@@ -757,7 +778,7 @@ export function OperatorConsole() {
             placement="bottom"
           >
             <span
-              data-testid="operator-console-tick"
+              data-testid="quake-terminal-tick"
               className={tickStale ? "text-signal-yellow" : "text-text-secondary"}
             >
               {tickStale ? "⚠ " : ""}· tick {tickAge} ago
@@ -766,8 +787,8 @@ export function OperatorConsole() {
         )}
         <button
           type="button"
-          aria-label="Collapse operator console"
-          onClick={() => setConsoleMachineState("rest")}
+          aria-label="Collapse quake terminal"
+          onClick={() => setQuakeMachineState("rest")}
           className="rk-glint ml-auto shrink-0 inline-flex items-center justify-center rounded px-1 text-text-secondary hover:text-text-primary transition-colors coarse:min-h-[36px] coarse:min-w-[36px]"
         >
           ▼
@@ -775,21 +796,23 @@ export function OperatorConsole() {
       </div>
       {/* The drawer's Operator Terminal | Operator Tasks | Cron List |
           Cron Log segment header — the shared presentational strip
-          (terminal-activity-tabs.tsx), driven here by console-local state
+          (terminal-activity-tabs.tsx), driven here by the quake terminal's
+          local state
           instead of the mobile route's `tab` param. */}
-      <ConsoleSegments value={segment} onChange={setSegment} />
+      <QuakeSegments value={segment} onChange={setSegment} />
       {/* The status line: the inline-error contract relocated to the
-          drawer's top edge, directly under the omnibox (the desktop compose
+          drawer's top edge, directly under the quake launcher (the desktop
+          compose
           lives in the top bar). Carries structured send/upload failures and
           the minimal in-flight indicator. */}
       {(compose.error || compose.sending || compose.uploading) && (
         <div className="flex items-center gap-2 border-b border-border px-3 py-1 text-xs shrink-0">
           {compose.error ? (
-            <span role="alert" data-testid="operator-console-error" className="text-signal-red">
+            <span role="alert" data-testid="quake-terminal-error" className="text-signal-red">
               {compose.error}
             </span>
           ) : (
-            <span data-testid="operator-console-uploading" className="text-text-secondary">
+            <span data-testid="quake-terminal-uploading" className="text-text-secondary">
               {compose.sending ? "sending…" : "uploading…"}
             </span>
           )}
@@ -801,7 +824,8 @@ export function OperatorConsole() {
           // while Operator Tasks shows. A row click navigates through the
           // router to the window's terminal route and collapses the drawer
           // explicitly — the outside-click collapse stands down for clicks
-          // inside the console's DOM, so the handler drives the machine to
+          // inside the quake terminal's DOM, so the handler drives the
+          // machine to
           // rest itself.
           <WatchedTasks
             server={server ?? ""}
@@ -815,7 +839,7 @@ export function OperatorConsole() {
                 // layout (the cross-server sidebar-select form).
                 search: {},
               });
-              setConsoleMachineState("rest");
+              setQuakeMachineState("rest");
             }}
             dense
           />
@@ -848,21 +872,21 @@ export function OperatorConsole() {
       ) : (
         <div
           className="flex-1 min-h-0 flex items-center justify-center px-4 text-xs text-text-secondary"
-          data-testid="operator-console-empty"
+          data-testid="quake-terminal-empty"
         >
           {NO_OPERATOR_HINT}
         </div>
       )}
       {/* Side grips — symmetric width resize about the center line. */}
       <div
-        data-testid="operator-console-grip-left"
+        data-testid="quake-terminal-grip-left"
         aria-hidden="true"
         onPointerDown={onGripPointerDown("left")}
         {...gripHandlers}
         className="absolute left-[-4px] top-0 h-full w-2 cursor-ew-resize touch-none"
       />
       <div
-        data-testid="operator-console-grip-right"
+        data-testid="quake-terminal-grip-right"
         aria-hidden="true"
         onPointerDown={onGripPointerDown("right")}
         {...gripHandlers}
@@ -870,9 +894,10 @@ export function OperatorConsole() {
       />
       {/* The tongue: a pull tab hanging from the drawer's bottom edge —
           the desktop height drag grip (on mobile the tongue is instead the
-          standing affordance, mounted beside this console in app.tsx). */}
+          standing affordance, mounted beside the quake terminal in
+          app.tsx). */}
       <div
-        data-testid="operator-console-grip-height"
+        data-testid="quake-terminal-grip-height"
         aria-hidden="true"
         onPointerDown={onGripPointerDown("height")}
         {...gripHandlers}
@@ -897,8 +922,9 @@ export function OperatorConsole() {
 /**
  * The mobile standing affordance for the operator — a centered pull tab
  * hanging under the top bar on every route (the desktop standing affordance
- * is the omnibox; there is no bottom-bar chip). Mounted once beside
- * the console in the root layout. The tongue is a TOGGLE: on every other
+ * is the quake launcher; there is no bottom-bar chip). Mounted once beside
+ * the quake terminal in the root layout. The tongue is a TOGGLE: on every
+ * other
  * route a tap dispatches through the document-event seam, which on mobile
  * navigates to the operator window's terminal route (amber dot when the
  * operator is waiting); on the operator window's OWN route it renders in a
@@ -910,9 +936,9 @@ export function OperatorConsole() {
  * navigating to a dead window. Hidden when no operator window resolves
  * (omitted, not disabled).
  */
-export function OperatorConsoleTongue() {
+export function QuakeTerminalTongue() {
   const isMobile = useIsMobile();
-  const { server, target } = useOperatorConsoleContext();
+  const { server, target } = useQuakeTerminalContext();
   const sessionsByServer = useContext(SessionContext)?.sessionsByServer;
   const routeServer = useCurrentServerFromRoute();
   const navigate = useNavigate();
@@ -955,7 +981,7 @@ export function OperatorConsoleTongue() {
     return (
       <button
         type="button"
-        data-testid="operator-console-tongue"
+        data-testid="quake-terminal-tongue"
         data-tongue-state="return"
         aria-label="Back to previous window"
         onClick={onReturn}
@@ -974,17 +1000,17 @@ export function OperatorConsoleTongue() {
   return (
     <button
       type="button"
-      data-testid="operator-console-tongue"
+      data-testid="quake-terminal-tongue"
       data-tongue-state="operator"
-      aria-label="Operator console"
-      onClick={() => requestOperatorConsole({ action: "toggle" })}
+      aria-label="Quake terminal"
+      onClick={() => requestQuakeTerminal({ action: "toggle" })}
       // The visual tab is 64×12; the button's own box is the ≥36px hit area.
       className="absolute top-0 left-1/2 z-30 flex h-9 w-16 -translate-x-1/2 items-start justify-center"
     >
       <span className="relative block h-3 w-16 rounded-b-md border border-t-0 border-border bg-bg-primary">
         {waiting && (
           <span
-            data-testid="operator-console-tongue-waiting"
+            data-testid="quake-terminal-tongue-waiting"
             className="absolute right-1 top-0.5 block h-1.5 w-1.5 rounded-full bg-signal-yellow"
           />
         )}

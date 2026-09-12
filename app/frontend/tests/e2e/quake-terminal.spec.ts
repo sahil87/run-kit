@@ -2,16 +2,16 @@ import { test, expect, type Page } from "@playwright/test";
 import { openPalette } from "./_ready";
 import { mockStateSocket } from "./_state-socket-mock";
 
-// Operator chat console — the pull-down overlay: the ⌘J two-state toggle
-// (rest ⇄ open — omnibox focus and drawer linked), the desktop omnibox in the
-// top-bar center cell (standing at ≥ lg beside the compact heading, ghost +
-// in-place morph at md–lg) as the console's relocated compose, the one-input
-// rule (the desktop drawer is output-only with the status/error line at its
-// top edge), the palette action + Ask-operator fallback row, operator-absent
-// degradation, and inline send-error surfacing. Quake-console v2 carries: the
-// true slide (mounted-through-exit), mouse resize with per-viewer geometry
-// persistence, the glass background + settings-dialog opacity row, the
-// omnibox ◉ live-state dot on both desktop rungs, and console/omnibox
+// Quake terminal — the pull-down operator chat overlay: the ⌘J two-state
+// toggle (rest ⇄ open — launcher focus and drawer linked), the desktop quake
+// launcher in the top-bar center cell (standing at ≥ lg beside the compact
+// heading, ghost + in-place morph at md–lg) as the drawer's relocated compose,
+// the one-input rule (the desktop drawer is output-only with the status/error
+// line at its top edge), the palette action + Ask-operator fallback row,
+// operator-absent degradation, and inline send-error surfacing. The drawer
+// carries: the true slide (mounted-through-exit), mouse resize with per-viewer
+// geometry persistence, the glass background + settings-dialog opacity row,
+// the launcher ◉ live-state dot on both desktop rungs, and drawer/launcher
 // image paste (upload to the operator window's session + insert-delivery)
 // with the route terminals' strip-forward guard. The drawer's
 // Operator Terminal | Operator Tasks | Cron List | Cron Log segment header
@@ -30,7 +30,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // segment lists — the @2 worker item (pane %2, windowId @2) and a pane-less
 // n3 note item with refs/text.
 // On MOBILE there is no
-// sheet: every console entry point navigates to the operator window's
+// sheet: every quake terminal entry point navigates to the operator window's
 // ordinary terminal route (the tongue is the standing affordance, an
 // operator-less server toasts the hint instead), the palette fallback's
 // query lands as the route's compose-strip draft unsent, and the origin
@@ -50,9 +50,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // delivery, so the drawer's Cron List / Cron Log segments each have a row.
 // The route mocks carry a trailing `*` — the client appends `?server=`
 // (withServer), so a bare glob would silently miss. `/ws/terminals`
-// is a no-op socket mock: the console's embedded terminal mounts its xterm
+// is a no-op socket mock: the quake terminal's embedded terminal mounts its xterm
 // frame without needing stream data. Each spec lands on the `@1` terminal
-// route (server "default") before driving the console, except the mobile
+// route (server "default") before driving the drawer, except the mobile
 // specs, which run at 375px and gate arrivals on the terminal's
 // `__rkTerminals` registration (not the desktop visible-text gate), the
 // no-subject chip spec (the tmux Server route), and the morph-rung spec,
@@ -271,10 +271,10 @@ async function gotoWindow(page: Page) {
   await expect(page.getByText("feature-work").first()).toBeVisible({ timeout: 10_000 });
 }
 
-const console_ = (page: Page) => page.getByTestId("operator-console");
-const omniboxInput = (page: Page) => page.getByTestId("operator-omnibox-input");
+const drawer = (page: Page) => page.getByTestId("quake-terminal");
+const launcherInput = (page: Page) => page.getByTestId("quake-launcher-input");
 
-/** The operator window's route (what every mobile console entry point
+/** The operator window's route (what every mobile quake terminal entry point
  *  navigates to) — `/default/9` with the origin window carried in `?from=`. */
 const OPERATOR_PATH = `/${SERVER}/9`;
 
@@ -309,30 +309,30 @@ async function gotoWindowMobile(page: Page, windowId = "@1") {
     .toBe(true);
 }
 
-/** Open the desktop drawer from rest: one chord press focuses the omnibox
+/** Open the desktop drawer from rest: one chord press focuses the launcher
  *  AND opens the drawer (the two-state toggle). */
 async function openDrawerViaChord(page: Page) {
   await page.keyboard.press("Shift+Control+j");
-  await expect(omniboxInput(page)).toBeFocused();
-  await expect(console_(page)).toBeVisible();
+  await expect(launcherInput(page)).toBeFocused();
+  await expect(drawer(page)).toBeVisible();
 }
 
-test.describe("Operator console", () => {
+test.describe("Quake terminal", () => {
   /**
-   * Proves: the console chord (⇧Ctrl+J on this host) is a two-state toggle
-   * with omnibox focus and the drawer linked — one press engages both (drawer
-   * open, a peek, nothing sent, omnibox focused), the next releases both —
+   * Proves: the quake terminal chord (⇧Ctrl+J on this host) is a two-state toggle
+   * with launcher focus and the drawer linked — one press engages both (drawer
+   * open, a peek, nothing sent, launcher focused), the next releases both —
    * and a single Escape does the same release, all without navigation.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the @1 terminal route.
-   * 2. Press Shift+Control+j; assert the omnibox is focused AND the drawer is
+   * 2. Press Shift+Control+j; assert the launcher is focused AND the drawer is
    *    visible with `◉ OPERATOR · default` in the title strip, an xterm frame
    *    inside, and NO compose strip (output-only drawer).
-   * 3. Press it again; assert the drawer is gone and the omnibox no longer
+   * 3. Press it again; assert the drawer is gone and the launcher no longer
    *    holds focus.
    * 4. Re-open, then press Escape once; assert the drawer closes and the
-   *    omnibox blurs, with the URL unchanged throughout.
+   *    launcher blurs, with the URL unchanged throughout.
    */
   test("the chord toggles rest ⇄ open+focused and one Esc releases", async ({
     page,
@@ -341,31 +341,31 @@ test.describe("Operator console", () => {
     await gotoWindow(page);
 
     await page.keyboard.press("Shift+Control+j");
-    await expect(omniboxInput(page)).toBeFocused();
-    await expect(console_(page)).toBeVisible();
-    await expect(console_(page).getByText("◉ OPERATOR")).toBeVisible();
-    await expect(console_(page).getByText("· default")).toBeVisible();
-    await expect(console_(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
+    await expect(launcherInput(page)).toBeFocused();
+    await expect(drawer(page)).toBeVisible();
+    await expect(drawer(page).getByText("◉ OPERATOR")).toBeVisible();
+    await expect(drawer(page).getByText("· default")).toBeVisible();
+    await expect(drawer(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
     // Output-only drawer: the compose textbox is gone (the xterm helper
     // textarea inside the embedded terminal is not a compose input).
-    await expect(console_(page).getByRole("textbox", { name: "Message the operator" })).toHaveCount(0);
-    await expect(console_(page).getByRole("button", { name: "Send" })).toHaveCount(0);
+    await expect(drawer(page).getByRole("textbox", { name: "Message the operator" })).toHaveCount(0);
+    await expect(drawer(page).getByRole("button", { name: "Send" })).toHaveCount(0);
 
     await page.keyboard.press("Shift+Control+j");
-    await expect(console_(page)).toHaveCount(0);
-    await expect(omniboxInput(page)).not.toBeFocused();
+    await expect(drawer(page)).toHaveCount(0);
+    await expect(launcherInput(page)).not.toBeFocused();
 
     await openDrawerViaChord(page);
     await page.keyboard.press("Escape");
-    await expect(console_(page)).toHaveCount(0);
-    await expect(omniboxInput(page)).not.toBeFocused();
+    await expect(drawer(page)).toHaveCount(0);
+    await expect(launcherInput(page)).not.toBeFocused();
     expect(page.url()).toContain(WINDOW_URL);
   });
 
   /**
    * Proves: at ≥ lg the center cell carries the compact heading (the `Tab:`
    * prefix span hidden, the name click-to-rename and ▾ switcher untouched)
-   * beside the STANDING omnibox, and Enter on a typed message fires exactly
+   * beside the STANDING launcher, and Enter on a typed message fires exactly
    * one send and auto-opens the drawer with focus retained — on this terminal
    * route the context chip is attached, so the send rides the templated chat
    * lane at the subject window (no direct send fires).
@@ -373,25 +373,25 @@ test.describe("Operator console", () => {
    * Steps:
    * 1. Mock the backend with an operator window and 200 stubs; land on the
    *    terminal route.
-   * 2. Assert the omnibox is visible, the `Tab:` prefix is hidden, and the
+   * 2. Assert the launcher is visible, the `Tab:` prefix is hidden, and the
    *    rename button + ▾ switcher still render.
-   * 3. Type a message into the omnibox and press Enter.
+   * 3. Type a message into the launcher and press Enter.
    * 4. Assert one recorded operator-request `{template: "user-message",
-   *    text}` at @1 and no direct send, the drawer open, and the omnibox
+   *    text}` at @1 and no direct send, the drawer open, and the launcher
    *    still focused with its draft cleared.
    */
-  test("≥ lg: the standing omnibox sends on Enter and auto-opens the drawer", async ({ page }) => {
+  test("≥ lg: the standing launcher sends on Enter and auto-opens the drawer", async ({ page }) => {
     const { sendBodies, requestCalls } = await mockBackend(page, true);
     await gotoWindow(page);
 
-    await expect(omniboxInput(page)).toBeVisible();
+    await expect(launcherInput(page)).toBeVisible();
     await expect(page.getByText("Tab:", { exact: true })).toBeHidden();
     await expect(page.getByRole("button", { name: "Rename tab feature-work" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Switch tab" })).toBeVisible();
 
-    await omniboxInput(page).click();
-    await omniboxInput(page).fill("restart the worker");
-    await omniboxInput(page).press("Enter");
+    await launcherInput(page).click();
+    await launcherInput(page).fill("restart the worker");
+    await launcherInput(page).press("Enter");
 
     await expect
       .poll(() => requestCalls.map((c) => ({ path: new URL(c.url).pathname, body: c.body })))
@@ -402,13 +402,13 @@ test.describe("Operator console", () => {
         },
       ]);
     expect(sendBodies).toEqual([]);
-    await expect(console_(page)).toBeVisible();
-    await expect(omniboxInput(page)).toBeFocused();
-    await expect(omniboxInput(page)).toHaveValue("");
+    await expect(drawer(page)).toBeVisible();
+    await expect(launcherInput(page)).toBeFocused();
+    await expect(launcherInput(page)).toHaveValue("");
   });
 
   /**
-   * Proves: the omnibox YIELDS focus to a terminal pane. Clicking into the
+   * Proves: the launcher YIELDS focus to a terminal pane. Clicking into the
    * ROUTE xterm after engaging the box (which also drops the drawer — focus
    * and drawer are linked) is an outside click: the drawer collapses, focus
    * lands on that terminal's helper textarea, and typed keys land there, not
@@ -420,34 +420,34 @@ test.describe("Operator console", () => {
    * Steps:
    * 1. Mock the backend with an operator window; land on the @1 terminal
    *    route and wait for the xterm frame.
-   * 2. Click the omnibox and type a partial draft; assert it holds focus, the
+   * 2. Click the launcher and type a partial draft; assert it holds focus, the
    *    drawer is open, and the box renders engaged (accent border).
-   * 3. Click the ROUTE terminal's xterm screen (outside the console's DOM —
+   * 3. Click the ROUTE terminal's xterm screen (outside the quake terminal's DOM —
    *    the drawer holds its own xterm, so the route one is addressed
    *    explicitly); assert the drawer collapses, `document.activeElement` is
-   *    `.xterm-helper-textarea`, and the omnibox is not focused.
-   * 4. Type; assert the omnibox draft is unchanged (the keys went to the
+   *    `.xterm-helper-textarea`, and the launcher is not focused.
+   * 4. Type; assert the launcher draft is unchanged (the keys went to the
    *    pane, not the box).
    * 5. Assert the box has stood down to its resting chrome (no accent border,
    *    no context chip).
    */
-  test("clicking into the terminal takes focus from the omnibox and keeps it", async ({ page }) => {
+  test("clicking into the terminal takes focus from the launcher and keeps it", async ({ page }) => {
     await mockBackend(page, true);
     await gotoWindow(page);
     await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
 
-    await omniboxInput(page).click();
-    await omniboxInput(page).fill("half-written");
-    await expect(omniboxInput(page)).toBeFocused();
-    await expect(console_(page)).toBeVisible();
-    await expect(page.getByTestId("operator-omnibox")).toHaveClass(/border-accent-green/);
+    await launcherInput(page).click();
+    await launcherInput(page).fill("half-written");
+    await expect(launcherInput(page)).toBeFocused();
+    await expect(drawer(page)).toBeVisible();
+    await expect(page.getByTestId("quake-launcher")).toHaveClass(/border-accent-green/);
 
-    const routeXterm = page.locator('.xterm-screen:not([data-testid="operator-console"] *)');
+    const routeXterm = page.locator('.xterm-screen:not([data-testid="quake-terminal"] *)');
     // The centered drawer overlays the route terminal's middle — click the
     // terminal's bottom-left corner, which the drawer never covers.
     const box = await routeXterm.boundingBox();
     await routeXterm.click({ position: { x: 10, y: (box?.height ?? 20) - 10 } });
-    await expect(console_(page)).toHaveCount(0);
+    await expect(drawer(page)).toHaveCount(0);
     await expect
       .poll(() =>
         page.evaluate(() =>
@@ -455,80 +455,80 @@ test.describe("Operator console", () => {
         ),
       )
       .toBe(true);
-    await expect(omniboxInput(page)).not.toBeFocused();
+    await expect(launcherInput(page)).not.toBeFocused();
 
     await page.keyboard.type("ls -la");
-    await expect(omniboxInput(page)).toHaveValue("half-written");
+    await expect(launcherInput(page)).toHaveValue("half-written");
 
-    await expect(page.getByTestId("operator-omnibox")).not.toHaveClass(/border-accent-green/);
-    await expect(page.getByTestId("operator-console-context")).toBeHidden();
+    await expect(page.getByTestId("quake-launcher")).not.toHaveClass(/border-accent-green/);
+    await expect(page.getByTestId("quake-terminal-context")).toBeHidden();
   });
 
   /**
    * Proves: the md–lg rung renders today's full heading (prefix included)
    * plus the dim `· ◉ ask` ghost; clicking the ghost morphs the center into
-   * the omnibox in place (heading hidden, box focused) and opens the drawer
+   * the launcher in place (heading hidden, box focused) and opens the drawer
    * (focus and drawer are linked), and one Escape restores the heading and
    * closes the drawer.
    *
    * Steps:
    * 1. Set a 900×720 viewport (between the mobile rule and lg); mock the
    *    backend with an operator window; land on the terminal route.
-   * 2. Assert the ghost and the `Tab:` prefix are visible and the omnibox is
+   * 2. Assert the ghost and the `Tab:` prefix are visible and the launcher is
    *    hidden.
-   * 3. Click the ghost; assert the omnibox is visible and focused, the drawer
+   * 3. Click the ghost; assert the launcher is visible and focused, the drawer
    *    is open, and the heading's rename button is hidden.
    * 4. Press Escape; assert the heading and ghost are back, the box is
    *    hidden, and the drawer is gone.
    */
-  test("md–lg: the ghost morphs the center into the omnibox and Esc restores the heading", async ({
+  test("md–lg: the ghost morphs the center into the launcher and Esc restores the heading", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 900, height: 720 });
     await mockBackend(page, true);
     await gotoWindow(page);
 
-    const ghost = page.getByTestId("operator-omnibox-ghost");
+    const ghost = page.getByTestId("quake-launcher-ghost");
     await expect(ghost).toBeVisible();
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
-    await expect(omniboxInput(page)).toBeHidden();
+    await expect(launcherInput(page)).toBeHidden();
 
     await ghost.click();
-    await expect(omniboxInput(page)).toBeVisible();
-    await expect(omniboxInput(page)).toBeFocused();
-    await expect(console_(page)).toBeVisible();
+    await expect(launcherInput(page)).toBeVisible();
+    await expect(launcherInput(page)).toBeFocused();
+    await expect(drawer(page)).toBeVisible();
     await expect(page.getByRole("button", { name: "Rename tab feature-work" })).toBeHidden();
 
     await page.keyboard.press("Escape");
-    await expect(omniboxInput(page)).toBeHidden();
-    await expect(console_(page)).toHaveCount(0);
+    await expect(launcherInput(page)).toBeHidden();
+    await expect(drawer(page)).toHaveCount(0);
     await expect(ghost).toBeVisible();
     await expect(page.getByRole("button", { name: "Rename tab feature-work" })).toBeVisible();
   });
 
   /**
-   * Proves: the palette carries the `Operator: Open console` action (the
+   * Proves: the palette carries the `Operator: Open quake terminal` action (the
    * action registry of record), and selecting it lands on open+focused — the
-   * drawer opens AND the omnibox takes focus (the same linked state the chord
+   * drawer opens AND the launcher takes focus (the same linked state the chord
    * toggles into).
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the terminal route.
-   * 2. Open the palette, filter to `Open console`, select the row (anchored
+   * 2. Open the palette, filter to `Open quake terminal`, select the row (anchored
    *    name — the Ask-operator fallback row is the substring-collision class,
    *    and the option's accessible name carries the chord keycap).
-   * 3. Assert the console is visible and the omnibox is focused.
+   * 3. Assert the quake terminal is visible and the launcher is focused.
    */
-  test("palette action 'Operator: Open console' lands open+focused", async ({ page }) => {
+  test("palette action 'Operator: Open quake terminal' lands open+focused", async ({ page }) => {
     await mockBackend(page, true);
     await gotoWindow(page);
 
     const paletteInput = await openPalette(page);
-    await paletteInput.fill("Open console");
-    await page.getByRole("option", { name: /^Operator: Open console/ }).click();
+    await paletteInput.fill("Open quake terminal");
+    await page.getByRole("option", { name: /^Operator: Open quake terminal/ }).click();
 
-    await expect(console_(page)).toBeVisible();
-    await expect(omniboxInput(page)).toBeFocused();
+    await expect(drawer(page)).toBeVisible();
+    await expect(launcherInput(page)).toBeFocused();
   });
 
   /**
@@ -542,12 +542,12 @@ test.describe("Operator console", () => {
    * Steps:
    * 1. Mock the backend with an operator window (the cron stub gives both
    *    cron tabs a row); land on the @1 terminal route.
-   * 2. Open the console via the palette `Operator: Open console` action;
+   * 2. Open the quake terminal via the palette `Operator: Open quake terminal` action;
    *    assert the four tab labels in exact order, Operator Terminal
    *    selected, no tab truncated (scrollWidth ≤ clientWidth), and the
    *    embedded terminal's xterm frame attached.
    * 3. Click Cron Log; assert the log body renders its delivery row inside
-   *    the console and the xterm frame is gone.
+   *    the quake terminal and the xterm frame is gone.
    * 4. Click Cron List; assert the list body renders its entry row.
    * 5. Click Operator Terminal; assert the xterm frame is back.
    */
@@ -558,11 +558,11 @@ test.describe("Operator console", () => {
     await gotoWindow(page);
 
     const paletteInput = await openPalette(page);
-    await paletteInput.fill("Open console");
-    await page.getByRole("option", { name: /^Operator: Open console/ }).click();
-    await expect(console_(page)).toBeVisible();
+    await paletteInput.fill("Open quake terminal");
+    await page.getByRole("option", { name: /^Operator: Open quake terminal/ }).click();
+    await expect(drawer(page)).toBeVisible();
 
-    const tabs = console_(page).getByTestId("terminal-activity-tabs");
+    const tabs = drawer(page).getByTestId("terminal-activity-tabs");
     const buttons = tabs.getByRole("tab");
     await expect(buttons).toHaveCount(4);
     expect(await buttons.allTextContents()).toEqual([
@@ -576,24 +576,24 @@ test.describe("Operator console", () => {
       Array.from(el.querySelectorAll('[role="tab"]')).every((b) => b.scrollWidth <= b.clientWidth),
     );
     expect(noTruncation).toBe(true);
-    await expect(console_(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
+    await expect(drawer(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
 
     await tabs.getByRole("tab", { name: "Cron Log" }).click();
-    await expect(console_(page).getByTestId("cron-log")).toBeVisible({ timeout: 10_000 });
-    await expect(console_(page).getByTestId("cron-delivery-row-a3f9")).toBeVisible();
-    await expect(console_(page).locator(".xterm")).toHaveCount(0);
+    await expect(drawer(page).getByTestId("cron-log")).toBeVisible({ timeout: 10_000 });
+    await expect(drawer(page).getByTestId("cron-delivery-row-a3f9")).toBeVisible();
+    await expect(drawer(page).locator(".xterm")).toHaveCount(0);
 
     await tabs.getByRole("tab", { name: "Cron List" }).click();
-    await expect(console_(page).getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
-    await expect(console_(page).getByTestId("cron-list-row-a3f9")).toBeVisible();
+    await expect(drawer(page).getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
+    await expect(drawer(page).getByTestId("cron-list-row-a3f9")).toBeVisible();
 
     await tabs.getByRole("tab", { name: "Operator Terminal" }).click();
-    await expect(console_(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
+    await expect(drawer(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
   });
 
   /**
    * Proves: the status-bar ◷ chip (visually unchanged, next-fire readout)
-   * opens the console drawer on its Cron List segment.
+   * opens the quake terminal drawer on its Cron List segment.
    *
    * Steps:
    * 1. Mock the backend with an operator window (the cron stub's entry
@@ -611,14 +611,14 @@ test.describe("Operator console", () => {
     await expect(chip).toBeVisible({ timeout: 10_000 });
     await chip.click();
 
-    await expect(console_(page)).toBeVisible();
-    const tabs = console_(page).getByTestId("terminal-activity-tabs");
+    await expect(drawer(page)).toBeVisible();
+    const tabs = drawer(page).getByTestId("terminal-activity-tabs");
     await expect(tabs.getByRole("tab", { name: "Cron List" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    await expect(console_(page).getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
-    await expect(console_(page).getByTestId("cron-list-row-a3f9")).toBeVisible();
+    await expect(drawer(page).getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
+    await expect(drawer(page).getByTestId("cron-list-row-a3f9")).toBeVisible();
   });
 
   /**
@@ -670,7 +670,7 @@ test.describe("Operator console", () => {
   /**
    * Proves: a desktop `?tab=activity` deep link (the legacy alias, normalized
    * to `log`) on the operator window's terminal route hands off to the
-   * console drawer — the route itself has no cron view on desktop, so the
+   * quake terminal drawer — the route itself has no cron view on desktop, so the
    * drawer opens on the Cron Log segment and the URL param is stripped (a
    * reload does not re-open the drawer).
    *
@@ -678,7 +678,7 @@ test.describe("Operator console", () => {
    * 1. Mock the backend with an operator window (the cron stub gives the log
    *    a row); navigate directly to the operator route carrying
    *    `?tab=activity`.
-   * 2. Assert the console drawer is visible with the Cron Log tab selected
+   * 2. Assert the quake terminal drawer is visible with the Cron Log tab selected
    *    and the cron log body inside it.
    * 3. Assert the URL is back at the bare operator route (param stripped).
    */
@@ -688,10 +688,10 @@ test.describe("Operator console", () => {
     await mockBackend(page, true);
     await page.goto(`${OPERATOR_PATH}?tab=activity`);
 
-    await expect(console_(page)).toBeVisible({ timeout: 10_000 });
-    const tabs = console_(page).getByTestId("terminal-activity-tabs");
+    await expect(drawer(page)).toBeVisible({ timeout: 10_000 });
+    const tabs = drawer(page).getByTestId("terminal-activity-tabs");
     await expect(tabs.getByRole("tab", { name: "Cron Log" })).toHaveAttribute("aria-selected", "true");
-    await expect(console_(page).getByTestId("cron-log")).toBeVisible({ timeout: 10_000 });
+    await expect(drawer(page).getByTestId("cron-log")).toBeVisible({ timeout: 10_000 });
     await expect(page).toHaveURL(OPERATOR_PATH, { timeout: 10_000 });
   });
 
@@ -709,7 +709,7 @@ test.describe("Operator console", () => {
    * 1. Mock the backend with an operator window plus a monitored @2 worker
    *    (change/stage/repo facets, tick stamps) and a two-item operatorTracked
    *    list (the worker item + the n3 note); land on the @1 terminal route.
-   * 2. Open the console via the palette `Operator: Show tasks` action.
+   * 2. Open the quake terminal via the palette `Operator: Show tasks` action.
    * 3. Assert the Operator Tasks tab is selected, the summary reads
    *    `2 tracked · 1 watched`, the table lists one worker row (change +
    *    stage) and one tracked-item row (note chip, id, truncated text), and
@@ -728,14 +728,14 @@ test.describe("Operator console", () => {
     const paletteInput = await openPalette(page);
     await paletteInput.fill("Show tasks");
     await page.getByRole("option", { name: /^Operator: Show tasks/ }).click();
-    await expect(console_(page)).toBeVisible();
+    await expect(drawer(page)).toBeVisible();
 
-    const tabs = console_(page).getByTestId("terminal-activity-tabs");
+    const tabs = drawer(page).getByTestId("terminal-activity-tabs");
     await expect(tabs.getByRole("tab", { name: "Operator Tasks" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    const tasks = console_(page).getByTestId("watched-tasks");
+    const tasks = drawer(page).getByTestId("watched-tasks");
     await expect(tasks).toBeVisible();
     await expect(tasks.getByTestId("watched-tasks-summary")).toHaveText("2 tracked · 1 watched");
     await expect(tasks.getByTestId("watched-row")).toHaveCount(1);
@@ -747,7 +747,7 @@ test.describe("Operator console", () => {
     await expect(noteRow.getByText("note")).toBeVisible();
     await expect(noteRow.getByText("n3")).toBeVisible();
     await expect(noteRow.getByTestId("tracked-item-expand")).toBeVisible();
-    await expect(console_(page).locator(".xterm")).toHaveCount(0);
+    await expect(drawer(page).locator(".xterm")).toHaveCount(0);
 
     // Expanding the note is a per-row disclosure, not a navigation.
     const urlBefore = page.url();
@@ -764,25 +764,25 @@ test.describe("Operator console", () => {
       ),
     ).toBeVisible();
     expect(page.url()).toBe(urlBefore);
-    await expect(console_(page)).toBeVisible();
+    await expect(drawer(page)).toBeVisible();
 
     await tasks.getByTestId("watched-row-navigate").click();
 
     // The router serializes window @2 as the bare segment `2` (router-url.ts).
     await expect(page).toHaveURL(`/${SERVER}/2`, { timeout: 10_000 });
-    await expect(console_(page)).toHaveCount(0);
+    await expect(drawer(page)).toHaveCount(0);
   });
 
   /**
    * Proves: a desktop `?tab=tasks` deep link on the operator window's terminal
-   * route hands off to the console drawer — the route itself has no Operator
+   * route hands off to the quake terminal drawer — the route itself has no Operator
    * Tasks view on desktop, so the drawer opens on the Operator Tasks segment
    * and the URL param is stripped (a reload does not re-open the drawer).
    *
    * Steps:
    * 1. Mock the backend with an operator window plus a monitored @2 worker;
    *    navigate directly to the operator route carrying `?tab=tasks`.
-   * 2. Assert the console drawer is visible with the Operator Tasks tab
+   * 2. Assert the quake terminal drawer is visible with the Operator Tasks tab
    *    selected and the watched table inside it.
    * 3. Assert the URL is back at the bare operator route (param stripped).
    */
@@ -792,20 +792,20 @@ test.describe("Operator console", () => {
     await mockBackend(page, true, SEND_OK, "idle", true);
     await page.goto(`${OPERATOR_PATH}?tab=tasks`);
 
-    await expect(console_(page)).toBeVisible({ timeout: 10_000 });
-    const tabs = console_(page).getByTestId("terminal-activity-tabs");
+    await expect(drawer(page)).toBeVisible({ timeout: 10_000 });
+    const tabs = drawer(page).getByTestId("terminal-activity-tabs");
     await expect(tabs.getByRole("tab", { name: "Operator Tasks" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    await expect(console_(page).getByTestId("watched-tasks")).toBeVisible({ timeout: 10_000 });
+    await expect(drawer(page).getByTestId("watched-tasks")).toBeVisible({ timeout: 10_000 });
     await expect(page).toHaveURL(OPERATOR_PATH, { timeout: 10_000 });
   });
 
   /**
    * Proves: the palette free-text fallback — a query matching no action on an
    * operator-bearing server renders the `Ask operator: "{query}"` row, and
-   * Enter on it closes the palette, opens the console, and fires exactly one
+   * Enter on it closes the palette, opens the quake terminal, and fires exactly one
    * send through the SAME lane resolution as a typed message: on this terminal
    * route (chip attached by default) that is one POST to the window-scoped
    * operator-request route at the subject window @1 with
@@ -816,11 +816,11 @@ test.describe("Operator console", () => {
    *    terminal route.
    * 2. Open the palette and type a query matching no action.
    * 3. Assert the fallback row renders and the "No results" line does not.
-   * 4. Press Enter; assert the palette closed, the console opened, and the
+   * 4. Press Enter; assert the palette closed, the quake terminal opened, and the
    *    recorded operator-request call targets @1 with the user-message
    *    template while the direct-send list stays empty.
    */
-  test("palette fallback row opens the console and sends the query on the templated chat lane", async ({
+  test("palette fallback row opens the quake terminal and sends the query on the templated chat lane", async ({
     page,
   }) => {
     const { sendBodies, requestCalls } = await mockBackend(page, true);
@@ -835,7 +835,7 @@ test.describe("Operator console", () => {
 
     await paletteInput.press("Enter");
     await expect(paletteInput).toHaveCount(0);
-    await expect(console_(page)).toBeVisible();
+    await expect(drawer(page)).toBeVisible();
     await expect
       .poll(() => requestCalls.map((c) => ({ path: new URL(c.url).pathname, body: c.body })))
       .toEqual([
@@ -867,14 +867,14 @@ test.describe("Operator console", () => {
 
   /**
    * Proves: degrade-to-absent — with no `role: "operator"` window on the
-   * server, the console opens to a single hint line (no terminal stream, no
+   * server, the quake terminal opens to a single hint line (no terminal stream, no
    * compose anywhere) and the palette renders no fallback row.
    *
    * Steps:
    * 1. Mock the backend WITHOUT an operator window; land on the terminal
    *    route.
-   * 2. Focus the standing omnibox to open the console; assert the hint line,
-   *    and no xterm or textbox inside the console.
+   * 2. Focus the standing launcher to open the quake terminal; assert the hint line,
+   *    and no xterm or textbox inside the quake terminal.
    * 3. Close with one Escape (open → rest), open the palette, type a
    *    floor-length query matching no action; assert no `Ask operator` row.
    */
@@ -884,16 +884,16 @@ test.describe("Operator console", () => {
     await mockBackend(page, false);
     await gotoWindow(page);
 
-    await omniboxInput(page).click();
-    await expect(console_(page)).toBeVisible();
-    await expect(page.getByTestId("operator-console-empty")).toHaveText(
+    await launcherInput(page).click();
+    await expect(drawer(page)).toBeVisible();
+    await expect(page.getByTestId("quake-terminal-empty")).toHaveText(
       "no operator on this server — run rk operator",
     );
-    await expect(console_(page).locator(".xterm")).toHaveCount(0);
-    await expect(console_(page).getByRole("textbox")).toHaveCount(0);
+    await expect(drawer(page).locator(".xterm")).toHaveCount(0);
+    await expect(drawer(page).getByRole("textbox")).toHaveCount(0);
 
     await page.keyboard.press("Escape");
-    await expect(console_(page)).toHaveCount(0);
+    await expect(drawer(page)).toHaveCount(0);
     const paletteInput = await openPalette(page);
     await paletteInput.fill("the fence deploy is wedged");
     await expect(page.getByRole("option", { name: /^Ask operator:/ })).toHaveCount(0);
@@ -903,15 +903,15 @@ test.describe("Operator console", () => {
    * Proves: a structured send failure (409 from the injection engine)
    * 1. Mock the backend with an operator window and a 409 stub (both send
    *    lanes) carrying the probe-failure message; land on the terminal route.
-   * 2. Type a message into the omnibox and press Enter (the send auto-opens
+   * 2. Type a message into the launcher and press Enter (the send auto-opens
    *    the drawer).
    * 3. Assert the templated lane fired once (the chip is attached on this
    *    route), the drawer's top-edge error line carries the server's message,
-   *    and the omnibox still holds the text.
+   *    and the launcher still holds the text.
    *
    * Steps:
     await expect.poll(() => requestCalls).toHaveLength(1);
-    await expect(console_(page)).toBeVisible();
+    await expect(drawer(page)).toBeVisible();
    */
   test("a structured 409 send failure surfaces inline with the composed text preserved", async ({
     page,
@@ -922,14 +922,14 @@ test.describe("Operator console", () => {
     });
     await gotoWindow(page);
 
-    const input = omniboxInput(page);
+    const input = launcherInput(page);
     await input.click();
     await input.fill("restart the worker");
     await input.press("Enter");
 
     await expect.poll(() => requestCalls).toHaveLength(1);
-    await expect(console_(page)).toBeVisible();
-    await expect(page.getByTestId("operator-console-error")).toHaveText("probe failed: no novelty echo");
+    await expect(drawer(page)).toBeVisible();
+    await expect(page.getByTestId("quake-terminal-error")).toHaveText("probe failed: no novelty echo");
     await expect(input).toHaveValue("restart the worker");
   });
 
@@ -943,7 +943,7 @@ test.describe("Operator console", () => {
    * Steps:
    * 1. Mock the backend with an operator window; land on the @1 terminal
    *    route.
-   * 2. Click into the omnibox (machine → open); assert the chip appears
+   * 2. Click into the launcher (machine → open); assert the chip appears
    *    beside the box naming @1 "feature-work".
    * 3. Type a message and press Enter (the send auto-opens the drawer).
    * 4. Assert exactly one operator-request call whose path is
@@ -956,13 +956,13 @@ test.describe("Operator console", () => {
     const { sendBodies, requestCalls } = await mockBackend(page, true);
     await gotoWindow(page);
 
-    const input = omniboxInput(page);
+    const input = launcherInput(page);
     await input.click();
-    await expect(page.getByTestId("operator-console-context")).toContainText('from: @1 "feature-work"');
+    await expect(page.getByTestId("quake-terminal-context")).toContainText('from: @1 "feature-work"');
 
     await input.fill("can you check the failing test?");
     await input.press("Enter");
-    await expect(console_(page)).toBeVisible();
+    await expect(drawer(page)).toBeVisible();
 
     await expect
       .poll(() => requestCalls.map((c) => ({ path: new URL(c.url).pathname, body: c.body })))
@@ -985,7 +985,7 @@ test.describe("Operator console", () => {
    * Steps:
    * 1. Mock the backend with an operator window; land on the @1 terminal
    *    route.
-   * 2. Click into the omnibox; dismiss the chip via its ✕ button and assert
+   * 2. Click into the launcher; dismiss the chip via its ✕ button and assert
    *    it disappears.
    * 3. Type a message and press Enter.
    * 4. Assert exactly one direct-send call at @9 with the agent-target body
@@ -995,10 +995,10 @@ test.describe("Operator console", () => {
     const { sendBodies, requestCalls } = await mockBackend(page, true);
     await gotoWindow(page);
 
-    const input = omniboxInput(page);
+    const input = launcherInput(page);
     await input.click();
     await page.getByRole("button", { name: "Detach window context" }).click();
-    await expect(page.getByTestId("operator-console-context")).toHaveCount(0);
+    await expect(page.getByTestId("quake-terminal-context")).toHaveCount(0);
 
     await input.fill("plain message");
     await input.press("Enter");
@@ -1016,7 +1016,7 @@ test.describe("Operator console", () => {
    * Steps:
    * 1. Mock the backend with an operator window; land on the server route
    *    (`/default`).
-   * 2. Click into the omnibox; assert no chip renders.
+   * 2. Click into the launcher; assert no chip renders.
    * 3. Type a message and press Enter.
    * 4. Assert exactly one direct-send call at @9 and an empty
    *    operator-request list.
@@ -1026,9 +1026,9 @@ test.describe("Operator console", () => {
     await page.goto(`/${SERVER}`);
     await expect(page.getByText("feature-work").first()).toBeVisible({ timeout: 10_000 });
 
-    const input = omniboxInput(page);
+    const input = launcherInput(page);
     await input.click();
-    await expect(page.getByTestId("operator-console-context")).toHaveCount(0);
+    await expect(page.getByTestId("quake-terminal-context")).toHaveCount(0);
 
     await input.fill("hello from the server page");
     await input.press("Enter");
@@ -1064,24 +1064,24 @@ test.describe("Operator console", () => {
       await gotoWindow(page);
 
       await openDrawerViaChord(page);
-      const el = console_(page);
+      const el = drawer(page);
       await expect(el).toBeVisible();
-      await expect(el).toHaveClass(/rk-console-slide/);
-      await expect(el).not.toHaveClass(/rk-console-closed/);
+      await expect(el).toHaveClass(/rk-quake-slide/);
+      await expect(el).not.toHaveClass(/rk-quake-closed/);
 
       await page.keyboard.press("Escape");
-      await expect(el).toHaveClass(/rk-console-closed/);
+      await expect(el).toHaveClass(/rk-quake-closed/);
       await expect(el).toHaveCount(0);
     });
   });
   /**
    * Proves: the hanging tongue grip drags the drawer's height (clamped at
-   * 85vh), the new geometry persists to `runkit-operator-console-geometry`,
+   * 85vh), the new geometry persists to `runkit-quake-terminal-geometry`,
    * and a reload reopens the drawer at the persisted size.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the terminal route
-   *    and open the console.
+   *    and open the quake terminal.
    * 2. Drag the height grip a full viewport-height down; assert the drawer
    *    grew and the style pins at the 85vh clamp.
    * 3. Assert the localStorage key holds heightVh 85.
@@ -1094,12 +1094,12 @@ test.describe("Operator console", () => {
     await gotoWindow(page);
 
     await openDrawerViaChord(page);
-    const el = console_(page);
-    await expect(el).not.toHaveClass(/rk-console-closed/);
+    const el = drawer(page);
+    await expect(el).not.toHaveClass(/rk-quake-closed/);
     const before = await el.boundingBox();
     expect(before).not.toBeNull();
 
-    const grip = page.getByTestId("operator-console-grip-height");
+    const grip = page.getByTestId("quake-terminal-grip-height");
     const gripBox = await grip.boundingBox();
     expect(gripBox).not.toBeNull();
     const x = gripBox!.x + gripBox!.width / 2;
@@ -1113,26 +1113,26 @@ test.describe("Operator console", () => {
     const during = await el.boundingBox();
     expect(during!.height).toBeGreaterThan(before!.height);
     const stored = await page.evaluate(() =>
-      localStorage.getItem("runkit-operator-console-geometry"),
+      localStorage.getItem("runkit-quake-terminal-geometry"),
     );
     expect(stored).toContain('"heightVh":85');
 
     await page.reload();
     await expect(page.getByText("feature-work").first()).toBeVisible({ timeout: 10_000 });
     await openDrawerViaChord(page);
-    await expect(console_(page)).toHaveAttribute("style", /height: 85vh/);
+    await expect(drawer(page)).toHaveAttribute("style", /height: 85vh/);
   });
 
   /**
    * Proves: the desktop drawer is glass — bg-primary at the per-viewer α
    * (default 0.90) over a fixed 6px backdrop blur — and the settings dialog's
-   * "Operator console opacity" row (a localStorage resident, no settings API)
+   * "Quake terminal opacity" row (a localStorage resident, no settings API)
    * live-applies to the OPEN drawer; α=1 disables the blur, and the value
    * survives reload.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the terminal route
-   *    and open the console; assert the 0.90 computed background + blur.
+   *    and open the quake terminal; assert the 0.90 computed background + blur.
    * 2. Open the settings dialog (top-bar gear), switch to Appearance, and
    *    step the opacity slider down; assert the drawer's computed background
    *    changed live and the localStorage key holds 0.85.
@@ -1146,7 +1146,7 @@ test.describe("Operator console", () => {
     await gotoWindow(page);
 
     await openDrawerViaChord(page);
-    const el = console_(page);
+    const el = drawer(page);
 
     // Theme-agnostic α read: Chromium serializes the color-mix result as
     // `color(srgb … / α)` — the alpha is the setting, the RGB rides the theme.
@@ -1162,7 +1162,7 @@ test.describe("Operator console", () => {
 
     await page.getByRole("button", { name: "Open settings" }).click();
     await page.getByRole("tab", { name: "Appearance" }).click();
-    const slider = page.getByRole("slider", { name: "Operator console opacity" });
+    const slider = page.getByRole("slider", { name: "Quake terminal opacity" });
     await expect(slider).toBeVisible();
     // .focus() (not .click()) — a click anywhere on the track jumps the
     // thumb to that position, coupling this test's expected value to the
@@ -1172,7 +1172,7 @@ test.describe("Operator console", () => {
     await slider.press("ArrowDown");
     await expect.poll(readAlpha).toBe(0.85);
     await expect
-      .poll(() => page.evaluate(() => localStorage.getItem("runkit-operator-console-opacity")))
+      .poll(() => page.evaluate(() => localStorage.getItem("runkit-quake-terminal-opacity")))
       .toBe("0.85");
 
     await slider.press("End");
@@ -1182,10 +1182,10 @@ test.describe("Operator console", () => {
     await page.reload();
     await expect(page.getByText("feature-work").first()).toBeVisible({ timeout: 10_000 });
     await openDrawerViaChord(page);
-    await expect(console_(page)).toHaveCSS("backdrop-filter", "none");
+    await expect(drawer(page)).toHaveCSS("backdrop-filter", "none");
     await expect
       .poll(() =>
-        console_(page).evaluate((n) => {
+        drawer(page).evaluate((n) => {
           const bg = getComputedStyle(n).backgroundColor;
           const m = /\/\s*([\d.]+)\)$/.exec(bg);
           return m ? Number(m[1]) : 1;
@@ -1195,30 +1195,30 @@ test.describe("Operator console", () => {
   });
 
   /**
-   * Proves: the standing desktop omnibox is the sole top-bar console
+   * Proves: the standing desktop launcher is the sole top-bar quake terminal
    * affordance, carries the waiting operator's amber state dot on its ◉, and
-   * opens the console when its input receives focus.
+   * opens the quake terminal when its input receives focus.
    *
    * Steps:
    * 1. Mock the backend with a WAITING operator; land on the terminal route.
-   * 2. Assert no dedicated Operator console button renders in the banner.
-   * 3. Assert the omnibox ◉ carries the waiting dot; focus the input and
-   *    assert the console opens.
+   * 2. Assert no dedicated quake terminal button renders in the banner.
+   * 3. Assert the launcher ◉ carries the waiting dot; focus the input and
+   *    assert the quake terminal opens.
    */
-  test("the standing omnibox shows the waiting dot and opens the console", async ({ page }) => {
+  test("the standing launcher shows the waiting dot and opens the quake terminal", async ({ page }) => {
     await mockBackend(page, true, SEND_OK, "waiting");
     await gotoWindow(page);
 
     const banner = page.getByRole("banner");
-    await expect(banner.getByRole("button", { name: /^Operator console/ })).toHaveCount(0);
-    const omnibox = page.getByTestId("operator-omnibox");
-    const dot = page.getByTestId("operator-omnibox-state");
-    await expect(omnibox).toContainText("◉");
+    await expect(banner.getByRole("button", { name: /^Quake terminal/ })).toHaveCount(0);
+    const launcher = page.getByTestId("quake-launcher");
+    const dot = page.getByTestId("quake-launcher-state");
+    await expect(launcher).toContainText("◉");
     await expect(dot).toHaveAttribute("data-state", "waiting");
     await expect(dot).toHaveClass(/bg-signal-yellow/);
 
-    await omniboxInput(page).click();
-    await expect(console_(page)).toBeVisible();
+    await launcherInput(page).click();
+    await expect(drawer(page)).toBeVisible();
   });
 
   test.describe("mobile navigation", () => {
@@ -1227,22 +1227,22 @@ test.describe("Operator console", () => {
     test.use({ hasTouch: true });
 
   /**
-   * Proves: at 375px there is no sheet — opening the console NAVIGATES to the
+   * Proves: at 375px there is no sheet — opening the quake terminal NAVIGATES to the
    * operator window's ordinary terminal route, carrying the origin window as
    * `?from=`, and the route's own chrome (top bar, bottom-bar key chips)
    * stays visible with no horizontal page overflow. Entry rides the top-bar
-   * overflow menu's `Operator console` row (no keyboard on a phone).
+   * overflow menu's `Quake terminal` row (no keyboard on a phone).
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend with an operator window;
    *    land on the @1 terminal route (direct goto + `__rkTerminals` poll).
-   * 2. Open the `More controls` chevron menu and select `Operator console`.
+   * 2. Open the `More controls` chevron menu and select `Quake terminal`.
    * 3. Assert the URL becomes the operator route with `?from=@1`, no
-   *    `operator-console` element exists, and the chevron + bottom-bar
+   *    `quake-terminal` element exists, and the chevron + bottom-bar
    *    toolbar are still visible.
    * 4. Assert `document.body.scrollWidth` ≤ 375 (no horizontal overflow).
    */
-  test("mobile: opening the console navigates to the operator terminal route (no sheet, no overflow)", async ({
+  test("mobile: opening the quake terminal navigates to the operator terminal route (no sheet, no overflow)", async ({
     page,
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
@@ -1253,11 +1253,11 @@ test.describe("Operator console", () => {
     await expect(chevron).toBeVisible({ timeout: 10_000 });
     await chevron.click();
     await page.getByRole("menu", { name: "More controls" })
-      .getByRole("menuitem", { name: /Operator console/ })
+      .getByRole("menuitem", { name: /^Quake terminal/ })
       .click();
 
     await expectOperatorRoute(page, "@1");
-    await expect(console_(page)).toHaveCount(0);
+    await expect(drawer(page)).toHaveCount(0);
     await expect(chevron).toBeVisible();
     await expect(page.getByRole("toolbar", { name: "Terminal keys" })).toBeVisible();
 
@@ -1293,17 +1293,17 @@ test.describe("Operator console", () => {
     await mockBackend(page, true, SEND_OK, "waiting");
     await gotoWindowMobile(page);
 
-    const tongue = page.getByTestId("operator-console-tongue");
+    const tongue = page.getByTestId("quake-terminal-tongue");
     await expect(tongue).toBeVisible();
-    await expect(page.getByTestId("operator-console-tongue-waiting")).toBeVisible();
+    await expect(page.getByTestId("quake-terminal-tongue-waiting")).toBeVisible();
     await expect(
-      page.getByRole("banner").getByRole("button", { name: /^Operator console/ }),
+      page.getByRole("banner").getByRole("button", { name: /^Quake terminal/ }),
     ).toHaveCount(0);
 
     await tongue.click();
     await expectOperatorRoute(page, "@1");
     await expect(tongue).toHaveAttribute("data-tongue-state", "return");
-    await expect(page.getByTestId("operator-console-tongue-waiting")).toHaveCount(0);
+    await expect(page.getByTestId("quake-terminal-tongue-waiting")).toHaveCount(0);
 
     await tongue.click();
     // The router serializes window @1 as the bare segment `1` (router-url.ts).
@@ -1339,7 +1339,7 @@ test.describe("Operator console", () => {
     const { sendBodies, requestCalls } = await mockBackend(page, true);
     await gotoWindowMobile(page);
 
-    await page.getByTestId("operator-console-tongue").click();
+    await page.getByTestId("quake-terminal-tongue").click();
     await expectOperatorRoute(page, "@1");
     await expect
       .poll(
@@ -1350,7 +1350,7 @@ test.describe("Operator console", () => {
         { timeout: 10_000 },
       )
       .toBe(true);
-    await expect(page.getByTestId("operator-console-context")).toContainText('from: @1 "feature-work"');
+    await expect(page.getByTestId("quake-terminal-context")).toContainText('from: @1 "feature-work"');
 
     const stripInput = page.getByTestId("compose-strip-input");
     await stripInput.fill("can you check the failing test?");
@@ -1387,12 +1387,12 @@ test.describe("Operator console", () => {
     await mockBackend(page, true);
     await gotoWindowMobile(page);
 
-    await page.getByTestId("operator-console-tongue").click();
+    await page.getByTestId("quake-terminal-tongue").click();
     await expectOperatorRoute(page, "@1");
-    await expect(page.getByTestId("operator-console-context")).toContainText('from: @1 "feature-work"');
+    await expect(page.getByTestId("quake-terminal-context")).toContainText('from: @1 "feature-work"');
 
     await page
-      .getByTestId("operator-console-context")
+      .getByTestId("quake-terminal-context")
       .getByRole("button", { name: 'Back to @1 "feature-work"' })
       .click();
 
@@ -1436,7 +1436,7 @@ test.describe("Operator console", () => {
       .toBe(true);
 
     await page.getByRole("button", { name: "Detach window context" }).click();
-    await expect(page.getByTestId("operator-console-context")).toHaveCount(0);
+    await expect(page.getByTestId("quake-terminal-context")).toHaveCount(0);
 
     const stripInput = page.getByTestId("compose-strip-input");
     await stripInput.fill("plain message");
@@ -1482,7 +1482,7 @@ test.describe("Operator console", () => {
       )
       .toBe(true);
 
-    await expect(page.getByTestId("operator-console-context")).toHaveCount(0);
+    await expect(page.getByTestId("quake-terminal-context")).toHaveCount(0);
 
     await page.getByTestId("compose-strip-input").fill("still direct");
     await page.getByTestId("compose-strip-send").click();
@@ -1499,8 +1499,8 @@ test.describe("Operator console", () => {
    * 1. Set the 375×812 viewport; mock the backend WITHOUT an operator
    *    window; land on the @1 terminal route.
    * 2. Assert the tongue is absent.
-   * 3. Fire the overflow menu's `Operator console` row twice; assert the
-   *    hint toast renders once, the URL is unchanged, and no console element
+   * 3. Fire the overflow menu's `Quake terminal` row twice; assert the
+   *    hint toast renders once, the URL is unchanged, and no quake terminal element
    *    exists.
    */
   test("mobile: an operator-less server hides the tongue and toasts the hint without navigating", async ({
@@ -1510,20 +1510,20 @@ test.describe("Operator console", () => {
     await mockBackend(page, false);
     await gotoWindowMobile(page);
 
-    await expect(page.getByTestId("operator-console-tongue")).toHaveCount(0);
+    await expect(page.getByTestId("quake-terminal-tongue")).toHaveCount(0);
 
     const chevron = page.getByRole("button", { name: "More controls" });
     await expect(chevron).toBeVisible({ timeout: 10_000 });
     for (let i = 0; i < 2; i++) {
       await chevron.click();
       await page.getByRole("menu", { name: "More controls" })
-        .getByRole("menuitem", { name: /Operator console/ })
+        .getByRole("menuitem", { name: /^Quake terminal/ })
         .click();
     }
 
     await expect(page.getByText("no operator on this server — run rk operator")).toHaveCount(1);
     expect(page.url()).toContain(WINDOW_URL);
-    await expect(console_(page)).toHaveCount(0);
+    await expect(drawer(page)).toHaveCount(0);
   });
 
   /**
@@ -1564,26 +1564,26 @@ test.describe("Operator console", () => {
   });
 
   /**
-   * Proves: an image ⌘V inside the console surface uploads to the OPERATOR
+   * Proves: an image ⌘V inside the quake terminal surface uploads to the OPERATOR
    * window's session (`_rk-operator`) and insert-delivers the returned path
    * to the operator pane (mode "raw", target "agent", never submitted) — and
    * the route terminals' strip-forward guard keeps the paste OFF the tab
    * below (no upload to the route's `dev` session). Both focus targets are
-   * covered: the embedded terminal's xterm textarea (the console root's
-   * CAPTURE-phase handler — xterm stops bubble propagation) and the omnibox
-   * input (the relocated desktop compose; its console-root attribute excludes
+   * covered: the embedded terminal's xterm textarea (the quake terminal root's
+   * CAPTURE-phase handler — xterm stops bubble propagation) and the launcher
+   * input (the relocated desktop compose; its quake-terminal root attribute excludes
    * it from the route terminals' document-level forward).
    *
    * Steps:
    * 1. Mock the backend with an operator window plus the upload endpoint;
-   *    land on the terminal route and open the console.
-   * 2. Dispatch a file-carrying paste at the console's embedded xterm helper
+   *    land on the terminal route and open the quake terminal.
+   * 2. Dispatch a file-carrying paste at the quake terminal's embedded xterm helper
    *    textarea; assert one upload to `_rk-operator` and one raw/agent send.
-   * 3. Dispatch a second paste at the omnibox input; assert a second
+   * 3. Dispatch a second paste at the launcher input; assert a second
    *    upload/send pair.
    * 4. Assert no upload ever hit the route session.
    */
-  test("image paste inside the console uploads to the operator session and insert-delivers the path", async ({
+  test("image paste inside the quake terminal uploads to the operator session and insert-delivers the path", async ({
     page,
   }) => {
     const { sendBodies } = await mockBackend(page, true);
@@ -1592,16 +1592,16 @@ test.describe("Operator console", () => {
 
     await openDrawerViaChord(page);
     await expect(
-      console_(page).locator(".xterm-helper-textarea"),
+      drawer(page).locator(".xterm-helper-textarea"),
     ).toBeAttached({ timeout: 10_000 });
 
-    await pasteImage(page, '[data-testid="operator-console"] .xterm-helper-textarea');
+    await pasteImage(page, '[data-testid="quake-terminal"] .xterm-helper-textarea');
     await expect.poll(() => uploads.map((u) => u.session)).toEqual(["_rk-operator"]);
     await expect
       .poll(() => sendBodies)
       .toEqual([{ text: "/tmp/op/.uploads/shot.png ", mode: "raw", target: "agent" }]);
 
-    await pasteImage(page, '[data-testid="operator-omnibox-input"]');
+    await pasteImage(page, '[data-testid="quake-launcher-input"]');
     await expect
       .poll(() => uploads.map((u) => u.session))
       .toEqual(["_rk-operator", "_rk-operator"]);
@@ -1610,9 +1610,9 @@ test.describe("Operator console", () => {
   });
 
   /**
-   * Proves: with the console CLOSED, a file paste on the page still forwards
+   * Proves: with the quake terminal CLOSED, a file paste on the page still forwards
    * to the compose strip exactly as before — the guard only excludes
-   * console-origin pastes. (The strip forward rides the route terminal's
+   * quake-terminal-origin pastes. (The strip forward rides the route terminal's
    * document-level listener, which only ever sees pastes whose target lies
    * OUTSIDE an xterm — xterm's own textarea handler stops propagation — so
    * the reachable production path is a paste with focus outside the
@@ -1620,12 +1620,12 @@ test.describe("Operator console", () => {
    *
    * Steps:
    * 1. Mock the backend with an operator window plus the upload endpoint;
-   *    land on the terminal route (console never opened).
+   *    land on the terminal route (quake terminal never opened).
    * 2. Dispatch a file-carrying paste at the page body.
    * 3. Assert one upload to the route's `dev` session (the strip's focused
-   *    target) and no console involvement.
+   *    target) and no quake terminal involvement.
    */
-  test("file paste outside the terminal still forwards to the compose strip when the console is closed", async ({
+  test("file paste outside the terminal still forwards to the compose strip when the quake terminal is closed", async ({
     page,
   }) => {
     await mockBackend(page, true);
@@ -1636,6 +1636,6 @@ test.describe("Operator console", () => {
     await pasteImage(page, "body");
 
     await expect.poll(() => uploads.map((u) => u.session), { timeout: 10_000 }).toEqual(["dev"]);
-    await expect(console_(page)).toHaveCount(0);
+    await expect(drawer(page)).toHaveCount(0);
   });
 });

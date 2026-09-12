@@ -30,7 +30,7 @@ const ROW_CLASS =
  * `inline` (the desktop drawer mount) makes the root `relative` so the
  * sheet's in-container variant anchors to it, and forwards the flag.
  *
- * An unresolvable server degrades to the operator console's absent/hint state
+ * An unresolvable server degrades to the quake terminal's absent/hint state
  * and fires no request.
  */
 export function CronList({ server, inline = false }: { server: string; inline?: boolean }) {

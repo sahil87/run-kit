@@ -68,7 +68,7 @@ function SwitchTrack({ on }: { on: boolean }) {
  *
  * The `inline` variant is the same sheet without the modal shell: no fixed
  * full-viewport backdrop and no `aria-modal` — the panel fills its parent's
- * relative container (`absolute inset-0`, the desktop console drawer's cron
+ * relative container (`absolute inset-0`, the desktop quake terminal drawer's cron
  * tabs mount it this way) and its header leads with a `‹ Back` control in
  * place of the ✕. Rows are identical in both variants.
  *

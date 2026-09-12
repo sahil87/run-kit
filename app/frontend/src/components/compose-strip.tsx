@@ -18,7 +18,7 @@ import { useToast } from "@/components/toast";
 import { controlClass } from "@/components/control";
 import { INPUT_FOCUS } from "@/components/controls";
 import { OperatorContextChip } from "@/components/operator-context-chip";
-import { getOperatorChatTarget, useOperatorChatChip } from "@/lib/operator-console";
+import { getOperatorChatTarget, useOperatorChatChip } from "@/lib/quake-terminal";
 import {
   classifyComposeEnter,
   composeSubmitKeycap,
@@ -217,12 +217,12 @@ export function ComposeStrip({
   dockedInTile?: boolean;
 }) {
   const { focused } = useFocusedTerminal();
-  // The chat-subject store (lib/operator-console.ts): on the operator window's
-  // own route the console stamps the validated `?from=` origin window here.
+  // The chat-subject store (lib/quake-terminal.ts): on the operator window's
+  // own route the quake terminal stamps the validated `?from=` origin window here.
   // The strip attaches the chip and forks its plain text submit onto the
   // templated chat lane only when the subject is a DIFFERENT window than the
   // strip's target — on an ordinary terminal route the stamped subject IS the
-  // route window (the desktop omnibox's chip), which must not reroute the
+  // route window (the desktop quake launcher's chip), which must not reroute the
   // strip's direct pane sends.
   const chatChip = useOperatorChatChip();
   const navigate = useNavigate();
@@ -1242,7 +1242,7 @@ export function ComposeStrip({
           with a `?from=` subject attached (operatorChatServer is null
           everywhere else); dismissal and the empty state are the chip's own.
           The navigate prop makes the label the way back to the origin window
-          (this mount only — the omnibox chip stays inert). */}
+          (this mount only — the quake launcher chip stays inert). */}
       {operatorChatServer !== null && (
         <div className="flex items-center empty:hidden">
           <OperatorContextChip

@@ -551,7 +551,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
    *    layout — a zoom-key-only switch back).
    * 7. Assert no horizontal page overflow (`body.scrollWidth <= 375`).
    * 8. Resize to the desktop viewport (1440×800); assert the ≥ lg compact
-   *    heading renders beside the standing omnibox (the `Tab:` prefix span
+   *    heading renders beside the standing quake launcher (the `Tab:` prefix span
    *    hidden at this rung), there is STILL no in-bar pill and no
    *    `view-toggle` testid; open the palette with `View:
    *    Terminal`, assert the option renders; refill with `Switch` and assert
@@ -633,10 +633,10 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
 
     // Still no switcher chrome at desktop width either — at ≥ lg the center
     // is the compact heading (the `Tab:` prefix span hides) beside the
-    // standing omnibox — and the desktop palette keeps its `View:` entries
+    // standing quake launcher — and the desktop palette keeps its `View:` entries
     // with NO `Tile: Switch` ones.
     await page.setViewportSize(DESKTOP_VIEWPORT);
-    await expect(page.getByTestId("operator-omnibox-input")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("quake-launcher-input")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText("Tab:", { exact: true })).toBeHidden();
     await expect(inBarSwitcher(page)).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);

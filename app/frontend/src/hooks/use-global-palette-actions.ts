@@ -18,7 +18,7 @@ import { canCloseShellWindow, canNewShellWindow, closeShellWindow, newShellWindo
 import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
 import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
 import { buildNavActions, type NavMode } from "@/lib/palette/nav";
-import { buildOperatorConsoleAction, buildOperatorConsoleListAction, buildOperatorConsoleLogAction, buildOperatorConsoleTasksAction } from "@/lib/palette/operator-console";
+import { buildQuakeTerminalAction, buildQuakeTerminalListAction, buildQuakeTerminalLogAction, buildQuakeTerminalTasksAction } from "@/lib/palette/quake-terminal";
 import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette/update";
 import { buildVersionAction, displayVersion } from "@/lib/palette/version";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -331,29 +331,29 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [sidebarOpen, setSidebarOpen],
   );
 
-  // Operator console — the pull-down operator overlay's palette registration
+  // Quake terminal — the pull-down operator overlay's palette registration
   // (Constitution V: the palette is the action registry of record and the
   // guaranteed fallback where a browser eats the chord). Always listed: a
-  // server without an operator window is answered by the console's own hint
+  // server without an operator window is answered by the quake terminal's own hint
   // line, not by hiding the opener. The id IS the registry actionId, so the
   // effective ⌘J/⇧Ctrl+J hint attaches and the chord resolves this same
   // toggle seam.
-  const operatorConsoleEntry: PaletteAction = useMemo(() => buildOperatorConsoleAction(), []);
+  const quakeTerminalEntry: PaletteAction = useMemo(() => buildQuakeTerminalAction(), []);
   // The cron-segment twins — same always-listed gating as the opener (a
-  // server without an operator is answered by the console's own hint line).
+  // server without an operator is answered by the quake terminal's own hint line).
   // List registers before log.
-  const operatorConsoleListEntry: PaletteAction = useMemo(
-    () => buildOperatorConsoleListAction(),
+  const quakeTerminalListEntry: PaletteAction = useMemo(
+    () => buildQuakeTerminalListAction(),
     [],
   );
-  const operatorConsoleLogEntry: PaletteAction = useMemo(
-    () => buildOperatorConsoleLogAction(),
+  const quakeTerminalLogEntry: PaletteAction = useMemo(
+    () => buildQuakeTerminalLogAction(),
     [],
   );
   // The Operator Tasks twin — same always-listed gating: an operator-less
   // server is answered by the segment's hint line, not by hiding the entry.
-  const operatorConsoleTasksEntry: PaletteAction = useMemo(
-    () => buildOperatorConsoleTasksAction(),
+  const quakeTerminalTasksEntry: PaletteAction = useMemo(
+    () => buildQuakeTerminalTasksAction(),
     [],
   );
 
@@ -503,10 +503,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, operatorConsoleEntry, operatorConsoleTasksEntry, operatorConsoleListEntry, operatorConsoleLogEntry, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, operatorConsoleEntry, operatorConsoleTasksEntry, operatorConsoleListEntry, operatorConsoleLogEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
   );
 }

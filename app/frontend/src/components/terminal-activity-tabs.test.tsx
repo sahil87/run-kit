@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
-import { ConsoleSegments, TerminalActivityTabs, SEGMENTS } from "./terminal-activity-tabs";
+import { QuakeSegments, TerminalActivityTabs, SEGMENTS } from "./terminal-activity-tabs";
 import { validateTerminalSearch } from "@/lib/router-url";
 
 // The wrapper drives the router `tab` search param; navigations are recorded.
@@ -20,9 +20,9 @@ afterEach(() => {
   cleanup();
 });
 
-describe("ConsoleSegments (controlled strip)", () => {
+describe("QuakeSegments (controlled strip)", () => {
   it("renders the four segments in order: Operator Terminal, Operator Tasks, Cron List, Cron Log", () => {
-    render(<ConsoleSegments value="terminal" onChange={() => {}} />);
+    render(<QuakeSegments value="terminal" onChange={() => {}} />);
 
     const strip = screen.getByTestId("terminal-activity-tabs");
     expect(strip).toHaveAttribute("role", "tablist");
@@ -40,7 +40,7 @@ describe("ConsoleSegments (controlled strip)", () => {
   });
 
   it("sizes labels for the four-label set: nowrap, no truncation, content-sized", () => {
-    render(<ConsoleSegments value="terminal" onChange={() => {}} />);
+    render(<QuakeSegments value="terminal" onChange={() => {}} />);
 
     for (const tab of screen.getAllByRole("tab")) {
       expect(tab.className).toContain("whitespace-nowrap");
@@ -54,7 +54,7 @@ describe("ConsoleSegments (controlled strip)", () => {
 
   it("calls onChange with the clicked tab and leaves selection to the owner (controlled)", () => {
     const onChange = vi.fn();
-    render(<ConsoleSegments value="terminal" onChange={onChange} />);
+    render(<QuakeSegments value="terminal" onChange={onChange} />);
 
     fireEvent.click(screen.getByRole("tab", { name: "Operator Tasks" }));
     expect(onChange).toHaveBeenCalledWith("tasks");
@@ -68,7 +68,7 @@ describe("ConsoleSegments (controlled strip)", () => {
   });
 
   it("renders Cron Log selected when the value prop says so", () => {
-    render(<ConsoleSegments value="log" onChange={() => {}} />);
+    render(<QuakeSegments value="log" onChange={() => {}} />);
 
     expect(screen.getByRole("tab", { name: "Cron Log" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Operator Terminal" })).toHaveAttribute(
@@ -78,7 +78,7 @@ describe("ConsoleSegments (controlled strip)", () => {
   });
 
   it("the segment union agrees with the tab values validateTerminalSearch accepts", () => {
-    // The strip's SEGMENTS, `OperatorConsoleRequest.segment`, and router-url.ts's
+    // The strip's SEGMENTS, `QuakeTerminalRequest.segment`, and router-url.ts's
     // literal union are three spellings of the same set — this guard fails the
     // moment any one of them drifts (a probe of candidate values is the only
     // way to read the leaf module's accepted set). The legacy `activity`

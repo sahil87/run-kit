@@ -6,6 +6,7 @@ import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import {
   dismissOperatorChatChip,
   getQuakeMachineState,
+  isQuakeTerminalTarget,
   requestQuakeTerminal,
   setQuakeMachineState,
   setOperatorChatSubject,
@@ -166,14 +167,14 @@ describe("QuakeLauncher", () => {
     expect(screen.getByTestId("quake-launcher")).toContainElement(dot);
   });
 
-  it("the md–lg ghost carries the same dot and hands it to the morphed box", () => {
+  it("the md–lg ghost carries the same dot and hands it to the collapsed control", () => {
     stubNarrowDesktop();
     renderPair(new Map([["srv1", operatorSessions("active")]]));
 
     const ghost = screen.getByTestId("quake-launcher-ghost");
     expect(ghost).toContainElement(screen.getByTestId("quake-launcher-state"));
     fireEvent.click(ghost);
-    expect(screen.getByTestId("quake-launcher")).toContainElement(
+    expect(screen.getByTestId("quake-launcher-collapsed")).toContainElement(
       screen.getByTestId("quake-launcher-state"),
     );
   });
@@ -193,22 +194,20 @@ describe("QuakeLauncher", () => {
     expect(screen.queryByTestId("quake-launcher-state")).toBeNull();
   });
 
-  it("the ghost click morphs the box in place, focuses it, and opens the drawer", () => {
+  it("the ghost click opens the drawer, swaps in the collapsed control, and focus lands in the docked compose", () => {
     stubNarrowDesktop();
     renderPair();
 
     fireEvent.click(screen.getByTestId("quake-launcher-ghost"));
     expect(getQuakeMachineState()).toBe("open");
     expect(screen.queryByTestId("quake-launcher-ghost")).toBeNull();
-    const box = screen.getByTestId("quake-launcher");
-    expect(box.className).not.toContain("hidden");
-    // Engaged height must match the rest-state height exactly — the box must
-    // never resize on focus/blur.
-    expect(box.className).toContain("h-[28px]");
-    expect(screen.getByTestId("quake-launcher-input")).toHaveFocus();
+    expect(screen.queryByTestId("quake-launcher")).toBeNull();
+    const collapsed = screen.getByTestId("quake-launcher-collapsed");
+    expect(collapsed.className).toContain("h-[28px]");
+    expect(screen.getByTestId("quake-terminal-compose-input")).toHaveFocus();
   });
 
-  it("the chord engages from rest — box focused with any draft selected, drawer open", () => {
+  it("the chord engages from rest — the docked textarea focused with any draft, caret at its end", () => {
     stubWideDesktop();
     renderPair();
     act(() => setOperatorComposeText("half-written draft"));
@@ -216,14 +215,14 @@ describe("QuakeLauncher", () => {
     act(() => requestQuakeTerminal({ action: "toggle" }));
     expect(getQuakeMachineState()).toBe("open");
     expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
-    const input = screen.getByTestId("quake-launcher-input") as HTMLInputElement;
+    const input = screen.getByTestId("quake-terminal-compose-input") as HTMLTextAreaElement;
     expect(input).toHaveFocus();
     expect(input).toHaveValue("half-written draft");
-    expect(input.selectionStart).toBe(0);
+    expect(input.selectionStart).toBe("half-written draft".length);
     expect(input.selectionEnd).toBe("half-written draft".length);
   });
 
-  it("Enter sends through the agent lane and auto-opens the drawer with focus retained", async () => {
+  it("Enter from the standing box sends and opens the drawer; focus lands in the docked compose", async () => {
     stubWideDesktop();
     renderPair();
 
@@ -235,8 +234,9 @@ describe("QuakeLauncher", () => {
     expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "restart the worker", "submit", "agent");
     expect(getQuakeMachineState()).toBe("open");
     expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
-    expect(input).toHaveFocus();
-    await waitFor(() => expect(input).toHaveValue(""));
+    const docked = screen.getByTestId("quake-terminal-compose-input");
+    expect(docked).toHaveFocus();
+    await waitFor(() => expect(docked).toHaveValue(""));
   });
 
   it("Enter on an empty draft is a no-op (no send, no state change)", () => {
@@ -249,7 +249,7 @@ describe("QuakeLauncher", () => {
     expect(getQuakeMachineState()).toBe("rest");
   });
 
-  it("Esc releases to rest: the box blurs and prior focus is restored", () => {
+  it("Esc releases to rest: the docked compose blurs and prior focus is restored", () => {
     stubWideDesktop();
     const prior = document.createElement("button");
     document.body.appendChild(prior);
@@ -257,7 +257,7 @@ describe("QuakeLauncher", () => {
     renderPair();
 
     act(() => requestQuakeTerminal({ action: "toggle" }));
-    expect(screen.getByTestId("quake-launcher-input")).toHaveFocus();
+    expect(screen.getByTestId("quake-terminal-compose-input")).toHaveFocus();
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(getQuakeMachineState()).toBe("rest");
@@ -265,13 +265,14 @@ describe("QuakeLauncher", () => {
     prior.remove();
   });
 
-  it("a blur alone never steps the machine — the open drawer outlives the box's focus", () => {
+  it("a blur alone never steps the machine — the open drawer outlives the compose's focus", () => {
     stubNarrowDesktop();
     const { unmount } = renderPair();
 
     fireEvent.click(screen.getByTestId("quake-launcher-ghost"));
-    const input = screen.getByTestId("quake-launcher-input");
-    fireEvent.blur(input);
+    const docked = screen.getByTestId("quake-terminal-compose-input");
+    expect(docked).toHaveFocus();
+    fireEvent.blur(docked);
     expect(getQuakeMachineState()).toBe("open");
     unmount();
 
@@ -281,7 +282,8 @@ describe("QuakeLauncher", () => {
     const wideInput = screen.getByTestId("quake-launcher-input");
     fireEvent.focus(wideInput);
     expect(getQuakeMachineState()).toBe("open");
-    fireEvent.blur(wideInput);
+    const wideDocked = screen.getByTestId("quake-terminal-compose-input");
+    fireEvent.blur(wideDocked);
     expect(getQuakeMachineState()).toBe("open");
   });
 
@@ -297,8 +299,9 @@ describe("QuakeLauncher", () => {
     document.body.appendChild(outside);
     renderPair();
 
-    // Real click-entry: focus lands on the input BEFORE onFocus engages the
-    // machine, which is what used to poison the restore origin with the box.
+    // Real click-entry: focus lands on the standing input BEFORE onFocus
+    // engages the machine, so the origin capture sees a quake-owned element
+    // and records nothing.
     const input = screen.getByTestId("quake-launcher-input") as HTMLInputElement;
     act(() => input.focus());
     expect(getQuakeMachineState()).toBe("open");
@@ -306,11 +309,11 @@ describe("QuakeLauncher", () => {
     act(() => outside.focus());
     expect(getQuakeMachineState()).toBe("open");
     expect(outside).toHaveFocus();
-    expect(input).not.toHaveFocus();
+    expect(screen.getByTestId("quake-terminal-compose-input")).not.toHaveFocus();
     outside.remove();
   });
 
-  it("Esc releases a mouse-entered box instead of re-focusing it", () => {
+  it("Esc releases a mouse-entered box instead of re-focusing the launcher", () => {
     stubWideDesktop();
     renderPair();
 
@@ -320,10 +323,12 @@ describe("QuakeLauncher", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(getQuakeMachineState()).toBe("rest");
-    expect(input).not.toHaveFocus();
+    // The standing box is back at rest — but with no recorded origin, nothing
+    // re-focused it.
+    expect(screen.getByTestId("quake-launcher-input")).not.toHaveFocus();
   });
 
-  it("at open, an outside focus stands the box chrome down but leaves the drawer open", () => {
+  it("at open the collapsed control stands in for the box, its accent following the compose's focus", () => {
     stubWideDesktop();
     const outside = document.createElement("button");
     document.body.appendChild(outside);
@@ -331,20 +336,49 @@ describe("QuakeLauncher", () => {
 
     act(() => requestQuakeTerminal({ action: "open" }));
     expect(getQuakeMachineState()).toBe("open");
-    expect(screen.getByTestId("quake-launcher").className).toContain("w-[34ch]");
-    // The placeholder gate is width-only: engaging below 2xl keeps the short
-    // form (the mounted chip leaves the input ~12ch — the long form would clip).
-    expect(screen.getByTestId("quake-launcher-input")).toHaveAttribute("placeholder", "Ask…");
+    // No input element, no engaged-width box, no launcher-mounted chip at open.
+    expect(screen.queryByTestId("quake-launcher-input")).toBeNull();
+    expect(screen.queryByTestId("quake-launcher")).toBeNull();
+    const collapsed = screen.getByTestId("quake-launcher-collapsed");
+    // The docked textarea took focus on open — the engaged accent is lit.
+    expect(screen.getByTestId("quake-terminal-compose-input")).toHaveFocus();
+    expect(collapsed.className).toContain("border-accent-green");
 
     act(() => outside.focus());
-    // The peek outlives the box's focus: the machine and the drawer are
-    // untouched, only the chrome stands down.
+    // The peek outlives the compose's focus: the machine and the drawer are
+    // untouched, only the accent stands down.
     expect(getQuakeMachineState()).toBe("open");
     expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
-    const box = screen.getByTestId("quake-launcher");
-    expect(box.className).toContain("w-[12ch]");
-    expect(box.className).toContain("border-border");
-    expect(screen.queryByTestId("quake-terminal-context")).toBeNull();
+    expect(collapsed.className).toContain("border-border");
+    expect(collapsed.className).not.toContain("border-accent-green");
+    outside.remove();
+  });
+
+  it("the collapsed control's click re-focuses the docked textarea and never reads as an outside click", async () => {
+    stubWideDesktop();
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    renderPair();
+
+    act(() => requestQuakeTerminal({ action: "open" }));
+    act(() => outside.focus());
+    expect(screen.getByTestId("quake-terminal-compose-input")).not.toHaveFocus();
+
+    const collapsed = screen.getByTestId("quake-launcher-collapsed");
+    // Quake-owned DOM: the drawer's outside-click listener stands down on it.
+    expect(isQuakeTerminalTarget(collapsed)).toBe(true);
+
+    fireEvent.click(collapsed);
+    expect(screen.getByTestId("quake-terminal-compose-input")).toHaveFocus();
+    expect(getQuakeMachineState()).toBe("open");
+
+    // Past the outside-click settle window (a macrotask deferral), the drawer
+    // is still open and the compose still focused — the click was never
+    // treated as click-away.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal-compose-input")).toHaveFocus();
     outside.remove();
   });
 
@@ -369,109 +403,5 @@ describe("QuakeLauncher", () => {
     stubWideDesktop();
     renderPair();
     expect(screen.getByTestId("quake-launcher")).toHaveAttribute("data-quake-terminal");
-  });
-});
-
-describe("QuakeLauncher (templated chat lane)", () => {
-  beforeEach(() => {
-    stubMatchMedia((query) => query === "(min-width: 1024px)");
-    setQuakeMachineState("rest");
-    setOperatorComposeText("");
-    setOperatorChatSubject(null);
-    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    mockSend.mockReset();
-    mockSend.mockResolvedValue({ ok: true });
-    mockOperatorRequest.mockReset();
-    mockOperatorRequest.mockResolvedValue({ outcome: "delivered" });
-    localStorage.clear();
-  });
-  afterEach(() => {
-    cleanup();
-    vi.unstubAllGlobals();
-  });
-
-  it("the chip's ✕ still lands — a within-box focus move never stands the chrome down", () => {
-    renderPair();
-
-    const input = screen.getByTestId("quake-launcher-input") as HTMLInputElement;
-    act(() => input.focus());
-    const dismiss = screen.getByRole("button", { name: "Detach window context" });
-
-    // The real dismissal sequence: focus leaves the input FOR the ✕, then the
-    // click lands. If that blur stood the chrome down, the chip would unmount
-    // in between and the click would never reach it.
-    act(() => dismiss.focus());
-    expect(screen.getByTestId("quake-terminal-context")).toBeInTheDocument();
-    fireEvent.click(dismiss);
-    expect(screen.queryByTestId("quake-terminal-context")).toBeNull();
-  });
-
-  it("the chip's dismiss button fits the box's fixed height — no fine-pointer floor in the compact mount", () => {
-    renderPair();
-
-    const input = screen.getByTestId("quake-launcher-input");
-    fireEvent.focus(input);
-    const box = screen.getByTestId("quake-launcher");
-    expect(box.className).toContain("h-[28px]");
-
-    const dismiss = screen.getByRole("button", { name: "Detach window context" });
-    // The compact (quake launcher) mount drops the 24px fine-pointer floor so the
-    // chip fits inside the box's fixed height without overflow; the coarse
-    // (touch) floor is untouched.
-    expect(dismiss.className).not.toContain("min-h-[24px]");
-    expect(dismiss.className).not.toContain("min-w-[24px]");
-    expect(dismiss.className).toContain("coarse:min-h-[40px]");
-    expect(dismiss.className).toContain("coarse:min-w-[40px]");
-  });
-
-  it("on a terminal route the engaged box shows the chip and Enter rides the templated lane", async () => {
-    renderPair();
-
-    const input = screen.getByTestId("quake-launcher-input");
-    fireEvent.focus(input);
-    expect(screen.getByTestId("quake-terminal-context")).toHaveTextContent('from: @1 "win"');
-
-    fireEvent.change(input, { target: { value: "can you check the failing test?" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() => expect(mockOperatorRequest).toHaveBeenCalledTimes(1));
-    expect(mockOperatorRequest).toHaveBeenCalledWith("srv1", "@1", "user-message", "can you check the failing test?");
-    expect(mockSend).not.toHaveBeenCalled();
-  });
-
-  it("dismissing the chip drops the envelope — the next send rides the direct lane", async () => {
-    renderPair();
-
-    const input = screen.getByTestId("quake-launcher-input");
-    fireEvent.focus(input);
-    fireEvent.click(screen.getByRole("button", { name: "Detach window context" }));
-    expect(screen.queryByTestId("quake-terminal-context")).toBeNull();
-
-    fireEvent.change(input, { target: { value: "plain message" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
-    expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "plain message", "submit", "agent");
-    expect(mockOperatorRequest).not.toHaveBeenCalled();
-  });
-
-  it("the chip resets to attached when the quake terminal re-engages", async () => {
-    renderPair();
-
-    const input = screen.getByTestId("quake-launcher-input");
-    fireEvent.focus(input);
-    fireEvent.click(screen.getByRole("button", { name: "Detach window context" }));
-    expect(screen.queryByTestId("quake-terminal-context")).toBeNull();
-
-    // Esc releases to rest (the quake terminal's document listener); the engagement
-    // ends only once the exit slide finishes (the drawer unmounts — mid-slide
-    // the quake terminal still counts as engaged). The next chord re-engages the
-    // machine and re-attaches the chip.
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(getQuakeMachineState()).toBe("rest");
-    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
-    act(() => requestQuakeTerminal({ action: "toggle" }));
-    expect(getQuakeMachineState()).toBe("open");
-    expect(screen.getByTestId("quake-terminal-context")).toBeInTheDocument();
   });
 });

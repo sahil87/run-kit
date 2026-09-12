@@ -3,22 +3,29 @@ import { openPalette } from "./_ready";
 import { mockStateSocket } from "./_state-socket-mock";
 
 // Quake terminal — the pull-down operator chat overlay: the ⌘J two-state
-// toggle (rest ⇄ open — launcher focus and drawer linked), the desktop quake
-// launcher in the top-bar center cell (standing at ≥ lg beside the compact
-// heading, ghost + in-place morph at md–lg) as the drawer's relocated compose,
-// the one-input rule (the desktop drawer is output-only with the status/error
-// line at its top edge), the palette action + Ask-operator fallback row,
-// operator-absent degradation, and inline send-error surfacing. The drawer
-// carries: the true slide (mounted-through-exit), mouse resize from every
-// exposed edge (full bottom edge with the tongue tab, both sides, both bottom
-// corners — independent edges, so a corner tracks the pointer and the drawer
-// may rest off-center) with per-viewer geometry persistence
-// (`{heightVh, widthPx, centerOffsetPx}`), the glass background +
-// settings-dialog opacity row,
-// the launcher ◉ live-state dot on both desktop rungs, and drawer/launcher
+// toggle (rest ⇄ open — docked-compose focus and drawer linked), the compose
+// DOCKED at the drawer's bottom edge while open (the shared compose seam's
+// one desktop view: status line, ◉ → operator header row + context chip +
+// key hints, bounded auto-grow textarea; Enter sends once with focus
+// retained, ⇧Enter newline, Esc yields to the embedded terminal first on the
+// Operator Terminal segment and collapses on the list segments), the top-bar
+// quake launcher as the standing affordance (standing box at ≥ lg, ghost at
+// md–lg — at open BOTH collapse to the glyph + chord control whose click
+// re-focuses the docked textarea; the page heading is never hidden), the ONE
+// header row (segments + server/state/tick meta + pin + ▼), the pin
+// (suspends only the outside-click collapse; ephemeral, reset at rest), the
+// palette action + Ask-operator fallback row, operator-absent degradation,
+// and inline send-error surfacing (the status line's one home is inside the
+// strip). The drawer carries: the true slide (mounted-through-exit), mouse
+// resize from every exposed edge (full bottom edge with the tongue tab, both
+// sides, both bottom corners — independent edges, so a corner tracks the
+// pointer and the drawer may rest off-center) with per-viewer geometry
+// persistence (`{heightVh, widthPx, centerOffsetPx}`), the glass background
+// (default α 0.95) + settings-dialog opacity row,
+// the launcher ◉ live-state dot on every launcher rung, and drawer/launcher
 // image paste (upload to the operator window's session + insert-delivery)
 // with the route terminals' strip-forward guard. The drawer's
-// Operator Terminal | Operator Tasks | Cron List | Cron Log segment header
+// Operator Terminal | Operator Tasks | Cron List | Cron Log segment strip
 // swaps the body between the embedded terminal, the watched worker table, and
 // the cron tabs (one relay stream max per drawer); the status-bar ◷ chip
 // opens the drawer on Cron List; a desktop `?tab=` deep link (`tasks`,
@@ -59,7 +66,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // route (server "default") before driving the drawer, except the mobile
 // specs, which run at 375px and gate arrivals on the terminal's
 // `__rkTerminals` registration (not the desktop visible-text gate), the
-// no-subject chip spec (the tmux Server route), and the morph-rung spec,
+// no-subject chip spec (the tmux Server route), and the md–lg spec,
 // which runs at 900px (between the mobile rule and lg).
 // Synthetic file pastes dispatch a real ClipboardEvent carrying a
 // DataTransfer file (Chromium populates clipboardData from the init).
@@ -276,6 +283,9 @@ async function gotoWindow(page: Page) {
 }
 
 const drawer = (page: Page) => page.getByTestId("quake-terminal");
+const composeInput = (page: Page) => page.getByTestId("quake-terminal-compose-input");
+// The standing launcher's input exists only at rest — while the drawer is
+// open the launcher is the collapsed glyph + chord control.
 const launcherInput = (page: Page) => page.getByTestId("quake-launcher-input");
 
 /** The operator window's route (what every mobile quake terminal entry point
@@ -313,30 +323,35 @@ async function gotoWindowMobile(page: Page, windowId = "@1") {
     .toBe(true);
 }
 
-/** Open the desktop drawer from rest: one chord press focuses the launcher
- *  AND opens the drawer (the two-state toggle). */
+/** Open the desktop drawer from rest: one chord press focuses the docked
+ *  compose textarea AND opens the drawer (the two-state toggle). */
 async function openDrawerViaChord(page: Page) {
   await page.keyboard.press("Shift+Control+j");
-  await expect(launcherInput(page)).toBeFocused();
+  await expect(composeInput(page)).toBeFocused();
   await expect(drawer(page)).toBeVisible();
 }
 
 test.describe("Quake terminal", () => {
   /**
    * Proves: the quake terminal chord (⇧Ctrl+J on this host) is a two-state toggle
-   * with launcher focus and the drawer linked — one press engages both (drawer
-   * open, a peek, nothing sent, launcher focused), the next releases both —
-   * and a single Escape does the same release, all without navigation.
+   * with docked-compose focus and the drawer linked — one press engages both
+   * (drawer open, a peek, nothing sent, the docked textarea focused), the next
+   * releases both — and a single Escape does the same release, all without
+   * navigation. The drawer carries the docked compose strip and the ONE header
+   * row (no `◉ OPERATOR` title strip).
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the @1 terminal route.
-   * 2. Press Shift+Control+j; assert the launcher is focused AND the drawer is
-   *    visible with `◉ OPERATOR · default` in the title strip, an xterm frame
-   *    inside, and NO compose strip (output-only drawer).
-   * 3. Press it again; assert the drawer is gone and the launcher no longer
-   *    holds focus.
-   * 4. Re-open, then press Escape once; assert the drawer closes and the
-   *    launcher blurs, with the URL unchanged throughout.
+   * 2. Press Shift+Control+j; assert the docked compose input is focused AND
+   *    the drawer is visible with the header row carrying the server name, an
+   *    xterm frame inside, the compose strip present, and no `◉ OPERATOR`
+   *    text.
+   * 3. Press it again; assert the drawer is gone and the docked compose no
+   *    longer holds focus (the standing launcher is back, unfocused).
+   * 4. Re-open, then walk the Esc ladder: the first Escape yields focus to
+   *    the embedded terminal (the drawer stays open), the second closes the
+   *    drawer; the standing launcher is not focused, and the URL is unchanged
+   *    throughout.
    */
   test("the chord toggles rest ⇄ open+focused and one Esc releases", async ({
     page,
@@ -345,21 +360,40 @@ test.describe("Quake terminal", () => {
     await gotoWindow(page);
 
     await page.keyboard.press("Shift+Control+j");
-    await expect(launcherInput(page)).toBeFocused();
+    await expect(composeInput(page)).toBeFocused();
     await expect(drawer(page)).toBeVisible();
-    await expect(drawer(page).getByText("◉ OPERATOR")).toBeVisible();
-    await expect(drawer(page).getByText("· default")).toBeVisible();
+    await expect(drawer(page).getByTestId("quake-terminal-header")).toBeVisible();
+    await expect(drawer(page).getByText("default", { exact: true })).toBeVisible();
     await expect(drawer(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
-    // Output-only drawer: the compose textbox is gone (the xterm helper
-    // textarea inside the embedded terminal is not a compose input).
-    await expect(drawer(page).getByRole("textbox", { name: "Message the operator" })).toHaveCount(0);
+    // The docked compose IS the drawer's input — no separate Send button; the
+    // standing launcher's input is collapsed away while open.
+    await expect(drawer(page).getByTestId("quake-terminal-compose")).toBeVisible();
     await expect(drawer(page).getByRole("button", { name: "Send" })).toHaveCount(0);
+    await expect(drawer(page).getByText("◉ OPERATOR")).toHaveCount(0);
+    await expect(launcherInput(page)).toHaveCount(0);
+    await expect(page.getByTestId("quake-launcher-collapsed")).toBeVisible();
 
     await page.keyboard.press("Shift+Control+j");
     await expect(drawer(page)).toHaveCount(0);
+    await expect(launcherInput(page)).toBeVisible();
     await expect(launcherInput(page)).not.toBeFocused();
 
     await openDrawerViaChord(page);
+    // The Esc ladder: the first Esc in the docked compose yields focus to the
+    // embedded terminal (the drawer stays open); the second collapses.
+    await page.keyboard.press("Escape");
+    await expect(drawer(page)).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const el = document.activeElement;
+          return (
+            el?.classList.contains("xterm-helper-textarea") === true &&
+            el.closest('[data-testid="quake-terminal"]') !== null
+          );
+        }),
+      )
+      .toBe(true);
     await page.keyboard.press("Escape");
     await expect(drawer(page)).toHaveCount(0);
     await expect(launcherInput(page)).not.toBeFocused();
@@ -369,22 +403,26 @@ test.describe("Quake terminal", () => {
   /**
    * Proves: at ≥ lg the center cell carries the compact heading (the `Tab:`
    * prefix span hidden, the name click-to-rename and ▾ switcher untouched)
-   * beside the STANDING launcher, and Enter on a typed message fires exactly
-   * one send and auto-opens the drawer with focus retained — on this terminal
-   * route the context chip is attached, so the send rides the templated chat
-   * lane at the subject window (no direct send fires).
+   * beside the STANDING launcher; clicking the launcher opens the drawer with
+   * focus in the docked compose (the box collapses under the pointer by
+   * design), and Enter on a typed message fires exactly
+   * one send — on this terminal route the context chip is attached, so the
+   * send rides the templated chat lane at the subject
+   * window (no direct send fires) — with focus kept in the docked compose
+   * textarea for follow-ups.
    *
    * Steps:
    * 1. Mock the backend with an operator window and 200 stubs; land on the
    *    terminal route.
    * 2. Assert the launcher is visible, the `Tab:` prefix is hidden, and the
    *    rename button + ▾ switcher still render.
-   * 3. Type a message into the launcher and press Enter.
+   * 3. Click the launcher; assert the drawer opened with focus in the docked
+   *    compose. Type a message and press Enter.
    * 4. Assert one recorded operator-request `{template: "user-message",
-   *    text}` at @1 and no direct send, the drawer open, and the launcher
-   *    still focused with its draft cleared.
+   *    text}` at @1 and no direct send, the drawer open, and the docked
+   *    compose textarea focused with its draft cleared.
    */
-  test("≥ lg: the standing launcher sends on Enter and auto-opens the drawer", async ({ page }) => {
+  test("≥ lg: clicking the standing launcher opens the drawer; Enter from the docked compose sends", async ({ page }) => {
     const { sendBodies, requestCalls } = await mockBackend(page, true);
     await gotoWindow(page);
 
@@ -394,8 +432,11 @@ test.describe("Quake terminal", () => {
     await expect(page.getByRole("button", { name: "Switch tab" })).toBeVisible();
 
     await launcherInput(page).click();
-    await launcherInput(page).fill("restart the worker");
-    await launcherInput(page).press("Enter");
+    await expect(drawer(page)).toBeVisible();
+    await expect(composeInput(page)).toBeFocused();
+
+    await composeInput(page).fill("restart the worker");
+    await composeInput(page).press("Enter");
 
     await expect
       .poll(() => requestCalls.map((c) => ({ path: new URL(c.url).pathname, body: c.body })))
@@ -407,44 +448,46 @@ test.describe("Quake terminal", () => {
       ]);
     expect(sendBodies).toEqual([]);
     await expect(drawer(page)).toBeVisible();
-    await expect(launcherInput(page)).toBeFocused();
-    await expect(launcherInput(page)).toHaveValue("");
+    await expect(composeInput(page)).toBeFocused();
+    await expect(composeInput(page)).toHaveValue("");
   });
 
   /**
-   * Proves: the launcher YIELDS focus to a terminal pane. Clicking into the
-   * ROUTE xterm after engaging the box (which also drops the drawer — focus
-   * and drawer are linked) is an outside click: the drawer collapses, focus
-   * lands on that terminal's helper textarea, and typed keys land there, not
-   * in the compose draft — the box neither re-acquires focus nor keeps its
-   * engaged chrome. jsdom cannot prove this (its synthetic focus events never
-   * move `document.activeElement`), which is exactly how the self-restore
-   * regression reached users.
+   * Proves: the compose YIELDS focus to a terminal pane. Clicking into the
+   * ROUTE xterm while the drawer is open is an outside click: the drawer
+   * collapses, focus lands on that terminal's helper textarea, and typed keys
+   * land there, not in the compose draft — the compose neither re-acquires
+   * focus nor keeps its engaged chrome. jsdom cannot prove this (its
+   * synthetic focus events never move `document.activeElement`), which is
+   * exactly how the self-restore regression reached users.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the @1 terminal
    *    route and wait for the xterm frame.
-   * 2. Click the launcher and type a partial draft; assert it holds focus, the
-   *    drawer is open, and the box renders engaged (accent border).
+   * 2. Click the standing launcher (opens the drawer, focus moves to the
+   *    docked textarea) and type a partial draft; assert the docked textarea
+   *    holds focus, the drawer is open, and the collapsed launcher renders
+   *    engaged (accent border).
    * 3. Click the ROUTE terminal's xterm screen (outside the quake terminal's DOM —
    *    the drawer holds its own xterm, so the route one is addressed
    *    explicitly); assert the drawer collapses, `document.activeElement` is
-   *    `.xterm-helper-textarea`, and the launcher is not focused.
-   * 4. Type; assert the launcher draft is unchanged (the keys went to the
-   *    pane, not the box).
-   * 5. Assert the box has stood down to its resting chrome (no accent border,
-   *    no context chip).
+   *    `.xterm-helper-textarea`, and the docked compose is gone with it.
+   * 4. Type; assert the store draft is unchanged (the keys went to the pane,
+   *    not the compose) — visible in the standing box, which shows the
+   *    store-held draft at rest.
+   * 5. Assert the launcher has stood down to its resting chrome (the standing
+   *    box is back, the collapsed control is gone).
    */
-  test("clicking into the terminal takes focus from the launcher and keeps it", async ({ page }) => {
+  test("clicking into the terminal takes focus from the compose and keeps it", async ({ page }) => {
     await mockBackend(page, true);
     await gotoWindow(page);
     await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
 
     await launcherInput(page).click();
-    await launcherInput(page).fill("half-written");
-    await expect(launcherInput(page)).toBeFocused();
+    await composeInput(page).fill("half-written");
+    await expect(composeInput(page)).toBeFocused();
     await expect(drawer(page)).toBeVisible();
-    await expect(page.getByTestId("quake-launcher")).toHaveClass(/border-accent-green/);
+    await expect(page.getByTestId("quake-launcher-collapsed")).toHaveClass(/border-accent-green/);
 
     const routeXterm = page.locator('.xterm-screen:not([data-testid="quake-terminal"] *)');
     // The centered drawer overlays the route terminal's middle — click the
@@ -459,33 +502,35 @@ test.describe("Quake terminal", () => {
         ),
       )
       .toBe(true);
-    await expect(launcherInput(page)).not.toBeFocused();
 
     await page.keyboard.type("ls -la");
     await expect(launcherInput(page)).toHaveValue("half-written");
 
-    await expect(page.getByTestId("quake-launcher")).not.toHaveClass(/border-accent-green/);
+    await expect(page.getByTestId("quake-launcher-collapsed")).toHaveCount(0);
+    await expect(launcherInput(page)).toBeVisible();
     await expect(page.getByTestId("quake-terminal-context")).toBeHidden();
   });
 
   /**
    * Proves: the md–lg rung renders today's full heading (prefix included)
-   * plus the dim `· ◉ ask` ghost; clicking the ghost morphs the center into
-   * the launcher in place (heading hidden, box focused) and opens the drawer
-   * (focus and drawer are linked), and one Escape restores the heading and
-   * closes the drawer.
+   * plus the dim `· ◉ ask` ghost; clicking the ghost opens the drawer and
+   * swaps the ghost for the collapsed launcher control — the heading STAYS
+   * (the machine never hides it) — and the Esc ladder (yield, then release)
+   * closes the drawer and restores the ghost.
    *
    * Steps:
    * 1. Set a 900×720 viewport (between the mobile rule and lg); mock the
    *    backend with an operator window; land on the terminal route.
-   * 2. Assert the ghost and the `Tab:` prefix are visible and the launcher is
-   *    hidden.
-   * 3. Click the ghost; assert the launcher is visible and focused, the drawer
-   *    is open, and the heading's rename button is hidden.
-   * 4. Press Escape; assert the heading and ghost are back, the box is
-   *    hidden, and the drawer is gone.
+   * 2. Assert the ghost and the `Tab:` prefix are visible and the launcher
+   *    input does not exist.
+   * 3. Click the ghost; assert the drawer is open, the docked compose is
+   *    focused, the collapsed control renders beside the STILL-visible
+   *    heading, and no launcher input renders.
+   * 4. Walk the Esc ladder — the first Escape yields focus to the embedded
+   *    terminal, the second closes the drawer; assert the heading and ghost
+   *    are back and the collapsed control is gone.
    */
-  test("md–lg: the ghost morphs the center into the launcher and Esc restores the heading", async ({
+  test("md–lg: the ghost opens the drawer beside the standing heading and Esc restores the ghost", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 900, height: 720 });
@@ -498,14 +543,19 @@ test.describe("Quake terminal", () => {
     await expect(launcherInput(page)).toBeHidden();
 
     await ghost.click();
-    await expect(launcherInput(page)).toBeVisible();
-    await expect(launcherInput(page)).toBeFocused();
     await expect(drawer(page)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Rename tab feature-work" })).toBeHidden();
+    await expect(composeInput(page)).toBeFocused();
+    await expect(page.getByTestId("quake-launcher-collapsed")).toBeVisible();
+    await expect(launcherInput(page)).toHaveCount(0);
+    // The heading never yields: prefix and rename button stay put at open.
+    await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Rename tab feature-work" })).toBeVisible();
 
     await page.keyboard.press("Escape");
-    await expect(launcherInput(page)).toBeHidden();
+    await expect(drawer(page)).toBeVisible();
+    await page.keyboard.press("Escape");
     await expect(drawer(page)).toHaveCount(0);
+    await expect(page.getByTestId("quake-launcher-collapsed")).toHaveCount(0);
     await expect(ghost).toBeVisible();
     await expect(page.getByRole("button", { name: "Rename tab feature-work" })).toBeVisible();
   });
@@ -513,15 +563,15 @@ test.describe("Quake terminal", () => {
   /**
    * Proves: the palette carries the `Operator: Open quake terminal` action (the
    * action registry of record), and selecting it lands on open+focused — the
-   * drawer opens AND the launcher takes focus (the same linked state the chord
-   * toggles into).
+   * drawer opens AND the docked compose textarea takes focus (the same linked
+   * state the chord toggles into).
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the terminal route.
    * 2. Open the palette, filter to `Open quake terminal`, select the row (anchored
    *    name — the Ask-operator fallback row is the substring-collision class,
    *    and the option's accessible name carries the chord keycap).
-   * 3. Assert the quake terminal is visible and the launcher is focused.
+   * 3. Assert the quake terminal is visible and the docked compose is focused.
    */
   test("palette action 'Operator: Open quake terminal' lands open+focused", async ({ page }) => {
     await mockBackend(page, true);
@@ -532,7 +582,7 @@ test.describe("Quake terminal", () => {
     await page.getByRole("option", { name: /^Operator: Open quake terminal/ }).click();
 
     await expect(drawer(page)).toBeVisible();
-    await expect(launcherInput(page)).toBeFocused();
+    await expect(composeInput(page)).toBeFocused();
   });
 
   /**
@@ -953,21 +1003,26 @@ test.describe("Quake terminal", () => {
 
   /**
    * Proves: degrade-to-absent — with no `role: "operator"` window on the
-   * server, the quake terminal opens to a single hint line (no terminal stream, no
-   * compose anywhere) and the palette renders no fallback row.
+   * server, the quake terminal opens to a single hint line (no terminal
+   * stream) and the palette renders no fallback row. The docked compose
+   * renders (it is the drawer's chrome while open) but its Enter is a guarded
+   * no-op — the hint line is the answer.
    *
    * Steps:
    * 1. Mock the backend WITHOUT an operator window; land on the terminal
    *    route.
-   * 2. Focus the standing launcher to open the quake terminal; assert the hint line,
-   *    and no xterm or textbox inside the quake terminal.
-   * 3. Close with one Escape (open → rest), open the palette, type a
+   * 2. Focus the standing launcher to open the quake terminal; assert the hint
+   *    line and no xterm inside the quake terminal.
+   * 3. Type into the docked compose and press Enter; assert no send fired on
+   *    either lane.
+   * 4. Close with Escape (one press — no embedded terminal means no yield
+   *    rung), open the palette, type a
    *    floor-length query matching no action; assert no `Ask operator` row.
    */
   test("no operator on the server renders the hint line and omits the fallback row", async ({
     page,
   }) => {
-    await mockBackend(page, false);
+    const { sendBodies, requestCalls } = await mockBackend(page, false);
     await gotoWindow(page);
 
     await launcherInput(page).click();
@@ -976,8 +1031,14 @@ test.describe("Quake terminal", () => {
       "no operator on this server — run rk operator",
     );
     await expect(drawer(page).locator(".xterm")).toHaveCount(0);
-    await expect(drawer(page).getByRole("textbox")).toHaveCount(0);
 
+    await composeInput(page).fill("anyone home?");
+    await composeInput(page).press("Enter");
+    await expect.poll(() => sendBodies).toEqual([]);
+    expect(requestCalls).toEqual([]);
+
+    // With no embedded terminal mounted the yield rung has nothing to yield
+    // to: one Escape collapses.
     await page.keyboard.press("Escape");
     await expect(drawer(page)).toHaveCount(0);
     const paletteInput = await openPalette(page);
@@ -987,17 +1048,17 @@ test.describe("Quake terminal", () => {
 
   /**
    * Proves: a structured send failure (409 from the injection engine)
-   * 1. Mock the backend with an operator window and a 409 stub (both send
-   *    lanes) carrying the probe-failure message; land on the terminal route.
-   * 2. Type a message into the launcher and press Enter (the send auto-opens
-   *    the drawer).
-   * 3. Assert the templated lane fired once (the chip is attached on this
-   *    route), the drawer's top-edge error line carries the server's message,
-   *    and the launcher still holds the text.
+   * surfaces inline inside the docked compose strip (the status line's one
+   * home) with the composed text preserved in the draft.
    *
    * Steps:
-    await expect.poll(() => requestCalls).toHaveLength(1);
-    await expect(drawer(page)).toBeVisible();
+   * 1. Mock the backend with an operator window and a 409 stub (both send
+   *    lanes) carrying the probe-failure message; land on the terminal route.
+   * 2. Open the drawer via the chord and type a message into the docked
+   *    compose; press Enter.
+   * 3. Assert the templated lane fired once (the chip is attached on this
+   *    route), the strip's error line carries the server's message, and the
+   *    docked textarea still holds the text.
    */
   test("a structured 409 send failure surfaces inline with the composed text preserved", async ({
     page,
@@ -1008,33 +1069,36 @@ test.describe("Quake terminal", () => {
     });
     await gotoWindow(page);
 
-    const input = launcherInput(page);
-    await input.click();
-    await input.fill("restart the worker");
-    await input.press("Enter");
+    await openDrawerViaChord(page);
+    await composeInput(page).fill("restart the worker");
+    await composeInput(page).press("Enter");
 
     await expect.poll(() => requestCalls).toHaveLength(1);
     await expect(drawer(page)).toBeVisible();
-    await expect(page.getByTestId("quake-terminal-error")).toHaveText("probe failed: no novelty echo");
-    await expect(input).toHaveValue("restart the worker");
+    const error = page.getByTestId("quake-terminal-error");
+    await expect(error).toHaveText("probe failed: no novelty echo");
+    await expect(drawer(page).getByTestId("quake-terminal-compose")).toContainText(
+      "probe failed: no novelty echo",
+    );
+    await expect(composeInput(page)).toHaveValue("restart the worker");
   });
 
   /**
-   * Proves: on a terminal route the compose strip shows the attached context
-   * chip naming the route window (`from: @1 "feature-work"`), and Enter fires
-   * exactly one POST to the window-scoped operator-request route at the
-   * SUBJECT window @1 with `{template: "user-message", text}` — the direct
-   * send lane (at the operator window @9) is not called.
+   * Proves: on a terminal route the docked compose strip shows the attached
+   * context chip naming the route window (`from: @1 "feature-work"`), and
+   * Enter fires exactly one POST to the window-scoped operator-request route
+   * at the SUBJECT window @1 with `{template: "user-message", text}` — the
+   * direct send lane (at the operator window @9) is not called.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the @1 terminal
    *    route.
-   * 2. Click into the launcher (machine → open); assert the chip appears
-   *    beside the box naming @1 "feature-work".
-   * 3. Type a message and press Enter (the send auto-opens the drawer).
+   * 2. Open the drawer via the chord; assert the chip appears in the strip
+   *    naming @1 "feature-work".
+   * 3. Type a message into the docked textarea and press Enter.
    * 4. Assert exactly one operator-request call whose path is
-   *    `/api/windows/%401/operator-request` with the user-message body, and
-   *    an empty direct-send list.
+   *    `/api/windows/%401/operator-request` with the user-message body, an
+   *    empty direct-send list, and the cleared draft.
    */
   test("terminal route: the context chip rides the send onto the templated chat lane", async ({
     page,
@@ -1042,13 +1106,14 @@ test.describe("Quake terminal", () => {
     const { sendBodies, requestCalls } = await mockBackend(page, true);
     await gotoWindow(page);
 
-    const input = launcherInput(page);
-    await input.click();
-    await expect(page.getByTestId("quake-terminal-context")).toContainText('from: @1 "feature-work"');
+    await openDrawerViaChord(page);
+    const strip = drawer(page).getByTestId("quake-terminal-compose");
+    await expect(strip.getByTestId("quake-terminal-context")).toContainText(
+      'from: @1 "feature-work"',
+    );
 
-    await input.fill("can you check the failing test?");
-    await input.press("Enter");
-    await expect(drawer(page)).toBeVisible();
+    await composeInput(page).fill("can you check the failing test?");
+    await composeInput(page).press("Enter");
 
     await expect
       .poll(() => requestCalls.map((c) => ({ path: new URL(c.url).pathname, body: c.body })))
@@ -1059,7 +1124,7 @@ test.describe("Quake terminal", () => {
         },
       ]);
     expect(sendBodies).toEqual([]);
-    await expect(input).toHaveValue("");
+    await expect(composeInput(page)).toHaveValue("");
   });
 
   /**
@@ -1071,9 +1136,9 @@ test.describe("Quake terminal", () => {
    * Steps:
    * 1. Mock the backend with an operator window; land on the @1 terminal
    *    route.
-   * 2. Click into the launcher; dismiss the chip via its ✕ button and assert
-   *    it disappears.
-   * 3. Type a message and press Enter.
+   * 2. Open the drawer via the chord; dismiss the strip's chip via its ✕
+   *    button and assert it disappears.
+   * 3. Type a message into the docked textarea and press Enter.
    * 4. Assert exactly one direct-send call at @9 with the agent-target body
    *    and an empty operator-request list.
    */
@@ -1081,13 +1146,12 @@ test.describe("Quake terminal", () => {
     const { sendBodies, requestCalls } = await mockBackend(page, true);
     await gotoWindow(page);
 
-    const input = launcherInput(page);
-    await input.click();
+    await openDrawerViaChord(page);
     await page.getByRole("button", { name: "Detach window context" }).click();
     await expect(page.getByTestId("quake-terminal-context")).toHaveCount(0);
 
-    await input.fill("plain message");
-    await input.press("Enter");
+    await composeInput(page).fill("plain message");
+    await composeInput(page).press("Enter");
 
     await expect.poll(() => sendBodies).toEqual([
       { text: "plain message", mode: "submit", target: "agent" },
@@ -1102,8 +1166,8 @@ test.describe("Quake terminal", () => {
    * Steps:
    * 1. Mock the backend with an operator window; land on the server route
    *    (`/default`).
-   * 2. Click into the launcher; assert no chip renders.
-   * 3. Type a message and press Enter.
+   * 2. Open the drawer via the chord; assert no chip renders in the strip.
+   * 3. Type a message into the docked textarea and press Enter.
    * 4. Assert exactly one direct-send call at @9 and an empty
    *    operator-request list.
    */
@@ -1112,17 +1176,169 @@ test.describe("Quake terminal", () => {
     await page.goto(`/${SERVER}`);
     await expect(page.getByText("feature-work").first()).toBeVisible({ timeout: 10_000 });
 
-    const input = launcherInput(page);
-    await input.click();
+    await openDrawerViaChord(page);
     await expect(page.getByTestId("quake-terminal-context")).toHaveCount(0);
 
-    await input.fill("hello from the server page");
-    await input.press("Enter");
+    await composeInput(page).fill("hello from the server page");
+    await composeInput(page).press("Enter");
 
     await expect.poll(() => sendBodies).toEqual([
       { text: "hello from the server page", mode: "submit", target: "agent" },
     ]);
     expect(requestCalls).toEqual([]);
+  });
+
+  /**
+   * Proves: Enter in the docked compose fires exactly one send (the templated
+   * lane on this terminal route — the chip is attached by default), clears
+   * the draft, and keeps focus in the textarea for follow-ups; the drawer
+   * stays open.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window and 200 stubs; land on the
+   *    terminal route and open the drawer via the chord.
+   * 2. Type a message into the docked textarea and press Enter.
+   * 3. Assert exactly one operator-request call with the user-message body,
+   *    no direct send, the cleared draft, focus still in the textarea, and
+   *    the drawer still open.
+   */
+  test("Enter from the docked compose sends exactly once with focus retained", async ({ page }) => {
+    const { sendBodies, requestCalls } = await mockBackend(page, true);
+    await gotoWindow(page);
+
+    await openDrawerViaChord(page);
+    await composeInput(page).fill("Is peui done?");
+    await composeInput(page).press("Enter");
+
+    await expect.poll(() => requestCalls).toHaveLength(1);
+    expect(sendBodies).toEqual([]);
+    await expect(composeInput(page)).toHaveValue("");
+    await expect(composeInput(page)).toBeFocused();
+    await expect(drawer(page)).toBeVisible();
+  });
+
+  /**
+   * Proves: the pin suspends only the outside-click collapse — unpinned, a
+   * click into the page below collapses the drawer; pinned, the same click
+   * leaves the drawer open and focus lands where the click landed; the chord
+   * still collapses a pinned drawer, and the next open starts unpinned.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window; land on the terminal route
+   *    and open the drawer via the chord.
+   * 2. Click the route terminal (outside the quake terminal's DOM); assert
+   *    the drawer collapses.
+   * 3. Re-open, click the pin; click the route terminal again; assert the
+   *    drawer stays open and the route xterm owns focus.
+   * 4. Click the collapsed launcher (focus returns to the compose), then press
+   *    the chord; assert the drawer collapses. Re-open; assert the pin
+   *    is off (`aria-pressed="false"`).
+   */
+  test("an outside click collapses the drawer unpinned and holds it pinned", async ({ page }) => {
+    await mockBackend(page, true);
+    await gotoWindow(page);
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
+    const routeXterm = page.locator('.xterm-screen:not([data-testid="quake-terminal"] *)');
+    const clickRouteTerminal = async () => {
+      const box = await routeXterm.boundingBox();
+      await routeXterm.click({ position: { x: 10, y: (box?.height ?? 20) - 10 } });
+    };
+
+    await openDrawerViaChord(page);
+    await clickRouteTerminal();
+    await expect(drawer(page)).toHaveCount(0);
+
+    await openDrawerViaChord(page);
+    const pin = drawer(page).getByTestId("quake-terminal-pin");
+    await pin.click();
+    await expect(pin).toHaveAttribute("aria-pressed", "true");
+    await clickRouteTerminal();
+    await expect(drawer(page)).toBeVisible();
+    // The click owns its interaction: focus is the route terminal, not the
+    // compose.
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          document.activeElement?.classList.contains("xterm-helper-textarea"),
+        ),
+      )
+      .toBe(true);
+
+    // Back inside the quake terminal (the collapsed launcher re-focuses the
+    // compose), the chord still collapses a pinned drawer.
+    await page.getByTestId("quake-launcher-collapsed").click();
+    await expect(composeInput(page)).toBeFocused();
+    await page.keyboard.press("Shift+Control+j");
+    await expect(drawer(page)).toHaveCount(0);
+
+    // Every open starts unpinned.
+    await openDrawerViaChord(page);
+    await expect(drawer(page).getByTestId("quake-terminal-pin")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  /**
+   * Proves: at ≥ lg the `PageType: name` heading is never hidden by the
+   * machine — the rename button stays visible beside the collapsed launcher
+   * while the drawer is open (the `Tab:` prefix stays compacted exactly as at
+   * rest).
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window; land on the terminal route.
+   * 2. Open the drawer via the chord.
+   * 3. Assert the rename button and ▾ switcher are visible, the collapsed
+   *    launcher renders, and the `Tab:` prefix is hidden as at rest.
+   */
+  test("≥ lg: the heading stays visible while the drawer is open", async ({ page }) => {
+    await mockBackend(page, true);
+    await gotoWindow(page);
+
+    await openDrawerViaChord(page);
+    await expect(page.getByTestId("quake-launcher-collapsed")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Rename tab feature-work" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Switch tab" })).toBeVisible();
+    await expect(page.getByText("Tab:", { exact: true })).toBeHidden();
+  });
+
+  /**
+   * Proves: the collapsed launcher is the re-focus path back to the compose —
+   * with the drawer open and focus in the embedded terminal, clicking the
+   * collapsed control moves focus to the docked textarea and the machine
+   * stays open. The control is quake-owned DOM, so its click never reads as
+   * an outside click: the drawer is still open and the compose still focused
+   * past the outside-click settle window.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window; land on the terminal route
+   *    and open the drawer via the chord.
+   * 2. Click the drawer's embedded terminal (inside the quake terminal's DOM —
+   *    no collapse); assert focus left the compose.
+   * 3. Click the collapsed launcher; assert the docked textarea is focused
+   *    and the drawer is still open.
+   * 4. Wait past the settle window; assert the drawer is STILL visible and
+   *    the textarea still focused (no deferred outside-click collapse).
+   */
+  test("the collapsed launcher re-focuses the docked compose and holds the drawer open", async ({
+    page,
+  }) => {
+    await mockBackend(page, true);
+    await gotoWindow(page);
+
+    await openDrawerViaChord(page);
+    await drawer(page).locator(".xterm-screen").click({ position: { x: 10, y: 10 } });
+    await expect(composeInput(page)).not.toBeFocused();
+    await expect(drawer(page)).toBeVisible();
+
+    await page.getByTestId("quake-launcher-collapsed").click();
+    await expect(composeInput(page)).toBeFocused();
+    await expect(drawer(page)).toBeVisible();
+
+    // Past the settle window: the click must never collapse the drawer.
+    await page.waitForTimeout(250);
+    await expect(drawer(page)).toBeVisible();
+    await expect(composeInput(page)).toBeFocused();
   });
 
   test.describe("slide animation", () => {
@@ -1134,13 +1350,16 @@ test.describe("Quake terminal", () => {
      * Proves: the desktop drawer is a true quake slide — it carries the slide
      * class and settles out of the raised pose on open, and on Esc it stays
      * MOUNTED with the raised class while the exit slide runs (the stream
-     * tears down after the slide, not mid-animation), then unmounts.
+     * tears down after the slide, not mid-animation), then unmounts. The
+     * first Esc is the ladder's yield rung (focus in the docked compose moves
+     * to the embedded terminal); the second starts the exit.
      *
      * Steps:
      * 1. Mock the backend with an operator window; land on the terminal route.
-     * 2. Open via the chord cycle (focus, then open); assert the slide class
+     * 2. Open via the chord cycle; assert the slide class
      *    and wait out the raised (entering) pose.
-     * 3. Press Escape; assert the drawer is still attached WITH the raised
+     * 3. Press Escape twice (yield rung, then release); assert the drawer is
+     *    still attached WITH the raised
      *    class (mid-exit-slide), then detaches.
      */
     test("the desktop drawer slides in and stays mounted through the exit slide", async ({
@@ -1155,6 +1374,8 @@ test.describe("Quake terminal", () => {
       await expect(el).toHaveClass(/rk-quake-slide/);
       await expect(el).not.toHaveClass(/rk-quake-closed/);
 
+      await page.keyboard.press("Escape");
+      await expect(el).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(el).toHaveClass(/rk-quake-closed/);
       await expect(el).toHaveCount(0);
@@ -1277,17 +1498,17 @@ test.describe("Quake terminal", () => {
 
   /**
    * Proves: the desktop drawer is glass — bg-primary at the per-viewer α
-   * (default 0.90) over a fixed 6px backdrop blur — and the settings dialog's
+   * (default 0.95) over a fixed 6px backdrop blur — and the settings dialog's
    * "Quake terminal opacity" row (a localStorage resident, no settings API)
    * live-applies to the OPEN drawer; α=1 disables the blur, and the value
    * survives reload.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the terminal route
-   *    and open the quake terminal; assert the 0.90 computed background + blur.
+   *    and open the quake terminal; assert the 0.95 computed background + blur.
    * 2. Open the settings dialog (top-bar gear), switch to Appearance, and
    *    step the opacity slider down; assert the drawer's computed background
-   *    changed live and the localStorage key holds 0.85.
+   *    changed live and the localStorage key holds 0.9.
    * 3. Push the slider to the max (End key); assert no backdrop-filter.
    * 4. Reload, reopen; assert the persisted 1.0 background is opaque.
    */
@@ -1310,7 +1531,7 @@ test.describe("Quake terminal", () => {
       });
 
     await expect(el).toHaveCSS("backdrop-filter", "blur(6px)");
-    await expect.poll(readAlpha).toBe(0.9);
+    await expect.poll(readAlpha).toBe(0.95);
 
     await page.getByRole("button", { name: "Open settings" }).click();
     await page.getByRole("tab", { name: "Appearance" }).click();
@@ -1318,14 +1539,14 @@ test.describe("Quake terminal", () => {
     await expect(slider).toBeVisible();
     // .focus() (not .click()) — a click anywhere on the track jumps the
     // thumb to that position, coupling this test's expected value to the
-    // slider's min/max width; focusing preserves the current 0.9 so a single
+    // slider's min/max width; focusing preserves the current 0.95 so a single
     // ArrowDown is a deterministic one-step decrement regardless of range.
     await slider.focus();
     await slider.press("ArrowDown");
-    await expect.poll(readAlpha).toBe(0.85);
+    await expect.poll(readAlpha).toBe(0.9);
     await expect
       .poll(() => page.evaluate(() => localStorage.getItem("runkit-quake-terminal-opacity")))
-      .toBe("0.85");
+      .toBe("0.9");
 
     await slider.press("End");
     await expect.poll(readAlpha).toBe(1);
@@ -1722,16 +1943,16 @@ test.describe("Quake terminal", () => {
    * the route terminals' strip-forward guard keeps the paste OFF the tab
    * below (no upload to the route's `dev` session). Both focus targets are
    * covered: the embedded terminal's xterm textarea (the quake terminal root's
-   * CAPTURE-phase handler — xterm stops bubble propagation) and the launcher
-   * input (the relocated desktop compose; its quake-terminal root attribute excludes
-   * it from the route terminals' document-level forward).
+   * CAPTURE-phase handler — xterm stops bubble propagation) and the docked
+   * compose textarea (inside the same root; its quake-terminal root attribute
+   * excludes it from the route terminals' document-level forward).
    *
    * Steps:
    * 1. Mock the backend with an operator window plus the upload endpoint;
    *    land on the terminal route and open the quake terminal.
    * 2. Dispatch a file-carrying paste at the quake terminal's embedded xterm helper
    *    textarea; assert one upload to `_rk-operator` and one raw/agent send.
-   * 3. Dispatch a second paste at the launcher input; assert a second
+   * 3. Dispatch a second paste at the docked compose textarea; assert a second
    *    upload/send pair.
    * 4. Assert no upload ever hit the route session.
    */
@@ -1753,7 +1974,7 @@ test.describe("Quake terminal", () => {
       .poll(() => sendBodies)
       .toEqual([{ text: "/tmp/op/.uploads/shot.png ", mode: "raw", target: "agent" }]);
 
-    await pasteImage(page, '[data-testid="quake-launcher-input"]');
+    await pasteImage(page, '[data-testid="quake-terminal-compose-input"]');
     await expect
       .poll(() => uploads.map((u) => u.session))
       .toEqual(["_rk-operator", "_rk-operator"]);

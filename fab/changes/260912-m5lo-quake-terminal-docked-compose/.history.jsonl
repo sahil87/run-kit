@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-12T18:35:44Z"}
+{"args":"The quake terminal's compose docks at the drawer's bottom edge while open -- the launcher collapses to its glyph and the page heading returns -- with one header row, a pin that suspends click-away, and a 0.95 glass default. Change 2 of fab/plans/sahil/26-09-12-quake-terminal-drawer.md","cmd":"fab-new","event":"command","ts":"2026-09-12T18:35:44Z"}
+{"delta":"+3.0","event":"confidence","score":3,"trigger":"calc-score","ts":"2026-09-12T18:40:19Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-12T18:41:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-12T18:41:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-12T19:13:38Z"}
+{"event":"review","result":"failed","ts":"2026-09-12T19:20:55Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-12T19:20:55Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-12T19:26:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-12T19:32:57Z"}
+{"event":"review","result":"passed","ts":"2026-09-12T19:32:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-12T19:44:36Z"}

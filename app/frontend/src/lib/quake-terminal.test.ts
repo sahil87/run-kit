@@ -12,7 +12,9 @@ import {
   clampQuakeOpacity,
   cycleQuakeMachine,
   findOperatorWindow,
+  getQuakeComposeEngaged,
   getQuakeMachineState,
+  getQuakePinned,
   isQuakeTerminalRequest,
   isQuakeTerminalTarget,
   QUAKE_TERMINAL_ROOT_ATTR,
@@ -20,10 +22,16 @@ import {
   readQuakeOpacity,
   resolveQuakeServer,
   sendOperatorMessage,
+  setQuakeComposeEngaged,
   setQuakeMachineState,
+  setQuakePinned,
+  setQuakeRestoreOrigin,
   setOperatorComposeText,
   shouldShowAskOperatorRow,
+  takeQuakeRestoreOrigin,
   useOperatorCompose,
+  useQuakeComposeEngaged,
+  useQuakePinned,
   writeQuakeGeometry,
   writeQuakeOpacity,
 } from "./quake-terminal";
@@ -146,6 +154,68 @@ describe("quake machine state", () => {
   it("toggles rest ⇄ open", () => {
     expect(cycleQuakeMachine("rest")).toBe("open");
     expect(cycleQuakeMachine("open")).toBe("rest");
+  });
+});
+
+describe("quake pin slot", () => {
+  beforeEach(() => {
+    setQuakeMachineState("rest");
+  });
+
+  it("defaults to false and notifies subscribers on toggle", () => {
+    const { result } = renderHook(() => useQuakePinned());
+    expect(result.current).toBe(false);
+    act(() => setQuakePinned(true));
+    expect(result.current).toBe(true);
+    expect(getQuakePinned()).toBe(true);
+  });
+
+  it("resets to false when the machine enters rest", () => {
+    const { result } = renderHook(() => useQuakePinned());
+    act(() => setQuakeMachineState("open"));
+    act(() => setQuakePinned(true));
+    expect(result.current).toBe(true);
+
+    act(() => setQuakeMachineState("rest"));
+    expect(result.current).toBe(false);
+    expect(getQuakePinned()).toBe(false);
+  });
+});
+
+describe("quake compose-engaged slot", () => {
+  beforeEach(() => {
+    setQuakeMachineState("rest");
+  });
+
+  it("notifies subscribers on change", () => {
+    const { result } = renderHook(() => useQuakeComposeEngaged());
+    expect(result.current).toBe(false);
+    act(() => setQuakeComposeEngaged(true));
+    expect(result.current).toBe(true);
+    expect(getQuakeComposeEngaged()).toBe(true);
+  });
+
+  it("resets to false when the machine enters rest", () => {
+    const { result } = renderHook(() => useQuakeComposeEngaged());
+    act(() => setQuakeMachineState("open"));
+    act(() => setQuakeComposeEngaged(true));
+
+    act(() => setQuakeMachineState("rest"));
+    expect(result.current).toBe(false);
+  });
+});
+
+describe("quake restore-origin slot", () => {
+  it("round-trips the recorded element and clears on take", () => {
+    const el = document.createElement("button");
+    setQuakeRestoreOrigin(el);
+    expect(takeQuakeRestoreOrigin()).toBe(el);
+    expect(takeQuakeRestoreOrigin()).toBeNull();
+  });
+
+  it("records null for a quake-owned (or absent) origin", () => {
+    setQuakeRestoreOrigin(null);
+    expect(takeQuakeRestoreOrigin()).toBeNull();
   });
 });
 
@@ -380,7 +450,7 @@ describe("quake opacity store", () => {
     localStorage.clear();
   });
 
-  it("returns the default 0.90 when nothing is stored", () => {
+  it("returns the default 0.95 when nothing is stored", () => {
     expect(readQuakeOpacity()).toBe(QUAKE_OPACITY_DEFAULT);
   });
 

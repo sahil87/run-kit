@@ -350,8 +350,8 @@ describe("SettingsDialog", () => {
     selectTab("Appearance");
 
     const slider = screen.getByRole("slider", { name: "Quake terminal opacity" });
-    // Default 0.90, clamped 0.5–1.0.
-    expect(slider).toHaveValue("0.9");
+    // Default 0.95, clamped 0.5–1.0.
+    expect(slider).toHaveValue("0.95");
     expect(slider).toHaveAttribute("min", "0.5");
     expect(slider).toHaveAttribute("max", "1");
 

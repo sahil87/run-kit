@@ -1,4 +1,9 @@
-import { QUAKE_GEOMETRY_DEFAULT, requestQuakeTerminal, writeQuakeGeometry } from "@/lib/quake-terminal";
+import {
+  QUAKE_GEOMETRY_DEFAULT,
+  requestQuakeTerminal,
+  setQuakePinned,
+  writeQuakeGeometry,
+} from "@/lib/quake-terminal";
 
 /**
  * Pure builder for the palette's `Operator: Open quake terminal` entry —
@@ -76,5 +81,22 @@ export function buildQuakeTerminalResetSizeAction(): QuakeTerminalPaletteAction 
     id: "quake-terminal-reset-size",
     label: "Operator: Reset quake terminal size",
     onSelect: () => writeQuakeGeometry(QUAKE_GEOMETRY_DEFAULT),
+  };
+}
+
+/**
+ * The `Operator: Pin quake terminal` / `Operator: Unpin quake terminal` entry
+ * — the palette twin of the header row's ⌖ button (Constitution V): while
+ * pinned, the outside-click collapse is suspended (the chord, Esc, and ▼
+ * still collapse). No chord. The label toggles on the ephemeral pin slot.
+ * Listed only while the desktop machine is `open` — pinning a closed drawer
+ * has no meaning, so the registration site gates the listing; the builder
+ * itself is open-agnostic.
+ */
+export function buildQuakeTerminalPinAction(pinned: boolean): QuakeTerminalPaletteAction {
+  return {
+    id: "quake-terminal-pin",
+    label: pinned ? "Operator: Unpin quake terminal" : "Operator: Pin quake terminal",
+    onSelect: () => setQuakePinned(!pinned),
   };
 }

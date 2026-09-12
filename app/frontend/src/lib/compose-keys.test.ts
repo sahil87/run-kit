@@ -89,6 +89,25 @@ describe("classifyComposeEnter", () => {
   });
 });
 
+describe("classifyComposeEnter (quake surface)", () => {
+  it("plain Enter submits — the docked compose has no pane to stage a line into", () => {
+    expect(classifyComposeEnter(key(), "quake")).toBe("submit");
+  });
+
+  it("Shift+Enter is insert-line — the call site inserts the local newline", () => {
+    expect(classifyComposeEnter(key({ shiftKey: true }), "quake")).toBe("insert-line");
+  });
+
+  it("shares the rest of the matrix: Cmd/Ctrl+Enter submits, IME-composing Enter is never intercepted", () => {
+    expect(classifyComposeEnter(key({ metaKey: true }), "quake")).toBe("submit");
+    expect(classifyComposeEnter(key({ ctrlKey: true }), "quake")).toBe("submit");
+    expect(classifyComposeEnter(key({ metaKey: true, shiftKey: true }), "quake")).toBe("default");
+    expect(classifyComposeEnter(key({ altKey: true }), "quake")).toBe("insert");
+    expect(classifyComposeEnter(key({ isComposing: true }), "quake")).toBe("default");
+    expect(classifyComposeEnter(key({ key: "a" }), "quake")).toBe("default");
+  });
+});
+
 describe("composeSubmitKeycap", () => {
   afterEach(() => vi.unstubAllGlobals());
 

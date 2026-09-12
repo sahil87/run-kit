@@ -32,16 +32,21 @@ export { SEGMENTS };
 export function QuakeSegments({
   value,
   onChange,
+  className,
 }: {
   value: QuakeSegment;
   onChange: (tab: QuakeSegment) => void;
+  /** Chrome override — the desktop drawer's folded header row drops the
+   *  strip's own border/background (the row carries both). Absent = the
+   *  standalone chrome (the mobile route's mount). */
+  className?: string;
 }) {
   return (
     <div
       role="tablist"
       aria-label="Quake terminal segments"
       data-testid="terminal-activity-tabs"
-      className="flex shrink-0 border-b border-border bg-bg-primary"
+      className={`flex shrink-0 ${className ?? "border-b border-border bg-bg-primary"}`}
     >
       {SEGMENTS.map(({ tab, label }) => {
         const pressed = value === tab;

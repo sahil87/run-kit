@@ -123,6 +123,55 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
   });
 
   /**
+   * Proves: the centered heading is never hidden by the quake machine —
+   * opening the quake terminal (⇧Ctrl+J here) leaves the `Tab: <name>`
+   * heading visible at BOTH desktop rungs (the launcher collapses to its
+   * glyph + chord control instead of taking the heading's cell; the ≥lg
+   * prefix compaction is unchanged).
+   *
+   * Steps:
+   * 1. Create a window with a known name; resolve its `@N` id.
+   * 2. At an md–lg viewport (900px), navigate to it; press the quake chord;
+   *    assert the drawer is visible and both the `Tab:` prefix and the
+   *    `Rename tab <name>` heading stay visible.
+   * 3. Close with the chord; resize to ≥ lg (1280px); press the chord again;
+   *    assert the drawer is visible, the collapsed launcher renders, the
+   *    heading stays visible, and the `Tab:` prefix stays hidden (the ≥lg
+   *    compaction, same as at rest).
+   */
+  test("the heading stays visible with the quake terminal open at both desktop rungs", async ({
+    page,
+  }) => {
+    const name = `head-quake-${Date.now()}`;
+    newWindow(TEST_SESSION, name);
+    const id = await resolveWindow(page, name);
+
+    // md–lg rung: the full heading (prefix included) beside the collapsed
+    // launcher while the drawer is open.
+    await page.setViewportSize({ width: 900, height: 800 });
+    await gotoWindow(page, id);
+    const heading = page.getByRole("button", { name: `Rename tab ${name}` });
+    await expect(heading).toBeVisible({ timeout: 10_000 });
+
+    await page.keyboard.press("Shift+Control+j");
+    await expect(page.getByTestId("quake-terminal")).toBeVisible();
+    await expect(page.getByTestId("quake-launcher-collapsed")).toBeVisible();
+    await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
+    await expect(heading).toBeVisible();
+
+    // ≥ lg rung: the compact heading (prefix hidden, as at rest) beside the
+    // collapsed launcher while the drawer is open.
+    await page.keyboard.press("Shift+Control+j");
+    await expect(page.getByTestId("quake-terminal")).toHaveCount(0);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.keyboard.press("Shift+Control+j");
+    await expect(page.getByTestId("quake-terminal")).toBeVisible();
+    await expect(page.getByTestId("quake-launcher-collapsed")).toBeVisible();
+    await expect(page.getByText("Tab:", { exact: true })).toBeHidden();
+    await expect(heading).toBeVisible();
+  });
+
+  /**
    * Proves: move-don't-copy — on the tmux Server page (`/$server`, no window)
    * the server name is the CENTERED `tmux Server: <server>` heading,
    * display-only (no rename), and is NOT duplicated as a left breadcrumb leaf

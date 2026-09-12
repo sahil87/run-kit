@@ -46,7 +46,6 @@ import {
 } from "@/components/top-bar-icons";
 import { LayoutChip, LayoutMenuRows } from "@/components/layout-chip";
 import { QuakeLauncher } from "@/components/quake-launcher";
-import { useQuakeMachineState } from "@/lib/quake-terminal";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { computeVisibleCount } from "@/lib/top-bar-overflow";
 import { deriveCrumbsCollapsed } from "@/lib/crumb-collapse";
@@ -530,13 +529,9 @@ export function TopBar({
   // update surface and the chevron shows an attention badge (change areas 2–3).
   const { showChip, key: updateKey } = useUpdateNotification();
   const isMobile = useIsMobile();
-  // The ⌘J machine, read for the md–lg morph rung: while the machine is
-  // engaged (quake launcher focused or drawer open) below lg, the center heading
-  // yields its cell to the morphed quake launcher (hidden via CSS, never unmounted —
-  // an in-progress rename edit survives the morph). ≥ lg keeps the compact
-  // heading beside the standing box; mobile renders no quake launcher at all.
-  const quakeMachine = useQuakeMachineState();
-  const launcherMorphed = !isMobile && quakeMachine !== "rest";
+  // The center heading never yields its cell to the quake launcher: the
+  // launcher stands beside the compact heading at rest and collapses to its
+  // glyph + chord while the drawer is open — at every width, on every mode.
 
   // Brand-crumb logo hover: the white glow "detach, orbit, land" sweep over
   // the ring segments (JS-driven, logo-spinner.tsx). Triggered from the whole
@@ -1362,9 +1357,7 @@ export function TopBar({
               ride the left cluster's group now, 260731-oiho). */}
           <TipGroup>
           <div
-            className={`${
-              launcherMorphed ? "hidden lg:flex" : "flex"
-            } items-center justify-start min-w-0 sm:min-w-[28ch]`}
+            className="flex items-center justify-start min-w-0 sm:min-w-[28ch]"
           >
             {/* The history ◀ ▶ arrows moved to the LEFT cluster (260731-oiho) —
                 the anchored box now carries only the heading furniture
@@ -1447,9 +1440,11 @@ export function TopBar({
             )}
           </div>
           </TipGroup>
-          {/* The quake launcher — the quake terminal's compose relocated into the
-              center cell on desktop (standing at ≥ lg beside the compact
-              heading, ghost + in-place morph at md–lg). Renders on every mode;
+          {/* The quake launcher — the quake terminal's standing affordance in
+              the center cell on desktop (standing box at ≥ lg beside the
+              compact heading, ghost at md–lg; while the drawer is open both
+              rungs collapse to the glyph + chord control that re-focuses the
+              docked compose). Renders on every mode;
               self-gates to null on mobile. The route server arrives as a prop
               so this center-cell component does not pull router hooks. */}
           <QuakeLauncher routeServer={server || null} />

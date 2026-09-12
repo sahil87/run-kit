@@ -1,10 +1,11 @@
 import { detectPlatform, formatCombo } from "./keybindings";
 
 /**
- * Shared Enter-key policy for run-kit's compose-strip text input — both its
- * modes (normal terminal composition and selection broadcast) route Enter
- * through this ONE classifier, so it stays the single authority for the
- * strip's Enter policy. The modes DELIBERATELY diverge on plain Enter
+ * Shared Enter-key policy for run-kit's compose text inputs — the compose
+ * strip's two modes (normal terminal composition and selection broadcast) and
+ * the quake terminal's docked compose all route Enter through this ONE
+ * classifier, so it stays the single authority for every compose surface's
+ * Enter policy. The surfaces DELIBERATELY diverge on plain Enter
  * (260802-lj98, revising 260801-hsxm's shared Enter=newline) — the divergence
  * is declared here, per surface, never forked at a call site:
  *
@@ -18,16 +19,24 @@ import { detectPlatform, formatCombo } from "./keybindings";
  *     cross-server recipient set — there is no single visible pane the staged
  *     text could land in, so Enter-as-insert here would make typed text
  *     visibly vanish.
+ *   - `"quake"` — the quake terminal's docked compose: plain Enter = submit
+ *     (send the operator message — the compose addresses the fixed operator
+ *     window, not the visible pane, so there is nothing to stage a line
+ *     into), and Shift+Enter = insert-line (the call site inserts a LOCAL
+ *     newline — the quake surface borrows the action name for its one
+ *     multi-line path).
  *
- * Shared in both modes: Shift+Enter = local newline; Cmd/Ctrl+Enter
- * (shift-less — the match is exact on Shift) = submit, the ONLY submit chord;
+ * Shared across the surfaces: Shift+Enter = local newline (the quake surface
+ * classifies it as insert-line and its call site inserts the newline itself);
+ * Cmd/Ctrl+Enter (shift-less — the match is exact on Shift) = submit;
  * Shift+Cmd/Ctrl+Enter = default — deliberately left un-consumed so it
  * bubbles to the global zen-toggle chord (keybindings.ts, ⇧⌘⏎/⇧Ctrl+⏎);
  * Alt+Enter = insert-without-submit (byte-exact, no trailing byte);
- * IME-composing Enter is never intercepted.
+ * IME-composing Enter is never intercepted. The submit chord is the ONLY
+ * submit on the strip surfaces; on the quake surface plain Enter submits too.
  *
- * The `surface` parameter is REQUIRED (no default) so both call sites must
- * declare which policy they get — a silent default would recreate exactly the
+ * The `surface` parameter is REQUIRED (no default) so every call site must
+ * declare which policy it gets — a silent default would recreate exactly the
  * drift this shared classifier exists to prevent. The classifier stays pure,
  * component-free, and text-agnostic (empty-text handling lives at the call
  * sites), so the full matrix is unit-testable without a mount (the
@@ -41,8 +50,10 @@ export type ComposeEnterAction = "submit" | "insert" | "insert-line" | "default"
 
 /** Which input mode is asking — the strip's normal and broadcast modes
  * deliberately diverge on plain Enter (see the header comment for the
- * rationale). The `"broadcast"` value names the no-visible-pane policy. */
-export type ComposeSurface = "strip" | "broadcast";
+ * rationale). The `"broadcast"` value names the no-visible-pane policy;
+ * `"quake"` names the quake terminal's docked compose (Enter submits,
+ * Shift+Enter inserts the local newline). */
+export type ComposeSurface = "strip" | "broadcast" | "quake";
 
 /** The subset of a keyboard event the classifier reads — structural so both
  * React synthetic events and plain objects (tests) satisfy it. */
@@ -63,8 +74,9 @@ export interface ComposeKeyInput {
  * submit (the only submit chord — exact on Shift); meta/ctrl WITH shift →
  * default, alt or not (the shift-carrying chord must bubble to the global
  * zen-toggle binding, so it is never consumed here); alt → insert; shift →
- * default (local newline); plain Enter → insert-line on the strip, default
- * (newline) in broadcast.
+ * default (local newline) — insert-line on the quake surface, whose call site
+ * performs that local newline itself; plain Enter → insert-line on the strip,
+ * submit on the quake surface, default (newline) in broadcast.
  */
 export function classifyComposeEnter(
   key: ComposeKeyInput,
@@ -73,7 +85,8 @@ export function classifyComposeEnter(
   if (key.key !== "Enter" || key.isComposing) return "default";
   if (key.metaKey || key.ctrlKey) return key.shiftKey ? "default" : "submit";
   if (key.altKey) return "insert";
-  if (key.shiftKey) return "default";
+  if (key.shiftKey) return surface === "quake" ? "insert-line" : "default";
+  if (surface === "quake") return "submit";
   return surface === "strip" ? "insert-line" : "default";
 }
 

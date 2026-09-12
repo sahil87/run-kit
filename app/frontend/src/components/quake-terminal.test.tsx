@@ -10,6 +10,7 @@ import {
   getOperatorChatTarget,
   requestQuakeTerminal,
   setQuakeMachineState,
+  setQuakeRestoreOrigin,
   setOperatorChatSubject,
   setOperatorComposeText,
   writeQuakeOpacity,
@@ -32,11 +33,18 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 // The embedded terminal is TerminalClient's own tested surface; here we only
-// record the (server, windowId, sessionName) it was pointed at.
+// record the (server, windowId, sessionName) it was pointed at and wire the
+// focusRef seam (a no-op focus handle — the Esc ladder's yield target).
 const terminalMounts = vi.hoisted(() => [] as { server: string; windowId: string; sessionName: string }[]);
 vi.mock("@/components/terminal-client", () => ({
-  TerminalClient: (props: { server: string; windowId: string; sessionName: string }) => {
+  TerminalClient: (props: {
+    server: string;
+    windowId: string;
+    sessionName: string;
+    focusRef?: React.MutableRefObject<(() => void) | null>;
+  }) => {
     terminalMounts.push({ server: props.server, windowId: props.windowId, sessionName: props.sessionName });
+    if (props.focusRef) props.focusRef.current = () => {};
     return <div data-testid="embedded-terminal" />;
   },
 }));
@@ -275,6 +283,61 @@ describe("QuakeTerminal", () => {
     await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
   });
 
+  it("pinned, a click outside leaves the drawer open; unpinned again, it collapses", async () => {
+    renderQuake();
+    openDrawer();
+    fireEvent.click(screen.getByTestId("quake-terminal-pin"));
+
+    // The outside-click listener is not attached while pinned — no collapse,
+    // not even after the settle window.
+    fireEvent.click(document.body);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("quake-terminal-pin"));
+    fireEvent.click(document.body);
+    await waitFor(() => expect(getQuakeMachineState()).toBe("rest"));
+  });
+
+  it("the pin button toggles aria-pressed and its accent latch", () => {
+    renderQuake();
+    openDrawer();
+
+    const pin = screen.getByTestId("quake-terminal-pin");
+    expect(pin).toHaveAttribute("aria-pressed", "false");
+    expect(pin).toHaveAttribute("aria-label", "Pin quake terminal");
+
+    fireEvent.click(pin);
+    expect(pin).toHaveAttribute("aria-pressed", "true");
+    expect(pin).toHaveAttribute("aria-label", "Unpin quake terminal");
+    expect(pin.className).toContain("text-accent-green");
+
+    fireEvent.click(pin);
+    expect(pin).toHaveAttribute("aria-pressed", "false");
+    expect(pin.className).not.toContain("text-accent-green");
+  });
+
+  it("the chord and the ▼ button still collapse a pinned drawer, and the pin resets on re-open", () => {
+    // Reduced motion so each close is instant — no exit-slide wait.
+    stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
+    renderQuake();
+    openDrawer();
+    fireEvent.click(screen.getByTestId("quake-terminal-pin"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse quake terminal" }));
+    expect(getQuakeMachineState()).toBe("rest");
+    expect(screen.queryByTestId("quake-terminal")).toBeNull();
+
+    // Every open starts unpinned.
+    openDrawer();
+    expect(screen.getByTestId("quake-terminal-pin")).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(screen.getByTestId("quake-terminal-pin"));
+    stepMachine();
+    expect(getQuakeMachineState()).toBe("rest");
+  });
+
   it("a click inside the drawer does not collapse it", async () => {
     renderQuake();
     openDrawer();
@@ -342,14 +405,25 @@ describe("QuakeTerminal", () => {
     expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
   });
 
-  it("the desktop drawer is output-only — no compose strip, status line at its top edge", async () => {
+  it("the docked compose strip renders only while the machine is open", async () => {
     renderQuake();
-    openDrawer();
-    const el = await screen.findByTestId("quake-terminal");
+    expect(screen.queryByTestId("quake-terminal-compose")).toBeNull();
 
-    expect(screen.queryByLabelText("Message the operator")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
-    expect(el.querySelector("textarea")).toBeNull();
+    openDrawer();
+    const strip = await screen.findByTestId("quake-terminal-compose");
+    const drawer = screen.getByTestId("quake-terminal");
+    expect(drawer).toContainElement(strip);
+    // Header row (addressee label + hints) and the textarea.
+    expect(within(strip).getByText("→ operator")).toBeInTheDocument();
+    expect(
+      within(strip).getByText("Enter sends · ⇧Enter newline · Esc back to terminal"),
+    ).toBeInTheDocument();
+    expect(within(strip).getByTestId("quake-terminal-compose-input")).toBeInTheDocument();
+
+    // Rest → no strip (reduced motion skips the mounted-through-exit slide).
+    stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal-compose")).toBeNull());
   });
 
   it("targets the route's server on a terminal route (no picker)", () => {
@@ -388,7 +462,7 @@ describe("QuakeTerminal", () => {
     expect(last).toMatchObject({ server: "b", windowId: "@7" });
   });
 
-  it("renders the hint line (no stream, no compose) when the resolved server has no operator", () => {
+  it("renders the hint line (no stream) when the resolved server has no operator; the strip's Enter sends nothing", () => {
     renderQuake({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
     openDrawer();
 
@@ -396,7 +470,12 @@ describe("QuakeTerminal", () => {
       "no operator on this server — run rk operator",
     );
     expect(screen.queryByTestId("embedded-terminal")).toBeNull();
-    expect(screen.queryByLabelText("Message the operator")).toBeNull();
+
+    const textarea = screen.getByTestId("quake-terminal-compose-input");
+    fireEvent.change(textarea, { target: { value: "anyone home?" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockOperatorRequest).not.toHaveBeenCalled();
   });
 
   it("opens without crashing on an empty (still-loading) server list", () => {
@@ -407,7 +486,7 @@ describe("QuakeTerminal", () => {
     expect(terminalMounts).toHaveLength(0);
   });
 
-  it("renders the operator window's live agent state in the title strip", () => {
+  it("renders the operator window's live agent state in the header row's meta cluster", () => {
     renderQuake({
       sessionsByServer: new Map([
         [
@@ -425,7 +504,8 @@ describe("QuakeTerminal", () => {
     });
     openDrawer();
 
-    expect(screen.getByTestId("quake-terminal-state")).toHaveTextContent("waiting 2m");
+    const header = screen.getByTestId("quake-terminal-header");
+    expect(within(header).getByTestId("quake-terminal-state")).toHaveTextContent("waiting 2m");
   });
 
   it("the palette fallback request opens the quake terminal and sends the query immediately", async () => {
@@ -450,7 +530,7 @@ describe("QuakeTerminal", () => {
     expect(mockSend).not.toHaveBeenCalled();
   });
 
-  it("a failed fallback send renders the error at the drawer's top edge", async () => {
+  it("a failed fallback send renders the error inside the docked compose strip, never at the top edge", async () => {
     mockSend.mockRejectedValue(new Error("probe failed: no novelty echo"));
     renderQuake();
     act(() => {
@@ -459,6 +539,13 @@ describe("QuakeTerminal", () => {
 
     await waitFor(() =>
       expect(screen.getByTestId("quake-terminal-error")).toHaveTextContent("probe failed: no novelty echo"),
+    );
+    // The status has exactly one home: the strip's first row. The drawer's
+    // first row is the header — nothing renders at the top edge.
+    const strip = screen.getByTestId("quake-terminal-compose");
+    expect(strip).toContainElement(screen.getByTestId("quake-terminal-error"));
+    expect(screen.getByTestId("quake-terminal").firstElementChild).toBe(
+      screen.getByTestId("quake-terminal-header"),
     );
   });
 
@@ -520,7 +607,7 @@ describe("QuakeTerminal", () => {
     openDrawer();
     const el = await screen.findByTestId("quake-terminal");
 
-    expect(el.style.backgroundColor).toContain("color-mix(in srgb, var(--color-bg-primary) 90%");
+    expect(el.style.backgroundColor).toContain("color-mix(in srgb, var(--color-bg-primary) 95%");
     expect(el.style.backdropFilter).toBe("blur(6px)");
 
     act(() => writeQuakeOpacity(1));
@@ -780,7 +867,7 @@ describe("QuakeTerminal", () => {
     expect(mockSend).not.toHaveBeenCalled();
   });
 
-  it("an upload failure surfaces on the inline error line and delivers nothing", async () => {
+  it("an upload failure surfaces on the strip's inline error line and delivers nothing", async () => {
     mockUpload.mockRejectedValue(new Error("upload exploded"));
     renderQuake();
     openDrawer();
@@ -790,6 +877,9 @@ describe("QuakeTerminal", () => {
 
     await waitFor(() =>
       expect(screen.getByTestId("quake-terminal-error")).toHaveTextContent("upload exploded"),
+    );
+    expect(screen.getByTestId("quake-terminal-compose")).toContainElement(
+      screen.getByTestId("quake-terminal-error"),
     );
     expect(mockSend).not.toHaveBeenCalled();
   });
@@ -817,6 +907,271 @@ describe("QuakeTerminal", () => {
     expect(proceeded).toBe(false);
     await new Promise((r) => setTimeout(r, 20));
     expect(mockUpload).not.toHaveBeenCalled();
+  });
+});
+
+describe("QuakeTerminal (docked compose)", () => {
+  beforeEach(() => {
+    stubMatchMedia(() => false);
+    setQuakeMachineState("rest");
+    setOperatorComposeText("");
+    mockMatches = [{ params: {} }];
+    mockSearch = {};
+    mockNavigate.mockReset();
+    terminalMounts.length = 0;
+    mockSend.mockReset();
+    mockSend.mockResolvedValue({ ok: true });
+    mockUpload.mockReset();
+    mockUpload.mockResolvedValue({ ok: true, path: "/tmp/op/.uploads/shot.png" });
+    mockOperatorRequest.mockReset();
+    mockOperatorRequest.mockResolvedValue({ outcome: "delivered" });
+    setOperatorChatSubject(null);
+    localStorage.clear();
+    hydrateComposeDrafts();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("entering open focuses the docked textarea, caret at the end of any draft", () => {
+    renderQuake();
+    act(() => setOperatorComposeText("half-written"));
+
+    openDrawer();
+    const textarea = screen.getByTestId("quake-terminal-compose-input") as HTMLTextAreaElement;
+    expect(textarea).toHaveFocus();
+    expect(textarea).toHaveValue("half-written");
+    expect(textarea.selectionStart).toBe("half-written".length);
+  });
+
+  it("on rest the origin regains focus only while the docked textarea still holds it", () => {
+    const prior = document.createElement("button");
+    document.body.appendChild(prior);
+    prior.focus();
+    renderQuake();
+    // The launcher's entry capture (not mounted here) — the slot is the seam.
+    act(() => setQuakeRestoreOrigin(prior));
+    openDrawer();
+    const textarea = screen.getByTestId("quake-terminal-compose-input");
+    expect(textarea).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(getQuakeMachineState()).toBe("rest");
+    expect(prior).toHaveFocus();
+    prior.remove();
+  });
+
+  it("no focus restore when focus already left the compose before the collapse", () => {
+    const prior = document.createElement("button");
+    const other = document.createElement("button");
+    document.body.append(prior, other);
+    renderQuake();
+    act(() => setQuakeRestoreOrigin(prior));
+    openDrawer();
+    // The user moved focus elsewhere before releasing — the release already
+    // has its owner.
+    act(() => other.focus());
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(getQuakeMachineState()).toBe("rest");
+    expect(other).toHaveFocus();
+    expect(prior).not.toHaveFocus();
+    prior.remove();
+    other.remove();
+  });
+
+  it("Enter in the docked compose sends once, clears the draft, and keeps focus", async () => {
+    renderQuake();
+    openDrawer();
+    const textarea = screen.getByTestId("quake-terminal-compose-input");
+
+    fireEvent.change(textarea, { target: { value: "Is peui done?" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+    expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "Is peui done?", "submit", "agent");
+    await waitFor(() => expect(textarea).toHaveValue(""));
+    expect(textarea).toHaveFocus();
+    expect(getQuakeMachineState()).toBe("open");
+  });
+
+  it("⇧Enter in the docked compose inserts a newline without sending", () => {
+    renderQuake();
+    openDrawer();
+    const textarea = screen.getByTestId("quake-terminal-compose-input") as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "line one" } });
+    textarea.setSelectionRange("line one".length, "line one".length);
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
+
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue("line one\n");
+  });
+
+  it("Enter on an empty draft is a no-op (no send, no state change)", () => {
+    renderQuake();
+    openDrawer();
+    const textarea = screen.getByTestId("quake-terminal-compose-input");
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockOperatorRequest).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue("");
+    expect(getQuakeMachineState()).toBe("open");
+  });
+
+  it("Esc in the docked compose yields to the terminal first on the terminal segment; the next Esc collapses", async () => {
+    renderQuake();
+    openDrawer();
+    const textarea = screen.getByTestId("quake-terminal-compose-input");
+
+    // First rung: consumed by the strip (the mocked TerminalClient wires a
+    // no-op focus handle — the yield fires, focus itself goes nowhere).
+    fireEvent.keyDown(textarea, { key: "Escape" });
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(getQuakeMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
+  });
+
+  it("Esc in the docked compose with no embedded terminal (operator-less) collapses on the first press", async () => {
+    renderQuake({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
+    openDrawer();
+    const textarea = screen.getByTestId("quake-terminal-compose-input");
+
+    fireEvent.keyDown(textarea, { key: "Escape" });
+    expect(getQuakeMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
+  });
+
+  it("Esc in the docked compose on the Cron List segment collapses on the first press", async () => {
+    renderQuake();
+    act(() => {
+      requestQuakeTerminal({ action: "open", segment: "list" });
+    });
+    const textarea = screen.getByTestId("quake-terminal-compose-input");
+
+    fireEvent.keyDown(textarea, { key: "Escape" });
+    expect(getQuakeMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
+  });
+
+  it("one header row carries segments, meta, pin, and ▼ — no ◉ OPERATOR title strip", () => {
+    renderQuake();
+    openDrawer();
+    const drawer = screen.getByTestId("quake-terminal");
+    const header = screen.getByTestId("quake-terminal-header");
+
+    expect(drawer.firstElementChild).toBe(header);
+    expect(drawer.querySelectorAll('[data-testid="quake-terminal-header"]')).toHaveLength(1);
+    expect(within(header).getByTestId("terminal-activity-tabs")).toBeInTheDocument();
+    expect(within(header).getByText("srv1")).toBeInTheDocument();
+    expect(within(header).getByTestId("quake-terminal-pin")).toBeInTheDocument();
+    expect(within(header).getByRole("button", { name: "Collapse quake terminal" })).toBeInTheDocument();
+    expect(screen.queryByText("◉ OPERATOR")).toBeNull();
+  });
+
+  it("the engaged accent border follows real focus into and out of the docked textarea", () => {
+    renderQuake();
+    openDrawer();
+    const textarea = screen.getByTestId("quake-terminal-compose-input");
+
+    // Focus-on-open engaged the strip.
+    expect(textarea).toHaveFocus();
+    expect(textarea.className).toContain("border-accent-green");
+
+    fireEvent.blur(textarea);
+    expect(textarea.className).toContain("border-border");
+    expect(textarea.className).not.toContain("border-accent-green");
+
+    fireEvent.focus(textarea);
+    expect(textarea.className).toContain("border-accent-green");
+  });
+
+  it("a blur toward the context chip's ✕ keeps the compose engaged so the dismiss click lands", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
+    renderQuake();
+    openDrawer();
+    const strip = screen.getByTestId("quake-terminal-compose");
+    const textarea = within(strip).getByTestId("quake-terminal-compose-input");
+    const dismiss = within(strip).getByRole("button", { name: "Detach window context" });
+
+    // The real dismissal sequence: focus leaves the textarea FOR the ✕, then
+    // the click lands. If that blur stood the engaged flag down, the accent
+    // would drop mid-gesture.
+    fireEvent.blur(textarea, { relatedTarget: dismiss });
+    expect(textarea.className).toContain("border-accent-green");
+    fireEvent.click(dismiss);
+    expect(within(strip).queryByTestId("quake-terminal-context")).toBeNull();
+  });
+
+  it("on a terminal route the strip shows the chip and Enter rides the templated chat lane", async () => {
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
+    renderQuake();
+    openDrawer();
+    const strip = screen.getByTestId("quake-terminal-compose");
+    expect(within(strip).getByTestId("quake-terminal-context")).toHaveTextContent('from: @1 "win"');
+
+    const textarea = within(strip).getByTestId("quake-terminal-compose-input");
+    fireEvent.change(textarea, { target: { value: "can you check the failing test?" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => expect(mockOperatorRequest).toHaveBeenCalledTimes(1));
+    expect(mockOperatorRequest).toHaveBeenCalledWith("srv1", "@1", "user-message", "can you check the failing test?");
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("dismissing the chip drops the envelope — the next send rides the direct lane", async () => {
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
+    renderQuake();
+    openDrawer();
+    const strip = screen.getByTestId("quake-terminal-compose");
+    fireEvent.click(within(strip).getByRole("button", { name: "Detach window context" }));
+    expect(within(strip).queryByTestId("quake-terminal-context")).toBeNull();
+
+    const textarea = within(strip).getByTestId("quake-terminal-compose-input");
+    fireEvent.change(textarea, { target: { value: "plain message" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+    expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "plain message", "submit", "agent");
+    expect(mockOperatorRequest).not.toHaveBeenCalled();
+  });
+
+  it("the strip mounts the compact chip — no fine-pointer size floor on the dismiss button", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
+    renderQuake();
+    openDrawer();
+    const strip = screen.getByTestId("quake-terminal-compose");
+
+    const dismiss = within(strip).getByRole("button", { name: "Detach window context" });
+    // The compact mount drops the 24px fine-pointer floor; the coarse (touch)
+    // floor is untouched.
+    expect(dismiss.className).not.toContain("min-h-[24px]");
+    expect(dismiss.className).not.toContain("min-w-[24px]");
+    expect(dismiss.className).toContain("coarse:min-h-[40px]");
+    expect(dismiss.className).toContain("coarse:min-w-[40px]");
+  });
+
+  it("the chip resets to attached when the quake terminal re-engages", async () => {
+    // Reduced motion so the exit is instant — no exit-slide wait.
+    stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
+    renderQuake();
+    openDrawer();
+    const strip = screen.getByTestId("quake-terminal-compose");
+    fireEvent.click(within(strip).getByRole("button", { name: "Detach window context" }));
+    expect(within(strip).queryByTestId("quake-terminal-context")).toBeNull();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
+    openDrawer();
+    expect(
+      within(screen.getByTestId("quake-terminal-compose")).getByTestId("quake-terminal-context"),
+    ).toBeInTheDocument();
   });
 });
 
@@ -978,7 +1333,7 @@ describe("QuakeTerminal (cron segments)", () => {
     expect(screen.queryByTestId("cron-log")).toBeNull();
   });
 
-  it("the title strip carries the tick-age stamp from the first session with operatorLastTickAt > 0", () => {
+  it("the header row carries the tick-age stamp from the first session with operatorLastTickAt > 0", () => {
     const nowSec = Math.floor(Date.now() / 1000);
     renderQuake({
       sessionsByServer: new Map([

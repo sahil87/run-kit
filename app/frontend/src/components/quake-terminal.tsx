@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   SessionContext,
   useSessionContext,
@@ -11,6 +11,8 @@ import { CronList } from "@/components/cron-list";
 import { CronLog } from "@/components/cron-log";
 import { CronStaleBanner } from "@/components/cron-stale-banner";
 import { WatchedTasks } from "@/components/watched-tasks";
+import { OperatorContextChip } from "@/components/operator-context-chip";
+import { OperatorStateGlyph } from "@/components/operator-state-glyph";
 import { Tip } from "@/components/tip";
 import { formatDuration } from "@/lib/format";
 import { useMatches, useNavigate, useRouter, useSearch } from "@tanstack/react-router";
@@ -19,6 +21,9 @@ import { resolveFocusedWindow } from "@/lib/focused-pane-window";
 import { useOptionalToast } from "@/components/toast";
 import { setComposeText } from "@/lib/compose-draft-store";
 import { entryKey } from "@/store/window-store";
+import { classifyComposeEnter } from "@/lib/compose-keys";
+import { insertTextAtCaret } from "@/lib/readline-keys";
+import { useTextareaAutogrow } from "@/lib/textarea-autogrow";
 import {
   QUAKE_TERMINAL_EVENT,
   attachOperatorFiles,
@@ -35,14 +40,21 @@ import {
   resolveFromOrigin,
   sendOperatorMessage,
   resetOperatorChatChip,
+  setQuakeComposeEngaged,
   setQuakeMachineState,
+  setQuakePinned,
   setOperatorChatSubject,
+  setOperatorComposeText,
+  takeQuakeRestoreOrigin,
   QUAKE_GEOMETRY_DEFAULT,
   useQuakeGeometry,
   useQuakeMachineState,
   useQuakeOpacity,
+  useQuakePinned,
+  useQuakeComposeEngaged,
   useOperatorCompose,
   useQuakeTerminalContext,
+  type OperatorWindowTarget,
   type QuakeGeometry,
   type QuakeResizeEdge,
   type QuakeTerminalRequest,
@@ -72,13 +84,16 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * document seam (lib/quake-terminal.ts).
  *
  * The seam forks on form factor. Desktop runs the ⌘J two-state machine
- * (lib/quake-terminal.ts): rest ⇄ open (drawer down, quake launcher focused —
- * focus and the expanded drawer are linked, so one chord engages both and the
- * next releases both). Enter in the quake launcher sends; Esc releases to
- * rest; the
- * palette action lands on the open+focused state; a click outside the
- * quake terminal's own DOM (the drawer or the quake launcher) collapses to
- * rest, same as the
+ * (lib/quake-terminal.ts): rest ⇄ open (drawer down, the docked compose
+ * textarea focused — focus and the expanded drawer are linked, so one chord
+ * engages both and the next releases both). Enter in the docked compose
+ * sends; Esc on the Operator Terminal segment first yields focus to the
+ * embedded terminal, then releases to rest (on the list segments the first
+ * Esc releases); the palette action lands on open+focused; a click outside
+ * the quake terminal's own DOM (the drawer or the quake launcher) collapses
+ * to rest unless the drawer is pinned (⌖ — an ephemeral module slot, reset at
+ * rest; only the outside-click path is suspended, the chord/Esc/▼ still
+ * collapse), same destination as the
  * header button. The machine is the controlling state — the drawer's internal
  * open flag follows it through the slide machinery.
  *
@@ -96,14 +111,14 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * rest and tears down any in-flight slide state, so no effect or frame
  * survives the gate.
  *
- * Anatomy (desktop): a title strip (◉ OPERATOR · server, the operator
- * window's live agent state from the sessions payload, the operator loop's
- * tick-age stamp, a server picker on param-less multi-server routes, a
- * collapse affordance), an Operator Terminal | Operator Tasks | Cron List |
- * Cron Log segment header (the shared
- * `QuakeSegments` strip from terminal-activity-tabs.tsx, driven by
- * the quake terminal's local ephemeral state), and the body: on Operator
- * Terminal an embedded LIVE
+ * Anatomy (desktop): ONE header row folding the
+ * Operator Terminal | Operator Tasks | Cron List | Cron Log segment strip
+ * (the shared `QuakeSegments` strip from terminal-activity-tabs.tsx, driven
+ * by the quake terminal's local ephemeral state) together with the meta
+ * cluster (the server picker on param-less multi-server routes, else the
+ * server name; the operator window's live agent state; the operator loop's
+ * tick-age stamp), the pin, and the collapse affordance — then the body: on
+ * Operator Terminal an embedded LIVE
  * terminal view of the operator window (a plain TerminalClient over the
  * shared /ws/terminals relay mux — the same mechanism a board pane uses,
  * registerFocus off so the BottomBar keeps its target, `transparent` on so
@@ -117,16 +132,19 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * or `CronLog` (inline variant — the entry detail sheet renders
  * in-container). On every non-terminal segment the TerminalClient is
  * UNMOUNTED, so the drawer holds at
- * most one relay stream. The one-input rule: the
- * compose IS the top-bar quake launcher (components/quake-launcher.tsx); the
- * drawer is output-only, carrying the inline status/error line at its top
- * edge, directly under the box. The quake launcher drives the ONE shared
- * compose
+ * most one relay stream. While open the drawer carries the compose DOCKED at
+ * its bottom edge (the QuakeCompose strip below): the shared compose seam's
+ * one desktop view, with the inline status/error line as its first row (one
+ * home — nothing renders at the drawer's top edge). The strip drives the ONE
+ * shared compose
  * seam (lib/quake-terminal.ts) — same draft, same `sendToWindow(...,
  * "submit", "agent")` delivery with chat-send busy semantics (allow + probe —
  * no client-side busy gate), same upload path. Structured send failures
  * surface inline (never toasts) and the composed text survives a failure for
- * retry/edit.
+ * retry/edit. At rest the compose's standing affordance is the top-bar quake
+ * launcher (components/quake-launcher.tsx); while the drawer is open the
+ * launcher collapses to its glyph + chord and re-focuses the docked textarea
+ * on click.
  *
  * On a terminal route the compose carries a dismissable context chip (default
  * attached) naming the subject window — the route's window, or the validated
@@ -156,7 +174,7 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * drags suspend the slide transition, and the geometry persists per-viewer
  * in localStorage — and its
  * background is glass: `color-mix`-alpha bg-primary at the per-viewer opacity
- * (default 0.90, settings-dialog row) over a fixed 6px backdrop blur, disabled
+ * (default 0.95, settings-dialog row) over a fixed 6px backdrop blur, disabled
  * entirely at α=1.
  *
  * File paste/drop inside the drawer (or the quake launcher) uploads via the
@@ -183,7 +201,7 @@ const GRIP_BOTTOM_RIGHT: QuakeResizeEdge = { x: 1, y: 1 };
 export function QuakeTerminal() {
   const isMobile = useIsMobile();
   const machine = useQuakeMachineState();
-  const compose = useOperatorCompose();
+  const pinned = useQuakePinned();
   const [open, setOpen] = useState(false);
   // True while the exit slide runs: the component stays mounted with the
   // raised class until transitionend (or the timeout fallback) unmounts it.
@@ -201,6 +219,9 @@ export function QuakeTerminal() {
   const [segment, setSegment] = useState<QuakeSegment>("terminal");
   const rootRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  // The embedded terminal's focus handle (TerminalClient's focusRef seam) —
+  // the Esc ladder's first rung targets it.
+  const terminalFocusRef = useRef<(() => void) | null>(null);
   const navigate = useNavigate();
   const toast = useOptionalToast();
   const noOperatorHintAtRef = useRef(0);
@@ -316,6 +337,39 @@ export function QuakeTerminal() {
     if (machine === "open" && prev !== "open") openDrawer();
     else if (machine !== "open" && prev === "open") requestCloseRef.current();
   }, [machine, openDrawer]);
+
+  // ── Focus ownership (the two invariants) ─────────────────────────────────
+  // Focus-on-open: entering `open` focuses the docked compose textarea once it
+  // is mounted, caret at the end of any draft carried over from the standing
+  // box. Keyed on `open` (the drawer's mount flag), so the focus call lands
+  // after the textarea exists.
+  useEffect(() => {
+    if (machine !== "open" || !open) return;
+    const el = rootRef.current?.querySelector('[data-testid="quake-terminal-compose-input"]');
+    if (el instanceof HTMLTextAreaElement && document.activeElement !== el) {
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+  }, [machine, open]);
+
+  // The return is ownership-gated: on reaching `rest` no focus action is taken
+  // unless the docked textarea still holds focus — a release the user caused
+  // by focusing something else (the embedded terminal, a pane below) already
+  // has its owner, and acting there steals keystrokes. Keyed on the MACHINE,
+  // not the mount flag: the drawer stays mounted through the exit slide (and
+  // the reduced-motion close unmounts only after this effect flush), so the
+  // check still observes the textarea.
+  const prevMachineFocusRef = useRef(machine);
+  useEffect(() => {
+    const prev = prevMachineFocusRef.current;
+    prevMachineFocusRef.current = machine;
+    if (machine !== "rest" || prev !== "open") return;
+    const textarea = rootRef.current?.querySelector('[data-testid="quake-terminal-compose-input"]');
+    if (document.activeElement !== textarea) return;
+    if (textarea instanceof HTMLElement) textarea.blur();
+    const origin = takeQuakeRestoreOrigin();
+    if (origin?.isConnected) origin.focus();
+  }, [machine]);
 
   // Mobile arm: every quake terminal request — from any entry point, all three
   // actions collapse into this — resolves the operator window and navigates
@@ -460,12 +514,11 @@ export function QuakeTerminal() {
   }, [open]);
 
   // Esc releases the machine (bubble phase, so an already-claimed Escape — a
-  // nested modal's — wins via defaultPrevented): the drawer closes and the
-  // quake launcher blur + focus restore is the quake launcher's
-  // machine-follower effect.
-  // Owning the release here — rather than letting the quake launcher input
-  // handle
-  // its own Esc — keeps one Esc from being handled twice. The stream closes
+  // nested modal's, or the docked textarea's first-rung yield to the embedded
+  // terminal — wins via defaultPrevented): the drawer closes and the blur +
+  // focus restore is the ownership-gated machine-follower effect above.
+  // Owning the release here — rather than letting the compose textarea handle
+  // its own Esc release — keeps one Esc from being handled twice. The stream closes
   // with the unmount; the conversation itself lives in the operator window
   // regardless.
   useEffect(() => {
@@ -483,13 +536,16 @@ export function QuakeTerminal() {
     return () => document.removeEventListener("keydown", onKey);
   }, [open, machine]);
 
-  // Click outside: the drawer is a peek that survives quake launcher blur
+  // Click outside: the drawer is a peek that survives compose blur
   // (see
   // above), so it never closes on its own — a click landing outside the
   // quake terminal's own DOM (the drawer + the top-bar quake launcher both
   // carry
   // QUAKE_TERMINAL_ROOT_ATTR) collapses it, same destination as the header
-  // button. Two things a plain "collapse on any outside click" would get
+  // button — UNLESS the drawer is pinned: the pin suspends only this
+  // click-away path (a pinned drawer is for reading the operator while typing
+  // in the pane below); the chord, Esc, and ▼ still collapse. Two things a
+  // plain "collapse on any outside click" would get
   // wrong, both handled below by DEFERRING the decision rather than acting
   // inline:
   //   (1) An entry-point trigger outside the quake terminal's DOM (a palette
@@ -521,7 +577,7 @@ export function QuakeTerminal() {
   // (mounting the settings dialog's DOM, or the opener's own
   // re-render), which a same-tick microtask cannot reliably guarantee.
   useEffect(() => {
-    if (machine !== "open") return;
+    if (machine !== "open" || pinned) return;
     function onClickCapture(e: MouseEvent) {
       if (isQuakeTerminalTarget(e.target)) return;
       const activityAtClick = getQuakeMachineActivity();
@@ -538,7 +594,7 @@ export function QuakeTerminal() {
     }
     document.addEventListener("click", onClickCapture, true);
     return () => document.removeEventListener("click", onClickCapture, true);
-  }, [machine]);
+  }, [machine, pinned]);
 
   const rendered = open || closing;
 
@@ -777,6 +833,22 @@ export function QuakeTerminal() {
           finishClose();
         }
       }}
+      onKeyDownCapture={(e) => {
+        // The Esc ladder's second rung: Escape with focus in the drawer's
+        // embedded terminal. xterm consumes Esc as a pane keystroke (the
+        // bubble-phase document listener honors that claim via
+        // defaultPrevented and skips it), so the collapse is claimed here in
+        // CAPTURE phase — before xterm sees the key, so the pane never gets
+        // the byte. The compose textarea's own first-rung handler is untouched
+        // (its target is not the xterm helper).
+        if (e.key !== "Escape" || machineRef.current !== "open") return;
+        const t = e.target;
+        if (t instanceof Element && t.classList.contains("xterm-helper-textarea")) {
+          e.preventDefault();
+          e.stopPropagation();
+          setQuakeMachineState("rest");
+        }
+      }}
       onPasteCapture={(e) => {
         // Capture phase: xterm's own textarea paste handler stops propagation,
         // so a bubble-phase handler would never see file pastes targeted at
@@ -814,76 +886,74 @@ export function QuakeTerminal() {
         ...glassStyle,
       }}
     >
-      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-xs shrink-0">
-        <span className="text-text-primary">◉ OPERATOR</span>
-        {showPicker ? (
-          <select
-            aria-label="Operator server"
-            value={server ?? ""}
-            onChange={(e) => setPickerServer(e.target.value)}
-            className="bg-transparent text-text-secondary outline-none cursor-pointer"
-          >
-            {serverNames.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        ) : (
-          server && <span className="text-text-secondary">· {server}</span>
-        )}
-        {agentState && (
-          <span className="text-text-secondary" data-testid="quake-terminal-state">
-            {agentState}
-            {agentIdle ? ` ${agentIdle}` : ""}
-          </span>
-        )}
-        {tickSession && tickAge !== null && (
-          <Tip
-            label={tickStale ? `Operator last ticked ${tickAge} ago` : undefined}
-            placement="bottom"
-          >
-            <span
-              data-testid="quake-terminal-tick"
-              className={tickStale ? "text-signal-yellow" : "text-text-secondary"}
+      {/* ONE header row: the segment strip on the left; the meta cluster
+          (server picker or name · live agent state · tick-age stamp) absorbs
+          all squeeze by truncation at the 420px width floor; the pin and ▼
+          controls never shrink. The strip's `◉ → operator` label names the
+          addressee — there is no separate title strip. */}
+      <div
+        data-testid="quake-terminal-header"
+        className="flex items-center gap-2 border-b border-border px-2 py-1 text-xs shrink-0"
+      >
+        <QuakeSegments value={segment} onChange={setSegment} className="" />
+        <div className="ml-auto flex min-w-0 items-center gap-2 truncate whitespace-nowrap">
+          {showPicker ? (
+            <select
+              aria-label="Operator server"
+              value={server ?? ""}
+              onChange={(e) => setPickerServer(e.target.value)}
+              className="bg-transparent text-text-secondary outline-none cursor-pointer"
             >
-              {tickStale ? "⚠ " : ""}· tick {tickAge} ago
+              {serverNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            server && <span className="text-text-secondary">{server}</span>
+          )}
+          {agentState && (
+            <span className="text-text-secondary" data-testid="quake-terminal-state">
+              · {agentState}
+              {agentIdle ? ` ${agentIdle}` : ""}
             </span>
-          </Tip>
-        )}
+          )}
+          {tickSession && tickAge !== null && (
+            <Tip
+              label={tickStale ? `Operator last ticked ${tickAge} ago` : undefined}
+              placement="bottom"
+            >
+              <span
+                data-testid="quake-terminal-tick"
+                className={tickStale ? "text-signal-yellow" : "text-text-secondary"}
+              >
+                {tickStale ? "⚠ " : ""}· tick {tickAge} ago
+              </span>
+            </Tip>
+          )}
+        </div>
+        <button
+          type="button"
+          aria-pressed={pinned}
+          aria-label={pinned ? "Unpin quake terminal" : "Pin quake terminal"}
+          data-testid="quake-terminal-pin"
+          onClick={() => setQuakePinned(!pinned)}
+          className={`rk-glint shrink-0 inline-flex items-center justify-center rounded px-1 transition-colors coarse:min-h-[36px] coarse:min-w-[36px] ${
+            pinned ? "text-accent-green" : "text-text-secondary hover:text-text-primary"
+          }`}
+        >
+          ⌖
+        </button>
         <button
           type="button"
           aria-label="Collapse quake terminal"
           onClick={() => setQuakeMachineState("rest")}
-          className="rk-glint ml-auto shrink-0 inline-flex items-center justify-center rounded px-1 text-text-secondary hover:text-text-primary transition-colors coarse:min-h-[36px] coarse:min-w-[36px]"
+          className="rk-glint shrink-0 inline-flex items-center justify-center rounded px-1 text-text-secondary hover:text-text-primary transition-colors coarse:min-h-[36px] coarse:min-w-[36px]"
         >
           ▼
         </button>
       </div>
-      {/* The drawer's Operator Terminal | Operator Tasks | Cron List |
-          Cron Log segment header — the shared presentational strip
-          (terminal-activity-tabs.tsx), driven here by the quake terminal's
-          local state
-          instead of the mobile route's `tab` param. */}
-      <QuakeSegments value={segment} onChange={setSegment} />
-      {/* The status line: the inline-error contract relocated to the
-          drawer's top edge, directly under the quake launcher (the desktop
-          compose
-          lives in the top bar). Carries structured send/upload failures and
-          the minimal in-flight indicator. */}
-      {(compose.error || compose.sending || compose.uploading) && (
-        <div className="flex items-center gap-2 border-b border-border px-3 py-1 text-xs shrink-0">
-          {compose.error ? (
-            <span role="alert" data-testid="quake-terminal-error" className="text-signal-red">
-              {compose.error}
-            </span>
-          ) : (
-            <span data-testid="quake-terminal-uploading" className="text-text-secondary">
-              {compose.sending ? "sending…" : "uploading…"}
-            </span>
-          )}
-        </div>
-      )}
       {segment !== "terminal" ? (
         segment === "tasks" ? (
           // One relay stream max per drawer: the TerminalClient is UNMOUNTED
@@ -931,6 +1001,7 @@ export function QuakeTerminal() {
             windowId={target.window.windowId}
             server={server}
             wsRef={wsRef}
+            focusRef={terminalFocusRef}
             registerFocus={false}
             transparent
           />
@@ -942,6 +1013,25 @@ export function QuakeTerminal() {
         >
           {NO_OPERATOR_HINT}
         </div>
+      )}
+      {/* The docked compose strip — the shared compose seam's one desktop
+          view, mounted as the last in-flow child for as long as the drawer is
+          mounted (the exit slide included — the machine-keyed focus-restore
+          effect must still observe the textarea when rest arrives; the grips
+          below are absolutely positioned and straddle the border,
+          unaffected). A closed drawer carries no strip. */}
+      {open && (
+        <QuakeCompose
+          server={server}
+          target={target}
+          segment={segment}
+          focusTerminal={() => {
+            const focus = terminalFocusRef.current;
+            if (!focus) return false;
+            focus();
+            return true;
+          }}
+        />
       )}
       {/* Resize grips — 10px zones straddling each exposed border (5px out,
           5px in), plus 16px corners rendered last so they win the hit test
@@ -1000,6 +1090,159 @@ export function QuakeTerminal() {
   // the drawer itself.
   return (
     <div className="pointer-events-none absolute inset-0 z-40 overflow-clip">{drawer}</div>
+  );
+}
+
+/**
+ * The docked compose strip — the shared compose seam's one desktop view while
+ * the drawer is open, docked at the drawer's bottom edge (the prompt →
+ * compose → reply eye line every terminal route already uses). Top to bottom:
+ * the status line (the inline send/upload error or the minimal
+ * sending…/uploading… indicator, rendered only while one is live — the
+ * status's one home), the header row (the `◉ → operator` addressee label with
+ * the shared OperatorStateGlyph's live-state dot, the chat-lane context chip,
+ * right-aligned key hints), and the textarea.
+ *
+ * The textarea rides the shared store (`useOperatorCompose` /
+ * `setOperatorComposeText`) and the `quake` Enter policy of the shared
+ * classifier: plain Enter sends once through `sendOperatorMessage` (the same
+ * templated/direct fork as everywhere) with focus retained for follow-ups,
+ * Shift+Enter inserts a local newline, an empty/whitespace Enter is a no-op.
+ * Auto-grow is the route strip's bounded idiom (lib/textarea-autogrow.ts).
+ * Esc is the ladder's first rung: on the Operator Terminal segment it yields
+ * to the embedded terminal (prevented, so the drawer's document listener
+ * skips this press and the next Esc collapses) — but only when a terminal is
+ * actually mounted to receive focus (an operator-less drawer's Esc collapses
+ * on the first press, like the list segments); on the list segments the
+ * event is left alone and the collapse rung fires on the first press.
+ *
+ * The `engaged` flag (the lib's module slot) says the compose owns input:
+ * true while the textarea has real focus; a blur whose relatedTarget lies
+ * inside the strip wrapper does NOT clear it, so the context chip's ✕ click
+ * lands. While engaged the textarea carries the accent border — and the
+ * collapsed launcher in the top bar reads the same slot.
+ */
+function QuakeCompose({
+  server,
+  target,
+  segment,
+  focusTerminal,
+}: {
+  server: string | null;
+  target: OperatorWindowTarget | undefined;
+  segment: QuakeSegment;
+  /** Focus the embedded terminal; false when none is mounted (no operator —
+   *  the Esc rung then falls through to the collapse). */
+  focusTerminal: () => boolean;
+}) {
+  const compose = useOperatorCompose();
+  const engaged = useQuakeComposeEngaged();
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useTextareaAutogrow(textareaRef, compose.text);
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Escape") {
+      // First rung, terminal segment only: hand the keystroke to the embedded
+      // terminal. Prevented, so the drawer's document keydown listener (which
+      // skips defaultPrevented) does not collapse on this press. With no
+      // terminal mounted (no operator) or on the list segments there is
+      // nothing to yield to — the event falls through and the collapse rung
+      // fires.
+      if (segment === "terminal" && focusTerminal()) {
+        e.preventDefault();
+      }
+      return;
+    }
+    const action = classifyComposeEnter(
+      {
+        key: e.key,
+        shiftKey: e.shiftKey,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        altKey: e.altKey,
+        isComposing: e.nativeEvent.isComposing,
+      },
+      "quake",
+    );
+    if (action === "submit") {
+      e.preventDefault();
+      const value = e.currentTarget.value;
+      if (value.trim() === "") return;
+      // Focus stays in the textarea — Enter sends, the drawer stays open for
+      // the follow-up.
+      void sendOperatorMessage(server, target, value);
+      return;
+    }
+    if (action === "insert-line") {
+      e.preventDefault();
+      insertTextAtCaret(e.currentTarget, "\n");
+    }
+  };
+
+  return (
+    <div
+      ref={wrapperRef}
+      data-testid="quake-terminal-compose"
+      className="border-t border-border shrink-0 flex flex-col"
+    >
+      {/* The status line — the inline-error contract's one home, directly
+          above the compose it reports on. */}
+      {(compose.error || compose.sending || compose.uploading) && (
+        <div className="flex items-center gap-2 px-3 py-1 text-xs">
+          {compose.error ? (
+            <span role="alert" data-testid="quake-terminal-error" className="text-signal-red">
+              {compose.error}
+            </span>
+          ) : (
+            <span data-testid="quake-terminal-uploading" className="text-text-secondary">
+              {compose.sending ? "sending…" : "uploading…"}
+            </span>
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-2 px-2 py-1 text-xs">
+        <span className="flex shrink-0 items-center gap-1 text-text-secondary">
+          <OperatorStateGlyph
+            agentState={target?.window.agentState}
+            dotTestId="quake-terminal-compose-state"
+          />
+          → operator
+        </span>
+        <OperatorContextChip server={server} compact />
+        <span className="ml-auto shrink-0 text-right text-text-secondary text-[10px]">
+          Enter sends · ⇧Enter newline · Esc back to terminal
+        </span>
+      </div>
+      <textarea
+        ref={textareaRef}
+        data-testid="quake-terminal-compose-input"
+        aria-label="Ask the operator"
+        rows={1}
+        placeholder="Ask the operator…"
+        value={compose.text}
+        onChange={(e) => setOperatorComposeText(e.target.value)}
+        onKeyDown={onKeyDown}
+        onFocus={() => setQuakeComposeEngaged(true)}
+        onBlur={(e) => {
+          // Focus moving WITHIN the strip (the context chip's ✕) is not a
+          // stand-down — clearing engaged here would unmount nothing but would
+          // drop the accent border mid-gesture, and a chip-gated chrome change
+          // must never eat the ✕ click.
+          if (e.relatedTarget instanceof Node && wrapperRef.current?.contains(e.relatedTarget)) {
+            return;
+          }
+          setQuakeComposeEngaged(false);
+        }}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        className={`mx-2 mb-2 resize-none rounded border bg-bg-card px-2 py-1.5 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none ${
+          engaged ? "border-accent-green" : "border-border"
+        }`}
+      />
+    </div>
   );
 }
 

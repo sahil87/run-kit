@@ -3,9 +3,11 @@ import {
   buildQuakeTerminalAction,
   buildQuakeTerminalListAction,
   buildQuakeTerminalLogAction,
+  buildQuakeTerminalOpenAsTabAction,
   buildQuakeTerminalPinAction,
   buildQuakeTerminalResetSizeAction,
   buildQuakeTerminalTasksAction,
+  buildOperatorStartAction,
 } from "./quake-terminal";
 import {
   QUAKE_GEOMETRY_DEFAULT,
@@ -19,6 +21,14 @@ import {
   setQuakeMachineState,
   setQuakePinned,
 } from "@/lib/quake-terminal";
+
+import { ApiError } from "@/api/client";
+
+const mockStartOperator = vi.hoisted(() => vi.fn());
+vi.mock("@/api/client", async (importActual) => ({
+  ...(await importActual<typeof import("@/api/client")>()),
+  startOperator: mockStartOperator,
+}));
 
 describe("buildQuakeTerminalAction", () => {
   afterEach(() => {
@@ -178,5 +188,94 @@ describe("buildQuakeTerminalPinAction", () => {
     buildQuakeTerminalPinAction(true).onSelect();
     expect(getQuakePinned()).toBe(false);
     expect(getQuakeMachineState()).toBe("open");
+  });
+});
+
+describe("buildQuakeTerminalOpenAsTabAction", () => {
+  beforeEach(() => {
+    setQuakeMachineState("open");
+  });
+  afterEach(() => {
+    setQuakeMachineState("rest");
+    vi.restoreAllMocks();
+  });
+
+  it("is the chord-less palette twin of the header control", () => {
+    const action = buildQuakeTerminalOpenAsTabAction(
+      { server: "srv1", windowId: "@9" },
+      vi.fn(),
+    );
+    expect(action).toMatchObject({
+      id: "quake-terminal-open-as-tab",
+      label: "Operator: Open as tab",
+    });
+    expect(action.shortcut).toBeUndefined();
+  });
+
+  it("onSelect navigates to the operator route with the segment as ?tab= and rests the machine", () => {
+    const navigate = vi.fn();
+    buildQuakeTerminalOpenAsTabAction({ server: "srv1", windowId: "@9" }, navigate, "log").onSelect();
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@9" },
+      search: { tab: "log" },
+    });
+    expect(getQuakeMachineState()).toBe("rest");
+  });
+
+  it("drops the tab param for the terminal segment (and when the palette arm carries no segment)", () => {
+    const navigate = vi.fn();
+    buildQuakeTerminalOpenAsTabAction({ server: "srv1", windowId: "@9" }, navigate, "terminal").onSelect();
+    buildQuakeTerminalOpenAsTabAction({ server: "srv1", windowId: "@9" }, navigate).onSelect();
+    expect(navigate).toHaveBeenNthCalledWith(1, {
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@9" },
+      search: {},
+    });
+    expect(navigate).toHaveBeenNthCalledWith(2, {
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@9" },
+      search: {},
+    });
+  });
+});
+
+describe("buildOperatorStartAction", () => {
+  beforeEach(() => {
+    mockStartOperator.mockReset();
+  });
+
+  it("is the chord-less Operator: Start operator entry", () => {
+    const action = buildOperatorStartAction("srv1", vi.fn(), vi.fn());
+    expect(action).toMatchObject({ id: "operator-start", label: "Operator: Start operator" });
+    expect(action.shortcut).toBeUndefined();
+  });
+
+  it("onSelect posts and reports the receipt to onStarted", async () => {
+    mockStartOperator.mockResolvedValue({ windowId: "@7", server: "srv1" });
+    const onStarted = vi.fn();
+    const onError = vi.fn();
+    buildOperatorStartAction("srv1", onStarted, onError).onSelect();
+    await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith({ windowId: "@7", server: "srv1" }));
+    expect(mockStartOperator).toHaveBeenCalledWith("srv1");
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("treats a 409 operator_exists carrying a windowId as success", async () => {
+    mockStartOperator.mockRejectedValue(new ApiError("operator already present", 409, "operator_exists", "@3"));
+    const onStarted = vi.fn();
+    const onError = vi.fn();
+    buildOperatorStartAction("srv1", onStarted, onError).onSelect();
+    await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith({ windowId: "@3", server: "srv1" }));
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("routes any other failure to onError with the server's message", async () => {
+    mockStartOperator.mockRejectedValue(new ApiError("fab not found on PATH", 502));
+    const onStarted = vi.fn();
+    const onError = vi.fn();
+    buildOperatorStartAction("srv1", onStarted, onError).onSelect();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("fab not found on PATH"));
+    expect(onStarted).not.toHaveBeenCalled();
   });
 });

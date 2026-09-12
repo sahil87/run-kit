@@ -20,8 +20,9 @@
 // for the round-trip assertions. `/ws/terminals` is a no-op socket mock: the
 // terminal mounts its xterm frame without stream data, and the mobile arrival
 // gate polls the terminal's `__rkTerminals` registration (the mobile specs'
-// idiom). Mobile tests run at 375×812; the desktop gate case runs at
-// 1024×768. No host-global state is saved or restored.
+// idiom). Mobile tests run at 375×812; the desktop case (the operator page
+// renders the strip on desktop too, minus the mobile tongue's clearance)
+// runs at 1024×768. No host-global state is saved or restored.
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
 
@@ -236,16 +237,19 @@ test.describe("Mobile cron tabs", () => {
   });
 
   /**
-   * Proves: the header is form-factor-gated — the desktop operator route
-   * renders no segmented header (the desktop cron views live in the quake
-   * terminal drawer).
+   * Proves: the segmented header is no longer form-factor-gated — the desktop
+   * operator route renders the strip too (the operator page), but WITHOUT the
+   * mobile tongue's `pt-9` clearance (the tongue never renders on desktop).
    *
    * Steps:
    * 1. Keep the desktop 1024×768 viewport; mock the backend.
    * 2. Land on the operator route `/default/9`.
-   * 3. Assert the terminal registered but no `Quake terminal segments` tablist renders.
+   * 3. Assert the terminal registered, the `Quake terminal segments` tablist
+   *    renders, and its wrapper carries no `pt-9` tongue clearance.
    */
-  test("no segmented header on desktop", async ({ page }) => {
+  test("the desktop operator route renders the strip without the mobile tongue clearance", async ({
+    page,
+  }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
     await mockBackend(page);
     await page.goto(`/${SERVER}/9`);
@@ -257,7 +261,9 @@ test.describe("Mobile cron tabs", () => {
       )
       .toBe(true);
 
-    await expect(tabStrip(page)).toHaveCount(0);
+    const tabs = tabStrip(page);
+    await expect(tabs).toBeVisible({ timeout: 10_000 });
+    await expect(tabs.locator("..")).not.toHaveClass(/pt-9/);
   });
 
   /**

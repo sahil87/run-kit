@@ -18,8 +18,8 @@ import { canCloseShellWindow, canNewShellWindow, closeShellWindow, newShellWindo
 import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
 import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
 import { buildNavActions, type NavMode } from "@/lib/palette/nav";
-import { buildQuakeTerminalAction, buildQuakeTerminalListAction, buildQuakeTerminalLogAction, buildQuakeTerminalPinAction, buildQuakeTerminalResetSizeAction, buildQuakeTerminalTasksAction } from "@/lib/palette/quake-terminal";
-import { useQuakeMachineState, useQuakePinned } from "@/lib/quake-terminal";
+import { buildQuakeTerminalAction, buildQuakeTerminalListAction, buildQuakeTerminalLogAction, buildQuakeTerminalOpenAsTabAction, buildQuakeTerminalPinAction, buildQuakeTerminalResetSizeAction, buildQuakeTerminalTasksAction, buildOperatorStartAction } from "@/lib/palette/quake-terminal";
+import { useQuakeMachineState, useQuakePinned, useQuakeTerminalContext } from "@/lib/quake-terminal";
 import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette/update";
 import { buildVersionAction, displayVersion } from "@/lib/palette/version";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -372,6 +372,44 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     () => buildQuakeTerminalPinAction(quakePinned),
     [quakePinned],
   );
+  // The quake terminal's resolved server + operator window — the same
+  // resolution the drawer and launcher use (route server wins), tolerant of a
+  // missing SessionProvider.
+  const quakeCtx = useQuakeTerminalContext();
+  // ⤢ open as tab — the palette twin of the drawer header control, listed
+  // only while the desktop machine is `open` AND a target resolves (the pin
+  // entry's gating precedent); the palette has no drawer-segment context, so
+  // a pick lands on the terminal segment.
+  const quakeTerminalOpenAsTabEntry: PaletteAction | null = useMemo(
+    () =>
+      quakeCtx.server && quakeCtx.target
+        ? buildQuakeTerminalOpenAsTabAction(
+            { server: quakeCtx.server, windowId: quakeCtx.target.window.windowId },
+            (opts) => void navigate(opts),
+          )
+        : null,
+    [quakeCtx.server, quakeCtx.target, navigate],
+  );
+  // Start operator — listed only while the resolved server has NO operator
+  // window (degrade to absent, never disabled), on both form factors: it is
+  // the mobile Start path (no drawer exists there). Success (or a racing
+  // 409 carrying the window) navigates to the operator window's route — the
+  // palette has no drawer to retarget.
+  const operatorStartEntry: PaletteAction | null = useMemo(
+    () =>
+      quakeCtx.server && !quakeCtx.target
+        ? buildOperatorStartAction(
+            quakeCtx.server,
+            (result) =>
+              void navigate({
+                to: "/$server/$window",
+                params: { server: result.server, window: result.windowId },
+              }),
+            (message) => addToast(message, "error"),
+          )
+        : null,
+    [quakeCtx.server, quakeCtx.target, navigate, addToast],
+  );
 
   // Host switcher (260820-nv0o) — opens the desktop-shell titlebar strip's
   // hosts menu through the HOST_MENU_OPEN_EVENT document seam (the strip
@@ -519,10 +557,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
   );
 }

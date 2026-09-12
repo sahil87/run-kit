@@ -1445,9 +1445,10 @@ export function TopBar({
               compact heading, ghost at md–lg; while the drawer is open both
               rungs collapse to the glyph + chord control that re-focuses the
               docked compose). Renders on every mode;
-              self-gates to null on mobile. The route server arrives as a prop
-              so this center-cell component does not pull router hooks. */}
-          <QuakeLauncher routeServer={server || null} />
+              self-gates to null on mobile. The route server and window arrive
+              as props so this center-cell component does not pull router
+              hooks. */}
+          <QuakeLauncher routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} />
         </div>
 
         {/* Right cluster — registry-driven overflow (260715-h1ck). The ordered

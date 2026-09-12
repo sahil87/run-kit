@@ -1242,6 +1242,172 @@ describe("CmdK Annotate Tab Action (operator-request gate)", () => {
   });
 });
 
+describe("operator page — the operator window's route wears the quake surface on desktop", () => {
+  // The form-factor-neutral gate: `operatorPage` drops the old mobile-only
+  // term, so a DESKTOP operator route mounts the segment strip, swaps the
+  // body on `?tab=`, and force-mounts the footer-docked compose strip; a
+  // non-operator route stays byte-identical. The SurfaceLayout child is the
+  // mount-spying stub above; the strip/compose/swap assertions read the DOM
+  // around it.
+  stubMatchMedia(() => false);
+
+  function OperatorRouteRoot() {
+    return (
+      <ThemeProvider>
+        <ToastProvider>
+          <InstanceNameProvider>
+            <ChromeProvider>
+              <ZenProvider>
+                <FocusedTerminalProvider>
+                  <OptimisticProvider>
+                    <TopBarSlotProvider>
+                      <FocusedPaneProvider>
+                        <ServerDialogsProvider>
+                          <PaletteActionsProvider globalActions={[]}>
+                            <GuiOffRequestProvider value={undefined}>
+                              <MetricsProvider value={null}>
+                                <HostMetricsProvider value={null}>
+                                  <StandaloneSessionContextProvider
+                                value={{
+                                  currentServer: null,
+                                  servers: [{ name: "srv", sessionCount: 1 }] as ServerInfo[],
+                                  serversLoaded: true,
+                                  sessionsByServer: new Map([
+                                    [
+                                      "srv",
+                                      [
+                                        makeSession({
+                                          name: "alpha",
+                                          windows: [
+                                            makeWindow({
+                                              windowId: "@0",
+                                              index: 0,
+                                              isActiveWindow: true,
+                                            }),
+                                          ],
+                                        }),
+                                        makeSession({
+                                          name: "_rk-operator",
+                                          hidden: true,
+                                          windows: [
+                                            makeWindow({
+                                              windowId: "@9",
+                                              index: 0,
+                                              name: "operator",
+                                              role: "operator",
+                                              isActiveWindow: true,
+                                            }),
+                                          ],
+                                        }),
+                                      ],
+                                    ],
+                                  ]),
+                                  isConnectedByServer: new Map([["srv", true]]),
+                                }}
+                              >
+                                <Outlet />
+                                  </StandaloneSessionContextProvider>
+                                </HostMetricsProvider>
+                              </MetricsProvider>
+                            </GuiOffRequestProvider>
+                          </PaletteActionsProvider>
+                        </ServerDialogsProvider>
+                      </FocusedPaneProvider>
+                    </TopBarSlotProvider>
+                  </OptimisticProvider>
+                </FocusedTerminalProvider>
+              </ZenProvider>
+            </ChromeProvider>
+          </InstanceNameProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    );
+  }
+
+  const opRootRoute = createRootRoute({ component: OperatorRouteRoot });
+  const opServerRoute = createRoute({
+    getParentRoute: () => opRootRoute,
+    path: "/$server",
+    component: ServerShell,
+  });
+  const opServerIndexRoute = createRoute({
+    getParentRoute: () => opServerRoute,
+    path: "/",
+  });
+  const opTerminalRoute = createRoute({
+    getParentRoute: () => opServerRoute,
+    path: "/$window",
+    validateSearch: validateTerminalSearch,
+    params: {
+      parse: (params) => ({ window: urlSegmentToWindowId(params.window) }),
+      stringify: (params) => ({ window: windowIdToUrlSegment(params.window) }),
+    },
+  });
+  const opRouteTree = opRootRoute.addChildren([
+    opServerRoute.addChildren([opServerIndexRoute, opTerminalRoute]),
+  ]);
+
+  function renderAt(entries: string[]) {
+    const router = createRouter({
+      routeTree: opRouteTree,
+      history: createMemoryHistory({ initialEntries: entries }),
+    });
+    render(<RouterProvider router={router} />);
+    return router;
+  }
+
+  afterEach(() => {
+    cleanup();
+    surfaceLayoutSpy.mounts.length = 0;
+    surfaceLayoutSpy.props.mockClear();
+    localStorage.clear();
+  });
+
+  it("the desktop operator route mounts the segment strip and the forced compose strip (preference off)", async () => {
+    renderAt(["/srv/9"]);
+
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+    expect(screen.getByTestId("terminal-activity-tabs")).toBeInTheDocument();
+    // The strip is the page's input by definition — the `runkit-compose-strip`
+    // preference (absent here) does not gate it on the operator page.
+    expect(localStorage.getItem("runkit-compose-strip")).toBeNull();
+    expect(screen.getByTestId("compose-strip-input")).toBeInTheDocument();
+  });
+
+  it("?tab=tasks hides (never unmounts) the terminal column and mounts the tracked list", async () => {
+    renderAt(["/srv/9?tab=tasks"]);
+
+    await waitFor(() => screen.getByTestId("watched-tasks"));
+    const column = screen.getByTestId("mock-surface-layout").parentElement!;
+    expect(column.className).toContain("hidden");
+    // Still mounted — the hide-never-unmount posture.
+    expect(surfaceLayoutSpy.mounts).toEqual(["mount"]);
+  });
+
+  it("a cold desktop ?tab= arrival dispatches no quake-terminal seam event (the handoff is gone)", async () => {
+    const seen: unknown[] = [];
+    const listener = (e: Event) => seen.push(e);
+    document.addEventListener("rk:quake-terminal", listener);
+    try {
+      renderAt(["/srv/9?tab=list"]);
+      await waitFor(() => screen.getByTestId("mock-surface-layout"));
+      // The param is retained — it IS the page's segment state now.
+      expect(screen.getByTestId("terminal-activity-tabs")).toBeInTheDocument();
+      expect(seen).toHaveLength(0);
+    } finally {
+      document.removeEventListener("rk:quake-terminal", listener);
+    }
+  });
+
+  it("a desktop non-operator route renders neither strip nor forced compose", async () => {
+    renderAt(["/srv/0"]);
+
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+    expect(screen.queryByTestId("terminal-activity-tabs")).toBeNull();
+    expect(screen.queryByTestId("compose-strip-input")).toBeNull();
+  });
+});
+
 describe("terminal route grid key — SurfaceLayout keyed by server", () => {
   // The terminal route's tile grid mounts ONCE per server: a same-server
   // window switch re-renders the mounted grid with the new windowId prop (the

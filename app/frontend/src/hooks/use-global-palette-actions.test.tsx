@@ -36,8 +36,12 @@ vi.mock("@/api/client", () => ({
   getCron: vi.fn().mockResolvedValue({ entries: [], deliveries: [] }),
   muteCron: vi.fn().mockResolvedValue({ ok: true }),
   deleteCron: vi.fn().mockResolvedValue({ ok: true }),
+  startOperator: vi.fn(),
 }));
-import { getCron, muteCron, deleteCron } from "@/api/client";
+import { getCron, muteCron, deleteCron, startOperator } from "@/api/client";
+import { StandaloneSessionContextProvider } from "@/contexts/session-context";
+import { setQuakeMachineState } from "@/lib/quake-terminal";
+import type { ProjectSession, WindowInfo } from "@/types";
 
 // The help-topic twins' only seam is `openHelpTopic`; the registry stays real
 // so the ids/labels under test are the shipped ones.
@@ -389,5 +393,127 @@ describe("useGlobalPaletteActions — Cron entry actions (wuiu R14)", () => {
     expect(mockGetCron).not.toHaveBeenCalled();
     const byId = new Map(captured.map((a) => [a.id, a]));
     expect(byId.get("cron-mute-entry")?.disabled).toBe(true);
+  });
+});
+
+describe("useGlobalPaletteActions — operator page entries", () => {
+  // The two gates under test: `Operator: Start operator` is listed iff the
+  // resolved server has NO operator window (both form factors); `Operator:
+  // Open as tab` is listed iff the desktop machine is open AND a target
+  // resolves (the pin entry's gating precedent).
+  const mockStartOperator = vi.mocked(startOperator);
+
+  function win(overrides: Partial<WindowInfo>): WindowInfo {
+    return {
+      windowId: "@1",
+      index: 0,
+      name: "win",
+      worktreePath: "/tmp",
+      activity: "idle",
+      isActiveWindow: false,
+      activityTimestamp: 0,
+      ...overrides,
+    };
+  }
+
+  const NO_OPERATOR: ProjectSession[] = [{ name: "main", windows: [win({ windowId: "@1" })] }];
+  const WITH_OPERATOR: ProjectSession[] = [
+    { name: "main", windows: [win({ windowId: "@1" })] },
+    { name: "_rk-operator", hidden: true, windows: [win({ windowId: "@9", name: "operator", role: "operator" })] },
+  ];
+
+  function renderWithSessions(sessionsByServer: Map<string, ProjectSession[]>) {
+    mockMatches = [{ params: { server: "srv1" } }];
+    render(
+      <ToastProvider>
+        <ChromeProvider>
+          <SettingsDialogProvider>
+            <StandaloneSessionContextProvider
+              value={{
+                servers: [{ name: "srv1", sessionCount: 1 }],
+                serversLoaded: true,
+                sessionsByServer,
+              }}
+            >
+              <Probe />
+            </StandaloneSessionContextProvider>
+          </SettingsDialogProvider>
+        </ChromeProvider>
+      </ToastProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    mockMatches = [{ params: {} }];
+    mockNavigate.mockReset();
+    mockStartOperator.mockReset();
+    captured = [];
+    localStorage.clear();
+    setQuakeMachineState("rest");
+  });
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+    vi.unstubAllGlobals();
+    setQuakeMachineState("rest");
+  });
+
+  it("lists Operator: Start operator iff the resolved server has no operator window", () => {
+    renderWithSessions(new Map([["srv1", NO_OPERATOR]]));
+    expect(ids()).toContain("operator-start");
+
+    cleanup();
+    renderWithSessions(new Map([["srv1", WITH_OPERATOR]]));
+    expect(ids()).not.toContain("operator-start");
+  });
+
+  it("Start operator onSelect posts and navigates to the new operator window's route", async () => {
+    mockStartOperator.mockResolvedValue({ windowId: "@7", server: "srv1" });
+    renderWithSessions(new Map([["srv1", NO_OPERATOR]]));
+
+    act(() => captured.find((a) => a.id === "operator-start")?.onSelect());
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/$server/$window",
+        params: { server: "srv1", window: "@7" },
+      }),
+    );
+    expect(mockStartOperator).toHaveBeenCalledWith("srv1");
+  });
+
+  it("lists Operator: Open as tab only while the machine is open with a resolved target, after the pin entry", () => {
+    renderWithSessions(new Map([["srv1", WITH_OPERATOR]]));
+    // Machine at rest → neither pin nor open-as-tab is listed.
+    expect(ids()).not.toContain("quake-terminal-open-as-tab");
+    expect(ids()).not.toContain("quake-terminal-pin");
+
+    cleanup();
+    setQuakeMachineState("open");
+    renderWithSessions(new Map([["srv1", WITH_OPERATOR]]));
+    const order = ids();
+    expect(order).toContain("quake-terminal-open-as-tab");
+    expect(order.indexOf("quake-terminal-open-as-tab")).toBeGreaterThan(
+      order.indexOf("quake-terminal-pin"),
+    );
+
+    // Open machine but no operator → no target → absent.
+    cleanup();
+    setQuakeMachineState("open");
+    renderWithSessions(new Map([["srv1", NO_OPERATOR]]));
+    expect(ids()).not.toContain("quake-terminal-open-as-tab");
+  });
+
+  it("Open as tab onSelect navigates to the operator route (terminal segment) and rests the machine", () => {
+    setQuakeMachineState("open");
+    renderWithSessions(new Map([["srv1", WITH_OPERATOR]]));
+
+    act(() => captured.find((a) => a.id === "quake-terminal-open-as-tab")?.onSelect());
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@9" },
+      search: {},
+    });
   });
 });

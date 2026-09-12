@@ -17,6 +17,7 @@ import {
   useQuakeMachineState,
   useOperatorCompose,
 } from "@/lib/quake-terminal";
+import { focusComposeStrip } from "@/lib/compose-strip-events";
 
 /** The wide-desktop rung (tailwind `lg`) — the standing quake launcher box
  *  exists at and above it; below it the md–lg ghost stands instead. */
@@ -53,7 +54,11 @@ const EXTRA_WIDE_RUNG_QUERY = "(min-width: 1536px)";
  * chord): a click re-focuses the docked textarea (the machine is already
  * open — the action is the focus). The collapsed control carries the accent
  * border while the shared `engaged` slot says the compose owns input — a
- * focus-derived flag, so pinned-and-unfocused renders plain.
+ * focus-derived flag, so pinned-and-unfocused renders plain. The same
+ * collapsed control stands on the operator window's own route (the page IS
+ * the quake surface — a standing textarea would duplicate the page's docked
+ * compose strip), where its click focuses the strip through the registry
+ * seam and no drawer ever opens.
  *
  * Enter in the standing box (non-empty draft) sends through the seam and
  * opens the drawer; clicking or tabbing into it opens the drawer too
@@ -77,7 +82,13 @@ const EXTRA_WIDE_RUNG_QUERY = "(min-width: 1536px)";
  * (the box owns its own file path: paste an image and it uploads to the
  * operator window's session, insert-staged into the TUI composer).
  */
-export function QuakeLauncher({ routeServer }: { routeServer: string | null }) {
+export function QuakeLauncher({
+  routeServer,
+  routeWindow,
+}: {
+  routeServer: string | null;
+  routeWindow: string | null;
+}) {
   const isMobile = useIsMobile();
   const wide = useMediaQuery(WIDE_RUNG_QUERY);
   const extraWide = useMediaQuery(EXTRA_WIDE_RUNG_QUERY);
@@ -137,6 +148,15 @@ export function QuakeLauncher({ routeServer }: { routeServer: string | null }) {
   // Wherever the launcher renders something at rest (≥ lg box, md–lg ghost),
   // it renders the collapsed control instead while the drawer is open.
   const open = machine === "open";
+  // On the operator window's own route the page IS the quake surface — the
+  // launcher stands down to the collapsed control there too (never the
+  // standing textarea), and its click focuses the page's docked compose
+  // strip instead of opening a duplicate drawer over the operator's own
+  // terminal. `engaged` does not apply — the drawer's compose is not the
+  // page's input.
+  const onOperatorRoute =
+    routeServer !== null && routeServer === server && target !== undefined &&
+    routeWindow === target.window.windowId;
 
   return (
     <>
@@ -145,7 +165,7 @@ export function QuakeLauncher({ routeServer }: { routeServer: string | null }) {
           and below md the 640px no-overlap budget (nav floor + hamburger
           against the anchored heading) has no room for it; the chord/palette
           still open the drawer there. */}
-      {!open && (
+      {!open && !onOperatorRoute && (
         <button
           type="button"
           data-testid="quake-launcher-ghost"
@@ -158,26 +178,32 @@ export function QuakeLauncher({ routeServer }: { routeServer: string | null }) {
           <span aria-hidden="true">ask</span>
         </button>
       )}
-      {open ? (
-        // The collapsed control: glyph + chord, a click re-focuses the docked
-        // compose textarea. It carries the quake-terminal root attribute so
-        // its click is recognised as quake-owned (not an outside click that
-        // would collapse the drawer); the same-value machine re-assertion
-        // bumps the activity counter the settle check honours. The accent
-        // border mirrors the compose's engaged flag — chrome never claims
-        // focus it lacks.
+      {open || onOperatorRoute ? (
+        // The collapsed control: glyph + chord. While the drawer is open a
+        // click re-focuses the docked compose textarea; on the operator route
+        // (no drawer there) it focuses the page's compose strip through the
+        // registry seam. It carries the quake-terminal root attribute so its
+        // click is recognised as quake-owned (not an outside click that would
+        // collapse the drawer); the same-value machine re-assertion bumps the
+        // activity counter the settle check honours. The accent border
+        // mirrors the compose's engaged flag — chrome never claims focus it
+        // lacks.
         <button
           type="button"
           data-quake-terminal=""
           data-testid="quake-launcher-collapsed"
           aria-label="Focus quake terminal compose"
           onClick={() => {
+            if (onOperatorRoute) {
+              focusComposeStrip();
+              return;
+            }
             setQuakeMachineState("open");
             const el = document.querySelector('[data-testid="quake-terminal-compose-input"]');
             if (el instanceof HTMLElement) el.focus();
           }}
           className={`hidden md:inline-flex ml-2 shrink-0 h-[28px] items-center gap-1 rounded border px-1.5 ${
-            engaged ? "border-accent-green" : "border-border"
+            engaged && !onOperatorRoute ? "border-accent-green" : "border-border"
           }`}
         >
           <OperatorStateGlyph agentState={agentState} />

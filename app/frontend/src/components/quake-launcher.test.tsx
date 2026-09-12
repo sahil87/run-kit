@@ -39,6 +39,14 @@ vi.mock("@/api/client", async (importActual) => ({
   sendOperatorRequest: mockOperatorRequest,
 }));
 
+// The compose-strip focus seam is spied (not exercised) here — the strip
+// itself is ComposeStrip's own tested surface.
+const mockFocusComposeStrip = vi.hoisted(() => vi.fn(() => true));
+vi.mock("@/lib/compose-strip-events", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/compose-strip-events")>()),
+  focusComposeStrip: mockFocusComposeStrip,
+}));
+
 function win(overrides: Partial<WindowInfo>): WindowInfo {
   return {
     windowId: "@1",
@@ -73,7 +81,7 @@ function renderPair(sessionsByServer?: Map<string, ProjectSession[]>) {
       }}
     >
       <QuakeTerminal />
-      <QuakeLauncher routeServer={null} />
+      <QuakeLauncher routeServer={null} routeWindow={null} />
     </StandaloneSessionContextProvider>,
   );
 }
@@ -105,6 +113,7 @@ describe("QuakeLauncher", () => {
     mockUpload.mockResolvedValue({ ok: true, path: "/tmp/op/.uploads/shot.png" });
     mockOperatorRequest.mockReset();
     mockOperatorRequest.mockResolvedValue({ outcome: "delivered" });
+    mockFocusComposeStrip.mockClear();
     localStorage.clear();
   });
   afterEach(() => {
@@ -117,6 +126,69 @@ describe("QuakeLauncher", () => {
     renderPair();
     expect(screen.queryByTestId("quake-launcher")).toBeNull();
     expect(screen.queryByTestId("quake-launcher-ghost")).toBeNull();
+  });
+
+  it("on the operator route the collapsed control stands in for the box and its click focuses the page's compose strip", () => {
+    stubWideDesktop();
+    render(
+      <StandaloneSessionContextProvider
+        value={{
+          servers: [{ name: "srv1", sessionCount: 1 }],
+          serversLoaded: true,
+          sessionsByServer: new Map([["srv1", operatorSessions()]]),
+        }}
+      >
+        <QuakeLauncher routeServer="srv1" routeWindow="@9" />
+      </StandaloneSessionContextProvider>,
+    );
+
+    // No standing textarea, no ghost — the page IS the quake surface, so a
+    // standing input would duplicate its docked compose strip.
+    expect(screen.queryByTestId("quake-launcher")).toBeNull();
+    expect(screen.queryByTestId("quake-launcher-ghost")).toBeNull();
+    const collapsed = screen.getByTestId("quake-launcher-collapsed");
+
+    fireEvent.click(collapsed);
+    expect(mockFocusComposeStrip).toHaveBeenCalled();
+    // Never a duplicate drawer over the operator's own terminal.
+    expect(getQuakeMachineState()).toBe("rest");
+  });
+
+  it("the collapsed operator-route form keeps the live-state dot and carries no engaged accent", () => {
+    stubWideDesktop();
+    render(
+      <StandaloneSessionContextProvider
+        value={{
+          servers: [{ name: "srv1", sessionCount: 1 }],
+          serversLoaded: true,
+          sessionsByServer: new Map([["srv1", operatorSessions("waiting")]]),
+        }}
+      >
+        <QuakeLauncher routeServer="srv1" routeWindow="@9" />
+      </StandaloneSessionContextProvider>,
+    );
+
+    const collapsed = screen.getByTestId("quake-launcher-collapsed");
+    expect(collapsed).toContainElement(screen.getByTestId("quake-launcher-state"));
+    expect(collapsed.className).toContain("border-border");
+  });
+
+  it("a non-operator window route keeps the standing box", () => {
+    stubWideDesktop();
+    render(
+      <StandaloneSessionContextProvider
+        value={{
+          servers: [{ name: "srv1", sessionCount: 1 }],
+          serversLoaded: true,
+          sessionsByServer: new Map([["srv1", operatorSessions()]]),
+        }}
+      >
+        <QuakeLauncher routeServer="srv1" routeWindow="@1" />
+      </StandaloneSessionContextProvider>,
+    );
+
+    expect(screen.getByTestId("quake-launcher")).toBeInTheDocument();
+    expect(screen.queryByTestId("quake-launcher-collapsed")).toBeNull();
   });
 
   it("md–lg rung: the ghost renders at rest, the box hidden until engaged", () => {
@@ -188,7 +260,7 @@ describe("QuakeLauncher", () => {
 
   it("renders no state dot without SessionContext", () => {
     stubWideDesktop();
-    render(<QuakeLauncher routeServer="srv1" />);
+    render(<QuakeLauncher routeServer="srv1" routeWindow={null} />);
 
     expect(screen.getByTestId("quake-launcher")).toBeInTheDocument();
     expect(screen.queryByTestId("quake-launcher-state")).toBeNull();

@@ -938,38 +938,20 @@ function AppShell() {
   // lib/router-url.ts) types `.view`/`.panel`/`.layout`, so no casts are
   // needed.
   const search = useSearch({ strict: false });
-  // The mobile operator route's segment gate: the segmented
-  // header and the content swap mount ONLY on a mobile viewport on the operator
-  // window's own terminal route. `tab` absent/"terminal" (or the gate false)
-  // renders the pre-existing tree byte-identically; the role is known only
-  // once the sessions payload resolves the window, so a cold `?tab=` deep link
-  // swaps in a beat after mount. The legacy `tab=activity` token is
-  // normalized to `log` by validateTerminalSearch before this read.
-  const quakeTerminalTabs = isMobile && windowParam != null && currentWindow?.role === "operator";
-  const quakeTab = quakeTerminalTabs ? (search.tab ?? "terminal") : "terminal";
+  // The operator page: the operator window's own terminal route wears the
+  // quake surface on EVERY form factor — the segmented header and the
+  // content swap mount whenever the resolved window's role is `operator`.
+  // `tab` absent/"terminal" (or the gate false) renders the pre-existing
+  // tree byte-identically; the role is known only once the sessions payload
+  // resolves the window, so a cold `?tab=` deep link swaps in a beat after
+  // mount. The legacy `tab=activity` token is normalized to `log` by
+  // validateTerminalSearch before this read.
+  const operatorPage = windowParam != null && currentWindow?.role === "operator";
+  const quakeTab = operatorPage ? (search.tab ?? "terminal") : "terminal";
   const cronTabActive = quakeTab === "list" || quakeTab === "log";
   const tasksTabActive = quakeTab === "tasks";
   // Any non-terminal tab hides (never unmounts) the terminal column.
   const terminalHidden = cronTabActive || tasksTabActive;
-  // Desktop `?tab=` handoff (the notify deep-link): the segment param
-  // is inert on desktop — the tabs above are mobile-only and the route itself
-  // has no non-terminal view — so on the operator window's terminal route the
-  // quake terminal drawer opens on that segment instead. Fires once per
-  // arrival: the param is stripped immediately so a reload does not re-open.
-  useEffect(() => {
-    if (isMobile || !windowParam || currentWindow?.role !== "operator") {
-      return;
-    }
-    if (search.tab !== "tasks" && search.tab !== "list" && search.tab !== "log") {
-      return;
-    }
-    requestQuakeTerminal({ action: "open", segment: search.tab });
-    void navigate({
-      to: ".",
-      search: (prev) => ({ ...prev, tab: undefined }),
-      replace: true,
-    });
-  }, [isMobile, windowParam, currentWindow?.role, search.tab, navigate]);
   // The host-level code-server signal (260811-k3vp; portless since
   // 260811-a2bo) — `reachable` gates only the surface CONTENT (passed to
   // CodeSurface below); availability is gitRoot-derived (hasCode). `null` = no
@@ -2909,6 +2891,14 @@ function AppShell() {
     setOperatorComposeMode(mode);
   }, []);
 
+  // The sidebar's operator placeholder row (no operator window on the server)
+  // opens the quake terminal drawer on the Operator Terminal segment, where
+  // the Start operator button sits. Identity-arg []-dep callback — the
+  // memoized ServerGroup prop contract.
+  const handleOperatorPlaceholder = useCallback((srv: string) => {
+    requestQuakeTerminal({ action: "open", server: srv, segment: "terminal" });
+  }, []);
+
   // Navigate to a freshly-created agent window on `srv`. When `srv` IS the
   // current server, reuse navigateToWindow (its window-switch transition);
   // otherwise route cross-server via the 2-segment /$server/$window URL. Mirrors
@@ -3842,8 +3832,13 @@ function AppShell() {
   // single:code). One shared element serves both docks: one component, one
   // module draft store, so a dock flip (broadcast on/off, layout gaining or
   // losing its tty tile) loses no draft.
+  const composeStripVisible = composeStripEnabled || operatorPage;
+  // The operator page keeps its input in the footer dock even under a
+  // non-terminal tab (the in-tile dock would hide with the terminal column),
+  // so `operatorPage` is excluded from the in-tile predicate.
   const inTileDock =
     composeStripEnabled &&
+    !operatorPage &&
     !isMobile &&
     !!windowParam &&
     !selectionBroadcastKeys &&
@@ -5173,6 +5168,7 @@ function AppShell() {
       onForkWindow={handleForkWindow}
       onFixTabName={handleFixTabName}
       onOperatorCompose={hasOperatorWindow ? handleOperatorCompose : undefined}
+      onOperatorPlaceholder={handleOperatorPlaceholder}
       onCreateServer={openCreateServer}
       onKillServer={requestKillServer}
       onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}
@@ -5210,7 +5206,7 @@ function AppShell() {
       // height there (the 260814-ink6 no-reserved-height property).
       bottomBarChildren={
         <>
-          {composeStripEnabled && !inTileDock && composeStripElement}
+          {composeStripVisible && !inTileDock && composeStripElement}
           <BottomBar
             onOpenCompose={toggleComposeStrip}
             onFocusTerminal={() => focusTerminalRef.current?.()}
@@ -5310,10 +5306,11 @@ function AppShell() {
               <LogoSpinner size={48} />
             </div>
           )}
-          {/* The mobile operator route's segmented header —
-              mounts only under the `quakeTerminalTabs` gate, so every other
-              route/form factor renders nothing here. */}
-          {quakeTerminalTabs && <TerminalActivityTabs />}
+          {/* The operator page's segmented header —
+              mounts only under the `operatorPage` gate, so every other
+              route/form factor renders nothing here. The tongue clearance is
+              mobile-only (the tongue never renders on desktop). */}
+          {operatorPage && <TerminalActivityTabs clearTongue={isMobile} />}
           {/* Surface-layout column (260812-ab5v-surface-layout-core, spec
               surface-layout.md): the tile grid (SurfaceLayout) renders the
               RESOLVED layout as 1–3 tiles mounting the existing renderers

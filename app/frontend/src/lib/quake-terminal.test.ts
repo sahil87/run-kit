@@ -258,9 +258,23 @@ describe("quake geometry store", () => {
     expect(readQuakeGeometry()).toEqual(QUAKE_GEOMETRY_DEFAULT);
   });
 
-  it("round-trips a written geometry", () => {
-    writeQuakeGeometry({ heightVh: 70, widthPx: 900 });
-    expect(readQuakeGeometry()).toEqual({ heightVh: 70, widthPx: 900 });
+  it("the default opens centered", () => {
+    expect(QUAKE_GEOMETRY_DEFAULT.centerOffsetPx).toBe(0);
+  });
+
+  it("round-trips a written three-field geometry", () => {
+    writeQuakeGeometry({ heightVh: 70, widthPx: 900, centerOffsetPx: 40 });
+    expect(readQuakeGeometry()).toEqual({ heightVh: 70, widthPx: 900, centerOffsetPx: 40 });
+  });
+
+  it("reads a stored two-field record (written before the offset existed) as centered", () => {
+    localStorage.setItem(QUAKE_GEOMETRY_KEY, JSON.stringify({ heightVh: 70, widthPx: 900 }));
+    expect(readQuakeGeometry()).toEqual({ heightVh: 70, widthPx: 900, centerOffsetPx: 0 });
+  });
+
+  it("reads a two-field record under the legacy key as centered", () => {
+    localStorage.setItem(LEGACY_QUAKE_GEOMETRY_KEY, JSON.stringify({ heightVh: 70, widthPx: 900 }));
+    expect(readQuakeGeometry()).toEqual({ heightVh: 70, widthPx: 900, centerOffsetPx: 0 });
   });
 
   it("degrades to defaults on corrupt JSON", () => {
@@ -273,36 +287,85 @@ describe("quake geometry store", () => {
     expect(readQuakeGeometry()).toEqual(QUAKE_GEOMETRY_DEFAULT);
   });
 
+  it("degrades to defaults when the offset is present but not a number", () => {
+    localStorage.setItem(
+      QUAKE_GEOMETRY_KEY,
+      JSON.stringify({ heightVh: 70, widthPx: 900, centerOffsetPx: "12" }),
+    );
+    expect(readQuakeGeometry()).toEqual(QUAKE_GEOMETRY_DEFAULT);
+  });
+
   it("clamps out-of-range stored values instead of rejecting them", () => {
     localStorage.setItem(QUAKE_GEOMETRY_KEY, JSON.stringify({ heightVh: 99, widthPx: 100 }));
-    expect(readQuakeGeometry()).toEqual({ heightVh: 85, widthPx: 420 });
+    expect(readQuakeGeometry()).toEqual({ heightVh: 85, widthPx: 420, centerOffsetPx: 0 });
   });
 
   it("clamps width against the 96vw ceiling", () => {
-    const clamped = clampQuakeGeometry({ heightVh: 55, widthPx: 2000 }, 1000);
+    const clamped = clampQuakeGeometry({ heightVh: 55, widthPx: 2000, centerOffsetPx: 0 }, 1000);
     expect(clamped.widthPx).toBe(960);
   });
 
   it("clamps height into 25–85vh", () => {
-    expect(clampQuakeGeometry({ heightVh: 10, widthPx: 760 }).heightVh).toBe(25);
-    expect(clampQuakeGeometry({ heightVh: 90, widthPx: 760 }).heightVh).toBe(85);
+    expect(clampQuakeGeometry({ heightVh: 10, widthPx: 760, centerOffsetPx: 0 }).heightVh).toBe(25);
+    expect(clampQuakeGeometry({ heightVh: 90, widthPx: 760, centerOffsetPx: 0 }).heightVh).toBe(85);
+  });
+
+  it("clamps the center offset so the drawer keeps the edge pad inside the viewport", () => {
+    // (1000 − 760) / 2 − 8 = 112 on either side.
+    expect(clampQuakeGeometry({ heightVh: 55, widthPx: 760, centerOffsetPx: 500 }, 1000).centerOffsetPx).toBe(
+      112,
+    );
+    expect(clampQuakeGeometry({ heightVh: 55, widthPx: 760, centerOffsetPx: -500 }, 1000).centerOffsetPx).toBe(
+      -112,
+    );
+    expect(clampQuakeGeometry({ heightVh: 55, widthPx: 760, centerOffsetPx: 50 }, 1000).centerOffsetPx).toBe(50);
+  });
+
+  it("bounds the offset against the CLAMPED width and never goes negative at the ceiling", () => {
+    // Width pins at 960 (96vw of 1000); (1000 − 960) / 2 − 8 = 12.
+    const atCeiling = clampQuakeGeometry({ heightVh: 55, widthPx: 2000, centerOffsetPx: 300 }, 1000);
+    expect(atCeiling).toEqual({ heightVh: 55, widthPx: 960, centerOffsetPx: 12 });
+    // A viewport so narrow the pad cannot fit (2vw < 8px) still yields offset 0,
+    // never a flipped range: 96vw of 300 is 288, (300 − 288) / 2 − 8 < 0.
+    const tiny = clampQuakeGeometry({ heightVh: 55, widthPx: 420, centerOffsetPx: 30 }, 300);
+    expect(tiny.centerOffsetPx).toBe(0);
+    expect(tiny.widthPx).toBe(288);
+  });
+
+  it("treats a non-finite offset as centered and rounds the result", () => {
+    expect(clampQuakeGeometry({ heightVh: 55, widthPx: 760, centerOffsetPx: NaN }, 1000).centerOffsetPx).toBe(0);
+    expect(clampQuakeGeometry({ heightVh: 55, widthPx: 760, centerOffsetPx: 10.6 }, 1000).centerOffsetPx).toBe(11);
+  });
+
+  it("leaves the offset unclamped when no viewport width is known", () => {
+    // An explicit `undefined` argument takes the default (window.innerWidth), so
+    // the no-viewport path is reached by making innerWidth unusable.
+    const original = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { value: NaN, configurable: true });
+    try {
+      expect(clampQuakeGeometry({ heightVh: 55, widthPx: 760, centerOffsetPx: 5000 }).centerOffsetPx).toBe(5000);
+    } finally {
+      Object.defineProperty(window, "innerWidth", { value: original, configurable: true });
+    }
   });
 
   it("falls back to the legacy key, clamped through the same path, when the new key is absent", () => {
     localStorage.setItem(LEGACY_QUAKE_GEOMETRY_KEY, JSON.stringify({ heightVh: 99, widthPx: 100 }));
-    expect(readQuakeGeometry()).toEqual({ heightVh: 85, widthPx: 420 });
+    expect(readQuakeGeometry()).toEqual({ heightVh: 85, widthPx: 420, centerOffsetPx: 0 });
   });
 
   it("prefers the new key when both keys are set", () => {
     localStorage.setItem(LEGACY_QUAKE_GEOMETRY_KEY, JSON.stringify({ heightVh: 40, widthPx: 600 }));
-    localStorage.setItem(QUAKE_GEOMETRY_KEY, JSON.stringify({ heightVh: 70, widthPx: 900 }));
-    expect(readQuakeGeometry()).toEqual({ heightVh: 70, widthPx: 900 });
+    localStorage.setItem(QUAKE_GEOMETRY_KEY, JSON.stringify({ heightVh: 70, widthPx: 900, centerOffsetPx: 20 }));
+    expect(readQuakeGeometry()).toEqual({ heightVh: 70, widthPx: 900, centerOffsetPx: 20 });
   });
 
-  it("a write stores the new key and removes the legacy key", () => {
+  it("a write stores all three fields under the new key and removes the legacy key", () => {
     localStorage.setItem(LEGACY_QUAKE_GEOMETRY_KEY, JSON.stringify({ heightVh: 40, widthPx: 600 }));
-    writeQuakeGeometry({ heightVh: 70, widthPx: 900 });
-    expect(localStorage.getItem(QUAKE_GEOMETRY_KEY)).toBe(JSON.stringify({ heightVh: 70, widthPx: 900 }));
+    writeQuakeGeometry({ heightVh: 70, widthPx: 900, centerOffsetPx: 20 });
+    expect(localStorage.getItem(QUAKE_GEOMETRY_KEY)).toBe(
+      JSON.stringify({ heightVh: 70, widthPx: 900, centerOffsetPx: 20 }),
+    );
     expect(localStorage.getItem(LEGACY_QUAKE_GEOMETRY_KEY)).toBeNull();
   });
 

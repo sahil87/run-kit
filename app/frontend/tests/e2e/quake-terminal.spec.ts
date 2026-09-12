@@ -9,8 +9,12 @@ import { mockStateSocket } from "./_state-socket-mock";
 // the one-input rule (the desktop drawer is output-only with the status/error
 // line at its top edge), the palette action + Ask-operator fallback row,
 // operator-absent degradation, and inline send-error surfacing. The drawer
-// carries: the true slide (mounted-through-exit), mouse resize with per-viewer
-// geometry persistence, the glass background + settings-dialog opacity row,
+// carries: the true slide (mounted-through-exit), mouse resize from every
+// exposed edge (full bottom edge with the tongue tab, both sides, both bottom
+// corners — independent edges, so a corner tracks the pointer and the drawer
+// may rest off-center) with per-viewer geometry persistence
+// (`{heightVh, widthPx, centerOffsetPx}`), the glass background +
+// settings-dialog opacity row,
 // the launcher ◉ live-state dot on both desktop rungs, and drawer/launcher
 // image paste (upload to the operator window's session + insert-delivery)
 // with the route terminals' strip-forward guard. The drawer's
@@ -1075,19 +1079,19 @@ test.describe("Quake terminal", () => {
     });
   });
   /**
-   * Proves: the hanging tongue grip drags the drawer's height (clamped at
+   * Proves: the full-width bottom grip drags the drawer's height (clamped at
    * 85vh), the new geometry persists to `runkit-quake-terminal-geometry`,
    * and a reload reopens the drawer at the persisted size.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the terminal route
    *    and open the quake terminal.
-   * 2. Drag the height grip a full viewport-height down; assert the drawer
+   * 2. Drag the bottom grip a full viewport-height down; assert the drawer
    *    grew and the style pins at the 85vh clamp.
    * 3. Assert the localStorage key holds heightVh 85.
    * 4. Reload, reopen via the chord; assert the drawer renders at 85vh.
    */
-  test("dragging the height grip resizes the drawer and persists the geometry across reload", async ({
+  test("dragging the bottom grip resizes the drawer and persists the geometry across reload", async ({
     page,
   }) => {
     await mockBackend(page, true);
@@ -1099,11 +1103,13 @@ test.describe("Quake terminal", () => {
     const before = await el.boundingBox();
     expect(before).not.toBeNull();
 
-    const grip = page.getByTestId("quake-terminal-grip-height");
+    const grip = page.getByTestId("quake-terminal-grip-bottom");
     const gripBox = await grip.boundingBox();
     expect(gripBox).not.toBeNull();
-    const x = gripBox!.x + gripBox!.width / 2;
-    await page.mouse.move(x, gripBox!.y + 2);
+    // Grab a point away from the center so the tongue tab is not what is hit
+    // — the plain edge is the affordance under test.
+    const x = gripBox!.x + gripBox!.width / 4;
+    await page.mouse.move(x, gripBox!.y + gripBox!.height / 2);
     await page.mouse.down();
     // A full-viewport drag overshoots the clamp: height pins at 85vh.
     await page.mouse.move(x, gripBox!.y + 720, { steps: 6 });
@@ -1121,6 +1127,70 @@ test.describe("Quake terminal", () => {
     await expect(page.getByText("feature-work").first()).toBeVisible({ timeout: 10_000 });
     await openDrawerViaChord(page);
     await expect(drawer(page)).toHaveAttribute("style", /height: 85vh/);
+  });
+  /**
+   * Proves: the bottom-right corner grip resizes both axes in one drag with
+   * independent edges — the drawer's right and bottom edges land under the
+   * pointer while the left edge stays put (so the drawer now rests off-center),
+   * the signed `centerOffsetPx` persists, and a reload reopens the drawer at
+   * that offset.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window; land on the terminal route,
+   *    open the quake terminal, and record the drawer's box.
+   * 2. Press on the bottom-right corner grip and drag (+120, +80) px.
+   * 3. Assert the drawer's right and bottom edges are within 4px of the
+   *    pointer, and the left edge moved by at most 1px.
+   * 4. Assert the localStorage key holds a positive centerOffsetPx.
+   * 5. Reload, reopen via the chord; assert the `left` style carries the
+   *    persisted offset.
+   */
+  test("dragging the bottom-right corner tracks the pointer on both axes and persists the offset", async ({
+    page,
+  }) => {
+    await mockBackend(page, true);
+    await gotoWindow(page);
+
+    await openDrawerViaChord(page);
+    const el = drawer(page);
+    await expect(el).not.toHaveClass(/rk-quake-closed/);
+    const before = await el.boundingBox();
+    expect(before).not.toBeNull();
+
+    const grip = page.getByTestId("quake-terminal-grip-bottom-right");
+    const gripBox = await grip.boundingBox();
+    expect(gripBox).not.toBeNull();
+    const startX = gripBox!.x + gripBox!.width / 2;
+    const startY = gripBox!.y + gripBox!.height / 2;
+    const endX = startX + 120;
+    const endY = startY + 80;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(endX, endY, { steps: 8 });
+    await page.mouse.up();
+
+    const after = await el.boundingBox();
+    expect(after).not.toBeNull();
+    // The grabbed corner sits under the pointer: each edge moved by exactly
+    // the pointer delta, and the grip's center was ~2px inside the corner.
+    expect(Math.abs(after!.x + after!.width - endX)).toBeLessThanOrEqual(4);
+    expect(Math.abs(after!.y + after!.height - endY)).toBeLessThanOrEqual(4);
+    expect(Math.abs(after!.x - before!.x)).toBeLessThanOrEqual(1);
+    expect(after!.width - before!.width).toBeGreaterThan(110);
+
+    const stored = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("runkit-quake-terminal-geometry") ?? "{}"),
+    );
+    expect(stored.centerOffsetPx).toBeGreaterThan(0);
+    expect(stored.widthPx).toBe(Math.round(before!.width) + 120);
+
+    await page.reload();
+    await expect(page.getByText("feature-work").first()).toBeVisible({ timeout: 10_000 });
+    await openDrawerViaChord(page);
+    await expect(drawer(page)).toHaveAttribute(
+      "style",
+      new RegExp(`left: calc\\(50% \\+ ${stored.centerOffsetPx}px\\)`),
+    );
   });
 
   /**

@@ -56,7 +56,7 @@ request lane** — same closed registry, same busy ⇒ 202 posture for non-`chat
 templates, surfaced in its `--json` receipt as `queued:true` — not a fourth lane. The
 lane count stays three.
 
-The templated chat lane is the console's context-carrying send. When the
+The templated chat lane is the quake terminal's context-carrying send. When the
 quake terminal (⌘J) is opened on a terminal route, the message rides the chat
 template with the **route window as subject**, and the rendered prompt opens
 with a one-line **addressee header** — `[user → operator] The user is speaking
@@ -73,7 +73,7 @@ instruction. The envelope frames a **conversation, not a work item**: it does
 not use the `[run-kit request]` prefix and carries no action bounds — the
 operator acts on it and may reply.
 
-Console behavior: the compose strip shows the attached context as a visible,
+Quake terminal behavior: the compose strip shows the attached context as a visible,
 dismissable chip (`from: @5 "name" ✕`) — the IDE-chat pattern (Cursor/Copilot
 attach the active file the same way); implicit context the user cannot see
 erodes trust in what the operator was told. Chip dismissed, or a route with no

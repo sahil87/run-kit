@@ -166,7 +166,7 @@ async function gotoWindowMobile(page: Page, windowId: string, search = "") {
     .toBe(true);
 }
 
-const tabStrip = (page: Page) => page.getByRole("tablist", { name: "Console view" });
+const tabStrip = (page: Page) => page.getByRole("tablist", { name: "Quake terminal segments" });
 
 test.describe("Mobile cron tabs", () => {
   /**
@@ -225,7 +225,7 @@ test.describe("Mobile cron tabs", () => {
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend.
    * 2. Land on the plain work-window route `/default/1`.
-   * 3. Assert no `Console view` tablist renders.
+   * 3. Assert no `Quake terminal segments` tablist renders.
    */
   test("no segmented header on a non-operator route", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
@@ -237,13 +237,13 @@ test.describe("Mobile cron tabs", () => {
 
   /**
    * Proves: the header is form-factor-gated — the desktop operator route
-   * renders no segmented header (the desktop cron views live in the console
-   * drawer).
+   * renders no segmented header (the desktop cron views live in the quake
+   * terminal drawer).
    *
    * Steps:
    * 1. Keep the desktop 1024×768 viewport; mock the backend.
    * 2. Land on the operator route `/default/9`.
-   * 3. Assert the terminal registered but no `Console view` tablist renders.
+   * 3. Assert the terminal registered but no `Quake terminal segments` tablist renders.
    */
   test("no segmented header on desktop", async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);

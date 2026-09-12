@@ -14,8 +14,8 @@
 > [`api.md`](api.md) (endpoint surface). Visual design:
 > [`docs/wiki/cron-clock-design-studies.html`](../wiki/cron-clock-design-studies.html)
 > (the three-tier UI mocks, backoff timeline, resolution ladder). The UI is
-> tiered (§ UI): the status-bar `◷` clock chip for the glance, the operator
-> console's four-segment strip (`Operator Terminal | Operator Tasks | Cron
+> tiered (§ UI): the status-bar `◷` clock chip for the glance, the quake
+> terminal's four-segment strip (`Operator Terminal | Operator Tasks | Cron
 > List | Cron Log`) as the larger view on both form factors, the tmux Server
 > page's WATCHED zone as the fleet view, boards for immersion — the right
 > panel is retired, so no panel/rail placement exists. Cross-repo: this spec supersedes the
@@ -256,7 +256,7 @@ exposes the role taxonomy as substrate facts. This is what makes
 `target: role` well-defined and is the durable identity that lets the
 operator's crons survive its death: the entry outlives the pane, the role
 outlives the agent, and `if_absent: respawn` closes the loop. The evaluator
-resolves the role exactly as the pinned sidebar row and the console do —
+resolves the role exactly as the pinned sidebar row and the quake terminal do —
 never a bare `-t _rk-operator` (exact-match targets only).
 
 ## Delivery
@@ -350,7 +350,7 @@ tiered; each tier reuses a shipped mechanism:
    12m` / `◷ due`), flipping to the yellow `◷ stale {age}` when the operator
    loop is stale, and omitted when the server has no entries and no staleness.
    Its click (and its overflow-menu mirror row `◷ Cron List`) opens the
-   console on `Cron List`. The **watchlist stays out of the sidebar** —
+   quake terminal on `Cron List`. The **watchlist stays out of the sidebar** —
    watched workers are already window rows in the tree, so the ambient signal
    is the StatusDot's watched underbar on the row plus an `opr` register line
    on the row's existing flyout card (beside `@rk_win_note`). Staleness past
@@ -385,8 +385,8 @@ tiered; each tier reuses a shipped mechanism:
    line matches what `fab operator track list` reports. Entry points: the
    status-bar `◷` clock chip and the palette entries `Operator: Show tasks`,
    `Operator: Show cron list`, and `Operator: Show cron log` (mobile: the
-   `?tab=tasks|list|log` content slots on the operator route); the console's
-   title strip also carries the operator tick-age stamp after the live
+   `?tab=tasks|list|log` content slots on the operator route); the quake
+   terminal's title strip also carries the operator tick-age stamp after the live
    agent-state line. The tmux Server page keeps only the **WATCHED** zone
    (the fleet view, change `260910-1rx0-server-page-clock-dashboard`):
    watched workers with full detail (state, rung, what it awaits, age, last
@@ -400,7 +400,7 @@ tiered; each tier reuses a shipped mechanism:
    design landed tier 2 in the reserved `agents` surface kind
    ([`surface-layout.md`](surface-layout.md)): opened as
    `main-left: tty,agents` beside the operator terminal, tile-zoom to
-   full-center, no compose of its own (output-only per the console's
+   full-center, no compose of its own (output-only per the quake terminal's
    one-input rule — the quake launcher is the global talk channel). Superseded:
    it was a tab-scoped tile for a server-scoped fact, and `agents` is no
    longer a reserved surface kind — `SURFACE_KINDS` is now
@@ -413,7 +413,7 @@ tiered; each tier reuses a shipped mechanism:
    section rail, mute/delete on the row's flyout card, `Panel: Toggle
    Clock`), and tier 2b put the registry on `/$server` as CRONS and RECENT
    DELIVERIES zones beside WATCHED (`Server: Clock dashboard` scrolling the
-   CRONS heading into view). Both retired in favor of the console's `Cron
+   CRONS heading into view). Both retired in favor of the quake terminal's `Cron
    List | Cron Log` tabs — one surface on both form factors instead of three
    renderers of the same entries, with the `◷` chip as the glance entry; the
    earlier merged Activity feed (upcoming fires + deliveries across a "now"
@@ -432,7 +432,8 @@ tiered; each tier reuses a shipped mechanism:
    tiers collapse badly on a phone (a 50px drawer panel + flyout-buried
    actions), so mobile carries the identical strip on the operator route
    (`?tab=terminal|tasks|list|log`), gated on the operator window:
-   - The **mobile console** — already the operator surface on phones —
+   - The **mobile strip** — on the operator route, already the operator
+     surface on phones —
      carries the segment header, **Operator Terminal | Operator Tasks |
      Cron List | Cron Log**. `Cron Log` is the time-ordered delivery log
      (the Calendar-agenda / PagerDuty triage pattern: mobile ops surfaces
@@ -440,7 +441,7 @@ tiered; each tier reuses a shipped mechanism:
      and Operator Tasks the watchlist content slot (`?tab=tasks`), the
      same shared watched-table component as the Server page's WATCHED
      zone. Pure derivation — the deterministic-render contract
-     holds; it inherits the console's server resolution and
+     holds; it inherits the quake terminal's server resolution and
      degrade-to-absent gating.
    - **Staleness is the cron tabs' pinned banner** (the healthchecks.io
      dead-man's-switch model): a stale operator loop is the most important
@@ -454,19 +455,19 @@ tiered; each tier reuses a shipped mechanism:
      ride `rk notify`; the notification deep-links to the `Cron Log` tab
      (`?tab=log`; `?tab=activity` resolves there for one release).
    - The tree's watched-row underbars remain on both form factors.
-   - **Desktop has parity**: the desktop console drawer ships the same
+   - **Desktop has parity**: the desktop quake drawer ships the same
      four segments (tier 2) — one registry, log, watchlist, banner, and
      detail-sheet codebase across both form factors.
 
 Rejected: a dedicated `clock` **surface kind** (a dedicated kind would split
 the surface model — the surface set is `tty · web · code · gui`, and crons
-ride the console and Server page instead); **Host page** (checking crons
+ride the quake terminal and Server page instead); **Host page** (checking crons
 must not cost a navigation); **status bar
 only** (no management affordance — the `◷` readout that rides it is an entry
-point to the console's `Cron List` tab, not the surface); **mobile
+point to the quake terminal's `Cron List` tab, not the surface); **mobile
 registry-in-the-drawer** (the pre-feed mobile design: a pinned-height
 `CollapsiblePanel` in the drawer with flyout-card actions — no glanceability,
-mute two taps deep; superseded by the console's cron tabs); a **fab-authored HTML
+mute two taps deep; superseded by the quake terminal's cron tabs); a **fab-authored HTML
 frame displayed by path** for the Tasks segment (fab writing `<slug>.html`
 beside the operator state YAML every tick, shown by rk through a new
 file-serving route plus a sandboxed iframe, with a polling or mtime-watch
@@ -475,7 +476,7 @@ an unthemed foreign page inside the drawer; superseded by rendering the
 already-derived watchlist, which the frontend already holds in the sessions
 payload).
 
-Palette-registered per Constitution V (`Operator: Open console`,
+Palette-registered per Constitution V (`Operator: Open quake terminal`,
 `Operator: Show tasks`, `Operator: Show cron list`, `Operator: Show cron
 log`, `Cron: new entry`,
 `Cron: mute…`, `Cron: pin…`, `Cron: delete…`).
@@ -509,7 +510,7 @@ move.
 | VI (tmux independent) | The clock lives in the daemon; tmux sessions and agents are untouched by daemon restarts — at worst one duplicate idempotent fire |
 | IX (POST-only) | All mutations are POST |
 | X (hooks carry only the underivable) | Nothing is pushed — the watchlist derives from the fab-owned operator state file, staleness from its `last_tick_at`; no new hook exists |
-| IV (minimal surface) | No new page or tile — the cron surface lives in the console's existing segment strip; the watchlist reuses the tree rows instead of duplicating them |
+| IV (minimal surface) | No new page or tile — the cron surface lives in the quake terminal's existing segment strip; the watchlist reuses the tree rows instead of duplicating them |
 
 ## Phasing
 
@@ -543,7 +544,7 @@ move.
   one backoff step; with the lease renewing, no double ticks while the loop
   is healthy; `rk cron add/list/rm` works from inside a pane. Kills the
   incident class.
-- **P2 — visibility**: the console's four-segment strip (`Operator
+- **P2 — visibility**: the quake terminal's four-segment strip (`Operator
   Terminal | Operator Tasks | Cron List | Cron Log`) on the desktop drawer
   and the mobile operator route + staleness banner + entry detail sheet,
   the Server page's WATCHED zone, watched-row underbar + the `opr` register

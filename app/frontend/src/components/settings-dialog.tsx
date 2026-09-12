@@ -249,11 +249,11 @@ function QuakeOpacityControl() {
     <PreferenceRow
       label="Quake terminal opacity"
       sublabel="Desktop quake terminal background; 100% turns off the blur"
-      htmlFor="settings-console-opacity"
+      htmlFor="settings-quake-opacity"
     >
       <div className="flex items-center gap-2">
         <input
-          id="settings-console-opacity"
+          id="settings-quake-opacity"
           type="range"
           min={QUAKE_OPACITY_MIN}
           max={QUAKE_OPACITY_MAX}

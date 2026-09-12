@@ -39,7 +39,7 @@ export function QuakeSegments({
   return (
     <div
       role="tablist"
-      aria-label="Console view"
+      aria-label="Quake terminal segments"
       data-testid="terminal-activity-tabs"
       className="flex shrink-0 border-b border-border bg-bg-primary"
     >

@@ -17,7 +17,7 @@ the binary is still `rk`, every tmux/env/socket identifier is untouched, the
 six companion CLIs keep their names and are presented as *the HexoKit
 toolkit*, and shll.ai becomes a permanent redirect host.
 
-**Status (2026-09-12)**: Phase 0 done, Phase 1 in flight. Approach B chosen (product rename,
+**Status (2026-09-12)**: Phases 0–1 done, Phase 2 next. Approach B chosen (product rename,
 substrate kept). D1–D4, D13 and D14 confirmed by Sahil in the thread; D5–D12 are
 the plan's proposals and are open until marked confirmed. S1 done (operator,
 direct git op, no fab change). S2 merged (PR [hexokit-site#1](https://github.com/sahil87/hexokit-site/pull/1), fab change `1ha7`);
@@ -30,13 +30,14 @@ S5 merged 2026-09-11 ([hexokit-site#8](https://github.com/sahil87/hexokit-site/p
 (one cosmetic follow-up open, [hexokit-site#7](https://github.com/sahil87/hexokit-site/pull/7)).
 **2026-09-11: the formula rename and the GitHub repo rename moved to a final
 Phase 3 (R1, R2) at Sahil's request; roster fields move with them.**
-**Phase 1 (2026-09-12)**: C1 merged and released (shll v0.1.31); C7 done in
-all six repos; [run-kit#950](https://github.com/sahil87/run-kit/pull/950) (`mvuv`) is being **split** (2026-09-12):
-its prose half merges as C3a; its app-identity half (command name, Electron
-name, bundle/asset prefix, config.yaml) is deferred to Phase 3 as R0, and C4
-(home migration) moves to Phase 3 beside it. Next pickups: split + merge C3a,
-then X1 → X2 → X4 (Phase 2 needs nothing from R0/C4).
-
+**Phase 1 complete (2026-09-12)**: C1 merged and released (shll v0.1.31);
+C7 done in all six repos; C3a merged as [run-kit#952](https://github.com/sahil87/run-kit/pull/952)
+(`mljj`, the prose half split out of #950). The app-identity half is
+**parked** as R0 on the rebuilt [run-kit#950](https://github.com/sahil87/run-kit/pull/950)
+(draft, retargeted to `main`; do not merge before X2), and C4 (home
+migration) sits beside it in Phase 3. **Phase 2 is unblocked and not
+started.** Next pickups: X1 → X2 → X4, then announce. Cosmetic
+[hexokit-site#7](https://github.com/sahil87/hexokit-site/pull/7) still open.
 ---
 
 ## Why this shape (the evidence)

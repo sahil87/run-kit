@@ -17,7 +17,7 @@ the binary is still `rk`, every tmux/env/socket identifier is untouched, the
 six companion CLIs keep their names and are presented as *the HexoKit
 toolkit*, and shll.ai becomes a permanent redirect host.
 
-**Status (2026-09-12)**: Phases 0–1 done, Phase 2 next. Approach B chosen (product rename,
+**Status (2026-09-12)**: Phases 0–1 done, Phase 2 in flight (X1 PR open). Approach B chosen (product rename,
 substrate kept). D1–D4, D13, D14 and D15 confirmed by Sahil in the thread; D5–D12 are
 the plan's proposals and are open until marked confirmed. S1 done (operator,
 direct git op, no fab change). S2 merged (PR [hexokit-site#1](https://github.com/sahil87/hexokit-site/pull/1), fab change `1ha7`);
@@ -35,8 +35,7 @@ C7 done in all six repos; C3a merged as [run-kit#952](https://github.com/sahil87
 (`mljj`, the prose half split out of #950). The app-identity half is
 **parked** as R0 on the rebuilt [run-kit#950](https://github.com/sahil87/run-kit/pull/950)
 (draft, retargeted to `main`; do not merge before X2), and C4 (home
-migration) sits beside it in Phase 3. **Phase 2 is unblocked and not
-started.** Next pickups: X1 → X2 → X4, then announce. Cosmetic
+migration) sits beside it in Phase 3. **Phase 2 started**: X1 is in review ([hexokit-site#9](https://github.com/sahil87/hexokit-site/pull/9)); once merged and deployed, X2 fetches `hexokit.com/shll-ai-redirects.json`. Next pickups: X2 → X4, then announce. Cosmetic
 [hexokit-site#7](https://github.com/sahil87/hexokit-site/pull/7) still open.
 ---
 
@@ -195,7 +194,7 @@ S5 (Phase 0) is unaffected but its default must be `shll install run-kit`
 
 | # | Repo | Slug (suggested) | Depends on | Size | Scope | PR | Status |
 |---|------|------------------|-----------|------|-------|----|--------|
-| X1 | hexokit-site | `hexokit-site-cutover-prep` | C3a, C7 merged | S | Redirect map for the old shll.ai paths ready (D7) — also `shll.ai/workflows/* → hexokit.com/toolkit/*` and `shll.ai/tools/* → hexokit.com/tools/*` (both hop once more in-site; S3 left static redirects for every old path). **Slug-table source stays `sahil87/run-kit`** (flip → R2); refresh crons run once so `/docs/` carries the C3a README | | not started |
+| X1 | hexokit-site | `hexokit-site-cutover-prep` | C3a, C7 merged | S | Redirect map for the old shll.ai paths ready (D7) — also `shll.ai/workflows/* → hexokit.com/toolkit/*` and `shll.ai/tools/* → hexokit.com/tools/*` (both hop once more in-site; S3 left static redirects for every old path). **Slug-table source stays `sahil87/run-kit`** (flip → R2); refresh crons run once so `/docs/` carries the C3a README | [hexokit-site#9](https://github.com/sahil87/hexokit-site/pull/9) | **PR open** 2026-09-12 (fab change `1u4q`) — `/shll-ai-redirects.json` build-time endpoint: every old shll.ai path (75-URL live sitemap + the pre-3ke3 `/tools/<slug>/*` set, committed as a fixture floor) → its **final** hexokit.com page (in-site chains collapsed, no double hop), `keep` = `/install` + `/versions.json`, roster-derived `rules` for X2's 404 catch-all; contract in hexokit-site `docs/specs/shll-ai-redirect-map-contract.md`; post-build checker in CI. In-site redirect table extracted to `src/lib/site-redirects.mjs` (stubs byte-identical). **Found in flight: both Refresh crons had been `disabled_manually` since S1 — the S3 post-merge enable+seed step was never run**; done here on `main` (readme run green; help run raced the readme push and was re-run — dispatch the two sequentially), so `/docs/` now carries the C3a README plus `gui` and `skill/cron`. Roster source untouched |
 | X2 | shll.ai | `shll-ai-redirect-stub` | X1 live | S | Replace the repo's contents in place (D13): CNAME `shll.ai`, redirect pages → hexokit.com, **byte copies** of `/install` and `/versions.json`. They MUST be real files, not redirects: GitHub Pages redirects are meta-refresh HTML, and `curl -fsSL … \| sh` would feed that HTML to `sh` (curl's `-L` only helps against real 301s, which Pages cannot emit). Refreshed by the same CI copy step. Remove the cron workflows. Never lapses (D4) | | not started |
 | X4 | shll | `standards-consumer-site-sweep` | X2 live | S | D14 second pass: in `docs/site/standards/*.md` (and the embedded copies, drift-guarded) flip `shll.ai` → `hexokit.com` where it names the consuming site (32 mentions) and the nine "[shll toolkit](https://shll.ai)" intros → "[HexoKit toolkit](https://hexokit.com/toolkit/)". `shll standards` command, file names, and the standards' own names are untouched | | not started |
 

@@ -22,6 +22,8 @@ import {
   writeGuiHidpi,
   readGuiKeyBarVisible,
   writeGuiKeyBarVisible,
+  readGuiToolbarVisible,
+  writeGuiToolbarVisible,
   zoomedHostSize,
 } from "./gui-posture";
 
@@ -336,6 +338,39 @@ describe("gui key-bar visibility posture (rk-gui-keybar)", () => {
       throw new Error("SecurityError");
     });
     expect(readGuiKeyBarVisible()).toBe(true);
+  });
+});
+
+describe("gui toolbar panel posture (rk-gui-toolbar)", () => {
+  it("defaults to closed when absent or invalid", () => {
+    expect(readGuiToolbarVisible()).toBe(false);
+    localStorage.setItem("rk-gui-toolbar", "open");
+    expect(readGuiToolbarVisible()).toBe(false);
+    localStorage.setItem("rk-gui-toolbar", "1");
+    expect(readGuiToolbarVisible()).toBe(true);
+  });
+
+  it("round-trips; closed removes the key", () => {
+    writeGuiToolbarVisible(true);
+    expect(readGuiToolbarVisible()).toBe(true);
+    expect(localStorage.getItem("rk-gui-toolbar")).toBe("1");
+    writeGuiToolbarVisible(false);
+    expect(readGuiToolbarVisible()).toBe(false);
+    expect(localStorage.getItem("rk-gui-toolbar")).toBeNull();
+  });
+
+  it("swallows a localStorage read failure, returning closed", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    expect(readGuiToolbarVisible()).toBe(false);
+  });
+
+  it("swallows a localStorage write failure silently", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    expect(() => writeGuiToolbarVisible(true)).not.toThrow();
   });
 });
 

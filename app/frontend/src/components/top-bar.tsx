@@ -48,6 +48,9 @@ import { LayoutChip, LayoutMenuRows } from "@/components/layout-chip";
 import { QuakeLauncher } from "@/components/quake-launcher";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { computeVisibleCount } from "@/lib/top-bar-overflow";
+import type { GuiPaletteAction } from "@/lib/palette/gui";
+import type { GuiQuality } from "@/lib/gui-posture";
+import { GuiToolbarMobileOverflow } from "@/components/gui-toolbar";
 import { deriveCrumbsCollapsed } from "@/lib/crumb-collapse";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
@@ -172,6 +175,16 @@ type TopBarProps = {
         showDot?: (surface: SurfaceKind) => boolean;
       };
   onCreateWindow: (session: string) => void;
+  /** The gui header fold's mobile bottom rung: the `⚙` panel block pinned
+   *  beside the mobile switch group, rendered only when switch mode shows the
+   *  gui surface (the gate is at the render site). Carries the palette list
+   *  the panel mirrors by row id and the `rk-gui-toolbar` open state. */
+  guiToolbar?: {
+    actions: GuiPaletteAction[];
+    quality: GuiQuality;
+    visible: boolean;
+    onVisibleChange: (visible: boolean) => void;
+  };
   /** Open the spawn-agent dialog for a session (260713-sbk1). When present, the
    *  terminal-mode window-switcher dropdown shows a `+ New Agent` item beside
    *  `+ New Tab`. Absent → no `+ New Agent` (e.g. before AppShell registers). */
@@ -509,6 +522,7 @@ export function TopBar({
   onNavigate,
   onToggleSidebar,
   surfaceToggles,
+  guiToolbar,
   onCreateWindow,
   onSpawnAgent,
   boardName,
@@ -1507,6 +1521,20 @@ export function TopBar({
                   {e.barRender()}
                 </span>
               ))}
+              {/* The gui fold's mobile bottom rung: with the gui surface
+                  visible, the `⚙` panel block pins beside the switch group
+                  (mobile has no tile header). Inside the pinned container its
+                  width is reserved from the fit budget like the group's. */}
+              {guiToolbar &&
+              surfaceToggles?.mode === "switch" &&
+              surfaceToggles.active === "gui" ? (
+                <GuiToolbarMobileOverflow
+                  actions={guiToolbar.actions}
+                  quality={guiToolbar.quality}
+                  visible={guiToolbar.visible}
+                  onVisibleChange={guiToolbar.onVisibleChange}
+                />
+              ) : null}
             </div>
           )}
 

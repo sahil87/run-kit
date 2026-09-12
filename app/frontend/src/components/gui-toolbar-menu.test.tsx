@@ -62,6 +62,15 @@ describe("GuiToolbarMenu — rendering", () => {
     fireEvent.click(item);
     expect(onSelect).not.toHaveBeenCalled();
   });
+
+  it("a separator row renders an aria-hidden hairline, never a menuitem", () => {
+    renderMenu([row("a"), { id: "sep-1", separator: true }, row("b")]);
+    const menu = screen.getByTestId("gui-toolbar-menu");
+    expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(["a", "b"]);
+    const sep = menu.querySelector('[aria-hidden="true"]');
+    expect(sep).not.toBeNull();
+    expect(sep!.getAttribute("role")).toBeNull();
+  });
 });
 
 describe("GuiToolbarMenu — pick and close", () => {

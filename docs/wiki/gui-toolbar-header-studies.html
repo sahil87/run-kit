@@ -1,0 +1,1254 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GUI Toolbar — Final Proposal</title>
+<style>
+:root, html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-primary: #0f1117;
+  --bg-card: #171b24;
+  --bg-inset: #0a0c12;
+  --text-primary: #e8eaf0;
+  --text-secondary: #7a8394;
+  --border: #454d66;
+  --accent: #5b8af0;
+  --accent-green: #22c55e;
+  --signal-yellow: #facc15;
+  --signal-red: #f87171;
+  --page: #0b0d13;
+  --desktop-a: #1d4ed8;
+  --desktop-b: #0e2a5e;
+}
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg-primary: #f6f7f9;
+  --bg-card: #ffffff;
+  --bg-inset: #e8eaef;
+  --text-primary: #1a1d24;
+  --text-secondary: #6b7280;
+  --border: #d1d5db;
+  --accent: #2563eb;
+  --accent-green: #16a34a;
+  --signal-yellow: #ca8a04;
+  --signal-red: #dc2626;
+  --page: #eceef2;
+  --desktop-a: #3b82f6;
+  --desktop-b: #1e40af;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: "MonaspiceNe Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
+
+/* ---- page chrome ---- */
+header.page {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap; margin-bottom: 8px;
+}
+h1 { font-size: 19px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.sub { color: var(--text-secondary); font-size: 12px; max-width: 72ch; margin: 0; }
+.toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
+.toolbar button {
+  font: inherit; font-size: 11px; padding: 5px 10px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary); cursor: pointer; transition: .12s;
+}
+.toolbar button:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+.toolbar button[aria-pressed="true"] { color: var(--accent-green); border-color: var(--accent-green); }
+
+h2 {
+  font-size: 14px; margin: 40px 0 4px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--border); letter-spacing: .01em;
+}
+h2 .num { color: var(--accent-green); margin-right: 8px; }
+h3 { font-size: 12.5px; margin: 26px 0 6px; color: var(--text-primary); }
+p { margin: 8px 0; max-width: 84ch; }
+p.note { color: var(--text-secondary); font-size: 12px; }
+code {
+  background: var(--bg-inset); padding: 1px 5px; border-radius: 3px;
+  font-size: 11.5px; color: var(--text-primary);
+}
+.tag {
+  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  border: 1px solid; vertical-align: 1px; margin-left: 6px;
+}
+.tag.now { color: var(--text-secondary); border-color: var(--border); }
+.tag.rec { color: var(--accent-green); border-color: var(--accent-green); }
+.tag.no  { color: var(--signal-red); border-color: var(--signal-red); }
+.tag.open{ color: var(--signal-yellow); border-color: var(--signal-yellow); }
+
+figure { margin: 14px 0 0; }
+figcaption {
+  color: var(--text-secondary); font-size: 11.5px; margin-top: 8px;
+  max-width: 88ch; line-height: 1.6;
+}
+figcaption b { color: var(--text-primary); font-weight: 600; }
+
+/* ================= true-size rk chrome ================= */
+
+/* Stage = the Shell stage ground the tiles float on (6px inset, bg-inset). */
+.stage {
+  background: var(--bg-inset); padding: 6px; border-radius: 6px;
+  display: flex; gap: 6px; overflow-x: auto;
+}
+.stage.frameless { padding: 0; border-radius: 0; }
+
+/* Tile card: 6px radius, dimmed card border (55% mix). */
+.tile {
+  background: var(--bg-primary);
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 6px; overflow: hidden; display: flex; flex-direction: column;
+  min-width: 0;
+}
+.tile.focused { border-color: var(--accent-green); }
+
+/* Header: 35px = 32px content + 3px bottom rule. */
+.thead {
+  display: flex; align-items: center; gap: 6px; padding: 0 6px;
+  height: 35px; flex-shrink: 0;
+  border-bottom: 3px solid var(--border);
+  background: var(--bg-card);
+  font-size: 11px; color: var(--text-secondary);
+  user-select: none;
+}
+.thead .glyph { flex-shrink: 0; }
+.tile.focused .thead .glyph { color: var(--accent-green); }
+.thead .name { flex-shrink: 0; color: var(--text-primary); }
+.thead .meta {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-radius: 3px; background: var(--bg-inset); padding: 0 6px;
+  font-size: 10px; color: var(--text-secondary);
+}
+.thead .spring { flex: 1 1 auto; min-width: 4px; }
+.thead .rule { width: 1px; align-self: stretch; background: var(--border); margin: 6px 2px; flex-shrink: 0; }
+
+/* Verb button: fixed 24x24 (26 coarse). */
+.verb {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 24px; width: 24px; border-radius: 4px; flex-shrink: 0;
+  color: var(--text-secondary); background: none; border: 0;
+  font: inherit; font-size: 12px; cursor: pointer; transition: .12s;
+}
+.verb:hover { background: var(--bg-inset); color: var(--text-primary); }
+.verb.close:hover { color: var(--signal-red); }
+.verb.pressed { color: var(--accent-green); box-shadow: inset 0 0 0 1px var(--accent-green); }
+.coarse .verb { height: 26px; width: 26px; }
+
+/* Header chip: content width, same 24px height axis as the verb. */
+.hchip {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 24px; padding: 0 6px; border-radius: 4px; flex-shrink: 0;
+  color: var(--text-secondary); background: none; border: 0;
+  font: inherit; font-size: 11px; cursor: pointer; transition: .12s;
+  white-space: nowrap;
+}
+.hchip:hover { background: var(--bg-inset); color: var(--text-primary); }
+.hchip.pressed { color: var(--accent-green); box-shadow: inset 0 0 0 1px var(--accent-green); }
+.coarse .hchip { height: 26px; }
+
+/* Desktop canvas (the noVNC framebuffer stand-in). */
+.canvas {
+  flex: 1 1 auto; position: relative; min-height: 0;
+  background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--desktop-b) 70%, transparent) 0 10px, transparent 10px 20px),
+    linear-gradient(160deg, var(--desktop-a), var(--desktop-b));
+  overflow: hidden;
+}
+/* a fake guest window so the "pill covers the desktop" point is visible */
+.guest {
+  position: absolute; border-radius: 3px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,.35);
+  box-shadow: 0 6px 18px rgba(0,0,0,.35);
+  font-size: 10px;
+}
+.guest .gbar {
+  height: 18px; background: #cfd6e4; color: #1a1d24;
+  display: flex; align-items: center; padding: 0 6px; gap: 6px;
+}
+.guest .gbar .dots { color: #6b7280; letter-spacing: 2px; }
+.guest .gbody { background: #10131a; color: #9fd4a8; padding: 5px 6px; height: calc(100% - 18px); }
+/* IceWM taskbar stand-in */
+.icetask {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 22px;
+  background: linear-gradient(#3a4256, #232838); border-top: 1px solid rgba(255,255,255,.18);
+  display: flex; align-items: center; gap: 6px; padding: 0 6px; font-size: 10px; color: #dfe4ee;
+}
+.icetask .ibtn { background: rgba(255,255,255,.12); border-radius: 2px; padding: 1px 6px; }
+.icetask .spring { flex: 1; }
+
+/* The CURRENT floating pill (absolute, top-center, z-20, bg-primary/80). */
+.pill {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  z-index: 20; display: flex; align-items: center; gap: 4px;
+  padding: 4px; border-radius: 4px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+  backdrop-filter: blur(2px);
+}
+.pill .rule { width: 1px; align-self: stretch; background: var(--border); }
+/* pill chip = Control variant="chip": 33x35 fine / 40 coarse */
+.pchip {
+  min-height: 33px; min-width: 35px; display: inline-flex; align-items: center;
+  justify-content: center; padding: 0 4px; font-size: 12px;
+  border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-primary); background: none; font-family: inherit;
+  cursor: pointer; transition: .12s; white-space: nowrap;
+}
+.pchip:hover { border-color: var(--text-secondary); }
+.pchip.pressed { border-color: var(--accent-green); color: var(--accent-green); }
+.coarse .pchip { min-height: 40px; min-width: 40px; }
+
+/* the hide-timer ghost */
+.pill.ghost { opacity: .28; }
+.ghostnote {
+  position: absolute; top: 52px; left: 50%; transform: translateX(-50%);
+  z-index: 21; font-size: 10px; color: #dbe3f5;
+  background: rgba(0,0,0,.55); padding: 2px 8px; border-radius: 3px;
+  white-space: nowrap;
+}
+
+/* coarse keybar docked under the canvas */
+.keybar {
+  flex-shrink: 0; display: flex; gap: 4px; padding: 4px;
+  background: var(--bg-primary); border-top: 1px solid var(--border);
+  overflow-x: auto;
+}
+.keybar .pchip { min-height: 40px; min-width: 40px; font-size: 11px; }
+
+/* mobile phone frame */
+.phone {
+  width: 375px; flex-shrink: 0;
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  background: var(--bg-primary); display: flex; flex-direction: column;
+}
+.phone .topbar {
+  height: 38px; flex-shrink: 0; background: var(--bg-card);
+  border-bottom: 3px solid var(--border);
+  display: flex; align-items: center; gap: 6px; padding: 0 6px; font-size: 11px;
+  color: var(--text-secondary);
+}
+.phone .topbar .ttl { color: var(--text-primary); flex: 1; text-align: center; }
+.switchgrp { display: flex; gap: 3px; }
+.switchgrp .sw {
+  height: 26px; min-width: 30px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-secondary); background: none; font-family: inherit; cursor: pointer;
+}
+.switchgrp .sw.on { color: var(--accent-green); border-color: var(--accent-green); }
+.phone .botbar {
+  height: 44px; flex-shrink: 0; background: var(--bg-card);
+  border-top: 3px solid var(--border); display: flex; align-items: center;
+  gap: 6px; padding: 0 6px; font-size: 11px; color: var(--text-secondary);
+}
+
+/* fullscreen frame = whole viewport, no stage inset */
+.fsframe {
+  border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
+  background: #000; display: flex; flex-direction: column;
+}
+.fslabel {
+  font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;
+  display: flex; align-items: center; gap: 8px;
+}
+.fslabel .bar { flex: 1; height: 1px; background: var(--border); }
+
+/* comparison grid */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+
+/* tables */
+table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 11.5px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--text-secondary); font-weight: 600; font-size: 11px; }
+td.y { color: var(--accent-green); }
+td.n { color: var(--signal-red); }
+td.q { color: var(--signal-yellow); }
+
+.callout {
+  border-left: 2px solid var(--accent-green); background: var(--bg-card);
+  padding: 10px 14px; margin: 16px 0; border-radius: 0 4px 4px 0;
+}
+.callout.warn { border-left-color: var(--signal-yellow); }
+.callout.bad { border-left-color: var(--signal-red); }
+.callout p { margin: 4px 0; font-size: 12px; }
+.callout .k { color: var(--text-secondary); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }
+
+.scalebar {
+  display: flex; align-items: center; gap: 6px; font-size: 10px;
+  color: var(--text-secondary); margin-bottom: 6px;
+}
+.scalebar .len { height: 1px; background: var(--text-secondary); }
+
+/* ---- §7 width-adaptive demo ---- */
+.demo {
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 12px; background: var(--bg-card); margin-top: 12px;
+}
+.demorow {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 12px; font-size: 11px; color: var(--text-secondary);
+}
+.demorow input[type="range"] { flex: 1 1 260px; min-width: 200px; accent-color: var(--accent-green); }
+.demorow output { min-width: 58px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.demorow button {
+  font: inherit; font-size: 11px; padding: 4px 10px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--bg-primary);
+  color: var(--text-secondary); cursor: pointer;
+}
+.demorow button[aria-pressed="true"] { color: var(--accent-green); border-color: var(--accent-green); }
+.foldcount { color: var(--signal-yellow); font-size: 11px; }
+
+/* the adaptive zone inside the header */
+.zone { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.zone .rule { width: 1px; align-self: stretch; background: var(--border); margin: 6px 2px; flex-shrink: 0; }
+
+/* header needs relative positioning for the fold panel */
+.thead { position: relative; }
+.thead .spring { min-width: 8px; }
+
+/* the fold panel, anchored under the ⚙ */
+.foldpanel {
+  position: absolute; top: 35px; right: 112px; z-index: 40;
+  min-width: 210px; background: var(--bg-card);
+  border: 1px solid var(--border); border-top: 0;
+  border-radius: 0 0 4px 4px; padding: 4px;
+  font-size: 11px; box-shadow: 0 8px 22px rgba(0,0,0,.35);
+}
+.frow {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 5px 8px; border-radius: 3px; color: var(--text-secondary); cursor: pointer;
+}
+.frow:hover { background: var(--bg-inset); color: var(--text-primary); }
+.frow .fv { color: var(--text-primary); white-space: nowrap; }
+.fsep { height: 1px; background: var(--border); margin: 3px 0; }
+.fempty { padding: 6px 8px; color: var(--text-secondary); font-style: italic; }
+
+/* filmstrip */
+.filmstrip { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.filmrow { display: flex; align-items: center; gap: 12px; }
+.filmrow .w {
+  width: 76px; flex-shrink: 0; text-align: right; font-size: 10px;
+  color: var(--text-secondary); font-variant-numeric: tabular-nums;
+}
+.filmrow .holder { flex: 1 1 auto; min-width: 0; overflow-x: auto; }
+.filmrow .tile { height: 35px; }
+.filmrow .tile .canvas { display: none; }
+
+/* ---- density: the toolbar cluster is denser than the header's own rhythm ----
+   The header keeps gap-1.5 (6px) between its MAJOR parts (glyph · name · meta
+   · spring · cluster · frame verbs). Inside the adaptive zone the controls are
+   one cluster, so they pack at 2px with the group rules carrying the only
+   visual separation. Verb boxes stay 24x24 (WCAG 2.5.8 target minimum) — only
+   the space BETWEEN them shrinks, so no hit target is reduced. */
+.zone { gap: var(--zone-gap, 0px); }
+/* The header's OWN divider spec: mx-0.5 h-3.5 w-px bg-border — a 14px hairline
+   with 2px side margins, vertically centred. Not a full-height inset rule. */
+.zone .rule {
+  height: 14px; align-self: center; width: 1px;
+  margin: 0 var(--zone-rule-gap, 2px); background: var(--border);
+}
+.zone .hchip { padding: 0 var(--zone-chip-pad, 6px); }
+
+/* side-by-side density comparison */
+.denscmp { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.densrow { display: flex; align-items: center; gap: 12px; }
+.densrow .lbl {
+  width: 92px; flex-shrink: 0; text-align: right; font-size: 10px;
+  color: var(--text-secondary); line-height: 1.4;
+}
+.densrow .holder { flex: 1 1 auto; min-width: 0; overflow-x: auto; }
+.densrow .tile { height: 35px; }
+.densrow .tile .canvas { display: none; }
+
+/* ---- Tip: the shipped quiet-card shell, reproduced for the mock ----
+   bg-bg-card, 1px border, 5px radius, px-2 py-1, 11px mono, shadow-lg,
+   6px offset from the anchor; keycap chip = inset bg + 2px bottom border. */
+.tipwrap { position: relative; display: inline-flex; }
+.tipbub {
+  position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  z-index: 50; pointer-events: none; display: none;
+  align-items: center; gap: 6px; max-width: 40ch; white-space: nowrap;
+  border-radius: 5px; border: 1px solid var(--border); background: var(--bg-card);
+  padding: 3px 8px; font-size: 11px; color: var(--text-primary);
+  box-shadow: 0 10px 22px rgba(0,0,0,.4);
+}
+.tipwrap:hover .tipbub { display: flex; }
+.tipbub kbd {
+  border-radius: 3px; border: 1px solid var(--border); border-bottom-width: 2px;
+  background: var(--bg-inset); padding: 0 4px; font: inherit; font-size: 10px;
+  line-height: 14px; color: var(--text-primary);
+}
+.tipbub .tnote { color: var(--text-secondary); }
+/* Coarse pointer: Tip is suppressed by contract — aria-label carries the name. */
+.coarse .tipwrap:hover .tipbub { display: none; }
+
+
+/* Every divider in the header is the same shipped hairline — inside the
+   cluster and out (before the frame verbs, before ✕). Overrides the earlier
+   full-height inset rule this mock drew. */
+.thead > .rule, .filmrow .rule, .densrow .rule {
+  height: 14px; align-self: center; width: 1px;
+  margin: 0 2px; background: var(--border);
+}
+
+
+/* ---- pinned block: reserved width, never folded ----
+   Capture + the overflow toggle sit OUTSIDE the adaptive zone. Their measured
+   width is subtracted from the budget before any item is fitted, so widening
+   the pinned block can only fold a cluster item — never clip one. */
+.pinned { display: flex; align-items: center; gap: 0; flex-shrink: 0; }
+.pinned.reserve-lit { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--signal-yellow) 45%, transparent); border-radius: 4px; }
+.reservebadge { font-size: 10px; color: var(--signal-yellow); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <div>
+    <h1>GUI toolbar — final proposal</h1>
+    <p class="sub">The <code>gui</code> tile's session toolbar moves into the tile header as a
+    <b>width-adaptive measured fold</b>. The floating pill is deleted. One design, one component, every form factor.
+    <br><span style="opacity:.8">Exploration and rejected options: the companion <i>Design Studies</i> page.</span></p>
+  </div>
+  <div class="toolbar">
+    <button id="themeBtn" type="button">◐ Light</button>
+    <button id="coarseBtn" type="button" aria-pressed="false">⌖ Coarse pointer</button>
+  </div>
+</header>
+
+<!-- ============================================================= -->
+<h2><span class="num">1</span>The proposal in one table</h2>
+
+<table>
+  <tr><th>#</th><th>Decision</th><th>Rationale</th></tr>
+  <tr>
+    <td>D1</td>
+    <td><b>Controls live in the tile header's spring</b>, at <code>surface-layout.tsx:1816</code>. The floating pill is removed.</td>
+    <td>The slot already exists and the tty tile already uses it (⌕, ⭳, the pane segment). Nothing overlays the framebuffer; no hide timer; no 24px hover target to discover.</td>
+  </tr>
+  <tr>
+    <td>D2</td>
+    <td><b>Measured priority fold.</b> Show as many controls as fit in a fixed order; the remainder folds into a ⚙ overflow panel.</td>
+    <td>Wide tile gets everything; a narrow split keeps only what matters. No breakpoint constants to go stale.</td>
+  </tr>
+  <tr>
+    <td>D3</td>
+    <td><b>⚙ is an overflow affordance, not a permanent one</b> — it renders only when something is folded.</td>
+    <td>The standard toolbar-overflow contract, and the same rule the top bar's chevron follows.</td>
+  </tr>
+  <tr>
+    <td>D4</td>
+    <td><b>Pinned, never folded:</b> the ⌨ capture toggle and ⚙ itself. Their width is <i>reserved</i> before fitting.</td>
+    <td>A mode you cannot see is a bug report; ⚙ is the way back to what folded. Mirrors the top bar's pinned switch-group reserve.</td>
+  </tr>
+  <tr>
+    <td>D5</td>
+    <td><b>Labels degrade one step before an item folds</b> (<code>1920×1080 ▾</code> → <code>1920 ▾</code>, <code>◐ Balanced</code> → <code>◐</code>).</td>
+    <td>Keeping a control reachable in terser form beats hiding it. The crumb collapse rung does the same.</td>
+  </tr>
+  <tr>
+    <td>D6</td>
+    <td><b>Fullscreen keeps the wrapper target and keeps a minimal pill.</b> The header serves every other case.</td>
+    <td>Decided: zero risk to the pan/fit and <code>fullscreenchange</code> seams, and no framebuffer cost where the framebuffer matters most. The pill survives for one case (§5).</td>
+  </tr>
+  <tr>
+    <td>D7</td>
+    <td><b>Mobile is the bottom rung of the same ladder</b> — everything folded, ⌨ + ⚙ render into the top bar.</td>
+    <td>No separate mobile design. Mobile has no tile header, so the pinned pair relocates; the panel is the same component.</td>
+  </tr>
+  <tr>
+    <td>D8</td>
+    <td><b>Header chrome, not pill chrome</b> — 24px axis, borderless, secondary ink, inset hairline rules.</td>
+    <td>The row must read as one cluster. Detail in §8.</td>
+  </tr>
+  <tr>
+    <td>D9</td>
+    <td><b>Constitution V intact</b> — every chip and row stays a by-id <code>pickGuiActions</code> mirror; ⚙ gets its own palette rows.</td>
+    <td>No toolbar-only action is introduced. The palette remains the complete registry.</td>
+  </tr>
+  <tr>
+    <td>D10</td>
+    <td><b>Three dividers, four groups:</b> <code>size</code> ┆ <code>− fit +</code> ┆ <code>quality</code> ┆ <code>all actions</code>. No divider between icons.</td>
+    <td>Dividers were doing the sprawling — five of them cost more than the gaps did. The action glyphs are one group, so they need no internal separation.</td>
+  </tr>
+  <tr>
+    <td>D11</td>
+    <td><b>Items sit flush (gap 0)</b>; the dividers carry all separation, at the shipped <code>mx-0.5 h-3.5 w-px</code> (2px margins, 14px hairline).</td>
+    <td>The header's own flush-segment idiom (the tty pane segment). Frees ~60px, which is what pays for the pinned capture control.</td>
+  </tr>
+  <tr>
+    <td>D13</td>
+    <td><b>Capture's escape hatch is a real registry binding</b> — <code>gui-capture-toggle</code>, <code>guiOnly</code>, shifted tier: <code>Ctrl+Shift+G</code> / <code>⌘⇧G</code>. In capture mode the reclaim predicate narrows to that actionId alone.</td>
+    <td>Remapping, a cheatsheet row and a palette entry come free, and there is no special-case chord parsing. "G" for grab — the VM/VNC vocabulary. Free in the current keymap.</td>
+  </tr>
+  <tr>
+    <td>D14</td>
+    <td><b>Capture is sticky per viewer</b> — <code>rk-gui-capture</code> beside the other <code>gui-posture.ts</code> keys.</td>
+    <td>Matches every VNC client. Safe because the header gives the indicator a permanent home — with the fullscreen carve-out in §5.</td>
+  </tr>
+  <tr>
+    <td>D12</td>
+    <td><b>Every control carries a <code>Tip</code></b>, inside one <code>TipGroup</code> for the cluster. Zoom tips carry their keycap; menu/cycle chips carry a dim note.</td>
+    <td>A glyph-only cluster is unreadable without names. <code>Tip</code> adds no wrapper node, so the fold's width probe is unaffected. Detail in §7.</td>
+  </tr>
+</table>
+
+<!-- ============================================================= -->
+<h2><span class="num">2</span>Live — drag the width</h2>
+
+<div class="demo">
+  <div class="demorow">
+    <label for="wSlider">Tile width</label>
+    <input id="wSlider" type="range" min="300" max="1320" value="1180" step="2">
+    <output id="wOut">1180px</output>
+    <button id="panelBtn" type="button" aria-pressed="false">Open fold panel</button>
+    <span id="foldCount" class="foldcount"></span>
+  </div>
+  <div class="demorow">
+    <label for="gSlider">Item gap</label>
+    <input id="gSlider" type="range" min="0" max="8" value="0" step="1">
+    <output id="gOut">0px</output>
+    <label for="tightLabels" style="display:flex;align-items:center;gap:5px;cursor:pointer">
+      <input id="tightLabels" type="checkbox"> glyph-only quality
+    </label>
+    <span class="foldcount" id="widthUsed"></span>
+    <span class="reservebadge" id="reserveOut"></span>
+  </div>
+
+  <div class="stage" style="overflow-x:visible">
+    <div class="tile focused" id="demoTile" style="width:1180px;height:250px">
+      <div class="thead" id="demoHead">
+        <span class="glyph">[]</span>
+        <span class="name">GUI</span>
+        <span class="meta" id="demoMeta">icewm · :1</span>
+        <span class="spring"></span>
+        <span class="zone" id="demoZone"></span>
+        <span class="rule" data-pinrule hidden></span>
+        <span class="pinned" id="pinnedBlock">
+          <button class="hchip" id="captureChip" title="Keyboard capture — click to latch">⌨</button>
+          <button class="verb" id="foldChip" title="More controls" hidden>⚙</button>
+        </span>
+        <span class="rule"></span>
+        <button class="verb" title="Fullscreen">⤢</button>
+        <button class="verb" title="Zoom tile">⛶</button>
+        <button class="verb" title="Promote">↰</button>
+        <button class="verb" title="Swap">⇄</button>
+        <span class="rule"></span>
+        <button class="verb close" title="Close tile">✕</button>
+        <div class="foldpanel" id="foldPanel" hidden></div>
+      </div>
+      <div class="canvas">
+        <div class="guest" style="left:30px;top:16px;width:280px;height:110px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ htop<br>  cpu ▰▰▰▱▱▱ 41%</div>
+        </div>
+        <div class="guest" id="guest2" style="left:340px;top:34px;width:300px;height:120px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>chromium</span></div>
+          <div class="gbody" style="background:#f3f4f6;color:#374151">localhost:3000 — HexoKit</div>
+        </div>
+        <div class="icetask"><span class="ibtn">▣</span><span class="ibtn">◍</span><span class="spring"></span><span>run-kit</span><span>14:32</span></div>
+      </div>
+    </div>
+  </div>
+  <p class="note" id="demoNote" style="margin-top:10px"></p>
+</div>
+
+<figcaption style="margin-top:14px">The mock runs the real algorithm — measure, degrade, then drop — not
+breakpoints. Drag down from 1320 and watch Health → Launch → Input → Quality → the zoom trio peel off in order,
+with the resolution chip shortening before it yields. <b>⚙ appears the moment the first item folds and disappears
+again at full width.</b> Click <b>⌨</b> to see the capture latch: yellow ink, inset ring, and the meta chip flips to
+name the mode.</figcaption>
+
+<!-- ============================================================= -->
+<h2><span class="num">3</span>The priority ladder</h2>
+
+<p>One ordered list, cut wherever the width runs out. This ordering is the whole design decision — everything else
+follows from it.</p>
+
+<table>
+  <tr><th>#</th><th>Control</th><th>Full</th><th>Degraded</th><th>Why it sits here</th></tr>
+  <tr><td class="y">pin</td><td>⌨ Capture</td><td colspan="2" class="y">never folds</td><td>the mode must be legible at every width</td></tr>
+  <tr><td>1</td><td>Screen size</td><td><code>1920×1080 ▾</code></td><td><code>1920 ▾</code></td><td>the tile's defining property, and the menu host for presets / lock / auto</td></tr>
+  <tr><td>2</td><td>Zoom</td><td><code>− fit +</code></td><td>—</td><td>the only per-moment controls — used <i>while</i> reading the desktop</td></tr>
+  <tr><td>3</td><td>Quality</td><td><code>◐ Balanced</code></td><td><code>◐</code></td><td>tuned when the link degrades, then left alone</td></tr>
+  <tr><td>4</td><td>Input</td><td><code>⎘ ⌥</code></td><td>—</td><td>paste / send-key — occasional, both have palette rows</td></tr>
+  <tr><td>5</td><td>Launch</td><td><code>▣ ◍</code></td><td>—</td><td>terminal / browser — roughly once per session</td></tr>
+  <tr><td>6</td><td>Health</td><td><code>∿ ↻</code></td><td>—</td><td>stats / reconnect — diagnostic, rare</td></tr>
+</table>
+
+<!-- ============================================================= -->
+<h2><span class="num">4</span>Every width, side by side</h2>
+<p class="note">The same cut applied at the widths real layouts produce.</p>
+<div class="filmstrip" id="filmstrip"></div>
+
+<!-- ============================================================= -->
+<h2><span class="num">5</span>Fullscreen and mobile</h2>
+
+<div class="grid2">
+  <figure>
+    <div class="fslabel"><span>Fullscreen — minimal pill (D6)</span><span class="bar"></span></div>
+    <div class="fsframe" style="height:290px">
+      <div class="canvas" style="flex:1">
+        <div class="guest" style="left:30px;top:56px;width:280px;height:110px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ _</div>
+        </div>
+        <div class="pill">
+          <button class="pchip">1920×1080 ▾</button>
+          <span class="rule"></span>
+          <button class="pchip">−</button><button class="pchip">fit</button><button class="pchip">+</button>
+          <span class="rule"></span>
+          <button class="pchip" style="color:var(--signal-yellow);border-color:var(--signal-yellow)">⌨</button>
+          <button class="pchip">⋯</button>
+          <span class="rule"></span>
+          <button class="pchip pressed">⤢</button>
+        </div>
+        <div class="icetask"><span class="ibtn">▣</span><span class="ibtn">◍</span><span class="spring"></span><span>14:32</span></div>
+      </div>
+    </div>
+    <figcaption>Fullscreen keeps targeting the surface wrapper, so the header is not in the fullscreen element and a
+    minimal pill serves instead. The pill component survives for this one case; its show/hide machine is retained
+    with <b>one change</b> — see the capture carve-out below. Everything else in this proposal is unaffected.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fslabel"><span>Mobile 375px — bottom rung (D7)</span><span class="bar"></span></div>
+    <div class="phone coarse" style="height:290px">
+      <div class="topbar">
+        <button class="verb">☰</button>
+        <span class="ttl">Tab: gui-work ▾</span>
+        <button class="hchip" style="color:var(--signal-yellow);box-shadow:inset 0 0 0 1px var(--signal-yellow)">⌨</button>
+        <button class="verb pressed">⚙</button>
+        <span class="switchgrp"><span class="sw">&gt;_</span><span class="sw on">[]</span></span>
+      </div>
+      <div class="canvas" style="flex:1">
+        <div style="position:absolute;right:6px;top:6px;z-index:25;min-width:188px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:4px;font-size:11px">
+          <div class="frow"><span>Resolution</span><span class="fv">1920×1080 ▾</span></div>
+          <div class="frow"><span>Zoom</span><span class="fv">−&nbsp; fit&nbsp; +</span></div>
+          <div class="frow"><span>Quality</span><span class="fv">Balanced</span></div>
+          <div class="fsep"></div>
+          <div class="frow"><span>⌖ Pointer</span><span class="fv">Touch</span></div>
+          <div class="frow"><span>⌨ Key bar</span><span class="fv" style="color:var(--accent-green)">on</span></div>
+          <div class="fsep"></div>
+          <div class="frow"><span>⎘ Paste</span></div>
+          <div class="frow"><span>⌥ Send key…</span></div>
+        </div>
+        <div class="guest" style="left:8px;top:14px;width:150px;height:70px">
+          <div class="gbar"><span class="dots">▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ _</div>
+        </div>
+        <div class="icetask"><span class="spring"></span><span>14:32</span></div>
+      </div>
+    </div>
+    <figcaption>Everything is folded, so only the pinned pair renders — into the top bar, since mobile has no tile
+    header. The panel is the same component with the two coarse-only rows (⌖ pointer, ⌨ key bar) appended. The ⌨ key
+    bar docked under the canvas is a separate component and is unchanged.</figcaption>
+  </figure>
+</div>
+
+<!-- ============================================================= -->
+<!-- ============================================================= -->
+<h2><span class="num">6</span>Grouping, spacing, and the capture reserve</h2>
+
+<p style="font-size:13px;margin:14px 0"><code>1920×1080 ▾</code> &nbsp;┆&nbsp; <code>−fit+</code>
+&nbsp;┆&nbsp; <code>◐ Balanced</code> &nbsp;┆&nbsp; <code>⎘⌥▣◍∿↻</code> &nbsp;&nbsp;│&nbsp;&nbsp;
+<span style="color:var(--signal-yellow)"><code>⌨</code> <code>⚙</code></span></p>
+
+<p><b>Three dividers, four groups, items flush.</b> Each text chip earns a divider because each is a distinct kind
+of control — a menu, a stepper, a cycle. The six action glyphs are peers in one group and get none. Within a group
+items sit at <b>gap 0</b>.</p>
+
+<p>Flush is not a new invention — it is the header's third spacing idiom, already shipping:</p>
+
+<table>
+  <tr><th>Idiom</th><th>Spec</th><th>Where it ships</th><th>Used here</th></tr>
+  <tr><td><b>Flush run</b></td><td>gap 0, items touching</td><td>the tty pane segment (Split H · Split V · Close Pane)</td><td class="y">yes — the cluster, minus the segment's border</td></tr>
+  <tr><td>Loose verbs</td><td><code>gap-1.5</code> — 6px, direct children of the header row</td><td>the layout verbs ⛶ ↰ ⇄ ✕</td><td>kept for the header's own major parts</td></tr>
+  <tr><td>Divider</td><td><code>mx-0.5 h-3.5 w-px bg-border</code> — 2px margins, 14px hairline, centred</td><td>before ✕, and after the pane segment</td><td class="y">yes — exactly as shipped</td></tr>
+</table>
+
+<p class="note">My earlier mock drew the divider as a full-height rule with a 6px inset. The shipped one is a short
+14px hairline that never touches the header's edges — quieter, which is part of why five of them read as heavy.
+Corrected everywhere, inside the cluster and out.</p>
+
+<div class="callout warn">
+  <p class="k">What gap 0 buys — the capture reserve</p>
+  <p>The capture toggle does not exist yet, but the header has to have room for it when it lands. Going flush frees
+  roughly <b>60px</b> across the cluster; the pinned pair (⌨ plus its divider, and ⚙ when something is folded) costs
+  about <b>30px</b>. So the change pays for capture twice over, and the cluster still comes out ahead of where it
+  started.</p>
+  <p>The reserve is <b>structural, not cosmetic</b>: the pinned block's measured width is subtracted from the budget
+  <i>before</i> any ladder item is fitted — the same way the top bar reserves its trailing chevron and pinned switch
+  group. Adding capture later can therefore only fold one more cluster item; it can never clip one, and no constant
+  needs revisiting.</p>
+  <p class="note" style="margin-top:6px">The §2 readout shows both numbers live — cluster width and pinned reserve —
+  at whatever gap the slider is set to.</p>
+</div>
+
+<div class="denscmp" id="denscmp"></div>
+
+<figcaption>Same ladder at 980px. <b>0px is the proposal.</b> The looser rows show what the alternative costs — at
+6px the cluster spends roughly the whole capture reserve on air between icons.</figcaption>
+
+<p class="note">If more room is still wanted, the next lever is labels, not spacing: the <b>glyph-only quality</b>
+checkbox in §2 drops <code>◐ Balanced</code> to a bare <code>◐</code>, reclaiming ~55px and leaving the resolution
+chip as the cluster's only text.</p>
+
+<h2><span class="num">7</span>Tooltips — every control is named</h2>
+
+<p>Once the cluster is glyph-dense, names stop being optional: <code>∿</code>, <code>⎘</code>, <code>⌥</code>,
+<code>▣</code>, <code>◍</code> and <code>↻</code> are unreadable cold. Every control wraps in the existing
+<code>Tip</code> (<code>components/tip.tsx</code>) — the same component the tty header's ⌕ and ⭳ verbs already use.
+<b>Hover any control in the §2 demo to see it.</b></p>
+
+<p>Three things make this close to free:</p>
+<ul style="max-width:84ch;color:var(--text-secondary);font-size:12px;line-height:1.7">
+  <li><code>Tip</code> <b>clones its child and adds no wrapper DOM node</b> — its own docblock says this is so "the
+  top-bar overflow fit's width-measurement probe" is unaffected. The pattern we are copying already accounted for
+  the pattern we are adding.</li>
+  <li>It <b>replaces</b> the native <code>title=</code> (never both — the OS bubble would double the styled tip).
+  <code>aria-label</code> stays and is what carries the name for screen readers.</li>
+  <li>It is <b>suppressed under <code>pointer: coarse</code></b> by contract, so mobile gets no hover layer and
+  needs no special-casing from us.</li>
+</ul>
+
+<p>The cluster gets its own <code>TipGroup</code> — the warm-cluster provider, one per chrome region. Sweeping
+across the row opens each tip instantly (0ms) rather than paying the 300ms delay per control, which is what makes a
+dense glyph row actually scannable.</p>
+
+<table>
+  <tr><th>Control</th><th>Label</th><th>Keycap</th><th>Note</th></tr>
+  <tr><td><code>1920×1080 ▾</code></td><td>Resolution</td><td>—</td><td><code>menu</code></td></tr>
+  <tr><td><code>−</code></td><td>Zoom out</td><td class="y"><code>Ctrl −</code></td><td>—</td></tr>
+  <tr><td><code>fit</code></td><td>Zoom to fit</td><td class="y"><code>Ctrl 0</code></td><td>—</td></tr>
+  <tr><td><code>+</code></td><td>Zoom in</td><td class="y"><code>Ctrl =</code></td><td>—</td></tr>
+  <tr><td><code>◐</code></td><td>Quality</td><td>—</td><td><code>cycles</code></td></tr>
+  <tr><td><code>⎘ ⌥ ▣ ◍ ∿ ↻</code></td><td>Paste clipboard · Send key… · Open terminal · Open browser · Show stats · Reconnect</td><td>—</td><td>—</td></tr>
+  <tr><td><code>⌨</code></td><td>Keyboard capture</td><td class="q">its own binding</td><td>on/off state in the ring</td></tr>
+  <tr><td><code>⚙</code></td><td>More controls</td><td>—</td><td>count of folded items</td></tr>
+</table>
+
+<p class="note">The three zoom keycaps are real: <code>gui-zoom-in</code> / <code>-out</code> / <code>-fit</code> are
+<code>guiOnly</code> ctrl-tier bindings already in the registry. Pulling the combo from the live binding (not a
+hardcoded string) means a remap shows up in the tooltip for free — the same source <code>withShortcutHints</code>
+already reads for palette rows.</p>
+
+<h2><span class="num">8</span>Header chrome, not pill chrome</h2>
+<p>Controls are re-rendered in the header's vocabulary, not reparented — otherwise the row reads as two clusters
+bolted together.</p>
+<table>
+  <tr><th>Property</th><th>Pill today</th><th>In the header</th></tr>
+  <tr><td>Height axis</td><td>33×35 min (40 coarse)</td><td class="y">24px fixed (26 coarse) — the verb-button axis</td></tr>
+  <tr><td>Border</td><td>1px <code>border-border</code> per chip</td><td class="y">none; hover gives <code>bg-bg-inset</code></td></tr>
+  <tr><td>Ink at rest</td><td><code>text-text-primary</code></td><td class="y"><code>text-text-secondary</code> → primary on hover</td></tr>
+  <tr><td>Gap</td><td>4px (<code>gap-1</code>)</td><td class="y">0 — flush, the pane-segment idiom; dividers carry separation</td></tr>
+  <tr><td>Group divider</td><td>full-bleed 1px, 5 of them</td><td class="y"><code>mx-0.5 h-3.5 w-px</code> — 14px hairline, 2px margins, 3 of them</td></tr>
+  <tr><td>Latched state</td><td>green border</td><td class="y">green ink + inset ring — the ⌕ find-toggle precedent</td></tr>
+  <tr><td>Text chips</td><td>bordered box</td><td class="y">borderless, content-width, 6px side padding</td></tr>
+</table>
+
+<!-- ============================================================= -->
+<h2><span class="num">9</span>Architecture — a third instance of an existing pattern</h2>
+
+<div class="callout">
+  <p class="k">This is not new plumbing</p>
+  <p>The top bar already does measured overflow twice. The proposal follows that architecture exactly rather than
+  inventing one.</p>
+</div>
+
+<table>
+  <tr><th>Piece</th><th>Precedent</th><th>For gui</th></tr>
+  <tr>
+    <td>Pure fit arithmetic</td>
+    <td><code>lib/top-bar-overflow.ts</code> — <code>computeVisibleCount</code>, dependency-free, unit-testable without mounting the shell</td>
+    <td><code>lib/gui-toolbar-fold.ts</code> — same shape; the component owns DOM measurement, the module owns the decision</td>
+  </tr>
+  <tr>
+    <td>Measurement wiring</td>
+    <td><code>top-bar.tsx:979</code> — one <code>ResizeObserver</code> + a <b>hidden probe row</b> rendering every candidate's real width, so nothing is hardcoded</td>
+    <td>Identical: observe the header, the probe, and the pinned block (an item's own width can change without the container resizing)</td>
+  </tr>
+  <tr>
+    <td>Reserved width</td>
+    <td>The trailing chevron block + the pinned mobile switch group, both measured</td>
+    <td>The pinned ⌨ + ⚙ pair and the frame-verb cluster</td>
+  </tr>
+  <tr>
+    <td>No flash</td>
+    <td>Collapse-first: <code>visibleCount</code> starts at 0, set in a <code>useLayoutEffect</code> before paint</td>
+    <td>Same</td>
+  </tr>
+  <tr>
+    <td>Boundary stability</td>
+    <td><code>lib/crumb-collapse.ts</code> — one-sided hysteresis on the expand edge (<code>CRUMB_COLLAPSE_HYSTERESIS_PX</code> 24)</td>
+    <td class="q">Port it. Without hysteresis the fold flaps when a drag hovers the boundary</td>
+  </tr>
+  <tr>
+    <td>Re-measure trigger</td>
+    <td>A serialized <code>candidateKey</code> so the effect re-runs when the probed SET changes, not every render</td>
+    <td>Same — the gui action list changes with connection state, lock, and pointer kind</td>
+  </tr>
+  <tr>
+    <td>Tests</td>
+    <td><code>top-bar-overflow.spec.ts</code> / <code>crumb-collapse.spec.ts</code> — Playwright, because the re-fit is <b>not atomic</b> with the resize and jsdom has no layout</td>
+    <td>Vitest for the pure module; one Playwright spec driving real widths for the ladder</td>
+  </tr>
+</table>
+
+<p class="note"><code>test-setup.ts:68</code> already stubs <code>ResizeObserver</code> for jsdom, so existing unit
+tests keep passing — they simply never exercise the fold.</p>
+
+<!-- ============================================================= -->
+<h2><span class="num">10</span>What ships, what dies</h2>
+
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>lib/gui-toolbar-fold.ts</code></td><td class="y">NEW — pure fit + hysteresis arithmetic, colocated Vitest</td></tr>
+  <tr><td><code>gui-toolbar.tsx</code></td><td>Gains the header mode: header chrome, probe row, measured fold, ⚙ panel. The pill mode is <b>retained for fullscreen</b> — <code>TOOLBAR_HIDE_MS</code>, <code>TOOLBAR_REVEAL_EDGE_PX</code> and <code>revealSignal</code> all stay, with one new clause: the hide timer is suspended while capture is latched. <code>TOOLBAR_OVERFLOW_MIN_PX</code> / <code>TOOLBAR_SHORT_LABEL_MAX_PX</code> give way to the measured fold in header mode</td></tr>
+  <tr><td><code>surface-layout.tsx</code></td><td>A gui branch in the header spring, mirroring the existing tty branch</td></tr>
+  <tr><td><code>gui-surface.tsx</code></td><td class="y">Fullscreen target UNCHANGED. The pill mount becomes fullscreen-only; the top-edge reveal and <code>wrapperWidth</code> observer stay for that path</td></tr>
+  <tr><td>Mobile chrome</td><td>The pinned ⌨ + ⚙ pair renders into the top bar on the gui surface</td></tr>
+  <tr><td><code>keybindings.ts</code></td><td class="y">NEW binding <code>gui-capture-toggle</code> (<code>guiOnly</code>, shifted tier, <code>KeyG</code>); <code>hasReclaimableMatch</code> gains the capture-mode narrowing</td></tr>
+  <tr><td><code>gui-posture.ts</code></td><td class="y">NEW key <code>rk-gui-capture</code> (and <code>rk-gui-toolbar</code> for the panel), same validated-read / try-catch-write discipline as its siblings</td></tr>
+  <tr><td><code>tip.tsx</code></td><td class="y">Reused unchanged — one <code>TipGroup</code> around the cluster, one <code>Tip</code> per control</td></tr>
+  <tr><td><code>gui-toolbar-menu.tsx</code></td><td>Reused unchanged for the resolution menu and the ⚙ panel</td></tr>
+  <tr><td>Tests</td><td><code>gui-toolbar.test.tsx</code> largely rewritten; <code>gui-surface.spec.ts</code> reveal cases retargeted; new fold-ladder Playwright spec; control-gallery PNG baselines regenerate if the Control primitive emits new classes</td></tr>
+</table>
+
+<!-- ============================================================= -->
+<h2><span class="num">11</span>Resolved — and the one carve-out the answers create</h2>
+
+<table>
+  <tr><th>Question</th><th>Answer</th></tr>
+  <tr><td>Fullscreen target</td><td class="y">Keep the wrapper target; a minimal pill serves fullscreen (D6)</td></tr>
+  <tr><td>Capture escape hatch</td><td class="y"><code>gui-capture-toggle</code>, <code>guiOnly</code>, <code>Ctrl+Shift+G</code> / <code>⌘⇧G</code> (D13)</td></tr>
+  <tr><td>Capture scope</td><td class="y">Sticky per viewer, <code>rk-gui-capture</code> (D14)</td></tr>
+  <tr><td>⚙ panel open state</td><td class="q">Persist per viewer (<code>rk-gui-toolbar</code>) — taking the key bar's <code>rk-gui-keybar</code> precedent unless overridden</td></tr>
+</table>
+
+<div class="callout warn">
+  <p class="k">The carve-out: sticky capture × the fullscreen pill</p>
+  <p>Sticky capture is safe <b>because the indicator is permanent</b> — that was the argument for it. In fullscreen
+  it is not: the pill self-hides 3 seconds after the last interaction, so a latched capture becomes invisible in
+  exactly the mode where the user has the fewest other cues. Sticky then outlives its own justification.</p>
+  <p><b>Fix, one condition:</b> while capture is latched, the pill's hide timer is suspended — the same way it is
+  already suspended while one of its menus is open. The machine grows one clause, no new surface, no new state.</p>
+  <p>The alternative, if a permanently visible pill in fullscreen is unwanted: let the pill hide as usual but leave a
+  <b>bare ⌨ badge</b> behind, a single latched glyph in the same top-centre position. More code, quieter result.</p>
+</div>
+
+<div class="callout">
+  <p class="k">What D13 actually changes in the code</p>
+  <p>One predicate. <code>gui-surface.tsx:986</code> asks <code>hasReclaimableMatch(e, bindings, "gui")</code>; in
+  capture mode that narrows to the single <code>gui-capture-toggle</code> actionId. Because it is a registry binding
+  and not a parsed chord, a user remap moves the escape hatch with it — and the tooltip and cheatsheet follow from
+  the same source <code>withShortcutHints</code> already reads.</p>
+  <p><b>Still true regardless:</b> in a browser tab ⌘W / ⌘T / ⌘N / ⌘Q cannot reach the guest at all. The web
+  platform's answer is <code>navigator.keyboard.lock()</code>, which requires fullscreen — worth revisiting once the
+  fullscreen pill is in place, since fullscreen is now the one mode with its own chrome path.</p>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var t = document.getElementById("themeBtn");
+  t.addEventListener("click", function () {
+    var dark = root.getAttribute("data-theme") === "dark";
+    root.setAttribute("data-theme", dark ? "light" : "dark");
+    t.textContent = dark ? "\u25D0 Dark" : "\u25D0 Light";
+  });
+  var c = document.getElementById("coarseBtn");
+  c.addEventListener("click", function () {
+    var on = c.getAttribute("aria-pressed") === "true";
+    c.setAttribute("aria-pressed", String(!on));
+    document.querySelectorAll(".stage, .fsframe, .phone, .densrow, .filmrow").forEach(function (el) {
+      el.classList.toggle("coarse", !on);
+    });
+  });
+})();
+</script>
+<script>/* ===== §7: measured priority fold ===== */
+(function () {
+  var head = document.getElementById("demoHead");
+  if (!head) return;
+  var tile = document.getElementById("demoTile");
+  var zone = document.getElementById("demoZone");
+  var meta = document.getElementById("demoMeta");
+  var foldChip = document.getElementById("foldChip");
+  var pinRule = head.querySelector("[data-pinrule]");
+  var panel = document.getElementById("foldPanel");
+  var slider = document.getElementById("wSlider");
+  var out = document.getElementById("wOut");
+  var panelBtn = document.getElementById("panelBtn");
+  var foldCount = document.getElementById("foldCount");
+  var note = document.getElementById("demoNote");
+  var guest2 = document.getElementById("guest2");
+
+  // Priority-ordered ladder. `group` drives the hairline rules; `short` is the
+  // one degradation step an item takes before it gives up its slot.
+  var LADDER = [
+    { id: "res",    group: "size",   kind: "chip", full: "1920×1080 ▾", short: "1920 ▾", row: "Resolution", val: "1920×1080 ▾",
+      tip: "Resolution", note: "menu" },
+    { id: "zoomout",group: "zoom",   kind: "verb", full: "−",  row: "Zoom out",  tip: "Zoom out",    kbd: "Ctrl −" },
+    { id: "zoomfit",group: "zoom",   kind: "chip", full: "fit", row: "Zoom to fit", tip: "Zoom to fit", kbd: "Ctrl 0" },
+    { id: "zoomin", group: "zoom",   kind: "verb", full: "+",  row: "Zoom in",   tip: "Zoom in",     kbd: "Ctrl =" },
+    { id: "quality",group: "quality",   kind: "chip", full: "◐ Balanced", short: "◐", row: "Quality", val: "Balanced",
+      tip: "Quality", note: "cycles" },
+    { id: "paste",  group: "actions",  kind: "verb", full: "⎘",  row: "⎘ Paste clipboard", tip: "Paste clipboard" },
+    { id: "sendkey",group: "actions",  kind: "verb", full: "⌥",  row: "⌥ Send key…",       tip: "Send key…" },
+    { id: "term",   group: "actions", kind: "verb", full: "▣",  row: "▣ Open terminal",   tip: "Open terminal" },
+    { id: "brow",   group: "actions", kind: "verb", full: "◍",  row: "◍ Open browser",    tip: "Open browser" },
+    { id: "stats",  group: "actions", kind: "verb", full: "∿",  row: "∿ Show stats",      tip: "Show stats" },
+    { id: "recon",  group: "actions", kind: "verb", full: "↻",  row: "↻ Reconnect",       tip: "Reconnect" },
+  ];
+
+  /* Wrap a control in the Tip shell. The real `Tip` clones its child and adds
+     NO wrapper node — deliberately, so the overflow probe's width reads are
+     unaffected. The mock needs a positioned parent, so it wraps in a
+     zero-impact inline-flex span and the fit measures that instead. */
+  function withTip(el, item) {
+    if (!item.tip) return el;
+    var w = document.createElement("span");
+    w.className = "tipwrap";
+    w.appendChild(el);
+    var bub = document.createElement("span");
+    bub.className = "tipbub";
+    var lab = document.createElement("span");
+    lab.textContent = item.tip;
+    bub.appendChild(lab);
+    if (item.kbd) {
+      var k = document.createElement("kbd");
+      k.textContent = item.kbd;
+      bub.appendChild(k);
+    }
+    if (item.note) {
+      var n = document.createElement("span");
+      n.className = "tnote";
+      n.textContent = item.note;
+      bub.appendChild(n);
+    }
+    w.appendChild(bub);
+    return w;
+  }
+
+  var tightBox = document.getElementById("tightLabels");
+  function glyphOnlyQuality() { return !!(tightBox && tightBox.checked); }
+
+  function makeEl(item, degraded) {
+    var b = document.createElement("button");
+    var forceShort = item.id === "quality" && glyphOnlyQuality();
+    var useShort = (degraded || forceShort) && item.short;
+    // A glyph-only chip is square-ish: render it as a verb box so it sits on
+    // the same 24px grid as its neighbours instead of as a narrow text chip.
+    b.className = (item.kind === "chip" && !(useShort && item.short.length <= 2)) ? "hchip" : "verb";
+    // Tip REPLACES the native title (never both, or the OS bubble doubles the
+    // styled tip); the aria-label stays and is what coarse pointers get.
+    b.setAttribute("aria-label", item.tip || item.row);
+    b.textContent = useShort ? item.short : item.full;
+    return b;
+  }
+
+  /* Render `n` leading items (with a per-item degraded flag) into the zone,
+     inserting a hairline rule at every group boundary — exactly the header's
+     own rule treatment. */
+  function paint(n, degradeFrom) {
+    zone.textContent = "";
+    var lastGroup = null;
+    for (var i = 0; i < n; i++) {
+      var item = LADDER[i];
+      if (lastGroup !== null && item.group !== lastGroup) {
+        var r = document.createElement("span");
+        r.className = "rule";
+        zone.appendChild(r);
+      }
+      zone.appendChild(withTip(makeEl(item, i >= degradeFrom), item));
+      lastGroup = item.group;
+    }
+  }
+
+  function overflows() {
+    // 1px slack absorbs sub-pixel layout noise.
+    return head.scrollWidth > head.clientWidth + 1;
+  }
+
+  function fill(rows) {
+    panel.textContent = "";
+    if (!rows.length) {
+      var e = document.createElement("div");
+      e.className = "fempty";
+      e.textContent = "Nothing folded at this width";
+      panel.appendChild(e);
+      return;
+    }
+    var lastGroup = null;
+    rows.forEach(function (item) {
+      if (lastGroup !== null && item.group !== lastGroup) {
+        var s = document.createElement("div");
+        s.className = "fsep";
+        panel.appendChild(s);
+      }
+      var d = document.createElement("div");
+      d.className = "frow";
+      var l = document.createElement("span");
+      l.textContent = item.row;
+      d.appendChild(l);
+      if (item.val) {
+        var v = document.createElement("span");
+        v.className = "fv";
+        v.textContent = item.val;
+        d.appendChild(v);
+      }
+      panel.appendChild(d);
+      lastGroup = item.group;
+    });
+  }
+
+  /* The algorithm: show everything at full labels. While the header overflows,
+     first spend the degradation steps (cheapest — keeps the control reachable),
+     then drop the lowest-priority item into the panel. */
+  function recut() {
+    var n = LADDER.length;
+    var degradeFrom = LADDER.length; // nothing degraded yet
+
+    paint(n, degradeFrom);
+    if (overflows()) {
+      // Degrade from the END of the ladder backwards: the least important
+      // label gives up its text first.
+      for (var d = LADDER.length - 1; d >= 0 && overflows(); d--) {
+        if (LADDER[d].short) {
+          degradeFrom = d;
+          paint(n, degradeFrom);
+        }
+      }
+    }
+    while (n > 0 && overflows()) {
+      n--;
+      paint(n, Math.min(degradeFrom, n));
+    }
+
+    var folded = LADDER.slice(n);
+    var anyFolded = folded.length > 0;
+    foldChip.hidden = !anyFolded;
+    pinRule.hidden = false;
+    if (!anyFolded && panelBtn.getAttribute("aria-pressed") === "true") {
+      panelBtn.setAttribute("aria-pressed", "false");
+      panelBtn.textContent = "Open fold panel";
+    }
+    panel.hidden = !(anyFolded && panelBtn.getAttribute("aria-pressed") === "true");
+    fill(folded);
+
+    foldCount.textContent = anyFolded
+      ? folded.length + " folded → ⚙"
+      : "nothing folded — ⚙ hidden";
+
+    var widthUsed = document.getElementById("widthUsed");
+    if (widthUsed) {
+      widthUsed.textContent = "cluster " + Math.round(zone.getBoundingClientRect().width) +
+        "px of " + Math.round(head.getBoundingClientRect().width) + "px header";
+    }
+    var reserveOut = document.getElementById("reserveOut");
+    var pinnedBlock = document.getElementById("pinnedBlock");
+    if (reserveOut && pinnedBlock) {
+      // What the fit subtracts before placing any ladder item: the pinned pair
+      // plus the hairline that joins it to the cluster.
+      var pinW = Math.round(pinnedBlock.getBoundingClientRect().width) + 5;
+      reserveOut.textContent = "pinned reserve " + pinW + "px (⌨" + (foldChip.hidden ? "" : " + ⚙") + ")";
+    }
+    var shown = LADDER.slice(0, n).map(function (i) { return i.id; });
+    note.innerHTML =
+      "<b>Inline:</b> " + (shown.length ? shown.join(" · ") : "—") +
+      " &nbsp;|&nbsp; <b>Folded:</b> " +
+      (folded.length ? folded.map(function (i) { return i.id; }).join(" · ") : "—");
+  }
+
+  slider.addEventListener("input", function () {
+    var w = Number(slider.value);
+    tile.style.width = w + "px";
+    out.textContent = w + "px";
+    // The meta chip is the header's own first casualty — it truncates, then
+    // the tile gets too narrow to justify it at all.
+    meta.style.display = w < 520 ? "none" : "";
+    if (guest2) guest2.style.display = w < 700 ? "none" : "";
+    // Panel anchor tracks the pinned cluster on the right.
+    panel.style.right = Math.min(112, Math.max(8, w - 200)) + "px";
+    recut();
+  });
+
+  var gSlider = document.getElementById("gSlider");
+  var gOut = document.getElementById("gOut");
+  function applyGap() {
+    var g = Number(gSlider.value);
+    gOut.textContent = g + "px";
+    // Rule margins and chip padding scale with the gap so the cluster stays
+    // proportionate rather than just losing its between-item air.
+    document.documentElement.style.setProperty("--zone-gap", g + "px");
+    // The divider keeps its shipped 2px margins regardless of the item gap —
+    // it is the header's own constant, not part of the density knob.
+    // Text chips keep readable padding even at gap 0 — the flush run is about
+    // the space BETWEEN controls, not inside them.
+    document.documentElement.style.setProperty("--zone-chip-pad", "6px");
+  }
+  gSlider.addEventListener("input", function () { applyGap(); runAll(); });
+  if (tightBox) tightBox.addEventListener("change", function () { runAll(); });
+
+  panelBtn.addEventListener("click", function () {
+    var on = panelBtn.getAttribute("aria-pressed") === "true";
+    panelBtn.setAttribute("aria-pressed", String(!on));
+    panelBtn.textContent = on ? "Open fold panel" : "Close fold panel";
+    recut();
+  });
+
+  foldChip.addEventListener("click", function () { panelBtn.click(); });
+
+  var captureChip = document.getElementById("captureChip");
+  captureChip.addEventListener("click", function () {
+    var on = captureChip.classList.toggle("captured");
+    captureChip.style.color = on ? "var(--signal-yellow)" : "";
+    captureChip.style.boxShadow = on ? "inset 0 0 0 1px var(--signal-yellow)" : "";
+    meta.textContent = on ? "⌨ keys → desktop" : "icewm · :1";
+    meta.style.color = on ? "var(--signal-yellow)" : "";
+    meta.style.background = on ? "color-mix(in srgb, var(--signal-yellow) 12%, transparent)" : "";
+  });
+
+  /* ---- filmstrip: the same cut rendered statically at key widths ---- */
+  var STRIP = [
+    { w: 1180, cap: "single tile, 1280px screen" },
+    { w: 940,  cap: "single tile, laptop" },
+    { w: 630,  cap: "split-h half" },
+    { w: 470,  cap: "main-left side tile" },
+    { w: 375,  cap: "mobile — toggle only" },
+  ];
+  var strip = document.getElementById("filmstrip");
+  STRIP.forEach(function (s) {
+    var row = document.createElement("div");
+    row.className = "filmrow";
+    var w = document.createElement("span");
+    w.className = "w";
+    w.innerHTML = s.w + "px<br><span style='opacity:.7'>" + s.cap + "</span>";
+    var holder = document.createElement("div");
+    holder.className = "holder";
+    var clone = tile.cloneNode(true);
+    clone.removeAttribute("id");
+    clone.style.width = s.w + "px";
+    clone.style.height = "35px";
+    holder.appendChild(clone);
+    row.appendChild(w);
+    row.appendChild(holder);
+    strip.appendChild(row);
+  });
+
+  // Cut each filmstrip row with the same algorithm, against its own width.
+  function cutClone(cloneHead, width) {
+    var z = cloneHead.querySelector(".zone");
+    var chip = cloneHead.querySelector(".verb[title='More controls']");
+    var m = cloneHead.querySelector(".meta");
+    if (m) m.style.display = width < 520 ? "none" : "";
+    var n = LADDER.length;
+    var degradeFrom = LADDER.length;
+    function paintInto(count, dFrom) {
+      z.textContent = "";
+      var lastGroup = null;
+      for (var i = 0; i < count; i++) {
+        var item = LADDER[i];
+        if (lastGroup !== null && item.group !== lastGroup) {
+          var r = document.createElement("span");
+          r.className = "rule";
+          z.appendChild(r);
+        }
+        z.appendChild(withTip(makeEl(item, i >= dFrom), item));
+        lastGroup = item.group;
+      }
+    }
+    function over() { return cloneHead.scrollWidth > cloneHead.clientWidth + 1; }
+    paintInto(n, degradeFrom);
+    if (over()) {
+      for (var d = LADDER.length - 1; d >= 0 && over(); d--) {
+        if (LADDER[d].short) { degradeFrom = d; paintInto(n, degradeFrom); }
+      }
+    }
+    while (n > 0 && over()) { n--; paintInto(n, Math.min(degradeFrom, n)); }
+    if (chip) chip.hidden = n >= LADDER.length;
+  }
+
+  function recutStrip() {
+    strip.querySelectorAll(".filmrow").forEach(function (row, i) {
+      var h = row.querySelector(".thead");
+      var p = h.querySelector(".foldpanel");
+      if (p) p.hidden = true;
+      cutClone(h, STRIP[i].w);
+    });
+  }
+
+  /* ---- density comparison: same width, same ladder, three gaps ---- */
+  var DENS = [
+    { gap: 0, chip: 6, rule: 2, lbl: "0px<br>flush<br>proposed" },
+    { gap: 3, chip: 6, rule: 2, lbl: "3px" },
+    { gap: 6, chip: 6, rule: 2, lbl: "6px<br>loose-verb gap" },
+  ];
+  var dens = document.getElementById("denscmp");
+  if (dens) {
+    DENS.forEach(function (d) {
+      var row = document.createElement("div");
+      row.className = "densrow";
+      var l = document.createElement("span");
+      l.className = "lbl";
+      l.innerHTML = d.lbl;
+      var holder = document.createElement("div");
+      holder.className = "holder";
+      var clone = tile.cloneNode(true);
+      clone.removeAttribute("id");
+      clone.style.width = "980px";
+      clone.style.height = "35px";
+      // Local density overrides — these rows ignore the global slider.
+      clone.style.setProperty("--zone-gap", d.gap + "px");
+      clone.style.setProperty("--zone-chip-pad", d.chip + "px");
+      clone.style.setProperty("--zone-rule-gap", d.rule + "px");
+      holder.appendChild(clone);
+      row.appendChild(l);
+      row.appendChild(holder);
+      dens.appendChild(row);
+    });
+  }
+
+  function recutDens() {
+    if (!dens) return;
+    dens.querySelectorAll(".densrow").forEach(function (row) {
+      var h = row.querySelector(".thead");
+      var p = h.querySelector(".foldpanel");
+      if (p) p.hidden = true;
+      cutClone(h, 980);
+      var z = h.querySelector(".zone");
+      var badge = row.querySelector(".densbadge");
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "densbadge";
+        badge.style.cssText = "font-size:10px;color:var(--text-secondary);width:66px;flex-shrink:0;text-align:right";
+        row.appendChild(badge);
+      }
+      badge.textContent = Math.round(z.getBoundingClientRect().width) + "px";
+    });
+  }
+
+  // Fonts change measured widths — re-cut once they land.
+  function runAll() { recut(); recutStrip(); recutDens(); }
+  applyGap();
+  runAll();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(runAll);
+  window.addEventListener("resize", runAll);
+
+  // The coarse toggle bumps every control 24→26px; re-measure after it flips.
+  var coarseBtn = document.getElementById("coarseBtn");
+  if (coarseBtn) coarseBtn.addEventListener("click", function () { setTimeout(runAll, 0); });
+})();
+</script>
+</body>
+</html>

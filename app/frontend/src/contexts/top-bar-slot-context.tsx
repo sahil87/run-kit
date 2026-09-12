@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { Layout, SurfaceKind } from "@/lib/surface-layout";
+import type { GuiPaletteAction } from "@/lib/palette/gui";
+import type { GuiQuality } from "@/lib/gui-posture";
 
 /**
  * TopBar slot context — the prop-delivery channel for the single persistent
@@ -87,6 +89,16 @@ export type TopBarSlot = {
         active: SurfaceKind;
         onSwitch: (surface: SurfaceKind) => void;
       };
+  /** The gui header fold's mobile bottom rung: the top bar pins the `⚙` block
+   *  beside the mobile switch group while the visible mobile surface is gui
+   *  (the gate lives in TopBar). Registered by `AppShell` on terminal routes;
+   *  absent → no block. */
+  guiToolbar?: {
+    actions: GuiPaletteAction[];
+    quality: GuiQuality;
+    visible: boolean;
+    onVisibleChange: (visible: boolean) => void;
+  };
   /** Surface-layout machinery (260812-ab5v R9), registered by `AppShell` on the
    *  terminal route: the RESOLVED layout + the single user-mutation path
    *  (`applyLayout`). Feed the top bar's ▦ Layout chip. Absent on non-terminal

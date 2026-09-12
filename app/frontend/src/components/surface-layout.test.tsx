@@ -10,6 +10,7 @@ import { makeWindow } from "@/test-utils/fixtures";
 import { entryKey, useWindowStore } from "@/store/window-store";
 import type { GuiSurfaceCommands } from "./gui-surface";
 import type { GuiPointerMode, GuiZoom } from "@/lib/gui-posture";
+import type { GuiPaletteAction } from "@/lib/palette/gui";
 import { focusMemoryKey, recallFocus, resetFocusMemory } from "@/lib/focus-memory";
 
 // jsdom does not implement matchMedia — Tip's coarse-pointer check needs it.
@@ -139,6 +140,9 @@ type LayoutOverrides = {
   onGuiRestart?: () => Promise<{ ok: boolean; disabled?: boolean }>;
   onGuiOpenLogs?: () => void;
   guiCommandsRef?: { current: GuiSurfaceCommands | null };
+  guiActions?: GuiPaletteAction[];
+  guiToolbarVisible?: boolean;
+  onGuiToolbarVisibleChange?: (visible: boolean) => void;
 };
 
 /** The minimal WindowInfo the tty header's StatusDot consumes (260812-wfic
@@ -200,6 +204,9 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       onGuiRestart={overrides.onGuiRestart ?? vi.fn()}
       onGuiOpenLogs={overrides.onGuiOpenLogs ?? vi.fn()}
       guiCommandsRef={overrides.guiCommandsRef}
+      guiActions={overrides.guiActions}
+      guiToolbarVisible={overrides.guiToolbarVisible}
+      onGuiToolbarVisibleChange={overrides.onGuiToolbarVisibleChange}
       />
     </ToastProvider>
   );
@@ -1963,5 +1970,81 @@ describe("SurfaceLayout gui tile", () => {
     expect(onFocusedKindChange).toHaveBeenLastCalledWith("gui");
     expect(recallFocus(focusMemoryKey("srv", "@1"))).toBe("gui");
     expect(lastGuiProps()?.focused).toBe(true);
+  });
+
+  it("the header spring carries the measured fold cluster and the ⤢ rail verb fires gui-fullscreen by id", async () => {
+    const onFullscreen = vi.fn();
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "gui"] },
+      gui: GUI_ON,
+      guiActions: [
+        { id: "gui-fullscreen", label: "GUI: Fullscreen", onSelect: onFullscreen },
+        {
+          id: "gui-res-1920x1080",
+          label: "GUI: Resolution → 1920×1080",
+          description: "current",
+          onSelect: vi.fn(),
+        },
+      ],
+    });
+    expect(await screen.findByTestId("mock-gui")).toBeTruthy();
+    const tile = screen.getByTestId("surface-tile-gui");
+    const cluster = within(tile).getByTestId("gui-toolbar");
+    // jsdom's zero-width probes keep the cold default: fully expanded.
+    expect(within(cluster).getByTestId("gui-toolbar-resolution")).toHaveTextContent("1920×1080 ▾");
+    expect(within(cluster).getByLabelText("Zoom in")).toBeTruthy();
+    expect(within(cluster).getByLabelText("Toggle stats")).toBeTruthy();
+    fireEvent.click(within(tile).getByLabelText("Enter fullscreen"));
+    expect(onFullscreen).toHaveBeenCalledOnce();
+  });
+
+  it("fullscreen latches ⤢ and suppresses the layout verbs; the exit report restores them", async () => {
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "gui"] },
+      gui: GUI_ON,
+      guiActions: [{ id: "gui-fullscreen", label: "GUI: Fullscreen", onSelect: vi.fn() }],
+    });
+    expect(await screen.findByTestId("mock-gui")).toBeTruthy();
+    const tile = screen.getByTestId("surface-tile-gui");
+    expect(within(tile).getByLabelText("Expand GUI")).toBeTruthy();
+    act(() => lastGuiProps()?.onFullscreenChange?.(true));
+    const latch = within(tile).getByLabelText("Exit fullscreen");
+    expect(latch.getAttribute("aria-pressed")).toBe("true");
+    expect(within(tile).queryByLabelText("Expand GUI")).toBeNull();
+    expect(within(tile).queryByLabelText("Close GUI")).toBeNull();
+    // The fold cluster travels into fullscreen (the header serves it).
+    expect(within(tile).getByTestId("gui-toolbar")).toBeTruthy();
+    act(() => lastGuiProps()?.onFullscreenChange?.(false));
+    expect(within(tile).getByLabelText("Expand GUI")).toBeTruthy();
+    expect(within(tile).getByLabelText("Enter fullscreen").getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("the gui header carries a `wm · display` meta chip", async () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "gui"] }, gui: GUI_ON });
+    expect(await screen.findByTestId("mock-gui")).toBeTruthy();
+    const tile = screen.getByTestId("surface-tile-gui");
+    expect(within(tile).getByText("icewm-session · :10")).toBeTruthy();
+  });
+
+  it("the meta chip degrades to the display alone in the bare-WM state, and vanishes with both empty", async () => {
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "gui"] },
+      gui: { ...GUI_ON, wm: "" },
+    });
+    expect(await screen.findByTestId("mock-gui")).toBeTruthy();
+    const tile = screen.getByTestId("surface-tile-gui");
+    expect(within(tile).getByText(":10")).toBeTruthy();
+    expect(within(tile).queryByText(/·/)).toBeNull();
+    cleanup();
+
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "gui"] },
+      gui: { ...GUI_ON, wm: "", display: "" },
+    });
+    expect(await screen.findByTestId("mock-gui")).toBeTruthy();
+    // No meta chip: the `bg-bg-inset` span is the meta chip's alone in this header.
+    expect(
+      screen.getByTestId("surface-tile-gui").querySelectorAll(".bg-bg-inset"),
+    ).toHaveLength(0);
   });
 });

@@ -137,7 +137,7 @@ function readPoints(list: ArrayLike<RawTouch>): { id: number; x: number; y: numb
 }
 
 const CHROME_SELECTOR =
-  '[data-testid="gui-keybar"], [data-testid="gui-wm-strip"], [data-testid="gui-surface-credentials"], [data-testid="gui-toolbar"], [data-testid="gui-toolbar-menu"]';
+  '[data-testid="gui-keybar"], [data-testid="gui-wm-strip"], [data-testid="gui-surface-credentials"]';
 
 /** The layer owns only canvas/desktop touches. Touches targeted at the
  *  wrapper's own chrome (the key bar's buttons, the bare-WM strip's

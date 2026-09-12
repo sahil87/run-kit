@@ -68,6 +68,7 @@ import {
   readGuiZoom,
   readGuiHidpi,
   readGuiKeyBarVisible,
+  readGuiToolbarVisible,
   stepGuiZoom,
   writeGuiPointerMode,
   writeGuiQuality,
@@ -76,6 +77,7 @@ import {
   writeGuiZoom,
   writeGuiHidpi,
   writeGuiKeyBarVisible,
+  writeGuiToolbarVisible,
   type GuiPointerMode,
   type GuiQuality,
   type GuiZoom,
@@ -691,6 +693,7 @@ function RootTopBar() {
       autofit={slot?.autofit}
       onToggleAutofit={slot?.onToggleAutofit}
       surfaceToggles={slot?.surfaceToggles}
+      guiToolbar={slot?.guiToolbar}
       layout={slot?.layout}
       onApplyLayout={slot?.onApplyLayout}
     />
@@ -1306,6 +1309,13 @@ function AppShell() {
     setGuiKeyBarVisible(visible);
     writeGuiKeyBarVisible(visible);
   }, []);
+  // The header fold's ⚙ panel open state (`rk-gui-toolbar`) — the same
+  // seed-from-storage + write-through grammar as the key-bar posture.
+  const [guiToolbarVisible, setGuiToolbarVisible] = useState(() => readGuiToolbarVisible());
+  const handleGuiToolbarVisibleChange = useCallback((visible: boolean) => {
+    setGuiToolbarVisible(visible);
+    writeGuiToolbarVisible(visible);
+  }, []);
   // The Send key prompt's open state (the palette's `GUI: Send key…` row opens
   // it; the prompt owns parsing/validation).
   const [guiSendKeyOpen, setGuiSendKeyOpen] = useState(false);
@@ -1408,9 +1418,17 @@ function AppShell() {
   // exits both. Where element fullscreen is absent (iPhone Safari) the verb
   // runs the zen toggle instead — the palette row's description says so.
   const guiFullscreen = useCallback(() => {
-    const tile =
+    // The fullscreen element is the gui TILE (not the canvas wrapper), so the
+    // tile header — the session controls — travels into fullscreen and serves
+    // it. `.closest` from the canvas/empty node keeps the duplicate-suffix
+    // testid form matching.
+    const surface =
       document.querySelector('[data-testid="gui-surface-canvas"]') ??
       document.querySelector('[data-testid="gui-surface-empty"]');
+    const tile =
+      surface instanceof HTMLElement
+        ? surface.closest('[data-testid^="surface-tile-gui"]')
+        : null;
     if (!(tile instanceof HTMLElement) || typeof tile.requestFullscreen !== "function") {
       toggleZen();
       return;
@@ -1502,6 +1520,7 @@ function AppShell() {
       statsVisible: guiStatsVisible,
       hidpi: guiHidpi,
       keyBarVisible: guiKeyBarVisible,
+      toolbarVisible: guiToolbarVisible,
       geometry: gui?.geometry ?? "",
       supervisorAvailable: rkGuiWindow !== null,
       onTurnOn: () => {
@@ -1545,6 +1564,7 @@ function AppShell() {
       },
       onHidpiChange: handleGuiHidpiChange,
       onKeyBarVisibleChange: handleGuiKeyBarVisibleChange,
+      onToolbarVisibleChange: handleGuiToolbarVisibleChange,
       onSendKey: () => setGuiSendKeyOpen(true),
       onOpenLogs: openGuiLogs,
       onReconnect: () => guiCommandsRef.current?.reconnect(),
@@ -1576,6 +1596,8 @@ function AppShell() {
     handleGuiHidpiChange,
     guiKeyBarVisible,
     handleGuiKeyBarVisibleChange,
+    guiToolbarVisible,
+    handleGuiToolbarVisibleChange,
     rkGuiWindow,
     guiOffRequest,
     loadDesktopRows,
@@ -5103,6 +5125,18 @@ function AppShell() {
                 showDot: surfaceDot,
               }
             : undefined,
+      // The gui header fold's mobile bottom rung: the top bar pins the ⚙
+      // block beside the switch group when the visible mobile surface is gui
+      // (TopBar owns that gate). The panel mirrors `guiActions` by row id and
+      // its open state is the `rk-gui-toolbar` posture.
+      guiToolbar: windowParam
+        ? {
+            actions: guiActions,
+            quality: guiQuality,
+            visible: guiToolbarVisible,
+            onVisibleChange: handleGuiToolbarVisibleChange,
+          }
+        : undefined,
       // ▦ Layout chip machinery (260812-ab5v R9): the on-screen layout + the
       // single mutation path. The top bar's chip/rows jump presets through
       // `applyLayout` like every other mutation.
@@ -5129,6 +5163,10 @@ function AppShell() {
       mobileActiveTile,
       switchToTile,
       switchTargetDisabled,
+      guiActions,
+      guiQuality,
+      guiToolbarVisible,
+      handleGuiToolbarVisibleChange,
       layout,
       applyLayout,
     ],
@@ -5383,7 +5421,8 @@ function AppShell() {
               guiHidpi={guiHidpi}
               guiKeyBarVisible={guiKeyBarVisible}
               onGuiKeyBarVisibleChange={handleGuiKeyBarVisibleChange}
-              onGuiFullscreen={guiFullscreen}
+              guiToolbarVisible={guiToolbarVisible}
+              onGuiToolbarVisibleChange={handleGuiToolbarVisibleChange}
               guiResizeLocked={guiResizeLocked}
               guiQuality={guiQuality}
               guiStatsVisible={guiStatsVisible}

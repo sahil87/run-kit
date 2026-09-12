@@ -17,3 +17,7 @@ From `run-kit/index.md` (removed by 260904-owue-chat-lens-residual-renames):
 From `run-kit/ui/index.md` (removed by 260911-hcon-cron-surface-consolidation):
 
 | [cron-activity](cron-activity.md) | The cron Activity feed — a timeline merging upcoming fires with recent deliveries around a now-divider (muted/orphaned dimmed, never omitted), mounted on the mobile operator route's ?tab=activity segment and as the desktop console drawer's Activity segment via the ConsoleSegments strip; the pinned operator-staleness banner, the entry detail sheet (mute/pin/delete, Deliver row, optimistic toggles, inline variant), the describeSchedule/describeDeliver helpers, and useCronData on the SSE cadence. | (superseded by [cron-console-tabs](/run-kit/ui/cron-console-tabs.md))
+
+From `run-kit/ui/index.md` (removed by 260912-nynf-quake-terminal-rename):
+
+| Quake terminal pre-rename file | Renamed to [quake-terminal](/run-kit/ui/quake-terminal.md) — the file's scope (the operator chat surface: the rk:quake-terminal event seam with segment-carrying opens, the operator-route no-op toast gate's non-terminal bypass, the ⌘J two-state machine, the Operator Terminal|Operator Tasks|Cron List|Cron Log segment strip, mobile ?from= context + draft seeding, the quake launcher + shared compose lanes, file paste, availability) lives there under its post-rename vocabulary. |

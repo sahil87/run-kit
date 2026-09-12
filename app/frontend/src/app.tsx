@@ -32,7 +32,7 @@ import {
   type SurfaceKind,
 } from "@/lib/surface-layout";
 import { hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
-import { requestOperatorConsole, findOperatorWindow, resolveConsoleServer } from "@/lib/operator-console";
+import { requestQuakeTerminal, findOperatorWindow, resolveQuakeServer } from "@/lib/quake-terminal";
 import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
 import { TERMINAL_FIND_OPEN_EVENT } from "@/lib/terminal-find";
 import { EXPORT_EVENT, type ExportAction } from "@/lib/terminal-export";
@@ -234,8 +234,8 @@ const SpawnAgentDialog = lazy(() => import("@/components/spawn-agent-dialog").th
 const OperatorComposeDialog = lazy(() => import("@/components/operator-compose-dialog").then(m => ({ default: m.OperatorComposeDialog })));
 const SwatchPopover = lazy(() => import("@/components/swatch-popover").then(m => ({ default: m.SwatchPopover })));
 const SettingsDialog = lazy(() => import("@/components/settings-dialog").then(m => ({ default: m.SettingsDialog })));
-const OperatorConsole = lazy(() => import("@/components/operator-console").then(m => ({ default: m.OperatorConsole })));
-const OperatorConsoleTongue = lazy(() => import("@/components/operator-console").then(m => ({ default: m.OperatorConsoleTongue })));
+const QuakeTerminal = lazy(() => import("@/components/quake-terminal").then(m => ({ default: m.QuakeTerminal })));
+const QuakeTerminalTongue = lazy(() => import("@/components/quake-terminal").then(m => ({ default: m.QuakeTerminalTongue })));
 
 const { min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH } = SIDEBAR_WIDTH_BOUNDS;
 
@@ -443,12 +443,12 @@ function AppLayoutContent() {
   useKeybindingDispatch({
     "new-app-window": canNewShellWindow() ? () => void newShellWindow() : undefined,
     "close-app-window": canCloseShellWindow() ? () => void closeShellWindow() : undefined,
-    // The operator console chord works from everywhere the SPA runs (Host,
+    // The quake terminal chord works from everywhere the SPA runs (Host,
     // Server, Terminal, Board) — same every-route reasoning as the app-window
     // pair. On desktop the machine steps rest→focused→open→rest; on mobile
     // the seam navigates to the operator window's terminal route. The
-    // layout-mounted console owns the fork, this only dispatches.
-    "operator-console": () => requestOperatorConsole({ action: "toggle" }),
+    // layout-mounted quake terminal owns the fork, this only dispatches.
+    "quake-terminal": () => requestQuakeTerminal({ action: "toggle" }),
   });
 
   // Zen hide seam (260820-o8cr R2): the zen flag crosses the root-layout
@@ -507,19 +507,19 @@ function AppLayoutContent() {
         <Suspense fallback={null}>
           <Outlet />
         </Suspense>
-        {/* The ONE operator-console mount — a top-bar-anchored overlay living
+        {/* The ONE quake-terminal mount — a top-bar-anchored overlay living
             inside the main area (absolute, so pages below keep their layout);
-            every entry point reaches it via the OPERATOR_CONSOLE_EVENT seam. */}
+            every entry point reaches it via the QUAKE_TERMINAL_EVENT seam. */}
         <Suspense fallback={null}>
-          <OperatorConsole />
+          <QuakeTerminal />
         </Suspense>
         {/* The mobile standing affordance — the tongue hanging under the top
-            bar on every route (desktop's standing affordance is the omnibox).
+            bar on every route (desktop's standing affordance is the quake launcher).
             Self-gates on isMobile, hides on operator-less servers
             and on the operator window's own route; renders nothing on
             desktop. */}
         <Suspense fallback={null}>
-          <OperatorConsoleTongue />
+          <QuakeTerminalTongue />
         </Suspense>
       </div>
       {/* The ONE settings-dialog mount (o7q8) — never duplicated per page. */}
@@ -568,33 +568,33 @@ function AppLayoutContent() {
  *  `PaletteActionsProvider` and read back via `usePaletteActions()`. */
 function LayoutCommandPalette() {
   const allActions = usePaletteActions();
-  // The Ask-operator fallback row's availability gate: resolve the console's
+  // The Ask-operator fallback row's availability gate: resolve the quake terminal's
   // server context (route server, else sole/last-viewed/first listed) and
   // check its sessions payload for an operator window. Servers with no
   // attached sessions slice resolve operator-less — the row is omitted, not
   // disabled.
   const { servers, sessionsByServer } = useSessionContext();
   const routeServer = useCurrentServerFromRoute();
-  // Most-recently-viewed server — the same ephemeral rule the console itself
-  // applies (operator-console.tsx); passing null here would resolve the FIRST
-  // listed server on Host/Board while the console opens on the last-viewed.
+  // Most-recently-viewed server — the same ephemeral rule the quake terminal itself
+  // applies (quake-terminal.tsx); passing null here would resolve the FIRST
+  // listed server on Host/Board while the quake terminal opens on the last-viewed.
   const lastViewedRef = useRef<string | null>(null);
   if (routeServer) lastViewedRef.current = routeServer;
-  const consoleServer = resolveConsoleServer(routeServer, servers.map((s) => s.name), lastViewedRef.current);
+  const quakeServer = resolveQuakeServer(routeServer, servers.map((s) => s.name), lastViewedRef.current);
   const hasOperator =
-    consoleServer !== null &&
-    findOperatorWindow(sessionsByServer.get(consoleServer) ?? []) !== undefined;
+    quakeServer !== null &&
+    findOperatorWindow(sessionsByServer.get(quakeServer) ?? []) !== undefined;
   const askOperator = useMemo(
     () => ({
       hasOperator,
       onAsk: (query: string) =>
-        requestOperatorConsole({
+        requestQuakeTerminal({
           action: "open",
-          server: consoleServer ?? undefined,
+          server: quakeServer ?? undefined,
           send: query,
         }),
     }),
-    [hasOperator, consoleServer],
+    [hasOperator, quakeServer],
   );
   return (
     <Suspense fallback={null}>
@@ -943,16 +943,16 @@ function AppShell() {
   // once the sessions payload resolves the window, so a cold `?tab=` deep link
   // swaps in a beat after mount. The legacy `tab=activity` token is
   // normalized to `log` by validateTerminalSearch before this read.
-  const operatorConsoleTabs = isMobile && windowParam != null && currentWindow?.role === "operator";
-  const consoleTab = operatorConsoleTabs ? (search.tab ?? "terminal") : "terminal";
-  const cronTabActive = consoleTab === "list" || consoleTab === "log";
-  const tasksTabActive = consoleTab === "tasks";
+  const quakeTerminalTabs = isMobile && windowParam != null && currentWindow?.role === "operator";
+  const quakeTab = quakeTerminalTabs ? (search.tab ?? "terminal") : "terminal";
+  const cronTabActive = quakeTab === "list" || quakeTab === "log";
+  const tasksTabActive = quakeTab === "tasks";
   // Any non-terminal tab hides (never unmounts) the terminal column.
   const terminalHidden = cronTabActive || tasksTabActive;
   // Desktop `?tab=` handoff (the notify deep-link): the segment param
   // is inert on desktop — the tabs above are mobile-only and the route itself
   // has no non-terminal view — so on the operator window's terminal route the
-  // console drawer opens on that segment instead. Fires once per
+  // quake terminal drawer opens on that segment instead. Fires once per
   // arrival: the param is stripped immediately so a reload does not re-open.
   useEffect(() => {
     if (isMobile || !windowParam || currentWindow?.role !== "operator") {
@@ -961,7 +961,7 @@ function AppShell() {
     if (search.tab !== "tasks" && search.tab !== "list" && search.tab !== "log") {
       return;
     }
-    requestOperatorConsole({ action: "open", segment: search.tab });
+    requestQuakeTerminal({ action: "open", segment: search.tab });
     void navigate({
       to: ".",
       search: (prev) => ({ ...prev, tab: undefined }),
@@ -2087,7 +2087,7 @@ function AppShell() {
   activeWindowRef.current = activeWindow;
   const windowParamRef = useRef(windowParam);
   windowParamRef.current = windowParam;
-  // The console `?tab=` param, read on click by `navigateToWindow`'s
+  // The quake tab `?tab=` param, read on click by `navigateToWindow`'s
   // same-window early return without a stale closure (that path decides
   // whether the no-op tmux switch must still navigate back to the terminal).
   const searchTabRef = useRef(search.tab);
@@ -2517,11 +2517,11 @@ function AppShell() {
       // 300ms over the very terminal the user is on, plus a false failure
       // toast at the confirmation window. Keep the ergonomic drawer close;
       // arm nothing tmux-side. The one navigation the no-op still owes is
-      // leaving a mobile console tab (below).
+      // leaving a mobile quake tab (below).
       if (
         isRedundantSwitch(windowId, windowParamRef.current, activeWindowRef.current?.windowId)
       ) {
-        // Same-window tap from a mobile console tab (R3): a watched row can BE
+        // Same-window tap from a mobile quake tab (R3): a watched row can BE
         // the active window (the backend joins `monitored` onto all windows),
         // so the no-op tmux switch above must still leave the tab content slot
         // — replace the route with a cleared search (dropping `?tab=`) while
@@ -5308,9 +5308,9 @@ function AppShell() {
             </div>
           )}
           {/* The mobile operator route's segmented header —
-              mounts only under the `operatorConsoleTabs` gate, so every other
+              mounts only under the `quakeTerminalTabs` gate, so every other
               route/form factor renders nothing here. */}
-          {operatorConsoleTabs && <TerminalActivityTabs />}
+          {quakeTerminalTabs && <TerminalActivityTabs />}
           {/* Surface-layout column (260812-ab5v-surface-layout-core, spec
               surface-layout.md): the tile grid (SurfaceLayout) renders the
               RESOLVED layout as 1–3 tiles mounting the existing renderers
@@ -5472,7 +5472,7 @@ function AppShell() {
           {cronTabActive && (
             <div className="flex-1 min-w-0 min-h-0 flex flex-col">
               <CronStaleBanner server={server} />
-              {consoleTab === "list" ? (
+              {quakeTab === "list" ? (
                 <CronList server={server} />
               ) : (
                 <CronLog server={server} />

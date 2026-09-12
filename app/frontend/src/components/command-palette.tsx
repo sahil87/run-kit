@@ -10,7 +10,7 @@ import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { INPUT_FOCUS } from "@/components/controls";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { matchesCombo, type EffectiveBinding } from "@/lib/keybindings";
-import { shouldShowAskOperatorRow } from "@/lib/operator-console";
+import { shouldShowAskOperatorRow } from "@/lib/quake-terminal";
 
 export type PaletteOptionPicker = {
   options: { key: string; label: string }[];
@@ -61,7 +61,7 @@ type CommandPaletteProps = {
   /** The Ask-operator free-text on-ramp: when the query matches NO action and
    *  the resolved server has an operator window, a standing last row offers
    *  `Ask operator: "{query}"`; selecting it closes the palette and hands the
-   *  query to the operator console (open + immediate send). Omitted entirely
+   *  query to the quake terminal (open + immediate send). Omitted entirely
    *  (never disabled) when the gate fails. */
   askOperator?: { hasOperator: boolean; onAsk: (query: string) => void };
 };

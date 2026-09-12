@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-12T15:28:34Z"}
+{"args":"Rename the operator console feature to quake terminal and the omnibox to quake launcher across code, test ids, labels, storage keys, memory, and the tutorial topic -- a mechanical rename with zero behavior change. Change 0 of fab/plans/sahil/26-09-12-quake-terminal-drawer.md","cmd":"fab-new","event":"command","ts":"2026-09-12T15:28:34Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-12T15:31:04Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-12T15:31:25Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-12T15:33:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-12T15:34:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-12T16:14:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-12T16:18:31Z"}
+{"event":"review","result":"passed","ts":"2026-09-12T16:18:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-12T16:22:01Z"}

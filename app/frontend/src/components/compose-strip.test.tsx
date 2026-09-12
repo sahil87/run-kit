@@ -28,7 +28,7 @@ import {
 } from "@/lib/compose-strip-events";
 import { BottomBar } from "./bottom-bar";
 import { ApiError, type WindowSendMode } from "@/api/client";
-import { dismissOperatorChatChip, setOperatorChatSubject } from "@/lib/operator-console";
+import { dismissOperatorChatChip, setOperatorChatSubject } from "@/lib/quake-terminal";
 
 // The strip's only router use is the context chip's back-navigation; no
 // RouterProvider is mounted in these tests.
@@ -2529,7 +2529,7 @@ describe("ComposeStrip operator chat lane", () => {
   });
 
   /** The strip focused on the operator window (@9) — the operator route's
-   *  mount — with the `?from=` origin subject stamped by the console. */
+   *  mount — with the `?from=` origin subject stamped by the quake terminal. */
   function mountOperatorRoute() {
     const ws = makeWs();
     render(<Harness focus={{ wsRef: ws.ref, containerRef: { current: null }, server: "srv", session: "_rk-operator", windowId: "@9" }} />);
@@ -2541,7 +2541,7 @@ describe("ComposeStrip operator chat lane", () => {
   it("a plain submit rides the templated chat lane at the subject window and clears the draft", async () => {
     mountOperatorRoute();
 
-    expect(screen.getByTestId("operator-console-context")).toHaveTextContent('from: @5 "origin"');
+    expect(screen.getByTestId("quake-terminal-context")).toHaveTextContent('from: @5 "origin"');
     act(() => fireEvent.change(input(), { target: { value: "check the deploy" } }));
     await act(async () => {
       fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
@@ -2556,7 +2556,7 @@ describe("ComposeStrip operator chat lane", () => {
   it("a dismissed chip returns the plain submit to the direct lane at the operator window", async () => {
     mountOperatorRoute();
     act(() => dismissOperatorChatChip());
-    expect(screen.queryByTestId("operator-console-context")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal-context")).toBeNull();
 
     act(() => fireEvent.change(input(), { target: { value: "plain message" } }));
     await act(async () => {
@@ -2573,7 +2573,7 @@ describe("ComposeStrip operator chat lane", () => {
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     act(() => setOperatorChatSubject({ server: "srv", windowId: "@1", name: "win" }));
 
-    expect(screen.queryByTestId("operator-console-context")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal-context")).toBeNull();
     act(() => fireEvent.change(input(), { target: { value: "one" } }));
     await act(async () => {
       fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
@@ -2611,7 +2611,7 @@ describe("ComposeStrip operator chat lane", () => {
       params: { server: "srv", window: "@5" },
       search: {},
     });
-    expect(screen.getByTestId("operator-console-context")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal-context")).toBeInTheDocument();
   });
 
   it("a failed templated send rides the strip's error surface and keeps the draft", async () => {

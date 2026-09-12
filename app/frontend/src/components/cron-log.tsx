@@ -21,7 +21,7 @@ const ROW_CLASS =
  * `relative` so the sheet's in-container variant anchors to it, and forwards
  * the flag.
  *
- * An unresolvable server degrades to the operator console's absent/hint state
+ * An unresolvable server degrades to the quake terminal's absent/hint state
  * (a centered hint line) and fires no request.
  */
 export function CronLog({ server, inline = false }: { server: string; inline?: boolean }) {

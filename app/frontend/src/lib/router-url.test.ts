@@ -97,7 +97,7 @@ describe("validateTerminalSearch (?panel= drop)", () => {
   });
 });
 
-// The `?from=` param carries the operator console's origin window id onto the
+// The `?from=` param carries the quake terminal's origin window id onto the
 // operator window's route. It passes through as a raw string (the `?layout=`
 // posture — the consumer validates it against the sessions payload); empty and
 // non-string values are DROPPED.

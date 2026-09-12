@@ -24,8 +24,8 @@
 > the clock moves into rk; fab keeps owning what a tick *means*. The operator
 > substrate it builds on is **shipped** (#839–#842 wave): `@rk_win_role=operator`
 > radio semantics with the `_rk-operator` home session, the `rk operator`
-> launcher, `rk mux sessions` role facts, and the operator console
-> (quake drawer + top-bar omnibox).
+> launcher, `rk mux sessions` role facts, and the quake terminal
+> (the drawer + the top-bar quake launcher).
 
 ---
 
@@ -356,7 +356,7 @@ tiered; each tier reuses a shipped mechanism:
    on the row's existing flyout card (beside `@rk_win_note`). Staleness past
    the pulse threshold dims and dashes the underbar and drives the cron tabs'
    pinned staleness banner.
-2. **Dashboard — the larger view is server-scoped: the operator console's
+2. **Dashboard — the larger view is server-scoped: the quake terminal's
    four-segment strip on both form factors.** The strip is
    `Operator Terminal | Operator Tasks | Cron List | Cron Log` in that fixed
    order — on desktop the quake drawer's segment header, on mobile the
@@ -401,7 +401,7 @@ tiered; each tier reuses a shipped mechanism:
    ([`surface-layout.md`](surface-layout.md)): opened as
    `main-left: tty,agents` beside the operator terminal, tile-zoom to
    full-center, no compose of its own (output-only per the console's
-   one-input rule — the omnibox is the global talk channel). Superseded:
+   one-input rule — the quake launcher is the global talk channel). Superseded:
    it was a tab-scoped tile for a server-scoped fact, and `agents` is no
    longer a reserved surface kind — `SURFACE_KINDS` is now
    `tty · web · code · gui` (the `gui` surface took the fourth kind). The

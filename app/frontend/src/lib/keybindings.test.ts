@@ -82,7 +82,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "shortcuts-overlay": "Slash",
       "settings-open": "Comma",
       "sidebar-toggle": "KeyB",
-      "operator-console": "KeyJ",
+      "quake-terminal": "KeyJ",
       "tty-toggle": "Digit1",
       "code-toggle": "Digit2",
       "web-toggle": "Digit3",
@@ -283,7 +283,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
     });
   });
 
-  it("surface digits: tty/code/web on Digit1/2/3 — ⌘ on mac, ⇧Ctrl on Win/Linux; KeyJ reclaimed by operator-console", () => {
+  it("surface digits: tty/code/web on Digit1/2/3 — ⌘ on mac, ⇧Ctrl on Win/Linux; KeyJ reclaimed by quake-terminal", () => {
     const def = DEFAULT_BINDINGS.find((b) => b.actionId === "code-toggle");
     // Full-row equality: the recoded row keeps its shape, code aside.
     expect(def).toEqual({
@@ -298,26 +298,26 @@ describe("DEFAULT_BINDINGS integrity", () => {
       mapLabel: "code",
       ignoreInputs: true,
     });
-    // KeyJ belongs to exactly one row — operator-console's default (the
+    // KeyJ belongs to exactly one row — quake-terminal's default (the
     // sidebar-toggle class: ⇧Ctrl+J base, ⌘J mac demotion, global,
     // ignoreInputs).
-    expect(DEFAULT_BINDINGS.find((b) => b.actionId === "operator-console")).toEqual({
-      actionId: "operator-console",
+    expect(DEFAULT_BINDINGS.find((b) => b.actionId === "quake-terminal")).toEqual({
+      actionId: "quake-terminal",
       code: "KeyJ",
       tier: "shifted",
       macTier: "cmd",
       scope: "global",
       kind: "builtin",
-      label: "Operator console",
-      description: "toggle the operator console (open+focus ⇄ closed)",
-      mapLabel: "operator",
+      label: "Quake terminal",
+      description: "toggle the quake terminal (open+focus ⇄ closed)",
+      mapLabel: "quake",
       ignoreInputs: true,
     });
     expect(
       DEFAULT_BINDINGS.filter((b) => b.code === "KeyJ" || b.macCode === "KeyJ").map(
         (b) => b.actionId,
       ),
-    ).toEqual(["operator-console"]);
+    ).toEqual(["quake-terminal"]);
     for (const [id, code, mapLabel] of [
       ["tty-toggle", "Digit1", "tty"],
       ["web-toggle", "Digit3", "web"],
@@ -410,7 +410,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
         (b) => b.actionId,
       ),
     ).toEqual(["gui-toggle"]);
-    // Dispatch: KeyJ resolves to operator-console on every host — ⌘J on both
+    // Dispatch: KeyJ resolves to quake-terminal on every host — ⌘J on both
     // mac hosts (the cmd-tier demotion; no browser claim on ⌘J), ⇧Ctrl+J on
     // win/linux, where plain Ctrl+J stays with the pane (readline). On mac the
     // demotion moves the default off the shifted tier, so ⇧⌘J matches nothing.
@@ -419,13 +419,13 @@ describe("DEFAULT_BINDINGS integrity", () => {
         findMatches(chord({ code: "KeyJ", shiftKey: true, ctrlKey: true }), resolved(host)).map(
           (b) => b.actionId,
         ),
-      ).toEqual(["operator-console"]);
+      ).toEqual(["quake-terminal"]);
       expect(findMatches(chord({ code: "KeyJ", ctrlKey: true }), resolved(host))).toEqual([]);
     }
     for (const host of [SHELL_MAC, BROWSER_MAC]) {
       expect(
         findMatches(chord({ code: "KeyJ", metaKey: true }), resolved(host)).map((b) => b.actionId),
-      ).toEqual(["operator-console"]);
+      ).toEqual(["quake-terminal"]);
       expect(
         findMatches(chord({ code: "KeyJ", metaKey: true, shiftKey: true }), resolved(host)),
       ).toEqual([]);
@@ -808,7 +808,7 @@ describe("palette parity invariant", () => {
     "shortcuts-overlay": ["shortcuts-overlay"], // Help: Keyboard Shortcuts
     "settings-open": ["settings-open"], // Settings: Open
     "sidebar-toggle": ["sidebar-toggle", "sidebar-focus"],
-    "operator-console": ["operator-console"], // Operator: Open console
+    "quake-terminal": ["quake-terminal"], // Operator: Open quake terminal
     "code-toggle": ["tile-show-code", "tile-hide-code"],
     "tty-toggle": ["tile-show-tty", "tile-hide-tty", "tile-focus-tty"],
     "web-toggle": ["tile-show-web", "tile-hide-web", "tile-focus-web"],
@@ -1108,6 +1108,19 @@ describe("override storage", () => {
     ).toEqual({ good: { code: "KeyU", tier: "shifted" }, disabled: null });
   });
 
+  it("parseOverrides maps a stored operator-console entry onto quake-terminal when no quake-terminal entry exists", () => {
+    expect(parseOverrides('{"operator-console":null}')).toEqual({ "quake-terminal": null });
+    expect(
+      parseOverrides('{"operator-console":{"code":"KeyJ","tier":"shifted"}}'),
+    ).toEqual({ "quake-terminal": { code: "KeyJ", tier: "shifted" } });
+  });
+
+  it("parseOverrides lets the quake-terminal entry win over a stored operator-console entry", () => {
+    expect(
+      parseOverrides('{"operator-console":{"code":"KeyJ","tier":"cmd"},"quake-terminal":null}'),
+    ).toEqual({ "quake-terminal": null });
+  });
+
   it("round-trips diffs and removes the key when the diff empties", () => {
     writeStoredOverrides({ "window-next": { code: "KeyU", tier: "shifted" } });
     expect(readStoredOverrides()).toEqual({ "window-next": { code: "KeyU", tier: "shifted" } });
@@ -1362,7 +1375,7 @@ describe("applyCapture (steal-with-warning)", () => {
       SHELL_OTHER,
     );
     expect(other).toEqual({ overrides: {}, stolenFrom: null });
-    // ⇧Ctrl+J is operator-console's win/linux default: rebinding code-toggle
+    // ⇧Ctrl+J is quake-terminal's win/linux default: rebinding code-toggle
     // onto it stores the diff AND records the steal.
     const oldChord = applyCapture(
       resolveBindings(DEFAULT_BINDINGS, {}, SHELL_OTHER),
@@ -1371,12 +1384,12 @@ describe("applyCapture (steal-with-warning)", () => {
       { code: "KeyJ", tier: "shifted" },
       SHELL_OTHER,
     );
-    expect(oldChord.stolenFrom).toBe("operator-console");
+    expect(oldChord.stolenFrom).toBe("quake-terminal");
     // The steal unbinds the victim: the diff carries code-toggle's new chord
-    // plus operator-console's disablement (null).
+    // plus quake-terminal's disablement (null).
     expect(oldChord.overrides).toEqual({
       "code-toggle": { code: "KeyJ", tier: "shifted" },
-      "operator-console": null,
+      "quake-terminal": null,
     });
     // compose-toggle's macCode refinement: ⌘I is its mac own-default; the old
     // ⇧⌘E (its win/linux default) is NOT its mac default — a real diff there.

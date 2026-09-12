@@ -32,7 +32,7 @@ import { getAgentLine, getFabLine, getPrSegments } from "./sidebar/registers";
 import { controlClass } from "@/components/control";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { formatDuration, parseFabChange } from "@/lib/format";
-import { requestOperatorConsole } from "@/lib/operator-console";
+import { requestQuakeTerminal } from "@/lib/quake-terminal";
 import type { MetricsSnapshot, WindowInfo } from "@/types";
 
 /**
@@ -281,10 +281,10 @@ function useClockChipState(server: string | null | undefined): ClockChipState {
   return { kind: "next", text: `◷ in ${rel}`, tip: `Clock — next fire ${soonestName} in ${rel}` };
 }
 
-/** The chip and its overflow row share the one open action: the operator
- *  console on its Cron List segment. */
+/** The chip and its overflow row share the one open action: the quake
+ *  terminal on its Cron List segment. */
 function openCronList(): void {
-  requestOperatorConsole({ action: "open", segment: "list" });
+  requestQuakeTerminal({ action: "open", segment: "list" });
 }
 
 /** The `◷` clock chip — the right-cluster glance at the server's cron clock.

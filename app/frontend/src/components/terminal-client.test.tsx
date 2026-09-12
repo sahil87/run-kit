@@ -1861,7 +1861,7 @@ describe("TerminalClient switch-receipt source — exactly one terminal reports 
     expect(notifyFirstWrite).toHaveBeenCalledTimes(1);
   });
 
-  it("never reports the receipt when it is not the receipt source (the default) — board panes, duplicate tty tiles, the operator console", async () => {
+  it("never reports the receipt when it is not the receipt source (the default) — board panes, duplicate tty tiles, the quake terminal", async () => {
     renderWith(undefined);
     await act(async () => {});
     await act(async () => {});

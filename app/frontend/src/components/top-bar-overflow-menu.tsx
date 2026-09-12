@@ -19,7 +19,7 @@ import { useUpdateCheck } from "@/hooks/use-update-check";
 import { Tip } from "@/components/tip";
 import { HELP_URL, HelpIcon } from "@/components/global-chrome";
 import { HeadsetIcon, KeyboardIcon } from "@/components/sidebar/icons";
-import { requestOperatorConsole } from "@/lib/operator-console";
+import { requestQuakeTerminal } from "@/lib/quake-terminal";
 import { HELP_TOPICS, openHelpTopic } from "@/lib/help-topics";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
@@ -219,15 +219,15 @@ export function KeyboardMenuRow() {
   );
 }
 
-/** Operator console — the mobile entry to the operator console (no keyboard
+/** Quake terminal — the mobile entry to the quake terminal (no keyboard
  *  exists on a phone, so the chord can't carry it). Fires the same
  *  document-event open the palette action dispatches (desktop: open+focused
  *  on the ⌘J machine; mobile: navigation to the operator window's terminal
- *  route); the layout-mounted console owns the fork. The trailing keycap
+ *  route); the layout-mounted quake terminal owns the fork. The trailing keycap
  *  shows the host-effective chord, omitted when unbound/disabled. */
-export function OperatorConsoleMenuRow() {
+export function QuakeTerminalMenuRow() {
   const { byAction, host } = useKeybindings();
-  const binding = byAction.get("operator-console");
+  const binding = byAction.get("quake-terminal");
   const chord = binding?.enabled
     ? formatCombo({ code: binding.code, tier: binding.tier }, host.platform)
     : undefined;
@@ -236,11 +236,11 @@ export function OperatorConsoleMenuRow() {
       type="button"
       role="menuitem"
       tabIndex={-1}
-      onClick={() => requestOperatorConsole({ action: "open" })}
+      onClick={() => requestQuakeTerminal({ action: "open" })}
       className={controlClass({ variant: "menu-row" })}
     >
       <HeadsetIcon size={14} />
-      <span className="flex-1">Operator console</span>
+      <span className="flex-1">Quake terminal</span>
       {chord && (
         <kbd aria-hidden="true" className={MENU_ROW_KBD_CLASS}>
           {chord}

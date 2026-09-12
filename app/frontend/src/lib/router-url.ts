@@ -37,7 +37,7 @@ export function urlSegmentToWindowId(segment: string): string {
 // error. `layout` passes through as a raw string — validation lives in
 // `lib/surface-layout.ts`'s `parseLayout` (this module is a deliberately
 // dependency-free leaf, so the parse helpers can't be imported here).
-// `from` is live state: the operator console's mobile navigation stamps the
+// `from` is live state: the quake terminal's mobile navigation stamps the
 // origin window id here so the operator window's route can attach it as the
 // chat subject. It passes through as a raw string like `layout` — the
 // consumer validates it against the sessions payload, so an unknown or

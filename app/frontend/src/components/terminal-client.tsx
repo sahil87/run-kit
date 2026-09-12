@@ -14,7 +14,7 @@ import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { deriveXtermTheme } from "@/themes";
 import { dispatchComposeStripAttach } from "@/lib/compose-strip-events";
-import { isOperatorConsoleTarget } from "@/lib/operator-console";
+import { isQuakeTerminalTarget } from "@/lib/quake-terminal";
 import { copyToClipboard } from "@/lib/clipboard";
 import { notifyFirstWrite } from "@/lib/window-transition";
 import { relayMux, type RelayStream } from "@/lib/relay-mux";
@@ -41,8 +41,8 @@ function deviceDefaultScrollback(): number {
 
 /**
  * The xterm theme for one instance. The `transparent` variant drops the opaque
- * background so a translucent surface behind the terminal (the operator
- * console's glass drawer) shows through the cells — it only takes effect with
+ * background so a translucent surface behind the terminal (the quake
+ * terminal's glass drawer) shows through the cells — it only takes effect with
  * `allowTransparency` set at construction, and needs the container's
  * `rk-terminal-transparent` class alongside it (globals.css): xterm.css
  * hardcodes an opaque black `.xterm-viewport` that the theme never overrides.
@@ -169,7 +169,7 @@ type TerminalClientProps = {
    * first-write receipt (`notifyFirstWrite`) that releases the route's slide
    * gate and lifts its spinner mask. The receipt is module-global, so exactly
    * ONE terminal may report it: the terminal route's primary tty tile. Board
-   * panes, duplicate tty tiles, and the operator console leave it unset — their
+   * panes, duplicate tty tiles, and the quake terminal leave it unset — their
    * output must never confirm a switch of the window they are not showing.
    */
   switchReceiptSource?: boolean;
@@ -194,7 +194,7 @@ type TerminalClientProps = {
   /**
    * When `true`, the terminal renders see-through: xterm `allowTransparency`
    * plus a transparent theme background, so a translucent SURFACE behind the
-   * terminal (the operator console's glass drawer) shows through the cells.
+   * terminal (the quake terminal's glass drawer) shows through the cells.
    * Opt-in per instance — route/board terminals keep the opaque theme
    * background and pay no renderer cost.
    */
@@ -317,11 +317,11 @@ export function TerminalClient({
     function handlePaste(e: ClipboardEvent) {
       const files = e.clipboardData?.files;
       if (!files || files.length === 0) return;
-      // File pastes originating inside the operator console belong to the
-      // console's own upload path — forwarding them to the strip would upload
-      // to the ROUTE's focused target (the tab below the console). Text paste
+      // File pastes originating inside the quake terminal belong to the
+      // quake terminal's own upload path — forwarding them to the strip would upload
+      // to the ROUTE's focused target (the tab below the quake terminal). Text paste
       // is untouched everywhere (no files on the clipboard).
-      if (isOperatorConsoleTarget(e.target)) return;
+      if (isQuakeTerminalTarget(e.target)) return;
       e.preventDefault();
       attachToStrip(files);
     }
@@ -343,16 +343,16 @@ export function TerminalClient({
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
-      // Drops landing on the console's embedded terminal belong to the
-      // console root's own drop handler (the event bubbles to it) — the strip
+      // Drops landing on the quake terminal's embedded terminal belong to the
+      // quake terminal root's own drop handler (the event bubbles to it) — the strip
       // forward would upload to the route's focused target instead. The
       // drag-over highlight still clears: no dragleave follows a drop.
-      // preventDefault precedes the console early-return: blocking the
+      // preventDefault precedes the quake terminal early-return: blocking the
       // browser's default drop action (URL/text navigation) must not depend
-      // on the drop bubbling to the console root.
+      // on the drop bubbling to the quake terminal root.
       setDragOver(false);
       e.preventDefault();
-      if (isOperatorConsoleTarget(e.currentTarget)) return;
+      if (isQuakeTerminalTarget(e.currentTarget)) return;
       const files = e.dataTransfer.files;
       if (files.length === 0) return;
       attachToStrip(files);

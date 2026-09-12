@@ -69,13 +69,13 @@ human steer from a user watching the pane** — it must land now (allow + probe,
 no queue); **a request is work handed over** — a busy operator queues it (202,
 drain on idle).
 
-- **Chat, direct**: the operator chat console
-  ([ui/operator-console](/run-kit/ui/operator-console.md)) delivers free-text
+- **Chat, direct**: the quake terminal
+  ([ui/quake-terminal](/run-kit/ui/quake-terminal.md)) delivers free-text
   steers a human types through `POST /api/windows/{operatorWindowId}/send` with
   `target:"agent"` — the user's raw text verbatim over the send engine's
   agent-target lane ([agent-send](/run-kit/agent-send.md) § Send Path), no busy
   gate, no template-registry involvement.
-- **Chat, templated**: the console's context-carrying send rides the
+- **Chat, templated**: the quake terminal's context-carrying send rides the
   window-scoped `/operator-request` route with a chat template
   (`user-message`) whose registry entry declares `chatDelivery: true` — a
   one-line server-derived **addressee header** naming the operator as the
@@ -96,7 +96,7 @@ item without the dashboard. It adds NO lane — the closed registry is the singl
 source of truth for `--list` and the CLI-side pre-flight checks, and the
 daemon's own status codes drive the receipt. (sjs1)
 
-The console is a HUMAN surface driving a pane through the one gated injection
+The quake terminal is a HUMAN surface driving a pane through the one gated injection
 engine; the spec's Conversation row (multi-turn cross-provider dialogue ⇒ MCP
 bridge) governs agent-to-agent tool-mediated dialogue, not these lanes
 (§ Design Decisions).
@@ -907,8 +907,8 @@ applies unchanged (unknown id 400, cross-scope 400, the `acceptsText` lane
 rules — empty/whitespace 400, 4096-byte cap — absent subject 404, no operator
 404). Being `chatDelivery`, it skips the busy gate and the queue (the chat
 lane requirement): no `202` queued outcome is reachable on this path. The
-console's lane fork, subject resolution, and context chip are documented in
-[ui/operator-console](/run-kit/ui/operator-console.md).
+quake terminal's lane fork, subject resolution, and context chip are documented in
+[ui/quake-terminal](/run-kit/ui/quake-terminal.md).
 
 #### Scenario: Addressee header + bare fence
 - **GIVEN** a subject window `@5` named `zesty-fjord` with worktree
@@ -1268,14 +1268,14 @@ minutes; a queued prompt would deliver stale facts as instructions.
 *Introduced by*: 260902-4km4-operator-request-queue-drain-on-idle
 
 ### Human surface vs the agent-messaging Conversation row
-**Decision**: the operator chat console is documented as a HUMAN surface driving
+**Decision**: the quake terminal is documented as a HUMAN surface driving
 a pane through the one gated injection engine (an HTTP door per
 `docs/specs/agent-messaging.md`), distinct from the spec's Conversation row
 (multi-turn cross-provider agent dialogue ⇒ MCP bridge).
-**Why**: the single-engine invariant is satisfied — the console adds no typing
+**Why**: the single-engine invariant is satisfied — the quake terminal adds no typing
 path of its own; the MCP row governs agent-to-agent tool-mediated dialogue,
 not humans.
-**Rejected**: treating the console as an agent-conversation consumer requiring
+**Rejected**: treating the quake terminal as an agent-conversation consumer requiring
 MCP (wrong layer — no agent is conversing).
 *Introduced by*: 260904-qa85-operator-chat-console
 
@@ -1287,7 +1287,7 @@ parallel chat-delivery core.
 drift across callers (the shared core above); a parallel core would duplicate
 pane resolution + deadline + injection wiring for one conditional.
 **Rejected**: a second `deliverOperatorChat` core (drift risk, duplicated
-mechanics); routing console chat through `handleSendToWindow` with server-side
+mechanics); routing quake terminal chat through `handleSendToWindow` with server-side
 envelope enrichment (muddies the generic send lane with operator-specific fact
 rendering).
 *Introduced by*: 260905-4xu7-operator-templated-chat-lane

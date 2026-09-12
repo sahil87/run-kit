@@ -8,15 +8,16 @@ import { OperatorContextChip } from "@/components/operator-context-chip";
 import {
   OPERATOR_STATE_DOT,
   attachOperatorFiles,
-  resolveOperatorConsoleTarget,
+  resolveQuakeTerminalTarget,
   sendOperatorMessage,
-  setConsoleMachineState,
+  setQuakeMachineState,
   setOperatorComposeText,
-  useConsoleMachineState,
+  useQuakeMachineState,
   useOperatorCompose,
-} from "@/lib/operator-console";
+} from "@/lib/quake-terminal";
 
-/** The wide-desktop rung (tailwind `lg`) — the standing omnibox replaces the
+/** The wide-desktop rung (tailwind `lg`) — the standing quake launcher
+ *  replaces the
  *  ghost/morph pair at and above it. Subscribed for render (the `engaged`
  *  chrome rule below). */
 const WIDE_RUNG_QUERY = "(min-width: 1024px)";
@@ -37,7 +38,7 @@ function OperatorStateGlyph({
       ◉
       {showDot && agentState && (
         <span
-          data-testid="operator-omnibox-state"
+          data-testid="quake-launcher-state"
           data-state={agentState}
           className={`absolute -bottom-0.5 -right-0.5 block h-2 w-2 rounded-full border border-bg-primary ${
             OPERATOR_STATE_DOT[agentState] ?? "bg-text-secondary"
@@ -49,8 +50,10 @@ function OperatorStateGlyph({
 }
 
 /**
- * The operator omnibox — the console's compose relocated into the top bar's
- * center cell (desktop only; on mobile the console's seam arm navigates to
+ * The quake launcher — the quake terminal's compose relocated into the top
+ * bar's
+ * center cell (desktop only; on mobile the quake terminal's seam arm
+ * navigates to
  * the operator window's terminal route and nothing renders here). One
  * component at two widths:
  *
@@ -69,8 +72,9 @@ function OperatorStateGlyph({
  *    or when the chord engages the machine) morphs the center into the same
  *    box in place; Esc, the chord, or an outside click restores the heading.
  *
- * The box IS the console compose — draft, send, and image-paste upload ride
- * the shared seam in lib/operator-console.ts. Enter (non-empty) sends through
+ * The box IS the quake terminal compose — draft, send, and image-paste
+ * upload ride
+ * the shared seam in lib/quake-terminal.ts. Enter (non-empty) sends through
  * the `target:"agent"` lane with focus retained for follow-ups; the ⌘J
  * two-state machine (rest ⇄ open — focus and drawer linked) owns focus:
  * entering the machine from rest focuses the box and selects any draft,
@@ -81,28 +85,31 @@ function OperatorStateGlyph({
  * it, whose onFocus re-enters the machine — a loop with no release), and the
  * restore runs only while the box STILL owns focus (a release caused by the
  * user focusing a terminal pane already has its owner; overriding it steals the
- * keystrokes). Escape is NOT handled here — the console's document listener
+ * keystrokes). Escape is NOT handled here — the quake terminal's document
+ * listener
  * owns the release so a single Esc can never double-step. Blur is not a
  * release either: the open drawer is a peek that outlives the box's focus
- * (clicking into its terminal must not collapse it) — the console's
+ * (clicking into its terminal must not collapse it) — the quake terminal's
  * outside-click collapse owns click-away.
  *
  * Two derived flags, deliberately not one: `morphed` (machine-derived, the same
- * value the top bar calls `omniboxMorphed`) says the box is RENDERED in place
+ * value the top bar calls `launcherMorphed`) says the box is RENDERED in place
  * of the heading; `engaged` says it LOOKS like it owns input. They diverge at
  * `open` whenever a blur has left the drawer standing — a machine-derived
  * chrome would claim focus the box no longer has.
  *
- * The wrapper carries the console-root attribute so the route terminals'
- * document-level file-paste forward skips omnibox-origin pastes (the box owns
+ * The wrapper carries the quake-terminal root attribute so the route
+ * terminals'
+ * document-level file-paste forward skips launcher-origin pastes (the box
+ * owns
  * its own file path: paste an image and it uploads to the operator window's
  * session, insert-staged into the TUI composer).
  */
-export function OperatorOmnibox({ routeServer }: { routeServer: string | null }) {
+export function QuakeLauncher({ routeServer }: { routeServer: string | null }) {
   const isMobile = useIsMobile();
   const wide = useMediaQuery(WIDE_RUNG_QUERY);
   const extraWide = useMediaQuery(EXTRA_WIDE_RUNG_QUERY);
-  const machine = useConsoleMachineState();
+  const machine = useQuakeMachineState();
   const compose = useOperatorCompose();
   // The route server arrives as a prop: the TopBar already carries it, and
   // this component must not pull router hooks the bar's test harness doesn't
@@ -115,7 +122,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
   const sessionsByServer = ctx?.sessionsByServer;
   const { server, target } = useMemo(
     () =>
-      resolveOperatorConsoleTarget(
+      resolveQuakeTerminalTarget(
         routeServer,
         servers.map((s) => s.name),
         sessionsByServer,
@@ -134,7 +141,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
   const textRef = useRef(compose.text);
   textRef.current = compose.text;
 
-  const binding = byAction.get("operator-console");
+  const binding = byAction.get("quake-terminal");
   const chord = binding?.enabled
     ? formatCombo({ code: binding.code, tier: binding.tier }, host.platform)
     : undefined;
@@ -176,7 +183,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
   if (isMobile) return null;
 
   // The box is RENDERED in place of the heading (the top bar keys its own
-  // heading hiding on the same value, as `omniboxMorphed`).
+  // heading hiding on the same value, as `launcherMorphed`).
   const morphed = machine !== "rest";
   // The box LOOKS like it owns input. Below `lg` the morph keeps it lit even
   // while unfocused: the box stands where the heading was for as long as the
@@ -194,9 +201,9 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
       {!morphed && (
         <button
           type="button"
-          data-testid="operator-omnibox-ghost"
+          data-testid="quake-launcher-ghost"
           aria-label="Ask the operator"
-          onClick={() => setConsoleMachineState("open")}
+          onClick={() => setQuakeMachineState("open")}
           className="hidden md:inline-flex lg:hidden ml-2 shrink-0 items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors"
         >
           <span aria-hidden="true">·</span>
@@ -206,8 +213,8 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
       )}
       <div
         ref={boxRef}
-        data-operator-console=""
-        data-testid="operator-omnibox"
+        data-quake-terminal=""
+        data-testid="quake-launcher"
         className={`${
           // Engaged, the box widens to hold the draft plus the capped chip;
           // at rest it stays the slim standing width. Height is fixed at the
@@ -229,7 +236,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
           ref={inputRef}
           type="text"
           value={compose.text}
-          data-testid="operator-omnibox-input"
+          data-testid="quake-launcher-input"
           placeholder={extraWide ? "Ask the operator…" : "Ask…"}
           aria-label="Ask the operator"
           onChange={(e) => setOperatorComposeText(e.target.value)}
@@ -237,7 +244,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
             setBoxFocused(true);
             // Clicking into the standing box engages the machine — focus and
             // the drawer are linked, so entry lands directly at `open`.
-            if (machineRef.current === "rest") setConsoleMachineState("open");
+            if (machineRef.current === "rest") setQuakeMachineState("open");
           }}
           onBlur={(e) => {
             // Focus moving WITHIN the box (the context chip's ✕, the keycap)
@@ -252,7 +259,8 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
             setBoxFocused(false);
             // Blur never steps the machine: the open drawer is a peek that
             // outlives the box's focus (clicking into its terminal must not
-            // collapse it). The console's outside-click collapse and Esc own
+            // collapse it). The quake terminal's outside-click collapse and
+            // Esc own
             // the release.
           }}
           onKeyDown={(e) => {
@@ -261,7 +269,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
             const value = textRef.current;
             if (value.trim() === "") return;
             void sendOperatorMessage(server, target, value);
-            setConsoleMachineState("open");
+            setQuakeMachineState("open");
           }}
           onPaste={(e) => {
             const files = Array.from(e.clipboardData?.files ?? []);

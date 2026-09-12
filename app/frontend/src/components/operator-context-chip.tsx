@@ -1,23 +1,23 @@
-import { dismissOperatorChatChip, useOperatorChatChip } from "@/lib/operator-console";
+import { dismissOperatorChatChip, useOperatorChatChip } from "@/lib/quake-terminal";
 
 /**
  * The chat-lane context chip — renders the attached chat subject beside
- * whichever compose surface is active: the desktop omnibox and the operator
+ * whichever compose surface is active: the desktop quake launcher and the operator
  * route's compose strip both mount one, reading the ONE chat-subject store in
- * lib/operator-console.ts so the two stay in lockstep. Implicit context the
+ * lib/quake-terminal.ts so the two stay in lockstep. Implicit context the
  * user cannot see erodes trust in what the operator was told, so the chip is
  * always visible while a send would attach the envelope, and its ✕ detaches it
- * (sends then ride the direct lane until the console re-engages or the subject
+ * (sends then ride the direct lane until the quake terminal re-engages or the subject
  * changes — the store owns both resets).
  *
- * `server` is the caller's resolved console server: a subject stamped for a
+ * `server` is the caller's resolved quake terminal server: a subject stamped for a
  * different server renders nothing (window ids are server-scoped, and
  * sendOperatorMessage applies the same guard at send time).
  *
  * With `onNavigate` provided (the operator route's compose-strip mount), the
  * label itself is a control that returns to the subject window — the chip
  * names exactly where the user came from, so it doubles as the way back. The
- * ✕ stays dismiss-only either way; the omnibox mount passes nothing and keeps
+ * ✕ stays dismiss-only either way; the quake launcher mount passes nothing and keeps
  * an inert label.
  */
 export function OperatorContextChip({
@@ -26,7 +26,7 @@ export function OperatorContextChip({
   onNavigate,
 }: {
   server: string | null;
-  /** Cap the chip's width (the omnibox's slim box); the compose strip has room. */
+  /** Cap the chip's width (the quake launcher's slim box); the compose strip has room. */
   compact?: boolean;
   /** When set, tapping the label navigates back to the subject window. */
   onNavigate?: () => void;
@@ -36,7 +36,7 @@ export function OperatorContextChip({
   const labelText = `from: ${subject.windowId}${subject.name ? ` "${subject.name}"` : ""}`;
   return (
     <span
-      data-testid="operator-console-context"
+      data-testid="quake-terminal-context"
       className={`inline-flex min-w-0 shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-xs text-text-secondary ${
         compact ? "max-w-[14ch]" : ""
       }`}
@@ -58,7 +58,7 @@ export function OperatorContextChip({
         aria-label="Detach window context"
         onClick={dismissOperatorChatChip}
         className={`shrink-0 px-0.5 inline-flex items-center justify-center text-text-secondary transition-colors hover:text-text-primary coarse:min-w-[40px] coarse:min-h-[40px] ${
-          // The compact (omnibox) mount is fixed to the bar's control height
+          // The compact (quake launcher) mount is fixed to the bar's control height
           // (h-[28px]) — a 24px fine floor here would push the chip taller
           // than that budget and reintroduce the box's focus/blur jitter.
           // The full-size compose-strip mount keeps the standard floor.

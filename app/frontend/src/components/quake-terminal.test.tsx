@@ -1,24 +1,24 @@
 import { useState } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act, waitFor, within } from "@testing-library/react";
-import { OperatorConsole, OperatorConsoleTongue } from "./operator-console";
+import { QuakeTerminal, QuakeTerminalTongue } from "./quake-terminal";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
 import {
   dismissOperatorChatChip,
-  getConsoleMachineState,
+  getQuakeMachineState,
   getOperatorChatTarget,
-  requestOperatorConsole,
-  setConsoleMachineState,
+  requestQuakeTerminal,
+  setQuakeMachineState,
   setOperatorChatSubject,
   setOperatorComposeText,
-  writeConsoleOpacity,
-} from "@/lib/operator-console";
+  writeQuakeOpacity,
+} from "@/lib/quake-terminal";
 import { getComposeDraft, hydrateComposeDrafts } from "@/lib/compose-draft-store";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import type { ProjectSession, WindowInfo } from "@/types";
 
-// Route params and search the console's server-context walk and `?from=`
+// Route params and search the quake terminal's server-context walk and `?from=`
 // validation read; navigations the mobile arm issues are recorded.
 let mockMatches: Array<{ params: Record<string, string> }> = [{ params: {} }];
 let mockSearch: Record<string, unknown> = {};
@@ -85,7 +85,7 @@ function operatorSessions(extraWindows: WindowInfo[] = []): ProjectSession[] {
   ];
 }
 
-function renderConsole(opts: {
+function renderQuake(opts: {
   servers?: string[];
   sessionsByServer?: Map<string, ProjectSession[]>;
   withToasts?: boolean;
@@ -99,7 +99,7 @@ function renderConsole(opts: {
         sessionsByServer: opts.sessionsByServer ?? new Map([["srv1", operatorSessions()]]),
       }}
     >
-      <OperatorConsole />
+      <QuakeTerminal />
     </StandaloneSessionContextProvider>
   );
   return render(opts.withToasts ? <ToastProvider>{tree}</ToastProvider> : tree);
@@ -109,20 +109,20 @@ function renderConsole(opts: {
  *  action's `open` (the chord toggles). */
 function openDrawer() {
   act(() => {
-    requestOperatorConsole({ action: "open" });
+    requestQuakeTerminal({ action: "open" });
   });
 }
 
 function stepMachine() {
   act(() => {
-    requestOperatorConsole({ action: "toggle" });
+    requestQuakeTerminal({ action: "toggle" });
   });
 }
 
-describe("OperatorConsole", () => {
+describe("QuakeTerminal", () => {
   beforeEach(() => {
     stubMatchMedia(() => false);
-    setConsoleMachineState("rest");
+    setQuakeMachineState("rest");
     setOperatorComposeText("");
     mockMatches = [{ params: {} }];
     mockSearch = {};
@@ -144,51 +144,51 @@ describe("OperatorConsole", () => {
   });
 
   it("the chord toggles the desktop machine rest → open → rest", async () => {
-    renderConsole();
-    expect(screen.queryByTestId("operator-console")).toBeNull();
+    renderQuake();
+    expect(screen.queryByTestId("quake-terminal")).toBeNull();
 
     // Step 1: open — focus and drawer are linked, nothing sent.
     stepMachine();
-    expect(getConsoleMachineState()).toBe("open");
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
     expect(mockSend).not.toHaveBeenCalled();
 
     // Step 2: rest — the exit slide holds the mount until transitionend (or
     // the fallback timeout — jsdom fires no transition events).
     stepMachine();
-    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
-    expect(getConsoleMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
+    expect(getQuakeMachineState()).toBe("rest");
   });
 
   it.each(["toggle", "open"] as const)(
     "keeps the desktop machine at rest and shows a hint for %s on the operator route",
     (action) => {
       mockMatches = [{ params: { server: "srv1", window: "@9" } }];
-      renderConsole({ withToasts: true });
+      renderQuake({ withToasts: true });
 
-      act(() => requestOperatorConsole({ action }));
+      act(() => requestQuakeTerminal({ action }));
 
-      expect(getConsoleMachineState()).toBe("rest");
-      expect(screen.queryByTestId("operator-console")).toBeNull();
+      expect(getQuakeMachineState()).toBe("rest");
+      expect(screen.queryByTestId("quake-terminal")).toBeNull();
       expect(screen.getByText("already viewing the operator — nothing to open")).toBeVisible();
     },
   );
 
   it("throttles repeated already-on-operator hints to one toast per lifetime", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
-    renderConsole({ withToasts: true });
+    renderQuake({ withToasts: true });
 
     for (const action of ["toggle", "open"] as const) {
-      act(() => requestOperatorConsole({ action }));
+      act(() => requestQuakeTerminal({ action }));
     }
 
     expect(screen.getAllByText("already viewing the operator — nothing to open")).toHaveLength(1);
-    expect(getConsoleMachineState()).toBe("rest");
+    expect(getQuakeMachineState()).toBe("rest");
   });
 
-  it("gates explicit server and send details before they mutate console state", async () => {
+  it("gates explicit server and send details before they mutate quake terminal state", async () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
-    renderConsole({
+    renderQuake({
       servers: ["srv1", "srv2"],
       sessionsByServer: new Map([
         ["srv1", operatorSessions()],
@@ -207,11 +207,11 @@ describe("OperatorConsole", () => {
     });
 
     act(() => {
-      requestOperatorConsole({ action: "open", server: "srv2", send: "must stay pending nowhere" });
+      requestQuakeTerminal({ action: "open", server: "srv2", send: "must stay pending nowhere" });
     });
-    act(() => setConsoleMachineState("open"));
+    act(() => setQuakeMachineState("open"));
 
-    await screen.findByTestId("operator-console");
+    await screen.findByTestId("quake-terminal");
     expect(terminalMounts.at(-1)).toMatchObject({ server: "srv1", windowId: "@9" });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(mockSend).not.toHaveBeenCalled();
@@ -222,79 +222,79 @@ describe("OperatorConsole", () => {
     "preserves the desktop %s behavior away from the operator route",
     (action) => {
       mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-      renderConsole();
+      renderQuake();
 
-      act(() => requestOperatorConsole({ action }));
+      act(() => requestQuakeTerminal({ action }));
 
-      expect(getConsoleMachineState()).toBe("open");
-      expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+      expect(getQuakeMachineState()).toBe("open");
+      expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
     },
   );
 
   it("one Esc releases the machine: open → rest", async () => {
-    renderConsole();
+    renderQuake();
     openDrawer();
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(getConsoleMachineState()).toBe("rest");
-    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+    expect(getQuakeMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
   });
 
   it("stays mounted with the raised class through the exit slide", async () => {
-    renderConsole();
+    renderQuake();
     openDrawer();
-    await screen.findByTestId("operator-console");
+    await screen.findByTestId("quake-terminal");
 
     fireEvent.keyDown(document, { key: "Escape" });
-    const el = screen.getByTestId("operator-console");
-    expect(el.className).toContain("rk-console-slide");
-    expect(el.className).toContain("rk-console-closed");
+    const el = screen.getByTestId("quake-terminal");
+    expect(el.className).toContain("rk-quake-slide");
+    expect(el.className).toContain("rk-quake-closed");
 
-    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
   });
 
   it("reduced motion closes instantly — no mounted-through-exit delay", () => {
     stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
-    renderConsole();
+    renderQuake();
     openDrawer();
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByTestId("operator-console")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal")).toBeNull();
   });
 
-  it("a click outside the console's DOM collapses the open drawer to rest", async () => {
-    renderConsole();
+  it("a click outside the quake terminal's DOM collapses the open drawer to rest", async () => {
+    renderQuake();
     openDrawer();
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
 
     fireEvent.click(document.body);
     // The collapse is deferred past a settle timeout — not synchronous.
-    await waitFor(() => expect(getConsoleMachineState()).toBe("rest"));
-    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+    await waitFor(() => expect(getQuakeMachineState()).toBe("rest"));
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
   });
 
   it("a click inside the drawer does not collapse it", async () => {
-    renderConsole();
+    renderQuake();
     openDrawer();
-    const drawer = screen.getByTestId("operator-console");
+    const drawer = screen.getByTestId("quake-terminal");
 
     fireEvent.click(drawer);
     await new Promise((r) => setTimeout(r, 10));
-    expect(getConsoleMachineState()).toBe("open");
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
   });
 
-  it("a real DOM click on an outside trigger that re-opens/retargets the console wins over the outside-click collapse", async () => {
-    renderConsole();
+  it("a real DOM click on an outside trigger that re-opens/retargets the quake terminal wins over the outside-click collapse", async () => {
+    renderQuake();
     openDrawer();
 
     function RetargetButton() {
       return (
         <button
           type="button"
-          onClick={() => requestOperatorConsole({ action: "open", server: "srv1" })}
+          onClick={() => requestQuakeTerminal({ action: "open", server: "srv1" })}
         >
           retarget
         </button>
@@ -308,12 +308,12 @@ describe("OperatorConsole", () => {
     // bubble phase, which the outside-collapse's capture-phase snapshot ran
     // ahead of — the deferred settle check sees activity moved and backs off.
     await new Promise((r) => setTimeout(r, 10));
-    expect(getConsoleMachineState()).toBe("open");
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
   });
 
-  it("a click that opens an unrelated dialog does not collapse the console", async () => {
-    renderConsole();
+  it("a click that opens an unrelated dialog does not collapse the quake terminal", async () => {
+    renderQuake();
     openDrawer();
 
     function DialogTrigger() {
@@ -338,14 +338,14 @@ describe("OperatorConsole", () => {
     // the settle check finds it and skips the collapse.
     await screen.findByTestId("fake-settings-dialog");
     await new Promise((r) => setTimeout(r, 10));
-    expect(getConsoleMachineState()).toBe("open");
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
   });
 
   it("the desktop drawer is output-only — no compose strip, status line at its top edge", async () => {
-    renderConsole();
+    renderQuake();
     openDrawer();
-    const el = await screen.findByTestId("operator-console");
+    const el = await screen.findByTestId("quake-terminal");
 
     expect(screen.queryByLabelText("Message the operator")).toBeNull();
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
@@ -354,7 +354,7 @@ describe("OperatorConsole", () => {
 
   it("targets the route's server on a terminal route (no picker)", () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    renderConsole();
+    renderQuake();
     openDrawer();
 
     expect(screen.queryByRole("combobox", { name: "Operator server" })).toBeNull();
@@ -362,7 +362,7 @@ describe("OperatorConsole", () => {
   });
 
   it("preselects the sole server on the Host route without a picker", () => {
-    renderConsole();
+    renderQuake();
     openDrawer();
 
     expect(screen.queryByRole("combobox", { name: "Operator server" })).toBeNull();
@@ -370,7 +370,7 @@ describe("OperatorConsole", () => {
   });
 
   it("offers a server picker on the Host route with multiple servers and retargets on change", () => {
-    renderConsole({
+    renderQuake({
       servers: ["a", "b", "c"],
       sessionsByServer: new Map([
         ["a", operatorSessions()],
@@ -389,10 +389,10 @@ describe("OperatorConsole", () => {
   });
 
   it("renders the hint line (no stream, no compose) when the resolved server has no operator", () => {
-    renderConsole({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
+    renderQuake({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
     openDrawer();
 
-    expect(screen.getByTestId("operator-console-empty")).toHaveTextContent(
+    expect(screen.getByTestId("quake-terminal-empty")).toHaveTextContent(
       "no operator on this server — run rk operator",
     );
     expect(screen.queryByTestId("embedded-terminal")).toBeNull();
@@ -400,15 +400,15 @@ describe("OperatorConsole", () => {
   });
 
   it("opens without crashing on an empty (still-loading) server list", () => {
-    renderConsole({ servers: [], sessionsByServer: new Map() });
+    renderQuake({ servers: [], sessionsByServer: new Map() });
     openDrawer();
 
-    expect(screen.getByTestId("operator-console-empty")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal-empty")).toBeInTheDocument();
     expect(terminalMounts).toHaveLength(0);
   });
 
   it("renders the operator window's live agent state in the title strip", () => {
-    renderConsole({
+    renderQuake({
       sessionsByServer: new Map([
         [
           "srv1",
@@ -425,40 +425,40 @@ describe("OperatorConsole", () => {
     });
     openDrawer();
 
-    expect(screen.getByTestId("operator-console-state")).toHaveTextContent("waiting 2m");
+    expect(screen.getByTestId("quake-terminal-state")).toHaveTextContent("waiting 2m");
   });
 
-  it("the palette fallback request opens the console and sends the query immediately", async () => {
-    renderConsole();
+  it("the palette fallback request opens the quake terminal and sends the query immediately", async () => {
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "open", send: "find the stuck deploy" });
+      requestQuakeTerminal({ action: "open", send: "find the stuck deploy" });
     });
 
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
     await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
     expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "find the stuck deploy", "submit", "agent");
   });
 
   it("a fallback send against an operator-less server is dropped (the hint is the answer)", async () => {
-    renderConsole({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
+    renderQuake({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
     act(() => {
-      requestOperatorConsole({ action: "open", send: "anything at all" });
+      requestQuakeTerminal({ action: "open", send: "anything at all" });
     });
 
-    expect(screen.getByTestId("operator-console-empty")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal-empty")).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 20));
     expect(mockSend).not.toHaveBeenCalled();
   });
 
   it("a failed fallback send renders the error at the drawer's top edge", async () => {
     mockSend.mockRejectedValue(new Error("probe failed: no novelty echo"));
-    renderConsole();
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "open", send: "retry me" });
+      requestQuakeTerminal({ action: "open", send: "retry me" });
     });
 
     await waitFor(() =>
-      expect(screen.getByTestId("operator-console-error")).toHaveTextContent("probe failed: no novelty echo"),
+      expect(screen.getByTestId("quake-terminal-error")).toHaveTextContent("probe failed: no novelty echo"),
     );
   });
 
@@ -467,19 +467,19 @@ describe("OperatorConsole", () => {
     // out an exit slide.
     stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    renderConsole();
+    renderQuake();
     openDrawer();
 
     // Dismiss, then close — the dismissal is still live store state here.
     act(() => dismissOperatorChatChip());
-    act(() => setConsoleMachineState("rest"));
-    expect(screen.queryByTestId("operator-console")).toBeNull();
+    act(() => setQuakeMachineState("rest"));
+    expect(screen.queryByTestId("quake-terminal")).toBeNull();
 
     // Re-open via the Ask-operator fallback: the reset effect and the
     // pendingSend delivery land in the same commit — the send must read the
     // post-reset store, riding the templated lane.
     act(() => {
-      requestOperatorConsole({ action: "open", send: "still broken" });
+      requestQuakeTerminal({ action: "open", send: "still broken" });
     });
 
     await waitFor(() => expect(mockOperatorRequest).toHaveBeenCalledTimes(1));
@@ -502,71 +502,71 @@ describe("OperatorConsole", () => {
       dispatchEvent: vi.fn(),
     };
     vi.stubGlobal("matchMedia", vi.fn().mockImplementation(() => mql));
-    renderConsole();
+    renderQuake();
     openDrawer();
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
 
     act(() => {
       mql.matches = true;
       for (const fn of [...listeners]) fn();
     });
 
-    expect(getConsoleMachineState()).toBe("rest");
-    expect(screen.queryByTestId("operator-console")).toBeNull();
+    expect(getQuakeMachineState()).toBe("rest");
+    expect(screen.queryByTestId("quake-terminal")).toBeNull();
   });
 
   it("applies the glass background at the stored opacity and drops the blur at α=1", async () => {
-    renderConsole();
+    renderQuake();
     openDrawer();
-    const el = await screen.findByTestId("operator-console");
+    const el = await screen.findByTestId("quake-terminal");
 
     expect(el.style.backgroundColor).toContain("color-mix(in srgb, var(--color-bg-primary) 90%");
     expect(el.style.backdropFilter).toBe("blur(6px)");
 
-    act(() => writeConsoleOpacity(1));
+    act(() => writeQuakeOpacity(1));
     expect(el.style.backdropFilter).toBe("");
     expect(el.style.backgroundColor).toContain("100%");
   });
 
   it("dragging the height grip resizes the drawer and persists the geometry on release", async () => {
-    renderConsole();
+    renderQuake();
     openDrawer();
-    const el = await screen.findByTestId("operator-console");
+    const el = await screen.findByTestId("quake-terminal");
     expect(el.style.height).toBe("55vh");
 
-    const grip = screen.getByTestId("operator-console-grip-height");
+    const grip = screen.getByTestId("quake-terminal-grip-height");
     // A full-viewport drag overshoots the clamp: the height pins at 85vh.
     fireEvent.pointerDown(grip, { button: 0, clientX: 100, clientY: 300, pointerId: 1 });
     fireEvent.pointerMove(grip, { clientX: 100, clientY: 300 + window.innerHeight, pointerId: 1 });
     expect(el.style.height).toBe("85vh");
     fireEvent.pointerUp(grip, { pointerId: 1 });
 
-    expect(JSON.parse(localStorage.getItem("runkit-operator-console-geometry")!)).toMatchObject({
+    expect(JSON.parse(localStorage.getItem("runkit-quake-terminal-geometry")!)).toMatchObject({
       heightVh: 85,
     });
   });
 
   it("dragging a side grip resizes symmetrically and persists the width", async () => {
-    renderConsole();
+    renderQuake();
     openDrawer();
-    const el = await screen.findByTestId("operator-console");
+    const el = await screen.findByTestId("quake-terminal");
 
-    const grip = screen.getByTestId("operator-console-grip-right");
+    const grip = screen.getByTestId("quake-terminal-grip-right");
     fireEvent.pointerDown(grip, { button: 0, clientX: 500, clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(grip, { clientX: 550, clientY: 100, pointerId: 1 });
     // +50px on the right edge = +100px total (the drawer stays centered).
     expect(el.style.width).toBe("860px");
     fireEvent.pointerUp(grip, { pointerId: 1 });
 
-    expect(JSON.parse(localStorage.getItem("runkit-operator-console-geometry")!)).toMatchObject({
+    expect(JSON.parse(localStorage.getItem("runkit-quake-terminal-geometry")!)).toMatchObject({
       widthPx: 860,
     });
   });
 
   it("file paste inside the drawer uploads to the operator session and insert-delivers the path", async () => {
-    renderConsole();
+    renderQuake();
     openDrawer();
-    const root = await screen.findByTestId("operator-console");
+    const root = await screen.findByTestId("quake-terminal");
 
     const file = new File(["png"], "shot.png", { type: "image/png" });
     fireEvent.paste(root, { clipboardData: { files: [file] } });
@@ -579,9 +579,9 @@ describe("OperatorConsole", () => {
   });
 
   it("file paste on an operator-less server is a no-op", async () => {
-    renderConsole({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
+    renderQuake({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
     openDrawer();
-    const root = await screen.findByTestId("operator-console");
+    const root = await screen.findByTestId("quake-terminal");
 
     fireEvent.paste(root, { clipboardData: { files: [new File(["x"], "a.png", { type: "image/png" })] } });
     await new Promise((r) => setTimeout(r, 20));
@@ -591,22 +591,22 @@ describe("OperatorConsole", () => {
 
   it("an upload failure surfaces on the inline error line and delivers nothing", async () => {
     mockUpload.mockRejectedValue(new Error("upload exploded"));
-    renderConsole();
+    renderQuake();
     openDrawer();
-    const root = await screen.findByTestId("operator-console");
+    const root = await screen.findByTestId("quake-terminal");
 
     fireEvent.paste(root, { clipboardData: { files: [new File(["x"], "a.png", { type: "image/png" })] } });
 
     await waitFor(() =>
-      expect(screen.getByTestId("operator-console-error")).toHaveTextContent("upload exploded"),
+      expect(screen.getByTestId("quake-terminal-error")).toHaveTextContent("upload exploded"),
     );
     expect(mockSend).not.toHaveBeenCalled();
   });
 
   it("a file drop inside the drawer uploads to the operator session", async () => {
-    renderConsole();
+    renderQuake();
     openDrawer();
-    const root = await screen.findByTestId("operator-console");
+    const root = await screen.findByTestId("quake-terminal");
 
     const file = new File(["png"], "shot.png", { type: "image/png" });
     const proceeded = fireEvent.drop(root, { dataTransfer: { files: [file], types: ["Files"] } });
@@ -617,9 +617,9 @@ describe("OperatorConsole", () => {
   });
 
   it("a non-file drop inside the drawer is canceled (no browser navigation) and uploads nothing", async () => {
-    renderConsole();
+    renderQuake();
     openDrawer();
-    const root = await screen.findByTestId("operator-console");
+    const root = await screen.findByTestId("quake-terminal");
 
     const proceeded = fireEvent.drop(root, { dataTransfer: { files: [], types: ["text/uri-list"] } });
 
@@ -629,10 +629,10 @@ describe("OperatorConsole", () => {
   });
 });
 
-describe("OperatorConsole (cron segments)", () => {
+describe("QuakeTerminal (cron segments)", () => {
   beforeEach(() => {
     stubMatchMedia(() => false);
-    setConsoleMachineState("rest");
+    setQuakeMachineState("rest");
     setOperatorComposeText("");
     mockMatches = [{ params: {} }];
     mockSearch = {};
@@ -665,7 +665,7 @@ describe("OperatorConsole (cron segments)", () => {
   }
 
   it("the desktop drawer renders the four segments in order with Operator Terminal selected", () => {
-    renderConsole();
+    renderQuake();
     openDrawer();
 
     const strip = screen.getByTestId("terminal-activity-tabs");
@@ -682,7 +682,7 @@ describe("OperatorConsole (cron segments)", () => {
   });
 
   it("selecting a cron tab mounts its body and unmounts the terminal; Operator Terminal reverses it", () => {
-    renderConsole();
+    renderQuake();
     openDrawer();
     expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
 
@@ -700,24 +700,24 @@ describe("OperatorConsole (cron segments)", () => {
   });
 
   it("an open request carrying segment: log opens the drawer on the Cron Log segment", () => {
-    renderConsole();
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "log" });
+      requestQuakeTerminal({ action: "open", segment: "log" });
     });
 
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
     expect(logTab()).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("cron-log")).toBeInTheDocument();
     expect(screen.queryByTestId("embedded-terminal")).toBeNull();
   });
 
   it("an open request carrying segment: list opens the drawer on the Cron List segment", () => {
-    renderConsole();
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "list" });
+      requestQuakeTerminal({ action: "open", segment: "list" });
     });
 
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
     expect(listTab()).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("cron-list")).toBeInTheDocument();
     expect(screen.queryByTestId("embedded-terminal")).toBeNull();
@@ -725,14 +725,14 @@ describe("OperatorConsole (cron segments)", () => {
 
   it("segment: log on the operator route bypasses the already-viewing toast and opens the drawer", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
-    renderConsole({ withToasts: true });
+    renderQuake({ withToasts: true });
 
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "log" });
+      requestQuakeTerminal({ action: "open", segment: "log" });
     });
 
-    expect(getConsoleMachineState()).toBe("open");
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
     expect(logTab()).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByText("already viewing the operator — nothing to open")).toBeNull();
   });
@@ -755,9 +755,9 @@ describe("OperatorConsole (cron segments)", () => {
       ],
       deliveries: [],
     };
-    renderConsole();
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "list" });
+      requestQuakeTerminal({ action: "open", segment: "list" });
     });
 
     fireEvent.click(screen.getByTestId("cron-list-row-a3f9"));
@@ -766,21 +766,21 @@ describe("OperatorConsole (cron segments)", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByTestId("cron-entry-sheet")).toBeNull();
     expect(screen.getByTestId("cron-list")).toBeInTheDocument();
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
-    expect(getConsoleMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
+    expect(getQuakeMachineState()).toBe("open");
   });
 
   it("closing the drawer and re-opening with a plain request resets to the Operator Terminal segment", async () => {
     // Reduced motion so the close is instant — no exit-slide wait.
     stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
-    renderConsole();
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "log" });
+      requestQuakeTerminal({ action: "open", segment: "log" });
     });
     expect(logTab()).toHaveAttribute("aria-selected", "true");
 
     fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
 
     openDrawer();
     expect(terminalTab()).toHaveAttribute("aria-selected", "true");
@@ -789,7 +789,7 @@ describe("OperatorConsole (cron segments)", () => {
 
   it("the title strip carries the tick-age stamp from the first session with operatorLastTickAt > 0", () => {
     const nowSec = Math.floor(Date.now() / 1000);
-    renderConsole({
+    renderQuake({
       sessionsByServer: new Map([
         [
           "srv1",
@@ -802,14 +802,14 @@ describe("OperatorConsole (cron segments)", () => {
     });
     openDrawer();
 
-    const tick = screen.getByTestId("operator-console-tick");
+    const tick = screen.getByTestId("quake-terminal-tick");
     expect(tick).toHaveTextContent("· tick 1m ago");
     expect(tick.className).toContain("text-text-secondary");
   });
 
   it("a stale operator loop renders the tick stamp yellow with the ⚠ prefix", () => {
     const nowSec = Math.floor(Date.now() / 1000);
-    renderConsole({
+    renderQuake({
       sessionsByServer: new Map([
         [
           "srv1",
@@ -822,13 +822,13 @@ describe("OperatorConsole (cron segments)", () => {
     });
     openDrawer();
 
-    const tick = screen.getByTestId("operator-console-tick");
+    const tick = screen.getByTestId("quake-terminal-tick");
     expect(tick).toHaveTextContent("⚠ · tick 2m ago");
     expect(tick.className).toContain("text-signal-yellow");
   });
 
   it("no tick stamp renders when no session carries operatorLastTickAt > 0", () => {
-    renderConsole({
+    renderQuake({
       sessionsByServer: new Map([
         [
           "srv1",
@@ -841,14 +841,14 @@ describe("OperatorConsole (cron segments)", () => {
     });
     openDrawer();
 
-    expect(screen.queryByTestId("operator-console-tick")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal-tick")).toBeNull();
   });
 });
 
-describe("OperatorConsole (tasks segment)", () => {
+describe("QuakeTerminal (tasks segment)", () => {
   beforeEach(() => {
     stubMatchMedia(() => false);
-    setConsoleMachineState("rest");
+    setQuakeMachineState("rest");
     setOperatorComposeText("");
     mockMatches = [{ params: {} }];
     mockSearch = {};
@@ -897,7 +897,7 @@ describe("OperatorConsole (tasks segment)", () => {
   ];
 
   it("selecting Operator Tasks mounts the watchlist and unmounts the terminal; Operator Terminal reverses it", () => {
-    renderConsole({ sessionsByServer: new Map([["srv1", WATCHED_SESSIONS]]) });
+    renderQuake({ sessionsByServer: new Map([["srv1", WATCHED_SESSIONS]]) });
     openDrawer();
     expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
 
@@ -912,12 +912,12 @@ describe("OperatorConsole (tasks segment)", () => {
   });
 
   it("an open request carrying segment: tasks opens the drawer on the Operator Tasks segment", () => {
-    renderConsole({ sessionsByServer: new Map([["srv1", WATCHED_SESSIONS]]) });
+    renderQuake({ sessionsByServer: new Map([["srv1", WATCHED_SESSIONS]]) });
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "tasks" });
+      requestQuakeTerminal({ action: "open", segment: "tasks" });
     });
 
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
     expect(tasksTab()).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("watched-tasks")).toBeInTheDocument();
     expect(screen.queryByTestId("embedded-terminal")).toBeNull();
@@ -925,14 +925,14 @@ describe("OperatorConsole (tasks segment)", () => {
 
   it("segment: tasks on the operator route bypasses the already-viewing toast and opens the drawer", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
-    renderConsole({ withToasts: true });
+    renderQuake({ withToasts: true });
 
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "tasks" });
+      requestQuakeTerminal({ action: "open", segment: "tasks" });
     });
 
-    expect(getConsoleMachineState()).toBe("open");
-    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
     expect(tasksTab()).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByText("already viewing the operator — nothing to open")).toBeNull();
   });
@@ -940,14 +940,14 @@ describe("OperatorConsole (tasks segment)", () => {
   it("closing the drawer and re-opening with a plain request resets to the Operator Terminal segment", async () => {
     // Reduced motion so the close is instant — no exit-slide wait.
     stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
-    renderConsole();
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "tasks" });
+      requestQuakeTerminal({ action: "open", segment: "tasks" });
     });
     expect(tasksTab()).toHaveAttribute("aria-selected", "true");
 
     fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
 
     openDrawer();
     expect(terminalTab()).toHaveAttribute("aria-selected", "true");
@@ -955,9 +955,9 @@ describe("OperatorConsole (tasks segment)", () => {
   });
 
   it("a watched-row click navigates to the window's terminal route and collapses the drawer", async () => {
-    renderConsole({ sessionsByServer: new Map([["srv1", WATCHED_SESSIONS]]) });
+    renderQuake({ sessionsByServer: new Map([["srv1", WATCHED_SESSIONS]]) });
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "tasks" });
+      requestQuakeTerminal({ action: "open", segment: "tasks" });
     });
     expect(screen.getByTestId("watched-tasks")).toBeInTheDocument();
 
@@ -968,15 +968,15 @@ describe("OperatorConsole (tasks segment)", () => {
       params: { server: "srv1", window: "@2" },
       search: {},
     });
-    expect(getConsoleMachineState()).toBe("rest");
-    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+    expect(getQuakeMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
   });
 });
 
-describe("OperatorConsole (mobile navigation)", () => {
+describe("QuakeTerminal (mobile navigation)", () => {
   beforeEach(() => {
     stubMatchMedia(() => true);
-    setConsoleMachineState("rest");
+    setQuakeMachineState("rest");
     setOperatorComposeText("");
     mockMatches = [{ params: {} }];
     mockSearch = {};
@@ -995,10 +995,10 @@ describe("OperatorConsole (mobile navigation)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("a console request navigates to the operator window's terminal route — no sheet mounts", () => {
-    renderConsole();
+  it("a quake terminal request navigates to the operator window's terminal route — no sheet mounts", () => {
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "open" });
+      requestQuakeTerminal({ action: "open" });
     });
 
     expect(mockNavigate).toHaveBeenCalledWith({
@@ -1006,15 +1006,15 @@ describe("OperatorConsole (mobile navigation)", () => {
       params: { server: "srv1", window: "@9" },
       search: {},
     });
-    expect(screen.queryByTestId("operator-console")).toBeNull();
-    expect(getConsoleMachineState()).toBe("rest");
+    expect(screen.queryByTestId("quake-terminal")).toBeNull();
+    expect(getQuakeMachineState()).toBe("rest");
   });
 
   it("both actions collapse to the same navigation", () => {
-    renderConsole();
+    renderQuake();
     for (const action of ["toggle", "open"] as const) {
       act(() => {
-        requestOperatorConsole({ action });
+        requestQuakeTerminal({ action });
       });
     }
 
@@ -1026,9 +1026,9 @@ describe("OperatorConsole (mobile navigation)", () => {
 
   it("navigating from a terminal route carries the origin window as ?from=", () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    renderConsole();
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "toggle" });
+      requestQuakeTerminal({ action: "toggle" });
     });
 
     expect(mockNavigate).toHaveBeenCalledWith({
@@ -1041,9 +1041,9 @@ describe("OperatorConsole (mobile navigation)", () => {
   it("already on the operator route, re-activation is a true no-op — the existing ?from= survives", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
     mockSearch = { from: "@1" };
-    renderConsole();
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "toggle" });
+      requestQuakeTerminal({ action: "toggle" });
     });
 
     // No navigate: a replace would have dropped the route's `?from=` (and
@@ -1052,14 +1052,14 @@ describe("OperatorConsole (mobile navigation)", () => {
 
     // A fallback query still seeds the draft without navigating.
     act(() => {
-      requestOperatorConsole({ action: "open", send: "still broken" });
+      requestQuakeTerminal({ action: "open", send: "still broken" });
     });
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(getComposeDraft("srv1:@9").text).toBe("still broken");
   });
 
   it("an explicit server request navigates to that server's operator route", () => {
-    renderConsole({
+    renderQuake({
       servers: ["srv1", "srv2"],
       sessionsByServer: new Map([
         ["srv1", operatorSessions()],
@@ -1073,7 +1073,7 @@ describe("OperatorConsole (mobile navigation)", () => {
       ]),
     });
     act(() => {
-      requestOperatorConsole({ action: "open", server: "srv2" });
+      requestQuakeTerminal({ action: "open", server: "srv2" });
     });
 
     expect(mockNavigate).toHaveBeenCalledWith({
@@ -1085,9 +1085,9 @@ describe("OperatorConsole (mobile navigation)", () => {
 
   it("the palette fallback query seeds the operator route's compose draft instead of auto-sending", async () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    renderConsole();
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "open", send: "find the stuck deploy" });
+      requestQuakeTerminal({ action: "open", send: "find the stuck deploy" });
     });
 
     expect(mockNavigate).toHaveBeenCalledWith({
@@ -1103,9 +1103,9 @@ describe("OperatorConsole (mobile navigation)", () => {
 
   it("a segment: list request navigates with search.tab = list, merged with the ?from= origin", () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    renderConsole();
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "list" });
+      requestQuakeTerminal({ action: "open", segment: "list" });
     });
 
     expect(mockNavigate).toHaveBeenCalledWith({
@@ -1113,15 +1113,15 @@ describe("OperatorConsole (mobile navigation)", () => {
       params: { server: "srv1", window: "@9" },
       search: { from: "@1", tab: "list" },
     });
-    expect(screen.queryByTestId("operator-console")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal")).toBeNull();
   });
 
   it("already on the operator route, segment: log updates the tab search param in place", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
     mockSearch = { from: "@1" };
-    renderConsole();
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "log" });
+      requestQuakeTerminal({ action: "open", segment: "log" });
     });
 
     expect(mockNavigate).toHaveBeenCalledTimes(1);
@@ -1138,9 +1138,9 @@ describe("OperatorConsole (mobile navigation)", () => {
 
   it("a segment: tasks request navigates with search.tab = tasks, merged with the ?from= origin", () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    renderConsole();
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "tasks" });
+      requestQuakeTerminal({ action: "open", segment: "tasks" });
     });
 
     expect(mockNavigate).toHaveBeenCalledWith({
@@ -1148,15 +1148,15 @@ describe("OperatorConsole (mobile navigation)", () => {
       params: { server: "srv1", window: "@9" },
       search: { from: "@1", tab: "tasks" },
     });
-    expect(screen.queryByTestId("operator-console")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal")).toBeNull();
   });
 
   it("already on the operator route, segment: tasks updates the tab search param in place", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
     mockSearch = { from: "@1" };
-    renderConsole();
+    renderQuake();
     act(() => {
-      requestOperatorConsole({ action: "open", segment: "tasks" });
+      requestQuakeTerminal({ action: "open", segment: "tasks" });
     });
 
     expect(mockNavigate).toHaveBeenCalledTimes(1);
@@ -1172,15 +1172,15 @@ describe("OperatorConsole (mobile navigation)", () => {
   });
 
   it("an operator-less server toasts the hint once and never navigates", () => {
-    renderConsole({
+    renderQuake({
       withToasts: true,
       sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]),
     });
     act(() => {
-      requestOperatorConsole({ action: "toggle" });
+      requestQuakeTerminal({ action: "toggle" });
     });
     act(() => {
-      requestOperatorConsole({ action: "open" });
+      requestQuakeTerminal({ action: "open" });
     });
 
     expect(mockNavigate).not.toHaveBeenCalled();
@@ -1189,9 +1189,9 @@ describe("OperatorConsole (mobile navigation)", () => {
   });
 });
 
-describe("OperatorConsoleTongue", () => {
+describe("QuakeTerminalTongue", () => {
   beforeEach(() => {
-    setConsoleMachineState("rest");
+    setQuakeMachineState("rest");
     setOperatorComposeText("");
     mockMatches = [{ params: {} }];
     mockSearch = {};
@@ -1218,8 +1218,8 @@ describe("OperatorConsoleTongue", () => {
           sessionsByServer: new Map([["srv1", sessions]]),
         }}
       >
-        <OperatorConsole />
-        <OperatorConsoleTongue />
+        <QuakeTerminal />
+        <QuakeTerminalTongue />
       </StandaloneSessionContextProvider>,
     );
   }
@@ -1228,14 +1228,14 @@ describe("OperatorConsoleTongue", () => {
     stubMatchMedia(() => true);
     renderTongue();
 
-    fireEvent.click(screen.getByTestId("operator-console-tongue"));
+    fireEvent.click(screen.getByTestId("quake-terminal-tongue"));
 
     expect(mockNavigate).toHaveBeenCalledWith({
       to: "/$server/$window",
       params: { server: "srv1", window: "@9" },
       search: {},
     });
-    expect(screen.queryByTestId("operator-console")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal")).toBeNull();
   });
 
   it("renders the return state on the operator window's route, waiting dot suppressed", () => {
@@ -1250,9 +1250,9 @@ describe("OperatorConsoleTongue", () => {
       },
     ]);
 
-    const tongue = screen.getByTestId("operator-console-tongue");
+    const tongue = screen.getByTestId("quake-terminal-tongue");
     expect(tongue).toHaveAttribute("data-tongue-state", "return");
-    expect(screen.queryByTestId("operator-console-tongue-waiting")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal-tongue-waiting")).toBeNull();
   });
 
   it("return tap navigates to the validated ?from= origin window", () => {
@@ -1261,7 +1261,7 @@ describe("OperatorConsoleTongue", () => {
     mockSearch = { from: "@1" };
     renderTongue();
 
-    fireEvent.click(screen.getByTestId("operator-console-tongue"));
+    fireEvent.click(screen.getByTestId("quake-terminal-tongue"));
 
     expect(mockNavigate).toHaveBeenCalledWith({
       to: "/$server/$window",
@@ -1278,7 +1278,7 @@ describe("OperatorConsoleTongue", () => {
     vi.stubGlobal("history", { length: 2 });
     renderTongue();
 
-    fireEvent.click(screen.getByTestId("operator-console-tongue"));
+    fireEvent.click(screen.getByTestId("quake-terminal-tongue"));
 
     expect(mockHistoryBack).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
@@ -1290,7 +1290,7 @@ describe("OperatorConsoleTongue", () => {
     vi.stubGlobal("history", { length: 1 });
     renderTongue();
 
-    fireEvent.click(screen.getByTestId("operator-console-tongue"));
+    fireEvent.click(screen.getByTestId("quake-terminal-tongue"));
 
     expect(mockHistoryBack).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith({ to: "/$server", params: { server: "srv1" } });
@@ -1300,7 +1300,7 @@ describe("OperatorConsoleTongue", () => {
     stubMatchMedia(() => true);
     renderTongue([{ name: "main", windows: [win({})] }]);
 
-    expect(screen.queryByTestId("operator-console-tongue")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal-tongue")).toBeNull();
   });
 
   it("carries the amber waiting dot when the resolved operator is waiting", () => {
@@ -1313,20 +1313,20 @@ describe("OperatorConsoleTongue", () => {
         windows: [win({ windowId: "@9", name: "operator", role: "operator", agentState: "waiting" })],
       },
     ]);
-    expect(screen.getByTestId("operator-console-tongue-waiting")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal-tongue-waiting")).toBeInTheDocument();
   });
 
   it("renders nothing on desktop", () => {
     stubMatchMedia(() => false);
     renderTongue();
-    expect(screen.queryByTestId("operator-console-tongue")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal-tongue")).toBeNull();
   });
 });
 
-describe("OperatorConsole (chat subject stamping)", () => {
+describe("QuakeTerminal (chat subject stamping)", () => {
   beforeEach(() => {
     stubMatchMedia(() => false);
-    setConsoleMachineState("rest");
+    setQuakeMachineState("rest");
     setOperatorComposeText("");
     mockMatches = [{ params: {} }];
     mockSearch = {};
@@ -1347,7 +1347,7 @@ describe("OperatorConsole (chat subject stamping)", () => {
 
   it("on a terminal route the route window is stamped as the chat subject", () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    renderConsole();
+    renderQuake();
 
     expect(getOperatorChatTarget("srv1")).toMatchObject({ server: "srv1", windowId: "@1", name: "win" });
   });
@@ -1355,7 +1355,7 @@ describe("OperatorConsole (chat subject stamping)", () => {
   it("on the operator window's own route the validated ?from= origin is stamped instead", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
     mockSearch = { from: "@1" };
-    renderConsole();
+    renderQuake();
 
     expect(getOperatorChatTarget("srv1")).toMatchObject({ server: "srv1", windowId: "@1" });
   });
@@ -1363,7 +1363,7 @@ describe("OperatorConsole (chat subject stamping)", () => {
   it("the numeric segment form of ?from= resolves like the path parse", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
     mockSearch = { from: "1" };
-    renderConsole();
+    renderQuake();
 
     expect(getOperatorChatTarget("srv1")).toMatchObject({ server: "srv1", windowId: "@1" });
   });
@@ -1373,7 +1373,7 @@ describe("OperatorConsole (chat subject stamping)", () => {
     for (const from of [undefined, "@42", "@9"]) {
       setOperatorChatSubject(null);
       mockSearch = from === undefined ? {} : { from };
-      const { unmount } = renderConsole();
+      const { unmount } = renderQuake();
       expect(getOperatorChatTarget("srv1")).toBeNull();
       unmount();
     }
@@ -1381,14 +1381,14 @@ describe("OperatorConsole (chat subject stamping)", () => {
 
   it("a stamped subject does not cross servers", () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    renderConsole();
+    renderQuake();
 
     expect(getOperatorChatTarget("srv2")).toBeNull();
   });
 
   it("a pinned cross-server retarget does not attach the route's window", () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    renderConsole({
+    renderQuake({
       servers: ["srv1", "srv2"],
       sessionsByServer: new Map([
         ["srv1", operatorSessions()],
@@ -1396,26 +1396,26 @@ describe("OperatorConsole (chat subject stamping)", () => {
       ]),
     });
     act(() => {
-      requestOperatorConsole({ action: "open", server: "srv2" });
+      requestQuakeTerminal({ action: "open", server: "srv2" });
     });
 
     expect(getOperatorChatTarget("srv1")).toBeNull();
     expect(getOperatorChatTarget("srv2")).toBeNull();
   });
 
-  it("a subject change re-attaches a dismissed chip; re-engaging the console does too", () => {
+  it("a subject change re-attaches a dismissed chip; re-engaging the quake terminal does too", () => {
     // Reduced motion so the desktop exit is instant — `engaged` only leaves
     // true once the drawer has actually unmounted (the exit slide otherwise
     // holds it), and re-engagement is the edge this test exercises.
     stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    const view = renderConsole();
+    const view = renderQuake();
     openDrawer();
     act(() => dismissOperatorChatChip());
     expect(getOperatorChatTarget("srv1")).toBeNull();
 
     // Close and re-open: the machine leaving rest re-attaches.
-    act(() => setConsoleMachineState("rest"));
+    act(() => setQuakeMachineState("rest"));
     openDrawer();
     expect(getOperatorChatTarget("srv1")?.windowId).toBe("@1");
 
@@ -1431,14 +1431,14 @@ describe("OperatorConsole (chat subject stamping)", () => {
           sessionsByServer: new Map([["srv1", operatorSessions()]]),
         }}
       >
-        <OperatorConsole />
+        <QuakeTerminal />
       </StandaloneSessionContextProvider>,
     );
     expect(getOperatorChatTarget("srv1")?.windowId).toBe("@2");
   });
 
   it("no subject is stamped on a route without a window", () => {
-    renderConsole();
+    renderQuake();
 
     expect(getOperatorChatTarget("srv1")).toBeNull();
   });

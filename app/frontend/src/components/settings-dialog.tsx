@@ -20,10 +20,10 @@ import { NOTIFICATIONS_HELP_URL } from "@/components/global-chrome";
 import { ThemePickerList } from "@/components/theme-picker-list";
 import { getRiffPresets } from "@/api/client";
 import {
-  CONSOLE_OPACITY_MAX,
-  CONSOLE_OPACITY_MIN,
-  useConsoleOpacity,
-} from "@/lib/operator-console";
+  QUAKE_OPACITY_MAX,
+  QUAKE_OPACITY_MIN,
+  useQuakeOpacity,
+} from "@/lib/quake-terminal";
 import { isMacroActionId } from "@/lib/macros";
 import { isShell } from "@/lib/shell";
 import { useSettingsRegistry, type SettingsRegistry } from "@/components/settings-registry-seam";
@@ -238,25 +238,25 @@ function AccentColorControl() {
   );
 }
 
-/** Operator console opacity: the desktop drawer's glass background. A
+/** Quake terminal opacity: the desktop drawer's glass background. A
  *  per-viewer localStorage resident like the terminal font — NOT a registry
  *  key (the registry is per-instance daemon config; glass is per-eye). The
  *  slider honors the 0.5–1.0 clamp; 100% disables the backdrop blur
- *  entirely. The open console reflects changes live via the store's pub/sub. */
-function ConsoleOpacityControl() {
-  const [opacity, setOpacity] = useConsoleOpacity();
+ *  entirely. The open quake terminal reflects changes live via the store's pub/sub. */
+function QuakeOpacityControl() {
+  const [opacity, setOpacity] = useQuakeOpacity();
   return (
     <PreferenceRow
-      label="Operator console opacity"
-      sublabel="Desktop console drawer background; 100% turns off the blur"
+      label="Quake terminal opacity"
+      sublabel="Desktop quake terminal background; 100% turns off the blur"
       htmlFor="settings-console-opacity"
     >
       <div className="flex items-center gap-2">
         <input
           id="settings-console-opacity"
           type="range"
-          min={CONSOLE_OPACITY_MIN}
-          max={CONSOLE_OPACITY_MAX}
+          min={QUAKE_OPACITY_MIN}
+          max={QUAKE_OPACITY_MAX}
           step={0.05}
           value={opacity}
           onChange={(e) => setOpacity(Number(e.target.value))}
@@ -603,7 +603,7 @@ function AppearancePanel() {
         <ScopeHeading label="This device" hint="stored in this browser only" />
         <div className="divide-y divide-border/40">
           <TerminalFontControl />
-          <ConsoleOpacityControl />
+          <QuakeOpacityControl />
         </div>
       </section>
     </>

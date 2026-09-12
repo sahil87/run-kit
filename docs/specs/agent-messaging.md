@@ -57,7 +57,7 @@ templates, surfaced in its `--json` receipt as `queued:true` — not a fourth la
 lane count stays three.
 
 The templated chat lane is the console's context-carrying send. When the
-operator console (⌘J) is opened on a terminal route, the message rides the chat
+quake terminal (⌘J) is opened on a terminal route, the message rides the chat
 template with the **route window as subject**, and the rendered prompt opens
 with a one-line **addressee header** — `[user → operator] The user is speaking
 to you from window @N ("name", worktree …[; fab change … at stage …]). Act on

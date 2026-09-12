@@ -12,13 +12,13 @@ import { openPalette } from "./_ready";
 // (1280px) unless a test resizes. The clock-chip test additionally stubs
 // `GET /api/cron` via page.route (trailing `*` — withServer appends
 // `?server=`) with one nextFire-bearing entry so the chip renders
-// deterministically and the console drawer's Activity feed has rows.
+// deterministically and the quake terminal drawer's Cron List has rows.
 //
 // Subjects: the full-width attached status strip at the shell bottom
 // (desktop-only), the width-or-coarse mobile predicate that suppresses it, the
 // fine-pointer bottom-bar DELETION, the window-cluster / host-cluster route
 // split, the no-scroll degradation ladder with the `…` overflow chevron, and
-// the `◷` clock chip that opens the operator console on the Activity feed.
+// the `◷` clock chip that opens the quake terminal on the Cron List segment.
 
 const SERVER = "default";
 
@@ -404,17 +404,17 @@ test.describe("Status bar (260814-ldbs)", () => {
   /**
    * Proves: with a cron entry carrying a `nextFire`, the status bar's `◷`
    * clock chip renders in the right cluster, and clicking it opens the
-   * operator console drawer directly on the Cron List segment.
+   * quake terminal drawer directly on the Cron List segment.
    *
    * Steps:
    * 1. Stub `GET /api/cron` with one nextFire-bearing entry (the chip's
    *    next-fire state); navigate to `/default/1`.
    * 2. Assert the `status-bar-clock` chip is visible — the default 1280px
    *    viewport is the xl rung the next-fire chip shows at.
-   * 3. Click the chip; assert the console drawer opens with the Cron List tab
+   * 3. Click the chip; assert the quake terminal drawer opens with the Cron List tab
    *    selected and the cron registry visible.
    */
-  test("the clock chip opens the console on Cron List", async ({ page }) => {
+  test("the clock chip opens the quake terminal on Cron List", async ({ page }) => {
     await page.route("**/api/cron*", (route) =>
       route.fulfill({
         status: 200,
@@ -441,7 +441,7 @@ test.describe("Status bar (260814-ldbs)", () => {
 
     await chip.click();
 
-    const drawer = page.getByTestId("operator-console");
+    const drawer = page.getByTestId("quake-terminal");
     await expect(drawer).toBeVisible();
     await expect(
       drawer.getByTestId("terminal-activity-tabs").getByRole("tab", { name: "Cron List" }),

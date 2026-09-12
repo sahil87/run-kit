@@ -1,4 +1,4 @@
-// Pure derivation helpers for the console's Cron List / Cron Log tabs — the
+// Pure derivation helpers for the quake terminal's Cron List / Cron Log tabs — the
 // shared row anatomy (target chip, dim predicate, mute badge) and the registry
 // sort. Leaf module in the lib/cron-schedule.ts mold: no fetch, no timers;
 // every relative time is computed by the caller and passed in as `nowSeconds`

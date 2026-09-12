@@ -8,7 +8,7 @@ import { formatDuration } from "@/lib/format";
 import type { ProjectSession } from "@/types";
 
 /**
- * The operator tracked-list segment body — the console's Operator Tasks
+ * The operator tracked-list segment body — the quake terminal's Operator Tasks
  * segment (desktop drawer, dense) and the mobile operator route's `?tab=tasks`
  * content slot. A pure projection over the sessions payload taken by PROP: no
  * hook, no fetch, no timer — every relative age is computed at render from
@@ -42,7 +42,7 @@ export function WatchedTasks({
   server: string;
   sessions: ProjectSession[];
   onNavigate: (windowId: string) => void;
-  /** Console variant: tighter cell/header padding; the six columns stay. */
+  /** Quake terminal variant: tighter cell/header padding; the six columns stay. */
   dense?: boolean;
 }) {
   const nowSeconds = Math.floor(Date.now() / 1000);

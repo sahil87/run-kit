@@ -21,16 +21,18 @@ func resetCronFlags() {
 	cronAddPinned = false
 	cronAddRole, cronAddPane, cronAddSession = "", "", ""
 	cronAddJSON = false
+	cronAddWakeOn, cronAddWakeScope, cronAddWakeDebounce = "", cron.WakeScopeServer, cronWakeDebounceDefault
 	cronEditEvery, cronEditIdleEvery, cronEditBackoff, cronEditCronExpr = 0, 0, false, ""
 	cronEditCatchUp = ""
 	cronEditMin, cronEditMax = time.Minute, 30*time.Minute
 	cronEditName, cronEditDeliver, cronEditIfAbsent = "", "", ""
 	cronEditRespawn = nil
+	cronEditWakeOn, cronEditWakeScope, cronEditWakeDebounce = "", cron.WakeScopeServer, 60*time.Second
 	cronListJSONFlag = false
 	cronMuteOffFlag, cronMuteForFlag, cronPinOffFlag = false, 0, false
 	cronMuteJSONFlag, cronRmJSONFlag = false, false
-	resetFlagChanged(cronAddCmd, "every", "idle-every", "backoff", "cron", "catch-up", "min", "max", "name", "deliver", "if-absent", "respawn", "pinned", "role", "pane", "session", "json")
-	resetFlagChanged(cronEditCmd, "every", "idle-every", "backoff", "cron", "catch-up", "min", "max", "name", "deliver", "if-absent", "respawn")
+	resetFlagChanged(cronAddCmd, "every", "idle-every", "backoff", "cron", "catch-up", "min", "max", "name", "deliver", "if-absent", "respawn", "pinned", "role", "pane", "session", "json", "wake-on", "wake-scope", "wake-debounce")
+	resetFlagChanged(cronEditCmd, "every", "idle-every", "backoff", "cron", "catch-up", "min", "max", "name", "deliver", "if-absent", "respawn", "wake-on", "wake-scope", "wake-debounce")
 	resetFlagChanged(cronListCmd, "json")
 	resetFlagChanged(cronMuteCmd, "off", "for", "json")
 	resetFlagChanged(cronRmCmd, "json")

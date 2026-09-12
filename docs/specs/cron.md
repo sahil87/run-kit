@@ -109,11 +109,11 @@ separate subdir, never parsed as anything else).
 entries:
   - id: a3f9                     # 4-char, rk-generated
     name: operator tick
-    schedule: { kind: backoff, min: 60s, max: 30m }
+    schedule: { kind: backoff, min: 3m, max: 24m }   # the operator consumer's tuning, not the substrate default
     wake_on: { event: agent-state-change, scope: server, debounce: 60s }
     target: { kind: role, role: operator }
     payload: "operator tick"
-    deliver: immediate           # immediate | when-idle | skip-if-busy
+    deliver: skip-if-busy        # immediate | when-idle | skip-if-busy
     if_absent: respawn           # skip | notify | respawn
     respawn: ["rk", "operator", "-L", "{server}"]   # argv; {server} → the stamped server name
     pinned: true                 # never orphan-expired
@@ -187,8 +187,10 @@ backoff, not the grid version.
   - **Debounce = hold after own delivery:** an actionable edge inside
     `debounce` of the entry's own newest delivery is held (kept pending, not
     dropped) and fires on a later poll; a burst still coalesces into one
-    delivery. The operator tick seeds `60s`, and `rk operator` raises an
-    existing below-spec value to it.
+    delivery. The operator entry's consumer seeds `60s` (rk defines the schema
+    and the evaluator; the consumer seeds and tunes its entry), and `rk
+    operator` — which still seeds the entry today, pending the seed's move to
+    the consumer — raises an existing below-spec value to it.
 
 **Catch-up policy**: a wall-clock `cron` fire missed while no invoker ran
 defaults to **skip** (never fire late); `catch_up: once` is the per-entry
@@ -486,7 +488,7 @@ tmux event — the safety-poll lesson).
 |---------|------|
 | Read | `GET /api/cron?server=<slug>` — entries + derived next-fire + orphan state; watchlist rides the existing SSE state doc |
 | Mutate | `POST /api/cron/create`, `POST /api/cron/delete`, `POST /api/cron/mute` (optional `for` duration leases the mute), `POST /api/cron/edit` (partial-merge body; immutable target; returns the entry) — POST-only (Constitution IX) |
-| CLI | `rk cron add <prompt> --every 1h \| --idle-every 3m \| --backoff \| --cron "<expr>" [--json] [--name N] [--deliver when-idle\|skip-if-busy] [--if-absent skip] [--respawn <arg>…]`, `rk cron edit <id> [<schedule flag>] [--deliver P] [--name N] [--if-absent P] [--respawn <arg>…]` (target and creator immutable; a schedule or deliver change logs `rescheduled`), `rk cron list [--json]`, `rk cron rm <id> [--json]`, `rk cron mute <id> [--for <dur>] [--off] [--json]` — agent-friendly: no flags beyond the schedule are required |
+| CLI | `rk cron add <prompt> --every 1h \| --idle-every 3m \| --backoff \| --cron "<expr>" [--json] [--name N] [--deliver when-idle\|skip-if-busy] [--if-absent skip] [--respawn <arg>…] [--wake-on agent-state-change [--wake-scope server] [--wake-debounce 60s]]`, `rk cron edit <id> [<schedule flag>] [--deliver P] [--name N] [--if-absent P] [--respawn <arg>…] [--wake-on <event>\|none …]` (target and creator immutable; a schedule or deliver change logs `rescheduled`; `--wake-on` replaces the whole block, `none`/`off` clears it, and a wake-only edit logs nothing), `rk cron list [--json]`, `rk cron rm <id> [--json]`, `rk cron mute <id> [--for <dur>] [--off] [--json]` — agent-friendly: no flags beyond the schedule are required |
 
 `rk cron mute <id> --for <dur>` mutes until now+dur; expiry unmutes
 automatically with no further call — the evaluator reads an expired lease as
@@ -522,7 +524,14 @@ move.
   API.
 - **P1.5 — backstop live** (before any UI): `rk operator` seeds the
   operator-tick entry (`if_absent: respawn` with
-  `respawn: ["rk", "operator", "-L", "{server}"]`). Silence while the
+  `respawn: ["rk", "operator", "-L", "{server}"]`). Ownership decision
+  (2026-09-12): **rk defines the schema and the evaluator; the consumer (fab)
+  seeds and tunes its entry.** The handover is two steps: STEP 1 (shipped)
+  exposed `wake_on` on the CLI (`--wake-on`/`--wake-scope`/`--wake-debounce`
+  on `rk cron add` and `edit`) and aligned the interim rk seed with fab's
+  derived values (backoff 3m→24m, `deliver: skip-if-busy`); STEP 2 (pending
+  fab-kit shipping its own seed) deletes the rk-side seed, leaving `rk
+  operator` launcher-only. Silence while the
   operator's in-session `/loop` lives is **lease arbitration**: the loop
   renews a mute lease (`rk cron mute <id> --for <dur>`) each tick, and when
   the loop dies the lease lapses and the cron backstop resumes on its own.
@@ -580,6 +589,8 @@ move.
    the same UI surface rather than a bespoke loop-side check. (d) C10
    collapses the two clocks into one — once `/loop` retires in favor of the
    entry's union predicate, no second clock remains to watch, so a reverse
-   watch built now would be dead code. The pulse plan's sidecar state (ladder
+   watch built now would be dead code. (The seed itself is moving to fab — see
+   P1.5's two-step handover; this note's reasoning is unaffected.) The pulse
+   plan's sidecar state (ladder
    rung, notify cursor) is otherwise obsolete — the anchor-join makes the
    ladder stateless and the rate cap covers notify throttling.

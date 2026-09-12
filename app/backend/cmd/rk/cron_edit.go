@@ -25,21 +25,24 @@ import (
 // contention surfaces cron.ErrEditContention's message, exit 1.
 
 var (
-	cronEditEvery     time.Duration
-	cronEditIdleEvery time.Duration
-	cronEditBackoff   bool
-	cronEditCronExpr  string
-	cronEditCatchUp   string
-	cronEditMin       time.Duration
-	cronEditMax       time.Duration
-	cronEditName      string
-	cronEditDeliver   string
-	cronEditIfAbsent  string
-	cronEditRespawn   []string
+	cronEditEvery        time.Duration
+	cronEditIdleEvery    time.Duration
+	cronEditBackoff      bool
+	cronEditCronExpr     string
+	cronEditCatchUp      string
+	cronEditMin          time.Duration
+	cronEditMax          time.Duration
+	cronEditName         string
+	cronEditDeliver      string
+	cronEditIfAbsent     string
+	cronEditRespawn      []string
+	cronEditWakeOn       string
+	cronEditWakeScope    string
+	cronEditWakeDebounce time.Duration
 )
 
 var cronEditCmd = &cobra.Command{
-	Use:   `edit <id> [--every <dur> | --idle-every <dur> | --backoff [--min <dur>] [--max <dur>] | --cron "<expr>" [--catch-up once]] [--deliver <policy>] [--name <n>] [--if-absent <policy>] [--respawn <arg>…]`,
+	Use:   `edit <id> [--every <dur> | --idle-every <dur> | --backoff [--min <dur>] [--max <dur>] | --cron "<expr>" [--catch-up once]] [--deliver <policy>] [--name <n>] [--if-absent <policy>] [--respawn <arg>…] [--wake-on <event>|none [--wake-scope <s>] [--wake-debounce <dur>]]`,
 	Short: "Edit a cron entry's schedule or policies in place",
 	Long: "Edit the cron entry with the given id in the resolved server's " +
 		"intent file, keeping its id and delivery-log history. Each flag given " +
@@ -53,11 +56,16 @@ var cronEditCmd = &cobra.Command{
 		"from the target's idle epoch. Target and creator are immutable: " +
 		"to retarget, add a new entry — a target change is a different entry. " +
 		"Mute/pin have their own verbs. --respawn replaces the whole argv; " +
-		"--if-absent set to a non-respawn value clears it. Exits non-zero " +
+		"--if-absent set to a non-respawn value clears it. --wake-on <event> " +
+		"replaces the whole wake_on block (server/60s defaults for the knob " +
+		"not given); --wake-on none (or off) clears it, and either form logs " +
+		"no rescheduled line — wake_on carries no schedule anchor. Exits non-zero " +
 		"with `no entry <id>` when the id is unknown.",
 	Example: `  rk cron edit a3f9 --idle-every 3m
   rk cron edit a3f9 --deliver skip-if-busy
   rk cron edit a3f9 --backoff --min 2m --max 10m
+  rk cron edit a3f9 --wake-on agent-state-change --wake-debounce 2m
+  rk cron edit a3f9 --wake-on none
   rk cron edit a3f9 --name "morning digest"`,
 	Args: usageArgs(cobra.ExactArgs(1)),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -78,6 +86,9 @@ func init() {
 	f.StringVar(&cronEditName, "name", "", "Replace the display name")
 	f.StringVar(&cronEditIfAbsent, "if-absent", "", "Replace the absent-target policy: skip|notify|respawn (a non-respawn value clears the respawn argv)")
 	f.StringArrayVar(&cronEditRespawn, "respawn", nil, "Replace the whole respawn argv (repeatable; requires --if-absent respawn)")
+	f.StringVar(&cronEditWakeOn, "wake-on", "", "Replace the whole wake_on block (only: agent-state-change); none|off clears it")
+	f.StringVar(&cronEditWakeScope, "wake-scope", cron.WakeScopeServer, "Fingerprint scope for --wake-on (only: server)")
+	f.DurationVar(&cronEditWakeDebounce, "wake-debounce", cronWakeDebounceDefault, "Hold a --wake-on fire this long after the entry's own newest delivery")
 }
 
 func runCronEdit(cmd *cobra.Command, id string) error {
@@ -103,10 +114,14 @@ func runCronEdit(cmd *cobra.Command, id string) error {
 			return err
 		}
 	}
+	wakeOn, err := cronWakeOnFromFlags(cmd, cronEditWakeOn, cronEditWakeScope, cronEditWakeDebounce, true)
+	if err != nil {
+		return err
+	}
 	edited := scheduleSet || flags.Changed("deliver") || flags.Changed("name") ||
-		flags.Changed("if-absent") || flags.Changed("respawn")
+		flags.Changed("if-absent") || flags.Changed("respawn") || flags.Changed("wake-on")
 	if !edited {
-		return usageError(fmt.Errorf("nothing to edit — pass a schedule flag, --deliver, --name, --if-absent, or --respawn"))
+		return usageError(fmt.Errorf("nothing to edit — pass a schedule flag, --deliver, --name, --if-absent, --respawn, or --wake-on"))
 	}
 
 	apply := func(e *cron.Entry) {
@@ -129,6 +144,9 @@ func runCronEdit(cmd *cobra.Command, id string) error {
 		}
 		if flags.Changed("respawn") {
 			e.Respawn = cronEditRespawn
+		}
+		if flags.Changed("wake-on") {
+			e.WakeOn = wakeOn // nil on the none|off clear form
 		}
 	}
 

@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-11T19:27:27Z"}
+{"args":"ntde: expose wake_on on rk cron add/edit CLI; interim operator-tick seed tuning (skip-if-busy, 3m→24m)","cmd":"fab-new","event":"command","ts":"2026-09-11T19:27:27Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-09-11T19:28:36Z"}
+{"delta":"+0.0","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-09-11T19:30:38Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-11T19:31:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-11T19:32:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-11T19:46:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-11T19:52:44Z"}
+{"event":"review","result":"passed","ts":"2026-09-11T19:52:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-11T19:56:48Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-11T20:00:12Z"}
+{"event":"review","result":"passed","ts":"2026-09-11T20:09:12Z"}

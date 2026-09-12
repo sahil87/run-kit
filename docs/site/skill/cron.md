@@ -12,7 +12,7 @@ command -v rk >/dev/null 2>&1 || exit 0
 
 An entry is **a prompt plus a schedule**, stored in the resolved server's intent file (`$XDG_STATE_HOME/run-kit/cron/<server>.yaml`). This is not a system cron: **nothing is ever executed**. At fire time rk types the prompt into the target agent's chat through the injection engine and presses Enter, exactly as if a person had typed it — to run a command, ask the agent to run it in the prompt text. A daemon ticker evaluates the entries; an occurrence the daemon was down for is logged `missed`, never fired late — except a `--cron` entry with `--catch-up once`, which fires once late after a gap.
 
-Reach for it for **periodic checks** ("check on PR #123 every 30 minutes"), **idle nudges** ("if the build session has been quiet for 5m, ask it for a status"), **wall-clock reminders** ("remind me at 9am"), and wake-on-state work — the operator tick (`rk operator`'s seeded entry) fires on a backoff keyed to the agents' idle epochs, so the operator reviews when agents finish instead of polling.
+Reach for it for **periodic checks** ("check on PR #123 every 30 minutes"), **idle nudges** ("if the build session has been quiet for 5m, ask it for a status"), **wall-clock reminders** ("remind me at 9am"), and wake-on-state work — the operator tick (the operator entry seeded on every tmux server) fires on a backoff keyed to the agents' idle epochs, so the operator reviews when agents finish instead of polling.
 
 ## `rk cron add` — one prompt, one schedule
 
@@ -21,6 +21,7 @@ rk cron add "check PRs" --every 1h
 rk cron add "wake up" --idle-every 3m
 rk cron add "tick" --backoff --min 2m --max 30m
 rk cron add "standup" --cron "0 9 * * *" --catch-up once
+rk cron add "operator tick" --backoff --min 3m --max 24m --wake-on agent-state-change --deliver skip-if-busy --role operator --if-absent respawn --respawn rk --respawn operator --respawn -L --respawn '{server}' --pinned
 ```
 
 Exactly one schedule flag per entry:
@@ -29,6 +30,12 @@ Exactly one schedule flag per entry:
 - `--idle-every <dur>` — fire every `<dur>` of agent quiet: a flat backoff ladder whose count restarts on genuine activity (the clock's own deliveries never restart it).
 - `--backoff [--min <dur>] [--max <dur>]` — a backoff ladder keyed on the target pane's idle epoch — resets on genuine activity, continues otherwise; `60s`→`30m` by default.
 - `--cron "<expr>"` — a 5-field cron expression in the daemon's local time, validated at add time; `--catch-up once` opts into one late fire after a gap.
+
+The wake flags add the reactive channel, OR'd with the schedule:
+
+- `--wake-on agent-state-change` — the entry also fires on an actionable agent-state edge: a pane in scope going `waiting`/`idle` or vanishing (a pane going `active` never fires — an agent starting work needs nobody).
+- `--wake-scope server` — the fingerprint scope (today only `server`).
+- `--wake-debounce <dur>` (default `60s`) — hold the fire this long after the entry's own newest delivery; a burst coalesces into one fire. The knobs are a usage error without `--wake-on`. On `edit`, `--wake-on <event>` replaces the whole block and `--wake-on none` clears it.
 
 `--name` defaults to a prompt prefix. Success prints `<id> <name> [<schedule> -> <target>]`; `--json` prints the receipt `{"id","name","schedule","target"}` (the same four fields, as the same strings).
 
@@ -59,7 +66,7 @@ rk cron edit a3f9 --idle-every 3m  # replace one field in place, keeping id + hi
 rk cron rm a3f9                    # remove by id
 ```
 
-`list` is disk-derived — zero tmux probes, so listing never resurrects a dead server; `--json` emits the same records as a JSON array inside the standard envelope (`{"ok":true,"result":[…]}`). `rm --json` prints `{"id","removed":true}` and `mute --json` prints `{"id","muted","until"?}` inside the same envelope — `until` (RFC 3339) only on a `--for` lease, `muted:false` on `--off`. `edit` REPLACES each field passed and keeps the rest; a bare `edit <id>` is a usage error. **Target and creator are immutable** — to retarget, `rm` + `add`. A schedule or deliver change logs a `rescheduled` line and resets the schedule's anchor.
+`list` is disk-derived — zero tmux probes, so listing never resurrects a dead server; `--json` emits the same records as a JSON array inside the standard envelope (`{"ok":true,"result":[…]}`). `rm --json` prints `{"id","removed":true}` and `mute --json` prints `{"id","muted","until"?}` inside the same envelope — `until` (RFC 3339) only on a `--for` lease, `muted:false` on `--off`. `edit` REPLACES each field passed and keeps the rest; a bare `edit <id>` is a usage error. **Target and creator are immutable** — to retarget, `rm` + `add`. A schedule or deliver change logs a `rescheduled` line and resets the schedule's anchor; `--wake-on <event>` replaces the whole wake block and `--wake-on none` clears it, and either form logs no `rescheduled` line (wake_on carries no schedule anchor).
 
 Every entry-file verb resolves one server via `-L/--server` — else your own server (from `$TMUX`), else `default`. `rk cron tick` runs one flock-guarded evaluation sweep across every live server (the debug invoker — the daemon ticks on its own, so `tick` rejects `-L`).
 

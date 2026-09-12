@@ -1,0 +1,55 @@
+id: pfo3
+name: 260912-pfo3-drop-operator-tick-seed
+created: 2026-09-12T13:54:19Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 13
+    acceptance_completed: 13
+confidence:
+    certain: 8
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 76.4
+        reversibility: 90.0
+        competence: 88.6
+        disambiguation: 84.1
+stage_metrics:
+    intake: {started_at: "2026-09-12T13:54:19Z", driver: fab-new, iterations: 1, completed_at: "2026-09-12T14:03:47Z"}
+    apply: {started_at: "2026-09-12T14:03:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-12T14:08:14Z"}
+    review: {started_at: "2026-09-12T14:08:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-12T14:12:19Z"}
+    hydrate: {started_at: "2026-09-12T14:12:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-12T14:13:25Z"}
+    ship: {started_at: "2026-09-12T14:13:25Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-12T14:13:25Z"
+    computed_at_stage: hydrate
+summary: 'rk operator is launcher-only: the operator-tick cron seed (seedOperatorTick, operatorTickEntrySpec, cron.EnsureRoleEntry) and its tests are deleted; fab''s clock reconcile owns the entry end-to-end'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-12T14:13:25Z

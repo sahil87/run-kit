@@ -188,9 +188,9 @@ backoff, not the grid version.
     `debounce` of the entry's own newest delivery is held (kept pending, not
     dropped) and fires on a later poll; a burst still coalesces into one
     delivery. The operator entry's consumer seeds `60s` (rk defines the schema
-    and the evaluator; the consumer seeds and tunes its entry), and `rk
-    operator` — which still seeds the entry today, pending the seed's move to
-    the consumer — raises an existing below-spec value to it.
+    and the evaluator; the consumer — fab's clock reconcile — seeds and tunes
+    its entry through `rk cron add`/`edit`; `rk operator` is launcher-only and
+    never touches the entry).
 
 **Catch-up policy**: a wall-clock `cron` fire missed while no invoker ran
 defaults to **skip** (never fire late); `catch_up: once` is the per-entry
@@ -522,15 +522,17 @@ move.
   + `every` schedules, `wake_on`, injection-engine
   delivery, evaluator guards (live-server filter, rate caps), `rk cron` CLI,
   API.
-- **P1.5 — backstop live** (before any UI): `rk operator` seeds the
-  operator-tick entry (`if_absent: respawn` with
-  `respawn: ["rk", "operator", "-L", "{server}"]`). Ownership decision
+- **P1.5 — backstop live** (before any UI): the operator-tick entry
+  (`if_absent: respawn` with `respawn: ["rk", "operator", "-L", "{server}"]`)
+  exists on every server that runs an operator. Ownership decision
   (2026-09-12): **rk defines the schema and the evaluator; the consumer (fab)
-  seeds and tunes its entry.** The handover is two steps: STEP 1 (shipped)
-  exposed `wake_on` on the CLI (`--wake-on`/`--wake-scope`/`--wake-debounce`
-  on `rk cron add` and `edit`) and aligned the interim rk seed with fab's
-  derived values (backoff 3m→24m, `deliver: skip-if-busy`); STEP 2 (pending
-  fab-kit shipping its own seed) deletes the rk-side seed, leaving `rk
+  seeds and tunes its entry.** The handover ran in two steps, both shipped:
+  STEP 1 exposed `wake_on` on the CLI (`--wake-on`/`--wake-scope`/
+  `--wake-debounce` on `rk cron add` and `edit`) so a consumer can seed the
+  full entry through rk verbs alone; STEP 2 deleted the rk-side seed once
+  fab-kit's clock reconcile seeded the entry itself (fab-kit ≥ 2.26.2 —
+  `rk cron add … --pinned` on a server with no `role:operator` row, healed by
+  every reconcile entry point and by `fab operator clock sync`), leaving `rk
   operator` launcher-only. Silence while the
   operator's in-session `/loop` lives is **lease arbitration**: the loop
   renews a mute lease (`rk cron mute <id> --for <dur>`) each tick, and when
@@ -589,7 +591,7 @@ move.
    the same UI surface rather than a bespoke loop-side check. (d) C10
    collapses the two clocks into one — once `/loop` retires in favor of the
    entry's union predicate, no second clock remains to watch, so a reverse
-   watch built now would be dead code. (The seed itself is moving to fab — see
+   watch built now would be dead code. (The seed itself lives in fab — see
    P1.5's two-step handover; this note's reasoning is unaffected.) The pulse
    plan's sidecar state (ladder
    rung, notify cursor) is otherwise obsolete — the anchor-join makes the

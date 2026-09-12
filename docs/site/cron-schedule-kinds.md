@@ -160,7 +160,7 @@ An interactive explainer for `rk cron`: the three schedule kinds (`every`, `cron
   <section class="panel summary" id="p-together">
     <h2>Put together: the operator’s clock</h2>
     <div>
-      <p>The operator tick seeded on every tmux server — rk defines the clock and <code>rk operator</code> plants the entry today; its tuning belongs to the operator consumer (fab), which is taking over the seeding as well — is one entry using two of these mechanisms at once. <strong>wake_on</strong> is the reactive channel: an agent asks a question, the operator is pinged within a poll. <strong>backoff</strong> is the fallback poll: it thins out to every 24 minutes when nothing is happening and snaps back to 3 minutes the moment someone touches the operator.</p>
+      <p>The operator tick seeded on every tmux server — rk defines the clock; the operator consumer (fab) plants and tunes the entry, and <code>rk operator</code> only launches the operator the entry respawns — is one entry using two of these mechanisms at once. <strong>wake_on</strong> is the reactive channel: an agent asks a question, the operator is pinged within a poll. <strong>backoff</strong> is the fallback poll: it thins out to every 24 minutes when nothing is happening and snaps back to 3 minutes the moment someone touches the operator.</p>
       <p>Either channel’s fire is a “delivery” of the same entry, appended to a per-server log as <code>{ts, entry, target, reason, outcome}</code>. That log, plus the panes’ state options, is the entire memory of the clock. The only way to silence an entry is to tell it: <code>rk cron mute &lt;id&gt; --for 30m</code>.</p>
       <pre><code>id: uqdy
 name: operator tick

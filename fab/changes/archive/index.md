@@ -1,5 +1,13 @@
 # Archived Changes
 
+- **260911-cl9j-mcp-http-route** — MCP streamable-HTTP route — `/mcp` on the daemon (W4 of the rk MCP plan)
+- **260911-u49l-rk-board-verb** — rk board verb — CLI door onto the five board routes, plus the `board` MCP policy row
+- **260911-sjs1-rk-operator-request-verb** — rk operator request verb
+- **260911-fr5t-cli-spawn-and-steer-receipts** — CLI Spawn and Steer Receipts (rk MCP W2c)
+- **260911-i2vm-cli-send-await-receipts** — CLI send/await receipts (rk MCP W2b)
+- **260911-ehm2-cli-json-read-verbs** — CLI JSON read verbs — the D5 envelope, `mux snapshot list --json`, `gui shot --json`, and the `snapshot_list` / `gui_shot` tools
+- **260911-abna-gui-toolbar-for-all-viewers** — GUI toolbar for every viewer — resolution menu chip, fullscreen toggle, launch/input/health chips, `⋯` overflow by width
+- **260911-91px-gui-desktop-reference** — GUI desktop reference — known-desktop table, missing picker rows, `rk gui wm --list`, site guide
 - **260910-t2lv-gui-toolbar-keybar-hidpi-sendkey** — Session toolbar, HiDPI, and Send key (S7 / V4)
 - **260910-5psw-gui-quality-presets-and-stats** — Quality presets and the stats overlay (S6 / V3)
 - **260910-pfe4-gui-lxqt-seeded-defaults** — LXQt seeded defaults (S5 / L2)

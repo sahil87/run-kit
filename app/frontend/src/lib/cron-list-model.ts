@@ -36,17 +36,21 @@ export function cronEntryLabel(entry: CronEntry): string {
   return entry.name || entry.id;
 }
 
-/** Registry order for the Cron List tab: `nextFire` ascending (soonest
- *  first), entries without a `nextFire` last, ties stable by label then id.
- *  Pure — the same `entries` always yields the same order. */
+/** Registry comparator: `nextFire` ascending (soonest first), entries without
+ *  a `nextFire` last, ties stable by label then id. The Cron List's at-rest
+ *  order and its `next` column's table sort are this one function. */
+export function compareCronEntries(a: CronEntry, b: CronEntry): number {
+  if (a.nextFire !== undefined && b.nextFire !== undefined && a.nextFire !== b.nextFire) {
+    return a.nextFire - b.nextFire;
+  }
+  if (a.nextFire !== undefined && b.nextFire === undefined) return -1;
+  if (a.nextFire === undefined && b.nextFire !== undefined) return 1;
+  const byLabel = cronEntryLabel(a).localeCompare(cronEntryLabel(b));
+  return byLabel !== 0 ? byLabel : a.id.localeCompare(b.id);
+}
+
+/** Registry order for the Cron List tab. Pure — the same `entries` always
+ *  yields the same order, and the input is never mutated. */
 export function sortCronEntries(entries: CronEntry[]): CronEntry[] {
-  return [...entries].sort((a, b) => {
-    if (a.nextFire !== undefined && b.nextFire !== undefined && a.nextFire !== b.nextFire) {
-      return a.nextFire - b.nextFire;
-    }
-    if (a.nextFire !== undefined && b.nextFire === undefined) return -1;
-    if (a.nextFire === undefined && b.nextFire !== undefined) return 1;
-    const byLabel = cronEntryLabel(a).localeCompare(cronEntryLabel(b));
-    return byLabel !== 0 ? byLabel : a.id.localeCompare(b.id);
-  });
+  return [...entries].sort(compareCronEntries);
 }

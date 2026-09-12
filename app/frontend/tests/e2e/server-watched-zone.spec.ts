@@ -133,6 +133,37 @@ test.describe("Server page WATCHED zone", () => {
   });
 
   /**
+   * Proves: the WATCHED zone's table has a real header row — one `scope="col"`
+   * header per column carrying `aria-sort`, and clicking a header sorts the
+   * rows (the shared DataTable contract).
+   *
+   * Steps:
+   * 1. Set the 1280×800 viewport; mock the backend; land on `/default`.
+   * 2. Assert the six column headers render with `aria-sort` (all `none` at
+   *    rest) and each carries a `Sort by …` button.
+   * 3. Click `Sort by status`; assert the `status` header reads
+   *    `aria-sort="ascending"` and the others stay `none`.
+   */
+  test("the WATCHED table has a sortable header row", async ({ page }) => {
+    await page.setViewportSize(DESKTOP_VIEWPORT);
+    await mockBackend(page);
+    await gotoServerPage(page);
+
+    const table = page.getByTestId("watched-table");
+    await expect(table).toBeVisible();
+    const headers = table.locator('th[scope="col"]');
+    await expect(headers).toHaveCount(6);
+    for (const name of ["status", "session", "change", "awaiting", "note", "repo"]) {
+      await expect(table.getByLabel(`Sort by ${name}`)).toBeVisible();
+    }
+    await expect(headers.first()).toHaveAttribute("aria-sort", "none");
+
+    await table.getByLabel("Sort by status").click();
+    await expect(headers.first()).toHaveAttribute("aria-sort", "ascending");
+    await expect(headers.nth(1)).toHaveAttribute("aria-sort", "none");
+  });
+
+  /**
    * Proves: the WATCHED zone is desktop-only — the 375px mobile server route
    * keeps its session tiles and renders no zone at all.
    *

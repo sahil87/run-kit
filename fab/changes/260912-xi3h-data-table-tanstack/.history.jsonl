@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-12T17:31:37Z"}
+{"args":"Operator Tasks, Cron List and Cron Log render through one shared DataTable component over @tanstack/react-table -- sortable on every column, resizable columns, per-viewer sort/width persistence -- replacing the hand-rolled \u003ctable\u003e and the two div-row lists. Change 5 of fab/plans/sahil/26-09-12-quake-terminal-drawer.md (file-disjoint, parallel-capable).","cmd":"fab-new","event":"command","ts":"2026-09-12T17:31:37Z"}
+{"delta":"+0.0","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-09-12T17:35:13Z"}
+{"delta":"+0.0","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-09-12T17:36:00Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-12T17:36:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-12T17:37:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-12T18:01:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-12T18:06:00Z"}
+{"event":"review","result":"passed","ts":"2026-09-12T18:06:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-12T18:09:44Z"}

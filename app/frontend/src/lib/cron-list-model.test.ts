@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { CronEntry } from "@/api/client";
 import {
+  compareCronEntries,
   cronEntryLabel,
   isCronDimmed,
   mutedLabel,
@@ -92,5 +93,19 @@ describe("sortCronEntries", () => {
     const sorted = sortCronEntries(input);
     expect(input.map((e) => e.id)).toEqual(["n", "o"]);
     expect(sorted).toHaveLength(2);
+  });
+});
+
+describe("compareCronEntries", () => {
+  it("yields the same order as sortCronEntries — undated last, label/id tie-break", () => {
+    const a = makeEntry({ id: "a", name: "A", nextFire: NOW + 300 });
+    const b = makeEntry({ id: "b", name: "B" });
+    const c = makeEntry({ id: "c", name: "C", nextFire: NOW + 60, muted: true });
+    const d = makeEntry({ id: "d", name: "D", nextFire: NOW - 30 });
+    const x1 = makeEntry({ id: "x1", name: "same", nextFire: NOW + 60 });
+    const input = [a, b, c, d, x1];
+    expect([...input].sort(compareCronEntries).map((e) => e.id)).toEqual(
+      sortCronEntries(input).map((e) => e.id),
+    );
   });
 });

@@ -622,6 +622,88 @@ test.describe("Quake terminal", () => {
   });
 
   /**
+   * Proves: the Cron List header row sorts the registry on click (a per-viewer
+   * override over the at-rest soonest-first order), and the chosen order
+   * survives a page reload via the `runkit-table-cron-list` view state.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window; override the cron stub with
+   *    two entries whose label order opposes their next-fire order (`zulu`
+   *    fires first, `alpha` second); land on the @1 terminal route.
+   * 2. Open the drawer on Cron List; assert the at-rest order (zulu first).
+   * 3. Click the `entry` header's sort button; assert the order flips to
+   *    alpha-first and the header carries `aria-sort="ascending"`.
+   * 4. Reload, reopen the drawer on Cron List; assert the alpha-first order
+   *    persists.
+   */
+  test("Cron List header click re-sorts and the order survives a reload", async ({ page }) => {
+    await mockBackend(page, true);
+    // Two entries, label order ≠ next-fire order (the later Playwright route
+    // registration shadows the shared stub).
+    await page.route("**/api/cron*", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          entries: [
+            {
+              id: "a-early",
+              name: "zulu",
+              schedule: { kind: "every", interval: "5m" },
+              target: { kind: "role", role: "operator" },
+              payload: "tick",
+              lastFired: 0,
+              nextFire: NOW + 60,
+            },
+            {
+              id: "b-late",
+              name: "alpha",
+              schedule: { kind: "every", interval: "1h" },
+              target: { kind: "role", role: "operator" },
+              payload: "tick",
+              lastFired: 0,
+              nextFire: NOW + 7200,
+            },
+          ],
+          deliveries: [],
+        }),
+      }),
+    );
+    await gotoWindow(page);
+
+    const listRowOrder = () =>
+      drawer(page)
+        .getByTestId("cron-list")
+        .evaluate((el) =>
+          Array.from(el.querySelectorAll('[data-testid^="cron-list-row-"]')).map((r) =>
+            r.getAttribute("data-testid"),
+          ),
+        );
+
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("Open quake terminal");
+    await page.getByRole("option", { name: /^Operator: Open quake terminal/ }).click();
+    await expect(drawer(page)).toBeVisible();
+    await drawer(page).getByTestId("terminal-activity-tabs").getByRole("tab", { name: "Cron List" }).click();
+    await expect(drawer(page).getByTestId("cron-list-row-a-early")).toBeVisible({ timeout: 10_000 });
+    expect(await listRowOrder()).toEqual(["cron-list-row-a-early", "cron-list-row-b-late"]);
+
+    await drawer(page).getByLabel("Sort by entry").click();
+    await expect(drawer(page).getByLabel("Sort by entry")).toHaveAttribute("aria-pressed", "true");
+    expect(await listRowOrder()).toEqual(["cron-list-row-b-late", "cron-list-row-a-early"]);
+
+    await page.reload();
+    await expect(page.getByText("feature-work").first()).toBeVisible({ timeout: 10_000 });
+    const paletteInput2 = await openPalette(page);
+    await paletteInput2.fill("Open quake terminal");
+    await page.getByRole("option", { name: /^Operator: Open quake terminal/ }).click();
+    await expect(drawer(page)).toBeVisible();
+    await drawer(page).getByTestId("terminal-activity-tabs").getByRole("tab", { name: "Cron List" }).click();
+    await expect(drawer(page).getByTestId("cron-list-row-a-early")).toBeVisible({ timeout: 10_000 });
+    expect(await listRowOrder()).toEqual(["cron-list-row-b-late", "cron-list-row-a-early"]);
+  });
+
+  /**
    * Proves: the palette registers `Operator: Show cron list` BEFORE
    * `Operator: Show cron log` — the registry order a `cron` query shows.
    *

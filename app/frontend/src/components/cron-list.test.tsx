@@ -144,6 +144,28 @@ describe("CronList", () => {
     ).toBeInTheDocument();
   });
 
+  it("header click re-sorts by entry label and aria-sort reflects it", async () => {
+    installFetch();
+    renderList(SERVER);
+    await screen.findByTestId("cron-list-row-soon");
+
+    const entryHeader = screen.getByText("entry").closest("th");
+    expect(entryHeader).toHaveAttribute("aria-sort", "none");
+    // The `next` column carries the at-rest ascending sort.
+    expect(screen.getByText("next").closest("th")).toHaveAttribute("aria-sort", "ascending");
+
+    fireEvent.click(screen.getByLabelText("Sort by entry"));
+    expect(entryHeader).toHaveAttribute("aria-sort", "ascending");
+    expect(screen.getByText("next").closest("th")).toHaveAttribute("aria-sort", "none");
+    expect(rowOrder()).toEqual([
+      "cron-list-row-back",
+      "cron-list-row-mute",
+      "cron-list-row-orph",
+      "cron-list-row-soon",
+      "cron-list-row-undated",
+    ]);
+  });
+
   it("+ New entry opens the create dialog", async () => {
     installFetch();
     renderList(SERVER);

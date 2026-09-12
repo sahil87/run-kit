@@ -293,6 +293,31 @@ describe("WatchedTable", () => {
     expect(screen.getByTestId("tracked-item-expand")).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("headers carry aria-sort, and sorting by awaiting puts waiting rows first", () => {
+    renderTable([
+      workerRow(makeWindow({ windowId: "@1", name: "idle-worker", monitored: true, monitoredChange: "idle", agentState: "idle", agentIdleDuration: "12m" })),
+      workerRow(makeWindow({ windowId: "@2", name: "waiting-worker", monitored: true, monitoredChange: "wait", agentState: "waiting", agentIdleDuration: "6m" })),
+      workerRow(makeWindow({ windowId: "@3", name: "plain-worker", monitored: true, monitoredChange: "plan" })),
+    ]);
+
+    const awaitingHeader = screen.getByText("awaiting").closest("th");
+    expect(awaitingHeader).toHaveAttribute("aria-sort", "none");
+
+    fireEvent.click(screen.getByLabelText("Sort by awaiting"));
+    expect(awaitingHeader).toHaveAttribute("aria-sort", "ascending");
+    const names = screen
+      .getAllByTestId("watched-row-navigate")
+      .map((el) => el.textContent);
+    expect(names).toEqual(["waiting-worker", "idle-worker", "plain-worker"]);
+
+    fireEvent.click(screen.getByLabelText("Sort by awaiting"));
+    expect(awaitingHeader).toHaveAttribute("aria-sort", "descending");
+    const reversed = screen
+      .getAllByTestId("watched-row-navigate")
+      .map((el) => el.textContent);
+    expect(reversed).toEqual(["plain-worker", "idle-worker", "waiting-worker"]);
+  });
+
   it("an item row falls back to `added … ago` and then —", () => {
     renderTable([
       itemRow({ id: "a", kind: "note", addedAt: NOW - 600 }),

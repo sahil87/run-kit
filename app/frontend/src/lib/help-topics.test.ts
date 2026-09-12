@@ -13,12 +13,13 @@ afterEach(() => {
 });
 
 describe("HELP_TOPICS registry", () => {
-  it("lists the six curated topics in display order", () => {
+  it("lists the seven curated topics in display order", () => {
     expect(HELP_TOPICS.map((t) => t.id)).toEqual([
       "status-dot",
       "cron-schedule-kinds",
       "boards",
       "notifications",
+      "gui",
       "merge-topologies",
       "fkf",
     ]);
@@ -41,12 +42,12 @@ describe("HELP_TOPICS registry", () => {
     }
   });
 
-  it("tags the two fab-kit pages and the four run-kit pages by tool", () => {
+  it("tags the two fab-kit pages and the five run-kit pages by tool", () => {
     expect(HELP_TOPICS.filter((t) => t.tool === "fab-kit").map((t) => t.id)).toEqual([
       "merge-topologies",
       "fkf",
     ]);
-    expect(HELP_TOPICS.filter((t) => t.tool === "run-kit")).toHaveLength(4);
+    expect(HELP_TOPICS.filter((t) => t.tool === "run-kit")).toHaveLength(5);
   });
 });
 

@@ -86,7 +86,7 @@ It binds loopback-only on `RK_PORT+2`; set `RK_CODE_SERVER_PORT` only to point H
 - A running tmux session (`$TMUX` set).
 - [`wt`](https://github.com/sahil87/wt) on your `PATH` — included with the [full-toolkit install](https://shll.ai), or `shll install wt`.
 - The launcher (default `claude --dangerously-skip-permissions`) available.
-- Optional — the GUI tile (the host's desktop in the dashboard) needs a VNC X server and a window manager: `sudo apt install --no-install-recommends tigervnc-standalone-server icewm` on Debian/Ubuntu; `rk gui status` prints the line for your package manager. See the [GUI guide](gui.md).
+- Optional — the GUI tile (the host's desktop in the dashboard) needs a VNC X server and a window manager: `sudo apt install --no-install-recommends tigervnc-standalone-server icewm` on Debian/Ubuntu; `rk gui status` prints the line for your package manager. Desktops, resolution, and troubleshooting: the [GUI guide](gui.md). See the [GUI guide](gui.md).
 
 When something breaks, run:
 

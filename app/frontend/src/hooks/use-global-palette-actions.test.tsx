@@ -114,6 +114,7 @@ describe("useGlobalPaletteActions", () => {
       "help-topic-cron-schedule-kinds",
       "help-topic-boards",
       "help-topic-notifications",
+      "help-topic-gui",
       "help-topic-merge-topologies",
       "help-topic-fkf",
       "settings-open",

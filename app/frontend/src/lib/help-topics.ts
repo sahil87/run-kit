@@ -39,6 +39,7 @@ export const HELP_TOPICS: readonly HelpTopic[] = [
   { id: "cron-schedule-kinds", label: "Cron schedule kinds", url: "https://shll.ai/run-kit/cron-schedule-kinds/", tool: "run-kit" },
   { id: "boards", label: "Boards", url: "https://shll.ai/run-kit/boards/", tool: "run-kit" },
   { id: "notifications", label: "Notifications", url: "https://shll.ai/run-kit/notifications/", tool: "run-kit" },
+  { id: "gui", label: "GUI desktop", url: "https://shll.ai/run-kit/gui/", tool: "run-kit" },
   { id: "merge-topologies", label: "Merge topologies", url: "https://shll.ai/fab-kit/merge-topologies/", tool: "fab-kit" },
   { id: "fkf", label: "FKF", url: "https://shll.ai/fab-kit/fkf/", tool: "fab-kit" },
 ];

@@ -215,7 +215,7 @@ describe("HelpTopicsMenuRow", () => {
     expect(screen.queryByRole("group", { name: "Help topics" })).not.toBeInTheDocument();
   });
 
-  it("click expands to the six registry rows in order and keeps the menu open", () => {
+  it("click expands to the seven registry rows in order and keeps the menu open", () => {
     renderMenu({ daemonVersion: "0.6.2", updateAvailable: null }, { rows: [helpTopicsRow(false)] });
     openMenu();
     fireEvent.click(disclosure());
@@ -236,13 +236,13 @@ describe("HelpTopicsMenuRow", () => {
     renderMenu({ daemonVersion: "0.6.2", updateAvailable: null }, { rows: [helpTopicsRow(false)] });
     openMenu();
     fireEvent.click(disclosure());
-    expect(topicRows()).toHaveLength(6);
+    expect(topicRows()).toHaveLength(7);
     fireEvent.click(disclosure());
     expect(topicRows()).toHaveLength(0);
     expect(disclosure()).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.keyDown(disclosure(), { key: "ArrowRight" });
-    expect(topicRows()).toHaveLength(6);
+    expect(topicRows()).toHaveLength(7);
     fireEvent.keyDown(disclosure(), { key: "ArrowLeft" });
     expect(topicRows()).toHaveLength(0);
     expect(disclosure()).toHaveAttribute("aria-expanded", "false");
@@ -270,7 +270,7 @@ describe("HelpTopicsMenuRow", () => {
     openMenu();
     fireEvent.click(disclosure());
     const rows = topicRows();
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(7);
     for (const row of rows) expect(row).toHaveTextContent("↗");
   });
 

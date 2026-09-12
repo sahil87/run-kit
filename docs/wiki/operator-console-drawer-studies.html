@@ -492,7 +492,7 @@ $ echo "---log vs origin---"</div><div class="over" style="background:var(--bg);
 
 <!-- ============================================================ decisions -->
 <h2>Recommendation & sequencing</h2>
-<p><b>Three fab changes, strictly sequential</b> (all touch the same files): 0 rename → 1 resize → 2 relocation with 3, 4, 5 folded in. 6 stays parked.</p>
+<p><b>Six fab changes</b> (plan: <code>fab/plans/sahil/26-09-12-quake-terminal-drawer.md</code>): 0 rename → 1 resize → 2 relocation (rows 3, 4, 5 below folded in) → 3 operator page → 4 cron ungated, strictly sequential; 5 data table is file-disjoint and runs in parallel. Row 6 stays parked.</p>
 <table>
   <tr><th>#</th><th>Change</th><th>Verdict</th><th>Touches</th></tr>
   <tr><td>0</td><td>Rename the feature: operator console → <b>quake terminal</b>, omnibox → quake launcher (files, test ids, palette/keybinding labels, storage keys with a one-time old-key read, memory, tutorial topic)</td><td><span class="tag rec">ship first</span> mechanical</td><td>9 source/test files renamed, 42 referencing files, 16 test ids, 6 memory files, <code>operator-console.spec.ts</code></td></tr>
@@ -501,6 +501,9 @@ $ echo "---log vs origin---"</div><div class="over" style="background:var(--bg);
   <tr><td>3</td><td>One header row (segments + meta)</td><td><span class="tag rec">fold into 2</span></td><td>drawer rows; e2e selectors for tick stamp/state</td></tr>
   <tr><td>4</td><td>Pin toggle suspending outside-click collapse</td><td><span class="tag rec">fold into 2</span> small</td><td>outside-click listener gate; header control; palette entry <code>Operator: Pin console</code> (Constitution V)</td></tr>
   <tr><td>5</td><td>Glass default 0.90 → 0.95</td><td><span class="tag rec">one-liner</span></td><td><code>CONSOLE_OPACITY_DEFAULT</code>; settings-row test</td></tr>
+  <tr><td>3</td><td>Operator page: the operator window's route wears the quake surface on desktop (mobile already does); Start operator button + always-present pinned row whose empty state opens the drawer — no synthetic route</td><td><span class="tag rec">change 3</span> after 2</td><td><code>app.tsx</code> gate, drawer/page variant, <code>POST /api/operator/start</code>, sidebar placeholder row</td></tr>
+  <tr><td>4</td><td>Cron List / Cron Log ungated from the operator window (cron needs no operator); mobile operator-less placement to confirm</td><td><span class="tag rec">change 4</span> small</td><td>drawer body gate, ◷ chip + palette availability, memory + spec gating sentences</td></tr>
+  <tr><td>5</td><td>Operator Tasks / Cron List / Cron Log over one <code>DataTable</code> on TanStack Table — sort any column, resizable columns, per-viewer persistence (no shadcn/Radix)</td><td><span class="tag rec">change 5</span> parallel</td><td><code>data-table.tsx</code>, <code>watched-table.tsx</code>, <code>cron-list.tsx</code>, <code>cron-log.tsx</code></td></tr>
   <tr><td>6</td><td>Hide the operator session's tmux status bar</td><td><span class="tag park">parked</span> session-wide side effect</td><td>managed tmux.conf / operator session options</td></tr>
 </table>
 

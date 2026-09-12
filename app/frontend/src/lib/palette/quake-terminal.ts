@@ -1,4 +1,4 @@
-import { requestQuakeTerminal } from "@/lib/quake-terminal";
+import { QUAKE_GEOMETRY_DEFAULT, requestQuakeTerminal, writeQuakeGeometry } from "@/lib/quake-terminal";
 
 /**
  * Pure builder for the palette's `Operator: Open quake terminal` entry —
@@ -59,5 +59,22 @@ export function buildQuakeTerminalTasksAction(): QuakeTerminalPaletteAction {
     id: "quake-terminal-tasks",
     label: "Operator: Show tasks",
     onSelect: () => requestQuakeTerminal({ action: "open", segment: "tasks" }),
+  };
+}
+
+/**
+ * The `Operator: Reset quake terminal size` entry — the palette twin of the
+ * grips' double-click reset (Constitution V: every UI-control action is
+ * registered here). It writes the default geometry straight to the per-viewer
+ * store, which applies live to an open drawer through the store's same-tab
+ * notify and to the next open otherwise; it never opens the drawer itself.
+ * Always listed like its siblings — where no drawer renders (mobile) the
+ * write is inert.
+ */
+export function buildQuakeTerminalResetSizeAction(): QuakeTerminalPaletteAction {
+  return {
+    id: "quake-terminal-reset-size",
+    label: "Operator: Reset quake terminal size",
+    onSelect: () => writeQuakeGeometry(QUAKE_GEOMETRY_DEFAULT),
   };
 }

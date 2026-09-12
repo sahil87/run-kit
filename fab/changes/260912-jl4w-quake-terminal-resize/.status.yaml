@@ -1,0 +1,57 @@
+id: jl4w
+name: 260912-jl4w-quake-terminal-resize
+created: 2026-09-12T17:23:31Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 21
+    acceptance_completed: 21
+confidence:
+    certain: 9
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 69.6
+        reversibility: 90.8
+        competence: 87.9
+        disambiguation: 84.6
+stage_metrics:
+    intake: {started_at: "2026-09-12T17:23:31Z", driver: fab-new, iterations: 1, completed_at: "2026-09-12T17:36:19Z"}
+    apply: {started_at: "2026-09-12T17:36:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-12T17:45:03Z"}
+    review: {started_at: "2026-09-12T17:45:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-12T17:48:10Z"}
+    hydrate: {started_at: "2026-09-12T17:48:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-12T17:50:02Z"}
+    ship: {started_at: "2026-09-12T17:50:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-12T17:52:35Z"}
+    review-pr: {started_at: "2026-09-12T17:52:35Z", driver: git-pr, iterations: 1, completed_at: "2026-09-12T18:01:56Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/960
+change_type_source: explicit
+true_impact:
+    added: 1078
+    deleted: 102
+    net: 976
+    excluding:
+        added: 614
+        deleted: 91
+        net: 523
+    tests:
+        added: 195
+        deleted: 23
+        net: 172
+    computed_at: "2026-09-12T17:52:35Z"
+    computed_at_stage: ship
+summary: Quake terminal resizes from every exposed edge (full bottom edge, both sides, two bottom corners) with independent-edge geometry (centerOffsetPx), an accent-green lit-edge hover cue, double-click + palette reset
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-12T18:01:56Z

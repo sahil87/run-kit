@@ -1,11 +1,18 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildQuakeTerminalAction,
   buildQuakeTerminalListAction,
   buildQuakeTerminalLogAction,
+  buildQuakeTerminalResetSizeAction,
   buildQuakeTerminalTasksAction,
 } from "./quake-terminal";
-import { QUAKE_TERMINAL_EVENT, isQuakeTerminalRequest } from "@/lib/quake-terminal";
+import {
+  QUAKE_GEOMETRY_DEFAULT,
+  QUAKE_GEOMETRY_KEY,
+  QUAKE_TERMINAL_EVENT,
+  isQuakeTerminalRequest,
+  readQuakeGeometry,
+} from "@/lib/quake-terminal";
 
 describe("buildQuakeTerminalAction", () => {
   afterEach(() => {
@@ -98,5 +105,37 @@ describe("buildQuakeTerminalTasksAction", () => {
     expect(seen).toHaveLength(1);
     expect(isQuakeTerminalRequest(seen[0])).toBe(true);
     expect(seen[0]).toEqual({ action: "open", segment: "tasks" });
+  });
+});
+
+describe("buildQuakeTerminalResetSizeAction", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("is the chord-less palette entry", () => {
+    const action = buildQuakeTerminalResetSizeAction();
+    expect(action).toMatchObject({
+      id: "quake-terminal-reset-size",
+      label: "Operator: Reset quake terminal size",
+    });
+    expect(action.shortcut).toBeUndefined();
+  });
+
+  it("onSelect writes the default geometry to the per-viewer store without opening the drawer", () => {
+    localStorage.setItem(
+      QUAKE_GEOMETRY_KEY,
+      JSON.stringify({ heightVh: 70, widthPx: 900, centerOffsetPx: 40 }),
+    );
+    const seen: unknown[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent<unknown>).detail);
+    document.addEventListener(QUAKE_TERMINAL_EVENT, listener);
+    try {
+      buildQuakeTerminalResetSizeAction().onSelect();
+    } finally {
+      document.removeEventListener(QUAKE_TERMINAL_EVENT, listener);
+    }
+    expect(readQuakeGeometry()).toEqual(QUAKE_GEOMETRY_DEFAULT);
+    expect(seen).toHaveLength(0);
   });
 });

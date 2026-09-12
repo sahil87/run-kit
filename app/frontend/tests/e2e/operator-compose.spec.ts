@@ -210,18 +210,19 @@ test.describe("Operator compose (260822-wyn3)", () => {
   /**
    * Proves: the degrade-to-absent gate — with no `role: "operator"` window in
    * the sessions payload, both compose-dialog `Operator:` palette entries are
-   * omitted (not disabled). The four quake terminal openers — `Operator: Open
-   * quake terminal`, the Operator Tasks opener `Operator: Show tasks`, and the cron
-   * openers `Operator: Show cron list` / `Operator: Show cron log` —
-   * are deliberately ungated: the quake terminal itself opens and shows the
-   * no-operator hint (and the cron clock is server-wide, operator or not), so
+   * omitted (not disabled). The five quake terminal entries — the openers
+   * `Operator: Open quake terminal`, `Operator: Show tasks`, `Operator: Show
+   * cron list` / `Operator: Show cron log`, and the geometry reset `Operator:
+   * Reset quake terminal size` — are deliberately ungated: the quake terminal
+   * itself opens and shows the no-operator hint (and the cron clock is
+   * server-wide, operator or not; the reset is a per-viewer store write), so
    * they remain the only listed `Operator:` entries.
    *
    * Steps:
    * 1. Mock the backend WITHOUT an operator window.
    * 2. Open the palette, filter to `Operator:`.
-   * 3. Assert both compose entries are absent and only the four quake terminal
-   *    openers remain.
+   * 3. Assert both compose entries are absent and only the five quake terminal
+   *    entries remain.
    */
   test("compose palette entries are omitted when the server has no operator window", async ({ page }) => {
     await mockBackend(page, false);
@@ -230,10 +231,11 @@ test.describe("Operator compose (260822-wyn3)", () => {
     await openPaletteWith(page, "Operator:");
     await expect(page.getByRole("option", { name: "Operator: Spawn task…" })).toHaveCount(0);
     await expect(page.getByRole("option", { name: "Operator: Find discussion…" })).toHaveCount(0);
-    await expect(page.getByRole("option", { name: /^Operator:/ })).toHaveCount(4);
+    await expect(page.getByRole("option", { name: /^Operator:/ })).toHaveCount(5);
     await expect(page.getByRole("option", { name: "Operator: Open quake terminal" })).toHaveCount(1);
     await expect(page.getByRole("option", { name: "Operator: Show tasks" })).toHaveCount(1);
     await expect(page.getByRole("option", { name: "Operator: Show cron list" })).toHaveCount(1);
     await expect(page.getByRole("option", { name: "Operator: Show cron log" })).toHaveCount(1);
+    await expect(page.getByRole("option", { name: "Operator: Reset quake terminal size" })).toHaveCount(1);
   });
 });

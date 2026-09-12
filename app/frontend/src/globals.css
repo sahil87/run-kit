@@ -515,6 +515,62 @@ summary {
   transition: none;
 }
 
+/* Quake terminal resize grips: the grabbed edge tints accent-green — the
+   layout dividers' sash vocabulary (visual-design § Layout dividers). Each edge
+   grip straddles its border; the ::after bar sits on the grip's INNER half so
+   it reads as the drawer's edge lighting up. Lit = hovered or dragged (a
+   corner lights both adjacent edges — the T-junction idiom). The hover-in
+   direction waits the sash's ~150ms anti-flicker delay so brushing across an
+   edge en route to the terminal never strobes; unlit and mid-drag are
+   immediate. Zeroed under prefers-reduced-motion below; the state remains. */
+.rk-quake-grip::after {
+  content: "";
+  position: absolute;
+  background: var(--color-accent-green);
+  border-radius: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.rk-quake-grip-left::after {
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 3px;
+}
+
+.rk-quake-grip-right::after {
+  top: 0;
+  bottom: 0;
+  right: 5px;
+  width: 3px;
+}
+
+.rk-quake-grip-bottom::after {
+  /* Inset past the drawer's rounded-b-lg (8px) corners so the bar's straight
+     ends never meet the curved border. */
+  left: 8px;
+  right: 8px;
+  top: 2px;
+  height: 3px;
+}
+
+.rk-quake-grip-lit::after {
+  opacity: 1;
+  transition-delay: 150ms;
+}
+
+.rk-quake-dragging .rk-quake-grip-lit::after {
+  transition-delay: 0ms;
+}
+
+/* The tongue (inside the bottom grip) borders in the same green while the
+   bottom edge is lit. */
+.rk-quake-grip-lit .rk-quake-tongue {
+  border-color: var(--color-accent-green);
+}
+
 /* Scroll-edge fade (260813-kvk7): applied conditionally by useScrollEdgeFade
    to the sidebar scroll viewports (sessions tree, SERVER panel) only while
    more content exists below. A mask — not an opaque veil — so the per-item
@@ -1612,8 +1668,11 @@ html[data-theme="light"] {
      its fade-in is dropped so it appears as an instant cut. */
   .rk-window-switch-mask { animation: none; }
   /* Quake terminal: the desktop drawer's slide is zeroed (the component
-     also skips the exit delay in JS). */
+     also skips the exit delay in JS); the grip tint's fade and anti-flicker
+     delay are zeroed too — the lit state itself stays (static green). */
   .rk-quake-slide { transition: none; }
+  .rk-quake-grip::after,
+  .rk-quake-grip-lit::after { transition: none; transition-delay: 0ms; }
   /* Hatch-marker hazard wedge (.rk-hazard): static in every state by design —
      nothing to zero here; listed so the reduced-motion audit stays complete. */
   /* Watched underbar (.rk-watched-underbar): static by design — no animation,

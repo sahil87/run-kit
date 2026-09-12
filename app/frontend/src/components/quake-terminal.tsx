@@ -37,12 +37,14 @@ import {
   resetOperatorChatChip,
   setQuakeMachineState,
   setOperatorChatSubject,
+  QUAKE_GEOMETRY_DEFAULT,
   useQuakeGeometry,
   useQuakeMachineState,
   useQuakeOpacity,
   useOperatorCompose,
   useQuakeTerminalContext,
   type QuakeGeometry,
+  type QuakeResizeEdge,
   type QuakeTerminalRequest,
 } from "@/lib/quake-terminal";
 
@@ -144,10 +146,15 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * transitions to rest, and a close request drives the raised class and holds
  * the unmount until `transitionend` (with a timeout fallback), so the terminal
  * stream tears down AFTER the slide, not mid-animation. Reduced motion zeroes
- * both directions including the exit delay. The drawer is mouse-resizable —
- * the hanging bottom tongue drags height (25–85vh), side grips drag width
- * symmetrically about the center line (420px–96vw), drags suspend the slide
- * transition, and the geometry persists per-viewer in localStorage — and its
+ * both directions including the exit delay. The drawer is mouse-resizable
+ * from every exposed edge — the full bottom edge (the hanging tongue is its
+ * visual pull tab), both sides, and the two bottom corners (both axes at
+ * once); each edge moves only its own side, so a corner tracks the pointer
+ * and the drawer may rest off-center (`centerOffsetPx`). Height clamps
+ * 25–85vh, width 420px–96vw, the offset keeps the drawer inside the viewport;
+ * the grabbed edge tints accent-green, double-click on any grip resets,
+ * drags suspend the slide transition, and the geometry persists per-viewer
+ * in localStorage — and its
  * background is glass: `color-mix`-alpha bg-primary at the per-viewer opacity
  * (default 0.90, settings-dialog row) over a fixed 6px backdrop blur, disabled
  * entirely at α=1.
@@ -166,6 +173,13 @@ const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to op
  * ABSENT: a server with no operator window renders a single hint line and
  * opens no stream (mobile: a toast, and no navigation).
  */
+/** The five grips' edge masks: three edges and the two bottom corners. */
+const GRIP_LEFT: QuakeResizeEdge = { x: -1, y: 0 };
+const GRIP_RIGHT: QuakeResizeEdge = { x: 1, y: 0 };
+const GRIP_BOTTOM: QuakeResizeEdge = { x: 0, y: 1 };
+const GRIP_BOTTOM_LEFT: QuakeResizeEdge = { x: -1, y: 1 };
+const GRIP_BOTTOM_RIGHT: QuakeResizeEdge = { x: 1, y: 1 };
+
 export function QuakeTerminal() {
   const isMobile = useIsMobile();
   const machine = useQuakeMachineState();
@@ -604,54 +618,83 @@ export function QuakeTerminal() {
   const [opacity] = useQuakeOpacity();
   // Live drag state: the override drives the drawer's box while a grip is held
   // (transition suspended via the dragging class); the store write lands on
-  // pointer-up.
+  // pointer-up. `dragEdge` doubles as the lit-edge source while dragging.
   const [dragOverride, setDragOverride] = useState<QuakeGeometry | null>(null);
-  const [dragging, setDragging] = useState(false);
+  const [dragEdge, setDragEdge] = useState<QuakeResizeEdge | null>(null);
+  const [hoverEdge, setHoverEdge] = useState<QuakeResizeEdge | null>(null);
+  // `pointerId` pins the drag to the pointer that started it: on a touchscreen
+  // a second finger fires its own pointer events at the grip, and without the
+  // pin it could overwrite the origin or commit its geometry on release.
   const dragRef = useRef<{
-    kind: "height" | "left" | "right";
+    edge: QuakeResizeEdge;
+    pointerId: number;
     startX: number;
     startY: number;
     start: QuakeGeometry;
   } | null>(null);
+  const dragging = dragEdge !== null;
+  // The grabbed edge wins over a hovered one: a drag that wanders off its grip
+  // keeps that edge lit until release.
+  const litEdge = dragEdge ?? hoverEdge;
+
+  // The offset clamp depends on the live viewport width, so a window resize
+  // re-renders to re-clamp the DISPLAYED geometry. Display-only: the store is
+  // never written here — a transiently narrow window must not erase the
+  // viewer's preferred offset (width already tracks via `maxWidth: 96vw`).
+  const [, bumpViewport] = useState(0);
+  useEffect(() => {
+    if (!open || isMobile) return;
+    const onResize = () => bumpViewport((n) => n + 1);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [open, isMobile]);
 
   const effectiveGeometry = clampQuakeGeometry(dragOverride ?? geometry);
 
   const onGripPointerDown = useCallback(
-    (kind: "height" | "left" | "right") => (e: React.PointerEvent<HTMLDivElement>) => {
+    (edge: QuakeResizeEdge) => (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
+      // A second pointer while a drag is live is ignored, never a new drag.
+      if (dragRef.current) return;
       e.preventDefault();
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {
         // Synthetic pointer events (unit tests) have no active pointer to capture.
       }
-      dragRef.current = { kind, startX: e.clientX, startY: e.clientY, start: effectiveGeometry };
-      setDragging(true);
+      dragRef.current = {
+        edge,
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        start: effectiveGeometry,
+      };
+      setDragEdge(edge);
     },
     [effectiveGeometry],
   );
   const onGripPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
-    if (!drag) return;
-    const next =
-      drag.kind === "height"
-        ? {
-            ...drag.start,
-            heightVh: drag.start.heightVh + ((e.clientY - drag.startY) / window.innerHeight) * 100,
-          }
-        : {
-            ...drag.start,
-            // Symmetric about the center line: an edge delta moves BOTH sides,
-            // so the width changes by twice the pointer delta (sign flipped on
-            // the left grip) and the drawer stays centered.
-            widthPx: drag.start.widthPx + 2 * (e.clientX - drag.startX) * (drag.kind === "left" ? -1 : 1),
-          };
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    const next: QuakeGeometry = { ...drag.start };
+    if (drag.edge.y === 1) {
+      next.heightVh = drag.start.heightVh + (dy / window.innerHeight) * 100;
+    }
+    // Independent edges: moving one edge by dx changes the width by dx and
+    // shifts the center by dx/2, so the OPPOSITE edge stays put and the
+    // grabbed edge stays under the pointer (a corner sets both masks).
+    if (drag.edge.x !== 0) {
+      next.widthPx = drag.start.widthPx + dx * drag.edge.x;
+      next.centerOffsetPx = drag.start.centerOffsetPx + dx / 2;
+    }
     setDragOverride(clampQuakeGeometry(next));
   }, []);
   const onGripPointerUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       const drag = dragRef.current;
-      if (!drag) return;
+      if (!drag || e.pointerId !== drag.pointerId) return;
       dragRef.current = null;
       try {
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -660,7 +703,7 @@ export function QuakeTerminal() {
       } catch {
         // Synthetic pointer events (unit tests) have no active pointer.
       }
-      setDragging(false);
+      setDragEdge(null);
       setDragOverride((prev) => {
         if (prev) writeGeometry(prev);
         return null;
@@ -668,6 +711,12 @@ export function QuakeTerminal() {
     },
     [writeGeometry],
   );
+  const onGripDoubleClick = useCallback(() => {
+    dragRef.current = null;
+    setDragEdge(null);
+    setDragOverride(null);
+    writeGeometry(QUAKE_GEOMETRY_DEFAULT);
+  }, [writeGeometry]);
 
   // Desktop-only render: the mobile arm is navigation (the seam listener
   // above), so nothing mounts below the shared isMobile rule.
@@ -697,10 +746,24 @@ export function QuakeTerminal() {
       : {}),
   };
 
-  const gripHandlers = {
+  // One handler set for every grip; the edge mask rides the pointer-down
+  // closure. `pointercancel` (a captured pointer the browser takes back)
+  // ends the drag through the same up path so the dragging class never sticks.
+  const gripHandlers = (edge: QuakeResizeEdge) => ({
+    onPointerDown: onGripPointerDown(edge),
     onPointerMove: onGripPointerMove,
     onPointerUp: onGripPointerUp,
-  };
+    onPointerCancel: onGripPointerUp,
+    onPointerEnter: () => setHoverEdge(edge),
+    onPointerLeave: () => setHoverEdge(null),
+    onDoubleClick: onGripDoubleClick,
+  });
+  // Edge grips light when their axis is in the lit mask — so hovering or
+  // dragging a corner lights both adjacent edges (the divider T-junction idiom).
+  const edgeLit = (edge: QuakeResizeEdge) =>
+    litEdge !== null && ((edge.x !== 0 && litEdge.x === edge.x) || (edge.y === 1 && litEdge.y === 1));
+  const edgeGripClass = (edge: QuakeResizeEdge, side: "left" | "right" | "bottom") =>
+    `rk-quake-grip rk-quake-grip-${side}${edgeLit(edge) ? " rk-quake-grip-lit" : ""}`;
 
   const drawer = (
     <div
@@ -736,12 +799,15 @@ export function QuakeTerminal() {
         if (files.length === 0) return;
         void attachOperatorFiles(server, target, files);
       }}
-      className={`rk-quake-slide pointer-events-auto absolute top-0 left-1/2 -translate-x-1/2 flex flex-col border border-t-0 border-border rounded-b-lg shadow-2xl${
+      className={`rk-quake-slide pointer-events-auto absolute top-0 -translate-x-1/2 flex flex-col border border-t-0 border-border rounded-b-lg shadow-2xl${
         entered && !closing ? "" : " rk-quake-closed"
       }${dragging ? " rk-quake-dragging" : ""}`}
       style={{
-        // maxWidth (not a min() width) so the 96vw ceiling keeps
-        // tracking live viewport resizes.
+        // The center offset rides `left`: centering is the `translate`
+        // property (-translate-x-1/2) and the slide is `transform`, so `left`
+        // is the one free channel. maxWidth (not a min() width) so the 96vw
+        // ceiling keeps tracking live viewport resizes.
+        left: `calc(50% + ${effectiveGeometry.centerOffsetPx}px)`,
         width: `${effectiveGeometry.widthPx}px`,
         maxWidth: "96vw",
         height: `${effectiveGeometry.heightVh}vh`,
@@ -877,37 +943,55 @@ export function QuakeTerminal() {
           {NO_OPERATOR_HINT}
         </div>
       )}
-      {/* Side grips — symmetric width resize about the center line. */}
+      {/* Resize grips — 10px zones straddling each exposed border (5px out,
+          5px in), plus 16px corners rendered last so they win the hit test
+          where they overlap the edges. */}
       <div
         data-testid="quake-terminal-grip-left"
         aria-hidden="true"
-        onPointerDown={onGripPointerDown("left")}
-        {...gripHandlers}
-        className="absolute left-[-4px] top-0 h-full w-2 cursor-ew-resize touch-none"
+        {...(edgeLit(GRIP_LEFT) ? { "data-lit": "" } : {})}
+        {...gripHandlers(GRIP_LEFT)}
+        className={`${edgeGripClass(GRIP_LEFT, "left")} absolute left-[-5px] top-0 bottom-0 w-2.5 cursor-ew-resize touch-none select-none`}
       />
       <div
         data-testid="quake-terminal-grip-right"
         aria-hidden="true"
-        onPointerDown={onGripPointerDown("right")}
-        {...gripHandlers}
-        className="absolute right-[-4px] top-0 h-full w-2 cursor-ew-resize touch-none"
+        {...(edgeLit(GRIP_RIGHT) ? { "data-lit": "" } : {})}
+        {...gripHandlers(GRIP_RIGHT)}
+        className={`${edgeGripClass(GRIP_RIGHT, "right")} absolute right-[-5px] top-0 bottom-0 w-2.5 cursor-ew-resize touch-none select-none`}
       />
-      {/* The tongue: a pull tab hanging from the drawer's bottom edge —
-          the desktop height drag grip (on mobile the tongue is instead the
-          standing affordance, mounted beside the quake terminal in
-          app.tsx). */}
+      {/* The bottom edge grip spans the full width; the tongue — a pull tab
+          hanging from the drawer's bottom edge — renders inside it as the
+          visual affordance and stays a valid grab by containment (on mobile
+          the tongue is instead the standing affordance, mounted beside the
+          quake terminal in app.tsx). */}
+      {/* The grip straddles the border by 5px each way, so the tongue's top
+          sits at `top-[5px]` — flush with the drawer's bottom border. */}
       <div
-        data-testid="quake-terminal-grip-height"
+        data-testid="quake-terminal-grip-bottom"
         aria-hidden="true"
-        onPointerDown={onGripPointerDown("height")}
-        {...gripHandlers}
-        className="absolute left-1/2 top-full h-3 w-16 -translate-x-1/2 cursor-ns-resize touch-none select-none"
+        {...(edgeLit(GRIP_BOTTOM) ? { "data-lit": "" } : {})}
+        {...gripHandlers(GRIP_BOTTOM)}
+        className={`${edgeGripClass(GRIP_BOTTOM, "bottom")} absolute left-0 right-0 bottom-[-5px] h-2.5 cursor-ns-resize touch-none select-none`}
       >
         <span
-          className="block h-full w-full rounded-b-md border border-t-0 border-border"
+          data-testid="quake-terminal-tongue-tab"
+          className="absolute left-1/2 top-[5px] block h-3 w-16 -translate-x-1/2 rounded-b-md border border-t-0 border-border rk-quake-tongue"
           style={glassStyle}
         />
       </div>
+      <div
+        data-testid="quake-terminal-grip-bottom-left"
+        aria-hidden="true"
+        {...gripHandlers(GRIP_BOTTOM_LEFT)}
+        className="absolute left-[-6px] bottom-[-6px] h-4 w-4 cursor-nesw-resize touch-none select-none"
+      />
+      <div
+        data-testid="quake-terminal-grip-bottom-right"
+        aria-hidden="true"
+        {...gripHandlers(GRIP_BOTTOM_RIGHT)}
+        className="absolute right-[-6px] bottom-[-6px] h-4 w-4 cursor-nwse-resize touch-none select-none"
+      />
     </div>
   );
 

@@ -199,7 +199,9 @@ export function resolveFromOrigin(
 // allowed-list validation is replaced by numeric clamping; absent/corrupt/
 // out-of-clamp values resolve to the defaults without error.
 
-/** localStorage key for the desktop drawer geometry (`{heightVh, widthPx}`). */
+/** localStorage key for the desktop drawer geometry
+ *  (`{heightVh, widthPx, centerOffsetPx}`; a stored record without the offset
+ *  reads as offset 0). */
 export const QUAKE_GEOMETRY_KEY = "runkit-quake-terminal-geometry";
 /** localStorage key for the desktop drawer background opacity. */
 export const QUAKE_OPACITY_KEY = "runkit-quake-terminal-opacity";
@@ -208,14 +210,24 @@ export const QUAKE_OPACITY_KEY = "runkit-quake-terminal-opacity";
 export const LEGACY_QUAKE_GEOMETRY_KEY = "runkit-operator-console-geometry";
 export const LEGACY_QUAKE_OPACITY_KEY = "runkit-operator-console-opacity";
 
-export type QuakeGeometry = { heightVh: number; widthPx: number };
+/** The desktop drawer's box: height in vh, width in px, and the signed
+ *  displacement of its center from the viewport center (positive = right).
+ *  Each edge resizes independently, so the drawer may rest off-center. */
+export type QuakeGeometry = { heightVh: number; widthPx: number; centerOffsetPx: number };
 
-export const QUAKE_GEOMETRY_DEFAULT: QuakeGeometry = { heightVh: 55, widthPx: 760 };
+/** Which drawer edges a grip moves: `x` −1 = left edge, +1 = right edge, 0 =
+ *  neither; `y` 1 = bottom edge, 0 = not. A corner sets both. */
+export type QuakeResizeEdge = { x: -1 | 0 | 1; y: 0 | 1 };
+
+export const QUAKE_GEOMETRY_DEFAULT: QuakeGeometry = { heightVh: 55, widthPx: 760, centerOffsetPx: 0 };
 export const QUAKE_HEIGHT_MIN_VH = 25;
 export const QUAKE_HEIGHT_MAX_VH = 85;
 export const QUAKE_WIDTH_MIN_PX = 420;
 /** Width ceiling as a fraction of the viewport (96vw). */
 export const QUAKE_WIDTH_MAX_VW = 0.96;
+/** Ground kept visible between the drawer and either viewport edge when the
+ *  center offset is clamped. */
+export const QUAKE_EDGE_PAD_PX = 8;
 
 export const QUAKE_OPACITY_DEFAULT = 0.9;
 export const QUAKE_OPACITY_MIN = 0.5;
@@ -227,15 +239,22 @@ function viewportWidthPx(): number | undefined {
     : undefined;
 }
 
-/** Clamp geometry into the supported envelope (25–85vh, 420px–96vw). */
+/** Clamp geometry into the supported envelope (25–85vh, 420px–96vw), then
+ *  bound the center offset so the drawer never leaves the viewport:
+ *  `|offset| ≤ (viewport − width)/2 − QUAKE_EDGE_PAD_PX`, evaluated against the
+ *  already-clamped width. */
 export function clampQuakeGeometry(
   geometry: QuakeGeometry,
   viewportWidth: number | undefined = viewportWidthPx(),
 ): QuakeGeometry {
   const heightVh = Math.min(QUAKE_HEIGHT_MAX_VH, Math.max(QUAKE_HEIGHT_MIN_VH, geometry.heightVh));
   const maxWidth = viewportWidth !== undefined ? viewportWidth * QUAKE_WIDTH_MAX_VW : Infinity;
-  const widthPx = Math.min(maxWidth, Math.max(QUAKE_WIDTH_MIN_PX, geometry.widthPx));
-  return { heightVh, widthPx: Math.round(widthPx) };
+  const widthPx = Math.round(Math.min(maxWidth, Math.max(QUAKE_WIDTH_MIN_PX, geometry.widthPx)));
+  const maxOffset =
+    viewportWidth !== undefined ? Math.max(0, (viewportWidth - widthPx) / 2 - QUAKE_EDGE_PAD_PX) : Infinity;
+  const rawOffset = Number.isFinite(geometry.centerOffsetPx) ? geometry.centerOffsetPx : 0;
+  const centerOffsetPx = Math.round(Math.min(maxOffset, Math.max(-maxOffset, rawOffset)));
+  return { heightVh, widthPx, centerOffsetPx };
 }
 
 /** Clamp opacity into the supported envelope (0.5–1.0). */
@@ -248,11 +267,21 @@ function parseStoredGeometry(raw: string): QuakeGeometry | null {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed === "object" && parsed !== null) {
       const g = parsed as Record<string, unknown>;
+      // The offset is optional on read: records written before it existed
+      // carry two fields and mean "centered". Present but unusable is corrupt.
+      const offsetOk =
+        g.centerOffsetPx === undefined ||
+        (typeof g.centerOffsetPx === "number" && Number.isFinite(g.centerOffsetPx));
       if (
         typeof g.heightVh === "number" && Number.isFinite(g.heightVh) &&
-        typeof g.widthPx === "number" && Number.isFinite(g.widthPx)
+        typeof g.widthPx === "number" && Number.isFinite(g.widthPx) &&
+        offsetOk
       ) {
-        return clampQuakeGeometry({ heightVh: g.heightVh, widthPx: g.widthPx });
+        return clampQuakeGeometry({
+          heightVh: g.heightVh,
+          widthPx: g.widthPx,
+          centerOffsetPx: typeof g.centerOffsetPx === "number" ? g.centerOffsetPx : 0,
+        });
       }
     }
   } catch {

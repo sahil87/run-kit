@@ -528,39 +528,230 @@ describe("QuakeTerminal", () => {
     expect(el.style.backgroundColor).toContain("100%");
   });
 
-  it("dragging the height grip resizes the drawer and persists the geometry on release", async () => {
+  const storedGeometry = () => JSON.parse(localStorage.getItem("runkit-quake-terminal-geometry")!);
+
+  it("dragging the bottom grip resizes only the height and persists the geometry on release", async () => {
     renderQuake();
     openDrawer();
     const el = await screen.findByTestId("quake-terminal");
     expect(el.style.height).toBe("55vh");
+    expect(el.style.left).toBe("calc(50% + 0px)");
 
-    const grip = screen.getByTestId("quake-terminal-grip-height");
+    const grip = screen.getByTestId("quake-terminal-grip-bottom");
     // A full-viewport drag overshoots the clamp: the height pins at 85vh.
     fireEvent.pointerDown(grip, { button: 0, clientX: 100, clientY: 300, pointerId: 1 });
     fireEvent.pointerMove(grip, { clientX: 100, clientY: 300 + window.innerHeight, pointerId: 1 });
     expect(el.style.height).toBe("85vh");
+    expect(el.style.width).toBe("760px");
+    expect(el.className).toContain("rk-quake-dragging");
     fireEvent.pointerUp(grip, { pointerId: 1 });
 
-    expect(JSON.parse(localStorage.getItem("runkit-quake-terminal-geometry")!)).toMatchObject({
-      heightVh: 85,
-    });
+    expect(el.className).not.toContain("rk-quake-dragging");
+    expect(storedGeometry()).toEqual({ heightVh: 85, widthPx: 760, centerOffsetPx: 0 });
   });
 
-  it("dragging a side grip resizes symmetrically and persists the width", async () => {
+  it("the tongue tab inside the bottom grip is a valid height grab", async () => {
+    renderQuake();
+    openDrawer();
+    const el = await screen.findByTestId("quake-terminal");
+
+    const tab = screen.getByTestId("quake-terminal-tongue-tab");
+    expect(screen.getByTestId("quake-terminal-grip-bottom")).toContainElement(tab);
+    // 25% of the viewport height: 55vh → 80vh.
+    fireEvent.pointerDown(tab, { button: 0, clientX: 100, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(tab, { clientX: 100, clientY: 300 + window.innerHeight / 4, pointerId: 1 });
+    expect(el.style.height).toBe("80vh");
+    fireEvent.pointerUp(tab, { pointerId: 1 });
+    expect(storedGeometry()).toMatchObject({ heightVh: 80 });
+    expect(screen.queryByTestId("quake-terminal-grip-height")).toBeNull();
+  });
+
+  it("dragging the right grip moves only the right edge: width +dx, center +dx/2", async () => {
     renderQuake();
     openDrawer();
     const el = await screen.findByTestId("quake-terminal");
 
     const grip = screen.getByTestId("quake-terminal-grip-right");
     fireEvent.pointerDown(grip, { button: 0, clientX: 500, clientY: 100, pointerId: 1 });
-    fireEvent.pointerMove(grip, { clientX: 550, clientY: 100, pointerId: 1 });
-    // +50px on the right edge = +100px total (the drawer stays centered).
+    fireEvent.pointerMove(grip, { clientX: 600, clientY: 100, pointerId: 1 });
+    // +100px on the right edge: the drawer grows by 100 and its center shifts
+    // by 50, so the left edge (center − width/2) stays where it was.
     expect(el.style.width).toBe("860px");
+    expect(el.style.left).toBe("calc(50% + 50px)");
+    expect(el.style.height).toBe("55vh");
     fireEvent.pointerUp(grip, { pointerId: 1 });
 
-    expect(JSON.parse(localStorage.getItem("runkit-quake-terminal-geometry")!)).toMatchObject({
-      widthPx: 860,
+    expect(storedGeometry()).toEqual({ heightVh: 55, widthPx: 860, centerOffsetPx: 50 });
+  });
+
+  it("dragging the left grip outward mirrors: width +|dx|, center −|dx|/2", async () => {
+    renderQuake();
+    openDrawer();
+    const el = await screen.findByTestId("quake-terminal");
+
+    const grip = screen.getByTestId("quake-terminal-grip-left");
+    fireEvent.pointerDown(grip, { button: 0, clientX: 300, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(grip, { clientX: 200, clientY: 100, pointerId: 1 });
+    expect(el.style.width).toBe("860px");
+    // jsdom normalizes `+ -50px` to `- 50px`.
+    expect(el.style.left).toBe("calc(50% - 50px)");
+    fireEvent.pointerUp(grip, { pointerId: 1 });
+
+    expect(storedGeometry()).toEqual({ heightVh: 55, widthPx: 860, centerOffsetPx: -50 });
+  });
+
+  it("dragging the bottom-right corner resizes both axes in one drag", async () => {
+    renderQuake();
+    openDrawer();
+    const el = await screen.findByTestId("quake-terminal");
+
+    const grip = screen.getByTestId("quake-terminal-grip-bottom-right");
+    fireEvent.pointerDown(grip, { button: 0, clientX: 500, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(grip, {
+      clientX: 600,
+      clientY: 300 + window.innerHeight / 4,
+      pointerId: 1,
     });
+    expect(el.style.width).toBe("860px");
+    expect(el.style.left).toBe("calc(50% + 50px)");
+    expect(el.style.height).toBe("80vh");
+    fireEvent.pointerUp(grip, { pointerId: 1 });
+
+    expect(storedGeometry()).toEqual({ heightVh: 80, widthPx: 860, centerOffsetPx: 50 });
+  });
+
+  it("the center offset is clamped so the drawer keeps its edge pad inside the viewport", async () => {
+    renderQuake();
+    openDrawer();
+    const el = await screen.findByTestId("quake-terminal");
+
+    // jsdom's viewport is 1024px: dragging the right edge far out pins the width
+    // at 96vw (983px) and the offset at round((1024 − 983) / 2 − 8) = 13.
+    const grip = screen.getByTestId("quake-terminal-grip-right");
+    fireEvent.pointerDown(grip, { button: 0, clientX: 500, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(grip, { clientX: 5000, clientY: 100, pointerId: 1 });
+    expect(el.style.width).toBe("983px");
+    expect(el.style.left).toBe("calc(50% + 13px)");
+    fireEvent.pointerUp(grip, { pointerId: 1 });
+  });
+
+  it("hovering a corner lights both adjacent edge grips and nothing else", async () => {
+    renderQuake();
+    openDrawer();
+    await screen.findByTestId("quake-terminal");
+    const left = screen.getByTestId("quake-terminal-grip-left");
+    const right = screen.getByTestId("quake-terminal-grip-right");
+    const bottom = screen.getByTestId("quake-terminal-grip-bottom");
+
+    fireEvent.pointerEnter(screen.getByTestId("quake-terminal-grip-bottom-right"));
+    expect(right).toHaveAttribute("data-lit");
+    expect(bottom).toHaveAttribute("data-lit");
+    expect(left).not.toHaveAttribute("data-lit");
+    expect(right.className).toContain("rk-quake-grip-lit");
+
+    fireEvent.pointerLeave(screen.getByTestId("quake-terminal-grip-bottom-right"));
+    expect(right).not.toHaveAttribute("data-lit");
+    expect(bottom).not.toHaveAttribute("data-lit");
+
+    // A single edge lights only itself.
+    fireEvent.pointerEnter(left);
+    expect(left).toHaveAttribute("data-lit");
+    expect(bottom).not.toHaveAttribute("data-lit");
+  });
+
+  it("an active drag keeps its edge lit even after the pointer leaves the grip", async () => {
+    renderQuake();
+    openDrawer();
+    await screen.findByTestId("quake-terminal");
+    const right = screen.getByTestId("quake-terminal-grip-right");
+
+    fireEvent.pointerEnter(right);
+    fireEvent.pointerDown(right, { button: 0, clientX: 500, clientY: 100, pointerId: 1 });
+    fireEvent.pointerLeave(right);
+    expect(right).toHaveAttribute("data-lit");
+    fireEvent.pointerUp(right, { pointerId: 1 });
+    expect(right).not.toHaveAttribute("data-lit");
+  });
+
+  it("a second pointer cannot hijack or end a live drag", async () => {
+    renderQuake();
+    openDrawer();
+    const el = await screen.findByTestId("quake-terminal");
+
+    const grip = screen.getByTestId("quake-terminal-grip-right");
+    fireEvent.pointerDown(grip, { button: 0, clientX: 500, clientY: 100, pointerId: 1 });
+    // A second finger lands on the grip: its down, move, and up are ignored.
+    fireEvent.pointerDown(grip, { button: 0, clientX: 900, clientY: 100, pointerId: 2 });
+    fireEvent.pointerMove(grip, { clientX: 1000, clientY: 100, pointerId: 2 });
+    expect(el.style.width).toBe("760px");
+    fireEvent.pointerUp(grip, { pointerId: 2 });
+    expect(el.className).toContain("rk-quake-dragging");
+    expect(localStorage.getItem("runkit-quake-terminal-geometry")).toBeNull();
+
+    // The first pointer still owns the drag.
+    fireEvent.pointerMove(grip, { clientX: 540, clientY: 100, pointerId: 1 });
+    expect(el.style.width).toBe("800px");
+    fireEvent.pointerUp(grip, { pointerId: 1 });
+    expect(el.className).not.toContain("rk-quake-dragging");
+    expect(storedGeometry()).toMatchObject({ widthPx: 800, centerOffsetPx: 20 });
+  });
+
+  it("pointercancel ends a drag through the same release path", async () => {
+    renderQuake();
+    openDrawer();
+    const el = await screen.findByTestId("quake-terminal");
+
+    const grip = screen.getByTestId("quake-terminal-grip-right");
+    fireEvent.pointerDown(grip, { button: 0, clientX: 500, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(grip, { clientX: 540, clientY: 100, pointerId: 1 });
+    expect(el.className).toContain("rk-quake-dragging");
+    fireEvent.pointerCancel(grip, { pointerId: 1 });
+
+    expect(el.className).not.toContain("rk-quake-dragging");
+    expect(storedGeometry()).toMatchObject({ widthPx: 800, centerOffsetPx: 20 });
+  });
+
+  it("double-clicking any grip resets the geometry to the defaults", async () => {
+    localStorage.setItem(
+      "runkit-quake-terminal-geometry",
+      JSON.stringify({ heightVh: 70, widthPx: 900, centerOffsetPx: 40 }),
+    );
+    renderQuake();
+    openDrawer();
+    const el = await screen.findByTestId("quake-terminal");
+    expect(el.style.width).toBe("900px");
+    expect(el.style.left).toBe("calc(50% + 40px)");
+
+    fireEvent.doubleClick(screen.getByTestId("quake-terminal-grip-bottom-left"));
+
+    expect(el.style.width).toBe("760px");
+    expect(el.style.height).toBe("55vh");
+    expect(el.style.left).toBe("calc(50% + 0px)");
+    expect(storedGeometry()).toEqual({ heightVh: 55, widthPx: 760, centerOffsetPx: 0 });
+  });
+
+  it("a viewport resize re-clamps the displayed offset without writing the store", async () => {
+    localStorage.setItem(
+      "runkit-quake-terminal-geometry",
+      JSON.stringify({ heightVh: 55, widthPx: 760, centerOffsetPx: 100 }),
+    );
+    const originalWidth = window.innerWidth;
+    renderQuake();
+    openDrawer();
+    const el = await screen.findByTestId("quake-terminal");
+    expect(el.style.left).toBe("calc(50% + 100px)");
+
+    try {
+      // 900px viewport: the bound becomes (900 − 760) / 2 − 8 = 62.
+      Object.defineProperty(window, "innerWidth", { value: 900, configurable: true });
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+      expect(el.style.left).toBe("calc(50% + 62px)");
+      expect(storedGeometry()).toEqual({ heightVh: 55, widthPx: 760, centerOffsetPx: 100 });
+    } finally {
+      Object.defineProperty(window, "innerWidth", { value: originalWidth, configurable: true });
+    }
   });
 
   it("file paste inside the drawer uploads to the operator session and insert-delivers the path", async () => {

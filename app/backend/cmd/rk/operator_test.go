@@ -610,6 +610,50 @@ func TestOperatorListWindowsFailure(t *testing.T) {
 	}
 }
 
+// --- Launcher-only: no cron state access ---
+
+// TestOperatorTouchesNoCronState: the operator-tick cron entry is the
+// consumer's (fab's clock reconcile seeds and tunes it), so rk operator neither
+// reads nor writes the cron state directory and emits no seed warning — on the
+// interactive path and the -L/--server path alike.
+func TestOperatorTouchesNoCronState(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		server string
+	}{{"interactive", ""}, {"server-mode", "runKit"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetOperatorWorkers(t)
+			resetOperatorServer(t)
+			operatorServerFlag = tc.server
+			stubOperatorSeams(t, "@3\t\tother\n")
+			if tc.server != "" {
+				origTMUX := operatorOriginalTMUXFn
+				operatorOriginalTMUXFn = func() string { return "" }
+				t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
+			}
+			stateDir := t.TempDir()
+			origDir := cronDirFn
+			cronDirFn = func() (string, error) { return stateDir, nil }
+			t.Cleanup(func() { cronDirFn = origDir })
+
+			cmd, _, errBuf := operatorTestCmd()
+			if err := runOperator(cmd); err != nil {
+				t.Fatalf("runOperator() = %v", err)
+			}
+			files, err := os.ReadDir(stateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(files) != 0 {
+				t.Errorf("cron state dir gained %d file(s), want none", len(files))
+			}
+			if strings.Contains(errBuf.String(), "seed") {
+				t.Errorf("stderr = %q, want no seed warning", errBuf.String())
+			}
+		})
+	}
+}
+
 // --- rk operator -L/--server (daemon-invocable) ---
 //
 // With -L the inside-tmux precondition is waived, every tmux call is addressed

@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logo Design Studies</title>
+<style>
+  :root{--bg:#0b0e14;--bg-card:#141922;--bg-inset:#1a2029;--border:#2a3140;--text:#c9d1d9;--text-2:#7d8590;--accent:#3fb950;--yellow:#e3b341;--red:#f85149;
+        --app-bg:#0f1117;--app-inset:#0a0c12;--app-text:#e8eaf0;--app-text2:#7a8394;--app-border:#454d66;--app-green:#22c55e;
+        --lt-bg:#f8f9fb;--lt-inset:#e8eaef;--lt-text:#1a1d24;--lt-text2:#6b7280;--lt-border:#d1d5db;--lt-green:#16a34a}
+  html[data-theme="light"]{--bg:#f4f5f8;--bg-card:#ffffff;--bg-inset:#e9ecf1;--border:#d3d8e0;--text:#1f242d;--text-2:#5b6573;--accent:#1a7f37;--yellow:#9a6700;--red:#cf222e;color-scheme:light}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;padding:20px 16px 64px;max-width:1080px;margin:0 auto}
+  h1{font-size:16px;letter-spacing:.04em;margin:4px 0 4px}
+  h2{font-size:11px;color:var(--text-2);text-transform:uppercase;letter-spacing:.12em;margin:40px 0 12px;border-bottom:1px solid var(--border);padding-bottom:6px}
+  h3{font-size:12px;color:var(--text);margin:22px 0 8px;font-weight:600}
+  p.note{color:var(--text-2);font-size:12px;margin:6px 0 14px;max-width:92ch}
+  .cap{font-size:11px;color:var(--text-2);margin:8px 2px 18px;max-width:92ch}
+  .cap b{color:var(--text)} .cap i{color:var(--accent);font-style:normal}
+  code{font-size:11.5px;background:var(--bg-inset);padding:1px 4px;border-radius:3px;color:var(--text)}
+  pre{font-size:11px;background:var(--bg-inset);border:1px solid var(--border);border-radius:6px;padding:10px 12px;overflow:auto;color:var(--text);margin:8px 0 14px;line-height:1.5}
+  table{border-collapse:collapse;font-size:11.5px;margin:8px 0 16px;width:100%}
+  th,td{border:1px solid var(--border);padding:5px 8px;text-align:left;vertical-align:top}
+  th{color:var(--text-2);font-weight:600;background:var(--bg-card)}
+  .row{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px}
+  .demo{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:120px}
+  .lbl{font-size:11px;color:var(--text);font-weight:600;text-align:center}
+  .sub{font-size:10.5px;color:var(--text-2);text-align:center;max-width:160px;line-height:1.35}
+  button{background:var(--bg-inset);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:4px 10px;font:inherit;font-size:11px;cursor:pointer}
+  button:hover{border-color:var(--text-2)}
+  .ok{color:var(--accent)} .bad{color:var(--red)} .warn{color:var(--yellow)}
+  .sw{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-2px;margin-right:5px;border:1px solid var(--border)}
+  .ground{border-radius:6px;padding:12px 14px;display:flex;gap:22px;align-items:flex-end;flex-wrap:wrap}
+  .ground.dark{background:var(--app-bg);border:1px solid var(--app-border)} .ground.dark .sub{color:var(--app-text2)}
+  .ground.light{background:var(--lt-bg);border:1px solid var(--lt-border)} .ground.light .sub{color:var(--lt-text2)}
+  .ground .demo{min-width:0}
+  @keyframes logo-chase{0%,100%{opacity:.2}16.6%,33.3%{opacity:1}}
+  @keyframes d-pulse{0%,100%{opacity:.5}50%{opacity:1}}
+  @keyframes rk-glitch{0%{text-shadow:none;transform:translateX(0)}50%{text-shadow:-2px 0 color-mix(in srgb,#ff3b3b 85%,transparent),2px 0 color-mix(in srgb,#3bd1ff 85%,transparent);transform:translateX(1px)}100%{text-shadow:none;transform:translateX(0)}}
+  .brand:hover .wordmark{animation:rk-glitch 300ms steps(2) 1;color:var(--g)}
+  @keyframes spin1440{to{transform:rotate(1440deg)}}
+  @keyframes spin720{to{transform:rotate(720deg)}}
+  .spin-whole.play{animation:spin1440 600ms cubic-bezier(.16,.84,.32,1) 1}
+  .spin-ring.play .ring{animation:spin720 600ms cubic-bezier(.16,.84,.32,1) 1}
+  .ring{transform-box:fill-box;transform-origin:50% 50%}
+  body.rm .ring polygon,body.rm .face{animation:none!important}
+  body.rm .brand:hover .wordmark{animation:none}
+  body.rm .spin-whole.play,body.rm .spin-ring.play .ring{animation:none}
+  .toolbar{display:flex;gap:16px;align-items:center;flex-wrap:wrap;font-size:11.5px;color:var(--text-2);margin:10px 0 4px}
+  .toolbar label{display:flex;gap:6px;align-items:center;cursor:pointer}
+  .topbar{display:flex;align-items:center;gap:6px;height:40px;padding:0 8px;border:1px solid var(--app-border);background:var(--app-bg);color:var(--app-text2);font-size:12px;border-radius:6px;--g:var(--app-green);width:420px;max-width:100%}
+  .topbar.light{background:var(--lt-bg);border-color:var(--lt-border);color:var(--lt-text2);--g:var(--lt-green)}
+  .crumb{display:inline-flex;align-items:center;gap:8px;min-height:28px;border:1px solid var(--app-border);border-radius:4px;padding:2px 6px;color:var(--app-text2);text-decoration:none;transition:color .15s,border-color .15s;font-size:12px;cursor:pointer}
+  .crumb:hover{border-color:var(--app-text2);color:var(--app-text)}
+  .light .crumb{border-color:var(--lt-border);color:var(--lt-text2)} .light .crumb:hover{border-color:var(--lt-text2);color:var(--lt-text)}
+  .ham{width:24px;height:24px;display:inline-flex;flex-direction:column;justify-content:center;gap:4px;align-items:center}
+  .ham i{display:block;width:14px;height:1.5px;background:currentColor}
+  .sep{opacity:.6;padding:0 2px}
+  .sidebox{width:220px;background:var(--app-bg);border:1px solid var(--app-border);border-radius:6px;overflow:hidden;--g:var(--app-green)}
+  .sidebox.light{background:var(--lt-bg);border-color:var(--lt-border);--g:var(--lt-green)}
+  .sidebrand{display:flex;align-items:center;gap:8px;padding:4px 6px;min-height:28px;border-bottom:1px solid var(--app-border);color:var(--app-text2);font-size:12px;font-weight:700;letter-spacing:.05em;transition:color .15s;cursor:pointer}
+  .sidebrand:hover{color:var(--app-text)}
+  .light .sidebrand{border-color:var(--lt-border);color:var(--lt-text2)} .light .sidebrand:hover{color:var(--lt-text)}
+  .fake{height:12px;margin:8px 10px;border-radius:3px;background:var(--app-inset)} .light .fake{background:var(--lt-inset)}
+  .mask{position:relative;width:260px;height:150px;border:1px solid var(--app-border);border-radius:6px;background:var(--app-bg);overflow:hidden}
+  .mask .term{position:absolute;inset:0;padding:10px;color:var(--app-text2);font-size:10px;line-height:1.5;white-space:pre}
+  .mask .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--app-bg);animation:mask-in 120ms ease-out both}
+  @keyframes mask-in{from{opacity:0}to{opacity:1}}
+  .scrub{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:10px 0}
+  input[type=range]{width:280px}
+  .readout{font-size:11px;color:var(--text-2);min-width:260px;line-height:1.6} .readout b{color:var(--text)}
+  .film{display:flex;gap:10px;flex-wrap:wrap} .film .demo{min-width:92px} .film .sub{max-width:92px}
+  .plate{display:grid;place-items:center;background:#0f1117}
+  .tabbar{display:inline-flex;align-items:flex-end;padding:8px 8px 0;border-radius:8px 8px 0 0}
+  .tabbar.dark{background:#202124} .tabbar.light{background:#dee1e6}
+  .tab{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:8px 8px 0 0;font:12px system-ui,sans-serif}
+  .tab.dark{background:#35363a;color:#e8eaed} .tab.light{background:#fff;color:#202124}
+  .readme{font:600 24px/1.25 -apple-system,system-ui,sans-serif;padding:14px 18px 10px;border-radius:6px;display:flex;align-items:center;gap:8px;width:300px}
+  .readme.dark{background:#0d1117;color:#e6edf3;border:1px solid #30363d} .readme.light{background:#fff;color:#1f2328;border:1px solid #d0d7de}
+  .tints{display:flex;gap:10px;flex-wrap:wrap} .tints .demo{min-width:70px}
+  .anat text{font:600 7px ui-monospace,Menlo,monospace}
+</style>
+</head>
+<body>
+
+<h1>Logo Design Studies</h1>
+<p class="note">The hexagon-cube brand mark in every state it ships in — static, loading, at rest in the brand crumb, under the hover sweep, and as an icon — rebuilt from the shipped geometry, CSS and math (<code>logo-spinner.tsx</code>, <code>globals.css</code>, <code>icontint.go</code>, <code>generate-icons.sh</code>) rather than from screenshots, so every demo below is live and pixel-faithful. Consolidates the three earlier logo studies (§5); none of their artifacts remain in the repo — the 2026-04 page's variants are replayed in §1. 260910 discussion, glow toned 260912.</p>
+<div class="toolbar">
+  <label><input type="checkbox" id="lightPage"> light page chrome (the app-ground mocks always show both themes)</label>
+  <label><input type="checkbox" id="rm"> simulate <code>prefers-reduced-motion</code> — chase zeroed, sweep and spins skipped, glitch off (the rest state IS the reduced state)</label>
+</div>
+
+<h2>0 · The mark — nine polygons, five grays</h2>
+<div class="row">
+  <div class="card" id="anatomy"></div>
+  <div style="flex:1;min-width:300px">
+    <table>
+      <tr><th>Polygon</th><th>Edge</th><th>Fill</th><th>Role</th></tr>
+      <tr><td>segment 0</td><td>upper-right</td><td><span class="sw" style="background:#b4b4b4"></span><code>#b4b4b4</code></td><td rowspan="3">lit trio <code>{5, 0, 1}</code> — light from the upper right; segment 0 is the trio's center, where the hover sweep lands</td></tr>
+      <tr><td>segment 1</td><td>lower-right</td><td><span class="sw" style="background:#b4b4b4"></span><code>#b4b4b4</code></td></tr>
+      <tr><td>segment 5</td><td>top</td><td><span class="sw" style="background:#b4b4b4"></span><code>#b4b4b4</code></td></tr>
+      <tr><td>segment 2</td><td>bottom</td><td><span class="sw" style="background:#2a2a2a"></span><code>#2a2a2a</code></td><td rowspan="3">dark trio <code>{2, 3, 4}</code> — the shadow side</td></tr>
+      <tr><td>segment 3</td><td>lower-left</td><td><span class="sw" style="background:#2a2a2a"></span><code>#2a2a2a</code></td></tr>
+      <tr><td>segment 4</td><td>upper-left</td><td><span class="sw" style="background:#2a2a2a"></span><code>#2a2a2a</code></td></tr>
+      <tr><td>face t</td><td>top rhombus</td><td><span class="sw" style="background:#888888"></span><code>#888888</code></td><td rowspan="3">the inner cube — <b>never animated</b> (the one 2026-04 variant that pulsed the faces was rejected, §1)</td></tr>
+      <tr><td>face r</td><td>lower rhombus</td><td><span class="sw" style="background:#737373"></span><code>#737373</code></td></tr>
+      <tr><td>face l</td><td>left rhombus</td><td><span class="sw" style="background:#545454"></span><code>#545454</code></td></tr>
+    </table>
+  </div>
+</div>
+<p class="cap">Segments are indexed 0–5 <b>clockwise from the upper-right edge</b> — the order of <code>BORDER_SEGMENTS</code> in <code>logo-spinner.tsx</code>, which is also the polygon order in <code>icon.svg</code>. The static fills are the single source of truth for the rest pattern: the hover sweep derives lit-trio membership from <code>staticFill === LIT_FILL</code> rather than restating the index set. All five grays are literals, not theme tokens — the mark renders identically in dark and light (see the ladder below). ViewBox <code>7 10 50 44</code>, pre-computed coordinates, no transforms.</p>
+
+<h3>Canonical sources — one SVG, four byte-identical copies</h3>
+<table>
+  <tr><th>File</th><th>Role</th></tr>
+  <tr><td><code>app/frontend/public/icon.svg</code></td><td><b>canonical</b> — the favicon/PWA source; <code>scripts/generate-icons.sh</code> reads only this</td></tr>
+  <tr><td><code>app/frontend/public/generated-icons/favicon.svg</code></td><td>generated copy (plain file copy, not a symlink) — the <code>&lt;link rel=icon&gt;</code> target; tinted per instance by the Go server (§4)</td></tr>
+  <tr><td><code>assets/logo.svg</code></td><td>the README heading image (raw.githubusercontent URL, 32×32)</td></tr>
+  <tr><td><code>app/frontend/src/components/logo-spinner.tsx</code></td><td>the same nine polygons as two arrays — the in-app mark is always this component, never an <code>&lt;img&gt;</code>, so JS can reach the segments</td></tr>
+  <tr><td><code>hexokit-site</code> · <code>public/favicon.svg</code>, <code>src/assets/logo.svg</code></td><td>byte-identical to <code>icon.svg</code> — the HexoKit site already carries this mark (the S3 favicon regen was a no-op for that reason; §6)</td></tr>
+</table>
+
+<h3>Every shipped size, on both app grounds</h3>
+<div class="ground dark" id="ladder-dark"></div>
+<div class="ground light" id="ladder-light" style="margin-top:10px"></div>
+<p class="cap">Sizes are the literal <code>size</code> props in use. On the dark ground (<code>#0f1117</code>) the dark trio sits at ≈1.3:1 against the background and all but vanishes — the ring reads as three lit edges plus the cube, lit from the upper right, which is the intended drawing. On the light ground (<code>#f8f9fb</code>) it inverts: the dark trio jumps to ≈12:1 and the lit trio fades to ≈1.8:1, so the mark reads as lit from the <b>lower left</b>. That inversion has never been studied (§6). Below 14px the cube faces merge into one gray disc and only the ring carries the shape.</p>
+
+<h2>1 · Loading chase — <code>logo-chase</code></h2>
+<pre>@keyframes logo-chase { 0%, 100% { opacity: 0.2; }  16.6%, 33.3% { opacity: 1; } }
+segment i (all six filled #b4b4b4 while loading):
+  animation: logo-chase 1.2s ease-in-out ${i * 0.2 - 1.2}s infinite;   /* delays −1.2s … −0.2s */
+  transition: none;                        /* at rest: opacity 0.5s ease-out, fill 0.5s ease-out */</pre>
+<div class="row">
+  <div class="card demo"><div id="chase48"></div><div class="lbl">48 · shipped</div><div class="sub">negative delays: every segment starts mid-cycle, steady state from the first frame</div></div>
+  <div class="card demo"><div id="chase48pos"></div><div class="lbl">48 · pre-#517 <span class="bad">✗</span></div><div class="sub">positive delays: one bright side that "expands" over the first 1.2s lap</div></div>
+  <div class="card demo"><div id="chase16"></div><div class="lbl">16 · shipped</div><div class="sub">the default size</div></div>
+  <div class="card demo" style="justify-content:center;gap:10px"><button id="remount">Remount both 48s</button><div class="sub">the transient is a <b>mount</b> artifact — every spinner mount in the app paid it until 260803-ufqr</div></div>
+</div>
+<p class="cap">One sign change fixed it — the keyframes, the 1.2s duration and the 0.2s stagger are untouched (<b>Chase stagger is negative</b>, visual-design.md § Design Decisions). Rejected: rewriting the keyframes so frame 0 reads mid-chase (encodes the phase twice), a mount-time fade-in (hides the artifact instead of removing it), per-call-site overrides (the transient was shared, so the fix belongs in the component).</p>
+
+<h3>Stop transition — the 2026-04 study, replayed</h3>
+<div class="row" id="stops"></div>
+<p class="cap">The first logo study (<code>assets/logo-animation-preview.html</code>, 2026-04-04 — removed 2026-09-12 once this page replayed it) compared two chase variants × three ways to stop. <b>A3 fade-to-original</b> shipped: <code>animation: none</code> plus a 0.5s ease-out transition on <i>both</i> opacity and fill, so the uniform lit ring settles back into the two-tone rest pattern. <span class="bad">A1</span> and <span class="bad">A2</span> both left the ring uniformly <code>#b4b4b4</code> — the rest pattern never came back — on top of A1's snap. <span class="bad">D</span> pulsed the cube faces (2.4s, staggered 0.8s) as well; rejected, and the faces have stayed static in every treatment since.</p>
+
+<h3>Where the chase appears</h3>
+<table>
+  <tr><th>Size</th><th>Surface</th><th>Component</th></tr>
+  <tr><td>48</td><td>window-switch mask (below) · <code>ServerWaiting</code> "Creating server…"</td><td><code>app.tsx</code></td></tr>
+  <tr><td>14</td><td>create-session and spawn-agent dialogs while pending · top-bar Split control while pending</td><td><code>create-session-dialog.tsx</code> · <code>spawn-agent-dialog.tsx</code> · <code>top-bar.tsx</code></td></tr>
+  <tr><td>12</td><td>overflow-menu update chip and version row · a second top-bar pending chip</td><td><code>top-bar-overflow-menu.tsx</code> · <code>top-bar.tsx</code></td></tr>
+  <tr><td>10</td><td>sidebar SERVER panel refresh slot</td><td><code>sidebar/server-panel.tsx</code></td></tr>
+  <tr><td>20 · 18</td><td><i>at rest</i> (<code>loading={false}</code>) — top-bar brand crumb · sidebar brand row (§2)</td><td><code>top-bar.tsx</code> · <code>sidebar/index.tsx</code></td></tr>
+</table>
+
+<h3>The window-switch mask (260715-38kg)</h3>
+<div class="row">
+  <div class="mask" id="maskDemo"><div class="term">$ just dev
+  backend  → :3401
+  frontend → :3400
+▮</div></div>
+  <div class="demo" style="align-items:flex-start;gap:8px"><button id="replayMask">Replay switch</button><div class="sub" style="text-align:left;max-width:260px">A full-tile overlay in <code>bg-primary</code> with the 48px chase, fading IN over 120ms (<code>rk-window-switch-mask-in</code>); the lift is a plain unmount — a cut, by design. <code>role=status</code>, "Switching tab".</div></div>
+</div>
+
+<h2>2 · At rest — the brand crumb and the sidebar brand row</h2>
+<div class="row">
+  <div class="topbar" id="tbDark"></div>
+  <div class="topbar light" id="tbLight"></div>
+</div>
+<div class="row" style="margin-top:14px">
+  <div class="sidebox" id="sbDark"></div>
+  <div class="sidebox light" id="sbLight"></div>
+</div>
+<p class="cap"><b>Hover the brand</b> in any mock. The top-bar crumb is <code>LogoSpinner size={20} loading={false}</code> plus the <code>RunKit</code> wordmark at <code>text-xs</code> inside the link-crumb box (28px, 1px border, hover brightens border and text); hidden below <code>sm</code>, where the sidebar brand row (size 18, bold, tracking-wide) takes over as the home affordance. Both anchors carry <code>rk-brand-glitch</code>: a one-shot RGB-split <code>text-shadow</code> (300ms, <code>steps(2)</code>, ±2px) and <code>color: accent-green</code> for the hover — the one deliberate exception to "hover on controls is hue-free": <i>identity, not a control state</i>. The ring rides the same <code>onMouseEnter</code> with the sweep of §3, so hovering the wordmark plays it too.</p>
+
+<h2>3 · Brand hover sweep — detach, orbit, land</h2>
+<div class="row">
+  <div class="card demo" style="min-width:180px"><div id="sweepBig"></div><div class="lbl">hover or click to play</div><div class="sub">900ms · 3 laps · toned-white glow · re-trigger while running is ignored</div></div>
+  <div class="card" style="flex:1;min-width:320px">
+    <div class="scrub"><input type="range" id="scrub" min="0" max="1000" value="0"><div class="readout" id="readout"></div></div>
+    <div class="scrub"><label style="display:flex;gap:8px;align-items:center">glow <input type="range" id="glow" min="180" max="255" value="200"></label><div class="readout" id="glowOut"></div></div>
+    <div class="sub" style="text-align:left;max-width:none">Scrub <code>p</code> by hand, and drag the glow slider to tone the blob — it drives every sweep on this page (big demo, filmstrip, brand mocks, the C card). <b>Shipped: <code>#c8c8c8</code></b> (200) since 2026-09-12; 260803 shipped pure <code>#ffffff</code>, which read too harsh at crumb size. The lit gray is <code>#b4b4b4</code> (180), so the peak sits only just above rest — what makes the blob read is the lit half dimming to ≈47 while it flies, not the peak itself. The frames at <code>p = 0</code> and <code>p = 1</code> compute to exactly the rest fills — the landing and the rest state are the same event, which is the whole design goal: the eye must not be able to tell "the animation stopped" from "the lit segments reset".</div>
+  </div>
+</div>
+<h3>Filmstrip</h3>
+<div class="film" id="film"></div>
+<p class="cap"><code>h</code> is the fractional head position (segment units, clockwise), <code>s</code> the settle envelope — 1 at both ends (rest), 0 mid-flight (glow). Detach over the first 10%, land over the last 22% (from <code>p = 0.78</code>). Three whole laps park the head on segment 0, the lit trio's center, so the blob's landing spot IS the rest pattern's position — a fractional lap count would land off-center and make the restore a visible snap no easing could hide.</p>
+<pre>ease   = 1 − (1 − p)³                                  h = (ease · 3 · 6) mod 6          (continuous)
+s      = max( 1 − smoothstep(p / 0.10),  smoothstep((p − 0.78) / 0.22) )
+d_i    = min(|h − i|, 6 − |h − i|)                      gauss_i = exp(−d_i² / (2 · 0.85²))
+rest_i = 1 if i ∈ {5, 0, 1} else 0                     B_i = gauss_i · (1 − s) + rest_i · s
+bright = mix(GLOW, #b4b4b4, s)   GLOW = #c8c8c8          fill_i = rgb(mix(#2a2a2a, bright, B_i))
+driver: requestAnimationFrame; inline `transition: fill 0.5s` suspended for the flight and restored on landing;
+        prefers-reduced-motion ⇒ skipped in JS (no CSS gate line); the p = 1 frame is exact, the literal hex restore is a safety net</pre>
+
+<h3>Rejected, for the record — hover each</h3>
+<div class="row" id="rejected"></div>
+<p class="cap">Two shipped treatments preceded the sweep: the <b>kickstart spin</b> (260703-5ilm — the whole logo, four turns in 600ms, launched at full speed so the launch reads as flicker) and PR #362's refinement that spun <b>only the ring</b> (720°, <code>transform-box: fill-box</code> so the pivot is the hexagon center, not the viewBox origin). Both moved geometry — a second motion grammar beside the chase's illumination. The 2026-08 mock then went through a <b>stepped head</b> (<code>floor(ease·N)</code> — whole-segment jitter, and the last step lands only on the final frame, so the ring parks then snaps), a <b>gray glow</b> on an overlay (invisible over the lit half's own <code>#b4b4b4</code>), and an <b>accent-green glow</b> — rejected outright: <i>"green is not the answer. Needs to be white only."</i> White is the only color that reads over the lit half, and it keeps the Brand row's green cue on the wordmark's glitch where it already lives. On 2026-09-12 the pure <code>#ffffff</code> was toned to <code>#c8c8c8</code> — same math, a far softer peak; the slider above shows the range.</p>
+
+<h2>4 · Icons — favicon, PWA, desktop, README, tinted instances</h2>
+<div class="row">
+  <div class="demo"><div class="tabbar dark"><div class="tab dark" id="favDark"></div></div><div class="lbl">favicon · dark tab</div><div class="sub"><code>favicon.svg</code>, transparent, 16px</div></div>
+  <div class="demo"><div class="tabbar light"><div class="tab light" id="favLight"></div></div><div class="lbl">favicon · light tab</div><div class="sub">same file — no light variant</div></div>
+  <div class="demo"><div class="plate" style="width:96px;height:96px" id="pwa"></div><div class="lbl">icon-192 / icon-512</div><div class="sub">20% padding on <code>#0f1117</code> — solid ground because macOS fills transparent PWA icons with white (260324-v9i1)</div></div>
+  <div class="demo"><div class="plate" style="width:96px;height:96px;border-radius:50%" id="maskable"></div><div class="lbl">icon-512-maskable</div><div class="sub">40% padding — the Android safe-zone circle shown</div></div>
+  <div class="demo"><div class="plate" style="width:96px;height:96px;border-radius:22.37%" id="desktop"></div><div class="lbl">desktop <code>icon.png</code></div><div class="sub">1024px, 20% padding, rounded-rect mask at 22.37% (Apple's ratio) so png→icns sits near the squircle</div></div>
+</div>
+<div class="row" style="margin-top:16px">
+  <div class="readme dark" id="readmeDark"></div>
+  <div class="readme light" id="readmeLight"></div>
+</div>
+<p class="cap">The README heading uses <code>assets/logo.svg</code> at 32×32 via a raw.githubusercontent URL, so GitHub's dark and light themes get the same grays — the same lower-left inversion as the light app ground (§0).</p>
+
+<h3>Instance accent — the colorize ramp (260722-eo8e)</h3>
+<div class="tints" id="tints"></div>
+<pre>luma  = (299·R + 587·G + 114·B + 500) / 1000            (BT.601, integer)
+pixel ≤ 24 luma → untouched (the #0f1117 plate stays dark)
+else  channel = (accent_channel · luma + 90) / 180, clamped 255     — #b4b4b4 (luma 180) maps to the accent itself
+grays → #b4b4b4 100% · #888888 76% · #737373 64% · #545454 47% · #2a2a2a 23% of the accent</pre>
+<p class="cap">Exact port of <code>icontint.go</code>'s integer math (<code>TintSVG</code> substitutes these five fills; <code>TintPNG</code> runs the same ramp per pixel), so the swatches above are what the Dock, Cmd-Tab and the tab favicon show for each owned family at the default shade — the hexes are frozen from the default-dark theme's OKLCH rendering, since a Dock icon is theme-independent. Won a four-option mockup (colorized logo ✓ · tinted background plate · accent ring · badge dot) because it stays legible at Dock sizes. Descriptors outside the ten owned families (e.g. <code>7</code>, <code>2+5</code>) render the stock gray. That mockup was not committed (§5).</p>
+
+<h2>5 · Study history — what was done, where it lives</h2>
+<table>
+  <tr><th>Date</th><th>Work</th><th>Outcome</th><th>Artifact</th></tr>
+  <tr><td>2026-03-03</td><td>Mark v1 — "3D beveled hexagon with isometric cube", <code>public/logo.svg</code> + Next.js <code>icon.svg</code></td><td>fills <code>#a0a0a0 / #383838 / #7a7a7a / #6e6e6e / #606060</code>, viewBox <code>0 0 64 64</code></td><td>git only (<code>8dcffb55</code>)</td></tr>
+  <tr><td>2026-03-20</td><td>Contrast pass — wider ring range, tighter viewBox, duplicate copies consolidated</td><td>the five current grays; viewBox <code>4 4 56 56</code>, then <code>7 10 50 44</code> the same day ("near edge-to-edge")</td><td>git only (<code>44e39a8f</code>, <code>8892c7ff</code>)</td></tr>
+  <tr><td>2026-03-24</td><td>Icon generation pipeline (260324-v9i1, #81) — <code>logo.svg → icon.svg</code>, padded dark-plate PNGs, <code>just icons</code></td><td>fixed the jagged white fringe on the macOS Dock</td><td>change folder (archive)</td></tr>
+  <tr><td>2026-04-04</td><td><b>Study 1</b> — spinner stop-transition strategies (A chase / D chase+face pulse × abrupt / smooth / fade-to-original); <code>LogoSpinner</code> replaces every <code>animate-spin</code> circle (#111); README logo (#119)</td><td>A3 shipped</td><td><code>assets/logo-animation-preview.html</code> — <span class="bad">removed 2026-09-12</span>, replayed in §1</td></tr>
+  <tr><td>2026-07-03</td><td>Hover vocabulary (260703-5ilm) — brand glitch + kickstart spin 1440°</td><td>shipped, later replaced</td><td>change folder (archive)</td></tr>
+  <tr><td>2026-07-15</td><td>Ring-only spin 720° (#362)</td><td>shipped, later replaced</td><td>git only (<code>4a5cc9b9</code>)</td></tr>
+  <tr><td>2026-07-20</td><td>Wordmark "Run Kit" → "RunKit", hamburger-first cluster (260720-ap63, #425)</td><td>shipped</td><td>change folder (archive)</td></tr>
+  <tr><td>2026-07-22</td><td><b>Study 2</b> — Dock icon per-instance accent, four-option mockup (260722-eo8e, #437)</td><td>A colorized logo ✓, served dynamically by Go</td><td><span class="bad">mockup not committed</span> — reconstructed in §4</td></tr>
+  <tr><td>2026-07-29</td><td>Electron desktop shell (#462) — 1024px squircle-masked <code>icon.png</code> added to the pipeline</td><td>shipped</td><td>script + committed PNG</td></tr>
+  <tr><td>2026-08-03</td><td><b>Study 3</b> — <code>/fab-discuss</code> mock of both animations; stepped head → gray glow → green glow → white glow C; the start-transient root cause (260803-ufqr, #517)</td><td>white sweep + negative stagger shipped</td><td><span class="bad">mock not committed</span> — reconstructed in §1/§3 from the recorded math</td></tr>
+  <tr><td>2026-09-10</td><td><b>This page</b> — consolidation (updated 09-12: glow slider, page theme toggle)</td><td>—</td><td><code>docs/wiki/logo-design-studies.html</code></td></tr>
+  <tr><td>2026-09-12</td><td>Glow toned — <code>GLOW_RGB</code> <code>#ffffff → #c8c8c8</code>, too bright at crumb size; test bounds now 180 &lt; peak &lt; 210</td><td>toned white</td><td><code>logo-spinner.tsx</code> + test + memory</td></tr>
+</table>
+<div class="row">
+  <div class="card demo"><div id="v1"></div><div class="lbl">v1 · 2026-03-03</div><div class="sub">softer range, padded viewBox — at 64px the mark is visibly smaller in its box</div></div>
+  <div class="card demo"><div id="vNow"></div><div class="lbl">current</div><div class="sub">same 64px box, tight viewBox, #2a2a2a shadow trio</div></div>
+</div>
+
+<h2>6 · Recorded decisions, and what is open</h2>
+<table>
+  <tr><th>Decision (visual-design.md § Design Decisions)</th><th>One line</th></tr>
+  <tr><td>Brand logo motion is state-based, not a transform spin</td><td>one motion vocabulary — segment illumination — across loading and hover; no geometry moves; white (toned <code>#c8c8c8</code> since 2026-09-12), never green</td></tr>
+  <tr><td>Landing IS the rest state</td><td>integer lap count + a settle envelope that is 1 at both ends; the literal hex restore is a safety net, not the mechanism</td></tr>
+  <tr><td>Chase stagger is negative</td><td>steady state from frame one; keyframes and timing untouched</td></tr>
+  <tr><td>Brand glitch is the hue exception</td><td>hover on controls is hue-free; the brand's green is identity, not control state</td></tr>
+  <tr><td>Reduced motion: zeroed, not removed</td><td>CSS zeroes the chase; the JS sweep skips itself; the rest state is the reduced state — no CSS gate line for JS treatments</td></tr>
+  <tr><td>Icons are derived, tint is request-time</td><td>one canonical SVG; PNGs generated; the accent tint is computed per request from settings (Constitution II), never persisted</td></tr>
+</table>
+<table>
+  <tr><th>Open</th><th>Notes</th></tr>
+  <tr><td>Light-ground legibility</td><td>the five grays are literals; on <code>#f8f9fb</code> the lit trio sits at ≈1.8:1 and the mark reads lit from the lower left (§0). Never studied. A theme-aware fill pair (token-driven lit/dark) would keep one drawing in both themes — but it also changes the README and favicon story, which cannot know the theme.</td></tr>
+  <tr><td>HexoKit rebrand (<code>fab/plans/sahil/26-09-10-hexokit-rebrand.md</code>)</td><td>the ring is settled across the rename — hexokit-site already ships this exact SVG as favicon and logo. What changes in-app is the <b>wordmark string</b> beside the ring (<code>RunKit</code> in the top-bar crumb and sidebar brand row) and the PWA manifest name, both C-phase. The instance-accent tint carries over untouched.</td></tr>
+  <tr><td>Coarse pointers</td><td>no <code>mouseenter</code> on touch, so the sweep and glitch are desktop-only by nature; the mobile brand row is the static mark. Accepted, not a gap — noted so nobody hunts for a missing treatment.</td></tr>
+</table>
+
+<script>
+(function(){
+const NS='http://www.w3.org/2000/svg';
+const PTS=["44,11.2 56,32 47.5,32 39.5,17.2","56,32 44,52.8 39.5,46.8 47.5,32","44,52.8 20,52.8 24.5,46.8 39.5,46.8","20,52.8 8,32 16.5,32 24.5,46.8","8,32 20,11.2 24.5,17.2 16.5,32","20,11.2 44,11.2 39.5,17.2 24.5,17.2"];
+const LIT='#b4b4b4',DARK='#2a2a2a',REST=[LIT,LIT,DARK,DARK,DARK,LIT];
+const FACES=[["24.5,17.2 39.5,17.2 47.5,32 32,32","#888888"],["47.5,32 39.5,46.8 24.5,46.8 32,32","#737373"],["24.5,46.8 16.5,32 24.5,17.2 32,32","#545454"]];
+const V1={ring:['#a0a0a0','#a0a0a0','#383838','#383838','#383838','#a0a0a0'],faces:['#7a7a7a','#6e6e6e','#606060'],viewBox:'0 0 64 64'};
+const $=id=>document.getElementById(id);
+function el(tag,attrs){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
+function mark(size,o={}){
+  const svg=el('svg',{viewBox:o.viewBox||'7 10 50 44',width:size,height:size,'aria-hidden':'true'});
+  if(o.cls)svg.setAttribute('class',o.cls);
+  const g=el('g',{class:'ring'});const ring=o.ring||REST;
+  PTS.forEach((p,i)=>g.appendChild(el('polygon',{points:p,fill:ring[i],'data-seg':i})));
+  svg.appendChild(g);
+  const faces=o.faces||FACES.map(f=>f[1]);
+  FACES.forEach((f,i)=>svg.appendChild(el('polygon',{points:f[0],fill:faces[i],class:'face'})));
+  return svg;}
+const segs=svg=>[...svg.querySelectorAll('polygon[data-seg]')];
+const faces=svg=>[...svg.querySelectorAll('polygon.face')];
+function div(cls,html){const d=document.createElement('div');if(cls)d.className=cls;if(html!=null)d.innerHTML=html;return d;}
+function demo(parent,node,lbl,sub){const d=div('demo');d.appendChild(node);if(lbl)d.appendChild(div('lbl',lbl));if(sub)d.appendChild(div('sub',sub));parent.appendChild(d);return d;}
+const rm=()=>document.body.classList.contains('rm');
+$('rm').addEventListener('change',e=>document.body.classList.toggle('rm',e.target.checked));
+
+/* §0 anatomy */
+(function(){
+  const svg=mark(240,{viewBox:'4 7 56 50',cls:'anat'});
+  const mids=[[49,21],[49,43],[32,51],[15,43],[15,21],[32,13]];
+  mids.forEach((m,i)=>{const t=el('text',{x:m[0],y:m[1],'text-anchor':'middle','dominant-baseline':'central',fill:REST[i]===LIT?'#111':'#ddd'});t.textContent=i;svg.appendChild(t);});
+  [[32,25,'t'],[32,40,'r'],[24,32,'l']].forEach(f=>{const t=el('text',{x:f[0],y:f[1],'text-anchor':'middle','dominant-baseline':'central',fill:'#e8eaf0',opacity:.85});t.textContent=f[2];svg.appendChild(t);});
+  $('anatomy').appendChild(svg);
+})();
+/* §0 ladder */
+const LADDER=[[10,'SERVER refresh'],[12,'update chip'],[14,'dialogs · pending'],[16,'default'],[18,'sidebar brand'],[20,'top-bar brand'],[48,'mask · waiting']];
+for(const id of ['ladder-dark','ladder-light'])LADDER.forEach(([s,u])=>demo($(id),mark(s),s,u));
+
+/* §1 chase */
+function chaseOn(svg,negative,facePulse){segs(svg).forEach((p,i)=>{p.setAttribute('fill',LIT);p.style.transition='none';p.style.opacity='';p.style.animation=`logo-chase 1.2s ease-in-out ${negative?i*0.2-1.2:i*0.2}s infinite`;});faces(svg).forEach((f,i)=>{f.style.animation=facePulse?`d-pulse 2.4s ease-in-out ${i*0.8}s infinite`:'none';});}
+function chaseOff(svg,mode){segs(svg).forEach((p,i)=>{p.style.animation='none';if(mode==='abrupt'){p.style.transition='none';p.style.opacity='1';}else if(mode==='smooth'){p.style.transition='opacity .4s ease-out';p.style.opacity='1';}else{p.style.transition='opacity .5s ease-out, fill .5s ease-out';p.style.opacity='1';p.setAttribute('fill',REST[i]);}});faces(svg).forEach(f=>{f.style.transition='opacity .4s ease-out';f.style.animation='none';});}
+function mountChase(host,size,negative){host.innerHTML='';const s=mark(size);host.appendChild(s);chaseOn(s,negative,false);}
+mountChase($('chase48'),48,true);mountChase($('chase48pos'),48,false);mountChase($('chase16'),16,true);
+$('remount').addEventListener('click',()=>{mountChase($('chase48'),48,true);mountChase($('chase48pos'),48,false);});
+/* stops */
+const STOPS=[['A1 · abrupt','<span class="bad">✗</span> animation removed, no transition — snaps to a uniform lit ring','abrupt',false],['A2 · smooth fade','<span class="bad">✗</span> 400ms opacity ease — still a uniform lit ring; the rest pattern never returns','smooth',false],['A3 · fade to original','<span class="ok">✓ shipped</span> — 500ms opacity + fill ease back to the two-tone rest','twotone',false],['D3 · chase + face pulse','<span class="bad">✗</span> faces pulse 0.5↔1 (2.4s, 0.8s stagger) — the cube must stay still','twotone',true]];
+STOPS.forEach(([lbl,sub,mode,fp])=>{const card=div('card demo');const s=mark(72);card.appendChild(s);chaseOn(s,true,fp);card.appendChild(div('lbl',lbl));card.appendChild(div('sub',sub));const b=document.createElement('button');b.textContent='Stop';let on=true;b.addEventListener('click',()=>{on=!on;if(on){chaseOn(s,true,fp);b.textContent='Stop';}else{chaseOff(s,mode);b.textContent='Load';}});card.appendChild(b);$('stops').appendChild(card);});
+/* mask */
+function playMask(){const host=$('maskDemo');const old=host.querySelector('.overlay');if(old)old.remove();const ov=div('overlay');const s=mark(48);ov.appendChild(s);host.appendChild(ov);chaseOn(s,true,false);setTimeout(()=>ov.remove(),1800);}
+$('replayMask').addEventListener('click',playMask);playMask();
+
+/* §3 sweep math — verbatim port of sweepSegmentFill */
+let GLOW=[200,200,200];const WHITE=GLOW,LITRGB=[180,180,180],DARKRGB=[42,42,42],GREEN=[34,197,94];
+const sm=t=>{const c=Math.min(1,Math.max(0,t));return c*c*(3-2*c);};
+const mix=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];
+const rgb=f=>`rgb(${Math.round(f[0])}, ${Math.round(f[1])}, ${Math.round(f[2])})`;
+function headS(p){const ease=1-(1-p)**3;return{h:(ease*18)%6,s:Math.max(1-sm(p/0.1),sm((p-0.78)/0.22))};}
+function sweepFill(i,p,variant){
+  const {h,s}=headS(p);const rest=REST[i]===LIT?1:0;
+  if(variant==='stepped'){if(p>=1)return REST[i];return (Math.floor(h)%6)===i?LIT:DARK;}
+  const delta=Math.abs(h-i),d=Math.min(delta,6-delta),gauss=Math.exp(-(d*d)/(2*0.85*0.85));
+  if(variant==='gray'){const B=Math.max(rest,gauss*(1-s));return rgb(mix(DARKRGB,LITRGB,B));}
+  const glow=variant==='green'?GREEN:GLOW;
+  const B=gauss*(1-s)+rest*s;const bright=mix(glow,LITRGB,s);return rgb(mix(DARKRGB,bright,B));}
+function applyP(svg,p,variant){segs(svg).forEach((e,i)=>e.setAttribute('fill',sweepFill(i,p,variant)));}
+function runSweep(svg,variant,onFrame){
+  if(svg._run||rm())return;svg._run=true;const ps=segs(svg);const prev=ps.map(e=>e.style.transition);ps.forEach(e=>e.style.transition='none');
+  let t0=null;const frame=now=>{if(t0===null)t0=now;const p=Math.min(1,(now-t0)/900);applyP(svg,p,variant);if(onFrame)onFrame(p);
+    if(p<1){requestAnimationFrame(frame);return;}ps.forEach((e,i)=>{e.setAttribute('fill',REST[i]);e.style.transition=prev[i];});svg._run=false;};
+  requestAnimationFrame(frame);}
+function restSvg(size){const s=mark(size);segs(s).forEach(e=>e.style.transition='opacity 0.5s ease-out, fill 0.5s ease-out');return s;}
+/* big demo + scrubber */
+const big=restSvg(120);$('sweepBig').appendChild(big);
+const scrub=$('scrub'),readout=$('readout');
+function showP(p){const {h,s}=headS(p);readout.innerHTML=`p = <b>${p.toFixed(3)}</b><br>head h = <b>${h.toFixed(2)}</b> (segment ${Math.round(h)%6})<br>settle s = <b>${s.toFixed(3)}</b> ${s>=0.999?'— rest pattern':s<=0.001?'— full glow':''}`;scrub.value=Math.round(p*1000);}
+const play=()=>runSweep(big,'white',showP);
+$('sweepBig').parentElement.addEventListener('mouseenter',play);$('sweepBig').parentElement.addEventListener('click',play);
+scrub.addEventListener('input',()=>{if(big._run)return;const p=scrub.value/1000;segs(big).forEach(e=>e.style.transition='none');applyP(big,p,'white');showP(p);});
+showP(0);
+/* filmstrip */
+function buildFilm(){$('film').innerHTML='';[0,0.05,0.12,0.2,0.3,0.45,0.6,0.78,0.9,1].forEach(p=>{const s=mark(56);applyP(s,p,'white');const {h,s:ss}=headS(p);demo($('film'),s,`p ${p}`,`h ${h.toFixed(1)}<br>s ${ss.toFixed(2)}`);});}
+buildFilm();
+/* glow slider */
+const glowIn=$('glow'),glowOut=$('glowOut');
+function showGlow(){const g=GLOW[0];const hex='#'+g.toString(16).padStart(2,'0').repeat(3);const peak=Math.round(42+(g-42)*0.95767);glowOut.innerHTML=`glow = <b>${hex}</b> (${g})${g===200?' — shipped':g===255?' — 260803 value':''}<br>mid-flight peak ≈ <b>${peak}</b> · lit gray 180 · dark 42`;}
+glowIn.addEventListener('input',()=>{const g=+glowIn.value;GLOW=[g,g,g];showGlow();buildFilm();if(!big._run){const p=scrub.value/1000;segs(big).forEach(e=>e.style.transition='none');applyP(big,p,'white');}});
+showGlow();
+/* page theme */
+const lightIn=$('lightPage');
+function setLight(on){document.documentElement.dataset.theme=on?'light':'';lightIn.checked=on;}
+lightIn.addEventListener('change',()=>setLight(lightIn.checked));
+if(location.hash==='#light')setLight(true);
+/* rejected */
+const REJ=[
+ ['kickstart spin 1440°','260703-5ilm — whole logo, 600ms, launched at full speed','spinWhole'],
+ ['ring-only spin 720°','#362 — geometry still moves; pivot fixed via transform-box: fill-box','spinRing'],
+ ['stepped head','floor(ease·N): whole-segment jitter, parks then snaps at the end','stepped'],
+ ['gray glow','overlay in the lit gray — invisible over the lit half','gray'],
+ ['accent-green glow','"green is not the answer. Needs to be white only."','green'],
+ ['white glow · C','<span class="ok">✓ shipped</span> — #ffffff at 260803, toned to #c8c8c8 on 260912; follows the slider','white']];
+REJ.forEach(([lbl,sub,v])=>{const card=div('card demo');let s;
+  if(v==='spinWhole'||v==='spinRing'){s=restSvg(72);s.classList.add(v==='spinWhole'?'spin-whole':'spin-ring');card.addEventListener('mouseenter',()=>{if(rm())return;s.classList.remove('play');void s.getBoundingClientRect();s.classList.add('play');});s.addEventListener('animationend',()=>s.classList.remove('play'));}
+  else{s=restSvg(72);card.addEventListener('mouseenter',()=>runSweep(s,v));card.addEventListener('click',()=>runSweep(s,v));}
+  card.appendChild(s);card.appendChild(div('lbl',lbl));card.appendChild(div('sub',sub));$('rejected').appendChild(card);});
+
+/* §2 brand mocks */
+function brandCrumb(){const a=div('crumb brand');const s=restSvg(20);a.appendChild(s);const w=document.createElement('span');w.className='wordmark';w.textContent='RunKit';a.appendChild(w);a.addEventListener('mouseenter',()=>runSweep(s,'white'));return a;}
+function topbar(host){host.appendChild(div('ham','<i></i><i></i><i></i>'));host.appendChild(brandCrumb());host.appendChild(div('sep','›'));host.appendChild(div('crumb','run-kit ▾'));host.appendChild(div('sep','/'));host.appendChild(div('crumb','zsh ▾'));}
+topbar($('tbDark'));topbar($('tbLight'));
+function sidebox(host){const b=div('sidebrand brand');const s=restSvg(18);b.appendChild(s);const w=document.createElement('span');w.className='wordmark';w.textContent='RunKit';b.appendChild(w);b.addEventListener('mouseenter',()=>runSweep(s,'white'));host.appendChild(b);for(let i=0;i<3;i++)host.appendChild(div('fake'));}
+sidebox($('sbDark'));sidebox($('sbLight'));
+
+/* §4 icons */
+function tabInner(host){host.appendChild(mark(16));const t=document.createElement('span');t.textContent='RunKit';host.appendChild(t);}
+tabInner($('favDark'));tabInner($('favLight'));
+$('pwa').appendChild(mark(96*0.8));$('maskable').appendChild(mark(96*0.6));$('desktop').appendChild(mark(96*0.8));
+function readme(host){host.appendChild(mark(32));const t=document.createElement('span');t.textContent='run-kit';host.appendChild(t);}
+readme($('readmeDark'));readme($('readmeLight'));
+/* tint — exact port of icontint.go */
+const FAM=[['red','#ee7871'],['orange','#e58439'],['amber','#c19b22'],['olive','#95ad33'],['green','#51b96d'],['teal','#00b9aa'],['blue','#4fa5f8'],['purple','#a08ef5'],['magenta','#d37ccb'],['slate','#95a2b0'],['blue-dark','#1d79c8'],['blue-light','#a7d1fd']];
+const hex2=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+const luma=(r,g,b)=>Math.floor((299*r+587*g+114*b+500)/1000);
+const ramp=(a,y)=>Math.min(255,Math.floor((a*y+90)/180));
+function tint(gray,acc){const [r,g,b]=hex2(gray);const y=luma(r,g,b);if(y<=24)return gray;const [ar,ag,ab]=hex2(acc);return '#'+[ramp(ar,y),ramp(ag,y),ramp(ab,y)].map(v=>v.toString(16).padStart(2,'0')).join('');}
+demo($('tints'),(()=>{const p=div('plate');p.style.cssText='width:64px;height:64px;border-radius:14px';p.appendChild(mark(51));return p;})(),'stock','no accent');
+FAM.forEach(([name,acc])=>{const p=div('plate');p.style.cssText='width:64px;height:64px;border-radius:14px';p.appendChild(mark(51,{ring:REST.map(c=>tint(c,acc)),faces:FACES.map(f=>tint(f[1],acc))}));demo($('tints'),p,name,`<code>${acc}</code>`);});
+
+/* §5 v1 vs now */
+$('v1').appendChild(mark(64,V1));$('vNow').appendChild(mark(64));
+})();
+</script>
+</body>
+</html>

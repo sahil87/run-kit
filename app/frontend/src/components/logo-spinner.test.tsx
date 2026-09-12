@@ -55,11 +55,14 @@ describe("sweepSegmentFill", () => {
     }
   });
 
-  it("glows near-white at the head mid-flight while the lit half dims", () => {
+  it("glows toned-white at the head mid-flight (above the lit gray, below pure white) while the lit half dims", () => {
     // p=0.5: ease(0.5)=0.875 → h = (0.875·18) mod 6 = 3.75; envelope s = 0
     // (mid-flight). Segment 4 (d=0.25) sits under the blob; segment 0
-    // (d=2.25) is dim even though it is lit at rest.
-    expect(channel(sweepSegmentFill(4, 0.5))).toBeGreaterThan(240);
+    // (d=2.25) is dim even though it is lit at rest. The glow is #c8c8c8
+    // (200): peak ≈ 42 + 158·0.958 ≈ 193 — just above the lit gray (180),
+    // deliberately far below pure white.
+    expect(channel(sweepSegmentFill(4, 0.5))).toBeGreaterThan(180);
+    expect(channel(sweepSegmentFill(4, 0.5))).toBeLessThan(210);
     expect(channel(sweepSegmentFill(0, 0.5))).toBeLessThan(60);
   });
 });
@@ -122,7 +125,7 @@ describe("useBrandLogoSweep", () => {
 
     // Mid-flight (p=0.5): blob near segment 4, lit trio dimmed.
     runFrame(1000 + SWEEP_MS / 2);
-    expect(channel(segs[4].getAttribute("fill")!)).toBeGreaterThan(240);
+    expect(channel(segs[4].getAttribute("fill")!)).toBeGreaterThan(180);
     expect(channel(segs[0].getAttribute("fill")!)).toBeLessThan(60);
 
     // Landing (p=1): literal static fills restored (numerical safety net)

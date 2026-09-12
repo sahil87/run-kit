@@ -46,7 +46,10 @@ const SWEEP_LAND_START = 0.78;
 const SWEEP_LAND_SPAN = 0.22;
 
 type Rgb = readonly [number, number, number];
-const WHITE_RGB: Rgb = [255, 255, 255];
+// Glow color in flight: a toned white, just above the lit gray. Pure #ffffff
+// (the 260803 value) read too harsh at crumb size — toned down 2026-09-12;
+// the lit half dimming mid-flight is what makes the blob read, not its peak.
+const GLOW_RGB: Rgb = [200, 200, 200]; // #c8c8c8
 const LIT_RGB: Rgb = [180, 180, 180]; // #b4b4b4
 const DARK_RGB: Rgb = [42, 42, 42]; // #2a2a2a
 
@@ -83,9 +86,9 @@ export function sweepSegmentFill(i: number, p: number): string {
   const gauss = Math.exp(-(d * d) / (2 * SWEEP_SIGMA * SWEEP_SIGMA));
   const rest = BORDER_SEGMENTS[i].staticFill === LIT_FILL ? 1 : 0;
   const brightness = gauss * (1 - s) + rest * s;
-  // White glow in flight crossfades to the lit gray as it settles; each
+  // The glow in flight crossfades to the lit gray as it settles; each
   // segment sits between the dark base and that bright target.
-  const bright = mixRgb(WHITE_RGB, LIT_RGB, s);
+  const bright = mixRgb(GLOW_RGB, LIT_RGB, s);
   const fill = mixRgb(DARK_RGB, bright, brightness);
   return `rgb(${Math.round(fill[0])}, ${Math.round(fill[1])}, ${Math.round(fill[2])})`;
 }

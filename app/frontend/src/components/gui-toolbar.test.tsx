@@ -1,15 +1,13 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, cleanup, fireEvent, screen, act, within } from "@testing-library/react";
-import {
-  GuiToolbar,
-  TOOLBAR_HIDE_MS,
-  TOOLBAR_OVERFLOW_MIN_PX,
-  TOOLBAR_SHORT_LABEL_MAX_PX,
-} from "./gui-toolbar";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { render, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { GuiToolbar } from "./gui-toolbar";
 import { buildGuiActions, type GuiPaletteAction, type GuiPaletteInput } from "@/lib/palette/gui";
-import type { GuiPointerMode, GuiQuality, GuiZoom } from "@/lib/gui-posture";
+import type { GuiQuality } from "@/lib/gui-posture";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 function paletteInput(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput {
   return {
@@ -27,6 +25,7 @@ function paletteInput(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput
     statsVisible: false,
     hidpi: false,
     keyBarVisible: true,
+    toolbarVisible: false,
     geometry: "auto",
     supervisorAvailable: true,
     onTurnOn: vi.fn(),
@@ -45,6 +44,7 @@ function paletteInput(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput
     onStatsVisible: vi.fn(),
     onHidpiChange: vi.fn(),
     onKeyBarVisibleChange: vi.fn(),
+    onToolbarVisibleChange: vi.fn(),
     onSendKey: vi.fn(),
     onOpenLogs: vi.fn(),
     onReconnect: vi.fn(),
@@ -54,56 +54,44 @@ function paletteInput(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput
 
 interface RenderProps {
   input?: Partial<GuiPaletteInput>;
-  zoom?: GuiZoom;
-  pointerMode?: GuiPointerMode;
   coarsePointer?: boolean;
-  fullscreen?: boolean;
-  keyBarVisible?: boolean;
   quality?: GuiQuality;
   statsVisible?: boolean;
-  connected?: boolean;
   geometry?: string;
   width?: number;
   height?: number;
   locked?: boolean;
-  wrapperWidth?: number;
-  revealSignal?: number;
+  toolbarVisible?: boolean;
+  onToolbarVisibleChange?: (visible: boolean) => void;
 }
 
 function el(p: RenderProps, actions: GuiPaletteAction[]) {
   return (
     <GuiToolbar
       actions={actions}
-      zoom={p.zoom ?? 100}
-      pointerMode={p.pointerMode ?? "trackpad"}
-      coarsePointer={p.coarsePointer ?? true}
-      fullscreen={p.fullscreen ?? false}
-      keyBarVisible={p.keyBarVisible ?? true}
+      coarsePointer={p.coarsePointer ?? false}
       quality={p.quality ?? "balanced"}
       statsVisible={p.statsVisible ?? false}
-      connected={p.connected ?? true}
       geometry={p.geometry ?? "auto"}
       width={p.width ?? 0}
       height={p.height ?? 0}
       locked={p.locked ?? false}
-      wrapperWidth={p.wrapperWidth ?? 1280}
-      revealSignal={p.revealSignal ?? 0}
+      toolbarVisible={p.toolbarVisible ?? false}
+      onToolbarVisibleChange={p.onToolbarVisibleChange ?? (() => {})}
     />
   );
 }
 
-/** Render the pill against ONE built `buildGuiActions` list (the same array
- *  the palette would get). `rerenderWith` keeps that array identical. */
+/** Render the cluster against ONE built `buildGuiActions` list (the same
+ *  array the palette would get). jsdom has no layout: the probe reads all
+ *  zero, so the fold keeps its cold default — FULLY EXPANDED — unless the
+ *  test mocks probe widths (see mockWidths). */
 function setup(props: RenderProps = {}) {
   const input = paletteInput({
     coarsePointer: props.coarsePointer ?? true,
-    pointerMode: props.pointerMode ?? "trackpad",
-    keyBarVisible: props.keyBarVisible ?? true,
     quality: props.quality ?? "balanced",
     statsVisible: props.statsVisible ?? false,
-    connected: props.connected ?? true,
     geometry: props.geometry ?? "auto",
-    zoom: props.zoom ?? 100,
     locked: props.locked ?? false,
     ...props.input,
   });
@@ -117,6 +105,46 @@ function setup(props: RenderProps = {}) {
   };
 }
 
+/** Drive the fold in jsdom: the probe children's `data-fold` widths come
+ *  from `widths`; the root spring's clientWidth is `available`. The
+ *  ResizeObserver stub never fires, so the measure runs once at mount —
+ *  mount a fresh setup per width case. */
+function mockWidths(available: number, widths: Record<string, number>) {
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    const key = this.getAttribute("data-fold");
+    if (key !== null && key in widths) return widths[key];
+    return 0;
+  });
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.getAttribute("data-testid") === "gui-toolbar" ? available : 0;
+  });
+}
+
+/** Round-number probe widths mirroring the pure module's fixture. The
+ *  default connected fixture has 10 ladder items (no reconnect): full fit
+ *  377px, quality-degraded 321px, fully degraded 281px, pinned block 29px. */
+const PROBE = {
+  size: 90,
+  "size:short": 50,
+  "zoom-out": 24,
+  "zoom-fit": 24,
+  "zoom-in": 24,
+  quality: 80,
+  "quality:short": 24,
+  paste: 24,
+  "send-key": 24,
+  terminal: 24,
+  browser: 24,
+  stats: 24,
+  reconnect: 24,
+  divider: 5,
+  pinned: 29,
+};
+
 /** Replace a row's onSelect with a recording wrapper — a chip firing ANY
  *  other function object fails the assertion. */
 function spyRow(actions: GuiPaletteAction[], id: string) {
@@ -127,80 +155,17 @@ function spyRow(actions: GuiPaletteAction[], id: string) {
   return spy;
 }
 
-const chipLabels = () =>
+const inlineLabels = () =>
   within(screen.getByTestId("gui-toolbar"))
     .getAllByRole("button")
+    .filter((b) => b.closest("[data-fold]") === null)
     .map((b) => b.getAttribute("aria-label"));
 
-describe("GuiToolbar — show/hide machine", () => {
-  beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
-
-  it("a fine-pointer non-fullscreen viewer starts hidden", () => {
-    setup({ coarsePointer: false });
-    expect(screen.queryByTestId("gui-toolbar")).toBeNull();
-  });
-
-  it("a coarse viewer shows on mount and hides TOOLBAR_HIDE_MS later", () => {
-    setup();
-    expect(screen.getByTestId("gui-toolbar")).toBeTruthy();
-    act(() => vi.advanceTimersByTime(TOOLBAR_HIDE_MS - 1));
-    expect(screen.getByTestId("gui-toolbar")).toBeTruthy();
-    act(() => vi.advanceTimersByTime(1));
-    expect(screen.queryByTestId("gui-toolbar")).toBeNull();
-  });
-
-  it("a fullscreen viewer shows on mount", () => {
-    setup({ coarsePointer: false, fullscreen: true });
-    expect(screen.getByTestId("gui-toolbar")).toBeTruthy();
-  });
-
-  it("a revealSignal bump re-shows the hidden pill and restarts the timer", () => {
-    const { rerenderWith } = setup({ coarsePointer: false, revealSignal: 0 });
-    expect(screen.queryByTestId("gui-toolbar")).toBeNull();
-    rerenderWith({ revealSignal: 1 });
-    expect(screen.getByTestId("gui-toolbar")).toBeTruthy();
-    act(() => vi.advanceTimersByTime(TOOLBAR_HIDE_MS - 1));
-    expect(screen.getByTestId("gui-toolbar")).toBeTruthy();
-    act(() => vi.advanceTimersByTime(1));
-    expect(screen.queryByTestId("gui-toolbar")).toBeNull();
-  });
-
-  it("a chip interaction restarts the hide timer", () => {
-    setup();
-    act(() => vi.advanceTimersByTime(TOOLBAR_HIDE_MS - 100));
-    fireEvent.click(screen.getByLabelText("Zoom in"));
-    act(() => vi.advanceTimersByTime(TOOLBAR_HIDE_MS - 1));
-    expect(screen.getByTestId("gui-toolbar")).toBeTruthy();
-    act(() => vi.advanceTimersByTime(1));
-    expect(screen.queryByTestId("gui-toolbar")).toBeNull();
-  });
-
-  it("an open menu suspends the hide timer; Escape closes, refocuses the chip, and the timer restarts", () => {
-    setup();
-    const chipEl = screen.getByTestId("gui-toolbar-resolution");
-    fireEvent.click(chipEl);
-    expect(chipEl.getAttribute("aria-expanded")).toBe("true");
-    act(() => vi.advanceTimersByTime(5_000));
-    expect(screen.getByTestId("gui-toolbar")).toBeTruthy();
-    expect(screen.getByTestId("gui-toolbar-menu")).toBeTruthy();
-    fireEvent.keyDown(screen.getByTestId("gui-toolbar-menu"), { key: "Escape" });
-    expect(screen.queryByTestId("gui-toolbar-menu")).toBeNull();
-    expect(document.activeElement).toBe(chipEl);
-    expect(screen.getByTestId("gui-toolbar")).toBeTruthy();
-    act(() => vi.advanceTimersByTime(TOOLBAR_HIDE_MS - 1));
-    expect(screen.getByTestId("gui-toolbar")).toBeTruthy();
-    act(() => vi.advanceTimersByTime(1));
-    expect(screen.queryByTestId("gui-toolbar")).toBeNull();
-  });
-});
-
-describe("GuiToolbar — presence table", () => {
-  it("fine + connected + non-mirror: the full wide inventory in group order, no ⌖/⌨/↻/⋯", () => {
-    setup({ coarsePointer: false, fullscreen: true, geometry: "1920x1080", width: 1920, height: 1080 });
-    expect(chipLabels()).toEqual([
+describe("GuiToolbar — presence table (expanded cold default)", () => {
+  it("fine + connected + non-mirror: the full inventory in ladder order, no ⚙", () => {
+    setup({ coarsePointer: false, geometry: "1920x1080", width: 1920, height: 1080 });
+    expect(inlineLabels()).toEqual([
       "Resolution 1920×1080, menu",
-      "Exit fullscreen",
       "Zoom out",
       "Zoom to fit",
       "Zoom in",
@@ -211,38 +176,30 @@ describe("GuiToolbar — presence table", () => {
       "Open browser",
       "Toggle stats",
     ]);
-    // Five non-empty groups ⇒ four dividers.
-    expect(screen.getByTestId("gui-toolbar").querySelectorAll(".w-px")).toHaveLength(4);
+    // Four groups ⇒ exactly three dividers, none between the action glyphs.
+    expect(
+      within(screen.getByTestId("gui-toolbar"))
+        .queryAllByRole("generic", { hidden: true })
+        .filter((s) => s.className.includes("w-px") && s.closest("[data-fold]") === null),
+    ).toHaveLength(3);
+    expect(screen.queryByTestId("gui-toolbar-overflow")).toBeNull();
   });
 
-  it("coarse + connected: the ⌖/⌨ pair joins the Input group", () => {
-    setup({ geometry: "1920x1080", width: 1920, height: 1080 });
-    expect(chipLabels()).toEqual([
-      "Resolution 1920×1080, menu",
-      "Enter fullscreen",
-      "Zoom out",
-      "Zoom to fit",
-      "Zoom in",
-      "Quality",
-      "Pointer mode",
-      "Toggle key bar",
-      "Paste clipboard",
-      "Send key…",
-      "Open terminal",
-      "Open browser",
-      "Toggle stats",
-    ]);
+  it("coarse pointers get NO inline ⌖/⌨ chips — the pair lives in the panel", () => {
+    setup({ coarsePointer: true });
+    expect(screen.queryByLabelText("Pointer mode")).toBeNull();
+    expect(screen.queryByLabelText("Toggle key bar")).toBeNull();
   });
 
   it("disconnected: ⎘/⌥ are absent and ↻ is present", () => {
-    setup({ connected: false });
+    setup({ input: { connected: false } });
     expect(screen.queryByLabelText("Paste clipboard")).toBeNull();
     expect(screen.queryByLabelText("Send key…")).toBeNull();
     expect(screen.getByLabelText("Reconnect")).toBeTruthy();
   });
 
-  it("mirror backend: the resolution and launch chips are absent with their rows; the quality chip disables", () => {
-    setup({ coarsePointer: false, fullscreen: true, input: { backend: "screen-sharing" } });
+  it("mirror backend: the size and launch rungs are absent with their rows; the quality chip disables", () => {
+    setup({ input: { backend: "screen-sharing" } });
     expect(screen.queryByTestId("gui-toolbar-resolution")).toBeNull();
     expect(screen.queryByLabelText("Open terminal")).toBeNull();
     expect(screen.queryByLabelText("Open browser")).toBeNull();
@@ -250,41 +207,26 @@ describe("GuiToolbar — presence table", () => {
     expect(screen.getByLabelText("Toggle stats")).toBeTruthy();
   });
 
-  it("the palette-only rows never appear on the pill or in its menus", () => {
-    setup({ wrapperWidth: TOOLBAR_OVERFLOW_MIN_PX - 1 });
-    fireEvent.click(screen.getByTestId("gui-toolbar-overflow"));
-    const pill = screen.getByTestId("gui-toolbar");
+  it("the palette-only rows never appear in the cluster or its menus", () => {
+    mockWidths(270, PROBE);
+    setup({ toolbarVisible: true });
+    const cluster = screen.getByTestId("gui-toolbar");
     for (const text of ["Turn off", "Desktop…", "logs", "HiDPI", "1:1"]) {
-      expect(pill.textContent).not.toContain(text);
+      expect(cluster.textContent).not.toContain(text);
     }
   });
 });
 
 describe("GuiToolbar — gating", () => {
   it("the zoom chips render disabled (not absent) at fit and at 200", () => {
-    setup({ zoom: "fit" });
+    setup({ input: { zoom: "fit" } });
     expect(screen.getByLabelText("Zoom out")).toHaveProperty("disabled", true);
     expect(screen.getByLabelText("Zoom to fit")).toHaveProperty("disabled", true);
     expect(screen.getByLabelText("Zoom in")).toHaveProperty("disabled", false);
     cleanup();
-    setup({ zoom: 200 });
+    setup({ input: { zoom: 200 } });
     expect(screen.getByLabelText("Zoom in")).toHaveProperty("disabled", true);
     expect(screen.getByLabelText("Zoom out")).toHaveProperty("disabled", false);
-  });
-
-  it("the ⌖ and ⌨ chips are coarse-only", () => {
-    setup({ coarsePointer: false, fullscreen: true });
-    expect(screen.queryByLabelText("Pointer mode")).toBeNull();
-    expect(screen.queryByLabelText("Toggle key bar")).toBeNull();
-  });
-
-  it("⤢ toggles its aria-label between Enter and Exit fullscreen", () => {
-    const { actions, rerenderWith } = setup({ fullscreen: false });
-    const spy = spyRow(actions, "gui-fullscreen");
-    fireEvent.click(screen.getByLabelText("Enter fullscreen"));
-    expect(spy).toHaveBeenCalledOnce();
-    rerenderWith({ fullscreen: true });
-    expect(screen.getByLabelText("Exit fullscreen")).toBeTruthy();
   });
 
   it("∿ reflects the stats posture and fires the destination row", () => {
@@ -298,9 +240,16 @@ describe("GuiToolbar — gating", () => {
     // pressed state rides the prop.
     expect(screen.getByLabelText("Toggle stats")).toHaveAttribute("aria-pressed", "true");
   });
+
+  it("no control carries a native title (Tip replaces it, never both)", () => {
+    setup();
+    for (const b of within(screen.getByTestId("gui-toolbar")).getAllByRole("button")) {
+      expect(b.getAttribute("title")).toBeNull();
+    }
+  });
 });
 
-describe("GuiToolbar — the resolution chip", () => {
+describe("GuiToolbar — the size chip", () => {
   it("auto geometry reads `auto ▾`", () => {
     setup();
     const chip = screen.getByTestId("gui-toolbar-resolution");
@@ -327,21 +276,6 @@ describe("GuiToolbar — the resolution chip", () => {
     expect(screen.getByTestId("gui-toolbar-resolution")).toHaveTextContent("1080×1920 ▾");
   });
 
-  it("an empty geometry with zero sizes still renders the chip", () => {
-    setup({ geometry: "", width: 0, height: 0 });
-    expect(screen.getByTestId("gui-toolbar-resolution")).toBeTruthy();
-  });
-
-  it("below TOOLBAR_SHORT_LABEL_MAX_PX the label drops the ×H half; the aria-label keeps it", () => {
-    setup({ geometry: "1920x1080", width: 1920, height: 1080, wrapperWidth: TOOLBAR_SHORT_LABEL_MAX_PX - 1 });
-    const chip = screen.getByTestId("gui-toolbar-resolution");
-    expect(chip).toHaveTextContent("1920 ▾");
-    expect(chip.getAttribute("aria-label")).toBe("Resolution 1920×1080, menu");
-    cleanup();
-    setup({ geometry: "1920x1080", width: 1920, height: 1080, wrapperWidth: TOOLBAR_SHORT_LABEL_MAX_PX });
-    expect(screen.getByTestId("gui-toolbar-resolution")).toHaveTextContent("1920×1080 ▾");
-  });
-
   it("the chip is absent when no gui-res-* row exists", () => {
     setup({ input: { reachable: false } });
     expect(screen.queryByTestId("gui-toolbar-resolution")).toBeNull();
@@ -350,7 +284,7 @@ describe("GuiToolbar — the resolution chip", () => {
 
 describe("GuiToolbar — the resolution menu", () => {
   it("lists the palette's Resolution and Lock rows in order with stripped labels and verbatim descriptions", () => {
-    setup({ coarsePointer: false, fullscreen: true, geometry: "1920x1080", width: 1920, height: 1080 });
+    setup({ coarsePointer: false, geometry: "1920x1080", width: 1920, height: 1080 });
     fireEvent.click(screen.getByTestId("gui-toolbar-resolution"));
     const menu = screen.getByTestId("gui-toolbar-menu");
     expect(menu.getAttribute("data-menu")).toBe("resolution");
@@ -384,24 +318,6 @@ describe("GuiToolbar — the resolution menu", () => {
     expect(screen.getByTestId("gui-toolbar-menu").textContent).not.toContain("Unlock resolution");
   });
 
-  it("a locked host renders every size row disabled with the `locked` description", () => {
-    const { input } = setup({
-      coarsePointer: false,
-      fullscreen: true,
-      geometry: "1920x1080",
-      width: 1920,
-      height: 1080,
-      locked: true,
-    });
-    fireEvent.click(screen.getByTestId("gui-toolbar-resolution"));
-    const items = within(screen.getByTestId("gui-toolbar-menu")).getAllByRole("menuitem");
-    const sizeRows = items.filter((el) => (el.textContent ?? "").endsWith("— locked"));
-    expect(sizeRows).toHaveLength(8);
-    for (const row of sizeRows) expect(row).toHaveProperty("disabled", true);
-    fireEvent.click(items[0]);
-    expect(input.onResize).not.toHaveBeenCalled();
-  });
-
   it("picking a size fires the row immediately and closes the menu", () => {
     const { input } = setup({ geometry: "1920x1080", width: 1920, height: 1080 });
     fireEvent.click(screen.getByTestId("gui-toolbar-resolution"));
@@ -415,82 +331,114 @@ describe("GuiToolbar — the resolution menu", () => {
   });
 });
 
-describe("GuiToolbar — overflow by wrapper width", () => {
-  const primaryLabels = [
-    "Resolution auto, menu",
-    "Enter fullscreen",
-    "Zoom out",
-    "Zoom to fit",
-    "Zoom in",
-    "Pointer mode",
-    "Toggle key bar",
-    "More actions",
-  ];
-
-  it("at 375 and 559 only the primary set plus ⋯ render; ⌖ is glyph-only", () => {
-    for (const width of [375, TOOLBAR_OVERFLOW_MIN_PX - 1]) {
-      setup({ wrapperWidth: width });
-      expect(chipLabels()).toEqual(primaryLabels);
-      expect(screen.getByLabelText("Pointer mode")).toHaveTextContent("⌖");
-      cleanup();
-    }
+describe("GuiToolbar — the measured fold", () => {
+  it("everything fits: full labels inline, no ⚙, nothing reserved", () => {
+    mockWidths(500, PROBE);
+    setup({ geometry: "1920x1080", width: 1920, height: 1080 });
+    expect(screen.getByTestId("gui-toolbar-resolution")).toHaveTextContent("1920×1080 ▾");
+    expect(screen.getByLabelText("Quality")).toHaveTextContent("◐ Balanced");
+    expect(screen.getByLabelText("Toggle stats")).toBeTruthy();
+    expect(screen.queryByTestId("gui-toolbar-overflow")).toBeNull();
   });
 
-  it("at 560 and 1280 everything is inline and ⋯ is absent", () => {
-    for (const width of [TOOLBAR_OVERFLOW_MIN_PX, 1280]) {
-      setup({ wrapperWidth: width });
-      expect(screen.queryByTestId("gui-toolbar-overflow")).toBeNull();
-      expect(screen.getByLabelText("Quality")).toBeTruthy();
-      expect(screen.getByLabelText("Toggle stats")).toBeTruthy();
-      expect(screen.getByLabelText("Pointer mode")).toHaveTextContent("⌖ Trackpad");
-      cleanup();
-    }
+  it("degradation is spent before any fold: quality drops to ◐, nothing folds, no ⚙", () => {
+    // Full needs 377; quality-degraded needs 321 — at 340 only the label pays.
+    mockWidths(340, PROBE);
+    setup();
+    expect(screen.getByLabelText("Quality")).toHaveTextContent("◐");
+    expect(screen.getByLabelText("Toggle stats")).toBeTruthy();
+    expect(screen.queryByTestId("gui-toolbar-overflow")).toBeNull();
   });
 
-  it("the ⋯ menu carries the folded rows in order", () => {
-    setup({ wrapperWidth: 375 });
-    fireEvent.click(screen.getByTestId("gui-toolbar-overflow"));
+  it("a narrow spring folds the ladder tail into ⚙ (with the reserve costing one more)", () => {
+    // Fully degraded needs 281; pass 1 at 270 folds stats (257 ≤ 270), which
+    // lights the reserve — pass 2 at 241 folds browser too (257 > 241).
+    mockWidths(270, PROBE);
+    setup({ geometry: "1920x1080", width: 1920, height: 1080 });
+    expect(screen.queryByLabelText("Toggle stats")).toBeNull();
+    expect(screen.queryByLabelText("Open browser")).toBeNull();
+    expect(screen.getByLabelText("Open terminal")).toBeTruthy();
+    // Both degradable labels are spent before the fold.
+    expect(screen.getByTestId("gui-toolbar-resolution")).toHaveTextContent("1920 ▾");
+    expect(screen.getByLabelText("Quality")).toHaveTextContent("◐");
+    expect(screen.getByTestId("gui-toolbar-overflow")).toBeTruthy();
+  });
+
+  it("the ⚙ panel carries the folded rungs' palette rows in ladder order", () => {
+    mockWidths(270, PROBE);
+    setup({ toolbarVisible: true });
     const menu = screen.getByTestId("gui-toolbar-menu");
     expect(menu.getAttribute("data-menu")).toBe("overflow");
     expect(within(menu).getAllByRole("menuitem").map((el) => el.textContent)).toEqual([
-      "Quality → Balanced",
-      "Paste clipboard",
-      "Send key…",
-      "Open terminal",
       "Open browser",
       "Show stats",
     ]);
   });
 
-  it("the ⋯ menu folds Reconnect in while disconnected", () => {
-    setup({ wrapperWidth: 375, connected: false });
-    fireEvent.click(screen.getByTestId("gui-toolbar-overflow"));
-    expect(within(screen.getByTestId("gui-toolbar-menu")).getAllByRole("menuitem").map((el) => el.textContent)).toEqual([
-      "Quality → Balanced",
-      "Open terminal",
+  it("coarse panels append the ⌖/⌨ rows after a separator", () => {
+    mockWidths(270, PROBE);
+    setup({ coarsePointer: true, toolbarVisible: true });
+    const menu = screen.getByTestId("gui-toolbar-menu");
+    expect(within(menu).getAllByRole("menuitem").map((el) => el.textContent)).toEqual([
       "Open browser",
       "Show stats",
-      "Reconnect",
+      "Pointer → Touch — tap where you touch",
+      "Hide key bar",
     ]);
+  });
+
+  it("at the narrowest widths the size rung folds too, inlining the resolution rows", () => {
+    // Pass 1 at 70 fits the degraded size alone; pass 2 at 41 fits nothing —
+    // the whole ladder folds and the panel hosts the resolution rows.
+    mockWidths(70, PROBE);
+    setup({ geometry: "1920x1080", width: 1920, height: 1080, toolbarVisible: true });
+    expect(screen.queryByTestId("gui-toolbar-resolution")).toBeNull();
+    const items = within(screen.getByTestId("gui-toolbar-menu")).getAllByRole("menuitem");
+    const texts = items.map((el) => el.textContent);
+    expect(texts).toContain("1280×720");
+    expect(texts).toContain("Zoom in");
+    expect(texts).toContain("Quality → Balanced");
+    expect(texts).toContain("Paste clipboard");
+    expect(texts).toContain("Show stats");
+  });
+
+  it("the ⚙ toggle routes the open state to the caller, and the open panel never autofocuses on a cold mount", () => {
+    mockWidths(270, PROBE);
+    const onToolbarVisibleChange = vi.fn();
+    setup({ onToolbarVisibleChange });
+    fireEvent.click(screen.getByTestId("gui-toolbar-overflow"));
+    expect(onToolbarVisibleChange).toHaveBeenCalledWith(true);
+    cleanup();
+    vi.restoreAllMocks();
+
+    // A persisted-open panel mounts WITH the page: it renders open but does
+    // not steal focus into the menu.
+    mockWidths(270, PROBE);
+    setup({ toolbarVisible: true });
+    const menu = screen.getByTestId("gui-toolbar-menu");
+    expect(menu.contains(document.activeElement)).toBe(false);
+  });
+
+  it("a wide remount after a folded state hides ⚙ again (hysteresis is the module's, not the component's)", () => {
+    mockWidths(500, PROBE);
+    setup();
+    expect(screen.queryByTestId("gui-toolbar-overflow")).toBeNull();
   });
 });
 
 describe("GuiToolbar — the by-id mirror (identity)", () => {
-  it("every chip fires the SAME onSelect function object as its palette row", () => {
+  it("every inline chip fires the SAME onSelect function object as its palette row", () => {
     const { actions } = setup({ geometry: "1920x1080", width: 1920, height: 1080 });
     const cases: [string, string][] = [
       ["gui-zoom-out", "Zoom out"],
       ["gui-zoom-fit", "Zoom to fit"],
       ["gui-zoom-in", "Zoom in"],
       ["gui-quality-smooth", "Quality"],
-      ["gui-pointer-touch", "Pointer mode"],
-      ["gui-keybar-hide", "Toggle key bar"],
       ["gui-paste", "Paste clipboard"],
       ["gui-send-key", "Send key…"],
       ["gui-open-terminal", "Open terminal"],
       ["gui-open-browser", "Open browser"],
       ["gui-stats-show", "Toggle stats"],
-      ["gui-fullscreen", "Enter fullscreen"],
     ];
     for (const [id, label] of cases) {
       const spy = spyRow(actions, id);
@@ -501,7 +449,7 @@ describe("GuiToolbar — the by-id mirror (identity)", () => {
   });
 
   it("the reconnect chip fires gui-reconnect", () => {
-    const { actions } = setup({ connected: false });
+    const { actions } = setup({ input: { connected: false } });
     const spy = spyRow(actions, "gui-reconnect");
     fireEvent.click(screen.getByLabelText("Reconnect"));
     expect(spy).toHaveBeenCalledOnce();
@@ -537,28 +485,25 @@ describe("GuiToolbar — the by-id mirror (identity)", () => {
     }
   });
 
-  it("every ⋯ menu row fires its own palette row's onSelect object", () => {
-    const { actions } = setup({ wrapperWidth: TOOLBAR_OVERFLOW_MIN_PX - 1 });
+  it("every ⚙ panel row fires its own palette row's onSelect object", () => {
+    mockWidths(270, PROBE);
+    const { actions, rerenderWith } = setup({ toolbarVisible: false });
     const expected: [string, string][] = [
-      ["gui-quality-smooth", "Quality → Balanced"],
-      ["gui-paste", "Paste clipboard"],
-      ["gui-send-key", "Send key…"],
-      ["gui-open-terminal", "Open terminal"],
       ["gui-open-browser", "Open browser"],
       ["gui-stats-show", "Show stats"],
     ];
-    for (const [id, text] of expected) {
-      // Spy before opening: the menu rows capture the row's onSelect at render.
-      const spy = spyRow(actions, id);
-      fireEvent.click(screen.getByTestId("gui-toolbar-overflow"));
-      const item = within(screen.getByTestId("gui-toolbar-menu"))
+    // Spy BEFORE opening: the menu rows capture the row's onSelect at render.
+    const spies = expected.map(([id]) => spyRow(actions, id));
+    rerenderWith({ toolbarVisible: true });
+    const menu = screen.getByTestId("gui-toolbar-menu");
+    expected.forEach(([, text], i) => {
+      const item = within(menu)
         .getAllByRole("menuitem")
         .find((el) => el.textContent === text);
       if (!item) throw new Error(`menu row "${text}" missing`);
       fireEvent.click(item);
-      expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy).toHaveBeenCalledWith();
-      expect(screen.queryByTestId("gui-toolbar-menu")).toBeNull();
-    }
+      expect(spies[i]).toHaveBeenCalledTimes(1);
+      expect(spies[i]).toHaveBeenCalledWith();
+    });
   });
 });

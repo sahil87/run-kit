@@ -6,7 +6,6 @@ import GuiSurface from "./gui-surface";
 import RFB from "@novnc/novnc";
 import { fetchGuiStatus, pingGui } from "@/api/client";
 import { copyToClipboard } from "@/lib/clipboard";
-import { buildGuiActions } from "@/lib/palette/gui";
 
 // Fake RFB: settable plain props, an event registry tests can fire, and vi.fn
 // seams for the verbs. `emit` delivers to every registered listener with a
@@ -168,55 +167,14 @@ function guiProps(overrides: Partial<Parameters<typeof GuiSurface>[0]> = {}) {
     onKeyBarVisibleChange: vi.fn(),
     onQualityChange: vi.fn(),
     onStatsVisibleChange: vi.fn(),
-    onFullscreen: vi.fn(),
+    onFullscreenChange: vi.fn(),
     resizeLocked: false,
     onConnectionChange: vi.fn(),
     onRestart: vi.fn().mockResolvedValue({ ok: true }),
     onOpenLogs: vi.fn(),
     ...overrides,
   };
-  // The pill mirrors the palette: the same build app.tsx would produce,
-  // with the pill-consumed rows routed to the seam mocks above.
-  const guiActions =
-    overrides.guiActions ??
-    buildGuiActions({
-      enabled: props.gui?.enabled === true,
-      reachable: props.gui?.reachable === true,
-      backend: props.gui?.backend ?? "",
-      tileOpen: true,
-      connected: true,
-      coarsePointer: props.coarsePointer,
-      zoom: props.zoom,
-      pointerMode: props.pointerMode,
-      resizeLocked: props.resizeLocked,
-      locked: props.gui?.locked ?? false,
-      quality: props.quality,
-      statsVisible: props.statsVisible,
-      hidpi: props.hidpi,
-      keyBarVisible: props.keyBarVisible,
-      geometry: props.gui?.geometry ?? "",
-      supervisorAvailable: true,
-      onTurnOn: vi.fn(),
-      onTurnOff: vi.fn(),
-      loadDesktopRows: vi.fn().mockResolvedValue([]),
-      onLaunch: vi.fn(),
-      onResize: vi.fn(),
-      onResizeCustom: vi.fn(),
-      onMatchTile: vi.fn(),
-      onFullscreen: props.onFullscreen,
-      onPaste: vi.fn(),
-      onZoom: props.onZoomChange,
-      onPointerMode: props.onPointerModeChange,
-      onLockChange: vi.fn(),
-      onQuality: props.onQualityChange,
-      onStatsVisible: props.onStatsVisibleChange,
-      onHidpiChange: vi.fn(),
-      onKeyBarVisibleChange: props.onKeyBarVisibleChange,
-      onSendKey: vi.fn(),
-      onOpenLogs: vi.fn(),
-      onReconnect: vi.fn(),
-    });
-  return { ...props, guiActions };
+  return props;
 }
 
 function guiEl(overrides: Partial<Parameters<typeof GuiSurface>[0]> = {}) {
@@ -1267,70 +1225,41 @@ describe("GuiSurface — the stats seam and overlay", () => {
   });
 });
 
-describe("GuiSurface — toolbar pill contexts", () => {
-  it("a fine-pointer, non-fullscreen viewer gets the pill mounted but hidden; a top-edge hover reveals it", () => {
-    renderGui();
-    expect(screen.queryByTestId("gui-toolbar")).toBeNull();
-    const wrapper = screen.getByTestId("gui-surface-canvas");
-    // jsdom rects are 0: a move at clientY 10 lands inside the 24px top edge.
-    fireEvent.pointerMove(wrapper, { clientY: 10 });
-    expect(screen.getByTestId("gui-toolbar")).toBeInTheDocument();
-  });
-
-  it("a coarse-pointer viewer gets the pill in the canvas state", () => {
-    renderGui({ coarsePointer: true });
-    expect(screen.getByTestId("gui-toolbar")).toBeInTheDocument();
-  });
-
-  it("a fine-pointer viewer in fullscreen gets the pill", () => {
-    renderGui();
-    const wrapper = screen.getByTestId("gui-surface-canvas");
+describe("GuiSurface — fullscreen report", () => {
+  /** Stub document.fullscreenElement for the duration of `fn`. */
+  function withFullscreenElement(el: Element | null, fn: () => void) {
     const original = Object.getOwnPropertyDescriptor(Document.prototype, "fullscreenElement");
-    Object.defineProperty(document, "fullscreenElement", {
-      configurable: true,
-      get: () => wrapper,
-    });
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => el });
     try {
-      act(() => {
-        document.dispatchEvent(new Event("fullscreenchange"));
-      });
-      expect(screen.getByTestId("gui-toolbar")).toBeInTheDocument();
+      fn();
     } finally {
       if (original) Object.defineProperty(document, "fullscreenElement", original);
       else Reflect.deleteProperty(document, "fullscreenElement");
     }
+  }
+
+  it("reports true when an ANCESTOR (the tile) is the fullscreen element — containment, not identity", () => {
+    const onFullscreenChange = vi.fn();
+    renderGui({ onFullscreenChange });
+    const wrapper = screen.getByTestId("gui-surface-canvas");
+    const tile = wrapper.parentElement!;
+    withFullscreenElement(tile, () => {
+      act(() => {
+        document.dispatchEvent(new Event("fullscreenchange"));
+      });
+    });
+    expect(onFullscreenChange).toHaveBeenCalledWith(true);
   });
 
-  it("the credentials prompt suppresses the pill", () => {
-    renderGui({ coarsePointer: true, gui: { ...GUI_ON, backend: "screen-sharing" } });
-    expect(screen.getByTestId("gui-toolbar")).toBeInTheDocument();
-    act(() => latestRfb().emit("credentialsrequired"));
-    expect(screen.getByTestId("gui-surface-credentials")).toBeInTheDocument();
-    expect(screen.queryByTestId("gui-toolbar")).toBeNull();
-  });
-});
-
-describe("GuiSurface — the pill's quality and stats slots", () => {
-  it("◐ cycles the quality preset and ∿ toggles the overlay through the app.tsx seams", () => {
-    // The inline ◐/∿ chips need the wide pill — jsdom's zeroed rects would
-    // fold them into the ⋯ menu (wrapperWidth seeds from the wrapper rect).
-    const wide = {
-      width: 1280, height: 800, top: 0, left: 0, right: 1280, bottom: 800, x: 0, y: 0,
-      toJSON: () => ({}),
-    } as DOMRect;
-    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(wide);
-    try {
-      const onQualityChange = vi.fn();
-      const onStatsVisibleChange = vi.fn();
-      renderGui({ coarsePointer: true, quality: "balanced", statsVisible: false, onQualityChange, onStatsVisibleChange });
-      expect(screen.getByLabelText("Quality")).toHaveTextContent("◐ Balanced");
-      fireEvent.click(screen.getByLabelText("Quality"));
-      fireEvent.click(screen.getByLabelText("Toggle stats"));
-      expect(onQualityChange).toHaveBeenCalledWith("smooth");
-      expect(onStatsVisibleChange).toHaveBeenCalledWith(true);
-    } finally {
-      rectSpy.mockRestore();
-    }
+  it("reports false on exit and when a FOREIGN element is fullscreen", () => {
+    const onFullscreenChange = vi.fn();
+    renderGui({ onFullscreenChange });
+    withFullscreenElement(document.createElement("div"), () => {
+      act(() => {
+        document.dispatchEvent(new Event("fullscreenchange"));
+      });
+    });
+    expect(onFullscreenChange).toHaveBeenCalledWith(false);
   });
 });
 
@@ -1340,12 +1269,9 @@ describe("GuiSurface — key bar visibility posture", () => {
     expect(screen.getByTestId("gui-keybar")).toBeInTheDocument();
   });
 
-  it("keyBarVisible=false hides the bar; the pill's ⌨ chip flips it", () => {
-    const onKeyBarVisibleChange = vi.fn();
-    renderGui({ coarsePointer: true, keyBarVisible: false, onKeyBarVisibleChange });
+  it("keyBarVisible=false hides the bar", () => {
+    renderGui({ coarsePointer: true, keyBarVisible: false });
     expect(screen.queryByTestId("gui-keybar")).toBeNull();
-    fireEvent.click(screen.getByLabelText("Toggle key bar"));
-    expect(onKeyBarVisibleChange).toHaveBeenCalledWith(true);
   });
 });
 

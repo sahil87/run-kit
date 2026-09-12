@@ -1,0 +1,1450 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GUI Toolbar → Tile Header — Design Studies</title>
+<style>
+:root, html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-primary: #0f1117;
+  --bg-card: #171b24;
+  --bg-inset: #0a0c12;
+  --text-primary: #e8eaf0;
+  --text-secondary: #7a8394;
+  --border: #454d66;
+  --accent: #5b8af0;
+  --accent-green: #22c55e;
+  --signal-yellow: #facc15;
+  --signal-red: #f87171;
+  --page: #0b0d13;
+  --desktop-a: #1d4ed8;
+  --desktop-b: #0e2a5e;
+}
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg-primary: #f6f7f9;
+  --bg-card: #ffffff;
+  --bg-inset: #e8eaef;
+  --text-primary: #1a1d24;
+  --text-secondary: #6b7280;
+  --border: #d1d5db;
+  --accent: #2563eb;
+  --accent-green: #16a34a;
+  --signal-yellow: #ca8a04;
+  --signal-red: #dc2626;
+  --page: #eceef2;
+  --desktop-a: #3b82f6;
+  --desktop-b: #1e40af;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: "MonaspiceNe Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
+
+/* ---- page chrome ---- */
+header.page {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap; margin-bottom: 8px;
+}
+h1 { font-size: 19px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.sub { color: var(--text-secondary); font-size: 12px; max-width: 72ch; margin: 0; }
+.toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
+.toolbar button {
+  font: inherit; font-size: 11px; padding: 5px 10px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary); cursor: pointer; transition: .12s;
+}
+.toolbar button:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+.toolbar button[aria-pressed="true"] { color: var(--accent-green); border-color: var(--accent-green); }
+
+h2 {
+  font-size: 14px; margin: 40px 0 4px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--border); letter-spacing: .01em;
+}
+h2 .num { color: var(--accent-green); margin-right: 8px; }
+h3 { font-size: 12.5px; margin: 26px 0 6px; color: var(--text-primary); }
+p { margin: 8px 0; max-width: 84ch; }
+p.note { color: var(--text-secondary); font-size: 12px; }
+code {
+  background: var(--bg-inset); padding: 1px 5px; border-radius: 3px;
+  font-size: 11.5px; color: var(--text-primary);
+}
+.tag {
+  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  border: 1px solid; vertical-align: 1px; margin-left: 6px;
+}
+.tag.now { color: var(--text-secondary); border-color: var(--border); }
+.tag.rec { color: var(--accent-green); border-color: var(--accent-green); }
+.tag.no  { color: var(--signal-red); border-color: var(--signal-red); }
+.tag.open{ color: var(--signal-yellow); border-color: var(--signal-yellow); }
+
+figure { margin: 14px 0 0; }
+figcaption {
+  color: var(--text-secondary); font-size: 11.5px; margin-top: 8px;
+  max-width: 88ch; line-height: 1.6;
+}
+figcaption b { color: var(--text-primary); font-weight: 600; }
+
+/* ================= true-size rk chrome ================= */
+
+/* Stage = the Shell stage ground the tiles float on (6px inset, bg-inset). */
+.stage {
+  background: var(--bg-inset); padding: 6px; border-radius: 6px;
+  display: flex; gap: 6px; overflow-x: auto;
+}
+.stage.frameless { padding: 0; border-radius: 0; }
+
+/* Tile card: 6px radius, dimmed card border (55% mix). */
+.tile {
+  background: var(--bg-primary);
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 6px; overflow: hidden; display: flex; flex-direction: column;
+  min-width: 0;
+}
+.tile.focused { border-color: var(--accent-green); }
+
+/* Header: 35px = 32px content + 3px bottom rule. */
+.thead {
+  display: flex; align-items: center; gap: 6px; padding: 0 6px;
+  height: 35px; flex-shrink: 0;
+  border-bottom: 3px solid var(--border);
+  background: var(--bg-card);
+  font-size: 11px; color: var(--text-secondary);
+  user-select: none;
+}
+.thead .glyph { flex-shrink: 0; }
+.tile.focused .thead .glyph { color: var(--accent-green); }
+.thead .name { flex-shrink: 0; color: var(--text-primary); }
+.thead .meta {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-radius: 3px; background: var(--bg-inset); padding: 0 6px;
+  font-size: 10px; color: var(--text-secondary);
+}
+.thead .spring { flex: 1 1 auto; min-width: 4px; }
+.thead .rule { width: 1px; align-self: stretch; background: var(--border); margin: 6px 2px; flex-shrink: 0; }
+
+/* Verb button: fixed 24x24 (26 coarse). */
+.verb {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 24px; width: 24px; border-radius: 4px; flex-shrink: 0;
+  color: var(--text-secondary); background: none; border: 0;
+  font: inherit; font-size: 12px; cursor: pointer; transition: .12s;
+}
+.verb:hover { background: var(--bg-inset); color: var(--text-primary); }
+.verb.close:hover { color: var(--signal-red); }
+.verb.pressed { color: var(--accent-green); box-shadow: inset 0 0 0 1px var(--accent-green); }
+.coarse .verb { height: 26px; width: 26px; }
+
+/* Header chip: content width, same 24px height axis as the verb. */
+.hchip {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 24px; padding: 0 6px; border-radius: 4px; flex-shrink: 0;
+  color: var(--text-secondary); background: none; border: 0;
+  font: inherit; font-size: 11px; cursor: pointer; transition: .12s;
+  white-space: nowrap;
+}
+.hchip:hover { background: var(--bg-inset); color: var(--text-primary); }
+.hchip.pressed { color: var(--accent-green); box-shadow: inset 0 0 0 1px var(--accent-green); }
+.coarse .hchip { height: 26px; }
+
+/* Desktop canvas (the noVNC framebuffer stand-in). */
+.canvas {
+  flex: 1 1 auto; position: relative; min-height: 0;
+  background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--desktop-b) 70%, transparent) 0 10px, transparent 10px 20px),
+    linear-gradient(160deg, var(--desktop-a), var(--desktop-b));
+  overflow: hidden;
+}
+/* a fake guest window so the "pill covers the desktop" point is visible */
+.guest {
+  position: absolute; border-radius: 3px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,.35);
+  box-shadow: 0 6px 18px rgba(0,0,0,.35);
+  font-size: 10px;
+}
+.guest .gbar {
+  height: 18px; background: #cfd6e4; color: #1a1d24;
+  display: flex; align-items: center; padding: 0 6px; gap: 6px;
+}
+.guest .gbar .dots { color: #6b7280; letter-spacing: 2px; }
+.guest .gbody { background: #10131a; color: #9fd4a8; padding: 5px 6px; height: calc(100% - 18px); }
+/* IceWM taskbar stand-in */
+.icetask {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 22px;
+  background: linear-gradient(#3a4256, #232838); border-top: 1px solid rgba(255,255,255,.18);
+  display: flex; align-items: center; gap: 6px; padding: 0 6px; font-size: 10px; color: #dfe4ee;
+}
+.icetask .ibtn { background: rgba(255,255,255,.12); border-radius: 2px; padding: 1px 6px; }
+.icetask .spring { flex: 1; }
+
+/* The CURRENT floating pill (absolute, top-center, z-20, bg-primary/80). */
+.pill {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  z-index: 20; display: flex; align-items: center; gap: 4px;
+  padding: 4px; border-radius: 4px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+  backdrop-filter: blur(2px);
+}
+.pill .rule { width: 1px; align-self: stretch; background: var(--border); }
+/* pill chip = Control variant="chip": 33x35 fine / 40 coarse */
+.pchip {
+  min-height: 33px; min-width: 35px; display: inline-flex; align-items: center;
+  justify-content: center; padding: 0 4px; font-size: 12px;
+  border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-primary); background: none; font-family: inherit;
+  cursor: pointer; transition: .12s; white-space: nowrap;
+}
+.pchip:hover { border-color: var(--text-secondary); }
+.pchip.pressed { border-color: var(--accent-green); color: var(--accent-green); }
+.coarse .pchip { min-height: 40px; min-width: 40px; }
+
+/* the hide-timer ghost */
+.pill.ghost { opacity: .28; }
+.ghostnote {
+  position: absolute; top: 52px; left: 50%; transform: translateX(-50%);
+  z-index: 21; font-size: 10px; color: #dbe3f5;
+  background: rgba(0,0,0,.55); padding: 2px 8px; border-radius: 3px;
+  white-space: nowrap;
+}
+
+/* coarse keybar docked under the canvas */
+.keybar {
+  flex-shrink: 0; display: flex; gap: 4px; padding: 4px;
+  background: var(--bg-primary); border-top: 1px solid var(--border);
+  overflow-x: auto;
+}
+.keybar .pchip { min-height: 40px; min-width: 40px; font-size: 11px; }
+
+/* mobile phone frame */
+.phone {
+  width: 375px; flex-shrink: 0;
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  background: var(--bg-primary); display: flex; flex-direction: column;
+}
+.phone .topbar {
+  height: 38px; flex-shrink: 0; background: var(--bg-card);
+  border-bottom: 3px solid var(--border);
+  display: flex; align-items: center; gap: 6px; padding: 0 6px; font-size: 11px;
+  color: var(--text-secondary);
+}
+.phone .topbar .ttl { color: var(--text-primary); flex: 1; text-align: center; }
+.switchgrp { display: flex; gap: 3px; }
+.switchgrp .sw {
+  height: 26px; min-width: 30px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-secondary); background: none; font-family: inherit; cursor: pointer;
+}
+.switchgrp .sw.on { color: var(--accent-green); border-color: var(--accent-green); }
+.phone .botbar {
+  height: 44px; flex-shrink: 0; background: var(--bg-card);
+  border-top: 3px solid var(--border); display: flex; align-items: center;
+  gap: 6px; padding: 0 6px; font-size: 11px; color: var(--text-secondary);
+}
+
+/* fullscreen frame = whole viewport, no stage inset */
+.fsframe {
+  border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
+  background: #000; display: flex; flex-direction: column;
+}
+.fslabel {
+  font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;
+  display: flex; align-items: center; gap: 8px;
+}
+.fslabel .bar { flex: 1; height: 1px; background: var(--border); }
+
+/* comparison grid */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+
+/* tables */
+table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 11.5px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--text-secondary); font-weight: 600; font-size: 11px; }
+td.y { color: var(--accent-green); }
+td.n { color: var(--signal-red); }
+td.q { color: var(--signal-yellow); }
+
+.callout {
+  border-left: 2px solid var(--accent-green); background: var(--bg-card);
+  padding: 10px 14px; margin: 16px 0; border-radius: 0 4px 4px 0;
+}
+.callout.warn { border-left-color: var(--signal-yellow); }
+.callout.bad { border-left-color: var(--signal-red); }
+.callout p { margin: 4px 0; font-size: 12px; }
+.callout .k { color: var(--text-secondary); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }
+
+.scalebar {
+  display: flex; align-items: center; gap: 6px; font-size: 10px;
+  color: var(--text-secondary); margin-bottom: 6px;
+}
+.scalebar .len { height: 1px; background: var(--text-secondary); }
+
+/* ---- §7 width-adaptive demo ---- */
+.demo {
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 12px; background: var(--bg-card); margin-top: 12px;
+}
+.demorow {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 12px; font-size: 11px; color: var(--text-secondary);
+}
+.demorow input[type="range"] { flex: 1 1 260px; min-width: 200px; accent-color: var(--accent-green); }
+.demorow output { min-width: 58px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.demorow button {
+  font: inherit; font-size: 11px; padding: 4px 10px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--bg-primary);
+  color: var(--text-secondary); cursor: pointer;
+}
+.demorow button[aria-pressed="true"] { color: var(--accent-green); border-color: var(--accent-green); }
+.foldcount { color: var(--signal-yellow); font-size: 11px; }
+
+/* the adaptive zone inside the header */
+.zone { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.zone .rule { width: 1px; align-self: stretch; background: var(--border); margin: 6px 2px; flex-shrink: 0; }
+
+/* header needs relative positioning for the fold panel */
+.thead { position: relative; }
+.thead .spring { min-width: 8px; }
+
+/* the fold panel, anchored under the ⚙ */
+.foldpanel {
+  position: absolute; top: 35px; right: 112px; z-index: 40;
+  min-width: 210px; background: var(--bg-card);
+  border: 1px solid var(--border); border-top: 0;
+  border-radius: 0 0 4px 4px; padding: 4px;
+  font-size: 11px; box-shadow: 0 8px 22px rgba(0,0,0,.35);
+}
+.frow {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 5px 8px; border-radius: 3px; color: var(--text-secondary); cursor: pointer;
+}
+.frow:hover { background: var(--bg-inset); color: var(--text-primary); }
+.frow .fv { color: var(--text-primary); white-space: nowrap; }
+.fsep { height: 1px; background: var(--border); margin: 3px 0; }
+.fempty { padding: 6px 8px; color: var(--text-secondary); font-style: italic; }
+
+/* filmstrip */
+.filmstrip { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.filmrow { display: flex; align-items: center; gap: 12px; }
+.filmrow .w {
+  width: 76px; flex-shrink: 0; text-align: right; font-size: 10px;
+  color: var(--text-secondary); font-variant-numeric: tabular-nums;
+}
+.filmrow .holder { flex: 1 1 auto; min-width: 0; overflow-x: auto; }
+.filmrow .tile { height: 35px; }
+.filmrow .tile .canvas { display: none; }
+
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <div>
+    <h1>GUI toolbar → tile header</h1>
+    <p class="sub">Where the <code>gui</code> tile's session toolbar lives across the three form factors — §§1–5 fit the cluster into the header inline; <b>§6 is the disclosure toggle and §7 the width-adaptive synthesis that supersede it</b>.
+    Every mock is true-size against the shipped tokens: 35px header (32 content + 3px rule), 24×24 verb buttons,
+    33×35 pill chips, 6px card radius, 6px stage gutters.</p>
+  </div>
+  <div class="toolbar">
+    <button id="themeBtn" type="button">◐ Light</button>
+    <button id="coarseBtn" type="button" aria-pressed="false">⌖ Coarse pointer</button>
+    <button id="pillBtn" type="button" aria-pressed="true">👁 Show current pill</button>
+  </div>
+</header>
+
+<!-- ============================================================= -->
+<h2><span class="num">0</span>What the header already is</h2>
+
+<p>The target is not a new surface. <code>surface-layout.tsx:1816</code> already renders a 35px header on every
+desktop tile: kind glyph, surface name, an inset meta chip, a <code>flex-1</code> spring, then the verb cluster.
+The tty tile already fills that spring with kind-specific controls — a find toggle, an export menu, and a bordered
+pane segment. <b>A gui chip cluster goes in exactly that slot.</b></p>
+
+<figure>
+  <div class="scalebar"><span>tile 980px</span><span class="len" style="width:120px"></span><span>true size</span></div>
+  <div class="stage">
+    <div class="tile focused" style="width:980px;height:250px">
+      <div class="thead">
+        <span class="glyph">&gt;_</span>
+        <span class="name">Terminal</span>
+        <span class="spring"></span>
+        <button class="verb" title="Find">⌕</button>
+        <button class="verb" title="Export">⭳</button>
+        <span class="rule"></span>
+        <button class="verb" title="Split H">⊞</button>
+        <button class="verb" title="Split V">⊟</button>
+        <button class="verb" title="Close pane">⊠</button>
+        <span class="rule"></span>
+        <button class="verb" title="Zoom">⛶</button>
+        <button class="verb" title="Promote">↰</button>
+        <button class="verb" title="Swap">⇄</button>
+        <span class="rule"></span>
+        <button class="verb close" title="Close tile">✕</button>
+      </div>
+      <div style="flex:1;background:var(--bg-primary);padding:8px;font-size:11px;color:var(--accent-green)">
+        <div>$ just dev</div>
+        <div style="color:var(--text-secondary)">vite v8.0.1  ready in 412 ms</div>
+        <div style="color:var(--text-secondary)">go: air watching ./app/backend</div>
+      </div>
+    </div>
+  </div>
+  <figcaption>The <b>tty</b> header today — the precedent. Kind-specific controls (⌕ ⭳ and the bordered pane
+  segment) already sit between the spring and the layout verbs, separated by hairline rules. The gui tile's header
+  is identical minus those; it has an empty spring.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <p class="k">Finding — chips do not fit at their current size</p>
+  <p>The pill renders <code>Control variant="chip"</code>, whose floor is <b>33×35px</b> (40×40 coarse).
+  The header's content band is <b>32px</b>. So this is not a move: header chips must be re-rendered on the
+  <b>24px verb-button height axis</b> (26 coarse), content-width for the text ones. That is a real change to
+  <code>gui-toolbar.tsx</code>, not a reparenting — worth deciding now because it also sets how many fit.</p>
+</div>
+
+<!-- ============================================================= -->
+<h2><span class="num">1</span>Desktop — windowed <span class="tag rec">the clear win</span></h2>
+
+<div id="cmpNow">
+<h3>Now: the floating pill</h3>
+<figure>
+  <div class="stage">
+    <div class="tile focused" style="width:980px;height:340px">
+      <div class="thead">
+        <span class="glyph">[]</span>
+        <span class="name">GUI</span>
+        <span class="spring"></span>
+        <button class="verb" title="Zoom">⛶</button>
+        <button class="verb" title="Promote">↰</button>
+        <button class="verb" title="Swap">⇄</button>
+        <span class="rule"></span>
+        <button class="verb close" title="Close tile">✕</button>
+      </div>
+      <div class="canvas">
+        <div class="guest" style="left:40px;top:44px;width:300px;height:120px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ htop<br>  cpu ▰▰▰▱▱▱ 41%</div>
+        </div>
+        <div class="guest" style="left:380px;top:20px;width:340px;height:150px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>chromium</span></div>
+          <div class="gbody" style="background:#f3f4f6;color:#374151">localhost:3000 — HexoKit</div>
+        </div>
+        <div class="pill js-pill">
+          <button class="pchip">1920×1080 ▾</button>
+          <button class="pchip">⤢</button>
+          <span class="rule"></span>
+          <button class="pchip">−</button><button class="pchip">fit</button><button class="pchip">+</button>
+          <button class="pchip">◐ Balanced</button>
+          <span class="rule"></span>
+          <button class="pchip">⎘</button><button class="pchip">⌥</button>
+          <span class="rule"></span>
+          <button class="pchip">▣</button><button class="pchip">◍</button>
+          <span class="rule"></span>
+          <button class="pchip">∿</button>
+        </div>
+        <div class="icetask">
+          <span class="ibtn">▣</span><span class="ibtn">◍</span>
+          <span class="spring"></span><span>run-kit</span><span>14:32</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption><b>Today.</b> The pill is <code>absolute top-2 z-20</code>, so it sits <i>over</i> the guest desktop —
+  note it covering the chromium window's title bar. It also self-hides 3s after the last interaction
+  (<code>TOOLBAR_HIDE_MS</code>), and a fine-pointer viewer only rediscovers it by moving the pointer within 24px
+  of the tile's top edge. The header's spring, meanwhile, is empty.</figcaption>
+</figure>
+</div>
+
+<h3>Proposed: chips in the header</h3>
+<figure>
+  <div class="stage">
+    <div class="tile focused" style="width:980px;height:340px">
+      <div class="thead">
+        <span class="glyph">[]</span>
+        <span class="name">GUI</span>
+        <span class="meta">icewm · :1</span>
+        <span class="spring"></span>
+        <button class="hchip">1920×1080 ▾</button>
+        <span class="rule"></span>
+        <button class="hchip">−</button><button class="hchip">fit</button><button class="hchip">+</button>
+        <button class="hchip">◐ Balanced</button>
+        <span class="rule"></span>
+        <button class="verb" title="Paste clipboard">⎘</button>
+        <button class="verb" title="Send key…">⌥</button>
+        <button class="verb" title="Open terminal">▣</button>
+        <button class="verb" title="Open browser">◍</button>
+        <button class="verb" title="Stats">∿</button>
+        <span class="rule"></span>
+        <button class="verb" title="Fullscreen">⤢</button>
+        <button class="verb" title="Zoom">⛶</button>
+        <button class="verb" title="Promote">↰</button>
+        <button class="verb" title="Swap">⇄</button>
+        <span class="rule"></span>
+        <button class="verb close" title="Close tile">✕</button>
+      </div>
+      <div class="canvas">
+        <div class="guest" style="left:40px;top:44px;width:300px;height:120px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ htop<br>  cpu ▰▰▰▱▱▱ 41%</div>
+        </div>
+        <div class="guest" style="left:380px;top:20px;width:340px;height:150px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>chromium</span></div>
+          <div class="gbody" style="background:#f3f4f6;color:#374151">localhost:3000 — HexoKit</div>
+        </div>
+        <div class="icetask">
+          <span class="ibtn">▣</span><span class="ibtn">◍</span>
+          <span class="spring"></span><span>run-kit</span><span>14:32</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption><b>Proposed.</b> Everything is permanently visible, nothing overlaps the guest desktop, no hide timer
+  and no hover-to-reveal. The whole framebuffer is usable. Text chips (<code>1920×1080 ▾</code>, <code>◐ Balanced</code>,
+  <code>fit</code>) stay content-width on the 24px axis; single-glyph actions become plain verb buttons so they read
+  as siblings of ⛶ ↰ ⇄ ✕ rather than as a second vocabulary. The <code>icewm · :1</code> meta chip is a freebie the
+  header already supports — the web tile uses it for the page host, code for the folder basename.</figcaption>
+</figure>
+
+<div class="callout">
+  <p class="k">Why this is worth doing regardless of the keyboard-capture work</p>
+  <p>A capture-mode indicator needs a permanent home. On the pill it would be invisible 3 seconds after you turn it
+  on — which is exactly when a dead ⌘K starts reading as a bug. The header gives the indicator a place that is
+  always on screen.</p>
+</div>
+
+<h3>Capture indicator, once it exists</h3>
+<figure>
+  <div class="stage">
+    <div class="tile focused" style="width:980px;height:120px">
+      <div class="thead" style="box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--signal-yellow) 55%, transparent)">
+        <span class="glyph">[]</span>
+        <span class="name">GUI</span>
+        <span class="meta" style="color:var(--signal-yellow);background:color-mix(in srgb,var(--signal-yellow) 12%,transparent)">⌨ keys → desktop</span>
+        <span class="spring"></span>
+        <button class="hchip pressed" style="color:var(--signal-yellow);box-shadow:inset 0 0 0 1px var(--signal-yellow)">⌨ Capture</button>
+        <span class="rule"></span>
+        <button class="hchip">1920×1080 ▾</button>
+        <span class="rule"></span>
+        <button class="hchip">−</button><button class="hchip">fit</button><button class="hchip">+</button>
+        <span class="rule"></span>
+        <button class="verb" title="Fullscreen">⤢</button>
+        <button class="verb" title="Zoom">⛶</button>
+        <span class="rule"></span>
+        <button class="verb close" title="Close tile">✕</button>
+      </div>
+      <div class="canvas"><div class="icetask"><span class="spring"></span><span>14:32</span></div></div>
+    </div>
+  </div>
+  <figcaption>Sketch only — the capture toggle is item 2 of the discussion. Shown here because it is the strongest
+  argument for the header: a latched chip <b>plus</b> a tinted meta chip naming the state, both permanently visible.
+  Colour is the open question (yellow = "something is diverted" reads right, but the status pyramid owns that hue).</figcaption>
+</figure>
+
+<!-- ============================================================= -->
+<h2><span class="num">2</span>Desktop — split layout <span class="tag open">needs a new fold rule</span></h2>
+
+<p>The pill folds at <code>TOOLBAR_OVERFLOW_MIN_PX</code> (560) of <i>wrapper</i> width. In the header the budget
+is much tighter: the name, meta chip and four layout verbs are already spending it. A gui tile in
+<code>split-h</code> on a 1280px screen is ~630px; in <code>main-left</code> it can be ~420px.</p>
+
+<figure>
+  <div class="stage">
+    <div class="tile" style="width:556px;height:260px">
+      <div class="thead">
+        <span class="glyph">&gt;_</span><span class="name">Terminal</span>
+        <span class="spring"></span>
+        <button class="verb">⛶</button><button class="verb">↰</button><button class="verb">⇄</button>
+        <span class="rule"></span><button class="verb close">✕</button>
+      </div>
+      <div style="flex:1;background:var(--bg-primary);padding:8px;font-size:11px;color:var(--accent-green)">$ rk gui status<br><span style="color:var(--text-secondary)">running · icewm-session · 1920×1080</span></div>
+    </div>
+    <div class="tile focused" style="width:418px;height:260px">
+      <div class="thead">
+        <span class="glyph">[]</span><span class="name">GUI</span>
+        <span class="spring"></span>
+        <button class="hchip">1920 ▾</button>
+        <button class="verb">fit</button>
+        <button class="verb" title="More">⋯</button>
+        <span class="rule"></span>
+        <button class="verb">⛶</button><button class="verb">↰</button><button class="verb">⇄</button>
+        <span class="rule"></span><button class="verb close">✕</button>
+      </div>
+      <div class="canvas">
+        <div class="guest" style="left:14px;top:16px;width:200px;height:90px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ _</div>
+        </div>
+        <div class="icetask"><span class="ibtn">▣</span><span class="spring"></span><span>14:32</span></div>
+      </div>
+    </div>
+  </div>
+  <figcaption><b>418px tile.</b> Fold rule proposed: keep <code>resolution ▾</code> (short form, <code>×H</code>
+  dropped — the existing <code>TOOLBAR_SHORT_LABEL_MAX_PX</code> behaviour) plus <code>fit</code>, push everything
+  else into <code>⋯</code>. The layout verbs and ✕ are never folded — they are the header's own, shared by all
+  kinds. Note the tile is unfocused/focused pair: the focused tile's border and glyph go accent-green, which the
+  pill never participated in.</figcaption>
+</figure>
+
+<p class="note">Open: should the fold key on the <b>header's free width</b> (measured after name + meta + verbs) rather
+than the wrapper width the pill uses? That is more correct and costs one more <code>ResizeObserver</code> target —
+but it makes the threshold constant meaningless and it has to be re-derived.</p>
+
+<!-- ============================================================= -->
+<h2><span class="num">3</span>Fullscreen <span class="tag no">blocker in the current code</span></h2>
+
+<div class="callout bad">
+  <p class="k">Finding</p>
+  <p><code>gui-surface.tsx:417</code> requests fullscreen on <b><code>wrapperRef.current</code></b> — the gui surface
+  wrapper, which lives <i>inside</i> the tile, <i>below</i> the header. So in fullscreen the header is not part of
+  the fullscreen element at all. A straight move strands fullscreen viewers with no toolbar whatsoever.</p>
+</div>
+
+<div class="grid2">
+  <figure>
+    <div class="fslabel"><span>A — keep the pill for fullscreen only</span><span class="bar"></span></div>
+    <div class="fsframe" style="height:300px">
+      <div class="canvas" style="flex:1">
+        <div class="guest" style="left:30px;top:56px;width:260px;height:110px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ _</div>
+        </div>
+        <div class="pill">
+          <button class="pchip">1920×1080 ▾</button><button class="pchip">⤢</button>
+          <span class="rule"></span>
+          <button class="pchip">−</button><button class="pchip">fit</button><button class="pchip">+</button>
+          <span class="rule"></span><button class="pchip">⋯</button>
+        </div>
+        <div class="icetask"><span class="ibtn">▣</span><span class="ibtn">◍</span><span class="spring"></span><span>14:32</span></div>
+      </div>
+    </div>
+    <figcaption>Two surfaces stay alive. Cheap to build (nothing is deleted), but both need maintaining and the
+    hide-timer/hover-reveal machine survives forever for one case. The by-id <code>pickGuiActions</code> mirror
+    keeps them from drifting in <i>behaviour</i>, not in layout.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fslabel"><span>B — fullscreen the TILE, header travels <span class="tag rec">recommended</span></span><span class="bar"></span></div>
+    <div class="fsframe" style="height:300px">
+      <div class="thead">
+        <span class="glyph" style="color:var(--accent-green)">[]</span>
+        <span class="name">GUI</span><span class="meta">icewm · :1</span>
+        <span class="spring"></span>
+        <button class="hchip">1920×1080 ▾</button>
+        <span class="rule"></span>
+        <button class="hchip">−</button><button class="hchip">fit</button><button class="hchip">+</button>
+        <button class="hchip">◐ Balanced</button>
+        <span class="rule"></span>
+        <button class="verb">⎘</button><button class="verb">⌥</button>
+        <button class="verb">▣</button><button class="verb">◍</button><button class="verb">∿</button>
+        <span class="rule"></span>
+        <button class="verb pressed" title="Exit fullscreen">⤢</button>
+      </div>
+      <div class="canvas" style="flex:1">
+        <div class="guest" style="left:30px;top:22px;width:260px;height:110px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ _</div>
+        </div>
+        <div class="icetask"><span class="ibtn">▣</span><span class="ibtn">◍</span><span class="spring"></span><span>14:32</span></div>
+      </div>
+    </div>
+    <figcaption>One surface everywhere. Changing the fullscreen target from the wrapper to the tile element costs
+    35px of framebuffer and deletes the pill outright. The layout verbs (↰ ⇄ ✕) hide in fullscreen — they are
+    already suppressed in zoom, so the precedent exists — leaving ⤢ latched green as the exit.</figcaption>
+  </figure>
+</div>
+
+<table>
+  <tr><th>&nbsp;</th><th>A — pill survives for fullscreen</th><th>B — fullscreen the tile</th></tr>
+  <tr><td>Surfaces to maintain</td><td class="n">2 (header + pill)</td><td class="y">1 (header)</td></tr>
+  <tr><td>Hide-timer / hover-reveal machine</td><td class="n">kept forever</td><td class="y">deleted</td></tr>
+  <tr><td>Framebuffer cost in fullscreen</td><td class="y">0px</td><td class="q">35px</td></tr>
+  <tr><td>Capture-mode indicator in fullscreen</td><td class="q">on a 3s timer</td><td class="y">permanent</td></tr>
+  <tr><td>Risk</td><td class="y">low — nothing changes</td><td class="q">fullscreen target change touches the focus/pan seams</td></tr>
+</table>
+
+<!-- ============================================================= -->
+<h2><span class="num">4</span>Mobile <span class="tag no">the header does not exist here</span></h2>
+
+<div class="callout bad">
+  <p class="k">Finding</p>
+  <p><code>surface-layout.tsx:1815</code> gates the entire header behind <code>{!mobile &amp;&amp; (…)}</code>.
+  Mobile renders one surface at a time, swapped by the top bar's switch group — there is no tile header to move
+  anything into. And mobile is exactly where the pill carries controls nothing else offers: <b>⌖ pointer mode</b>
+  and <b>⌨ key bar</b> are coarse-pointer-only chips.</p>
+</div>
+
+<div class="grid2">
+  <figure>
+    <div class="fslabel"><span>A — mobile keeps the pill (status quo)</span><span class="bar"></span></div>
+    <div class="phone coarse" style="height:520px">
+      <div class="topbar">
+        <button class="verb">☰</button>
+        <span class="ttl">Tab: gui-work ▾</span>
+        <span class="switchgrp"><span class="sw">&gt;_</span><span class="sw on">[]</span></span>
+      </div>
+      <div class="canvas" style="flex:1">
+        <div class="guest" style="left:10px;top:50px;width:180px;height:90px">
+          <div class="gbar"><span class="dots">▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ _</div>
+        </div>
+        <div class="pill">
+          <button class="pchip">1920 ▾</button><button class="pchip">⤢</button>
+          <span class="rule"></span>
+          <button class="pchip">−</button><button class="pchip">fit</button><button class="pchip">+</button>
+          <span class="rule"></span>
+          <button class="pchip">⌖</button><button class="pchip pressed">⌨</button>
+          <span class="rule"></span><button class="pchip">⋯</button>
+        </div>
+        <div class="icetask"><span class="spring"></span><span>14:32</span></div>
+      </div>
+      <div class="keybar">
+        <button class="pchip">Esc</button><button class="pchip">Tab</button>
+        <button class="pchip">Ctrl</button><button class="pchip">Alt</button><button class="pchip">⇧</button>
+        <button class="pchip">←</button><button class="pchip">↑</button><button class="pchip">↓</button><button class="pchip">→</button>
+      </div>
+      <div class="botbar"><button class="verb">⌘K</button><span class="spring" style="flex:1"></span><button class="verb">⇧</button><button class="verb">⏎</button></div>
+    </div>
+    <figcaption>Unchanged. The pill is wider than the 375px viewport can comfortably hold even folded, and it
+    overlays the framebuffer — but it does work today, and the coarse tap-reveal was built for it. The ⌨ key bar
+    below the canvas is separate and stays either way.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fslabel"><span>B — a gui strip under the top bar <span class="tag rec">recommended</span></span><span class="bar"></span></div>
+    <div class="phone coarse" style="height:520px">
+      <div class="topbar">
+        <button class="verb">☰</button>
+        <span class="ttl">Tab: gui-work ▾</span>
+        <span class="switchgrp"><span class="sw">&gt;_</span><span class="sw on">[]</span></span>
+      </div>
+      <div style="flex-shrink:0;display:flex;align-items:center;gap:4px;padding:3px 6px;background:var(--bg-card);border-bottom:1px solid var(--border);overflow-x:auto">
+        <button class="hchip">1920 ▾</button>
+        <span class="rule" style="margin:4px 2px"></span>
+        <button class="hchip">−</button><button class="hchip">fit</button><button class="hchip">+</button>
+        <span class="rule" style="margin:4px 2px"></span>
+        <button class="hchip">⌖</button>
+        <button class="hchip pressed">⌨</button>
+        <span class="rule" style="margin:4px 2px"></span>
+        <button class="hchip">⤢</button>
+        <button class="hchip">⋯</button>
+      </div>
+      <div class="canvas" style="flex:1">
+        <div class="guest" style="left:10px;top:18px;width:180px;height:90px">
+          <div class="gbar"><span class="dots">▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ _</div>
+        </div>
+        <div class="icetask"><span class="spring"></span><span>14:32</span></div>
+      </div>
+      <div class="keybar">
+        <button class="pchip">Esc</button><button class="pchip">Tab</button>
+        <button class="pchip">Ctrl</button><button class="pchip">Alt</button><button class="pchip">⇧</button>
+        <button class="pchip">←</button><button class="pchip">↑</button><button class="pchip">↓</button><button class="pchip">→</button>
+      </div>
+      <div class="botbar"><button class="verb">⌘K</button><span class="spring" style="flex:1"></span><button class="verb">⇧</button><button class="verb">⏎</button></div>
+    </div>
+    <figcaption>A docked, horizontally-scrolling strip in the header's role — the same component as the desktop
+    header cluster, rendered into a mobile chrome row instead of a tile header. It is the <b>above-precedent</b> the
+    bare-WM strip already set (<code>gui-surface.tsx</code> docks that strip as a flex sibling above the canvas and
+    the fit subtracts its height). Framebuffer loses ~30px; it stops losing the overlaid region the pill covered.</figcaption>
+  </figure>
+</div>
+
+<p class="note">Note both mobile mocks keep the ⌨ key bar docked under the canvas — that is a different component
+(<code>gui-keybar.tsx</code>) and is out of scope here.</p>
+
+<!-- ============================================================= -->
+<h2><span class="num">5</span>What this costs</h2>
+
+<table>
+  <tr><th>Piece</th><th>Change</th></tr>
+  <tr><td><code>surface-layout.tsx</code></td><td>A gui branch in the header spring, mirroring the existing tty branch. Mechanical.</td></tr>
+  <tr><td><code>gui-toolbar.tsx</code></td><td>Chips re-rendered on the 24px verb axis; the show/hide + reveal machine deleted (option B) or retained for fullscreen only (option A); a new fold rule against header width.</td></tr>
+  <tr><td><code>gui-surface.tsx</code></td><td>Option B only: fullscreen target moves from the wrapper to the tile element. Touches the pan/fit math (the wrapper is what the fit measures) and the <code>fullscreenchange</code> identity check.</td></tr>
+  <tr><td>Mobile</td><td>A new docked strip row, or nothing (option A).</td></tr>
+  <tr><td>Constitution V</td><td>Unaffected — chips stay by-id <code>pickGuiActions</code> mirrors of the <code>GUI:</code> palette family. No toolbar-only action is introduced.</td></tr>
+  <tr><td>Tests</td><td><code>gui-toolbar.test.tsx</code> largely rewritten; <code>gui-surface.spec.ts</code> reveal cases retargeted; the control-gallery PNG baselines regenerate if the Control primitive emits new classes.</td></tr>
+</table>
+
+
+<!-- ============================================================= -->
+<h2><span class="num">6</span>The disclosure toggle — one icon opens / closes it</h2>
+
+<p>Rather than fitting the cluster into the header, the header carries a <b>single ⚙ toggle</b>; clicking it opens
+the toolbar, clicking again closes it. This drops the fold rule (Q3) and the mobile strip (Q2) entirely — one
+24×24 button fits anywhere, including the mobile top bar. It also replaces the implicit reveal (3s hide timer +
+24px hover edge) with an explicit, deterministic one, which is the actual complaint.</p>
+
+<div class="callout">
+  <p class="k">The one thing it does not cover</p>
+  <p>A collapsed toolbar cannot hold the capture-mode indicator. That has to stay permanently in the header —
+  a tinted meta chip beside the name. Indicator ≠ toolbar, so this is additive, not a conflict.</p>
+</div>
+
+<h3>Closed — every form factor looks like this</h3>
+<figure>
+  <div class="stage">
+    <div class="tile focused" style="width:980px;height:120px">
+      <div class="thead">
+        <span class="glyph">[]</span><span class="name">GUI</span><span class="meta">icewm · :1</span>
+        <span class="spring"></span>
+        <button class="verb" title="Toolbar">⚙</button>
+        <span class="rule"></span>
+        <button class="verb">⤢</button><button class="verb">⛶</button>
+        <button class="verb">↰</button><button class="verb">⇄</button>
+        <span class="rule"></span><button class="verb close">✕</button>
+      </div>
+      <div class="canvas">
+        <div class="guest" style="left:40px;top:10px;width:300px;height:70px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ _</div>
+        </div>
+        <div class="icetask"><span class="ibtn">▣</span><span class="spring"></span><span>14:32</span></div>
+      </div>
+    </div>
+  </div>
+  <figcaption>Rest state. One button, zero width pressure — this is identical at 980px, at 418px in a split, and in
+  fullscreen. ⤢ stays inline as a header verb (it is a frame action, not a toolbar action).</figcaption>
+</figure>
+
+<h3>Open — three ways to render it</h3>
+
+<figure>
+  <div class="fslabel"><span>A — floating pill, toggle-driven <span class="tag no">keeps the overlay</span></span><span class="bar"></span></div>
+  <div class="stage">
+    <div class="tile focused" style="width:980px;height:230px">
+      <div class="thead">
+        <span class="glyph">[]</span><span class="name">GUI</span><span class="meta">icewm · :1</span>
+        <span class="spring"></span>
+        <button class="verb pressed" title="Toolbar">⚙</button>
+        <span class="rule"></span>
+        <button class="verb">⤢</button><button class="verb">⛶</button>
+        <button class="verb">↰</button><button class="verb">⇄</button>
+        <span class="rule"></span><button class="verb close">✕</button>
+      </div>
+      <div class="canvas">
+        <div class="guest" style="left:380px;top:14px;width:340px;height:120px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>chromium</span></div>
+          <div class="gbody" style="background:#f3f4f6;color:#374151">localhost:3000 — HexoKit</div>
+        </div>
+        <div class="pill">
+          <button class="pchip">1920×1080 ▾</button>
+          <span class="rule"></span>
+          <button class="pchip">−</button><button class="pchip">fit</button><button class="pchip">+</button>
+          <button class="pchip">◐ Balanced</button>
+          <span class="rule"></span>
+          <button class="pchip">⎘</button><button class="pchip">⌥</button>
+          <span class="rule"></span>
+          <button class="pchip">▣</button><button class="pchip">◍</button>
+          <span class="rule"></span><button class="pchip">∿</button>
+        </div>
+        <div class="icetask"><span class="ibtn">▣</span><span class="spring"></span><span>14:32</span></div>
+      </div>
+    </div>
+  </div>
+  <figcaption>Smallest diff — the pill component survives, only its show/hide machine is replaced by the toggle.
+  But it still covers the guest desktop (note the chromium title bar again), which was half the reason to move it.
+  Salvages the least.</figcaption>
+</figure>
+
+<figure>
+  <div class="fslabel"><span>B — a second header row, canvas pushed down <span class="tag rec">recommended</span></span><span class="bar"></span></div>
+  <div class="stage">
+    <div class="tile focused" style="width:980px;height:230px">
+      <div class="thead">
+        <span class="glyph">[]</span><span class="name">GUI</span><span class="meta">icewm · :1</span>
+        <span class="spring"></span>
+        <button class="verb pressed" title="Toolbar">⚙</button>
+        <span class="rule"></span>
+        <button class="verb">⤢</button><button class="verb">⛶</button>
+        <button class="verb">↰</button><button class="verb">⇄</button>
+        <span class="rule"></span><button class="verb close">✕</button>
+      </div>
+      <div style="flex-shrink:0;display:flex;align-items:center;gap:4px;padding:3px 6px;background:var(--bg-card);border-bottom:1px solid var(--border);overflow-x:auto">
+        <button class="hchip">1920×1080 ▾</button>
+        <span class="rule" style="margin:4px 2px"></span>
+        <button class="hchip">−</button><button class="hchip">fit</button><button class="hchip">+</button>
+        <button class="hchip">◐ Balanced</button>
+        <span class="rule" style="margin:4px 2px"></span>
+        <button class="verb">⎘</button><button class="verb">⌥</button>
+        <button class="verb">▣</button><button class="verb">◍</button><button class="verb">∿</button>
+        <span class="rule" style="margin:4px 2px"></span>
+        <button class="verb">↻</button>
+      </div>
+      <div class="canvas">
+        <div class="guest" style="left:380px;top:8px;width:340px;height:110px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>chromium</span></div>
+          <div class="gbody" style="background:#f3f4f6;color:#374151">localhost:3000 — HexoKit</div>
+        </div>
+        <div class="icetask"><span class="ibtn">▣</span><span class="spring"></span><span>14:32</span></div>
+      </div>
+    </div>
+  </div>
+  <figcaption>Nothing is ever covered — the canvas resizes instead. Scrolls horizontally when narrow, so the fold
+  rule stays deleted at every width. This is the <b>bare-WM strip precedent</b> exactly: <code>gui-surface.tsx</code>
+  already docks a strip as a flex sibling above the canvas and the fit math subtracts its height, so the plumbing
+  exists. Identical construction on desktop, fullscreen and mobile — one component, one behaviour.</figcaption>
+</figure>
+
+<figure>
+  <div class="fslabel"><span>C — dropdown anchored to the icon <span class="tag open">reuses GuiToolbarMenu</span></span><span class="bar"></span></div>
+  <div class="stage">
+    <div class="tile focused" style="width:980px;height:270px">
+      <div class="thead" style="position:relative;z-index:30">
+        <span class="glyph">[]</span><span class="name">GUI</span><span class="meta">icewm · :1</span>
+        <span class="spring"></span>
+        <button class="verb pressed" title="Toolbar">⚙</button>
+        <span class="rule"></span>
+        <button class="verb">⤢</button><button class="verb">⛶</button>
+        <button class="verb">↰</button><button class="verb">⇄</button>
+        <span class="rule"></span><button class="verb close">✕</button>
+      </div>
+      <div class="canvas" style="position:relative">
+        <div style="position:absolute;right:112px;top:0;z-index:25;min-width:200px;background:var(--bg-card);border:1px solid var(--border);border-radius:0 0 4px 4px;padding:4px;font-size:11px">
+          <div style="padding:5px 8px;color:var(--text-secondary)">Resolution → 1920×1080</div>
+          <div style="padding:5px 8px;color:var(--text-secondary)">Quality → Balanced</div>
+          <div style="padding:5px 8px;color:var(--text-secondary)">Zoom → fit</div>
+          <div style="height:1px;background:var(--border);margin:3px 0"></div>
+          <div style="padding:5px 8px;color:var(--text-secondary)">Paste clipboard</div>
+          <div style="padding:5px 8px;color:var(--text-secondary)">Send key…</div>
+          <div style="padding:5px 8px;color:var(--text-secondary)">Open terminal</div>
+          <div style="padding:5px 8px;color:var(--text-secondary)">Open browser</div>
+          <div style="padding:5px 8px;color:var(--text-secondary)">Show stats</div>
+        </div>
+        <div class="guest" style="left:40px;top:16px;width:300px;height:110px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ _</div>
+        </div>
+        <div class="icetask"><span class="ibtn">▣</span><span class="spring"></span><span>14:32</span></div>
+      </div>
+    </div>
+  </div>
+  <figcaption>Reuses <code>gui-toolbar-menu.tsx</code> wholesale — the resolution and ⋯ menus are already this
+  component. But it turns every control into a menu row, so the cycling ones (zoom −/fit/+, quality) lose their
+  one-tap chip form and become "open menu → pick row" each time. Closest to the palette; furthest from a toolbar.</figcaption>
+</figure>
+
+<table>
+  <tr><th>&nbsp;</th><th>A — floating pill</th><th>B — second header row</th><th>C — dropdown</th></tr>
+  <tr><td>Covers the desktop</td><td class="n">yes</td><td class="y">no</td><td class="q">a corner</td></tr>
+  <tr><td>Fold rule needed</td><td class="y">no</td><td class="y">no (scrolls)</td><td class="y">no</td></tr>
+  <tr><td>Same on mobile + fullscreen</td><td class="q">yes, but cramped at 375px</td><td class="y">yes</td><td class="y">yes</td></tr>
+  <tr><td>One-tap zoom / quality cycling</td><td class="y">kept</td><td class="y">kept</td><td class="n">lost</td></tr>
+  <tr><td>Existing plumbing</td><td class="y">the pill itself</td><td class="y">the bare-WM strip</td><td class="y">GuiToolbarMenu</td></tr>
+  <tr><td>Framebuffer cost when open</td><td class="y">0 (overlays)</td><td class="q">~30px</td><td class="y">0 (overlays)</td></tr>
+</table>
+
+<p class="note">All three keep Constitution V intact — chips and rows stay by-id <code>pickGuiActions</code> mirrors
+of the <code>GUI:</code> palette family, and the toggle itself becomes a palette row
+(<code>GUI: Show toolbar</code> / <code>GUI: Hide toolbar</code>) like the key bar's already is.</p>
+
+<p class="note"><b>Open, either way:</b> does the open/closed state persist per viewer
+(<code>rk-gui-toolbar</code> beside the other <code>gui-posture.ts</code> keys), or reset each visit? The key bar's
+precedent (<code>rk-gui-keybar</code>) says persist.</p>
+
+<!-- ============================================================= -->
+<h2><span class="num">7</span>Width-adaptive header — measured fold <span class="tag rec">the synthesis</span></h2>
+
+<p>§6 made the toggle all-or-nothing. This refines it: the header shows <b>as many controls as fit</b>, in a fixed
+priority order, and folds the remainder into the toggle. Wide tile ⇒ everything inline and the toggle disappears.
+Narrow split ⇒ only screen size and the zoom functions survive. Mobile ⇒ the toggle alone.</p>
+
+<p>Two rules make it coherent:</p>
+<ul style="max-width:84ch;color:var(--text-secondary);font-size:12px;line-height:1.7">
+  <li><b>The toggle is an overflow affordance, not a permanent one.</b> It renders only when something is actually
+  folded — the standard toolbar-overflow contract. Nothing folded, no ⚙.</li>
+  <li><b>Pinned controls never fold.</b> The capture toggle and ⚙ sit outside the adaptive zone: capture because its
+  state must always be legible, ⚙ because it is the way to reach what folded.</li>
+</ul>
+
+<h3>The priority ladder</h3>
+<p class="note">One ordered list, cut wherever the width runs out. Items degrade their <i>label</i> before they fold,
+so the chip survives one step longer than its full text does.</p>
+
+<table>
+  <tr><th>#</th><th>Control</th><th>Full</th><th>Degraded</th><th>Why here</th></tr>
+  <tr><td>—</td><td>⌨ Capture</td><td colspan="2" class="y">pinned — never folds</td><td>state must always be visible</td></tr>
+  <tr><td>1</td><td>Screen size</td><td><code>1920×1080 ▾</code></td><td><code>1920 ▾</code></td><td>the tile's defining property; also the menu host for lock/auto/presets</td></tr>
+  <tr><td>2</td><td>Zoom functions</td><td><code>− fit +</code></td><td>—</td><td>the only per-moment controls; used while reading the desktop</td></tr>
+  <tr><td>3</td><td>Quality</td><td><code>◐ Balanced</code></td><td><code>◐</code></td><td>tuned when the link degrades, then left alone</td></tr>
+  <tr><td>4</td><td>Input</td><td><code>⎘ ⌥</code></td><td>—</td><td>paste / send-key — occasional, and both have palette rows</td></tr>
+  <tr><td>5</td><td>Launch</td><td><code>▣ ◍</code></td><td>—</td><td>terminal / browser — once per session</td></tr>
+  <tr><td>6</td><td>Health</td><td><code>∿ ↻</code></td><td>—</td><td>stats / reconnect — diagnostic, rare</td></tr>
+</table>
+
+<h3>Live — drag the width</h3>
+
+<div class="demo">
+  <div class="demorow">
+    <label for="wSlider">Tile width</label>
+    <input id="wSlider" type="range" min="300" max="1320" value="1180" step="2">
+    <output id="wOut">1180px</output>
+    <button id="panelBtn" type="button" aria-pressed="false">Open fold panel</button>
+    <span id="foldCount" class="foldcount"></span>
+  </div>
+
+  <div class="stage" style="overflow-x:visible">
+    <div class="tile focused" id="demoTile" style="width:1180px;height:250px">
+      <div class="thead" id="demoHead">
+        <span class="glyph">[]</span>
+        <span class="name">GUI</span>
+        <span class="meta" id="demoMeta">icewm · :1</span>
+        <span class="spring"></span>
+
+        <!-- adaptive zone: priority-ordered, cut to fit -->
+        <span class="zone" id="demoZone"></span>
+
+        <!-- pinned -->
+        <span class="rule" data-pinrule hidden></span>
+        <button class="hchip" id="captureChip" title="Keyboard capture">⌨</button>
+        <button class="verb" id="foldChip" title="More controls" hidden>⚙</button>
+
+        <span class="rule"></span>
+        <button class="verb" title="Fullscreen">⤢</button>
+        <button class="verb" title="Zoom tile">⛶</button>
+        <button class="verb" title="Promote">↰</button>
+        <button class="verb" title="Swap">⇄</button>
+        <span class="rule"></span>
+        <button class="verb close" title="Close tile">✕</button>
+
+        <div class="foldpanel" id="foldPanel" hidden></div>
+      </div>
+      <div class="canvas">
+        <div class="guest" style="left:30px;top:16px;width:280px;height:110px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ htop<br>  cpu ▰▰▰▱▱▱ 41%</div>
+        </div>
+        <div class="guest" id="guest2" style="left:340px;top:34px;width:300px;height:120px">
+          <div class="gbar"><span class="dots">▪▪▪</span><span>chromium</span></div>
+          <div class="gbody" style="background:#f3f4f6;color:#374151">localhost:3000 — HexoKit</div>
+        </div>
+        <div class="icetask"><span class="ibtn">▣</span><span class="ibtn">◍</span><span class="spring"></span><span>run-kit</span><span>14:32</span></div>
+      </div>
+    </div>
+  </div>
+  <p class="note" id="demoNote" style="margin-top:10px"></p>
+</div>
+
+<figcaption style="margin-top:14px">The fold is <b>measured, not breakpointed</b> — the mock runs the real
+algorithm: render every item, then while the header overflows, degrade the next degradable label, and if it still
+overflows drop the lowest-priority item into the panel. Drag from 1320 down to 300 and watch Health → Launch →
+Input → Quality → zoom trio peel off in order, with <code>1920×1080 ▾</code> shortening to <code>1920 ▾</code>
+before it gives up its slot. Note ⚙ appearing the moment the first item folds, and disappearing again at full
+width.</figcaption>
+
+<h3>The ladder as a filmstrip</h3>
+<p class="note">The same states side by side — what a real layout produces at each tile width.</p>
+
+<div class="filmstrip" id="filmstrip"></div>
+
+<h3>Mobile — the toggle alone</h3>
+
+<div class="grid2">
+  <figure>
+    <div class="phone coarse" style="height:470px">
+      <div class="topbar">
+        <button class="verb">☰</button>
+        <span class="ttl">Tab: gui-work ▾</span>
+        <button class="hchip" style="color:var(--signal-yellow);box-shadow:inset 0 0 0 1px var(--signal-yellow)">⌨</button>
+        <button class="verb pressed">⚙</button>
+        <span class="switchgrp"><span class="sw">&gt;_</span><span class="sw on">[]</span></span>
+      </div>
+      <div class="canvas" style="flex:1">
+        <div style="position:absolute;right:6px;top:6px;z-index:25;min-width:190px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:4px;font-size:11px">
+          <div class="frow"><span>Resolution</span><span class="fv">1920×1080 ▾</span></div>
+          <div class="frow"><span>Zoom</span><span class="fv">−&nbsp; fit&nbsp; +</span></div>
+          <div class="frow"><span>Quality</span><span class="fv">Balanced</span></div>
+          <div class="fsep"></div>
+          <div class="frow"><span>⌖ Pointer</span><span class="fv">Touch</span></div>
+          <div class="frow"><span>⌨ Key bar</span><span class="fv" style="color:var(--accent-green)">on</span></div>
+          <div class="fsep"></div>
+          <div class="frow"><span>⎘ Paste</span></div>
+          <div class="frow"><span>⌥ Send key…</span></div>
+          <div class="frow"><span>▣ Open terminal</span></div>
+          <div class="frow"><span>◍ Open browser</span></div>
+        </div>
+        <div class="guest" style="left:10px;top:14px;width:170px;height:80px">
+          <div class="gbar"><span class="dots">▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ _</div>
+        </div>
+        <div class="icetask"><span class="spring"></span><span>14:32</span></div>
+      </div>
+      <div class="keybar">
+        <button class="pchip">Esc</button><button class="pchip">Tab</button>
+        <button class="pchip">Ctrl</button><button class="pchip">Alt</button><button class="pchip">⇧</button>
+        <button class="pchip">←</button><button class="pchip">↑</button><button class="pchip">↓</button><button class="pchip">→</button>
+      </div>
+      <div class="botbar"><button class="verb">⌘K</button><span style="flex:1"></span><button class="verb">⇧</button><button class="verb">⏎</button></div>
+    </div>
+    <figcaption><b>375px, panel open.</b> Mobile is just the bottom rung of the same ladder — everything folded,
+    so only ⌨ and ⚙ render, and they go in the top bar (there is no tile header on mobile). The panel is the same
+    component as the desktop fold panel, with the two coarse-only rows (⌖ pointer, ⌨ key bar) appended. No separate
+    mobile design to maintain.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone coarse" style="height:470px">
+      <div class="topbar">
+        <button class="verb">☰</button>
+        <span class="ttl">Tab: gui-work ▾</span>
+        <button class="hchip">⌨</button>
+        <button class="verb">⚙</button>
+        <span class="switchgrp"><span class="sw">&gt;_</span><span class="sw on">[]</span></span>
+      </div>
+      <div class="canvas" style="flex:1">
+        <div class="guest" style="left:10px;top:14px;width:170px;height:80px">
+          <div class="gbar"><span class="dots">▪▪</span><span>xterm</span></div>
+          <div class="gbody">$ _</div>
+        </div>
+        <div class="guest" style="left:120px;top:120px;width:210px;height:90px">
+          <div class="gbar"><span class="dots">▪▪</span><span>chromium</span></div>
+          <div class="gbody" style="background:#f3f4f6;color:#374151">localhost:3000</div>
+        </div>
+        <div class="icetask"><span class="spring"></span><span>14:32</span></div>
+      </div>
+      <div class="keybar">
+        <button class="pchip">Esc</button><button class="pchip">Tab</button>
+        <button class="pchip">Ctrl</button><button class="pchip">Alt</button><button class="pchip">⇧</button>
+        <button class="pchip">←</button><button class="pchip">↑</button><button class="pchip">↓</button><button class="pchip">→</button>
+      </div>
+      <div class="botbar"><button class="verb">⌘K</button><span style="flex:1"></span><button class="verb">⇧</button><button class="verb">⏎</button></div>
+    </div>
+    <figcaption><b>375px, closed.</b> The whole framebuffer is free — nothing overlays it, which the current pill
+    cannot say at any width. Capture (⌨) stays visible and unlatched here; latched it goes yellow, as in the left
+    frame.</figcaption>
+  </figure>
+</div>
+
+<h3>Matching the header's own chrome</h3>
+<p>Folded-out items are not pill chips reparented — they are re-rendered in the header's vocabulary, so the row reads
+as one cluster rather than two:</p>
+
+<table>
+  <tr><th>Property</th><th>Pill today</th><th>In the header</th></tr>
+  <tr><td>Height axis</td><td>33×35 min (40 coarse)</td><td class="y">24px fixed (26 coarse) — the verb-button axis</td></tr>
+  <tr><td>Border</td><td>1px <code>border-border</code> per chip</td><td class="y">none; hover gives <code>bg-bg-inset</code></td></tr>
+  <tr><td>Ink at rest</td><td><code>text-text-primary</code></td><td class="y"><code>text-text-secondary</code> → primary on hover</td></tr>
+  <tr><td>Gap</td><td>4px (<code>gap-1</code>)</td><td class="y">6px (<code>gap-1.5</code>) — the header's own</td></tr>
+  <tr><td>Group divider</td><td>full-bleed 1px</td><td class="y">hairline with 6px vertical inset — the header's rule</td></tr>
+  <tr><td>Latched state</td><td>green border</td><td class="y">green ink + inset ring — the ⌕ find-toggle precedent</td></tr>
+  <tr><td>Text chips</td><td>bordered box</td><td class="y">borderless, content-width, 6px side padding</td></tr>
+</table>
+
+<div class="callout warn">
+  <p class="k">Honest cost</p>
+  <p>A measured fold is more work than the current single constant. The component must measure each item once
+  (a hidden probe row or cached <code>offsetWidth</code> after first paint) and re-cut on a
+  <code>ResizeObserver</code> — and the measurement has to survive font loading, the coarse-pointer size bump, and
+  label changes (<code>1920×1080</code> → <code>auto</code> is a width change). The failure mode is benign — fold
+  one item too many — but it needs a test that drives real widths, which jsdom cannot do, so the fold ladder wants
+  a Playwright case rather than a Vitest one.</p>
+</div>
+
+<h2><span class="num">8</span>Open questions</h2>
+<table>
+  <tr><th>#</th><th>Question</th><th>Leaning</th></tr>
+  <tr><td>Q1</td><td>Fullscreen: keep the pill (A) or fullscreen the tile so the header travels (B)?</td><td>B — still live, and now the ONLY structural question left</td></tr>
+  <tr><td>Q2</td><td>Mobile: status quo pill, or a docked strip?</td><td class="y">Answered by §7 — mobile is the bottom rung of the same ladder</td></tr>
+  <tr><td>Q3</td><td>Fold on header free width, or keep the wrapper-width threshold?</td><td class="y">Answered by §7 — measured fold on header free width, no constant</td></tr>
+  <tr><td>Q4</td><td>Do single-glyph actions become verb buttons (borderless) or stay bordered chips?</td><td class="y">Answered by §7 — verb buttons; full chrome mapping tabled there</td></tr>
+  <tr><td>Q5</td><td>Does the gui header get a meta chip, and what goes in it (<code>icewm · :1</code>? resolution? capture state)?</td><td>WM + display; capture state gets its own tinted chip</td></tr>
+  <tr><td>Q6</td><td>Toolbar open state: persist per viewer, or reset each visit?</td><td>Persist — the key bar's <code>rk-gui-keybar</code> precedent</td></tr>
+</table>
+
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var themeBtn = document.getElementById("themeBtn");
+  themeBtn.addEventListener("click", function () {
+    var dark = root.getAttribute("data-theme") === "dark";
+    root.setAttribute("data-theme", dark ? "light" : "dark");
+    themeBtn.textContent = dark ? "◐ Dark" : "◐ Light";
+  });
+
+  var coarseBtn = document.getElementById("coarseBtn");
+  coarseBtn.addEventListener("click", function () {
+    var on = coarseBtn.getAttribute("aria-pressed") === "true";
+    coarseBtn.setAttribute("aria-pressed", String(!on));
+    document.querySelectorAll(".stage, .fsframe").forEach(function (el) {
+      el.classList.toggle("coarse", !on);
+    });
+  });
+
+  var pillBtn = document.getElementById("pillBtn");
+  pillBtn.addEventListener("click", function () {
+    var on = pillBtn.getAttribute("aria-pressed") === "true";
+    pillBtn.setAttribute("aria-pressed", String(!on));
+    document.querySelectorAll(".js-pill").forEach(function (el) {
+      el.style.display = on ? "none" : "";
+    });
+    pillBtn.textContent = on ? "👁 Show current pill" : "👁 Hide current pill";
+  });
+})();
+</script>
+<script>
+/* ===== §7: measured priority fold ===== */
+(function () {
+  var head = document.getElementById("demoHead");
+  if (!head) return;
+  var tile = document.getElementById("demoTile");
+  var zone = document.getElementById("demoZone");
+  var meta = document.getElementById("demoMeta");
+  var foldChip = document.getElementById("foldChip");
+  var pinRule = head.querySelector("[data-pinrule]");
+  var panel = document.getElementById("foldPanel");
+  var slider = document.getElementById("wSlider");
+  var out = document.getElementById("wOut");
+  var panelBtn = document.getElementById("panelBtn");
+  var foldCount = document.getElementById("foldCount");
+  var note = document.getElementById("demoNote");
+  var guest2 = document.getElementById("guest2");
+
+  // Priority-ordered ladder. `group` drives the hairline rules; `short` is the
+  // one degradation step an item takes before it gives up its slot.
+  var LADDER = [
+    { id: "res",    group: "size",   kind: "chip", full: "1920×1080 ▾", short: "1920 ▾", row: "Resolution", val: "1920×1080 ▾" },
+    { id: "zoomout",group: "zoom",   kind: "verb", full: "−",  row: "Zoom out" },
+    { id: "zoomfit",group: "zoom",   kind: "chip", full: "fit", row: "Zoom to fit" },
+    { id: "zoomin", group: "zoom",   kind: "verb", full: "+",  row: "Zoom in" },
+    { id: "quality",group: "zoom",   kind: "chip", full: "◐ Balanced", short: "◐", row: "Quality", val: "Balanced" },
+    { id: "paste",  group: "input",  kind: "verb", full: "⎘",  row: "⎘ Paste clipboard" },
+    { id: "sendkey",group: "input",  kind: "verb", full: "⌥",  row: "⌥ Send key…" },
+    { id: "term",   group: "launch", kind: "verb", full: "▣",  row: "▣ Open terminal" },
+    { id: "brow",   group: "launch", kind: "verb", full: "◍",  row: "◍ Open browser" },
+    { id: "stats",  group: "health", kind: "verb", full: "∿",  row: "∿ Show stats" },
+    { id: "recon",  group: "health", kind: "verb", full: "↻",  row: "↻ Reconnect" },
+  ];
+
+  function makeEl(item, degraded) {
+    var b = document.createElement("button");
+    b.className = item.kind === "chip" ? "hchip" : "verb";
+    b.title = item.row;
+    b.textContent = degraded && item.short ? item.short : item.full;
+    return b;
+  }
+
+  /* Render `n` leading items (with a per-item degraded flag) into the zone,
+     inserting a hairline rule at every group boundary — exactly the header's
+     own rule treatment. */
+  function paint(n, degradeFrom) {
+    zone.textContent = "";
+    var lastGroup = null;
+    for (var i = 0; i < n; i++) {
+      var item = LADDER[i];
+      if (lastGroup !== null && item.group !== lastGroup) {
+        var r = document.createElement("span");
+        r.className = "rule";
+        zone.appendChild(r);
+      }
+      zone.appendChild(makeEl(item, i >= degradeFrom));
+      lastGroup = item.group;
+    }
+  }
+
+  function overflows() {
+    // 1px slack absorbs sub-pixel layout noise.
+    return head.scrollWidth > head.clientWidth + 1;
+  }
+
+  function fill(rows) {
+    panel.textContent = "";
+    if (!rows.length) {
+      var e = document.createElement("div");
+      e.className = "fempty";
+      e.textContent = "Nothing folded at this width";
+      panel.appendChild(e);
+      return;
+    }
+    var lastGroup = null;
+    rows.forEach(function (item) {
+      if (lastGroup !== null && item.group !== lastGroup) {
+        var s = document.createElement("div");
+        s.className = "fsep";
+        panel.appendChild(s);
+      }
+      var d = document.createElement("div");
+      d.className = "frow";
+      var l = document.createElement("span");
+      l.textContent = item.row;
+      d.appendChild(l);
+      if (item.val) {
+        var v = document.createElement("span");
+        v.className = "fv";
+        v.textContent = item.val;
+        d.appendChild(v);
+      }
+      panel.appendChild(d);
+      lastGroup = item.group;
+    });
+  }
+
+  /* The algorithm: show everything at full labels. While the header overflows,
+     first spend the degradation steps (cheapest — keeps the control reachable),
+     then drop the lowest-priority item into the panel. */
+  function recut() {
+    var n = LADDER.length;
+    var degradeFrom = LADDER.length; // nothing degraded yet
+
+    paint(n, degradeFrom);
+    if (overflows()) {
+      // Degrade from the END of the ladder backwards: the least important
+      // label gives up its text first.
+      for (var d = LADDER.length - 1; d >= 0 && overflows(); d--) {
+        if (LADDER[d].short) {
+          degradeFrom = d;
+          paint(n, degradeFrom);
+        }
+      }
+    }
+    while (n > 0 && overflows()) {
+      n--;
+      paint(n, Math.min(degradeFrom, n));
+    }
+
+    var folded = LADDER.slice(n);
+    var anyFolded = folded.length > 0;
+    foldChip.hidden = !anyFolded;
+    pinRule.hidden = false;
+    if (!anyFolded && panelBtn.getAttribute("aria-pressed") === "true") {
+      panelBtn.setAttribute("aria-pressed", "false");
+      panelBtn.textContent = "Open fold panel";
+    }
+    panel.hidden = !(anyFolded && panelBtn.getAttribute("aria-pressed") === "true");
+    fill(folded);
+
+    foldCount.textContent = anyFolded
+      ? folded.length + " folded → ⚙"
+      : "nothing folded — ⚙ hidden";
+
+    var shown = LADDER.slice(0, n).map(function (i) { return i.id; });
+    note.innerHTML =
+      "<b>Inline:</b> " + (shown.length ? shown.join(" · ") : "—") +
+      " &nbsp;|&nbsp; <b>Folded:</b> " +
+      (folded.length ? folded.map(function (i) { return i.id; }).join(" · ") : "—");
+  }
+
+  slider.addEventListener("input", function () {
+    var w = Number(slider.value);
+    tile.style.width = w + "px";
+    out.textContent = w + "px";
+    // The meta chip is the header's own first casualty — it truncates, then
+    // the tile gets too narrow to justify it at all.
+    meta.style.display = w < 520 ? "none" : "";
+    if (guest2) guest2.style.display = w < 700 ? "none" : "";
+    // Panel anchor tracks the pinned cluster on the right.
+    panel.style.right = Math.min(112, Math.max(8, w - 200)) + "px";
+    recut();
+  });
+
+  panelBtn.addEventListener("click", function () {
+    var on = panelBtn.getAttribute("aria-pressed") === "true";
+    panelBtn.setAttribute("aria-pressed", String(!on));
+    panelBtn.textContent = on ? "Open fold panel" : "Close fold panel";
+    recut();
+  });
+
+  foldChip.addEventListener("click", function () { panelBtn.click(); });
+
+  var captureChip = document.getElementById("captureChip");
+  captureChip.addEventListener("click", function () {
+    var on = captureChip.classList.toggle("captured");
+    captureChip.style.color = on ? "var(--signal-yellow)" : "";
+    captureChip.style.boxShadow = on ? "inset 0 0 0 1px var(--signal-yellow)" : "";
+    meta.textContent = on ? "⌨ keys → desktop" : "icewm · :1";
+    meta.style.color = on ? "var(--signal-yellow)" : "";
+    meta.style.background = on ? "color-mix(in srgb, var(--signal-yellow) 12%, transparent)" : "";
+  });
+
+  /* ---- filmstrip: the same cut rendered statically at key widths ---- */
+  var STRIP = [
+    { w: 1180, cap: "single tile, 1280px screen" },
+    { w: 940,  cap: "single tile, laptop" },
+    { w: 630,  cap: "split-h half" },
+    { w: 470,  cap: "main-left side tile" },
+    { w: 375,  cap: "mobile — toggle only" },
+  ];
+  var strip = document.getElementById("filmstrip");
+  STRIP.forEach(function (s) {
+    var row = document.createElement("div");
+    row.className = "filmrow";
+    var w = document.createElement("span");
+    w.className = "w";
+    w.innerHTML = s.w + "px<br><span style='opacity:.7'>" + s.cap + "</span>";
+    var holder = document.createElement("div");
+    holder.className = "holder";
+    var clone = tile.cloneNode(true);
+    clone.removeAttribute("id");
+    clone.style.width = s.w + "px";
+    clone.style.height = "35px";
+    holder.appendChild(clone);
+    row.appendChild(w);
+    row.appendChild(holder);
+    strip.appendChild(row);
+  });
+
+  // Cut each filmstrip row with the same algorithm, against its own width.
+  function cutClone(cloneHead, width) {
+    var z = cloneHead.querySelector(".zone");
+    var chip = cloneHead.querySelector(".verb[title='More controls']");
+    var m = cloneHead.querySelector(".meta");
+    if (m) m.style.display = width < 520 ? "none" : "";
+    var n = LADDER.length;
+    var degradeFrom = LADDER.length;
+    function paintInto(count, dFrom) {
+      z.textContent = "";
+      var lastGroup = null;
+      for (var i = 0; i < count; i++) {
+        var item = LADDER[i];
+        if (lastGroup !== null && item.group !== lastGroup) {
+          var r = document.createElement("span");
+          r.className = "rule";
+          z.appendChild(r);
+        }
+        z.appendChild(makeEl(item, i >= dFrom));
+        lastGroup = item.group;
+      }
+    }
+    function over() { return cloneHead.scrollWidth > cloneHead.clientWidth + 1; }
+    paintInto(n, degradeFrom);
+    if (over()) {
+      for (var d = LADDER.length - 1; d >= 0 && over(); d--) {
+        if (LADDER[d].short) { degradeFrom = d; paintInto(n, degradeFrom); }
+      }
+    }
+    while (n > 0 && over()) { n--; paintInto(n, Math.min(degradeFrom, n)); }
+    if (chip) chip.hidden = n >= LADDER.length;
+  }
+
+  function recutStrip() {
+    strip.querySelectorAll(".filmrow").forEach(function (row, i) {
+      var h = row.querySelector(".thead");
+      var p = h.querySelector(".foldpanel");
+      if (p) p.hidden = true;
+      cutClone(h, STRIP[i].w);
+    });
+  }
+
+  // Fonts change measured widths — re-cut once they land.
+  function runAll() { recut(); recutStrip(); }
+  runAll();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(runAll);
+  window.addEventListener("resize", runAll);
+
+  // The coarse toggle bumps every control 24→26px; re-measure after it flips.
+  var coarseBtn = document.getElementById("coarseBtn");
+  if (coarseBtn) coarseBtn.addEventListener("click", function () { setTimeout(runAll, 0); });
+})();
+
+</script>
+</body>
+</html>

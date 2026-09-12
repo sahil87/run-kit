@@ -10,7 +10,7 @@ function row(id: string, overrides: Partial<GuiToolbarMenuRow> = {}): GuiToolbar
 }
 
 /** The anchor chip is a sibling of the menu inside a positioned box — the
- *  pill's own shape. */
+ *  cluster's own shape. */
 function renderMenu(rows: GuiToolbarMenuRow[], onClose = vi.fn()) {
   function Host() {
     const ref = useRef<HTMLButtonElement>(null);
@@ -61,6 +61,15 @@ describe("GuiToolbarMenu — rendering", () => {
     expect(item).toHaveProperty("disabled", true);
     fireEvent.click(item);
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("a separator row renders an aria-hidden hairline, never a menuitem", () => {
+    renderMenu([row("a"), { id: "sep-1", separator: true }, row("b")]);
+    const menu = screen.getByTestId("gui-toolbar-menu");
+    expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual(["a", "b"]);
+    const sep = menu.querySelector('[aria-hidden="true"]');
+    expect(sep).not.toBeNull();
+    expect(sep!.getAttribute("role")).toBeNull();
   });
 });
 

@@ -9,6 +9,7 @@ import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-d
 import { ToastProvider } from "@/components/toast";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { SurfaceKind } from "@/lib/surface-layout";
+import { buildGuiActions, type GuiPaletteInput } from "@/lib/palette/gui";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { setQuakeMachineState } from "@/lib/quake-terminal";
 
@@ -1814,6 +1815,106 @@ describe("TopBar", () => {
       expect(buttons[0].className).toContain("bg-accent-green/15");
       expect(buttons[0].className).toContain("text-accent-green");
       expect(buttons[1].className).not.toContain("bg-accent-green/15");
+    });
+  });
+
+  describe("gui mobile ⚙ block (the fold's bottom rung)", () => {
+    const guiPaletteInput = (overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput => ({
+      enabled: true,
+      reachable: true,
+      backend: "Xtigervnc",
+      tileOpen: true,
+      connected: true,
+      coarsePointer: true,
+      zoom: 100,
+      pointerMode: "trackpad",
+      resizeLocked: false,
+      locked: false,
+      quality: "balanced",
+      statsVisible: false,
+      hidpi: false,
+      keyBarVisible: true,
+      toolbarVisible: false,
+      geometry: "auto",
+      supervisorAvailable: true,
+      onTurnOn: vi.fn(),
+      onTurnOff: vi.fn(),
+      loadDesktopRows: vi.fn().mockResolvedValue([]),
+      onLaunch: vi.fn(),
+      onResize: vi.fn(),
+      onResizeCustom: vi.fn(),
+      onMatchTile: vi.fn(),
+      onFullscreen: vi.fn(),
+      onPaste: vi.fn(),
+      onZoom: vi.fn(),
+      onPointerMode: vi.fn(),
+      onLockChange: vi.fn(),
+      onQuality: vi.fn(),
+      onStatsVisible: vi.fn(),
+      onHidpiChange: vi.fn(),
+      onKeyBarVisibleChange: vi.fn(),
+      onToolbarVisibleChange: vi.fn(),
+      onSendKey: vi.fn(),
+      onOpenLogs: vi.fn(),
+      onReconnect: vi.fn(),
+      ...overrides,
+    });
+    const switchToggles = (active: SurfaceKind) => ({
+      mode: "switch" as const,
+      available: ["tty", "gui"] as SurfaceKind[],
+      active,
+      onSwitch: vi.fn(),
+    });
+    const guiToolbar = (overrides: Partial<{ visible: boolean; onVisibleChange: (v: boolean) => void }> = {}) => ({
+      actions: buildGuiActions(guiPaletteInput({ geometry: "1920x1080" })),
+      quality: "balanced" as const,
+      visible: overrides.visible ?? false,
+      onVisibleChange: overrides.onVisibleChange ?? vi.fn(),
+    });
+
+    it("renders the ⚙ block beside the switch group only when the visible mobile surface is gui", () => {
+      renderTopBar({ surfaceToggles: switchToggles("gui"), guiToolbar: guiToolbar() });
+      expect(screen.getByTestId("gui-toolbar-overflow")).toBeInTheDocument();
+      cleanup();
+      // Switch mode showing another surface: no block.
+      renderTopBar({ surfaceToggles: switchToggles("tty"), guiToolbar: guiToolbar() });
+      expect(screen.queryByTestId("gui-toolbar-overflow")).toBeNull();
+      cleanup();
+      // Desktop toggle mode: no block either.
+      renderTopBar({
+        surfaceToggles: { mode: "toggle", available: ["tty", "gui"], open: ["tty", "gui"], onToggle: vi.fn() },
+        guiToolbar: guiToolbar(),
+      });
+      expect(screen.queryByTestId("gui-toolbar-overflow")).toBeNull();
+    });
+
+    it("the panel carries every ladder row plus Fullscreen and the coarse ⌖/⌨ rows", () => {
+      renderTopBar({ surfaceToggles: switchToggles("gui"), guiToolbar: guiToolbar({ visible: true }) });
+      const menu = screen.getByTestId("gui-toolbar-menu");
+      expect(menu.getAttribute("data-menu")).toBe("overflow");
+      const texts = within(menu).getAllByRole("menuitem").map((el) => el.textContent);
+      for (const expected of [
+        "Fullscreen",
+        "1280×720",
+        "Zoom in",
+        "Quality → Balanced",
+        "Paste clipboard",
+        "Send key…",
+        "Open terminal",
+        "Open browser",
+        "Show stats",
+        "Pointer → Touch — tap where you touch",
+        "Hide key bar",
+      ]) {
+        expect(texts).toContain(expected);
+      }
+    });
+
+    it("the ⚙ button routes the open state to the caller", () => {
+      const onVisibleChange = vi.fn();
+      renderTopBar({ surfaceToggles: switchToggles("gui"), guiToolbar: guiToolbar({ onVisibleChange }) });
+      fireEvent.click(screen.getByTestId("gui-toolbar-overflow"));
+      expect(onVisibleChange).toHaveBeenCalledWith(true);
     });
   });
 

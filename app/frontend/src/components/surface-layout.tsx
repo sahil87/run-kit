@@ -33,6 +33,7 @@ import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import type { GuiSignal } from "@/contexts/session-context";
 import type { GuiPointerMode, GuiQuality, GuiZoom } from "@/lib/gui-posture";
 import type { GuiRestartResult, GuiSurfaceCommands } from "@/components/gui-surface";
+import { GuiToolbar } from "@/components/gui-toolbar";
 import type { GuiPaletteAction } from "@/lib/palette/gui";
 
 // noVNC's core is ~150 KB min — the gui tile lazy-loads so tabs that never
@@ -49,6 +50,7 @@ import {
   ClosePaneBoxedGlyph,
   ExportGlyph,
   FindGlyph,
+  FullscreenGlyph,
   PromoteGlyph,
   SplitHorizontalGlyph,
   SplitVerticalGlyph,
@@ -236,8 +238,10 @@ interface SurfaceLayoutProps {
   guiHidpi?: boolean;
   guiKeyBarVisible?: boolean;
   onGuiKeyBarVisibleChange?: (visible: boolean) => void;
-  /** The fullscreen toggle verb (app.tsx's guiFullscreen) for the toolbar pill's ⤢. */
-  onGuiFullscreen?: () => void;
+  /** The gui header fold's `⚙` panel open state (`rk-gui-toolbar`, owned by
+   *  app.tsx) and its seam. */
+  guiToolbarVisible?: boolean;
+  onGuiToolbarVisibleChange?: (visible: boolean) => void;
   guiResizeLocked?: boolean;
   guiQuality?: GuiQuality;
   guiStatsVisible?: boolean;
@@ -254,7 +258,7 @@ interface SurfaceLayoutProps {
    *  RFB is live — the palette's `GUI:` verbs drive them. */
   guiCommandsRef?: { current: GuiSurfaceCommands | null };
   /** The memoized `buildGuiActions` output app.tsx feeds the palette (the
-   *  zen-fallback description patch included) — the gui tile's toolbar pill
+   *  zen-fallback description patch included) — the gui tile's header fold
    *  mirrors it by row id. */
   guiActions?: GuiPaletteAction[];
   /** Follow-the-editor passthrough (260813-if5d R3): handed straight to the code
@@ -568,10 +572,15 @@ function intersectionAxes(shape: LayoutShape): { xIndex: number; yIndex: number 
 /** Small header meta (R7): the code root's basename for code, the active web
  *  tab's display form for web (the kind-specific pretty form — never throws,
  *  so a relative `/present/…`/`/proxy/…` address gets header meta too,
- *  260819-v6y4 R10). The code root arrives via `codeRootFor` — the shared
+ *  260819-v6y4 R10), and `wm · display` for gui (the bare-WM state degrades
+ *  to the display alone). The code root arrives via `codeRootFor` — the shared
  *  `@rk_win_code_root` — so the header names the folder the editor is actually
  *  in, never the pane the terminal happens to sit in. */
-function tileMeta(kind: SurfaceKind, win: ViewWindow | null): string | null {
+function tileMeta(kind: SurfaceKind, win: ViewWindow | null, gui?: GuiSignal | null): string | null {
+  if (kind === "gui" && gui) {
+    const parts = [gui.wm, gui.display].filter((part) => part !== "");
+    return parts.length > 0 ? parts.join(" · ") : null;
+  }
   const codeRoot = kind === "code" ? codeRootFor(win) : "";
   if (codeRoot) {
     const parts = codeRoot.split("/").filter(Boolean);
@@ -606,7 +615,8 @@ export function SurfaceLayout({
   guiHidpi = false,
   guiKeyBarVisible = true,
   onGuiKeyBarVisibleChange,
-  onGuiFullscreen,
+  guiToolbarVisible = false,
+  onGuiToolbarVisibleChange,
   guiResizeLocked = false,
   guiQuality = "balanced",
   guiStatsVisible = false,
@@ -961,7 +971,10 @@ export function SurfaceLayout({
   // or empty) falls the header back to the address's display form. Per-window:
   // the reset effect clears it on a window switch.
   const [webPageTitle, setWebPageTitle] = useState<string | null>(null);
-
+  // The gui tile's element-fullscreen state, reported up from GuiSurface
+  // (the fullscreen verb targets the TILE): latches the header's ⤢ and
+  // suppresses the gui tile's layout verbs while it lasts.
+  const [guiTileFullscreen, setGuiTileFullscreen] = useState(false);
   // Tty task progress (260819-1vxq): OSC 9;4 events lifted from the
   // scaffold's `onProgressChange` seam into ONE per-window slot — every tty
   // tile shows the same window, so one slot serves all of them (the
@@ -1660,7 +1673,7 @@ export function SurfaceLayout({
               hidpi={guiHidpi}
               keyBarVisible={guiKeyBarVisible}
               onKeyBarVisibleChange={onGuiKeyBarVisibleChange ?? (() => {})}
-              onFullscreen={onGuiFullscreen ?? (() => {})}
+              onFullscreenChange={setGuiTileFullscreen}
               resizeLocked={guiResizeLocked}
               quality={guiQuality}
               statsVisible={guiStatsVisible}
@@ -1670,7 +1683,6 @@ export function SurfaceLayout({
               onRestart={onGuiRestart}
               onOpenLogs={onGuiOpenLogs}
               commandsRef={guiCommandsRef}
-              guiActions={guiActions}
               shouldReclaimChord={shouldReclaimChord?.("gui")}
               onInteract={
                 slot >= 0
@@ -1718,7 +1730,7 @@ export function SurfaceLayout({
     const suffix = occ > 0 ? `-${occ + 1}` : "";
     const testId = `surface-tile-${kind}${suffix}`;
     const label = SURFACE_LABEL[kind];
-    const meta = tileMeta(kind, win);
+    const meta = tileMeta(kind, win, gui);
     // Web tile header (260819-v6y4 R10): a kind badge (hues per the approved
     // design study — green=present, amber=proxied port, blue=external) plus
     // the page title reported up from the iframe, falling back to the
@@ -1748,7 +1760,9 @@ export function SurfaceLayout({
       return null;
     })();
     const isZoomed = zoomed && slot === zoomedIndex;
-    const showVerbs = !mobile && arity > 1 && slot >= 0;
+    // The fullscreened gui tile suppresses its layout verbs (the zoomed-tile
+    // precedent) — ⤢ latched green is the exit.
+    const showVerbs = !mobile && arity > 1 && slot >= 0 && !(kind === "gui" && guiTileFullscreen);
     // Focused-tile highlight (260812-wfic R2): accent-green border + kind
     // glyph, suppressed at arity 1 (no verbs, no highlight — the tmux
     // active-pane metaphor). Focus assignment: the wrapper's pointerdown
@@ -1757,6 +1771,10 @@ export function SurfaceLayout({
     // iframe — so the iframe tiles (code, web) report in-frame interaction
     // via their `onInteract` callbacks.
     const isFocused = !mobile && arity > 1 && slot >= 0 && slot === focusedSlot;
+    // The header ⤢ fires the palette's `gui-fullscreen` row by id (D9 — no
+    // header-only action).
+    const guiFullscreenRow =
+      kind === "gui" ? guiActions.find((a) => a.id === "gui-fullscreen") : undefined;
     return (
       <div
         key={kind === "tty" ? `${kind}${suffix}` : `${kind}${suffix}:${windowId}`}
@@ -1851,7 +1869,54 @@ export function SurfaceLayout({
                 )}
               </>
             )}
-            <span className="flex-1" />
+            {/* rk-slot: gui-fold — the gui tile's session controls live in
+                the header spring as a measured priority fold (gui-toolbar.tsx,
+                the tty branch's sibling slot). The cluster owns the whole
+                spring (its root is the fold's measured budget). */}
+            {kind === "gui" && gui ? (
+              <GuiToolbar
+                actions={guiActions}
+                coarsePointer={coarsePointer}
+                quality={guiQuality}
+                statsVisible={guiStatsVisible}
+                geometry={gui.geometry}
+                width={gui.width}
+                height={gui.height}
+                locked={gui.locked}
+                toolbarVisible={guiToolbarVisible}
+                onToolbarVisibleChange={onGuiToolbarVisibleChange ?? (() => {})}
+              />
+            ) : (
+              <span className="flex-1" />
+            )}
+            {/* The gui fullscreen verb (⤢) rides the header rail like the tty
+                find button — any arity, latched green while the tile is
+                fullscreen (the layout verbs suppress instead). One hairline
+                separates the session cluster from the tile verbs. */}
+            {kind === "gui" && gui && slot >= 0 && (
+              <>
+                <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-border" />
+                <Tip label={guiTileFullscreen ? "Exit fullscreen" : "Enter fullscreen"}>
+                  <button
+                    type="button"
+                    aria-label={guiTileFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                    aria-pressed={guiTileFullscreen}
+                    disabled={!guiFullscreenRow}
+                    onClick={() => guiFullscreenRow?.onSelect()}
+                    className={controlClass({
+                      variant: "toggle",
+                      base: VERB_BUTTON_BASE,
+                      rest: "hover:bg-bg-inset hover:text-text-primary",
+                      ringed: true,
+                      pressed: guiTileFullscreen,
+                      disabled: !guiFullscreenRow,
+                    })}
+                  >
+                    <FullscreenGlyph />
+                  </button>
+                </Tip>
+              </>
+            )}
             {/* rk-slot: find-button — ⌕ opens the tty find bar (the web ⌕
                 vocabulary: aria-pressed + accent-green while open). Primary
                 tty tile only — duplicate tty tiles and other kinds render no

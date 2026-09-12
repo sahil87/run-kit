@@ -1,61 +1,95 @@
 /**
- * The gui tile's session toolbar pill (spec gui.md § The tile → The toolbar
- * pill, HiDPI, and Send key). GuiSurface mounts it for EVERY canvas-state
- * viewer (the credentials prompt suppresses it); only the reveal differs by
- * pointer kind — initial `shown` is `coarsePointer || fullscreen`, so a
- * fine-pointer non-fullscreen viewer starts hidden and appears on a
- * top-edge hover / tap via `revealSignal`.
+ * The gui tile's header fold cluster (spec gui.md § The tile). The session
+ * controls live INSIDE the tile header's flex-1 spring (SurfaceLayout's gui
+ * branch mirrors the tty branch) — nothing overlays the noVNC framebuffer,
+ * no hide timer, no reveal gesture. Fullscreen targets the TILE, so this
+ * header travels into fullscreen and serves it like every other case.
  *
- * The pill is a by-id MIRROR of the palette: every chip and every menu row
- * fires the `onSelect` of the `buildGuiActions` row with that id, picked
- * from the `actions` prop (the same array app.tsx feeds the palette —
- * Constitution V). No chip carries logic of its own; presence follows the
- * palette's omit-not-disable rule EXCEPT the three zoom chips and the two
- * coarse posture chips (⌖, ⌨), which always render within their pointer
- * gate and disable when the destination row is absent, so the View/Input
- * groups never reflow on a zoom or mode change. `gui-turn-off`,
- * `gui-desktop`, `gui-logs`, `gui-hidpi-*`, and `gui-view-1to1` never
- * appear here.
+ * The cluster is a measured priority fold (lib/gui-toolbar-fold.ts owns the
+ * decision; this component owns the DOM measurement — the same split
+ * top-bar.tsx / top-bar-overflow.ts document): ONE ResizeObserver plus a
+ * hidden probe row rendering every fit candidate's real width (both label
+ * forms of the degradable items, one divider, and the pinned block), so
+ * nothing is hardcoded (labels vary at runtime: `1920×1080` vs `auto`, the
+ * quality label, coarse sizing). The priority ladder: 1 screen size ·
+ * 2 zoom (`− fit +`) · 3 quality · 4 input (`⎘ ⌥`) · 5 launch (`▣ ◍`) ·
+ * 6 health (`∿ ↻`); a label degrades one step before its item folds, and the
+ * `⚙` pinned block renders only while something is actually folded (the
+ * two-pass reserve — see the module). Collapse-first: the fold state starts
+ * null and is set in a useLayoutEffect BEFORE paint, so no overflowing frame
+ * ever renders.
  *
- * Groups render left to right — Display (resolution, ⤢), View (− fit + ◐),
- * Input (⌖ ⌨ ⎘ ⌥), Launch (▣ ◍), Health (∿ ↻) — separated by 1-px
- * dividers, a divider only between two non-empty groups. Below
- * TOOLBAR_OVERFLOW_MIN_PX of wrapper width only the primary set (Display,
- * − fit +, the coarse pair) stays inline and the rest folds into the `⋯`
- * menu; below TOOLBAR_SHORT_LABEL_MAX_PX the resolution chip drops its
- * `×H` half so the narrow pill fits one row.
+ * Grouping: FOUR groups (size ┆ zoom ┆ quality ┆ the six action glyphs) with
+ * THREE hairline dividers, items FLUSH at gap 0 — the header's flush-segment
+ * idiom; the dividers carry all separation at the shipped
+ * `mx-0.5 h-3.5 w-px bg-border` spec. Verb boxes stay 24×24 (26 coarse), so
+ * WCAG 2.2 SC 2.5.8 is untouched. Chrome is the header's vocabulary, not the
+ * header verbs': borderless, `hover:bg-bg-inset`, secondary ink at rest,
+ * latched = green ink + inset ring (the ⌕ find-toggle precedent).
  *
- * The show/hide machine: shown on a `revealSignal` bump and on every
- * pill/menu pointerdown (each restarts the timer); it hides
- * TOOLBAR_HIDE_MS after the last reveal or interaction, SUSPENDED while one
- * of its menus is open (closing the menu restarts the timer). While hidden
- * it renders nothing.
+ * The cluster is a by-id MIRROR of the palette: every chip and every panel
+ * row fires the `onSelect` of the `buildGuiActions` row with that id
+ * (Constitution V) — no control carries logic of its own. Presence follows
+ * the palette's omit-not-disable rule EXCEPT the three zoom chips and the
+ * quality chip, which always render and disable when the destination row is
+ * absent, so the fold never reflows on a zoom or preset change. The coarse
+ * posture pair (⌖, ⌨) lives in the `⚙` panel only.
+ *
+ * Every control carries a `Tip` inside ONE `TipGroup` (the warm cluster);
+ * `Tip` REPLACES the native `title=` and adds no wrapper node, so the probe
+ * is unaffected. The zoom tips' keycaps read the LIVE `gui-zoom-*` registry
+ * bindings (the source `withShortcutHints` reads), so a remap updates the
+ * tooltip for free.
+ *
+ * The `⚙` panel's open state is the per-viewer `rk-gui-toolbar` posture,
+ * owned by the caller (app.tsx) and mirrored by the palette's
+ * `GUI: Show/Hide toolbar` rows. A persisted-open panel whose items have all
+ * unfolded renders nothing (no `⚙`, no anchor) without rewriting the
+ * posture — the state goes latent, not false. On mobile there is no tile
+ * header: `GuiToolbarMobileOverflow` renders the pinned block into the top
+ * bar with every rung folded (the bottom rung of the same ladder).
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Control } from "./control";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { controlClass } from "./control";
 import { GuiToolbarMenu, type GuiToolbarMenuRow } from "./gui-toolbar-menu";
+import { Tip, TipGroup } from "./tip";
 import { pickGuiActions, stripGuiLabel, type GuiPaletteAction } from "@/lib/palette/gui";
 import { presetLabel } from "@/lib/gui-geometry";
 import {
-  GUI_QUALITY_LABELS,
-  nextGuiQuality,
-  type GuiPointerMode,
-  type GuiQuality,
-  type GuiZoom,
-} from "@/lib/gui-posture";
+  computeGuiToolbarFold,
+  guiToolbarFolded,
+  type GuiToolbarFold,
+  type GuiToolbarFoldItem,
+} from "@/lib/gui-toolbar-fold";
+import { GUI_QUALITY_LABELS, nextGuiQuality, type GuiQuality } from "@/lib/gui-posture";
+import {
+  BrowserGlyph,
+  GearGlyph,
+  PasteGlyph,
+  ReconnectGlyph,
+  SendKeyGlyph,
+  StatsGlyph,
+  TerminalGlyph,
+  ZoomFitGlyph,
+  ZoomInGlyph,
+  ZoomOutGlyph,
+} from "./top-bar-icons";
+import { useKeybindings } from "@/hooks/use-keybindings";
+import { formatCombo } from "@/lib/keybindings";
 
-/** How long after the last reveal or interaction the pill hides. */
-export const TOOLBAR_HIDE_MS = 3_000;
-
-/** Top-edge reveal: a pointermove within this distance of the wrapper's top
- *  edge shows the pill (GuiSurface performs the check and bumps the signal). */
-export const TOOLBAR_REVEAL_EDGE_PX = 24;
-
-/** Below this wrapper width the secondary chips fold into the `⋯` menu. */
-export const TOOLBAR_OVERFLOW_MIN_PX = 560;
-
-/** Below this wrapper width the resolution chip drops its `×H` half. */
-export const TOOLBAR_SHORT_LABEL_MAX_PX = 400;
+/** Header-chrome geometry — lockstep with surface-layout.tsx's
+ *  VERB_BUTTON_BASE/VERB_BUTTON_CLASS (the 24px verb axis, 26 coarse); the
+ *  fold cluster renders INSIDE that header, so the pair MUST change
+ *  together. */
+const HEADER_VERB_BASE =
+  "inline-flex items-center justify-center h-[24px] w-[24px] coarse:h-[26px] coarse:w-[26px] rounded transition-colors";
+const HEADER_VERB_CLASS = `${HEADER_VERB_BASE} hover:bg-bg-inset hover:text-text-primary`;
+/** The text chips (size, quality): borderless, content-width, 6px side
+ *  padding on the same height axis. */
+const HEADER_CHIP_CLASS =
+  "inline-flex items-center h-[24px] coarse:h-[26px] px-1.5 rounded transition-colors hover:bg-bg-inset hover:text-text-primary";
+/** The shipped group divider (D11) — 2px side margins, a 14px hairline. */
+const HEADER_DIVIDER_CLASS = "mx-0.5 h-3.5 w-px bg-border";
 
 /** The resolution menu's row order — palette ids, each present only if the
  *  built list contains it (the lock rows exist on fine pointers only). */
@@ -72,107 +106,102 @@ const RESOLUTION_MENU_IDS = [
   "gui-unlock",
 ];
 
-/** The `⋯` menu's row order after the quality row — palette ids, each
- *  present iff its chip would be present wide. */
-const OVERFLOW_MENU_IDS = [
-  "gui-paste",
-  "gui-send-key",
-  "gui-open-terminal",
-  "gui-open-browser",
-  "gui-stats-hide",
-  "gui-stats-show",
-  "gui-reconnect",
+type FoldGroup = "size" | "zoom" | "quality" | "actions";
+
+/** One ladder rung's static identity; the live bits (row presence, labels,
+ *  handlers) are read from the built palette list at render. */
+interface ClusterItem {
+  id: string;
+  group: FoldGroup;
+  /** The measured probe renders the degraded form under this key. */
+  degradable?: boolean;
+}
+
+/** The priority ladder (D2): fold consumes from the TAIL. */
+const LADDER: ClusterItem[] = [
+  { id: "size", group: "size", degradable: true },
+  { id: "zoom-out", group: "zoom" },
+  { id: "zoom-fit", group: "zoom" },
+  { id: "zoom-in", group: "zoom" },
+  { id: "quality", group: "quality", degradable: true },
+  { id: "paste", group: "actions" },
+  { id: "send-key", group: "actions" },
+  { id: "terminal", group: "actions" },
+  { id: "browser", group: "actions" },
+  { id: "stats", group: "actions" },
+  { id: "reconnect", group: "actions" },
 ];
 
 interface GuiToolbarProps {
   /** The built `GUI:` palette list (the same array the palette renders) —
-   *  every chip and menu row fires a row picked from it by id. */
+   *  every chip and panel row fires a row picked from it by id. */
   actions: GuiPaletteAction[];
-  /** The viewer's zoom posture — the zoom chips' destination gating rides
-   *  the rows; the prop only labels. */
-  zoom: GuiZoom;
-  pointerMode: GuiPointerMode;
-  /** The ⌖ and ⌨ chips are coarse-only surfaces (their palette rows are too). */
+  /** Coarse pointers get the ⌖/⌨ rows appended to the `⚙` panel. */
   coarsePointer: boolean;
-  /** Toggles the ⤢ chip's aria-label; entering fullscreen also reveals. */
-  fullscreen: boolean;
-  keyBarVisible: boolean;
-  /** The viewer's current quality preset — the ◐ chip / ⋯ row fire the
+  /** The viewer's current quality preset — the ◐ chip / panel row fire the
    *  `gui-quality-<nextGuiQuality(quality)>` row (the cycle). */
   quality: GuiQuality;
   statsVisible: boolean;
-  /** The tile's RFB connection state — presence itself rides the rows
-   *  (⎘/⌥ absent, ↻ present while disconnected). */
-  connected: boolean;
-  /** The host signal's geometry/width/height/locked — the resolution chip's
-   *  status label. */
+  /** The host signal's geometry/width/height/locked — the size chip's label. */
   geometry: string;
   width: number;
   height: number;
   locked: boolean;
-  /** The surface wrapper's measured width — the overflow and short-label
-   *  thresholds key on it (never the viewport, never the pointer kind). */
-  wrapperWidth: number;
-  /** Bump to reveal: a tap on the tile or a top-edge hover. A counter, not
-   *  a boolean, so repeated reveals re-fire. */
-  revealSignal: number;
+  /** The `⚙` panel's open state (the `rk-gui-toolbar` posture, app-owned). */
+  toolbarVisible: boolean;
+  onToolbarVisibleChange: (visible: boolean) => void;
+}
+
+/** Read one probed element's full footprint — the divider's footprint
+ *  includes its side margins (offsetWidth excludes them). jsdom reports no
+ *  margins, so empty parses read as 0. */
+function probeWidth(el: HTMLElement): number {
+  const cs = getComputedStyle(el);
+  return el.offsetWidth + (parseFloat(cs.marginLeft) || 0) + (parseFloat(cs.marginRight) || 0);
 }
 
 export function GuiToolbar({
   actions,
-  pointerMode,
   coarsePointer,
-  fullscreen,
-  keyBarVisible,
   quality,
   statsVisible,
   geometry,
   width,
   height,
   locked,
-  wrapperWidth,
-  revealSignal,
+  toolbarVisible,
+  onToolbarVisibleChange,
 }: GuiToolbarProps) {
-  // A fine-pointer non-fullscreen viewer starts hidden (mount-for-all, but
-  // only coarse/fullscreen discover the pill without a reveal gesture).
-  const [shown, setShown] = useState(() => coarsePointer || fullscreen);
-  // Bump restarts the hide timer (the effect below re-runs).
-  const [interactions, setInteractions] = useState(0);
-  // An open menu suspends the hide timer until it closes.
-  const [openMenu, setOpenMenu] = useState<"resolution" | "overflow" | null>(null);
-  const lastSignalRef = useRef(revealSignal);
-  const resolutionChipRef = useRef<HTMLButtonElement>(null);
-  const overflowChipRef = useRef<HTMLButtonElement>(null);
+  const [fold, setFold] = useState<GuiToolbarFold | null>(null);
+  const [resolutionOpen, setResolutionOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const probeRef = useRef<HTMLDivElement>(null);
+  const sizeChipRef = useRef<HTMLButtonElement>(null);
+  const gearRef = useRef<HTMLButtonElement>(null);
+  // A persisted-open panel mounts WITH the page — its menu must not steal
+  // focus on load. Autofocus only when the open TRANSITIONED during this
+  // mount's lifetime (a ⚙ click or the palette row).
+  const prevVisibleRef = useRef(toolbarVisible);
+  useEffect(() => {
+    prevVisibleRef.current = toolbarVisible;
+  }, [toolbarVisible]);
+  const panelAutoFocus = !prevVisibleRef.current && toolbarVisible;
 
-  const poke = () => {
-    setShown(true);
-    setInteractions((n) => n + 1);
+  const { byAction, host } = useKeybindings();
+  /** The effective chord for a registry action, or none — a chip advertising
+   *  a dead chord would lie (the settings-gear chord pattern). */
+  const kbdFor = (actionId: string) => {
+    const binding = byAction.get(actionId);
+    return binding?.enabled
+      ? formatCombo({ code: binding.code, tier: binding.tier }, host.platform)
+      : undefined;
   };
 
-  useEffect(() => {
-    if (revealSignal !== lastSignalRef.current) {
-      lastSignalRef.current = revealSignal;
-      setShown(true);
-      setInteractions((n) => n + 1);
-    }
-  }, [revealSignal]);
-
-  useEffect(() => {
-    if (!shown || openMenu !== null) return;
-    const t = setTimeout(() => setShown(false), TOOLBAR_HIDE_MS);
-    return () => clearTimeout(t);
-  }, [shown, interactions, openMenu]);
-
-  if (!shown) return null;
-
   const byId = new Map(actions.map((a) => [a.id, a]));
-  const fullscreenRow = byId.get("gui-fullscreen");
   const zoomOutRow = byId.get("gui-zoom-out");
   const zoomFitRow = byId.get("gui-zoom-fit");
   const zoomInRow = byId.get("gui-zoom-in");
   const qualityRow = byId.get(`gui-quality-${nextGuiQuality(quality)}`);
-  const pointerRow = byId.get("gui-pointer-touch") ?? byId.get("gui-pointer-trackpad");
-  const keyBarRow = byId.get("gui-keybar-hide") ?? byId.get("gui-keybar-show");
   const pasteRow = byId.get("gui-paste");
   const sendKeyRow = byId.get("gui-send-key");
   const terminalRow = byId.get("gui-open-terminal");
@@ -181,11 +210,9 @@ export function GuiToolbar({
   const reconnectRow = byId.get("gui-reconnect");
   const hasResolution = actions.some((a) => a.id.startsWith("gui-res-"));
 
-  const narrow = wrapperWidth < TOOLBAR_OVERFLOW_MIN_PX;
-
-  // The resolution chip reads the stream entry's live size; a zeroed entry
-  // falls back to the geometry preset label, never with the (portrait)
-  // suffix (the menu rows keep it).
+  // The size chip reads the stream entry's live size; a zeroed entry falls
+  // back to the geometry preset label, never with the (portrait) suffix (the
+  // menu rows keep it).
   const sizeText =
     geometry === "auto"
       ? "auto"
@@ -193,248 +220,468 @@ export function GuiToolbar({
         ? `${width}×${height}`
         : presetLabel(geometry).replace(" (portrait)", "");
   const shortSize = sizeText.includes("×") ? sizeText.slice(0, sizeText.indexOf("×")) : sizeText;
-  const shownSize = wrapperWidth < TOOLBAR_SHORT_LABEL_MAX_PX ? shortSize : sizeText;
   const resolutionAria = `Resolution ${sizeText}${locked ? ", locked" : ""}, menu`;
 
-  const resolutionMenuRows: GuiToolbarMenuRow[] = pickGuiActions(actions, RESOLUTION_MENU_IDS).map(
-    (a) => ({
-      id: a.id,
-      label:
-        a.id === "gui-lock" || a.id === "gui-unlock"
-          ? stripGuiLabel(a.label)
-          : stripGuiLabel(a.label, "Resolution → "),
-      description: a.description,
-      disabled: a.disabled,
-      onSelect: a.onSelect,
-    }),
-  );
+  // Which rungs exist at all rides the palette's omit-not-disable rule; the
+  // zoom trio and the quality chip always render (disabled without their
+  // row) so the fold never reflows on a zoom/preset change.
+  const presentIds = new Set<string>(["zoom-out", "zoom-fit", "zoom-in", "quality", "stats"]);
+  if (hasResolution) presentIds.add("size");
+  if (pasteRow) presentIds.add("paste");
+  if (sendKeyRow) presentIds.add("send-key");
+  if (terminalRow) presentIds.add("terminal");
+  if (browserRow) presentIds.add("browser");
+  if (reconnectRow) presentIds.add("reconnect");
+  const items = LADDER.filter((item) => presentIds.has(item.id));
 
-  const overflowMenuRows: GuiToolbarMenuRow[] = [
-    ...(qualityRow
-      ? [
-          {
-            id: qualityRow.id,
-            label: `Quality → ${GUI_QUALITY_LABELS[quality]}`,
-            onSelect: qualityRow.onSelect,
-          },
-        ]
-      : []),
-    ...pickGuiActions(actions, OVERFLOW_MENU_IDS).map((a) => ({
-      id: a.id,
-      label: stripGuiLabel(a.label),
-      description: a.description,
-      disabled: a.disabled,
-      onSelect: a.onSelect,
-    })),
-  ];
+  // Serialize the probed SET so the measure effect re-runs when it changes
+  // (connection state, reachability), not on every render; width changes
+  // with an UNCHANGED set (a new geometry label, coarse flip) re-fit through
+  // the observed probe instead.
+  const candidateKey = items.map((i) => i.id).join(",") + `|${coarsePointer}`;
 
-  /** Wrap a row's handler so using the pill restarts the hide timer. */
-  const chip = (row: GuiPaletteAction | undefined) =>
-    row
-      ? () => {
-          poke();
-          row.onSelect();
-        }
-      : undefined;
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const probe = probeRef.current;
+    if (!root || !probe) return;
+    const measure = () => {
+      const widths = new Map<string, number>();
+      for (const el of probe.querySelectorAll<HTMLElement>("[data-fold]")) {
+        const key = el.getAttribute("data-fold");
+        if (key !== null) widths.set(key, probeWidth(el));
+      }
+      const foldItems: GuiToolbarFoldItem[] = items.map((item) => ({
+        full: widths.get(item.id) ?? 0,
+        short: item.degradable ? widths.get(`${item.id}:short`) : undefined,
+        group: item.group,
+      }));
+      setFold((prev) =>
+        computeGuiToolbarFold(
+          root.clientWidth,
+          foldItems,
+          widths.get("pinned") ?? 0,
+          widths.get("divider") ?? 0,
+          prev,
+        ),
+      );
+    };
+    measure();
+    // Observe the spring AND the probe: an item's own width can change (a new
+    // geometry label, coarse sizing) without resizing the spring. The pinned
+    // block lives INSIDE the probe, so the probe's observation covers it.
+    const ro = new ResizeObserver(measure);
+    ro.observe(root);
+    ro.observe(probe);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidateKey]);
 
-  const toggleMenu = (menu: "resolution" | "overflow") => {
-    poke();
-    setOpenMenu((m) => (m === menu ? null : menu));
-  };
-  const closeMenu = () => setOpenMenu(null);
-
-  const resolutionChip = hasResolution ? (
-    <Control
-      key="resolution"
-      ref={resolutionChipRef}
-      variant="chip"
-      data-testid="gui-toolbar-resolution"
-      aria-haspopup="menu"
-      aria-expanded={openMenu === "resolution"}
-      aria-label={resolutionAria}
-      onClick={() => toggleMenu("resolution")}
-    >
-      {`${locked ? "🔒 " : ""}${shownSize} ▾`}
-    </Control>
-  ) : null;
-  const fullscreenChip = (
-    <Control
-      key="fullscreen"
-      variant="chip"
-      aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-      disabled={!fullscreenRow}
-      onClick={chip(fullscreenRow)}
-    >
-      ⤢
-    </Control>
-  );
-  const zoomChips = [
-    <Control
-      key="zoom-out"
-      variant="chip"
-      aria-label="Zoom out"
-      disabled={!zoomOutRow}
-      onClick={chip(zoomOutRow)}
-    >
-      −
-    </Control>,
-    <Control
-      key="zoom-fit"
-      variant="chip"
-      aria-label="Zoom to fit"
-      disabled={!zoomFitRow}
-      onClick={chip(zoomFitRow)}
-    >
-      fit
-    </Control>,
-    <Control
-      key="zoom-in"
-      variant="chip"
-      aria-label="Zoom in"
-      disabled={!zoomInRow}
-      onClick={chip(zoomInRow)}
-    >
-      +
-    </Control>,
-  ];
-  const qualityChip = (
-    <Control
-      key="quality"
-      variant="chip"
-      aria-label="Quality"
-      disabled={!qualityRow}
-      onClick={chip(qualityRow)}
-    >
-      {`◐ ${GUI_QUALITY_LABELS[quality]}`}
-    </Control>
-  );
-  const pointerChip = coarsePointer ? (
-    <Control
-      key="pointer"
-      variant="chip"
-      aria-label="Pointer mode"
-      disabled={!pointerRow}
-      onClick={chip(pointerRow)}
-    >
-      {narrow ? "⌖" : pointerMode === "trackpad" ? "⌖ Trackpad" : "⌖ Touch"}
-    </Control>
-  ) : null;
-  const keyBarChip = coarsePointer ? (
-    <Control
-      key="keybar"
-      variant="chip"
-      aria-label="Toggle key bar"
-      pressed={keyBarVisible}
-      disabled={!keyBarRow}
-      onClick={chip(keyBarRow)}
-    >
-      ⌨
-    </Control>
-  ) : null;
-  const statsChip = (
-    <Control
-      key="stats"
-      variant="chip"
-      aria-label="Toggle stats"
-      pressed={statsVisible}
-      disabled={!statsRow}
-      onClick={chip(statsRow)}
-    >
-      ∿
-    </Control>
-  );
-
-  const groups: (ReactNode | null)[][] = narrow
-    ? [
-        [resolutionChip, fullscreenChip],
-        zoomChips,
-        [pointerChip, keyBarChip],
-        [
-          <Control
-            key="overflow"
-            ref={overflowChipRef}
-            variant="chip"
-            data-testid="gui-toolbar-overflow"
-            aria-label="More actions"
-            aria-haspopup="menu"
-            aria-expanded={openMenu === "overflow"}
-            onClick={() => toggleMenu("overflow")}
+  /** One cluster control in one label form. `probe` renders the bare control
+   *  (no Tip — measurement only); the visible row wraps it in its Tip. */
+  const renderControl = (item: ClusterItem, form: "full" | "short", probe: boolean): ReactNode => {
+    const degraded = form === "short";
+    switch (item.id) {
+      case "size": {
+        const button = (
+          <button
+            key={item.id}
+            type="button"
+            ref={probe ? undefined : sizeChipRef}
+            data-testid={probe ? undefined : "gui-toolbar-resolution"}
+            aria-haspopup={probe ? undefined : "menu"}
+            aria-expanded={probe ? undefined : resolutionOpen}
+            aria-label={probe ? undefined : resolutionAria}
+            onClick={
+              probe
+                ? undefined
+                : () => {
+                    // One menu at a time: opening the resolution menu closes
+                    // the ⚙ panel (the single-openMenu predecessor's rule).
+                    const next = !resolutionOpen;
+                    setResolutionOpen(next);
+                    if (next && toolbarVisible) onToolbarVisibleChange(false);
+                  }
+            }
+            tabIndex={probe ? -1 : undefined}
+            className={HEADER_CHIP_CLASS}
           >
-            ⋯
-          </Control>,
-        ],
-      ]
-    : [
-        [resolutionChip, fullscreenChip],
-        [...zoomChips, qualityChip],
-        [
-          pointerChip,
-          keyBarChip,
-          pasteRow ? (
-            <Control key="paste" variant="chip" aria-label="Paste clipboard" onClick={chip(pasteRow)}>
-              ⎘
-            </Control>
-          ) : null,
-          sendKeyRow ? (
-            <Control key="send-key" variant="chip" aria-label="Send key…" onClick={chip(sendKeyRow)}>
-              ⌥
-            </Control>
-          ) : null,
-        ],
-        [
-          terminalRow ? (
-            <Control key="terminal" variant="chip" aria-label="Open terminal" onClick={chip(terminalRow)}>
-              ▣
-            </Control>
-          ) : null,
-          browserRow ? (
-            <Control key="browser" variant="chip" aria-label="Open browser" onClick={chip(browserRow)}>
-              ◍
-            </Control>
-          ) : null,
-        ],
-        [
-          statsChip,
-          reconnectRow ? (
-            <Control key="reconnect" variant="chip" aria-label="Reconnect" onClick={chip(reconnectRow)}>
-              ↻
-            </Control>
-          ) : null,
-        ],
-      ];
+            {`${locked ? "🔒 " : ""}${degraded ? shortSize : sizeText} ▾`}
+          </button>
+        );
+        return probe ? (
+          button
+        ) : (
+          <Tip key={item.id} label="Resolution" note="menu">
+            {button}
+          </Tip>
+        );
+      }
+      case "zoom-out":
+      case "zoom-fit":
+      case "zoom-in": {
+        const row = item.id === "zoom-out" ? zoomOutRow : item.id === "zoom-fit" ? zoomFitRow : zoomInRow;
+        const label =
+          item.id === "zoom-out" ? "Zoom out" : item.id === "zoom-fit" ? "Zoom to fit" : "Zoom in";
+        const glyph =
+          item.id === "zoom-out" ? (
+            <ZoomOutGlyph />
+          ) : item.id === "zoom-fit" ? (
+            <ZoomFitGlyph />
+          ) : (
+            <ZoomInGlyph />
+          );
+        const button = (
+          <button
+            key={item.id}
+            type="button"
+            aria-label={probe ? undefined : label}
+            disabled={!row}
+            onClick={probe ? undefined : () => row?.onSelect()}
+            tabIndex={probe ? -1 : undefined}
+            className={HEADER_VERB_CLASS}
+          >
+            {glyph}
+          </button>
+        );
+        return probe ? (
+          button
+        ) : (
+          <Tip key={item.id} label={label} kbd={kbdFor(`gui-${item.id}`)}>
+            {button}
+          </Tip>
+        );
+      }
+      case "quality": {
+        // The degraded `◐` is square-ish: it renders as a verb box so it sits
+        // on the same 24px grid as its neighbours (the design study's rule).
+        const button = (
+          <button
+            key={item.id}
+            type="button"
+            aria-label={probe ? undefined : "Quality"}
+            disabled={!qualityRow}
+            onClick={probe ? undefined : () => qualityRow?.onSelect()}
+            tabIndex={probe ? -1 : undefined}
+            className={degraded ? HEADER_VERB_CLASS : HEADER_CHIP_CLASS}
+          >
+            {degraded ? "◐" : `◐ ${GUI_QUALITY_LABELS[quality]}`}
+          </button>
+        );
+        return probe ? (
+          button
+        ) : (
+          <Tip
+            key={item.id}
+            label={degraded ? `Quality — ${GUI_QUALITY_LABELS[quality]}` : "Quality"}
+            note="cycles"
+          >
+            {button}
+          </Tip>
+        );
+      }
+      default: {
+        const verbs: Record<string, { row: (typeof pasteRow); label: string; glyph: ReactNode }> = {
+          paste: { row: pasteRow, label: "Paste clipboard", glyph: <PasteGlyph /> },
+          "send-key": { row: sendKeyRow, label: "Send key…", glyph: <SendKeyGlyph /> },
+          terminal: { row: terminalRow, label: "Open terminal", glyph: <TerminalGlyph /> },
+          browser: { row: browserRow, label: "Open browser", glyph: <BrowserGlyph /> },
+          stats: { row: statsRow, label: "Toggle stats", glyph: <StatsGlyph /> },
+          reconnect: { row: reconnectRow, label: "Reconnect", glyph: <ReconnectGlyph /> },
+        };
+        const verb = verbs[item.id];
+        const button = (
+          <button
+            key={item.id}
+            type="button"
+            aria-label={probe ? undefined : verb.label}
+            aria-pressed={!probe && item.id === "stats" ? statsVisible : undefined}
+            disabled={!verb.row}
+            onClick={probe ? undefined : () => verb.row?.onSelect()}
+            tabIndex={probe ? -1 : undefined}
+            className={
+              item.id === "stats"
+                ? controlClass({
+                    variant: "toggle",
+                    base: HEADER_VERB_BASE,
+                    rest: "hover:bg-bg-inset hover:text-text-primary",
+                    ringed: true,
+                    pressed: statsVisible,
+                    disabled: !verb.row,
+                  })
+                : HEADER_VERB_CLASS
+            }
+          >
+            {verb.glyph}
+          </button>
+        );
+        return probe ? (
+          button
+        ) : (
+          <Tip key={item.id} label={verb.label}>
+            {button}
+          </Tip>
+        );
+      }
+    }
+  };
 
-  const nonEmpty = groups.map((g) => g.filter(Boolean)).filter((g) => g.length > 0);
+  const visibleItems = fold ? items.slice(0, fold.visibleCount) : [];
+  const foldedItems = fold ? items.slice(fold.visibleCount) : [];
+  const showGear = fold !== null && guiToolbarFolded(fold, items.length);
+  // A folded-away size chip takes its open menu with it (the anchor is gone).
+  const sizeIndex = items.findIndex((i) => i.id === "size");
+  const sizeFolded = fold !== null && sizeIndex >= 0 && fold.visibleCount <= sizeIndex;
+  useEffect(() => {
+    if (sizeFolded) setResolutionOpen(false);
+  }, [sizeFolded]);
+
+  const resolutionMenuRows: GuiToolbarMenuRow[] = resolutionMenuRowsFrom(actions);
+
+  const overflowRows = buildGuiOverflowRows({
+    actions,
+    quality,
+    coarsePointer,
+    foldedIds: new Set(foldedItems.map((i) => i.id)),
+    fullscreenRow: false,
+  });
 
   return (
     <div
+      ref={rootRef}
       data-testid="gui-toolbar"
-      className="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-1 py-1 rounded border border-border bg-bg-primary/80 select-none font-mono"
-      onPointerDown={poke}
+      className="relative flex-1 min-w-0 flex items-center justify-end text-text-secondary"
     >
-      {nonEmpty.map((group, i) => (
-        <div key={i} className="contents">
-          {i > 0 ? <div className="w-px self-stretch bg-border" /> : null}
-          {group}
-        </div>
-      ))}
-      {openMenu === "resolution" ? (
+      <TipGroup>
+        {visibleItems.map((item, i) => {
+          const prevGroup = i > 0 ? visibleItems[i - 1].group : null;
+          return (
+            <span key={item.id} className="contents">
+              {prevGroup !== null && item.group !== prevGroup ? (
+                <span aria-hidden="true" className={HEADER_DIVIDER_CLASS} />
+              ) : null}
+              {renderControl(item, fold !== null && i >= fold.degradeFrom ? "short" : "full", false)}
+            </span>
+          );
+        })}
+        {showGear ? (
+          <span className="flex items-center shrink-0">
+            <span aria-hidden="true" className={HEADER_DIVIDER_CLASS} />
+            <Tip label="More controls" note={`${foldedItems.length} folded`}>
+              <button
+                ref={gearRef}
+                type="button"
+                data-testid="gui-toolbar-overflow"
+                aria-label="More controls"
+                aria-haspopup="menu"
+                aria-expanded={toolbarVisible}
+                onClick={() => {
+                  // One menu at a time (the single-openMenu predecessor's rule).
+                  setResolutionOpen(false);
+                  onToolbarVisibleChange(!toolbarVisible);
+                }}
+                className={controlClass({
+                  variant: "toggle",
+                  base: HEADER_VERB_BASE,
+                  rest: "hover:bg-bg-inset hover:text-text-primary",
+                  ringed: true,
+                  pressed: toolbarVisible,
+                })}
+              >
+                <GearGlyph />
+              </button>
+            </Tip>
+          </span>
+        ) : null}
+      </TipGroup>
+      {resolutionOpen ? (
         <GuiToolbarMenu
           kind="resolution"
-          anchorRef={resolutionChipRef}
+          anchorRef={sizeChipRef}
           rows={resolutionMenuRows}
           ariaLabel="Resolution"
-          onClose={closeMenu}
+          onClose={() => setResolutionOpen(false)}
         />
       ) : null}
-      {openMenu === "overflow" ? (
+      {showGear && toolbarVisible ? (
         <GuiToolbarMenu
           kind="overflow"
-          anchorRef={overflowChipRef}
-          rows={overflowMenuRows}
-          ariaLabel="More actions"
-          onClose={closeMenu}
+          anchorRef={gearRef}
+          rows={overflowRows}
+          ariaLabel="More controls"
+          autoFocus={panelAutoFocus}
+          onClose={() => onToolbarVisibleChange(false)}
         />
       ) : null}
+      {/* Hidden measurement probe — every candidate in BOTH label forms, one
+          divider, and the pinned block (divider + ⚙), so the fit reads real
+          widths and nothing is hardcoded. `inert` + aria-hidden + off-screen:
+          the duplicated controls can never receive focus or clicks. */}
+      <div
+        ref={probeRef}
+        data-testid="gui-toolbar-probe"
+        aria-hidden="true"
+        inert
+        className="absolute -left-[9999px] top-0 flex items-center pointer-events-none"
+      >
+        {items.map((item) => (
+          <span key={item.id} data-fold={item.id} className="flex items-center shrink-0">
+            {renderControl(item, "full", true)}
+          </span>
+        ))}
+        {items
+          .filter((item) => item.degradable)
+          .map((item) => (
+            <span key={`${item.id}:short`} data-fold={`${item.id}:short`} className="flex items-center shrink-0">
+              {renderControl(item, "short", true)}
+            </span>
+          ))}
+        <span data-fold="divider" className={HEADER_DIVIDER_CLASS} />
+        <span data-fold="pinned" className="flex items-center shrink-0">
+          <span className={HEADER_DIVIDER_CLASS} />
+          <button type="button" tabIndex={-1} className={HEADER_VERB_CLASS}>
+            <GearGlyph />
+          </button>
+        </span>
+      </div>
     </div>
+  );
+}
+
+/** Resolution menu rows, shared by the size chip's own menu and the `⚙`
+ *  panel's folded `size` group — one mapping so the two cannot drift. The
+ *  lock/unlock pair keeps its bare label; every preset is stripped of the
+ *  `Resolution → ` prefix the palette carries. */
+function resolutionMenuRowsFrom(actions: GuiPaletteAction[]): GuiToolbarMenuRow[] {
+  return pickGuiActions(actions, RESOLUTION_MENU_IDS).map((a) => ({
+    id: a.id,
+    label:
+      a.id === "gui-lock" || a.id === "gui-unlock"
+        ? stripGuiLabel(a.label)
+        : stripGuiLabel(a.label, "Resolution → "),
+    description: a.description,
+    disabled: a.disabled,
+    onSelect: a.onSelect,
+  }));
+}
+
+/** The flat by-id rows of the `⚙` fold panel (D9): the folded rungs in
+ *  ladder order with a separator at each group seam, plus the coarse-only
+ *  ⌖/⌨ rows appended. `fullscreenRow` prepends the `gui-fullscreen` row to
+ *  the size group — the mobile panel, where no header rail verb exists. */
+function buildGuiOverflowRows(args: {
+  actions: GuiPaletteAction[];
+  quality: GuiQuality;
+  coarsePointer: boolean;
+  foldedIds: ReadonlySet<string>;
+  fullscreenRow: boolean;
+}): GuiToolbarMenuRow[] {
+  const { actions, quality, coarsePointer, foldedIds, fullscreenRow } = args;
+  const byId = new Map(actions.map((a) => [a.id, a]));
+  const rows: GuiToolbarMenuRow[] = [];
+  let lastGroup: string | null = null;
+  const pushGroup = (group: string, groupRows: GuiToolbarMenuRow[]) => {
+    if (groupRows.length === 0) return;
+    if (lastGroup !== null && group !== lastGroup) {
+      rows.push({ id: `sep-${group}-${rows.length}`, separator: true });
+    }
+    rows.push(...groupRows);
+    lastGroup = group;
+  };
+  const simple = (id: string): GuiToolbarMenuRow[] => {
+    const row = byId.get(id);
+    return row
+      ? [{ id: row.id, label: stripGuiLabel(row.label), description: row.description, disabled: row.disabled, onSelect: row.onSelect }]
+      : [];
+  };
+
+  // Per-item row builders in ladder order — a folded item contributes exactly
+  // its own palette row(s), never a sibling's.
+  const perItem: Record<string, () => GuiToolbarMenuRow[]> = {
+    size: () => [
+      ...(fullscreenRow ? simple("gui-fullscreen") : []),
+      ...resolutionMenuRowsFrom(actions),
+    ],
+    "zoom-out": () => simple("gui-zoom-out"),
+    "zoom-fit": () => simple("gui-zoom-fit"),
+    "zoom-in": () => simple("gui-zoom-in"),
+    quality: () => {
+      const qualityRow = byId.get(`gui-quality-${nextGuiQuality(quality)}`);
+      return qualityRow
+        ? [
+            {
+              id: qualityRow.id,
+              label: `Quality → ${GUI_QUALITY_LABELS[quality]}`,
+              onSelect: qualityRow.onSelect,
+            },
+          ]
+        : [];
+    },
+    paste: () => simple("gui-paste"),
+    "send-key": () => simple("gui-send-key"),
+    terminal: () => simple("gui-open-terminal"),
+    browser: () => simple("gui-open-browser"),
+    stats: () => simple(byId.has("gui-stats-hide") ? "gui-stats-hide" : "gui-stats-show"),
+    reconnect: () => simple("gui-reconnect"),
+  };
+  for (const item of LADDER) {
+    if (!foldedIds.has(item.id)) continue;
+    pushGroup(item.group, perItem[item.id]());
+  }
+  if (coarsePointer) {
+    pushGroup("coarse", [
+      ...simple(byId.has("gui-pointer-touch") ? "gui-pointer-touch" : "gui-pointer-trackpad"),
+      ...simple(byId.has("gui-keybar-hide") ? "gui-keybar-hide" : "gui-keybar-show"),
+    ]);
+  }
+  return rows;
+}
+
+/** The mobile bottom rung (D7): there is no tile header on mobile, so the
+ *  pinned block renders into the TOP BAR beside the pinned switch group and
+ *  every rung counts as folded — the panel carries all ladder rows plus the
+ *  fullscreen row (mobile has no tile header) and the coarse ⌖/⌨ rows. */
+export function GuiToolbarMobileOverflow({
+  actions,
+  quality,
+  visible,
+  onVisibleChange,
+}: {
+  actions: GuiPaletteAction[];
+  quality: GuiQuality;
+  visible: boolean;
+  onVisibleChange: (visible: boolean) => void;
+}) {
+  const gearRef = useRef<HTMLButtonElement>(null);
+  const rows = buildGuiOverflowRows({
+    actions,
+    quality,
+    coarsePointer: true,
+    foldedIds: new Set(LADDER.map((i) => i.id)),
+    fullscreenRow: true,
+  });
+  return (
+    <span className="relative flex items-center shrink-0">
+      <button
+        ref={gearRef}
+        type="button"
+        data-testid="gui-toolbar-overflow"
+        aria-label="More controls"
+        aria-haspopup="menu"
+        aria-expanded={visible}
+        onClick={() => onVisibleChange(!visible)}
+        className={controlClass({ variant: "icon", open: visible })}
+      >
+        <GearGlyph />
+      </button>
+      {visible ? (
+        <GuiToolbarMenu
+          kind="overflow"
+          anchorRef={gearRef}
+          rows={rows}
+          ariaLabel="More controls"
+          onClose={() => onVisibleChange(false)}
+        />
+      ) : null}
+    </span>
   );
 }

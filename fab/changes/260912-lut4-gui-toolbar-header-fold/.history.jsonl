@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-12T17:28:28Z"}
+{"args":"Move the GUI tile's session toolbar into the tile header as a width-adaptive measured fold (toolbar only; keyboard capture is a separate later change)","cmd":"fab-new","event":"command","ts":"2026-09-12T17:28:28Z"}
+{"delta":"+0.0","event":"confidence","score":2.2,"trigger":"calc-score","ts":"2026-09-12T17:33:34Z"}
+{"delta":"+0.0","event":"confidence","score":2.2,"trigger":"calc-score","ts":"2026-09-12T17:35:03Z"}
+{"delta":"+1.7","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-09-12T17:35:24Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-09-12T18:49:40Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-09-12T20:42:38Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-09-12T20:53:07Z"}
+{"event":"review","result":"passed","ts":"2026-09-12T20:53:07Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-09-12T21:06:51Z"}

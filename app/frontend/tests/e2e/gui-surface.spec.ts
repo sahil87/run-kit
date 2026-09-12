@@ -13,6 +13,20 @@ import {
   stableGuiGeometry,
 } from "./_gui";
 
+import {
+  GUI_OFF,
+  GUI_ON_1080P,
+  GUI_ON_AUTO,
+  GUI_ON_BARE,
+  GUI_ON_FIXED,
+  GUI_ON_ICEWM,
+  GUI_ON_UNREACHABLE,
+  GUI_REASON,
+  GUI_WM_HINT,
+  GUI_STATUS_BARE,
+  mockGuiBackend,
+  toggleButton,
+} from "./_gui-mock";
 // GUI surface tile e2e (spec docs/specs/gui.md — the gui lens as a 4th surface
 // kind). Two halves:
 //
@@ -40,10 +54,12 @@ import {
 // descriptions, ` · current` marker, and `rk-gui-quality` write. Both
 // desktop (1280px) and mobile (375px, hasTouch) forks run. The
 // zoom/pointer/keybar/toolbar tests live here too:
-// the desktop fork drives the zoom chords and Ctrl+wheel against the badge,
-// the mobile fork drives the key bar's latch rendering, a CDP two-finger
-// pinch, and the toolbar pill's show → auto-hide → tap-to-reshow cycle plus
-// its Zoom in chip (the badge is the RFB-mock-free observable). The mocked
+// the desktop fork drives the zoom chords and Ctrl+wheel against the badge
+// and asserts the tile header's inline fold cluster + resolution menu; the
+// mobile fork drives the key bar's latch rendering, a CDP two-finger pinch,
+// and the top bar's pinned ⚙ panel (the fold's bottom rung) — its Zoom in
+// row and Quality cycle (the badge / rk-gui-quality are the RFB-mock-free
+// observables). The mocked
 // /ws/gui/ socket is held open without an RFB handshake,
 // so the tile's RFB NEVER reaches `connected` in this half — the chords,
 // badge, and latch rendering are the observable surface, and the `sendKey`
@@ -70,160 +86,7 @@ import {
 // The rig helpers (capability gate, status
 // fetch/poll, geometry settle) are shared with gui-perf.spec.ts via `_gui.ts`.
 
-const GUI_OFF = [
-  { id: "host", enabled: false, backend: "", reachable: false, display: "", width: 0, height: 0, viewers: 0, wm: "", locked: false },
-];
-const GUI_ON_UNREACHABLE = [
-  { id: "host", enabled: true, backend: "Xtigervnc", reachable: false, display: ":10", width: 0, height: 0, viewers: 0, wm: "", locked: false },
-];
-const GUI_REASON = "no VNC backend: sudo apt install --no-install-recommends tigervnc-standalone-server icewm";
-const GUI_ON_BARE = [
-  { id: "host", enabled: true, backend: "Xtigervnc", reachable: true, display: ":10", width: 1280, height: 800, viewers: 0, wm: "", locked: false, geometry: "1920x1080" },
-];
-const GUI_ON_ICEWM = [{ ...GUI_ON_BARE[0], wm: "icewm-session" }];
-// Geometry variants of the reachable icewm entry: a fixed desktop size vs the
-// follow-the-tile `auto` value (the palette's Lock/Auto rows key off it).
-const GUI_ON_FIXED = [{ ...GUI_ON_ICEWM[0], geometry: "1600x900" }];
-const GUI_ON_AUTO = [{ ...GUI_ON_ICEWM[0], geometry: "auto" }];
-// A 1080p variant for the stats overlay's size segment.
-const GUI_ON_1080P = [{ ...GUI_ON_ICEWM[0], width: 1920, height: 1080 }];
-const GUI_WM_HINT = "sudo apt install --no-install-recommends icewm";
-const GUI_STATUS_BARE = {
-  id: "host",
-  enabled: true,
-  backend: "Xtigervnc",
-  reachable: true,
-  display: ":10",
-  width: 1280,
-  height: 800,
-  viewers: 0,
-  wm: "",
-  wm_hint: GUI_WM_HINT,
-  socket: "",
-  session: "",
-  reason: "",
-  apps: [],
-  uptime_seconds: 0,
-};
 
-const WORK_WINDOW = {
-  windowId: "@1",
-  index: 0,
-  name: "work",
-  worktreePath: "/tmp/wt",
-  activity: "idle",
-  isActiveWindow: true,
-  activityTimestamp: 0,
-  gitRoot: "/repo",
-  panes: [{ paneId: "%1", paneIndex: 0, cwd: "/repo", command: "zsh", isActive: true }],
-};
-const GUI_LAYOUT_WINDOW = {
-  ...WORK_WINDOW,
-  windowId: "@2",
-  index: 1,
-  name: "gui-tab",
-  layout: "split-h:tty,gui",
-};
-
-function sessionsPayload() {
-  return JSON.stringify([{ name: "dev", windows: [WORK_WINDOW, GUI_LAYOUT_WINDOW] }]);
-}
-
-/** The mocked backend for the ungated half; returns the /ws/gui/ dial count.
- *  `statusDoc` overrides the `GET /api/gui/host` document (the bare-WM strip
- *  tests pass one carrying `wm: ""` and the `wm_hint` install line). */
-async function mockGuiBackend(page: Page, gui: unknown, statusDoc?: unknown) {
-  let guiDials = 0;
-  await page.routeWebSocket(/\/ws\/terminals/, () => {});
-  await page.routeWebSocket(/\/ws\/gui\//, () => {
-    guiDials += 1;
-  });
-  await page.route("**/api/servers", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify([{ name: "default", sessionCount: 1 }]),
-    }),
-  );
-  await page.route("**/api/windows/*/options*", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
-  );
-  // The mount-time tmux alignment POSTs select when the URL window is not the
-  // payload's active one — unstubbed, the failure bounces the route back to
-  // the active window (@1).
-  await page.route("**/api/windows/*/select*", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
-  );
-  await page.route("**/api/gui/host", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(
-        statusDoc ?? {
-          id: "host",
-          enabled: true,
-          backend: "Xtigervnc",
-          reachable: false,
-          display: ":10",
-          width: 0,
-          height: 0,
-          viewers: 0,
-          wm: "",
-          socket: "",
-          session: "",
-          reason: GUI_REASON,
-          apps: [],
-          uptime_seconds: 0,
-        },
-      ),
-    }),
-  );
-  await mockStateSocket(page, { sessions: sessionsPayload(), gui });
-  // noVNC's Websock.attach() probes the raw channel's properties via
-  // Object.keys + prototype names and throws on a miss; Playwright's
-  // routeWebSocket mock instance forwards gets through a proxy but exposes
-  // nothing to that enumeration, so constructing an RFB against a mocked
-  // /ws/gui/ URL would crash the page. Wrap the constructor so /ws/gui/
-  // sockets get a prototype carrying the probed names; every other socket
-  // keeps the plain mock. Registered AFTER the routeWebSocket calls: init
-  // scripts run in registration order, and Playwright's mock injection must
-  // install first for this wrapper to ride on top of it.
-  await page.addInitScript(() => {
-    const probed = ["send", "close", "binaryType", "onerror", "onmessage", "onopen", "protocol", "readyState"];
-    window.WebSocket = new Proxy(window.WebSocket, {
-      construct(target, args) {
-        const inner = Reflect.construct(target, args);
-        if (!String(args[0]).includes("/ws/gui/")) return inner;
-        const patched = Object.create(Object.getPrototypeOf(inner));
-        for (const name of probed) {
-          Object.defineProperty(patched, name, {
-            configurable: true,
-            enumerable: true,
-            get: () => Reflect.get(inner, name),
-            set: (v) => Reflect.set(inner, name, v),
-          });
-        }
-        // Methods bind to the inner socket: the mock extends EventTarget,
-        // whose native methods (addEventListener, …) brand-check the receiver
-        // and would throw "Illegal invocation" on the proxy.
-        return new Proxy(inner, {
-          getPrototypeOf: () => patched,
-          get: (t, p) => {
-            const v = Reflect.get(t, p);
-            return typeof v === "function" ? v.bind(t) : v;
-          },
-        });
-      },
-    });
-  });
-  return { guiDials: () => guiDials };
-}
-
-/** The surface-toggle buttons by accessible name, scoped to the banner (the
- *  off-screen measurement probe duplicates every testid — getByRole excludes
- *  it). */
-const toggleButton = (page: Page, name: string) =>
-  page.getByRole("banner").getByRole("button", { name });
 
 test.describe("gui surface — mocked signal, desktop (1280px)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
@@ -677,52 +540,23 @@ test.describe("gui surface — mocked signal, desktop (1280px)", () => {
   });
 
   /**
-   * Proves: on a fine-pointer 1280px desktop the toolbar pill is MOUNTED but
-   * renders nothing after the gui tile opens — and stays absent past the 3 s
-   * hide window (only a coarse pointer or fullscreen shows it on mount).
+   * Proves: on a fine-pointer 1280px desktop the gui tile's session controls
+   * render INLINE in the tile header as the measured fold cluster — no pill,
+   * no reveal gesture — and the size chip, reading the mocked 1920×1080 size,
+   * opens a menu that marks the mocked geometry's row with the trailing ✓.
    *
    * Steps:
    * 1. Mock the backend with the reachable 1080p icewm entry; open @1; toggle
-   *    the gui tile open.
-   * 2. Assert `gui-toolbar` has count 0 immediately.
-   * 3. Wait past the hide window; assert the count is still 0.
+   *    the gui tile open; click the canvas to focus the tile and zen-zoom it
+   *    with Control+Shift+Enter so the tile takes the full content width.
+   * 2. Assert the header cluster (`gui-toolbar` inside `surface-tile-gui`) is
+   *    visible with the size, quality, and launch controls inline and no `⚙`
+   *    (everything fits at the zoomed width).
+   * 3. Click the size chip (aria-label `Resolution 1920×1080, menu`); assert
+   *    the menu is `data-menu="resolution"` and the `1920×1080` row carries
+   *    the ✓ current mark.
    */
-  test("toolbar pill: a fine-pointer desktop starts without the pill, even past the hide window", async ({
-    page,
-  }) => {
-    await mockGuiBackend(page, GUI_ON_1080P);
-    await page.goto("/default/%401");
-    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
-
-    await toggleButton(page, "GUI tile").click();
-    await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
-
-    const pill = page.getByTestId("gui-toolbar");
-    await expect(pill).toHaveCount(0);
-    await page.waitForTimeout(3_500);
-    await expect(pill).toHaveCount(0);
-  });
-
-  /**
-   * Proves: on a fine-pointer 1280px desktop a mouse move within 24 px of the
-   * tile's top edge reveals the pill with every chip inline (no ⋯ overflow
-   * once the zen-zoomed tile is wider than 560px), and the resolution chip —
-   * reading the mocked 1920×1080 size — opens a menu that marks the mocked
-   * geometry's row with the trailing ✓.
-   *
-   * Steps:
-   * 1. Mock the backend with the reachable 1080p icewm entry; open @1; toggle
-   *    the gui tile open; click the canvas to focus the tile (the tap also
-   *    reveals the pill) and zen-zoom it with Control+Shift+Enter so the tile
-   *    takes the full content width; wait for the pill to auto-hide.
-   * 2. Move the mouse to 10 px below the canvas wrapper's top edge; assert the
-   *    pill appears, then click the resolution chip (aria-label
-   *    `Resolution 1920×1080, menu`) — the open menu suspends the hide timer.
-   * 3. Assert `gui-toolbar-overflow` has count 0 and the Quality and Open
-   *    terminal chips are inline; assert the menu is `data-menu="resolution"`
-   *    and the `1920×1080` row's text carries the ✓ current mark.
-   */
-  test("toolbar pill: a top-edge hover reveals it inline; the resolution menu marks the mocked size current", async ({
+  test("header fold: the cluster renders inline; the resolution menu marks the mocked size current", async ({
     page,
   }) => {
     await mockGuiBackend(page, GUI_ON_1080P);
@@ -732,30 +566,23 @@ test.describe("gui surface — mocked signal, desktop (1280px)", () => {
     await toggleButton(page, "GUI tile").click();
     const tile = page.getByTestId("gui-surface-canvas");
     await expect(tile).toBeVisible({ timeout: READY_TIMEOUT });
-    const pill = page.getByTestId("gui-toolbar");
 
-    // Zen-zoom the gui tile (the chord needs tile focus) so its width clears
-    // the 560px overflow threshold; the focusing tap's reveal hides again 3 s
-    // later.
+    // Zen-zoom the gui tile (the chord needs tile focus) so its header spring
+    // is wide enough for the full cluster.
     await tile.click({ position: { x: 200, y: 200 } });
     await page.keyboard.press("Control+Shift+Enter");
     await expect(page.getByTestId("surface-tile-tty")).toBeHidden({ timeout: READY_TIMEOUT });
-    await expect(pill).toHaveCount(0, { timeout: 5_000 });
 
-    const box = await tile.boundingBox();
-    expect(box).not.toBeNull();
-    await page.mouse.move(box!.x + box!.width / 2, box!.y + 10);
-    await expect(pill).toBeVisible();
+    const cluster = page.getByTestId("surface-tile-gui").getByTestId("gui-toolbar");
+    await expect(cluster).toBeVisible();
+    await expect(cluster.getByTestId("gui-toolbar-resolution")).toBeVisible();
+    await expect(cluster.getByRole("button", { name: "Quality" })).toBeVisible();
+    await expect(cluster.getByRole("button", { name: "Open terminal" })).toBeVisible();
+    await expect(cluster.getByTestId("gui-toolbar-overflow")).toHaveCount(0);
 
-    // Open the resolution menu early: an open menu suspends the pill's 3 s
-    // hide timer, so the remaining assertions are not racing it.
-    const resolution = page.getByTestId("gui-toolbar-resolution");
+    const resolution = cluster.getByTestId("gui-toolbar-resolution");
     await expect(resolution).toHaveAttribute("aria-label", "Resolution 1920×1080, menu");
     await resolution.click();
-
-    await expect(page.getByTestId("gui-toolbar-overflow")).toHaveCount(0);
-    await expect(pill.getByRole("button", { name: "Quality" })).toBeVisible();
-    await expect(pill.getByRole("button", { name: "Open terminal" })).toBeVisible();
 
     const menu = page.getByTestId("gui-toolbar-menu");
     await expect(menu).toHaveAttribute("data-menu", "resolution");
@@ -978,121 +805,80 @@ test.describe("gui surface — mocked signal, mobile (375px)", () => {
   });
 
   /**
-   * Proves: on a coarse 375px viewport the session toolbar pill (the palette's
-   * coarse mirror) shows when the tile opens, auto-hides within ~5 s of no
-   * interaction, and a tap on the noVNC host brings it back.
+   * Proves: on a coarse 375px viewport the gui session controls live in the
+   * top bar's pinned `⚙` block (the fold's bottom rung — mobile has no tile
+   * header): it renders beside the switch group while the gui surface is
+   * visible and disappears when the visible surface switches away.
    *
    * Steps:
    * 1. Mock the backend with the reachable icewm entry; open @1 at 375px;
-   *    open the gui tile; assert `gui-toolbar` is visible.
-   * 2. Wait for the auto-hide; assert the pill is gone from the DOM.
-   * 3. Tap the noVNC host; assert the pill is visible again.
+   *    tap the GUI tile button; assert the canvas and the banner's `⚙`
+   *    (`gui-toolbar-overflow`) render.
+   * 2. Tap the Terminal tile button; assert the `⚙` is gone.
    */
-  test("toolbar pill: shows on open, auto-hides, a tap re-shows it", async ({ page }) => {
+  test("mobile toolbar: the top bar pins ⚙ on the gui surface and drops it on switch-away", async ({
+    page,
+  }) => {
     await mockGuiBackend(page, GUI_ON_ICEWM);
     await page.goto("/default/%401");
     await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
 
     await toggleButton(page, "GUI tile").click();
     await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
-    const pill = page.getByTestId("gui-toolbar");
-    await expect(pill).toBeVisible({ timeout: READY_TIMEOUT });
+    const gear = page.getByRole("banner").getByTestId("gui-toolbar-overflow");
+    await expect(gear).toBeVisible();
 
-    // The 3 s auto-hide; while hidden the pill renders nothing at all.
-    await expect(pill).toHaveCount(0, { timeout: 5000 });
-
-    await page.getByTestId("gui-novnc-host").tap();
-    await expect(pill).toBeVisible();
+    await toggleButton(page, "Terminal tile").click();
+    // Hide-never-unmount: the tile stays in the DOM, hidden — the ⚙ block
+    // is what must disappear.
+    await expect(page.getByTestId("gui-surface-canvas")).toBeHidden();
+    await expect(page.getByRole("banner").getByTestId("gui-toolbar-overflow")).toHaveCount(0);
   });
 
   /**
-   * Proves: the pill's `Zoom in` chip steps the per-viewer zoom posture — the
-   * same callback the palette's `GUI: Zoom in` row calls — observable without
-   * a live RFB as the corner badge reading `100%` (from the default `fit`).
+   * Proves: the ⚙ panel's `Zoom in` row steps the per-viewer zoom posture —
+   * the same callback the palette's `GUI: Zoom in` row calls — observable
+   * without a live RFB as the corner badge reading `100%` (from the default
+   * `fit`).
    *
    * Steps:
    * 1. Mock the backend with the reachable icewm entry; open @1 at 375px;
-   *    open the gui tile; wait for the pill.
-   * 2. Tap the pill's `Zoom in` chip.
+   *    open the gui tile.
+   * 2. Tap the banner's `⚙`; tap the panel's `Zoom in` row.
    * 3. Assert `gui-zoom-badge` reads `100%`.
    */
-  test("toolbar pill: the Zoom in chip moves the badge to 100%", async ({ page }) => {
+  test("mobile toolbar: the ⚙ panel's Zoom in row moves the badge to 100%", async ({ page }) => {
     await mockGuiBackend(page, GUI_ON_ICEWM);
     await page.goto("/default/%401");
     await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
 
     await toggleButton(page, "GUI tile").click();
     await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
-    const pill = page.getByTestId("gui-toolbar");
-    await expect(pill).toBeVisible({ timeout: READY_TIMEOUT });
 
-    await pill.getByRole("button", { name: "Zoom in" }).tap();
+    await page.getByRole("banner").getByTestId("gui-toolbar-overflow").tap();
+    await page
+      .getByTestId("gui-toolbar-menu")
+      .getByRole("menuitem", { name: "Zoom in" })
+      .tap();
     await expect(page.getByTestId("gui-zoom-badge")).toHaveText("100%");
   });
 
   /**
-   * Proves: on a coarse 375px viewport the toolbar pill shows on open with
-   * only the primary set (resolution, ⤢, −, fit, +, ⌖, ⌨) plus the ⋯
-   * overflow chip, and the whole pill fits a single row inside the 375px
-   * viewport — the narrow-fold rule measured against the tile's width.
+   * Proves: the ⚙ panel carries every ladder rung as flat palette rows
+   * (fullscreen, the resolution rows with the ✓ current mark, the zoom and
+   * quality rows, launch, health) plus the coarse-only ⌖/⌨ rows — the
+   * never-connected mocked RFB keeps paste/send-key out and Reconnect in —
+   * and picking `Quality → Balanced` fires the cycle row (observable as the
+   * `rk-gui-quality` write).
    *
    * Steps:
-   * 1. Mock the backend with the reachable 1080p icewm entry; open @1 at
-   *    375px; tap the GUI button; assert the pill and `gui-toolbar-overflow`
-   *    are visible.
-   * 2. Assert the primary chips are present and the folded ones (Quality,
-   *    Toggle stats, Open terminal) are not inline.
-   * 3. Assert the pill's bounding box is at most 375px wide and every chip
-   *    shares one `top` (a single row, no wrap).
-   */
-  test("toolbar pill: the primary set plus ⋯ fits one row at 375px", async ({ page }) => {
-    await mockGuiBackend(page, GUI_ON_1080P);
-    await page.goto("/default/%401");
-    await expect(toggleButton(page, "Terminal tile")).toBeVisible({ timeout: READY_TIMEOUT });
-
-    await toggleButton(page, "GUI tile").click();
-    await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
-    const pill = page.getByTestId("gui-toolbar");
-    await expect(pill).toBeVisible({ timeout: READY_TIMEOUT });
-    await expect(page.getByTestId("gui-toolbar-overflow")).toBeVisible();
-    await expect(page.getByTestId("gui-toolbar-resolution")).toBeVisible();
-    for (const name of ["Enter fullscreen", "Zoom out", "Zoom to fit", "Zoom in", "Pointer mode", "Toggle key bar"]) {
-      await expect(pill.getByRole("button", { name })).toBeVisible();
-    }
-    await expect(pill.getByRole("button", { name: "Quality" })).toHaveCount(0);
-    await expect(pill.getByRole("button", { name: "Toggle stats" })).toHaveCount(0);
-    await expect(pill.getByRole("button", { name: "Open terminal" })).toHaveCount(0);
-
-    const pillBox = await pill.boundingBox();
-    expect(pillBox).not.toBeNull();
-    expect(pillBox!.width).toBeLessThanOrEqual(375);
-    const chips = pill.getByRole("button");
-    const tops: number[] = [];
-    for (const chip of await chips.all()) {
-      const chipBox = await chip.boundingBox();
-      expect(chipBox).not.toBeNull();
-      tops.push(chipBox!.y);
-    }
-    expect(tops.length).toBeGreaterThan(0);
-    for (const top of tops) expect(Math.abs(top - tops[0])).toBeLessThan(1);
-  });
-
-  /**
-   * Proves: the ⋯ chip opens the overflow menu carrying the folded rows — the
-   * quality cycle reads the current `rk-gui-quality` posture and picking it
-   * fires the next preset's palette row (observable as the posture write) —
-   * while the never-connected mocked RFB keeps paste/send-key folded out and
-   * Reconnect folded in.
-   *
-   * Steps:
-   * 1. Seed `rk-gui-quality` = "balanced"; mock the backend with the reachable
-   *    1080p icewm entry; open @1 at 375px; open the gui tile.
-   * 2. Tap `gui-toolbar-overflow`; assert the menu is `data-menu="overflow"`
-   *    and its rows read exactly `Quality → Balanced`, `Open terminal`,
-   *    `Open browser`, `Show stats`, `Reconnect`.
+   * 1. Seed `rk-gui-quality` = "balanced"; mock the backend with the
+   *    reachable 1080p icewm entry; open @1 at 375px; open the gui tile.
+   * 2. Tap the banner's `⚙`; assert the menu is `data-menu="overflow"` and
+   *    read its rows.
    * 3. Tap `Quality → Balanced`; assert `rk-gui-quality` reads "smooth".
    */
-  test("toolbar pill: the ⋯ menu carries the folded rows and Quality → Balanced cycles the preset", async ({
+  test("mobile toolbar: the ⚙ panel carries every rung and Quality → Balanced cycles the preset", async ({
     page,
   }) => {
     await page.addInitScript(() => localStorage.setItem("rk-gui-quality", "balanced"));
@@ -1102,16 +888,28 @@ test.describe("gui surface — mocked signal, mobile (375px)", () => {
 
     await toggleButton(page, "GUI tile").click();
     await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
-    await page.getByTestId("gui-toolbar-overflow").tap();
+    await page.getByRole("banner").getByTestId("gui-toolbar-overflow").tap();
 
     const menu = page.getByTestId("gui-toolbar-menu");
     await expect(menu).toHaveAttribute("data-menu", "overflow");
     await expect(menu.getByRole("menuitem")).toHaveText([
+      "Fullscreen",
+      "1280×720",
+      "1600×900",
+      "1920×1080✓",
+      "2560×1440",
+      "1080×1920 (portrait)",
+      "Match this tile",
+      "Auto (follow this tile) — today's behavior — the desktop follows the focused fine-pointer viewer",
+      "Custom…",
+      "Zoom in",
       "Quality → Balanced",
       "Open terminal",
       "Open browser",
       "Show stats",
       "Reconnect",
+      "Pointer → Touch — tap where you touch",
+      "Hide key bar",
     ]);
 
     await menu.getByRole("menuitem", { name: "Quality → Balanced" }).tap();
@@ -1121,22 +919,19 @@ test.describe("gui surface — mocked signal, mobile (375px)", () => {
   });
 
   /**
-   * Proves: the pill's resolution chip reads the mocked desktop size in its
-   * aria-label (the live W×H, even though the narrow pill shows the short
-   * form), opens the resolution menu, and tapping the `1280×720` row POSTs
-   * the resize endpoint with exactly `{"geometry":"1280x720"}` — the same
-   * wire body the palette row sends.
+   * Proves: the ⚙ panel's resolution rows are the palette's own — tapping
+   * `1280×720` POSTs the resize endpoint with exactly
+   * `{"geometry":"1280x720"}`, the same wire body the palette row sends.
    *
    * Steps:
    * 1. Stub `POST /api/gui/host/resize` (capturing the request body, answering
    *    the 200 ok document); mock the backend with the reachable 1080p icewm
    *    entry; open @1 at 375px; open the gui tile.
-   * 2. Assert the resolution chip's aria-label is `Resolution 1920×1080, menu`;
-   *    tap it; assert the menu is `data-menu="resolution"`.
+   * 2. Tap the banner's `⚙`; assert the menu is `data-menu="overflow"`.
    * 3. Tap the `1280×720` row; assert the captured body is exactly
    *    `{ geometry: "1280x720" }`.
    */
-  test("toolbar pill: the resolution chip names the mocked size and its 1280×720 row posts the exact resize body", async ({
+  test("mobile toolbar: the ⚙ panel's 1280×720 row posts the exact resize body", async ({
     page,
   }) => {
     let resizeBody: unknown = null;
@@ -1154,13 +949,10 @@ test.describe("gui surface — mocked signal, mobile (375px)", () => {
 
     await toggleButton(page, "GUI tile").click();
     await expect(page.getByTestId("gui-surface-canvas")).toBeVisible({ timeout: READY_TIMEOUT });
-    const resolution = page.getByTestId("gui-toolbar-resolution");
-    await expect(resolution).toBeVisible({ timeout: READY_TIMEOUT });
-    await expect(resolution).toHaveAttribute("aria-label", "Resolution 1920×1080, menu");
+    await page.getByRole("banner").getByTestId("gui-toolbar-overflow").tap();
 
-    await resolution.tap();
     const menu = page.getByTestId("gui-toolbar-menu");
-    await expect(menu).toHaveAttribute("data-menu", "resolution");
+    await expect(menu).toHaveAttribute("data-menu", "overflow");
     await menu.getByRole("menuitem", { name: "1280×720" }).tap();
 
     await expect.poll(() => resizeBody).toEqual({ geometry: "1280x720" });

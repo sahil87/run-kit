@@ -33,9 +33,11 @@ function input(overrides: Partial<GuiPaletteInput> = {}): GuiPaletteInput {
     onStatsVisible: vi.fn(),
     onHidpiChange: vi.fn(),
     onKeyBarVisibleChange: vi.fn(),
+    onToolbarVisibleChange: vi.fn(),
     onSendKey: vi.fn(),
     hidpi: false,
     keyBarVisible: true,
+    toolbarVisible: false,
     onOpenLogs: vi.fn(),
     onReconnect: vi.fn(),
     ...overrides,
@@ -110,6 +112,7 @@ describe("buildGuiActions — tile-open gating", () => {
       "gui-zoom-in",
       "gui-view-1to1",
       "gui-lock",
+      "gui-toolbar-show",
       "gui-stats-show",
       "gui-logs",
     ]);
@@ -346,6 +349,7 @@ describe("buildGuiActions — resolution rows", () => {
       "gui-zoom-in",
       "gui-view-1to1",
       "gui-lock",
+      "gui-toolbar-show",
       "gui-stats-show",
       "gui-logs",
     ]);
@@ -566,6 +570,29 @@ describe("buildGuiActions — key bar pair", () => {
   });
 });
 
+describe("buildGuiActions — toolbar panel pair", () => {
+  it("is destination-only and tile-gated, routing the target visibility", () => {
+    const open = input({ toolbarVisible: true });
+    expect(ids(open)).toContain("gui-toolbar-hide");
+    expect(ids(open)).not.toContain("gui-toolbar-show");
+    buildGuiActions(open).find((a) => a.id === "gui-toolbar-hide")!.onSelect();
+    expect(open.onToolbarVisibleChange).toHaveBeenCalledWith(false);
+
+    const closed = input({ toolbarVisible: false });
+    expect(ids(closed)).toContain("gui-toolbar-show");
+    expect(ids(closed)).not.toContain("gui-toolbar-hide");
+    buildGuiActions(closed).find((a) => a.id === "gui-toolbar-show")!.onSelect();
+    expect(closed.onToolbarVisibleChange).toHaveBeenCalledWith(true);
+  });
+
+  it("renders on either pointer kind but not without an open tile", () => {
+    expect(ids(input({ coarsePointer: true }))).toContain("gui-toolbar-show");
+    expect(ids(input({ coarsePointer: false }))).toContain("gui-toolbar-show");
+    const closed = ids(input({ tileOpen: false }));
+    expect(closed).not.toContain("gui-toolbar-hide");
+    expect(closed).not.toContain("gui-toolbar-show");
+  });
+});
 describe("buildGuiActions — the locked host pin", () => {
   it("disables every gui-res-* row with the `locked` description, replacing `current`", () => {
     const actions = buildGuiActions(input({ locked: true, geometry: "1920x1080" }));

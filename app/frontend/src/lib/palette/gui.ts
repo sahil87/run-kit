@@ -33,7 +33,7 @@
  *                                 (`locked`) is set, EVERY `gui-res-*` row
  *                                 renders DISABLED with the description
  *                                 `locked` (replacing `current`), so the
- *                                 palette and the toolbar pill agree.
+ *                                 palette and the header toolbar agree.
  *  - `GUI: Quality → Sharp / Balanced / Smooth` — the launch rows' gate,
  *                                 right after the Resolution rows; fixed
  *                                 descriptions with ` · current` on the
@@ -57,6 +57,10 @@
  *                                 pointer (the bar itself is coarse-only);
  *                                 destination-only pair toggling the
  *                                 viewer-local `rk-gui-keybar` posture.
+ *  - `GUI: Hide toolbar` / `GUI: Show toolbar` — gui tile open;
+ *                                 destination-only pair toggling the
+ *                                 viewer-local `rk-gui-toolbar` posture (the
+ *                                 header fold panel's open state).
  *  - `GUI: Zoom in` / `GUI: Zoom out` / `GUI: Zoom to fit` / `GUI: 1:1` —
  *                                 gui tile open; destination-only zoom rows
  *                                 (Zoom in hides at 200, Zoom out and Zoom to
@@ -88,9 +92,9 @@
  * comes from the registry-inherited `Tile: Show/Hide/Focus GUI` rows plus
  * `withShortcutHints` on the actionId.
  *
- * The toolbar pill (components/gui-toolbar.tsx) consumes this SAME list by
- * stable id (`pickGuiActions`) — no new rows may be added for the pill, and
- * no pill-only state may live here beyond the `locked` gate.
+ * The header fold cluster (components/gui-toolbar.tsx) consumes this SAME
+ * list by stable id (`pickGuiActions`) — no new rows may be added for the
+ * cluster, and no cluster-only state may live here beyond the `locked` gate.
  */
 
 import type { GuiLaunchApp } from "../../api/client";
@@ -141,6 +145,8 @@ export type GuiPaletteInput = {
   hidpi: boolean;
   /** The viewer's key-bar visibility (`rk-gui-keybar`). */
   keyBarVisible: boolean;
+  /** The viewer's toolbar fold-panel state (`rk-gui-toolbar`). */
+  toolbarVisible: boolean;
   /** The host signal's `geometry` — the `gui.geometry` setting: a fixed `WxH`,
    *  or `auto` (the desktop follows the focused fine-pointer viewer). */
   geometry: string;
@@ -169,6 +175,7 @@ export type GuiPaletteInput = {
   onStatsVisible: (visible: boolean) => void;
   onHidpiChange: (on: boolean) => void;
   onKeyBarVisibleChange: (visible: boolean) => void;
+  onToolbarVisibleChange: (visible: boolean) => void;
   /** Opens the Send key prompt (the caller owns the dialog). */
   onSendKey: () => void;
   onOpenLogs: () => void;
@@ -352,6 +359,13 @@ export function buildGuiActions(input: GuiPaletteInput): GuiPaletteAction[] {
           : { id: "gui-lock", label: "GUI: Lock resolution", ...fixedPin, onSelect: () => input.onLockChange(true) },
       );
     }
+    // Destination-only pair — the ⚙ fold panel's open state (the
+    // `rk-gui-toolbar` posture), like the key-bar pair above.
+    actions.push(
+      input.toolbarVisible
+        ? { id: "gui-toolbar-hide", label: "GUI: Hide toolbar", onSelect: () => input.onToolbarVisibleChange(false) }
+        : { id: "gui-toolbar-show", label: "GUI: Show toolbar", onSelect: () => input.onToolbarVisibleChange(true) },
+    );
     // Destination-only pair — the entry shows the state it switches to.
     actions.push(
       input.statsVisible

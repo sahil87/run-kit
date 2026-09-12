@@ -19,7 +19,9 @@
  * preset (`rk-gui-quality`: "sharp" | "balanced" | "smooth", absent/invalid =
  * the pointer-class default — "balanced" on fine, "smooth" on coarse), and
  * the stats overlay's visibility (`rk-gui-stats-visible`: "1" = shown,
- * absent = hidden — the lock's shape). Reads are validated on the way in
+ * absent = hidden — the lock's shape), and the header fold panel's open
+ * state (`rk-gui-toolbar`: "1" = open, absent/other = closed — an overflow
+ * panel's rest state is closed). Reads are validated on the way in
  * (untrusted-localStorage discipline); all writes are try/catch-noop.
  */
 
@@ -41,10 +43,10 @@ export const GUI_QUALITY_PRESETS: Record<GuiQuality, { qualityLevel: number; com
   smooth: { qualityLevel: 3, compressionLevel: 7 },
 };
 
-/** The presets in palette order; the toolbar pill's ◐ chip cycles through it. */
+/** The presets in palette order; the header toolbar's ◐ chip cycles through it. */
 export const GUI_QUALITY_ORDER: readonly GuiQuality[] = ["sharp", "balanced", "smooth"];
 
-/** Preset name → its user-facing label (the palette rows and the pill share it). */
+/** Preset name → its user-facing label (the palette rows and the toolbar share it). */
 export const GUI_QUALITY_LABELS: Record<GuiQuality, string> = {
   sharp: "Sharp",
   balanced: "Balanced",
@@ -63,6 +65,7 @@ const GUI_QUALITY_KEY = "rk-gui-quality";
 const GUI_STATS_VISIBLE_KEY = "rk-gui-stats-visible";
 const GUI_HIDPI_KEY = "rk-gui-hidpi";
 const GUI_KEYBAR_KEY = "rk-gui-keybar";
+const GUI_TOOLBAR_KEY = "rk-gui-toolbar";
 const GUI_WM_STRIP_DISMISSED_KEY = "runkit-gui-wm-strip-dismissed";
 
 /** Retired `rk-gui-view` key; read once to seed the zoom posture, removed on write. */
@@ -255,6 +258,26 @@ export function writeGuiKeyBarVisible(visible: boolean): void {
       localStorage.removeItem(GUI_KEYBAR_KEY);
     } else {
       localStorage.setItem(GUI_KEYBAR_KEY, "0");
+    }
+  } catch {
+    /* noop — best-effort persistence */
+  }
+}
+
+export function readGuiToolbarVisible(): boolean {
+  try {
+    return localStorage.getItem(GUI_TOOLBAR_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeGuiToolbarVisible(visible: boolean): void {
+  try {
+    if (visible) {
+      localStorage.setItem(GUI_TOOLBAR_KEY, "1");
+    } else {
+      localStorage.removeItem(GUI_TOOLBAR_KEY);
     }
   } catch {
     /* noop — best-effort persistence */

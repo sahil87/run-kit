@@ -176,7 +176,9 @@ func TestOperatorStart_ReceiptTimeoutIs504(t *testing.T) {
 func TestRunOperatorStartExec(t *testing.T) {
 	t.Run("chatter lines are skipped until the receipt parses", func(t *testing.T) {
 		dir := t.TempDir()
-		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\necho 'some chatter'\necho '{\"ok\":true,\"result\":{\"window\":\"@7\",\"server\":\"default\",\"created\":true}}'\n")
+		// The real envelope shape: outputSink.writeEnvelope renders one
+		// two-space-indented multi-line document, not a compact line.
+		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\necho 'some chatter'\nprintf '%s\n' '{' '  \"ok\": true,' '  \"result\": {' '    \"window\": \"@7\",' '    \"server\": \"default\",' '    \"created\": true' '  }' '}'\n")
 		receipt, stderr, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk"), "operator", "-L", "default", "--json"})
 		if err != nil {
 			t.Fatalf("err = %v, want nil", err)
@@ -189,9 +191,9 @@ func TestRunOperatorStartExec(t *testing.T) {
 		}
 	})
 
-	t.Run("returns on the receipt while the process keeps running", func(t *testing.T) {
+	t.Run("the indented envelope returns while the process keeps running", func(t *testing.T) {
 		dir := t.TempDir()
-		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\necho '{\"ok\":true,\"result\":{\"window\":\"@9\",\"server\":\"default\",\"created\":true}}'\nsleep 2\n")
+		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\nprintf '%s\n' '{' '  \"ok\": true,' '  \"result\": { \"window\": \"@9\", \"server\": \"default\", \"created\": true }' '}'\nsleep 2\n")
 		start := time.Now()
 		receipt, _, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk")})
 		if err != nil {

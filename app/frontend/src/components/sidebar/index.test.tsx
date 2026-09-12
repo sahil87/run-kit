@@ -3330,6 +3330,18 @@ describe("Sidebar — operator placeholder row", () => {
     expect(screen.queryByTestId("selection-bar")).toBeNull();
   });
 
+  it("ArrowRight treats the placeholder as a leaf — no phantom collapse entry", () => {
+    renderSidebar({ onOperatorPlaceholder: vi.fn() });
+
+    const tree = screen.getByRole("tree");
+    act(() => { fireEvent.keyDown(tree, { key: "ArrowRight" }); });
+
+    // A session-shaped ArrowRight would persist "primary:operator-placeholder".
+    expect(localStorage.getItem(SESSION_COLLAPSED_STORAGE_KEY)).toBeNull();
+    // Focus never moved off the placeholder.
+    expect(screen.getByTestId("operator-placeholder-row")).toHaveAttribute("tabindex", "0");
+  });
+
   it("swaps to the ordinary pinned row once a carrier appears (no animation, no overlap)", () => {
     const view = renderSidebar({ onOperatorPlaceholder: vi.fn() });
     expect(screen.getByTestId("operator-placeholder-row")).toBeInTheDocument();

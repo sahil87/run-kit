@@ -1466,12 +1466,15 @@ export function Sidebar({
       case "ArrowRight": {
         e.preventDefault();
         if (isWindow) break; // leaf — no-op
+        const rightKey = currentEl ? rowKeyOf(currentEl) : null;
+        // The operator placeholder is also a leaf (no aria-expanded) — never
+        // treat it as a collapsible session.
+        if (rightKey != null && identityForKey(rightKey)?.kind === "operator-placeholder") break;
         const expanded = currentEl?.getAttribute("aria-expanded") === "true";
         if (!expanded) {
           // collapsed session → expand (focus stays on the session row)
-          const key = currentEl ? rowKeyOf(currentEl) : null;
-          const sep = key?.indexOf(":") ?? -1;
-          if (key && sep > -1) toggleSession(key.slice(0, sep), key.slice(sep + 1));
+          const sep = rightKey?.indexOf(":") ?? -1;
+          if (rightKey && sep > -1) toggleSession(rightKey.slice(0, sep), rightKey.slice(sep + 1));
         } else {
           // expanded session → move to first window child (next visible row,
           // which is this session's first window when expanded)

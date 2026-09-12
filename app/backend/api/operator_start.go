@@ -106,8 +106,10 @@ func writeOperatorExists(w http.ResponseWriter, windowID string) {
 
 // runOperatorStartExec is the production operatorStartRunFn: an argv-slice
 // exec.CommandContext (never a shell string, Constitution I) under a detached
-// 90s context, reading stdout line-by-line until the rk JSON receipt parses
-// (30s bound), then letting the process finish its kickoff in a goroutine.
+// 90s context, accumulating stdout until the rk JSON receipt — one indented
+// multi-line document (outputSink.writeEnvelope uses json.MarshalIndent) —
+// parses as a whole (30s bound), then letting the process finish its kickoff
+// in a goroutine.
 func runOperatorStartExec(_ context.Context, argv []string) (operatorStartReceipt, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), operatorStartProcessTimeout)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
@@ -130,14 +132,27 @@ func runOperatorStartExec(_ context.Context, argv []string) (operatorStartReceip
 	scanned := make(chan scanResult, 1)
 	go func() {
 		scanner := bufio.NewScanner(stdout)
+		var pending bytes.Buffer
 		for scanner.Scan() {
-			if receipt, ok := parseOperatorStartReceipt(scanner.Bytes()); ok {
-				scanned <- scanResult{receipt, true}
-				// Keep draining past the receipt so a chatty process never
-				// blocks on a full stdout pipe.
-				_, _ = io.Copy(io.Discard, stdout)
-				return
+			line := scanner.Bytes()
+			if pending.Len() == 0 && !bytes.HasPrefix(bytes.TrimSpace(line), []byte("{")) {
+				continue // chatter on the data channel — a document starts with {
 			}
+			pending.Write(line)
+			pending.WriteByte('\n')
+			receipt, complete, ok := parseOperatorStartEnvelope(pending.Bytes())
+			if !complete {
+				continue // still mid-document
+			}
+			pending.Reset()
+			if !ok {
+				continue // a complete non-success document (the {"ok":false} failure)
+			}
+			scanned <- scanResult{receipt, true}
+			// Keep draining past the receipt so a chatty process never
+			// blocks on a full stdout pipe.
+			_, _ = io.Copy(io.Discard, stdout)
+			return
 		}
 		scanned <- scanResult{}
 	}()
@@ -169,18 +184,27 @@ func runOperatorStartExec(_ context.Context, argv []string) (operatorStartReceip
 	}
 }
 
-// parseOperatorStartReceipt recognizes one stdout line as the rk --json
-// success envelope carrying the operator receipt; every other line (chatter,
-// the {"ok":false} failure document) is skipped.
-func parseOperatorStartReceipt(line []byte) (operatorStartReceipt, bool) {
+// parseOperatorStartEnvelope decodes one accumulated stdout chunk as a whole
+// rk --json envelope document. complete=false means the bytes are a JSON
+// prefix (keep accumulating); complete=true with ok=false means a full
+// document that is not the success receipt (chatter-shaped bytes or the
+// failure envelope) — the caller drops the chunk and keeps scanning.
+func parseOperatorStartEnvelope(data []byte) (receipt operatorStartReceipt, complete, ok bool) {
 	var env struct {
 		OK     bool                  `json:"ok"`
 		Result *operatorStartReceipt `json:"result"`
 	}
-	if err := json.Unmarshal(line, &env); err != nil || !env.OK || env.Result == nil {
-		return operatorStartReceipt{}, false
+	if err := json.Unmarshal(data, &env); err != nil {
+		var syn *json.SyntaxError
+		if errors.As(err, &syn) && syn.Error() == "unexpected end of JSON input" {
+			return operatorStartReceipt{}, false, false
+		}
+		return operatorStartReceipt{}, true, false
 	}
-	return *env.Result, true
+	if !env.OK || env.Result == nil {
+		return operatorStartReceipt{}, true, false
+	}
+	return *env.Result, true, true
 }
 
 func firstNonEmptyLine(s string) string {

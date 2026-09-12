@@ -162,60 +162,6 @@ func Add(dir, slug string, e Entry) (Entry, error) {
 	return e, nil
 }
 
-// EnsureRoleEntry seeds a role-target entry if this server has none yet. It
-// scans the existing entries for a Target{Kind: TargetRole, Role:
-// spec.Target.Role} match; a miss calls Add with spec (created=true). On a
-// hit the ONLY mutations are two narrow upgrades, written in one save when
-// either applies (the marshal drops any retired keys as a side effect):
-//
-//   - if_absent: respawn with an empty respawn argv takes the spec's non-empty
-//     argv;
-//   - a wake_on debounce strictly BELOW the spec's (same event) is raised to
-//     it — a sub-poll debounce is a dead knob, while a user who tuned it higher
-//     keeps their value.
-//
-// Every other field (min/max, muted, name, payload…) is the user's tuning and
-// is never reconciled. The role target is the idempotency key, not any field
-// value.
-func EnsureRoleEntry(dir, slug string, spec Entry) (entry Entry, created bool, err error) {
-	// The (kind, role) pair is the idempotency key: a mistargeted spec must
-	// fail loudly, never plant a non-role entry the scan can never match.
-	if spec.Target.Kind != TargetRole || spec.Target.Role == "" {
-		return Entry{}, false, fmt.Errorf("EnsureRoleEntry requires a role target with a non-empty role, got kind %q role %q", spec.Target.Kind, spec.Target.Role)
-	}
-	path, entries, err := loadForMutate(dir, slug)
-	if err != nil {
-		return Entry{}, false, err
-	}
-	for i, e := range entries {
-		if e.Target.Kind == TargetRole && e.Target.Role == spec.Target.Role {
-			upgraded := false
-			if e.IfAbsent == IfAbsentRespawn && len(e.Respawn) == 0 && len(spec.Respawn) > 0 {
-				entries[i].Respawn = spec.Respawn
-				upgraded = true
-			}
-			if e.WakeOn != nil && spec.WakeOn != nil && e.WakeOn.Event == spec.WakeOn.Event &&
-				e.WakeOn.Debounce.Duration < spec.WakeOn.Debounce.Duration {
-				w := *e.WakeOn
-				w.Debounce = spec.WakeOn.Debounce
-				entries[i].WakeOn = &w
-				upgraded = true
-			}
-			if upgraded {
-				if err := saveEntries(path, entries); err != nil {
-					return Entry{}, false, err
-				}
-			}
-			return entries[i], false, nil
-		}
-	}
-	entry, err = Add(dir, slug, spec)
-	if err != nil {
-		return Entry{}, false, err
-	}
-	return entry, true, nil
-}
-
 // Remove deletes the entry with the given id. Returns false when absent.
 func Remove(dir, slug, id string) (bool, error) {
 	path, entries, err := loadForMutate(dir, slug)

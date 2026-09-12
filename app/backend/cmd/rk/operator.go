@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"rk/internal/config"
-	"rk/internal/cron"
 	"rk/internal/inject"
 	"rk/internal/riff"
 	"rk/internal/tmux"
@@ -244,20 +243,13 @@ func runOperator(cmd *cobra.Command) error {
 		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit operator: fab not found on PATH — the operator requires fab-kit (the companion toolkit that provides the /fab-operator skill and agent profiles); install it first"}
 	}
 
-	// The server label keys both the cron seed's entry file and the kickoff
-	// delivery's tmux addressing: the -L value in server mode, else the
+	// The server label keys the kickoff delivery's tmux addressing and the
+	// --json receipt's server field: the -L value in server mode, else the
 	// caller's socket basename.
 	serverLabel := operatorServerFlag
 	if !serverMode {
 		serverLabel = cliServerLabel(originalTMUX)
 	}
-
-	// Idempotent operator-tick seeding: disk-only and independent of tmux
-	// window state, so it runs BEFORE the singleton probe (both probe branches
-	// return early) and is best-effort — a seed failure warns on stderr and
-	// never changes the exit code or skips the window open (the
-	// snapshotter/ticker posture).
-	seedOperatorTick(cmd, serverLabel)
 
 	parent := cmd.Context()
 	if parent == nil {
@@ -380,65 +372,6 @@ func runOperator(cmd *cobra.Command) error {
 		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit operator: could not deliver the kickoff prompt (%v) — paste this into the operator agent yourself:\n  %s\n", deliverErr, kickoff)
 	}
 	return nil
-}
-
-// seedOperatorTick idempotently seeds the server's operator-tick cron entry
-// (docs/specs/cron.md § Cron State's operator-tick example) so the cron
-// backstop exists on every server that has ever opened an operator. The
-// idempotency key is the role target — re-seeding after a user's edit (mute,
-// renamed, hand-tuned bounds) leaves the entry untouched apart from the
-// EnsureRoleEntry narrow upgrade (an empty respawn argv is filled from the
-// spec). Best-effort: any failure is one stderr warning, never a non-zero exit
-// — opening the operator tab is the command's job.
-func seedOperatorTick(cmd *cobra.Command, slug string) {
-	warn := func(err error) {
-		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit operator: could not seed the operator-tick cron entry: %v\n", err)
-	}
-	if !cron.ValidSlug(slug) {
-		warn(fmt.Errorf("invalid server slug %q", slug))
-		return
-	}
-	dir, err := cronDir()
-	if err != nil {
-		warn(err)
-		return
-	}
-	if _, _, err := cron.EnsureRoleEntry(dir, slug, operatorTickEntrySpec()); err != nil {
-		warn(err)
-	}
-}
-
-// operatorTickEntrySpec builds the seeded entry with the spec's fixed
-// operator-tick field values (backoff 3m→24m, wake on server-scoped
-// agent-state-change held 60s after the entry's own delivery — an edge that
-// lands right after a tick waits for the poll after next, never lost —
-// role:operator target, skip-if-busy delivery,
-// if_absent respawn with the caller-supplied argv `rk operator -L {server}` —
-// the {server} placeholder resolves to the stamped server at fire time —
-// pinned). created_by auto-captures the caller's pane + now, the same inputs
-// `rk cron add` uses inside a pane (session stays empty — agent-session
-// capture is a later wave).
-func operatorTickEntrySpec() cron.Entry {
-	return cron.Entry{
-		Name: "operator tick",
-		Schedule: cron.Schedule{
-			Kind: cron.ScheduleBackoff,
-			Min:  cron.Duration{Duration: 3 * time.Minute},
-			Max:  cron.Duration{Duration: 24 * time.Minute},
-		},
-		WakeOn: &cron.WakeOn{
-			Event:    cron.WakeAgentStateChange,
-			Scope:    cron.WakeScopeServer,
-			Debounce: cron.Duration{Duration: 60 * time.Second},
-		},
-		Target:    cron.Target{Kind: cron.TargetRole, Role: cron.RoleOperator},
-		Payload:   "operator tick",
-		Deliver:   cron.DeliverSkipIfBusy,
-		IfAbsent:  cron.IfAbsentRespawn,
-		Respawn:   []string{"rk", "operator", "-L", "{server}"},
-		Pinned:    true,
-		CreatedBy: cron.CreatedBy{Pane: cronTmuxPaneFn(), At: cronNowFn().Unix()},
-	}
 }
 
 // operatorServerPrefix addresses tmux calls at a named server: bare for

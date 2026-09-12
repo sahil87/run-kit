@@ -32,7 +32,7 @@ const (
 
 // RoleOperator is the operator's @rk_win_role value. Role targets accept any
 // role value — the constant exists for call sites that name the operator role
-// literally (the rk operator seed).
+// literally (the operator-window lookup in push_url.go).
 const RoleOperator = "operator"
 
 // Wake events.

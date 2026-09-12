@@ -1,6 +1,7 @@
 import {
   QUAKE_GEOMETRY_DEFAULT,
   requestQuakeTerminal,
+  setQuakeMachineState,
   setQuakePinned,
   writeQuakeGeometry,
 } from "@/lib/quake-terminal";
@@ -97,6 +98,16 @@ export function buildQuakeTerminalPinAction(pinned: boolean): QuakeTerminalPalet
   return {
     id: "quake-terminal-pin",
     label: pinned ? "Operator: Unpin quake terminal" : "Operator: Pin quake terminal",
-    onSelect: () => setQuakePinned(!pinned),
+    onSelect: () => {
+      setQuakePinned(!pinned);
+      // A MOUSE pick races the drawer's outside-click capture listener: the
+      // palette closes around the same click, and the pending settle would
+      // see no open dialog and collapse the drawer (taking the fresh pin with
+      // it). Re-asserting the open state bumps the machine's activity counter
+      // even as a same-value no-op — exactly the signal the settle backs off
+      // on. The entry is listed only while the machine is open, so the
+      // re-assert can never open a closed drawer.
+      setQuakeMachineState("open");
+    },
   };
 }

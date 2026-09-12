@@ -1119,7 +1119,9 @@ export function QuakeTerminal() {
  * The `engaged` flag (the lib's module slot) says the compose owns input:
  * true while the textarea has real focus; a blur whose relatedTarget lies
  * inside the strip wrapper does NOT clear it, so the context chip's ✕ click
- * lands. While engaged the textarea carries the accent border — and the
+ * lands. The blur handler lives on the strip WRAPPER (bubbling), not the
+ * textarea, so focus leaving the strip FROM the chip's ✕ is observed too.
+ * While engaged the textarea carries the accent border — and the
  * collapsed launcher in the top bar reads the same slot.
  */
 function QuakeCompose({
@@ -1185,6 +1187,19 @@ function QuakeCompose({
       ref={wrapperRef}
       data-testid="quake-terminal-compose"
       className="border-t border-border shrink-0 flex flex-col"
+      onBlur={(e) => {
+        // Focus moving WITHIN the strip (the textarea → the context chip's ✕)
+        // is not a stand-down — clearing engaged there would drop the accent
+        // border mid-gesture, and a chip-gated chrome change must never eat
+        // the ✕ click. The handler sits on the WRAPPER (React's onBlur
+        // bubbles from every descendant), not the textarea: a textarea-only
+        // handler never observes the ✕ button's own later blur, so engaged
+        // would stay latched after focus leaves the strip from the chip.
+        if (e.relatedTarget instanceof Node && wrapperRef.current?.contains(e.relatedTarget)) {
+          return;
+        }
+        setQuakeComposeEngaged(false);
+      }}
     >
       {/* The status line — the inline-error contract's one home, directly
           above the compose it reports on. */}
@@ -1224,16 +1239,6 @@ function QuakeCompose({
         onChange={(e) => setOperatorComposeText(e.target.value)}
         onKeyDown={onKeyDown}
         onFocus={() => setQuakeComposeEngaged(true)}
-        onBlur={(e) => {
-          // Focus moving WITHIN the strip (the context chip's ✕) is not a
-          // stand-down — clearing engaged here would unmount nothing but would
-          // drop the accent border mid-gesture, and a chip-gated chrome change
-          // must never eat the ✕ click.
-          if (e.relatedTarget instanceof Node && wrapperRef.current?.contains(e.relatedTarget)) {
-            return;
-          }
-          setQuakeComposeEngaged(false);
-        }}
         autoComplete="off"
         autoCorrect="off"
         autoCapitalize="off"

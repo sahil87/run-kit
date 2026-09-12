@@ -1280,6 +1280,44 @@ test.describe("Quake terminal", () => {
   });
 
   /**
+   * Proves: selecting the palette's `Operator: Pin quake terminal` entry with
+   * the MOUSE pins the still-open drawer — the palette closes around the same
+   * click, and the drawer's pending outside-click settle must back off (the
+   * action re-asserts the open machine state, bumping its activity) instead
+   * of collapsing the drawer and eating the pin.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window; land on the terminal route
+   *    and open the drawer via the chord.
+   * 2. Open the palette, filter to `Pin quake terminal`, and click the option
+   *    with the mouse (the anchored name sidesteps the Ask-operator fallback
+   *    row's substring collision).
+   * 3. Assert the drawer is still open and the header pin reads pressed; then
+   *    click the route terminal and assert the now-pinned drawer holds.
+   */
+  test("mouse-selecting the palette pin entry pins the still-open drawer", async ({ page }) => {
+    await mockBackend(page, true);
+    await gotoWindow(page);
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
+
+    await openDrawerViaChord(page);
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("Pin quake terminal");
+    await page.getByRole("option", { name: /^Operator: Pin quake terminal/ }).click();
+
+    await expect(drawer(page)).toBeVisible();
+    await expect(drawer(page).getByTestId("quake-terminal-pin")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    const routeXterm = page.locator('.xterm-screen:not([data-testid="quake-terminal"] *)');
+    const box = await routeXterm.boundingBox();
+    await routeXterm.click({ position: { x: 10, y: (box?.height ?? 20) - 10 } });
+    await expect(drawer(page)).toBeVisible();
+  });
+
+  /**
    * Proves: at ≥ lg the `PageType: name` heading is never hidden by the
    * machine — the rename button stays visible beside the collapsed launcher
    * while the drawer is open (the `Tab:` prefix stays compacted exactly as at

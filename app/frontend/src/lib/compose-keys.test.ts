@@ -98,11 +98,14 @@ describe("classifyComposeEnter (quake surface)", () => {
     expect(classifyComposeEnter(key({ shiftKey: true }), "quake")).toBe("insert-line");
   });
 
+  it("Alt+Enter is insert-line — no visible pane for the byte-exact insert, so it joins Shift+Enter as the local newline", () => {
+    expect(classifyComposeEnter(key({ altKey: true }), "quake")).toBe("insert-line");
+  });
+
   it("shares the rest of the matrix: Cmd/Ctrl+Enter submits, IME-composing Enter is never intercepted", () => {
     expect(classifyComposeEnter(key({ metaKey: true }), "quake")).toBe("submit");
     expect(classifyComposeEnter(key({ ctrlKey: true }), "quake")).toBe("submit");
     expect(classifyComposeEnter(key({ metaKey: true, shiftKey: true }), "quake")).toBe("default");
-    expect(classifyComposeEnter(key({ altKey: true }), "quake")).toBe("insert");
     expect(classifyComposeEnter(key({ isComposing: true }), "quake")).toBe("default");
     expect(classifyComposeEnter(key({ key: "a" }), "quake")).toBe("default");
   });

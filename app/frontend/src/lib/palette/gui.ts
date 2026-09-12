@@ -33,7 +33,7 @@
  *                                 (`locked`) is set, EVERY `gui-res-*` row
  *                                 renders DISABLED with the description
  *                                 `locked` (replacing `current`), so the
- *                                 palette and the toolbar pill agree.
+ *                                 palette and the header toolbar agree.
  *  - `GUI: Quality → Sharp / Balanced / Smooth` — the launch rows' gate,
  *                                 right after the Resolution rows; fixed
  *                                 descriptions with ` · current` on the

@@ -2,9 +2,8 @@
  * The gui tile's header fold cluster (spec gui.md § The tile). The session
  * controls live INSIDE the tile header's flex-1 spring (SurfaceLayout's gui
  * branch mirrors the tty branch) — nothing overlays the noVNC framebuffer,
- * no hide timer, no reveal gesture. The floating pill this component used to
- * be is deleted outright: fullscreen targets the TILE, so this header travels
- * into fullscreen and serves it like every other case.
+ * no hide timer, no reveal gesture. Fullscreen targets the TILE, so this
+ * header travels into fullscreen and serves it like every other case.
  *
  * The cluster is a measured priority fold (lib/gui-toolbar-fold.ts owns the
  * decision; this component owns the DOM measurement — the same split
@@ -25,7 +24,7 @@
  * idiom; the dividers carry all separation at the shipped
  * `mx-0.5 h-3.5 w-px bg-border` spec. Verb boxes stay 24×24 (26 coarse), so
  * WCAG 2.2 SC 2.5.8 is untouched. Chrome is the header's vocabulary, not the
- * retired pill's: borderless, `hover:bg-bg-inset`, secondary ink at rest,
+ * header verbs': borderless, `hover:bg-bg-inset`, secondary ink at rest,
  * latched = green ink + inset ring (the ⌕ find-toggle precedent).
  *
  * The cluster is a by-id MIRROR of the palette: every chip and every panel
@@ -436,18 +435,7 @@ export function GuiToolbar({
     if (sizeFolded) setResolutionOpen(false);
   }, [sizeFolded]);
 
-  const resolutionMenuRows: GuiToolbarMenuRow[] = pickGuiActions(actions, RESOLUTION_MENU_IDS).map(
-    (a) => ({
-      id: a.id,
-      label:
-        a.id === "gui-lock" || a.id === "gui-unlock"
-          ? stripGuiLabel(a.label)
-          : stripGuiLabel(a.label, "Resolution → "),
-      description: a.description,
-      disabled: a.disabled,
-      onSelect: a.onSelect,
-    }),
-  );
+  const resolutionMenuRows: GuiToolbarMenuRow[] = resolutionMenuRowsFrom(actions);
 
   const overflowRows = buildGuiOverflowRows({
     actions,
@@ -559,6 +547,23 @@ export function GuiToolbar({
   );
 }
 
+/** Resolution menu rows, shared by the size chip's own menu and the `⚙`
+ *  panel's folded `size` group — one mapping so the two cannot drift. The
+ *  lock/unlock pair keeps its bare label; every preset is stripped of the
+ *  `Resolution → ` prefix the palette carries. */
+function resolutionMenuRowsFrom(actions: GuiPaletteAction[]): GuiToolbarMenuRow[] {
+  return pickGuiActions(actions, RESOLUTION_MENU_IDS).map((a) => ({
+    id: a.id,
+    label:
+      a.id === "gui-lock" || a.id === "gui-unlock"
+        ? stripGuiLabel(a.label)
+        : stripGuiLabel(a.label, "Resolution → "),
+    description: a.description,
+    disabled: a.disabled,
+    onSelect: a.onSelect,
+  }));
+}
+
 /** The flat by-id rows of the `⚙` fold panel (D9): the folded rungs in
  *  ladder order with a separator at each group seam, plus the coarse-only
  *  ⌖/⌨ rows appended. `fullscreenRow` prepends the `gui-fullscreen` row to
@@ -594,16 +599,7 @@ function buildGuiOverflowRows(args: {
   const perItem: Record<string, () => GuiToolbarMenuRow[]> = {
     size: () => [
       ...(fullscreenRow ? simple("gui-fullscreen") : []),
-      ...pickGuiActions(actions, RESOLUTION_MENU_IDS).map((a) => ({
-        id: a.id,
-        label:
-          a.id === "gui-lock" || a.id === "gui-unlock"
-            ? stripGuiLabel(a.label)
-            : stripGuiLabel(a.label, "Resolution → "),
-        description: a.description,
-        disabled: a.disabled,
-        onSelect: a.onSelect,
-      })),
+      ...resolutionMenuRowsFrom(actions),
     ],
     "zoom-out": () => simple("gui-zoom-out"),
     "zoom-fit": () => simple("gui-zoom-fit"),
@@ -643,7 +639,7 @@ function buildGuiOverflowRows(args: {
 /** The mobile bottom rung (D7): there is no tile header on mobile, so the
  *  pinned block renders into the TOP BAR beside the pinned switch group and
  *  every rung counts as folded — the panel carries all ladder rows plus the
- *  fullscreen row (the retired pill's mobile ⤢) and the coarse ⌖/⌨ rows. */
+ *  fullscreen row (mobile has no tile header) and the coarse ⌖/⌨ rows. */
 export function GuiToolbarMobileOverflow({
   actions,
   quality,

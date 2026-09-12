@@ -5432,7 +5432,7 @@ function AppShell() {
               onGuiRestart={restartGui}
               onGuiOpenLogs={openGuiLogs}
               guiCommandsRef={guiCommandsRef}
-              // The toolbar pill mirrors this exact palette list by row id.
+              // The header toolbar mirrors this exact palette list by row id.
               guiActions={guiActions}
               // Follow rule: after the seed, the editor's own navigation is
               // the ONLY writer of `@rk_win_code_root`.

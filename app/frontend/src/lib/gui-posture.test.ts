@@ -400,7 +400,7 @@ describe("zoomedHostSize", () => {
   });
 });
 
-describe("nextGuiQuality (the pill's ◐ cycle)", () => {
+describe("nextGuiQuality (the ◐ quality cycle)", () => {
   it("cycles Sharp → Balanced → Smooth → Sharp over the palette order", () => {
     expect(GUI_QUALITY_ORDER).toEqual(["sharp", "balanced", "smooth"]);
     expect(nextGuiQuality("sharp")).toBe("balanced");

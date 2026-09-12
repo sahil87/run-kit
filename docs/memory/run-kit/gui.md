@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "GUI surface — gui.enabled/gui.wm/gui.geometry settings, desktop picker (wm_candidates), rk gui family (display + agent verbs, lock/unlock, resize, supervise), the rk-gui supervisor (Xvnc argv, WM ladder/session starters, process-group teardown, seeded IceWM/LXQt defaults, @rk_gui_* stamps), live RandR resize, /ws/gui RFB relay, event: gui, /api/gui/* routes incl. /ping, quality presets + stats overlay, toolbar pill/HiDPI/send-key rules, C5/C6 verdicts."
+description: "GUI surface — gui.enabled/gui.wm/gui.geometry settings, desktop picker (wm_candidates), rk gui family (display + agent verbs, lock/unlock, resize, supervise), the rk-gui supervisor (Xvnc argv, WM ladder/session starters, process-group teardown, seeded IceWM/LXQt defaults, @rk_gui_* stamps), live RandR resize, /ws/gui RFB relay, event: gui, /api/gui/* routes incl. /ping, quality presets + stats overlay, header-fold toolbar/HiDPI/send-key rules, C5/C6 verdicts."
 ---
 # GUI Surface
 
@@ -256,8 +256,8 @@ When the backend process exits on its own, the supervisor MUST log the exit line
 ### Requirement: The macOS backend is view-only
 On `GOOS=darwin` the supervisor SHALL spawn nothing (the Screen Sharing mirror is probed, never driven), and the relay MUST drop client→server KeyEvent (type 4) and PointerEvent (type 5) messages after the RFB handshake when the backend is `screen-sharing`. Viewer-side input paths SHALL refuse with the same vocabulary: the palette's `GUI: Send key…` sends chords viewer-side through noVNC's `sendKey` — no server round trip — so on the mirror the frontend refuses with the backend's `gui <verb> is not supported on macOS in v1 — the GUI mirrors your live session view-only` template (verb `send key`; § The `rk gui` CLI family → the shared gate) and sends nothing ([lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § GUI Surface). (t2lv)
 
-### Requirement: The toolbar pill mounts for every viewer and mirrors the palette by id
-The gui tile's session toolbar pill SHALL mount for every canvas-state viewer — the empty and credentials states never mount it — with only the reveal differing by pointer kind: coarse-pointer viewers see it on mount and on a tap on the tile, fine-pointer viewers on a pointermove within 24 px of the tile's top edge (fullscreen or not). Every chip and every menu row SHALL invoke the `onSelect` of the `GUI:` palette row selected by stable id from the same built `buildGuiActions` list the palette renders (Constitution V — no toolbar-only functionality). The tile-level chrome (timers, chips, menus, the width-driven overflow) lives in [lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § GUI Surface. (t2lv) (abna)
+### Requirement: The gui tile's session controls live in the tile header and mirror the palette by id
+The gui tile's session toolbar SHALL render inside the tile header's `flex-1` spring (the `SurfaceLayout` gui branch, the tty branch's sibling slot) as a width-adaptive measured fold — nothing overlays the noVNC framebuffer, and there is no hide timer or reveal gesture. On mobile, where no tile header exists, the pinned `⚙` block SHALL render into the top bar beside the mobile switch group. Fullscreen SHALL target the TILE element (`[data-testid^="surface-tile-gui"]`), so the header travels into fullscreen and serves it like every other case. Every chip, verb, and menu row SHALL invoke the `onSelect` of the `GUI:` palette row selected by stable id from the same built `buildGuiActions` list the palette renders (Constitution V — no toolbar-only functionality). The tile-level chrome (the fold ladder, the chips, the menus, the mobile rung) lives in [lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § GUI Surface. (t2lv) (abna) (lut4)
 
 ### Requirement: HiDPI is rendering-only
 The per-viewer `rk-gui-hidpi` posture SHALL change only client-side rendering — the percentage-zoom host CSS size divided by `devicePixelRatio`, so a 100% zoom maps one framebuffer pixel to one device pixel; it MUST NOT write `gui.geometry`, drive `resizeSession`/SetDesktopSize, or reach any server endpoint. Under a fixed geometry the crisp-Retina workflow is a larger `GUI: Resolution →` preset plus HiDPI at 1:1. (t2lv)
@@ -557,40 +557,40 @@ The six input verbs (`click`, `move`, `scroll`, `type`, `key`, `focus`) — and 
 **Rejected**: persist-then-resize (a failed resize would leave the stream claiming a size the display never took).
 *Introduced by*: 260910-zuci-gui-fixed-geometry-and-resize
 
-### Every pill control mirrors an existing palette action — no toolbar-only functionality
-**Decision**: every chip and every menu row on the gui tile's toolbar pill invokes the `onSelect` of its `buildGuiActions` palette row, selected by stable id (`pickGuiActions`) from the built list threaded down to the pill as its `actions` prop; the pill is the touch/hover mirror of the `GUI:` family, never a third action surface.
-**Why**: Constitution V — the palette is the complete action registry; a control that fires the row's own callback object cannot drift from its row, and the by-id mirror is what makes widening the pill free — every chip already has a palette row and a callback object, so the pill grows by selecting rows, with zero new actions and nothing to keep in step.
-**Rejected**: a toolbar-only action (a Constitution V violation); duplicating the row logic in the pill (two implementations to keep in step).
+### Every toolbar control mirrors an existing palette action — no toolbar-only functionality
+**Decision**: every chip, verb, and menu row of the gui tile's header fold cluster (and its mobile `⚙` block) invokes the `onSelect` of its `buildGuiActions` palette row, selected by stable id (`pickGuiActions`) from the built list threaded down as its `actions` prop; the toolbar is the touch/hover mirror of the `GUI:` family, never a third action surface.
+**Why**: Constitution V — the palette is the complete action registry; a control that fires the row's own callback object cannot drift from its row, and the by-id mirror is what makes widening the toolbar free — every chip already has a palette row and a callback object, so the cluster grows by selecting rows, with zero new actions and nothing to keep in step.
+**Rejected**: a toolbar-only action (a Constitution V violation); duplicating the row logic in the cluster (two implementations to keep in step).
 *Introduced by*: 260910-t2lv-gui-toolbar-keybar-hidpi-sendkey; by-id row selection: 260911-abna-gui-toolbar-for-all-viewers
 
-### The pill mounts for every viewer; only the reveal differs
-**Decision**: the pill mounts under `!credentials` in the canvas state for every pointer kind; coarse viewers get the tap reveal plus shown-on-mount discovery, fine-pointer viewers get the 24-px top-edge hover reveal everywhere (fullscreen or not), and entering fullscreen bumps the reveal signal.
-**Why**: resolution, fullscreen, and the launchers are what a laptop viewer reaches for while watching an agent drive the desktop; the hover reveal keeps the tile clean by default for fine pointers.
-**Rejected**: the fine-pointer non-fullscreen exclusion (the viewer-ergonomics plan's V-D10 — it made every pill chip invisible to the largest viewer class).
-*Introduced by*: 260911-abna-gui-toolbar-for-all-viewers
+### The session controls live in the tile header as a measured fold
+**Decision**: the gui tile's controls render inside the tile header's `flex-1` spring — the slot the tty branch already fills — as a width-adaptive measured fold (the pure decision module `lib/gui-toolbar-fold.ts` plus a probe row; [lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § GUI Surface); fullscreen targets the tile element so the header serves fullscreen too, and on mobile (no tile header) the pinned `⚙` block renders into the top bar beside the switch group.
+**Why**: a floating overlay spends the framebuffer's pixels on chrome and a self-hiding one cannot host state that must stay readable (the current size, the quality preset); the header slot existed, has a sibling precedent, and is always visible.
+**Rejected**: a permanent floating toolbar (still covers the framebuffer); breakpoint constants for the fold (labels vary at runtime, so hardcoded widths are wrong at both ends); a second minimal surface for fullscreen (two surfaces, two vocabularies).
+*Introduced by*: 260912-lut4-gui-toolbar-header-fold
 
 ### Resolution is a status chip that acts through a menu
-**Decision**: the pill's resolution chip reads the live size (`1920×1080 ▾`, `auto ▾`, a `🔒` prefix while the host pin is set) and changes it only through a second deliberate tap on a menu row — no confirm.
-**Why**: a host setting on a shared desktop behind a 3-second auto-hiding pill needs a two-tap path as the mis-tap guard; the status label answers "what size is it" for free.
+**Decision**: the header fold's resolution chip reads the live size (`1920×1080 ▾`, `auto ▾`, a `🔒` prefix while the host pin is set) and changes it only through a second deliberate tap on a menu row — no confirm.
+**Why**: a host setting on a shared desktop needs a two-tap path as the mis-tap guard; the status label answers "what size is it" for free.
 **Rejected**: a bare preset chip (a phone mis-tap reflows every viewer and moves an agent loop's coordinates); a confirm dialog (a third step for a reversible action).
 *Introduced by*: 260911-abna-gui-toolbar-for-all-viewers
 
-### Overflow is decided by pill width, not pointer kind
-**Decision**: a `ResizeObserver` on the surface wrapper feeds the pill a `wrapperWidth` prop; below `TOOLBAR_OVERFLOW_MIN_PX` (560) only the primary set plus a `⋯` chip render and the rest fold into its menu, at or above it everything is inline.
-**Why**: a narrow fine-pointer split tile must fold too; `⋯` reads as "more" beside the `▾` that already means "menu for this chip".
-**Rejected**: pointer-kind gating (a narrow fine-pointer split tile would wrap); a chevron (collides with `▾`'s per-chip menu meaning).
-*Introduced by*: 260911-abna-gui-toolbar-for-all-viewers
+### Toolbar overflow is a measured fold, never breakpoint constants
+**Decision**: the cluster's fit is computed from measured widths — a hidden probe row renders every candidate's real width (both label forms of the degradable items), and the pure `computeGuiToolbarFold` decides: labels degrade one step (least-important first) before any item folds, the remainder folds tail-first into the `⚙` panel, and the pinned `⚙` block's width is reserved only once something actually folds (the two-pass rule). Degradation and fold key on the header spring's measured width, never the pointer kind.
+**Why**: labels vary at runtime (`1920×1080` vs `auto`, the quality label, coarse sizing), so hardcoded pixel thresholds are wrong at both ends; the reserve must never be what causes the fold that justifies it.
+**Rejected**: breakpoint constants (wrong at both ends); always reserving the `⚙` width (spends pixels at full width on chrome that does not render); pointer-kind gating (a narrow fine-pointer split tile must fold too).
+*Introduced by*: 260912-lut4-gui-toolbar-header-fold
 
-### Zoom and coarse posture chips stay fixed; everything else omits when absent
-**Decision**: `−`/`fit`/`+`/`⌖`/`⌨` always render within their pointer gate and disable when the destination row is absent; every other chip exists iff its palette row exists.
-**Why**: the View/Input groups must not reflow on every zoom step or mode change; the rest follows the palette's omit-not-disable rule.
+### Zoom and quality chips stay fixed; everything else omits when absent
+**Decision**: the three zoom chips and the quality chip always render within their gate and disable when the destination row is absent; the coarse posture pair (`⌖`/`⌨`) lives in the `⚙` panel only; every other control exists iff its palette row exists.
+**Why**: the per-moment controls must not reflow on every zoom step or preset change; the rest follows the palette's omit-not-disable rule.
 **Rejected**: uniform omit (chip jitter on every zoom step); uniform disable (a permanently greyed `↻` on a connected tile).
-*Introduced by*: 260911-abna-gui-toolbar-for-all-viewers
+*Introduced by*: 260911-abna-gui-toolbar-for-all-viewers; the coarse pair's panel-only placement: 260912-lut4-gui-toolbar-header-fold
 
 ### A locked host disables the size rows in the builder, so both surfaces agree
-**Decision**: `buildGuiActions`'s input carries `locked: boolean` (the host signal's pin, `gui?.locked ?? false` in `app.tsx`); while it is set, every `gui-res-*` row — the five presets, `Match this tile`, `Auto`, `Custom…` — gains `disabled: true` and `description: "locked"` (replacing `current`), so the palette's rows and the pill's resolution menu read identically.
-**Why**: the pill keeps no logic of its own and the palette stays the truthful registry — one gate in the builder makes both surfaces agree by construction.
-**Rejected**: a pill-only disabled overlay for `locked` (the palette would disagree).
+**Decision**: `buildGuiActions`'s input carries `locked: boolean` (the host signal's pin, `gui?.locked ?? false` in `app.tsx`); while it is set, every `gui-res-*` row — the five presets, `Match this tile`, `Auto`, `Custom…` — gains `disabled: true` and `description: "locked"` (replacing `current`), so the palette's rows and the header cluster's resolution menu read identically.
+**Why**: the toolbar keeps no logic of its own and the palette stays the truthful registry — one gate in the builder makes both surfaces agree by construction.
+**Rejected**: a toolbar-only disabled overlay for `locked` (the palette would disagree).
 *Introduced by*: 260911-abna-gui-toolbar-for-all-viewers
 
 ### Send key refuses on the mirror in the frontend, with the backend's wording

@@ -43,10 +43,10 @@ export const GUI_QUALITY_PRESETS: Record<GuiQuality, { qualityLevel: number; com
   smooth: { qualityLevel: 3, compressionLevel: 7 },
 };
 
-/** The presets in palette order; the toolbar pill's ◐ chip cycles through it. */
+/** The presets in palette order; the header toolbar's ◐ chip cycles through it. */
 export const GUI_QUALITY_ORDER: readonly GuiQuality[] = ["sharp", "balanced", "smooth"];
 
-/** Preset name → its user-facing label (the palette rows and the pill share it). */
+/** Preset name → its user-facing label (the palette rows and the toolbar share it). */
 export const GUI_QUALITY_LABELS: Record<GuiQuality, string> = {
   sharp: "Sharp",
   balanced: "Balanced",

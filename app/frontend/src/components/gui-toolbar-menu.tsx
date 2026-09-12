@@ -75,7 +75,7 @@ export function GuiToolbarMenu({ kind, anchorRef, rows, ariaLabel, autoFocus = t
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
   // Anchor under the chip, clamped horizontally to the positioned ancestor's
-  // span (the pill). Measure before paint so the menu never flashes at 0,0.
+  // span (the header cluster). Measure before paint so the menu never flashes at 0,0.
   useLayoutEffect(() => {
     const anchor = anchorRef.current;
     const menu = menuRef.current;

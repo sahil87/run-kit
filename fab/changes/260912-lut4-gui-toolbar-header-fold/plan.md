@@ -213,48 +213,48 @@ The new pure module SHALL carry a colocated Vitest suite (`gui-toolbar-fold.test
 
 - [x] T013 `app/frontend/src/components/top-bar-icons.tsx` + `app/frontend/src/components/gui-toolbar.tsx` — replace the cluster's Unicode text glyphs with real SVG glyphs so the gui header matches its neighbouring verbs. Today every toolbar control renders an 11px Unicode character (`⎘ ⌥ ▣ ◍ ∿ ↻ ⚙ ⤢` and the zoom trio `− fit +`) inheriting the header's `text-[11px]`, while the shipped verbs (`ZoomGlyph`/`PromoteGlyph`/`SwapGlyph`/`TileCloseGlyph`, and tty's `FindGlyph`/`ExportGlyph`) render 14px SVGs — measured 11px vs 14px in the same 24×24 box, plus a weight/baseline mismatch (SVGs are `strokeWidth 2` and optically centred). Add `PasteGlyph`, `SendKeyGlyph`, `TerminalGlyph`, `BrowserGlyph`, `StatsGlyph`, `ReconnectGlyph`, `GearGlyph`, `FullscreenGlyph`, `ZoomInGlyph`, `ZoomOutGlyph`, `ZoomFitGlyph` following the file's `ControlGlyph` convention exactly (14px rendered, 24 viewBox, `strokeWidth 2`, `currentColor`, `aria-hidden="true"`, `shrink-0`, kebab-case `data-icon`), and swap the toolbar to them. Keep the TEXT chips as text (`auto ▾` / `1920×1080 ▾`, `fit` if it stays lexical, `◐ Balanced`) — only glyph-only controls become SVG. `aria-label`s and the `Tip` labels are unchanged, so the by-id palette mirror and every existing test selector still hold <!-- R6, D8 -->
 - [x] T014 `app/frontend/src/components/surface-layout.tsx` — give the gui tile a header meta chip. `tileMeta` (`:574`) currently returns a value for `code` (code-root basename) and `web` (page host) but **`null` for `gui`**, so the gui header has no meta chip at all. Add a `gui` arm returning `wm · display` from the `GuiSignal` (`wm` / `display`, `session-context.tsx:283–295`), degrading gracefully when `wm === ""` (the bare-WM state `GUI_BARE` already covers in tests) — render just the display in that case. This is the chip the follow-up keyboard-capture change swaps to `keys → desktop`; it belongs here because it is header content and the design study shows it. Extend `surface-layout.test.tsx` <!-- R1 -->
-- [ ] A-001 R1: The gui tile header renders the fold cluster in the header spring on desktop; nothing overlays the framebuffer; the tty branch and layout verbs are undisturbed
-- [ ] A-002 R2: The fold is driven by measured widths only — no `TOOLBAR_OVERFLOW_MIN_PX`/`TOOLBAR_SHORT_LABEL_MAX_PX` or successor constants exist; the ladder folds Health → Launch → Input → Quality → Zoom → Screen size
-- [ ] A-003 R3: At a width fitting everything, no `⚙` renders and nothing is reserved; once an item folds, `⚙` renders and the pinned width is reserved before fitting
-- [ ] A-004 R4: Quality renders `◐` (and the size chip its short form) before any item folds; degradation order is quality first, then screen size
-- [ ] A-005 R5: The full cluster shows exactly four groups separated by exactly three `mx-0.5 h-3.5 w-px bg-border` hairlines at `gap: 0`
-- [ ] A-006 R6: Every cluster control has a `Tip` in one `TipGroup`, no `title=`, a kept `aria-label`; zoom tips show live registry keycaps; size/quality chips show the `menu`/`cycles` notes; `⚙` notes the folded count
-- [ ] A-007 R7: The `⚙` panel is `GuiToolbarMenu` with flat by-id rows in ladder order plus group separators; coarse pointers get the `⌖`/`⌨` rows appended
-- [ ] A-008 R8: `lib/gui-toolbar-fold.ts` exists dependency-free with colocated Vitest coverage; the component measures via one `ResizeObserver` + hidden probe, is collapse-first, and applies 24px expand-edge hysteresis
-- [ ] A-009 R9: `document.fullscreenElement` is the `surface-tile-gui` element after `GUI: Fullscreen`; the header (with latched `⤢`, no layout verbs) renders inside it; Esc/⤢ exit restores windowed chrome; keyboard-lock chaining is untouched
-- [ ] A-010 R10: On mobile with gui visible, the top bar renders the `⚙` block beside the switch group; its panel carries every ladder row plus `⌖`/`⌨` and Fullscreen; switching away from gui removes it; `gui-keybar.tsx` is byte-identical
-- [ ] A-011 R11: The palette shows exactly one of `GUI: Show toolbar` / `GUI: Hide toolbar` when the tile is open, and every chip/row fires a by-id palette `onSelect`
-- [ ] A-012 R12: `rk-gui-toolbar` round-trips the panel state across a reload; absent/invalid reads closed
+- [x] A-001 R1: The gui tile header renders the fold cluster in the header spring on desktop; nothing overlays the framebuffer; the tty branch and layout verbs are undisturbed
+- [x] A-002 R2: The fold is driven by measured widths only — no `TOOLBAR_OVERFLOW_MIN_PX`/`TOOLBAR_SHORT_LABEL_MAX_PX` or successor constants exist; the ladder folds Health → Launch → Input → Quality → Zoom → Screen size
+- [x] A-003 R3: At a width fitting everything, no `⚙` renders and nothing is reserved; once an item folds, `⚙` renders and the pinned width is reserved before fitting
+- [x] A-004 R4: Quality renders `◐` (and the size chip its short form) before any item folds; degradation order is quality first, then screen size
+- [x] A-005 R5: The full cluster shows exactly four groups separated by exactly three `mx-0.5 h-3.5 w-px bg-border` hairlines at `gap: 0`
+- [x] A-006 R6: Every cluster control has a `Tip` in one `TipGroup`, no `title=`, a kept `aria-label`; zoom tips show live registry keycaps; size/quality chips show the `menu`/`cycles` notes; `⚙` notes the folded count
+- [x] A-007 R7: The `⚙` panel is `GuiToolbarMenu` with flat by-id rows in ladder order plus group separators; coarse pointers get the `⌖`/`⌨` rows appended
+- [x] A-008 R8: `lib/gui-toolbar-fold.ts` exists dependency-free with colocated Vitest coverage; the component measures via one `ResizeObserver` + hidden probe, is collapse-first, and applies 24px expand-edge hysteresis
+- [x] A-009 R9: `document.fullscreenElement` is the `surface-tile-gui` element after `GUI: Fullscreen`; the header (with latched `⤢`, no layout verbs) renders inside it; Esc/⤢ exit restores windowed chrome; keyboard-lock chaining is untouched
+- [x] A-010 R10: On mobile with gui visible, the top bar renders the `⚙` block beside the switch group; its panel carries every ladder row plus `⌖`/`⌨` and Fullscreen; switching away from gui removes it; `gui-keybar.tsx` is byte-identical
+- [x] A-011 R11: The palette shows exactly one of `GUI: Show toolbar` / `GUI: Hide toolbar` when the tile is open, and every chip/row fires a by-id palette `onSelect`
+- [x] A-012 R12: `rk-gui-toolbar` round-trips the panel state across a reload; absent/invalid reads closed
 
 ### Behavioral Correctness
 
-- [ ] A-013 R9: Fullscreen entry/exit behaves as before for the user (framebuffer + chrome fill the screen, Esc exits, keyboard lock engages) with the tile — not the canvas wrapper — as the fullscreen element
-- [ ] A-014 R13: Searching the tree finds no `TOOLBAR_HIDE_MS`, `TOOLBAR_REVEAL_EDGE_PX`, `revealSignal`, `wrapperWidth`, or pill markup; `gui-toolbar.tsx` is header-only
+- [x] A-013 R9: Fullscreen entry/exit behaves as before for the user (framebuffer + chrome fill the screen, Esc exits, keyboard lock engages) with the tile — not the canvas wrapper — as the fullscreen element
+- [x] A-014 R13: Searching the tree finds no `TOOLBAR_HIDE_MS`, `TOOLBAR_REVEAL_EDGE_PX`, `revealSignal`, `wrapperWidth`, or pill markup; `gui-toolbar.tsx` is header-only
 
 ### Removal Verification
 
-- [ ] A-015 R13: No pill code path survives in any mode (windowed, fullscreen, mobile); the deleted reveal/auto-hide e2e cases are gone from `gui-surface.spec.ts`
+- [x] A-015 R13: No pill code path survives in any mode (windowed, fullscreen, mobile); the deleted reveal/auto-hide e2e cases are gone from `gui-surface.spec.ts`
 
 ### Scenario Coverage
 
-- [ ] A-016 R15: `gui-toolbar-fold.test.ts` covers full-fit, degradation order, fold order, two-pass reserve, hysteresis, and degenerate inputs; `gui-toolbar-fold.spec.ts` drives the ladder at real widths with retrying assertions and passes
-- [ ] A-017 R9: A fullscreen e2e case proves the header serves the fullscreened tile
+- [x] A-016 R15: `gui-toolbar-fold.test.ts` covers full-fit, degradation order, fold order, two-pass reserve, hysteresis, and degenerate inputs; `gui-toolbar-fold.spec.ts` drives the ladder at real widths with retrying assertions and passes
+- [x] A-017 R9: A fullscreen e2e case proves the header serves the fullscreened tile
 
 ### Edge Cases & Error Handling
 
-- [ ] A-018 R8: Under jsdom (zero-width probes) the component renders the full cluster (cold expanded default) so existing unit suites stay green; a candidate-set change re-runs the measure via `candidateKey`
-- [ ] A-019 R3: The reserve never causes the fold that justifies it — the two-pass rule is pinned by unit tests on both sides of the boundary
+- [x] A-018 R8: Under jsdom (zero-width probes) the component renders the full cluster (cold expanded default) so existing unit suites stay green; a candidate-set change re-runs the measure via `candidateKey`
+- [x] A-019 R3: The reserve never causes the fold that justifies it — the two-pass rule is pinned by unit tests on both sides of the boundary
 
 ### Code Quality
 
-- [ ] A-020 Type narrowing over assertions: new code narrows with guards (no `as` casts beyond the established probe-element reads)
-- [ ] A-021 Tests included: every added/changed behavior has Vitest and/or Playwright coverage per `fab/project/code-quality.md`
-- [ ] A-022 No magic numbers: the 24px hysteresis and any widths are named constants or measured, never literals
-- [ ] A-023 Comment discipline: comments state constraints/cross-file contracts only — no narration, no reviewer-addressed notes, no change-id citations in code comments
-- [ ] A-024 Pattern consistency: the fold mirrors `top-bar-overflow.ts`/`crumb-collapse.ts`/`top-bar.tsx` idioms (probe, reserve, collapse-first, hysteresis)
-- [ ] A-025 No unnecessary duplication: `GuiToolbarMenu`, `Tip`/`TipGroup`, `controlClass`, `pickGuiActions`, and the posture read/write discipline are reused, not reimplemented
-- [ ] A-026 T013: No glyph-only control in the gui header cluster renders a Unicode text character; every one is a `ControlGlyph`-shaped SVG at 14px, matching the adjacent layout verbs in size, stroke weight and baseline. The text chips (resolution, quality) remain text
-- [ ] A-027 T014: The gui tile header renders a meta chip reading `wm · display` (e.g. `startxfce4 · :22`), degrading to the display alone when the WM is empty
+- [x] A-020 Type narrowing over assertions: new code narrows with guards (no `as` casts beyond the established probe-element reads)
+- [x] A-021 Tests included: every added/changed behavior has Vitest and/or Playwright coverage per `fab/project/code-quality.md`
+- [x] A-022 No magic numbers: the 24px hysteresis and any widths are named constants or measured, never literals
+- [x] A-023 Comment discipline: comments state constraints/cross-file contracts only — no narration, no reviewer-addressed notes, no change-id citations in code comments
+- [x] A-024 Pattern consistency: the fold mirrors `top-bar-overflow.ts`/`crumb-collapse.ts`/`top-bar.tsx` idioms (probe, reserve, collapse-first, hysteresis)
+- [x] A-025 No unnecessary duplication: `GuiToolbarMenu`, `Tip`/`TipGroup`, `controlClass`, `pickGuiActions`, and the posture read/write discipline are reused, not reimplemented
+- [x] A-026 T013: No glyph-only control in the gui header cluster renders a Unicode text character; every one is a `ControlGlyph`-shaped SVG at 14px, matching the adjacent layout verbs in size, stroke weight and baseline. The text chips (resolution, quality) remain text
+- [x] A-027 T014: The gui tile header renders a meta chip reading `wm · display` (e.g. `startxfce4 · :22`), degrading to the display alone when the WM is empty
 
 ## Notes
 
@@ -262,6 +262,10 @@ The new pure module SHALL carry a colocated Vitest suite (`gui-toolbar-fold.test
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
 - Environment: no Go toolchain on this machine — frontend gates only (`npx tsc --noEmit`, `just test-frontend`, `just test-e2e`); `just test`/`just build`/`go test` are unrunnable here for environment reasons.
+
+## Deletion Candidates
+
+- None — the code this change made redundant (the toolbar pill, its hide/reveal machine, and the breakpoint constants) was deleted in-change per R13 and is covered by Removal Verification (A-014/A-015); no further unused files, symbols, or branches were discovered in review
 
 ## Assumptions
 

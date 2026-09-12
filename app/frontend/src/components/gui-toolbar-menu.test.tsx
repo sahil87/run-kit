@@ -10,7 +10,7 @@ function row(id: string, overrides: Partial<GuiToolbarMenuRow> = {}): GuiToolbar
 }
 
 /** The anchor chip is a sibling of the menu inside a positioned box — the
- *  pill's own shape. */
+ *  cluster's own shape. */
 function renderMenu(rows: GuiToolbarMenuRow[], onClose = vi.fn()) {
   function Host() {
     const ref = useRef<HTMLButtonElement>(null);

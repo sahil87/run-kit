@@ -229,6 +229,9 @@ hint) and refuse while a human drove the display in the last 3s (retry, or
 --force to override). Coordinates are display pixels; 'shot' reports its
 source geometry and scale on stderr.
 
+Guide (desktops, resolution, phone controls, troubleshooting):
+  https://shll.ai/run-kit/gui/
+
 See 'run-kit gui <subcommand> --help' for details.`,
 }
 

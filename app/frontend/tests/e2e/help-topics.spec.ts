@@ -39,6 +39,7 @@ const TOPIC_LABELS = [
   "Cron schedule kinds",
   "Boards",
   "Notifications",
+  "GUI desktop",
   "Merge topologies",
   "FKF",
 ];
@@ -64,7 +65,7 @@ function openedUrls(page: Page): Promise<string[]> {
 }
 
 /** Open the chevron menu and expand the Help topics disclosure; returns the
- *  menu locator with the six topic rows visible. */
+ *  menu locator with the seven topic rows visible. */
 async function expandHelpTopics(page: Page) {
   await page.getByRole("button", { name: "More controls" }).click();
   const menu = page.getByRole("menu", { name: "More controls" });
@@ -104,7 +105,7 @@ test.describe("Help topics", () => {
    * Steps:
    * 1. Navigate to the menu window and confirm it has no web tab
    *    (`@rk_win_web_1` is empty).
-   * 2. Open the `More controls` menu and click `Help topics`; assert the six
+   * 2. Open the `More controls` menu and click `Help topics`; assert the seven
    *    rows render in registry order and none contains ↗.
    * 3. Click `Cron schedule kinds`; assert the menu closes.
    * 4. Poll tmux: `@rk_win_web_1` equals the topic URL, `@rk_win_web_active`

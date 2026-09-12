@@ -76,7 +76,10 @@ the GUI is off or the daemon is down).
 first, then the known-but-missing ones with their install lines — and exits
 0 (read-only: LookPath only, no settings write, no tmux). --list --json
 emits the wm_candidates array verbatim (the same JSON GET /api/gui/host
-carries).`,
+carries).
+
+The desktop table, install lines, and the bare-binary caveat are written up
+for humans at https://shll.ai/run-kit/gui/.`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE:         runGuiWM,

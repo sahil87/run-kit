@@ -190,11 +190,12 @@ export function CronList({ server, inline = false }: { server: string; inline?: 
             rowKey={(entry) => entry.id}
             initialSort={{ id: "next", desc: false }}
             dense={inline}
+            cellClassName="coarse:min-h-[44px]"
             rowProps={(entry): DataTableRowProps => ({
               "data-testid": `cron-list-row-${entry.id}`,
               role: "button",
               tabIndex: 0,
-              className: `cursor-pointer coarse:min-h-[44px]${isCronDimmed(entry) ? " opacity-50" : ""}`,
+              className: `cursor-pointer${isCronDimmed(entry) ? " opacity-50" : ""}`,
               onClick: () => setSelectedEntryId(entry.id),
               onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
                 if (event.key === "Enter" || event.key === " ") {

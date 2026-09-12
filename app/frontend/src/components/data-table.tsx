@@ -7,7 +7,9 @@
  * `<colgroup>` widths, the per-viewer `runkit-table-<id>` view-state store,
  * and the mounted-table registry behind the palette's `Table: Reset columns`;
  * consumers own their cells via per-column `cell(row)` renderers and per-row
- * `rowProps(row)`.
+ * `rowProps(row)`, plus the opt-in `cellClassName` (the Cron tabs' coarse-
+ * pointer 44px row floor — applied to the cells, where min-height sizes the
+ * row).
  *
  * Widths ride CSS custom properties (`--rk-col-<id>`) set on the `<table>`
  * and read by each `<col>`, so a resize drag restyles the table rather than
@@ -29,12 +31,17 @@ import {
   type ReactNode,
 } from "react";
 import {
-  getCoreRowModel,
-  getSortedRowModel,
-  useLegacyTable,
-  type LegacyColumnDef,
-} from "@tanstack/react-table/legacy";
-import type { ColumnSizingState, SortingState } from "@tanstack/react-table";
+  columnResizingFeature,
+  columnSizingFeature,
+  createSortedRowModel,
+  rowSortingFeature,
+  sortFns,
+  tableFeatures,
+  useTable,
+  type ColumnDef,
+  type ColumnSizingState,
+  type SortingState,
+} from "@tanstack/react-table";
 import { Control } from "@/components/control";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 
@@ -53,6 +60,19 @@ const DATA_TABLE_HEADER_BASE =
 
 /** Resize handle hit width. */
 const DATA_TABLE_HANDLE_PX = 6;
+
+/** The table's v9 feature set (static, per `tableFeatures` guidance): sorting
+ *  with the built-in `sortFns` registry behind `'auto'`, column sizing, and
+ *  the resize handlers. The core row model is always created in v9; the
+ *  sorted row model is explicit. */
+const dataTableFeatures = tableFeatures({
+  rowSortingFeature,
+  columnSizingFeature,
+  columnResizingFeature,
+  sortedRowModel: createSortedRowModel(),
+  sortFns,
+});
+type DataTableFeatures = typeof dataTableFeatures;
 
 export type DataTableSort = { id: string; desc: boolean } | null;
 
@@ -317,6 +337,10 @@ export type DataTableProps<Row extends object> = {
   /** Quake drawer variant: `pr-2 py-0.5` cells / `pr-2 pb-1` headers. */
   dense?: boolean;
   rowProps: (row: Row) => DataTableRowProps;
+  /** Extra classes on every `<td>` — the consumers' coarse-pointer row-height
+   *  floor (`coarse:min-h-[44px]` on the Cron tabs): a min-height on the
+   *  `<tr>` does not reliably size the row, so the floor lands on the cells. */
+  cellClassName?: string;
   /** Extra classes on the `<table>` (e.g. the stale `opacity-50`). */
   className?: string;
   "data-testid"?: string;
@@ -331,6 +355,7 @@ export function DataTable<Row extends object>({
   initialSort,
   dense = false,
   rowProps,
+  cellClassName,
   className,
   "data-testid": testId,
 }: DataTableProps<Row>) {
@@ -366,6 +391,11 @@ export function DataTable<Row extends object>({
   const [dragSizing, setDragSizing] = useState<ColumnSizingState | null>(null);
   const dragSizingRef = useRef<ColumnSizingState | null>(null);
   const disarmDragEndRef = useRef<(() => void) | null>(null);
+
+  // A mid-drag unmount (closing the drawer before pointer-up) must disarm the
+  // document-level drag-end listeners — otherwise the survivor fires
+  // setDragSizing/persistWidths for a dead table.
+  useEffect(() => () => disarmDragEndRef.current?.(), []);
 
   const columnSizing = useMemo<ColumnSizingState>(
     () => ({ ...viewState.widths, ...(dragSizing ?? {}) }),
@@ -407,7 +437,7 @@ export function DataTable<Row extends object>({
     viewStore.write({ sort: viewStateRef.current.sort, widths });
   };
 
-  const tableColumns = useMemo<LegacyColumnDef<Row>[]>(
+  const tableColumns = useMemo<ColumnDef<DataTableFeatures, Row>[]>(
     () =>
       columns.map((column) => {
         const compare = column.sortingFn;
@@ -428,11 +458,10 @@ export function DataTable<Row extends object>({
     [columns],
   );
 
-  const table = useLegacyTable<Row>({
+  const table = useTable<DataTableFeatures, Row>({
+    features: dataTableFeatures,
     data: rows,
     columns: tableColumns,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
     state: { sorting, columnSizing },
     enableMultiSort: false,
     enableSortingRemoval: true,
@@ -544,8 +573,8 @@ export function DataTable<Row extends object>({
                   <td
                     key={column.id}
                     className={`${index === lastIndex ? lastCellPad : cellPad}${
-                      cellClass ? ` ${cellClass}` : ""
-                    }`}
+                      cellClassName ? ` ${cellClassName}` : ""
+                    }${cellClass ? ` ${cellClass}` : ""}`}
                   >
                     {column.cell(row.original)}
                   </td>

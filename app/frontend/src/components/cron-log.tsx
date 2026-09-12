@@ -103,6 +103,7 @@ export function CronLog({ server, inline = false }: { server: string; inline?: b
             rowKey={(delivery) => `${delivery.ts}-${delivery.entry}-${deliveries.indexOf(delivery)}`}
             initialSort={null}
             dense={inline}
+            cellClassName="coarse:min-h-[44px]"
             rowProps={(delivery): DataTableRowProps => {
               const testId = `cron-delivery-row-${delivery.entry}`;
               // The detail sheet needs the live entry — a delivery for a
@@ -111,14 +112,13 @@ export function CronLog({ server, inline = false }: { server: string; inline?: b
                 return {
                   "data-testid": testId,
                   "aria-disabled": "true",
-                  className: "coarse:min-h-[44px]",
                 };
               }
               return {
                 "data-testid": testId,
                 role: "button",
                 tabIndex: 0,
-                className: "cursor-pointer coarse:min-h-[44px]",
+                className: "cursor-pointer",
                 onClick: () => setSelectedEntryId(delivery.entry),
                 onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
                   if (event.key === "Enter" || event.key === " ") {

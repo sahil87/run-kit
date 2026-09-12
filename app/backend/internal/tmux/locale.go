@@ -89,6 +89,35 @@ func EnsureUTF8Locale() {
 	forcedMu.Unlock()
 }
 
+// applyUTF8Locale is the slice form of EnsureUTF8Locale, for an environment rk
+// hands a child explicitly rather than inheriting — a born server's global
+// env after sanitizeEnv, whose direnv-diff reversal can remove a locale
+// variable direnv had set or restore a non-UTF-8 one. Returns env unchanged
+// when it already passes tmux's rule; otherwise replaces the chosen variable's
+// entry (or appends one) with the C.UTF-8 assignment.
+func applyUTF8Locale(env []string) []string {
+	lookup := func(key string) (string, bool) {
+		for _, entry := range env {
+			if name, value, ok := strings.Cut(entry, "="); ok && name == key {
+				return value, true
+			}
+		}
+		return "", false
+	}
+	name, value, ok := utf8LocaleFix(lookup)
+	if !ok {
+		return env
+	}
+	out := make([]string, 0, len(env)+1)
+	for _, entry := range env {
+		if n, _, _ := strings.Cut(entry, "="); n == name {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return append(out, name+"="+value)
+}
+
 // ForcedLocale reports the assignment EnsureUTF8Locale made in this process,
 // or ok=false when the environment already carried a UTF-8 locale. After the
 // repair the environment itself no longer shows that the host lacked one, so

@@ -77,6 +77,35 @@ func TestLocaleStatus(t *testing.T) {
 	}
 }
 
+// TestApplyUTF8Locale pins the slice form used for explicitly handed child
+// environments: a non-UTF-8 LC_ALL entry is replaced in place, a non-UTF-8
+// LANG gets LC_CTYPE appended beside it, a locale-less env gains LC_CTYPE, and
+// a compliant env comes back with exactly the same entries.
+func TestApplyUTF8Locale(t *testing.T) {
+	got := applyUTF8Locale([]string{"PATH=/usr/bin", "LC_ALL=C", "LANG=en_US.UTF-8"})
+	want := []string{"PATH=/usr/bin", "LANG=en_US.UTF-8", "LC_ALL=C.UTF-8"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("LC_ALL=C: got %v, want %v", got, want)
+	}
+
+	got = applyUTF8Locale([]string{"PATH=/usr/bin", "LANG=C"})
+	want = []string{"PATH=/usr/bin", "LANG=C", "LC_CTYPE=C.UTF-8"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("LANG=C: got %v, want %v", got, want)
+	}
+
+	got = applyUTF8Locale([]string{"PATH=/usr/bin"})
+	want = []string{"PATH=/usr/bin", "LC_CTYPE=C.UTF-8"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("no locale: got %v, want %v", got, want)
+	}
+
+	healthy := []string{"PATH=/usr/bin", "LC_ALL=", "LANG=en_IN.UTF-8"}
+	if got := applyUTF8Locale(healthy); !reflect.DeepEqual(got, healthy) {
+		t.Errorf("healthy env modified: got %v, want %v", got, healthy)
+	}
+}
+
 // clearLocaleEnv unsets the three locale variables for the test's duration
 // and resets the forced-locale record, restoring both afterwards. t.Setenv
 // cannot express "unset", so the restore is manual.

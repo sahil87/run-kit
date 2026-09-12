@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -4469,5 +4470,27 @@ func TestParseWindowBirth(t *testing.T) {
 				t.Errorf("parseWindowBirth(%q) = %+v, want %+v", tc.line, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestSanitizeEnvReappliesUTF8Locale proves a born server's environment passes
+// tmux's UTF-8 client rule even when the direnv-diff reversal removes the only
+// locale variable: direnv added LC_CTYPE (present in n, absent from p), the
+// process has no LANG, so reversal strips LC_CTYPE — and sanitizeEnv puts the
+// C.UTF-8 assignment back. A UTF-8 variable that survives reversal is left
+// alone.
+func TestSanitizeEnvReappliesUTF8Locale(t *testing.T) {
+	diff := makeDirenvDiff(t, map[string]string{}, map[string]string{"LC_CTYPE": "en_US.UTF-8"})
+	got := sanitizeEnv([]string{"PATH=/usr/bin", "LC_CTYPE=en_US.UTF-8", "DIRENV_DIFF=" + diff})
+	if slices.Contains(got, "LC_CTYPE=en_US.UTF-8") {
+		t.Fatalf("direnv-added LC_CTYPE survived reversal: %v", got)
+	}
+	if !slices.Contains(got, "LC_CTYPE=C.UTF-8") {
+		t.Fatalf("sanitized env lacks a UTF-8 locale: %v", got)
+	}
+
+	got = sanitizeEnv([]string{"PATH=/usr/bin", "LANG=en_IN.UTF-8", "DIRENV_DIFF=" + diff, "LC_CTYPE=en_US.UTF-8"})
+	if slices.Contains(got, "LC_CTYPE=C.UTF-8") || !slices.Contains(got, "LANG=en_IN.UTF-8") {
+		t.Fatalf("surviving UTF-8 LANG must leave the env alone: %v", got)
 	}
 }

@@ -2084,6 +2084,9 @@ func CleanEnvForServer() []string {
 //     from-home shell has none.
 //  4. As a last-resort guard, inject PATH=cleanPATH only if no PATH survives,
 //     so the tmux server never starts with an empty PATH.
+//  5. Re-apply tmux's UTF-8 client rule (applyUTF8Locale): step 1 can remove a
+//     locale variable direnv had set, or restore a non-UTF-8 one, and a server
+//     born locale-less hands that env to every pane it ever opens.
 func sanitizeEnv(environ []string) []string {
 	reversed, err := reverseDirenvDiff(environ)
 	if err != nil {
@@ -2107,7 +2110,7 @@ func sanitizeEnv(environ []string) []string {
 	if !pathSeen {
 		env = append(env, "PATH="+cleanPATH)
 	}
-	return env
+	return applyUTF8Locale(env)
 }
 
 // buildCreateWindowArgs builds the argv slice (after the "tmux" binary and any

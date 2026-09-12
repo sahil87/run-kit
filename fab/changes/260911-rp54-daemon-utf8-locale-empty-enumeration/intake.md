@@ -67,15 +67,15 @@ func utf8LocaleFix(lookup func(string) (string, bool)) (name, value string, ok b
 
 Decision table (the literal replacement is always `C.UTF-8`):
 
-| Environment (first set of LC_ALL, LC_CTYPE, LANG) | Action |
+| Environment (first non-empty of LC_ALL, LC_CTYPE, LANG) | Action |
 |---|---|
-| none of the three set | set `LC_CTYPE=C.UTF-8` |
+| none of the three non-empty | set `LC_CTYPE=C.UTF-8` |
 | first set is `LC_ALL`, value lacks UTF-8 (e.g. `LC_ALL=C`) | override `LC_ALL=C.UTF-8` (LC_ALL wins tmux's check; `C.UTF-8` keeps C semantics apart from charset) |
 | first set is `LC_CTYPE`, value lacks UTF-8 (e.g. `LC_CTYPE=C`) | override `LC_CTYPE=C.UTF-8` |
 | first set is `LANG`, value lacks UTF-8 (e.g. `LANG=C`, `LANG=POSIX`) | set `LC_CTYPE=C.UTF-8`, leave `LANG` untouched |
 | first set value contains `UTF-8` / `UTF8` / `utf8` (any case) | no change (`ok=false`) |
 
-"Set" means present in the environment — an empty-string value counts as set for tmux, so an `LC_ALL=` row is treated as set-and-non-UTF-8 (override it). Match is `strings.Contains(strings.ToUpper(v), "UTF-8") || strings.Contains(strings.ToUpper(v), "UTF8")`.
+"Set" means present with a **non-empty** value — tmux skips an empty variable exactly like an unset one (measured on tmux 3.7c: `LC_ALL=` beside `LANG=en_US.UTF-8` keeps the tab intact), so an `LC_ALL=` row is not overridden and the next variable decides. Match is `strings.Contains(strings.ToUpper(v), "UTF-8") || strings.Contains(strings.ToUpper(v), "UTF8")`.
 
 **Applier + record.** `EnsureUTF8Locale()` calls `utf8LocaleFix(os.LookupEnv)` and, when `ok`, `os.Setenv(name, value)` and records the assignment in a package-level value readable by doctor (e.g. `ForcedLocale() (name, value string, ok bool)`). Idempotent: a second call sees the UTF-8 value and does nothing. Precedent for process-env mutation in this package: `init()` runs `os.Unsetenv("TMUX")` (`tmux.go:266`).
 
@@ -169,7 +169,7 @@ Until this ships: `rk daemon restart --full` from a terminal that has `LANG` set
 | 2 | Certain | Fix at the process-environment level once in `execute()` (`cmd/rk/root.go`), not per tmux exec site | Discussed — one place covers daemon, CLI, `rk mcp`, `tmux-guard`, control-mode clients, and servers rk births (agent panes inherit); precedent: `internal/tmux` already mutates process env (`os.Unsetenv("TMUX")`) | S:90 R:85 A:90 D:85 |
 | 3 | Certain | Rejected: passing `tmux -u` at every exec site | Discussed — ~8 direct exec sites plus tmuxctl control-mode clients to thread, and it does nothing for agent panes born without a locale | S:90 R:90 A:90 D:85 |
 | 4 | Confident | Replacement value is always the literal `C.UTF-8` (never derived from the existing value, e.g. `en_US` → `en_US.UTF-8`) | Discussed — `C.UTF-8` exists on macOS / glibc ≥ 2.35 / Debian-Ubuntu; a derived name may not exist on the host and would break Python and other children even though tmux only string-matches | S:75 R:85 A:80 D:75 |
-| 5 | Certain | Rule mirrors tmux exactly: first SET of `LC_ALL`, `LC_CTYPE`, `LANG` must contain `UTF-8`/`UTF8` (case-insensitive); none set → `LC_CTYPE=C.UTF-8`; non-UTF-8 `LANG` → set `LC_CTYPE`; non-UTF-8 `LC_CTYPE` → override it | tmux's client rule is a string match on the first set variable; `LANG` is lowest priority so `LC_CTYPE` beside it is the minimal edit | S:85 R:80 A:85 D:80 |
+| 5 | Certain | Rule mirrors tmux exactly: first NON-EMPTY of `LC_ALL`, `LC_CTYPE`, `LANG` must contain `UTF-8`/`UTF8` (case-insensitive); none non-empty → `LC_CTYPE=C.UTF-8`; non-UTF-8 `LANG` → set `LC_CTYPE`; non-UTF-8 `LC_CTYPE` → override it | tmux's client rule is a string match on the first non-empty variable (empty values are skipped, measured on tmux 3.7c); `LANG` is lowest priority so `LC_CTYPE` beside it is the minimal edit | S:85 R:80 A:85 D:80 |
 | 6 | Confident | Non-UTF-8 `LC_ALL` (e.g. `LC_ALL=C`) is overridden to `LC_ALL=C.UTF-8` | `LC_ALL` wins tmux's check, so `LC_CTYPE` alone cannot fix it; `C.UTF-8` keeps every C-locale semantic except charset. Listed as the one Open Question because it edits a deliberately-set variable | S:70 R:75 A:70 D:60 |
 | 7 | Certain | Add `ErrNoFieldDelimiter` + `checkDelimited` in `ListSessions` and `ListWindows`; keep `parseSessions`/`parseWindows` signatures | Discussed — turns a silent empty into a logged WARN via `api/servers.go`'s existing `err != nil` branch; signature freeze protects the large existing parse-test suites | S:90 R:85 A:90 D:90 |
 | 8 | Confident | `ListWindows` keeps swallowing exec errors as `nil, nil` (session-gone tolerance) but returns `ErrNoFieldDelimiter` on the successful-output path | Existing comment documents the mid-tick swallow as deliberate; delimiter corruption is a different class (output present but unparseable) | S:75 R:80 A:80 D:75 |

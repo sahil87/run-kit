@@ -17,7 +17,7 @@ the binary is still `rk`, every tmux/env/socket identifier is untouched, the
 six companion CLIs keep their names and are presented as *the HexoKit
 toolkit*, and shll.ai becomes a permanent redirect host.
 
-**Status (2026-09-12)**: Phases 0–1 done, Phase 2 in flight (X1 PR open). Approach B chosen (product rename,
+**Status (2026-09-12)**: Phases 0–2 done. **Remaining work (announce gate + Phase 3) is tracked in [`26-09-12-hexokit-rebrand-remaining.md`](26-09-12-hexokit-rebrand-remaining.md)** — update rows there; this doc keeps the evidence, decisions, and done history. Approach B chosen (product rename,
 substrate kept). D1–D4, D13, D14 and D15 confirmed by Sahil in the thread; D5–D12 are
 the plan's proposals and are open until marked confirmed. S1 done (operator,
 direct git op, no fab change). S2 merged (PR [hexokit-site#1](https://github.com/sahil87/hexokit-site/pull/1), fab change `1ha7`);

@@ -1542,6 +1542,84 @@ describe("TerminalClient clickable links (WebLinksAddon handler)", () => {
   });
 });
 
+describe("TerminalClient OSC 8 hyperlinks (Terminal linkHandler)", () => {
+  // OSC 8 links reach xterm's own OscLinkProvider, which WebLinksAddon never
+  // sees — its regex reads visible text, and markdown link text carries no
+  // URL. The provider's activate is reachable only through the Terminal
+  // option, and without a handler it falls back to a confirm() dialog plus
+  // the blank-window location.href navigation the desktop shell denies.
+  // allowNonHttpProtocols must stay unset so non-http(s) URIs stay refused.
+  beforeEach(() => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: false,
+      media: "",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    MockStream.instances = [];
+    mockRelayMux.openStream.mockClear();
+    vi.mocked(Terminal).mockClear();
+    // No clearMocks in vitest.config.ts, so without this the second test's
+    // mock.calls[0] would read an earlier describe's construction.
+    vi.mocked(WebLinksAddon).mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("constructs Terminal with a linkHandler that opens the URI via window.open", async () => {
+    renderTerminalClient(false);
+
+    await waitFor(() => {
+      expect(vi.mocked(Terminal)).toHaveBeenCalled();
+    });
+
+    const ctorArgs = vi.mocked(Terminal).mock.calls[0]?.[0];
+    expect(typeof ctorArgs?.linkHandler?.activate).toBe("function");
+    expect(ctorArgs?.linkHandler).not.toHaveProperty("allowNonHttpProtocols");
+
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    ctorArgs?.linkHandler?.activate(
+      new MouseEvent("click"),
+      "https://code.claude.com/docs",
+      { start: { x: 1, y: 1 }, end: { x: 5, y: 1 } },
+    );
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://code.claude.com/docs",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
+
+  it("routes the OSC 8 and WebLinks paths through the same opener", async () => {
+    renderTerminalClient(false);
+
+    await waitFor(() => {
+      expect(vi.mocked(WebLinksAddon)).toHaveBeenCalled();
+    });
+
+    const linkHandler = vi.mocked(Terminal).mock.calls[0]?.[0]?.linkHandler;
+    const addonHandler = vi.mocked(WebLinksAddon).mock.calls[0]?.[0];
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    linkHandler?.activate(new MouseEvent("click"), "https://example.com", {
+      start: { x: 1, y: 1 },
+      end: { x: 5, y: 1 },
+    });
+    addonHandler?.(new MouseEvent("click"), "https://example.com");
+
+    expect(openSpy).toHaveBeenCalledTimes(2);
+    expect(openSpy.mock.calls[0]).toEqual(openSpy.mock.calls[1]);
+  });
+});
+
 describe("TerminalClient terminal-font change syncs the grid to tmux", () => {
   // A font change resizes the xterm grid but NOT the container, so the
   // ResizeObserver never fires. The font effect must therefore send the resize

@@ -2180,6 +2180,20 @@ func TestDefaultConfigSetsAutomaticRenameFormat(t *testing.T) {
 	}
 }
 
+// tmux re-emits a pane's OSC 8 hyperlink only when the attached client's
+// terminal advertises the hyperlinks feature; its built-in xterm* defaults
+// omit it, so without this the relay receives link text with the URI stripped.
+// The append form is load-bearing — a replacing form would drop sync/extkeys.
+func TestDefaultConfigAdvertisesHyperlinksFeature(t *testing.T) {
+	content := string(DefaultConfigBytes())
+	if !strings.Contains(content, "set -as terminal-features ',xterm-256color:hyperlinks'") {
+		t.Error("embedded default config missing appended xterm-256color:hyperlinks terminal-feature")
+	}
+	if !strings.Contains(content, "set -as terminal-features ',xterm-256color:sync'") {
+		t.Error("embedded default config lost the xterm-256color:sync terminal-feature")
+	}
+}
+
 func TestEnsureDropInDirNoHomeDir(t *testing.T) {
 	origDefault := DefaultConfigPath
 	defer func() { DefaultConfigPath = origDefault }()

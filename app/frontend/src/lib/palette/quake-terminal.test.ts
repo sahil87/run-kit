@@ -3,6 +3,7 @@ import {
   buildQuakeTerminalAction,
   buildQuakeTerminalListAction,
   buildQuakeTerminalLogAction,
+  buildQuakeTerminalPinAction,
   buildQuakeTerminalResetSizeAction,
   buildQuakeTerminalTasksAction,
 } from "./quake-terminal";
@@ -10,8 +11,13 @@ import {
   QUAKE_GEOMETRY_DEFAULT,
   QUAKE_GEOMETRY_KEY,
   QUAKE_TERMINAL_EVENT,
+  getQuakeMachineActivity,
+  getQuakeMachineState,
+  getQuakePinned,
   isQuakeTerminalRequest,
   readQuakeGeometry,
+  setQuakeMachineState,
+  setQuakePinned,
 } from "@/lib/quake-terminal";
 
 describe("buildQuakeTerminalAction", () => {
@@ -137,5 +143,40 @@ describe("buildQuakeTerminalResetSizeAction", () => {
     }
     expect(readQuakeGeometry()).toEqual(QUAKE_GEOMETRY_DEFAULT);
     expect(seen).toHaveLength(0);
+  });
+});
+
+describe("buildQuakeTerminalPinAction", () => {
+  beforeEach(() => {
+    // Entering rest resets the pin slot — a clean slate per test.
+    setQuakeMachineState("open");
+    setQuakeMachineState("rest");
+  });
+
+  it("toggles its id-stable label on the pinned flag", () => {
+    expect(buildQuakeTerminalPinAction(false)).toMatchObject({
+      id: "quake-terminal-pin",
+      label: "Operator: Pin quake terminal",
+    });
+    expect(buildQuakeTerminalPinAction(true)).toMatchObject({
+      id: "quake-terminal-pin",
+      label: "Operator: Unpin quake terminal",
+    });
+    expect(buildQuakeTerminalPinAction(false).shortcut).toBeUndefined();
+  });
+
+  it("onSelect flips the pin slot and re-asserts the open machine state (the mouse-pick race)", () => {
+    setQuakeMachineState("open");
+    const activityBefore = getQuakeMachineActivity();
+    buildQuakeTerminalPinAction(false).onSelect();
+    expect(getQuakePinned()).toBe(true);
+    // The outside-click settle backs off only on a machine-activity bump —
+    // the same-value re-assert must register even though the state is
+    // already open.
+    expect(getQuakeMachineState()).toBe("open");
+    expect(getQuakeMachineActivity()).toBeGreaterThan(activityBefore);
+    buildQuakeTerminalPinAction(true).onSelect();
+    expect(getQuakePinned()).toBe(false);
+    expect(getQuakeMachineState()).toBe("open");
   });
 });

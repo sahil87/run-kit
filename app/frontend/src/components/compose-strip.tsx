@@ -24,6 +24,7 @@ import {
   composeSubmitKeycap,
   type ComposeEnterAction,
 } from "@/lib/compose-keys";
+import { fitTextarea } from "@/lib/textarea-autogrow";
 import { handleReadlineKey, insertTextAtCaret } from "@/lib/readline-keys";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import { Tip, TipGroup } from "@/components/tip";
@@ -166,9 +167,6 @@ import {
  * no draft; the dock split doubles as the mode signal — in-tile = sends to
  * this terminal, footer = broadcast (or a tile-less fallback).
  */
-
-/** Max input rows before the textarea scrolls internally (bounded auto-grow). */
-const MAX_TEXTAREA_ROWS = 6;
 
 /** Compose the window-store lookup key from a focused target. */
 function focusedKey(f: NonNullable<FocusedTerminal>): string {
@@ -409,8 +407,9 @@ export function ComposeStrip({
       ? textFocused || multiline || files.length > 0
       : text !== "" || files.length > 0 || (draftKey !== null && latchedKey === draftKey));
 
-  // Auto-grow to content, bounded to MAX_TEXTAREA_ROWS (then internal scroll).
-  // `preserveWrap` is the layout-remeasure mode: a morph-driven re-measure may
+  // Auto-grow to content, bounded (then internal scroll) via the shared
+  // fitTextarea helper. `preserveWrap` is the layout-remeasure mode: a
+  // morph-driven re-measure may
   // SET the wrap probe but never CLEAR it — the card's full-width box renders
   // the same text unwrapped, so a fresh read there would release the very
   // trigger that just opened the card and oscillate compact⇄card forever.
@@ -418,16 +417,13 @@ export function ComposeStrip({
   const resize = useCallback((preserveWrap = false) => {
     const el = textareaRef.current;
     if (!el) return;
+    // The wrap probe measures under the same height:auto posture fitTextarea
+    // measures in: a larger scrollHeight than the one-row box means the
+    // content wrapped (jsdom: both are 0, so it reads unwrapped).
     el.style.height = "auto";
-    const line = parseFloat(getComputedStyle(el).lineHeight) || 20;
-    const max = line * MAX_TEXTAREA_ROWS;
-    // Under height:auto the box resolves to the rows={1} floor, so a larger
-    // scrollHeight means the content wrapped past one line — the coarse
-    // morph's wrap probe (jsdom: both are 0, so it reads unwrapped).
     const measured = el.scrollHeight > el.offsetHeight + 1;
     setWrapped((prev) => (preserveWrap ? prev || measured : measured));
-    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
-    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+    fitTextarea(el);
   }, []);
 
   useLayoutEffect(() => resize(), [text, resize]);
@@ -941,7 +937,8 @@ export function ComposeStrip({
       // rows={1} on both pointers — the compact state supersedes the old
       // fine-pointer 2-row floor. The auto-grow floor follows the rows
       // attribute by construction (the `height = "auto"` measurement resolves
-      // to it); MAX_TEXTAREA_ROWS bounds growth.
+      // to it); the shared autogrow bound (lib/textarea-autogrow.ts) caps
+      // growth.
       rows={1}
       value={text}
       // A user edit ends any recall walk — the visible text is now

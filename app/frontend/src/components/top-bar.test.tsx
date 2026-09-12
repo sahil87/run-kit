@@ -10,6 +10,7 @@ import { ToastProvider } from "@/components/toast";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { SurfaceKind } from "@/lib/surface-layout";
 import { stubMatchMedia } from "@/test-utils/match-media";
+import { setQuakeMachineState } from "@/lib/quake-terminal";
 
 // TopBar is rendered without a RouterProvider here, so stub the two router
 // hooks it (and its sub-components: BoardSwitcher, HistoryNav)
@@ -182,6 +183,22 @@ describe("TopBar", () => {
     expect(heading).toHaveTextContent("main");
     // Appears exactly once (no breadcrumb + center duplication).
     expect(screen.getAllByText("main")).toHaveLength(1);
+  });
+
+  it("the center heading is never hidden by the quake machine — visible with the drawer open", () => {
+    renderTopBar();
+    act(() => setQuakeMachineState("open"));
+
+    // The launcher collapses to its glyph + chord while the drawer is open;
+    // the heading's anchor box keeps its `flex` (no `hidden`) at every width.
+    const heading = screen.getByRole("button", { name: "Rename tab main" });
+    expect(heading).toBeInTheDocument();
+    const anchor = heading.closest('[class*="sm:min-w-"]');
+    expect(anchor).not.toBeNull();
+    expect(anchor!.className).toContain("flex");
+    expect(anchor!.className).not.toContain("hidden");
+
+    act(() => setQuakeMachineState("rest"));
   });
 
   describe("universal center heading (260704-pr0p)", () => {

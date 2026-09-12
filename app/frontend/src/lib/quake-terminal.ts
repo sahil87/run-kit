@@ -32,16 +32,18 @@ import { urlSegmentToWindowId } from "@/lib/router-url";
  *    than lost.
  *  - The ⌘J two-state machine (`rest | open`, focus and drawer linked) — the
  *    desktop quake terminal's controlling state, shared between the top-bar
- *    quake launcher and the drawer (module slot, the open-state idiom).
+ *    quake launcher and the drawer (module slot, the open-state idiom),
+ *    flanked by the pin slot, the compose-engaged slot, and the
+ *    restore-origin slot (same idiom; all ephemeral).
  *  - The shared compose seam (`useOperatorCompose` + `sendOperatorMessage` +
- *    `attachOperatorFiles`) — ONE draft/send/upload implementation driving the
- *    desktop quake launcher (the quake terminal's only input; the drawer is
- *    output-only).
+ *    `attachOperatorFiles`) — ONE draft/send/upload implementation whose
+ *    desktop view is the drawer's docked compose strip while open (the
+ *    standing quake launcher box is its rest-state affordance).
  *  - The chat-subject store (`setOperatorChatSubject` + `useOperatorChatChip`)
  *    — the templated chat lane's context: on a terminal route the quake
  *    terminal stamps the route window here (the validated `?from=` origin on
- *    the operator window's own route), the quake launcher and the operator
- *    route's compose strip render the dismissable chip from it, and
+ *    the operator window's own route), the docked compose strip and the
+ *    operator route's compose strip render the dismissable chip from it, and
  *    `sendOperatorMessage` (plus the strip's plain-submit path) reads it AT
  *    SEND TIME to fork between the templated lane (`sendOperatorRequest(...,
  *    "user-message", ...)` — a server-derived source envelope wraps the text;
@@ -229,7 +231,7 @@ export const QUAKE_WIDTH_MAX_VW = 0.96;
  *  center offset is clamped. */
 export const QUAKE_EDGE_PAD_PX = 8;
 
-export const QUAKE_OPACITY_DEFAULT = 0.9;
+export const QUAKE_OPACITY_DEFAULT = 0.95;
 export const QUAKE_OPACITY_MIN = 0.5;
 export const QUAKE_OPACITY_MAX = 1.0;
 
@@ -397,7 +399,7 @@ export function useQuakeGeometry(): [QuakeGeometry, (next: QuakeGeometry) => voi
   return [value, writeQuakeGeometry];
 }
 
-/** The desktop drawer's persisted background opacity (0.75–1.0, default 0.90).
+/** The desktop drawer's persisted background opacity (0.5–1.0, default 0.95).
  *  1.0 disables the backdrop blur entirely — the zero-cost opaque path. */
 export function useQuakeOpacity(): [number, (next: number) => void] {
   const [value, setValue] = useState<number>(readQuakeOpacity);
@@ -407,14 +409,15 @@ export function useQuakeOpacity(): [number, (next: number) => void] {
 
 // ── ⌘J two-state machine ─────────────────────────────────────────────────────
 //
-// The desktop quake terminal is a plain toggle: `rest` (quake launcher
-// blurred, drawer closed) ⇄ `open` (drawer down, quake launcher focused).
+// The desktop quake terminal is a plain toggle: `rest` (drawer closed, the
+// standing launcher box in the top bar) ⇄ `open` (drawer down, the docked
+// compose textarea focused, the launcher collapsed to glyph + chord).
 // Focus and the expanded drawer are LINKED — engaging the machine from any
-// entry point (chord, box click, ghost) both focuses the box and drops the
-// drawer; releasing it does both in reverse. A blur alone does NOT release
-// the machine: the drawer is a peek that outlives the box's focus (clicking
-// into its terminal must not collapse it) — the outside-click collapse and
-// Esc are the release paths.
+// entry point (chord, box click, ghost) both drops the drawer and focuses the
+// docked textarea; releasing it does both in reverse. A blur alone does NOT
+// release the machine: the drawer is a peek that outlives the compose's focus
+// (clicking into its terminal must not collapse it) — the outside-click
+// collapse (suspended while pinned) and Esc are the release paths.
 // The state lives in a module slot (the open-state slot idiom) because the two
 // halves of the surface — the top-bar quake launcher and the layout-mounted
 // drawer — are mounted in different trees and must not own each other's
@@ -446,6 +449,12 @@ export function setQuakeMachineState(next: QuakeMachineState): void {
   machineActivity++;
   if (machineState === next) return;
   machineState = next;
+  // Entering rest stands every open-scoped flag down: a pin or an engaged
+  // compose on a closed drawer is meaningless, so every open starts clean.
+  if (next === "rest") {
+    setQuakePinned(false);
+    setQuakeComposeEngaged(false);
+  }
   for (const listener of machineListeners) listener(next);
 }
 
@@ -467,10 +476,92 @@ export function useQuakeMachineState(): QuakeMachineState {
   return state;
 }
 
+// ── Pin / compose-engaged / restore-origin slots ─────────────────────────────
+//
+// Three more module slots beside the machine, same pub/sub idiom. The pin and
+// the engaged flag are read from trees the drawer's component state cannot
+// reach (the palette builder, the top-bar quake launcher); both are ephemeral
+// (Constitution IV — no localStorage, tmux, or URL write) and reset to false
+// by `setQuakeMachineState("rest")` above. The restore origin is the ⌘J focus
+// return's captured `document.activeElement` — a bare module slot (no
+// subscribers: nothing renders from it) so the entry capture and the
+// exit-time ownership check share one ref across the two trees.
+
+let quakePinned = false;
+const pinnedListeners = new Set<(pinned: boolean) => void>();
+
+export function getQuakePinned(): boolean {
+  return quakePinned;
+}
+
+export function setQuakePinned(next: boolean): void {
+  if (quakePinned === next) return;
+  quakePinned = next;
+  for (const listener of pinnedListeners) listener(next);
+}
+
+export function useQuakePinned(): boolean {
+  const [pinned, setPinned] = useState(getQuakePinned);
+  useEffect(() => {
+    const listener = (next: boolean) => setPinned(next);
+    pinnedListeners.add(listener);
+    setPinned(getQuakePinned());
+    return () => {
+      pinnedListeners.delete(listener);
+    };
+  }, []);
+  return pinned;
+}
+
+let composeEngaged = false;
+const engagedListeners = new Set<(engaged: boolean) => void>();
+
+export function getQuakeComposeEngaged(): boolean {
+  return composeEngaged;
+}
+
+export function setQuakeComposeEngaged(next: boolean): void {
+  if (composeEngaged === next) return;
+  composeEngaged = next;
+  for (const listener of engagedListeners) listener(next);
+}
+
+/** True while the docked compose owns input — drives the accent border on
+ *  both the strip's textarea and the collapsed launcher. Focus-derived, never
+ *  pin-derived. */
+export function useQuakeComposeEngaged(): boolean {
+  const [engaged, setEngaged] = useState(getQuakeComposeEngaged);
+  useEffect(() => {
+    const listener = (next: boolean) => setEngaged(next);
+    engagedListeners.add(listener);
+    setEngaged(getQuakeComposeEngaged());
+    return () => {
+      engagedListeners.delete(listener);
+    };
+  }, []);
+  return engaged;
+}
+
+let restoreOrigin: HTMLElement | null = null;
+
+/** Record the focus-restore origin at machine entry — kept only when the
+ *  active element lies outside every quake-terminal-owned element. */
+export function setQuakeRestoreOrigin(origin: HTMLElement | null): void {
+  restoreOrigin = origin;
+}
+
+/** Take (and clear) the recorded origin for the exit-time restore. */
+export function takeQuakeRestoreOrigin(): HTMLElement | null {
+  const origin = restoreOrigin;
+  restoreOrigin = null;
+  return origin;
+}
+
 // ── Shared compose seam ──────────────────────────────────────────────────────
 //
-// ONE compose implementation drives the quake terminal's input surface: the
-// desktop quake launcher (top-bar center cell). Draft, in-flight flags, and
+// ONE compose implementation drives the quake terminal's input surfaces: the
+// drawer's docked compose strip while open, the standing quake launcher box
+// (top-bar center cell) at rest. Draft, in-flight flags, and
 // the inline error are module state, and the send/upload logic exists exactly
 // once. Delivery rides the existing lanes: `sendToWindow(..., "submit",
 // "agent")` for messages, `uploadFile` + a `"raw"` insert per returned path
@@ -483,8 +574,8 @@ export function useQuakeMachineState(): QuakeMachineState {
 // (only when the quake terminal's resolved server IS the route's server —
 // window ids are server-scoped, so a pinned/picked cross-server retarget must
 // never attach a foreign id). Module state, like the compose seam, so the
-// quake launcher and the operator route's compose strip render one chip in
-// lockstep — and so the send forks read the CURRENT attachment at send time
+// docked compose strip and the operator route's compose strip render one chip
+// in lockstep — and so the send forks read the CURRENT attachment at send time
 // rather than a captured closure (a pendingSend delivered in the same commit
 // as a chip reset must see the reset).
 

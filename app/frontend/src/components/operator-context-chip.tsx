@@ -2,9 +2,10 @@ import { dismissOperatorChatChip, useOperatorChatChip } from "@/lib/quake-termin
 
 /**
  * The chat-lane context chip — renders the attached chat subject beside
- * whichever compose surface is active: the desktop quake launcher and the operator
- * route's compose strip both mount one, reading the ONE chat-subject store in
- * lib/quake-terminal.ts so the two stay in lockstep. Implicit context the
+ * whichever compose surface is active: the quake terminal's docked compose
+ * strip and the operator route's compose strip both mount one, reading the
+ * ONE chat-subject store in lib/quake-terminal.ts so the two stay in
+ * lockstep. Implicit context the
  * user cannot see erodes trust in what the operator was told, so the chip is
  * always visible while a send would attach the envelope, and its ✕ detaches it
  * (sends then ride the direct lane until the quake terminal re-engages or the subject
@@ -17,8 +18,8 @@ import { dismissOperatorChatChip, useOperatorChatChip } from "@/lib/quake-termin
  * With `onNavigate` provided (the operator route's compose-strip mount), the
  * label itself is a control that returns to the subject window — the chip
  * names exactly where the user came from, so it doubles as the way back. The
- * ✕ stays dismiss-only either way; the quake launcher mount passes nothing and keeps
- * an inert label.
+ * ✕ stays dismiss-only either way; the docked compose strip's mount passes
+ * nothing and keeps an inert label.
  */
 export function OperatorContextChip({
   server,
@@ -58,10 +59,10 @@ export function OperatorContextChip({
         aria-label="Detach window context"
         onClick={dismissOperatorChatChip}
         className={`shrink-0 px-0.5 inline-flex items-center justify-center text-text-secondary transition-colors hover:text-text-primary coarse:min-w-[40px] coarse:min-h-[40px] ${
-          // The compact (quake launcher) mount is fixed to the bar's control height
-          // (h-[28px]) — a 24px fine floor here would push the chip taller
-          // than that budget and reintroduce the box's focus/blur jitter.
-          // The full-size compose-strip mount keeps the standard floor.
+          // The compact mount (the docked compose strip's header row) drops
+          // the 24px fine floor to fit the row's height budget; the full-size
+          // compose-strip mount keeps the standard floor. The coarse (touch)
+          // floor is untouched either way.
           compact ? "" : "min-w-[24px] min-h-[24px]"
         }`}
       >

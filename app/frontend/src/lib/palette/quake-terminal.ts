@@ -5,6 +5,8 @@ import {
   setQuakePinned,
   writeQuakeGeometry,
 } from "@/lib/quake-terminal";
+import { ApiError, startOperator, type OperatorStartResult } from "@/api/client";
+import type { QuakeSegment } from "@/components/terminal-activity-tabs";
 
 /**
  * Pure builder for the palette's `Operator: Open quake terminal` entry —
@@ -108,6 +110,74 @@ export function buildQuakeTerminalPinAction(pinned: boolean): QuakeTerminalPalet
       // on. The entry is listed only while the machine is open, so the
       // re-assert can never open a closed drawer.
       setQuakeMachineState("open");
+    },
+  };
+}
+
+/** The navigate shape the open-as-tab action needs — the router's navigate
+ *  narrowed to the operator window's terminal route. */
+export type OpenAsTabNavigate = (opts: {
+  to: "/$server/$window";
+  params: { server: string; window: string };
+  search: { tab?: QuakeSegment };
+}) => void;
+
+/**
+ * The `Operator: Open as tab` entry — the palette twin of the drawer header's
+ * ⤢ control (Constitution V): navigate to the operator window's own terminal
+ * route (a non-terminal segment rides `?tab=`) and rest the machine. Listed
+ * only while the desktop machine is `open` with a resolved target — the
+ * registration site gates the listing (the pin entry's precedent). The
+ * palette arm carries no segment: the drawer's segment is its local state,
+ * out of the palette's reach, so a palette pick lands on the terminal.
+ */
+export function buildQuakeTerminalOpenAsTabAction(
+  target: { server: string; windowId: string },
+  navigate: OpenAsTabNavigate,
+  segment?: QuakeSegment,
+): QuakeTerminalPaletteAction {
+  return {
+    id: "quake-terminal-open-as-tab",
+    label: "Operator: Open as tab",
+    onSelect: () => {
+      navigate({
+        to: "/$server/$window",
+        params: { server: target.server, window: target.windowId },
+        search: segment !== undefined && segment !== "terminal" ? { tab: segment } : {},
+      });
+      setQuakeMachineState("rest");
+    },
+  };
+}
+
+/**
+ * The `Operator: Start operator` entry — the palette arm of the drawer's
+ * Start operator button (and the only Start path on mobile, where no drawer
+ * exists): POST /api/operator/start, then navigate to the new operator
+ * window's route. A 409 `operator_exists` carries the racing window's id and
+ * IS the success path (the operator appeared between the listing gate and
+ * the launch). Listed only while the resolved server has NO operator window
+ * (degrade to absent, never disabled) — the registration site gates the
+ * listing; the builder itself is gate-agnostic.
+ */
+export function buildOperatorStartAction(
+  server: string,
+  onStarted: (result: OperatorStartResult) => void,
+  onError: (message: string) => void,
+): QuakeTerminalPaletteAction {
+  return {
+    id: "operator-start",
+    label: "Operator: Start operator",
+    onSelect: () => {
+      void startOperator(server)
+        .then(onStarted)
+        .catch((err: unknown) => {
+          if (err instanceof ApiError && err.code === "operator_exists" && err.windowId) {
+            onStarted({ windowId: err.windowId, server });
+            return;
+          }
+          onError(err instanceof Error ? err.message : "Operator start failed");
+        });
     },
   };
 }

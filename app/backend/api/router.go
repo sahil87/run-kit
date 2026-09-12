@@ -924,6 +924,10 @@ func (s *Server) buildRouter() chi.Router {
 	// Server-scoped half of the seam — templates with no subject window. See
 	// api/operator.go.
 	r.Post("/api/operator-request", s.handleServerOperatorRequest)
+	// Start the server's operator window — execs this daemon's own binary as
+	// `rk operator -L <server> --json` and answers on the JSON receipt. See
+	// api/operator_start.go.
+	r.Post("/api/operator/start", s.handleOperatorStart)
 	r.Get("/api/windows/{windowId}/history", s.handleWindowHistory)
 	// Derived per-tab .code-workspace file — read-shaped ensure (GET, §IX); the
 	// ONLY daemon-side writer of workspace files. See api/codeworkspace.go.

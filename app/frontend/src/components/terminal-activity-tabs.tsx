@@ -68,19 +68,19 @@ export function QuakeSegments({
 }
 
 /**
- * The mobile operator route's segmented header (mounted
- * by AppShell only when the shared `useIsMobile()` rule holds AND the
- * resolved window's role is `operator`). Each segment drives the terminal
- * route's `tab` search param through the router's search-param setter — a
- * client-side search update, never a full navigation — and `tab` absent
- * reads as `terminal`.
+ * The operator page's segmented header (mounted by AppShell whenever the
+ * resolved window's role is `operator`, on every form factor). Each segment
+ * drives the terminal route's `tab` search param through the router's
+ * search-param setter — a client-side search update, never a full
+ * navigation — and `tab` absent reads as `terminal`.
  *
- * The `pt-9` wrapper clears the mobile tongue's hit area: the tongue hangs
- * `absolute top-0 h-9 w-16` centered over the content column (app.tsx), and
- * with four segments a middle segment's center would land under it — the
- * strip must start below the tongue's 36px box.
+ * `clearTongue` adds the `pt-9` wrapper that clears the mobile tongue's hit
+ * area: the tongue hangs `absolute top-0 h-9 w-16` centered over the content
+ * column (app.tsx), and with four segments a middle segment's center would
+ * land under it — the strip must start below the tongue's 36px box. The
+ * tongue never renders on desktop, so the clearance is mobile-only.
  */
-export function TerminalActivityTabs() {
+export function TerminalActivityTabs({ clearTongue }: { clearTongue?: boolean }) {
   const navigate = useNavigate();
   const search = useSearch({ strict: false });
   const active: QuakeSegment =
@@ -89,7 +89,7 @@ export function TerminalActivityTabs() {
       : "terminal";
 
   return (
-    <div className="shrink-0 pt-9">
+    <div className={clearTongue ? "shrink-0 pt-9" : "shrink-0"}>
       <QuakeSegments
         value={active}
         onChange={(tab) =>

@@ -54,6 +54,7 @@ import { ServerPanel } from "./server-panel";
 import { SessionRow } from "./session-row";
 import { WindowPanel } from "./status-panel";
 import { WindowRow } from "./window-row";
+import { HeadsetIcon } from "./icons";
 import { ServerCardContent, useAnchoredPopoverPos } from "./server-card";
 import {
   useRowFlyout,
@@ -135,7 +136,8 @@ function writeCollapsedSessions(map: Record<string, boolean>): void {
  *  Space activation derives the right handler + args with no type assertions. */
 type RowIdentity =
   | { kind: "window"; server: string; session: string; windowId: string; ghost: boolean }
-  | { kind: "session"; server: string; session: string; firstWindowId: string };
+  | { kind: "session"; server: string; session: string; firstWindowId: string }
+  | { kind: "operator-placeholder"; server: string };
 
 export type SidebarProps = {
   /** Identifies the "active" server for visual treatment + default expanded
@@ -189,6 +191,11 @@ export type SidebarProps = {
    *  (260822-wyn3). Optional (mirrors `onForkWindow`): when omitted — e.g. the
    *  board-route sidebar — the pinned row renders no compose icon. */
   onOperatorCompose?: (server: string) => void;
+  /** Activate the operator PLACEHOLDER row (the pinned slot's operator-less
+   *  form — the shell's drawer opener). Optional (mirrors
+   *  `onOperatorCompose`): when omitted — e.g. the board-route sidebar — no
+   *  placeholder renders. */
+  onOperatorPlaceholder?: (server: string) => void;
   onCreateServer: () => void;
   onKillServer: (name: string) => void;
   /** Optional waiting-badge click (260714-r7rq): navigate to the next waiting
@@ -216,6 +223,7 @@ export function Sidebar({
   onForkWindow,
   onFixTabName,
   onOperatorCompose,
+  onOperatorPlaceholder,
   onCreateServer,
   onKillServer,
   onWaitingBadgeClick,
@@ -1509,6 +1517,10 @@ export function Sidebar({
           // SF-2: call the handler DIRECTLY with the typed identity — no brittle
           // DOM `.click()` synthesis or magic-string aria-label coupling.
           onSelectWindow(identity.server, identity.session, identity.windowId);
+        } else if (identity.kind === "operator-placeholder") {
+          // The operator-less pinned-slot row: activation is the shell-wired
+          // drawer opener, never window navigation (there is no window).
+          onOperatorPlaceholder?.(identity.server);
         } else {
           // Session row: select its first window (no-op if the session is empty,
           // i.e. no first window to activate).
@@ -1536,7 +1548,7 @@ export function Sidebar({
       default:
         break;
     }
-  }, [getVisibleRows, rowKeyOf, rovingKey, moveRovingTo, toggleSession, identityForKey, onSelectWindow, isSelectableWindow, toggleWindowSelection]);
+  }, [getVisibleRows, rowKeyOf, rovingKey, moveRovingTo, toggleSession, identityForKey, onSelectWindow, onOperatorPlaceholder, isSelectableWindow, toggleWindowSelection]);
 
   /**
    * Escape-to-clear (260807-nf9f) — a CAPTURE-phase handler, deliberately
@@ -1869,6 +1881,7 @@ export function Sidebar({
                 onForkWindow={onForkWindow}
                 onFixTabName={onFixTabName}
                 onOperatorCompose={onOperatorCompose}
+                onOperatorPlaceholder={onOperatorPlaceholder}
                 onWindowDragStart={handleDragStart}
                 onWindowDragOver={handleDragOver}
                 onWindowDrop={handleDrop}
@@ -2312,6 +2325,10 @@ type ServerGroupProps = {
   /** Forwarded ONLY to the pinned operator row's `WindowRow` → its trailing
    *  compose icon (260822-wyn3). Optional — see `SidebarProps.onOperatorCompose`. */
   onOperatorCompose?: (server: string) => void;
+  /** The operator-less pinned slot's activation (the placeholder row).
+   *  Optional — see `SidebarProps.onOperatorPlaceholder`; when omitted no
+   *  placeholder renders. */
+  onOperatorPlaceholder?: (server: string) => void;
   onWindowDragStart: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
   onWindowDragOver: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onWindowDrop: (e: React.DragEvent, server: string, session: string, index: number) => void;
@@ -2391,6 +2408,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onForkWindow,
     onFixTabName,
     onOperatorCompose,
+    onOperatorPlaceholder,
     onWindowDragStart,
     onWindowDragOver,
     onWindowDrop,
@@ -2485,8 +2503,10 @@ function ServerGroupInner(props: ServerGroupProps) {
   // (excluded from that group's window rows below), never copied. The backend
   // enforces server-scoped radio (at most one carrier per server); the first
   // carrier wins defensively here. Ghost rows are never carriers (no real
-  // windowId / no options). No operator ⇒ null ⇒ nothing renders — no
-  // placeholder, no wrapper, the DOM is identical to before.
+  // windowId / no options). No operator ⇒ null ⇒ the pinned slot renders the
+  // PLACEHOLDER row instead, but only when the shell wired
+  // `onOperatorPlaceholder` (an unwired sidebar — the board route — renders
+  // nothing, the DOM identical to before).
   const operatorEntry = useMemo(() => {
     for (const session of orderedSessions) {
       for (const win of session.windows) {
@@ -2517,7 +2537,8 @@ function ServerGroupInner(props: ServerGroupProps) {
     if (isOpen) {
       // The pinned operator row renders ABOVE all session groups, so its key
       // leads the visible-row order regardless of its home session's collapse
-      // state (it is no longer painted inside that group).
+      // state (it is no longer painted inside that group). The operator-less
+      // placeholder takes the same leading slot when wired.
       if (operatorEntry) {
         const opRowKey = `${server}:${operatorEntry.win.windowId}`;
         slice.set(opRowKey, {
@@ -2528,6 +2549,10 @@ function ServerGroupInner(props: ServerGroupProps) {
           ghost: false,
         });
         sigParts.push(opRowKey);
+      } else if (onOperatorPlaceholder) {
+        const placeholderRowKey = `${server}:operator-placeholder`;
+        slice.set(placeholderRowKey, { kind: "operator-placeholder", server });
+        sigParts.push(placeholderRowKey);
       }
       for (const session of visibleSessions) {
         const sessionRowKey = `${server}:${session.name}`;
@@ -2562,7 +2587,7 @@ function ServerGroupInner(props: ServerGroupProps) {
       }
     }
     return { rowSlice: slice, rowSignature: sigParts.join("|") };
-  }, [isOpen, visibleSessions, collapsed, server, operatorEntry, currentSessionName]);
+  }, [isOpen, visibleSessions, collapsed, server, operatorEntry, onOperatorPlaceholder, currentSessionName]);
 
   // This group's DATA window keys — every real window the SSE snapshot knows for
   // this server, whether or not its session is expanded and whether or not the
@@ -2924,6 +2949,36 @@ function ServerGroupInner(props: ServerGroupProps) {
               </div>
             )}
             </>
+          )}
+          {!operatorEntry && onOperatorPlaceholder && (
+            // Operator placeholder row: the pinned slot's operator-less form —
+            // the operator's constant landmark stays put so the Start
+            // affordance is discoverable. No status dot, trailing cluster,
+            // marker well, flyout, or drag; it joins the roving-tabindex tree
+            // as the group's LEADING row (`${server}:operator-placeholder`),
+            // and activation — pointer click, or Enter/Space through the
+            // tree's typed-identity path — calls the shell-wired handler,
+            // never window navigation (there is no window). It is excluded
+            // from the selection registry and dataKeys (no real windowId to
+            // select). Once a carrier appears, the ordinary pinned WindowRow
+            // takes the slot back — no animation.
+            <div
+              role="treeitem"
+              aria-level={2}
+              aria-selected={false}
+              data-testid="operator-placeholder-row"
+              data-row-key={`${server}:operator-placeholder`}
+              tabIndex={rovingKey === `${server}:operator-placeholder` ? 0 : -1}
+              draggable={false}
+              onClick={() => onOperatorPlaceholder(server)}
+              className="flex w-full cursor-pointer items-center gap-1.5 py-px pl-[30px] pr-2 text-left text-xs text-text-secondary transition-colors min-h-[24px] hover:text-text-primary coarse:min-h-[36px] coarse:pl-[44px]"
+            >
+              <span className="shrink-0" aria-hidden="true">
+                <HeadsetIcon />
+              </span>
+              <span className="truncate">operator</span>
+              <span className="ml-auto shrink-0">not running</span>
+            </div>
           )}
           <div className="pb-1">
           {visibleSessions.length === 0 && sessions.length === 0 ? (

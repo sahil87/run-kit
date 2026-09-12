@@ -144,6 +144,9 @@ type RenderOpts = {
   ) => void;
   /** Override the Sidebar's onSelectWindow prop — tests assert the invocation. */
   onSelectWindow?: (server: string, session: string, windowId: string) => void;
+  /** Wire the operator placeholder row's activation handler (the shell's
+   *  drawer opener) — absent ⇒ no placeholder renders (the board route). */
+  onOperatorPlaceholder?: (server: string) => void;
 };
 
 /** Mounts BoardPage's registration seam inside the provider (260720-zx4i). */
@@ -196,6 +199,7 @@ function sidebarTree(opts: RenderOpts = {}) {
                         onWindowMarkerChange={opts.onWindowMarkerChange}
                         onCreateServer={vi.fn()}
                         onKillServer={opts.onKillServer ?? vi.fn()}
+                        onOperatorPlaceholder={opts.onOperatorPlaceholder}
                       />
                     </SettingsDialogProvider>
                   </ChromeProvider>
@@ -3250,6 +3254,106 @@ describe("Sidebar — operator pinned row (260813-ifya)", () => {
   it("renders no pulse line (and reserves no space) when no note is set", () => {
     renderOperatorSidebar();
     expect(screen.queryByTestId("operator-note-pulse")).toBeNull();
+  });
+});
+
+describe("Sidebar — operator placeholder row", () => {
+  // No window on the server carries `role: "operator"` (PRIMARY_SESSIONS has
+  // no role field): the pinned slot renders the placeholder — but only when
+  // the shell wired `onOperatorPlaceholder`.
+  const OPERATOR_CARRIER: ProjectSession[] = [
+    {
+      name: "main",
+      windows: [
+        { index: 0, windowId: "@0", name: "shell", worktreePath: "~/a", activity: "idle", isActiveWindow: true, activityTimestamp: 0 },
+        { index: 1, windowId: "@1", name: "operator", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0, role: "operator" },
+      ],
+    },
+  ];
+
+  it("renders the placeholder in the pinned slot when wired, nothing when not", () => {
+    renderSidebar({ onOperatorPlaceholder: vi.fn() });
+
+    const placeholder = screen.getByTestId("operator-placeholder-row");
+    expect(placeholder).toHaveTextContent("operator");
+    expect(placeholder).toHaveTextContent("not running");
+    expect(placeholder).toHaveAttribute("role", "treeitem");
+    expect(placeholder).toHaveAttribute("aria-selected", "false");
+    expect(placeholder).toHaveAttribute("draggable", "false");
+    // It paints BEFORE the first session group wrapper — the pinned slot.
+    const sessionGroup = document.querySelector('[data-session-group="main"]')!;
+    expect(
+      placeholder.compareDocumentPosition(sessionGroup) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    cleanup();
+    renderSidebar();
+    expect(screen.queryByTestId("operator-placeholder-row")).toBeNull();
+  });
+
+  it("calls the handler with the server on pointer click", () => {
+    const onOperatorPlaceholder = vi.fn();
+    renderSidebar({ onOperatorPlaceholder });
+
+    fireEvent.click(screen.getByTestId("operator-placeholder-row"));
+
+    expect(onOperatorPlaceholder).toHaveBeenCalledWith("primary");
+  });
+
+  it("leads the group's roving order and activates on Enter through the tree path", () => {
+    const onOperatorPlaceholder = vi.fn();
+    renderSidebar({ onOperatorPlaceholder });
+
+    // The placeholder is the group's first tab stop.
+    const tabbable = Array.from(
+      document.querySelectorAll('[role="tree"] [role="treeitem"][tabindex="0"]'),
+    );
+    expect(tabbable).toHaveLength(1);
+    expect(tabbable[0]).toBe(screen.getByTestId("operator-placeholder-row"));
+
+    // Enter on the roving row activates the handler — not window navigation.
+    const tree = screen.getByRole("tree");
+    act(() => { fireEvent.keyDown(tree, { key: "Enter" }); });
+    expect(onOperatorPlaceholder).toHaveBeenCalledWith("primary");
+
+    // ArrowDown walks past it into the session row, like any other row.
+    act(() => { fireEvent.keyDown(tree, { key: "ArrowDown" }); });
+    expect(screen.getByTestId("operator-placeholder-row")).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("is excluded from the multi-select registry (x is a no-op on it)", () => {
+    renderSidebar({ onOperatorPlaceholder: vi.fn() });
+
+    const tree = screen.getByRole("tree");
+    act(() => { fireEvent.keyDown(tree, { key: "x" }); });
+
+    expect(screen.queryByTestId("selection-bar")).toBeNull();
+  });
+
+  it("swaps to the ordinary pinned row once a carrier appears (no animation, no overlap)", () => {
+    const view = renderSidebar({ onOperatorPlaceholder: vi.fn() });
+    expect(screen.getByTestId("operator-placeholder-row")).toBeInTheDocument();
+
+    rerenderSidebar(view.rerender, {
+      onOperatorPlaceholder: vi.fn(),
+      sessionsByServer: new Map([
+        ["primary", OPERATOR_CARRIER],
+        ["alpha", []],
+        ["beta", []],
+      ]),
+    });
+
+    expect(screen.queryByTestId("operator-placeholder-row")).toBeNull();
+    expect(
+      document.querySelectorAll('[role="tree"] [data-row-key="primary:@1"]'),
+    ).toHaveLength(1);
+  });
+
+  it("hides with its server group when the group is collapsed", () => {
+    localStorage.setItem("runkit-panel-sessions-primary", "false");
+    renderSidebar({ onOperatorPlaceholder: vi.fn() });
+
+    expect(screen.queryByTestId("operator-placeholder-row")).toBeNull();
   });
 });
 

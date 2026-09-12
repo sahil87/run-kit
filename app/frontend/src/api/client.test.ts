@@ -17,6 +17,7 @@ import {
   sendToWindow,
   sendOperatorRequest,
   sendServerOperatorRequest,
+  startOperator,
   ApiError,
   fetchWindowHistory,
   fetchCodeWorkspace,
@@ -518,6 +519,49 @@ describe("operator request outcomes", () => {
     );
     await expect(sendServerOperatorRequest("default", "brief-me", "")).rejects.toThrow(
       "operator queue is full",
+    );
+  });
+});
+
+describe("startOperator", () => {
+  it("posts an empty body to /api/operator/start and resolves the 202 receipt", async () => {
+    const bodies: unknown[] = [];
+    mswServer.use(
+      http.post("/api/operator/start", async ({ request }) => {
+        bodies.push(await request.json());
+        expect(request.url).toContain("server=default");
+        return HttpResponse.json({ windowId: "@7", server: "default" }, { status: 202 });
+      }),
+    );
+    await expect(startOperator("default")).resolves.toEqual({ windowId: "@7", server: "default" });
+    expect(bodies).toEqual([{}]);
+  });
+
+  it("surfaces a 409 operator_exists as an ApiError carrying code and windowId", async () => {
+    mswServer.use(
+      http.post("/api/operator/start", () =>
+        HttpResponse.json(
+          { error: "operator already present", code: "operator_exists", windowId: "@3" },
+          { status: 409 },
+        ),
+      ),
+    );
+    const err = await startOperator("default").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    if (!(err instanceof ApiError)) throw new Error("expected ApiError");
+    expect(err.status).toBe(409);
+    expect(err.code).toBe("operator_exists");
+    expect(err.windowId).toBe("@3");
+  });
+
+  it("rejects a 502 with the server's message", async () => {
+    mswServer.use(
+      http.post("/api/operator/start", () =>
+        HttpResponse.json({ error: "run-kit operator: fab not found on PATH" }, { status: 502 }),
+      ),
+    );
+    await expect(startOperator("default")).rejects.toThrow(
+      "run-kit operator: fab not found on PATH",
     );
   });
 });

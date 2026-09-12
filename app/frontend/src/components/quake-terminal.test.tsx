@@ -16,6 +16,8 @@ import {
   writeQuakeOpacity,
 } from "@/lib/quake-terminal";
 import { getComposeDraft, hydrateComposeDrafts } from "@/lib/compose-draft-store";
+import { entryKey } from "@/store/window-store";
+import { ApiError } from "@/api/client";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import type { ProjectSession, WindowInfo } from "@/types";
 
@@ -52,11 +54,21 @@ vi.mock("@/components/terminal-client", () => ({
 const mockSend = vi.hoisted(() => vi.fn());
 const mockUpload = vi.hoisted(() => vi.fn());
 const mockOperatorRequest = vi.hoisted(() => vi.fn());
+const mockStartOperator = vi.hoisted(() => vi.fn());
 vi.mock("@/api/client", async (importActual) => ({
   ...(await importActual<typeof import("@/api/client")>()),
   sendToWindow: mockSend,
   uploadFile: mockUpload,
   sendOperatorRequest: mockOperatorRequest,
+  startOperator: mockStartOperator,
+}));
+
+// The compose-strip focus seam is spied (not exercised) here — the strip
+// itself is ComposeStrip's own tested surface.
+const mockFocusComposeStrip = vi.hoisted(() => vi.fn(() => true));
+vi.mock("@/lib/compose-strip-events", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/compose-strip-events")>()),
+  focusComposeStrip: mockFocusComposeStrip,
 }));
 
 // The cron segments mount the real CronList/CronLog; their cron fetch is
@@ -142,6 +154,8 @@ describe("QuakeTerminal", () => {
     mockUpload.mockResolvedValue({ ok: true, path: "/tmp/op/.uploads/shot.png" });
     mockOperatorRequest.mockReset();
     mockOperatorRequest.mockResolvedValue({ outcome: "delivered" });
+    mockStartOperator.mockReset();
+    mockFocusComposeStrip.mockClear();
     setOperatorChatSubject(null);
     localStorage.clear();
     hydrateComposeDrafts();
@@ -169,28 +183,31 @@ describe("QuakeTerminal", () => {
   });
 
   it.each(["toggle", "open"] as const)(
-    "keeps the desktop machine at rest and shows a hint for %s on the operator route",
+    "focuses the page's compose strip and keeps the machine at rest for %s on the operator route",
     (action) => {
       mockMatches = [{ params: { server: "srv1", window: "@9" } }];
       renderQuake({ withToasts: true });
 
       act(() => requestQuakeTerminal({ action }));
 
+      expect(mockFocusComposeStrip).toHaveBeenCalled();
       expect(getQuakeMachineState()).toBe("rest");
       expect(screen.queryByTestId("quake-terminal")).toBeNull();
-      expect(screen.getByText("already viewing the operator — nothing to open")).toBeVisible();
+      // The retired already-viewing toast is gone — focus IS the answer.
+      expect(screen.queryByText(/already viewing the operator/)).toBeNull();
     },
   );
 
-  it("throttles repeated already-on-operator hints to one toast per lifetime", () => {
+  it("seeds the page's compose-strip draft (unsent) when a send payload arrives on the operator route", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
     renderQuake({ withToasts: true });
 
-    for (const action of ["toggle", "open"] as const) {
-      act(() => requestQuakeTerminal({ action }));
-    }
+    act(() => requestQuakeTerminal({ action: "open", send: "hello operator" }));
 
-    expect(screen.getAllByText("already viewing the operator — nothing to open")).toHaveLength(1);
+    expect(mockFocusComposeStrip).toHaveBeenCalled();
+    expect(getComposeDraft(entryKey("srv1", "@9"))?.text).toBe("hello operator");
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockOperatorRequest).not.toHaveBeenCalled();
     expect(getQuakeMachineState()).toBe("rest");
   });
 
@@ -238,6 +255,140 @@ describe("QuakeTerminal", () => {
       expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
     },
   );
+
+  it("⤢ open as tab navigates to the operator route carrying the current segment and rests the machine", async () => {
+    renderQuake();
+    act(() => {
+      requestQuakeTerminal({ action: "open", segment: "log" });
+    });
+    await screen.findByTestId("quake-terminal");
+
+    fireEvent.click(screen.getByTestId("quake-terminal-open-as-tab"));
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@9" },
+      search: { tab: "log" },
+    });
+    expect(getQuakeMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
+  });
+
+  it("⤢ open as tab from the terminal segment navigates with empty search, and renders only while a target resolves", async () => {
+    renderQuake();
+    openDrawer();
+    await screen.findByTestId("quake-terminal");
+
+    fireEvent.click(screen.getByTestId("quake-terminal-open-as-tab"));
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@9" },
+      search: {},
+    });
+    expect(getQuakeMachineState()).toBe("rest");
+  });
+
+  it("renders no ⤢ control in the operator-less body", () => {
+    renderQuake({
+      sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({ windowId: "@1" })] }]]]),
+    });
+    openDrawer();
+
+    expect(screen.queryByTestId("quake-terminal-open-as-tab")).toBeNull();
+  });
+
+  it("Start operator posts once, stays pending, and the body unmounts when the sessions payload carries the operator", async () => {
+    let resolveStart: (result: { windowId: string; server: string }) => void = () => {};
+    mockStartOperator.mockReturnValue(
+      new Promise<{ windowId: string; server: string }>((resolve) => {
+        resolveStart = resolve;
+      }),
+    );
+    const noOperator = new Map([["srv1", [{ name: "main", windows: [win({ windowId: "@1" })] }]]]);
+    const view = render(
+      <StandaloneSessionContextProvider
+        value={{
+          servers: [{ name: "srv1", sessionCount: 1 }],
+          serversLoaded: true,
+          sessionsByServer: noOperator,
+        }}
+      >
+        <QuakeTerminal />
+      </StandaloneSessionContextProvider>,
+    );
+    openDrawer();
+    const button = screen.getByTestId("quake-terminal-start-operator");
+    expect(button).toHaveTextContent("Start operator");
+    // The hint survives as the sub-line.
+    expect(screen.getByTestId("quake-terminal-empty")).toHaveTextContent(
+      "no operator on this server — run rk operator",
+    );
+
+    fireEvent.click(button);
+    expect(mockStartOperator).toHaveBeenCalledTimes(1);
+    expect(mockStartOperator).toHaveBeenCalledWith("srv1");
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    expect(button).toHaveTextContent("starting…");
+
+    // Pending is a hard guard — a second click fires no second POST.
+    fireEvent.click(button);
+    expect(mockStartOperator).toHaveBeenCalledTimes(1);
+
+    resolveStart({ windowId: "@9", server: "srv1" });
+    // Success itself changes nothing locally — the SSE-equivalent rerender
+    // (the sessions payload now carrying the operator window) swaps the body.
+    view.rerender(
+      <StandaloneSessionContextProvider
+        value={{
+          servers: [{ name: "srv1", sessionCount: 1 }],
+          serversLoaded: true,
+          sessionsByServer: new Map([["srv1", operatorSessions()]]),
+        }}
+      >
+        <QuakeTerminal />
+      </StandaloneSessionContextProvider>,
+    );
+    await screen.findByTestId("embedded-terminal");
+    expect(screen.queryByTestId("quake-terminal-empty")).toBeNull();
+    expect(screen.queryByTestId("quake-terminal-start-operator")).toBeNull();
+  });
+
+  it("treats a 409 operator_exists as success — no error line, button stays pending", async () => {
+    mockStartOperator.mockRejectedValue(
+      new ApiError("operator already present", 409, "operator_exists", "@9"),
+    );
+    renderQuake({
+      sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({ windowId: "@1" })] }]]]),
+    });
+    openDrawer();
+
+    fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+
+    await waitFor(() => expect(mockStartOperator).toHaveBeenCalledTimes(1));
+    await act(async () => {});
+    expect(screen.queryByTestId("quake-terminal-start-error")).toBeNull();
+    expect(screen.getByTestId("quake-terminal-start-operator")).toBeDisabled();
+  });
+
+  it("surfaces a start failure inline and re-arms the button", async () => {
+    mockStartOperator.mockRejectedValue(
+      new ApiError("run-kit operator: fab not found on PATH", 502),
+    );
+    renderQuake({
+      sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({ windowId: "@1" })] }]]]),
+    });
+    openDrawer();
+
+    fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+
+    const errorLine = await screen.findByTestId("quake-terminal-start-error");
+    expect(errorLine).toHaveAttribute("role", "alert");
+    expect(errorLine).toHaveTextContent("run-kit operator: fab not found on PATH");
+    expect(screen.getByTestId("quake-terminal-start-operator")).toBeEnabled();
+    expect(screen.getByTestId("quake-terminal-start-operator")).toHaveTextContent("Start operator");
+  });
 
   it("one Esc releases the machine: open → rest", async () => {
     renderQuake();
@@ -1269,7 +1420,7 @@ describe("QuakeTerminal (cron segments)", () => {
     expect(screen.queryByTestId("embedded-terminal")).toBeNull();
   });
 
-  it("segment: log on the operator route bypasses the already-viewing toast and opens the drawer", () => {
+  it("segment: log on the operator route writes ?tab=log in place and never opens the drawer", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
     renderQuake({ withToasts: true });
 
@@ -1277,10 +1428,17 @@ describe("QuakeTerminal (cron segments)", () => {
       requestQuakeTerminal({ action: "open", segment: "log" });
     });
 
-    expect(getQuakeMachineState()).toBe("open");
-    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
-    expect(logTab()).toHaveAttribute("aria-selected", "true");
-    expect(screen.queryByText("already viewing the operator — nothing to open")).toBeNull();
+    expect(getQuakeMachineState()).toBe("rest");
+    expect(screen.queryByTestId("quake-terminal")).toBeNull();
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: ".",
+      search: expect.any(Function),
+      replace: true,
+    });
+    const call = mockNavigate.mock.calls[0]?.[0] as {
+      search: (prev: Record<string, unknown>) => Record<string, unknown>;
+    };
+    expect(call.search({ from: "@1" })).toEqual({ from: "@1", tab: "log" });
   });
 
   it("Escape inside the inline entry sheet returns to the list without collapsing the drawer", () => {
@@ -1469,7 +1627,7 @@ describe("QuakeTerminal (tasks segment)", () => {
     expect(screen.queryByTestId("embedded-terminal")).toBeNull();
   });
 
-  it("segment: tasks on the operator route bypasses the already-viewing toast and opens the drawer", () => {
+  it("segment: tasks on the operator route writes ?tab=tasks in place and never opens the drawer", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
     renderQuake({ withToasts: true });
 
@@ -1477,10 +1635,17 @@ describe("QuakeTerminal (tasks segment)", () => {
       requestQuakeTerminal({ action: "open", segment: "tasks" });
     });
 
-    expect(getQuakeMachineState()).toBe("open");
-    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
-    expect(tasksTab()).toHaveAttribute("aria-selected", "true");
-    expect(screen.queryByText("already viewing the operator — nothing to open")).toBeNull();
+    expect(getQuakeMachineState()).toBe("rest");
+    expect(screen.queryByTestId("quake-terminal")).toBeNull();
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: ".",
+      search: expect.any(Function),
+      replace: true,
+    });
+    const call = mockNavigate.mock.calls[0]?.[0] as {
+      search: (prev: Record<string, unknown>) => Record<string, unknown>;
+    };
+    expect(call.search({})).toEqual({ tab: "tasks" });
   });
 
   it("closing the drawer and re-opening with a plain request resets to the Operator Terminal segment", async () => {

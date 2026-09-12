@@ -275,6 +275,24 @@ Send a message into a window's resolved pane — the compose strip's single deli
 - `409` structured injection outcomes (`probe_failure` — Enter withheld, text staged; `staged_send_failure`; `submit_unverified`) — retrying would duplicate the staged text
 - `500` session fetch or tmux subprocess failure
 
+#### `POST /api/operator/start`
+
+Start the server's operator — the UI door (the quake terminal's Start operator button, the `Operator: Start operator` palette entry) onto the same launch the cron daemon's respawn path runs: the daemon execs its OWN binary (the `resolveSelfPathFn` seam — never a PATH-resolved `rk`) as `rk operator -L <server> --json`, which owns creation, role-stamping, singleton probing, agent resolution, and kickoff delivery. Server scope rides the `?server=` query (`serverFromRequest`); the body is ignored (`{}` by convention).
+
+**Behavior:**
+- One `FetchSessions` pre-check: an existing `role === "operator"` window short-circuits with `409 operator_exists` (the UI hides its Start affordances when an operator exists; this is the race backstop).
+- The exec runs under a process context DETACHED from the request (90s — the bound the cron respawn uses for the identical launch), so a client disconnect never kills the launch.
+- The handler answers as soon as the CLI's `--json` receipt line (`{"ok":true,"result":{"window","server","created"}}`) parses off stdout (30s bound): `rk operator` prints the receipt right after creating and role-stamping the window, before its best-effort kickoff delivery, so waiting for exit would make the button feel hung. The process finishes its kickoff after the response; a non-zero exit is logged, not surfaced.
+- On a created receipt the SSE hub is woken for the server so the new window paints in one tick.
+- Constitution I: argv slice, bounded contexts; `server` is validated by `serverFromRequest`. Constitution IX: a mutation ⇒ POST.
+
+**Responses:**
+- `202` `{ "windowId": "@7", "server": "default" }` — the receipt's `created: true`
+- `409` `{ "error": "operator already present", "code": "operator_exists", "windowId": "@7" }` — the pre-check found an operator, or the receipt reported `created: false` (a race the pre-check missed); the UI treats it as success
+- `502` `{ "error": "<first non-empty stderr line>" }` — non-zero exit before a receipt (e.g. the CLI's `fab` precondition failure)
+- `504` `{ "error": "operator start timed out" }` — no receipt within the 30s bound; the process is killed
+- `500` session fetch failure
+
 ---
 
 ### Directories
@@ -624,6 +642,7 @@ visible; it grants nothing to any `/api/*` route.
 | `POST` | `/api/windows/:windowId/send` | `send.go` | Compose-strip send into a window's pane (the injection engine's HTTP door) |
 | `POST` | `/api/windows/:windowId/operator-request` | `operator.go` | Window-scoped operator request (closed template registry; busy ⇒ 202 queued) |
 | `POST` | `/api/operator-request` | `operator.go` | Server-scoped operator request (same registry) |
+| `POST` | `/api/operator/start` | `operator_start.go` | Start the server operator (execs `rk operator -L <server> --json`; answers on the receipt line) |
 | `POST` | `/api/notify` | `push.go` | Web Push notification to subscribed devices |
 | `POST` | `/api/riff` | `riff.go` | Spawn worktree + window + agent (riff engine) |
 | `GET` | `/api/boards` | `boards.go` | List boards |

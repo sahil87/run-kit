@@ -29,6 +29,7 @@ export class ApiError extends Error {
     message: string,
     public readonly status: number,
     public readonly code?: string,
+    public readonly windowId?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -40,11 +41,13 @@ export async function throwOnError(res: Response): Promise<never> {
   const data: unknown = await res.json().catch(() => null);
   let message = `Request failed: ${res.status}`;
   let code: string | undefined;
+  let windowId: string | undefined;
   if (typeof data === "object" && data !== null) {
     if ("error" in data && typeof data.error === "string") message = data.error;
     if ("code" in data && typeof data.code === "string") code = data.code;
+    if ("windowId" in data && typeof data.windowId === "string") windowId = data.windowId;
   }
-  throw new ApiError(message, res.status, code);
+  throw new ApiError(message, res.status, code, windowId);
 }
 
 export interface HealthResponse {
@@ -515,6 +518,26 @@ export async function sendServerOperatorRequest(
   });
   if (!res.ok) await throwOnError(res);
   return parseOperatorRequestResult(res);
+}
+
+/**
+ * Start the server's operator via POST /api/operator/start — the daemon
+ * execs its own binary as `rk operator -L <server> --json` and answers once
+ * the receipt line parses. A 409 with code `operator_exists` (an operator
+ * appeared between the UI's pre-check and the launch) rejects as an ApiError
+ * carrying `code` and `windowId` so callers can treat it as success and
+ * navigate to the reported window.
+ */
+export type OperatorStartResult = { windowId: string; server: string };
+
+export async function startOperator(server: string): Promise<OperatorStartResult> {
+  const res = await fetch(withServer("/api/operator/start", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
 }
 
 /**

@@ -14,12 +14,15 @@ import { WatchedTasks } from "@/components/watched-tasks";
 import { OperatorContextChip } from "@/components/operator-context-chip";
 import { OperatorStateGlyph } from "@/components/operator-state-glyph";
 import { Tip } from "@/components/tip";
+import { Control } from "@/components/control";
 import { formatDuration } from "@/lib/format";
 import { useMatches, useNavigate, useRouter, useSearch } from "@tanstack/react-router";
 import { prefersReducedMotion } from "@/lib/motion";
 import { resolveFocusedWindow } from "@/lib/focused-pane-window";
 import { useOptionalToast } from "@/components/toast";
 import { setComposeText } from "@/lib/compose-draft-store";
+import { focusComposeStrip } from "@/lib/compose-strip-events";
+import { ApiError, startOperator } from "@/api/client";
 import { entryKey } from "@/store/window-store";
 import { classifyComposeEnter } from "@/lib/compose-keys";
 import { insertTextAtCaret } from "@/lib/readline-keys";
@@ -70,8 +73,6 @@ const NO_OPERATOR_HINT_THROTTLE_MS = 4000;
 /** The established operator-absent message — the desktop drawer renders it as
  *  its hint line, mobile activations toast it. */
 const NO_OPERATOR_HINT = "no operator on this server — run rk operator";
-
-const ALREADY_ON_OPERATOR_HINT = "already viewing the operator — nothing to open";
 
 /**
  * The quake terminal — the operator-chat surface: a global pull-down drawer
@@ -212,6 +213,13 @@ export function QuakeTerminal() {
   const [pinnedServer, setPinnedServer] = useState<string | null>(null);
   const [pickerServer, setPickerServer] = useState<string | null>(null);
   const [pendingSend, setPendingSend] = useState<string | null>(null);
+  // Start operator (the operator-less body's button): pending holds until the
+  // SSE sessions payload carries the new operator window and this body
+  // unmounts — there is no client polling, so success leaves the button
+  // disabled rather than re-arming it; a failure re-arms it and carries the
+  // server's message inline.
+  const [startPending, setStartPending] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
   // The drawer's body segment — the quake terminal's local ephemeral state
   // (no URL, tmux,
   // or localStorage write), defaulting to Operator Terminal and resetting on
@@ -225,7 +233,6 @@ export function QuakeTerminal() {
   const navigate = useNavigate();
   const toast = useOptionalToast();
   const noOperatorHintAtRef = useRef(0);
-  const alreadyOnOperatorHintAtRef = useRef(0);
 
   const { servers, sessionsByServer } = useSessionContext();
 
@@ -258,6 +265,11 @@ export function QuakeTerminal() {
   const showPicker = routeServer === null && serverNames.length > 1;
   const server =
     pickerServer ?? pinnedServer ?? resolveQuakeServer(routeServer, serverNames, lastViewedRef.current);
+  // Mirrored for the once-registered seam listener (the desktop
+  // on-operator-route branch reads the resolved pair through refs).
+  const serverRef = useRef(server);
+  serverRef.current = server;
+  const targetRef = useRef<OperatorWindowTarget | undefined>(undefined);
 
   // A pinned/picked server is scoped to the route it was requested from — a
   // navigation retargets the quake terminal to the new route's server.
@@ -371,20 +383,46 @@ export function QuakeTerminal() {
     if (origin?.isConnected) origin.focus();
   }, [machine]);
 
+  // On-operator-route handling — one form-factor-neutral path both seam arms
+  // call when the current route IS the resolved operator window's terminal
+  // route: a terminal/absent segment focuses the page's compose strip (⌘J on
+  // the operator page puts the caret in the docked input; the strip is always
+  // mounted there); a non-terminal segment writes the route's `?tab=` search
+  // param in place (replace — a client-side search update, never a history
+  // entry). A `send` payload (the palette fallback row's query) seeds the
+  // strip's draft unsent — the user reviews and sends. Held in a ref so the
+  // once-registered seam listener below always reads current-render values.
+  const operatorRouteRequestRef = useRef<
+    (detail: QuakeTerminalRequest, srv: string, windowId: string) => void
+  >(() => {});
+  operatorRouteRequestRef.current = (detail, srv, windowId) => {
+    const requestedTab =
+      detail.segment !== undefined && detail.segment !== "terminal" ? detail.segment : undefined;
+    if (requestedTab !== undefined) {
+      void navigate({
+        to: ".",
+        search: (prev) => ({ ...prev, tab: requestedTab }),
+        replace: true,
+      });
+    } else {
+      focusComposeStrip();
+    }
+    if (detail.send !== undefined) {
+      setComposeText(entryKey(srv, windowId), detail.send);
+    }
+  };
+
   // Mobile arm: every quake terminal request — from any entry point, all three
   // actions collapse into this — resolves the operator window and navigates
   // to its ordinary terminal route (there is no sheet to open). A navigation
   // from a terminal route on the same server carries the origin window as
   // `?from=` (never the operator window itself); re-activating while ALREADY
-  // on the target operator route skips the navigate entirely, so the
-  // existing `?from=` (and the chip it feeds) survives. A request carrying
-  // any non-terminal `segment` instead maps to the route's `?tab=<segment>`
-  // search param (merged with `?from=`; an in-place search update when
-  // already on the route) — one rule for every drawer-only view. The palette
-  // fallback
-  // row's query seeds the operator route's compose-strip draft rather than
-  // auto-sending, and an operator-less server toasts the hint (throttled to
-  // one per toast lifetime) without navigating. Held in a ref so the
+  // on the target operator route takes the shared on-operator-route path
+  // above, so the existing `?from=` (and the chip it feeds) survives. A
+  // request carrying any non-terminal `segment` maps to the route's
+  // `?tab=<segment>` search param (merged with `?from=` on a cross-route
+  // navigation). An operator-less server toasts the hint (throttled to one
+  // per toast lifetime) without navigating. Held in a ref so the
   // once-registered seam listener below always reads current-render values.
   const mobileRequestRef = useRef<(detail: QuakeTerminalRequest) => void>(() => {});
   mobileRequestRef.current = (detail) => {
@@ -400,34 +438,22 @@ export function QuakeTerminal() {
       return;
     }
     const onOperatorRoute = routeServer === srv && routeWindow === tgt.window.windowId;
+    if (onOperatorRoute) {
+      operatorRouteRequestRef.current(detail, srv, tgt.window.windowId);
+      return;
+    }
     const requestedTab =
       detail.segment !== undefined && detail.segment !== "terminal" ? detail.segment : undefined;
-    if (requestedTab !== undefined) {
-      // A non-terminal segment maps to the operator route's `?tab=` search
-      // param — merged with the `?from=` origin carrier on a cross-
-      // route navigation, an in-place search update when already there.
-      if (onOperatorRoute) {
-        navigate({
-          to: ".",
-          search: (prev) => ({ ...prev, tab: requestedTab }),
-          replace: true,
-        });
-      } else {
-        const from = routeServer === srv && routeWindow !== null ? routeWindow : undefined;
-        navigate({
-          to: "/$server/$window",
-          params: { server: srv, window: tgt.window.windowId },
-          search: from ? { from, tab: requestedTab } : { tab: requestedTab },
-        });
-      }
-    } else if (!onOperatorRoute) {
-      const from = routeServer === srv && routeWindow !== null ? routeWindow : undefined;
-      navigate({
-        to: "/$server/$window",
-        params: { server: srv, window: tgt.window.windowId },
-        search: from ? { from } : {},
-      });
-    }
+    // A non-terminal segment rides the navigation's search — merged with the
+    // `?from=` origin carrier on a cross-route navigation.
+    const from = routeServer === srv && routeWindow !== null ? routeWindow : undefined;
+    void navigate({
+      to: "/$server/$window",
+      params: { server: srv, window: tgt.window.windowId },
+      search: requestedTab !== undefined
+        ? (from ? { from, tab: requestedTab } : { tab: requestedTab })
+        : (from ? { from } : {}),
+    });
     if (detail.send !== undefined) {
       setComposeText(entryKey(srv, tgt.window.windowId), detail.send);
     }
@@ -439,11 +465,9 @@ export function QuakeTerminal() {
   // the two-state machine, and `open` always opens with the quake launcher
   // focused.
   // While the resolved operator route is already current, every desktop
-  // action stops here with one throttled hint instead of changing any quake
-  // terminal
-  // state — EXCEPT a request carrying a non-terminal segment: those views
-  // exist only inside the drawer on desktop, so the drawer must open to show
-  // them.
+  // request takes the shared on-operator-route path — the page IS the
+  // surface, so openers focus its compose strip or switch its segment and no
+  // drawer ever opens there.
   useEffect(() => {
     function handleRequest(detail: QuakeTerminalRequest) {
       // Handled — clear the seam's buffer so a later mount cannot replay it.
@@ -452,15 +476,10 @@ export function QuakeTerminal() {
         mobileRequestRef.current(detail);
         return;
       }
-      if (
-        onOperatorRouteRef.current &&
-        (detail.segment === undefined || detail.segment === "terminal")
-      ) {
-        const now = Date.now();
-        if (now - alreadyOnOperatorHintAtRef.current >= NO_OPERATOR_HINT_THROTTLE_MS) {
-          alreadyOnOperatorHintAtRef.current = now;
-          toastRef.current?.addToast(ALREADY_ON_OPERATOR_HINT, "info");
-        }
+      if (onOperatorRouteRef.current) {
+        const srv = serverRef.current;
+        const windowId = targetRef.current?.window.windowId;
+        if (srv && windowId) operatorRouteRequestRef.current(detail, srv, windowId);
         return;
       }
       const state = machineRef.current;
@@ -602,6 +621,7 @@ export function QuakeTerminal() {
     () => (server ? findOperatorWindow(sessionsByServer.get(server) ?? []) : undefined),
     [server, sessionsByServer],
   );
+  targetRef.current = target;
 
   // The chat subject. On an ordinary terminal route it is the route's window;
   // on the operator window's OWN route it is the validated `?from=` origin
@@ -620,8 +640,6 @@ export function QuakeTerminal() {
     onTerminalRoute && target !== undefined && routeWindow === target.window.windowId;
   const onOperatorRouteRef = useRef(onOperatorRoute);
   onOperatorRouteRef.current = onOperatorRoute;
-  const toastRef = useRef(toast);
-  toastRef.current = toast;
   const fromWindow = useMemo(() => {
     if (!onOperatorRoute || !server) return null;
     return resolveFromOrigin(search.from, routeWindow, sessionsByServer.get(server) ?? []);
@@ -945,6 +963,27 @@ export function QuakeTerminal() {
         >
           ⌖
         </button>
+        {server && target && (
+          // ⤢ open as tab — mobile's navigation arm on desktop: land on the
+          // operator window's own route (the current segment rides `?tab=`,
+          // terminal drops it), then rest the machine. Rendered only while a
+          // target resolves; an operator-less body's answer is Start operator.
+          <Control
+            variant="icon"
+            aria-label="Open as tab"
+            data-testid="quake-terminal-open-as-tab"
+            onClick={() => {
+              void navigate({
+                to: "/$server/$window",
+                params: { server, window: target.window.windowId },
+                search: segment === "terminal" ? {} : { tab: segment },
+              });
+              setQuakeMachineState("rest");
+            }}
+          >
+            ⤢
+          </Control>
+        )}
         <button
           type="button"
           aria-label="Collapse quake terminal"
@@ -1007,11 +1046,43 @@ export function QuakeTerminal() {
           />
         </div>
       ) : (
+        // The operator-less body: the Start operator button is the on-screen
+        // door onto POST /api/operator/start; the hint line stays as the
+        // sub-line. Success needs no local transition — the SSE sessions
+        // payload carries the new operator window, `target` resolves, and
+        // this body unmounts (a 409 operator_exists is the same outcome: the
+        // operator appeared under us). Any other failure re-arms the button
+        // and renders the server's message inline.
         <div
-          className="flex-1 min-h-0 flex items-center justify-center px-4 text-xs text-text-secondary"
+          className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 px-4 text-xs"
           data-testid="quake-terminal-empty"
         >
-          {NO_OPERATOR_HINT}
+          {server && (
+            <Control
+              variant="wide"
+              data-testid="quake-terminal-start-operator"
+              disabled={startPending}
+              aria-busy={startPending}
+              onClick={() => {
+                if (startPending) return;
+                setStartPending(true);
+                setStartError(null);
+                startOperator(server).catch((err: unknown) => {
+                  if (err instanceof ApiError && err.code === "operator_exists") return;
+                  setStartError(err instanceof Error ? err.message : "Operator start failed");
+                  setStartPending(false);
+                });
+              }}
+            >
+              {startPending ? "starting…" : "Start operator"}
+            </Control>
+          )}
+          <span className="text-text-secondary">{NO_OPERATOR_HINT}</span>
+          {startError && (
+            <span role="alert" data-testid="quake-terminal-start-error" className="text-signal-red">
+              {startError}
+            </span>
+          )}
         </div>
       )}
       {/* The docked compose strip — the shared compose seam's one desktop

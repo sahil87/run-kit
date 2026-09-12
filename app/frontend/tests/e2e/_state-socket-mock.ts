@@ -66,6 +66,21 @@ export function emitGui(payload: unknown): void {
   for (const ws of liveSockets) ws.send(frame);
 }
 
+/** Push a `sessions` event for one server key to every live mocked state
+ *  socket — the spec-side stand-in for the backend's SSE-equivalent repaint
+ *  (e.g. an operator window appearing mid-test without a reload). The payload
+ *  is the same verbatim sessions JSON the subscribe ack carries. */
+export function emitSessions(server: string, sessionsJson: string): void {
+  const frame = JSON.stringify({
+    op: "event",
+    kind: "server",
+    key: server,
+    type: "sessions",
+    data: JSON.parse(sessionsJson),
+  });
+  for (const ws of liveSockets) ws.send(frame);
+}
+
 /** Install a `/ws/state` mock speaking the state-socket protocol. Call before
  *  `page.goto`. Returns nothing — specs drive the UI via the delivered payloads.
  *  (Live-event specs — server-reorder, board-reorder, board-list-reorder — run

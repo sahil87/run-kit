@@ -1,0 +1,56 @@
+id: rp54
+name: 260911-rp54-daemon-utf8-locale-empty-enumeration
+created: 2026-09-11T17:14:35Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+  intake: done
+  apply: done
+  review: done
+  hydrate: done
+  ship: done
+  review-pr: done
+plan:
+  generated: true
+  task_count: 5
+  acceptance_count: 18
+  acceptance_completed: 18
+confidence:
+  certain: 7
+  confident: 7
+  tentative: 1
+  unresolved: 0
+  score: 3.8
+  fuzzy: true
+  dimensions:
+    signal: 75.0
+    reversibility: 85.7
+    competence: 77.0
+    disambiguation: 73.7
+stage_metrics:
+  intake: {started_at: "2026-09-11T17:14:35Z", driver: fab-new, iterations: 1, completed_at: "2026-09-11T17:19:56Z"}
+  apply: {started_at: "2026-09-11T17:48:44Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-11T17:53:38Z"}
+  review: {started_at: "2026-09-11T17:53:38Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-11T18:08:02Z"}
+  hydrate: {started_at: "2026-09-11T18:08:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:12:14Z"}
+  ship: {started_at: "2026-09-11T18:12:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:13:12Z"}
+  review-pr: {started_at: "2026-09-11T18:13:12Z", driver: git-pr, iterations: 1, completed_at: "2026-09-11T18:13:56Z", phase: replying, reviewer: '@Copilot'}
+prs:
+  - https://github.com/sahil87/run-kit/pull/947
+true_impact:
+  added: 1041
+  deleted: 13
+  net: 1028
+  excluding:
+    added: 571
+    deleted: 8
+    net: 563
+  tests:
+    added: 316
+    deleted: 0
+    net: 316
+  computed_at: "2026-09-11T18:13:12Z"
+  computed_at_stage: ship
+summary: rk repairs a missing UTF-8 locale at startup (LC_CTYPE=C.UTF-8) so tmux 3.7 no longer sanitizes the -F tab delimiter into an empty enumeration; list readers return ErrNoFieldDelimiter instead of empty; rk doctor gains an always-OK locale row probing the rk-daemon server env
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-11T18:13:56Z

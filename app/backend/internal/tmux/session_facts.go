@@ -68,7 +68,7 @@ func ListSessionFacts(ctx context.Context, server string) ([]SessionFacts, error
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", sessionListFormat())
+	lines, err := tmuxExecList(ctx, server, "list-sessions", "-F", sessionListFormat())
 	if err != nil {
 		if containsServerGoneText(err.Error()) {
 			return nil, nil

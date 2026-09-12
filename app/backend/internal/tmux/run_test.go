@@ -57,6 +57,19 @@ func TestNewRunCmdEnvironment(t *testing.T) {
 	}
 }
 
+// TestNewRunCmdEnvironmentCarriesForcedLocale proves the startup locale
+// repair reaches every tmux child on the inherit path: a forced LC_CTYPE in
+// the process environment is present verbatim in the child env, so the tmux
+// client passes the UTF-8 rule and -F output keeps its tab delimiters.
+func TestNewRunCmdEnvironmentCarriesForcedLocale(t *testing.T) {
+	t.Setenv("LC_CTYPE", "C.UTF-8")
+
+	cmd := newRunCmd(context.Background(), []string{"-V"}, RunOpts{})
+	if !slices.Contains(cmd.Env, "LC_CTYPE=C.UTF-8") {
+		t.Fatalf("inherited cmd env omitted the forced locale: %v", cmd.Env)
+	}
+}
+
 // TestRun_WrapsTrimmedStderr proves a failing tmux invocation surfaces tmux's
 // stderr diagnostic in the returned error (the text callers pattern-match on)
 // while still unwrapping to the underlying *exec.ExitError via %w.

@@ -159,6 +159,13 @@ func runDoctorChecks() doctorReport {
 	// reportable and nothing here may fail the report.
 	report.Checks = append(report.Checks, cronTickerCheck())
 
+	// Locale — whether this process and the rk-daemon server's global env pass
+	// tmux's client UTF-8 rule, always OK-shaped: the process side is already
+	// repaired at startup (only the forced record can say the host lacked a
+	// locale) and a locale-less server is a state its panes inherit, never a
+	// dependency failure.
+	report.Checks = append(report.Checks, localeCheck(localeForced, os.LookupEnv, daemonGlobalEnv))
+
 	// Set-but-ignored env vars: RK_SSH_HOST no longer has any reader (the
 	// ssh_host setting is the only source), so a row appears ONLY when it is
 	// set — steady-state output stays noise-free.
@@ -170,6 +177,60 @@ func runDoctorChecks() doctorReport {
 	}
 
 	return report
+}
+
+// localeForced / daemonGlobalEnv are the seams for the locale row — tests
+// substitute them to drive every note shape without touching the real
+// environment or a live tmux server.
+var (
+	localeForced    = tmux.ForcedLocale
+	daemonGlobalEnv = func(ctx context.Context) (map[string]string, error) {
+		return tmux.ServerGlobalEnv(ctx, daemon.ServerSocket)
+	}
+)
+
+// localeCheck reports whether the rk process and the rk-daemon tmux server's
+// global environment satisfy tmux's client UTF-8 rule (tmux.LocaleStatus).
+// Always OK-shaped. The process fragment reads the forced-locale record
+// because EnsureUTF8Locale has already repaired the environment by the time
+// any check runs. The server fragment matters because panes born in that
+// server inherit its global env, not rk's: an Electron- or launchd-born
+// server stays locale-less until `rk daemon restart --full`. Remediation
+// rides the note — the human renderer prints Hint only on FAIL rows. A gone
+// server (nil env) omits the fragment; any other probe error degrades to a
+// skip note.
+func localeCheck(forced func() (string, string, bool), lookup func(string) (string, bool), probe func(context.Context) (map[string]string, error)) doctorCheck {
+	check := doctorCheck{Name: "locale", OK: true}
+	var frags []string
+	if name, value, ok := forced(); ok {
+		frags = append(frags, fmt.Sprintf("process: no UTF-8 locale in environment; forced %s=%s", name, value))
+	} else if name, value, utf8 := tmux.LocaleStatus(lookup); utf8 {
+		frags = append(frags, fmt.Sprintf("process: %s=%s", name, value))
+	} else {
+		frags = append(frags, "process: no UTF-8 locale in environment")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), tmux.TmuxTimeout)
+	defer cancel()
+	env, err := probe(ctx)
+	switch {
+	case err != nil:
+		frags = append(frags, fmt.Sprintf("%s server env: probe skipped — %v", daemon.ServerSocket, err))
+	case env == nil:
+		// Server not running: nothing to report.
+	default:
+		name, value, utf8 := tmux.LocaleStatus(func(k string) (string, bool) {
+			v, ok := env[k]
+			return v, ok
+		})
+		if utf8 {
+			frags = append(frags, fmt.Sprintf("%s server: %s=%s", daemon.ServerSocket, name, value))
+		} else {
+			frags = append(frags, fmt.Sprintf("%s server env: no UTF-8 locale — panes born there run without one; run 'rk daemon restart --full' from a terminal with LANG set", daemon.ServerSocket))
+		}
+	}
+	check.Note = strings.Join(frags, "; ")
+	return check
 }
 
 // cronTickerCheck reports the cron ticker's configuration facts: the

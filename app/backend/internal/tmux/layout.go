@@ -145,7 +145,7 @@ func ListLayoutSessions(ctx context.Context, server string) ([]LayoutSession, er
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", layoutSessionFormat)
+	lines, err := tmuxExecList(ctx, server, "list-sessions", "-F", layoutSessionFormat)
 	if err != nil {
 		return nil, fmt.Errorf("layout list-sessions: %w", err)
 	}
@@ -187,7 +187,7 @@ func ListLayoutWindows(ctx context.Context, server string) ([]LayoutWindow, erro
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a", "-F", layoutWindowFormat)
+	lines, err := tmuxExecList(ctx, server, "list-windows", "-a", "-F", layoutWindowFormat)
 	if err != nil {
 		return nil, fmt.Errorf("layout list-windows: %w", err)
 	}
@@ -206,7 +206,7 @@ func ListLayoutWindow(ctx context.Context, server, windowID string) (win LayoutW
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a",
+	lines, err := tmuxExecList(ctx, server, "list-windows", "-a",
 		"-F", layoutWindowFormat, "-f", "#{==:#{window_id},"+windowID+"}")
 	if err != nil {
 		return LayoutWindow{}, false, fmt.Errorf("layout list-windows: %w", err)
@@ -226,7 +226,7 @@ func ListLayoutPanesForWindow(ctx context.Context, server, windowID string) ([]L
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	lines, err := tmuxExecServer(ctx, server, "list-panes", "-a",
+	lines, err := tmuxExecList(ctx, server, "list-panes", "-a",
 		"-F", layoutPaneFormat, "-f", "#{==:#{window_id},"+windowID+"}")
 	if err != nil {
 		return nil, fmt.Errorf("layout list-panes: %w", err)
@@ -331,7 +331,7 @@ func ListLayoutPanes(ctx context.Context, server string) (map[string][]LayoutPan
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	lines, err := tmuxExecServer(ctx, server, "list-panes", "-a", "-F", layoutPaneFormat)
+	lines, err := tmuxExecList(ctx, server, "list-panes", "-a", "-F", layoutPaneFormat)
 	if err != nil {
 		return nil, fmt.Errorf("layout list-panes: %w", err)
 	}

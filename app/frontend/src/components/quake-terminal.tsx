@@ -622,8 +622,12 @@ export function QuakeTerminal() {
   const [dragOverride, setDragOverride] = useState<QuakeGeometry | null>(null);
   const [dragEdge, setDragEdge] = useState<QuakeResizeEdge | null>(null);
   const [hoverEdge, setHoverEdge] = useState<QuakeResizeEdge | null>(null);
+  // `pointerId` pins the drag to the pointer that started it: on a touchscreen
+  // a second finger fires its own pointer events at the grip, and without the
+  // pin it could overwrite the origin or commit its geometry on release.
   const dragRef = useRef<{
     edge: QuakeResizeEdge;
+    pointerId: number;
     startX: number;
     startY: number;
     start: QuakeGeometry;
@@ -650,20 +654,28 @@ export function QuakeTerminal() {
   const onGripPointerDown = useCallback(
     (edge: QuakeResizeEdge) => (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
+      // A second pointer while a drag is live is ignored, never a new drag.
+      if (dragRef.current) return;
       e.preventDefault();
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {
         // Synthetic pointer events (unit tests) have no active pointer to capture.
       }
-      dragRef.current = { edge, startX: e.clientX, startY: e.clientY, start: effectiveGeometry };
+      dragRef.current = {
+        edge,
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        start: effectiveGeometry,
+      };
       setDragEdge(edge);
     },
     [effectiveGeometry],
   );
   const onGripPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
-    if (!drag) return;
+    if (!drag || e.pointerId !== drag.pointerId) return;
     const dx = e.clientX - drag.startX;
     const dy = e.clientY - drag.startY;
     const next: QuakeGeometry = { ...drag.start };
@@ -682,7 +694,7 @@ export function QuakeTerminal() {
   const onGripPointerUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       const drag = dragRef.current;
-      if (!drag) return;
+      if (!drag || e.pointerId !== drag.pointerId) return;
       dragRef.current = null;
       try {
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {

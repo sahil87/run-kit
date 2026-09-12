@@ -673,6 +673,29 @@ describe("QuakeTerminal", () => {
     expect(right).not.toHaveAttribute("data-lit");
   });
 
+  it("a second pointer cannot hijack or end a live drag", async () => {
+    renderQuake();
+    openDrawer();
+    const el = await screen.findByTestId("quake-terminal");
+
+    const grip = screen.getByTestId("quake-terminal-grip-right");
+    fireEvent.pointerDown(grip, { button: 0, clientX: 500, clientY: 100, pointerId: 1 });
+    // A second finger lands on the grip: its down, move, and up are ignored.
+    fireEvent.pointerDown(grip, { button: 0, clientX: 900, clientY: 100, pointerId: 2 });
+    fireEvent.pointerMove(grip, { clientX: 1000, clientY: 100, pointerId: 2 });
+    expect(el.style.width).toBe("760px");
+    fireEvent.pointerUp(grip, { pointerId: 2 });
+    expect(el.className).toContain("rk-quake-dragging");
+    expect(localStorage.getItem("runkit-quake-terminal-geometry")).toBeNull();
+
+    // The first pointer still owns the drag.
+    fireEvent.pointerMove(grip, { clientX: 540, clientY: 100, pointerId: 1 });
+    expect(el.style.width).toBe("800px");
+    fireEvent.pointerUp(grip, { pointerId: 1 });
+    expect(el.className).not.toContain("rk-quake-dragging");
+    expect(storedGeometry()).toMatchObject({ widthPx: 800, centerOffsetPx: 20 });
+  });
+
   it("pointercancel ends a drag through the same release path", async () => {
     renderQuake();
     openDrawer();

@@ -126,6 +126,12 @@ Both modes include SPA fallback (serve `index.html` for non-matching paths), API
 ### TanStack Router over React Router
 **Decision**: TanStack Router — type-safe params and search params, built-in loader pattern. Single route `/:session/:window` in the frontend.
 
+### TanStack Table over shadcn/Radix
+**Decision**: `@tanstack/react-table` as the headless table model for the frontend's data tables ([ui/data-table](/run-kit/ui/data-table.md)); every element rendered in the project's own Tailwind/Control vocabulary.
+**Why**: Radix has no table primitive; shadcn's data table is TanStack underneath plus a dependency tree (Radix, cva, tailwind-merge, a generated `components/ui/`) the project deliberately does not carry; the router is already TanStack.
+**Rejected**: shadcn/ui data table (the dependency tree); a hand-rolled sort/resize (re-implements stable sort, `sortUndefined`, resize deltas the library already gets right).
+*Introduced by*: 260912-xi3h-data-table-tanstack
+
 ### Vite proxy in dev (not CORS)
 **Decision**: the Vite dev server proxies to the Go backend — single browser URL, no CORS config needed; WebSocket upgrade works transparently. Go includes chi CORS middleware for production/non-browser clients.
 

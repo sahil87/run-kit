@@ -1,0 +1,57 @@
+id: xi3h
+name: 260912-xi3h-data-table-tanstack
+created: 2026-09-12T17:31:37Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 32
+    acceptance_completed: 32
+confidence:
+    certain: 15
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 3.9
+    fuzzy: true
+    dimensions:
+        signal: 74.5
+        reversibility: 86.4
+        competence: 85.0
+        disambiguation: 77.4
+stage_metrics:
+    intake: {started_at: "2026-09-12T17:31:37Z", driver: fab-new, iterations: 1, completed_at: "2026-09-12T17:37:39Z"}
+    apply: {started_at: "2026-09-12T17:37:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-12T18:01:09Z"}
+    review: {started_at: "2026-09-12T18:01:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-12T18:06:00Z"}
+    hydrate: {started_at: "2026-09-12T18:06:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-12T18:09:44Z"}
+    ship: {started_at: "2026-09-12T18:09:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-12T18:12:16Z"}
+    review-pr: {started_at: "2026-09-12T18:12:16Z", driver: git-pr, iterations: 1, completed_at: "2026-09-12T18:29:43Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/961
+change_type_source: explicit
+true_impact:
+    added: 2361
+    deleted: 408
+    net: 1953
+    excluding:
+        added: 1730
+        deleted: 401
+        net: 1329
+    tests:
+        added: 174
+        deleted: 0
+        net: 174
+    computed_at: "2026-09-12T18:12:16Z"
+    computed_at_stage: ship
+summary: 'one shared DataTable over @tanstack/react-table: sortable aria-sort headers, fine-pointer column resize, per-viewer runkit-table-<id> view state, mounted-table registry + Table: Reset columns palette action; WatchedTable/CronList/CronLog render through it'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-12T18:29:43Z

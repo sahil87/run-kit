@@ -17,6 +17,7 @@
     "@floating-ui/react": "^0.27.19",
     "@novnc/novnc": "^1.7.0",
     "@tanstack/react-router": "^1.168.22",
+    "@tanstack/react-table": "^9.2.4",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-progress": "^0.2.0",

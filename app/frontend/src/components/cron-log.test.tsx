@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { CronLog } from "./cron-log";
+import { resetDataTableViewState } from "@/components/data-table";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import type { CronEntry, CronListResponse } from "@/api/client";
 
@@ -68,6 +69,8 @@ function rowOrder(): (string | null)[] {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // Per-viewer table state persists in localStorage across tests in this file.
+  localStorage.clear();
 });
 
 describe("CronLog", () => {
@@ -103,8 +106,34 @@ describe("CronLog", () => {
     renderLog(SERVER);
     const gone = await screen.findByTestId("cron-delivery-row-gone");
     expect(gone.tagName).not.toBe("BUTTON");
+    // Inert history: no button role, no keyboard targeting, marked disabled.
+    expect(gone).not.toHaveAttribute("role", "button");
+    expect(gone).not.toHaveAttribute("tabindex");
+    expect(gone).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(gone);
+    fireEvent.keyDown(gone, { key: "Enter" });
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("clicking `when` sorts oldest-first then newest-first; reset returns to API order", async () => {
+    installFetch();
+    renderLog(SERVER);
+    await screen.findByTestId("cron-delivery-row-soon");
+
+    const whenHeader = screen.getByText("when").closest("th");
+    expect(whenHeader).toHaveAttribute("aria-sort", "none");
+
+    fireEvent.click(screen.getByLabelText("Sort by when"));
+    expect(whenHeader).toHaveAttribute("aria-sort", "ascending");
+    expect(rowOrder()).toEqual(["cron-delivery-row-gone", "cron-delivery-row-soon"]);
+
+    fireEvent.click(screen.getByLabelText("Sort by when"));
+    expect(whenHeader).toHaveAttribute("aria-sort", "descending");
+    expect(rowOrder()).toEqual(["cron-delivery-row-soon", "cron-delivery-row-gone"]);
+
+    act(() => resetDataTableViewState("cron-log"));
+    expect(whenHeader).toHaveAttribute("aria-sort", "none");
+    expect(rowOrder()).toEqual(["cron-delivery-row-soon", "cron-delivery-row-gone"]);
   });
 
   it("renders the single empty line when there are no deliveries", async () => {

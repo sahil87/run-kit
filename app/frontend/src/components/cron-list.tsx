@@ -1,29 +1,31 @@
-import { useState } from "react";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { useCronData } from "@/hooks/use-cron";
 import { describeSchedule } from "@/lib/cron-schedule";
 import {
+  compareCronEntries,
   cronEntryLabel,
   isCronDimmed,
   mutedLabel,
-  sortCronEntries,
   targetChip,
 } from "@/lib/cron-list-model";
 import { formatDuration } from "@/lib/format";
 import { controlClass } from "@/components/control";
+import { DataTable, type DataTableColumn, type DataTableRowProps } from "@/components/data-table";
 import { CronEntryDetailSheet } from "@/components/cron-entry-detail-sheet";
 import { CronCreateDialog } from "@/components/cron-create-dialog";
 import type { CronEntry } from "@/api/client";
 
-const ROW_CLASS =
-  "flex w-full items-baseline gap-2 px-3 py-2 text-left text-xs coarse:min-h-[44px]";
-
 /**
- * The Cron List tab — the `rk cron list` registry: one dense monospace row
- * per entry (name, target chip, schedule in plain words, relative next fire,
- * backoff rung, the deliver marker for non-immediate policies, and the muted/
- * pinned/orphan flags), sorted soonest-fire-first with undated entries last.
- * Muted and orphaned rows are DIMMED, never omitted. Tapping a row opens the
- * entry detail sheet (the row-action surface); `+ New entry` opens the create
+ * The Cron List tab — the `rk cron list` registry rendered through the shared
+ * `DataTable` (components/data-table.tsx): one row per entry with a sortable,
+ * resizable header — entry name, target chip, schedule in plain words, backoff
+ * rung, the deliver marker for non-immediate policies, the relative next fire,
+ * and the muted/pinned/orphan flags. The at-rest order is `sortCronEntries`
+ * (soonest-fire-first, undated last), expressed as the `next` column's initial
+ * ascending sort over the same `compareCronEntries` comparator; a header click
+ * is a per-viewer override persisted under `runkit-table-cron-list`. Muted and
+ * orphaned rows are DIMMED, never omitted. Tapping a row opens the entry
+ * detail sheet (the row-action surface); `+ New entry` opens the create
  * dialog. Data rides `useCronData` (mount fetch + the state-socket sessions
  * cadence — no polling); every mutation's confirmation lands on the next tick.
  *
@@ -43,7 +45,107 @@ export function CronList({ server, inline = false }: { server: string; inline?: 
     : undefined;
 
   const nowSeconds = Math.floor(Date.now() / 1000);
-  const sorted = sortCronEntries(entries);
+
+  const columns = useMemo<DataTableColumn<CronEntry>[]>(
+    () => [
+      {
+        id: "label",
+        header: "entry",
+        sortValue: cronEntryLabel,
+        size: 200,
+        minSize: 80,
+        cell: (entry) => cronEntryLabel(entry),
+      },
+      {
+        id: "target",
+        header: "target",
+        sortValue: targetChip,
+        size: 140,
+        minSize: 64,
+        className: "text-text-secondary",
+        cell: (entry) => targetChip(entry),
+      },
+      {
+        id: "schedule",
+        header: "schedule",
+        sortValue: (entry) => describeSchedule(entry),
+        size: 240,
+        minSize: 80,
+        className: "truncate text-text-secondary",
+        cell: (entry) => describeSchedule(entry),
+      },
+      {
+        id: "rung",
+        header: "rung",
+        sortValue: (entry) => (entry.schedule.kind === "backoff" ? entry.rung : undefined),
+        size: 80,
+        minSize: 48,
+        className: "text-text-secondary",
+        cell: (entry) =>
+          entry.schedule.kind === "backoff" && entry.rung != null ? (
+            `rung ${entry.rung}`
+          ) : (
+            <span className="text-text-secondary">—</span>
+          ),
+      },
+      {
+        id: "deliver",
+        header: "deliver",
+        sortValue: (entry) => deliverMarker(entry) ?? "",
+        size: 120,
+        minSize: 64,
+        className: "text-text-secondary",
+        // The norm (immediate) adds zero chrome — only a non-default policy
+        // marks.
+        cell: (entry) => {
+          const marker = deliverMarker(entry);
+          return marker ? <span data-testid="cron-list-deliver">{marker}</span> : null;
+        },
+      },
+      {
+        id: "next",
+        header: "next",
+        sortValue: (entry) => entry.nextFire,
+        // The registry comparator (soonest first, undated last, label/id
+        // tie-break) — the at-rest order and this column's sort are one
+        // function. `sortUndefined: false` hands undefined `nextFire` pairs to
+        // the comparator too (TanStack's undefined placement would skip it and
+        // keep input order, breaking the tie-break).
+        sortingFn: compareCronEntries,
+        sortUndefined: false,
+        size: 110,
+        minSize: 64,
+        className: "text-text-secondary",
+        cell: (entry) =>
+          entry.nextFire !== undefined ? (
+            entry.nextFire > nowSeconds ? (
+              `in ${formatDuration(entry.nextFire - nowSeconds)}`
+            ) : (
+              "due"
+            )
+          ) : (
+            <span className="text-text-secondary">—</span>
+          ),
+      },
+      {
+        id: "flags",
+        header: "flags",
+        sortValue: (entry) => cronFlags(entry, nowSeconds).join(" · "),
+        size: 200,
+        minSize: 80,
+        className: "text-text-secondary",
+        cell: (entry) => {
+          const flags = cronFlags(entry, nowSeconds);
+          return flags.length > 0 ? (
+            flags.join(" · ")
+          ) : (
+            <span className="text-text-secondary">—</span>
+          );
+        },
+      },
+    ],
+    [nowSeconds],
+  );
 
   if (!server) {
     return (
@@ -72,7 +174,7 @@ export function CronList({ server, inline = false }: { server: string; inline?: 
         </button>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {sorted.length === 0 ? (
+        {entries.length === 0 ? (
           <div
             className="flex h-full items-center justify-center px-4 text-xs text-text-secondary"
             data-testid="cron-list-empty"
@@ -80,14 +182,29 @@ export function CronList({ server, inline = false }: { server: string; inline?: 
             Agents can schedule prompts too — rk cron add.
           </div>
         ) : (
-          sorted.map((entry) => (
-            <CronListRow
-              key={entry.id}
-              entry={entry}
-              nowSeconds={nowSeconds}
-              onOpen={() => setSelectedEntryId(entry.id)}
-            />
-          ))
+          <DataTable
+            tableId="cron-list"
+            label="Cron List"
+            columns={columns}
+            rows={entries}
+            rowKey={(entry) => entry.id}
+            initialSort={{ id: "next", desc: false }}
+            dense={inline}
+            cellClassName="coarse:min-h-[44px]"
+            rowProps={(entry): DataTableRowProps => ({
+              "data-testid": `cron-list-row-${entry.id}`,
+              role: "button",
+              tabIndex: 0,
+              className: `cursor-pointer${isCronDimmed(entry) ? " opacity-50" : ""}`,
+              onClick: () => setSelectedEntryId(entry.id),
+              onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setSelectedEntryId(entry.id);
+                }
+              },
+            })}
+          />
         )}
       </div>
       {selectedEntry && (
@@ -103,28 +220,20 @@ export function CronList({ server, inline = false }: { server: string; inline?: 
   );
 }
 
-function CronListRow({
-  entry,
-  nowSeconds,
-  onOpen,
-}: {
-  entry: CronEntry;
-  nowSeconds: number;
-  onOpen: () => void;
-}) {
-  const dimmed = isCronDimmed(entry);
-  // The norm (immediate) adds zero chrome — only a non-default policy marks.
-  const deliverMarker =
-    entry.deliver != null && entry.deliver !== "" && entry.deliver !== "immediate"
-      ? entry.deliver
-      : null;
-  const nextFireLabel =
-    entry.nextFire !== undefined
-      ? entry.nextFire > nowSeconds
-        ? `in ${formatDuration(entry.nextFire - nowSeconds)}`
-        : "due"
-      : "—";
+/** The deliver column's marker: the raw policy text when `deliver` is set and
+ *  not `immediate`, else null (the norm adds zero chrome). */
+function deliverMarker(entry: CronEntry): string | null {
+  return entry.deliver != null && entry.deliver !== "" && entry.deliver !== "immediate"
+    ? entry.deliver
+    : null;
+}
 
+/** The flags column: `muted {remaining}` while a lease is live (keyed on the
+ *  server's EFFECTIVE `muted` — stored flag OR unexpired lease, so no
+ *  client-side expiry logic), `muted` for the indefinite flag, `pinned`,
+ *  `orphaned {age}` plus `expires {rel}` while the orphan-TTL reap time is
+ *  ahead. */
+function cronFlags(entry: CronEntry, nowSeconds: number): string[] {
   const flags: string[] = [];
   if (entry.muted === true) flags.push(mutedLabel(entry, nowSeconds));
   if (entry.pinned === true) flags.push("pinned");
@@ -138,33 +247,5 @@ function CronListRow({
       flags.push(`expires ${formatDuration(entry.expiresAt - nowSeconds)}`);
     }
   }
-
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      data-testid={`cron-list-row-${entry.id}`}
-      className={`${ROW_CLASS} font-mono ${dimmed ? "opacity-50" : ""}`}
-    >
-      <span className="min-w-0 flex-1 truncate text-text-primary">
-        {cronEntryLabel(entry)}
-        {flags.map((flag) => (
-          <span key={flag} className="text-text-secondary">{` · ${flag}`}</span>
-        ))}
-      </span>
-      <span className="shrink-0 text-text-secondary">{targetChip(entry)}</span>
-      <span className="min-w-0 flex-[2] truncate text-text-secondary">
-        {describeSchedule(entry)}
-      </span>
-      {entry.schedule.kind === "backoff" && entry.rung != null && (
-        <span className="shrink-0 text-text-secondary">{`rung ${entry.rung}`}</span>
-      )}
-      {deliverMarker && (
-        <span className="shrink-0 text-text-secondary" data-testid="cron-list-deliver">
-          {deliverMarker}
-        </span>
-      )}
-      <span className="shrink-0 text-text-secondary">{nextFireLabel}</span>
-    </button>
-  );
+  return flags;
 }

@@ -319,7 +319,7 @@ describe("BottomBar chips on the coarse-only bar (260723-fm08; gate 260814-ldbs)
       "Tab",
       "Control",
       "Function keys",
-      "Compose text",
+      "Compose",
       "Open command palette",
     ]) {
       const chip = screen.getByLabelText(name);
@@ -439,15 +439,17 @@ describe("BottomBar chip order + compose chip (260811-0f3d)", () => {
   it("renders the palette chip before the compose chip in DOM order", () => {
     renderBottomBar({ onOpenCompose: vi.fn() });
     const palette = screen.getByLabelText("Open command palette");
-    const compose = screen.getByLabelText("Compose text");
+    const compose = screen.getByLabelText("Compose");
     expect(
       palette.compareDocumentPosition(compose) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
   it("compose chip bar is static while the strip is off — no blink class", () => {
+    // The preference is on by default; "off" is an explicit stored choice.
+    localStorage.setItem("runkit-compose-strip", "false");
     renderBottomBar({ onOpenCompose: vi.fn() });
-    const compose = screen.getByLabelText("Compose text");
+    const compose = screen.getByLabelText("Compose");
     expect(compose.textContent).toBe("a▏");
     expect(compose.querySelector(".rk-compose-caret")).toBeNull();
   });
@@ -455,7 +457,7 @@ describe("BottomBar chip order + compose chip (260811-0f3d)", () => {
   it("compose chip bar blinks while the strip is on — rk-compose-caret on the ▏ span", () => {
     localStorage.setItem("runkit-compose-strip", "true");
     renderBottomBar({ onOpenCompose: vi.fn() });
-    const compose = screen.getByLabelText("Compose text");
+    const compose = screen.getByLabelText("Compose");
     const bar = compose.querySelector(".rk-compose-caret");
     expect(bar).not.toBeNull();
     expect(bar!.textContent).toBe("▏");

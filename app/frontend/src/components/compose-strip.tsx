@@ -224,6 +224,12 @@ type ComposeStripProps = {
    *  mounts (selection broadcast, board route, no-tty fallback) omit it and
    *  keep the header. */
   dockedInTile?: boolean;
+  /** Hand focus to the terminal after Escape blurs the textarea — the strip
+   *  is the keyboard, the terminal is the control surface, and the
+   *  placeholder promises `Esc → terminal`. Each mount passes its own
+   *  terminal-focus seam (the route's `focusTerminalRef`, the board's focused
+   *  pane); absent, Escape only blurs. */
+  onEscapeToTerminal?: () => void;
 };
 
 /**
@@ -266,11 +272,15 @@ export function ComposeStrip({
   const selectionTarget = props.selectionTarget ?? null;
   const hasTarget =
     (selectionTarget !== null && selectionTarget.keys.length > 0) || focused !== null;
-  if (forceExpanded) return <ComposeStripExpanded {...props} />;
+  if (forceExpanded) return <ComposeStripExpanded {...props} forceExpanded />;
   if (!composeStripEnabled) return <CollapsedTongue />;
   if (!hasTarget) return <NoTargetTongue />;
   return <ComposeStripExpanded {...props} />;
 }
+
+/** Sentinel for the one-time "on by default" notice — written before the
+ *  toast fires so StrictMode's double-invoked mount effect shows it once. */
+const COMPOSE_DEFAULT_NOTICE_KEY = "runkit-compose-default-notice";
 
 /** Shared dock-seam wrapper for both tongue forms: the same outer/inner shape
  *  as the expanded body (unstyled outer box carrying the test id and the
@@ -358,8 +368,17 @@ function ComposeStripExpanded({
   selectionTarget = null,
   focusMemoryWindow,
   dockedInTile = false,
-}: ComposeStripProps) {
+  onEscapeToTerminal,
+  forceExpanded = false,
+}: ComposeStripProps & {
+  /** Set by the wrapper on the operator page's forced mount. The "on by
+   *  default" notice is suppressed there: the toggle it advertises would flip
+   *  the preference without hiding this strip. */
+  forceExpanded?: boolean;
+}) {
   const { focused } = useFocusedTerminal();
+  const { composeStripDefaulted } = useChromeState();
+  const { bindings: keybindings, host: keybindingHost } = useKeybindings();
   // The chat-subject store (lib/quake-terminal.ts): on the operator window's
   // own route the quake terminal stamps the validated `?from=` origin window here.
   // The strip attaches the chip and forks its plain text submit onto the
@@ -377,7 +396,7 @@ function ComposeStripExpanded({
       ? focused.server
       : null;
   // The header-row × fires the exact same toggle as the bottom-bar `>_` chip
-  // and the `View: Text Input` palette entry. Consumed here (not threaded as a
+  // and the `Compose: Toggle` palette entry. Consumed here (not threaded as a
   // prop) so both footer mounts (app.tsx / board-page.tsx) inherit the close
   // affordance with zero per-route work. Closing is lossless — the draft lives
   // in the module store — so no confirmation is needed.
@@ -510,7 +529,7 @@ function ComposeStripExpanded({
     : hasTarget
       ? coarsePointer
         ? `→ ${focusedTargetName ?? ""}…`
-        : `Compose text — Enter inserts · ${composeSubmitKeycap()} sends · ↑ history`
+        : `Compose text — Enter inserts · ${composeSubmitKeycap()} sends · ↑ history · Esc → terminal`
       : NO_TARGET_COPY;
 
   // The header row renders only where it carries real signal: selection
@@ -827,13 +846,14 @@ function ComposeStripExpanded({
   }
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    // Escape dismisses transient recall, then blurs back to the terminal
-    // (never closes the strip).
+    // Escape dismisses transient recall, blurs the textarea, and hands focus
+    // to the terminal through the mount's seam (never closes the strip).
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
       setHistoryOpen(false);
       textareaRef.current?.blur();
+      onEscapeToTerminal?.();
       return;
     }
     // Shared readline editing layer (handleReadlineKey): Ctrl+U/Ctrl+W/Alt+B/F/D,
@@ -977,6 +997,23 @@ function ComposeStripExpanded({
     const el = textareaRef.current;
     if (!el || el.disabled) return;
     el.focus();
+  }, []);
+
+  // One-time "on by default" notice: only when the DEFAULT put the strip on
+  // screen (no stored preference), never on the operator page's forced mount
+  // (the advertised toggle would not hide that strip), and once per browser.
+  // The sentinel is written BEFORE the toast so a StrictMode effect replay
+  // cannot show it twice. Read-once inputs, so mount-only deps are correct.
+  useEffect(() => {
+    if (forceExpanded || !composeStripDefaulted) return;
+    try {
+      if (localStorage.getItem(COMPOSE_DEFAULT_NOTICE_KEY) !== null) return;
+      localStorage.setItem(COMPOSE_DEFAULT_NOTICE_KEY, "1");
+    } catch {
+      return;
+    }
+    const chord = chordHintFor("compose-toggle", keybindings, keybindingHost.platform);
+    addToast(chord ? `Compose is on by default — ${chord} hides it` : "Compose is on by default", "info");
   }, []);
 
   // Publish the textarea's focus state to the module store (260814-ink6) so
@@ -1214,7 +1251,7 @@ function ComposeStripExpanded({
     </button>
   );
   // The `a|` close affordance — fine pointers only (dropped on coarse, where
-  // the bottom-bar `a▏` chip, the `View: Text Input` palette action, and
+  // the bottom-bar `a▏` chip, the `Compose: Toggle` palette action, and
   // ⌘I/⇧Ctrl+E remain the closers). With the header folded at the fine
   // in-tile dock this is the sole on-strip closer there. Fires the exact same
   // `toggleComposeStrip` path as the header × and the chord.

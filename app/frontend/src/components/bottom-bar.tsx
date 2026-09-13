@@ -510,12 +510,12 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
         </button>
       </Tip>
       {onOpenCompose && (
-        <Tip label="Compose text" kbd={composeChord} placement="top">
+        <Tip label="Compose" kbd={composeChord} placement="top">
           <button
             type="button"
             onMouseDown={preventFocusSteal}
             onClick={onOpenCompose}
-            aria-label="Compose text"
+            aria-label="Compose"
             aria-pressed={composeStripEnabled}
             className={controlClass({ variant: "chip", pressed: composeStripEnabled, className: composeStripEnabled ? undefined : "text-text-secondary" })}
           >

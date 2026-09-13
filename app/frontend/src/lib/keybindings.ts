@@ -237,7 +237,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // selection for find" territory on mac, so the demotion rides a different
   // letter. ignoreInputs lets the chord CLOSE the strip while its own
   // textarea has focus.
-  { actionId: "compose-toggle", code: "KeyE", tier: "shifted", macCode: "KeyI", macTier: "cmd", scope: "global", kind: "builtin", label: "Compose text", description: "toggle the compose strip", mapLabel: "compose", ignoreInputs: true },
+  { actionId: "compose-toggle", code: "KeyE", tier: "shifted", macCode: "KeyI", macTier: "cmd", scope: "global", kind: "builtin", label: "Compose", description: "toggle the compose strip", mapLabel: "compose", ignoreInputs: true },
   // ⇧⌘O open-last-used (260801-sm6g): re-runs the Open split-button's primary
   // (last-used) target. Terminal scope — the Open control is
   // terminal-route-only; the board/server routes mount no handler.
@@ -1017,6 +1017,27 @@ export function shouldSuppressChord(target: EventTarget | null): boolean {
   // `isContentEditable` is the browser truth; fall back to the attribute value
   // (`"true"` / `""`) since jsdom does not implement the getter.
   return target.isContentEditable || target.contentEditable === "true";
+}
+
+/**
+ * Whether moving focus away from `active` would INTERRUPT the user — an
+ * xterm, any editable (`shouldSuppressChord`'s truth — the palette input
+ * included), an iframe (the code/web tiles), a dialog's contents, or an open
+ * popup's contents (a `role="menu"` / `role="listbox"` — a roving-focus row the
+ * user is stepping through). A plain chrome control — the sidebar row that
+ * just navigated, a top-bar button at rest — is not engaged, and `body`/`null`
+ * never is. The restore router's first-visit compose arm consults this before
+ * every attempt, because its retry can arm AFTER the user has started on
+ * something else (a late session payload under load), and a fresh navigation
+ * must land in the strip without ever stealing.
+ */
+export function focusIsEngaged(active: Element | null): boolean {
+  if (!(active instanceof HTMLElement)) return false;
+  if (active === document.body) return false;
+  if (active.tagName === "IFRAME") return true;
+  if (active.closest(".xterm") != null) return true;
+  if (active.closest('[role="dialog"], [aria-modal="true"], [role="menu"], [role="listbox"]') != null) return true;
+  return shouldSuppressChord(active);
 }
 
 /**

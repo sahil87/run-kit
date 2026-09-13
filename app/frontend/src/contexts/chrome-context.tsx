@@ -67,12 +67,26 @@ function readFixedWidth(): boolean {
 }
 
 /** Whether the docked compose strip is enabled (a global chrome preference,
- * persisted like `fixedWidth`). Absent key defaults to off. */
+ * persisted like `fixedWidth`). The default is ON: only an explicit stored
+ * `"false"` — what `toggleComposeStrip` writes on the on→off transition —
+ * reads off, so every existing opt-out survives the default without a
+ * migration. An absent, unreadable, or corrupt value reads as the default. */
 function readComposeStrip(): boolean {
   try {
-    return localStorage.getItem(COMPOSE_STRIP_STORAGE_KEY) === "true";
+    return localStorage.getItem(COMPOSE_STRIP_STORAGE_KEY) !== "false";
   } catch {
-    return false;
+    return true;
+  }
+}
+
+/** Whether the compose preference was DEFAULTED at mount — no stored value
+ * (or an unreadable store) — as opposed to chosen. Read once: the first-render
+ * notice fires only when the default is what put the strip on screen. */
+function readComposeStripDefaulted(): boolean {
+  try {
+    return localStorage.getItem(COMPOSE_STRIP_STORAGE_KEY) === null;
+  } catch {
+    return true;
   }
 }
 
@@ -149,9 +163,13 @@ type ChromeState = {
    * reads and what the top-bar combo control displays. */
   terminalFontSize: number;
   /** Whether the docked compose strip is enabled — a global chrome preference
-   * persisted to `runkit-compose-strip`. When on, the strip renders above the
-   * bottom bar on every route that mounts a `<BottomBar>`. */
+   * persisted to `runkit-compose-strip`, ON by default. The compose surface
+   * always mounts; this picks the expanded strip over the collapsed tongue. */
   composeStripEnabled: boolean;
+  /** True when `composeStripEnabled` came from the default rather than a
+   * stored choice, read once at provider mount and never updated. Gates the
+   * one-time "on by default" notice. */
+  composeStripDefaulted: boolean;
   /** Whether terminal scroll-lock is engaged — a global chrome preference
    * persisted to `runkit-scroll-lock` so the lock survives remounts, route
    * changes, and mobile tab reloads. Every TerminalClient (single-terminal
@@ -257,6 +275,9 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const [composeStripEnabled, setComposeStripEnabled] = useState(readComposeStrip);
+  // Read-once by construction: `useState` with an initializer runs it at
+  // mount only, and no setter exists.
+  const [composeStripDefaulted] = useState(readComposeStripDefaulted);
 
   const toggleComposeStrip = useCallback(() => {
     setComposeStripEnabled((prev) => {
@@ -281,8 +302,8 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const stateValue = useMemo<ChromeState>(
-    () => ({ currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize, composeStripEnabled, scrollLocked }),
-    [currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize, composeStripEnabled, scrollLocked],
+    () => ({ currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize, composeStripEnabled, composeStripDefaulted, scrollLocked }),
+    [currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize, composeStripEnabled, composeStripDefaulted, scrollLocked],
   );
 
   const dispatchRef = useRef<ChromeDispatch | null>(null);

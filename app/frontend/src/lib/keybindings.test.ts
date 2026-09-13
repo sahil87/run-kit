@@ -21,6 +21,7 @@ import {
   scopesOverlap,
   shouldRefuseTerminalChord,
   shouldSuppressChord,
+  focusIsEngaged,
   withShortcutHints,
   writeStoredOverrides,
   type BindingHost,
@@ -104,7 +105,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       macTier: "cmd",
       scope: "global",
       kind: "builtin",
-      label: "Compose text",
+      label: "Compose",
       description: "toggle the compose strip",
       mapLabel: "compose",
       ignoreInputs: true,
@@ -771,7 +772,7 @@ describe("palette parity invariant", () => {
   // DEFAULT_BINDINGS actionId resolves to palette entry id(s) — either the
   // entry whose id IS the actionId (the `withShortcutHints` join) or a
   // documented equivalence. Equivalences (entry id ≠ actionId):
-  //   compose-toggle ⇄ text-input ("View: Text Input" — the strip toggle body)
+  //   compose-toggle ⇄ text-input ("Compose: Toggle" — the strip toggle body)
   //                    + compose-focus ("Compose: Focus" — the show+focus arm,
   //                    added with the palette gap-fill phase)
   //   code-toggle    ⇄ tile-show-code / tile-hide-code
@@ -2600,5 +2601,47 @@ describe("chordHintFor — hint strings for aliased actions", () => {
 
   it("returns a single combo for an action with no alias", () => {
     expect(chordHintFor("web-find", resolved(SHELL_OTHER), "other")).toBe("Ctrl+F");
+  });
+});
+
+describe("focusIsEngaged (the restore router's first-visit guard)", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  function mount(html: string): HTMLElement {
+    document.body.innerHTML = html;
+    return document.body.firstElementChild as HTMLElement;
+  }
+
+  it("is false for null and for body", () => {
+    expect(focusIsEngaged(null)).toBe(false);
+    expect(focusIsEngaged(document.body)).toBe(false);
+  });
+
+  it("is false for a non-editable chrome control (the sidebar row that navigated)", () => {
+    const row = mount('<div><button data-row>row</button></div>').querySelector("button")!;
+    expect(focusIsEngaged(row)).toBe(false);
+  });
+
+  it("is true inside an xterm, an editable, a dialog, an open menu/listbox, or an iframe", () => {
+    const term = mount('<div class="xterm"><div class="xterm-helper-textarea"><textarea></textarea></div></div>').querySelector("textarea")!;
+    expect(focusIsEngaged(term)).toBe(true);
+    expect(focusIsEngaged(mount('<input type="text" />'))).toBe(true);
+    expect(focusIsEngaged(mount("<textarea></textarea>"))).toBe(true);
+    const inDialog = mount('<div role="dialog"><button>ok</button></div>').querySelector("button")!;
+    expect(focusIsEngaged(inDialog)).toBe(true);
+    const inModal = mount('<div aria-modal="true"><span tabindex="0">x</span></div>').querySelector("span")!;
+    expect(focusIsEngaged(inModal)).toBe(true);
+    const menuRow = mount('<div role="menu"><button role="menuitem">copy</button></div>').querySelector("button")!;
+    expect(focusIsEngaged(menuRow)).toBe(true);
+    const option = mount('<ul role="listbox"><li role="option" tabindex="0">a</li></ul>').querySelector("li")!;
+    expect(focusIsEngaged(option)).toBe(true);
+    expect(focusIsEngaged(mount("<iframe></iframe>"))).toBe(true);
+    // jsdom implements neither `isContentEditable` nor the `contentEditable`
+    // reflection, so set the property the way the shouldSuppressChord tests do.
+    const editable = mount("<div></div>");
+    editable.contentEditable = "true";
+    expect(focusIsEngaged(editable)).toBe(true);
   });
 });

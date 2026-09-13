@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { openPalette } from "./_ready";
+import { openPalette, seedComposeStrip } from "./_ready";
 import { mockStateSocket } from "./_state-socket-mock";
 
 // Keyboard shortcut registry: the `Shift+CmdOrCtrl+<key>` run-kit action tier
@@ -120,6 +120,14 @@ async function gotoWindowOne(page: Page) {
   await page.goto(`/${SERVER}/1`);
   await expect(page.getByText("win-one").first()).toBeVisible();
 }
+
+// Every spec here is about CHORDS reaching the window-level dispatcher. The
+// compose strip is on by default and a fresh desktop navigation focuses its
+// textarea, where only `ignoreInputs` chords fire — so this file states the
+// explicit opt-out up front; the compose surface is not its subject.
+test.beforeEach(async ({ page }) => {
+  await seedComposeStrip(page, false);
+});
 
 test.describe("shifted-tier window cycling", () => {
   /**

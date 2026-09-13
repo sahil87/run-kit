@@ -37,6 +37,7 @@ stage_metrics:
     review-pr: {started_at: "2026-09-13T18:22:35Z", driver: git-pr, iterations: 1}
 prs:
     - https://github.com/sahil87/run-kit/pull/971
+    - https://github.com/sahil87/run-kit/pull/972
 change_type_source: explicit
 true_impact:
     added: 2372
@@ -54,4 +55,4 @@ true_impact:
     computed_at_stage: ship
 summary: Compose strip on by default (explicit "false" is the opt-out) with a one-time notice; desktop fresh navigation lands focus in the strip via the restore router's first-visit resolver; Escape hands focus to the terminal; one name — Compose
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-13T18:22:35Z
+last_updated: 2026-09-13T22:29:43Z

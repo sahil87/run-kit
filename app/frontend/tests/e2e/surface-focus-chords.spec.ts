@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { focusGrabCodeStubHtml, startCodeStub, type CodeStub } from "./_ports";
-import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
+import { READY_TIMEOUT, resolveWindow as resolveWindowRaw, seedComposeStrip } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
 // Surface focus chords e2e — the three-state tile chords (⌘1 tty / ⌘2 code),
@@ -172,6 +172,11 @@ test.afterAll(async () => {
 
 test.describe("Surface focus chords (260819-qwr7)", () => {
   test.beforeEach(async ({ page }) => {
+    // The subject is focus moving between TILES via chords. The compose strip
+    // is on by default and a first visit would land focus in its textarea,
+    // so these tests state the explicit opt-out (compose-strip.spec.ts owns
+    // the default-on focus rule).
+    await seedComposeStrip(page, false);
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 

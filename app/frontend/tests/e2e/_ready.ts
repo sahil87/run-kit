@@ -157,3 +157,50 @@ export async function gotoWindow(
     timeout: READY_TIMEOUT,
   });
 }
+
+/**
+ * Seed the compose-strip preference before the first navigation. The strip is
+ * ON by default (an absent key reads on), so a spec whose subject is xterm
+ * input or non-punch-through app chords — anything that types or presses keys
+ * right after `goto` without clicking the terminal — states its precondition
+ * explicitly with `seedComposeStrip(page, false)` instead of relying on a
+ * default. `true` pins the opposite for tests that want the expanded strip
+ * regardless of any future default change. Must run before `page.goto`.
+ */
+/**
+ * Poll `document.activeElement` until it is the named surface: inside an
+ * `.xterm`, the compose strip's textarea, or the code tile's iframe. Shared by
+ * the focus-restore and compose-strip specs (one activeElement predicate).
+ */
+export async function expectActiveElement(
+  page: Page,
+  target: "xterm" | "compose" | "code-iframe",
+): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate((kind) => {
+          const el = document.activeElement;
+          if (!el) return false;
+          if (kind === "xterm") return el.closest(".xterm") !== null;
+          if (kind === "compose") {
+            return el.getAttribute("data-testid") === "compose-strip-input";
+          }
+          return el.tagName === "IFRAME" && el.getAttribute("title") === "Code editor";
+        }, target),
+      { timeout: READY_TIMEOUT },
+    )
+    .toBe(true);
+}
+
+export async function seedComposeStrip(page: Page, on: boolean): Promise<void> {
+  // Init scripts re-run on every navigation, reload included — so the seed
+  // writes only when the key is ABSENT (the fresh-context case). A value the
+  // test itself stored (a chip click, a palette toggle) survives a reload,
+  // which is exactly what a persistence assertion needs to observe.
+  await page.addInitScript((value) => {
+    if (localStorage.getItem("runkit-compose-strip") === null) {
+      localStorage.setItem("runkit-compose-strip", value);
+    }
+  }, on ? "true" : "false");
+}

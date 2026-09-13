@@ -659,7 +659,7 @@ function OverflowMenu({
       document.dispatchEvent(new CustomEvent("palette:open")),
     ),
   );
-  if (onOpenCompose) rows.push(actionRow("compose", "a▏ Compose text", onOpenCompose));
+  if (onOpenCompose) rows.push(actionRow("compose", "a▏ Compose", onOpenCompose));
 
   return (
     <div className="relative flex items-center xl:hidden">
@@ -848,10 +848,10 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
           </button>
         </Tip>
         {onOpenCompose && (
-          <Tip label="Compose text" kbd={chordFor("compose-toggle")} placement="top">
+          <Tip label="Compose" kbd={chordFor("compose-toggle")} placement="top">
             <button
               type="button"
-              aria-label="Compose text"
+              aria-label="Compose"
               aria-pressed={composeStripEnabled}
               data-testid="status-bar-compose"
               className={controlClass({

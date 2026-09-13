@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { focusGrabCodeStubHtml, startCodeStub, type CodeStub } from "./_ports";
-import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
+import { READY_TIMEOUT, expectActiveElement, resolveWindow as resolveWindowRaw, seedComposeStrip } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
 /**
@@ -135,27 +135,6 @@ async function expectGrabFired(page: Page): Promise<void> {
     .toBe("grabbed");
 }
 
-/** Poll `document.activeElement` until it lands on the expected focus target. */
-async function expectActiveElement(
-  page: Page,
-  target: "xterm" | "compose" | "code-iframe",
-): Promise<void> {
-  await expect
-    .poll(
-      () =>
-        page.evaluate((kind) => {
-          const el = document.activeElement;
-          if (!el) return false;
-          if (kind === "xterm") return el.closest(".xterm") !== null;
-          if (kind === "compose") {
-            return el.getAttribute("data-testid") === "compose-strip-input";
-          }
-          return el.tagName === "IFRAME" && el.getAttribute("title") === "Code editor";
-        }, target),
-      { timeout: READY_TIMEOUT },
-    )
-    .toBe(true);
-}
 
 /** The pane's visible text (tmux truth) — spec (a) proves typing lands in the
  *  pane by capturing it. */
@@ -205,8 +184,10 @@ test.describe("Window-focus restore + code-server steal guard", () => {
    *
    * Steps:
    * 1. Create window A running `cat` (typed STDIN echoes into the pane) and
-   *    window B; navigate to A; assert `document.activeElement` lands inside
-   *    `.xterm` (first visit ⇒ the `tty` default).
+   *    window B; seed the compose preference OFF (the strip is on by default
+   *    and would take the first visit's focus — this test is about the tty
+   *    default); navigate to A; assert `document.activeElement` lands inside
+   *    `.xterm` (first visit with the strip collapsed ⇒ the `tty` default).
    * 2. Click the `Code tile` rail toggle (a persisted mutation; its pointerdown
    *    disarms this visit's guard); wait for the iframe and for the grab to
    *    fire; assert focus is on the iframe (the grab stands after a manual open).
@@ -225,11 +206,15 @@ test.describe("Window-focus restore + code-server steal guard", () => {
     // proof of where the keystrokes went. Window B is the away-window.
     const idA = await makeWindow(page, `fr-a-tty-${Date.now()}`, { command: "cat" });
     const idB = await makeWindow(page, `fr-b-tty-${Date.now()}`);
+    // The compose strip is on by default and a first visit then lands in ITS
+    // textarea (compose-strip.spec.ts owns that case); this test is about the
+    // tty first-visit default, so it states the explicit opt-out.
+    await seedComposeStrip(page, false);
     await gotoWindow(page, idA);
 
-    // First visit: no memory ⇒ the tty default — the restore effect focuses
-    // the xterm textarea on its own (no grab exists yet: the code tile is
-    // not open).
+    // First visit: no memory and the strip collapsed ⇒ the tty default — the
+    // restore effect focuses the xterm textarea on its own (no grab exists
+    // yet: the code tile is not open).
     await expectActiveElement(page, "xterm");
 
     // Open the code tile via the rail (a persisted user mutation — see the
@@ -266,9 +251,10 @@ test.describe("Window-focus restore + code-server steal guard", () => {
    * reverted to it, not to the editor or the terminal.
    *
    * Steps:
-   * 1. Create windows A and B; navigate to A; wait for the terminal relay to
-   *    attach (the strip's target and the recording seam's key).
-   * 2. Enable the strip via the `Compose text` chip; click the textarea; assert
+   * 1. Create windows A and B; seed the compose preference OFF so the chip
+   *    click below is a genuine enable; navigate to A; wait for the terminal
+   *    relay to attach (the strip's target and the recording seam's key).
+   * 2. Enable the strip via the `Compose` chip; click the textarea; assert
    *    it holds focus (the genuine gesture that records `compose`).
    * 3. Click the `Code tile` rail toggle; wait for the iframe and the grab (the
    *    click disarmed this visit's guard, so the grab stands here).
@@ -282,6 +268,9 @@ test.describe("Window-focus restore + code-server steal guard", () => {
     test.setTimeout(30_000);
     const idA = await makeWindow(page, `fr-a-compose-${Date.now()}`);
     const idB = await makeWindow(page, `fr-b-compose-${Date.now()}`);
+    // Start from the explicit opt-out: the chip click below is the GENUINE
+    // enable gesture this test records `compose` through.
+    await seedComposeStrip(page, false);
     await gotoWindow(page, idA);
     // The strip's textarea is disabled until the terminal relay attaches (the
     // focused target), which is also what gives the recording seam its key.
@@ -293,7 +282,7 @@ test.describe("Window-focus restore + code-server steal guard", () => {
 
     // Enable the strip and focus its textarea — the GENUINE gesture that
     // records `compose` for this window.
-    await page.getByRole("button", { name: "Compose text" }).click();
+    await page.getByRole("button", { name: "Compose", exact: true }).click();
     await expect(composeInput(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await composeInput(page).click();
     await expectActiveElement(page, "compose");

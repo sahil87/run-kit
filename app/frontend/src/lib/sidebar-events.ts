@@ -53,7 +53,8 @@ export function focusSidebarCurrentRow(): boolean {
  * surface". The terminal route (AppShell) registers its `restoreFocus` path;
  * routes without one (board, host, server) register nothing, and callers
  * fall back to a blur. No origin storage — the restore router's
- * `recallFocus(key) ?? "tty"` IS the return target.
+ * `recallFocus(key) ?? firstVisitKind()` IS the return target (compose while the
+ * strip is on, else tty).
  */
 let windowFocusRestorer: (() => void) | null = null;
 

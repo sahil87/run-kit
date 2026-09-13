@@ -152,15 +152,17 @@ describe("ChromeProvider terminal font size", () => {
   });
 });
 
+// Each preference names its DEFAULT: the compose strip is on by default (only
+// an explicit stored "false" reads off), scroll lock is off by default.
 const booleanPreferences = [
-  { name: "compose strip", key: "runkit-compose-strip" },
-  { name: "scroll lock", key: "runkit-scroll-lock" },
+  { name: "compose strip", key: "runkit-compose-strip", defaultValue: true },
+  { name: "scroll lock", key: "runkit-scroll-lock", defaultValue: false },
 ] as const;
 
 type BooleanPreferenceName = (typeof booleanPreferences)[number]["name"];
 
 function BooleanPreferenceConsumer({ name }: { name: BooleanPreferenceName }) {
-  const { composeStripEnabled, scrollLocked } = useChromeState();
+  const { composeStripEnabled, composeStripDefaulted, scrollLocked } = useChromeState();
   const { toggleComposeStrip, setScrollLocked } = useChromeDispatch();
   const value = name === "compose strip" ? composeStripEnabled : scrollLocked;
   const toggle = name === "compose strip"
@@ -169,6 +171,7 @@ function BooleanPreferenceConsumer({ name }: { name: BooleanPreferenceName }) {
   return (
     <div>
       <span data-testid="boolean-value">{String(value)}</span>
+      <span data-testid="compose-defaulted">{String(composeStripDefaulted)}</span>
       <button onClick={toggle}>toggle</button>
     </div>
   );
@@ -196,9 +199,10 @@ describe("ChromeProvider boolean preferences", () => {
     localStorage.clear();
   });
 
-  it.each(booleanPreferences)("$name defaults to false when unset", ({ name, key }) => {
+  it.each(booleanPreferences)("$name defaults to $defaultValue when unset", ({ name, key, defaultValue }) => {
     renderBooleanPreference(name);
-    expect(booleanValue()).toBe("false");
+    expect(booleanValue()).toBe(String(defaultValue));
+    // The default is never written back — only a toggle stores a value.
     expect(localStorage.getItem(key)).toBeNull();
   });
 
@@ -208,11 +212,11 @@ describe("ChromeProvider boolean preferences", () => {
     expect(booleanValue()).toBe("true");
   });
 
-  it.each(booleanPreferences)("$name toggles on and persists", ({ name, key }) => {
+  it.each(booleanPreferences)("$name toggles away from its default and persists", ({ name, key, defaultValue }) => {
     renderBooleanPreference(name);
     click("toggle");
-    expect(booleanValue()).toBe("true");
-    expect(localStorage.getItem(key)).toBe("true");
+    expect(booleanValue()).toBe(String(!defaultValue));
+    expect(localStorage.getItem(key)).toBe(String(!defaultValue));
   });
 
   it.each(booleanPreferences)("$name toggles off and persists", ({ name, key }) => {
@@ -223,13 +227,13 @@ describe("ChromeProvider boolean preferences", () => {
     expect(localStorage.getItem(key)).toBe("false");
   });
 
-  it.each(booleanPreferences)("$name survives a storage write failure", ({ name }) => {
+  it.each(booleanPreferences)("$name survives a storage write failure", ({ name, defaultValue }) => {
     renderBooleanPreference(name);
     const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("quota exceeded");
     });
     expect(() => click("toggle")).not.toThrow();
-    expect(booleanValue()).toBe("true");
+    expect(booleanValue()).toBe(String(!defaultValue));
     setItem.mockRestore();
   });
 
@@ -237,5 +241,41 @@ describe("ChromeProvider boolean preferences", () => {
     localStorage.setItem("runkit-scroll-lock", "banana");
     renderBooleanPreference("scroll lock");
     expect(booleanValue()).toBe("false");
+  });
+
+  it("compose strip: an explicit stored \"false\" is the only opt-out", () => {
+    localStorage.setItem("runkit-compose-strip", "false");
+    renderBooleanPreference("compose strip");
+    expect(booleanValue()).toBe("false");
+  });
+
+  it("compose strip: a corrupt stored value reads as the default (on)", () => {
+    localStorage.setItem("runkit-compose-strip", "banana");
+    renderBooleanPreference("compose strip");
+    expect(booleanValue()).toBe("true");
+  });
+
+  it("compose strip: an unreadable store reads as the default (on) and still toggles off", () => {
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("storage disabled");
+    });
+    renderBooleanPreference("compose strip");
+    expect(booleanValue()).toBe("true");
+    getItem.mockRestore();
+    click("toggle");
+    expect(booleanValue()).toBe("false");
+  });
+
+  it("composeStripDefaulted reflects whether the value was stored at mount, read once", () => {
+    renderBooleanPreference("compose strip");
+    expect(screen.getByTestId("compose-defaulted").textContent).toBe("true");
+    // A toggle writes the key, but the read-once flag never changes.
+    click("toggle");
+    expect(localStorage.getItem("runkit-compose-strip")).toBe("false");
+    expect(screen.getByTestId("compose-defaulted").textContent).toBe("true");
+    cleanup();
+    localStorage.setItem("runkit-compose-strip", "true");
+    renderBooleanPreference("compose strip");
+    expect(screen.getByTestId("compose-defaulted").textContent).toBe("false");
   });
 });

@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-13T12:21:57Z"}
+{"args":"Quake terminal Start operator button: startPending is component-wide and never cleared on success — stuck 'starting…' after the operator window dies and on every other server after a switch; scope the flag per server, clear it when the operator target resolves, bounded fallback re-arm","cmd":"fab-new","event":"command","ts":"2026-09-13T12:21:57Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-13T12:25:40Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-13T12:26:03Z"}

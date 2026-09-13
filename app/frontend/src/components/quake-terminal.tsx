@@ -84,6 +84,25 @@ const START_OPERATOR_PENDING_TIMEOUT_MS = 45_000;
 const START_OPERATOR_TIMEOUT_NOTE =
   "operator did not appear — check the operator terminal or run rk operator";
 
+/** One in-flight Start operator request: `gen` identifies the click (so a
+ *  late outcome from an older attempt cannot release a newer one), and
+ *  `startedAt` anchors its own pending deadline. */
+type StartPendingEntry = { gen: number; startedAt: number };
+
+/** The map without `server`'s entry — unchanged (same reference) when there is
+ *  none, or when `gen` is given and the entry belongs to a different attempt. */
+function withoutStartPending(
+  prev: ReadonlyMap<string, StartPendingEntry>,
+  server: string,
+  gen?: number,
+): ReadonlyMap<string, StartPendingEntry> {
+  const cur = prev.get(server);
+  if (!cur || (gen !== undefined && cur.gen !== gen)) return prev;
+  const next = new Map(prev);
+  next.delete(server);
+  return next;
+}
+
 /**
  * The quake terminal — the operator-chat surface: a global pull-down drawer
  * overlay on desktop, available on every route. Mounted ONCE at the
@@ -226,21 +245,26 @@ export function QuakeTerminal() {
   const [pinnedServer, setPinnedServer] = useState<string | null>(null);
   const [pickerServer, setPickerServer] = useState<string | null>(null);
   const [pendingSend, setPendingSend] = useState<string | null>(null);
-  // Start operator (the operator-less body's button): the server whose
-  // POST /api/operator/start is in flight, or null. Keyed per server because
-  // this component outlives the body — a switch to another server must
-  // render that server's own idle button, and a flag cleared on body unmount
-  // would survive both the switch and a window that appears then dies.
-  // Cleared by the target-resolves effect below (the SSE sessions payload
-  // carrying the pending server's operator window — success is observed,
-  // never assumed), by a non-409 failure for that same server, or by the
-  // pending timeout. The error is server-scoped for the same reason.
-  const [startPendingServer, setStartPendingServer] = useState<string | null>(null);
+  // Start operator (the operator-less body's button): the in-flight
+  // POST /api/operator/start requests, server → { gen, startedAt }. Keyed per
+  // server because this component outlives the body — a switch to another
+  // server must render that server's own button, idle or pending, and a flag
+  // cleared on body unmount would survive both the switch and a window that
+  // appears then dies. An entry is released by the target-resolves effect
+  // below (the SSE sessions payload carrying that server's operator window —
+  // success is observed, never assumed), by a non-409 failure of the SAME
+  // attempt (`gen` — a late rejection from an older attempt must not release
+  // a newer one), or by that entry's own pending deadline. The error is
+  // server-scoped for the same reason and retired once that server's window
+  // is observed.
+  const [startPendingByServer, setStartPendingByServer] = useState<
+    ReadonlyMap<string, StartPendingEntry>
+  >(() => new Map());
   const [startError, setStartError] = useState<{ server: string; message: string } | null>(null);
-  // Read at rejection time: a stale rejection for a server the user has since
-  // left must not re-arm a different server's button.
-  const startPendingServerRef = useRef(startPendingServer);
-  startPendingServerRef.current = startPendingServer;
+  const startGenRef = useRef(0);
+  // server → the generation of its most recent click; a rejection compares
+  // against it so only the latest attempt's outcome ever lands.
+  const latestStartGenRef = useRef(new Map<string, number>());
   // The drawer's body segment — the quake terminal's local ephemeral state
   // (no URL, tmux,
   // or localStorage write), defaulting to Operator Terminal and resetting on
@@ -720,27 +744,41 @@ export function QuakeTerminal() {
     if (!open) setPendingSend(null);
   }, [open]);
 
-  // Start operator resolves when the PENDING server's operator window shows
-  // up in the sessions payload — keyed on that server's own slice, not the
+  // Start operator resolves when a PENDING server's operator window shows up
+  // in the sessions payload — keyed on that server's own slice, not the
   // drawer's current `target`, so a resolution on runKit clears runKit's
   // pending while the drawer shows fabKit. Clearing on appearance (rather
   // than on body unmount) is what leaves the button idle when the window
   // later vanishes.
   useEffect(() => {
-    if (startPendingServer === null) return;
-    const tgt = findOperatorWindow(sessionsByServer.get(startPendingServer) ?? []);
-    if (tgt) setStartPendingServer(null);
-  }, [startPendingServer, sessionsByServer]);
+    let next: ReadonlyMap<string, StartPendingEntry> = startPendingByServer;
+    for (const srv of startPendingByServer.keys()) {
+      if (findOperatorWindow(sessionsByServer.get(srv) ?? [])) next = withoutStartPending(next, srv);
+    }
+    if (next !== startPendingByServer) setStartPendingByServer(next);
+  }, [startPendingByServer, sessionsByServer]);
+  // An observed window also retires that server's start error: a timeout
+  // note or failure message is moot once the operator is there, and must not
+  // resurface in the operator-less body if the window later dies.
   useEffect(() => {
-    if (startPendingServer === null) return;
-    const pendingServer = startPendingServer;
-    const timer = setTimeout(() => {
-      setStartPendingServer(null);
-      setStartError({ server: pendingServer, message: START_OPERATOR_TIMEOUT_NOTE });
-    }, START_OPERATOR_PENDING_TIMEOUT_MS);
-    return () => clearTimeout(timer);
-  }, [startPendingServer]);
-  const startPending = startPendingServer !== null && startPendingServer === server;
+    if (startError === null) return;
+    if (findOperatorWindow(sessionsByServer.get(startError.server) ?? [])) setStartError(null);
+  }, [startError, sessionsByServer]);
+  // One deadline per pending entry, anchored to its own `startedAt` — re-arming
+  // on a map change (another server's click) never extends this one's wait.
+  useEffect(() => {
+    const timers = Array.from(startPendingByServer, ([srv, entry]) =>
+      setTimeout(
+        () => {
+          setStartPendingByServer((prev) => withoutStartPending(prev, srv, entry.gen));
+          setStartError({ server: srv, message: START_OPERATOR_TIMEOUT_NOTE });
+        },
+        Math.max(0, entry.startedAt + START_OPERATOR_PENDING_TIMEOUT_MS - Date.now()),
+      ),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [startPendingByServer]);
+  const startPending = server ? startPendingByServer.has(server) : false;
 
   // ── Geometry (desktop drawer) + glass ─────────────────────────────────────
   const [geometry, writeGeometry] = useQuakeGeometry();
@@ -1123,15 +1161,22 @@ export function QuakeTerminal() {
               onClick={() => {
                 if (startPending) return;
                 const requested = server;
-                setStartPendingServer(requested);
-                setStartError(null);
+                const gen = ++startGenRef.current;
+                latestStartGenRef.current.set(requested, gen);
+                setStartPendingByServer((prev) =>
+                  new Map(prev).set(requested, { gen, startedAt: Date.now() }),
+                );
+                setStartError((prev) => (prev?.server === requested ? null : prev));
                 startOperator(requested).catch((err: unknown) => {
                   if (err instanceof ApiError && err.code === "operator_exists") return;
+                  // An older attempt's late rejection: a newer click owns this
+                  // server's slot and its outcome is still pending.
+                  if (latestStartGenRef.current.get(requested) !== gen) return;
+                  setStartPendingByServer((prev) => withoutStartPending(prev, requested, gen));
                   setStartError({
                     server: requested,
                     message: err instanceof Error ? err.message : "Operator start failed",
                   });
-                  if (startPendingServerRef.current === requested) setStartPendingServer(null);
                 });
               }}
             >

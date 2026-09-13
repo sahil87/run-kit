@@ -8,7 +8,7 @@
 ### run-kit/ui: Quake terminal Start operator pending state
 
 #### R1: Pending is keyed to the requesting server
-The operator-less body's Start operator pending state SHALL be held as the name of the server whose `POST /api/operator/start` is in flight (`startPendingServer: string | null`), and the button SHALL render pending (`disabled`, `aria-busy="true"`, label `starting…`) only while the drawer's resolved `server` equals that pending server. A click sets the pending server to the drawer's current server and clears any start error.
+The operator-less body's Start operator pending state SHALL be held per server — `startPendingByServer: ReadonlyMap<server, { gen, startedAt }>`, one entry per server whose `POST /api/operator/start` is in flight, several servers pending at once — and the button SHALL render pending (`disabled`, `aria-busy="true"`, label `starting…`) only while the drawer's resolved `server` has an entry. A click adds the drawer's current server with a fresh request generation and clears that server's start error.
 
 - **GIVEN** the drawer shows operator-less `srv1` and Start operator was clicked there (202 answered, no window yet)
 - **WHEN** the drawer's server switches to operator-less `srv2` (picker or pinned-server path)
@@ -16,7 +16,7 @@ The operator-less body's Start operator pending state SHALL be held as the name 
 - **AND WHEN** the drawer switches back to `srv1`, **THEN** its button still reads `starting…` (disabled) until `srv1`'s operator window appears
 
 #### R2: Pending clears on observed appearance of the pending server's operator window
-An effect over `sessionsByServer` SHALL clear the pending server when `findOperatorWindow(sessionsByServer.get(startPendingServer) ?? [])` resolves — keyed on the pending server's own sessions, not the drawer's current server. Because the clear fires on appearance (not on body unmount), a window that appears and later vanishes leaves the button idle and re-armed. The 409 `operator_exists` rejection remains a no-op (the effect clears pending).
+An effect over `sessionsByServer` SHALL release each pending server's entry when `findOperatorWindow` resolves against that server's own sessions, not the drawer's current server, and SHALL retire a start error whose server's operator window is observed. Because the clear fires on appearance (not on body unmount), a window that appears and later vanishes leaves the button idle and re-armed. The 409 `operator_exists` rejection remains a no-op (the effect clears pending).
 
 - **GIVEN** Start operator was clicked on `srv1` and the backend answered 202
 - **WHEN** the sessions payload carries `srv1`'s operator window (the embedded terminal mounts) and a later payload drops it
@@ -27,7 +27,7 @@ An effect over `sessionsByServer` SHALL clear the pending server when `findOpera
 - **THEN** pending clears; switching back to `srv1` shows the embedded terminal, and if `srv1`'s operator is then removed the button is idle
 
 #### R3: Bounded fallback re-arm on a pending timeout
-While a pending server is set, a single `setTimeout` of `START_OPERATOR_PENDING_TIMEOUT_MS` (45 000 ms, a named constant) SHALL be armed; on expiry it clears the pending server and sets a server-scoped start error `operator did not appear — check the operator terminal or run rk operator` for that server. The timer is cleared when pending changes or clears, and on unmount. No polling (`setInterval` + fetch) is introduced — SSE stays the truth source.
+Each pending entry SHALL carry its own deadline — a `setTimeout` anchored to the entry's `startedAt` and bounded by `START_OPERATOR_PENDING_TIMEOUT_MS` (45 000 ms, a named constant); on expiry it releases that entry and sets a server-scoped start error `operator did not appear — check the operator terminal or run rk operator` for that server. Timers are re-armed against their anchors on any map change (another server's click never extends a deadline) and cleared on unmount. No polling (`setInterval` + fetch) is introduced — SSE stays the truth source.
 
 - **GIVEN** Start operator was clicked on `srv1` (202) and no operator window appears
 - **WHEN** 45 s elapse
@@ -35,7 +35,7 @@ While a pending server is set, a single `setTimeout` of `START_OPERATOR_PENDING_
 - **AND GIVEN** the window arrives at 10 s instead, **THEN** the timer is cancelled and no note renders
 
 #### R4: Start errors are server-scoped and stale rejections never re-arm another server
-`startError` SHALL be stored as `{ server, message } | null` and rendered (`role="alert"`, `data-testid="quake-terminal-start-error"`, `text-signal-red`) only when `startError.server === server`. A non-409 rejection of `startOperator(srv)` SHALL set the error for `srv` and clear pending only if the pending server is still `srv` (read through a ref mirror of the pending server, the `targetRef` idiom) — a stale rejection for a server the user has since left must not touch another server's pending state.
+`startError` SHALL be stored as `{ server, message } | null` and rendered (`role="alert"`, `data-testid="quake-terminal-start-error"`, `text-signal-red`) only when `startError.server === server`. A non-409 rejection of `startOperator(srv)` SHALL land only when it belongs to `srv`'s latest request generation: it then releases that entry and sets the error for `srv`. A late rejection from an older attempt, or for a server the user has since left, must not touch a newer request's pending or another server's state.
 
 - **GIVEN** pending on `srv1`, drawer switched to operator-less `srv2`
 - **WHEN** `srv1`'s POST rejects 502

@@ -579,6 +579,97 @@ describe("QuakeTerminal", () => {
     expect(onA).toHaveTextContent("Start operator");
   });
 
+  it("two servers can be pending at once — a click on the second never drops the first", async () => {
+    mockStartOperator.mockReturnValue(new Promise(() => {}));
+    const view = render(quakeTree(["a", "b"], operatorLess(["a", "b"])));
+    openDrawer();
+
+    fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+    const picker = screen.getByRole("combobox", { name: "Operator server" });
+    fireEvent.change(picker, { target: { value: "b" } });
+    fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+    expect(mockStartOperator).toHaveBeenCalledTimes(2);
+    expect(mockStartOperator).toHaveBeenLastCalledWith("b");
+    expect(screen.getByTestId("quake-terminal-start-operator")).toBeDisabled();
+
+    fireEvent.change(picker, { target: { value: "a" } });
+    expect(screen.getByTestId("quake-terminal-start-operator")).toBeDisabled();
+
+    // a's window arrives: a resolves, b is still waiting on its own request.
+    view.rerender(
+      quakeTree(["a", "b"], new Map([["a", operatorSessions()], ["b", operatorLess(["b"]).get("b")!]])),
+    );
+    await screen.findByTestId("embedded-terminal");
+    fireEvent.change(screen.getByRole("combobox", { name: "Operator server" }), {
+      target: { value: "b" },
+    });
+    expect(screen.getByTestId("quake-terminal-start-operator")).toBeDisabled();
+    expect(screen.getByTestId("quake-terminal-start-operator")).toHaveTextContent("starting…");
+  });
+
+  it("a late rejection from an older attempt never releases a newer attempt on the same server", async () => {
+    vi.useFakeTimers();
+    try {
+      let rejectFirst: (err: unknown) => void = () => {};
+      mockStartOperator.mockReturnValueOnce(
+        new Promise((_resolve, reject) => {
+          rejectFirst = reject;
+        }),
+      );
+      mockStartOperator.mockReturnValue(new Promise(() => {}));
+      render(quakeTree(["srv1"], operatorLess(["srv1"])));
+      openDrawer();
+
+      fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+      await act(async () => {
+        vi.advanceTimersByTime(45_000);
+      });
+      expect(screen.getByTestId("quake-terminal-start-error")).toBeInTheDocument();
+
+      // The retry owns the slot now; it also clears the timeout note.
+      fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+      expect(mockStartOperator).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("quake-terminal-start-operator")).toBeDisabled();
+      expect(screen.queryByTestId("quake-terminal-start-error")).toBeNull();
+
+      await act(async () => {
+        rejectFirst(new ApiError("run-kit operator: fab not found on PATH", 502));
+      });
+      expect(screen.getByTestId("quake-terminal-start-operator")).toBeDisabled();
+      expect(screen.getByTestId("quake-terminal-start-operator")).toHaveTextContent("starting…");
+      expect(screen.queryByTestId("quake-terminal-start-error")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("the timeout note is retired once the operator window appears and does not resurface when it later vanishes", async () => {
+    vi.useFakeTimers();
+    try {
+      mockStartOperator.mockResolvedValue({ windowId: "@9", server: "srv1" });
+      const view = render(quakeTree(["srv1"], operatorLess(["srv1"])));
+      openDrawer();
+
+      fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+      await act(async () => {
+        vi.advanceTimersByTime(45_000);
+      });
+      expect(screen.getByTestId("quake-terminal-start-error")).toBeInTheDocument();
+
+      // The operator was slow, not absent.
+      view.rerender(quakeTree(["srv1"], new Map([["srv1", operatorSessions()]])));
+      await act(async () => {});
+      expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
+
+      view.rerender(quakeTree(["srv1"], operatorLess(["srv1"])));
+      await act(async () => {});
+      expect(screen.getByTestId("quake-terminal-start-operator")).toBeEnabled();
+      expect(screen.queryByTestId("quake-terminal-start-error")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("one Esc releases the machine: open → rest", async () => {
     renderQuake();
     openDrawer();

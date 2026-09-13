@@ -130,6 +130,30 @@ function renderQuake(opts: {
   return render(opts.withToasts ? <ToastProvider>{tree}</ToastProvider> : tree);
 }
 
+/** A rerender-able provider tree for tests that swap the sessions payload
+ *  mid-test (the SSE-equivalent) across one or more servers. */
+function quakeTree(servers: string[], sessionsByServer: Map<string, ProjectSession[]>) {
+  return (
+    <StandaloneSessionContextProvider
+      value={{
+        servers: servers.map((name) => ({ name, sessionCount: 1 })),
+        serversLoaded: true,
+        sessionsByServer,
+        isConnectedByServer: new Map(servers.map((name) => [name, true] as const)),
+      }}
+    >
+      <QuakeTerminal />
+    </StandaloneSessionContextProvider>
+  );
+}
+
+/** Every listed server with one plain session and no operator window. */
+function operatorLess(servers: string[]): Map<string, ProjectSession[]> {
+  return new Map(
+    servers.map((name) => [name, [{ name: "main", windows: [win({ windowId: "@1" })] }]] as const),
+  );
+}
+
 /** Tests that need the drawer open unconditionally dispatch the palette
  *  action's `open` (the chord toggles). */
 function openDrawer() {
@@ -393,6 +417,166 @@ describe("QuakeTerminal", () => {
     expect(errorLine).toHaveTextContent("run-kit operator: fab not found on PATH");
     expect(screen.getByTestId("quake-terminal-start-operator")).toBeEnabled();
     expect(screen.getByTestId("quake-terminal-start-operator")).toHaveTextContent("Start operator");
+  });
+
+  it("Start operator re-arms when the operator window appears and later vanishes", async () => {
+    mockStartOperator.mockResolvedValue({ windowId: "@9", server: "srv1" });
+    const view = render(quakeTree(["srv1"], operatorLess(["srv1"])));
+    openDrawer();
+
+    fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+    expect(screen.getByTestId("quake-terminal-start-operator")).toHaveTextContent("starting…");
+
+    view.rerender(quakeTree(["srv1"], new Map([["srv1", operatorSessions()]])));
+    await screen.findByTestId("embedded-terminal");
+
+    // The operator died (trust wall, agent exit, closed pane): the body comes
+    // back idle, not stuck on the previous request's pending.
+    view.rerender(quakeTree(["srv1"], operatorLess(["srv1"])));
+    const button = await screen.findByTestId("quake-terminal-start-operator");
+    expect(button).toBeEnabled();
+    expect(button).toHaveTextContent("Start operator");
+    expect(button).not.toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByTestId("quake-terminal-start-error")).toBeNull();
+  });
+
+  it("Start operator pending is per server — another server renders its own idle button", () => {
+    mockStartOperator.mockReturnValue(new Promise(() => {}));
+    render(quakeTree(["a", "b"], operatorLess(["a", "b"])));
+    openDrawer();
+
+    fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+    expect(mockStartOperator).toHaveBeenCalledWith("a");
+    expect(screen.getByTestId("quake-terminal-start-operator")).toHaveTextContent("starting…");
+
+    const picker = screen.getByRole("combobox", { name: "Operator server" });
+    fireEvent.change(picker, { target: { value: "b" } });
+    const onB = screen.getByTestId("quake-terminal-start-operator");
+    expect(onB).toBeEnabled();
+    expect(onB).toHaveTextContent("Start operator");
+
+    fireEvent.change(picker, { target: { value: "a" } });
+    const onA = screen.getByTestId("quake-terminal-start-operator");
+    expect(onA).toBeDisabled();
+    expect(onA).toHaveTextContent("starting…");
+  });
+
+  it("resolution on the pending server clears pending while the drawer shows another server", async () => {
+    mockStartOperator.mockResolvedValue({ windowId: "@9", server: "a" });
+    const view = render(quakeTree(["a", "b"], operatorLess(["a", "b"])));
+    openDrawer();
+
+    fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+    const picker = screen.getByRole("combobox", { name: "Operator server" });
+    fireEvent.change(picker, { target: { value: "b" } });
+
+    // a's operator arrives while b is on screen.
+    view.rerender(
+      quakeTree(["a", "b"], new Map([["a", operatorSessions()], ["b", operatorLess(["b"]).get("b")!]])),
+    );
+    await act(async () => {});
+    expect(screen.getByTestId("quake-terminal-start-operator")).toBeEnabled();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Operator server" }), {
+      target: { value: "a" },
+    });
+    await screen.findByTestId("embedded-terminal");
+
+    // a's operator then dies: the request already resolved, so no pending
+    // survives to disable the button.
+    view.rerender(quakeTree(["a", "b"], operatorLess(["a", "b"])));
+    const button = await screen.findByTestId("quake-terminal-start-operator");
+    expect(button).toBeEnabled();
+    expect(button).toHaveTextContent("Start operator");
+  });
+
+  it("Start operator re-arms with an inline note when no window appears within the pending timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      mockStartOperator.mockResolvedValue({ windowId: "@9", server: "srv1" });
+      render(quakeTree(["srv1"], operatorLess(["srv1"])));
+      openDrawer();
+
+      fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+      expect(screen.getByTestId("quake-terminal-start-operator")).toBeDisabled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(44_999);
+      });
+      expect(screen.getByTestId("quake-terminal-start-operator")).toBeDisabled();
+      expect(screen.queryByTestId("quake-terminal-start-error")).toBeNull();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+      });
+      const button = screen.getByTestId("quake-terminal-start-operator");
+      expect(button).toBeEnabled();
+      expect(button).toHaveTextContent("Start operator");
+      const note = screen.getByTestId("quake-terminal-start-error");
+      expect(note).toHaveAttribute("role", "alert");
+      expect(note).toHaveTextContent(
+        "operator did not appear — check the operator terminal or run rk operator",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an operator window arriving before the pending timeout cancels it — no note", async () => {
+    vi.useFakeTimers();
+    try {
+      mockStartOperator.mockResolvedValue({ windowId: "@9", server: "srv1" });
+      const view = render(quakeTree(["srv1"], operatorLess(["srv1"])));
+      openDrawer();
+
+      fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+      await act(async () => {
+        vi.advanceTimersByTime(10_000);
+      });
+      view.rerender(quakeTree(["srv1"], new Map([["srv1", operatorSessions()]])));
+      await act(async () => {});
+      expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
+
+      // Past the original deadline, with the window gone again: the timer was
+      // cleared on resolution, so nothing fires and no note renders.
+      view.rerender(quakeTree(["srv1"], operatorLess(["srv1"])));
+      await act(async () => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(screen.getByTestId("quake-terminal-start-operator")).toBeEnabled();
+      expect(screen.queryByTestId("quake-terminal-start-error")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a stale start failure re-arms and reports only on the server it was requested for", async () => {
+    let rejectStart: (err: unknown) => void = () => {};
+    mockStartOperator.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectStart = reject;
+      }),
+    );
+    render(quakeTree(["a", "b"], operatorLess(["a", "b"])));
+    openDrawer();
+
+    fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+    const picker = screen.getByRole("combobox", { name: "Operator server" });
+    fireEvent.change(picker, { target: { value: "b" } });
+
+    await act(async () => {
+      rejectStart(new ApiError("run-kit operator: fab not found on PATH", 502));
+    });
+    expect(screen.queryByTestId("quake-terminal-start-error")).toBeNull();
+    expect(screen.getByTestId("quake-terminal-start-operator")).toBeEnabled();
+
+    fireEvent.change(picker, { target: { value: "a" } });
+    expect(screen.getByTestId("quake-terminal-start-error")).toHaveTextContent(
+      "run-kit operator: fab not found on PATH",
+    );
+    const onA = screen.getByTestId("quake-terminal-start-operator");
+    expect(onA).toBeEnabled();
+    expect(onA).toHaveTextContent("Start operator");
   });
 
   it("one Esc releases the machine: open → rest", async () => {

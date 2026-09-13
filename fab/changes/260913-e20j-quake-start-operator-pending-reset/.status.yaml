@@ -5,17 +5,17 @@ created_by: sahil-noon
 change_type: fix
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 4
+    acceptance_count: 20
+    acceptance_completed: 20
 confidence:
     certain: 3
     confident: 3
@@ -29,7 +29,26 @@ confidence:
         competence: 83.3
         disambiguation: 74.2
 stage_metrics:
-    intake: {started_at: "2026-09-13T12:21:57Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-09-13T12:21:57Z", driver: fab-new, iterations: 1, completed_at: "2026-09-13T12:41:08Z"}
+    apply: {started_at: "2026-09-13T12:41:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T12:45:21Z"}
+    review: {started_at: "2026-09-13T12:45:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T12:48:38Z"}
+    hydrate: {started_at: "2026-09-13T12:48:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T12:49:48Z"}
+    ship: {started_at: "2026-09-13T12:49:48Z", driver: fab-fff, iterations: 1}
 prs: []
+true_impact:
+    added: 179
+    deleted: 0
+    net: 179
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-13T12:49:48Z"
+    computed_at_stage: hydrate
+summary: Quake terminal Start operator pending is keyed to the requesting server, clears when that server's operator window appears (not on body unmount), re-arms when the window vanishes or after a 45 s timeout with an inline note; start errors are server-scoped
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-13T12:26:03Z
+last_updated: 2026-09-13T12:49:48Z

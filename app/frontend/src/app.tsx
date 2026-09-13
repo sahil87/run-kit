@@ -3832,12 +3832,18 @@ function AppShell() {
   // single:code). One shared element serves both docks: one component, one
   // module draft store, so a dock flip (broadcast on/off, layout gaining or
   // losing its tty tile) loses no draft.
-  const composeStripVisible = composeStripEnabled || operatorPage;
+  // The compose SURFACE mounts on every Shell route: the preference no longer
+  // decides whether it mounts, only which form the strip module renders —
+  // the expanded strip or the one-row collapsed tongue that keeps the show
+  // affordance in place. The seam keeps its name so a future route-level
+  // gate has one place to hang off.
+  const composeStripVisible = true;
   // The operator page keeps its input in the footer dock even under a
   // non-terminal tab (the in-tile dock would hide with the terminal column),
-  // so `operatorPage` is excluded from the in-tile predicate.
+  // so `operatorPage` is excluded from the in-tile predicate. The dock is a
+  // property of the route/layout, never of the preference — the tongue lives
+  // at the same dock the expanded strip would.
   const inTileDock =
-    composeStripEnabled &&
     !operatorPage &&
     !isMobile &&
     !!windowParam &&
@@ -3845,6 +3851,10 @@ function AppShell() {
     layout.order.includes("tty");
   const composeStripElement = (
     <ComposeStrip
+      // The operator page's footer input is forced on regardless of the
+      // preference (and stays the expanded body even target-less under a
+      // non-terminal tab); only this shared element ever passes it.
+      forceExpanded={operatorPage}
       // Dock identity: the strip's fine-pointer header fold keys on this —
       // in-tile the tile frame already names the target. One shared element
       // serves both docks, so the prop simply tracks the dock predicate.

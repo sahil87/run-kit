@@ -1001,7 +1001,10 @@ function BoardPageContent({ name }: { name: string }) {
         }
         bottomBarChildren={
           <>
-            {composeStripEnabled && <ComposeStrip />}
+            {/* Unconditional: the strip module renders the collapsed tongue
+                when the preference is off and the inert no-target tongue
+                while no board pane is selected. */}
+            <ComposeStrip />
             {/* The bar renders its own 3px-seam + min-48px frame (260814) and
                 self-gates to null on fine pointers (260814-ldbs), so an empty
                 row collapses with no reserved height. Callbacks mirror

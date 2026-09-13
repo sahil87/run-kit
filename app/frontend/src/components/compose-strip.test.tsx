@@ -7,7 +7,7 @@ import {
   useFocusedTerminal,
   type FocusedTerminal,
 } from "@/contexts/focused-terminal-context";
-import { ChromeProvider, useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
+import { ChromeProvider, useChromeDispatch } from "@/contexts/chrome-context";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import type { UploadedFile } from "@/hooks/use-file-upload";
 import { stubMatchMedia } from "@/test-utils/match-media";
@@ -21,11 +21,14 @@ import {
 } from "@/lib/compose-draft-store";
 import {
   consumeComposeStripFocusOnOpen,
+  dispatchComposeStripAttach,
   focusComposeStrip,
   isComposeStripFocused,
   openComposeRecall,
   setComposeStripFocused,
 } from "@/lib/compose-strip-events";
+import { useKeybindings } from "@/hooks/use-keybindings";
+import { chordHintFor } from "@/lib/keybindings";
 import { BottomBar } from "./bottom-bar";
 import { ApiError, type WindowSendMode } from "@/api/client";
 import { dismissOperatorChatChip, setOperatorChatSubject } from "@/lib/quake-terminal";
@@ -163,6 +166,10 @@ describe("ComposeStrip", () => {
     // real hydration so a leftover draft from a prior test never bleeds in.
     localStorage.clear();
     hydrateComposeDrafts();
+    // The surface always mounts; the preference picks expanded vs. tongue.
+    // These tests exercise the expanded body, so seed the preference ON after
+    // the clear (ChromeProvider reads it at mount).
+    localStorage.setItem("runkit-compose-strip", "true");
     // Same for the sibling sent-history store — a leftover history would make
     // an ↑ recall in a fresh test see a prior test's sends.
     hydrateComposeSentHistory();
@@ -200,11 +207,21 @@ describe("ComposeStrip", () => {
     localStorage.clear();
   });
 
-  it("renders a disabled 'no target' state when nothing is focused", () => {
+  it("renders the inert no-target tongue when nothing is focused (preference on)", () => {
     render(<Harness focus={null} />);
-    expect(screen.getByTestId("compose-strip-target").textContent).toBe("no target");
-    expect(input().disabled).toBe(true);
-    expect(sendBtn().disabled).toBe(true);
+    const tongue = screen.getByTestId("compose-tongue");
+    expect(tongue).toHaveAttribute("data-state", "no-target");
+    expect(tongue).toHaveAttribute("role", "status");
+    expect(tongue).toHaveTextContent("No focused terminal — click a pane to target it");
+    // Inert: no button, no chord hint, and none of the dead controls the old
+    // disabled card carried.
+    expect(tongue.tagName).not.toBe("BUTTON");
+    expect(tongue.querySelector("kbd")).toBeNull();
+    expect(screen.queryByTestId("compose-strip-input")).toBeNull();
+    expect(screen.queryByTestId("compose-strip-target")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Upload file" })).toBeNull();
+    // The root still carries the strip test id + production marker.
+    expect(screen.getByTestId("compose-strip")).toHaveAttribute("data-compose-strip");
   });
 
   it("renders a text-only selection target with the frozen recipient count", () => {
@@ -402,8 +419,16 @@ describe("ComposeStrip", () => {
     expect(input().placeholder).toBe("→ @1…");
   });
 
-  it("names the recovery action in the no-target placeholder", () => {
-    render(<Harness focus={null} />);
+  it("names the recovery action in the no-target placeholder (forced-expanded body)", () => {
+    // The body's target-less form is reachable only under `forceExpanded`
+    // (the operator page); its placeholder shares the tongue's copy constant.
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <ComposeStrip forceExpanded />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
     expect(input().placeholder).toBe("No focused terminal — click a pane to target it");
   });
 
@@ -745,6 +770,7 @@ describe("ComposeStrip", () => {
           </FocusedTerminalProvider>
         </ChromeProvider>,
       );
+      act(() => fireEvent.click(screen.getByTestId("set-focus")));
       expect(input().getAttribute("enterkeyhint")).toBe("send");
       view.unmount();
     }
@@ -802,14 +828,16 @@ describe("ComposeStrip", () => {
         </FocusedTerminalProvider>
       </ChromeProvider>,
     );
-    // The strip textarea must not be the active element on mount.
+    // The body mounts once a target exists; its textarea must not be the
+    // active element on that plain mount.
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(document.activeElement).not.toBe(input());
   });
 
   // Focus-on-open (260801-sm6g): the off→on toggle marks the module flag;
-  // the strip's mount effect consumes it and focuses the textarea. Mirrors the
-  // real caller gating ({composeStripEnabled && <ComposeStrip/>} in app.tsx /
-  // board-page.tsx) so the toggle actually mounts/unmounts the strip.
+  // the expanded body's mount effect consumes it and focuses the textarea.
+  // The surface itself is always mounted (as in app.tsx / board-page.tsx);
+  // the toggle swaps the collapsed tongue for the expanded body.
   function ToggleHarness({ focus }: { focus: FocusedTerminal }) {
     return (
       <ChromeProvider>
@@ -823,31 +851,34 @@ describe("ComposeStrip", () => {
   // NOTE: distinct from the ×-close `GatedStrip` harness below — this one also
   // exposes the toggle itself, to drive the off→on open transition.
   function ToggleGatedStrip() {
-    const { composeStripEnabled } = useChromeState();
     const { toggleComposeStrip } = useChromeDispatch();
     return (
       <>
         <button data-testid="toggle-strip" onClick={toggleComposeStrip}>
           toggle
         </button>
-        {composeStripEnabled && <ComposeStrip />}
+        <ComposeStrip />
       </>
     );
   }
 
   it("focuses the textarea on the open transition (toggle off→on)", () => {
+    localStorage.setItem("runkit-compose-strip", "false");
     render(<ToggleHarness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(screen.queryByTestId("compose-strip-input")).toBeNull();
     act(() => fireEvent.click(screen.getByTestId("toggle-strip")));
     expect(document.activeElement).toBe(input());
   });
 
   it("open in the no-target state takes no focus and clears the flag (no stale steal later)", () => {
+    localStorage.setItem("runkit-compose-strip", "false");
     render(<ToggleHarness focus={null} />);
-    // Open with no focused terminal: the textarea is disabled — no focus.
+    // Open with no focused terminal: the no-target tongue shows, no textarea.
     act(() => fireEvent.click(screen.getByTestId("toggle-strip")));
-    expect(document.activeElement).not.toBe(input());
-    // The consume cleared the flag even though focus was declined.
+    expect(screen.queryByTestId("compose-strip-input")).toBeNull();
+    expect(screen.getByTestId("compose-tongue")).toHaveAttribute("data-state", "no-target");
+    // The tongue consumed the flag even though there was nothing to focus.
     expect(consumeComposeStripFocusOnOpen()).toBe(false);
   });
 
@@ -1213,19 +1244,20 @@ describe("ComposeStrip", () => {
     // Unmount only the pane (leave the board) — the provider + strip stay. The
     // strip must revert to the disabled "no target" state.
     rerender(<Tree paneMounted={false} />);
-    expect(screen.getByTestId("compose-strip-target").textContent).toBe("no target");
-    expect(input().disabled).toBe(true);
+    // Target gone ⇒ the wrapper swaps the body for the inert no-target tongue.
+    expect(screen.getByTestId("compose-tongue")).toHaveAttribute("data-state", "no-target");
+    expect(screen.queryByTestId("compose-strip-input")).toBeNull();
   });
 
   // ── On-strip × close button (260722-d5q7) ──────────────────────────────────
 
-  /** Mirrors the production gating (`{composeStripEnabled && <ComposeStrip />}`
-   * in app.tsx / board-page.tsx): the strip mounts only while the chrome
-   * preference is on, so clicking the header-row × (which fires the real
-   * `toggleComposeStrip` from the real ChromeProvider) unmounts it. */
+  /** Mirrors the production mount (an unconditional `<ComposeStrip />` in
+   * app.tsx / board-page.tsx): the surface stays mounted and the module forks
+   * on the chrome preference, so clicking the header-row × (which fires the
+   * real `toggleComposeStrip` from the real ChromeProvider) swaps the
+   * expanded body for the collapsed tongue. */
   function GatedStrip() {
-    const { composeStripEnabled } = useChromeState();
-    return composeStripEnabled ? <ComposeStrip /> : null;
+    return <ComposeStrip />;
   }
 
   function GatedHarness({ focus }: { focus: FocusedTerminal }) {
@@ -1250,10 +1282,12 @@ describe("ComposeStrip", () => {
     const close = screen.getByTestId("compose-strip-close");
     expect(close).toBe(screen.getByRole("button", { name: "Close compose strip" }));
 
-    // Type a draft, then close via the ×: the strip unmounts (preference off)…
+    // Type a draft, then close via the ×: the body collapses to the tongue
+    // (preference off)…
     act(() => fireEvent.change(input(), { target: { value: "before-close" } }));
     act(() => fireEvent.click(close));
-    expect(screen.queryByTestId("compose-strip")).toBeNull();
+    expect(screen.queryByTestId("compose-strip-input")).toBeNull();
+    expect(screen.getByTestId("compose-tongue")).toHaveTextContent("Compose");
     expect(localStorage.getItem("runkit-compose-strip")).toBe("false");
 
     // …and reopening (same toggle, e.g. the `>_` chip) restores the strip with
@@ -1282,7 +1316,8 @@ describe("ComposeStrip", () => {
     ).toBeTruthy();
 
     act(() => fireEvent.click(aClose));
-    expect(screen.queryByTestId("compose-strip")).toBeNull();
+    expect(screen.queryByTestId("compose-strip-input")).toBeNull();
+    expect(screen.getByTestId("compose-tongue")).toHaveTextContent("Compose");
     expect(localStorage.getItem("runkit-compose-strip")).toBe("false");
   });
 
@@ -1896,9 +1931,16 @@ describe("ComposeStrip", () => {
     expect(screen.queryByTestId("compose-strip-newline")).toBeNull();
   });
 
-  it("the header returns on coarse in the disabled no-target state; the ⏎ chip stays hidden while empty", () => {
+  it("the header returns on coarse in the disabled no-target state (forced-expanded body); the ⏎ chip stays hidden while empty", () => {
     stubPointer(true);
-    render(<Harness focus={null} />);
+    // Target-less body only under `forceExpanded` (the operator page).
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <ComposeStrip forceExpanded />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
     expect(screen.getByTestId("compose-strip-target")).toHaveTextContent("no target");
     expect(input()).toBeDisabled();
     // The no-target state is exempt from the compact morph (it keeps the
@@ -2255,6 +2297,7 @@ describe("ComposeStrip", () => {
     // focus-on-open already focused the textarea, and no new focus event fires
     // for the still-focused element — the mount-time sync from
     // document.activeElement is what re-publishes the flag.
+    localStorage.setItem("runkit-compose-strip", "false");
     render(
       <StrictMode>
         <ToggleHarness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
@@ -2294,6 +2337,10 @@ describe("ComposeStrip window send path", () => {
     useWindowStore.setState({ entries: new Map(), ghosts: [] });
     localStorage.clear();
     hydrateComposeDrafts();
+    // The surface always mounts; the preference picks expanded vs. tongue.
+    // These tests exercise the expanded body, so seed the preference ON after
+    // the clear (ChromeProvider reads it at mount).
+    localStorage.setItem("runkit-compose-strip", "true");
     hydrateComposeSentHistory();
     stubPointer(false);
     sendToWindowMock.mockReset();
@@ -2513,6 +2560,10 @@ describe("ComposeStrip operator chat lane", () => {
     useWindowStore.setState({ entries: new Map(), ghosts: [] });
     localStorage.clear();
     hydrateComposeDrafts();
+    // The surface always mounts; the preference picks expanded vs. tongue.
+    // These tests exercise the expanded body, so seed the preference ON after
+    // the clear (ChromeProvider reads it at mount).
+    localStorage.setItem("runkit-compose-strip", "true");
     hydrateComposeSentHistory();
     stubPointer(false);
     setOperatorChatSubject(null);
@@ -2626,5 +2677,158 @@ describe("ComposeStrip operator chat lane", () => {
     expect(addToastMock).toHaveBeenCalledTimes(1);
     expect(input().value).toBe("retry me");
     expect(sendToWindowMock).not.toHaveBeenCalled();
+  });
+});
+
+// ── Collapsed tongue (the preference-off / no-target forms) ─────────────────
+
+describe("ComposeStrip collapsed tongue", () => {
+  const FOCUS: FocusedTerminal = { wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" };
+
+  beforeEach(() => {
+    uploadFilesMock.mockReset();
+    uploadState.uploading = false;
+    stubPointer(false);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  /** Exposes the registry-resolved chord the tongue must show, through the
+   *  same seam the status-bar / bottom-bar chips use. */
+  function ChordProbe() {
+    const { bindings, host } = useKeybindings();
+    return <span data-testid="chord-probe">{chordHintFor("compose-toggle", bindings, host.platform)}</span>;
+  }
+
+  function TongueHarness({ focus, forceExpanded }: { focus: FocusedTerminal; forceExpanded?: boolean }) {
+    return (
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={focus} />
+          <ChordProbe />
+          <ComposeStrip forceExpanded={forceExpanded} />
+        </FocusedTerminalProvider>
+      </ChromeProvider>
+    );
+  }
+
+  it("preference off + focused target ⇒ the interactive Compose tongue with the chord on a fine pointer", () => {
+    render(<TongueHarness focus={FOCUS} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+
+    const tongue = screen.getByTestId("compose-tongue");
+    expect(tongue).toBe(screen.getByRole("button", { name: "Show compose strip" }));
+    expect(tongue).toHaveAttribute("aria-expanded", "false");
+    expect(tongue).toHaveTextContent("a▏");
+    expect(tongue).toHaveTextContent("Compose");
+    // Static glyph: the caret blink means "on".
+    expect(tongue.querySelector(".rk-compose-caret")).toBeNull();
+    // The chord rides a trailing <kbd>, resolved through the registry seam.
+    const expected = screen.getByTestId("chord-probe").textContent;
+    expect(expected).not.toBe("");
+    expect(tongue.querySelector("kbd")?.textContent).toBe(expected);
+    // No expanded-body controls.
+    expect(screen.queryByTestId("compose-strip-input")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Upload file" })).toBeNull();
+    // Root keeps the strip test id + production marker.
+    expect(screen.getByTestId("compose-strip")).toHaveAttribute("data-compose-strip");
+  });
+
+  it("the tongue hides the chord on a coarse pointer", () => {
+    stubPointer(true);
+    render(<TongueHarness focus={FOCUS} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    const tongue = screen.getByTestId("compose-tongue");
+    expect(tongue).toHaveTextContent("Compose");
+    expect(tongue.querySelector("kbd")).toBeNull();
+  });
+
+  it("clicking the tongue enables the strip, mounts the body, and focuses the textarea", () => {
+    render(<TongueHarness focus={FOCUS} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    const tongue = screen.getByTestId("compose-tongue");
+    // Mousedown is default-prevented so the button never takes focus first.
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.mouseDown(tongue);
+    });
+    expect(notPrevented).toBe(false);
+    act(() => fireEvent.click(tongue));
+    expect(localStorage.getItem("runkit-compose-strip")).toBe("true");
+    expect(screen.queryByTestId("compose-tongue")).toBeNull();
+    expect(document.activeElement).toBe(input());
+  });
+
+  it("off wins over no-target: with no focused terminal the tongue still reads Compose", () => {
+    render(<TongueHarness focus={null} />);
+    const tongue = screen.getByTestId("compose-tongue");
+    expect(tongue).toHaveTextContent("Compose");
+    expect(tongue).not.toHaveAttribute("data-state", "no-target");
+    expect(tongue.tagName).toBe("BUTTON");
+  });
+
+  it("forceExpanded renders the expanded body regardless of the preference and target", () => {
+    render(<TongueHarness focus={null} forceExpanded />);
+    expect(screen.queryByTestId("compose-tongue")).toBeNull();
+    // The body's own disabled no-target form (the operator page under a
+    // non-terminal tab) stays reachable through the override.
+    expect(input().disabled).toBe(true);
+    expect(screen.getByTestId("compose-strip-target").textContent).toBe("no target");
+  });
+
+  it("preference on + selection target renders the broadcast card (a target)", () => {
+    localStorage.setItem("runkit-compose-strip", "true");
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <ComposeStrip selectionTarget={{ keys: ["a:@1", "b:@2"], onSend: vi.fn().mockResolvedValue(2) }} />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    expect(screen.queryByTestId("compose-tongue")).toBeNull();
+    expect(screen.getByTestId("compose-strip-target")).toHaveTextContent("2 selected");
+  });
+
+  it("focusComposeStrip() declines while the tongue shows (callers fall back)", () => {
+    render(<TongueHarness focus={FOCUS} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(focusComposeStrip()).toBe(false);
+  });
+
+  it("the draft survives collapse → expand through the tongue", () => {
+    localStorage.setItem("runkit-compose-strip", "true");
+    render(<TongueHarness focus={FOCUS} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => fireEvent.change(input(), { target: { value: "half-typed" } }));
+    act(() => fireEvent.click(screen.getByTestId("compose-strip-a-close")));
+    expect(screen.getByTestId("compose-tongue")).toHaveTextContent("Compose");
+    act(() => fireEvent.click(screen.getByTestId("compose-tongue")));
+    expect(input().value).toBe("half-typed");
+  });
+
+  it("an attachment queued while collapsed is uploaded when the body mounts", async () => {
+    uploadFilesMock.mockResolvedValueOnce([
+      { path: "/wt/.uploads/x.png", file: new File(["x"], "x.png", { type: "image/png" }) },
+    ]);
+    render(<TongueHarness focus={FOCUS} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    // terminal-client's attachToStrip order: toggle on, then dispatch. With the
+    // tongue mounted nobody listens, so the files sit in the module queue.
+    const file = new File(["x"], "x.png", { type: "image/png" });
+    act(() => {
+      dispatchComposeStripAttach([file]);
+    });
+    expect(uploadFilesMock).not.toHaveBeenCalled();
+    act(() => fireEvent.click(screen.getByTestId("compose-tongue")));
+    // The body's mount-time drain picks the queue up.
+    expect(uploadFilesMock).toHaveBeenCalledTimes(1);
+    expect(uploadFilesMock.mock.calls[0][0]).toEqual([file]);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(input().value).toContain("/wt/.uploads/x.png");
   });
 });

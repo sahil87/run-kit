@@ -10,9 +10,11 @@ import {
 } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useFocusedTerminal, type FocusedTerminal } from "@/contexts/focused-terminal-context";
-import { useChromeDispatch } from "@/contexts/chrome-context";
+import { useChromeDispatch, useChromeState } from "@/contexts/chrome-context";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import { useKeybindings } from "@/hooks/use-keybindings";
+import { chordHintFor } from "@/lib/keybindings";
 import { ApiError, sendOperatorRequest, sendToWindow, type WindowSendMode } from "@/api/client";
 import { useToast } from "@/components/toast";
 import { controlClass } from "@/components/control";
@@ -110,9 +112,13 @@ import {
  * it was uploaded to: switching targets switches drafts, so there is no
  * re-homing (no re-upload, no path rewriting) on focus change.
  *
- * Rendered only when the `composeStripEnabled` chrome preference is on; the
- * callers (the in-tile dock in `surface-layout.tsx` via its `ttyDockContent`
- * slot, the shell footers in `app.tsx` / `board-page.tsx`) gate the mount.
+ * The compose SURFACE always mounts at its dock — the callers (the in-tile
+ * dock in `surface-layout.tsx` via its `ttyDockContent` slot, the shell
+ * footers in `app.tsx` / `board-page.tsx`) mount `ComposeStrip`
+ * unconditionally, and the `composeStripEnabled` chrome preference picks the
+ * FORM inside this module: the expanded body below, or the one-row collapsed
+ * tongue (see `ComposeStrip`'s decision table). The expanded body itself
+ * mounts only while it is the chosen form.
  * The header row carries an on-strip × close button firing the SAME
  * `toggleComposeStrip()` as the `>_` chip / palette entry (260722-d5q7) — a
  * pointer convenience only (Escape still blurs, never closes; no confirmation
@@ -190,11 +196,16 @@ function selectionDraftKey(keys: readonly string[]): string {
   return `selection:${JSON.stringify([...keys].sort())}`;
 }
 
-export function ComposeStrip({
-  selectionTarget = null,
-  focusMemoryWindow,
-  dockedInTile = false,
-}: {
+/** The target-less copy — one constant so the no-target tongue and the
+ *  expanded body's placeholder cannot drift apart. Names no chord: toggling
+ *  the preference changes nothing visible in this state. */
+const NO_TARGET_COPY = "No focused terminal — click a pane to target it";
+
+/** Prevent mousedown from stealing focus away from the terminal/textarea —
+ *  every strip button and the collapsed tongue share it. */
+const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
+
+type ComposeStripProps = {
   selectionTarget?: ComposeSelectionTarget | null;
   /** The terminal route's window identity, for the focus-memory write gate
    *  (spec right-panel.md § The code lens). The strip targets the LIVE focused
@@ -213,7 +224,141 @@ export function ComposeStrip({
    *  mounts (selection broadcast, board route, no-tty fallback) omit it and
    *  keep the header. */
   dockedInTile?: boolean;
+};
+
+/**
+ * The compose surface's mount point. The surface ALWAYS mounts at its dock;
+ * the `composeStripEnabled` preference picks the FORM — the expanded strip or
+ * a one-row collapsed tongue — so "off" leaves an in-place cue (glyph, label,
+ * chord) where the strip lived instead of an empty dock. Decision table, first
+ * match wins:
+ *
+ *   forceExpanded            → expanded body (the operator page's forced-on
+ *                              footer input; its disabled no-target form stays
+ *                              reachable there under a non-terminal tab)
+ *   preference off           → collapsed tongue — "Compose", interactive
+ *   preference on, no target → no-target tongue — inert status line
+ *   otherwise                → expanded body
+ *
+ * "Off wins over no-target" keeps the label a truthful description of what a
+ * click does: the collapsed tongue's click enables the strip; the no-target
+ * line has no click because no click could produce an expanded strip.
+ *
+ * The expanded body UNMOUNTS while a tongue shows — deliberately. Every
+ * mount-keyed seam in the body (the attach-queue drain, the focus-on-open
+ * consume, the focuser registration, the focused-signal reset, the blob-URL
+ * revoke) is keyed on the body mounting, so a file pasted while collapsed is
+ * queued by the terminal, the toggle mounts the body, and the body's own
+ * mount-time drain uploads it — no seam changes. A hidden-but-mounted body
+ * would have to re-key all of those on the enabled transition.
+ */
+export function ComposeStrip({
+  forceExpanded = false,
+  ...props
+}: ComposeStripProps & {
+  /** Render the expanded body regardless of the preference and of target
+   *  state. Passed only by the app.tsx shared element for the operator page,
+   *  whose footer input is forced on. */
+  forceExpanded?: boolean;
 }) {
+  const { composeStripEnabled } = useChromeState();
+  const { focused } = useFocusedTerminal();
+  const selectionTarget = props.selectionTarget ?? null;
+  const hasTarget =
+    (selectionTarget !== null && selectionTarget.keys.length > 0) || focused !== null;
+  if (forceExpanded) return <ComposeStripExpanded {...props} />;
+  if (!composeStripEnabled) return <CollapsedTongue />;
+  if (!hasTarget) return <NoTargetTongue />;
+  return <ComposeStripExpanded {...props} />;
+}
+
+/** Shared dock-seam wrapper for both tongue forms: the same outer/inner shape
+ *  as the expanded body (unstyled outer box carrying the test id and the
+ *  production `data-compose-strip` marker; inner element carrying the seam
+ *  chrome) so the row-growth/refit mechanic at either dock is identical, and
+ *  so the tty tile's pointerdown focus-memory write skips a press on the
+ *  tongue exactly as it skips a press on the strip. */
+function TongueFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div data-testid="compose-strip" data-compose-strip>
+      <div className="border-t border-border bg-bg-primary px-1.5 py-1 flex items-center">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** The preference-off form: a full-width show control. The `a▏` glyph is the
+ *  strip's identity (shared with the status-bar and bottom-bar chips) and is
+ *  STATIC here — the caret blink means "on", and this row means "off". The
+ *  chord rides a trailing `<kbd>` on fine pointers only (chords are noise on
+ *  touch) and is omitted when the binding is unbound/disabled, so the row never
+ *  advertises a dead chord. */
+function CollapsedTongue() {
+  const { toggleComposeStrip } = useChromeDispatch();
+  const coarsePointer = useCoarsePointer();
+  const { bindings, host } = useKeybindings();
+  const chord = coarsePointer ? undefined : chordHintFor("compose-toggle", bindings, host.platform);
+  return (
+    <TongueFrame>
+      <button
+        type="button"
+        data-testid="compose-tongue"
+        aria-label="Show compose strip"
+        aria-expanded={false}
+        // The click must not move focus to the button: the toggle mounts the
+        // body, whose focus-on-open effect takes the textarea.
+        onMouseDown={preventFocusSteal}
+        onClick={toggleComposeStrip}
+        className="rk-glint flex w-full items-center gap-2 rounded text-xs leading-none text-text-secondary transition-colors hover:text-text-primary coarse:min-h-[36px]"
+      >
+        <span aria-hidden="true">a▏</span>
+        <span>Compose</span>
+        {chord && (
+          <kbd
+            aria-hidden="true"
+            className="ml-auto shrink-0 rounded border border-border px-1 text-[10px] leading-4 text-text-secondary"
+          >
+            {chord}
+          </kbd>
+        )}
+      </button>
+    </TongueFrame>
+  );
+}
+
+/** The enabled-but-target-less form (board route before a pane is selected,
+ *  the `/$server` tiles route, no-tty layouts). Inert: nothing a click could
+ *  do would produce an expanded strip. The preference stays toggleable through
+ *  the chord, the palette, and the two chips. */
+function NoTargetTongue() {
+  // Mirror the expanded body's decline: an open that lands here (toggle on
+  // with no target) still CONSUMES the focus-on-open flag, so a body that
+  // mounts later — when a pane finally gets focus — cannot inherit a stale
+  // flag and steal focus on a plain remount.
+  useEffect(() => {
+    consumeComposeStripFocusOnOpen();
+  }, []);
+  return (
+    <TongueFrame>
+      <div
+        role="status"
+        data-testid="compose-tongue"
+        data-state="no-target"
+        className="flex w-full items-center gap-2 text-xs leading-none text-text-secondary coarse:min-h-[36px]"
+      >
+        <span aria-hidden="true">a▏</span>
+        <span>{NO_TARGET_COPY}</span>
+      </div>
+    </TongueFrame>
+  );
+}
+
+function ComposeStripExpanded({
+  selectionTarget = null,
+  focusMemoryWindow,
+  dockedInTile = false,
+}: ComposeStripProps) {
   const { focused } = useFocusedTerminal();
   // The chat-subject store (lib/quake-terminal.ts): on the operator window's
   // own route the quake terminal stamps the validated `?from=` origin window here.
@@ -366,7 +511,7 @@ export function ComposeStrip({
       ? coarsePointer
         ? `→ ${focusedTargetName ?? ""}…`
         : `Compose text — Enter inserts · ${composeSubmitKeycap()} sends · ↑ history`
-      : "No focused terminal — click a pane to target it";
+      : NO_TARGET_COPY;
 
   // The header row renders only where it carries real signal: selection
   // broadcast, the disabled no-target state, and fine pointers at the FOOTER
@@ -877,9 +1022,6 @@ export function ComposeStrip({
     },
     [draftKey, setText, setFiles, endRecall],
   );
-
-  /** Prevent mousedown from stealing focus away from the terminal/textarea. */
-  const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 
   /**
    * The coarse-only ⏎ chip (260814-ink6) — the Shift+Enter local-newline path

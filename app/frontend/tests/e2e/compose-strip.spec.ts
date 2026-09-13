@@ -9,7 +9,12 @@ import { TMUX_SERVER, createSession, killSession, listWindows, stampWebTab } fro
  * Docked compose strip e2e coverage. The strip replaces the modal
  * ComposeBuffer: a single global surface toggled by the `a▏` chip /
  * `View: Text Input` palette action, persisted as a chrome preference, sending
- * to the LIVE focused pane. It renders at exactly one of TWO docks: INSIDE the
+ * to the LIVE focused pane. The compose SURFACE always mounts at its dock: the
+ * preference picks the FORM — the expanded strip, or a one-row collapsed
+ * tongue (`compose-tongue`: `a▏` glyph, "Compose", the `compose-toggle` chord
+ * as a `<kbd>` on fine pointers) whose click expands the strip. An enabled strip
+ * with no focused terminal collapses to an inert no-target tongue
+ * (`data-state="no-target"`) instead of a disabled card. It renders at exactly one of TWO docks: INSIDE the
  * first tty tile on the desktop terminal route (single-send — the tile frame
  * makes the target self-evident), or full-width at the shell footer (selection
  * broadcast, the board route, mobile, no-tty layouts). The dock split doubles
@@ -141,14 +146,17 @@ test.describe("Docked compose strip", () => {
    * 1. Resolve the first window of the `cat` session; navigate to
    *    `/<server>/<windowId>`.
    * 2. Wait for `.xterm-screen` to render.
-   * 3. Assert the `Compose text` chip has `aria-pressed="false"` and the strip
-   *    (`[data-testid=compose-strip]`) is absent (off by default).
-   * 4. Click the chip; assert `aria-pressed="true"` and the strip is visible.
-   * 5. Reload the page; assert the chip is still pressed and the strip still
+   * 3. Assert the `Compose text` chip has `aria-pressed="false"`, the collapsed
+   *    tongue (`compose-tongue`) is visible and the textarea is absent (off by
+   *    default renders the tongue, not an empty dock).
+   * 4. Click the chip; assert `aria-pressed="true"`, the textarea is visible and
+   *    the tongue is gone.
+   * 5. Reload the page; assert the chip is still pressed and the textarea still
    *    visible (the `runkit-compose-strip` preference was persisted and
    *    rehydrated).
    * 6. Open the palette (`openPalette`), click `View: Text Input`; assert the chip
-   *    returns to `aria-pressed="false"` and the strip is gone.
+   *    returns to `aria-pressed="false"`, the textarea is gone and the tongue is
+   *    back.
    */
   test("toggle via a▏ chip and via the command palette; persists across reload", async ({ page }) => {
     test.setTimeout(60_000);
@@ -159,16 +167,21 @@ test.describe("Docked compose strip", () => {
     await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 15_000 });
 
     const chip = page.getByRole("button", { name: "Compose text" });
-    const strip = page.getByTestId("compose-strip");
+    const input = page.getByTestId("compose-strip-input");
+    const tongue = page.getByTestId("compose-tongue");
 
-    // Off by default: the chip is not pressed and the strip is absent.
+    // Off by default: the chip is not pressed; the dock shows the collapsed
+    // tongue, not an empty row and not a textarea.
     await expect(chip).toHaveAttribute("aria-pressed", "false");
-    await expect(strip).toHaveCount(0);
+    await expect(tongue).toBeVisible();
+    await expect(tongue).toHaveText(/Compose/);
+    await expect(input).toHaveCount(0);
 
     // Chip toggles it ON.
     await chip.click();
     await expect(chip).toHaveAttribute("aria-pressed", "true");
-    await expect(strip).toBeVisible();
+    await expect(input).toBeVisible();
+    await expect(tongue).toHaveCount(0);
 
     // Persistence: reload keeps it on.
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -177,26 +190,29 @@ test.describe("Docked compose strip", () => {
       "aria-pressed",
       "true",
     );
-    await expect(page.getByTestId("compose-strip")).toBeVisible();
+    await expect(page.getByTestId("compose-strip-input")).toBeVisible();
 
-    // Command-palette parity: `View: Text Input` toggles it back OFF.
+    // Command-palette parity: `View: Text Input` toggles it back OFF — to the
+    // tongue.
     await openPalette(page);
     await page.getByRole("option", { name: "View: Text Input" }).click();
     await expect(page.getByRole("button", { name: "Compose text" })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
-    await expect(page.getByTestId("compose-strip")).toHaveCount(0);
+    await expect(page.getByTestId("compose-strip-input")).toHaveCount(0);
+    await expect(page.getByTestId("compose-tongue")).toBeVisible();
   });
 
   /**
    * Proves: at the fine-pointer in-tile dock the strip's header row — and its × —
    * is folded (the tile frame names the target), so the `a|` chip is the
    * on-strip closer there: clicking it fires the same `toggleComposeStrip`
-   * action as the `a▏` chip, unmounting the strip and returning the chip to
-   * `aria-pressed="false"` — with no confirmation dialog, and the unsent draft
-   * survives the close (the per-target module store outlives the strip's
-   * unmount) so reopening on the same target restores it.
+   * action as the `a▏` chip, collapsing the strip to the tongue INSIDE the same
+   * tile and returning the chip to `aria-pressed="false"` — with no
+   * confirmation dialog. Clicking the tongue re-expands the strip in place,
+   * focuses the textarea, and the unsent draft survives the round trip (the
+   * per-target module store outlives the body's unmount).
    *
    * Steps:
    * 1. Navigate to the `cat` session's window; wait for `.xterm-screen` and for
@@ -205,11 +221,12 @@ test.describe("Docked compose strip", () => {
    * 2. Enable the strip via the `a▏` chip; fill the input with a unique draft
    *    marker.
    * 3. Assert `compose-strip-close` is ABSENT (the in-tile header fold); click
-   *    the `a|` chip (`compose-strip-a-close`); assert the strip
-   *    (`[data-testid=compose-strip]`) is gone and the chip reads
-   *    `aria-pressed="false"` (same preference the chip toggles).
-   * 4. Click the chip to reopen; assert the input still holds the draft marker
-   *    (closing was lossless — no confirmation needed).
+   *    the `a|` chip (`compose-strip-a-close`); assert the textarea is gone, the
+   *    tongue (`compose-tongue`) is visible inside `surface-tile-tty`, and the
+   *    chip reads `aria-pressed="false"` (same preference the chip toggles).
+   * 4. Click the tongue to reopen; assert the input is visible, focused, and
+   *    still holds the draft marker (closing was lossless — no confirmation
+   *    needed).
    */
   test("the on-strip a| closes the strip (the in-tile header is folded); the draft survives close→reopen", async ({ page }) => {
     test.setTimeout(60_000);
@@ -240,13 +257,18 @@ test.describe("Docked compose strip", () => {
     // Same toggle as the `a▏` chip: no confirmation dialog appears.
     await expect(page.getByTestId("compose-strip-close")).toHaveCount(0);
     await page.getByTestId("compose-strip-a-close").click();
-    await expect(page.getByTestId("compose-strip")).toHaveCount(0);
+    await expect(input).toHaveCount(0);
+    const tongue = page.getByTestId("surface-tile-tty").getByTestId("compose-tongue");
+    await expect(tongue).toBeVisible();
     await expect(chip).toHaveAttribute("aria-pressed", "false");
 
-    // Reopen via the chip: the unsent draft survived the close (the per-target
-    // module store outlives the strip's unmount).
-    await chip.click();
+    // Reopen via the tongue itself: the strip re-expands in place, takes
+    // focus (the open transition), and the unsent draft survived the close
+    // (the per-target module store outlives the body's unmount).
+    await tongue.click();
     await expect(page.getByTestId("compose-strip-input")).toHaveValue(draft);
+    await expect(page.getByTestId("compose-strip-input")).toBeFocused();
+    await expect(page.getByTestId("compose-tongue")).toHaveCount(0);
   });
 
   /**
@@ -687,7 +709,7 @@ test.describe("Docked compose strip", () => {
    * shell footer — a child of `<footer>`, never inside a board pane — and spans
    * the full row with no inline alignment styles. The fine footer dock KEEPS
    * the header row (no tile frame names the target there), so the × close
-   * renders and closes the strip.
+   * renders and collapses the strip to the footer tongue.
    *
    * Steps:
    * 1. Set a 1440×800 viewport; resolve `cs-alpha`/`cs-bravo`; pin both to a
@@ -733,10 +755,12 @@ test.describe("Docked compose strip", () => {
     await expect(inner).not.toHaveAttribute("style", /margin-left/);
 
     // The fine footer dock KEEPS the header (no tile frame names the target
-    // here), so the × close renders — and closes the strip.
+    // here), so the × close renders — and collapses the strip to the tongue,
+    // still at the footer dock.
     await expect(page.getByTestId("compose-strip-target")).toBeVisible();
     await page.getByTestId("compose-strip-close").click();
-    await expect(page.getByTestId("compose-strip")).toHaveCount(0);
+    await expect(page.getByTestId("compose-strip-input")).toHaveCount(0);
+    await expect(page.locator("footer").getByTestId("compose-tongue")).toBeVisible();
   });
 
   /**
@@ -875,6 +899,205 @@ test.describe("Docked compose strip", () => {
       .toBeLessThanOrEqual(375);
   });
 
+  /**
+   * Proves: with the preference off, the desktop terminal route renders the
+   * collapsed tongue INSIDE the first tty tile (the same dock the expanded
+   * strip uses), as a `Show compose strip` button carrying the `a▏` glyph, the
+   * "Compose" label, and the platform `compose-toggle` chord in a `<kbd>` (fine
+   * pointers show chords). It is a single compact row. Clicking it enables the
+   * preference, mounts the expanded strip in the same tile, and focuses the
+   * textarea (the open transition).
+   *
+   * Steps:
+   * 1. Set a 1440×800 viewport; navigate to the `cat` window with
+   *    `?layout=split-h:tty,web`; wait for both tiles.
+   * 2. Assert `compose-tongue` is a descendant of `surface-tile-tty`, absent
+   *    from `<footer>`, has the accessible name `Show compose strip`, contains
+   *    "Compose", and its `<kbd>` text is the platform chord (`⌘I` or `Shift+Ctrl+E`).
+   * 3. Assert the tongue's height is at most 36px.
+   * 4. Click the tongue; assert `compose-strip-input` is visible inside the tty
+   *    tile and focused, the tongue is gone, and the `Compose text` chip reads
+   *    `aria-pressed="true"`.
+   */
+  test("the collapsed tongue renders at the in-tile dock with the chord; clicking it expands and focuses", async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1440, height: 800 });
+    const windowId = await resolveWindowId(page, TERM_SESSION);
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}?layout=split-h:tty,web`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.getByTestId("status-bar").locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+    const ttyTile = page.getByTestId("surface-tile-tty");
+    await expect(ttyTile).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("surface-tile-web")).toBeVisible({ timeout: 15_000 });
+
+    const tongue = ttyTile.getByTestId("compose-tongue");
+    await expect(tongue).toBeVisible();
+    await expect(page.locator("footer").getByTestId("compose-tongue")).toHaveCount(0);
+    await expect(tongue).toHaveAccessibleName("Show compose strip");
+    await expect(tongue).toHaveAttribute("aria-expanded", "false");
+    await expect(tongue).toContainText("a▏");
+    await expect(tongue).toContainText("Compose");
+    await expect(tongue.locator("kbd")).toHaveText(/^(⌘I|Shift\+Ctrl\+E)$/);
+    const box = await boxOf(tongue);
+    expect(box.height).toBeLessThanOrEqual(36);
+
+    await tongue.click();
+    const input = ttyTile.getByTestId("compose-strip-input");
+    await expect(input).toBeVisible();
+    await expect(input).toBeFocused();
+    await expect(page.getByTestId("compose-tongue")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Compose text" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  /**
+   * Proves: an ENABLED strip with no focused terminal collapses to the inert
+   * no-target tongue at the footer dock instead of a disabled card: a
+   * `role="status"` line (`data-state="no-target"`) reading the recovery copy,
+   * with no textarea, no Send, no attach chip, no `→ no target` header, and no
+   * chord hint. The tmux Server route (`/<server>`, no window) is the
+   * route-level way to reach that state — no terminal mounts, so nothing
+   * registers as the focused terminal.
+   *
+   * Steps:
+   * 1. Seed `runkit-compose-strip=true` via an init script; navigate to
+   *    `/<server>`; wait for the status bar to report Connected.
+   * 2. Assert `compose-tongue` is a descendant of `<footer>` with
+   *    `data-state="no-target"` and `role="status"`, reading
+   *    `No focused terminal — click a pane to target it`.
+   * 3. Assert `compose-strip-input`, `compose-strip-send`, `compose-strip-target`
+   *    are absent and the tongue has no `<kbd>`.
+   */
+  test("an enabled strip with no focused terminal shows the inert no-target tongue at the footer dock", async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1440, height: 800 });
+    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    await page.goto(`/${TMUX_SERVER}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("status-bar").locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    const tongue = page.locator("footer").getByTestId("compose-tongue");
+    await expect(tongue).toBeVisible();
+    await expect(tongue).toHaveAttribute("data-state", "no-target");
+    await expect(tongue).toHaveAttribute("role", "status");
+    await expect(tongue).toContainText("No focused terminal — click a pane to target it");
+    await expect(tongue.locator("kbd")).toHaveCount(0);
+    await expect(page.getByTestId("compose-strip-input")).toHaveCount(0);
+    await expect(page.getByTestId("compose-strip-send")).toHaveCount(0);
+    await expect(page.getByTestId("compose-strip-target")).toHaveCount(0);
+  });
+
+  /**
+   * Proves: on the BOARD route an enabled strip follows the board's own focus
+   * authority — an EMPTY board (no pinned panes, so no `BoardPane` registers a
+   * focused terminal) shows the inert no-target tongue at the footer dock and
+   * none of the disabled card's controls; pinning a window mounts its pane,
+   * which registers itself as the focused terminal on mount, and the expanded
+   * strip replaces the tongue with that pane as its target.
+   *
+   * Steps:
+   * 1. Seed `runkit-compose-strip=true` via an init script; navigate to a
+   *    fresh, empty per-run board (`csnt<digits>`); wait for its empty-state
+   *    copy ("No panes pinned to this board yet").
+   * 2. Assert `compose-tongue` inside `<footer>` has `data-state="no-target"`
+   *    and the recovery copy; assert `compose-strip-input`, `compose-strip-send`
+   *    and `compose-strip-target` are absent.
+   * 3. Pin `cs-alpha` to the board through the API; wait for its `.xterm`.
+   * 4. Assert the tongue is gone and `compose-strip-input` is visible in
+   *    `<footer>` with `compose-strip-target` reading `cs-alpha`.
+   */
+  test("board route: an empty board shows the no-target tongue; pinning a pane swaps in the expanded strip", async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1440, height: 800 });
+    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    const board = `csnt${Date.now().toString().slice(-6)}`;
+    const alpha = await resolveWindowId(page, BOARD_SESSION, "cs-alpha");
+
+    await page.goto(`/board/${board}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByText(/No panes pinned to this board yet/)).toBeVisible({ timeout: 15_000 });
+
+    const tongue = page.locator("footer").getByTestId("compose-tongue");
+    await expect(tongue).toBeVisible();
+    await expect(tongue).toHaveAttribute("data-state", "no-target");
+    await expect(tongue).toContainText("No focused terminal — click a pane to target it");
+    await expect(page.getByTestId("compose-strip-input")).toHaveCount(0);
+    await expect(page.getByTestId("compose-strip-send")).toHaveCount(0);
+    await expect(page.getByTestId("compose-strip-target")).toHaveCount(0);
+
+    // Pin a pane: the board mounts it as the initial focused pane, which
+    // registers the focused terminal — the strip's target appears.
+    await pinWindow(page.request, board, TMUX_SERVER, alpha);
+    await expect(page.locator(".xterm")).toHaveCount(1, { timeout: 15_000 });
+    await expect(page.getByTestId("compose-tongue")).toHaveCount(0);
+    await expect(page.locator("footer").getByTestId("compose-strip-input")).toBeVisible();
+    await expect(page.getByTestId("compose-strip-target")).toHaveText("cs-alpha");
+  });
+
+  /**
+   * Proves: a file pasted while the strip is collapsed still reaches the
+   * compose flow — the terminal's document-level paste forward enables the
+   * preference and hands the file over; the expanded body mounts and its
+   * mount-time drain uploads it, inserting the returned path as a line in the
+   * textarea. The upload endpoint is stubbed so the test never writes into a
+   * worktree.
+   *
+   * Steps:
+   * 1. Stub `POST /api/sessions/:session/upload` to return a fixed path.
+   * 2. Navigate to the `cat` window (preference off); wait for the relay stream
+   *    to attach and for the window's sidebar row (the session identity the
+   *    upload is scoped to); assert the tongue is visible and the textarea
+   *    absent.
+   * 3. Dispatch a real `ClipboardEvent("paste")` carrying a PNG `File` on
+   *    `document.body` (outside any xterm textarea and the quake terminal).
+   * 4. Assert the textarea appears and its value contains the stubbed path; the
+   *    `compose-strip-uploading` status has cleared; the tongue is gone.
+   */
+  test("a file pasted while collapsed expands the strip and uploads", async ({ page }) => {
+    test.setTimeout(60_000);
+    const uploadedPath = `/tmp/e2e-wt/.uploads/${Date.now()}-shot.png`;
+    await page.route(/\/api\/sessions\/[^/?]+\/upload(\?|$)/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, path: uploadedPath }),
+      }),
+    );
+    const windowId = await resolveWindowId(page, TERM_SESSION);
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(() => page.evaluate((w) => Boolean(window.__rkTerminals?.[w]), windowId), {
+        timeout: 15_000,
+      })
+      .toBe(true);
+    // The upload is scoped to the focused terminal's SESSION, which the
+    // terminal registers once the session list has delivered — wait for the
+    // sidebar row so the paste never lands on an unnamed target.
+    await expect(
+      page.locator(`[data-row-key="${TMUX_SERVER}:${windowId}"]`).first(),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("compose-tongue")).toBeVisible();
+    await expect(page.getByTestId("compose-strip-input")).toHaveCount(0);
+
+    await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.items.add(new File(["fake-png"], "shot.png", { type: "image/png" }));
+      document.body.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }),
+      );
+    });
+
+    const input = page.getByTestId("compose-strip-input");
+    await expect(input).toBeVisible();
+    await expect(input).toHaveValue(new RegExp(uploadedPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    await expect(page.getByTestId("compose-strip-uploading")).toHaveCount(0);
+    await expect(page.getByTestId("compose-tongue")).toHaveCount(0);
+  });
+
   // Coarse-pointer card model. hasTouch flips Chromium's `(pointer: coarse)`
   // media query (the same seam bottom-bar-chip-size.spec.ts uses): the strip
   // is a single compact row (📎 · textarea · Send) while blurred and empty,
@@ -883,6 +1106,46 @@ test.describe("Docked compose strip", () => {
   // draft, or attachments. The bottom bar hides while the textarea owns focus.
   test.describe("coarse pointer card morph", () => {
     test.use({ hasTouch: true, viewport: { width: 375, height: 812 } });
+
+    /**
+     * Proves: on a coarse pointer the collapsed tongue renders too — at the
+     * footer dock, directly ABOVE the bottom bar (whose `a▏` chip stays a second
+     * opener) — as a lightweight row: no chord `<kbd>` (chords are noise on
+     * touch), at most 36px tall, no horizontal overflow at 375px, and the bottom
+     * bar still present beneath it.
+     *
+     * Steps:
+     * 1. Navigate to the `cat` window at 375×812 with touch (preference off);
+     *    wait for `.xterm`.
+     * 2. Assert `compose-tongue` is visible inside `<footer>`, reads "Compose",
+     *    and has no `<kbd>`.
+     * 3. Assert the tongue's height ≤ 36px and its bottom edge is at or above
+     *    the bottom bar's (`role=toolbar` "Terminal keys") top edge.
+     * 4. Assert `document.body.scrollWidth` ≤ 375.
+     */
+    test("the tongue renders above the bottom bar on coarse pointers, chord-less and ≤ 36px", async ({ page }) => {
+      test.setTimeout(60_000);
+      const windowId = await resolveWindowId(page, TERM_SESSION);
+      await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(page.locator(".xterm")).toBeVisible({ timeout: 15_000 });
+
+      const tongue = page.locator("footer").getByTestId("compose-tongue");
+      await expect(tongue).toBeVisible();
+      await expect(tongue).toContainText("Compose");
+      await expect(tongue.locator("kbd")).toHaveCount(0);
+      const toolbar = page.getByRole("toolbar", { name: "Terminal keys" });
+      await expect(toolbar).toBeVisible();
+
+      const tongueBox = await boxOf(tongue);
+      const barBox = await boxOf(toolbar);
+      expect(tongueBox.height).toBeLessThanOrEqual(36);
+      expect(tongueBox.y + tongueBox.height).toBeLessThanOrEqual(barBox.y + 1);
+      await expect
+        .poll(() => page.evaluate(() => document.body.scrollWidth))
+        .toBeLessThanOrEqual(375);
+    });
 
     /**
      * Proves: on a coarse pointer at 375px, focusing the compose textarea hides

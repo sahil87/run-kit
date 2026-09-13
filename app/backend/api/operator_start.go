@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -31,18 +32,28 @@ var (
 var errOperatorStartTimeout = errors.New("operator start timed out")
 
 // operatorStartReceipt is the parsed `rk operator --json` success document (the
-// envelope's result — see cmd/rk's operatorReceipt).
+// envelope's result — see cmd/rk's operatorReceipt). Dir/DirRung are additive
+// cmd/rk fields: omitted by older binaries, tolerated by this parse.
 type operatorStartReceipt struct {
 	Window  string `json:"window"`
 	Server  string `json:"server"`
 	Created bool   `json:"created"`
+	Dir     string `json:"dir,omitempty"`
+	DirRung string `json:"dir_rung,omitempty"`
 }
+
+// operatorStartExitFn fires once the receipted `rk operator` process exits —
+// the receipt already returned to the HTTP caller, so this carries the
+// post-receipt facts: the receipt, the full captured stderr (the kickoff:
+// undelivered note lives there), and the process's exit error.
+type operatorStartExitFn func(receipt operatorStartReceipt, stderr string, exitErr error)
 
 // operatorStartRunFn is the exec seam behind POST /api/operator/start: run argv
 // (the daemon's own binary + `operator -L <server> --json`), returning the
 // parsed receipt, the captured stderr, and the failure (errOperatorStartTimeout
-// on a receipt timeout). Package var seam (the resolveSelfPathFn precedent) so
-// handler tests stub the exec; the default owns the process lifetime.
+// on a receipt timeout). onExit fires from the post-receipt Wait goroutine.
+// Package var seam (the resolveSelfPathFn precedent) so handler tests stub the
+// exec; the default owns the process lifetime.
 var operatorStartRunFn = runOperatorStartExec
 
 // handleOperatorStart serves POST /api/operator/start?server= — start the
@@ -70,7 +81,7 @@ func (s *Server) handleOperatorStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	receipt, stderr, err := operatorStartRunFn(r.Context(), []string{selfPath, "operator", "-L", server, "--json"})
+	receipt, stderr, err := operatorStartRunFn(r.Context(), []string{selfPath, "operator", "-L", server, "--json"}, s.operatorKickoffExit(server))
 	if err != nil {
 		if errors.Is(err, errOperatorStartTimeout) {
 			writeError(w, http.StatusGatewayTimeout, errOperatorStartTimeout.Error())
@@ -109,8 +120,8 @@ func writeOperatorExists(w http.ResponseWriter, windowID string) {
 // 90s context, accumulating stdout until the rk JSON receipt — one indented
 // multi-line document (outputSink.writeEnvelope uses json.MarshalIndent) —
 // parses as a whole (30s bound), then letting the process finish its kickoff
-// in a goroutine.
-func runOperatorStartExec(_ context.Context, argv []string) (operatorStartReceipt, string, error) {
+// in a goroutine that fires onExit after the exit lands.
+func runOperatorStartExec(_ context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), operatorStartProcessTimeout)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	stdout, err := cmd.StdoutPipe()
@@ -164,8 +175,12 @@ func runOperatorStartExec(_ context.Context, argv []string) (operatorStartReceip
 		if res.ok {
 			go func() {
 				defer cancel()
-				if err := cmd.Wait(); err != nil {
+				err := cmd.Wait()
+				if err != nil {
 					slog.Warn("operator start exited non-zero after its receipt", "err", err)
+				}
+				if onExit != nil {
+					onExit(res.receipt, stderr.String(), err)
 				}
 			}()
 			return res.receipt, "", nil
@@ -205,6 +220,68 @@ func parseOperatorStartEnvelope(data []byte) (receipt operatorStartReceipt, comp
 		return operatorStartReceipt{}, true, false
 	}
 	return *env.Result, true, true
+}
+
+// kickoffNotePrefix heads the single stderr line rk prints when its kickoff
+// delivery fails (exit code stays 0): `kickoff: undelivered reason=<r>
+// prompt=<p> dir=<d>`. The internal/cron kickoffUndeliveredMarker precedent.
+const kickoffNotePrefix = "kickoff: undelivered reason="
+
+// parseKickoffNote extracts the reason and dir from the stderr kickoff note.
+// prompt is free text between the two labeled fields, so dir is cut from the
+// LAST " dir=" on the line (any " dir=" inside the prompt sits earlier), then
+// ends at the next space so extra trailing fields are tolerated. ok=false when
+// no well-formed note is present (including a missing prompt= or empty dir).
+func parseKickoffNote(stderr string) (reason, dir string, ok bool) {
+	for line := range strings.Lines(stderr) {
+		rest, found := strings.CutPrefix(strings.TrimSpace(line), kickoffNotePrefix)
+		if !found {
+			continue
+		}
+		reason, rest, _ := strings.Cut(rest, " ")
+		if reason == "" {
+			continue
+		}
+		rest, found = strings.CutPrefix(rest, "prompt=")
+		if !found {
+			continue
+		}
+		idx := strings.LastIndex(rest, " dir=")
+		if idx < 0 {
+			continue
+		}
+		dir, _, _ = strings.Cut(rest[idx+len(" dir="):], " ")
+		if dir == "" {
+			continue
+		}
+		return reason, dir, true
+	}
+	return "", "", false
+}
+
+// operatorKickoffExit builds the onExit callback for one operator start: when
+// the process's stderr carries the kickoff note, warn and notify so a
+// connected client can paste /fab-operator into the operator terminal by hand.
+// A clean exit with no note logs nothing and broadcasts nothing.
+func (s *Server) operatorKickoffExit(server string) operatorStartExitFn {
+	return func(receipt operatorStartReceipt, stderr string, _ error) {
+		reason, dir, ok := parseKickoffNote(stderr)
+		if !ok {
+			return
+		}
+		slog.Warn("operator kickoff undelivered",
+			"server", server, "window", receipt.Window, "reason", reason, "dir", dir)
+		s.initSSEHub()
+		s.sseHub.broadcastNotifyTagged(
+			"Operator kickoff not delivered",
+			fmt.Sprintf("Operator on %s started in %s but /fab-operator was not delivered (%s) — paste it into the operator terminal", server, dir, reason),
+			// The frontend has no dedicated /$server/operator path — the operator
+			// surface IS the operator window's own terminal route, the same
+			// deep-link shape the waiting-window push uses.
+			waitingPushURL(server, receipt.Window),
+			"operator-kickoff",
+		)
+	}
 }
 
 func firstNonEmptyLine(s string) string {

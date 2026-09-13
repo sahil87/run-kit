@@ -18,8 +18,10 @@ import (
 
 // kickoffDeliverFn is the per-command delivery seam shape (tutorialDeliverFn /
 // operatorDeliverFn): production drives inject.DeliverWhenReady; tests
-// substitute a recorder so the command path runs tmux-free.
-type kickoffDeliverFn = func(ctx context.Context, engine *inject.Engine, t inject.Tmux, server, paneID, text string) (inject.Readiness, error)
+// substitute a recorder so the command path runs tmux-free. opts carries the
+// readiness wait's deadline and posture (e.g. WaitThroughWalls); the seam's
+// production body merges its own invariants (the reconciled State reader) in.
+type kickoffDeliverFn = func(ctx context.Context, engine *inject.Engine, t inject.Tmux, server, paneID, text string, opts inject.ReadyOpts) (inject.Readiness, error)
 
 // deliverAgentKickoff hands a kickoff prompt to the shared inject composite:
 // inject.DeliverWhenReady waits for boot readiness (agent state present, else
@@ -31,14 +33,16 @@ type kickoffDeliverFn = func(ctx context.Context, engine *inject.Engine, t injec
 // value). The CLI's per-invocation buffer (rk-send-<pid>, the `rk mux send`
 // pattern) keeps a kickoff delivery from ever clobbering a concurrent
 // daemon/mux-send buffer. The returned error is informational — callers
-// degrade, it never fails the command.
-func deliverAgentKickoff(parent context.Context, deliver kickoffDeliverFn, serverLabel, paneID, prompt string, deadline, cmdTimeout time.Duration) error {
+// degrade, it never fails the command. The context budget is opts.Deadline +
+// cmdTimeout, so opts.Deadline must be set by the caller (zero would bound the
+// whole delivery by cmdTimeout alone while AwaitReady's own default ran longer).
+func deliverAgentKickoff(parent context.Context, deliver kickoffDeliverFn, serverLabel, paneID, prompt string, opts inject.ReadyOpts, cmdTimeout time.Duration) error {
 	// The context outlives the readiness wait by one command timeout so the
 	// engine's own bounded subprocesses still fit after a slow boot.
-	ctx, cancel := context.WithTimeout(parent, deadline+cmdTimeout)
+	ctx, cancel := context.WithTimeout(parent, opts.Deadline+cmdTimeout)
 	defer cancel()
 	engine := inject.NewEngine(muxBufferNameFn())
-	_, err := deliver(ctx, engine, awaitReadyTmux{}, serverLabel, paneID, prompt)
+	_, err := deliver(ctx, engine, awaitReadyTmux{}, serverLabel, paneID, prompt, opts)
 	return err
 }
 

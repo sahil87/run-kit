@@ -1302,7 +1302,7 @@ entries:
 // toward the per-target rate cap (keyed on the entry id, like every absent
 // disposition) — a persistently-dead operator cannot storm respawns.
 func TestTickRateCapCountsRespawn(t *testing.T) {
-	for _, outcome := range []string{"respawned", "respawn-failed: parked"} {
+	for _, outcome := range []string{"respawned", "respawned (kickoff undelivered: parked)", "respawn-failed: parked"} {
 		t.Run(outcome, func(t *testing.T) {
 			dir := t.TempDir()
 			T := backoffBase

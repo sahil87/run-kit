@@ -191,7 +191,7 @@ func runTutorial(cmd *cobra.Command) error {
 	// to paste — never a non-zero exit.
 	deliverErr := errors.New("tmux new-window printed no pane id")
 	if paneID := strings.TrimSpace(string(paneOut)); paneID != "" {
-		deliverErr = deliverAgentKickoff(parent, tutorialDeliverFn, cliServerLabel(tutorialOriginalTMUXFn()), paneID, tutorialKickoffPrompt, tutorialDeliverDeadline, tutorialCmdTimeout)
+		deliverErr = deliverAgentKickoff(parent, tutorialDeliverFn, cliServerLabel(tutorialOriginalTMUXFn()), paneID, tutorialKickoffPrompt, inject.ReadyOpts{Deadline: tutorialDeliverDeadline}, tutorialCmdTimeout)
 	}
 	if deliverErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit tutorial: could not deliver the kickoff prompt (%v) — paste this into the tour agent yourself:\n  %s\n", deliverErr, tutorialKickoffPrompt)
@@ -202,11 +202,9 @@ func runTutorial(cmd *cobra.Command) error {
 // tutorialDeliverFn is the delivery seam (the tutorialRunFn pattern):
 // production drives inject.DeliverWhenReady with the reconciled state reader;
 // tests substitute a recorder so the command path runs tmux-free.
-var tutorialDeliverFn = func(ctx context.Context, engine *inject.Engine, t inject.Tmux, server, paneID, text string) (inject.Readiness, error) {
-	return inject.DeliverWhenReady(ctx, t, server, paneID, inject.Sanitize(text), true, engine, inject.ReadyOpts{
-		State:    boundedPaneAgentState,
-		Deadline: tutorialDeliverDeadline,
-	})
+var tutorialDeliverFn = func(ctx context.Context, engine *inject.Engine, t inject.Tmux, server, paneID, text string, opts inject.ReadyOpts) (inject.Readiness, error) {
+	opts.State = boundedPaneAgentState
+	return inject.DeliverWhenReady(ctx, t, server, paneID, inject.Sanitize(text), true, engine, opts)
 }
 
 // findTutorialWindowID scans `tmux list-windows -F '#{window_id}\t#{window_name}'`

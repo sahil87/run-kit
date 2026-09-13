@@ -5,17 +5,17 @@ created_by: sahil-noon
 change_type: fix
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 15
+    acceptance_count: 24
+    acceptance_completed: 24
 confidence:
     certain: 4
     confident: 6
@@ -29,7 +29,26 @@ confidence:
         competence: 76.5
         disambiguation: 69.5
 stage_metrics:
-    intake: {started_at: "2026-09-13T12:21:45Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-09-13T12:21:45Z", driver: fab-new, iterations: 1, completed_at: "2026-09-13T12:29:25Z"}
+    apply: {started_at: "2026-09-13T12:29:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T12:50:20Z"}
+    review: {started_at: "2026-09-13T12:50:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T12:57:00Z"}
+    hydrate: {started_at: "2026-09-13T12:57:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T13:04:58Z"}
+    ship: {started_at: "2026-09-13T13:04:58Z", driver: fab-fff, iterations: 1}
 prs: []
+true_impact:
+    added: 210
+    deleted: 0
+    net: 210
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-13T13:04:58Z"
+    computed_at_stage: hydrate
+summary: 'rk operator -L opens the operator window in a derived project root (--dir override, home fallback), the server-mode kickoff wait rides out walls (60s), and an undelivered kickoff is surfaced: stderr kickoff: line, daemon WARN, operator-kickoff tagged notify toast, cron outcome ''respawned (kickoff undelivered: <reason>)'''
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-13T12:26:03Z
+last_updated: 2026-09-13T13:04:58Z

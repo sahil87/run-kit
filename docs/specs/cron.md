@@ -228,7 +228,10 @@ becomes the target" costs no arguments.
   bring-back — spawn, readiness classification, and the kickoff
   (`rk operator -L {server}` creates the operator window and delivers the
   `/fab-operator` kickoff itself, which runs startup and re-establishes
-  context). Session targets without a `respawn` command keep the default
+  context). The window opens in a project root derived from the server's
+  sessions (the home directory only as a last resort), and an undelivered
+  kickoff is surfaced rather than silent — a `kickoff: undelivered
+  reason=<r>` stderr line, a daemon WARN, and a shell notification. Session targets without a `respawn` command keep the default
   **[phase 3]**: resume the agent (`claude --resume <session-id>` through the
   launcher seam) and deliver into the resumed pane — the standard
   spawn-then-deliver composite ([`agent-messaging.md`](agent-messaging.md)

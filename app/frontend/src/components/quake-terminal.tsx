@@ -238,7 +238,7 @@ export function QuakeTerminal() {
   const toast = useOptionalToast();
   const noOperatorHintAtRef = useRef(0);
 
-  const { servers, sessionsByServer, isConnectedByServer } = useSessionContext();
+  const { servers, sessionsByServer, isConnectedByServer, subscribeNotify } = useSessionContext();
 
   // Route server — the shared deepest-first route-param walk (param names are
   // unique across the route tree).
@@ -523,6 +523,24 @@ export function QuakeTerminal() {
     if (pending) handleRequest(pending);
     return () => document.removeEventListener(QUAKE_TERMINAL_EVENT, onRequest);
   }, []);
+
+  // The daemon broadcasts a tagged notify when a Start-operator launch could
+  // not get its /fab-operator kickoff delivered — a degraded result the user
+  // must see, so it toasts on every form factor (the subscription lives above
+  // the render gate: the mobile mount renders nothing). Other tags and
+  // untagged payloads are the shell-notification path's own concern.
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+  useEffect(
+    () =>
+      subscribeNotify((payload) => {
+        if (payload.tag !== "operator-kickoff") return;
+        const text = payload.body ?? payload.title;
+        if (!text) return;
+        toastRef.current?.addToast(text, "error");
+      }),
+    [subscribeNotify],
+  );
 
   // The gate owns the frames AND the effects: a desktop→mobile flip resets
   // the machine and tears down any in-flight slide state, so the drawer, its

@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"rk/internal/config"
 	"rk/internal/inject"
 	"rk/internal/riff"
+	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
 )
@@ -49,7 +52,8 @@ type operatorCall struct {
 
 // operatorStub owns the stubbed seam state for one test: recorded tmux calls,
 // the list-windows probe output, the launcher-resolution inputs, the recorded
-// role-stamp sequence, and the recorded kickoff delivery.
+// role-stamp sequence, the recorded kickoff delivery, and the launch-root
+// derivation inputs (session facts, main-root collapse).
 type operatorStub struct {
 	calls       []operatorCall
 	listOutput  string
@@ -68,11 +72,20 @@ type operatorStub struct {
 
 	deliverErr   error
 	deliverCalls []operatorDelivery
+
+	// sessionFacts/sessionFactsErr feed the operatorSessionFactsFn stub;
+	// mainRoots maps a session path to the root operatorMainRootFn serves
+	// (an absent entry collapses to "" — not a repository).
+	sessionFacts    []tmux.SessionFacts
+	sessionFactsErr error
+	mainRoots       map[string]string
 }
 
-// operatorDelivery records one operatorDeliverFn invocation.
+// operatorDelivery records one operatorDeliverFn invocation, including the
+// readiness opts the command threaded through (deadline + wall posture).
 type operatorDelivery struct {
 	server, paneID, text string
+	opts                 inject.ReadyOpts
 }
 
 // stubOperatorSeams installs recording stubs for the precondition, tmux,
@@ -124,9 +137,17 @@ func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 		return riff.ResolvedAgent{Launcher: riff.DefaultLauncher, SkillPrefix: prefix}
 	}
 	origDeliver := operatorDeliverFn
-	operatorDeliverFn = func(_ context.Context, _ *inject.Engine, _ inject.Tmux, server, paneID, text string) (inject.Readiness, error) {
-		s.deliverCalls = append(s.deliverCalls, operatorDelivery{server: server, paneID: paneID, text: text})
+	operatorDeliverFn = func(_ context.Context, _ *inject.Engine, _ inject.Tmux, server, paneID, text string, opts inject.ReadyOpts) (inject.Readiness, error) {
+		s.deliverCalls = append(s.deliverCalls, operatorDelivery{server: server, paneID: paneID, text: text, opts: opts})
 		return inject.ReadyByEcho, s.deliverErr
+	}
+	origFacts := operatorSessionFactsFn
+	operatorSessionFactsFn = func(_ context.Context, _ string) ([]tmux.SessionFacts, error) {
+		return s.sessionFacts, s.sessionFactsErr
+	}
+	origMainRoot := operatorMainRootFn
+	operatorMainRootFn = func(_ context.Context, dir string) string {
+		return s.mainRoots[dir]
 	}
 
 	origClear, origRoleRun := roleClearExceptFn, roleRunFn
@@ -154,6 +175,8 @@ func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 		operatorRunFn, operatorRunOutputFn = origRun, origOut
 		operatorResolveAgentFn = origResolve
 		operatorDeliverFn = origDeliver
+		operatorSessionFactsFn = origFacts
+		operatorMainRootFn = origMainRoot
 		roleClearExceptFn, roleRunFn = origClear, origRoleRun
 		roleDemoteFn, roleMoveInFn = origDemote, origMoveIn
 	})
@@ -658,8 +681,9 @@ func TestOperatorTouchesNoCronState(t *testing.T) {
 //
 // With -L the inside-tmux precondition is waived, every tmux call is addressed
 // at -L <name> with no restored $TMUX, a singleton hit switches no client, and
-// a created window opens in the home directory. Without the flag every path is
-// the interactive one above.
+// a created window's directory is derived from the server's user-role sessions
+// (operatorLaunchRoot), falling back to the home directory only when nothing
+// qualifies. Without the flag every path is the interactive one above.
 
 // resetOperatorServer restores the -L/--server package var after a test.
 func resetOperatorServer(t *testing.T) {
@@ -672,8 +696,10 @@ func resetOperatorServer(t *testing.T) {
 // TestOperatorServerFlagCreatesWithoutTMUX: $TMUX unset + -L runKit + no
 // operator window ⇒ the probe and new-window run with a leading "-L runKit"
 // and a nil env, the role is stamped, the kickoff is delivered addressed at
-// runKit, the window opens in the home directory, and no
-// select-window/switch-client is ever recorded.
+// runKit, and no select-window/switch-client is ever recorded. With no
+// qualifying user session on the server (the stub serves none) the window
+// falls back to the home directory, rung home, and agent resolution receives
+// an empty root.
 func TestOperatorServerFlagCreatesWithoutTMUX(t *testing.T) {
 	resetOperatorWorkers(t)
 	resetOperatorServer(t)
@@ -719,6 +745,9 @@ func TestOperatorServerFlagCreatesWithoutTMUX(t *testing.T) {
 	if strings.Join(newWindow, " ") != strings.Join(wantNewWindow, " ") {
 		t.Errorf("new-window argv =\n  %v\nwant\n  %v", newWindow, wantNewWindow)
 	}
+	if s.repoRoot != "" {
+		t.Errorf("agent-resolution root = %q, want empty on the home fallback", s.repoRoot)
+	}
 	if len(s.stampOps) != 3 || s.stampOps[0] != "clear" || s.stampOps[2] != "move "+operatorTestWindow {
 		t.Errorf("stamp ops = %v, want clear → set → move (no displaced carriers)", s.stampOps)
 	} else if !strings.Contains(s.stampOps[1], "-L runKit") || !strings.Contains(s.stampOps[1], "@rk_win_role operator") {
@@ -729,6 +758,229 @@ func TestOperatorServerFlagCreatesWithoutTMUX(t *testing.T) {
 	}
 	if got := outBuf.String(); got != "Opened operator tab (window \"operator\").\n" {
 		t.Errorf("stdout = %q, want the launch report", got)
+	}
+}
+
+// writeOperatorSkillRoot materializes a qualifying launch root (the deployed
+// fab-operator skill tree) under t.TempDir and returns its path.
+func writeOperatorSkillRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	skillDir := filepath.Join(root, ".agents", "skills", "fab-operator")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: fab-operator\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// newWindowDirArg extracts the -c argument of the recorded new-window call.
+func newWindowDirArg(t *testing.T, s *operatorStub) string {
+	t.Helper()
+	for _, c := range s.calls {
+		for i, a := range c.args {
+			if a == "new-window" {
+				for j := i + 1; j+1 < len(c.args); j++ {
+					if c.args[j] == "-c" {
+						return c.args[j+1]
+					}
+				}
+			}
+		}
+	}
+	t.Fatal("no new-window call recorded")
+	return ""
+}
+
+// TestOperatorServerFlagDerivesLaunchRoot: a user session whose path collapses
+// to a main checkout carrying the fab-operator skill decides the window
+// directory (rung sole), the agent resolver receives that root, and the --json
+// receipt carries dir/dir_rung. Infrastructure sessions are never candidates.
+func TestOperatorServerFlagDerivesLaunchRoot(t *testing.T) {
+	resetOperatorWorkers(t)
+	resetOperatorServer(t)
+	resetOperatorJSON(t)
+	operatorServerFlag = "runKit"
+	operatorJSONFlag = true
+	s := stubOperatorSeams(t, "@3\t\tother\n")
+	origTMUX := operatorOriginalTMUXFn
+	operatorOriginalTMUXFn = func() string { return "" }
+	t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
+
+	root := writeOperatorSkillRoot(t)
+	worktree := filepath.Join(root+".worktrees", "feat-x")
+	s.sessionFacts = []tmux.SessionFacts{
+		{Name: "_rk-ctl", Role: tmux.SessionRoleControl, Path: "/nonexistent"},
+		{Name: "_rk-operator", Role: tmux.SessionRoleOperator, Path: "/nonexistent"},
+		{Name: "runKit", Role: tmux.SessionRoleUser, Attached: 1, Windows: 2, Path: root},
+		{Name: "completed", Role: tmux.SessionRoleUser, Attached: 0, Windows: 4, Path: worktree},
+	}
+	s.mainRoots = map[string]string{root: root, worktree: root}
+
+	cmd, outBuf, _ := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v", err)
+	}
+	if got := newWindowDirArg(t, s); got != root {
+		t.Errorf("new-window -c = %q, want the derived main root %q", got, root)
+	}
+	if s.repoRoot != root {
+		t.Errorf("agent-resolution root = %q, want the derived root %q", s.repoRoot, root)
+	}
+	assertEnvelopeResult(t, outBuf.String(), map[string]any{
+		"window": "@42", "server": "runKit", "created": true, "dir": root, "dir_rung": "sole",
+	})
+}
+
+// TestOperatorServerFlagFactsErrorFallsBackHome: a session-enumeration error
+// degrades to the home fallback — the command still opens the window.
+func TestOperatorServerFlagFactsErrorFallsBackHome(t *testing.T) {
+	resetOperatorWorkers(t)
+	resetOperatorServer(t)
+	operatorServerFlag = "runKit"
+	s := stubOperatorSeams(t, "@3\t\tother\n")
+	s.sessionFactsErr = errors.New("tmux unreachable")
+	origTMUX := operatorOriginalTMUXFn
+	operatorOriginalTMUXFn = func() string { return "" }
+	t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
+
+	cmd, _, _ := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v, want the home fallback on an enumeration error", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	if got := newWindowDirArg(t, s); got != home {
+		t.Errorf("new-window -c = %q, want the home fallback %q", got, home)
+	}
+	if s.repoRoot != "" {
+		t.Errorf("agent-resolution root = %q, want empty on the home fallback", s.repoRoot)
+	}
+}
+
+// TestOperatorLaunchRoot pins the picker over its seams: rung ladder (sole →
+// most-attached → most-windows → first), worktree collapse to one root,
+// non-repo and skill-less roots dropped, infrastructure sessions never
+// candidates.
+func TestOperatorLaunchRoot(t *testing.T) {
+	user := func(name, path string, attached, windows int) tmux.SessionFacts {
+		return tmux.SessionFacts{Name: name, Role: tmux.SessionRoleUser, Attached: attached, Windows: windows, Path: path}
+	}
+	infra := []tmux.SessionFacts{
+		{Name: "_rk-ctl", Role: tmux.SessionRoleControl, Path: "/infra"},
+		{Name: "_rk-operator", Role: tmux.SessionRoleOperator, Attached: 9, Windows: 9, Path: "/infra"},
+	}
+	for _, tc := range []struct {
+		name       string
+		candidates []tmux.SessionFacts
+		roots      map[string]string // path → main root (absent = not a repo)
+		skilled    map[string]bool   // root → carries the fab-operator skill
+		wantRoot   string
+		wantRung   string
+	}{
+		{
+			name:       "no candidates",
+			candidates: nil,
+			wantRoot:   "",
+			wantRung:   "",
+		},
+		{
+			name:       "infrastructure sessions are never candidates",
+			candidates: infra,
+			roots:      map[string]string{"/infra": "/infra"},
+			skilled:    map[string]bool{"/infra": true},
+			wantRoot:   "",
+			wantRung:   "",
+		},
+		{
+			name:       "sole qualifying root",
+			candidates: []tmux.SessionFacts{user("a", "/p/a", 0, 1)},
+			roots:      map[string]string{"/p/a": "/p"},
+			skilled:    map[string]bool{"/p": true},
+			wantRoot:   "/p",
+			wantRung:   dirRungSole,
+		},
+		{
+			name: "two sessions collapsing to one root are one root",
+			candidates: []tmux.SessionFacts{
+				user("a", "/p", 1, 2),
+				user("b", "/p.worktrees/feat", 0, 5),
+			},
+			roots:    map[string]string{"/p": "/p", "/p.worktrees/feat": "/p"},
+			skilled:  map[string]bool{"/p": true},
+			wantRoot: "/p",
+			wantRung: dirRungSole,
+		},
+		{
+			name: "non-repo and skill-less sessions are dropped",
+			candidates: []tmux.SessionFacts{
+				user("norepo", "/tmp/scratch", 5, 5),
+				user("noskill", "/p/noskill", 5, 5),
+				user("ok", "/p/ok", 0, 1),
+			},
+			roots:    map[string]string{"/p/noskill": "/p/noskill", "/p/ok": "/p/ok"},
+			skilled:  map[string]bool{"/p/ok": true},
+			wantRoot: "/p/ok",
+			wantRung: dirRungSole,
+		},
+		{
+			name: "most attached wins",
+			candidates: []tmux.SessionFacts{
+				user("a", "/a", 0, 5),
+				user("b", "/b", 1, 2),
+			},
+			roots:    map[string]string{"/a": "/a", "/b": "/b"},
+			skilled:  map[string]bool{"/a": true, "/b": true},
+			wantRoot: "/b",
+			wantRung: dirRungMostAttached,
+		},
+		{
+			name: "attached tie breaks on windows",
+			candidates: []tmux.SessionFacts{
+				user("a", "/a", 1, 5),
+				user("b", "/b", 1, 2),
+			},
+			roots:    map[string]string{"/a": "/a", "/b": "/b"},
+			skilled:  map[string]bool{"/a": true, "/b": true},
+			wantRoot: "/a",
+			wantRung: dirRungMostWindows,
+		},
+		{
+			name: "full tie breaks on the earliest row",
+			candidates: []tmux.SessionFacts{
+				user("a", "/a", 1, 2),
+				user("b", "/b", 1, 2),
+			},
+			roots:    map[string]string{"/a": "/a", "/b": "/b"},
+			skilled:  map[string]bool{"/a": true, "/b": true},
+			wantRoot: "/a",
+			wantRung: dirRungFirst,
+		},
+		{
+			name: "max counts aggregate across a root's sessions",
+			candidates: []tmux.SessionFacts{
+				user("a", "/p", 0, 1),
+				user("b", "/p.worktrees/feat", 1, 0),
+				user("c", "/q", 1, 3),
+			},
+			roots:    map[string]string{"/p": "/p", "/p.worktrees/feat": "/p", "/q": "/q"},
+			skilled:  map[string]bool{"/p": true, "/q": true},
+			wantRoot: "/q",
+			wantRung: dirRungMostWindows,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rootOf := func(path string) string { return tc.roots[path] }
+			hasSkill := func(root string) bool { return tc.skilled[root] }
+			root, rung := operatorLaunchRoot(tc.candidates, rootOf, hasSkill)
+			if root != tc.wantRoot || rung != tc.wantRung {
+				t.Errorf("operatorLaunchRoot() = (%q, %q), want (%q, %q)", root, rung, tc.wantRoot, tc.wantRung)
+			}
+		})
 	}
 }
 
@@ -903,5 +1155,207 @@ func TestOperatorJSONPreconditionEnvelope(t *testing.T) {
 	}
 	if doc.OK || doc.Error.Code != "operational" || !strings.Contains(doc.Error.Message, "not inside a tmux session") {
 		t.Errorf("envelope = %q, want ok:false operational naming the precondition", stdout.String())
+	}
+}
+
+// --- --dir override, kickoff visibility, server-mode delivery opts ---
+
+// resetOperatorDir restores the --dir package var after a test (the
+// resetOperatorServer pattern).
+func resetOperatorDir(t *testing.T) {
+	t.Helper()
+	orig := operatorDirFlag
+	operatorDirFlag = ""
+	t.Cleanup(func() { operatorDirFlag = orig })
+}
+
+// A --dir value that is not an absolute path to an existing directory is a
+// usage error (exit 2) before ANY subprocess — the value never reaches tmux.
+func TestOperatorDirUsageErrors(t *testing.T) {
+	resetOperatorDir(t)
+	file, err := os.CreateTemp(t.TempDir(), "not-a-dir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		dir     string
+		wantMsg string
+	}{
+		{"relative path", "relative/path", "absolute"},
+		{"nonexistent path", "/nonexistent/rk-operator-dir-test", "does not exist"},
+		{"a file, not a directory", file.Name(), "not a directory"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			operatorDirFlag = tc.dir
+			s := stubOperatorSeams(t, "")
+			cmd, _, _ := operatorTestCmd()
+			err := runOperator(cmd)
+			if err == nil {
+				t.Fatalf("runOperator() with --dir %q = nil, want a usage error", tc.dir)
+			}
+			if code := exitCode(err); code != exitUsage {
+				t.Errorf("exitCode(--dir %q) = %d, want %d (usage)", tc.dir, code, exitUsage)
+			}
+			if !strings.Contains(err.Error(), tc.wantMsg) {
+				t.Errorf("error = %q, want it naming the failed check (%q)", err, tc.wantMsg)
+			}
+			if len(s.calls) != 0 {
+				t.Errorf("tmux calls = %v, want none before validation passes", s.calls)
+			}
+		})
+	}
+}
+
+// A valid --dir is used verbatim as the window directory (rung explicit) in
+// server mode, the derivation does not run, and the agent resolver receives
+// the dir itself when it is not inside a git repository.
+func TestOperatorDirExplicitOverride(t *testing.T) {
+	resetOperatorWorkers(t)
+	resetOperatorServer(t)
+	resetOperatorDir(t)
+	resetOperatorJSON(t)
+	operatorServerFlag = "runKit"
+	operatorJSONFlag = true
+	dir := t.TempDir()
+	operatorDirFlag = dir
+	s := stubOperatorSeams(t, "@3\t\tother\n")
+	origTMUX := operatorOriginalTMUXFn
+	operatorOriginalTMUXFn = func() string { return "" }
+	t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
+	// The derivation must not run when --dir is given: an enumeration error
+	// would degrade to home if it did.
+	s.sessionFactsErr = errors.New("must not be called")
+
+	cmd, outBuf, _ := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v", err)
+	}
+	if got := newWindowDirArg(t, s); got != dir {
+		t.Errorf("new-window -c = %q, want --dir verbatim %q", got, dir)
+	}
+	if s.repoRoot != dir {
+		t.Errorf("agent-resolution root = %q, want the --dir value %q (no git root found)", s.repoRoot, dir)
+	}
+	assertEnvelopeResult(t, outBuf.String(), map[string]any{
+		"window": "@42", "server": "runKit", "created": true, "dir": dir, "dir_rung": "explicit",
+	})
+}
+
+// kickoffReason maps the delivery failure taxonomy onto the closed reason
+// token set of the kickoff: stderr line.
+func TestKickoffReason(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{&inject.ParkedError{Snippet: "trust?"}, "parked"},
+		{&inject.NarrowError{Width: 40, Height: 5}, "narrow"},
+		{fmt.Errorf("wrap: %w", inject.ErrGone), "gone"},
+		{inject.ErrNotReady, "timeout"},
+		{context.DeadlineExceeded, "timeout"},
+		{errors.New("buffer exploded"), "send-error"},
+	} {
+		if got := kickoffReason(tc.err); got != tc.want {
+			t.Errorf("kickoffReason(%v) = %q, want %q", tc.err, got, tc.want)
+		}
+	}
+}
+
+// Under --json an undelivered kickoff adds exactly one machine-readable
+// `kickoff: undelivered reason=… prompt=… dir=…` line to stderr while stdout
+// stays the single receipt document; without --json only the prose note
+// prints.
+func TestOperatorKickoffStderrLine(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		json       bool
+		deliverErr error
+		wantReason string
+	}{
+		{"json parked", true, &inject.ParkedError{Snippet: "trust?"}, "parked"},
+		{"json narrow", true, &inject.NarrowError{Width: 40, Height: 5}, "narrow"},
+		{"json gone", true, inject.ErrGone, "gone"},
+		{"json timeout", true, inject.ErrNotReady, "timeout"},
+		{"json send-error", true, errors.New("buffer exploded"), "send-error"},
+		{"no json stays prose-only", false, inject.ErrNotReady, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetOperatorWorkers(t)
+			resetOperatorJSON(t)
+			operatorJSONFlag = tc.json
+			s := stubOperatorSeams(t, "@3\t\tother\n")
+			s.deliverErr = tc.deliverErr
+
+			cmd, outBuf, errBuf := operatorTestCmd()
+			if err := runOperator(cmd); err != nil {
+				t.Fatalf("runOperator() = %v, want nil (delivery miss degrades)", err)
+			}
+			if !strings.Contains(errBuf.String(), "paste this into the operator agent yourself") {
+				t.Errorf("stderr = %q, want the prose paste-it-yourself note", errBuf.String())
+			}
+			if !tc.json {
+				if strings.Contains(errBuf.String(), "kickoff:") {
+					t.Errorf("stderr = %q, want no kickoff: line without --json", errBuf.String())
+				}
+				return
+			}
+			want := fmt.Sprintf("kickoff: undelivered reason=%s prompt=%s dir=", tc.wantReason, operatorKickoffPrompt)
+			if !strings.Contains(errBuf.String(), want) {
+				t.Errorf("stderr = %q, want it to contain %q", errBuf.String(), want)
+			}
+			// stdout keeps the exactly-one-JSON-document contract.
+			var doc struct {
+				OK bool `json:"ok"`
+			}
+			if err := json.Unmarshal(bytes.TrimSpace(outBuf.Bytes()), &doc); err != nil || !doc.OK {
+				t.Errorf("stdout = %q, want exactly one ok JSON document", outBuf.String())
+			}
+		})
+	}
+}
+
+// The delivery opts are mode-decided: server mode (-L) rides out walls under
+// the 60s server deadline; the interactive path stays fail-fast at 25s.
+func TestOperatorDeliveryOptsByMode(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		server         string
+		wantWalls      bool
+		wantDeadline   time.Duration
+		wantDeadlineIs *time.Duration
+	}{
+		{"server mode waits through walls", "runKit", true, 60 * time.Second, &operatorServerDeliverDeadline},
+		{"interactive stays fail-fast", "", false, 25 * time.Second, &operatorDeliverDeadline},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetOperatorWorkers(t)
+			resetOperatorServer(t)
+			operatorServerFlag = tc.server
+			s := stubOperatorSeams(t, "@3\t\tother\n")
+			if tc.server != "" {
+				origTMUX := operatorOriginalTMUXFn
+				operatorOriginalTMUXFn = func() string { return "" }
+				t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
+			}
+
+			cmd, _, _ := operatorTestCmd()
+			if err := runOperator(cmd); err != nil {
+				t.Fatalf("runOperator() = %v", err)
+			}
+			if len(s.deliverCalls) != 1 {
+				t.Fatalf("deliveries = %v, want exactly one", s.deliverCalls)
+			}
+			opts := s.deliverCalls[0].opts
+			if opts.WaitThroughWalls != tc.wantWalls {
+				t.Errorf("WaitThroughWalls = %v, want %v", opts.WaitThroughWalls, tc.wantWalls)
+			}
+			if opts.Deadline != tc.wantDeadline || opts.Deadline != *tc.wantDeadlineIs {
+				t.Errorf("Deadline = %v, want %v (the %s package var)", opts.Deadline, tc.wantDeadline, tc.name)
+			}
+		})
 	}
 }

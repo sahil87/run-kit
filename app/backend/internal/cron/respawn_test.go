@@ -2,6 +2,7 @@ package cron
 
 import (
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -55,5 +56,64 @@ func TestRespawnDetail(t *testing.T) {
 	got = respawnDetail(err, []byte(split))
 	if !utf8.ValidString(got) {
 		t.Errorf("truncated detail is not valid UTF-8: %q", got)
+	}
+}
+
+// TestRespawnSuccessOutcome: an exit-0 respawn whose output carries a
+// kickoff: undelivered line yields a reason-carrying outcome; anything else
+// yields the bare "respawned". The outcome keeps the "respawned" prefix that
+// resolvedOutcome (orphan GC) and countsTowardRate classify respawns on.
+func TestRespawnSuccessOutcome(t *testing.T) {
+	withKickoff := []byte("spawning agent\nkickoff: undelivered reason=parked prompt=/fab-operator dir=/home/u\ndone\n")
+	got := respawnSuccessOutcome(withKickoff)
+	if want := "respawned (kickoff undelivered: parked)"; got != want {
+		t.Errorf("kickoff line: got %q, want %q", got, want)
+	}
+	if !resolvedOutcome(got) {
+		t.Errorf("resolvedOutcome(%q) = false, want true (orphan GC resolved-class)", got)
+	}
+	if !countsTowardRate(got) {
+		t.Errorf("countsTowardRate(%q) = false, want true (respawn-class rate counting)", got)
+	}
+
+	if got := respawnSuccessOutcome([]byte("agent up, kickoff delivered\n")); got != "respawned" {
+		t.Errorf("no kickoff line: got %q, want %q", got, "respawned")
+	}
+	if got := respawnSuccessOutcome(nil); got != "respawned" {
+		t.Errorf("empty output: got %q, want %q", got, "respawned")
+	}
+
+	// reason= as the last token: the cut on the next space must not need one.
+	if got := respawnSuccessOutcome([]byte("kickoff: undelivered reason=timeout")); got != "respawned (kickoff undelivered: timeout)" {
+		t.Errorf("trailing reason: got %q, want %q", got, "respawned (kickoff undelivered: timeout)")
+	}
+}
+
+// TestTickRespawnKickoffUndelivered: an exit-0 respawn whose output carries
+// the kickoff: undelivered line logs the reason-carrying outcome, still
+// respawn-classified (respawned prefix → resolved-class, rate-counted).
+func TestTickRespawnKickoffUndelivered(t *testing.T) {
+	dir := t.TempDir()
+	T := backoffBase
+	fk := absentRoleRespawnRig(t, dir, T)
+	rr := &fakeRunRespawn{output: []byte("agent up\nkickoff: undelivered reason=parked prompt=/fab-operator dir=/home/u\n")}
+
+	tickOnceR(t, dir, T, fk, (&fakeNotifier{}).notify, rr.run)
+	if len(rr.argvs) != 1 {
+		t.Fatalf("RunRespawn calls = %d, want 1", len(rr.argvs))
+	}
+	lines := ReadLog(filepath.Join(dir, "live1.log"))
+	if len(lines) != 1 {
+		t.Fatalf("log = %+v, want one line", lines)
+	}
+	outcome := lines[0].Outcome
+	if !strings.HasPrefix(outcome, "respawned") {
+		t.Errorf("outcome = %q, want the respawned prefix (resolved-class)", outcome)
+	}
+	if !strings.Contains(outcome, "kickoff undelivered: parked") {
+		t.Errorf("outcome = %q, want it to carry kickoff undelivered: parked", outcome)
+	}
+	if !resolvedOutcome(outcome) {
+		t.Errorf("resolvedOutcome(%q) = false — the orphan GC would treat a revived entry as unresolved", outcome)
 	}
 }

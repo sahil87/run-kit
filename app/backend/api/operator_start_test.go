@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,13 +21,13 @@ import (
 
 // stubOperatorStartRun swaps the exec + self-path seams for the duration of a
 // handler test, returning a pointer to the recorded argv (nil until called).
-func stubOperatorStartRun(t *testing.T, run func(ctx context.Context, argv []string) (operatorStartReceipt, string, error)) *[]string {
+func stubOperatorStartRun(t *testing.T, run func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error)) *[]string {
 	t.Helper()
 	var gotArgv []string
 	prevRun, prevSelf := operatorStartRunFn, resolveSelfPathFn
-	operatorStartRunFn = func(ctx context.Context, argv []string) (operatorStartReceipt, string, error) {
+	operatorStartRunFn = func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
 		gotArgv = append([]string(nil), argv...)
-		return run(ctx, argv)
+		return run(ctx, argv, onExit)
 	}
 	resolveSelfPathFn = func() (string, error) { return "/fake/rk", nil }
 	t.Cleanup(func() {
@@ -50,7 +51,7 @@ func decodeOperatorStartBody(t *testing.T, rec *httptest.ResponseRecorder) map[s
 
 func TestOperatorStart_CreatedReturns202WakesHub(t *testing.T) {
 	server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
-	gotArgv := stubOperatorStartRun(t, func(ctx context.Context, argv []string) (operatorStartReceipt, string, error) {
+	gotArgv := stubOperatorStartRun(t, func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
 		return operatorStartReceipt{Window: "@7", Server: "default", Created: true}, "", nil
 	})
 
@@ -82,7 +83,7 @@ func TestOperatorStart_OperatorExistsPreCheck(t *testing.T) {
 		Windows: []tmux.WindowInfo{{WindowID: "@3", Name: "operator", Role: "operator"}},
 	}}}
 	router := NewTestRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), fetcher, &mockTmuxOps{}, "test-host")
-	stubOperatorStartRun(t, func(ctx context.Context, argv []string) (operatorStartReceipt, string, error) {
+	stubOperatorStartRun(t, func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
 		t.Error("exec seam called despite an operator already present")
 		return operatorStartReceipt{}, "", nil
 	})
@@ -102,7 +103,7 @@ func TestOperatorStart_OperatorExistsPreCheck(t *testing.T) {
 func TestOperatorStart_FetchErrorIs500(t *testing.T) {
 	fetcher := &mockSessionFetcher{err: errors.New("tmux down")}
 	router := NewTestRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), fetcher, &mockTmuxOps{}, "test-host")
-	stubOperatorStartRun(t, func(ctx context.Context, argv []string) (operatorStartReceipt, string, error) {
+	stubOperatorStartRun(t, func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
 		t.Error("exec seam called despite the fetch failure")
 		return operatorStartReceipt{}, "", nil
 	})
@@ -118,7 +119,7 @@ func TestOperatorStart_FetchErrorIs500(t *testing.T) {
 func TestOperatorStart_CreatedFalseIs409(t *testing.T) {
 	fetcher := &mockSessionFetcher{result: []sessions.ProjectSession{{Name: "s1"}}}
 	router := NewTestRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), fetcher, &mockTmuxOps{}, "test-host")
-	stubOperatorStartRun(t, func(ctx context.Context, argv []string) (operatorStartReceipt, string, error) {
+	stubOperatorStartRun(t, func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
 		// The singleton probe found one the pre-check missed.
 		return operatorStartReceipt{Window: "@5", Server: "default", Created: false}, "", nil
 	})
@@ -138,7 +139,7 @@ func TestOperatorStart_CreatedFalseIs409(t *testing.T) {
 func TestOperatorStart_ExecFailureCarriesStderrLine(t *testing.T) {
 	fetcher := &mockSessionFetcher{result: []sessions.ProjectSession{{Name: "s1"}}}
 	router := NewTestRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), fetcher, &mockTmuxOps{}, "test-host")
-	stubOperatorStartRun(t, func(ctx context.Context, argv []string) (operatorStartReceipt, string, error) {
+	stubOperatorStartRun(t, func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
 		return operatorStartReceipt{}, "\nrun-kit operator: fab not found on PATH — install fab\nsecond line\n", errors.New("exit status 1")
 	})
 
@@ -156,7 +157,7 @@ func TestOperatorStart_ExecFailureCarriesStderrLine(t *testing.T) {
 func TestOperatorStart_ReceiptTimeoutIs504(t *testing.T) {
 	fetcher := &mockSessionFetcher{result: []sessions.ProjectSession{{Name: "s1"}}}
 	router := NewTestRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), fetcher, &mockTmuxOps{}, "test-host")
-	stubOperatorStartRun(t, func(ctx context.Context, argv []string) (operatorStartReceipt, string, error) {
+	stubOperatorStartRun(t, func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
 		return operatorStartReceipt{}, "", errOperatorStartTimeout
 	})
 
@@ -179,7 +180,7 @@ func TestRunOperatorStartExec(t *testing.T) {
 		// The real envelope shape: outputSink.writeEnvelope renders one
 		// two-space-indented multi-line document, not a compact line.
 		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\necho 'some chatter'\nprintf '%s\n' '{' '  \"ok\": true,' '  \"result\": {' '    \"window\": \"@7\",' '    \"server\": \"default\",' '    \"created\": true' '  }' '}'\n")
-		receipt, stderr, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk"), "operator", "-L", "default", "--json"})
+		receipt, stderr, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk"), "operator", "-L", "default", "--json"}, nil)
 		if err != nil {
 			t.Fatalf("err = %v, want nil", err)
 		}
@@ -195,7 +196,7 @@ func TestRunOperatorStartExec(t *testing.T) {
 		dir := t.TempDir()
 		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\nprintf '%s\n' '{' '  \"ok\": true,' '  \"result\": { \"window\": \"@9\", \"server\": \"default\", \"created\": true }' '}'\nsleep 2\n")
 		start := time.Now()
-		receipt, _, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk")})
+		receipt, _, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk")}, nil)
 		if err != nil {
 			t.Fatalf("err = %v, want nil", err)
 		}
@@ -210,7 +211,7 @@ func TestRunOperatorStartExec(t *testing.T) {
 	t.Run("a non-zero exit without a receipt surfaces stderr", func(t *testing.T) {
 		dir := t.TempDir()
 		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\necho 'run-kit operator: fab not found on PATH' >&2\nexit 1\n")
-		_, stderr, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk")})
+		_, stderr, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk")}, nil)
 		if err == nil {
 			t.Fatal("err = nil, want the non-zero exit")
 		}
@@ -229,7 +230,7 @@ func TestRunOperatorStartExec(t *testing.T) {
 		dir := t.TempDir()
 		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\nexec sleep 5\n")
 		start := time.Now()
-		_, _, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk")})
+		_, _, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk")}, nil)
 		if !errors.Is(err, errOperatorStartTimeout) {
 			t.Fatalf("err = %v, want errOperatorStartTimeout", err)
 		}
@@ -241,7 +242,7 @@ func TestRunOperatorStartExec(t *testing.T) {
 	t.Run("a failure envelope line does not count as a receipt", func(t *testing.T) {
 		dir := t.TempDir()
 		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\necho '{\"ok\":false,\"error\":{\"code\":\"operational\",\"message\":\"boom\"}}'\necho 'run-kit operator: boom' >&2\nexit 1\n")
-		_, stderr, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk")})
+		_, stderr, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk")}, nil)
 		if err == nil || errors.Is(err, errOperatorStartTimeout) {
 			t.Fatalf("err = %v, want the non-zero exit (not a receipt, not a timeout)", err)
 		}
@@ -249,4 +250,260 @@ func TestRunOperatorStartExec(t *testing.T) {
 			t.Errorf("stderr = %q, want the script's error line", stderr)
 		}
 	})
+
+	t.Run("onExit fires after the exit with the receipt and full stderr", func(t *testing.T) {
+		dir := t.TempDir()
+		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\nprintf '%s\n' '{' '  \"ok\": true,' '  \"result\": { \"window\": \"@7\", \"server\": \"default\", \"created\": true, \"dir\": \"/home/u/proj\", \"dir_rung\": \"worktree\" }' '}'\necho 'kickoff: undelivered reason=parked prompt=/fab-operator dir=/home/u/proj' >&2\nexit 0\n")
+		type exitCall struct {
+			receipt operatorStartReceipt
+			stderr  string
+			err     error
+		}
+		fired := make(chan exitCall, 1)
+		receipt, _, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk")}, func(r operatorStartReceipt, stderr string, exitErr error) {
+			fired <- exitCall{r, stderr, exitErr}
+		})
+		if err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+		if receipt.Dir != "/home/u/proj" || receipt.DirRung != "worktree" {
+			t.Errorf("receipt = %+v, want the dir/dir_rung fields parsed", receipt)
+		}
+		select {
+		case call := <-fired:
+			if call.err != nil {
+				t.Errorf("exit err = %v, want nil (clean exit)", call.err)
+			}
+			if call.receipt.Window != "@7" {
+				t.Errorf("callback receipt = %+v, want window @7", call.receipt)
+			}
+			if !strings.Contains(call.stderr, "kickoff: undelivered reason=parked") {
+				t.Errorf("callback stderr = %q, want the kickoff note", call.stderr)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("onExit did not fire after the process exited")
+		}
+	})
+}
+
+func TestParseKickoffNote(t *testing.T) {
+	for _, reason := range []string{"parked", "narrow", "gone", "timeout", "send-error"} {
+		line := "kickoff: undelivered reason=" + reason + " prompt=/fab-operator dir=/home/u/proj\n"
+		t.Run("reason "+reason, func(t *testing.T) {
+			gotReason, gotDir, ok := parseKickoffNote(line)
+			if !ok || gotReason != reason || gotDir != "/home/u/proj" {
+				t.Errorf("parseKickoffNote(%q) = %q, %q, %v", line, gotReason, gotDir, ok)
+			}
+		})
+	}
+
+	cases := []struct {
+		name       string
+		stderr     string
+		wantReason string
+		wantDir    string
+		wantOK     bool
+	}{
+		{
+			name:       "extra fields after dir are tolerated",
+			stderr:     "kickoff: undelivered reason=parked prompt=/fab-operator dir=/home/u/proj extra=1\n",
+			wantReason: "parked",
+			wantDir:    "/home/u/proj",
+			wantOK:     true,
+		},
+		{
+			name:       "a prompt with spaces keeps dir intact",
+			stderr:     "kickoff: undelivered reason=narrow prompt=run /fab-operator now dir=/home/u/proj\n",
+			wantReason: "narrow",
+			wantDir:    "/home/u/proj",
+			wantOK:     true,
+		},
+		{
+			name:       "the note buried in multi-line stderr",
+			stderr:     "spawning agent\nkickoff: undelivered reason=gone prompt=/fab-operator dir=/home/u/proj\nall done\n",
+			wantReason: "gone",
+			wantDir:    "/home/u/proj",
+			wantOK:     true,
+		},
+		{name: "no note", stderr: "agent up\nexit clean\n", wantOK: false},
+		{name: "empty stderr", stderr: "", wantOK: false},
+		{name: "missing prompt field", stderr: "kickoff: undelivered reason=parked dir=/home/u/proj\n", wantOK: false},
+		{name: "missing dir field", stderr: "kickoff: undelivered reason=parked prompt=/fab-operator\n", wantOK: false},
+		{name: "empty dir", stderr: "kickoff: undelivered reason=parked prompt=/fab-operator dir=\n", wantOK: false},
+		{name: "empty reason", stderr: "kickoff: undelivered reason= prompt=/fab-operator dir=/home/u/proj\n", wantOK: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotReason, gotDir, ok := parseKickoffNote(tc.stderr)
+			if ok != tc.wantOK || gotReason != tc.wantReason || gotDir != tc.wantDir {
+				t.Errorf("parseKickoffNote(%q) = %q, %q, %v; want %q, %q, %v",
+					tc.stderr, gotReason, gotDir, ok, tc.wantReason, tc.wantDir, tc.wantOK)
+			}
+		})
+	}
+}
+
+// kickoffLogRecorder is a slog.Handler capturing records so the kickoff WARN
+// (emitted via the package-level slog default) is assertable.
+type kickoffLogRecorder struct {
+	mu   sync.Mutex
+	recs []capturedLogRecord
+}
+
+type capturedLogRecord struct {
+	level slog.Level
+	msg   string
+	attrs map[string]string
+}
+
+func (h *kickoffLogRecorder) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *kickoffLogRecorder) Handle(_ context.Context, r slog.Record) error {
+	attrs := map[string]string{}
+	r.Attrs(func(a slog.Attr) bool {
+		attrs[a.Key] = a.Value.String()
+		return true
+	})
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.recs = append(h.recs, capturedLogRecord{level: r.Level, msg: r.Message, attrs: attrs})
+	return nil
+}
+
+func (h *kickoffLogRecorder) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *kickoffLogRecorder) WithGroup(string) slog.Handler      { return h }
+
+func (h *kickoffLogRecorder) kickoffWarns() []capturedLogRecord {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []capturedLogRecord
+	for _, r := range h.recs {
+		if r.msg == "operator kickoff undelivered" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// installKickoffLogRecorder routes the package-level slog default through a
+// recorder for the test's duration.
+func installKickoffLogRecorder(t *testing.T) *kickoffLogRecorder {
+	t.Helper()
+	recorder := &kickoffLogRecorder{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(recorder))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return recorder
+}
+
+// newKickoffExitServer builds a Server with an SSE hub and one subscribed
+// state client on "default", draining the bootstrap frames so only frames the
+// callback drives remain. Mirrors newWakeSeamServer, minus the fetch tracker.
+func newKickoffExitServer(t *testing.T) (*Server, *sseClient) {
+	t.Helper()
+	s := &Server{
+		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		sessions: &mockSessionFetcher{result: []sessions.ProjectSession{{Name: "s1"}}},
+		tmux:     &mockTmuxOps{},
+		hostname: "test-host",
+	}
+	s.initSSEHub()
+	// A long safety interval so no timer-driven poll lands mid-assertion.
+	s.sseHub.safetyInterval = 5 * time.Second
+	client := s.sseHub.addTestClient(make(chan hubEvent, 16), "default")
+	t.Cleanup(func() { s.sseHub.removeClient(client) })
+	// Let the bootstrap poll pass complete before draining.
+	time.Sleep(100 * time.Millisecond)
+	drainConnEvents(client.ch)
+	return s, client
+}
+
+func notifyPayloads(t *testing.T, ch chan hubEvent) []notifyPayload {
+	t.Helper()
+	var out []notifyPayload
+	for _, frame := range decodeEnvelopes(drainFrames(ch)) {
+		if rawStr(frame, "type") != "notify" || rawStr(frame, "kind") != kindGlobal {
+			continue
+		}
+		var payload notifyPayload
+		if err := json.Unmarshal(frame["data"], &payload); err != nil {
+			t.Fatalf("decode notify payload: %v", err)
+		}
+		out = append(out, payload)
+	}
+	return out
+}
+
+func TestOperatorKickoffExit(t *testing.T) {
+	t.Run("a kickoff note warns once and broadcasts one tagged notify", func(t *testing.T) {
+		recorder := installKickoffLogRecorder(t)
+		s, client := newKickoffExitServer(t)
+
+		s.operatorKickoffExit("default")(
+			operatorStartReceipt{Window: "@7", Server: "default", Created: true, Dir: "/home/u/proj"},
+			"agent up\nkickoff: undelivered reason=parked prompt=/fab-operator dir=/home/u/proj\n",
+			nil,
+		)
+
+		warns := recorder.kickoffWarns()
+		if len(warns) != 1 {
+			t.Fatalf("kickoff WARN count = %d, want exactly 1", len(warns))
+		}
+		if warns[0].level != slog.LevelWarn {
+			t.Errorf("level = %v, want WARN", warns[0].level)
+		}
+		for k, v := range map[string]string{"server": "default", "window": "@7", "reason": "parked", "dir": "/home/u/proj"} {
+			if warns[0].attrs[k] != v {
+				t.Errorf("attr %q = %q, want %q", k, warns[0].attrs[k], v)
+			}
+		}
+
+		got := notifyPayloads(t, client.ch)
+		if len(got) != 1 {
+			t.Fatalf("notify frames = %d, want exactly 1", len(got))
+		}
+		if got[0].Tag != "operator-kickoff" {
+			t.Errorf("tag = %q, want operator-kickoff", got[0].Tag)
+		}
+		if got[0].Title != "Operator kickoff not delivered" {
+			t.Errorf("title = %q", got[0].Title)
+		}
+		for _, want := range []string{"default", "/home/u/proj", "parked"} {
+			if !strings.Contains(got[0].Body, want) {
+				t.Errorf("body = %q, want it to carry %q", got[0].Body, want)
+			}
+		}
+		if got[0].URL != "/default/7" {
+			t.Errorf("url = %q, want /default/7 (the operator window's Terminal route)", got[0].URL)
+		}
+	})
+
+	t.Run("a clean exit without the note stays silent", func(t *testing.T) {
+		recorder := installKickoffLogRecorder(t)
+		s, client := newKickoffExitServer(t)
+
+		s.operatorKickoffExit("default")(
+			operatorStartReceipt{Window: "@7", Server: "default", Created: true},
+			"agent up\nall good\n",
+			nil,
+		)
+
+		if warns := recorder.kickoffWarns(); len(warns) != 0 {
+			t.Errorf("kickoff WARN count = %d, want 0", len(warns))
+		}
+		if got := notifyPayloads(t, client.ch); len(got) != 0 {
+			t.Errorf("notify frames = %d, want 0", len(got))
+		}
+	})
+}
+
+func TestOperatorStartReceiptParsesKickoffFields(t *testing.T) {
+	receipt, complete, ok := parseOperatorStartEnvelope([]byte(
+		"{\n  \"ok\": true,\n  \"result\": {\n    \"window\": \"@7\",\n    \"server\": \"default\",\n    \"created\": true,\n    \"dir\": \"/home/u/proj\",\n    \"dir_rung\": \"worktree\"\n  }\n}"))
+	if !complete || !ok {
+		t.Fatalf("complete, ok = %v, %v, want true, true", complete, ok)
+	}
+	if receipt.Dir != "/home/u/proj" || receipt.DirRung != "worktree" {
+		t.Errorf("receipt = %+v, want dir and dir_rung parsed", receipt)
+	}
 }

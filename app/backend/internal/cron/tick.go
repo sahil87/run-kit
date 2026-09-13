@@ -138,7 +138,7 @@ func countsTowardRate(outcome string) bool {
 		return true
 	case outcome == "notified-absent":
 		return true
-	case outcome == "respawned", strings.HasPrefix(outcome, "respawn-failed"):
+	case strings.HasPrefix(outcome, "respawned"), strings.HasPrefix(outcome, "respawn-failed"):
 		return true
 	}
 	return false
@@ -391,7 +391,7 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 			if err != nil {
 				line.Outcome = "respawn-failed: " + respawnDetail(err, out)
 			} else {
-				line.Outcome = "respawned"
+				line.Outcome = respawnSuccessOutcome(out)
 			}
 		case isRespawn && fire.Entry.Target.Kind == TargetSession && sessionRespawner != nil:
 			// Session-target respawn without a respawn command routes to the

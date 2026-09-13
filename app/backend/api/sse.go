@@ -1394,6 +1394,7 @@ type notifyPayload struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
 	URL   string `json:"url,omitempty"`
+	Tag   string `json:"tag,omitempty"`
 }
 
 func newNotifyID() (string, error) {
@@ -1408,6 +1409,14 @@ func newNotifyID() (string, error) {
 // It intentionally has no cached slot because reconnect replay would surface
 // a stale OS notification.
 func (h *sseHub) broadcastNotify(title, body, url string) {
+	h.broadcastNotifyTagged(title, body, url, "")
+}
+
+// broadcastNotifyTagged is broadcastNotify plus a `tag` classifying the
+// notification source so clients can key behavior (dismiss/replace) on it.
+// An empty tag is omitted from the wire payload (json:",omitempty"), keeping
+// untagged producers byte-identical.
+func (h *sseHub) broadcastNotifyTagged(title, body, url, tag string) {
 	id, err := newNotifyID()
 	if err != nil {
 		slog.Warn("notify id generation failed", "err", err)
@@ -1418,6 +1427,7 @@ func (h *sseHub) broadcastNotify(title, body, url string) {
 		Title: title,
 		Body:  body,
 		URL:   url,
+		Tag:   tag,
 	})
 	if err != nil {
 		slog.Warn("notify broadcast marshal failed", "err", err)

@@ -99,7 +99,7 @@ func stubCronSessionRespawnSeams(t *testing.T) *cronSessionRespawnStub {
 		return s.stampErr
 	}
 	origDeliver := cronSessionRespawnDeliverFn
-	cronSessionRespawnDeliverFn = func(_ context.Context, _ *inject.Engine, _ inject.Tmux, server, paneID, text string) (inject.Readiness, error) {
+	cronSessionRespawnDeliverFn = func(_ context.Context, _ *inject.Engine, _ inject.Tmux, server, paneID, text string, _ inject.ReadyOpts) (inject.Readiness, error) {
 		s.delivered = true
 		s.deliverSrv, s.deliverPane, s.deliverText = server, paneID, text
 		return s.readiness, s.deliverErr

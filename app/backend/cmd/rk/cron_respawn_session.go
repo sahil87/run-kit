@@ -79,12 +79,10 @@ var (
 	cronSessionSpawnFn            = riff.Spawn
 	cronSessionSetWindowOptionsFn = tmux.SetWindowOptions
 	// cronSessionRespawnDeliverFn mirrors operatorDeliverFn: DeliverWhenReady
-	// with the reconciled state reader under the operatorDeliverDeadline bound.
-	cronSessionRespawnDeliverFn = kickoffDeliverFn(func(ctx context.Context, engine *inject.Engine, t inject.Tmux, server, paneID, text string) (inject.Readiness, error) {
-		return inject.DeliverWhenReady(ctx, t, server, paneID, inject.Sanitize(text), true, engine, inject.ReadyOpts{
-			State:    boundedPaneAgentState,
-			Deadline: operatorDeliverDeadline,
-		})
+	// with the reconciled state reader; the deadline arrives via opts.
+	cronSessionRespawnDeliverFn = kickoffDeliverFn(func(ctx context.Context, engine *inject.Engine, t inject.Tmux, server, paneID, text string, opts inject.ReadyOpts) (inject.Readiness, error) {
+		opts.State = boundedPaneAgentState
+		return inject.DeliverWhenReady(ctx, t, server, paneID, inject.Sanitize(text), true, engine, opts)
 	})
 	// cronSessionRespawnNotifyFn is the fail-silent escalation seam — the same
 	// production default Deps.Notifier falls back to (push.Notify).
@@ -190,7 +188,7 @@ func cronRespawnSession(ctx context.Context, store *snapshot.Store, fire cron.Fi
 	dctx, dcancel := context.WithTimeout(ctx, operatorDeliverDeadline+operatorCmdTimeout)
 	defer dcancel()
 	engine := inject.NewEngine(cronSessionRespawnBuffer)
-	readiness, err := cronSessionRespawnDeliverFn(dctx, engine, awaitReadyTmux{}, server, res.PaneID, fire.Entry.Payload)
+	readiness, err := cronSessionRespawnDeliverFn(dctx, engine, awaitReadyTmux{}, server, res.PaneID, fire.Entry.Payload, inject.ReadyOpts{Deadline: operatorDeliverDeadline})
 	if err != nil {
 		// DeliverWhenReady's contract: a readiness classification error
 		// (parked/narrow/gone/timeout) returns the zero Readiness; a send

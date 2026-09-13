@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"rk/internal/config"
+	"rk/internal/gitinfo"
 	"rk/internal/inject"
 	"rk/internal/riff"
 	"rk/internal/tmux"
@@ -34,9 +36,13 @@ import (
 //
 // Both preconditions are HARD (exit 1): fab on PATH always; inside tmux unless
 // -L/--server names the server explicitly (the daemon-invocable form: no $TMUX,
-// every tmux call addressed with -L <name>, the window opened in the home
-// directory, and a singleton hit reported without any switch-client — there is
-// no client to switch). Unlike tutorial's fail-open posture there is no
+// every tmux call addressed with -L <name>, and a singleton hit reported
+// without any switch-client — there is no client to switch). Server mode
+// derives the window's directory from the server's user-role sessions (the
+// main-worktree root carrying the deployed fab-operator skill; $HOME only when
+// nothing qualifies — see operatorLaunchRoot) so the booted agent finds both
+// the skill and an already-trusted checkout; the interactive path keeps the
+// git-root-of-cwd rule. Unlike tutorial's fail-open posture there is no
 // default-launcher degrade for a missing fab — an operator without fab-kit is
 // meaningless (the /fab-operator skill would not exist). No tmux subprocess
 // runs before both pass.
@@ -82,6 +88,13 @@ const (
 // it; the default tolerates a slow agent boot.
 var operatorDeliverDeadline = 25 * time.Second
 
+// operatorServerDeliverDeadline is the server-mode (-L/--server) delivery
+// budget, paired with WaitThroughWalls: with nobody watching the pane the wait
+// rides out a wall the user clears from the drawer. 60s + operatorCmdTimeout
+// (10s) stays under both callers' 90s bounds (operatorStartProcessTimeout and
+// cron.DefaultRespawnTimeout). A var, the operatorDeliverDeadline precedent.
+var operatorServerDeliverDeadline = 60 * time.Second
+
 // operatorWorkersRe is the charset gate for --workers: the value enters the
 // deliberately-unescaped launcher shell string (constitution §I), so only this
 // alphabet may pass — anything else is a usage error before any subprocess.
@@ -89,19 +102,37 @@ var operatorWorkersRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 var operatorWorkersFlag string
 var operatorServerFlag string
+var operatorDirFlag string
 var operatorJSONFlag bool
+
+// dirRung* are the closed set of dir_rung tokens the --json created receipt
+// reports — the reason the operator window's directory was chosen (the
+// sessionRung* precedent: the key set is stable, so the token set is too).
+const (
+	dirRungSole         = "sole"
+	dirRungMostAttached = "most-attached"
+	dirRungMostWindows  = "most-windows"
+	dirRungFirst        = "first"
+	dirRungHome         = "home"
+	dirRungExplicit     = "explicit"
+)
 
 // operatorReceipt is the --json success document: the window id, the server
 // label (the -L value in server mode, else the caller's socket basename), and
-// created:false on both singleton hits — the verb is idempotent.
+// created:false on both singleton hits — the verb is idempotent. Dir/DirRung
+// name the chosen window directory and why; they are set only when a
+// directory decision was made (server mode or --dir), so a singleton hit and
+// the interactive default omit both.
 type operatorReceipt struct {
 	Window  string `json:"window"`
 	Server  string `json:"server"`
 	Created bool   `json:"created"`
+	Dir     string `json:"dir,omitempty"`
+	DirRung string `json:"dir_rung,omitempty"`
 }
 
 var operatorCmd = &cobra.Command{
-	Use:   "operator [--workers <provider>] [-L <server>]",
+	Use:   "operator [--workers <provider>] [-L <server>] [--dir <path>]",
 	Short: "Open the operator — the server-wide orchestrator agent tab (singleton)",
 	Long: `Open (or switch to) the run-kit operator: a per-tmux-server singleton
 window named 'operator' running the fab operator-tier agent, role-marked so
@@ -128,9 +159,20 @@ string), and an invalid value is a usage error before anything runs.
 
 -L/--server <name> addresses a NAMED tmux server instead of the caller's own:
 the inside-tmux precondition is waived (this is how the cron daemon invokes
-it), every tmux call runs against -L <name>, the window opens in your home
-directory, and an already-present operator tab is reported without switching
-any client.
+it), every tmux call runs against -L <name>, and an already-present operator
+tab is reported without switching any client. The window's working directory
+is derived from the server's own sessions: the main-worktree root of a
+user-role session that carries the deployed fab-operator skill
+(.agents/skills/fab-operator or .claude/skills/fab-operator) — the sole
+qualifying root wins, else the most attached session's root, then the most
+windows, then the earliest session — so the agent boots where the skill and
+its trust already exist. When no session qualifies the window falls back to
+your home directory and the kickoff miss is surfaced instead of silent.
+
+--dir <path> pins the window's working directory outright (both modes): the
+value must be an absolute path to an existing directory, and its git root
+drives agent resolution. The derivation above does not run when --dir is
+given.
 
 To hand the operator a templated work item (fix-tab-name, brief-me,
 spawn-task, …) from the shell, use 'rk operator request' — see
@@ -150,7 +192,7 @@ Examples:
 Exit codes:
   0  success (including a window opened with an undeliverable kickoff)
   1  precondition failure ($TMUX unset without -L, fab not on PATH)
-  2  usage error (invalid --workers value)
+  2  usage error (invalid --workers or --dir value)
   3  subprocess failure (tmux non-zero exit, timeout)`,
 	Args: cobra.NoArgs,
 	RunE: runOperatorWithExitCode,
@@ -160,7 +202,9 @@ func init() {
 	operatorCmd.Flags().StringVar(&operatorWorkersFlag, "workers", "",
 		"set FAB_AGENT_WORKERS for the launched operator agent (letters, digits, '_' and '-' only)")
 	operatorCmd.Flags().StringVarP(&operatorServerFlag, "server", "L", "",
-		"address the named tmux server (no $TMUX required; the window opens in the home directory; an existing operator tab is reported, not switched to)")
+		"address the named tmux server (no $TMUX required; the window opens in a derived project root, falling back to the home directory; an existing operator tab is reported, not switched to)")
+	operatorCmd.Flags().StringVar(&operatorDirFlag, "dir", "",
+		"pin the operator window's working directory (absolute path to an existing directory; also drives agent resolution)")
 	operatorCmd.Flags().BoolVar(&operatorJSONFlag, "json", false,
 		"emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorCmd.AddCommand(operatorRequestCmd)
@@ -191,6 +235,20 @@ var (
 		return tmux.RunOutput(ctx, args, tmux.RunOpts{Env: env})
 	})
 	operatorResolveAgentFn = riff.ResolveAgent
+	// operatorSessionFactsFn enumerates the target server's sessions for the
+	// launch-root derivation (the tabNewSessionFactsFn pattern); tests stub it
+	// to drive the rung ladder tmux-free. An enumeration error degrades to the
+	// home fallback — the window is still worth opening.
+	operatorSessionFactsFn = func(ctx context.Context, server string) ([]tmux.SessionFacts, error) {
+		return tmux.ListSessionFacts(ctx, server)
+	}
+	// operatorMainRootFn collapses a session's start path to its main-worktree
+	// root (linked worktrees live in the sibling <repo>.worktrees/<name>
+	// directory, so only the common-dir resolution ties them to the checkout);
+	// "" means "not inside a git repository" and drops the candidate.
+	operatorMainRootFn = func(ctx context.Context, dir string) string {
+		return gitinfo.MainWorktreeRoot(ctx, dir)
+	}
 )
 
 // runOperatorWithExitCode is the cobra RunE (execute()'s central writer covers plain --json errors; the
@@ -230,6 +288,14 @@ func runOperator(cmd *cobra.Command) error {
 	// value is the unset case: byte-identical bare composition.
 	if operatorWorkersFlag != "" && !operatorWorkersRe.MatchString(operatorWorkersFlag) {
 		return usageError(fmt.Errorf("invalid --workers value %q: must match %s", operatorWorkersFlag, operatorWorkersRe))
+	}
+	// --dir validation is likewise pure (absolute, exists, is a directory) and
+	// runs before ANY subprocess: the value becomes the window's -c argument
+	// and the agent-resolution root, so a rejected value never reaches tmux.
+	if operatorDirFlag != "" {
+		if err := validateOperatorDir(operatorDirFlag); err != nil {
+			return usageError(err)
+		}
 	}
 	// -L/--server is the daemon-invocable form: it addresses a named server
 	// outright, so the inside-tmux precondition is waived and no client is
@@ -302,17 +368,36 @@ func runOperator(cmd *cobra.Command) error {
 		return nil
 	}
 
-	// Server mode opens the window in the home directory (the invoker — a cron
-	// daemon — has no project cwd); the interactive path keeps the
-	// git-root-of-cwd rule.
-	var windowDir, root string
-	if serverMode {
+	// Directory selection: an explicit --dir wins in both modes (used verbatim;
+	// its git root — falling back to the path itself — drives agent
+	// resolution). Server mode otherwise derives the root from the server's
+	// user sessions (operatorLaunchRoot); nothing qualifying (or an
+	// enumeration error) falls back to the home directory, rung home, with the
+	// agent root left empty — the miss is surfaced by the kickoff reporting
+	// below. The interactive default keeps the git-root-of-cwd rule.
+	var windowDir, root, rung string
+	switch {
+	case operatorDirFlag != "":
+		windowDir = operatorDirFlag
+		rung = dirRungExplicit
+		root = config.FindGitRoot(operatorDirFlag)
+		if root == "" {
+			root = operatorDirFlag
+		}
+	case serverMode:
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return fmt.Errorf("run-kit operator: resolve home directory: %w", err)
 		}
-		windowDir = home
-	} else {
+		windowDir, rung = home, dirRungHome
+		if facts, ferr := operatorSessionFactsFn(ctx, operatorServerFlag); ferr == nil {
+			if picked, pickedRung := operatorLaunchRoot(facts,
+				func(path string) string { return operatorMainRootFn(ctx, path) },
+				hasOperatorSkill); picked != "" {
+				windowDir, root, rung = picked, picked, pickedRung
+			}
+		}
+	default:
 		cwd, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("run-kit operator: resolve working directory: %w", err)
@@ -351,12 +436,19 @@ func runOperator(cmd *cobra.Command) error {
 
 	if operatorJSONFlag {
 		// The receipt names the created window's @N, resolved from the new pane
-		// through the same (server-prefixed in server mode) seam.
+		// through the same (server-prefixed in server mode) seam. dir/dir_rung
+		// ride along only when a directory decision was made (server mode or
+		// --dir) — the interactive default leaves both empty (omitempty).
 		winOut, werr := runOutput(ctx, []string{"display-message", "-p", "-t", paneID, "#{window_id}"}, env)
 		if werr != nil {
 			return fmt.Errorf("run-kit operator: resolve new window id: %w", werr)
 		}
-		newSink(cmd).JSONResult(operatorReceipt{Window: strings.TrimSpace(string(winOut)), Server: serverLabel, Created: true})
+		receipt := operatorReceipt{Window: strings.TrimSpace(string(winOut)), Server: serverLabel, Created: true}
+		if rung != "" {
+			receipt.Dir = windowDir
+			receipt.DirRung = rung
+		}
+		newSink(cmd).JSONResult(receipt)
 	} else {
 		fmt.Fprintf(cmd.OutOrStdout(), "Opened operator tab (window %q).\n", operatorWindowName)
 	}
@@ -367,9 +459,23 @@ func runOperator(cmd *cobra.Command) error {
 
 	// Typed-kickoff delivery is best-effort: the window and its agent exist
 	// either way, so a delivery miss degrades to telling the user exactly what
-	// to paste — never a non-zero exit.
-	if deliverErr := deliverAgentKickoff(parent, operatorDeliverFn, serverLabel, paneID, kickoff, operatorDeliverDeadline, operatorCmdTimeout); deliverErr != nil {
+	// to paste — never a non-zero exit. Server mode waits through walls (the
+	// invoker is not watching the pane; a trust dialog the user clears from the
+	// drawer should not end the wait) under the longer deadline; the
+	// interactive path stays fail-fast — the human is looking at the pane.
+	deliverOpts := inject.ReadyOpts{Deadline: operatorDeliverDeadline}
+	if serverMode {
+		deliverOpts = inject.ReadyOpts{Deadline: operatorServerDeliverDeadline, WaitThroughWalls: true}
+	}
+	if deliverErr := deliverAgentKickoff(parent, operatorDeliverFn, serverLabel, paneID, kickoff, deliverOpts, operatorCmdTimeout); deliverErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit operator: could not deliver the kickoff prompt (%v) — paste this into the operator agent yourself:\n  %s\n", deliverErr, kickoff)
+		// Under --json, stdout must stay exactly one JSON document (the
+		// receipt precedes delivery), so the machine-readable form of the
+		// miss goes to stderr as one kickoff: line — the daemon's
+		// post-receipt log and the cron respawn tail both parse it.
+		if operatorJSONFlag {
+			fmt.Fprintf(cmd.ErrOrStderr(), "kickoff: undelivered reason=%s prompt=%s dir=%s\n", kickoffReason(deliverErr), kickoff, windowDir)
+		}
 	}
 	return nil
 }
@@ -425,13 +531,12 @@ func createMarkedOperatorWindow(ctx context.Context, runOutput operatorRunOutput
 }
 
 // operatorDeliverFn is the delivery seam (the tutorialDeliverFn pattern):
-// production drives inject.DeliverWhenReady with the reconciled state reader;
-// tests substitute a recorder so the command path runs tmux-free.
-var operatorDeliverFn = func(ctx context.Context, engine *inject.Engine, t inject.Tmux, server, paneID, text string) (inject.Readiness, error) {
-	return inject.DeliverWhenReady(ctx, t, server, paneID, inject.Sanitize(text), true, engine, inject.ReadyOpts{
-		State:    boundedPaneAgentState,
-		Deadline: operatorDeliverDeadline,
-	})
+// production drives inject.DeliverWhenReady with the reconciled state reader
+// merged into the caller's opts (deadline and wall posture are the caller's
+// decision); tests substitute a recorder so the command path runs tmux-free.
+var operatorDeliverFn = func(ctx context.Context, engine *inject.Engine, t inject.Tmux, server, paneID, text string, opts inject.ReadyOpts) (inject.Readiness, error) {
+	opts.State = boundedPaneAgentState
+	return inject.DeliverWhenReady(ctx, t, server, paneID, inject.Sanitize(text), true, engine, opts)
 }
 
 // findOperatorWindowID scans `tmux list-windows -a -F '<id>\t<role>\t<name>'`
@@ -472,4 +577,135 @@ func operatorShellCommand(launcher, workers string) string {
 		launcher = "FAB_AGENT_WORKERS=" + workers + " " + launcher
 	}
 	return riff.SkillPaneCommand(launcher, "")
+}
+
+// operatorSkillPaths are the two deployed fab-operator skill locations a
+// qualifying launch root must carry one of (fab sync writes both; different
+// providers read different trees, so either is sufficient).
+var operatorSkillPaths = []string{
+	filepath.Join(".agents", "skills", "fab-operator", "SKILL.md"),
+	filepath.Join(".claude", "skills", "fab-operator", "SKILL.md"),
+}
+
+// hasOperatorSkill reports whether root carries the deployed fab-operator
+// skill — the qualification test for a launch root (the skill is what the
+// booted agent needs; a fab project without a synced skill tree fails
+// identically to $HOME). os.Stat only — no subprocess per candidate.
+func hasOperatorSkill(root string) bool {
+	for _, rel := range operatorSkillPaths {
+		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// operatorLaunchRoot picks the operator window's working directory for the
+// -L/--server path: the main-worktree root of a user-role session on the
+// server that carries the fab-operator skill. Non-user (infrastructure)
+// sessions are never candidates — their paths are $HOME by construction.
+// Each candidate's start path is collapsed to its main checkout by rootOf
+// ("" = not a repo, dropped); a root qualifies when hasOperatorSkill(root)
+// holds. Two sessions collapsing to one root are ONE root carrying the max
+// Attached/Windows across them. Ranking over qualifying distinct roots: the
+// sole one wins (rung sole); else the highest Attached (most-attached); ties
+// → highest Windows (most-windows); ties → the root whose first session
+// appears earliest in enumeration order (first). Returns ("", "") when
+// nothing qualifies — the caller falls back to the home directory (rung
+// home). Pure.
+func operatorLaunchRoot(candidates []tmux.SessionFacts, rootOf func(path string) string, hasSkill func(root string) bool) (root, rung string) {
+	type rootAgg struct {
+		root     string
+		attached int
+		windows  int
+	}
+	var roots []rootAgg
+	seen := make(map[string]int, len(candidates))
+	for _, c := range candidates {
+		if c.Role != tmux.SessionRoleUser {
+			continue
+		}
+		r := rootOf(c.Path)
+		if r == "" || !hasSkill(r) {
+			continue
+		}
+		if i, ok := seen[r]; ok {
+			roots[i].attached = max(roots[i].attached, c.Attached)
+			roots[i].windows = max(roots[i].windows, c.Windows)
+			continue
+		}
+		seen[r] = len(roots)
+		roots = append(roots, rootAgg{root: r, attached: c.Attached, windows: c.Windows})
+	}
+	switch len(roots) {
+	case 0:
+		return "", ""
+	case 1:
+		return roots[0].root, dirRungSole
+	}
+	maxAttached := 0
+	for _, r := range roots {
+		maxAttached = max(maxAttached, r.attached)
+	}
+	top := roots[:0:0]
+	for _, r := range roots {
+		if r.attached == maxAttached {
+			top = append(top, r)
+		}
+	}
+	if len(top) == 1 {
+		return top[0].root, dirRungMostAttached
+	}
+	maxWindows := 0
+	for _, r := range top {
+		maxWindows = max(maxWindows, r.windows)
+	}
+	best := top[:0:0]
+	for _, r := range top {
+		if r.windows == maxWindows {
+			best = append(best, r)
+		}
+	}
+	if len(best) == 1 {
+		return best[0].root, dirRungMostWindows
+	}
+	// Enumeration order is preserved through both filters, so best[0] is the
+	// earliest row among the full ties.
+	return best[0].root, dirRungFirst
+}
+
+// validateOperatorDir gates --dir before any subprocess: the value must be an
+// absolute path to an existing directory, and the error names the failed
+// check. Pure.
+func validateOperatorDir(dir string) error {
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("invalid --dir value %q: must be an absolute path", dir)
+	}
+	st, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("invalid --dir value %q: path does not exist: %v", dir, err)
+	}
+	if !st.IsDir() {
+		return fmt.Errorf("invalid --dir value %q: not a directory", dir)
+	}
+	return nil
+}
+
+// kickoffReason maps a kickoff delivery failure to the closed reason token
+// the kickoff: stderr line carries; both deadline-shaped errors (the wait
+// expiring and the delivery context timing out) read as timeout, and anything
+// unrecognized is a send error. Pure.
+func kickoffReason(err error) string {
+	switch {
+	case errors.Is(err, inject.ErrParked):
+		return "parked"
+	case errors.Is(err, inject.ErrNarrow):
+		return "narrow"
+	case errors.Is(err, inject.ErrGone):
+		return "gone"
+	case errors.Is(err, inject.ErrNotReady), errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	default:
+		return "send-error"
+	}
 }

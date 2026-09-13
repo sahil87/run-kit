@@ -669,3 +669,122 @@ func TestDeliverWhenReadySendFailureReturnsReadiness(t *testing.T) {
 		t.Errorf("readiness = %v, want ReadyByState even on send failure", r)
 	}
 }
+
+func TestAwaitReadyWaitThroughWallsEchoAfterWallClears(t *testing.T) {
+	fastProbe(t)
+	// The pane settles on a trust dialog and parks; WaitThroughWalls keeps
+	// polling instead of returning. The static wall is never re-probed — the
+	// probe re-arms only when the frame changes (wall dismissed) and
+	// re-settles on a prompt that echoes the sentinel.
+	wall := "╭ Do you trust the files in this folder? ╮"
+	frames := []string{wall, wall} // settle on the wall
+	for range ProbeAttempts + 2 {  // guard recheck + probe captures + post-C-u: never echoes → parked
+		frames = append(frames, wall)
+	}
+	frames = append(frames,
+		wall,                      // static wall poll: no re-probe
+		"prompt>",                 // frame changed — not yet re-settled
+		"prompt>",                 // re-settled → probe re-arms
+		"prompt>",                 // guard recheck
+		"prompt> #rk-ready-probe", // probe echo
+		"prompt>",                 // clear verify
+	)
+	ft := &fakeTmux{captureResults: frames}
+	r, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
+		Sleep:            noSleep,
+		WaitThroughWalls: true,
+	})
+	if err != nil || r != ReadyByEcho {
+		t.Fatalf("AwaitReady() = (%v, %v), want (ReadyByEcho, nil)", r, err)
+	}
+	calls := ft.callStream()
+	if got := countCalls(calls, "paste-buffer"); got != 2 {
+		t.Errorf("paste-buffer calls = %d, want 2 (the parked probe + one re-probe after the frame changed)", got)
+	}
+	if got := countCalls(calls, "send-keys C-u"); got != 2 {
+		t.Errorf("C-u clears = %d, want 2 (every probe cleans up after itself — the wall saw nothing)", got)
+	}
+	if ft.enterCalled {
+		t.Error("the probe must never submit (no Enter on any path)")
+	}
+}
+
+func TestAwaitReadyWaitThroughWallsDeadlineReturnsLastParked(t *testing.T) {
+	fastProbe(t)
+	// The wall never clears: the wait spins on the static frame until the
+	// deadline, and the expiry error is the LAST classification — the parked
+	// error carrying the wall's snippet, not a bare ErrNotReady.
+	wall := "╭ Do you trust the files in this folder? ╮"
+	ft := &fakeTmux{
+		captureResults: []string{wall, wall},
+		captureResult:  wall, // probe + cleanup + all later polls: static wall
+	}
+	_, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
+		Deadline:         30 * time.Millisecond,
+		Sleep:            noSleep,
+		WaitThroughWalls: true,
+	})
+	var parked *ParkedError
+	if !errors.As(err, &parked) {
+		t.Fatalf("AwaitReady() error = %v, want a *ParkedError at expiry", err)
+	}
+	if !strings.Contains(parked.Snippet, "trust") {
+		t.Errorf("parked snippet = %q, want the wall's fragment", parked.Snippet)
+	}
+	if errors.Is(err, ErrNotReady) {
+		t.Error("a still-walled pane must not report ErrNotReady at expiry")
+	}
+	if got := countCalls(ft.callStream(), "paste-buffer"); got != 1 {
+		t.Errorf("paste-buffer calls = %d, want 1 (a static wall is never re-probed)", got)
+	}
+}
+
+func TestAwaitReadyWaitThroughWallsDefaultFailFast(t *testing.T) {
+	fastProbe(t)
+	// The zero-value field keeps the fail-fast contract: the first parked
+	// probe returns immediately even with a deadline it could never reach.
+	wall := "╭ Do you trust the files in this folder? ╮"
+	ft := &fakeTmux{
+		captureResults: []string{wall, wall},
+		captureResult:  wall,
+	}
+	_, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
+		Deadline: time.Hour,
+		Sleep:    noSleep,
+	})
+	if !errors.Is(err, ErrParked) {
+		t.Fatalf("AwaitReady() error = %v, want ErrParked on the first parked probe", err)
+	}
+	if got := countCalls(ft.callStream(), "paste-buffer"); got != 1 {
+		t.Errorf("paste-buffer calls = %d, want 1 (fail-fast classification)", got)
+	}
+}
+
+func TestAwaitReadyWaitThroughWallsGoneMidWall(t *testing.T) {
+	fastProbe(t)
+	// Parked on a wall, then the pane dies: a capture error matching IsGone
+	// ends the wait promptly with ErrGone — WaitThroughWalls never waits out
+	// the deadline for a dead pane.
+	nils := make([]error, 2+ProbeAttempts+2) // settle + guard recheck + probe + post-C-u
+	isGone := func(err error) bool { return strings.Contains(err.Error(), "can't find pane") }
+	wall := "╭ Do you trust the files in this folder? ╮"
+	ft := &fakeTmux{
+		captureErrs:   append(nils, errors.New("can't find pane: %1")),
+		captureResult: wall,
+	}
+	_, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
+		Deadline:         time.Hour,
+		IsGone:           isGone,
+		Sleep:            noSleep,
+		WaitThroughWalls: true,
+	})
+	if !errors.Is(err, ErrGone) {
+		t.Fatalf("AwaitReady() error = %v, want ErrGone", err)
+	}
+	if errors.Is(err, ErrParked) {
+		t.Error("pane death behind the wall must not classify as parked")
+	}
+	if got := countCalls(ft.callStream(), "capture-pane"); got != 2+ProbeAttempts+2+1 {
+		t.Errorf("captures = %d, want %d (ErrGone on the first dead-pane poll, not at the deadline)", got, 2+ProbeAttempts+2+1)
+	}
+}

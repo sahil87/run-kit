@@ -133,6 +133,14 @@ type ReadyOpts struct {
 	PollInterval time.Duration
 	// Sleep is the test seam for the inter-poll wait. Nil = time.Sleep.
 	Sleep func(time.Duration)
+	// WaitThroughWalls keeps polling after a parked classification instead of
+	// returning ParkedError: the settle → probe cycle repeats until the pane
+	// echoes (ready), goes away (ErrGone), or the Deadline expires. At expiry
+	// the error is the LAST classification — ParkedError (with the final
+	// screen's snippet) when the pane is still walled, ErrNotReady otherwise —
+	// so a caller still learns why delivery never happened. Default false:
+	// every existing consumer keeps the fail-fast classification.
+	WaitThroughWalls bool
 }
 
 // AwaitReady blocks until the pane is boot-ready — safe to type into. State
@@ -157,6 +165,13 @@ type ReadyOpts struct {
 // sentinel whose C-u clear cannot restore the settled baseline within
 // ClearAttempts fails closed with an operational error rather than reporting
 // ready over a polluted composer. ctx cancellation returns ctx.Err().
+//
+// With opts.WaitThroughWalls a parked classification is not a verdict: the
+// wait remembers the parked frame and keeps polling, re-probing only after
+// the frame has changed and re-settled (a static wall is never re-pasted).
+// Deadline expiry then reports the LAST classification — the most recent
+// ParkedError when the pane still shows the parked frame, ErrNotReady
+// otherwise.
 func AwaitReady(ctx context.Context, t Tmux, server, paneID string, opts ReadyOpts) (Readiness, error) {
 	deadline := opts.Deadline
 	if deadline <= 0 {
@@ -179,6 +194,11 @@ func AwaitReady(ctx context.Context, t Tmux, server, paneID string, opts ReadyOp
 	prev := ""
 	havePrev := false
 	lastCapture := ""
+	// WaitThroughWalls state: the last parked classification and the frame it
+	// settled on. lastParked stays nil with the flag off, so the skip and the
+	// deadline arms below can never fire on the default path.
+	var lastParked *ParkedError
+	parkedFrame := ""
 	for {
 		if err := ctx.Err(); err != nil {
 			return 0, err
@@ -190,7 +210,10 @@ func AwaitReady(ctx context.Context, t Tmux, server, paneID string, opts ReadyOp
 		}
 		if cur, err := t.CapturePane(ctx, paneID, readyCaptureLines, server); err == nil {
 			lastCapture = cur
-			if havePrev && cur == prev && strings.TrimSpace(cur) != "" {
+			// A settle on the unchanged parked frame is the static wall: skip
+			// the probe. The probe re-arms only once the frame has changed and
+			// re-settled — the wall clearing changes the frame.
+			if havePrev && cur == prev && strings.TrimSpace(cur) != "" && (lastParked == nil || cur != parkedFrame) {
 				// The probe is only trustworthy at/above the readiness floor:
 				// read the geometry once per settle, before any pane-touching
 				// probe step. A read failure is "not yet" (re-enter polling;
@@ -207,6 +230,16 @@ func AwaitReady(ctx context.Context, t Tmux, server, paneID string, opts ReadyOp
 				default:
 					probe, err := probeReadiness(ctx, t, server, paneID, buffer, cur, opts.IsGone)
 					if err != nil {
+						var parked *ParkedError
+						if opts.WaitThroughWalls && errors.As(err, &parked) {
+							// A wall is not a verdict here: record the parked
+							// frame as the probe's skip key and re-enter
+							// polling. Every probe has already cleaned up
+							// after itself, so the wall saw nothing.
+							lastParked = parked
+							parkedFrame = cur
+							break
+						}
 						return 0, err
 					}
 					if probe == probeEchoed {
@@ -223,6 +256,13 @@ func AwaitReady(ctx context.Context, t Tmux, server, paneID string, opts ReadyOp
 			return 0, fmt.Errorf("%w: %w", ErrGone, err)
 		}
 		if !time.Now().Before(stop) {
+			// WaitThroughWalls deadline: report the LAST classification — the
+			// pane still on the parked frame is still walled, so the most
+			// recent ParkedError (with its snippet) is the answer; a frame
+			// that moved on gets plain ErrNotReady.
+			if lastParked != nil && lastCapture == parkedFrame {
+				return 0, lastParked
+			}
 			return 0, fmt.Errorf("%w after %s: last capture: %q", ErrNotReady, deadline, readySnippet(lastCapture))
 		}
 		sleep(poll)

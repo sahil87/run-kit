@@ -678,6 +678,19 @@ window-targeted `/keys` helper. (260830-s7wp)
   guard ahead of the baseline capture), and
   no-Enter-on-probe-failure are exercisable with no live agent pane.
 
+### Requirement: `ReadyOpts.WaitThroughWalls` — opt-in wall ride-out
+`inject.ReadyOpts` SHALL carry `WaitThroughWalls bool` (default false — every
+consumer keeps the fail-fast first-parked classification). When true, a parked
+classification in `AwaitReady` is not a verdict: the wait remembers the parked
+frame and keeps polling, re-probing only after the screen has changed from that
+frame and re-settled (a static wall is never re-pasted; every probe still cleans
+up after itself, so a wall that eats the paste sees nothing), returning ready on
+echo/state, `ErrGone` promptly when the pane dies, and `NarrowError` as today;
+at deadline expiry the error is the LAST classification — the most recent
+`ParkedError` (with its snippet) when the pane is still on the parked frame,
+else `ErrNotReady` — so the caller still learns why delivery never happened.
+The one consumer setting it is `rk operator -L` (server mode — the daemon/Start-button/cron-respawn launch, where nobody is watching the pane), paired with its 60 s server-mode deadline; the interactive `rk operator`, `rk tutorial`, `rk mux await --ready`, and the cron session respawn all keep fail-fast. (t7vy)
+
 ## Design Decisions
 
 ### Transcript location is the package's whole surface
@@ -1115,4 +1128,15 @@ satisfaction only. A seam method would touch `router.go`, the `TmuxOps`
 interface, and every api test fake for a path no daemon route executes.
 **Rejected**: `TmuxOps.PaneSize` — seam consistency for dead code is not worth
 the churn; if a daemon route ever awaits readiness, lift it to the seam then.
+
+### Wait through walls only where nobody is watching
+**Decision**: the wall ride-out is an opt-in on `ReadyOpts` (`WaitThroughWalls`);
+only `rk operator -L` sets it, paired with the 60 s `operatorServerDeliverDeadline`.
+**Why**: `rk mux await --ready` and the cron session respawn are classifiers that
+must fail fast; the daemon launch has no human at the pane yet, so the wait
+should ride out a wall the user clears from the drawer. 60 s + 10 s stays under
+both 90 s caller bounds (`operatorStartProcessTimeout`, `cron.DefaultRespawnTimeout`).
+**Rejected**: re-probing every poll while walled (noisy paste/clear into a
+dialog); a separate `AwaitReadyThroughWalls` function (duplicated loop).
+*Introduced by*: 260913-t7vy-operator-daemon-launch-root-kickoff
 *Introduced by*: 260906-dm30-await-ready-narrow-pane-verdict

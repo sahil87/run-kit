@@ -116,6 +116,25 @@ export type ManualCheckResult = {
   source: string;
 };
 
+/** The host-global `event: notify` payload. All fields are optional — the
+ *  shape is the daemon's broadcast contract, and older daemons may omit any
+ *  of them. `tag` marks a daemon-broadcast operational notice a specific
+ *  surface claims (e.g. "operator-kickoff"); untagged payloads are ordinary
+ *  user notifications for the shell-level consumer. */
+export type NotifyPayload = {
+  id?: string;
+  title?: string;
+  body?: string;
+  url?: string;
+  tag?: string;
+};
+
+/** The notify broadcast always carries a JSON object; anything else on the
+ *  wire is a protocol violation and must not reach subscribers. */
+function isNotifyPayload(data: unknown): data is NotifyPayload {
+  return typeof data === "object" && data !== null;
+}
+
 export type SessionContextType = {
   sessionsByServer: Map<string, ProjectSession[]>;
   sessionOrderByServer: Map<string, string[]>;
@@ -166,7 +185,7 @@ export type SessionContextType = {
   subscribeStatusRefresh: (handler: () => void) => () => void;
   /** Subscribe to host-global notification payloads. The shell-level consumer
    *  performs environment, preference, and cross-view claim gating. */
-  subscribeNotify: (handler: (payload: unknown) => void) => () => void;
+  subscribeNotify: (handler: (payload: NotifyPayload) => void) => () => void;
   /** Imperative read of the per-server receipt tick (260823-ke9i): a monotonic
    *  counter bumped on every server-scoped snapshot or event received for that
    *  server, used by the pending-switch bounce verdict to tell post-click
@@ -702,14 +721,14 @@ export function SessionProvider({ children }: SessionProviderProps) {
     }
   }, []);
 
-  const notifySubscribersRef = useRef<Set<(payload: unknown) => void>>(new Set());
-  const subscribeNotify = useCallback((handler: (payload: unknown) => void) => {
+  const notifySubscribersRef = useRef<Set<(payload: NotifyPayload) => void>>(new Set());
+  const subscribeNotify = useCallback((handler: (payload: NotifyPayload) => void) => {
     notifySubscribersRef.current.add(handler);
     return () => {
       notifySubscribersRef.current.delete(handler);
     };
   }, []);
-  const fireNotify = useCallback((payload: unknown) => {
+  const fireNotify = useCallback((payload: NotifyPayload) => {
     for (const handler of notifySubscribersRef.current) {
       try {
         handler(payload);
@@ -945,7 +964,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
           fireStatusRefresh();
           break;
         case "notify":
-          fireNotify(data);
+          if (isNotifyPayload(data)) fireNotify(data);
           break;
         case "version": {
           const d = data as { version?: string; boot?: string; brew?: boolean; started?: number; port?: number };

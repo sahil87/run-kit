@@ -2,7 +2,7 @@ import { useState } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act, waitFor, within } from "@testing-library/react";
 import { QuakeTerminal, QuakeTerminalTongue } from "./quake-terminal";
-import { StandaloneSessionContextProvider } from "@/contexts/session-context";
+import { StandaloneSessionContextProvider, type NotifyPayload } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
 import {
   dismissOperatorChatChip,
@@ -98,6 +98,15 @@ function win(overrides: Partial<WindowInfo>): WindowInfo {
 
 const OPERATOR_WINDOW = win({ windowId: "@9", name: "operator", role: "operator" });
 
+// The notify subscriptions mounted quake terminals register; tests fire the
+// daemon's broadcast payloads through the captured handlers.
+const notifySubscribers = new Set<(payload: NotifyPayload) => void>();
+function fireNotify(payload: NotifyPayload) {
+  act(() => {
+    for (const handler of notifySubscribers) handler(payload);
+  });
+}
+
 function operatorSessions(extraWindows: WindowInfo[] = []): ProjectSession[] {
   return [
     { name: "main", windows: [win({ windowId: "@1" }), ...extraWindows] },
@@ -122,6 +131,12 @@ function renderQuake(opts: {
         sessionsByServer: opts.sessionsByServer ?? new Map([["srv1", operatorSessions()]]),
         isConnectedByServer:
           opts.isConnectedByServer ?? new Map(servers.map((s) => [s.name, true] as const)),
+        subscribeNotify: (handler) => {
+          notifySubscribers.add(handler);
+          return () => {
+            notifySubscribers.delete(handler);
+          };
+        },
       }}
     >
       <QuakeTerminal />
@@ -2255,5 +2270,50 @@ describe("QuakeTerminal (chat subject stamping)", () => {
     renderQuake();
 
     expect(getOperatorChatTarget("srv1")).toBeNull();
+  });
+});
+
+describe("QuakeTerminal (operator-kickoff notify)", () => {
+  beforeEach(() => {
+    stubMatchMedia(() => false);
+    setQuakeMachineState("rest");
+    setOperatorComposeText("");
+    mockMatches = [{ params: {} }];
+    mockSearch = {};
+    mockNavigate.mockReset();
+    notifySubscribers.clear();
+    setOperatorChatSubject(null);
+    localStorage.clear();
+    hydrateComposeDrafts();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("toasts the body once when the daemon broadcasts an operator-kickoff notify", () => {
+    renderQuake({ withToasts: true });
+
+    fireNotify({
+      tag: "operator-kickoff",
+      title: "Operator kickoff not delivered",
+      body: "srv1 · /home/user/proj · the operator pane exited",
+    });
+
+    expect(
+      screen.getByText("srv1 · /home/user/proj · the operator pane exited"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+  });
+
+  it("ignores untagged and other-tag notify payloads", () => {
+    renderQuake({ withToasts: true });
+
+    fireNotify({ title: "PR status", body: "checks green" });
+    fireNotify({ tag: "pr-status", body: "unrelated tag" });
+
+    expect(screen.queryByText("checks green")).toBeNull();
+    expect(screen.queryByText("unrelated tag")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

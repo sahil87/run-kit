@@ -65,3 +65,24 @@ func respawnDetail(err error, output []byte) string {
 	}
 	return fmt.Sprintf("%v: %s", err, tail)
 }
+
+// kickoffUndeliveredMarker prefixes the stderr line an exit-0 respawn argv
+// emits when its kickoff delivery fails; the combined-output capture folds it
+// into output.
+const kickoffUndeliveredMarker = "kickoff: undelivered reason="
+
+// respawnSuccessOutcome renders the respawn-success log outcome. An exit-0
+// respawn can still leave the revived agent unprompted — the argv reports that
+// on a kickoffUndeliveredMarker line, and the outcome must carry the reason so
+// the log distinguishes a fully-kicked respawn from a silent one. The outcome
+// always starts with "respawned": resolvedOutcome and countsTowardRate
+// classify respawns on that prefix.
+func respawnSuccessOutcome(output []byte) string {
+	for line := range strings.Lines(string(output)) {
+		if rest, ok := strings.CutPrefix(line, kickoffUndeliveredMarker); ok {
+			reason, _, _ := strings.Cut(rest, " ")
+			return "respawned (kickoff undelivered: " + reason + ")"
+		}
+	}
+	return "respawned"
+}

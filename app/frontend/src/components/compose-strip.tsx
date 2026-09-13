@@ -197,7 +197,7 @@ function selectionDraftKey(keys: readonly string[]): string {
 }
 
 /** The target-less copy — one constant so the no-target tongue and the
- *  expanded body's placeholder cannot drift apart. Names no chord: toggling
+ *  expanded body's placeholder cannot drift apart. Carries no chord: toggling
  *  the preference changes nothing visible in this state. */
 const NO_TARGET_COPY = "No focused terminal — click a pane to target it";
 

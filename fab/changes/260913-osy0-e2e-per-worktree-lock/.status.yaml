@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 4
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-13T23:03:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T23:06:34Z"}
     hydrate: {started_at: "2026-09-13T23:06:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T23:06:34Z"}
     ship: {started_at: "2026-09-13T23:06:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T23:07:22Z"}
-    review-pr: {started_at: "2026-09-13T23:07:22Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-13T23:07:22Z", driver: git-pr, iterations: 1, completed_at: "2026-09-13T23:15:02Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/973
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: just test-e2e takes a per-worktree flock before its stale-kill so same-worktree runs queue instead of killing each other's rig; lock fd closed on every long-lived child; slot opens no longer swallow stderr; just dev warns when a run owns the rig
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-13T23:07:22Z
+last_updated: 2026-09-13T23:15:02Z

@@ -94,6 +94,20 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(screen.queryByTestId("status-bar-window")).not.toBeInTheDocument();
     });
 
+    it("tmx ordinal is the pane's position in the list, not paneIndex + 1 — strip and overflow row agree", () => {
+      // paneIndex 1 models tmux's pane-base-index 1; a single pane must read
+      // 1/1 everywhere the bar renders the tmx value.
+      const win = makeWindow({
+        panes: [{ paneId: "%5", paneIndex: 1, cwd: "/home/user/wt", command: "zsh", isActive: true }],
+      });
+      renderBar({ window: win });
+      expect(screen.getByText("pane 1/1 %5")).toBeInTheDocument();
+      expect(screen.queryByText(/pane 2\/1/)).toBeNull();
+      fireEvent.click(screen.getByTestId("status-bar-overflow"));
+      const menu = screen.getByRole("menu", { name: "Overflow status segments" });
+      expect(within(menu).getByRole("menuitem", { name: "Copy tmux pane id" })).toHaveTextContent("tmx pane 1/1 %5");
+    });
+
     it("renders the git/tmx/cwd identity registers in descending-relevance order", () => {
       renderBar({ window: makeWindowWithPanes() });
       expect(screen.getByText("pane 1/1 %5")).toBeInTheDocument();
@@ -169,6 +183,22 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(host).toHaveTextContent("mba");
       expect(host).toHaveTextContent("v0.9.3");
       expect(screen.getByLabelText("Connected")).toBeInTheDocument();
+    });
+
+    it("host and version are independently-sized siblings — only the host truncates, the version drops at 700px", () => {
+      mockHostMetrics = makeMetrics();
+      mockDaemonVersion = "0.9.3";
+      renderBar({ server: "alpha" });
+      const hostBtn = screen.getByRole("button", { name: "Copy host name" });
+      const versionBtn = screen.getByRole("button", { name: "Copy version" });
+      // One visual pair (shared wrapper), but the wrapper itself never
+      // truncates — otherwise the trailing version is what the ellipsis eats.
+      expect(hostBtn.parentElement).toBe(versionBtn.parentElement);
+      expect(hostBtn.parentElement!.className).not.toContain("truncate");
+      expect(hostBtn.className).toContain("truncate");
+      expect(versionBtn.className).not.toContain("truncate");
+      expect(versionBtn.className).toContain("shrink-0");
+      expect(versionBtn.className).toContain("min-[700px]:inline");
     });
 
     it("server-scoped metrics win over the host broadcast (the HostPanel rule)", () => {

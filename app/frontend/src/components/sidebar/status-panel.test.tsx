@@ -99,6 +99,15 @@ describe("StatusPanel", () => {
     expect(screen.getByText("my-shell")).toBeInTheDocument();
   });
 
+  it("tmx ordinal is the pane's position, not paneIndex + 1 (pane-base-index 1)", () => {
+    const win = makeWindow({
+      panes: [{ paneId: "%5", paneIndex: 1, cwd: "/home", command: "zsh", isActive: true }],
+    });
+    render(<StatusPanel window={win} />);
+    expect(screen.getByRole("button", { name: /pane 1\/1 %5/ })).toBeInTheDocument();
+    expect(screen.queryByText(/pane 2\/1/)).toBeNull();
+  });
+
   it("shows pane count when multiple panes", () => {
     const win = makeWindow({
       name: "editor",

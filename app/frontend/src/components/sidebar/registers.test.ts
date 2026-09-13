@@ -1,6 +1,48 @@
 import { describe, it, expect } from "vitest";
-import { getOutputLine, getAgentLine, getFabParts, getFabLine, getOperatorParts, getPrSegments } from "./registers";
+import {
+  getOutputLine,
+  getAgentLine,
+  getFabParts,
+  getFabLine,
+  getOperatorParts,
+  getPrSegments,
+  getTmxLabel,
+} from "./registers";
 import { makeWindow, makeWindowWithPanes } from "@/test-utils/fixtures";
+
+describe("getTmxLabel (tmx identity row)", () => {
+  // paneIndex values start at 1 here: tmux's #{pane_index} honours
+  // pane-base-index, and the ordinal must not be derived from it.
+  it("single pane under pane-base-index 1 reads 1/1, not 2/1", () => {
+    const win = makeWindow({
+      panes: [{ paneId: "%107", paneIndex: 1, cwd: "/home", command: "zsh", isActive: true }],
+    });
+    expect(getTmxLabel(win)).toBe("pane 1/1 %107");
+  });
+
+  it("ordinal is the active pane's position in the pane list", () => {
+    const win = makeWindow({
+      panes: [
+        { paneId: "%107", paneIndex: 1, cwd: "/home", command: "zsh", isActive: false },
+        { paneId: "%108", paneIndex: 2, cwd: "/home", command: "zsh", isActive: false },
+        { paneId: "%109", paneIndex: 3, cwd: "/home", command: "claude", isActive: true },
+      ],
+    });
+    expect(getTmxLabel(win)).toBe("pane 3/3 %109");
+  });
+
+  it("empty paneId drops the id suffix", () => {
+    const win = makeWindow({
+      panes: [{ paneId: "", paneIndex: 1, cwd: "/home", command: "zsh", isActive: true }],
+    });
+    expect(getTmxLabel(win)).toBe("pane 1/1");
+  });
+
+  it("no panes reads 'pane 1/0' (ordinal falls back to 1)", () => {
+    expect(getTmxLabel(makeWindow({}))).toBe("pane 1/0");
+    expect(getTmxLabel(makeWindow({ panes: [] }))).toBe("pane 1/0");
+  });
+});
 
 // 93dy: the register-line resolvers were extracted from status-panel.tsx into
 // this shared module so the PANE panel and the row-hover flyout card render

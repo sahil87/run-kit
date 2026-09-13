@@ -28,7 +28,7 @@ import { StatusDot } from "@/components/status-dot";
 import { HostMetrics, normalizeLoadPercent } from "@/components/host-metrics";
 import { displayVersion } from "@/lib/palette/version";
 import { formatMemory, gaugeColor } from "@/lib/gauge";
-import { getAgentLine, getFabLine, getPrSegments } from "./sidebar/registers";
+import { getAgentLine, getFabLine, getPrSegments, getTmxLabel } from "./sidebar/registers";
 import { controlClass } from "@/components/control";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { formatDuration, parseFabChange } from "@/lib/format";
@@ -325,9 +325,8 @@ function ClockChip({ state }: { state: Exclude<ClockChipState, { kind: "omitted"
  *  identity-row sources. */
 function WindowCluster({ win }: { win: WindowInfo }) {
   const activePane = win.panes?.find((p) => p.isActive);
-  const paneCount = win.panes?.length ?? 0;
   const paneId = activePane?.paneId ?? "";
-  const tmxValue = `pane ${(activePane?.paneIndex ?? 0) + 1}/${paneCount}${paneId ? ` ${paneId}` : ""}`;
+  const tmxValue = getTmxLabel(win);
   const cwdFull = activePane?.cwd ?? win.worktreePath;
   const cwdMissing = activePane?.cwdMissing ?? false;
   const cwdBase = cwdFull.split("/").filter(Boolean).pop() ?? cwdFull;
@@ -611,7 +610,7 @@ function OverflowMenu({
     // hidden, in strip order (git → tmx → cwd) so the menu reads as the
     // strip's continuation.
     if (gitBranch) rows.push(copyRow("git", "⑂ ", gitBranch, gitBranch, "md:hidden", "Copy git branch"));
-    const tmxRest = `pane ${(activePane?.paneIndex ?? 0) + 1}/${win.panes?.length ?? 0}${activePane?.paneId ? ` ${activePane.paneId}` : ""}`;
+    const tmxRest = getTmxLabel(win);
     rows.push(
       activePane?.paneId
         ? copyRow("tmx", "tmx ", tmxRest, activePane.paneId, "lg:hidden", "Copy tmux pane id")
@@ -808,14 +807,19 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
             {copiedKey === "server" ? "copied ✓" : server}
           </button>
         )}
+        {/* Host + version are one visual pair (gap-1, tighter than the
+            cluster's gap-3) but two independently-sized flex items: the
+            wrapper must NOT truncate — only the host does — or the trailing
+            version is what the ellipsis eats at any width, long before its
+            700px ladder drop. */}
         {(hostName || version) && (
-          <span className="min-w-0 truncate whitespace-nowrap">
+          <span className="flex items-center gap-1 min-w-0 whitespace-nowrap">
             {hostName && (
               <button
                 type="button"
                 aria-label="Copy host name"
                 onClick={() => copy("host", hostName)}
-                className="text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green"
+                className="min-w-0 truncate text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green"
               >
                 {copiedKey === "host" ? "copied ✓" : hostName}
               </button>
@@ -825,9 +829,8 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
                 type="button"
                 aria-label="Copy version"
                 onClick={() => copy("version", version)}
-                className={`${VALUE_CLASS} hidden min-[700px]:inline cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green`}
+                className={`${VALUE_CLASS} shrink-0 hidden min-[700px]:inline cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green`}
               >
-                {hostName ? " " : ""}
                 {copiedKey === "version" ? "copied ✓" : version}
               </button>
             )}

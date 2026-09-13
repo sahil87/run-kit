@@ -9,7 +9,7 @@ import { CollapsiblePanel } from "./collapsible-panel";
 import { ICON_CLASS } from "./icons";
 import { COPY_FEEDBACK_MS, useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { abbreviateHomePath, parseFabChange } from "@/lib/format";
-import { getOutputLine, getAgentLine, getFabLine, getOperatorParts, getPrSegments } from "./registers";
+import { getOutputLine, getAgentLine, getFabLine, getOperatorParts, getPrSegments, getTmxLabel } from "./registers";
 import type { OperatorLoopFacts } from "./registers";
 import { StatusDot } from "@/components/status-dot";
 import { Tip } from "@/components/tip";
@@ -396,9 +396,8 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
   // The active pane's cwd was deleted on disk (e.g. an archived worktree). Keep
   // the stale path as a breadcrumb but recolor the row and tag it "(deleted)".
   const cwdMissing = activePane?.cwdMissing ?? false;
-  const paneCount = win.panes?.length ?? 0;
-  const activePaneIndex = activePane?.paneIndex ?? 0;
   const paneId = activePane?.paneId ?? "";
+  const tmxLabel = getTmxLabel(win);
 
   const gitBranch = activePane?.gitBranch ?? "";
 
@@ -432,9 +431,7 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
         <CopyableRow prefix="tmx" tipLabel="tmux pane" copied={copiedRow === "tmx"} onCopy={() => handleCopy("tmx", paneId)}>
           <span className={ICON_CLASS} aria-hidden="true">{"\uF489"}</span>
           {" "}
-          <span className="text-text-secondary group-hover:text-accent">
-            pane {activePaneIndex + 1}/{paneCount}{paneId && ` ${paneId}`}
-          </span>
+          <span className="text-text-secondary group-hover:text-accent">{tmxLabel}</span>
         </CopyableRow>
       ) : (
         <div className="truncate">
@@ -443,9 +440,7 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
           </Tip>
           <span className={ICON_CLASS} aria-hidden="true">{"\uF489"}</span>
           {" "}
-          <span className="text-text-secondary">
-            pane {activePaneIndex + 1}/{paneCount}
-          </span>
+          <span className="text-text-secondary">{tmxLabel}</span>
         </div>
       )}
 

@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-13T23:42:15Z"}
+{"args":"Implement Change 0 (pane ordinal + version segment) from fab/plans/sahil/26-09-14-pane-status-bar-density.md — PANE panel and status bar read pane 2/1 for a single pane under pane-base-index 1; the bar's version fragment truncates away with the host name instead of dropping at its 700px ladder step","cmd":"fab-new","event":"command","ts":"2026-09-13T23:42:15Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-13T23:44:29Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-13T23:45:29Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-13T23:47:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-13T23:47:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-13T23:50:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-13T23:54:42Z"}
+{"event":"review","result":"passed","ts":"2026-09-13T23:54:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-13T23:55:37Z"}

@@ -31,8 +31,11 @@ export RK_HOST="${RK_HOST:-0.0.0.0}"
 # would take this dev server down, and this dev server would collide with its
 # ports. Warn — never block or exit: `just dev` is the interactive lane.
 # E2E_HARNESS is set only by test-e2e.sh on its own dev-server launch, where
-# the lock holder is the caller and the warning would be noise.
-if [[ -z "${E2E_HARNESS:-}" ]] && command -v flock >/dev/null 2>&1; then
+# the lock holder is the caller and the warning would be noise. The probe is
+# also gated on the EFFECTIVE port being the derived one: `--port` / a preset
+# RK_PORT put this server on another triple, which the harness's stale-kill
+# never touches, so a warning there would be false.
+if [[ -z "${E2E_HARNESS:-}" && "$RK_PORT" == "$E2E_PORT" ]] && command -v flock >/dev/null 2>&1; then
   _wt_lock_file="/tmp/rk-e2e-wt-$(id -u)-${E2E_TOKEN}.lock"
   if [[ -e "$_wt_lock_file" ]] && ! flock -n "$_wt_lock_file" -c true 2>/dev/null; then
     echo "WARNING: a just test-e2e run owns this worktree's rig (lock: $_wt_lock_file) — its stale-kill will stop this dev server; wait for it or use another worktree." >&2

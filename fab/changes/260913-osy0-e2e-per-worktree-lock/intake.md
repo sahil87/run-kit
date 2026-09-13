@@ -153,7 +153,7 @@ The repo has no `scripts/*_test.sh`, no bats, no `just test-scripts` (verified).
 
 - `run-kit/architecture/testing`: (modify) § Playwright E2E Tests — the per-worktree lock (path, keying, ordering, wait/timeout, degrade, child-fd hygiene), the previously undocumented `RK_E2E_SLOTS` semaphore, the `just dev` probe + `E2E_HARNESS`
 - `run-kit/test-sockets`: (modify) new Design Decision "Per-worktree exclusive lock precedes the stale-kill" with Rejected alternatives; one-clause extension of "Step-forward port fallback only on an unkillable foreign owner"; frontmatter description
-- `run-kit/log`: (modify) hydrate appends the change row per the domain's log convention
+- `run-kit/log`: generated — `fab docs-index docs/memory` projects the change's `summary:` line into the domain `log.md` once the shipped commit is in history (freeze-on-write); never hand-edited, so no direct hydrate edit
 
 Also (not memory): `fab/project/context.md` § Testing — one clause on the flock sentence.
 

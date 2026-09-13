@@ -292,7 +292,9 @@ func runOperator(cmd *cobra.Command) error {
 	// --dir validation is likewise pure (absolute, exists, is a directory) and
 	// runs before ANY subprocess: the value becomes the window's -c argument
 	// and the agent-resolution root, so a rejected value never reaches tmux.
-	if operatorDirFlag != "" {
+	// An explicitly supplied empty value (--dir= / --dir "") is rejected too,
+	// never silently treated as unset.
+	if operatorDirFlag != "" || cmd.Flags().Changed("dir") {
 		if err := validateOperatorDir(operatorDirFlag); err != nil {
 			return usageError(err)
 		}
@@ -463,19 +465,21 @@ func runOperator(cmd *cobra.Command) error {
 	// invoker is not watching the pane; a trust dialog the user clears from the
 	// drawer should not end the wait) under the longer deadline; the
 	// interactive path stays fail-fast — the human is looking at the pane.
-	deliverOpts := inject.ReadyOpts{Deadline: operatorDeliverDeadline}
+	// IsGone lets a pane that dies mid-wait end the wait promptly instead of
+	// riding out the full deadline as a stale parked/timeout result.
+	deliverOpts := inject.ReadyOpts{Deadline: operatorDeliverDeadline, IsGone: isPaneGoneErr}
 	if serverMode {
-		deliverOpts = inject.ReadyOpts{Deadline: operatorServerDeliverDeadline, WaitThroughWalls: true}
+		deliverOpts = inject.ReadyOpts{Deadline: operatorServerDeliverDeadline, WaitThroughWalls: true, IsGone: isPaneGoneErr}
 	}
 	if deliverErr := deliverAgentKickoff(parent, operatorDeliverFn, serverLabel, paneID, kickoff, deliverOpts, operatorCmdTimeout); deliverErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit operator: could not deliver the kickoff prompt (%v) — paste this into the operator agent yourself:\n  %s\n", deliverErr, kickoff)
-		// Under --json, stdout must stay exactly one JSON document (the
-		// receipt precedes delivery), so the machine-readable form of the
-		// miss goes to stderr as one kickoff: line — the daemon's
-		// post-receipt log and the cron respawn tail both parse it.
-		if operatorJSONFlag {
-			fmt.Fprintf(cmd.ErrOrStderr(), "kickoff: undelivered reason=%s prompt=%s dir=%s\n", kickoffReason(deliverErr), kickoff, windowDir)
-		}
+		// The machine-readable form of the miss is one stderr kickoff: line in
+		// EVERY mode — the cron respawn argv carries no --json and reads it
+		// from the combined-output tail, and the daemon's post-receipt log
+		// parses the --json run's stderr; stdout stays exactly one JSON
+		// document under --json. prompt and dir are Go-quoted (%q) so a
+		// path or prompt containing spaces or " dir=" stays one field.
+		fmt.Fprintf(cmd.ErrOrStderr(), "kickoff: undelivered reason=%s prompt=%q dir=%q\n", kickoffReason(deliverErr), kickoff, windowDir)
 	}
 	return nil
 }

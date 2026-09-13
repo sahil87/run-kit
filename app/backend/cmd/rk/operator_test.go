@@ -1188,11 +1188,18 @@ func TestOperatorDirUsageErrors(t *testing.T) {
 		{"relative path", "relative/path", "absolute"},
 		{"nonexistent path", "/nonexistent/rk-operator-dir-test", "does not exist"},
 		{"a file, not a directory", file.Name(), "not a directory"},
+		// --dir= / --dir "": explicitly supplied but empty is rejected, never
+		// silently treated as unset (the flag's Changed state carries it).
+		{"explicit empty value", "", "absolute"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			operatorDirFlag = tc.dir
 			s := stubOperatorSeams(t, "")
 			cmd, _, _ := operatorTestCmd()
+			cmd.Flags().StringVar(&operatorDirFlag, "dir", "", "")
+			if err := cmd.Flags().Set("dir", tc.dir); err != nil {
+				t.Fatal(err)
+			}
 			err := runOperator(cmd)
 			if err == nil {
 				t.Fatalf("runOperator() with --dir %q = nil, want a usage error", tc.dir)
@@ -1265,10 +1272,12 @@ func TestKickoffReason(t *testing.T) {
 	}
 }
 
-// Under --json an undelivered kickoff adds exactly one machine-readable
-// `kickoff: undelivered reason=… prompt=… dir=…` line to stderr while stdout
-// stays the single receipt document; without --json only the prose note
-// prints.
+// An undelivered kickoff adds exactly one machine-readable
+// `kickoff: undelivered reason=… prompt=<quoted> dir=<quoted>` line to stderr
+// in EVERY mode (the cron respawn argv runs without --json and reads it from
+// the combined-output tail); under --json stdout stays the single receipt
+// document. prompt and dir are Go-quoted so a path with spaces stays one
+// field.
 func TestOperatorKickoffStderrLine(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -1281,7 +1290,7 @@ func TestOperatorKickoffStderrLine(t *testing.T) {
 		{"json gone", true, inject.ErrGone, "gone"},
 		{"json timeout", true, inject.ErrNotReady, "timeout"},
 		{"json send-error", true, errors.New("buffer exploded"), "send-error"},
-		{"no json stays prose-only", false, inject.ErrNotReady, ""},
+		{"no json still emits the line", false, inject.ErrNotReady, "timeout"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resetOperatorWorkers(t)
@@ -1297,15 +1306,18 @@ func TestOperatorKickoffStderrLine(t *testing.T) {
 			if !strings.Contains(errBuf.String(), "paste this into the operator agent yourself") {
 				t.Errorf("stderr = %q, want the prose paste-it-yourself note", errBuf.String())
 			}
-			if !tc.json {
-				if strings.Contains(errBuf.String(), "kickoff:") {
-					t.Errorf("stderr = %q, want no kickoff: line without --json", errBuf.String())
-				}
-				return
-			}
-			want := fmt.Sprintf("kickoff: undelivered reason=%s prompt=%s dir=", tc.wantReason, operatorKickoffPrompt)
+			want := fmt.Sprintf("kickoff: undelivered reason=%s prompt=%q dir=\"", tc.wantReason, operatorKickoffPrompt)
 			if !strings.Contains(errBuf.String(), want) {
 				t.Errorf("stderr = %q, want it to contain %q", errBuf.String(), want)
+			}
+			if strings.Count(errBuf.String(), "kickoff: undelivered") != 1 {
+				t.Errorf("stderr = %q, want exactly one kickoff: line", errBuf.String())
+			}
+			if !tc.json {
+				if strings.TrimSpace(outBuf.String()) == "" || strings.HasPrefix(strings.TrimSpace(outBuf.String()), "{") {
+					t.Errorf("stdout = %q, want the human launch report without --json", outBuf.String())
+				}
+				return
 			}
 			// stdout keeps the exactly-one-JSON-document contract.
 			var doc struct {
@@ -1355,6 +1367,14 @@ func TestOperatorDeliveryOptsByMode(t *testing.T) {
 			}
 			if opts.Deadline != tc.wantDeadline || opts.Deadline != *tc.wantDeadlineIs {
 				t.Errorf("Deadline = %v, want %v (the %s package var)", opts.Deadline, tc.wantDeadline, tc.name)
+			}
+			// A pane that dies mid-wait must end the wait promptly in both
+			// modes, so the gone predicate rides every delivery.
+			if opts.IsGone == nil {
+				t.Fatal("IsGone = nil, want the can't-find-pane predicate")
+			}
+			if !opts.IsGone(errors.New("can't find pane %9")) || opts.IsGone(errors.New("something else")) {
+				t.Error("IsGone must match exactly tmux's can't find pane diagnostic")
 			}
 		})
 	}

@@ -132,7 +132,7 @@ export type NotifyPayload = {
 /** The notify broadcast always carries a JSON object; anything else on the
  *  wire is a protocol violation and must not reach subscribers. */
 function isNotifyPayload(data: unknown): data is NotifyPayload {
-  return typeof data === "object" && data !== null;
+  return typeof data === "object" && data !== null && !Array.isArray(data);
 }
 
 export type SessionContextType = {

@@ -71,3 +71,11 @@ func cliChildEnv(originalTMUX string) []string {
 	}
 	return env
 }
+
+// isPaneGoneErr is the inject.ReadyOpts.IsGone predicate shared by the
+// pane-targeting waits (kickoff deliveries, rk mux await): tmux reports a
+// vanished pane as "can't find pane", and the wait must end on it promptly
+// rather than tolerate it until the deadline.
+func isPaneGoneErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "can't find pane")
+}

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -224,15 +225,18 @@ func parseOperatorStartEnvelope(data []byte) (receipt operatorStartReceipt, comp
 
 // kickoffNotePrefix heads the single stderr line rk prints when its kickoff
 // delivery fails (exit code stays 0): `kickoff: undelivered reason=<r>
-// prompt=<p> dir=<d>`. The internal/cron kickoffUndeliveredMarker precedent.
+// prompt=<quoted> dir=<quoted>` — prompt and dir are Go-quoted strings
+// (strconv.Quote), so a value containing spaces or " dir=" stays one field.
+// The internal/cron kickoffUndeliveredMarker precedent.
 const kickoffNotePrefix = "kickoff: undelivered reason="
 
-// parseKickoffNote extracts the reason and dir from the stderr kickoff note.
-// prompt is free text between the two labeled fields, so dir is cut from the
-// LAST " dir=" on the line (any " dir=" inside the prompt sits earlier), then
-// ends at the next space so extra trailing fields are tolerated. ok=false when
-// no well-formed note is present (including a missing prompt= or empty dir).
-func parseKickoffNote(stderr string) (reason, dir string, ok bool) {
+// parseKickoffNote extracts the reason, the rendered kickoff prompt, and the
+// window directory from the stderr kickoff note. reason is a bare token;
+// prompt and dir are consumed as Go-quoted literals (strconv.QuotedPrefix),
+// which is what makes the framing unambiguous. Anything after the dir field
+// is tolerated. ok=false when no well-formed note is present (a missing or
+// malformed field, or an empty reason/dir).
+func parseKickoffNote(stderr string) (reason, prompt, dir string, ok bool) {
 	for line := range strings.Lines(stderr) {
 		rest, found := strings.CutPrefix(strings.TrimSpace(line), kickoffNotePrefix)
 		if !found {
@@ -242,21 +246,36 @@ func parseKickoffNote(stderr string) (reason, dir string, ok bool) {
 		if reason == "" {
 			continue
 		}
-		rest, found = strings.CutPrefix(rest, "prompt=")
+		prompt, rest, found = cutQuotedField(rest, "prompt=")
 		if !found {
 			continue
 		}
-		idx := strings.LastIndex(rest, " dir=")
-		if idx < 0 {
+		dir, _, found = cutQuotedField(rest, " dir=")
+		if !found || dir == "" {
 			continue
 		}
-		dir, _, _ = strings.Cut(rest[idx+len(" dir="):], " ")
-		if dir == "" {
-			continue
-		}
-		return reason, dir, true
+		return reason, prompt, dir, true
 	}
-	return "", "", false
+	return "", "", "", false
+}
+
+// cutQuotedField consumes `<label><go-quoted string>` at the head of s,
+// returning the unquoted value and the remainder after the closing quote.
+// ok=false when the label is absent or the literal does not parse.
+func cutQuotedField(s, label string) (value, rest string, ok bool) {
+	s, found := strings.CutPrefix(s, label)
+	if !found {
+		return "", "", false
+	}
+	quoted, err := strconv.QuotedPrefix(s)
+	if err != nil {
+		return "", "", false
+	}
+	value, err = strconv.Unquote(quoted)
+	if err != nil {
+		return "", "", false
+	}
+	return value, s[len(quoted):], true
 }
 
 // operatorKickoffExit builds the onExit callback for one operator start: when
@@ -265,16 +284,19 @@ func parseKickoffNote(stderr string) (reason, dir string, ok bool) {
 // A clean exit with no note logs nothing and broadcasts nothing.
 func (s *Server) operatorKickoffExit(server string) operatorStartExitFn {
 	return func(receipt operatorStartReceipt, stderr string, _ error) {
-		reason, dir, ok := parseKickoffNote(stderr)
+		reason, prompt, dir, ok := parseKickoffNote(stderr)
 		if !ok {
 			return
 		}
 		slog.Warn("operator kickoff undelivered",
-			"server", server, "window", receipt.Window, "reason", reason, "dir", dir)
+			"server", server, "window", receipt.Window, "reason", reason, "dir", dir, "prompt", prompt)
 		s.initSSEHub()
+		// The prompt is the launcher's provider-rendered kickoff (a codex
+		// operator gets `$fab-operator`), so the instruction names the exact
+		// text to paste rather than the canonical slash form.
 		s.sseHub.broadcastNotifyTagged(
 			"Operator kickoff not delivered",
-			fmt.Sprintf("Operator on %s started in %s but /fab-operator was not delivered (%s) — paste it into the operator terminal", server, dir, reason),
+			fmt.Sprintf("Operator on %s started in %s but %s was not delivered (%s) — paste it into the operator terminal", server, dir, prompt, reason),
 			// The frontend has no dedicated /$server/operator path — the operator
 			// surface IS the operator window's own terminal route, the same
 			// deep-link shape the waiting-window push uses.

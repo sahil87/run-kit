@@ -374,7 +374,7 @@ func awaitObserverReceipt(report, firedPane string, panes []string, elapsed time
 var muxAwaitReadyFn = func(ctx context.Context, server, paneID string, timeout time.Duration) (inject.Readiness, error) {
 	opts := inject.ReadyOpts{
 		State:      boundedPaneAgentState,
-		IsGone:     func(err error) bool { return strings.Contains(err.Error(), "can't find pane") },
+		IsGone:     isPaneGoneErr,
 		BufferName: muxReadyBufferNameFn(),
 	}
 	if timeout > 0 {

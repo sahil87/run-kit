@@ -1286,6 +1286,27 @@ describe("SessionProvider — notify event seam", () => {
     });
     expect(received).toEqual([payload]);
   });
+
+  it("drops non-object notify payloads (arrays, primitives, null) before they reach consumers", async () => {
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+    const received: unknown[] = [];
+    const unsubscribe = result.current.subscribeNotify((payload) => received.push(payload));
+
+    await act(async () => {
+      WS.global()?.emit("notify", [{ id: "array-1" }]);
+      WS.global()?.emit("notify", "a string");
+      WS.global()?.emit("notify", null);
+    });
+    expect(received).toEqual([]);
+
+    const payload = { id: "event-3", body: "ok" };
+    await act(async () => {
+      WS.global()?.emit("notify", payload);
+    });
+    expect(received).toEqual([payload]);
+    unsubscribe();
+  });
 });
 
 describe("deriveUpdateFeed — ambient-first two-feed merge (260807-s6zs)", () => {

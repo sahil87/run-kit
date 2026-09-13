@@ -1,0 +1,35 @@
+id: t7vy
+name: 260913-t7vy-operator-daemon-launch-root-kickoff
+created: 2026-09-13T12:21:45Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: ready
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 4
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 69.5
+        reversibility: 88.5
+        competence: 76.5
+        disambiguation: 69.5
+stage_metrics:
+    intake: {started_at: "2026-09-13T12:21:45Z", driver: fab-new, iterations: 1}
+prs: []
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-13T12:26:03Z

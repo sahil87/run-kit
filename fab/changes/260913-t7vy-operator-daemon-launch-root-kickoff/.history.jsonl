@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-13T12:21:45Z"}
+{"args":"Start operator / cron respawn: rk operator -L opens the window in $HOME where Claude hits the trust wall and /fab-operator is an unknown command (project-scoped skill); derive a fab project root from the server's live panes instead, surface the silently-dropped kickoff note, and keep waiting while a wall clears","cmd":"fab-new","event":"command","ts":"2026-09-13T12:21:45Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-09-13T12:25:40Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-09-13T12:26:03Z"}

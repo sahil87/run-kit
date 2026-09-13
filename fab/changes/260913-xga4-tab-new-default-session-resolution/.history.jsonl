@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-13T04:57:04Z"}
+{"args":"rk tab new: resolve a default --session when the caller sits in an _rk-* session (operator spawns) so fab can stop choosing [xga4]","cmd":"fab-new","event":"command","ts":"2026-09-13T04:57:04Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-09-13T04:59:24Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-13T05:00:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-13T05:00:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-13T05:11:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-13T05:15:11Z"}
+{"event":"review","result":"passed","ts":"2026-09-13T05:15:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-13T05:20:13Z"}

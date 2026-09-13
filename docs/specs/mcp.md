@@ -136,7 +136,7 @@ below are the contract; a verb MAY add fields, never rename these.
 | Talk | `notify` | `{"delivered":bool}` — `true` on a 2xx from `/api/notify`; `false` when the send was swallowed. Exit stays 0 either way (the fail-silent contract); the receipt is where the truth goes |
 | Talk | `operator request` | `{"template":"<id>","window":"@N"?,"queued":bool}` — `queued:true` ⇔ the daemon answered `202` |
 | Spawn | `riff` | `{"windows":[{"id":"@N","name":"…","server":"…","panes":["%N",…],"worktree":"/abs/path","branch":"…"}]}` — one element per spawned window (`--count N` ⇒ N elements, in index order); `panes[0]` is the task pane. The verb gains `-L`/`--session =S`/`--repo` targeting flags so the tool is satisfiable with `$TMUX` stripped |
-| Spawn | `tab new` | `{"session":"<name>","window_id":"@N","pane_id":"%N"[,"ready":…]}` — the shipped document, verbatim inside `result` (the envelope wraps, never reshapes) |
+| Spawn | `tab new` | `{"session":"<name>","session_rung":"explicit"\|"caller"\|"server"\|"sole-user"\|"cwd-root"\|"most-attached","window_id":"@N","pane_id":"%N"[,"ready":…]}` — the shipped document, verbatim inside `result` (the envelope wraps, never reshapes); `session_rung` (always present) says why the landing session was chosen (ui-state.md § `rk tab`) |
 | Spawn | `mux new` | `{"report":"created","server":"<name>","ephemeral":bool}` |
 | Spawn | `operator` | `{"window":"@N","server":"…","created":bool}` — idempotent; `created:false` when the operator tab already existed |
 | Spawn | `cron add` | `{"id":"<entry id>","name":"…","schedule":"…","target":"…"}` (the four fields the human line already prints, as the same strings) |

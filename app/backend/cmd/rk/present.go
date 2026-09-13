@@ -181,7 +181,11 @@ func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present
 		return "", "", fmt.Errorf("--window name: %s", errMsg)
 	}
 
-	session, server, err := resolveTabNewSession(ctx, "")
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", "", fmt.Errorf("resolve working directory: %w", err)
+	}
+	session, server, _, err := resolveTabNewSession(ctx, "", cwd)
 	if err != nil {
 		return "", "", err
 	}

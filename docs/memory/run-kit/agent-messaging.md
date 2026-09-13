@@ -694,7 +694,11 @@ role derives from the session NAME at request time via `tmux.SessionRole`
 `reserved` (any other `_rk-*` name — see
 [tmux-sessions](/run-kit/tmux-sessions.md) § Session Role Taxonomy). The
 default listing is `role: user` rows only — the spawn-candidate set an external
-orchestrator (fab's operator) consumes; `--all` includes infrastructure rows
+orchestrator (fab's operator) consumes, and the same rows drive `rk tab new`'s
+default-session resolution in-process: an infrastructure-session caller's
+landing session is picked from them in this enumeration order (see
+[tmux-sessions](/run-kit/tmux-sessions.md) § Session Role Taxonomy) (xga4);
+`--all` includes infrastructure rows
 labeled with their roles. Enumeration (`tmux.ListSessionFacts` →
 `buildSessionFacts`) reads raw `list-sessions` on the shared
 `sessionListFormat` fields: user rows follow `parseSessions`' keep decision

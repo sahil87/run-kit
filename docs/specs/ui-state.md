@@ -390,7 +390,7 @@ pattern — tmux is the store, the daemon is a renderer).
 ```
 rk tab new [--session =S] [--cwd DIR] [--name N] [--layout L]      → prints @N
            [--json] [--ready [--timeout S]] [--no-shell-fallback] [-- CMD [ARG…]]
-           # --json prints {session, window_id, pane_id[, ready]} instead;
+           # --json prints {session, session_rung, window_id, pane_id[, ready]} instead;
            # CMD after -- is argv (rk-quoted, one literal word per token) with
            # the `; exec "${SHELL:-/bin/sh}"` fallback unless --no-shell-fallback
 rk tab layout [@N] <shape>:<surface,…> [--json]                   # set
@@ -403,6 +403,26 @@ rk tab web ls     [@N]
 rk tab code set   [@N] <folder> [--json]
 rk tab show       [@N]                                             # dump every @rk_win_* of the tab
 ```
+
+`rk tab new`'s default session (no `--session`) is role-aware: outside tmux it
+is the target server's current session; inside tmux it is the caller's own
+session — **unless the caller sits in a run-kit infrastructure session**
+(`_rk-operator`, `_rk-ctl`, `_rk-pin-*`, reserved — the `tmux.SessionRole`
+derivation behind `rk mux sessions`), which never gains a spawned window
+beside itself. The pick is then deterministic over the server's `role: user`
+sessions in `rk mux sessions` row order: (1) the sole user session; (2) else
+the first whose main-worktree root equals `--cwd`'s main-worktree root (both
+sides resolved via `git rev-parse --git-common-dir`, so a linked worktree
+under the sibling `<repo>.worktrees/<name>` directory matches a session
+started at `<repo>` — a prefix match cannot); (3) else the most-attached,
+ties broken to the earliest row; (4) zero user sessions → exit 1,
+`nowhere to spawn`, no window created (the remedy: `--session =S`). The
+deciding rung rides the `--json` document as the always-present
+`session_rung` key (`explicit` · `caller` · `server` · `sole-user` ·
+`cwd-root` · `most-attached`) and, on the human path, a stderr note
+(`session: <name> (<rung>)`, suppressed by `--quiet`) when a role-aware rung
+decided — stdout stays the bare `@N`. `rk present --window` inherits the rule
+through the shared resolver.
 
 `--add/--rm/--promote/--cycle` are the same three layout mutations the UI
 verbs perform (surface-layout § Verbs), so agent and human go through one

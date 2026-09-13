@@ -318,6 +318,9 @@ func TestTabNewJSONEnvelope(t *testing.T) {
 	if obj["session"] != "boot" {
 		t.Errorf("session = %q, want boot (tmux-reported)", obj["session"])
 	}
+	if obj["session_rung"] != sessionRungCaller {
+		t.Errorf("session_rung = %q, want caller (a user-role caller keeps its own session)", obj["session_rung"])
+	}
 	if !strings.HasPrefix(obj["window_id"], "@") {
 		t.Errorf("window_id = %q, want @N", obj["window_id"])
 	}
@@ -327,8 +330,8 @@ func TestTabNewJSONEnvelope(t *testing.T) {
 	if _, ok := obj["ready"]; ok {
 		t.Errorf("json = %q, want no ready key without --ready", stdout)
 	}
-	if len(obj) != 3 {
-		t.Errorf("json keys = %v, want exactly session/window_id/pane_id", obj)
+	if len(obj) != 4 {
+		t.Errorf("json keys = %v, want exactly session/session_rung/window_id/pane_id", obj)
 	}
 }
 

@@ -61,6 +61,10 @@ const (
 	// rebase; the serve is cached on the NEGATIVE cadence (15s) so the real HEAD
 	// is re-read promptly once the rebase finishes.
 	gitBranchDetachedGraceTTL = 5 * time.Minute
+
+	// mainWorktreeRootCmdTimeout bounds the rev-parse subprocess behind
+	// MainWorktreeRoot (Constitution § Process Execution: 5s helper class).
+	mainWorktreeRootCmdTimeout = 5 * time.Second
 )
 
 var (
@@ -162,6 +166,40 @@ func resolveGitBranchWithGit(ctx context.Context, cwd string) (branch string, de
 		return "", true // detached
 	}
 	return b, false
+}
+
+// MainWorktreeRoot returns the main checkout's root for any path inside a git
+// repository — for a linked worktree (whose .git is a file, conventionally
+// under the sibling <repo>.worktrees/<name> directory) that is the main
+// checkout, not the worktree. The sibling layout is exactly why a path prefix
+// match cannot tie a worktree to its repo; only git's common dir can:
+//
+//	git -C <dir> rev-parse --path-format=absolute --git-common-dir
+//
+// resolves to the main checkout's .git from either side. The result is the
+// common dir's parent when its base is ".git", else the common dir itself (a
+// bare repository), filepath.Clean applied. Returns "" when dir is empty, not
+// inside a repository, git is absent, or the call fails or times out —
+// callers treat "" as "no match", and two "" sides never match.
+func MainWorktreeRoot(ctx context.Context, dir string) string {
+	if dir == "" {
+		return ""
+	}
+	gitCtx, cancel := context.WithTimeout(ctx, mainWorktreeRootCmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(gitCtx, "git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	common := filepath.Clean(strings.TrimSpace(string(out)))
+	if common == "." || common == string(filepath.Separator) {
+		return ""
+	}
+	if filepath.Base(common) == ".git" {
+		return filepath.Dir(common)
+	}
+	return common
 }
 
 // classifyGitRoot walks cwd toward the filesystem root looking for a .git

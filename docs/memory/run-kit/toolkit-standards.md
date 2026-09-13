@@ -306,9 +306,14 @@ the seventeenth surface measured against the same checks
   automatically.
 - **Principle 9: one datum per verb on stdout — data.** Every verb routes
   through `newSink(cmd)`: `tab new` prints `@N` bare, or under `--json` the
-  `{session, window_id, pane_id}` object inside `result` of the Principle 2
+  `{session, session_rung, window_id, pane_id}` object inside `result` of the
+  Principle 2
   `{ok,result|error}` envelope — two-space indented, through the data sink so
-  it survives `--quiet` — carrying one extra `ready` key when `--ready` gated
+  it survives `--quiet` — with the always-present `session_rung` saying why the
+  landing session was chosen (a role-aware pick adds one
+  `session: <name> (<rung>)` note on stderr — chatter, dropped by `--quiet`,
+  never touching the stdout datum), and carrying one extra `ready` key when
+  `--ready` gated
   the create (the verdict key rides `result` because the bare datum has no
   room for a second word; a `gone` verdict emits `ok:false` with the object
   still in `result`); `tab web add` prints
@@ -320,7 +325,9 @@ the seventeenth surface measured against the same checks
   `Notef`/stderr.
 - **Exit-code convention (P4)** — 0 success, 1 operational (family full, index
   out of range, missing dir, not in tmux, a `gone` readiness verdict under
-  `tab new --ready` — printed after the JSON), 2 usage (malformed address or
+  `tab new --ready` — printed after the JSON — and `nowhere to spawn`: an
+  infrastructure-session caller with zero user sessions, raised before any
+  window is created), 2 usage (malformed address or
   layout, unknown surface, flag conflicts, arg counts, a `tab new` positional
   without `--`, `--ready` without `--json` or without a command, `--timeout`
   without `--ready`, `--no-shell-fallback` without a command, a negative

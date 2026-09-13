@@ -3,6 +3,7 @@ package gitinfo
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -444,6 +445,108 @@ func TestResolveGitBranchesConcurrentMisses(t *testing.T) {
 		gitBranchCacheMu.RUnlock()
 		if n != gitBranchResolveLimit {
 			t.Errorf("cache entries = %d, want %d (gitBranchResolveLimit)", n, gitBranchResolveLimit)
+		}
+	})
+}
+
+// --- main-worktree root resolution (subprocess, real git) ---
+
+// gitDo runs a git command with a throwaway identity, failing the test on
+// error. GIT_CONFIG_NOSYSTEM/GIT_CONFIG_GLOBAL keep host config (and any
+// host-default init branch) out of the fixture.
+func gitDo(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	full := append([]string{"-C", dir}, args...)
+	cmd := exec.CommandContext(ctx, "git", full...)
+	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, string(out))
+	}
+}
+
+func TestMainWorktreeRoot(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available — skipping MainWorktreeRoot tests")
+	}
+	ctx := context.Background()
+
+	// realPath resolves symlinks (macOS temp dirs live under /private) so the
+	// comparison matches git's own physical-path canonicalization.
+	realPath := func(t *testing.T, p string) string {
+		t.Helper()
+		real, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			t.Fatalf("EvalSymlinks(%q): %v", p, err)
+		}
+		return real
+	}
+
+	t.Run("a main checkout resolves to itself", func(t *testing.T) {
+		repo := t.TempDir()
+		gitDo(t, repo, "init")
+		gitDo(t, repo, "commit", "--allow-empty", "-m", "init")
+		if got := MainWorktreeRoot(ctx, repo); got != realPath(t, repo) {
+			t.Errorf("MainWorktreeRoot(%q) = %q, want %q", repo, got, realPath(t, repo))
+		}
+	})
+
+	t.Run("a linked worktree resolves to the main checkout", func(t *testing.T) {
+		repo := filepath.Join(t.TempDir(), "repo")
+		if err := os.MkdirAll(repo, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		gitDo(t, repo, "init")
+		gitDo(t, repo, "commit", "--allow-empty", "-m", "init")
+		// The sibling <repo>.worktrees/<name> layout: no prefix of the
+		// worktree path names the repo, so only the common dir can tie them.
+		wt := filepath.Join(filepath.Dir(repo), "repo.worktrees", "feat-x")
+		gitDo(t, repo, "worktree", "add", wt)
+		if got, want := MainWorktreeRoot(ctx, wt), MainWorktreeRoot(ctx, repo); got != want {
+			t.Errorf("MainWorktreeRoot(%q) = %q, want the main root %q", wt, got, want)
+		}
+		if got := MainWorktreeRoot(ctx, wt); got != realPath(t, repo) {
+			t.Errorf("MainWorktreeRoot(%q) = %q, want %q", wt, got, realPath(t, repo))
+		}
+	})
+
+	t.Run("a subdirectory of a worktree resolves to the main checkout", func(t *testing.T) {
+		repo := t.TempDir()
+		gitDo(t, repo, "init")
+		gitDo(t, repo, "commit", "--allow-empty", "-m", "init")
+		wt := filepath.Join(t.TempDir(), "wt")
+		gitDo(t, repo, "worktree", "add", wt)
+		sub := filepath.Join(wt, "sub", "dir")
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if got := MainWorktreeRoot(ctx, sub); got != realPath(t, repo) {
+			t.Errorf("MainWorktreeRoot(%q) = %q, want %q", sub, got, realPath(t, repo))
+		}
+	})
+
+	t.Run("a non-repo directory resolves to empty", func(t *testing.T) {
+		plain := t.TempDir()
+		if r, _ := classifyGitRoot(plain); r != "" {
+			t.Skip("temp dir lives inside a git repo; cannot exercise the no-repo case")
+		}
+		if got := MainWorktreeRoot(ctx, plain); got != "" {
+			t.Errorf("MainWorktreeRoot(%q) = %q, want \"\"", plain, got)
+		}
+	})
+
+	t.Run("an empty or missing directory resolves to empty", func(t *testing.T) {
+		if got := MainWorktreeRoot(ctx, ""); got != "" {
+			t.Errorf("MainWorktreeRoot(\"\") = %q, want \"\"", got)
+		}
+		if got := MainWorktreeRoot(ctx, filepath.Join(t.TempDir(), "missing")); got != "" {
+			t.Errorf("MainWorktreeRoot(missing) = %q, want \"\"", got)
 		}
 	})
 }

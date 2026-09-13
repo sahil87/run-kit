@@ -1,0 +1,57 @@
+id: png4
+name: 260913-png4-compose-default-on
+created: 2026-09-13T16:34:20Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 23
+    acceptance_completed: 23
+confidence:
+    certain: 15
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.3
+    fuzzy: true
+    dimensions:
+        signal: 73.3
+        reversibility: 90.0
+        competence: 86.9
+        disambiguation: 82.1
+stage_metrics:
+    intake: {started_at: "2026-09-13T16:34:20Z", driver: fab-new, iterations: 1, completed_at: "2026-09-13T16:43:32Z"}
+    apply: {started_at: "2026-09-13T16:43:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T17:39:25Z"}
+    review: {started_at: "2026-09-13T17:39:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T18:07:04Z"}
+    hydrate: {started_at: "2026-09-13T18:07:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T18:07:39Z"}
+    ship: {started_at: "2026-09-13T18:07:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T18:22:35Z"}
+    review-pr: {started_at: "2026-09-13T18:22:35Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/971
+change_type_source: explicit
+true_impact:
+    added: 2372
+    deleted: 212
+    net: 2160
+    excluding:
+        added: 1384
+        deleted: 182
+        net: 1202
+    tests:
+        added: 590
+        deleted: 92
+        net: 498
+    computed_at: "2026-09-13T18:22:35Z"
+    computed_at_stage: ship
+summary: Compose strip on by default (explicit "false" is the opt-out) with a one-time notice; desktop fresh navigation lands focus in the strip via the restore router's first-visit resolver; Escape hands focus to the terminal; one name — Compose
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-13T18:22:35Z

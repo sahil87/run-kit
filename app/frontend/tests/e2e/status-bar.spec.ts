@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
-import { openPalette } from "./_ready";
+import { openPalette, seedComposeStrip } from "./_ready";
 
 // Status bar e2e. Fully mocked (no tmux/gh) — the pane-register-panel.spec.ts /
 // tooltips.spec.ts idiom: the state socket (mockStateSocket from
@@ -238,7 +238,7 @@ test.describe("Status bar (260814-ldbs)", () => {
     // Wrapping backwards off the first row lands on the LAST visible row — the
     // compose action, not the hidden version row that follows the metrics rows.
     await page.keyboard.press("ArrowUp");
-    await expect(menu.getByRole("menuitem", { name: /Compose text/ })).toBeFocused();
+    await expect(menu.getByRole("menuitem", { name: "a▏ Compose" })).toBeFocused();
     // Escape closes and refocuses the trigger.
     await page.keyboard.press("Escape");
     await expect(menu).toBeHidden();
@@ -250,16 +250,20 @@ test.describe("Status bar (260814-ldbs)", () => {
    * and the hint reflects the pressed state.
    *
    * Steps:
-   * 1. Navigate to `/default/1`; wait for the `status-bar-compose` button.
-   * 2. Click it; assert the `compose-strip` element renders.
+   * 1. Seed the explicit opt-out (the strip is on by default; this test is
+   *    about the hint OPENING it); navigate to `/default/1`; wait for the
+   *    `status-bar-compose` button and assert it reads `aria-pressed="false"`.
+   * 2. Click it; assert the strip's textarea (`compose-strip-input`) renders.
    * 3. Assert the hint is `aria-pressed="true"`.
    */
   test("the compose hint opens the compose strip (the relocated bottom-bar affordance)", async ({ page }) => {
+    await seedComposeStrip(page, false);
     await page.goto(`/${SERVER}/1`);
     const compose = statusBar(page).getByTestId("status-bar-compose");
     await expect(compose).toBeVisible({ timeout: 10_000 });
+    await expect(compose).toHaveAttribute("aria-pressed", "false");
     await compose.click();
-    await expect(page.getByTestId("compose-strip")).toBeVisible();
+    await expect(page.getByTestId("compose-strip-input")).toBeVisible();
     await expect(compose).toHaveAttribute("aria-pressed", "true");
   });
 

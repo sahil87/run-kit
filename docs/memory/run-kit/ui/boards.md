@@ -244,7 +244,7 @@ This required a minimal extension to the **toast system** (`components/toast.tsx
 
 | Entry | Visibility | Action |
 |-------|------------|--------|
-| `View: Text Input` | Only when `sessionName` is set (a terminal is in view) | Toggles the docked compose strip (`toggleComposeStrip`) — palette parity for the `a▏` chip (§ Docked Compose Strip) |
+| `Compose: Toggle` | Only when `sessionName` is set (a terminal is in view) | Toggles the docked compose strip (`toggleComposeStrip`) — palette parity for the `a▏` chip (§ Docked Compose Strip) |
 | `View: Terminal` / `View: Web` / `View: Code` | Each shown only when its lens is **available** (`availableViews(currentWindow)`, which folds in the `hasCode` gate) **AND not the current** (`resolvedView`) view; no `shortcut` hint on any entry — no chord reaches a lens switch (the ⌘1/⌘2/⌘3 digits are tile toggles, a different action) | `switchView(view)` — the per-viewer lens switch (no `@rk_win_lens` mutation). Built by the ONE pure `buildViewActions(available, resolved, onSwitch)` (`lib/palette/view.ts`); see § Window Views (Lens Model) → Palette parity. There is no `@rk_win_lens`-mutating `toggle-iframe-terminal` action (`260714-t97o`, `260714-r7rq`) |
 | `View: Fixed Width (900px)` / `View: Full Width` | Always (label reflects `fixedWidth` state) | `toggleFixedWidth` |
 | `Tile: Show <Surface>` / `Tile: Hide <Surface>` | Window route (`windowParam`); Show per **available, not-open** surface (omitted at 3 tiles), Hide per open surface kind (omitted on a `single` layout) | `addSurface` / `closeSurface` → `applyLayout` — palette parity for the top bar's open-tile toggles (§ Surface Toggles). The `code-toggle` chord (⌘2/⇧Ctrl+2 — the code surface's tile) is documented via the code surface's Show/Hide hint |

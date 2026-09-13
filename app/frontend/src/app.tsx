@@ -31,7 +31,7 @@ import {
   type Layout,
   type SurfaceKind,
 } from "@/lib/surface-layout";
-import { hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
+import { focusIsEngaged, hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { requestQuakeTerminal, findOperatorWindow, resolveQuakeServer } from "@/lib/quake-terminal";
 import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
 import { TERMINAL_FIND_OPEN_EVENT } from "@/lib/terminal-find";
@@ -187,6 +187,7 @@ import {
   focusMemoryKey,
   isGuardArmed,
   recallFocus,
+  type FocusKind,
 } from "@/lib/focus-memory";
 import type { PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
@@ -882,6 +883,12 @@ function AppShell() {
   const pendingServer = ctx.pendingServer;
   const sessions = useMergedSessions(rawSessions, server);
   const { sidebarOpen, sidebarWidth, fixedWidth, composeStripEnabled, scrollLocked } = useChromeState();
+  // The restore router's `restoreFocus` is a stable callback that reads refs
+  // and module state only, so the compose preference reaches its first-visit
+  // resolver through a ref rather than a dependency that would re-key the
+  // per-window restore effect on every toggle.
+  const composeStripEnabledRef = useRef(composeStripEnabled);
+  composeStripEnabledRef.current = composeStripEnabled;
   const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth, toggleComposeStrip } = useChromeDispatch();
   const navigate = useNavigate();
   const { addToast } = useToast();
@@ -1714,7 +1721,8 @@ function AppShell() {
   // key below) and nothing would otherwise reclaim DOM focus — worse, the
   // code tile's iframe reloads and the workbench's one-shot load-time grab
   // would win by default. `restoreFocus` routes to the window's RECORDED
-  // focus kind (`undefined` ⇒ `tty`, the keyboard-first default): tty via
+  // focus kind (`undefined` ⇒ the first-visit resolver: compose while the
+  // strip is on, else tty): tty via
   // `focusTerminalRef` with a rAF retry (the ref registers late in
   // TerminalClient init), compose via the registered strip focuser with a tty
   // fallback when it declines (disabled/unmounted), code as a no-op (the
@@ -1741,13 +1749,48 @@ function AppShell() {
       }
       if (Date.now() < deadline) rafId = requestAnimationFrame(focusTty);
     };
-    const recalled = recallFocus(key) ?? "tty";
-    const kind = recalled === exclude ? "tty" : recalled;
+    const recalled = recallFocus(key);
+    const resolved = recalled ?? firstVisitKind();
+    const kind = resolved === exclude ? "tty" : resolved;
     if (kind === "code") return cancel; // the workbench's own grab restores it
-    if (kind === "compose" && focusComposeStrip()) return cancel;
+    if (kind === "compose") {
+      // A RECORDED compose (a return to a window the user composed in) finds
+      // the body already mounted: one attempt, decline ⇒ tty.
+      if (recalled === "compose") {
+        if (focusComposeStrip()) return cancel;
+        rafId = requestAnimationFrame(focusTty);
+        return cancel;
+      }
+      // FIRST VISIT with the strip on: the expanded body mounts only after
+      // the terminal registers into FocusedTerminalContext, so a one-shot
+      // attempt at effect time would always decline. Retry on the same rAF
+      // loop and deadline the tty arm uses; fall to tty on the deadline. Each
+      // attempt re-checks the active element — an engaged focus (xterm, an
+      // editable, a dialog, an open menu, an iframe) means the user or another
+      // surface got there first (this effect can arm late, after a slow
+      // session payload), and the restore ABANDONS outright: falling to the
+      // tty arm would steal from that surface just the same.
+      const tryCompose = () => {
+        if (cancelled) return;
+        if (focusIsEngaged(document.activeElement)) return;
+        if (focusComposeStrip()) return;
+        rafId = requestAnimationFrame(Date.now() < deadline ? tryCompose : focusTty);
+      };
+      rafId = requestAnimationFrame(tryCompose);
+      return cancel;
+    }
     rafId = requestAnimationFrame(focusTty);
     return cancel;
   }, []);
+
+  // The first-visit default for a window with no recorded focus kind: the
+  // compose strip when the preference is on (the strip is the keyboard; the
+  // terminal is the control surface reached by Escape or a click), else tty.
+  // Consulted ONLY when `recallFocus` is undefined — a recorded kind always
+  // wins, which is what keeps remounts and returns from ever stealing.
+  function firstVisitKind(): FocusKind {
+    return composeStripEnabledRef.current ? "compose" : "tty";
+  }
 
   // The restore effect, keyed per window and DESKTOP-ONLY — auto-focus pops
   // the mobile keyboard. It arms the
@@ -1778,7 +1821,7 @@ function AppShell() {
   // Sidebar focus-return seam (R5): the stateful ⌘B hide arm and the
   // sidebar's Escape return focus through THIS route's restore router, via
   // the module registry (`lib/sidebar-events.ts`) — no origin storage; the
-  // router's `recallFocus(key) ?? "tty"` IS the return target. Routes without
+  // router's `recallFocus(key) ?? firstVisitKind()` IS the return target. Routes without
   // a window (and the board/host mounts) register nothing; their return path
   // is a blur.
   useEffect(() => {
@@ -1799,7 +1842,7 @@ function AppShell() {
     if (!windowParam) return false;
     const key = focusMemoryKey(server, windowParam);
     if (!isGuardArmed(key)) return false;
-    if ((recallFocus(key) ?? "tty") === "code") return false;
+    if ((recallFocus(key) ?? firstVisitKind()) === "code") return false;
     restoreFocus(key);
     return true;
   }, [server, windowParam, restoreFocus]);
@@ -1832,7 +1875,7 @@ function AppShell() {
   // terminal route, else the shell footer above `<BottomBar>`; the dock
   // predicate lives beside the mount sites below); its enablement is the
   // persisted `composeStripEnabled` chrome preference, toggled by the `>_` chip
-  // and the `View: Text Input` palette action. No per-terminal compose-open
+  // and the `Compose: Toggle` palette action. No per-terminal compose-open
   // state. Scroll-lock is likewise a persisted chrome preference (read via
   // `scrollLocked` above) — BottomBar owns the toggle, this shell only threads
   // the value down to the terminal surfaces.
@@ -3877,6 +3920,8 @@ function AppShell() {
       // preference (and stays the expanded body even target-less under a
       // non-terminal tab); only this shared element ever passes it.
       forceExpanded={operatorPage}
+      // Escape's hand-off target: the route's registered terminal focuser.
+      onEscapeToTerminal={() => focusTerminalRef.current?.()}
       // Dock identity: the strip's fine-pointer header fold keys on this —
       // in-tile the tile frame already names the target. One shared element
       // serves both docks, so the prop simply tracks the dock predicate.
@@ -3920,7 +3965,7 @@ function AppShell() {
         ? [
             {
               id: "text-input",
-              label: "View: Text Input",
+              label: "Compose: Toggle",
               onSelect: toggleComposeStrip,
             },
             {

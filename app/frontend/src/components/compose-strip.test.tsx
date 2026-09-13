@@ -399,7 +399,7 @@ describe("ComposeStrip", () => {
     render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(input().placeholder).toBe(
-      "Compose text — Enter inserts · Ctrl+Enter sends · ↑ history",
+      "Compose text — Enter inserts · Ctrl+Enter sends · ↑ history · Esc → terminal",
     );
   });
 
@@ -2688,7 +2688,10 @@ describe("ComposeStrip collapsed tongue", () => {
   beforeEach(() => {
     uploadFilesMock.mockReset();
     uploadState.uploading = false;
+    addToastMock.mockReset();
     stubPointer(false);
+    // The preference is ON by default; the tongue is the explicit opt-out.
+    localStorage.setItem("runkit-compose-strip", "false");
   });
   afterEach(() => {
     cleanup();
@@ -2830,5 +2833,130 @@ describe("ComposeStrip collapsed tongue", () => {
       await Promise.resolve();
     });
     expect(input().value).toContain("/wt/.uploads/x.png");
+  });
+});
+
+// ── The one-time "on by default" notice ─────────────────────────────────────
+
+describe("ComposeStrip default-on notice", () => {
+  const FOCUS: FocusedTerminal = { wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" };
+
+  beforeEach(() => {
+    addToastMock.mockReset();
+    stubPointer(false);
+    localStorage.clear();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  function Harness({ forceExpanded }: { forceExpanded?: boolean }) {
+    return (
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={FOCUS} />
+          <ComposeStrip forceExpanded={forceExpanded} />
+        </FocusedTerminalProvider>
+      </ChromeProvider>
+    );
+  }
+
+  it("fires exactly one info toast when the default put the strip on screen, and writes the sentinel first", () => {
+    render(<Harness />);
+    // No stored preference ⇒ on by default; the body mounts once a target exists.
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(addToastMock).toHaveBeenCalledTimes(1);
+    const [message, variant] = addToastMock.mock.calls[0];
+    expect(variant).toBe("info");
+    expect(message).toMatch(/^Compose is on by default — .+ hides it$/);
+    expect(localStorage.getItem("runkit-compose-default-notice")).toBe("1");
+  });
+
+  it("names the platform chord through the registry seam", () => {
+    let expected = "";
+    function Probe() {
+      const { bindings, host } = useKeybindings();
+      expected = chordHintFor("compose-toggle", bindings, host.platform) ?? "";
+      return null;
+    }
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <Probe />
+          <FocusSetter focus={FOCUS} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(expected).not.toBe("");
+    expect(addToastMock.mock.calls[0][0]).toBe(`Compose is on by default — ${expected} hides it`);
+  });
+
+  it("is silent once the sentinel exists", () => {
+    localStorage.setItem("runkit-compose-default-notice", "1");
+    render(<Harness />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(addToastMock).not.toHaveBeenCalled();
+  });
+
+  it("is silent for a stored preference, on or off", () => {
+    localStorage.setItem("runkit-compose-strip", "true");
+    render(<Harness />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(addToastMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("runkit-compose-default-notice")).toBeNull();
+    cleanup();
+    localStorage.setItem("runkit-compose-strip", "false");
+    render(<Harness />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(addToastMock).not.toHaveBeenCalled();
+  });
+
+  it("is silent on the operator page's forced mount", () => {
+    render(<Harness forceExpanded />);
+    expect(addToastMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("runkit-compose-default-notice")).toBeNull();
+  });
+
+  it("StrictMode's effect replay shows it once", () => {
+    render(
+      <StrictMode>
+        <Harness />
+      </StrictMode>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    expect(addToastMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ComposeStrip Escape hand-off", () => {
+  const FOCUS: FocusedTerminal = { wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" };
+
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
+
+  it("Escape blurs the textarea, keeps the strip, and calls the mount's terminal focuser", () => {
+    localStorage.setItem("runkit-compose-strip", "true");
+    const onEscapeToTerminal = vi.fn();
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={FOCUS} />
+          <ComposeStrip onEscapeToTerminal={onEscapeToTerminal} />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => input().focus());
+    expect(document.activeElement).toBe(input());
+    act(() => fireEvent.keyDown(input(), { key: "Escape" }));
+    expect(document.activeElement).not.toBe(input());
+    expect(onEscapeToTerminal).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("compose-strip-input")).toBeInTheDocument();
   });
 });

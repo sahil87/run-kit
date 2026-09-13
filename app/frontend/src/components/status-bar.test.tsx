@@ -214,6 +214,9 @@ describe("StatusBar (260814-ldbs)", () => {
 
     it("fires onOpenCompose from the a▏ hint and mirrors the strip's pressed state", () => {
       const onOpenCompose = vi.fn();
+      // The preference is on by default; seed the explicit opt-out so the
+      // chip's pressed state has an "off" to mirror.
+      localStorage.setItem("runkit-compose-strip", "false");
       renderBar({ onOpenCompose });
       const chip = screen.getByTestId("status-bar-compose");
       expect(chip).toHaveAttribute("aria-pressed", "false");
@@ -274,7 +277,7 @@ describe("StatusBar (260814-ldbs)", () => {
       // …and the two hint chips (dropped below xl) as ACTIONABLE rows.
       const paletteRow = screen.getByRole("menuitem", { name: "⌘K Command palette" });
       expect(paletteRow.className).toContain("xl:hidden");
-      expect(screen.getByRole("menuitem", { name: "a▏ Compose text" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: "a▏ Compose" })).toBeInTheDocument();
       // The palette row fires the real action and closes the menu.
       fireEvent.click(paletteRow);
       expect(listener).toHaveBeenCalled();

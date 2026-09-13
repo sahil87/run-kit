@@ -5,10 +5,61 @@ set -euo pipefail
 # E2E_CODE_SERVER_PORT) — see scripts/e2e-env.sh. Ambient RK_PORT is not an
 # input; RK_E2E_PORT / preset E2E_TMUX_SERVER override. The derived stub port
 # is promoted to the RK_CODE_SERVER_PORT preset dev.sh keys on (the harness's
-# externally-managed carve-out).
+# externally-managed carve-out). The run holds the per-worktree lock
+# /tmp/rk-e2e-wt-<uid>-<token>.lock from before the stale-kill until exit, so
+# sibling runs started in the SAME worktree queue instead of colliding.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/e2e-env.sh"
 RK_CODE_SERVER_PORT="$E2E_CODE_SERVER_PORT"
+
+# Per-worktree exclusive lock — the rig identity (port triple + socket
+# family) derives from E2E_TOKEN, so one lock per token is one lock per rig.
+# Taken BEFORE kill_triple: the stale-kill below reclaims "this worktree's
+# own leftover", and without this lock a concurrent sibling run in the same
+# worktree IS that leftover — the second run kills the first run's dev server
+# and both then fight over one rig. flock(2) releases when the holder's last
+# descriptor closes, so a crashed or SIGKILLed run leaves no stale lock — no
+# PID file, no cleanup step — PROVIDED no long-lived child inherits the fd
+# (see without_lock_fd below).
+#
+# Ordering with the slot semaphore further down: worktree lock → stale-kill +
+# server start → slot → Playwright. No deadlock is possible: worktree locks
+# are independent of each other (a run holds exactly one, its own token's),
+# and every slot holder finishes and releases regardless of any worktree
+# lock, so a run waiting on a slot while holding its worktree lock waits on
+# something that always completes. The harness never kills a sibling run —
+# the older run may be the user's — so contention waits, bounded.
+_wt_lock_fd=""
+if command -v flock >/dev/null 2>&1; then
+  _wt_lock_file="/tmp/rk-e2e-wt-$(id -u)-${E2E_TOKEN}.lock"
+  # Grouped so the 2>/dev/null scopes to the open: a bare `exec {fd}>>f
+  # 2>/dev/null` redirects the SHELL's stderr permanently.
+  if { exec {_wt_lock_fd}>>"$_wt_lock_file"; } 2>/dev/null; then
+    if ! flock -n "$_wt_lock_fd"; then
+      echo "e2e lock: another run holds this worktree's rig — waiting (up to 30m)" >&2
+      if ! flock -w 1800 "$_wt_lock_fd"; then
+        echo "ERROR: e2e lock: timed out after 30m waiting for $_wt_lock_file — another just test-e2e in this worktree is still running (or a process it started is holding the lock); this run did not touch the rig." >&2
+        exit 1
+      fi
+    fi
+  else
+    echo "e2e lock: cannot open $_wt_lock_file — running unlocked" >&2
+    _wt_lock_fd=""
+  fi
+else
+  # Stock macOS has no flock(1) — degrade to unlocked (mirrors the slot throttle).
+  echo "e2e lock: flock(1) not found — running unlocked" >&2
+fi
+
+# The lock belongs to THIS process alone. A tmux server daemonizes with
+# inherited descriptors and outlives a SIGKILLed harness; the dev server runs
+# in its own process group for the same reason; Playwright workers spawn
+# secondary tmux servers. Any of them holding the fd would pin the lock for
+# the next run's 30-minute wait, so every long-lived child launch closes it.
+# `{var}>&-` with an EMPTY variable is a bash error, hence the two arms.
+without_lock_fd() {
+  if [ -n "$_wt_lock_fd" ]; then "$@" {_wt_lock_fd}>&-; else "$@"; fi
+}
 
 # Hermetic per-run state: the backend's disk carve-outs (layout snapshots, the
 # PR-status seed cache) land under this temp dir instead of the developer's
@@ -128,7 +179,7 @@ if [ "$_steps" -gt 0 ]; then
 fi
 
 # Start a dedicated tmux server for e2e tests
-tmux -L "$E2E_TMUX_SERVER" new-session -d -s e2e-init -x 80 -y 24
+without_lock_fd tmux -L "$E2E_TMUX_SERVER" new-session -d -s e2e-init -x 80 -y 24
 # Convention: test servers carry the @rk_srv_ephemeral creator opt-out mark (belt-and-braces alongside the rk-test-* name umbrella).
 tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_srv_ephemeral 1
 # The rig's servers are rk's own substrate: mark them @rk_srv_managed so the
@@ -175,8 +226,12 @@ tmux -L "$E2E_TMUX_SERVER" set-option -w -t "$E2E_INIT_WIN_ID" @rk_note '1:e2e-l
 # derived triple's +2 (e2e-env.sh; a preset env var still wins), so parallel
 # worktrees never collide on the stub. The same value is exported to the
 # playwright run below so the spec and the backend agree on the port.
+# The child closes the worktree lock fd before exec (it must not pin the lock
+# past this harness — see without_lock_fd), and carries E2E_HARNESS=1 so
+# dev.sh's lock probe stays quiet for the holder's own dev server.
+_close_lock="${_wt_lock_fd:+exec $_wt_lock_fd>&-;}"
 set -m
-bash -c "RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_FAMILY E2E_TMUX_FAMILY=$E2E_TMUX_FAMILY RK_CODE_SERVER_PORT=$RK_CODE_SERVER_PORT XDG_STATE_HOME=$E2E_STATE_HOME XDG_DATA_HOME=$E2E_DATA_HOME RK_CONFIG_DIR=$RK_CONFIG_DIR exec just dev" &
+bash -c "$_close_lock RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_FAMILY E2E_TMUX_FAMILY=$E2E_TMUX_FAMILY RK_CODE_SERVER_PORT=$RK_CODE_SERVER_PORT XDG_STATE_HOME=$E2E_STATE_HOME XDG_DATA_HOME=$E2E_DATA_HOME RK_CONFIG_DIR=$RK_CONFIG_DIR E2E_HARNESS=1 exec just dev" &
 DEV_PID=$!
 set +m
 
@@ -232,11 +287,13 @@ done
 # so a spec can write into the SAME per-run state home the backend reads
 # (e.g. a fake code-bridge host record under run-kit/cb/hosts/).
 run_playwright() {
-  cd app/frontend && RK_PORT=$E2E_PORT E2E_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" E2E_TMUX_FAMILY="$E2E_TMUX_FAMILY" RK_CODE_SERVER_PORT="$RK_CODE_SERVER_PORT" XDG_STATE_HOME="$E2E_STATE_HOME" RK_CONFIG_DIR="$RK_CONFIG_DIR" pnpm exec playwright test "$@"
+  cd app/frontend && RK_PORT=$E2E_PORT E2E_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" E2E_TMUX_FAMILY="$E2E_TMUX_FAMILY" RK_CODE_SERVER_PORT="$RK_CODE_SERVER_PORT" XDG_STATE_HOME="$E2E_STATE_HOME" RK_CONFIG_DIR="$RK_CONFIG_DIR" without_lock_fd pnpm exec playwright test "$@"
 }
 
 # Concurrency throttle (load, not correctness — the derived identity already
-# isolates): a flock counting semaphore over RK_E2E_SLOTS slot files
+# isolates across worktrees, and the per-worktree lock above is the
+# correctness lock within one; ordering and the no-deadlock argument live in
+# that block's comment): a flock counting semaphore over RK_E2E_SLOTS slot files
 # (/tmp/rk-e2e-slot-<uid>-{0..N-1}, default N=2, 1 = strict series) shared by
 # every worktree on this box. The suite is timing-sensitive under parallel
 # Playwright+Vite+Go CPU load, so cross-worktree runs queue for a slot before
@@ -248,19 +305,21 @@ if command -v flock >/dev/null 2>&1; then
   E2E_SLOTS="${RK_E2E_SLOTS:-2}"
   [[ "$E2E_SLOTS" =~ ^[0-9]+$ ]] || E2E_SLOTS=2
   [ "$E2E_SLOTS" -ge 1 ] || E2E_SLOTS=1
-  # Slot-file opens are guarded: a bare `exec {fd}>>` on an unopenable path
+  # Slot-file opens are guarded and GROUPED — the `{ …; } 2>/dev/null` scopes the
+  # redirect to the open (unscoped, it would silence the script's own stderr
+  # for good), and the guard matters because an `exec {fd}>>` on an unopenable path
   # (unexpected /tmp perms, fd exhaustion) exits the script under set -e, so
   # every open sits in an `if` — an unopenable slot is skipped, and if even
   # slot 0 cannot be opened the throttle degrades to unthrottled rather than
   # failing the run over throttle plumbing.
   _e2e_lock_fd=""
   for (( i=0; i<E2E_SLOTS; i++ )); do
-    if ! exec {fd}>>"/tmp/rk-e2e-slot-$(id -u)-$i" 2>/dev/null; then continue; fi
+    if ! { exec {fd}>>"/tmp/rk-e2e-slot-$(id -u)-$i"; } 2>/dev/null; then continue; fi
     if flock -n "$fd"; then _e2e_lock_fd=$fd; break; fi
     exec {fd}>&-
   done
   if [ -z "$_e2e_lock_fd" ]; then
-    if exec {fd}>>"/tmp/rk-e2e-slot-$(id -u)-0" 2>/dev/null; then
+    if { exec {fd}>>"/tmp/rk-e2e-slot-$(id -u)-0"; } 2>/dev/null; then
       echo "e2e throttle: all $E2E_SLOTS slot(s) busy — blocking on slot 0 (tune via RK_E2E_SLOTS)"
       flock "$fd"
       _e2e_lock_fd=$fd

@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Test-socket isolation on the tmux substrate: unified rk-test-<role>-<pid>-<ns> naming, the seven-package TestMain POST-sweep (e2e family excluded), rk mux reap (dry-run default, --force, --ephemeral), kill-paired socket-file removal, /api/servers listing every server, the RK_SERVER_ALLOWLIST enumeration bound, the e2e rk-test-e2e-<token>- family anchor + E2E_TMUX_FAMILY with its bare-anchor teardown refusal, the RK_CONFIG_DIR per-run config-root leg, and the port-fallback rule."
+description: "Test-socket isolation on the tmux substrate: unified rk-test-<role>-<pid>-<ns> naming, the seven-package TestMain POST-sweep (e2e family excluded), rk mux reap (dry-run default, --force, --ephemeral), kill-paired socket-file removal, /api/servers listing every server, the RK_SERVER_ALLOWLIST bound, the e2e rk-test-e2e-<token>- family anchor + E2E_TMUX_FAMILY and its bare-anchor teardown refusal, the RK_CONFIG_DIR per-run config root, the port-fallback rule, and the per-worktree e2e run lock."
 ---
 # Test Sockets & Test Isolation
 
@@ -256,8 +256,14 @@ Spec side, the config-touching specs (`settings-dialog.spec.ts`, `board-list-reo
 **Rejected**: Unsetting/ignoring `RK_PORT` inside Playwright — fights the ambient env instead of sidestepping it, and breaks the "RK_PORT stays for anything else that reads it" contract; a reserved derived dead port (e.g. `E2E_PORT+3`) — triple→quad bookkeeping for a URL that only needs to be dead.
 *Introduced by*: 260903-u1b8-e2e-fixed-port-hardening
 
+### Per-worktree exclusive lock precedes the stale-kill
+**Decision**: `scripts/test-e2e.sh` takes an exclusive `flock` on `/tmp/rk-e2e-wt-<uid>-<E2E_TOKEN>.lock` before anything touches the derived triple or socket family and holds it to process exit; a second run in the same worktree waits (one stderr line, `flock -w 1800`, then an error naming the file) and never kills the first. Every long-lived child (tmux primary, detached dev server, Playwright) is launched with the lock fd closed.
+**Why**: The stale-kill reclaims "this worktree's own leftover"; without a lock a concurrent sibling run in the same worktree IS that leftover — the second run kills the first's dev server and both fight over one rig (observed as hundreds of spurious failures within minutes). The `RK_E2E_SLOTS` semaphore cannot prevent it: it is a per-user load knob, N>1 by design, taken after the destructive step. `flock(2)` releases when the last descriptor closes, so a crashed or SIGKILLed run leaves no stale lock — but only if no daemonizing child inherits the fd (verified: a tmux server and a detached `bash -c … &` both keep the lock held after the harness exits).
+**Rejected**: A PID file (stale after a crash); making the slot semaphore per-worktree (wrong knob, wrong position); auto-killing the older run (it may be the user's); locking `just dev` (interactive lane — a non-blocking warning suffices); relying on `FD_CLOEXEC` (bash does not set it on `exec {fd}` opens); a cleanup-time `flock -u` (cleanup does not run on SIGKILL and the lock must cover teardown).
+*Introduced by*: 260913-osy0-e2e-per-worktree-lock
+
 ### Step-forward port fallback only on an unkillable foreign owner
-**Decision**: `scripts/e2e-env.sh` derivation is pure (no port probing, no mutation). `scripts/test-e2e.sh` first kills listeners on the derived port triple (self-claim — they are this worktree's by construction); only when a port is STILL busy after the kill does it step the triple forward by 3 within the 3400–3699 block (bounded), with a printed notice that `just pw` then needs an explicit `RK_E2E_PORT`.
+**Decision**: `scripts/e2e-env.sh` derivation is pure (no port probing, no mutation). `scripts/test-e2e.sh` first kills listeners on the derived port triple (self-claim — they are this worktree's by construction, and the kill runs only under the per-worktree run lock, so the leftover can never be a live sibling run); only when a port is STILL busy after the kill does it step the triple forward by 3 within the 3400–3699 block (bounded), with a printed notice that `just pw` then needs an explicit `RK_E2E_PORT`.
 **Why**: Probing inside the derivation would make `just pw` non-deterministic (it could derive past a rig the harness just started). Killing first preserves the "claim from your own leftover `just dev`" semantic; stepping is reserved for the genuinely-foreign case (a hash collision with another user's process).
 **Rejected**: probe-and-step inside `e2e-env.sh` (breaks the deterministic-rediscovery property `just pw` depends on); treating any listener as foreign (would never reclaim your own leftover rig).
 *Introduced by*: 260822-pz2e-per-worktree-e2e-isolation

@@ -1,0 +1,55 @@
+id: osy0
+name: 260913-osy0-e2e-per-worktree-lock
+created: 2026-09-13T22:35:51Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 14
+    acceptance_completed: 14
+confidence:
+    certain: 10
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 78.9
+        reversibility: 91.1
+        competence: 90.0
+        disambiguation: 82.9
+stage_metrics:
+    intake: {started_at: "2026-09-13T22:35:51Z", driver: fab-new, iterations: 1, completed_at: "2026-09-13T22:44:25Z"}
+    apply: {started_at: "2026-09-13T22:44:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T23:03:51Z"}
+    review: {started_at: "2026-09-13T23:03:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T23:06:34Z"}
+    hydrate: {started_at: "2026-09-13T23:06:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T23:06:34Z"}
+    ship: {started_at: "2026-09-13T23:06:34Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-13T23:06:34Z"
+    computed_at_stage: hydrate
+summary: just test-e2e takes a per-worktree flock before its stale-kill so same-worktree runs queue instead of killing each other's rig; lock fd closed on every long-lived child; slot opens no longer swallow stderr; just dev warns when a run owns the rig
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-13T23:06:34Z

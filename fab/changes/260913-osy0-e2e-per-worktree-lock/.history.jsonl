@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-13T22:35:51Z"}
+{"args":"Per-worktree exclusive flock in scripts/test-e2e.sh taken before kill_triple so two just test-e2e runs in one worktree queue instead of killing each other's rig; dev.sh non-blocking probe warning; memory + context.md hydrate","cmd":"fab-new","event":"command","ts":"2026-09-13T22:35:51Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-09-13T22:40:30Z"}
+{"delta":"-0.1","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-13T22:41:11Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-13T22:42:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-13T22:44:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-13T23:03:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-13T23:06:34Z"}
+{"event":"review","result":"passed","ts":"2026-09-13T23:06:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-13T23:06:34Z"}

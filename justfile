@@ -100,7 +100,8 @@ test-frontend:
     cd app/frontend && pnpm test
 
 # Run Playwright e2e tests on this worktree's derived port triple (3400–3699
-# block; see scripts/e2e-env.sh) with an isolated per-worktree tmux server
+# block; see scripts/e2e-env.sh) with an isolated per-worktree tmux server,
+# serialized per worktree by a flock (a second run in the same worktree waits)
 test-e2e *args:
     scripts/test-e2e.sh {{args}}
 

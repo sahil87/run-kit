@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 4
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-13T12:45:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T12:48:38Z"}
     hydrate: {started_at: "2026-09-13T12:48:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T12:49:48Z"}
     ship: {started_at: "2026-09-13T12:49:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T12:51:56Z"}
-    review-pr: {started_at: "2026-09-13T12:51:56Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-13T12:51:56Z", driver: git-pr, iterations: 1, completed_at: "2026-09-13T13:02:10Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/967
 true_impact:
@@ -53,4 +53,4 @@ true_impact:
     computed_at_stage: ship
 summary: Quake terminal Start operator pending is keyed to the requesting server, clears when that server's operator window appears (not on body unmount), re-arms when the window vanishes or after a 45 s timeout with an inline note; start errors are server-scoped
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-13T12:51:56Z
+last_updated: 2026-09-13T13:02:10Z

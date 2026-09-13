@@ -144,4 +144,25 @@ describe("CronZone", () => {
     renderZone();
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
+
+  it("scrolls again when the server changes under the same hash (the page stays mounted across /one#cron → /two#cron)", () => {
+    mockLocation.hash = "cron";
+    const tree = (server: string) => (
+      <StandaloneSessionContextProvider
+        value={{
+          servers: [{ name: server, sessionCount: 1 }],
+          serversLoaded: true,
+          sessionsByServer: new Map([[server, [makeSession()]]]),
+        }}
+      >
+        <CronZone server={server} />
+      </StandaloneSessionContextProvider>
+    );
+    const { rerender } = render(tree("one"));
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    rerender(tree("two"));
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
+    rerender(tree("two"));
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
+  });
 });

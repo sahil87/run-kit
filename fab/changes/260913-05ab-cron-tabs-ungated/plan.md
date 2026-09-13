@@ -83,7 +83,7 @@ The registration comments for the two cron palette rows in `hooks/use-global-pal
 ### Design Decisions
 
 #### Cron is ungated from the operator
-**Decision**: `Cron List` / `Cron Log` need only a resolved server; only `Operator Terminal` / `Operator Tasks` depend on the operator window.
+**Decision**: `Cron List` / `Cron Log` need only a resolved server. In the desktop drawer only `Operator Terminal` reads the operator target (Operator Tasks renders on the server alone with its own no-operator hint — R1); on mobile, terminal and tasks requests still need the operator route, so only cron requests gain an operator-less destination (R2).
 **Why**: agents schedule with `rk cron add`, entries target any role/session/pane, the operator-tick entry is one consumer's entry; a phone user who stopped the operator must still reach the registry that mutes the respawning entry.
 **Rejected**: keeping the gate (leaves the decision of record half-true); a mobile cron sheet (the mobile arm is navigation by design); a Cron section on desktop (the CRONS-zone supersession).
 *Introduced by*: 260913-05ab-cron-tabs-ungated

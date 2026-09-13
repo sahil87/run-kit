@@ -2,8 +2,8 @@
 // the Sessions grid on `/default` on desktop; on mobile the same footer slot
 // carries the Cron section (`clock-zone-cron` — the phone's operator-less
 // cron registry) instead. The retired CRONS and RECENT DELIVERIES zones must
-// stay gone; the zone root and wrapper keep their legacy
-// `server-clock-dashboard` / `clock-zone-watched` test ids.
+// stay gone; the zone root keeps its legacy `server-clock-dashboard` test id
+// on both form factors and the desktop wrapper its legacy `clock-zone-watched`.
 //
 // Shared setup: fully mocked (no tmux). The sessions payload rides the
 // state-socket mock — a `dev` session whose `@1` window carries the monitored
@@ -11,8 +11,9 @@
 // `role: "operator"` in `_rk-operator`, and `operatorLastTickAt` stamped on
 // both sessions so the zone's side readout has a tick age. `GET /api/cron` is
 // stubbed via page.route (trailing `*` — the client appends `?server=` via
-// withServer) with empty entries/deliveries: the status bar's clock chip
-// still fetches it, but no cron surface renders on this page. `/api/servers`
+// withServer) with one entry (`a3f9`) and no deliveries: on desktop only the
+// status bar's clock chip reads it (no cron surface renders on the page); on
+// mobile it is the Cron section's registry row. `/api/servers`
 // feeds the server list; `/ws/terminals` is a no-op socket mock so the shell
 // mounts without stream data. Desktop tests run at 1280×800, the mobile case
 // at 375×812. No host-global state is saved or restored.
@@ -185,8 +186,9 @@ test.describe("Server page WATCHED zone", () => {
   /**
    * Proves: the footer slot forks by form factor — the 375px mobile server
    * route keeps its session tiles and renders the Cron section (the phone's
-   * operator-less cron registry: heading, `+ New entry`, the stubbed entry
-   * row) in place of the WATCHED zone, which stays desktop-only.
+   * cron registry — heading, `+ New entry`, the stubbed entry row — which
+   * needs no operator and renders whether or not the fixture's operator
+   * window exists) in place of the WATCHED zone, which stays desktop-only.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend; land on `/default`.

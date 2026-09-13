@@ -108,7 +108,10 @@ const NO_OPERATOR_HINT = "no operator on this server — run rk operator";
  * a terminal route carries the origin window as `?from=` so the operator
  * route's compose strip keeps the templated chat lane behind its context
  * chip. A request against an operator-less server toasts the hint and stays
- * put. The component still mounts on mobile (the seam listener lives here)
+ * put — except a cron-segment request (`list`/`log`) on a server whose
+ * sessions have loaded: cron needs no operator, so it navigates to the tmux
+ * Server page's Cron section (`/$server#cron`) instead. The component still
+ * mounts on mobile (the seam listener lives here)
  * but renders nothing; a desktop→mobile viewport flip resets the machine to
  * rest and tears down any in-flight slide state, so no effect or frame
  * survives the gate.
@@ -235,7 +238,7 @@ export function QuakeTerminal() {
   const toast = useOptionalToast();
   const noOperatorHintAtRef = useRef(0);
 
-  const { servers, sessionsByServer } = useSessionContext();
+  const { servers, sessionsByServer, isConnectedByServer } = useSessionContext();
 
   // Route server — the shared deepest-first route-param walk (param names are
   // unique across the route tree).
@@ -433,7 +436,12 @@ export function QuakeTerminal() {
     const srv =
       detail.server ?? resolveQuakeServer(routeServer, serverNames, lastViewedRef.current);
     const tgt = srv ? findOperatorWindow(sessionsByServer.get(srv) ?? []) : undefined;
-    if (srv && !tgt && (detail.segment === "list" || detail.segment === "log")) {
+    // "No operator" is only knowable once the server's sessions have loaded:
+    // a freshly attached server carries an empty slice before its first
+    // `sessions` event, and treating that as operator-less would route past
+    // an operator that exists. Until then the hint toast (below) answers.
+    const loaded = srv ? isConnectedByServer.get(srv) === true : false;
+    if (srv && loaded && !tgt && (detail.segment === "list" || detail.segment === "log")) {
       void navigate({ to: "/$server", params: { server: srv }, hash: CRON_ZONE_HASH });
       return;
     }

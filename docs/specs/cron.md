@@ -390,8 +390,10 @@ tiered; each tier reuses a shipped mechanism:
    agent-state line. Neither cron segment depends on an operator window: the
    desktop drawer renders `Cron List` / `Cron Log` whenever a server
    resolves (cron needs no operator — agents schedule with `rk cron add`,
-   entries target any role/session/pane); only `Operator Terminal` /
-   `Operator Tasks` need the operator. The tmux Server page keeps only the
+   entries target any role/session/pane); only `Operator Terminal` reads the
+   operator target — Operator Tasks renders on the server too, with its own
+   no-operator hint — while on mobile the terminal and tasks requests still
+   need the operator route. The tmux Server page keeps only the
    **WATCHED** zone on desktop
    (the fleet view, change `260910-1rx0-server-page-clock-dashboard`):
    watched workers with full detail (state, rung, what it awaits, age, last
@@ -433,7 +435,7 @@ tiered; each tier reuses a shipped mechanism:
    `/board/watched`. This is a *usage pattern* of shipped boards, not a
    feature; at most P3 adds a cron payload that reconciles the board to the
    watchlist.
-4. **Mobile — the same four segments, no separate surface.** The desktop
+4. **Mobile — the same four segments on the operator route; the Server page's Cron section when no operator exists.** The desktop
    tiers collapse badly on a phone (a 50px drawer panel + flyout-buried
    actions), so mobile carries the identical strip on the operator route
    (`?tab=terminal|tasks|list|log`) when an operator window exists; a

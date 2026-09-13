@@ -37,6 +37,25 @@ import type { CronEntry } from "@/api/client";
  */
 export function CronList({ server, inline = false }: { server: string; inline?: boolean }) {
   const { entries } = useCronData(server);
+  return <CronListView server={server} entries={entries} inline={inline} />;
+}
+
+/**
+ * The Cron List body over caller-supplied `entries` — the one rendering
+ * behind `CronList`, exported so a parent that already subscribes to
+ * `useCronData(server)` (the mobile Server page's Cron section, which derives
+ * its heading from the same entries) mounts the list without a second cron
+ * subscription per SSE tick.
+ */
+export function CronListView({
+  server,
+  entries,
+  inline = false,
+}: {
+  server: string;
+  entries: CronEntry[];
+  inline?: boolean;
+}) {
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 

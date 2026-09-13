@@ -108,6 +108,9 @@ function operatorSessions(extraWindows: WindowInfo[] = []): ProjectSession[] {
 function renderQuake(opts: {
   servers?: string[];
   sessionsByServer?: Map<string, ProjectSession[]>;
+  /** Per-server "first sessions event received" flags; defaults to every
+   *  listed server loaded — the operator-less cron branch keys on it. */
+  isConnectedByServer?: Map<string, boolean>;
   withToasts?: boolean;
 } = {}) {
   const servers = (opts.servers ?? ["srv1"]).map((name) => ({ name, sessionCount: 1 }));
@@ -117,6 +120,8 @@ function renderQuake(opts: {
         servers,
         serversLoaded: true,
         sessionsByServer: opts.sessionsByServer ?? new Map([["srv1", operatorSessions()]]),
+        isConnectedByServer:
+          opts.isConnectedByServer ?? new Map(servers.map((s) => [s.name, true] as const)),
       }}
     >
       <QuakeTerminal />
@@ -1975,6 +1980,20 @@ describe("QuakeTerminal (mobile navigation)", () => {
 
   it("a cron-segment request with no resolvable server toasts and never navigates", () => {
     renderQuake({ withToasts: true, servers: [], sessionsByServer: new Map() });
+    act(() => {
+      requestQuakeTerminal({ action: "open", segment: "list" });
+    });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getAllByText("no operator on this server — run rk operator")).toHaveLength(1);
+  });
+
+  it("a cron-segment request before the server's sessions have loaded toasts — an empty slice is not operator-less", () => {
+    renderQuake({
+      withToasts: true,
+      sessionsByServer: new Map([["srv1", []]]),
+      isConnectedByServer: new Map([["srv1", false]]),
+    });
     act(() => {
       requestQuakeTerminal({ action: "open", segment: "list" });
     });

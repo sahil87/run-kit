@@ -280,8 +280,10 @@ func cutQuotedField(s, label string) (value, rest string, ok bool) {
 
 // operatorKickoffExit builds the onExit callback for one operator start: when
 // the process's stderr carries the kickoff note, warn and notify so a
-// connected client can paste /fab-operator into the operator terminal by hand.
-// A clean exit with no note logs nothing and broadcasts nothing.
+// connected client can paste the note's provider-rendered kickoff prompt
+// (`/fab-operator`, or `$fab-operator` for a codex operator) into the operator
+// terminal by hand. A clean exit with no note logs nothing and broadcasts
+// nothing.
 func (s *Server) operatorKickoffExit(server string) operatorStartExitFn {
 	return func(receipt operatorStartReceipt, stderr string, _ error) {
 		reason, prompt, dir, ok := parseKickoffNote(stderr)

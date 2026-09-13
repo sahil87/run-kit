@@ -681,6 +681,45 @@ test.describe("Quake terminal", () => {
   });
 
   /**
+   * Proves: cron needs no operator — on a server WITHOUT an operator window
+   * the ◷ chip still renders (its state is entries/staleness, never the
+   * operator) and still opens the drawer on Cron List with the registry
+   * rendering; the operator-less Start-operator body belongs to the Operator
+   * Terminal segment only.
+   *
+   * Steps:
+   * 1. Mock the backend WITHOUT an operator window (the cron stub's entry
+   *    carries a next fire, so the chip renders); land on the @1 terminal
+   *    route.
+   * 2. Click the ◷ chip.
+   * 3. Assert the drawer opens with Cron List selected, its entry row
+   *    visible, and no operator-less body.
+   * 4. Select Operator Terminal; assert the Start operator body appears.
+   */
+  test("the ◷ chip opens Cron List on an operator-less server", async ({ page }) => {
+    await mockBackend(page, false);
+    await gotoWindow(page);
+
+    const chip = page.getByTestId("status-bar-clock");
+    await expect(chip).toBeVisible({ timeout: 10_000 });
+    await chip.click();
+
+    await expect(drawer(page)).toBeVisible();
+    const tabs = drawer(page).getByTestId("terminal-activity-tabs");
+    await expect(tabs.getByRole("tab", { name: "Cron List" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(drawer(page).getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
+    await expect(drawer(page).getByTestId("cron-list-row-a3f9")).toBeVisible();
+    await expect(drawer(page).getByTestId("quake-terminal-empty")).toHaveCount(0);
+
+    await tabs.getByRole("tab", { name: "Operator Terminal" }).click();
+    await expect(drawer(page).getByTestId("quake-terminal-start-operator")).toBeVisible();
+    await expect(drawer(page).getByTestId("cron-list")).toHaveCount(0);
+  });
+
+  /**
    * Proves: the Cron List header row sorts the registry on click (a per-viewer
    * override over the at-rest soonest-first order), and the chosen order
    * survives a page reload via the `runkit-table-cron-list` view state.
@@ -2010,8 +2049,10 @@ test.describe("Quake terminal", () => {
 
   /**
    * Proves: with no operator window on the server, mobile shows no tongue and
-   * the remaining openers answer with the hint toast instead of navigating —
-   * once per activation burst (repeat activations do not stack toasts).
+   * the remaining segment-less openers answer with the hint toast instead of
+   * navigating — once per activation burst (repeat activations do not stack
+   * toasts). Cron-segment requests are the exception (the next test): cron
+   * needs no operator.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend WITHOUT an operator
@@ -2041,6 +2082,38 @@ test.describe("Quake terminal", () => {
 
     await expect(page.getByText("no operator on this server — run rk operator")).toHaveCount(1);
     expect(page.url()).toContain(WINDOW_URL);
+    await expect(drawer(page)).toHaveCount(0);
+  });
+
+  /**
+   * Proves: cron needs no operator on mobile either — with no operator window
+   * on the server, `Operator: Show cron list` navigates to the tmux Server
+   * page's Cron section (`/$server#cron`, the phone's operator-less cron home)
+   * with the registry row rendering, and no hint toast fires.
+   *
+   * Steps:
+   * 1. Set the 375×812 viewport; mock the backend WITHOUT an operator
+   *    window; land on the @1 terminal route.
+   * 2. Pick `Operator: Show cron list` from the palette.
+   * 3. Assert the URL is the Server page with the `#cron` hash, the Cron
+   *    section and its entry row are visible, and no hint toast rendered.
+   */
+  test("mobile: Operator: Show cron list on an operator-less server lands on the Server page's Cron section", async ({
+    page,
+  }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await mockBackend(page, false);
+    await gotoWindowMobile(page);
+
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("Show cron list");
+    await page.getByRole("option", { name: /^Operator: Show cron list/ }).click();
+
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}#cron$`), { timeout: 10_000 });
+    const zone = page.getByTestId("clock-zone-cron");
+    await expect(zone).toBeVisible({ timeout: 10_000 });
+    await expect(zone.getByTestId("cron-list-row-a3f9")).toBeVisible();
+    await expect(page.getByText("no operator on this server — run rk operator")).toHaveCount(0);
     await expect(drawer(page)).toHaveCount(0);
   });
 

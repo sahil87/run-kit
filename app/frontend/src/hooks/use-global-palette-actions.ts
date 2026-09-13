@@ -340,9 +340,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   // effective ⌘J/⇧Ctrl+J hint attaches and the chord resolves this same
   // toggle seam.
   const quakeTerminalEntry: PaletteAction = useMemo(() => buildQuakeTerminalAction(), []);
-  // The cron-segment twins — same always-listed gating as the opener (a
-  // server without an operator is answered by the quake terminal's own hint line).
-  // List registers before log.
+  // The cron-segment twins — always listed: cron needs no operator, so the
+  // desktop drawer renders both segments whenever a server resolves, and on
+  // mobile an operator-less server lands on the tmux Server page's Cron
+  // section instead of the operator route. List registers before log.
   const quakeTerminalListEntry: PaletteAction = useMemo(
     () => buildQuakeTerminalListAction(),
     [],

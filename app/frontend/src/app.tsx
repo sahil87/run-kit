@@ -5455,6 +5455,7 @@ function AppShell() {
               onCreateWindow={handleCreateWindow}
               footer={
                 <ServerWatchedZone
+                  server={server}
                   sessions={sessions}
                   onNavigate={navigateToWindow}
                 />

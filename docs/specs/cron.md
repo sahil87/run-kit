@@ -387,7 +387,12 @@ tiered; each tier reuses a shipped mechanism:
    `Operator: Show cron list`, and `Operator: Show cron log` (mobile: the
    `?tab=tasks|list|log` content slots on the operator route); the quake
    terminal's title strip also carries the operator tick-age stamp after the live
-   agent-state line. The tmux Server page keeps only the **WATCHED** zone
+   agent-state line. Neither cron segment depends on an operator window: the
+   desktop drawer renders `Cron List` / `Cron Log` whenever a server
+   resolves (cron needs no operator — agents schedule with `rk cron add`,
+   entries target any role/session/pane); only `Operator Terminal` /
+   `Operator Tasks` need the operator. The tmux Server page keeps only the
+   **WATCHED** zone on desktop
    (the fleet view, change `260910-1rx0-server-page-clock-dashboard`):
    watched workers with full detail (state, rung, what it awaits, age, last
    note) on `/$server`. Rejected names for the cron tabs:
@@ -431,7 +436,12 @@ tiered; each tier reuses a shipped mechanism:
 4. **Mobile — the same four segments, no separate surface.** The desktop
    tiers collapse badly on a phone (a 50px drawer panel + flyout-buried
    actions), so mobile carries the identical strip on the operator route
-   (`?tab=terminal|tasks|list|log`), gated on the operator window:
+   (`?tab=terminal|tasks|list|log`) when an operator window exists; a
+   server with no operator has no operator route, so its cron registry
+   lives in the tmux Server page's **Cron** section (the mobile counterpart
+   of the desktop WATCHED zone — the same `CronList`, always rendered on the
+   mobile Server page, reached by `Operator: Show cron list` / `Show cron
+   log`, which navigate to `/$server#cron` there instead of toasting):
    - The **mobile strip** — on the operator route, already the operator
      surface on phones —
      carries the segment header, **Operator Terminal | Operator Tasks |
@@ -441,8 +451,9 @@ tiered; each tier reuses a shipped mechanism:
      and Operator Tasks the watchlist content slot (`?tab=tasks`), the
      same shared watched-table component as the Server page's WATCHED
      zone. Pure derivation — the deterministic-render contract
-     holds; it inherits the quake terminal's server resolution and
-     degrade-to-absent gating.
+     holds; it inherits the quake terminal's server resolution. Only the
+     two operator segments degrade to absent without an operator; the
+     cron segments never do.
    - **Staleness is the cron tabs' pinned banner** (the healthchecks.io
      dead-man's-switch model): a stale operator loop is the most important
      item, not a side warning — the banner renders above both `Cron List`

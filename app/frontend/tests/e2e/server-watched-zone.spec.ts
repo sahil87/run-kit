@@ -1,7 +1,9 @@
 // tmux Server page WATCHED zone — the operator-watchlist detail table below
-// the Sessions grid on `/default`, desktop-only. The retired CRONS and
-// RECENT DELIVERIES zones must stay gone; the zone root and wrapper keep
-// their legacy `server-clock-dashboard` / `clock-zone-watched` test ids.
+// the Sessions grid on `/default` on desktop; on mobile the same footer slot
+// carries the Cron section (`clock-zone-cron` — the phone's operator-less
+// cron registry) instead. The retired CRONS and RECENT DELIVERIES zones must
+// stay gone; the zone root and wrapper keep their legacy
+// `server-clock-dashboard` / `clock-zone-watched` test ids.
 //
 // Shared setup: fully mocked (no tmux). The sessions payload rides the
 // state-socket mock — a `dev` session whose `@1` window carries the monitored
@@ -65,7 +67,24 @@ const SESSIONS = JSON.stringify([
   },
 ]);
 
-/** Install the mocked backend (state socket + servers + an empty cron read). */
+// One cron entry so the mobile Cron section has a registry row; the desktop
+// page renders no cron surface (the status bar's chip still reads it).
+const CRON = JSON.stringify({
+  entries: [
+    {
+      id: "a3f9",
+      name: "operator tick",
+      schedule: { kind: "backoff", min: "60s", max: "30m" },
+      target: { kind: "role", role: "operator" },
+      payload: "tick",
+      lastFired: NOW - 120,
+      nextFire: NOW + 3600,
+    },
+  ],
+  deliveries: [],
+});
+
+/** Install the mocked backend (state socket + servers + the cron read). */
 async function mockBackend(page: Page) {
   await mockStateSocket(page, { sessions: SESSIONS });
   await page.routeWebSocket(/\/ws\/terminals/, () => {});
@@ -80,7 +99,7 @@ async function mockBackend(page: Page) {
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: '{"entries":[],"deliveries":[]}',
+      body: CRON,
     }),
   );
 }
@@ -164,20 +183,31 @@ test.describe("Server page WATCHED zone", () => {
   });
 
   /**
-   * Proves: the WATCHED zone is desktop-only — the 375px mobile server route
-   * keeps its session tiles and renders no zone at all.
+   * Proves: the footer slot forks by form factor — the 375px mobile server
+   * route keeps its session tiles and renders the Cron section (the phone's
+   * operator-less cron registry: heading, `+ New entry`, the stubbed entry
+   * row) in place of the WATCHED zone, which stays desktop-only.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend; land on `/default`.
-   * 2. Assert the session tiles render.
-   * 3. Assert no `server-clock-dashboard` element exists in the DOM.
+   * 2. Assert the session tiles and the `server-clock-dashboard` root render.
+   * 3. Assert the `clock-zone-cron` section is visible with the `Cron`
+   *    heading, the stubbed cron row, and `+ New entry`.
+   * 4. Assert no `clock-zone-watched` wrapper or `watched-table` exists.
    */
-  test("the zone is absent on the mobile viewport", async ({ page }) => {
+  test("the mobile viewport renders the Cron section in place of WATCHED", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await mockBackend(page);
     await gotoServerPage(page);
 
     await expect(page.getByTestId("session-tile-dev")).toBeVisible();
-    await expect(page.getByTestId("server-clock-dashboard")).toHaveCount(0);
+    await expect(page.getByTestId("server-clock-dashboard")).toBeVisible();
+    const zone = page.getByTestId("clock-zone-cron");
+    await expect(zone).toBeVisible();
+    await expect(zone.getByRole("heading", { name: "Cron" })).toBeVisible();
+    await expect(zone.getByTestId("cron-list-row-a3f9")).toBeVisible({ timeout: 10_000 });
+    await expect(zone.getByTestId("cron-list-new")).toBeVisible();
+    await expect(page.getByTestId("clock-zone-watched")).toHaveCount(0);
+    await expect(page.getByTestId("watched-table")).toHaveCount(0);
   });
 });

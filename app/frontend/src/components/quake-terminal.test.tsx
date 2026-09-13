@@ -629,6 +629,46 @@ describe("QuakeTerminal", () => {
     expect(mockOperatorRequest).not.toHaveBeenCalled();
   });
 
+  it("the cron segments render on an operator-less server — only Operator Terminal needs the operator", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    mockCronData.current = {
+      entries: [
+        {
+          id: "a3f9",
+          name: "nightly",
+          target: { kind: "role", role: "operator" },
+          payload: "ping",
+          schedule: { kind: "every", interval: "5m" },
+          lastFired: 0,
+          nextFire: nowSec + 300,
+        },
+      ],
+      deliveries: [
+        { ts: nowSec - 60, entry: "a3f9", name: "nightly", target: "role:operator", reason: "due", outcome: "delivered" },
+      ],
+    };
+    renderQuake({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
+    act(() => {
+      requestQuakeTerminal({ action: "open", segment: "list" });
+    });
+    expect(screen.getByTestId("cron-list")).toBeInTheDocument();
+    expect(screen.getByTestId("cron-list-row-a3f9")).toBeInTheDocument();
+    expect(screen.queryByTestId("quake-terminal-empty")).toBeNull();
+    expect(terminalMounts).toHaveLength(0);
+
+    act(() => {
+      requestQuakeTerminal({ action: "open", segment: "log" });
+    });
+    expect(screen.getByTestId("cron-log")).toBeInTheDocument();
+    expect(screen.queryByTestId("quake-terminal-empty")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Operator Terminal" }));
+    expect(screen.getByTestId("quake-terminal-empty")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal-start-operator")).toBeInTheDocument();
+    expect(screen.queryByTestId("cron-list")).toBeNull();
+    mockCronData.current = { entries: [], deliveries: [] };
+  });
+
   it("opens without crashing on an empty (still-loading) server list", () => {
     renderQuake({ servers: [], sessionsByServer: new Map() });
     openDrawer();
@@ -1896,6 +1936,50 @@ describe("QuakeTerminal (mobile navigation)", () => {
 
     expect(mockNavigate).not.toHaveBeenCalled();
     // Repeated activations within one toast lifetime do not stack.
+    expect(screen.getAllByText("no operator on this server — run rk operator")).toHaveLength(1);
+  });
+
+  it("a cron-segment request on an operator-less server navigates to the Server page's Cron section, no toast", () => {
+    renderQuake({
+      withToasts: true,
+      sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]),
+    });
+    for (const segment of ["list", "log"] as const) {
+      act(() => {
+        requestQuakeTerminal({ action: "open", segment });
+      });
+    }
+
+    expect(mockNavigate).toHaveBeenCalledTimes(2);
+    for (const call of mockNavigate.mock.calls) {
+      expect(call[0]).toEqual({ to: "/$server", params: { server: "srv1" }, hash: "cron" });
+    }
+    expect(screen.queryByText("no operator on this server — run rk operator")).toBeNull();
+  });
+
+  it("terminal and tasks requests on an operator-less server still toast and never navigate", () => {
+    renderQuake({
+      withToasts: true,
+      sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]),
+    });
+    act(() => {
+      requestQuakeTerminal({ action: "open", segment: "tasks" });
+    });
+    act(() => {
+      requestQuakeTerminal({ action: "open", segment: "terminal" });
+    });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getAllByText("no operator on this server — run rk operator")).toHaveLength(1);
+  });
+
+  it("a cron-segment request with no resolvable server toasts and never navigates", () => {
+    renderQuake({ withToasts: true, servers: [], sessionsByServer: new Map() });
+    act(() => {
+      requestQuakeTerminal({ action: "open", segment: "list" });
+    });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
     expect(screen.getAllByText("no operator on this server — run rk operator")).toHaveLength(1);
   });
 });

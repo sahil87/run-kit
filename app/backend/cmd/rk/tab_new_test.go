@@ -237,6 +237,53 @@ func TestResolveTabNewSessionInfraCallerLadder(t *testing.T) {
 	})
 }
 
+func TestResolveTabNewSessionEmptyEnumerationLivenessProbe(t *testing.T) {
+	resetTabFlagState(t)
+	stubTabNewCaller(t, "_rk-operator")
+
+	stubAlive := func(t *testing.T, aliveErr error) *bool {
+		t.Helper()
+		probed := new(bool)
+		origAlive := tabNewServerAliveFn
+		tabNewServerAliveFn = func(context.Context, string) error {
+			*probed = true
+			return aliveErr
+		}
+		t.Cleanup(func() { tabNewServerAliveFn = origAlive })
+		return probed
+	}
+
+	t.Run("dead server surfaces its own failure, not nowhere to spawn", func(t *testing.T) {
+		stubTabNewLadder(t, nil, nil, func(p string) string { return p })
+		probed := stubAlive(t, fmt.Errorf("no server listening"))
+		_, _, _, err := resolveTabNewSession(context.Background(), "", "/repo")
+		if err == nil || exitCode(err) != 1 {
+			t.Fatalf("err = %v (code %d), want exit 1", err, exitCode(err))
+		}
+		if !strings.Contains(err.Error(), "resolve target session: list sessions: no server listening") {
+			t.Errorf("err = %v, want the liveness-probe wrap", err)
+		}
+		if strings.Contains(err.Error(), "nowhere to spawn") {
+			t.Errorf("err = %v, want the dead-server diagnostic, not the zero-candidate rung", err)
+		}
+		if !*probed {
+			t.Error("the liveness probe was not consulted on an empty enumeration")
+		}
+	})
+
+	t.Run("alive server with no sessions still yields nowhere to spawn", func(t *testing.T) {
+		stubTabNewLadder(t, nil, nil, func(p string) string { return p })
+		probed := stubAlive(t, nil)
+		_, _, _, err := resolveTabNewSession(context.Background(), "", "/repo")
+		if err == nil || !strings.Contains(err.Error(), "nowhere to spawn") {
+			t.Errorf("err = %v, want the nowhere-to-spawn phrase", err)
+		}
+		if !*probed {
+			t.Error("the liveness probe was not consulted on an empty enumeration")
+		}
+	})
+}
+
 // ── integration: real tmux server, infra-session caller ─────────────────────
 
 // tabNewInfraCaller adds an _rk-operator session to the test server and points

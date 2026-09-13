@@ -5,53 +5,53 @@ created_by: sahil-noon
 change_type: feat
 issues: []
 progress:
-    intake: done
-    apply: done
-    review: done
-    hydrate: done
-    ship: done
-    review-pr: active
+  intake: done
+  apply: done
+  review: done
+  hydrate: done
+  ship: done
+  review-pr: active
 plan:
-    generated: true
-    task_count: 10
-    acceptance_count: 21
-    acceptance_completed: 21
+  generated: true
+  task_count: 10
+  acceptance_count: 21
+  acceptance_completed: 21
 confidence:
-    certain: 10
-    confident: 4
-    tentative: 0
-    unresolved: 0
-    score: 4.6
-    fuzzy: true
-    dimensions:
-        signal: 78.6
-        reversibility: 89.6
-        competence: 88.2
-        disambiguation: 83.2
+  certain: 10
+  confident: 4
+  tentative: 0
+  unresolved: 0
+  score: 4.6
+  fuzzy: true
+  dimensions:
+    signal: 78.6
+    reversibility: 89.6
+    competence: 88.2
+    disambiguation: 83.2
 stage_metrics:
-    intake: {started_at: "2026-09-13T04:57:04Z", driver: fab-new, iterations: 1, completed_at: "2026-09-13T05:00:56Z"}
-    apply: {started_at: "2026-09-13T05:00:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T05:11:09Z"}
-    review: {started_at: "2026-09-13T05:11:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T05:15:11Z"}
-    hydrate: {started_at: "2026-09-13T05:15:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T05:20:13Z"}
-    ship: {started_at: "2026-09-13T05:20:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T05:23:13Z"}
-    review-pr: {started_at: "2026-09-13T05:23:13Z", driver: git-pr, iterations: 1}
+  intake: {started_at: "2026-09-13T04:57:04Z", driver: fab-new, iterations: 1, completed_at: "2026-09-13T05:00:56Z"}
+  apply: {started_at: "2026-09-13T05:00:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T05:11:09Z"}
+  review: {started_at: "2026-09-13T05:11:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T05:15:11Z"}
+  hydrate: {started_at: "2026-09-13T05:15:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T05:20:13Z"}
+  ship: {started_at: "2026-09-13T05:20:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-13T05:23:13Z"}
+  review-pr: {started_at: "2026-09-13T05:23:13Z", driver: git-pr, iterations: 1, phase: triaging, reviewer: '@Copilot'}
 prs:
-    - https://github.com/sahil87/run-kit/pull/966
+  - https://github.com/sahil87/run-kit/pull/966
 change_type_source: explicit
 true_impact:
-    added: 1205
-    deleted: 62
-    net: 1143
-    excluding:
-        added: 711
-        deleted: 48
-        net: 663
-    tests:
-        added: 501
-        deleted: 2
-        net: 499
-    computed_at: "2026-09-13T05:23:13Z"
-    computed_at_stage: ship
+  added: 1205
+  deleted: 62
+  net: 1143
+  excluding:
+    added: 711
+    deleted: 48
+    net: 663
+  tests:
+    added: 501
+    deleted: 2
+    net: 499
+  computed_at: "2026-09-13T05:23:13Z"
+  computed_at_stage: ship
 summary: rk tab new gains a role-aware default-session ladder (sole-user → cwd-root → most-attached) with a session_rung JSON key, gitinfo.MainWorktreeRoot, and a nowhere-to-spawn error; memory hydrated across cli/tmux-sessions/backend-packages/mcp/toolkit-standards/agent-messaging
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
 last_updated: 2026-09-13T05:23:13Z

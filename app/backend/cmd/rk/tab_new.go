@@ -148,6 +148,15 @@ var tabNewSessionFactsFn = func(ctx context.Context, server string) ([]tmux.Sess
 	return tmux.ListSessionFacts(ctx, server)
 }
 
+// tabNewServerAliveFn is the empty-enumeration liveness probe (the
+// muxSessionsAliveFn pattern): ListSessionFacts degrades a dead socket to
+// (nil, nil), so an empty enumeration is liveness-probed to separate "no
+// server" (tmux's diagnostic) from "alive, no user session" (nowhere to
+// spawn).
+var tabNewServerAliveFn = func(ctx context.Context, server string) error {
+	return tmux.ServerAlive(ctx, server)
+}
+
 // tabNewMainRootFn resolves a directory's main-worktree root for the
 // cwd-root rung; "" means "not inside a git repository" and never matches.
 var tabNewMainRootFn = func(ctx context.Context, dir string) string {
@@ -262,6 +271,11 @@ func resolveTabNewSession(ctx context.Context, serverFlag, cwd string) (session,
 		facts, ferr := tabNewSessionFactsFn(ctx, server)
 		if ferr != nil {
 			return "", "", "", fmt.Errorf("resolve target session: list sessions: %w", ferr)
+		}
+		if len(facts) == 0 {
+			if aerr := tabNewServerAliveFn(ctx, server); aerr != nil {
+				return "", "", "", fmt.Errorf("resolve target session: list sessions: %w", aerr)
+			}
 		}
 		var candidates []tmux.SessionFacts
 		for _, f := range facts {

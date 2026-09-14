@@ -94,7 +94,6 @@ export function QuakeLauncher({
   const extraWide = useMediaQuery(EXTRA_WIDE_RUNG_QUERY);
   const machine = useQuakeMachineState();
   const engaged = useQuakeComposeEngaged();
-  const compose = useOperatorCompose();
   // The route server arrives as a prop: the TopBar already carries it, and
   // this component must not pull router hooks the bar's test harness doesn't
   // mock. Tolerant of a missing
@@ -115,6 +114,13 @@ export function QuakeLauncher({
     [routeServer, servers, sessionsByServer],
   );
   const agentState = target?.window.agentState;
+  // The draft is the resolved operator's — the same key the drawer's docked
+  // strip reads, so the standing box and the docked textarea show one draft.
+  const compose = useOperatorCompose(server, target);
+  // No operator on the resolved server: read-only, never disabled — the
+  // standing box's onFocus is what steps the machine rest → open, and the
+  // drawer then shows the Start-operator hint.
+  const noOperator = target === undefined;
   const { byAction, host } = useKeybindings();
   const machineRef = useRef(machine);
   machineRef.current = machine;
@@ -235,9 +241,18 @@ export function QuakeLauncher({
             type="text"
             value={compose.text}
             data-testid="quake-launcher-input"
-            placeholder={extraWide ? "Ask the operator…" : "Ask…"}
+            placeholder={
+              noOperator
+                ? extraWide
+                  ? "Start the operator to compose…"
+                  : "Start operator…"
+                : extraWide
+                  ? "Ask the operator…"
+                  : "Ask…"
+            }
+            readOnly={noOperator}
             aria-label="Ask the operator"
-            onChange={(e) => setOperatorComposeText(e.target.value)}
+            onChange={(e) => setOperatorComposeText(server, target, e.target.value)}
             onFocus={() => {
               // Clicking into the standing box engages the machine — focus and
               // the drawer are linked, so entry lands directly at `open`, and

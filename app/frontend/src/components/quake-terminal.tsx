@@ -1332,11 +1332,15 @@ function QuakeCompose({
    *  the Esc rung then falls through to the collapse). */
   focusTerminal: () => boolean;
 }) {
-  const compose = useOperatorCompose();
+  const compose = useOperatorCompose(server, target);
   const engaged = useQuakeComposeEngaged();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useTextareaAutogrow(textareaRef, compose.text);
+  // No operator on the resolved server: there is no draft key to write to, so
+  // the box is read-only (still focusable — the Esc ladder and the engaged
+  // slot keep working) and says so instead of silently dropping keystrokes.
+  const noOperator = target === undefined;
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Escape") {
@@ -1429,9 +1433,10 @@ function QuakeCompose({
         data-testid="quake-terminal-compose-input"
         aria-label="Ask the operator"
         rows={1}
-        placeholder="Ask the operator…"
+        placeholder={noOperator ? "Start the operator to compose…" : "Ask the operator…"}
+        readOnly={noOperator}
         value={compose.text}
-        onChange={(e) => setOperatorComposeText(e.target.value)}
+        onChange={(e) => setOperatorComposeText(server, target, e.target.value)}
         onKeyDown={onKeyDown}
         onFocus={() => setQuakeComposeEngaged(true)}
         autoComplete="off"

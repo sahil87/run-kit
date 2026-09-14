@@ -30,6 +30,12 @@
  * are reused after a server restart, so stale drafts must age out. Multi-tab
  * is last-write-wins (no `storage`-event sync).
  *
+ * A second subscriber class shares the store: the desktop quake terminal's
+ * compose (the drawer's docked strip and the top-bar launcher box) keys its
+ * draft by the operator window target — `entryKey(server, operatorWindowId)`,
+ * the same key the operator page's own strip uses, so the two views read one
+ * draft. Quake drafts count toward the same cap and age out the same way.
+ *
  * Attachments (`File` objects) cannot reach localStorage, so they stay
  * in-memory per key and die on refresh — a cosmetic loss: uploads are eager
  * (already on the target worktree's disk) and their path lines live in the

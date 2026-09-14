@@ -8,10 +8,12 @@ import {
   getQuakeMachineState,
   isQuakeTerminalTarget,
   requestQuakeTerminal,
+  resetOperatorComposeFlags,
   setQuakeMachineState,
   setOperatorChatSubject,
   setOperatorComposeText,
 } from "@/lib/quake-terminal";
+import { hydrateComposeDrafts } from "@/lib/compose-draft-store";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import type { ProjectSession, WindowInfo } from "@/types";
 
@@ -104,7 +106,7 @@ function stubExtraWideDesktop() {
 describe("QuakeLauncher", () => {
   beforeEach(() => {
     setQuakeMachineState("rest");
-    setOperatorComposeText("");
+    resetOperatorComposeFlags();
     setOperatorChatSubject(null);
     mockMatches = [{ params: {} }];
     mockSend.mockReset();
@@ -115,6 +117,7 @@ describe("QuakeLauncher", () => {
     mockOperatorRequest.mockResolvedValue({ outcome: "delivered" });
     mockFocusComposeStrip.mockClear();
     localStorage.clear();
+    hydrateComposeDrafts();
   });
   afterEach(() => {
     cleanup();
@@ -279,10 +282,61 @@ describe("QuakeLauncher", () => {
     expect(screen.getByTestId("quake-terminal-compose-input")).toHaveFocus();
   });
 
+  it("the standing box's draft is per server — the other server's box is empty and the text returns", () => {
+    stubWideDesktop();
+    const sessionsByServer = new Map([
+      ["a", operatorSessions()],
+      ["b", operatorSessions()],
+    ]);
+    const tree = (routeServer: string) => (
+      <StandaloneSessionContextProvider
+        value={{
+          servers: [
+            { name: "a", sessionCount: 1 },
+            { name: "b", sessionCount: 1 },
+          ],
+          serversLoaded: true,
+          sessionsByServer,
+        }}
+      >
+        <QuakeLauncher routeServer={routeServer} routeWindow={null} />
+      </StandaloneSessionContextProvider>
+    );
+    const { rerender } = render(tree("a"));
+    const input = () => screen.getByTestId("quake-launcher-input");
+    fireEvent.change(input(), { target: { value: "for a" } });
+    expect(input()).toHaveValue("for a");
+
+    rerender(tree("b"));
+    expect(input()).toHaveValue("");
+
+    rerender(tree("a"));
+    expect(input()).toHaveValue("for a");
+  });
+
+  it("with no operator the standing box is read-only yet its focus still opens the drawer", () => {
+    stubWideDesktop();
+    renderPair(new Map([["srv1", [{ name: "main", windows: [win({})] }]]]));
+    const input = screen.getByTestId("quake-launcher-input");
+    expect(input).toHaveAttribute("readonly");
+    expect(input).toHaveAttribute("placeholder", "Start operator…");
+    fireEvent.change(input, { target: { value: "typed into the void" } });
+    expect(input).toHaveValue("");
+
+    fireEvent.focus(input);
+    expect(getQuakeMachineState()).toBe("open");
+  });
+
   it("the chord engages from rest — the docked textarea focused with any draft, caret at its end", () => {
     stubWideDesktop();
     renderPair();
-    act(() => setOperatorComposeText("half-written draft"));
+    act(() =>
+      setOperatorComposeText(
+        "srv1",
+        { window: win({ windowId: "@9", name: "operator", role: "operator" }), sessionName: "_rk-operator" },
+        "half-written draft",
+      ),
+    );
 
     act(() => requestQuakeTerminal({ action: "toggle" }));
     expect(getQuakeMachineState()).toBe("open");

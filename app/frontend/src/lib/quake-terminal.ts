@@ -1,10 +1,17 @@
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { QuakeSegment } from "@/components/terminal-activity-tabs";
 import { sendOperatorRequest, sendToWindow, uploadFile } from "@/api/client";
 import { SessionContext, useCurrentServerFromRoute } from "@/contexts/session-context";
+import {
+  clearComposeDraft,
+  getComposeDraft,
+  setComposeText,
+  subscribeComposeDraft,
+} from "@/lib/compose-draft-store";
 import { resolveFocusedWindow } from "@/lib/focused-pane-window";
 import { urlSegmentToWindowId } from "@/lib/router-url";
+import { entryKey } from "@/store/window-store";
 
 /**
  * Quake terminal support — pure helpers for the pull-down quake terminal
@@ -36,9 +43,13 @@ import { urlSegmentToWindowId } from "@/lib/router-url";
  *    flanked by the pin slot, the compose-engaged slot, and the
  *    restore-origin slot (same idiom; all ephemeral).
  *  - The shared compose seam (`useOperatorCompose` + `sendOperatorMessage` +
- *    `attachOperatorFiles`) — ONE draft/send/upload implementation whose
- *    desktop view is the drawer's docked compose strip while open (the
- *    standing quake launcher box is its rest-state affordance).
+ *    `attachOperatorFiles`) — ONE send/upload implementation whose desktop
+ *    view is the drawer's docked compose strip while open (the standing quake
+ *    launcher box is its rest-state affordance). The draft TEXT is a
+ *    compose-draft-store entry keyed by the operator window target
+ *    (`operatorComposeKey`), so a draft stays with the operator it addresses
+ *    when the resolved server changes; the in-flight flags and the inline
+ *    error are module state keyed per server.
  *  - The chat-subject store (`setOperatorChatSubject` + `useOperatorChatChip`)
  *    — the templated chat lane's context: on a terminal route the quake
  *    terminal stamps the route window here (the validated `?from=` origin on
@@ -561,11 +572,12 @@ export function takeQuakeRestoreOrigin(): HTMLElement | null {
 //
 // ONE compose implementation drives the quake terminal's input surfaces: the
 // drawer's docked compose strip while open, the standing quake launcher box
-// (top-bar center cell) at rest. Draft, in-flight flags, and
-// the inline error are module state, and the send/upload logic exists exactly
-// once. Delivery rides the existing lanes: `sendToWindow(..., "submit",
-// "agent")` for messages, `uploadFile` + a `"raw"` insert per returned path
-// for files (staged into the TUI composer, never submitted).
+// (top-bar center cell) at rest. The draft text lives in the compose-draft
+// store under the operator window's key; the in-flight flags and the inline
+// error are module state keyed per server; the send/upload logic exists
+// exactly once. Delivery rides the existing lanes: `sendToWindow(...,
+// "submit", "agent")` for messages, `uploadFile` + a `"raw"` insert per
+// returned path for files (staged into the TUI composer, never submitted).
 
 // ── Chat-subject store (the templated chat lane's context chip) ──────────────
 //
@@ -650,25 +662,75 @@ export function useOperatorChatChip(): OperatorChatChipState {
   return state;
 }
 
-export type QuakeComposeState = {
-  text: string;
+/** The in-flight facts about a send against one server's operator. Never
+ *  persisted — these are not drafts. */
+export type QuakeComposeFlags = {
   sending: boolean;
   uploading: boolean;
   error: string | null;
 };
 
-const COMPOSE_INITIAL: QuakeComposeState = { text: "", sending: false, uploading: false, error: null };
-let composeState: QuakeComposeState = COMPOSE_INITIAL;
+export type QuakeComposeState = { text: string } & QuakeComposeFlags;
+
+const FLAGS_INITIAL: QuakeComposeFlags = { sending: false, uploading: false, error: null };
+// Keyed by SERVER name, not by draft key: a server has exactly one operator
+// window at a time, and a server key keeps the no-target case representable
+// (an upload error still surfaces when the target vanished mid-flight).
+const composeFlags = new Map<string, QuakeComposeFlags>();
 const composeListeners = new Set<() => void>();
 
-function patchCompose(patch: Partial<QuakeComposeState>): void {
-  composeState = { ...composeState, ...patch };
+/**
+ * The draft-store key for the quake compose: the SEND TARGET (the operator
+ * window), in the same `entryKey(server, windowId)` grammar the route compose
+ * strip uses — so the operator page's own strip and the drawer read one draft.
+ * null when no operator window resolves on the server: nothing to address.
+ */
+export function operatorComposeKey(
+  server: string | null,
+  target: OperatorWindowTarget | undefined,
+): string | null {
+  if (!server || !target) return null;
+  return entryKey(server, target.window.windowId);
+}
+
+/** This server's flags — a stable object while unchanged; the shared initial
+ *  flags for null/absent. */
+function flagsFor(server: string | null): QuakeComposeFlags {
+  if (!server) return FLAGS_INITIAL;
+  return composeFlags.get(server) ?? FLAGS_INITIAL;
+}
+
+function patchFlags(server: string, patch: Partial<QuakeComposeFlags>): void {
+  composeFlags.set(server, { ...flagsFor(server), ...patch });
   for (const listener of composeListeners) listener();
 }
 
-/** Edit the shared draft; any edit clears the inline error line. */
-export function setOperatorComposeText(text: string): void {
-  patchCompose({ text, error: null });
+function subscribeFlags(listener: () => void): () => void {
+  composeListeners.add(listener);
+  return () => {
+    composeListeners.delete(listener);
+  };
+}
+
+/** Test-only: drop every server's in-flight flags (the draft text is reset
+ *  through the draft store's own `hydrateComposeDrafts`). */
+export function resetOperatorComposeFlags(): void {
+  composeFlags.clear();
+  for (const listener of composeListeners) listener();
+}
+
+/** Edit this target's draft; any edit clears THAT server's inline error line.
+ *  A no-op when no operator window resolves (nothing to address). */
+export function setOperatorComposeText(
+  server: string | null,
+  target: OperatorWindowTarget | undefined,
+  text: string,
+): void {
+  if (!server) return;
+  const key = operatorComposeKey(server, target);
+  if (key === null) return;
+  setComposeText(key, text);
+  if (flagsFor(server).error !== null) patchFlags(server, { error: null });
 }
 
 /**
@@ -687,9 +749,9 @@ export async function sendOperatorMessage(
   target: OperatorWindowTarget | undefined,
   value: string,
 ): Promise<boolean> {
-  if (!server || !target || composeState.sending) return false;
+  if (!server || !target || flagsFor(server).sending) return false;
   if (value.trim() === "") return false;
-  patchCompose({ sending: true });
+  patchFlags(server, { sending: true });
   try {
     const subject = getOperatorChatTarget(server);
     if (subject) {
@@ -697,10 +759,13 @@ export async function sendOperatorMessage(
     } else {
       await sendToWindow(server, target.window.windowId, value, "submit", "agent");
     }
-    patchCompose({ text: "", error: null, sending: false });
+    // Only the sent target's draft clears — another server's draft is
+    // someone else's unsent message.
+    clearComposeDraft(entryKey(server, target.window.windowId));
+    patchFlags(server, { error: null, sending: false });
     return true;
   } catch (err) {
-    patchCompose({ error: err instanceof Error ? err.message : "Send failed", sending: false });
+    patchFlags(server, { error: err instanceof Error ? err.message : "Send failed", sending: false });
     return false;
   }
 }
@@ -718,7 +783,7 @@ export async function attachOperatorFiles(
   files: File[],
 ): Promise<void> {
   if (!server || !target || files.length === 0) return;
-  patchCompose({ uploading: true, error: null });
+  patchFlags(server, { uploading: true, error: null });
   try {
     for (const file of files) {
       const result = await uploadFile(server, target.sessionName, file, target.window.windowId);
@@ -726,24 +791,27 @@ export async function attachOperatorFiles(
       await sendToWindow(server, target.window.windowId, `${result.path} `, "raw", "agent");
     }
   } catch (err) {
-    patchCompose({ error: err instanceof Error ? err.message : "Upload failed" });
+    patchFlags(server, { error: err instanceof Error ? err.message : "Upload failed" });
   } finally {
-    patchCompose({ uploading: false });
+    patchFlags(server, { uploading: false });
   }
 }
 
-/** Subscribe to the shared compose state (draft, in-flight flags, error). */
-export function useOperatorCompose(): QuakeComposeState {
-  const [state, setState] = useState(composeState);
-  useEffect(() => {
-    const listener = () => setState(composeState);
-    composeListeners.add(listener);
-    setState(composeState);
-    return () => {
-      composeListeners.delete(listener);
-    };
-  }, []);
-  return state;
+/**
+ * Subscribe to this target's compose state: the draft text from the
+ * compose-draft store (keyed by `operatorComposeKey`) merged with this
+ * server's in-flight flags. Both sources are `useSyncExternalStore` snapshots
+ * with stable identities, so the merged object is reference-stable while
+ * neither changed.
+ */
+export function useOperatorCompose(
+  server: string | null,
+  target: OperatorWindowTarget | undefined,
+): QuakeComposeState {
+  const key = operatorComposeKey(server, target);
+  const text = useSyncExternalStore(subscribeComposeDraft, () => getComposeDraft(key).text);
+  const flags = useSyncExternalStore(subscribeFlags, () => flagsFor(server));
+  return useMemo(() => ({ text, ...flags }), [text, flags]);
 }
 
 // ── Quake-terminal-origin event predicate ────────────────────────────────────

@@ -9,6 +9,7 @@ import {
   getQuakeMachineState,
   getOperatorChatTarget,
   requestQuakeTerminal,
+  resetOperatorComposeFlags,
   setQuakeMachineState,
   setQuakeRestoreOrigin,
   setOperatorChatSubject,
@@ -97,6 +98,9 @@ function win(overrides: Partial<WindowInfo>): WindowInfo {
 }
 
 const OPERATOR_WINDOW = win({ windowId: "@9", name: "operator", role: "operator" });
+/** The resolved operator target on any server whose sessions carry
+ *  OPERATOR_WINDOW — the quake compose seam's draft key half. */
+const OPERATOR_TARGET = { window: OPERATOR_WINDOW, sessionName: "_rk-operator" };
 
 // The notify subscriptions mounted quake terminals register; tests fire the
 // daemon's broadcast payloads through the captured handlers.
@@ -187,7 +191,7 @@ describe("QuakeTerminal", () => {
   beforeEach(() => {
     stubMatchMedia(() => false);
     setQuakeMachineState("rest");
-    setOperatorComposeText("");
+    resetOperatorComposeFlags();
     mockMatches = [{ params: {} }];
     mockSearch = {};
     mockNavigate.mockReset();
@@ -1400,7 +1404,7 @@ describe("QuakeTerminal (docked compose)", () => {
   beforeEach(() => {
     stubMatchMedia(() => false);
     setQuakeMachineState("rest");
-    setOperatorComposeText("");
+    resetOperatorComposeFlags();
     mockMatches = [{ params: {} }];
     mockSearch = {};
     mockNavigate.mockReset();
@@ -1422,13 +1426,48 @@ describe("QuakeTerminal (docked compose)", () => {
 
   it("entering open focuses the docked textarea, caret at the end of any draft", () => {
     renderQuake();
-    act(() => setOperatorComposeText("half-written"));
+    act(() => setOperatorComposeText("srv1", OPERATOR_TARGET, "half-written"));
 
     openDrawer();
     const textarea = screen.getByTestId("quake-terminal-compose-input") as HTMLTextAreaElement;
     expect(textarea).toHaveFocus();
     expect(textarea).toHaveValue("half-written");
     expect(textarea.selectionStart).toBe("half-written".length);
+  });
+
+  it("the docked draft is per server — switching the picker shows the other operator's empty box and back", () => {
+    render(
+      quakeTree(
+        ["a", "b"],
+        new Map([
+          ["a", operatorSessions()],
+          ["b", operatorSessions()],
+        ]),
+      ),
+    );
+    openDrawer();
+    const textarea = () => screen.getByTestId("quake-terminal-compose-input");
+    fireEvent.change(textarea(), { target: { value: "for a" } });
+    expect(textarea()).toHaveValue("for a");
+
+    const picker = screen.getByRole("combobox", { name: "Operator server" });
+    fireEvent.change(picker, { target: { value: "b" } });
+    expect(textarea()).toHaveValue("");
+    expect(textarea()).not.toHaveAttribute("readonly");
+
+    fireEvent.change(picker, { target: { value: "a" } });
+    expect(textarea()).toHaveValue("for a");
+  });
+
+  it("with no operator on the server the docked textarea is read-only, still focusable, and says so", () => {
+    render(quakeTree(["a"], operatorLess(["a"])));
+    openDrawer();
+    const textarea = screen.getByTestId("quake-terminal-compose-input");
+    expect(textarea).toHaveAttribute("readonly");
+    expect(textarea).toHaveAttribute("placeholder", "Start the operator to compose…");
+    expect(textarea).toHaveFocus();
+    fireEvent.change(textarea, { target: { value: "typed into the void" } });
+    expect(textarea).toHaveValue("");
   });
 
   it("on rest the origin regains focus only while the docked textarea still holds it", () => {
@@ -1665,7 +1704,7 @@ describe("QuakeTerminal (cron segments)", () => {
   beforeEach(() => {
     stubMatchMedia(() => false);
     setQuakeMachineState("rest");
-    setOperatorComposeText("");
+    resetOperatorComposeFlags();
     mockMatches = [{ params: {} }];
     mockSearch = {};
     mockNavigate.mockReset();
@@ -1888,7 +1927,7 @@ describe("QuakeTerminal (tasks segment)", () => {
   beforeEach(() => {
     stubMatchMedia(() => false);
     setQuakeMachineState("rest");
-    setOperatorComposeText("");
+    resetOperatorComposeFlags();
     mockMatches = [{ params: {} }];
     mockSearch = {};
     mockNavigate.mockReset();
@@ -2023,7 +2062,7 @@ describe("QuakeTerminal (mobile navigation)", () => {
   beforeEach(() => {
     stubMatchMedia(() => true);
     setQuakeMachineState("rest");
-    setOperatorComposeText("");
+    resetOperatorComposeFlags();
     mockMatches = [{ params: {} }];
     mockSearch = {};
     mockNavigate.mockReset();
@@ -2296,7 +2335,7 @@ describe("QuakeTerminal (mobile navigation)", () => {
 describe("QuakeTerminalTongue", () => {
   beforeEach(() => {
     setQuakeMachineState("rest");
-    setOperatorComposeText("");
+    resetOperatorComposeFlags();
     mockMatches = [{ params: {} }];
     mockSearch = {};
     mockNavigate.mockReset();
@@ -2431,7 +2470,7 @@ describe("QuakeTerminal (chat subject stamping)", () => {
   beforeEach(() => {
     stubMatchMedia(() => false);
     setQuakeMachineState("rest");
-    setOperatorComposeText("");
+    resetOperatorComposeFlags();
     mockMatches = [{ params: {} }];
     mockSearch = {};
     mockNavigate.mockReset();
@@ -2552,7 +2591,7 @@ describe("QuakeTerminal (operator-kickoff notify)", () => {
   beforeEach(() => {
     stubMatchMedia(() => false);
     setQuakeMachineState("rest");
-    setOperatorComposeText("");
+    resetOperatorComposeFlags();
     mockMatches = [{ params: {} }];
     mockSearch = {};
     mockNavigate.mockReset();

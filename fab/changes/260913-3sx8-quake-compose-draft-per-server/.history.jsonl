@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-13T23:50:01Z"}
+{"args":"Quake terminal compose draft is per tmux server — the shared compose seam holds one module-level draft/error with no server dimension, so text typed under server A appears under server B; re-key the quake compose text by entryKey(server, operatorWindowId) in compose-draft-store and key sending/uploading/error per server","cmd":"fab-new","event":"command","ts":"2026-09-13T23:50:01Z"}
+{"delta":"+0.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-09-13T23:54:26Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-13T23:56:00Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-13T23:58:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-14T00:00:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-14T00:06:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-14T00:12:09Z"}
+{"event":"review","result":"passed","ts":"2026-09-14T00:12:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-14T00:14:46Z"}

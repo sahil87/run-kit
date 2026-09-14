@@ -17,9 +17,11 @@ import {
   getQuakePinned,
   isQuakeTerminalRequest,
   isQuakeTerminalTarget,
+  operatorComposeKey,
   QUAKE_TERMINAL_ROOT_ATTR,
   readQuakeGeometry,
   readQuakeOpacity,
+  resetOperatorComposeFlags,
   resolveQuakeServer,
   sendOperatorMessage,
   setQuakeComposeEngaged,
@@ -36,6 +38,8 @@ import {
   writeQuakeOpacity,
 } from "./quake-terminal";
 import { act, renderHook } from "@testing-library/react";
+import { getComposeDraft, hydrateComposeDrafts, setComposeText } from "./compose-draft-store";
+import { entryKey } from "@/store/window-store";
 import type { ProjectSession, WindowInfo } from "@/types";
 
 const mockSend = vi.hoisted(() => vi.fn());
@@ -224,18 +228,65 @@ describe("shared compose seam", () => {
     window: win({ windowId: "@9", name: "operator", role: "operator" }),
     sessionName: "_rk-operator",
   };
+  // A second server's operator — the same window id is legal (ids are
+  // server-scoped), which is exactly why the key carries the server.
+  const targetB = {
+    window: win({ windowId: "@9", name: "operator", role: "operator" }),
+    sessionName: "_rk-operator",
+  };
 
   beforeEach(() => {
     mockSend.mockReset();
     mockSend.mockResolvedValue({ ok: true });
     mockUpload.mockReset();
     mockUpload.mockResolvedValue({ ok: true, path: "/tmp/op/.uploads/shot.png" });
-    setOperatorComposeText("");
+    localStorage.clear();
+    hydrateComposeDrafts();
+    resetOperatorComposeFlags();
+  });
+
+  it("operatorComposeKey is the operator window's entryKey, null without a target or server", () => {
+    expect(operatorComposeKey("srv1", target)).toBe(entryKey("srv1", "@9"));
+    expect(operatorComposeKey("srv1", undefined)).toBeNull();
+    expect(operatorComposeKey(null, target)).toBeNull();
+  });
+
+  it("the draft is keyed by server: A's text never renders under B and survives the round trip", () => {
+    const { result, rerender } = renderHook(
+      ({ server, tgt }: { server: string; tgt: typeof target }) => useOperatorCompose(server, tgt),
+      { initialProps: { server: "srvA", tgt: target } },
+    );
+    act(() => setOperatorComposeText("srvA", target, "for A"));
+    expect(result.current.text).toBe("for A");
+
+    rerender({ server: "srvB", tgt: targetB });
+    expect(result.current.text).toBe("");
+
+    rerender({ server: "srvA", tgt: target });
+    expect(result.current.text).toBe("for A");
+    // The text lives in the shared draft store under the operator's key.
+    expect(getComposeDraft(entryKey("srvA", "@9")).text).toBe("for A");
+  });
+
+  it("without an operator the draft is empty and edits write nothing", () => {
+    const { result } = renderHook(() => useOperatorCompose("srvA", undefined));
+    act(() => setOperatorComposeText("srvA", undefined, "typed into the void"));
+    expect(result.current.text).toBe("");
+    expect(localStorage.getItem("runkit-compose-drafts")).toBeNull();
+  });
+
+  it("the returned state is reference-stable while neither text nor flags changed", () => {
+    const { result, rerender } = renderHook(() => useOperatorCompose("srvA", target));
+    const first = result.current;
+    rerender();
+    expect(result.current).toBe(first);
+    act(() => setOperatorComposeText("srvA", target, "changed"));
+    expect(result.current).not.toBe(first);
   });
 
   it("sendOperatorMessage delivers via the agent lane and clears the draft", async () => {
-    const { result } = renderHook(() => useOperatorCompose());
-    act(() => setOperatorComposeText("restart the worker"));
+    const { result } = renderHook(() => useOperatorCompose("srv1", target));
+    act(() => setOperatorComposeText("srv1", target, "restart the worker"));
     expect(result.current.text).toBe("restart the worker");
 
     let ok!: boolean;
@@ -259,8 +310,8 @@ describe("shared compose seam", () => {
 
   it("a failed send surfaces the error and preserves the draft; an edit clears it", async () => {
     mockSend.mockRejectedValue(new Error("probe failed"));
-    const { result } = renderHook(() => useOperatorCompose());
-    act(() => setOperatorComposeText("retry me"));
+    const { result } = renderHook(() => useOperatorCompose("srv1", target));
+    act(() => setOperatorComposeText("srv1", target, "retry me"));
 
     let ok!: boolean;
     await act(async () => {
@@ -270,27 +321,64 @@ describe("shared compose seam", () => {
     expect(result.current.error).toBe("probe failed");
     expect(result.current.text).toBe("retry me");
 
-    act(() => setOperatorComposeText("retry me, edited"));
+    act(() => setOperatorComposeText("srv1", target, "retry me, edited"));
     expect(result.current.error).toBeNull();
   });
 
-  it("the in-flight guard blocks a concurrent send", async () => {
+  it("a send error on A is invisible under B; an edit on A clears only A", async () => {
+    mockSend.mockRejectedValue(new Error("probe failed"));
+    const a = renderHook(() => useOperatorCompose("srvA", target));
+    const b = renderHook(() => useOperatorCompose("srvB", targetB));
+    await act(async () => {
+      await sendOperatorMessage("srvA", target, "for A");
+    });
+    expect(a.result.current.error).toBe("probe failed");
+    expect(b.result.current.error).toBeNull();
+
+    act(() => setOperatorComposeText("srvA", target, "for A, edited"));
+    expect(a.result.current.error).toBeNull();
+  });
+
+  it("a successful send on A clears only A's draft — B's survives", async () => {
+    act(() => {
+      setOperatorComposeText("srvA", target, "for A");
+      setOperatorComposeText("srvB", targetB, "for B");
+    });
+    await act(async () => {
+      await sendOperatorMessage("srvA", target, "for A");
+    });
+    expect(getComposeDraft(entryKey("srvA", "@9")).text).toBe("");
+    expect(getComposeDraft(entryKey("srvB", "@9")).text).toBe("for B");
+  });
+
+  it("the in-flight guard blocks a concurrent send on the same server, not on another", async () => {
     let release!: () => void;
-    mockSend.mockImplementation(
+    mockSend.mockImplementationOnce(
       () => new Promise<{ ok: boolean }>((resolve) => { release = () => resolve({ ok: true }); }),
     );
     let first!: Promise<boolean>;
     let second!: boolean;
+    let onB!: boolean;
     await act(async () => {
       first = sendOperatorMessage("srv1", target, "one");
       second = await sendOperatorMessage("srv1", target, "two");
+      onB = await sendOperatorMessage("srvB", targetB, "b");
     });
     expect(second).toBe(false);
-    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(onB).toBe(true);
+    expect(mockSend).toHaveBeenCalledTimes(2);
     await act(async () => {
       release();
       await first;
     });
+  });
+
+  it("the operator page's strip and the quake compose read one draft", () => {
+    // The route strip writes the operator window's entryKey directly; the
+    // quake seam must see that text under the same (server, target) pair.
+    setComposeText(entryKey("srv1", "@9"), "seeded by the strip");
+    const { result } = renderHook(() => useOperatorCompose("srv1", target));
+    expect(result.current.text).toBe("seeded by the strip");
   });
 
   it("attachOperatorFiles uploads to the operator session and insert-delivers each path", async () => {
@@ -310,7 +398,7 @@ describe("shared compose seam", () => {
     expect(mockUpload).not.toHaveBeenCalled();
 
     mockUpload.mockRejectedValue(new Error("upload exploded"));
-    const { result } = renderHook(() => useOperatorCompose());
+    const { result } = renderHook(() => useOperatorCompose("srv1", target));
     await act(async () => {
       await attachOperatorFiles("srv1", target, files);
     });

@@ -77,6 +77,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // DataTransfer file (Chromium populates clipboardData from the init).
 
 const SERVER = "default";
+/** A second tmux server for the per-server draft spec; the state-socket
+ *  mock's `sessions` fallback serves it the same operator payload. */
+const OTHER_SERVER = "other";
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
 const NOW = Math.floor(Date.now() / 1000);
@@ -1150,17 +1153,20 @@ test.describe("Quake terminal", () => {
    * server, the quake terminal opens to the operator-less body (the Start
    * operator button over the hint line; no terminal stream) and the palette
    * renders no fallback row. The docked compose
-   * renders (it is the drawer's chrome while open) but its Enter is a guarded
-   * no-op — the hint line is the answer.
+   * renders (it is the drawer's chrome while open) but with no operator there
+   * is no draft to address: the textarea is read-only with a Start-operator
+   * placeholder, still focusable, and Enter is a guarded no-op — the hint line
+   * is the answer.
    *
    * Steps:
    * 1. Mock the backend WITHOUT an operator window; land on the terminal
    *    route.
-   * 2. Focus the standing launcher to open the quake terminal; assert the
-   *    Start operator button, the hint sub-line, and no xterm inside the
-   *    quake terminal.
-   * 3. Type into the docked compose and press Enter; assert no send fired on
-   *    either lane.
+   * 2. Focus the standing launcher (read-only, but focus still opens the
+   *    machine) to open the quake terminal; assert the Start operator button,
+   *    the hint sub-line, and no xterm inside the quake terminal.
+   * 3. Assert the docked compose is read-only with the Start-operator
+   *    placeholder; focus it and press Enter; assert no send fired on either
+   *    lane.
    * 4. Close with Escape (one press — no embedded terminal means no yield
    *    rung), open the palette, type a
    *    floor-length query matching no action; assert no `Ask operator` row.
@@ -1171,6 +1177,7 @@ test.describe("Quake terminal", () => {
     const { sendBodies, requestCalls } = await mockBackend(page, false);
     await gotoWindow(page);
 
+    await expect(launcherInput(page)).toHaveAttribute("readonly", "");
     await launcherInput(page).click();
     await expect(drawer(page)).toBeVisible();
     const empty = page.getByTestId("quake-terminal-empty");
@@ -1178,7 +1185,9 @@ test.describe("Quake terminal", () => {
     await expect(empty).toContainText("no operator on this server — run rk operator");
     await expect(drawer(page).locator(".xterm")).toHaveCount(0);
 
-    await composeInput(page).fill("anyone home?");
+    await expect(composeInput(page)).toHaveAttribute("readonly", "");
+    await expect(composeInput(page)).toHaveAttribute("placeholder", "Start the operator to compose…");
+    await composeInput(page).focus();
     await composeInput(page).press("Enter");
     await expect.poll(() => sendBodies).toEqual([]);
     expect(requestCalls).toEqual([]);
@@ -1190,6 +1199,54 @@ test.describe("Quake terminal", () => {
     const paletteInput = await openPalette(page);
     await paletteInput.fill("the fence deploy is wedged");
     await expect(page.getByRole("option", { name: /^Ask operator:/ })).toHaveCount(0);
+  });
+
+  /**
+   * Proves: the quake compose draft is scoped to the tmux server — it is keyed
+   * by the operator window it addresses, so text typed in the drawer on one
+   * server never appears in another server's drawer, and it is still there
+   * (persisted across the full page load) when the user comes back.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window, then override `/api/servers`
+   *    with TWO servers (`default` and `other`); the state-socket mock's
+   *    fallback serves the same operator payload for both keys.
+   * 2. Land on `default`'s terminal route, open the drawer via the chord, type
+   *    into the docked compose.
+   * 3. Load `other`'s terminal route, open the drawer; assert the docked
+   *    compose is empty and editable (an operator resolves there too).
+   * 4. Load `default`'s terminal route again, open the drawer; assert the
+   *    typed text is back.
+   */
+  test("the docked draft is per tmux server — another server's drawer is empty and the text returns", async ({
+    page,
+  }) => {
+    await mockBackend(page, true);
+    // Registered after mockBackend's single-server stub, so this handler wins.
+    await page.route("**/api/servers", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          { name: SERVER, sessionCount: 1 },
+          { name: OTHER_SERVER, sessionCount: 1 },
+        ]),
+      }),
+    );
+    await gotoWindow(page);
+    await openDrawerViaChord(page);
+    await composeInput(page).fill("for default");
+    await expect(composeInput(page)).toHaveValue("for default");
+
+    await page.goto(`/${OTHER_SERVER}/%401`);
+    await expect(page.getByText("feature-work").first()).toBeVisible({ timeout: 10_000 });
+    await openDrawerViaChord(page);
+    await expect(composeInput(page)).toHaveValue("");
+    await expect(composeInput(page)).not.toHaveAttribute("readonly");
+
+    await gotoWindow(page);
+    await openDrawerViaChord(page);
+    await expect(composeInput(page)).toHaveValue("for default");
   });
 
   /**

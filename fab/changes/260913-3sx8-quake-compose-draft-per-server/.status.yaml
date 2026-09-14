@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 5
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-14T00:06:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-14T00:12:09Z"}
     hydrate: {started_at: "2026-09-14T00:12:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-14T00:14:46Z"}
     ship: {started_at: "2026-09-14T00:14:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-14T00:16:09Z"}
-    review-pr: {started_at: "2026-09-14T00:16:09Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-14T00:16:09Z", driver: git-pr, iterations: 1, completed_at: "2026-09-14T00:24:34Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/975
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Quake terminal compose draft keyed per operator target in the compose-draft store; send flags/error per server; read-only compose with no operator
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-14T00:16:09Z
+last_updated: 2026-09-14T00:24:34Z

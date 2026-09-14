@@ -21,16 +21,18 @@ import type { WindowInfo } from "@/types";
  * The ordinal is the ACTIVE pane's 1-based position in `win.panes` — never
  * `paneIndex + 1`: `paneIndex` is tmux's `#{pane_index}`, which already
  * honours `pane-base-index`, so re-offsetting it reads `pane 2/1` for a single
- * pane under base-index 1. With no pane marked active the ordinal falls back
- * to 1 (and the id to the first pane's), so a pane-less window reads
- * `pane 1/0`; an empty `paneId` drops the suffix.
+ * pane under base-index 1. The id suffix comes ONLY from the active pane —
+ * consumers copy `activePane.paneId`, and a label must never show an id that
+ * nothing copies — so with no pane marked active the ordinal falls back to 1
+ * and no id is shown (a pane-less window reads `pane 1/0`); an empty active
+ * `paneId` likewise drops the suffix.
  */
 export function getTmxLabel(win: WindowInfo): string {
   const panes = win.panes ?? [];
   const activeIdx = panes.findIndex((p) => p.isActive);
-  const idx = activeIdx >= 0 ? activeIdx : 0;
-  const paneId = panes[idx]?.paneId ?? "";
-  return `pane ${idx + 1}/${panes.length}${paneId ? ` ${paneId}` : ""}`;
+  const ordinal = (activeIdx >= 0 ? activeIdx : 0) + 1;
+  const paneId = activeIdx >= 0 ? panes[activeIdx].paneId : "";
+  return `pane ${ordinal}/${panes.length}${paneId ? ` ${paneId}` : ""}`;
 }
 
 /**

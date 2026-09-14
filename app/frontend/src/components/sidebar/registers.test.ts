@@ -42,6 +42,16 @@ describe("getTmxLabel (tmx identity row)", () => {
     expect(getTmxLabel(makeWindow({}))).toBe("pane 1/0");
     expect(getTmxLabel(makeWindow({ panes: [] }))).toBe("pane 1/0");
   });
+
+  it("panes but none active: ordinal falls back to 1 and NO id is shown (the id comes only from the active pane)", () => {
+    const win = makeWindow({
+      panes: [
+        { paneId: "%107", paneIndex: 1, cwd: "/home", command: "zsh", isActive: false },
+        { paneId: "%108", paneIndex: 2, cwd: "/home", command: "zsh", isActive: false },
+      ],
+    });
+    expect(getTmxLabel(win)).toBe("pane 1/2");
+  });
 });
 
 // 93dy: the register-line resolvers were extracted from status-panel.tsx into

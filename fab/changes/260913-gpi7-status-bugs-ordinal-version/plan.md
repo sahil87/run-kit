@@ -8,7 +8,7 @@
 ### Status surfaces: `tmx` identity-row label
 
 #### R1: One shared `tmx` label resolver
-`registers.ts` SHALL export `getTmxLabel(win: WindowInfo): string` returning `pane <ordinal>/<count>[ <paneId>]`, where `ordinal` is the active pane's 1-based position in `win.panes` (`findIndex(isActive) + 1`), `count` is `win.panes.length`, and the ` <paneId>` suffix is present only when the active pane's `paneId` is non-empty. When no pane is marked active, the ordinal falls back to `1` and the paneId to the first pane's (if any). `paneIndex` MUST NOT participate in the ordinal.
+`registers.ts` SHALL export `getTmxLabel(win: WindowInfo): string` returning `pane <ordinal>/<count>[ <paneId>]`, where `ordinal` is the active pane's 1-based position in `win.panes` (`findIndex(isActive) + 1`), `count` is `win.panes.length`, and the ` <paneId>` suffix is present only when the active pane's `paneId` is non-empty. The id comes ONLY from the active pane: when no pane is marked active, the ordinal falls back to `1` and no id is shown (so the panel's passive no-copy branch never displays an id it cannot copy). `paneIndex` MUST NOT participate in the ordinal.
 
 - **GIVEN** a window with one pane `{ paneIndex: 1, paneId: "%107", isActive: true }`
 - **WHEN** `getTmxLabel(win)` is called
@@ -25,6 +25,10 @@
 - **GIVEN** one active pane with `paneId: ""`
 - **WHEN** `getTmxLabel(win)` is called
 - **THEN** it returns `pane 1/1`
+
+- **GIVEN** two panes, neither marked active
+- **WHEN** `getTmxLabel(win)` is called
+- **THEN** it returns `pane 1/2` (ordinal 1, no id)
 
 #### R2: All three `tmx` sites render the shared label
 The PANE panel (`status-panel.tsx` `WindowContent`, both the copyable and the passive branch), the status bar strip (`status-bar.tsx` `WindowCluster`), and the status bar overflow row (`status-bar.tsx` `OverflowMenu`) MUST render their `tmx` text from `getTmxLabel(win)` and MUST NOT compose `paneIndex + 1` inline. Copy values stay `paneId`.
@@ -100,7 +104,7 @@ In `status-bar.tsx`'s right cluster the host name and version SHALL be two sibli
 
 ### Edge Cases & Error Handling
 
-- [x] A-008 R1: No active pane and no panes ⇒ `pane 1/0` (matches the existing passive-tmx assertion in `status-bar.test.tsx`)
+- [x] A-008 R1: No active pane and no panes ⇒ `pane 1/0` (matches the existing passive-tmx assertion in `status-bar.test.tsx`); panes but none active ⇒ `pane 1/<count>` with no id (unit test)
 - [x] A-009 R3: No version yet ⇒ no version button, host still rendered; no host ⇒ version alone renders inside the wrapper
 
 ### Code Quality

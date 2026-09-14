@@ -51,13 +51,15 @@ New exported pure function in `app/frontend/src/components/sidebar/registers.ts`
  *  The ordinal is the ACTIVE pane's 1-based position in `win.panes` — never
  *  `paneIndex + 1`, because tmux's `#{pane_index}` already honours
  *  `pane-base-index` (a single pane under base-index 1 would read `2/1`).
- *  Falls back to the first pane (ordinal 1) when no pane is marked active, so
- *  a window with no panes reads `pane 1/0` (the passive, paneId-less form). */
+ *  The id suffix comes ONLY from the active pane (consumers copy
+ *  `activePane.paneId`; a label must never show an id nothing copies), so
+ *  with no pane marked active the ordinal falls back to 1 and no id is shown
+ *  — a window with no panes reads `pane 1/0` (the passive, paneId-less form). */
 export function getTmxLabel(win: WindowInfo): string {
   const panes = win.panes ?? [];
   const activeIdx = panes.findIndex((p) => p.isActive);
   const ordinal = (activeIdx >= 0 ? activeIdx : 0) + 1;
-  const paneId = (activeIdx >= 0 ? panes[activeIdx] : panes[0])?.paneId ?? "";
+  const paneId = activeIdx >= 0 ? panes[activeIdx].paneId : "";
   return `pane ${ordinal}/${panes.length}${paneId ? ` ${paneId}` : ""}`;
 }
 ```
@@ -71,12 +73,13 @@ Exact behaviours:
 | `[{paneIndex: 0, paneId: "%1", isActive: true}]` (e2e fixture shape) | `pane 1/1 %1` (unchanged — today's e2e assertions stay valid) |
 | one pane, `paneId: ""`, active | `pane 1/1` |
 | `[]` / `undefined` | `pane 1/0` (matches today's rendering and the existing `status-bar.test.tsx` "paneId-less tmx" assertion) |
+| two panes, neither active | `pane 1/2` — ordinal falls back to 1, no id (the id is the active pane's or nothing, so the panel's passive no-copy branch never shows an id it cannot copy) |
 
 The file-header comment of `registers.ts` gains one sentence noting that the `tmx` identity-row label lives here too so that its three consumers (PANE panel, status-bar strip, status-bar overflow row) render one string — identity rows are pane metadata, not registers, and the header must not imply otherwise.
 
 **Consumers replace their inline composition** (copy value stays `paneId`; the paneId-less passive branches are unchanged):
 
-- `status-panel.tsx` `WindowContent`: delete `paneCount` / `activePaneIndex`; both the `CopyableRow` branch and the passive `<div>` branch render `{getTmxLabel(win)}` (the passive branch has no paneId, so the label naturally omits it).
+- `status-panel.tsx` `WindowContent`: delete `paneCount` / `activePaneIndex`; both the `CopyableRow` branch and the passive `<div>` branch render `{getTmxLabel(win)}`. The passive branch is entered exactly when the active pane's `paneId` is empty (or no pane is active), and the label's id comes only from the active pane, so the two agree by construction: no copyable id ⇒ no id in the label.
 - `status-bar.tsx` `WindowCluster`: `const tmxValue = getTmxLabel(win);` (drop `paneCount`; `paneId`/`activePane` remain for the copy value and cwd/git).
 - `status-bar.tsx` `OverflowMenu`: `const tmxRest = getTmxLabel(win);` feeding the existing `copyRow("tmx", "tmx ", tmxRest, …)` / `textRow("tmx", \`tmx ${tmxRest}\`, …)` pair.
 

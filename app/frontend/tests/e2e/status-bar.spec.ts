@@ -17,8 +17,10 @@ import { openPalette, seedComposeStrip } from "./_ready";
 // Subjects: the full-width attached status strip at the shell bottom
 // (desktop-only), the width-or-coarse mobile predicate that suppresses it, the
 // fine-pointer bottom-bar DELETION, the window-cluster / host-cluster route
-// split, the no-scroll degradation ladder with the `…` overflow chevron, and
-// the `◷` clock chip that opens the quake terminal on the Cron List segment.
+// split, the measured priority fold with the `…` overflow chevron (every
+// segment renders at natural width or folds into the menu, one ladder across
+// both clusters), and the `◷` clock chip that opens the quake terminal on the
+// Cron List segment.
 
 const SERVER = "default";
 
@@ -104,9 +106,9 @@ test.describe("Status bar (260814-ldbs)", () => {
    * Proves: on the desktop terminal route the status bar renders with BOTH
    * clusters — the window cluster mirrors the current window's registers
    * (tmux pane, cwd basename, git branch, agent state, fab change, PR as an
-   * open-first anchor) and the host cluster shows compact metrics,
-   * host+version, and the connection dot — while the fine-pointer bottom bar
-   * is gone from the DOM entirely.
+   * open-first anchor) and the host cluster shows compact metrics (mem as a
+   * percentage), host+version, and the connection dot — while the
+   * fine-pointer bottom bar is gone from the DOM entirely.
    *
    * Steps:
    * 1. Navigate to `/default/1`; wait for the status bar.
@@ -114,8 +116,8 @@ test.describe("Status bar (260814-ldbs)", () => {
    * 3. Assert the window cluster's register values (`%1` — the pane id leads;
    *    the ordinal only disambiguates multi-pane windows, `wt`,
    *    `main`, `waiting 3m`, the fab line, the `Open PR #603` link).
-   * 4. Assert the host cluster (`17%`, `e2e-box`, `v0.9.3`) and the
-   *    `Connected` dot.
+   * 4. Assert the host cluster (`17%` cpu, `41%` mem — 24G of 59G as a
+   *    percentage, `e2e-box`, `v0.9.3`) and the `Connected` dot.
    */
   test("desktop terminal route: status bar present with BOTH clusters; no bottom bar exists", async ({ page }) => {
     await page.goto(`/${SERVER}/1`);
@@ -140,6 +142,7 @@ test.describe("Status bar (260814-ldbs)", () => {
 
     // R4 right cluster — host metrics + host/version + the connection dot.
     await expect(hostCluster(page).getByText("17%")).toBeVisible();
+    await expect(hostCluster(page).getByText("41%")).toBeVisible(); // mem as a percentage
     await expect(hostCluster(page).getByText("e2e-box")).toBeVisible();
     await expect(hostCluster(page).getByText("v0.9.3")).toBeVisible();
     await expect(statusBar(page).getByLabel("Connected")).toBeVisible();
@@ -167,79 +170,79 @@ test.describe("Status bar (260814-ldbs)", () => {
   });
 
   /**
-   * Proves: the no-scroll degradation ladder at the ~800px band. The window
-   * cluster renders in descending relevance (git → pr → fab → agt → tmx →
-   * cwd) and display order equals survival order, so the rightmost segment
-   * dies first: deterministic CSS breakpoint classes hide cwd (≥xl) and tmx
-   * (≥lg) while git/agt/fab/PR survive (there is no `out` segment — deleted
-   * outright); the bar never scrolls; the `…` chevron (hidden at full width)
-   * appears and its menu lists the dropped segments in strip order; the
-   * menu's rows are keyboard-reachable by arrow-nav, which skips the rows a
-   * breakpoint currently hides; Escape closes it.
+   * Proves: the measured priority fold at a narrow desktop width. Every
+   * segment renders at natural width or folds whole into the `…` menu, one
+   * ladder across both clusters decided by fold priority (lowest first:
+   * `ld`, then the `a▏`/`⌘K` hints, then `cwd`, then `tmx`) — never by CSS
+   * breakpoint, never by truncation. At 1440px everything fits and no
+   * chevron exists in the DOM; at 1050px (above the 640px mobile predicate,
+   * ~170px under the fixture's ~1220px natural width) the lowest-priority segments
+   * fold, the bar never scrolls, the chevron appears, and its menu lists
+   * exactly the folded segments in strip order with full keyboard reach.
    *
    * Steps:
    * 1. Navigate to `/default/1`; wait for the window cluster.
-   * 2. At 1440px assert all window segments visible and the chevron hidden.
-   * 3. Resize to 800×600; assert cwd/tmx hidden, git/agt still visible, and
-   *    `scrollWidth ≤ clientWidth` on the bar.
-   * 4. Click the chevron; assert the menu lists `tmx`/`cwd` rows and no
-   *    `out` row.
-   * 5. Assert focus enters the panel on the first VISIBLE row (`tmx` — the
-   *    menu mirrors the strip order git → tmx → cwd, and git's row is hidden
-   *    while its segment survives ≥md), that ArrowDown/ArrowUp move to `cwd`
-   *    and back, and that ArrowUp off the first row wraps to the last
-   *    VISIBLE row (the compose action) rather than the breakpoint-hidden
-   *    version row — a `display: none` row cannot take focus, so arrow-nav
-   *    must skip it. This is the browser-only half of the contract; the unit
-   *    suite covers the rove itself, where jsdom computes no layout.
+   * 2. At 1440px assert all window segments visible and the chevron absent
+   *    (count 0 — it renders only while something is folded).
+   * 3. Resize to 1050×600; assert `wt`/`%1` folded away, `main`/`waiting 3m`/
+   *    the fab line/the PR anchor still visible, and `scrollWidth ≤
+   *    clientWidth` on the bar.
+   * 4. Click the chevron; assert the menu lists `tmx`/`cwd` copy rows and no
+   *    `out` row (the register is deleted outright).
+   * 5. Assert focus enters the panel on the first row (the leftmost folded
+   *    segment in strip order — `tmx`), that ArrowDown/ArrowUp rove to `cwd`
+   *    and back, and that ArrowUp off the first row wraps to the last row
+   *    (the compose action). Every rendered row is a folded segment, so no
+   *    hidden-row skipping remains. This is the browser-only half of the
+   *    contract; the unit suite covers the rove itself, where jsdom computes
+   *    no layout.
    * 6. Press Escape; assert the menu closes.
    */
-  test("narrow desktop width: low-priority segments drop (never scroll) and the … chevron lists them", async ({ page }) => {
+  test("narrow desktop width: low-priority segments fold (never scroll) and the … chevron lists them", async ({ page }) => {
     await page.goto(`/${SERVER}/1`);
     await expect(windowCluster(page)).toBeVisible({ timeout: 10_000 });
 
-    // Wide (1440 ≥ xl): every window segment shows, no chevron.
+    // Wide (1440): every window segment shows, no chevron in the DOM.
     await page.setViewportSize({ width: 1440, height: 800 });
     await expect(windowCluster(page).getByText("%1", { exact: true })).toBeVisible();
     await expect(windowCluster(page).getByText("wt")).toBeVisible();
-    await expect(statusBar(page).getByTestId("status-bar-overflow")).toBeHidden();
+    await expect(statusBar(page).getByTestId("status-bar-overflow")).toHaveCount(0);
 
-    // ~800px desktop band: rightmost dies first — cwd (≥xl) and tmx (≥lg)
-    // are dropped by their deterministic breakpoint classes; git/agt/fab/PR
-    // survive; the bar does not scroll.
-    await page.setViewportSize({ width: 800, height: 600 });
+    // 1050px desktop band: the lowest-priority segments fold — ld, the two
+    // hints, cwd, tmx — while the never-fold registers (git/agt/fab/PR)
+    // survive at natural width; the bar does not scroll.
+    await page.setViewportSize({ width: 1050, height: 600 });
     await expect(windowCluster(page).getByText("wt")).toBeHidden();
     await expect(windowCluster(page).getByText("%1", { exact: true })).toBeHidden();
     await expect(windowCluster(page).getByText("main")).toBeVisible();
     await expect(windowCluster(page).getByText("waiting 3m")).toBeVisible();
+    await expect(windowCluster(page).getByText(/ldbs shell-stage-status-bar · apply/)).toBeVisible();
+    await expect(
+      windowCluster(page).getByRole("link", { name: "Open PR #603 in a new tab" }),
+    ).toBeVisible();
     const bar = statusBar(page);
     const scrolls = await bar.evaluate((el) => el.scrollWidth > el.clientWidth);
     expect(scrolls, "the status bar must never scroll").toBe(false);
 
-    // The chevron carries the dropped segments (R5 stage 3).
+    // The chevron carries exactly the folded segments, in strip order.
     const chevron = statusBar(page).getByTestId("status-bar-overflow");
     await expect(chevron).toBeVisible();
     await chevron.click();
     const menu = page.getByRole("menu", { name: "Overflow status segments" });
     await expect(menu).toBeVisible();
-    await expect(menu.getByText(/^tmx /)).toBeVisible();
-    await expect(menu.getByText(/^cwd /)).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Copy tmux pane id" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Copy working directory path" })).toBeVisible();
     // No out row exists at any width — the register is deleted outright.
     await expect(menu.getByText(/^out /)).toHaveCount(0);
-    // Keyboard: focus enters the panel on open, ArrowUp/ArrowDown rove between
-    // the VISIBLE rows only. The rows a breakpoint currently hides stay in the
-    // DOM (git/cpu/version at this width) and must be skipped — a display:none
-    // row cannot take focus, so including it would strand nav on a dead index.
-    // This is the browser-only half of the contract; jsdom computes no layout.
-    // Menu rows mirror the strip order (git → tmx → cwd), so the first
-    // VISIBLE row here is tmx (git's segment survives ≥md, hiding its row).
-    await expect(menu.getByText(/^tmx /)).toBeFocused();
+    // Keyboard: focus enters the panel on open on the FIRST row — the
+    // leftmost folded segment in strip order (`tmx`, a copy row).
+    await expect(menu.getByRole("menuitem", { name: "Copy tmux pane id" })).toBeFocused();
     await page.keyboard.press("ArrowDown");
-    await expect(menu.getByText(/^cwd /)).toBeFocused();
+    await expect(menu.getByRole("menuitem", { name: "Copy working directory path" })).toBeFocused();
     await page.keyboard.press("ArrowUp");
-    await expect(menu.getByText(/^tmx /)).toBeFocused();
-    // Wrapping backwards off the first row lands on the LAST visible row — the
-    // compose action, not the hidden version row that follows the metrics rows.
+    await expect(menu.getByRole("menuitem", { name: "Copy tmux pane id" })).toBeFocused();
+    // Wrapping backwards off the first row lands on the LAST row — the
+    // compose action (the last foldable segment in strip order).
     await page.keyboard.press("ArrowUp");
     await expect(menu.getByRole("menuitem", { name: "a▏ Compose" })).toBeFocused();
     // Escape closes and refocuses the trigger.
@@ -300,23 +303,24 @@ test.describe("Status bar (260814-ldbs)", () => {
 
   /**
    * Proves: an overflow-menu copy row is keyboard-activatable end to end —
-   * opening the `…` menu moves roving focus onto the first visible row (the
-   * tmx copy row at this width), a real Enter keypress copies the RAW pane id
-   * (`%1`, not the row's `tmx %1` display text), and the menu stays open
-   * (the user may want to read the row).
+   * at a fold-inducing width opening the `…` menu moves roving focus onto
+   * the first folded row in strip order (the `tmx` copy row), a real Enter
+   * keypress copies the RAW pane id (`%1`, not the row's `tmx %1` display
+   * text), and the menu stays open (the user may want to read the row).
    *
    * Steps:
-   * 1. Grant clipboard permissions; resize to 1000px (below lg, so the tmx
-   *    segment drops to the menu and the `…` chevron renders).
-   * 2. Navigate to `/default/1`; click the chevron; wait for focus to land on
-   *    the `Copy tmux pane id` row (the menu's focus-on-open contract).
+   * 1. Grant clipboard permissions; resize to 1050px (the fixture's natural
+   *    width folds the low-priority segments, `tmx`/`cwd` among them, so the
+   *    `…` chevron renders).
+   * 2. Navigate to `/default/1`; click the chevron; wait for focus to land
+   *    on the `Copy tmux pane id` row (the menu's focus-on-open contract).
    * 3. Press Enter; assert the clipboard holds `%1` and the row shows the
    *    `copied ✓` swap.
    * 4. Assert the menu is still open.
    */
   test("overflow copy rows activate via keyboard: Enter copies the raw value and keeps the menu open", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-    await page.setViewportSize({ width: 1000, height: 720 });
+    await page.setViewportSize({ width: 1050, height: 600 });
     await page.goto(`/${SERVER}/1`);
     await expect(statusBar(page)).toBeVisible({ timeout: 10_000 });
 
@@ -417,7 +421,7 @@ test.describe("Status bar (260814-ldbs)", () => {
    * 1. Stub `GET /api/cron` with one nextFire-bearing entry (the chip's
    *    next-fire state); navigate to `/default/1`.
    * 2. Assert the `status-bar-clock` chip is visible — the default 1280px
-   *    viewport is the xl rung the next-fire chip shows at.
+   *    viewport fits every segment, so the fold keeps the chip in the strip.
    * 3. Click the chip; assert the quake terminal drawer opens with the Cron List tab
    *    selected and the cron registry visible.
    */

@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-14T17:24:43Z"}
+{"args":"Implement Change 2 (status bar measured fold) from fab/plans/sahil/26-09-14-pane-status-bar-density.md — replace the CSS breakpoint ladder with a measured priority fold; cpu/mem as percents, ld its own segment; full just test-frontend as the unit gate","cmd":"fab-new","event":"command","ts":"2026-09-14T17:24:43Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-14T17:27:56Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-14T17:30:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-14T17:30:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-14T17:53:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-14T17:58:27Z"}
+{"event":"review","result":"passed","ts":"2026-09-14T17:58:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-14T18:01:44Z"}

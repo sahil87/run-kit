@@ -79,6 +79,90 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** Drive the fold in jsdom: the probe children's `data-fold` widths come
+ *  from `widths`; the bar root's clientWidth is `available`. The
+ *  ResizeObserver stub never fires, so the measure runs once at mount —
+ *  mount a fresh bar per width case. */
+function mockWidths(available: number, widths: Record<string, number>) {
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    const key = this.getAttribute("data-fold");
+    if (key !== null && key in widths) return widths[key];
+    return 0;
+  });
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.getAttribute("data-testid") === "status-bar" ? available : 0;
+  });
+}
+
+/** Re-mount against new mocked widths (the measure is mount-time only). */
+function renderFolded(
+  overrides: Partial<React.ComponentProps<typeof StatusBar>>,
+  available: number,
+  widths: Record<string, number> = PROBE,
+) {
+  cleanup();
+  vi.restoreAllMocks();
+  mockWidths(available, widths);
+  return renderBar(overrides);
+}
+
+/** Round-number probe widths per `data-fold` id. Only present segments are
+ *  probed, so unused keys are inert. With the full fixture (all window
+ *  layers + metrics + version + server + compose, no zen/clock) the natural
+ *  width is left 650 + right 492 + the 36px fixed charge = 1178. */
+const PROBE = {
+  git: 80,
+  pr: 90,
+  fab: 200,
+  agt: 90,
+  tmx: 50,
+  cwd: 80,
+  zen: 50,
+  metrics: 110,
+  ld: 50,
+  clock: 70,
+  server: 60,
+  host: 70,
+  version: 50,
+  palette: 40,
+  compose: 40,
+  chevron: 24,
+};
+
+/** The full-fold-budget fixture: every window layer plus the whole right
+ *  cluster (natural width 1178 at the PROBE widths). */
+function fullProps() {
+  mockHostMetrics = makeMetrics();
+  mockDaemonVersion = "0.9.3";
+  return {
+    window: makeWindowWithPanes({
+      agentState: "waiting",
+      agentIdleDuration: "3m",
+      fabChange: "260814-ldbs-shell-stage-status-bar",
+      fabStage: "apply",
+      prNumber: 603,
+      prState: "open",
+      prChecks: "pass",
+      prUrl: "https://github.com/sahil87/run-kit/pull/603",
+    }),
+    server: "alpha",
+    onOpenCompose: vi.fn(),
+  } as const;
+}
+
+const windowCluster = () => screen.getByTestId("status-bar-window");
+const hostCluster = () => screen.getByTestId("status-bar-host");
+const openMenu = () => {
+  fireEvent.click(screen.getByTestId("status-bar-overflow"));
+  return screen.getByRole("menu", { name: "Overflow status segments" });
+};
+const menuRowTexts = (menu: HTMLElement) =>
+  Array.from(menu.querySelectorAll("[role='menuitem']")).map((el) => el.textContent);
+
 describe("StatusBar (260814-ldbs)", () => {
   it("renders the attached frame strip with status semantics", () => {
     renderBar();
@@ -101,23 +185,26 @@ describe("StatusBar (260814-ldbs)", () => {
         panes: [{ paneId: "%5", paneIndex: 1, cwd: "/home/user/wt", command: "zsh", isActive: true }],
       });
       renderBar({ window: win });
-      expect(screen.getByText("%5")).toBeInTheDocument();
-      expect(screen.queryByText(/1\/1/)).toBeNull();
-      fireEvent.click(screen.getByTestId("status-bar-overflow"));
-      const menu = screen.getByRole("menu", { name: "Overflow status segments" });
-      expect(within(menu).getByRole("menuitem", { name: "Copy tmux pane id" })).toHaveTextContent("tmx %5");
+      expect(within(windowCluster()).getByText("%5")).toBeInTheDocument();
+      expect(within(windowCluster()).queryByText(/1\/1/)).toBeNull();
+      // Folded into the menu, the row reads the same one string.
+      renderFolded({ window: win }, 100);
+      const menu = openMenu();
+      const tmxRow = within(menu).getByRole("menuitem", { name: "Copy tmux pane id" });
+      expect(tmxRow).toHaveTextContent("tmx %5");
+      expect(tmxRow.textContent).not.toContain("1/1");
     });
 
     it("renders the git/tmx/cwd identity registers in descending-relevance order", () => {
       renderBar({ window: makeWindowWithPanes() });
-      expect(screen.getByText("%5")).toBeInTheDocument();
+      expect(within(windowCluster()).getByText("%5")).toBeInTheDocument();
       // cwd renders as the BASENAME with the full path in the tooltip.
-      expect(screen.getByText("run-kit")).toBeInTheDocument();
-      expect(screen.getByText("main")).toBeInTheDocument();
+      expect(within(windowCluster()).getByText("run-kit")).toBeInTheDocument();
+      expect(within(windowCluster()).getByText("main")).toBeInTheDocument();
       // There is no out register in the strip (deleted outright).
-      expect(screen.queryByText("zsh")).not.toBeInTheDocument();
+      expect(within(windowCluster()).queryByText("zsh")).not.toBeInTheDocument();
       // Strip order is descending relevance: git → tmx → cwd.
-      const text = screen.getByTestId("status-bar-window").textContent ?? "";
+      const text = windowCluster().textContent ?? "";
       expect(text.indexOf("main")).toBeLessThan(text.indexOf("%5"));
       expect(text.indexOf("%5")).toBeLessThan(text.indexOf("run-kit"));
     });
@@ -127,10 +214,11 @@ describe("StatusBar (260814-ldbs)", () => {
         panes: [{ paneId: "%5", paneIndex: 0, cwd: "/home/user/wt", command: "zsh", isActive: true, gitBranch: "260913-png4-compose-default-on" }],
       });
       renderBar({ window: win });
-      expect(screen.getByText("260913-").className).toContain("text-text-secondary");
-      expect(screen.getByText("png4-compose-default-on")).toBeInTheDocument();
-      fireEvent.click(screen.getByTestId("status-bar-overflow"));
-      const menu = screen.getByRole("menu", { name: "Overflow status segments" });
+      expect(within(windowCluster()).getByText("260913-").className).toContain("text-text-secondary");
+      expect(within(windowCluster()).getByText("png4-compose-default-on")).toBeInTheDocument();
+      // Fold git into the menu: the row is a menu item and stays plain.
+      renderFolded({ window: win }, 100);
+      const menu = openMenu();
       const gitRow = within(menu).getByRole("menuitem", { name: "Copy git branch" });
       expect(gitRow).toHaveTextContent("⑂ 260913-png4-compose-default-on");
       expect(gitRow.querySelector(".text-text-secondary")).toBeNull();
@@ -148,14 +236,14 @@ describe("StatusBar (260814-ldbs)", () => {
         prUrl: "https://github.com/sahil87/run-kit/pull/603",
       });
       renderBar({ window: win });
-      expect(screen.getByText("waiting 3m")).toBeInTheDocument();
-      expect(screen.getByText("ldbs shell-stage-status-bar · apply")).toBeInTheDocument();
+      expect(within(windowCluster()).getByText("waiting 3m")).toBeInTheDocument();
+      expect(within(windowCluster()).getByText("ldbs shell-stage-status-bar · apply")).toBeInTheDocument();
       // PR renders as an open-first anchor (native open semantics).
       const pr = screen.getByRole("link", { name: "Open PR #603 in a new tab" });
       expect(pr).toHaveAttribute("href", "https://github.com/sahil87/run-kit/pull/603");
       expect(pr).toHaveAttribute("target", "_blank");
       // Full descending-relevance order: git → pr → fab → agt (→ tmx → cwd).
-      const text = screen.getByTestId("status-bar-window").textContent ?? "";
+      const text = windowCluster().textContent ?? "";
       expect(text.indexOf("main")).toBeLessThan(text.indexOf("#603"));
       expect(text.indexOf("#603")).toBeLessThan(text.indexOf("ldbs shell-stage-status-bar"));
       expect(text.indexOf("ldbs shell-stage-status-bar")).toBeLessThan(text.indexOf("waiting 3m"));
@@ -165,8 +253,8 @@ describe("StatusBar (260814-ldbs)", () => {
       const win = makeWindowWithPanes({ prNumber: 604, prState: "merged" });
       renderBar({ window: win });
       expect(screen.queryByRole("link", { name: /Open PR/ })).not.toBeInTheDocument();
-      expect(screen.getByText("#604")).toBeInTheDocument();
-      expect(screen.getByText("merged")).toBeInTheDocument();
+      expect(within(windowCluster()).getByText("#604")).toBeInTheDocument();
+      expect(within(windowCluster()).getByText("merged")).toBeInTheDocument();
     });
 
     it("a branch carrying the fab change drops the slug from the segment; the state token is coloured", () => {
@@ -180,11 +268,11 @@ describe("StatusBar (260814-ldbs)", () => {
       });
       renderBar({ window: win });
       // The branch (⑂) already spells the slug — the fab segment shows the id form.
-      expect(screen.getByText("ldbs · apply")).toBeInTheDocument();
-      const fabText = screen.getByTestId("status-bar-window").textContent ?? "";
+      expect(within(windowCluster()).getByText("ldbs · apply")).toBeInTheDocument();
+      const fabText = windowCluster().textContent ?? "";
       expect(fabText).not.toContain("ldbs shell-stage-status-bar · apply");
       // The displayState token renders in the fab hue vocabulary.
-      expect(screen.getByText("· failed").className).toContain("text-signal-red");
+      expect(within(windowCluster()).getByText("· failed").className).toContain("text-signal-red");
     });
 
     it("an off-change branch keeps the slug (the off-branch signal)", () => {
@@ -194,7 +282,7 @@ describe("StatusBar (260814-ldbs)", () => {
         fabStage: "apply",
       });
       renderBar({ window: win });
-      expect(screen.getByText("ldbs shell-stage-status-bar · apply")).toBeInTheDocument();
+      expect(within(windowCluster()).getByText("ldbs shell-stage-status-bar · apply")).toBeInTheDocument();
     });
 
     it("an unknown fab displayState renders the token with no colour class", () => {
@@ -204,7 +292,7 @@ describe("StatusBar (260814-ldbs)", () => {
         fabDisplayState: "dancing",
       });
       renderBar({ window: win });
-      const token = screen.getByText("· dancing");
+      const token = within(windowCluster()).getByText("· dancing");
       expect(token.className).not.toContain("text-signal");
       expect(token.className).not.toContain("text-accent-green");
     });
@@ -217,7 +305,7 @@ describe("StatusBar (260814-ldbs)", () => {
         ],
       });
       renderBar({ window: win });
-      const cwd = screen.getByText(/gone \(deleted\)/);
+      const cwd = within(windowCluster()).getByText(/gone \(deleted\)/);
       expect(cwd.className).toContain("text-signal-red");
     });
   });
@@ -227,45 +315,67 @@ describe("StatusBar (260814-ldbs)", () => {
       mockHostMetrics = makeMetrics();
       mockDaemonVersion = "0.9.3";
       renderBar({ server: "alpha" });
-      const host = screen.getByTestId("status-bar-host");
-      expect(screen.getByText("cpu")).toBeInTheDocument();
-      expect(screen.getByText("17%")).toBeInTheDocument();
-      expect(screen.getByText("24G/59G")).toBeInTheDocument();
+      const host = hostCluster();
+      expect(within(host).getByText("cpu")).toBeInTheDocument();
+      expect(within(host).getByText("17%")).toBeInTheDocument();
+      // mem renders as a PERCENTAGE (24G/59G → 41%); the absolute form lives
+      // in the flyout only.
+      expect(within(host).getByText("41%")).toBeInTheDocument();
+      expect(within(host).queryByText("24G/59G")).toBeNull();
       // ld is the normalized 1-minute percentage (112/8 → 14%).
-      expect(screen.getByText("14%")).toBeInTheDocument();
+      expect(within(host).getByText("14%")).toBeInTheDocument();
       expect(host).toHaveTextContent("alpha");
       expect(host).toHaveTextContent("mba");
       expect(host).toHaveTextContent("v0.9.3");
       expect(screen.getByLabelText("Connected")).toBeInTheDocument();
     });
 
-    it("host and version are independently-sized siblings — only the host truncates, the version drops at 700px", () => {
+    it("host and version are one visual pair of two independent fold items — the wrapper never truncates", () => {
       mockHostMetrics = makeMetrics();
       mockDaemonVersion = "0.9.3";
       renderBar({ server: "alpha" });
       const hostBtn = screen.getByRole("button", { name: "Copy host name" });
       const versionBtn = screen.getByRole("button", { name: "Copy version" });
       // One visual pair (shared wrapper), but the wrapper itself never
-      // truncates — otherwise the trailing version is what the ellipsis eats.
+      // truncates — the fold, not an ellipsis, decides when a segment leaves.
       expect(hostBtn.parentElement).toBe(versionBtn.parentElement);
       expect(hostBtn.parentElement!.className).not.toContain("truncate");
-      expect(hostBtn.className).toContain("truncate");
-      expect(versionBtn.className).not.toContain("truncate");
+      expect(hostBtn.className).not.toContain("truncate");
       expect(versionBtn.className).toContain("shrink-0");
-      expect(versionBtn.className).toContain("min-[700px]:inline");
+      // No breakpoint gating remains — the measured fold decides visibility.
+      expect(versionBtn.className).not.toContain("min-[700px]");
+    });
+
+    it("metrics numerals are fixed-width, so the metrics tick cannot change a probed width", () => {
+      mockHostMetrics = makeMetrics();
+      renderBar({ server: "alpha" });
+      const host = hostCluster();
+      for (const text of ["17%", "41%", "14%"]) {
+        const span = within(host).getByText(text);
+        expect(span.className).toContain("tabular-nums");
+        expect(span.className).toContain("min-w-[4ch]");
+      }
+    });
+
+    it("ld is its own passive segment — no copy button, no flyout trigger", () => {
+      mockHostMetrics = makeMetrics();
+      renderBar({ server: "alpha" });
+      const ldLabel = within(hostCluster()).getByText("ld");
+      expect(ldLabel.closest("button")).toBeNull();
+      expect(ldLabel.closest('[aria-label="Host metrics — details on hover"]')).toBeNull();
     });
 
     it("server-scoped metrics win over the host broadcast (the HostPanel rule)", () => {
       mockMetrics = makeMetrics({ hostname: "scoped", cpu: { samples: [40], current: 40, cores: 4 } });
       mockHostMetrics = makeMetrics({ hostname: "global" });
       renderBar();
-      expect(screen.getByTestId("status-bar-host")).toHaveTextContent("40%");
-      expect(screen.getByTestId("status-bar-host")).not.toHaveTextContent("global");
+      expect(hostCluster()).toHaveTextContent("40%");
+      expect(hostCluster()).not.toHaveTextContent("global");
     });
 
     it("omits the metrics and version fragments before the first events (no placeholders)", () => {
       renderBar({ server: "alpha" });
-      const host = screen.getByTestId("status-bar-host");
+      const host = hostCluster();
       expect(host).not.toHaveTextContent("cpu");
       expect(host).not.toHaveTextContent(/vundefined/);
       expect(host).toHaveTextContent("alpha");
@@ -281,8 +391,9 @@ describe("StatusBar (260814-ldbs)", () => {
       renderBar();
       fireEvent.focus(screen.getByLabelText("Host metrics — details on hover"));
       // The flyout renders the shared HostMetrics rows (the uptime proves it —
-      // the strip itself renders no uptime).
+      // the strip itself renders no uptime) and keeps the ABSOLUTE mem value.
       expect(screen.getByText("1h 0m")).toBeInTheDocument();
+      expect(screen.getByText("24G/59G")).toBeInTheDocument();
     });
   });
 
@@ -328,82 +439,145 @@ describe("StatusBar (260814-ldbs)", () => {
     // Host-global metrics arrive first (every route)…
     mockHostMetrics = makeMetrics({ cpu: { samples: [11], current: 11, cores: 8 } });
     rerender(tree(null));
-    expect(screen.getByText("11%")).toBeInTheDocument();
+    expect(within(hostCluster()).getByText("11%")).toBeInTheDocument();
     // …then the server-scoped slice lands and WINS (the HostPanel rule).
     mockMetrics = makeMetrics({ cpu: { samples: [42], current: 42, cores: 4 } });
     rerender(tree(null));
-    expect(screen.getByText("42%")).toBeInTheDocument();
+    expect(within(hostCluster()).getByText("42%")).toBeInTheDocument();
     // …and a window record arriving later (SSE snapshot) adds the cluster.
     rerender(tree(makeWindowWithPanes()));
     expect(screen.getByTestId("status-bar-window")).toBeInTheDocument();
   });
 
-  describe("overflow ladder (R5)", () => {
-    it("the … menu lists EVERY dropped segment — window rows, metrics rows, version, and the hint rows keep their actions", () => {
-      mockHostMetrics = makeMetrics();
-      mockDaemonVersion = "0.9.3";
+  describe("measured priority fold", () => {
+    it("a jsdom render with no width mocks lands on the cold default — every segment, no chevron", () => {
+      // All probe widths read 0, so the fold keeps the fully-expanded cold
+      // default (the safe cold answer) and no … button exists.
+      renderBar(fullProps());
+      expect(within(windowCluster()).getByText("%5")).toBeInTheDocument();
+      expect(within(hostCluster()).getByText("41%")).toBeInTheDocument();
+      expect(screen.queryByTestId("status-bar-overflow")).toBeNull();
+    });
+
+    it("a wide budget renders every segment in the strip and no chevron", () => {
+      mockWidths(1178, PROBE);
+      renderBar(fullProps());
+      expect(within(windowCluster()).getByText("%5")).toBeInTheDocument();
+      expect(within(windowCluster()).getByText("run-kit")).toBeInTheDocument();
+      expect(within(hostCluster()).getByText("ld")).toBeInTheDocument();
+      expect(screen.getByTestId("status-bar-compose")).toBeInTheDocument();
+      expect(screen.queryByTestId("status-bar-overflow")).toBeNull();
+    });
+
+    it("a budget short by one ld folds ld first — the chevron appears with exactly one informational row", () => {
+      // ld is priority 0, the first to die.
+      mockWidths(1170, PROBE);
+      renderBar(fullProps());
+      expect(within(hostCluster()).queryByText("ld")).toBeNull();
+      const menu = openMenu();
+      const rows = menu.querySelectorAll("[role='menuitem']");
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toHaveTextContent("ld 14%");
+      expect(rows[0].tagName).toBe("SPAN");
+    });
+
+    it("a narrow budget folds tmx/cwd/ld/hints in strip order — copy segments stay copy buttons", () => {
+      mockWidths(920, PROBE);
+      renderBar(fullProps());
+      // Folded out of the strip…
+      expect(within(windowCluster()).queryByText("%5")).toBeNull();
+      expect(within(windowCluster()).queryByText("run-kit")).toBeNull();
+      expect(within(windowCluster()).getByText("main")).toBeInTheDocument();
+      expect(within(hostCluster()).queryByText("ld")).toBeNull();
+      expect(screen.queryByTestId("status-bar-compose")).toBeNull();
+      // …and into the menu, in strip order (left cluster first).
+      const menu = openMenu();
+      expect(menuRowTexts(menu)).toEqual([
+        "tmx %5",
+        "cwd run-kit",
+        "ld 14%",
+        "⌘K Command palette",
+        "a▏ Compose",
+      ]);
+      const tmxRow = within(menu).getByRole("menuitem", { name: "Copy tmux pane id" });
+      expect(tmxRow.tagName).toBe("BUTTON");
+      fireEvent.click(tmxRow);
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("%5");
+      const cwdRow = within(menu).getByRole("menuitem", { name: "Copy working directory path" });
+      fireEvent.click(cwdRow);
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("/home/user/code/run-kit");
+      // Copy rows keep the menu open.
+      expect(screen.getByRole("menu", { name: "Overflow status segments" })).toBeInTheDocument();
+      // Escape closes and refocuses the trigger.
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByRole("menu", { name: "Overflow status segments" })).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(screen.getByTestId("status-bar-overflow"));
+    });
+
+    it("the … menu lists exactly the folded ids in strip order — window, metrics, identity, and hint rows", () => {
+      mockWidths(500, PROBE);
       const listener = vi.fn();
       document.addEventListener("palette:open", listener);
-      renderBar({ window: makeWindowWithPanes(), server: "alpha", onOpenCompose: vi.fn() });
-      fireEvent.click(screen.getByTestId("status-bar-overflow"));
-      const menu = screen.getByRole("menu", { name: "Overflow status segments" });
-      const texts = Array.from(menu.querySelectorAll("[role='menuitem']")).map((el) => el.textContent);
-      // Window + metrics rows (each inverse-gated to its strip segment)…
-      expect(texts.some((t) => t?.startsWith("cwd "))).toBe(true);
-      expect(texts.some((t) => t?.startsWith("tmx "))).toBe(true);
+      renderBar(fullProps());
+      const menu = openMenu();
+      expect(menuRowTexts(menu)).toEqual([
+        "⑂ main",
+        "agt waiting 3m",
+        "tmx %5",
+        "cwd run-kit",
+        "cpu 17% · mem 41%",
+        "ld 14%",
+        "alpha",
+        "v0.9.3",
+        "⌘K Command palette",
+        "a▏ Compose",
+      ]);
       // No out row — the out register is deleted from the bar.
-      expect(texts.some((t) => t?.startsWith("out "))).toBe(false);
-      expect(texts.some((t) => t === "⑂ main")).toBe(true);
-      expect(texts.some((t) => t?.startsWith("ld "))).toBe(true);
-      expect(texts.some((t) => t?.startsWith("cpu "))).toBe(true);
-      // …plus the version fragment (dropped below 700px)…
-      expect(texts).toContain("v0.9.3");
-      // …and the two hint chips (dropped below xl) as ACTIONABLE rows.
-      const paletteRow = screen.getByRole("menuitem", { name: "⌘K Command palette" });
-      expect(paletteRow.className).toContain("xl:hidden");
-      expect(screen.getByRole("menuitem", { name: "a▏ Compose" })).toBeInTheDocument();
+      expect(menuRowTexts(menu).some((t) => t?.startsWith("out "))).toBe(false);
+      // Row kinds: copy buttons, informational spans, action rows.
+      expect(within(menu).getByRole("menuitem", { name: "Copy server name" }).tagName).toBe("BUTTON");
+      expect(within(menu).getByRole("menuitem", { name: "Copy version" }).tagName).toBe("BUTTON");
       // The palette row fires the real action and closes the menu.
-      fireEvent.click(paletteRow);
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "⌘K Command palette" }));
       expect(listener).toHaveBeenCalled();
       expect(screen.queryByRole("menu", { name: "Overflow status segments" })).not.toBeInTheDocument();
       document.removeEventListener("palette:open", listener);
     });
 
-    it("drops low-priority segments by deterministic breakpoint classes and lists them under the … chevron", () => {      mockHostMetrics = makeMetrics();
-      renderBar({ window: makeWindowWithPanes(), server: "alpha" });
-      const bar = screen.getByTestId("status-bar-window");
-      // Truncation survives; whole-segment drops are breakpoint-class driven
-      // (no JS measurement), rightmost dies first: cwd at ≥xl-only
-      // visibility, tmx at ≥lg, git at ≥md.
-      expect(bar.querySelector(".xl\\:flex")).not.toBeNull();
-      // The chevron mirrors the ladder: visible only below xl.
-      const chevron = screen.getByTestId("status-bar-overflow");
-      expect(chevron.parentElement!.className).toContain("xl:hidden");
-      fireEvent.click(chevron);
-      const menu = screen.getByRole("menu", { name: "Overflow status segments" });
-      // The cwd row carries the INVERSE visibility (xl:hidden) of its segment.
-      const cwdRow = Array.from(menu.querySelectorAll("[role='menuitem']")).find((el) =>
-        el.textContent?.startsWith("cwd "),
-      );
-      expect(cwdRow?.className).toContain("xl:hidden");
-      // Escape closes and refocuses the trigger.
-      fireEvent.keyDown(document, { key: "Escape" });
-      expect(screen.queryByRole("menu", { name: "Overflow status segments" })).not.toBeInTheDocument();
-      expect(document.activeElement).toBe(chevron);
+    it("a never-fold-only overflow truncates the fab value span and nothing else", () => {
+      // Every foldable segment folds; the never-fold set (pr + fab) still
+      // overflows, so the rightmost truncatable survivor takes the ellipsis.
+      mockWidths(300, PROBE);
+      renderBar(fullProps());
+      const truncating = windowCluster().querySelectorAll(".truncate");
+      expect(truncating).toHaveLength(1);
+      expect(truncating[0]).toHaveTextContent("ldbs shell-stage-status-bar · apply");
+      // pr never folds and is not the survivor — fab sits right of it.
+      expect(within(windowCluster()).getByText("#603")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Open PR #603 in a new tab" }).className).not.toContain("truncate");
     });
 
-    it("roves focus through the menu rows with ArrowDown/ArrowUp — informational rows included", async () => {
+    it("a paneId-less tmx folds to an informational span, not a copy button", () => {
+      mockWidths(100, PROBE);
+      renderBar({ window: makeWindow() });
+      const menu = openMenu();
+      const tmxRow = Array.from(menu.querySelectorAll<HTMLElement>("[role='menuitem']")).find((el) =>
+        el.textContent?.startsWith("tmx "),
+      );
+      expect(tmxRow?.tagName).toBe("SPAN");
+    });
+
+    it("roves focus through the folded rows with ArrowDown/ArrowUp — informational rows included", async () => {
       // Most rows are informational spans (`role="menuitem" tabIndex={-1}`), so
       // arrow-nav is what makes them reachable at all: without it a keyboard
       // user could open the menu and never read a segment (Constitution V).
       // Mirrors `top-bar-overflow-menu.tsx`'s contract.
-      mockHostMetrics = makeMetrics();
-      mockDaemonVersion = "0.9.3";
-      renderBar({ window: makeWindowWithPanes(), server: "alpha", onOpenCompose: vi.fn() });
-      fireEvent.click(screen.getByTestId("status-bar-overflow"));
-      const menu = screen.getByRole("menu", { name: "Overflow status segments" });
+      mockWidths(700, PROBE);
+      renderBar(fullProps());
+      const menu = openMenu();
       const rows = Array.from(menu.querySelectorAll<HTMLElement>("[role='menuitem']"));
-      expect(rows.length).toBeGreaterThan(1);
+      // tmx · cwd · cpu·mem · ld · server · palette · compose
+      expect(rows).toHaveLength(7);
 
       // Opening moves focus into the panel (rAF-deferred, like the top bar).
       await waitFor(() => expect(document.activeElement).toBe(rows[0]));
@@ -426,7 +600,7 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(screen.queryByTestId("status-bar-clock")).not.toBeInTheDocument();
     });
 
-    it("shows ◷ in {rel} for the soonest nextFire, dropping with the hints (hidden xl:flex)", () => {
+    it("shows ◷ in {rel} for the soonest nextFire — a foldable segment (prio 4), never breakpoint-hidden", () => {
       const nowSec = Math.floor(Date.now() / 1000);
       mockCronEntries = [
         { id: "b2", name: "nightly", nextFire: nowSec + 3600 },
@@ -437,10 +611,11 @@ describe("StatusBar (260814-ldbs)", () => {
       const chip = screen.getByTestId("status-bar-clock");
       // The soonest fire wins, not the first listed.
       expect(chip).toHaveTextContent("◷ in 5m");
-      expect(chip.className).toContain("hidden xl:flex");
+      expect(chip.className).toContain("flex");
+      expect(chip.className).not.toContain("hidden");
     });
 
-    it("stale wins over entries: ◷ stale {age} in yellow, never dropped (flex)", () => {
+    it("stale wins over entries: ◷ stale {age} in yellow, never folded", () => {
       const nowSec = Math.floor(Date.now() / 1000);
       mockCronEntries = [{ id: "a1", name: "deploy", nextFire: nowSec + 300 }];
       mockSessionsByServer = new Map([
@@ -453,6 +628,24 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(chip.className).toContain("text-signal-yellow");
       expect(chip.className).toContain("flex");
       expect(chip.className).not.toContain("hidden");
+    });
+
+    it("the stale chip survives a budget that folds the next-fire chip — and never gets a clk row", () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      // Next-fire: the chip folds at this budget (prio 4) and its row shows.
+      mockCronEntries = [{ id: "a1", name: "deploy", nextFire: nowSec + 300 }];
+      renderFolded({ server: "alpha" }, 170);
+      expect(screen.queryByTestId("status-bar-clock")).toBeNull();
+      expect(within(openMenu()).getByRole("menuitem", { name: "◷ Cron List" })).toBeInTheDocument();
+
+      // Stale: the chip never folds (the connection-dot alarm precedent), so
+      // it stays in the strip at the same budget and needs no menu row.
+      mockSessionsByServer = new Map([
+        ["alpha", [{ operatorStale: true, operatorLastTickAt: nowSec - 120 }]],
+      ]);
+      renderFolded({ server: "alpha" }, 170);
+      expect(screen.getByTestId("status-bar-clock")).toHaveTextContent("◷ stale 2m");
+      expect(within(openMenu()).queryByRole("menuitem", { name: "◷ Cron List" })).toBeNull();
     });
 
     it("clicking the chip dispatches the quake terminal request with segment: list", () => {
@@ -470,24 +663,6 @@ describe("StatusBar (260814-ldbs)", () => {
 
       expect(seen).toEqual([{ action: "open", segment: "list" }]);
     });
-
-    it("the overflow clk row renders only in the next-fire state, not in the stale state", () => {
-      const nowSec = Math.floor(Date.now() / 1000);
-      mockCronEntries = [{ id: "a1", name: "deploy", nextFire: nowSec + 300 }];
-      renderBar({ server: "alpha" });
-      fireEvent.click(screen.getByTestId("status-bar-overflow"));
-      expect(screen.getByRole("menuitem", { name: "◷ Cron List" })).toBeInTheDocument();
-      cleanup();
-
-      // Stale: the chip never drops from the strip, so no mirror row exists.
-      mockSessionsByServer = new Map([
-        ["alpha", [{ operatorStale: true, operatorLastTickAt: nowSec - 120 }]],
-      ]);
-      renderBar({ server: "alpha" });
-      expect(screen.getByTestId("status-bar-clock")).toHaveTextContent("◷ stale 2m");
-      fireEvent.click(screen.getByTestId("status-bar-overflow"));
-      expect(screen.queryByRole("menuitem", { name: "◷ Cron List" })).not.toBeInTheDocument();
-    });
   });
 
   describe("copy affordances (the Pane panel's CopyableRow contract)", () => {
@@ -499,7 +674,7 @@ describe("StatusBar (260814-ldbs)", () => {
       // git — copies the branch name, label (⑂) swaps to copied ✓, then reverts.
       fireEvent.click(screen.getByRole("button", { name: "Copy git branch" }));
       expect(mockCopyToClipboard).toHaveBeenCalledWith("main");
-      const cluster = screen.getByTestId("status-bar-window");
+      const cluster = windowCluster();
       expect(within(cluster).getByText("copied ✓")).toBeInTheDocument();
       act(() => vi.advanceTimersByTime(1000));
       expect(within(cluster).queryByText("copied ✓")).not.toBeInTheDocument();
@@ -542,21 +717,19 @@ describe("StatusBar (260814-ldbs)", () => {
       mockHostMetrics = makeMetrics();
       const win = makeWindowWithPanes({ agentState: "waiting", agentIdleDuration: "3m" });
       renderBar({ window: win });
-      expect(screen.getByText("waiting 3m").closest("button")).toBeNull();
-      expect(screen.getByText("cpu").closest("button")).toBeNull();
+      expect(within(windowCluster()).getByText("waiting 3m").closest("button")).toBeNull();
+      expect(within(hostCluster()).getByText("cpu").closest("button")).toBeNull();
       expect(screen.getByLabelText("Connected").closest("button")).toBeNull();
       cleanup();
       // No panes ⇒ no pane id ⇒ the tmx segment renders but is not a button.
       renderBar({ window: makeWindow() });
-      expect(screen.getByText("tmx").closest("button")).toBeNull();
+      expect(within(windowCluster()).getByText("tmx").closest("button")).toBeNull();
     });
 
     it("overflow rows mirroring copyable segments are copy-action buttons — full raw value, menu stays open, keyboard-reachable", async () => {
-      mockHostMetrics = makeMetrics();
-      mockDaemonVersion = "0.9.3";
-      renderBar({ window: makeWindowWithPanes(), server: "alpha" });
-      fireEvent.click(screen.getByTestId("status-bar-overflow"));
-      const menu = screen.getByRole("menu", { name: "Overflow status segments" });
+      mockWidths(500, PROBE);
+      renderBar(fullProps());
+      const menu = openMenu();
 
       // Roving focus lands on the first row — the git COPY row, a real button
       // (natively Enter/Space activatable — Constitution V).
@@ -572,9 +745,12 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(cwdRow).toHaveTextContent("copied ✓ run-kit");
       expect(screen.getByRole("menu", { name: "Overflow status segments" })).toBeInTheDocument();
 
-      // Version row copies the displayed v… string.
+      // The right-cluster copy fragments gain rows under the fold: version,
+      // server, and host copy their displayed strings from the menu too.
       fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy version" }));
       expect(mockCopyToClipboard).toHaveBeenCalledWith("v0.9.3");
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy server name" }));
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("alpha");
 
       // Metrics rows mirror the strip's passive segments: informational spans.
       const ldRow = Array.from(menu.querySelectorAll<HTMLElement>("[role='menuitem']")).find((el) =>

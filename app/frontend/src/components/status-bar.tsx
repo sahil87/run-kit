@@ -77,8 +77,11 @@ import type { MetricsSnapshot, WindowInfo } from "@/types";
  * measurement here): every segment renders at natural width or folds whole
  * into the `…` menu — ONE ladder across BOTH clusters, so the two sides of
  * the `ml-auto` spring no longer degrade independently. A hidden probe row
- * renders every candidate segment (plus the `…` chevron) at natural width;
- * one ResizeObserver on the bar root AND the probe feeds
+ * renders every candidate segment (plus the `…` chevron) at natural width
+ * — `aria-hidden` + `inert`, and its copies carry no accessible identity
+ * (no aria-label / testid / title / href), because label-text queries match
+ * raw attributes regardless of `aria-hidden`; one ResizeObserver on the bar
+ * root AND the probe feeds
  * `computeStatusBarFold` from a pre-paint `useLayoutEffect`. Lower fold
  * priority dies first (SEGMENT_TABLE); `pr`/`fab`/`zen ✕`/the stale `◷`
  * chip/the connection dot never fold. Truncation is the last resort,
@@ -218,7 +221,7 @@ function CopySegment({
   const node = (
     <button
       type="button"
-      aria-label={ariaLabel}
+      aria-label={probe ? undefined : ariaLabel}
       onClick={onCopy}
       tabIndex={probe ? -1 : undefined}
       className={`group flex items-center gap-1 whitespace-nowrap cursor-pointer bg-transparent border-0 p-0 text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green ${truncate ? "min-w-0" : "shrink-0"}`}
@@ -381,7 +384,7 @@ function ClockChip({
   const node = (
     <button
       type="button"
-      aria-label="Cron list"
+      aria-label={probe ? undefined : "Cron list"}
       data-testid={probe ? undefined : "status-bar-clock"}
       tabIndex={probe ? -1 : undefined}
       onClick={openCronList}
@@ -810,9 +813,13 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
   const stripVisible = (id: SegmentId) => (fold === null ? neverFoldIds.has(id) : !foldedIds.has(id));
   const truncateId = fold?.truncateId ?? null;
 
-  /** One segment per id, shared by the strip and the probe (`probe` renders
-   *  the bare control — no Tip, `tabIndex={-1}`, no testid — measurement
-   *  only), so the two can never disagree. */
+  /** One segment per id, shared by the strip and the probe, so the two can
+   *  never disagree. `probe` renders the bare control — no Tip, `tabIndex={-1}`,
+   *  and NO accessible identity (no `aria-label`, `data-testid`, `title`,
+   *  `href`, `aria-pressed`): the probe container is `aria-hidden` + `inert`,
+   *  but label-text queries (Playwright `getByLabel`, Testing Library
+   *  `getByLabelText`) match raw `aria-label` attributes regardless, so a
+   *  labelled probe copy would make every strip control resolve twice. */
   const segmentNode = (id: SegmentId, probe: boolean): ReactNode => {
     switch (id) {
       case "git":
@@ -852,7 +859,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
         // middle-click / Ctrl-⌘-click / copy-link all work natively. The `↗`
         // glyph marks the OPEN affordance, so it renders only in this branch
         // — the no-URL fallback is a passive span and carries no glyph.
-        return win?.prUrl ? (
+        return win?.prUrl && !probe ? (
           <a
             href={win.prUrl}
             target="_blank"
@@ -911,7 +918,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
         );
         return (
           <span className="flex items-center gap-1.5 whitespace-nowrap shrink-0">
-            <StatusDot win={win} />
+            <StatusDot win={win} decorative={probe} />
             {probe ? value : <Tip label="Agent state" placement="top">{value}</Tip>}
           </span>
         );
@@ -960,7 +967,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
         const node = (
           <button
             type="button"
-            aria-label="Exit zen mode"
+            aria-label={probe ? undefined : "Exit zen mode"}
             data-testid={probe ? undefined : "status-bar-exit-zen"}
             tabIndex={probe ? -1 : undefined}
             className="flex items-center rounded border border-accent-green bg-accent-green/20 px-1 text-accent-green transition-colors"
@@ -1008,7 +1015,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
         return (
           <button
             type="button"
-            aria-label="Copy server name"
+            aria-label={probe ? undefined : "Copy server name"}
             tabIndex={probe ? -1 : undefined}
             onClick={() => hostCopy("server", server)}
             className="shrink-0 whitespace-nowrap text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green"
@@ -1022,7 +1029,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
         return (
           <button
             type="button"
-            aria-label="Copy host name"
+            aria-label={probe ? undefined : "Copy host name"}
             tabIndex={probe ? -1 : undefined}
             onClick={() => hostCopy("host", hostName)}
             className="shrink-0 whitespace-nowrap text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green"
@@ -1036,7 +1043,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
         return (
           <button
             type="button"
-            aria-label="Copy version"
+            aria-label={probe ? undefined : "Copy version"}
             tabIndex={probe ? -1 : undefined}
             onClick={() => hostCopy("version", version)}
             className={`${VALUE_CLASS} shrink-0 whitespace-nowrap cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green`}
@@ -1049,7 +1056,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
         const node = (
           <button
             type="button"
-            aria-label="Open command palette"
+            aria-label={probe ? undefined : "Open command palette"}
             tabIndex={probe ? -1 : undefined}
             className="flex items-center rounded border border-border px-1 text-text-secondary transition-colors hover:border-text-secondary"
             onClick={() => document.dispatchEvent(new CustomEvent("palette:open"))}
@@ -1064,8 +1071,8 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
         const node = (
           <button
             type="button"
-            aria-label="Compose"
-            aria-pressed={composeStripEnabled}
+            aria-label={probe ? undefined : "Compose"}
+            aria-pressed={probe ? undefined : composeStripEnabled}
             data-testid={probe ? undefined : "status-bar-compose"}
             tabIndex={probe ? -1 : undefined}
             className={controlClass({

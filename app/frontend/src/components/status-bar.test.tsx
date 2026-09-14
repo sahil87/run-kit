@@ -455,6 +455,48 @@ describe("StatusBar (260814-ldbs)", () => {
   });
 
   describe("measured priority fold", () => {
+    it("the hidden probe carries no accessible identity — every labelled control resolves exactly once", () => {
+      // aria-hidden + inert on the probe container do NOT hide raw attributes
+      // from label-text queries (Playwright getByLabel, Testing Library
+      // getByLabelText), so a labelled probe copy would make each strip
+      // control resolve twice — a strict-mode violation in e2e.
+      mockHostMetrics = makeMetrics();
+      mockDaemonVersion = "0.9.3";
+      mockCronEntries = [{ id: "a1", name: "deploy", nextFire: Math.floor(Date.now() / 1000) + 300 }];
+      const win = makeWindowWithPanes({
+        agentState: "waiting",
+        agentIdleDuration: "3m",
+        fabChange: "260814-ldbs-shell-stage-status-bar",
+        fabStage: "apply",
+        prNumber: 603,
+        prState: "open",
+        prChecks: "pass",
+        prUrl: "https://github.com/sahil87/run-kit/pull/603",
+      });
+      renderBar({ window: win, server: "alpha", onOpenCompose: vi.fn(), zenActive: true, onExitZen: vi.fn() });
+      const probe = screen.getByTestId("status-bar-probe");
+      // Every candidate (15 segments + the chevron) is probed …
+      expect(probe.querySelectorAll("[data-fold]")).toHaveLength(16);
+      // … and no copy is addressable by label, testid, title, link, pressed state, or role.
+      expect(probe.querySelectorAll("[aria-label],[data-testid],[title],[href],[aria-pressed],[role]")).toHaveLength(0);
+      for (const name of [
+        "Open command palette",
+        "Compose",
+        "Copy git branch",
+        "Copy tmux pane id",
+        "Copy working directory path",
+        "Copy fab change id",
+        "Copy server name",
+        "Copy host name",
+        "Copy version",
+        "Cron list",
+        "Exit zen mode",
+        "Open PR #603 in a new tab",
+      ]) {
+        expect(screen.getAllByLabelText(name), name).toHaveLength(1);
+      }
+    });
+
     it("a jsdom render with no width mocks lands on the cold default — every segment, no chevron", () => {
       // All probe widths read 0, so the fold keeps the fully-expanded cold
       // default (the safe cold answer) and no … button exists.

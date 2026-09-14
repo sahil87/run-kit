@@ -76,7 +76,19 @@ const FLAGGED_SIZE = "w-[9px] h-[9px]";
 // The ~3px red center of a flagged dot — the ONLY dot-red.
 const RED_CENTER = "w-[3px] h-[3px] rounded-full bg-signal-red";
 
-export function StatusDot({ win, watched }: { win: WindowInfo; watched?: WatchedFlag }) {
+export function StatusDot({
+  win,
+  watched,
+  decorative = false,
+}: {
+  win: WindowInfo;
+  watched?: WatchedFlag;
+  /** Render with NO accessible identity (no `role`, no `aria-label`) — for
+   *  hidden measurement copies (the status bar's probe row), where a second
+   *  labelled dot would make label-text queries resolve the live dot twice
+   *  (`aria-hidden` on an ancestor does not hide raw attributes from them). */
+  decorative?: boolean;
+}) {
   const state = statusDotState(win);
   const label = dotLabel(win, state, watched);
   const color = PHASE_HUE[state.phase];
@@ -92,10 +104,12 @@ export function StatusDot({ win, watched }: { win: WindowInfo; watched?: Watched
 
   // The accessible name lives on `aria-label`; no native `title` (the flyout
   // card is the detail surface) and no tabIndex (the row is the focus target).
-  const common = {
-    role: "img" as const,
-    "aria-label": label,
-  };
+  const common = decorative
+    ? { "aria-hidden": true as const }
+    : {
+        role: "img" as const,
+        "aria-label": label,
+      };
 
   let dot: React.ReactNode;
   if (state.failed) {

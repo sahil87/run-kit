@@ -28,7 +28,7 @@ import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import { InstanceNameProvider } from "@/contexts/instance-name-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
-import { ZenProvider } from "@/contexts/zen-context";
+import { ZenProvider, useZenDispatch } from "@/contexts/zen-context";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { TopBarSlotProvider } from "@/contexts/top-bar-slot-context";
@@ -1416,6 +1416,16 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
   // read its mount/unmount record and the windowId prop stream.
   stubMatchMedia(() => false);
 
+  // Zen is transient provider state (no storage seam), so the harness exposes
+  // its dispatch through a probe child — the status-bar gate tests flip zen
+  // the way the chord/palette body would, without driving keybindings.
+  const zenDispatchRef: { current: ((active: boolean) => void) | null } = { current: null };
+  function ZenProbe() {
+    const { setZenActive } = useZenDispatch();
+    zenDispatchRef.current = setZenActive;
+    return null;
+  }
+
   function TerminalRouteRoot() {
     return (
       <ThemeProvider>
@@ -1423,6 +1433,7 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
           <InstanceNameProvider>
             <ChromeProvider>
               <ZenProvider>
+                <ZenProbe />
                 <FocusedTerminalProvider>
                   <OptimisticProvider>
                     <TopBarSlotProvider>
@@ -1627,6 +1638,21 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
       await waitFor(() => expect(screen.getByTestId("status-bar-window")).toBeInTheDocument());
       // The grid never remounted across the flips.
       expect(surfaceLayoutSpy.mounts).toEqual(["mount"]);
+    });
+
+    it("zen hands the registers back to the bar while the PANE section stays on", async () => {
+      // Zen hides the sidebar without touching the section preference, so the
+      // panel is off screen: the bar must show the cluster (host cluster too)
+      // or zen would be the one desktop state with no register view.
+      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      await renderTerminalRoute();
+      expect(screen.queryByTestId("status-bar-window")).toBeNull();
+      act(() => zenDispatchRef.current?.(true));
+      await waitFor(() => expect(screen.getByTestId("status-bar-window")).toBeInTheDocument());
+      expect(screen.getByTestId("status-bar-host")).toBeInTheDocument();
+      expect(localStorage.getItem("runkit-sidebar-section-pane")).toBe("true");
+      act(() => zenDispatchRef.current?.(false));
+      await waitFor(() => expect(screen.queryByTestId("status-bar-window")).toBeNull());
     });
   });
 });

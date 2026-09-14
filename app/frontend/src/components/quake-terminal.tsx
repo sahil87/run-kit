@@ -1355,6 +1355,10 @@ function QuakeCompose({
       }
       return;
     }
+    // Read-only box (no operator): leave every other key to the browser's
+    // readOnly handling. The local-newline insert mutates the DOM directly
+    // and would show a newline the (empty, unaddressed) draft never holds.
+    if (noOperator) return;
     const action = classifyComposeEnter(
       {
         key: e.key,

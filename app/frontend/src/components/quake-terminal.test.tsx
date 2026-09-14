@@ -1468,6 +1468,13 @@ describe("QuakeTerminal (docked compose)", () => {
     expect(textarea).toHaveFocus();
     fireEvent.change(textarea, { target: { value: "typed into the void" } });
     expect(textarea).toHaveValue("");
+    // The local-newline chord must not reach the caret insert either — it
+    // would mutate the DOM behind the empty store.
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
+    expect(textarea).toHaveValue("");
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockOperatorRequest).not.toHaveBeenCalled();
   });
 
   it("on rest the origin regains focus only while the docked textarea still holds it", () => {

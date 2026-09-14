@@ -153,7 +153,8 @@ test.describe("PANE panel four-register view", () => {
    *    NOT contain the slug (the branch carries it).
    * 5. Assert the PR register (L3) `pr-line` contains "#386".
    * 6. Assert the cwd basename element's box lies fully inside its row and
-   *    the dim parent span is present.
+   *    the dim parent span is present (the basename lookup is scoped to the
+   *    cwd row — the git row's branch rest renders the same text).
    */
   test("a full window shows all four registers (out/agt/fab/PR)", async ({ page }) => {
     await gotoWindowWithDrawer(page, "1");
@@ -178,7 +179,11 @@ test.describe("PANE panel four-register view", () => {
     // L3 PR register — the PR line for the derived PR.
     await expect(page.getByTestId("pr-line")).toContainText("#386");
     // cwd basename-first: the basename never clips (the parent head-truncates).
-    const basename = page.getByText("status-pyramid-ui-surfacing", { exact: true });
+    // Scoped to the cwd row's button (its title is the full path) — the bare
+    // text also appears as the git row's branch rest, so an unscoped lookup
+    // resolves two elements and fails strict mode.
+    const cwdRow = page.locator('button[title="/home/sahil/code/sahil87/run-kit.worktrees/status-pyramid-ui-surfacing"]');
+    const basename = cwdRow.getByText("status-pyramid-ui-surfacing", { exact: true });
     await expect(basename).toBeVisible();
     const parent = page.locator("bdi", { hasText: "run-kit.worktrees/" });
     await expect(parent).toBeVisible();

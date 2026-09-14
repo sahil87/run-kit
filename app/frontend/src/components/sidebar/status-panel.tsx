@@ -448,7 +448,9 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
           the ellipsis to the head; the <bdi dir="ltr"> keeps the text itself
           in left-to-right glyph order) while the basename holds shrink-0. The
           flex CopyableRow lets the two spans carry their own shrink contracts;
-          title and copy stay the full unabbreviated path. */}
+          title and copy stay the full unabbreviated path. The icon/value gap
+          is an NBSP inside the icon span — a flex row drops whitespace-only
+          {" "} text nodes (the PrLinkRow contract). */}
       <CopyableRow
         prefix="cwd"
         tipLabel="Working directory"
@@ -457,8 +459,7 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
         title={cwdMissing ? `${activePaneCwd} (no longer exists)` : activePaneCwd}
         flex
       >
-        <span className={`${ICON_CLASS} shrink-0`} aria-hidden="true">{"\uF413"}</span>
-        {" "}
+        <span className={`${ICON_CLASS} shrink-0`} aria-hidden="true">{"\uF413\u00a0"}</span>
         <span className="flex min-w-0">
           {cwdParent && (
             <span

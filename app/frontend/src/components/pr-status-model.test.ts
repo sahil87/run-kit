@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
-import { prOwnsGlyph, prGlyphColor, PR_STATE_COLORS, statusDotState, fabPhase } from "./pr-status-model";
+import { prOwnsGlyph, prGlyphColor, PR_STATE_COLORS, FAB_STATE_COLORS, statusDotState, fabPhase } from "./pr-status-model";
 import { makeWindow } from "@/test-utils/fixtures";
 
 afterEach(() => {
@@ -149,6 +149,27 @@ describe("fabPhase — the two-stop split (stage-based, never PR-based)", () => 
     { stages: ["hydrate", "paused", undefined], want: "prReady" },
   ] as const)("maps $stages to $want", ({ stages, want }) => {
     for (const stage of stages) expect(fabPhase(stage)).toBe(want);
+  });
+});
+
+// FAB_STATE_COLORS — the fab register's trailing-state hue map: green for
+// running/landed (active, done), yellow for a gated wait (ready, pending),
+// red for failed. `skipped` and unknown states deliberately have no entry —
+// the `?? ""` lookup renders them with no extra class.
+describe("FAB_STATE_COLORS — displayState hue map", () => {
+  it.each([
+    { state: "active", want: "text-accent-green" },
+    { state: "done", want: "text-accent-green" },
+    { state: "ready", want: "text-signal-yellow" },
+    { state: "pending", want: "text-signal-yellow" },
+    { state: "failed", want: "text-signal-red" },
+  ] as const)("$state → $want", ({ state, want }) => {
+    expect(FAB_STATE_COLORS[state]).toBe(want);
+  });
+
+  it("skipped and unknown states fall through to no extra class", () => {
+    expect(FAB_STATE_COLORS["skipped"] ?? "").toBe("");
+    expect(FAB_STATE_COLORS["bogus"] ?? "").toBe("");
   });
 });
 

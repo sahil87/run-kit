@@ -45,11 +45,13 @@ export const PR_REVIEW_COLORS: Record<string, string> = {
 
 /** fab displayState → hue token for the `fab` register's trailing state
  *  segment (the backend display-state vocabulary is `active | ready | pending
- *  | done | failed` — api/sortwindows.go). Green = running or landed, yellow =
- *  waiting on a gate, red = a stage failed — the same signal tokens the PR
- *  vocabulary uses. Keyed by DISPLAY STATE, not by dot phase: PHASE_HUE is
- *  keyed by DotPhase (building/prReady), so `ready`/`failed` have no phase key
- *  and this map is deliberately separate. Lookup is `FAB_STATE_COLORS[state]
+ *  | done | failed` — api/sortwindows.go; the frontend/API contract adds
+ *  `skipped`, which deliberately has NO entry here — it renders through the
+ *  no-extra-class fallback like any unknown state). Green = running or landed,
+ *  yellow = waiting on a gate, red = a stage failed — the same signal tokens
+ *  the PR vocabulary uses. Keyed by DISPLAY STATE, not by dot phase: PHASE_HUE
+ *  is keyed by DotPhase (building/prReady), so `ready`/`failed` have no phase
+ *  key and this map is deliberately separate. Lookup is `FAB_STATE_COLORS[state]
  *  ?? ""` — an unknown state renders the token with no extra class. */
 export const FAB_STATE_COLORS: Record<string, string> = {
   active: "text-accent-green",

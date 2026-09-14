@@ -19,11 +19,11 @@ type: memory
 
 `app/frontend/src/lib/clipboard.ts` — shared `copyToClipboard(text: string): Promise<boolean>` function. Primary path uses `navigator.clipboard.writeText()`; fallback uses `document.execCommand('copy')` for non-secure contexts (HTTP). All callers (terminal copy, Pane panel row copy, status-bar copy segments, the `Copy:` palette entries) import from this module (§ Steady-state version surfaces for the boolean success signal). The keyed click-to-copy interaction on register surfaces — selection guard, clipboard call, one 1s `copied ✓` feedback slot per surface — lives once in `hooks/use-copy-feedback.ts` (`useCopyFeedback`), consumed by the Pane panel rows and the status-bar segments/menu rows ([status-signals](/run-kit/ui/status-signals.md) § Status Bar). (3m72)
 
-CWD display (line 1) uses `shortenPath()` to shorten the active pane's `cwd` (falls back to `worktreePath`):
-- Home substitution: `/home/<user>/…` → `~/…`, `/Users/<user>/…` → `~/…`, `/root/…` → `~/…` (exact home dir → `~`). Handles Linux and macOS conventions.
-- Truncation: if the path (after home substitution) has more than 2 non-empty segments, it is truncated to `…/<second-to-last>/<last>`. Paths with ≤ 2 segments are not truncated.
-- Examples: `/home/sahil/code/org/repo/src` → `…/repo/src`; `/home/sahil/code/org` → `~/code/org`; `/var/log/nginx` → `…/log/nginx`.
-- The `title` attribute on the CWD element always contains the original unmodified `activePaneCwd` — hover to see the full path.
+CWD display (the Pane panel's `cwd` row) renders the active pane's `cwd` (falls back to `worktreePath`) basename-first over two spans (`status-panel.tsx`):
+- Home substitution only: `abbreviateHomePath()` maps `/home/<user>/…` → `~/…` (Linux/macOS/`/root` conventions; exact home dir → `~`). No tail truncation — the old `shortenPath()` `…/<second-to-last>/<last>` rule is gone.
+- Basename-first split: the abbreviated path splits at its last `/`; the basename span holds `shrink-0` (never clips) while the parent span yields (head-truncates via `dir="rtl"` + `<bdi dir="ltr">`). A root-level or single-segment path renders whole as the basename with no parent span.
+- The row's `title` attribute and copy value always carry the original unmodified `activePaneCwd` — hover or copy for the full path. A deleted-on-disk cwd (`cwdMissing`) recolors both spans red and appends a ` (deleted)` tag.
+- The status bar's `cwd` segment renders only the basename (`cwdFull.split("/")` last segment), full path as its copy value.
 
 ### E2E host-global filesystem state (`~/.config/run-kit/config.yaml` snapshot/restore)
 

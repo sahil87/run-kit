@@ -205,12 +205,14 @@ window is on the operator's watchlist, so the dot is a *pure function* of what t
 and can be mentally derived from it:
 
 ```
-out  active · 4s since last output        (L0: tmux activity)
+out  claude · flowing                     (L0: pane command · flowing / idle <dur>)
 agt  waiting 3m                            (L1: @rk_pane_agent_state + epoch)
-fab  260705-dmex · review · failed         (L2: fabChange · stage · displayState)
+fab  dmex · review · failed                (L2: change id · stage · displayState)
 PR   #314 open · checks fail · draft        (L3: prNumber/state/checks/review/draft)
 opr  watched · review · tick 2m ago         (operator watchlist — the row's underbar)
 ```
+
+The slug is written once — the pane's branch carries it, so `fab` renders the bare change id.
 
 The register keys are fixed-width 3-char (`out`/`agt`/`fab`/`PR`/`opr`), matching the panel's existing
 `tmx`/`cwd`/`git` vocabulary. Absent layers render as absent (a plain shell pane shows only `out`).

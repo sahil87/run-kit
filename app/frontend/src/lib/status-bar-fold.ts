@@ -19,7 +19,12 @@
  * spring no longer degrade independently). The fit charges a fixed PAD +
  * DOT + GAP per bar (horizontal padding, the connection dot, its gap) and
  * `GAP × (renderedInCluster − 1)` per cluster — no gap is charged across
- * the spring. While the rendered width exceeds the budget the lowest-`prio`
+ * the spring (the bar root carries none; the spring alone separates the
+ * clusters). The one gap override is `pairGap`: an item whose rendered
+ * partner sits with it in a tighter wrapper (the `host`/`version` pair's
+ * `gap-1`) charges that width instead of GAP, only while the named partner
+ * is its surviving neighbor. While the rendered width exceeds the budget
+ * the lowest-`prio`
  * item folds; ties fold the rightmost in display order first; `prio: null`
  * items never fold. The `…` chevron's width is reserved in a SECOND pass
  * only once something folds, so the reserve never causes the fold that
@@ -67,6 +72,12 @@ export interface StatusBarFoldItem {
   /** Eligible for the last-survivor truncation (text-bearing never-fold
    *  items: `pr`, `fab`). */
   truncatable?: boolean;
+  /** Pair-gap override: while the named partner is this item's next
+   *  surviving same-cluster neighbor, charge `px` between them instead of
+   *  GAP (the `host`/`version` wrapper renders `gap-1`, tighter than the
+   *  cluster's `gap-3`). Absent or folded partner ⇒ the full GAP — the
+   *  wrapper rejoins the cluster as one ordinary child. */
+  pairGap?: { withId: string; px: number };
 }
 
 export interface StatusBarFold {
@@ -79,20 +90,25 @@ export interface StatusBarFold {
 
 /** The rendered width of the surviving items: widths plus
  *  `GAP × (renderedInCluster − 1)` per cluster — a flex row's `gap`
- *  behaviour, with no gap charged across the spring. */
+ *  behaviour, with no gap charged across the spring. A surviving item's
+ *  `pairGap` replaces the GAP between it and its named partner while the
+ *  partner is its next surviving neighbor. */
 function renderedWidth(
   items: readonly StatusBarFoldItem[],
   folded: ReadonlySet<string>,
 ): number {
   let used = 0;
   for (const cluster of ["left", "right"] as const) {
-    let count = 0;
+    let prev: StatusBarFoldItem | null = null;
     for (const item of items) {
       if (item.cluster !== cluster || folded.has(item.id)) continue;
+      if (prev) {
+        const pair = prev.pairGap;
+        used += pair && pair.withId === item.id ? pair.px : STATUS_BAR_FOLD_GAP_PX;
+      }
       used += item.widthPx;
-      count += 1;
+      prev = item;
     }
-    if (count > 0) used += STATUS_BAR_FOLD_GAP_PX * (count - 1);
   }
   return used;
 }
@@ -167,7 +183,12 @@ function expandRank(fold: StatusBarFold, itemCount: number): number {
  * - `chevronPx` — the `…` button's probed width, reserved ONLY once
  *   something folds (the two-pass rule).
  * - `prev` — the current fold; the expand edge carries hysteresis, so the
- *   decision is stateful.
+ *   decision is stateful. `prev` is first NORMALIZED against the current
+ *   candidates: a folded id that vanished from the set or turned never-fold
+ *   (the clock chip going stale mid-hold) is dropped, and a `truncateId`
+ *   naming a no-longer-truncatable item is cleared — otherwise the rank
+ *   comparison counts ghosts and the hold branch can return a fold hiding
+ *   a never-fold segment or naming a nonexistent one.
  */
 export function computeStatusBarFold(
   items: readonly StatusBarFoldItem[],
@@ -182,12 +203,22 @@ export function computeStatusBarFold(
   if (items.length === 0 || items.every((i) => i.widthPx <= 0)) {
     return prev ?? { folded: [], truncateId: null };
   }
+  const normalized: StatusBarFold | null = prev
+    ? {
+        folded: prev.folded.filter((id) => items.some((i) => i.id === id && i.prio !== null)),
+        truncateId:
+          prev.truncateId !== null &&
+          items.some((i) => i.id === prev.truncateId && i.prio === null && i.truncatable)
+            ? prev.truncateId
+            : null,
+      }
+    : null;
   const raw = decide(items, availablePx, chevronPx);
   // One-sided hysteresis on the EXPAND edge: a less-folded rendering must be
   // re-proven against a budget shrunk by the margin; otherwise hold `prev`.
-  if (prev && expandRank(raw, items.length) > expandRank(prev, items.length)) {
+  if (normalized && expandRank(raw, items.length) > expandRank(normalized, items.length)) {
     const guarded = decide(items, availablePx - hysteresisPx, chevronPx);
-    return expandRank(guarded, items.length) > expandRank(prev, items.length) ? guarded : prev;
+    return expandRank(guarded, items.length) > expandRank(normalized, items.length) ? guarded : normalized;
   }
   return raw;
 }

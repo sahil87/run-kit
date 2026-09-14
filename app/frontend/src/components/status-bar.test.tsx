@@ -113,7 +113,8 @@ function renderFolded(
 /** Round-number probe widths per `data-fold` id. Only present segments are
  *  probed, so unused keys are inert. With the full fixture (all window
  *  layers + metrics + version + server + compose, no zen/clock) the natural
- *  width is left 650 + right 492 + the 36px fixed charge = 1178. */
+ *  width is left 650 + right 484 (the host/version pair charges its rendered
+ *  4px gap, not the cluster's 12) + the 36px fixed charge = 1170. */
 const PROBE = {
   git: 80,
   pr: 90,
@@ -134,7 +135,7 @@ const PROBE = {
 };
 
 /** The full-fold-budget fixture: every window layer plus the whole right
- *  cluster (natural width 1178 at the PROBE widths). */
+ *  cluster (natural width 1170 at the PROBE widths). */
 function fullProps() {
   mockHostMetrics = makeMetrics();
   mockDaemonVersion = "0.9.3";
@@ -242,6 +243,8 @@ describe("StatusBar (260814-ldbs)", () => {
       const pr = screen.getByRole("link", { name: "Open PR #603 in a new tab" });
       expect(pr).toHaveAttribute("href", "https://github.com/sahil87/run-kit/pull/603");
       expect(pr).toHaveAttribute("target", "_blank");
+      // The ↗ glyph marks the open affordance and rides the anchor.
+      expect(within(pr).getByText("↗")).toBeInTheDocument();
       // Full descending-relevance order: git → pr → fab → agt (→ tmx → cwd).
       const text = windowCluster().textContent ?? "";
       expect(text.indexOf("main")).toBeLessThan(text.indexOf("#603"));
@@ -255,6 +258,8 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(screen.queryByRole("link", { name: /Open PR/ })).not.toBeInTheDocument();
       expect(within(windowCluster()).getByText("#604")).toBeInTheDocument();
       expect(within(windowCluster()).getByText("merged")).toBeInTheDocument();
+      // Nothing to open ⇒ no open-affordance glyph on the passive span.
+      expect(within(windowCluster()).queryByText("↗")).not.toBeInTheDocument();
     });
 
     it("a branch carrying the fab change drops the slug from the segment; the state token is coloured", () => {
@@ -460,7 +465,7 @@ describe("StatusBar (260814-ldbs)", () => {
     });
 
     it("a wide budget renders every segment in the strip and no chevron", () => {
-      mockWidths(1178, PROBE);
+      mockWidths(1170, PROBE);
       renderBar(fullProps());
       expect(within(windowCluster()).getByText("%5")).toBeInTheDocument();
       expect(within(windowCluster()).getByText("run-kit")).toBeInTheDocument();
@@ -471,7 +476,7 @@ describe("StatusBar (260814-ldbs)", () => {
 
     it("a budget short by one ld folds ld first — the chevron appears with exactly one informational row", () => {
       // ld is priority 0, the first to die.
-      mockWidths(1170, PROBE);
+      mockWidths(1169, PROBE);
       renderBar(fullProps());
       expect(within(hostCluster()).queryByText("ld")).toBeNull();
       const menu = openMenu();
@@ -555,6 +560,9 @@ describe("StatusBar (260814-ldbs)", () => {
       // pr never folds and is not the survivor — fab sits right of it.
       expect(within(windowCluster()).getByText("#603")).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Open PR #603 in a new tab" }).className).not.toContain("truncate");
+      // Truncation is strip-only: the probe measures natural widths, so the
+      // fold's truncateId never reaches it.
+      expect(screen.getByTestId("status-bar-probe").querySelectorAll(".truncate")).toHaveLength(0);
     });
 
     it("a paneId-less tmx folds to an informational span, not a copy button", () => {
@@ -676,6 +684,11 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(mockCopyToClipboard).toHaveBeenCalledWith("main");
       const cluster = windowCluster();
       expect(within(cluster).getByText("copied ✓")).toBeInTheDocument();
+      // The swap is strip-only: the probe keeps the natural label, so the
+      // transient feedback can never change a probed width.
+      const probe = screen.getByTestId("status-bar-probe");
+      expect(within(probe).queryByText("copied ✓")).not.toBeInTheDocument();
+      expect(within(probe).getByText("⑂")).toBeInTheDocument();
       act(() => vi.advanceTimersByTime(1000));
       expect(within(cluster).queryByText("copied ✓")).not.toBeInTheDocument();
 
@@ -711,6 +724,10 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(mockCopyToClipboard).toHaveBeenCalledWith("v0.9.3");
       // Unlabeled fragment: its own text is the feedback slot.
       expect(screen.getByRole("button", { name: "Copy version" })).toHaveTextContent("copied ✓");
+      // The swap is strip-only here too — the probe's fragments stay natural.
+      const probe = screen.getByTestId("status-bar-probe");
+      expect(within(probe).queryByText("copied ✓")).not.toBeInTheDocument();
+      expect(within(probe).getByText("v0.9.3")).toBeInTheDocument();
     });
 
     it("segments without a stable raw value stay passive — agt, metrics, the connection dot, and a paneId-less tmx", () => {

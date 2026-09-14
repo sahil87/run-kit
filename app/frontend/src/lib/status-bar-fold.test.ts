@@ -11,7 +11,8 @@ import {
 
 /** The shipped priority table's shape with round-number widths: display
  *  order (left cluster, then right), the R9 priorities, the two truncatable
- *  never-fold items, and a 20px chevron. */
+ *  never-fold items, and a 20px chevron. The shipped table's one `pairGap`
+ *  (host → version) is exercised separately in the pair-gap block below. */
 const CHEVRON = 20;
 const CHARGE = STATUS_BAR_FOLD_PAD_PX + STATUS_BAR_FOLD_DOT_PX + STATUS_BAR_FOLD_GAP_PX; // 36
 const FIXTURE: StatusBarFoldItem[] = [
@@ -191,6 +192,75 @@ describe("computeStatusBarFold — expand-edge hysteresis", () => {
     expect(
       computeStatusBarFold(items, 218 + STATUS_BAR_FOLD_HYSTERESIS_PX, 0, truncating),
     ).toEqual({ folded: [], truncateId: null });
+  });
+});
+
+describe("computeStatusBarFold — the pair-gap override", () => {
+  const host: StatusBarFoldItem = {
+    id: "host",
+    widthPx: 60,
+    prio: 10,
+    cluster: "right",
+    pairGap: { withId: "version", px: 4 },
+  };
+  const version: StatusBarFoldItem = { id: "version", widthPx: 40, prio: 7, cluster: "right" };
+
+  it("charges the pair gap, not the cluster gap, between paired survivors", () => {
+    // Both survive: rendered 60 + 4 + 40 = 104 (not the 112 two plain
+    // siblings would charge).
+    expect(computeStatusBarFold([host, version], CHARGE + 104, 0, null).folded).toEqual([]);
+    expect(computeStatusBarFold([host, version], CHARGE + 103, 0, null).folded).toEqual(["version"]);
+  });
+
+  it("charges the full cluster gap when the partner is absent", () => {
+    // No version candidate: host renders alone in its wrapper, an ordinary
+    // cluster child — host + palette = 60 + 12 + 40 = 112.
+    const palette: StatusBarFoldItem = { id: "palette", widthPx: 40, prio: 1, cluster: "right" };
+    expect(computeStatusBarFold([host, palette], CHARGE + 112, 0, null).folded).toEqual([]);
+    expect(computeStatusBarFold([host, palette], CHARGE + 111, 0, null).folded).toEqual(["palette"]);
+  });
+
+  it("charges the full cluster gap once the partner has folded", () => {
+    const tail: StatusBarFoldItem = { id: "tail", widthPx: 40, prio: 11, cluster: "right" };
+    // All three: 60 + 4 + 40 + 12 + 40 = 156. Version (prio 7) dies first;
+    // host then rejoins the cluster at the FULL gap: 60 + 12 + 40 = 112.
+    // Budget 144 folds version and the reserved re-fit (144 − 32 = 112) holds.
+    expect(computeStatusBarFold([host, version, tail], CHARGE + 144, CHEVRON, null).folded).toEqual([
+      "version",
+    ]);
+    // One px under: the re-fit (143 − 32 = 111 < 112) folds host too — proof
+    // the host→tail gap is the cluster's 12, not the pair's 4. (The folded
+    // list is in display order: host precedes version.)
+    expect(computeStatusBarFold([host, version, tail], CHARGE + 143, CHEVRON, null).folded).toEqual([
+      "host",
+      "version",
+    ]);
+  });
+});
+
+describe("computeStatusBarFold — prev normalization before hysteresis", () => {
+  it("a folded id that turned never-fold (the clock going stale) is dropped, not held hidden", () => {
+    const items: StatusBarFoldItem[] = [
+      { id: "clock", widthPx: 60, prio: null, cluster: "right" },
+      { id: "server", widthPx: 50, prio: 5, cluster: "right" },
+    ];
+    const prev: StatusBarFold = { folded: ["clock"], truncateId: null };
+    // Everything fits (60 + 12 + 50 = 122), so the raw decision is fully
+    // expanded; the normalized prev carries no fold, so no hysteresis hold
+    // can keep the now-never-fold clock hidden.
+    expect(computeStatusBarFold(items, CHARGE + 122, CHEVRON, prev)).toEqual({
+      folded: [],
+      truncateId: null,
+    });
+  });
+
+  it("a folded id that vanished from the candidate set is dropped from prev", () => {
+    const items: StatusBarFoldItem[] = [{ id: "server", widthPx: 50, prio: 5, cluster: "right" }];
+    const prev: StatusBarFold = { folded: ["cwd"], truncateId: null };
+    expect(computeStatusBarFold(items, CHARGE + 50, CHEVRON, prev)).toEqual({
+      folded: [],
+      truncateId: null,
+    });
   });
 });
 

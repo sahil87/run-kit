@@ -109,6 +109,10 @@ import type { MetricsSnapshot, WindowInfo } from "@/types";
 /** The bar's fixed height — VS Code-class status strip. */
 const BAR_HEIGHT = "h-[24px]";
 
+/** The rendered gap INSIDE the host/version pair wrapper (`gap-1`) — the fit
+ *  model's one pair-gap override, tighter than the cluster's `gap-3`. */
+const HOST_VERSION_PAIR_GAP_PX = 4;
+
 const LABEL_CLASS = "text-text-secondary";
 const VALUE_CLASS = "text-text-primary";
 /** Fixed-width numeral reserve on the metrics values — `100%` is the
@@ -186,9 +190,10 @@ function Segment({
 /** Click-to-copy variant of Segment (the Pane panel's CopyableRow contract):
  *  a real button (Constitution V — focusable, Enter/Space activatable) whose
  *  click copies the segment's RAW value; while copied, the label swaps to
- *  `copied ✓` (the transient width shift re-fits through the observed probe;
- *  the expand-edge hysteresis absorbs it). The value span's
- *  `group-hover:text-accent` is the clickability reveal. */
+ *  `copied ✓`. The swap is STRIP-only: the probe always renders the natural
+ *  label, so the transient feedback can never change a probed width and
+ *  re-fold the bar. The value span's `group-hover:text-accent` is the
+ *  clickability reveal. */
 function CopySegment({
   label,
   tip,
@@ -218,7 +223,7 @@ function CopySegment({
       tabIndex={probe ? -1 : undefined}
       className={`group flex items-center gap-1 whitespace-nowrap cursor-pointer bg-transparent border-0 p-0 text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green ${truncate ? "min-w-0" : "shrink-0"}`}
     >
-      <span className={`${LABEL_CLASS} shrink-0`}>{copied ? "copied ✓" : label}</span>
+      <span className={`${LABEL_CLASS} shrink-0`}>{!probe && copied ? "copied ✓" : label}</span>
       <span className={`${truncate ? "min-w-0 truncate " : ""}group-hover:text-accent ${valueClassName}`}>{children}</span>
     </button>
   );
@@ -756,6 +761,9 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
     prio: s.id === "clock" && clock.kind === "stale" ? null : s.prio,
     cluster: s.cluster,
     truncatable: s.truncatable,
+    // Host + version render as one `gap-1` wrapper, not two `gap-3` siblings —
+    // charge the pair's real gap while both survive (the wrapper comment below).
+    pairGap: s.id === "host" ? { withId: "version", px: HOST_VERSION_PAIR_GAP_PX } : undefined,
   }));
 
   // Collapse-first: null until the pre-paint measure lands — the strip renders
@@ -823,7 +831,9 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
         );
       case "pr": {
         if (!prSegments) return null;
-        const truncating = truncateId === "pr";
+        // Truncation is the strip's last-survivor state — the probe measures
+        // natural width, so `truncateId` never reaches it.
+        const truncating = !probe && truncateId === "pr";
         const body = (
           <>
             <span className={`${LABEL_CLASS} shrink-0`}>pr</span>
@@ -835,14 +845,13 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
                 </span>
               ))}
             </span>
-            <span aria-hidden="true" className="text-text-secondary shrink-0">
-              ↗
-            </span>
           </>
         );
         const frameClass = `flex items-center gap-1 whitespace-nowrap ${truncating ? "min-w-0" : "shrink-0"}`;
         // Open-first (the PANE panel's PrLinkRow rule): a real anchor, so
-        // middle-click / Ctrl-⌘-click / copy-link all work natively.
+        // middle-click / Ctrl-⌘-click / copy-link all work natively. The `↗`
+        // glyph marks the OPEN affordance, so it renders only in this branch
+        // — the no-URL fallback is a passive span and carries no glyph.
         return win?.prUrl ? (
           <a
             href={win.prUrl}
@@ -854,6 +863,9 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
             className={`${frameClass} hover:text-accent`}
           >
             {body}
+            <span aria-hidden="true" className="text-text-secondary shrink-0">
+              ↗
+            </span>
           </a>
         ) : (
           <span className={frameClass}>{body}</span>
@@ -879,12 +891,12 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
             ariaLabel="Copy fab change id"
             copied={windowCopiedKey === "fab"}
             onCopy={() => windowCopy("fab", fabChange.id)}
-            truncate={truncateId === "fab"}
+            truncate={!probe && truncateId === "fab"}
           >
             {body}
           </CopySegment>
         ) : (
-          <Segment probe={probe} label="fab" tip="Fab change" truncate={truncateId === "fab"}>
+          <Segment probe={probe} label="fab" tip="Fab change" truncate={!probe && truncateId === "fab"}>
             {body}
           </Segment>
         );
@@ -1001,7 +1013,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
             onClick={() => hostCopy("server", server)}
             className="shrink-0 whitespace-nowrap text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green"
           >
-            {hostCopiedKey === "server" ? "copied ✓" : server}
+            {!probe && hostCopiedKey === "server" ? "copied ✓" : server}
           </button>
         );
       }
@@ -1015,7 +1027,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
             onClick={() => hostCopy("host", hostName)}
             className="shrink-0 whitespace-nowrap text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green"
           >
-            {hostCopiedKey === "host" ? "copied ✓" : hostName}
+            {!probe && hostCopiedKey === "host" ? "copied ✓" : hostName}
           </button>
         );
       }
@@ -1029,7 +1041,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
             onClick={() => hostCopy("version", version)}
             className={`${VALUE_CLASS} shrink-0 whitespace-nowrap cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green`}
           >
-            {hostCopiedKey === "version" ? "copied ✓" : version}
+            {!probe && hostCopiedKey === "version" ? "copied ✓" : version}
           </button>
         );
       }
@@ -1084,9 +1096,11 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
       role="region"
       aria-label="Status bar"
       data-testid="status-bar"
-      className={`${BAR_HEIGHT} relative flex items-center gap-3 overflow-hidden border-t border-border bg-bg-primary px-2 font-mono text-[10.5px] leading-none`}
+      className={`${BAR_HEIGHT} relative flex items-center overflow-hidden border-t border-border bg-bg-primary px-2 font-mono text-[10.5px] leading-none`}
     >
-      {/* LEFT — the current-window mirror (terminal route only). */}
+      {/* LEFT — the current-window mirror (terminal route only). No gap on
+          the root: the right cluster's `ml-auto` spring supplies the
+          separation, and the fit model charges no gap across it. */}
       {win && (
         <div className="flex items-center gap-3 min-w-0" data-testid="status-bar-window">
           {leftIds.map((id) => (
@@ -1139,7 +1153,9 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
 
       {/* Hidden measurement probe — every candidate segment at natural width
           in a `data-fold` wrapper, plus the `…` chevron so its two-pass
-          reserve is measured, not hardcoded. `inert` + aria-hidden +
+          reserve is measured, not hardcoded. Natural width means natural
+          content too: the strip's `copied ✓` swaps and the fold's
+          `truncateId` never reach the probe. `inert` + aria-hidden +
           off-screen: the duplicated controls can never receive focus or
           clicks; they exist purely to be measured. */}
       <div

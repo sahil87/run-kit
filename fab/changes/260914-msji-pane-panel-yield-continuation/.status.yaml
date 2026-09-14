@@ -1,0 +1,55 @@
+id: msji
+name: 260914-msji-pane-panel-yield-continuation
+created: 2026-09-14T17:26:40Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 15
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 81.1
+        reversibility: 87.8
+        competence: 87.8
+        disambiguation: 84.7
+stage_metrics:
+    intake: {started_at: "2026-09-14T17:26:40Z", driver: fab-new, iterations: 1, completed_at: "2026-09-14T17:31:18Z"}
+    apply: {started_at: "2026-09-14T17:31:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-14T17:44:44Z"}
+    review: {started_at: "2026-09-14T17:44:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-14T17:50:14Z"}
+    hydrate: {started_at: "2026-09-14T17:50:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-14T17:50:37Z"}
+    ship: {started_at: "2026-09-14T17:50:37Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+summary: Status bar yields its window cluster while the PANE panel is on screen (section on + sidebar open + zen off); PANE pr/fab rows split into key + continuation lines via the shared getPrParts resolver
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-14T17:50:37Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-14T17:50:37Z

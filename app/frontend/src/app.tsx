@@ -163,6 +163,7 @@ import { useDialogState } from "@/hooks/use-dialog-state";
 import { useRecentlyClosed, buildReopenWindowAction, pushRecentlyClosed, popRecentlyClosed } from "@/hooks/use-recently-closed";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useSidebarSectionVisible } from "@/hooks/use-sidebar-sections";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { TopBar, type TopBarMode } from "@/components/top-bar";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
@@ -1368,6 +1369,17 @@ function AppShell() {
     if (!windowParam && zenActive) setZenActive(false);
   }, [windowParam, zenActive, setZenActive]);
   const zenOn = zenApplies(zenActive, windowParam, isMobile);
+
+  // The register view has ONE desktop home at a time. The status bar's window
+  // cluster exists because the desktop PANE panel is opt-in; while that panel
+  // is actually on screen — its section toggled on AND the sidebar rendered
+  // (Shell composes `sidebarOpen && !zenActive`, so zen hides the sidebar
+  // without touching the preference) — the bar yields the cluster and keeps
+  // only its host segments. Both booleans are the existing localStorage
+  // pub/sub, so the bar flips live with the rail toggle, `Panel: Toggle
+  // Pane`, and the sidebar chord — no new state.
+  const [paneSectionVisible] = useSidebarSectionVisible("pane");
+  const paneRegistersVisible = paneSectionVisible && sidebarOpen && !zenOn;
 
   // Enter/exit body — the `zen-toggle` chord, the palette's `View: Enter/Exit
   // Zen Mode` entries, and the status-bar exit button all resolve here (one
@@ -5301,10 +5313,12 @@ function AppShell() {
       // mobile). The window cluster mirrors the CURRENT window's registers
       // (terminal route only — `currentWindow` is null without a window
       // param); the host cluster renders on every route this shell mounts.
+      // The cluster yields (`window={null}`, the board mount's contract) while
+      // the PANE panel is on screen — see `paneRegistersVisible`.
       // Zen keeps the bar VISIBLE and adds its exit affordance there (R5/R8).
       statusBarChildren={
         <StatusBar
-          window={currentWindow ?? null}
+          window={paneRegistersVisible ? null : currentWindow ?? null}
           server={server}
           isConnected={dotConnected}
           onOpenCompose={toggleComposeStrip}

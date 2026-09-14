@@ -16,7 +16,9 @@ import type { WindowInfo } from "@/types";
  * metadata, not a register, but it has three consumers (the PANE panel, the
  * status-bar strip, the status-bar overflow row) that must render one string.
  * `splitDatePrefix` (the git row / bar `⑂` segment's dim date prefix) lives
- * here for the same reason — one rule, two surfaces.
+ * here for the same reason — one rule, two surfaces. The parts resolvers
+ * (`getFabParts`, `getPrParts`) exist so a surface can split a register across
+ * lines without owning the split rule.
  */
 
 /**
@@ -155,42 +157,60 @@ export function getOperatorParts(
   return parts;
 }
 
+/** The L3 `PR` register as two groups so a surface can compose it across
+ *  lines: `identity` (`#<n>` + the state segment) leads; `health` (`checks
+ *  <c>`, `review: <r>`) is the expendable tail — the PANE panel moves it to a
+ *  continuation line, while `getPrSegments` joins both for the one-line
+ *  surfaces (the flyout card, the status bar). */
+export type PrParts = { identity: PrSegment[]; health: PrSegment[] };
+
 /**
- * Build the L3 `PR` register line as colored segments, e.g.
- * "#241 · open · checks pass" for an open PR, or "#241 · merged" once it
- * lands. Returns null unless the window carries a `prNumber`. Gated ONLY on
- * `prNumber` — NOT on `fabChange` — because the L3 register shows the PR for
- * ANY pane on a branch with a PR (derivation is universal, Constitution
- * Principle X; the ladder's per-family dot ownership is a separate concern —
- * see statusDotState). For a merged/closed PR the checks and review parts are
- * suppressed (they're historical once the PR is no longer open); only the
- * terminal state is shown. The state segment color is purely the GitHub state
- * (open→green via PR_STATE_COLORS), NOT a health verdict — health is conveyed
- * by the checks and review segments here plus the sidebar dot. A draft is not
- * dimmed: its state follows PR_STATE_COLORS like any open PR, so an open draft
- * shows green. This reflects the project's "green = health, not
- * merge-readiness" story (a draft with passing checks is healthy, just not
- * flipped to ready) and keeps the PR surfaces consistent.
+ * Resolve the L3 `PR` register into identity + health parts, e.g.
+ * identity `#241 · open`, health `checks pass · review: approved` for an open
+ * PR; identity `#241 · merged` with EMPTY health once it lands. Returns null
+ * unless the window carries a `prNumber`. Gated ONLY on `prNumber` — NOT on
+ * `fabChange` — because the L3 register shows the PR for ANY pane on a branch
+ * with a PR (derivation is universal, Constitution Principle X; the ladder's
+ * per-family dot ownership is a separate concern — see statusDotState). For a
+ * merged/closed PR the checks and review parts are suppressed (they're
+ * historical once the PR is no longer open); only the terminal state is shown.
+ * The state segment color is purely the GitHub state (open→green via
+ * PR_STATE_COLORS), NOT a health verdict — health is conveyed by the checks
+ * and review segments here plus the sidebar dot. A draft is not dimmed: its
+ * state follows PR_STATE_COLORS like any open PR, so an open draft shows
+ * green. This reflects the project's "green = health, not merge-readiness"
+ * story (a draft with passing checks is healthy, just not flipped to ready)
+ * and keeps the PR surfaces consistent.
  */
-export function getPrSegments(win: WindowInfo): PrSegment[] | null {
+export function getPrParts(win: WindowInfo): PrParts | null {
   if (!win.prNumber) return null;
-  const segments: PrSegment[] = [{ text: `#${win.prNumber}`, color: "text-text-primary" }];
+  const identity: PrSegment[] = [{ text: `#${win.prNumber}`, color: "text-text-primary" }];
   if (win.prState) {
-    segments.push({
+    identity.push({
       text: `${win.prState}${win.prIsDraft ? " (draft)" : ""}`,
       color: PR_STATE_COLORS[win.prState],
     });
   }
+  const health: PrSegment[] = [];
   const isOpen = !win.prState || win.prState === "open";
   if (isOpen && win.prChecks && win.prChecks !== "none") {
-    segments.push({ text: `checks ${win.prChecks}`, color: PR_CHECKS_COLORS[win.prChecks] });
+    health.push({ text: `checks ${win.prChecks}`, color: PR_CHECKS_COLORS[win.prChecks] });
   }
   if (isOpen && win.prReview && win.prReview !== "none") {
-    segments.push({
+    health.push({
       text: `review: ${win.prReview.replace(/_/g, " ")}`,
       color: PR_REVIEW_COLORS[win.prReview],
     });
   }
-  return segments;
+  return { identity, health };
 }
 
+/** Build the L3 `PR` register as ONE flat list of colored segments —
+ *  `[...identity, ...health]` from getPrParts — e.g. "#241 · open · checks
+ *  pass" for an open PR, or "#241 · merged" once it lands. The one-line form
+ *  for the flyout card and the status bar; null without `prNumber`. */
+export function getPrSegments(win: WindowInfo): PrSegment[] | null {
+  const parts = getPrParts(win);
+  if (!parts) return null;
+  return [...parts.identity, ...parts.health];
+}

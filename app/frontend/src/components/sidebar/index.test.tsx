@@ -1513,7 +1513,10 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
     expect(screen.queryByText("No tab selected")).not.toBeInTheDocument();
     // The fab register renders — only the enriched SSE copy carries fabChange,
     // so this proves the windowId lookup (not the thin fallback) supplied it.
-    expect(screen.getByText(/zx4i board-route-pane-host-panels · apply/)).toBeInTheDocument();
+    // The key line carries the decisive tokens; the slug rides the
+    // continuation line (the enriched copy's branch does not carry it).
+    expect(screen.getByText("zx4i · apply")).toBeInTheDocument();
+    expect(screen.getByTestId("fab-line-cont")).toHaveTextContent("board-route-pane-host-panels");
     // Identity from the enriched copy, not the thin panes (cwd differs:
     // /home/u/code/live vs the thin pane's /tmp/thin). The cwd row renders its
     // value as two spans (dim parent + basename), so assert on the row's

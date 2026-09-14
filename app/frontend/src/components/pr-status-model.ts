@@ -15,7 +15,8 @@ export function isFailish(win: WindowInfo): boolean {
 
 /**
  * Per-segment PR color vocabulary, shared by the PR text surfaces — the Pane
- * panel segments (status-panel.tsx getPrSegments, which imports these). (The
+ * panel and flyout-card segments (sidebar/registers.ts getPrParts /
+ * getPrSegments, which import these). (The
  * sidebar StatusDot no longer uses these — it renders from the lifecycle
  * PHASE_HUE/SHAPE maps; see status-dot.tsx.) GitHub-style: open=green,
  * merged=purple, closed=red; checks/review

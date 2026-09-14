@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
+import { openPalette } from "./_ready";
 
 // Fully mocked (no tmux/gh) — inject the SSE `sessions` payload + server list
 // via page.route. Exercises the PANE panel's four-register view
@@ -12,7 +13,11 @@ import { mockStateSocket } from "./_state-socket-mock";
 // fabChange — universal derivation, Principle X). The fab register drops its
 // slug when the pane's branch carries the change (the slug is written once —
 // the branch carries it), and the cwd row is basename-first: the abbreviated
-// parent head-truncates while the basename never clips.
+// parent head-truncates while the basename never clips. The `pr` and `fab`
+// rows are two-line rows: the decisive tokens on the key line (`#n · state`,
+// `id · stage · state`) and the expendable tail (the PR health facts; the slug
+// when the branch does not carry it) on a dim continuation line — a row never
+// exceeds two lines and a continuation line renders only with content.
 //
 // Shared setup: **/api/servers → a single server `default`;
 // **/api/windows/*/select* → 200; /ws/state (via mockStateSocket) carries the
@@ -25,9 +30,18 @@ import { mockStateSocket } from "./_state-socket-mock";
 // "true" via addInitScript, then installs the routes before navigation.
 //
 // The PANE panel is visibility-gated and default-off on every viewport (its
-// registers live in the desktop status bar), so the suite seeds the section
-// on, runs test.use({ hasTouch: true, viewport: 375×812 }), and opens the
-// drawer (Toggle navigation button → role="dialog") before asserting.
+// registers live in the desktop status bar), so the mobile suite seeds the
+// section on, runs test.use({ hasTouch: true, viewport: 375×812 }), and opens
+// the drawer (Toggle navigation button → role="dialog") before asserting.
+//
+// The second describe runs at the default desktop viewport (1280px, fine
+// pointer) with the SAME mocked backend and does NOT seed the section: it
+// proves the status bar's window cluster (`status-bar-window`) yields to the
+// PANE panel while the panel is on screen — section on (via the palette's
+// `Panel: Toggle Pane`) AND the sidebar open — and comes back when either is
+// false (section off again, or the sidebar collapsed via the top bar's
+// `Toggle navigation` button). The host cluster (`status-bar-host`) stays in
+// every state.
 
 const SERVER = "default";
 
@@ -150,8 +164,10 @@ test.describe("PANE panel four-register view", () => {
    * 3. Assert register-agent (L1) is visible and contains the key text "agt"
    *    and "waiting 3m".
    * 4. Assert the fab register (L2) reads `y1ar · review · failed` and does
-   *    NOT contain the slug (the branch carries it).
-   * 5. Assert the PR register (L3) `pr-line` contains "#386".
+   *    NOT contain the slug (the branch carries it), and that no
+   *    `fab-line-cont` continuation line exists.
+   * 5. Assert the PR register (L3) key line `pr-line` reads `#386 · open`
+   *    and the continuation line `pr-line-cont` carries `checks fail`.
    * 6. Assert the cwd basename element's box lies fully inside its row and
    *    the dim parent span is present (the basename lookup is scoped to the
    *    cwd row — the git row's branch rest renders the same text).
@@ -176,8 +192,11 @@ test.describe("PANE panel four-register view", () => {
     const fabRow = page.getByRole("button", { name: /^fab y1ar/ });
     await expect(fabRow).toContainText("y1ar · review · failed");
     await expect(fabRow).not.toContainText("status-pyramid-ui-surfacing");
-    // L3 PR register — the PR line for the derived PR.
-    await expect(page.getByTestId("pr-line")).toContainText("#386");
+    await expect(page.getByTestId("fab-line-cont")).toHaveCount(0);
+    // L3 PR register — identity on the key line, the health facts on the
+    // dim continuation line (two lines, never a truncated one-liner).
+    await expect(page.getByTestId("pr-line")).toHaveText("#386 · open");
+    await expect(page.getByTestId("pr-line-cont")).toContainText("checks fail");
     // cwd basename-first: the basename never clips (the parent head-truncates).
     // Scoped to the cwd row's button (its title is the full path) — the bare
     // text also appears as the git row's branch rest, so an unscoped lookup
@@ -231,5 +250,88 @@ test.describe("PANE panel four-register view", () => {
     await expect(page.getByTestId("pr-line")).toContainText("#999");
     // No fab register (no change bound).
     await expect(page.getByTestId("register-agent")).toHaveCount(0);
+  });
+});
+
+test.describe("PANE-on yields the status bar's window cluster (desktop)", () => {
+  // Default desktop viewport (1280px, fine pointer): the status bar renders
+  // and the PANE section starts OFF (nothing seeded) — the bar is the register
+  // view until the user opts the panel in.
+  test.beforeEach(async ({ page }) => {
+    await mockBackend(page);
+  });
+
+  const windowCluster = (page: Page) => page.getByTestId("status-bar-window");
+  const hostCluster = (page: Page) => page.getByTestId("status-bar-host");
+  const paneHeader = (page: Page) =>
+    page.locator("nav[aria-label='Sessions']").getByRole("button", { name: /^Pane/ });
+
+  /** Run a palette action by its exact label. */
+  async function runPalette(page: Page, label: string) {
+    const input = await openPalette(page);
+    await input.fill(label);
+    await page.getByRole("option", { name: label }).click();
+  }
+
+  /**
+   * Proves: the register view has one desktop home at a time — toggling the
+   * PANE section on (palette `Panel: Toggle Pane`) mounts the panel in the
+   * open sidebar and REMOVES the status bar's window cluster, while the host
+   * cluster stays; toggling it off again brings the cluster back.
+   *
+   * Steps:
+   * 1. Navigate to /default/1; wait for the status bar's host cluster.
+   * 2. Assert `status-bar-window` count 1 and no PANE header in the sidebar.
+   * 3. Run `Panel: Toggle Pane`; assert the PANE header is visible,
+   *    `status-bar-window` count 0, `status-bar-host` still visible.
+   * 4. Run `Panel: Toggle Pane` again; assert `status-bar-window` count 1
+   *    and the PANE header is gone.
+   */
+  test("toggling the Pane section on yields the window cluster; off restores it", async ({ page }) => {
+    await page.goto(`/${SERVER}/1`);
+    await expect(hostCluster(page)).toBeVisible({ timeout: 10_000 });
+    await expect(windowCluster(page)).toHaveCount(1);
+    await expect(paneHeader(page)).toHaveCount(0);
+
+    await runPalette(page, "Panel: Toggle Pane");
+    await expect(paneHeader(page)).toBeVisible();
+    await expect(windowCluster(page)).toHaveCount(0);
+    await expect(hostCluster(page)).toBeVisible();
+
+    await runPalette(page, "Panel: Toggle Pane");
+    await expect(windowCluster(page)).toHaveCount(1);
+    await expect(paneHeader(page)).toHaveCount(0);
+  });
+
+  /**
+   * Proves: the yield is gated on the panel being ON SCREEN, not merely
+   * opted in — with the section on, collapsing the sidebar (the top bar's
+   * `Toggle navigation` button) unmounts the panel and the bar's window
+   * cluster returns; reopening the sidebar yields it again.
+   *
+   * Steps:
+   * 1. Seed `runkit-sidebar-section-pane = "true"`; navigate to /default/1.
+   * 2. Assert the PANE header is visible and `status-bar-window` count 0.
+   * 3. Click `Toggle navigation`; assert the PANE header is gone and
+   *    `status-bar-window` count 1.
+   * 4. Click `Toggle navigation` again; assert `status-bar-window` count 0.
+   */
+  test("collapsing the sidebar with the Pane section on hands the registers back to the bar", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("runkit-sidebar-section-pane", "true");
+    });
+    await page.goto(`/${SERVER}/1`);
+    await expect(hostCluster(page)).toBeVisible({ timeout: 10_000 });
+    await expect(paneHeader(page)).toBeVisible();
+    await expect(windowCluster(page)).toHaveCount(0);
+
+    const sidebarToggle = page.getByRole("button", { name: "Toggle navigation" });
+    await sidebarToggle.click();
+    await expect(paneHeader(page)).toHaveCount(0);
+    await expect(windowCluster(page)).toHaveCount(1);
+
+    await sidebarToggle.click();
+    await expect(paneHeader(page)).toBeVisible();
+    await expect(windowCluster(page)).toHaveCount(0);
   });
 });

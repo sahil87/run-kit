@@ -198,16 +198,41 @@ describe("StatusPanel", () => {
     });
     render(<StatusPanel window={win} />);
     expect(screen.getByText("rx38 · apply")).toBeInTheDocument();
-    // The git row still carries the full branch — the slug's one spelling.
+    // The git row still carries the full branch — the slug's one spelling —
+    // and no empty continuation line is rendered.
     expect(screen.getByText(/rx38-pane-cwd-tracking/)).toBeInTheDocument();
+    expect(screen.queryByTestId("fab-line-cont")).toBeNull();
+    // Single-line form: the row stays the classic truncating button.
+    const row = screen.getByText("rx38 · apply").closest("button")!;
+    expect(row.className).toContain("truncate");
+    expect(row.className).not.toContain("flex-col");
   });
 
-  it("an off-change branch keeps the slug in the register (the off-branch signal)", () => {
+  it("an off-change branch moves the slug to a dim continuation line (the off-branch signal)", () => {
     render(<StatusPanel window={makeWindowWithPanes({
       fabChange: "260405-rx38-pane-cwd-tracking",
       fabStage: "apply",
+      fabDisplayState: "active",
     })} />);
-    expect(screen.getByText("rx38 pane-cwd-tracking · apply")).toBeInTheDocument();
+    // The key line holds only the decisive tokens — never the slug.
+    const key = screen.getByText("rx38 · apply");
+    expect(key).toHaveTextContent("rx38 · apply · active");
+    expect(key).not.toHaveTextContent("pane-cwd-tracking");
+    // The slug continues under the value column (4-advance key + 2-advance
+    // icon cell), dim, truncating on its own.
+    const cont = screen.getByTestId("fab-line-cont");
+    expect(cont).toHaveTextContent("pane-cwd-tracking");
+    for (const cls of ["pl-[6ch]", "text-text-secondary", "truncate", "w-full"]) {
+      expect(cont.className).toContain(cls);
+    }
+    // Both lines live inside the ONE copy button (a click anywhere copies),
+    // which stacks them instead of truncating as one line.
+    const row = cont.closest("button")!;
+    expect(row).toBe(key.closest("button"));
+    expect(row.className).toContain("flex-col");
+    expect(row.className).not.toMatch(/(^| )truncate( |$)/);
+    // Exactly two lines: the key line and the continuation.
+    expect(row.children).toHaveLength(2);
   });
 
   it("shows process info as fallback when no fab state", () => {
@@ -446,9 +471,56 @@ describe("StatusPanel copy behavior", () => {
         prReview: "approved",
       });
       render(<StatusPanel window={win} />);
-      expect(screen.getByTestId("pr-line")).toHaveTextContent(
-        "#241 · open · checks pass · review: approved",
-      );
+      // Identity on the key line; the health facts continue on the dim second
+      // line, each segment keeping its own hue.
+      expect(screen.getByTestId("pr-line")).toHaveTextContent("#241 · open");
+      expect(screen.getByTestId("pr-line")).not.toHaveTextContent("checks");
+      const cont = screen.getByTestId("pr-line-cont");
+      expect(cont).toHaveTextContent("checks pass · review: approved");
+      for (const cls of ["pl-[6ch]", "text-text-secondary", "truncate", "w-full"]) {
+        expect(cont.className).toContain(cls);
+      }
+    });
+
+    it("the anchor spans both lines (open-first covers the block); the copy icon is anchored to the key line", () => {
+      const win = makeWindow({
+        fabChange: "260610-596o-pr-status-sidebar",
+        prNumber: 241,
+        prUrl: "https://github.com/sahil87/run-kit/pull/241",
+        prState: "open",
+        prChecks: "pass",
+        prReview: "approved",
+      });
+      render(<StatusPanel window={win} />);
+      const link = screen.getByRole("link", { name: "Open PR #241 in a new tab" });
+      expect(link).toContainElement(screen.getByTestId("pr-line"));
+      expect(link).toContainElement(screen.getByTestId("pr-line-cont"));
+      expect(link.className).toContain("flex-col");
+      // The ↗ stays on the key line, after the identity span.
+      const arrow = screen.getByText("↗");
+      expect(arrow.parentElement).toBe(screen.getByTestId("pr-line").parentElement);
+      // The hover copy icon is a SIBLING of the anchor whose container is
+      // one text line tall from the top — centred on the key line, never on
+      // the two-line block.
+      const copyButton = screen.getByRole("button", { name: "Copy PR URL" });
+      expect(link).not.toContainElement(copyButton);
+      const container = copyButton.parentElement!;
+      expect(container.className).toContain("top-0");
+      expect(container.className).toContain("h-[1lh]");
+      expect(container.className).not.toContain("top-1/2");
+    });
+
+    it("renders no continuation line when the PR has no health facts (`none` checks/review)", () => {
+      const win = makeWindow({
+        prNumber: 241,
+        prUrl: "https://github.com/sahil87/run-kit/pull/241",
+        prState: "open",
+        prChecks: "none",
+        prReview: "none",
+      });
+      render(<StatusPanel window={win} />);
+      expect(screen.getByTestId("pr-line")).toHaveTextContent("#241 · open");
+      expect(screen.queryByTestId("pr-line-cont")).toBeNull();
     });
 
     it("colors the segments by state: open/pass/approved are green", () => {
@@ -588,9 +660,10 @@ describe("StatusPanel copy behavior", () => {
       });
       render(<StatusPanel window={win} />);
       // Merged PRs show "#247 · merged" only — checks/review are historical
-      // once a PR lands, so they're suppressed.
+      // once a PR lands, so they're suppressed and the row is ONE line.
       expect(screen.getByTestId("pr-line")).toHaveTextContent("#247 · merged");
       expect(screen.queryByText(/checks/)).toBeNull();
+      expect(screen.queryByTestId("pr-line-cont")).toBeNull();
       expect(screen.getByText("merged").className).toContain("text-signal-purple");
     });
 
@@ -670,9 +743,14 @@ describe("StatusPanel copy behavior", () => {
       expect(screen.queryByText("↗")).toBeNull();
       expect(screen.queryByRole("button", { name: "Copy PR URL" })).toBeNull();
 
-      // The row body itself is the copy action, copying the segment text.
+      // The no-URL row splits the same way as the anchor: identity on the key
+      // line, health on the continuation — both inside the copy button.
+      expect(screen.getByTestId("pr-line")).toHaveTextContent("#241 · open");
+      expect(screen.getByTestId("pr-line-cont")).toHaveTextContent("checks pass");
       const prRow = screen.getByTestId("pr-line").closest("button") as HTMLButtonElement;
       expect(prRow).not.toBeNull();
+      expect(prRow).toContainElement(screen.getByTestId("pr-line-cont"));
+      // The row body itself is the copy action, copying the joined full text.
       fireEvent.click(prRow);
       expect(copyToClipboard).toHaveBeenCalledWith("#241 · open · checks pass");
     });
@@ -685,7 +763,8 @@ describe("StatusPanel copy behavior", () => {
         prChecks: "fail",
       });
       render(<StatusPanel window={win} />);
-      expect(screen.getByTestId("pr-line")).toHaveTextContent("#241 · open · checks fail");
+      expect(screen.getByTestId("pr-line")).toHaveTextContent("#241 · open");
+      expect(screen.getByTestId("pr-line-cont")).toHaveTextContent("checks fail");
       expect(screen.getByText("checks fail").className).toContain("text-signal-red");
       // The failure is scoped to its segment — the still-open state stays green.
       expect(screen.getByText("open").className).toContain("text-accent-green");
@@ -928,7 +1007,7 @@ describe("opr register (operator watchlist)", () => {
     );
     const opr = screen.getByTestId("register-operator");
     expect(opr).toHaveTextContent("opr watched · apply · tick 2m ago · run-kit · fab/wuiu");
-    const fab = screen.getByText(/93dy row-flyout · apply/).closest("button")!;
+    const fab = screen.getByText("93dy · apply").closest("button")!;
     expect(fab.compareDocumentPosition(opr) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(opr.getAttribute("data-stale")).toBeNull();
   });

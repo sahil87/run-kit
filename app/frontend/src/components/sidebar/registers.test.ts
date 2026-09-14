@@ -5,6 +5,7 @@ import {
   getFabParts,
   getFabLine,
   getOperatorParts,
+  getPrParts,
   getPrSegments,
   getTmxLabel,
   splitDatePrefix,
@@ -291,6 +292,71 @@ describe("getPrSegments", () => {
         }),
       )!.map((s) => s.text),
     ).toEqual(["#540", "open (draft)", "checks pending", "review: changes requested"]);
+  });
+});
+
+describe("getPrParts (L3 identity/health split)", () => {
+  it("null without a prNumber — even with a bare prUrl", () => {
+    expect(getPrParts(makeWindow({}))).toBeNull();
+    expect(getPrParts(makeWindow({ prUrl: "https://github.com/o/r/pull/9" }))).toBeNull();
+  });
+
+  it("open PR: identity is number + state, health is checks + review", () => {
+    const win = makeWindow({ prNumber: 241, prState: "open", prChecks: "pass", prReview: "approved" });
+    expect(getPrParts(win)).toEqual({
+      identity: [
+        { text: "#241", color: "text-text-primary" },
+        { text: "open", color: "text-accent-green" },
+      ],
+      health: [
+        { text: "checks pass", color: "text-accent-green" },
+        { text: "review: approved", color: "text-accent-green" },
+      ],
+    });
+  });
+
+  it("checks-only and review-only leave the other half out; `none` counts as absent", () => {
+    expect(getPrParts(makeWindow({ prNumber: 7, prState: "open", prChecks: "fail" }))?.health).toEqual([
+      { text: "checks fail", color: "text-signal-red" },
+    ]);
+    expect(
+      getPrParts(makeWindow({ prNumber: 7, prState: "open", prChecks: "none", prReview: "approved" }))?.health,
+    ).toEqual([{ text: "review: approved", color: "text-accent-green" }]);
+    expect(getPrParts(makeWindow({ prNumber: 7, prState: "open", prChecks: "none", prReview: "none" }))?.health).toEqual([]);
+  });
+
+  it("a draft's suffix rides the identity state segment", () => {
+    expect(getPrParts(makeWindow({ prNumber: 7, prState: "open", prIsDraft: true }))?.identity[1]).toEqual({
+      text: "open (draft)",
+      color: "text-accent-green",
+    });
+  });
+
+  it("merged/closed: health is EMPTY — checks and review are history once the PR leaves open", () => {
+    const merged = getPrParts(
+      makeWindow({ prNumber: 241, prState: "merged", prChecks: "fail", prReview: "changes_requested" }),
+    );
+    expect(merged?.identity.map((s) => s.text)).toEqual(["#241", "merged"]);
+    expect(merged?.health).toEqual([]);
+    expect(getPrParts(makeWindow({ prNumber: 241, prState: "closed", prChecks: "pass" }))?.health).toEqual([]);
+  });
+
+  it("no state yet: identity is the bare number and health still renders (the PR is treated as open)", () => {
+    const parts = getPrParts(makeWindow({ prNumber: 9, prChecks: "pending" }));
+    expect(parts?.identity.map((s) => s.text)).toEqual(["#9"]);
+    expect(parts?.health.map((s) => s.text)).toEqual(["checks pending"]);
+  });
+
+  it("getPrSegments is exactly identity followed by health", () => {
+    for (const win of [
+      makeWindow({ prNumber: 241, prState: "open", prChecks: "pass", prReview: "approved" }),
+      makeWindow({ prNumber: 540, prState: "open", prIsDraft: true, prChecks: "pending", prReview: "changes_requested" }),
+      makeWindow({ prNumber: 241, prState: "merged", prChecks: "fail" }),
+      makeWindow({ prNumber: 9 }),
+    ]) {
+      const parts = getPrParts(win)!;
+      expect(getPrSegments(win)).toEqual([...parts.identity, ...parts.health]);
+    }
   });
 });
 

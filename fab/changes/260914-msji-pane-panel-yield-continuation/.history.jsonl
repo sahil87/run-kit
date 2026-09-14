@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-14T17:26:40Z"}
+{"args":"Implement Change 3 (PANE-on yields the bar; continuation lines) from fab/plans/sahil/26-09-14-pane-status-bar-density.md — with the PANE section opted in on desktop and the sidebar open, the status bar hands the window registers back to the sidebar and keeps only its host cluster; the panel's pr and fab rows wrap their tail onto a dim continuation line instead of truncating.","cmd":"fab-new","event":"command","ts":"2026-09-14T17:26:40Z"}
+{"delta":"+0.0","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-09-14T17:29:17Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-14T17:30:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-14T17:31:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-14T17:44:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-14T17:50:14Z"}
+{"event":"review","result":"passed","ts":"2026-09-14T17:50:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-14T17:50:37Z"}

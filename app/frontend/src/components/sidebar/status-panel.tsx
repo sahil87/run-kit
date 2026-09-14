@@ -9,8 +9,8 @@ import { CollapsiblePanel } from "./collapsible-panel";
 import { ICON_CLASS } from "./icons";
 import { COPY_FEEDBACK_MS, useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { abbreviateHomePath } from "@/lib/format";
-import { getOutputLine, getAgentLine, getFabParts, getOperatorParts, getPrSegments, getTmxLabel, splitDatePrefix } from "./registers";
-import type { OperatorLoopFacts } from "./registers";
+import { getOutputLine, getAgentLine, getFabParts, getOperatorParts, getPrParts, getTmxLabel, splitDatePrefix } from "./registers";
+import type { OperatorLoopFacts, PrSegment } from "./registers";
 import { FAB_STATE_COLORS } from "@/components/pr-status-model";
 import { StatusDot } from "@/components/status-dot";
 import { Tip } from "@/components/tip";
@@ -43,10 +43,20 @@ type WindowPanelProps = {
 };
 
 // The register-line resolvers — getOutputLine (L0) / getAgentLine (L1) /
-// getFabParts (L2) / getPrSegments (L3) — live in ./registers.ts: the single
+// getFabParts (L2) / getPrParts (L3) — live in ./registers.ts: the single
 // source shared with the sidebar row-hover flyout card and the status bar, so
 // the three register surfaces cannot drift. The fab display-state hue
 // vocabulary comes from pr-status-model.ts (FAB_STATE_COLORS).
+//
+// Continuation lines: the `pr` and `fab` rows split into a KEY line of the
+// decisive tokens (`#n · state`, `id · stage · state`) and a dim continuation
+// line for the expendable tail (the PR health facts; the slug when the branch
+// does not carry it) — the row-flyout card's rule. Truncation is unavoidable
+// at the 220px default, so the layout chooses what gets cut: the tail, on its
+// own line. A row never exceeds two lines; a continuation line renders only
+// with content. The indent is the panel's VALUE column — the 4-advance key
+// plus the 2-advance icon cell (`pl-[6ch]`); the card's `pl-[4ch]` is the same
+// rule on a surface with no icon column.
 
 /**
  * PANE-header refresh button (260715-jykd; feedback state machine 260715-nwla).
@@ -248,7 +258,7 @@ export function WindowPanel({ window: win, operator }: WindowPanelProps) {
  *  children own their own shrink rules — required when the value composes
  *  spans with different truncation contracts (the cwd row: the parent path
  *  yields, the basename never truncates). */
-function CopyableRow({ prefix, copied, onCopy, children, title, tipLabel, flex = false }: {
+function CopyableRow({ prefix, copied, onCopy, children, title, tipLabel, flex = false, continuation }: {
   prefix: string;
   copied: boolean;
   onCopy: () => void;
@@ -256,19 +266,53 @@ function CopyableRow({ prefix, copied, onCopy, children, title, tipLabel, flex =
   title?: string;
   tipLabel?: string;
   flex?: boolean;
+  /** A second line under the key line (a `ContinuationLine`). When set, the
+   *  button stacks the two lines (`flex flex-col`) and each line truncates on
+   *  its own — the key line never wraps into the continuation. A click
+   *  anywhere on the block still copies. Mutually exclusive with `flex`. */
+  continuation?: ReactNode;
 }) {
+  const buttonClass = "group text-left w-full cursor-pointer hover:bg-bg-inset bg-transparent border-0 p-0 m-0 font-inherit text-inherit";
+  const prefixSpan = (
+    <Tip label={tipLabel} placement="right">
+      <span className={flex ? "text-text-secondary shrink-0" : "text-text-secondary"}>{copied ? "copied \u2713 " : `${prefix} `}</span>
+    </Tip>
+  );
+  if (continuation) {
+    return (
+      <button type="button" onClick={onCopy} className={`${buttonClass} flex flex-col`} title={title}>
+        <span className="w-full min-w-0 truncate">
+          {prefixSpan}
+          {children}
+        </span>
+        {continuation}
+      </button>
+    );
+  }
   return (
     <button
       type="button"
       onClick={onCopy}
-      className={`group text-left w-full cursor-pointer hover:bg-bg-inset bg-transparent border-0 p-0 m-0 font-inherit text-inherit ${flex ? "flex items-center whitespace-nowrap overflow-hidden" : "truncate"}`}
+      className={`${buttonClass} ${flex ? "flex items-center whitespace-nowrap overflow-hidden" : "truncate"}`}
       title={title}
     >
-      <Tip label={tipLabel} placement="right">
-        <span className={flex ? "text-text-secondary shrink-0" : "text-text-secondary"}>{copied ? "copied \u2713 " : `${prefix} `}</span>
-      </Tip>
+      {prefixSpan}
       {children}
     </button>
+  );
+}
+
+/** A register row's overflow line, indented to the panel's value column (the
+ *  4-advance key + the 2-advance icon cell). Dim by default — the row's
+ *  decisive tokens lead on the key line, so this line holds only the
+ *  expendable tail, where truncation costs nothing; segments that carry
+ *  their own hue (the PR health facts) keep it via their own class. `w-full`
+ *  is what lets `truncate` bite inside a `flex-col` parent. */
+function ContinuationLine({ testid, children }: { testid: string; children: ReactNode }) {
+  return (
+    <span className="w-full min-w-0 truncate pl-[6ch] text-text-secondary" data-testid={testid}>
+      {children}
+    </span>
   );
 }
 
@@ -280,7 +324,7 @@ function CopyableRow({ prefix, copied, onCopy, children, title, tipLabel, flex =
  *  row-body vs hover-icon split the sidebar window row uses. Takes `prUrl` as a
  *  typed `string` so neither the anchor nor the copy handler needs a non-null
  *  assertion (type narrowing over `!`). */
-function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel }: {
+function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel, continuation }: {
   prUrl: string;
   prNumber: number | undefined;
   copied: boolean;
@@ -290,6 +334,10 @@ function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel }: {
    *  same seam as CopyableRow's `tipLabel`; the anchor's `title={prUrl}`
    *  state-reveal stays native per the 73al promotion rule. */
   tipLabel?: string;
+  /** The health continuation line. It renders INSIDE the anchor, under the
+   *  key line, so open-first (click, middle/Ctrl+click, right-click → copy
+   *  link) and the hover tint cover the whole two-line block. */
+  continuation?: ReactNode;
 }) {
   return (
     <div className="group/pr relative">
@@ -299,8 +347,9 @@ function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel }: {
         rel="noopener noreferrer"
         title={prUrl}
         aria-label={`Open PR #${prNumber} in a new tab`}
-        className="group flex items-center truncate w-full pr-6 hover:bg-bg-inset"
+        className="group flex flex-col w-full hover:bg-bg-inset"
       >
+        <span className="flex items-center w-full min-w-0 pr-6">
         {/* Non-collapsing spacing: the anchor is a flex container, so a
             whitespace-only {" "} text node between flex items is dropped and a
             trailing collapsible space trimmed. The gaps before the icon and
@@ -328,6 +377,8 @@ function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel }: {
         >
           {"\u2197"}
         </span>
+        </span>
+        {continuation}
       </a>
       {/* THE canonical hover-reveal contract (every hover-revealed icon
           cluster in the sidebar spells it this way): the CONTAINER gates
@@ -349,8 +400,12 @@ function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel }: {
           cluster precedent (text-text-secondary hover:text-text-primary), NOT
           ICON_CLASS: ICON_CLASS carries text-accent-bright, which would fight
           text-text-secondary at equal specificity, so only its font/size pieces
-          are kept. */}
-      <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center z-10 pointer-events-none group-hover/pr:pointer-events-auto coarse:pointer-events-auto has-[:focus-visible]:pointer-events-auto">
+          are kept.
+          The container is `top-0 h-[1lh]` — the height of ONE text line — so
+          the 24px button stays centred on the KEY line when a continuation
+          line makes the block two lines tall (`top-1/2` would centre it on
+          the block, between the two lines). */}
+      <div className="absolute right-0 top-0 h-[1lh] flex items-center z-10 pointer-events-none group-hover/pr:pointer-events-auto coarse:pointer-events-auto has-[:focus-visible]:pointer-events-auto">
         <button
           type="button"
           aria-label="Copy PR URL"
@@ -408,21 +463,34 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
   const fabParts = getFabParts(win, gitBranch);
   const outputLine = getOutputLine(win, nowSeconds);
   const agentLine = getAgentLine(win);
-  const prSegments = getPrSegments(win);
+  const prParts = getPrParts(win);
   const operatorParts = getOperatorParts(win, operator, nowSeconds);
   // Stale describes the live watch loop, so it applies only to the watched
   // head — the done head (owner, unmonitored) never dims.
   const oprStale = win.monitored === true && operator?.stale === true;
-  const prText = prSegments?.map((s) => s.text).join(" · ") ?? "";
+  // The no-URL copy value is the joined one-line form (identity then health).
+  const prText = prParts ? [...prParts.identity, ...prParts.health].map((s) => s.text).join(" · ") : "";
   // The colored PR segment spans (separator + segment) are identical in the
-  // anchor (URL-present) and CopyableRow (no-URL) branches — build them once so
-  // the segment styling can't drift between the two.
-  const segmentSpans = prSegments?.map((seg, i) => (
-    <span key={seg.text}>
-      {i > 0 && <span className="text-text-secondary group-hover:text-accent">{" · "}</span>}
-      <span className={`${seg.color} group-hover:text-accent`}>{seg.text}</span>
-    </span>
-  ));
+  // anchor (URL-present) and CopyableRow (no-URL) branches — one builder for
+  // both lines of both branches so the segment styling can't drift.
+  const toSegmentSpans = (segs: PrSegment[]) =>
+    segs.map((seg, i) => (
+      <span key={seg.text}>
+        {i > 0 && <span className="text-text-secondary group-hover:text-accent">{" · "}</span>}
+        <span className={`${seg.color} group-hover:text-accent`}>{seg.text}</span>
+      </span>
+    ));
+  const prIdentitySpans = prParts ? toSegmentSpans(prParts.identity) : null;
+  // Health facts ride the continuation line; a merged/closed PR has none
+  // (getPrParts suppresses them), so it renders one line.
+  const prContinuation =
+    prParts && prParts.health.length > 0 ? (
+      <ContinuationLine testid="pr-line-cont">{toSegmentSpans(prParts.health)}</ContinuationLine>
+    ) : undefined;
+  // The slug continues only when the branch does not carry it (getFabParts).
+  const fabContinuation = fabParts?.slug ? (
+    <ContinuationLine testid="fab-line-cont">{fabParts.slug}</ContinuationLine>
+  ) : undefined;
 
   return (
     <div className="flex flex-col gap-0 text-xs">
@@ -501,9 +569,10 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
           opens", and the copy affordance role-swapped to a hover-revealed icon
           on the right — the same row-body vs hover-icon split the sidebar window
           row uses for its icon cluster. When there is no URL there is nothing to
-          open, so the row stays a plain copy row (unchanged). Gated via
-          getPrSegments. */}
-      {prSegments && (
+          open, so the row stays a plain copy row. Both branches split the
+          register the same way: identity (`#n · state`) on the key line, the
+          health facts on the continuation line. Gated via getPrParts. */}
+      {prParts && (
         win.prUrl ? (
           <PrLinkRow
             prUrl={win.prUrl}
@@ -511,15 +580,22 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
             tipLabel="Pull request"
             copied={copiedRow === "pr"}
             onCopy={(url) => handleCopy("pr", url)}
+            continuation={prContinuation}
           >
-            {segmentSpans}
+            {prIdentitySpans}
           </PrLinkRow>
         ) : (
-          <CopyableRow prefix={"pr\u00A0"} tipLabel="Pull request" copied={copiedRow === "pr"} onCopy={() => handleCopy("pr", prText)}>
+          <CopyableRow
+            prefix={"pr\u00A0"}
+            tipLabel="Pull request"
+            copied={copiedRow === "pr"}
+            onCopy={() => handleCopy("pr", prText)}
+            continuation={prContinuation}
+          >
             <span className={ICON_CLASS} aria-hidden="true">{"\uF407"}</span>
             {" "}
             <span data-testid="pr-line">
-              {segmentSpans}
+              {prIdentitySpans}
             </span>
           </CopyableRow>
         )
@@ -558,17 +634,24 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
         </div>
       )}
 
-      {/* fab (L2) — <id>[ <slug>] · <stage>[ · <displayState>]. Absent when no
-          fab change. The displayState token renders in the fab hue vocabulary
-          (FAB_STATE_COLORS: green running/landed, yellow gated, red failed);
-          an unknown state gets no extra class. The copy value stays the 4-char
-          id — never the rendered line, so no colour markup can reach the
-          clipboard. */}
+      {/* fab (L2) — key line <id> · <stage>[ · <displayState>], the slug on a
+          continuation line only when the branch does not carry it. Absent
+          when no fab change. The displayState token renders in the fab hue
+          vocabulary (FAB_STATE_COLORS: green running/landed, yellow gated,
+          red failed); an unknown state gets no extra class. The copy value
+          stays the 4-char id — never the rendered line, so no colour markup
+          can reach the clipboard. */}
       {fabParts && (
-        <CopyableRow prefix="fab" tipLabel="Fab change" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabParts.id)}>
+        <CopyableRow
+          prefix="fab"
+          tipLabel="Fab change"
+          copied={copiedRow === "fab"}
+          onCopy={() => handleCopy("fab", fabParts.id)}
+          continuation={fabContinuation}
+        >
           <ClockSpinner className={`${ICON_CLASS} font-normal`} />{" "}
           <span className="text-text-primary group-hover:text-accent">
-            {fabParts.id}{fabParts.slug ? ` ${fabParts.slug}` : ""} · {fabParts.stage}
+            {fabParts.id} · {fabParts.stage}
             {fabParts.displayState && (
               <span className={`${FAB_STATE_COLORS[fabParts.displayState] ?? ""} group-hover:text-accent`}>{` · ${fabParts.displayState}`}</span>
             )}

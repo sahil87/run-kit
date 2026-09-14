@@ -14,8 +14,9 @@ import { TMUX_SERVER, createSession, killSession, listWindows, stampWebTab } fro
  * opt-out — a `beforeEach` seeds `runkit-compose-strip=false` — so their
  * "enable via the chip" flows stay literal; the nested "on by default"
  * describe drops that seed and proves the default itself (the first-render
- * notice, the desktop first-visit focus landing in the textarea, and the
- * Escape hand-off to the pane). The compose SURFACE always mounts at its dock: the
+ * notice, the desktop first-visit focus landing in the textarea, the
+ * Escape hand-off to the pane, and the tab-walk chords still stepping windows
+ * from the focused textarea — the navigation family carries `ignoreInputs`). The compose SURFACE always mounts at its dock: the
  * preference picks the FORM — the expanded strip, or a one-row collapsed
  * tongue (`compose-tongue`: `a▏` glyph, "Compose", the `compose-toggle` chord
  * as a `<kbd>` on fine pointers) whose click expands the strip. An enabled strip
@@ -1281,6 +1282,41 @@ test.describe("Docked compose strip", () => {
       await page.getByRole("option", { name: "Compose: Toggle" }).click();
       await expect(page.getByTestId("compose-strip-input")).toBeVisible();
       await expect(page.getByRole("button", { name: "Compose", exact: true })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    /**
+     * Proves: the tab-walk chords keep working from the compose textarea. The
+     * first-visit landing puts focus in the strip, and `window-next` carries
+     * `ignoreInputs`, so a second press — which now targets a TEXTAREA — still
+     * reaches the dispatcher and steps the window list again instead of being
+     * swallowed by the text-input gate. The second press is the regression
+     * under test; a single press from the pane always worked.
+     *
+     * Steps:
+     * 1. Navigate to `cs-alpha` (no seed → strip on); wait for `Connected`;
+     *    assert the textarea is `document.activeElement`.
+     * 2. Press Shift+Control+ArrowDown (the win/linux `window-next` face);
+     *    assert the URL leaves `cs-alpha`'s window.
+     * 3. Assert the textarea is active again on the new window (first-visit
+     *    landing).
+     * 4. Press Shift+Control+ArrowDown again; assert the URL changes again.
+     */
+    test("Shift+Ctrl+Down steps the window list twice from the focused compose textarea", async ({ page }) => {
+      test.setTimeout(60_000);
+      await page.setViewportSize({ width: 1440, height: 800 });
+      const alpha = await resolveWindowId(page, BOARD_SESSION, "cs-alpha");
+      await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(alpha)}`, { waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("status-bar").locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+      await expectActiveElement(page, "compose");
+      const startUrl = page.url();
+
+      await page.keyboard.press("Shift+Control+ArrowDown");
+      await expect.poll(() => page.url(), { timeout: READY_TIMEOUT }).not.toBe(startUrl);
+      const secondUrl = page.url();
+      await expectActiveElement(page, "compose");
+
+      await page.keyboard.press("Shift+Control+ArrowDown");
+      await expect.poll(() => page.url(), { timeout: READY_TIMEOUT }).not.toBe(secondUrl);
     });
   });
 

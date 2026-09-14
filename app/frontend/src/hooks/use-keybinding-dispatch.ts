@@ -29,7 +29,8 @@ export type KeybindingHandlers = Record<string, (() => void) | undefined>;
  *     has no context for an action (e.g. ⇧⌘H on the board route).
  *  4. `shouldSuppressChord` gates real text inputs (with the `.xterm`
  *     carve-out) unless the binding opts out via
- *     `ignoreInputs` (⌘K, the overlay toggle). A suppressed match YIELDS to
+ *     `ignoreInputs` (the chrome-toggle and navigation families, ⌘K). A
+ *     suppressed match YIELDS to
  *     later matches (exactly like a handler-less one), so a shared-chord
  *     `ignoreInputs` binding still fires inside inputs instead of being
  *     shadowed by a suppressed higher-precedence match.

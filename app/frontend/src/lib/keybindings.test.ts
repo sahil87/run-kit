@@ -619,6 +619,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       kind: "builtin",
       label: "Previous tab",
       mapLabel: "prev tab",
+      ignoreInputs: true,
     });
     expect(next).toEqual({
       actionId: "window-next",
@@ -629,6 +630,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       kind: "builtin",
       label: "Next tab",
       mapLabel: "next tab",
+      ignoreInputs: true,
     });
     for (const host of [SHELL_MAC, BROWSER_MAC]) {
       expect(byId(resolved(host), "window-prev")).toMatchObject({
@@ -676,6 +678,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       label: "Previous session",
       description: "jump to the adjacent session's active window",
       mapLabel: "prev session",
+      ignoreInputs: true,
     });
     expect(next).toEqual({
       actionId: "session-next",
@@ -687,6 +690,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       label: "Next session",
       description: "jump to the adjacent session's active window",
       mapLabel: "next session",
+      ignoreInputs: true,
     });
     for (const host of [SHELL_MAC, BROWSER_MAC]) {
       expect(byId(resolved(host), "session-prev")).toMatchObject({
@@ -765,6 +769,17 @@ describe("DEFAULT_BINDINGS integrity", () => {
 
   it("keeps ⌘K firing in inputs (ignoreInputs) — byte-identical migration", () => {
     expect(byId(resolved(), "command-palette").ignoreInputs).toBe(true);
+  });
+
+  it("the navigation family punches through text inputs (ignoreInputs on all six rows)", () => {
+    // The desktop restore router lands first-visit focus in the compose
+    // textarea, so a navigation chord's next press targets a TEXTAREA; the set
+    // is pinned as a contract so a row edit that drops the flag fails loudly.
+    for (const id of ["window-prev", "window-next", "session-prev", "session-next", "go-back", "go-forward"]) {
+      for (const host of ALL_HOSTS) {
+        expect(byId(resolved(host), id).ignoreInputs, `${id} on ${host.platform}/${host.shell ? "shell" : "browser"}`).toBe(true);
+      }
+    }
   });
 });
 

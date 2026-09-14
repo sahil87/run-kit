@@ -123,8 +123,11 @@ async function gotoWindowOne(page: Page) {
 
 // Every spec here is about CHORDS reaching the window-level dispatcher. The
 // compose strip is on by default and a fresh desktop navigation focuses its
-// textarea, where only `ignoreInputs` chords fire — so this file states the
-// explicit opt-out up front; the compose surface is not its subject.
+// textarea. The navigation family (tab/session/history) punches through that
+// textarea via `ignoreInputs`, but this file also exercises chords that do
+// NOT (create-window, kill-window, the split pair, macros) and would be
+// suppressed there — so it states the explicit opt-out up front; the compose
+// surface is not its subject.
 test.beforeEach(async ({ page }) => {
   await seedComposeStrip(page, false);
 });

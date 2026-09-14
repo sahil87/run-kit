@@ -93,6 +93,38 @@ describe("useKeybindingDispatch", () => {
     }
   });
 
+  it("the navigation family (arrows + history) fires from the compose textarea (ignoreInputs)", () => {
+    // A fresh desktop navigation lands focus in the compose strip's textarea,
+    // so the NEXT tab/session/history chord targets a TEXTAREA; without the
+    // flag the walk would die after one step. Pinned through the real
+    // DEFAULT_BINDINGS rows on the base (Win/Linux) face — jsdom is a non-mac
+    // host, so the shifted tier is the one that resolves here.
+    const handlers = {
+      "window-prev": vi.fn(),
+      "window-next": vi.fn(),
+      "session-prev": vi.fn(),
+      "session-next": vi.fn(),
+      "go-back": vi.fn(),
+      "go-forward": vi.fn(),
+    };
+    renderHook(() => useKeybindingDispatch(handlers));
+    const textarea = document.createElement("textarea");
+    document.body.appendChild(textarea);
+    textarea.focus();
+    for (const [code, handler] of [
+      ["ArrowUp", handlers["window-prev"]],
+      ["ArrowDown", handlers["window-next"]],
+      ["ArrowLeft", handlers["session-prev"]],
+      ["ArrowRight", handlers["session-next"]],
+      ["BracketLeft", handlers["go-back"]],
+      ["BracketRight", handlers["go-forward"]],
+    ] as const) {
+      const event = press({ code, shiftKey: true, ctrlKey: true }, textarea);
+      expect(handler, code).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented, code).toBe(true);
+    }
+  });
+
   it("honors overrides (rebound chord dispatches, default chord falls through)", () => {
     localStorage.setItem(
       KEYBINDINGS_STORAGE_KEY,

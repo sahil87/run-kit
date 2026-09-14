@@ -96,9 +96,10 @@ export type KeyBinding = {
   description?: string;
   /** Short tier-map keycap annotation (defaults to nothing rendered). */
   mapLabel?: string;
-  /** Fire even when a real text input has focus. ⌘K keeps its historical
-   *  everywhere-behavior (Constitution V primary discovery); everything else
-   *  goes through `shouldSuppressChord`. */
+  /** Fire even when a real text input has focus — the punch-through class:
+   *  chrome toggles and navigation chords (modifier combos that never insert
+   *  text), plus ⌘K's historical everywhere-behavior (Constitution V primary
+   *  discovery). Every other binding goes through `shouldSuppressChord`. */
   ignoreInputs?: boolean;
   /** This chord targets the tmux pane; only meaningful when the tty tile owns
    *  focus (260812-wfic). Gate sites (the app.tsx dispatcher handler map, the
@@ -274,13 +275,19 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // the shifted tier there and sessions take the horizontal codes. The
   // mapLabels are carried for parity but unrendered: arrow codes have no
   // keycap cell in the panel's KEY_ROWS grids (the Comma/Backquote no-cell
-  // precedent).
-  { actionId: "window-prev", code: "ArrowUp", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Previous tab", mapLabel: "prev tab" },
-  { actionId: "window-next", code: "ArrowDown", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Next tab", mapLabel: "next tab" },
-  { actionId: "session-prev", code: "ArrowLeft", tier: "shifted", macCode: "ArrowUp", scope: "global", kind: "builtin", label: "Previous session", description: "jump to the adjacent session's active window", mapLabel: "prev session" },
-  { actionId: "session-next", code: "ArrowRight", tier: "shifted", macCode: "ArrowDown", scope: "global", kind: "builtin", label: "Next session", description: "jump to the adjacent session's active window", mapLabel: "next session" },
-  { actionId: "go-back", code: "BracketLeft", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Back", description: "history", mapLabel: "back" },
-  { actionId: "go-forward", code: "BracketRight", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Forward", description: "history", mapLabel: "fwd" },
+  // precedent). All six navigation rows (the two arrow pairs and the ⌘[/⌘]
+  // history pair below) carry ignoreInputs: the desktop restore router lands
+  // first-visit focus in the compose strip's textarea, so a navigation
+  // chord's natural NEXT press targets a TEXTAREA — without the flag the walk
+  // would die after one step. Navigation chords have no editing meaning worth
+  // preserving inside a compose draft (⌘↑/⌘↓ caret-to-document-edge is the one
+  // native motion lost there — the same trade xterm's carve-out already makes).
+  { actionId: "window-prev", code: "ArrowUp", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Previous tab", mapLabel: "prev tab", ignoreInputs: true },
+  { actionId: "window-next", code: "ArrowDown", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Next tab", mapLabel: "next tab", ignoreInputs: true },
+  { actionId: "session-prev", code: "ArrowLeft", tier: "shifted", macCode: "ArrowUp", scope: "global", kind: "builtin", label: "Previous session", description: "jump to the adjacent session's active window", mapLabel: "prev session", ignoreInputs: true },
+  { actionId: "session-next", code: "ArrowRight", tier: "shifted", macCode: "ArrowDown", scope: "global", kind: "builtin", label: "Next session", description: "jump to the adjacent session's active window", mapLabel: "next session", ignoreInputs: true },
+  { actionId: "go-back", code: "BracketLeft", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Back", description: "history", mapLabel: "back", ignoreInputs: true },
+  { actionId: "go-forward", code: "BracketRight", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Forward", description: "history", mapLabel: "fwd", ignoreInputs: true },
   { actionId: "agent-next-waiting", code: "KeyA", tier: "shifted", scope: "global", kind: "builtin", label: "Next waiting agent", description: "jump to an agent blocked on input", mapLabel: "agent" },
   // ⇧⌘H/⇧Ctrl+H host switcher — opens the shell titlebar strip's hosts menu
   // (plain digits select a host while it is open). NO mac demotion: the
@@ -1026,7 +1033,8 @@ export function formatCombo(combo: BindingCombo, platform: BindingPlatform): str
  * has focus. Carve-out preserved from the legacy listeners: xterm's hidden
  * helper textarea is the terminal's NORMAL focus state — chords fire
  * there. Returns `true` when the chord SHOULD be suppressed. Bindings with
- * `ignoreInputs` (⌘K, the overlay toggle) skip this predicate entirely.
+ * `ignoreInputs` — the chrome-toggle and navigation families, ⌘K — skip this
+ * predicate entirely.
  */
 export function shouldSuppressChord(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;

@@ -1515,9 +1515,12 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
     // so this proves the windowId lookup (not the thin fallback) supplied it.
     expect(screen.getByText(/zx4i board-route-pane-host-panels · apply/)).toBeInTheDocument();
     // Identity from the enriched copy, not the thin panes (cwd differs:
-    // /home/u/code/live shortens to ~/code/live; the thin pane cwd is /tmp/thin).
-    expect(screen.getByText("~/code/live")).toBeInTheDocument();
-    expect(screen.queryByText("/tmp/thin")).not.toBeInTheDocument();
+    // /home/u/code/live vs the thin pane's /tmp/thin). The cwd row renders its
+    // value as two spans (dim parent + basename), so assert on the row's
+    // `title`, which carries the full path, and on the basename span.
+    expect(screen.getByTitle("/home/u/code/live")).toBeInTheDocument();
+    expect(screen.getByText("live")).toBeInTheDocument();
+    expect(screen.queryByTitle("/tmp/thin")).not.toBeInTheDocument();
   });
 
   it("thin-renders from the board entry's panes when the lookup misses (pin-only window)", () => {

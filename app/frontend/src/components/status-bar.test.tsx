@@ -94,23 +94,23 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(screen.queryByTestId("status-bar-window")).not.toBeInTheDocument();
     });
 
-    it("tmx ordinal is the pane's position in the list, not paneIndex + 1 — strip and overflow row agree", () => {
+    it("tmx renders the pane id alone for a single pane — strip and overflow row agree", () => {
       // paneIndex 1 models tmux's pane-base-index 1; a single pane must read
-      // 1/1 everywhere the bar renders the tmx value.
+      // its id with no ordinal everywhere the bar renders the tmx value.
       const win = makeWindow({
         panes: [{ paneId: "%5", paneIndex: 1, cwd: "/home/user/wt", command: "zsh", isActive: true }],
       });
       renderBar({ window: win });
-      expect(screen.getByText("pane 1/1 %5")).toBeInTheDocument();
-      expect(screen.queryByText(/pane 2\/1/)).toBeNull();
+      expect(screen.getByText("%5")).toBeInTheDocument();
+      expect(screen.queryByText(/1\/1/)).toBeNull();
       fireEvent.click(screen.getByTestId("status-bar-overflow"));
       const menu = screen.getByRole("menu", { name: "Overflow status segments" });
-      expect(within(menu).getByRole("menuitem", { name: "Copy tmux pane id" })).toHaveTextContent("tmx pane 1/1 %5");
+      expect(within(menu).getByRole("menuitem", { name: "Copy tmux pane id" })).toHaveTextContent("tmx %5");
     });
 
     it("renders the git/tmx/cwd identity registers in descending-relevance order", () => {
       renderBar({ window: makeWindowWithPanes() });
-      expect(screen.getByText("pane 1/1 %5")).toBeInTheDocument();
+      expect(screen.getByText("%5")).toBeInTheDocument();
       // cwd renders as the BASENAME with the full path in the tooltip.
       expect(screen.getByText("run-kit")).toBeInTheDocument();
       expect(screen.getByText("main")).toBeInTheDocument();
@@ -118,8 +118,22 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(screen.queryByText("zsh")).not.toBeInTheDocument();
       // Strip order is descending relevance: git → tmx → cwd.
       const text = screen.getByTestId("status-bar-window").textContent ?? "";
-      expect(text.indexOf("main")).toBeLessThan(text.indexOf("pane 1/1 %5"));
-      expect(text.indexOf("pane 1/1 %5")).toBeLessThan(text.indexOf("run-kit"));
+      expect(text.indexOf("main")).toBeLessThan(text.indexOf("%5"));
+      expect(text.indexOf("%5")).toBeLessThan(text.indexOf("run-kit"));
+    });
+
+    it("dims the branch's six-digit date prefix on the ⑂ segment; the overflow row stays plain", () => {
+      const win = makeWindow({
+        panes: [{ paneId: "%5", paneIndex: 0, cwd: "/home/user/wt", command: "zsh", isActive: true, gitBranch: "260913-png4-compose-default-on" }],
+      });
+      renderBar({ window: win });
+      expect(screen.getByText("260913-").className).toContain("text-text-secondary");
+      expect(screen.getByText("png4-compose-default-on")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("status-bar-overflow"));
+      const menu = screen.getByRole("menu", { name: "Overflow status segments" });
+      const gitRow = within(menu).getByRole("menuitem", { name: "Copy git branch" });
+      expect(gitRow).toHaveTextContent("⑂ 260913-png4-compose-default-on");
+      expect(gitRow.querySelector(".text-text-secondary")).toBeNull();
     });
 
     it("renders agt/fab/PR registers when those layers are present", () => {
@@ -153,6 +167,46 @@ describe("StatusBar (260814-ldbs)", () => {
       expect(screen.queryByRole("link", { name: /Open PR/ })).not.toBeInTheDocument();
       expect(screen.getByText("#604")).toBeInTheDocument();
       expect(screen.getByText("merged")).toBeInTheDocument();
+    });
+
+    it("a branch carrying the fab change drops the slug from the segment; the state token is coloured", () => {
+      const win = makeWindow({
+        fabChange: "260814-ldbs-shell-stage-status-bar",
+        fabStage: "apply",
+        fabDisplayState: "failed",
+        panes: [
+          { paneId: "%5", paneIndex: 0, cwd: "/home/user/wt", command: "claude", isActive: true, gitBranch: "260814-ldbs-shell-stage-status-bar" },
+        ],
+      });
+      renderBar({ window: win });
+      // The branch (⑂) already spells the slug — the fab segment shows the id form.
+      expect(screen.getByText("ldbs · apply")).toBeInTheDocument();
+      const fabText = screen.getByTestId("status-bar-window").textContent ?? "";
+      expect(fabText).not.toContain("ldbs shell-stage-status-bar · apply");
+      // The displayState token renders in the fab hue vocabulary.
+      expect(screen.getByText("· failed").className).toContain("text-signal-red");
+    });
+
+    it("an off-change branch keeps the slug (the off-branch signal)", () => {
+      // makeWindowWithPanes pins gitBranch "main" — the slug stays.
+      const win = makeWindowWithPanes({
+        fabChange: "260814-ldbs-shell-stage-status-bar",
+        fabStage: "apply",
+      });
+      renderBar({ window: win });
+      expect(screen.getByText("ldbs shell-stage-status-bar · apply")).toBeInTheDocument();
+    });
+
+    it("an unknown fab displayState renders the token with no colour class", () => {
+      const win = makeWindowWithPanes({
+        fabChange: "260814-ldbs-shell-stage-status-bar",
+        fabStage: "apply",
+        fabDisplayState: "dancing",
+      });
+      renderBar({ window: win });
+      const token = screen.getByText("· dancing");
+      expect(token.className).not.toContain("text-signal");
+      expect(token.className).not.toContain("text-accent-green");
     });
 
     it("marks a deleted cwd in red with the (deleted) tag", () => {
@@ -494,7 +548,7 @@ describe("StatusBar (260814-ldbs)", () => {
       cleanup();
       // No panes ⇒ no pane id ⇒ the tmx segment renders but is not a button.
       renderBar({ window: makeWindow() });
-      expect(screen.getByText("pane 1/0").closest("button")).toBeNull();
+      expect(screen.getByText("tmx").closest("button")).toBeNull();
     });
 
     it("overflow rows mirroring copyable segments are copy-action buttons — full raw value, menu stays open, keyboard-reachable", async () => {

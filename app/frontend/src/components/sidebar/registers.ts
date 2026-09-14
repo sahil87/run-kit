@@ -6,55 +6,64 @@ import type { WindowInfo } from "@/types";
  * Shared register-line resolvers for the status pyramid's five orthogonal
  * signal registers (`out` L0 / `agt` L1 / `fab` L2 / `PR` L3 / `opr` L4 — see
  * docs/specs/status-pyramid.md § Row Minimalism). Extracted from
- * `status-panel.tsx` (93dy) so the TWO register surfaces — the bottom PANE
- * panel's `WindowContent` and the sidebar row-hover flyout card
- * (`row-flyout-card.tsx`) — render from ONE source and cannot drift. Pure
- * functions over the streamed `WindowInfo`; no React.
+ * `status-panel.tsx` so the THREE register surfaces — the bottom PANE
+ * panel's `WindowContent`, the sidebar row-hover flyout card
+ * (`row-flyout-card.tsx`), and the status bar's window cluster — render from
+ * ONE source and cannot drift. Pure functions over the streamed `WindowInfo`;
+ * no React.
  *
  * The `tmx` identity-row label (`getTmxLabel`) also lives here — it is pane
  * metadata, not a register, but it has three consumers (the PANE panel, the
  * status-bar strip, the status-bar overflow row) that must render one string.
+ * `splitDatePrefix` (the git row / bar `⑂` segment's dim date prefix) lives
+ * here for the same reason — one rule, two surfaces.
  */
 
 /**
- * Build the `tmx` identity-row label: `pane <ordinal>/<count>[ <paneId>]`.
- * The ordinal is the ACTIVE pane's 1-based position in `win.panes` — never
- * `paneIndex + 1`: `paneIndex` is tmux's `#{pane_index}`, which already
- * honours `pane-base-index`, so re-offsetting it reads `pane 2/1` for a single
- * pane under base-index 1. The id suffix comes ONLY from the active pane —
+ * Build the `tmx` identity-row label: the active pane's id leads — `%107` for
+ * a one-pane window (the overwhelming case; `pane 1/1` says nothing), `%109 ·
+ * 3/3` for multi-pane, where the ordinal only disambiguates. The ordinal is
+ * the ACTIVE pane's 1-based position in `win.panes` — never `paneIndex + 1`:
+ * `paneIndex` is tmux's `#{pane_index}`, which already honours
+ * `pane-base-index`. The id segment comes ONLY from the active pane —
  * consumers copy `activePane.paneId`, and a label must never show an id that
- * nothing copies — so with no pane marked active the ordinal falls back to 1
- * and no id is shown (a pane-less window reads `pane 1/0`); an empty active
- * `paneId` likewise drops the suffix.
+ * nothing copies — so with no pane marked active (or an empty active
+ * `paneId`) the id and its ` · ` separator are omitted and the ordinal falls
+ * back to 1 (`1/3`). A single (or zero) pane with no id yields the empty
+ * string — the panel and the bar render the row passive in that case.
  */
 export function getTmxLabel(win: WindowInfo): string {
   const panes = win.panes ?? [];
   const activeIdx = panes.findIndex((p) => p.isActive);
   const ordinal = (activeIdx >= 0 ? activeIdx : 0) + 1;
   const paneId = activeIdx >= 0 ? panes[activeIdx].paneId : "";
-  return `pane ${ordinal}/${panes.length}${paneId ? ` ${paneId}` : ""}`;
+  if (panes.length <= 1) return paneId;
+  return paneId ? `${paneId} · ${ordinal}/${panes.length}` : `${ordinal}/${panes.length}`;
 }
 
 /**
  * Build the L0 `out` register string. L0 speaks about bytes, not intent:
- * `active · <command>` while output flows, else `<command> — idle Xm since
- * last output` (or `idle Xm` with no command). This register ALWAYS shows its
- * own elapsed value — the duration-mute rule (which hides elapsed when output
- * flows) applied only to the retired one-line tip summary, never here in the
- * uncontested register view, so the waiting-pierce rule is automatic (see spec
- * § Duration-Text Ladder).
+ * `<cmd> · flowing` while output flows (or bare `flowing` with no command),
+ * else `<cmd> · idle <dur>` from `activityTimestamp` (or `idle <dur>`), else
+ * `<cmd>` / bare `idle` with no usable timestamp. "flowing" is the spec's own
+ * L0 word (spec § Duration-Text Ladder), keeping L0 lexically distinct from
+ * the L1 `active` agent state; the "since last output" narration lives in the
+ * tier-1 `Output activity` tip, not on the register. This register ALWAYS
+ * shows its own elapsed value — the duration-mute rule applied only to the
+ * retired one-line tip summary, never here in the uncontested register view,
+ * so the waiting-pierce rule is automatic.
  */
 export function getOutputLine(win: WindowInfo, nowSeconds: number): string {
   const command = win.panes?.find((p) => p.isActive)?.command ?? win.paneCommand ?? "";
-  if (win.activity === "active") return command ? `active · ${command}` : "active";
+  if (win.activity === "active") return command ? `${command} · flowing` : "flowing";
 
   let idle = "";
   if (win.activityTimestamp) {
     const elapsed = nowSeconds - win.activityTimestamp;
     if (elapsed > 0) idle = formatDuration(elapsed);
   }
-  const idleText = idle ? `idle ${idle} since last output` : "";
-  if (command && idleText) return `${command} — ${idleText}`;
+  const idleText = idle ? `idle ${idle}` : "";
+  if (command && idleText) return `${command} · ${idleText}`;
   if (idleText) return idleText;
   return command || "idle";
 }
@@ -67,28 +76,47 @@ export function getAgentLine(win: WindowInfo): string | null {
   return win.agentState;
 }
 
-export type FabParts = { id: string; slug: string; stage: string; displayState?: string };
+export type FabParts = { id: string; slug?: string; stage: string; displayState?: string };
 
 /** Resolve the L2 `fab` register into its parts so a surface can compose them
  *  across lines (the row-hover flyout card leads with the decisive tokens and
  *  moves the slug to a continuation line). Null when the window has no
- *  parseable fab change or no stage. */
-export function getFabParts(win: WindowInfo): FabParts | null {
+ *  parseable fab change or no stage.
+ *
+ *  The slug is written ONCE: pass the active pane's git branch as `branch`;
+ *  when the branch carries the change (`branch.endsWith(`${id}-${slug}`)` — a
+ *  fab pane's branch IS the change folder name, already shown by the `git`
+ *  row) `slug` is omitted. Otherwise the slug stays — its presence beside a
+ *  `main` or hand-named branch is itself the signal that the pane is off its
+ *  change branch. */
+export function getFabParts(win: WindowInfo, branch?: string): FabParts | null {
   const fabChange = parseFabChange(win.fabChange ?? "");
   if (!fabChange || !win.fabStage) return null;
-  const parts: FabParts = { id: fabChange.id, slug: fabChange.slug, stage: win.fabStage };
+  const parts: FabParts = { id: fabChange.id, stage: win.fabStage };
+  if (!(branch && branch.endsWith(`${fabChange.id}-${fabChange.slug}`))) parts.slug = fabChange.slug;
   if (win.fabDisplayState) parts.displayState = win.fabDisplayState;
   return parts;
 }
 
-/** Build the L2 `fab` register string: `<id> <slug> · <stage>[ ·
- *  <displayState>]`. The displayState segment is appended when present
+/** Build the L2 `fab` register string: `<id>[ <slug>] · <stage>[ ·
+ *  <displayState>]` — the slug segment is omitted when `branch` carries the
+ *  change (see getFabParts). The displayState segment is appended when present
  *  (`fab pane map` may omit it on older binaries). Null when the window has no
- *  parseable fab change or no stage. */
-export function getFabLine(win: WindowInfo): string | null {
-  const parts = getFabParts(win);
+ *  parseable fab change or no stage. The plain-text form — copy/aria/title —
+ *  so surfaces that colour the state token compose from getFabParts instead. */
+export function getFabLine(win: WindowInfo, branch?: string): string | null {
+  const parts = getFabParts(win, branch);
   if (!parts) return null;
-  return `${parts.id} ${parts.slug} · ${parts.stage}${parts.displayState ? ` · ${parts.displayState}` : ""}`;
+  return `${parts.id}${parts.slug ? ` ${parts.slug}` : ""} · ${parts.stage}${parts.displayState ? ` · ${parts.displayState}` : ""}`;
+}
+
+/** Split a branch's leading fab-style date prefix (`^\d{6}-`) from the rest,
+ *  so the `git` row and the status bar's `⑂` segment can dim the least
+ *  scannable part of the branch (`prefix` empty when absent). Copy values
+ *  always use the full branch, never this split. */
+export function splitDatePrefix(branch: string): { prefix: string; rest: string } {
+  const m = /^\d{6}-/.exec(branch);
+  return m ? { prefix: m[0], rest: branch.slice(m[0].length) } : { prefix: "", rest: branch };
 }
 
 export type PrSegment = { text: string; color: string };

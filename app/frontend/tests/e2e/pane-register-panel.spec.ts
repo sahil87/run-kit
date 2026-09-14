@@ -9,17 +9,20 @@ import { mockStateSocket } from "./_state-socket-mock";
 // L0/L1 register keys are fixed-width 3-char (`out`/`agt`, matching
 // tmx/cwd/git). Absent layers render as absent (a plain shell shows only
 // `out`). The L3 PR register shows for ANY pane with a prNumber (ungated from
-// fabChange — universal derivation, Principle X).
+// fabChange — universal derivation, Principle X). The fab register drops its
+// slug when the pane's branch carries the change (the slug is written once —
+// the branch carries it), and the cwd row is basename-first: the abbreviated
+// parent head-truncates while the basename never clips.
 //
 // Shared setup: **/api/servers → a single server `default`;
 // **/api/windows/*/select* → 200; /ws/state (via mockStateSocket) carries the
 // subscribe ack + sessions event with session `dev` and three windows — @1
 // "full-stack" (all four layers: agentState waiting 3m, fabChange/fabStage
-// review/fabDisplayState failed, derived PR #386), @2 "plain-shell" (a bare
-// shell — only L0 output), @3 "pr-only" (no fabChange, derived PR #999); the
-// terminals mux WebSocket (/ws/terminals) is stubbed. beforeEach seeds
-// runkit-sidebar-section-pane = "true" via addInitScript, then installs the
-// routes before navigation.
+// review/fabDisplayState failed, derived PR #386, branch + long cwd carrying
+// the change slug), @2 "plain-shell" (a bare shell — only L0 output), @3
+// "pr-only" (no fabChange, derived PR #999); the terminals mux WebSocket
+// (/ws/terminals) is stubbed. beforeEach seeds runkit-sidebar-section-pane =
+// "true" via addInitScript, then installs the routes before navigation.
 //
 // The PANE panel is visibility-gated and default-off on every viewport (its
 // registers live in the desktop status bar), so the suite seeds the section
@@ -34,10 +37,14 @@ const sessionsPayload = JSON.stringify([
     windows: [
       {
         // @1: all four layers present — a fab window with an agent and a PR.
+        // The pane's branch CARRIES the change, so the fab register shows the
+        // id form (`y1ar · review · failed`) — the slug is written once, on
+        // the git row. The long cwd exercises the basename-first rule: the
+        // parent yields (head-truncates), the basename never clips.
         windowId: "@1",
         index: 0,
         name: "full-stack",
-        worktreePath: "/tmp/wt",
+        worktreePath: "/home/sahil/code/sahil87/run-kit.worktrees/status-pyramid-ui-surfacing",
         activity: "idle",
         isActiveWindow: true,
         activityTimestamp: 0,
@@ -50,7 +57,7 @@ const sessionsPayload = JSON.stringify([
         prNumber: 386,
         prState: "open",
         prChecks: "fail",
-        panes: [{ paneId: "%1", paneIndex: 0, cwd: "/tmp/wt", command: "claude", isActive: true }],
+        panes: [{ paneId: "%1", paneIndex: 0, cwd: "/home/sahil/code/sahil87/run-kit.worktrees/status-pyramid-ui-surfacing", command: "claude", isActive: true, gitBranch: "260706-y1ar-status-pyramid-ui-surfacing" }],
       },
       {
         // @2: a plain shell — only the L0 output register is present.
@@ -129,7 +136,11 @@ test.describe("PANE panel four-register view", () => {
    * Proves: every signal layer that exists for a window renders as its own
    * register line — out (L0), agt (L1, with the waiting duration), fab (L2,
    * change · stage), and PR (L3) — and the L0/L1 keys use the fixed-width
-   * 3-char vocabulary (`out`/`agt`).
+   * 3-char vocabulary (`out`/`agt`). The fab register reads in the id form
+   * (`y1ar · review · failed`, no slug) because the pane's branch carries the
+   * change — the slug is written once, on the git row. The long cwd renders
+   * basename-first: the basename element stays fully inside the row (never
+   * clipped) while the abbreviated parent span yields.
    *
    * Steps:
    * 1. Navigate to /default/1, then open the drawer.
@@ -138,9 +149,11 @@ test.describe("PANE panel four-register view", () => {
    *    regressed `output` key would still contain "out").
    * 3. Assert register-agent (L1) is visible and contains the key text "agt"
    *    and "waiting 3m".
-   * 4. Assert the fab register (L2) shows the change id ("y1ar") and stage
-   *    ("review").
+   * 4. Assert the fab register (L2) reads `y1ar · review · failed` and does
+   *    NOT contain the slug (the branch carries it).
    * 5. Assert the PR register (L3) `pr-line` contains "#386".
+   * 6. Assert the cwd basename element's box lies fully inside its row and
+   *    the dim parent span is present.
    */
   test("a full window shows all four registers (out/agt/fab/PR)", async ({ page }) => {
     await gotoWindowWithDrawer(page, "1");
@@ -157,11 +170,26 @@ test.describe("PANE panel four-register view", () => {
     await expect(agent).toBeVisible();
     await expect(agent).toContainText("agt");
     await expect(agent).toContainText("waiting 3m");
-    // L2 fab register — change · stage · displayState.
-    await expect(page.getByText(/y1ar/)).toBeVisible();
-    await expect(page.getByText(/review/)).toBeVisible();
+    // L2 fab register — id · stage · displayState, NO slug: the pane's branch
+    // carries the change, so the slug is written once (on the git row).
+    const fabRow = page.getByRole("button", { name: /^fab y1ar/ });
+    await expect(fabRow).toContainText("y1ar · review · failed");
+    await expect(fabRow).not.toContainText("status-pyramid-ui-surfacing");
     // L3 PR register — the PR line for the derived PR.
     await expect(page.getByTestId("pr-line")).toContainText("#386");
+    // cwd basename-first: the basename never clips (the parent head-truncates).
+    const basename = page.getByText("status-pyramid-ui-surfacing", { exact: true });
+    await expect(basename).toBeVisible();
+    const parent = page.locator("bdi", { hasText: "run-kit.worktrees/" });
+    await expect(parent).toBeVisible();
+    const fits = await basename.evaluate((el) => {
+      const row = el.closest("button");
+      if (!row) return false;
+      const b = el.getBoundingClientRect();
+      const r = row.getBoundingClientRect();
+      return b.left >= r.left && b.right <= r.right;
+    });
+    expect(fits, "the cwd basename must render fully inside its row").toBe(true);
   });
 
   /**

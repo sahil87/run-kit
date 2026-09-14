@@ -8,9 +8,10 @@ import { StarTwinkle } from "@/components/star-twinkle";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { ICON_CLASS } from "./icons";
 import { COPY_FEEDBACK_MS, useCopyFeedback } from "@/hooks/use-copy-feedback";
-import { abbreviateHomePath, parseFabChange } from "@/lib/format";
-import { getOutputLine, getAgentLine, getFabLine, getOperatorParts, getPrSegments, getTmxLabel } from "./registers";
+import { abbreviateHomePath } from "@/lib/format";
+import { getOutputLine, getAgentLine, getFabParts, getOperatorParts, getPrSegments, getTmxLabel, splitDatePrefix } from "./registers";
 import type { OperatorLoopFacts } from "./registers";
+import { FAB_STATE_COLORS } from "@/components/pr-status-model";
 import { StatusDot } from "@/components/status-dot";
 import { Tip } from "@/components/tip";
 import type { WindowInfo } from "@/types";
@@ -41,29 +42,11 @@ type WindowPanelProps = {
   operator?: OperatorLoopFacts;
 };
 
-/** Shorten an absolute path by replacing $HOME with ~ and truncating deep paths */
-function shortenPath(cwd: string): string {
-  const path = abbreviateHomePath(cwd);
-
-  // Truncation — keep last 2 segments if more than 2
-  let segments: string[];
-  if (path.startsWith("~/")) {
-    segments = path.slice(2).split("/").filter(Boolean);
-  } else {
-    segments = path.split("/").filter(Boolean);
-  }
-  if (segments.length > 2) {
-    return "\u2026/" + segments.slice(-2).join("/");
-  }
-  return path;
-}
-
 // The register-line resolvers — getOutputLine (L0) / getAgentLine (L1) /
-// getFabLine (L2) / getPrSegments (L3) + the PrSegment type — live in
-// ./registers.ts (93dy): the single source shared with the sidebar row-hover
-// flyout card (row-flyout-card.tsx), so the two register surfaces cannot
-// drift. The PR segment color vocabulary they use still comes from
-// pr-status-model.ts.
+// getFabParts (L2) / getPrSegments (L3) — live in ./registers.ts: the single
+// source shared with the sidebar row-hover flyout card and the status bar, so
+// the three register surfaces cannot drift. The fab display-state hue
+// vocabulary comes from pr-status-model.ts (FAB_STATE_COLORS).
 
 /**
  * PANE-header refresh button (260715-jykd; feedback state machine 260715-nwla).
@@ -260,24 +243,29 @@ export function WindowPanel({ window: win, operator }: WindowPanelProps) {
  *  stays copy. Hover-only: the span remains non-focusable (the 73al
  *  connection-dot precedent — no new tab stops for non-actionable elements).
  *  The wrap survives the transient `copied ✓` swap (the tip describes the
- *  register, not the feedback state); a falsy label is Tip's pass-through. */
-function CopyableRow({ prefix, copied, onCopy, children, title, tipLabel }: {
+ *  register, not the feedback state); a falsy label is Tip's pass-through.
+ *  `flex` switches the button from a truncating inline row to a flex row whose
+ *  children own their own shrink rules — required when the value composes
+ *  spans with different truncation contracts (the cwd row: the parent path
+ *  yields, the basename never truncates). */
+function CopyableRow({ prefix, copied, onCopy, children, title, tipLabel, flex = false }: {
   prefix: string;
   copied: boolean;
   onCopy: () => void;
   children: ReactNode;
   title?: string;
   tipLabel?: string;
+  flex?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onCopy}
-      className="group truncate text-left w-full cursor-pointer hover:bg-bg-inset bg-transparent border-0 p-0 m-0 font-inherit text-inherit"
+      className={`group text-left w-full cursor-pointer hover:bg-bg-inset bg-transparent border-0 p-0 m-0 font-inherit text-inherit ${flex ? "flex items-center whitespace-nowrap overflow-hidden" : "truncate"}`}
       title={title}
     >
       <Tip label={tipLabel} placement="right">
-        <span className="text-text-secondary">{copied ? "copied \u2713 " : `${prefix} `}</span>
+        <span className={flex ? "text-text-secondary shrink-0" : "text-text-secondary"}>{copied ? "copied \u2713 " : `${prefix} `}</span>
       </Tip>
       {children}
     </button>
@@ -392,7 +380,15 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
 
   const activePane = win.panes?.find((p) => p.isActive);
   const activePaneCwd = activePane?.cwd ?? win.worktreePath;
-  const cwd = shortenPath(activePaneCwd);
+  // The cwd value is basename-first: the basename is the answer and never
+  // truncates; the abbreviated parent (with its trailing "/") is context that
+  // yields. The split runs on the ABBREVIATED path (`~/code/…`), so the parent
+  // span never re-introduces the long home prefix. A root-level or
+  // single-segment path renders whole as the basename, with no parent span.
+  const cwdAbbrev = abbreviateHomePath(activePaneCwd);
+  const cwdSplitAt = cwdAbbrev.lastIndexOf("/");
+  const cwdParent = cwdSplitAt > 0 ? cwdAbbrev.slice(0, cwdSplitAt + 1) : "";
+  const cwdBase = cwdSplitAt > 0 ? cwdAbbrev.slice(cwdSplitAt + 1) : cwdAbbrev;
   // The active pane's cwd was deleted on disk (e.g. an archived worktree). Keep
   // the stale path as a breadcrumb but recolor the row and tag it "(deleted)".
   const cwdMissing = activePane?.cwdMissing ?? false;
@@ -400,12 +396,16 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
   const tmxLabel = getTmxLabel(win);
 
   const gitBranch = activePane?.gitBranch ?? "";
+  // The leading six-digit date prefix is the least scannable part of a fab
+  // branch — the same dim rule the status bar's ⑂ segment renders (one regex,
+  // splitDatePrefix in registers.ts). The copy value stays the full branch.
+  const { prefix: gitDatePrefix, rest: gitBranchRest } = splitDatePrefix(gitBranch);
 
-  // fabChange stays parsed here for the copy interaction (the fab row copies
-  // the change id); the L2 register STRING itself comes from the shared
-  // getFabLine (registers.ts, 93dy).
-  const fabChange = parseFabChange(win.fabChange ?? "");
-  const fabLine = getFabLine(win);
+  // The slug is written once: when the pane's branch carries the change
+  // (`<id>-<slug>`), the register shows `<id> · <stage>` — the `git` row above
+  // already carries the slug; its presence beside a `main` or hand-named
+  // branch is itself the off-branch signal.
+  const fabParts = getFabParts(win, gitBranch);
   const outputLine = getOutputLine(win, nowSeconds);
   const agentLine = getAgentLine(win);
   const prSegments = getPrSegments(win);
@@ -444,23 +444,39 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
         </div>
       )}
 
-      {/* cwd */}
+      {/* cwd — basename-first: the parent span head-truncates (dir="rtl" moves
+          the ellipsis to the head; the <bdi dir="ltr"> keeps the text itself
+          in left-to-right glyph order) while the basename holds shrink-0. The
+          flex CopyableRow lets the two spans carry their own shrink contracts;
+          title and copy stay the full unabbreviated path. */}
       <CopyableRow
         prefix="cwd"
         tipLabel="Working directory"
         copied={copiedRow === "cwd"}
         onCopy={() => handleCopy("cwd", activePaneCwd)}
         title={cwdMissing ? `${activePaneCwd} (no longer exists)` : activePaneCwd}
+        flex
       >
-        <span className={ICON_CLASS} aria-hidden="true">{"\uF413"}</span>
+        <span className={`${ICON_CLASS} shrink-0`} aria-hidden="true">{"\uF413"}</span>
         {" "}
-        {cwdMissing ? (
-          <span className="text-signal-red">
-            {cwd} <span data-testid="cwd-deleted">(deleted)</span>
+        <span className="flex min-w-0">
+          {cwdParent && (
+            <span
+              className={`min-w-0 truncate ${cwdMissing ? "text-signal-red" : "text-text-secondary"}`}
+              dir="rtl"
+            >
+              <bdi dir="ltr">{cwdParent}</bdi>
+            </span>
+          )}
+          <span
+            className={`shrink-0 ${cwdMissing ? "text-signal-red" : "text-text-primary group-hover:text-accent"}`}
+          >
+            {cwdBase}
           </span>
-        ) : (
-          <span className="text-text-secondary group-hover:text-accent">{cwd}</span>
-        )}
+          {cwdMissing && (
+            <span className="shrink-0 text-signal-red" data-testid="cwd-deleted"> (deleted)</span>
+          )}
+        </span>
       </CopyableRow>
 
       {/* git */}
@@ -468,7 +484,10 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
         <CopyableRow prefix="git" tipLabel="Git branch" copied={copiedRow === "git"} onCopy={() => handleCopy("git", gitBranch)}>
           <span className={ICON_CLASS} aria-hidden="true">{"\uF418"}</span>
           {" "}
-          <span className="text-text-primary group-hover:text-accent">{gitBranch}</span>
+          <span className="text-text-primary group-hover:text-accent">
+            {gitDatePrefix && <span className="text-text-secondary group-hover:text-accent">{gitDatePrefix}</span>}
+            {gitBranchRest}
+          </span>
         </CopyableRow>
       )}
 
@@ -538,11 +557,21 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
         </div>
       )}
 
-      {/* fab (L2) — change · stage · displayState. Absent when no fab change. */}
-      {fabLine && (
-        <CopyableRow prefix="fab" tipLabel="Fab change" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabChange!.id)}>
+      {/* fab (L2) — <id>[ <slug>] · <stage>[ · <displayState>]. Absent when no
+          fab change. The displayState token renders in the fab hue vocabulary
+          (FAB_STATE_COLORS: green running/landed, yellow gated, red failed);
+          an unknown state gets no extra class. The copy value stays the 4-char
+          id — never the rendered line, so no colour markup can reach the
+          clipboard. */}
+      {fabParts && (
+        <CopyableRow prefix="fab" tipLabel="Fab change" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabParts.id)}>
           <ClockSpinner className={`${ICON_CLASS} font-normal`} />{" "}
-          <span className="text-text-primary group-hover:text-accent">{fabLine}</span>
+          <span className="text-text-primary group-hover:text-accent">
+            {fabParts.id}{fabParts.slug ? ` ${fabParts.slug}` : ""} · {fabParts.stage}
+            {fabParts.displayState && (
+              <span className={`${FAB_STATE_COLORS[fabParts.displayState] ?? ""} group-hover:text-accent`}>{` · ${fabParts.displayState}`}</span>
+            )}
+          </span>
         </CopyableRow>
       )}
 

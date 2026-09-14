@@ -111,7 +111,8 @@ test.describe("Status bar (260814-ldbs)", () => {
    * Steps:
    * 1. Navigate to `/default/1`; wait for the status bar.
    * 2. Assert zero `Terminal keys` toolbars in the DOM.
-   * 3. Assert the window cluster's register values (`pane 1/1 %1`, `wt`,
+   * 3. Assert the window cluster's register values (`%1` — the pane id leads;
+   *    the ordinal only disambiguates multi-pane windows, `wt`,
    *    `main`, `waiting 3m`, the fab line, the `Open PR #603` link).
    * 4. Assert the host cluster (`17%`, `e2e-box`, `v0.9.3`) and the
    *    `Connected` dot.
@@ -125,10 +126,12 @@ test.describe("Status bar (260814-ldbs)", () => {
 
     // R4 left cluster — the current window's registers (same resolvers as the
     // retired desktop PANE panel).
-    await expect(windowCluster(page).getByText("pane 1/1 %1")).toBeVisible();
+    await expect(windowCluster(page).getByText("%1", { exact: true })).toBeVisible();
     await expect(windowCluster(page).getByText("wt")).toBeVisible(); // cwd basename
     await expect(windowCluster(page).getByText("main")).toBeVisible(); // git branch
     await expect(windowCluster(page).getByText("waiting 3m")).toBeVisible(); // agt
+    // The fixture branch is `main` — the off-branch case, so the fab segment
+    // keeps its slug (a branch carrying the change would drop it).
     await expect(windowCluster(page).getByText(/ldbs shell-stage-status-bar · apply/)).toBeVisible();
     // PR register: an open-first anchor.
     await expect(
@@ -197,7 +200,7 @@ test.describe("Status bar (260814-ldbs)", () => {
 
     // Wide (1440 ≥ xl): every window segment shows, no chevron.
     await page.setViewportSize({ width: 1440, height: 800 });
-    await expect(windowCluster(page).getByText("pane 1/1 %1")).toBeVisible();
+    await expect(windowCluster(page).getByText("%1", { exact: true })).toBeVisible();
     await expect(windowCluster(page).getByText("wt")).toBeVisible();
     await expect(statusBar(page).getByTestId("status-bar-overflow")).toBeHidden();
 
@@ -206,7 +209,7 @@ test.describe("Status bar (260814-ldbs)", () => {
     // survive; the bar does not scroll.
     await page.setViewportSize({ width: 800, height: 600 });
     await expect(windowCluster(page).getByText("wt")).toBeHidden();
-    await expect(windowCluster(page).getByText("pane 1/1 %1")).toBeHidden();
+    await expect(windowCluster(page).getByText("%1", { exact: true })).toBeHidden();
     await expect(windowCluster(page).getByText("main")).toBeVisible();
     await expect(windowCluster(page).getByText("waiting 3m")).toBeVisible();
     const bar = statusBar(page);
@@ -299,7 +302,7 @@ test.describe("Status bar (260814-ldbs)", () => {
    * Proves: an overflow-menu copy row is keyboard-activatable end to end —
    * opening the `…` menu moves roving focus onto the first visible row (the
    * tmx copy row at this width), a real Enter keypress copies the RAW pane id
-   * (`%1`, not the displayed `pane 1/1 %1` text), and the menu stays open
+   * (`%1`, not the row's `tmx %1` display text), and the menu stays open
    * (the user may want to read the row).
    *
    * Steps:

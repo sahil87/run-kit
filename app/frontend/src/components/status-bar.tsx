@@ -28,7 +28,8 @@ import { StatusDot } from "@/components/status-dot";
 import { HostMetrics, normalizeLoadPercent } from "@/components/host-metrics";
 import { displayVersion } from "@/lib/palette/version";
 import { formatMemory, gaugeColor } from "@/lib/gauge";
-import { getAgentLine, getFabLine, getPrSegments, getTmxLabel } from "./sidebar/registers";
+import { getAgentLine, getFabParts, getPrSegments, getTmxLabel, splitDatePrefix } from "./sidebar/registers";
+import { FAB_STATE_COLORS } from "@/components/pr-status-model";
 import { controlClass } from "@/components/control";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { formatDuration, parseFabChange } from "@/lib/format";
@@ -331,10 +332,18 @@ function WindowCluster({ win }: { win: WindowInfo }) {
   const cwdMissing = activePane?.cwdMissing ?? false;
   const cwdBase = cwdFull.split("/").filter(Boolean).pop() ?? cwdFull;
   const gitBranch = activePane?.gitBranch ?? "";
+  // The leading six-digit date prefix dims (the panel git row's rule — one
+  // regex, splitDatePrefix in registers.ts); the copy value stays the full
+  // branch. The overflow-menu ⑂ row is a menu item and stays plain.
+  const { prefix: gitDatePrefix, rest: gitBranchRest } = splitDatePrefix(gitBranch);
   const agtLine = getAgentLine(win);
-  const fabLine = getFabLine(win);
+  // The slug is written once: the pane's branch carries it, so the segment
+  // shows `<id> · <stage>`; on any other branch the slug stays (the off-branch
+  // signal). The displayState token renders in the fab hue vocabulary.
+  const fabParts = getFabParts(win, gitBranch);
   // Parsed here for the copy value only (the fab segment copies the 4-char
-  // change id, the Pane panel's rule); the display STRING stays getFabLine.
+  // change id, the Pane panel's rule); the display STRING composes from
+  // getFabParts.
   const fabChange = parseFabChange(win.fabChange ?? "");
   const prSegments = getPrSegments(win);
   const { copiedKey, copy } = useCopyFeedback<"git" | "fab" | "tmx" | "cwd">();
@@ -355,7 +364,8 @@ function WindowCluster({ win }: { win: WindowInfo }) {
           onCopy={() => copy("git", gitBranch)}
           className="hidden md:flex"
         >
-          {gitBranch}
+          {gitDatePrefix && <span className="text-text-secondary group-hover:text-accent">{gitDatePrefix}</span>}
+          {gitBranchRest}
         </CopySegment>
       )}
       {prSegments &&
@@ -396,7 +406,7 @@ function WindowCluster({ win }: { win: WindowInfo }) {
             </span>
           </span>
         ))}
-      {fabLine &&
+      {fabParts &&
         (fabChange ? (
           <CopySegment
             label="fab"
@@ -405,11 +415,17 @@ function WindowCluster({ win }: { win: WindowInfo }) {
             copied={copiedKey === "fab"}
             onCopy={() => copy("fab", fabChange.id)}
           >
-            {fabLine}
+            {fabParts.id}{fabParts.slug ? ` ${fabParts.slug}` : ""} · {fabParts.stage}
+            {fabParts.displayState && (
+              <span className={`${FAB_STATE_COLORS[fabParts.displayState] ?? ""} group-hover:text-accent`}>{` · ${fabParts.displayState}`}</span>
+            )}
           </CopySegment>
         ) : (
           <Segment label="fab" tip="Fab change">
-            {fabLine}
+            {fabParts.id}{fabParts.slug ? ` ${fabParts.slug}` : ""} · {fabParts.stage}
+            {fabParts.displayState && (
+              <span className={FAB_STATE_COLORS[fabParts.displayState] ?? ""}>{` · ${fabParts.displayState}`}</span>
+            )}
           </Segment>
         ))}
       {agtLine && (

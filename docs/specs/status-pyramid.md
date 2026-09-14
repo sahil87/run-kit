@@ -342,12 +342,14 @@ derived from it (every dot overlay has a register: the watched underbar's
 stale dimming reads off `opr`'s `tick <age> ago`):
 
 ```
-out  active · 4s since last output        (L0)
+out  claude · flowing                   (L0)
 agt  waiting 3m                           (L1)
-fab  260705-dmex · review · failed        (L2)
+fab  dmex · review · failed               (L2)
 PR   #314 open · checks fail · draft      (L3)
 opr  watched · review · tick 2m ago       (operator watchlist)
 ```
+
+The slug is written once — the branch carries it.
 
 Register keys are fixed-width 3-char lowercase (`out` / `agt` / `fab` / `pr` /
 `opr`), matching the panel's existing `tmx`/`cwd`/`git` vocabulary.

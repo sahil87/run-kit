@@ -7,20 +7,21 @@ import {
   getOperatorParts,
   getPrSegments,
   getTmxLabel,
+  splitDatePrefix,
 } from "./registers";
 import { makeWindow, makeWindowWithPanes } from "@/test-utils/fixtures";
 
 describe("getTmxLabel (tmx identity row)", () => {
   // paneIndex values start at 1 here: tmux's #{pane_index} honours
   // pane-base-index, and the ordinal must not be derived from it.
-  it("single pane under pane-base-index 1 reads 1/1, not 2/1", () => {
+  it("a single pane reads its id alone — no pane n/m for the common case", () => {
     const win = makeWindow({
       panes: [{ paneId: "%107", paneIndex: 1, cwd: "/home", command: "zsh", isActive: true }],
     });
-    expect(getTmxLabel(win)).toBe("pane 1/1 %107");
+    expect(getTmxLabel(win)).toBe("%107");
   });
 
-  it("ordinal is the active pane's position in the pane list", () => {
+  it("multi-pane: the id leads and the ordinal only disambiguates", () => {
     const win = makeWindow({
       panes: [
         { paneId: "%107", paneIndex: 1, cwd: "/home", command: "zsh", isActive: false },
@@ -28,19 +29,19 @@ describe("getTmxLabel (tmx identity row)", () => {
         { paneId: "%109", paneIndex: 3, cwd: "/home", command: "claude", isActive: true },
       ],
     });
-    expect(getTmxLabel(win)).toBe("pane 3/3 %109");
+    expect(getTmxLabel(win)).toBe("%109 · 3/3");
   });
 
-  it("empty paneId drops the id suffix", () => {
+  it("single pane with an empty paneId reads empty", () => {
     const win = makeWindow({
       panes: [{ paneId: "", paneIndex: 1, cwd: "/home", command: "zsh", isActive: true }],
     });
-    expect(getTmxLabel(win)).toBe("pane 1/1");
+    expect(getTmxLabel(win)).toBe("");
   });
 
-  it("no panes reads 'pane 1/0' (ordinal falls back to 1)", () => {
-    expect(getTmxLabel(makeWindow({}))).toBe("pane 1/0");
-    expect(getTmxLabel(makeWindow({ panes: [] }))).toBe("pane 1/0");
+  it("no panes reads empty (nothing to say, nothing to copy)", () => {
+    expect(getTmxLabel(makeWindow({}))).toBe("");
+    expect(getTmxLabel(makeWindow({ panes: [] }))).toBe("");
   });
 
   it("panes but none active: ordinal falls back to 1 and NO id is shown (the id comes only from the active pane)", () => {
@@ -50,34 +51,50 @@ describe("getTmxLabel (tmx identity row)", () => {
         { paneId: "%108", paneIndex: 2, cwd: "/home", command: "zsh", isActive: false },
       ],
     });
-    expect(getTmxLabel(win)).toBe("pane 1/2");
+    expect(getTmxLabel(win)).toBe("1/2");
+  });
+
+  it("multi-pane with an empty active paneId: the ordinal alone disambiguates", () => {
+    const win = makeWindow({
+      panes: [
+        { paneId: "%107", paneIndex: 1, cwd: "/home", command: "zsh", isActive: false },
+        { paneId: "", paneIndex: 2, cwd: "/home", command: "zsh", isActive: true },
+      ],
+    });
+    expect(getTmxLabel(win)).toBe("2/2");
   });
 });
 
-// 93dy: the register-line resolvers were extracted from status-panel.tsx into
-// this shared module so the PANE panel and the row-hover flyout card render
-// from one source. These tests pin the extracted behavior (the panel's own
-// rendering coverage lives in status-panel.test.tsx and must keep passing
-// unchanged).
+// The register-line resolvers live in this shared module so the PANE panel,
+// the row-hover flyout card, and the status bar render from one source. These
+// tests pin the resolver behavior; the panel's own rendering coverage lives in
+// status-panel.test.tsx.
 
 describe("getOutputLine (L0)", () => {
-  it("active window with a command: 'active · <command>'", () => {
-    expect(getOutputLine(makeWindowWithPanes({ activity: "active" }), 1000)).toBe("active · zsh");
+  it("active window with a command: '<cmd> · flowing'", () => {
+    expect(getOutputLine(makeWindowWithPanes({ activity: "active" }), 1000)).toBe("zsh · flowing");
   });
 
-  it("active window without a command: bare 'active'", () => {
-    expect(getOutputLine(makeWindow({ activity: "active" }), 1000)).toBe("active");
+  it("active window without a command: bare 'flowing'", () => {
+    expect(getOutputLine(makeWindow({ activity: "active" }), 1000)).toBe("flowing");
   });
 
-  it("idle window with command + timestamp: '<command> — idle Xs since last output'", () => {
-    expect(getOutputLine(makeWindowWithPanes({ activity: "idle", activityTimestamp: 970 }), 1000)).toBe(
-      "zsh — idle 30s since last output",
+  it("idle window with command + timestamp: '<cmd> · idle Xm' — no narration", () => {
+    expect(getOutputLine(makeWindowWithPanes({ activity: "idle", activityTimestamp: 760 }), 1000)).toBe(
+      "zsh · idle 4m",
     );
   });
 
-  it("idle window with no command but a timestamp: 'idle Xs since last output'", () => {
+  it("idle window with no command but a timestamp: 'idle Xm'", () => {
     expect(getOutputLine(makeWindow({ activity: "idle", activityTimestamp: 940 }), 1000)).toBe(
-      "idle 1m since last output",
+      "idle 1m",
+    );
+  });
+
+  it("idle window with a command but no usable timestamp: bare '<cmd>'", () => {
+    expect(getOutputLine(makeWindowWithPanes({ activity: "idle", activityTimestamp: 0 }), 1000)).toBe("zsh");
+    expect(getOutputLine(makeWindowWithPanes({ activity: "idle", activityTimestamp: 1000 }), 1000)).toBe(
+      "zsh",
     );
   });
 
@@ -123,6 +140,38 @@ describe("getFabLine (L2)", () => {
         makeWindow({ fabChange: "260805-93dy-row-flyout", fabStage: "review", fabDisplayState: "failed" }),
       ),
     ).toBe("93dy row-flyout · review · failed");
+  });
+
+  it("the slug is written once: a branch carrying the change drops it", () => {
+    const win = makeWindow({
+      fabChange: "260805-93dy-row-flyout",
+      fabStage: "review",
+      fabDisplayState: "failed",
+    });
+    expect(getFabLine(win, "260805-93dy-row-flyout")).toBe("93dy · review · failed");
+  });
+
+  it("a branch NOT carrying the change keeps the slug (the off-branch signal)", () => {
+    const win = makeWindow({ fabChange: "260805-93dy-row-flyout", fabStage: "apply" });
+    expect(getFabLine(win, "main")).toBe("93dy row-flyout · apply");
+    expect(getFabLine(win, "t7vy-launch")).toBe("93dy row-flyout · apply");
+    // A same-suffix-but-different-id branch is not the change's branch.
+    expect(getFabLine(win, "260901-zzzz-row-flyout")).toBe("93dy row-flyout · apply");
+  });
+});
+
+describe("splitDatePrefix", () => {
+  it("splits a leading six-digit date prefix", () => {
+    expect(splitDatePrefix("260913-png4-compose-default-on")).toEqual({
+      prefix: "260913-",
+      rest: "png4-compose-default-on",
+    });
+  });
+
+  it("no prefix: empty prefix, the whole branch as rest", () => {
+    expect(splitDatePrefix("main")).toEqual({ prefix: "", rest: "main" });
+    expect(splitDatePrefix("26091-short")).toEqual({ prefix: "", rest: "26091-short" });
+    expect(splitDatePrefix("")).toEqual({ prefix: "", rest: "" });
   });
 });
 
@@ -188,6 +237,17 @@ describe("getFabParts", () => {
       slug: "row-flyout",
       stage: "apply",
     });
+  });
+
+  it("a branch carrying the change yields no slug", () => {
+    const win = makeWindow({ fabChange: "260805-93dy-row-flyout", fabStage: "apply" });
+    expect(getFabParts(win, "260805-93dy-row-flyout")).toEqual({ id: "93dy", stage: "apply" });
+  });
+
+  it("`main` and no branch argument both keep the slug", () => {
+    const win = makeWindow({ fabChange: "260805-93dy-row-flyout", fabStage: "apply" });
+    expect(getFabParts(win, "main")?.slug).toBe("row-flyout");
+    expect(getFabParts(win)?.slug).toBe("row-flyout");
   });
 });
 

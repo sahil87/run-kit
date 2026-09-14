@@ -28,11 +28,6 @@ vi.mock("@/contexts/session-context", () => ({
   }),
 }));
 
-// Helper to exercise shortenPath via the component
-function renderCwd(cwd: string) {
-  render(<StatusPanel window={makeWindow({ worktreePath: cwd })} />);
-}
-
 beforeEach(() => {
   vi.useFakeTimers();
   // Deterministic clock for the leaf `useNow()` inside WindowContent. Most
@@ -55,23 +50,53 @@ describe("StatusPanel", () => {
     expect(screen.getByText("No tab selected")).toBeInTheDocument();
   });
 
-  it("shows CWD from active pane", () => {
+  it("shows CWD from active pane — basename-first, the abbreviated parent yields", () => {
     const win = makeWindow({
       panes: [
         { paneId: "%5", paneIndex: 0, cwd: "/Users/sahil/code/run-kit", command: "zsh", isActive: true },
       ],
     });
     render(<StatusPanel window={win} />);
-    expect(screen.getByText("~/code/run-kit")).toBeInTheDocument();
+    // Two spans: the dim head-truncating parent (dir="rtl" + a bdi keeping the
+    // text ltr) and the shrink-0 primary basename.
+    const basename = screen.getByText("run-kit");
+    expect(basename.className).toContain("shrink-0");
+    expect(basename.className).toContain("text-text-primary");
+    const parent = screen.getByText("~/code/");
+    expect(parent.tagName).toBe("BDI");
+    const parentSpan = parent.closest("span[dir='rtl']");
+    expect(parentSpan).not.toBeNull();
+    expect(parentSpan!.className).toContain("text-text-secondary");
   });
 
   it("falls back to worktreePath when no panes", () => {
     const win = makeWindow({ worktreePath: "/Users/sahil/projects/foo" });
     render(<StatusPanel window={win} />);
-    expect(screen.getByText("~/projects/foo")).toBeInTheDocument();
+    expect(screen.getByText("~/projects/")).toBeInTheDocument();
+    expect(screen.getByText("foo")).toBeInTheDocument();
   });
 
-  it("marks the cwd as deleted when the active pane's cwd is missing", () => {
+  it("a root-level path renders whole as the basename — no parent span", () => {
+    const win = makeWindow({ worktreePath: "/var" });
+    render(<StatusPanel window={win} />);
+    expect(screen.getByText("/var")).toBeInTheDocument();
+    expect(document.querySelector("[dir='rtl']")).toBeNull();
+  });
+
+  it("title and copy value keep the full unabbreviated path", () => {
+    const win = makeWindow({
+      panes: [
+        { paneId: "%5", paneIndex: 0, cwd: "/Users/sahil/code/org/repo/src", command: "zsh", isActive: true },
+      ],
+    });
+    render(<StatusPanel window={win} />);
+    const cwdButton = document.querySelector("[title='/Users/sahil/code/org/repo/src']");
+    expect(cwdButton).not.toBeNull();
+    expect(cwdButton?.textContent).toContain("src");
+    expect(cwdButton?.textContent).toContain("~/code/org/repo/");
+  });
+
+  it("marks the cwd as deleted when the active pane's cwd is missing — both spans red", () => {
     const win = makeWindow({
       panes: [
         { paneId: "%5", paneIndex: 0, cwd: "/home/sahil/wt/gone", command: "zsh", isActive: true, cwdMissing: true },
@@ -79,8 +104,10 @@ describe("StatusPanel", () => {
     });
     render(<StatusPanel window={win} />);
     // Stale path is kept as a breadcrumb alongside the "(deleted)" tag.
-    expect(screen.getByText("~/wt/gone", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("gone").className).toContain("text-signal-red");
+    expect(screen.getByText("~/wt/").closest("span")!.className).toContain("text-signal-red");
     expect(screen.getByTestId("cwd-deleted")).toHaveTextContent("(deleted)");
+    expect(screen.getByTestId("cwd-deleted").className).toContain("text-signal-red");
   });
 
   it("does not mark the cwd as deleted when the active pane's cwd exists", () => {
@@ -93,22 +120,39 @@ describe("StatusPanel", () => {
     expect(screen.queryByTestId("cwd-deleted")).not.toBeInTheDocument();
   });
 
+  it("dims the six-digit date prefix on the git row; the rest stays primary", () => {
+    const win = makeWindow({
+      panes: [
+        { paneId: "%5", paneIndex: 0, cwd: "/home", command: "zsh", isActive: true, gitBranch: "260913-png4-compose-default-on" },
+      ],
+    });
+    render(<StatusPanel window={win} />);
+    expect(screen.getByText("260913-").className).toContain("text-text-secondary");
+    expect(screen.getByText(/png4-compose-default-on/)).toBeInTheDocument();
+  });
+
+  it("renders no dim prefix for a branch without the date form", () => {
+    render(<StatusPanel window={makeWindowWithPanes()} />);
+    expect(screen.getByText("main")).toBeInTheDocument();
+    expect(screen.queryByText(/\d{6}-/)).toBeNull();
+  });
+
   it("shows window name", () => {
     const win = makeWindow({ name: "my-shell" });
     render(<StatusPanel window={win} />);
     expect(screen.getByText("my-shell")).toBeInTheDocument();
   });
 
-  it("tmx ordinal is the pane's position, not paneIndex + 1 (pane-base-index 1)", () => {
+  it("tmx renders the pane id alone for a single pane (ordinal only disambiguates)", () => {
     const win = makeWindow({
       panes: [{ paneId: "%5", paneIndex: 1, cwd: "/home", command: "zsh", isActive: true }],
     });
     render(<StatusPanel window={win} />);
-    expect(screen.getByRole("button", { name: /pane 1\/1 %5/ })).toBeInTheDocument();
-    expect(screen.queryByText(/pane 2\/1/)).toBeNull();
+    expect(screen.getByRole("button", { name: /%5/ })).toBeInTheDocument();
+    expect(screen.queryByText(/1\/1/)).toBeNull();
   });
 
-  it("shows pane count when multiple panes", () => {
+  it("multi-pane tmx: the id leads and the ordinal disambiguates", () => {
     const win = makeWindow({
       name: "editor",
       panes: [
@@ -117,17 +161,53 @@ describe("StatusPanel", () => {
       ],
     });
     render(<StatusPanel window={win} />);
-    expect(screen.getByText(/pane 1\/2/)).toBeInTheDocument();
+    expect(screen.getByText(/%1 · 1\/2/)).toBeInTheDocument();
   });
 
-  it("shows fab state when available", () => {
+  it("shows fab state when available, with the state token in the fab hue vocabulary", () => {
     const win = makeWindow({
       fabChange: "260405-rx38-pane-cwd-tracking",
       fabStage: "apply",
+      fabDisplayState: "failed",
     });
     render(<StatusPanel window={win} />);
     expect(screen.getByText(/rx38/)).toBeInTheDocument();
     expect(screen.getByText(/apply/)).toBeInTheDocument();
+    expect(screen.getByText("· failed").className).toContain("text-signal-red");
+  });
+
+  it("an unknown fab displayState renders the token with no colour class", () => {
+    const win = makeWindow({
+      fabChange: "260405-rx38-pane-cwd-tracking",
+      fabStage: "apply",
+      fabDisplayState: "dancing",
+    });
+    render(<StatusPanel window={win} />);
+    const token = screen.getByText("· dancing");
+    expect(token.className).not.toContain("text-signal");
+    expect(token.className).not.toContain("text-accent-green");
+  });
+
+  it("a fab branch carrying the change drops the slug from the register", () => {
+    const win = makeWindow({
+      fabChange: "260405-rx38-pane-cwd-tracking",
+      fabStage: "apply",
+      panes: [
+        { paneId: "%5", paneIndex: 0, cwd: "/home", command: "zsh", isActive: true, gitBranch: "260405-rx38-pane-cwd-tracking" },
+      ],
+    });
+    render(<StatusPanel window={win} />);
+    expect(screen.getByText("rx38 · apply")).toBeInTheDocument();
+    // The git row still carries the full branch — the slug's one spelling.
+    expect(screen.getByText(/rx38-pane-cwd-tracking/)).toBeInTheDocument();
+  });
+
+  it("an off-change branch keeps the slug in the register (the off-branch signal)", () => {
+    render(<StatusPanel window={makeWindowWithPanes({
+      fabChange: "260405-rx38-pane-cwd-tracking",
+      fabStage: "apply",
+    })} />);
+    expect(screen.getByText("rx38 pane-cwd-tracking · apply")).toBeInTheDocument();
   });
 
   it("shows process info as fallback when no fab state", () => {
@@ -140,7 +220,7 @@ describe("StatusPanel", () => {
     });
     vi.setSystemTime(3_700_000);
     render(<StatusPanel window={win} />);
-    expect(screen.getByText(/zsh \u2014 idle 1h/)).toBeInTheDocument();
+    expect(screen.getByText(/zsh · idle 1h/)).toBeInTheDocument();
   });
 
   it("renders fab and run rows independently when both are present", () => {
@@ -157,7 +237,7 @@ describe("StatusPanel", () => {
     render(<StatusPanel window={win} />);
     expect(screen.getByText(/rx38/)).toBeInTheDocument();
     expect(screen.getByText(/apply/)).toBeInTheDocument();
-    expect(screen.getByText(/claude \u2014 idle 1h/)).toBeInTheDocument();
+    expect(screen.getByText(/claude · idle 1h/)).toBeInTheDocument();
   });
 
   it("run row still shows idle duration when an agent is present", () => {
@@ -172,41 +252,8 @@ describe("StatusPanel", () => {
     });
     vi.setSystemTime(3_700_000);
     render(<StatusPanel window={win} />);
-    expect(screen.getByText(/claude \u2014 idle 1h/)).toBeInTheDocument();
+    expect(screen.getByText(/claude · idle 1h/)).toBeInTheDocument();
     expect(screen.getByText(/Thinking 2m/)).toBeInTheDocument();
-  });
-
-  describe("shortenPath", () => {
-
-
-
-    it.each([
-      ["/home/sahil/code/org/repo/src", "…/repo/src"],
-      ["/home/sahil/code/org/repo", "…/org/repo"],
-      ["/home/sahil/code/org", "~/code/org"],
-      ["/var/log/nginx/access", "…/nginx/access"],
-      ["/Users/john/a/b/c/d", "…/c/d"],
-      ["/var/log/nginx", "…/log/nginx"],
-    ])("shortens %s to its final path segments", (path, expected) => {
-      renderCwd(path);
-      expect(screen.getByText(expected)).toBeInTheDocument();
-    });
-
-
-
-
-
-
-
-
-
-
-    it("title attribute preserves full unmodified path", () => {
-      renderCwd("/home/sahil/code/org/repo/src");
-      const cwdButton = document.querySelector("[title='/home/sahil/code/org/repo/src']");
-      expect(cwdButton).not.toBeNull();
-      expect(cwdButton?.querySelector(".group-hover\\:text-accent")?.textContent).toBe("\u2026/repo/src");
-    });
   });
 });
 
@@ -241,7 +288,7 @@ describe("StatusPanel copy behavior", () => {
     const win = makeWindowWithPanes();
     render(<StatusPanel window={win} />);
 
-    const tmxButton = screen.getByRole("button", { name: /pane 1\/1 %5/ });
+    const tmxButton = screen.getByRole("button", { name: /tmx %5/ });
     fireEvent.click(tmxButton);
 
     expect(copyToClipboard).toHaveBeenCalledWith("%5");

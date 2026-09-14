@@ -20,6 +20,7 @@ import { PinIcon } from "@/components/pin-icon";
 import { CloseIcon, PaletteIcon } from "./icons";
 import { getFabParts, getOperatorParts, getPrSegments } from "./registers";
 import type { OperatorLoopFacts } from "./registers";
+import { FAB_STATE_COLORS } from "@/components/pr-status-model";
 import { PopupTitleBar, PopupTitleBarSecondary, notchFill } from "./popup-title-bar";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { formatDuration } from "@/lib/format";
@@ -700,7 +701,7 @@ export function WindowFlyoutContent({
    *  register's tick segment absent. */
   operator?: OperatorLoopFacts;
 }) {
-  const fabParts = getFabParts(win);
+  const fabParts = getFabParts(win, win.panes?.find((p) => p.isActive)?.gitBranch);
   const prSegments = getPrSegments(win);
   // The card holds no clock (the render-performance contract, same as
   // NoteLine): the `opr` tick age is as of this render frame.
@@ -765,9 +766,16 @@ export function WindowFlyoutContent({
           <NoteLine win={win} />
           {fabParts && (
             <>
+              {/* The displayState token renders in the fab hue vocabulary
+                  (FAB_STATE_COLORS); an unknown state gets no extra class. The
+                  slug rides a continuation line only when the branch does not
+                  already carry it (the slug is written once). */}
               <RegisterLine prefix="fab " testid="row-flyout-fab">
                 <span className="text-text-primary">
-                  {`${fabParts.id} · ${fabParts.stage}${fabParts.displayState ? ` · ${fabParts.displayState}` : ""}`}
+                  {`${fabParts.id} · ${fabParts.stage}`}
+                  {fabParts.displayState && (
+                    <span className={FAB_STATE_COLORS[fabParts.displayState] ?? ""}>{` · ${fabParts.displayState}`}</span>
+                  )}
                 </span>
               </RegisterLine>
               {fabParts.slug && (

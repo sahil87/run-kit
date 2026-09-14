@@ -343,6 +343,32 @@ describe("RowFlyout card content", () => {
     expect(screen.queryByTestId("row-flyout-pr-link")).toBeNull();
   });
 
+  it("a branch carrying the change drops the slug continuation; the state token is coloured", () => {
+    renderOpen(
+      makeWindow({
+        fabChange: "260805-93dy-row-flyout",
+        fabStage: "review",
+        fabDisplayState: "failed",
+        panes: [
+          { paneId: "%7", paneIndex: 0, cwd: "/x", command: "zsh", isActive: true, gitBranch: "260805-93dy-row-flyout" },
+        ],
+      }),
+    );
+    // The branch already spells the slug — the continuation line is absent.
+    expect(screen.getByTestId("row-flyout-fab")).toHaveTextContent("fab 93dy · review · failed");
+    expect(screen.queryByTestId("row-flyout-fab-slug")).toBeNull();
+    // The displayState token renders in the fab hue vocabulary.
+    const state = screen.getByText("· failed");
+    expect(state.className).toContain("text-signal-red");
+  });
+
+  it("an unknown fab displayState renders the token with no colour class", () => {
+    renderOpen(
+      makeWindow({ fabChange: "260805-93dy-row-flyout", fabStage: "review", fabDisplayState: "dancing" }),
+    );
+    expect(screen.getByText("· dancing").className).toBe("");
+  });
+
   it("a fab change with no slug renders no empty continuation line", () => {
     renderOpen(makeWindow({ fabChange: "260805-93dy-", fabStage: "apply" }));
     expect(screen.getByTestId("row-flyout-fab")).toHaveTextContent("fab 93dy · apply");

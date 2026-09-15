@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { STAGE_COLUMN_GAP_PX } from "../../src/lib/stage-geometry";
 import { mockStateSocket } from "./_state-socket-mock";
 
 // Full-height sidebar e2e. Fully mocked (no tmux/gh) — the
@@ -74,9 +75,6 @@ test.describe("Full-height sidebar — the sidebar head over the bar's left end"
 
   /** The head is the header's only absolutely positioned child. */
   const head = (page: Page) => page.locator("header > div.absolute");
-  /** The stage geometry the head overlays: padding 6 + column gap 6 (the
-   *  STAGE_PADDING_PX / STAGE_COLUMN_GAP_PX constants in shell.tsx). */
-  const STAGE_GAP_PX = 6;
 
   /**
    * Proves: with the desktop sidebar open, the top bar's left end carries the
@@ -111,9 +109,9 @@ test.describe("Full-height sidebar — the sidebar head over the bar's left end"
     const headRight = headBox.x + headBox.width;
     const asideRight = asideBox.x + asideBox.width;
     expect(headBox.x).toBeLessThanOrEqual(1);
-    // The head covers the sidebar track plus the 6px stage column gap, so its
+    // The head covers the sidebar track plus the stage column gap, so its
     // right edge lands exactly on the content column's left edge.
-    expect(Math.abs(headRight - (asideRight + STAGE_GAP_PX))).toBeLessThanOrEqual(1);
+    expect(Math.abs(headRight - (asideRight + STAGE_COLUMN_GAP_PX))).toBeLessThanOrEqual(1);
     // The toggle sits left of the sidebar's right edge (the head's right
     // padding spends the gap, not the toggle's box).
     const toggleBox = (await toggle.boundingBox())!;

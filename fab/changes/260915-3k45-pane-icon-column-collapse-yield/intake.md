@@ -56,7 +56,7 @@ const prefixSpan = (
 );
 ```
 
-Both the at-rest key (`cwd` + NBSP = 4 advances) and the `copied ✓` feedback (9 advances, matching `PrLinkRow`'s `copied ✓`+NBSP) keep the icon in the column. The `cwd` row's icon span already carries its own trailing NBSP (`" "`) for the icon→value gap, so no change there. No other row uses `flex` today; the fix is in the shared component so any future flex row is correct by construction.
+Both the at-rest key (`cwd` + NBSP = 4 advances) and the `copied ✓` feedback (9 advances, matching `PrLinkRow`'s `copied ✓`+NBSP) keep the icon in the column. The `cwd` row's and `PrLinkRow`'s icon→value NBSP moves out of the 14px icon span into a sibling NBSP text node (an NBSP-only text node survives flex whitespace dropping): inside the icon span it measured a 14px advance and left the value 2px right of the inline rows' 12px `{" "}` gap. The key fix lives in the shared component, so any future flex row is correct by construction.
 
 Result: the four icons in the screenshot (`tmx` , `cwd` , `git` , `out` ⣾) share one x-coordinate, and the values share the next column.
 

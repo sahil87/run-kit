@@ -13,7 +13,7 @@
 - **GIVEN** a window whose active pane has a cwd
 - **WHEN** the PANE panel renders the `cwd` row (the only flex-mode `CopyableRow`)
 - **THEN** the `cwd` prefix span's text is exactly `"cwd "` and its icon's x-coordinate equals the `tmx`, `git`, `pr`, and `out` icons' x-coordinate, and its value's x-coordinate equals the `tmx`, `git`, and `pr` values' x-coordinate
-- **AND** after a click the prefix span reads `"copied ✓ "` and the icon does not move
+- **AND** after a click the prefix span reads `"copied ✓ "` — the 9-advance feedback shifts the icon for 1s exactly as it does on the inline rows and `PrLinkRow` (the panel's existing feedback design, unchanged here); flex mode differs from inline mode in nothing but the gap character
 
 - **GIVEN** the same window
 - **WHEN** the `tmx` row (inline mode) renders

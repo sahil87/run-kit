@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useInstanceAccent } from "@/contexts/instance-accent-context";
 import { useTheme } from "@/contexts/theme-context";
+import { deriveUIColors } from "@/themes";
 import { Dialog } from "@/components/dialog";
 import { controlClass } from "@/components/control";
 import { HostFormDialog, INVALID_HOST_URL_MESSAGE, reduceOrigin } from "@/components/host-form-dialog";
@@ -49,7 +50,9 @@ import type { ShellHostMenuRow } from "@/lib/shell-strip";
  *
  * Background = the instance accent blended at `INSTANCE_TITLEBAR_RATIO`
  * (`titlebarHex` — identical color math to the installed-PWA titlebar tint),
- * falling back to the plain theme background when no accent is set. The whole
+ * falling back to the derived chrome (`bgChrome`) when no accent is set: the
+ * strip sits directly above the chrome top bar, so the palette's terminal
+ * background would read as a seam. The whole
  * band is a drag region (`.rk-shell-drag`) with exactly ONE no-drag island
  * (260731-4bqi): the centered host-switcher trigger and its open menu carry
  * `.rk-shell-no-drag`; everything else in the band stays draggable.
@@ -649,7 +652,7 @@ export function ShellTitlebarStrip() {
     });
   }, [canAddDirect, addToast]);
 
-  const bg = titlebarHex ?? theme.palette.background;
+  const bg = titlebarHex ?? deriveUIColors(theme.palette, theme.category).bgChrome;
   const insets = stripInsets(shellInfo()?.platform ?? "");
   const hostLabel = activeShellHostName(servers) ?? window.location.hostname;
 

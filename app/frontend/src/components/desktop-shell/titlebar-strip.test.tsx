@@ -7,6 +7,7 @@ import {
 } from "@/contexts/instance-accent-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
+import { deriveUIColors, DEFAULT_DARK_THEME } from "@/themes";
 import { HOST_MENU_OPEN_EVENT, SHELL_STRIP_MARKER_CLASS } from "@/lib/shell-strip";
 
 // ThemeProvider makes no real HTTP calls in tests.
@@ -187,12 +188,16 @@ describe("ShellTitlebarStrip", () => {
     expect(strip.style.backgroundColor).toBe("rgb(58, 43, 76)");
   });
 
-  it("falls back to the theme background (still draggable) when no accent is set", () => {
+  it("falls back to the derived chrome (still draggable) when no accent is set", () => {
     shellBridge([]);
     renderStrip();
     const strip = screen.getByTestId("shell-titlebar-strip");
-    // No accent → non-empty theme background, and the band stays a drag region.
-    expect(strip.style.backgroundColor).not.toBe("");
+    // No accent → the chrome hex (the top bar's material — the palette's
+    // terminal background would read as a seam above it), and the band stays
+    // a drag region.
+    const chrome = deriveUIColors(DEFAULT_DARK_THEME.palette, "dark").bgChrome;
+    const n = parseInt(chrome.slice(1), 16);
+    expect(strip.style.backgroundColor).toBe(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
     expect(strip.className).toContain("rk-shell-drag");
   });
 });

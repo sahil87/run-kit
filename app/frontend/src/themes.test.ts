@@ -266,7 +266,7 @@ describe("chrome tokens", () => {
     // Drift pin: the first-paint fallbacks in globals.css must always be the
     // deriveUIColors output for the default palettes — a stale literal would
     // flash the wrong chrome before applyThemeToDOM runs.
-    const css = readFileSync(resolve(__dirname, "globals.css"), "utf8");
+    const css = readFileSync(resolve(process.cwd(), "src/globals.css"), "utf8");
     const blockValues = (block: string): Record<string, string> => {
       const out: Record<string, string> = {};
       for (const m of block.matchAll(/(--color-bg-chrome(?:-raised)?):\s*(#[0-9a-fA-F]{6})/g)) {

@@ -211,6 +211,10 @@ describe("Shell", () => {
     const overlay = screen.getByRole("dialog");
     expect(overlay).toBeInTheDocument();
     expect(overlay.getAttribute("aria-modal")).toBe("true");
+    // The drawer paints the chrome material (same surface contract as the
+    // desktop aside), keeping its attached border-r seam.
+    expect(overlay.className).toContain("bg-bg-chrome");
+    expect(overlay.className).not.toContain("bg-bg-primary");
   });
 
   it("does not render the mobile overlay when sidebarOpen is false", () => {

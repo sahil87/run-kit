@@ -21,7 +21,10 @@ import { mockStateSocket } from "./_state-socket-mock";
 // dev-only `window.__rkTerminals` registry's theme option, because xterm.js
 // paints its background onto the canvas and NEVER onto a DOM element —
 // xterm.css hardcodes `.xterm-viewport` to #000, so no computed-style probe
-// can see the terminal's color).
+// can see the terminal's color). The tile wrapper is additionally probed for
+// a TRANSPARENT background: no DOM element may paint the tile (a stray
+// bg-bg-chrome on it would pass the registry check yet show chrome through
+// the xterm letterbox).
 
 const SERVER = "default";
 
@@ -77,6 +80,7 @@ type ChromeProbe = {
   wrapperBg: string;
   statusBarBg: string;
   stageBg: string;
+  tileBg: string;
   xtermThemeBackground: string | null;
 };
 
@@ -101,6 +105,7 @@ async function probeChrome(page: Page): Promise<ChromeProbe> {
     const banner = document.querySelector("header");
     const wrapper = banner?.parentElement ?? null;
     const statusBar = document.querySelector('[data-testid="status-bar"]');
+    const tile = document.querySelector('[data-testid="surface-tile-tty"]');
     const terms = window.__rkTerminals ?? {};
     const term = Object.values(terms)[0];
     return {
@@ -114,6 +119,7 @@ async function probeChrome(page: Page): Promise<ChromeProbe> {
       statusBarBg: bgOf(statusBar),
       // The stage ground: the aside's parent grid (gridArea sidebar/content).
       stageBg: bgOf(aside?.parentElement),
+      tileBg: bgOf(tile),
       xtermThemeBackground: term?.options.theme?.background ?? null,
     };
   });
@@ -138,8 +144,11 @@ async function expectChromeMaterial(
   await expect(page.locator('aside[aria-label="Sidebar"]')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("status-bar")).toBeVisible({ timeout: 15_000 });
   // The terminal mount is the last surface to appear; wait for it so the
-  // registry probe and the screenshot both cover the real tile.
+  // registry probe and the screenshot both cover the real tile. The `.xterm`
+  // element appears BEFORE the dev registry entry — registration runs in a
+  // separate effect keyed on `terminalReady` — so poll the registry itself.
   await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 15_000 });
+  await page.waitForFunction(() => Object.keys(window.__rkTerminals ?? {}).length > 0);
 
   const probe = await probeChrome(page);
   const chromeRgb = hexToRgbCss(probe.vars.chrome);
@@ -151,9 +160,12 @@ async function expectChromeMaterial(
   expect(probe.statusBarBg).toBe(chromeRgb);
   expect(probe.stageBg).toBe(chromeRaisedRgb);
 
-  // The chrome is NOT the terminal color, and xterm keeps painting
-  // palette.background (registry probe — see the file header).
+  // The chrome is NOT the terminal color, and the tile keeps the terminal on
+  // palette.background: no DOM element paints the tile (transparent — a stray
+  // chrome class would show through the xterm letterbox), and the canvas
+  // paints the palette background (registry probe — see the file header).
   expect(chromeRgb).not.toBe(hexToRgbCss(probe.vars.primary));
+  expect(probe.tileBg).toBe("rgba(0, 0, 0, 0)");
   expect(probe.xtermThemeBackground).not.toBeNull();
   expect(probe.xtermThemeBackground?.toLowerCase()).toBe(probe.vars.primary.toLowerCase());
 
@@ -177,11 +189,14 @@ test.describe("Chrome material surfaces", () => {
    * Steps:
    * 1. Pin `default-dark` (settings stub + localStorage seed), emulate the
    *    dark color scheme, and navigate to the terminal route at 1440×900.
-   * 2. Wait for the sidebar aside, the status bar and the `.xterm` mount.
+   * 2. Wait for the sidebar aside, the status bar and the `.xterm` mount, then
+   *    poll for the dev registry entry (registration lags the element).
    * 3. Probe computed backgrounds of the aside, the banner's wrapper, the
-   *    status bar and the stage, plus the terminal's theme background.
+   *    status bar, the stage and the tile, plus the terminal's theme
+   *    background.
    * 4. Assert aside = wrapper = status bar = chrome, stage = chrome-raised,
-   *    chrome ≠ primary, xterm theme background = primary.
+   *    chrome ≠ primary, tile unpainted (transparent), xterm theme
+   *    background = primary.
    * 5. Attach a full-page screenshot.
    */
   test("dark theme: chrome surfaces paint the derived gray, terminal keeps the palette background", async ({

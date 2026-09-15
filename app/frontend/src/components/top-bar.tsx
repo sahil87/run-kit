@@ -3,6 +3,7 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { LogoSpinner, useBrandLogoSweep } from "@/components/logo-spinner";
 import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/contexts/chrome-context";
+import { STAGE_COLUMN_GAP_PX, STAGE_PADDING_PX } from "@/components/shell/shell";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { useUpdateClick } from "@/hooks/use-update-click";
@@ -264,6 +265,62 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
       {/* Internal divider — separates the panel slot from the content area */}
       <line x1={dividerX} y1="3.5" x2={dividerX} y2="14.5" />
     </svg>
+  );
+}
+
+/**
+ * The sidebar column's head, painted OVER the top bar's left end while the
+ * desktop sidebar is open: the brand anchor (home affordance) and the sidebar
+ * toggle, aligned over the sidebar column below.
+ *
+ * Why paint over the bar rather than restructure the DOM: the top bar mounts
+ * once in the persistent root layout above `<Shell>`, and Shell owns the
+ * sidebar per route (drag-resize, zen override and the mobile drawer hang off
+ * its stage), so a real root-grid column spanning the bar row would be a large
+ * refactor. Since the header wash, the stage ground and the sidebar aside all
+ * paint the same `bg-bg-chrome` material, an absolutely positioned head is
+ * visually identical to that column — and the header's `border-b-[3px]` stays
+ * on ONE full-width element, so the bottom seam reads as a single continuous
+ * line (the head carries no border of its own). The illusion holds only while
+ * those surfaces share the chrome material.
+ *
+ * `width` is the sidebar track plus the stage padding and column gap
+ * (`STAGE_PADDING_PX` / `STAGE_COLUMN_GAP_PX`, imported from shell.tsx by the
+ * caller), so the head's right edge lands exactly on the content column's
+ * left edge.
+ */
+function SidebarHead({
+  width,
+  onToggleSidebar,
+  hamburgerOpen,
+  brandSweep,
+}: {
+  width: number;
+  onToggleSidebar: () => void;
+  hamburgerOpen: boolean;
+  brandSweep: ReturnType<typeof useBrandLogoSweep>;
+}) {
+  return (
+    <div className="absolute inset-y-0 left-0 flex items-center gap-2 pl-3 pr-3" style={{ width }}>
+      <Tip label="Host">
+        <a
+          href="/"
+          aria-label="RunKit home"
+          className="rk-brand-glitch flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"
+          onMouseEnter={brandSweep.onMouseEnter}
+        >
+          <LogoSpinner size={20} loading={false} svgRef={brandSweep.svgRef} />
+          <span className="text-xs font-bold tracking-wide">RunKit</span>
+        </a>
+      </Tip>
+      <button
+        onClick={onToggleSidebar}
+        aria-label="Toggle navigation"
+        className={`ml-auto ${controlClass({ variant: "icon", rest: "border-border hover:border-text-secondary text-text-primary" })}`}
+      >
+        <HamburgerIcon isOpen={hamburgerOpen} />
+      </button>
+    </div>
   );
 }
 
@@ -586,6 +643,17 @@ export function TopBar({
   // The Host page (`/`) has no sidebar, so it renders no hamburger. Every other mode
   // (terminal / server / board) has a Shell sidebar and shows the toggle.
   const hasSidebar = mode !== "host";
+  const { sidebarWidth } = useChromeState();
+  // The sidebar head covers the stage's sidebar track plus the stage padding
+  // and column gap, so its right edge lands on the content column's left edge.
+  // The numbers come from Shell's exported stage constants — the head and the
+  // stage cannot drift apart. Zen mode hides the whole bar upstream, so a
+  // zen-hidden sidebar with the preference still `open` never draws a head.
+  const sidebarHeadWidth =
+    !isMobile && hasSidebar && sidebarOpen
+      ? sidebarWidth + STAGE_PADDING_PX + STAGE_COLUMN_GAP_PX
+      : 0;
+  const headShown = sidebarHeadWidth > 0;
 
   // Move-don't-copy (260704-pr0p): the left breadcrumb always ends at the
   // PARENT; the current-page leaf is the centered heading. So the server crumb
@@ -594,6 +662,12 @@ export function TopBar({
   // the leaf and moves to the center heading, leaving the left breadcrumb at
   // brand + hamburger. The Host page and board have no left server crumb.
   const showServerCrumb = mode === "terminal" && !!server;
+  // The `›` before the first crumb belongs to the brand root crumb; with the
+  // brand in the sidebar head the nav's first crumb has nothing to its left.
+  const rootSeparator = !headShown;
+  // The session crumb follows the server crumb when there is one, else it is
+  // the nav's first crumb.
+  const sessionSeparator = showServerCrumb || rootSeparator;
   const serverHref = `/${encodeURIComponent(server)}`;
   const navigate = useNavigate();
 
@@ -1090,8 +1164,21 @@ export function TopBar({
     // window.runkitShell before any SPA script runs, so it is stable for the
     // page's lifetime.
     <header
-      className={`px-3 ${isShell() ? "" : "pt-[env(safe-area-inset-top)]"} border-b-[3px] border-border`}
+      className={`relative px-3 ${isShell() ? "" : "pt-[env(safe-area-inset-top)]"} border-b-[3px] border-border`}
+      // While the head shows, shift the bar's own grid right of the content
+      // column's left edge; the +12 restores the `px-3` offset relative to that
+      // edge (the grid otherwise starts 12px in from the window edge). Hidden:
+      // no inline padding — `px-3` alone.
+      style={headShown ? { paddingLeft: sidebarHeadWidth + 12 } : undefined}
     >
+      {headShown && (
+        <SidebarHead
+          width={sidebarHeadWidth}
+          onToggleSidebar={onToggleSidebar}
+          hamburgerOpen={hamburgerOpen}
+          brandSweep={brandSweep}
+        />
+      )}
       {/* 3-column grid. At ≥ sm it is `1fr auto 1fr`: the center cell is truly
           centered regardless of asymmetric left/right widths. Left = left
           cluster (hamburger + breadcrumb nav, 260720-ap63), center = the
@@ -1108,25 +1195,30 @@ export function TopBar({
           comment below). */}
       <div className="grid grid-cols-[auto_auto_minmax(0,1fr)] sm:grid-cols-[1fr_auto_1fr] items-center gap-2 py-2">
         {/* Left cluster (260720-ap63): a flex wrapper so the hamburger — a
-            drawer toggle, NOT a breadcrumb item — sits FIRST, outside the
-            breadcrumb nav landmark, with the nav beside it inside the `1fr`
-            left cell (the center heading's true centering is untouched).
-            `min-w-0` lets the nav shrink below its content inside `1fr`. */}
+            drawer toggle, NOT a breadcrumb item — sits outside the breadcrumb
+            nav landmark, with the nav beside it inside the `1fr` left cell
+            (the center heading's true centering is untouched). The hamburger
+            leads the cluster only while the sidebar head is not shown; with
+            the head up (desktop, sidebar open) the toggle and brand live in
+            the head and the history arrows lead. `min-w-0` lets the nav
+            shrink below its content inside `1fr`. */}
         {/* One warm-tip cluster per chrome region (260722-73al): the left
             breadcrumb cluster shares a TipGroup so sweeping across crumbs
             opens sibling tips instantly (macOS-menu behavior). */}
         <TipGroup>
         <div className="flex items-center gap-1.5 min-w-0">
           {/* Hamburger icon — toggles sidebarOpen (one boolean covers both
-              desktop grid column and mobile overlay). First element of the left
-              cluster (standard drawer-toggle position). Not rendered on the
+              desktop grid column and mobile overlay). Renders as the left
+              cluster's first element (standard drawer-toggle position) EXCEPT
+              while the sidebar head is shown — the toggle lives in the head
+              then and the history arrows lead the cluster. Not rendered on the
               Host page, which has no sidebar — the history arrows lead there
               (no ghost slot reserved). Uses the shared fixed-size button token
               (260731-oiho — 28px fine / 30px coarse) so it renders the SAME box
               as its siblings (HistoryNav arrows / the right cluster); rk-glint
               flips the border green on hover. Keeps its primary text color
               (the toggle carries page-level chrome weight). */}
-          {hasSidebar && (
+          {hasSidebar && !headShown && (
             <button
               onClick={onToggleSidebar}
               aria-label="Toggle navigation"
@@ -1138,9 +1230,9 @@ export function TopBar({
 
           {/* Browser-history ◀ ▶ arrows — LEFT cluster as of 260731-oiho
               (macOS convention: sidebar toggle → back → forward → brand
-              crumb; the pair leads the cluster on the Host page). Global
-              chrome on all four modes; moving them here deleted the center
-              box's width-compensation hack. */}
+              crumb; the pair leads the cluster on the Host page and while the
+              sidebar head shows). Global chrome on all four modes; moving them
+              here deleted the center box's width-compensation hack. */}
           <HistoryNav />
 
           {/* Breadcrumb nav (260715-q8ey overlap fixes): `overflow-hidden`
@@ -1169,13 +1261,16 @@ export function TopBar({
             {/* Brand root crumb — logo + wordmark, links to `/`. The nav's
                 first child (the breadcrumb's root — the `›` separator starts
                 after it); IS the home affordance ON ≥sm (no separate "Host"
-                crumb). Below `sm` the whole crumb is gone (the `hidden
-                sm:contents` wrapper — a wrapper, not classes on the anchor,
-                because `hidden` and CRUMB_BOX's `inline-flex` are conflicting
-                display utilities whose winner would depend on stylesheet
-                order): on phones the brand + home affordance live in the
-                sidebar's brand row instead (SidebarBrand), so the left cluster
-                spends its scarce 375px width on crumbs that navigate. */}
+                crumb). Not rendered while the sidebar head is shown — the head
+                carries the brand anchor then, and `RunKit home` must stay
+                unique in the document. Below `sm` the whole crumb is gone (the
+                `hidden sm:contents` wrapper — a wrapper, not classes on the
+                anchor, because `hidden` and CRUMB_BOX's `inline-flex` are
+                conflicting display utilities whose winner would depend on
+                stylesheet order): on phones the brand + home affordance live
+                in the sidebar's brand row instead (SidebarBrand), so the left
+                cluster spends its scarce 375px width on crumbs that navigate. */}
+            {!headShown && (
             <span className="hidden sm:contents">
             <Tip label="Host">
             <a
@@ -1196,6 +1291,7 @@ export function TopBar({
             </a>
             </Tip>
             </span>
+            )}
 
             {mode === "board" ? (
               // Board mode keeps ONLY the counts/hint on the left (move-don't-copy,
@@ -1225,7 +1321,7 @@ export function TopBar({
                   // mobile load never renders. The CSS gate keeps the
                   // breakpoint hides as the unconditional outer rungs.
                   <span className="hidden sm:contents">
-                    <BreadcrumbSeparator />
+                    {rootSeparator && <BreadcrumbSeparator />}
                     {/* The collapse rung's rendering: ONE crumb-styled trigger
                         whose menu carries both levels (server → its route;
                         session → the current window's route, current) so each
@@ -1260,7 +1356,7 @@ export function TopBar({
                     fragment or hard-clip without its `…`. */}
                 {showServerCrumb && (
                   <span className="hidden md:flex items-center gap-1.5 min-w-0">
-                    <BreadcrumbSeparator />
+                    {rootSeparator && <BreadcrumbSeparator />}
                     <Tip label="tmux Server">
                       <a
                         href={serverHref}
@@ -1287,7 +1383,7 @@ export function TopBar({
                   // the siblings' box styling with no hover affordance or caret.
                   // Same 6ch ellipsis-reserve floor as the server crumb.
                   <span className="hidden sm:flex items-center gap-1.5 min-w-0">
-                    <BreadcrumbSeparator />
+                    {sessionSeparator && <BreadcrumbSeparator />}
                     <span className={`${CRUMB_BOX_CLASS} min-w-[calc(6ch+0.875rem)]`}>
                       <span className="truncate max-w-[16ch]">{sessionName}</span>
                     </span>
@@ -1314,7 +1410,7 @@ export function TopBar({
                 >
                   {showServerCrumb && (
                     <span className="hidden md:flex items-center gap-1.5">
-                      <BreadcrumbSeparator />
+                      {rootSeparator && <BreadcrumbSeparator />}
                       <span className={CRUMB_BOX_CLASS}>
                         <span className="truncate max-w-[6ch]">{server}</span>
                       </span>
@@ -1322,7 +1418,7 @@ export function TopBar({
                   )}
                   {sessionName && (
                     <span className="hidden sm:flex items-center gap-1.5">
-                      <BreadcrumbSeparator />
+                      {sessionSeparator && <BreadcrumbSeparator />}
                       <span className={CRUMB_BOX_CLASS}>
                         <span className="truncate max-w-[6ch]">{sessionName}</span>
                       </span>

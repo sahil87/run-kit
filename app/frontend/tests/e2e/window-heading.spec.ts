@@ -782,8 +782,10 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     await gotoWindow(page, secondId);
     await expect(page.getByRole("button", { name: `Rename tab ${second}` })).toBeVisible({ timeout: 10_000 });
 
-    // The arrows live in the LEFT cluster (260731-oiho): inside the same
-    // container as the sidebar toggle, not inside the anchored heading box.
+    // The arrows live in the LEFT cluster (260731-oiho): while the sidebar
+    // head shows (desktop, sidebar open) they LEAD that cluster and the
+    // toggle sits in the head over the bar's left end — still left of the
+    // arrows; neither is inside the anchored heading box.
     const back = page.getByLabel("Go back");
     const toggleBox = (await page.getByLabel("Toggle navigation").boundingBox())!;
     const backBox = (await back.boundingBox())!;

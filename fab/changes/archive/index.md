@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260915-zeid-chrome-material-surface** — Chrome Material — a derived gray surface for the sidebar, top bar and status bar
 - **260913-xga4-tab-new-default-session-resolution** — rk tab new — Role-Aware Default Session Resolution
 - **260913-t7vy-operator-daemon-launch-root-kickoff** — rk operator -L — Project-Root Launch Dir and Kickoff Visibility
 - **260913-png4-compose-default-on** — Compose strip on by default — first-render notice, focus on fresh navigation, one name

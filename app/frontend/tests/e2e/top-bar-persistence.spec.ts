@@ -10,7 +10,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // persistent root layout (`AppLayout`, above the router `<Outlet>`) rather
 // than three separate per-page copies. This asserts the user-facing outcomes
 // of that lift:
-//   1. The bar is present (its brand crumb visible) immediately after each
+//   1. The bar is present (its brand link visible) immediately after each
 //      CLIENT-SIDE cross-route navigation settles — it is not torn down and
 //      rebuilt as a blank between pages (the old "navbar reload" flicker).
 //      This is the persistence claim, and it holds only for genuine in-app
@@ -34,7 +34,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // staying truthful about the switch contract; the populated-server case is
 // covered by its own test below.
 //
-// NOTE on hop 2 (brand crumb → `/`): the brand crumb is a RAW `<a href="/">`
+// NOTE on hop 2 (brand link → `/`): the brand link is a RAW `<a href="/">`
 // (top-bar.tsx), which TanStack Router does NOT intercept — clicking it is a
 // FULL document navigation, not client-side. So hop 2 is a RELOAD BOUNDARY,
 // not a persistence hop: it verifies the persistent-layout chrome mounts
@@ -131,9 +131,12 @@ async function mockBackend(page: Page): Promise<void> {
   });
 }
 
-// The brand crumb is the always-present bar element on every mode — its
+// The brand link is the always-present bar element on every mode — its
 // continuous visibility across navigation is the proxy for "the bar never
-// blanks out".
+// blanks out". Its POSITION is state-dependent: on desktop routes with the
+// sidebar open it is the sidebar head's anchor over the bar's left end;
+// otherwise it is the breadcrumb nav's root crumb. Selecting by label keeps
+// this helper true in both positions.
 const brand = (page: Page) => page.getByLabel("RunKit home");
 
 test.describe("TopBar persistence across routes (260707-4vq2)", () => {
@@ -143,32 +146,32 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
 
   /**
    * Proves: across Host → tmux Server → Host → Board navigation, the
-   * persistent top bar remains present (its brand crumb visible after every
+   * persistent top bar remains present (its brand link visible after every
    * hop) and its route-derived center heading updates to the correct page
    * each time, including the board heading rendered from the URL while the
    * lazy chunk loads.
    *
    * Steps:
    * 1. `goto("/")`; assert the solo `Host` heading and the `RunKit home`
-   *    brand crumb are visible.
+   *    brand link are visible.
    * 2. Click the `spare` server tile (scoped to the "Tmux servers" region;
    *    `spare` has no sessions, so the switch resolves no landing window —
    *    see the header note). Assert URL `/spare`, heading
-   *    `tmux Server spare`, brand crumb visible, and the previous `Host`
+   *    `tmux Server spare`, brand link visible, and the previous `Host`
    *    heading is gone (count 0 — the mode is route-derived, not stacked).
-   * 3. (Reload boundary) Click the `RunKit home` brand crumb — a full
+   * 3. (Reload boundary) Click the `RunKit home` brand link — a full
    *    document reload, not client-side nav. Assert URL `/`, the
    *    persistent-layout chrome remounts with the `Host` heading, brand
    *    crumb visible, and the `tmux Server spare` heading gone.
    * 4. Click the `myboard` board tile (scoped to the "Boards" region).
    *    Assert URL `/board/myboard`, heading `Board myboard` (from the URL
-   *    param while the lazy board chunk loads), and the brand crumb still
+   *    param while the lazy board chunk loads), and the brand link still
    *    visible.
    */
   test("the persistent bar stays present and its heading updates across / → /$server → /board", async ({
     page,
   }) => {
-    // Host. Solo `Host` center heading + the persistent bar's brand crumb.
+    // Host. Solo `Host` center heading + the persistent bar's brand link.
     // `exact: true` disambiguates the bar's `Host` heading from the Host page's
     // `Host health` region (both are aria-labelled and `getByLabel` is a
     // substring match by default).
@@ -192,7 +195,7 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
     // The prior mode's heading is gone (mode is route-derived, not stacked).
     await expect(page.getByLabel("Host", { exact: true })).toHaveCount(0);
 
-    // Hop 2 (RELOAD BOUNDARY, not persistence): the brand crumb is a raw
+    // Hop 2 (RELOAD BOUNDARY, not persistence): the brand link is a raw
     // `<a href="/">` that TanStack Router does NOT intercept, so clicking it is
     // a FULL document navigation. We assert the persistent-layout chrome mounts
     // correctly on a cold load at `/` — route-derived `Host` heading present,
@@ -205,7 +208,7 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
 
     // Hop 3 (client-side): board tile → `/board/$name`. The board chunk is
     // lazy, but the route-derived heading renders `Board <board>` from the URL
-    // param while the chunk loads — and the bar (brand crumb) stays present
+    // param while the chunk loads — and the bar (brand link) stays present
     // throughout without a remount (this IS a persistence hop).
     await page
       .getByRole("region", { name: "Boards" })
@@ -229,7 +232,7 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
    * 2. Click the `default` server tile (scoped to the "Tmux servers"
    *    region).
    * 3. Assert URL `/default/1` (the window id `@1` minus its `@`), the
-   *    brand crumb is still visible, and there is NO `tmux Server default`
+   *    brand link is still visible, and there is NO `tmux Server default`
    *    heading (count 0 — the bar is in terminal mode, not server mode).
    */
   test("a Host-page tile for a server with windows switches into that server's window", async ({
@@ -265,7 +268,7 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
    * Steps:
    * 1. `goto("/board/x/y")`; assert the `Page not found` body is visible.
    * 2. Assert the persistent bar shows the `Host` fallback heading and its
-   *    brand crumb is visible.
+   *    brand link is visible.
    * 3. Assert there is NO `Board x` heading (count 0 — the fuzzy-matched
    *    param did not leak into the bar).
    */

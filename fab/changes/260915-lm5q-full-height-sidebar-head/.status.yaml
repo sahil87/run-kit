@@ -1,0 +1,55 @@
+id: lm5q
+name: 260915-lm5q-full-height-sidebar-head
+created: 2026-09-15T22:44:29Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 22
+    acceptance_completed: 22
+confidence:
+    certain: 14
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 75.0
+        reversibility: 89.7
+        competence: 87.4
+        disambiguation: 83.8
+stage_metrics:
+    intake: {started_at: "2026-09-15T22:44:29Z", driver: fab-new, iterations: 1, completed_at: "2026-09-15T22:52:25Z"}
+    apply: {started_at: "2026-09-15T22:52:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-15T23:02:19Z"}
+    review: {started_at: "2026-09-15T23:02:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-15T23:07:06Z"}
+    hydrate: {started_at: "2026-09-15T23:07:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-15T23:12:13Z"}
+    ship: {started_at: "2026-09-15T23:12:13Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-15T23:12:13Z"
+    computed_at_stage: hydrate
+summary: 'Full-height sidebar head: TopBar paints a SidebarHead (brand + toggle) over its left end sized sidebarWidth + STAGE_PADDING_PX + STAGE_COLUMN_GAP_PX, header gets inline paddingLeft while shown, 3px seam stays on the single header; hamburger/brand crumb gated on !headShown; SidebarBrand mobile-only'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-15T23:12:13Z

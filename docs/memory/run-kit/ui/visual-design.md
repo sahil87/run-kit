@@ -588,16 +588,34 @@ breaks the "stage 3 fills the well" reading; and shrinking the coarse row to ~26
 *Introduced by*: 260819-lrm8-universal-flair-catalogue-refresh
 
 ### Two-family chrome vocabulary
-**Decision**: Every chrome surface is either **attached frame** (top bar + status bar ONLY — flush, square, full-width, never rounded, never inset by stage padding; the status bar is a direct outer-grid child so the stage's 6px padding never reaches it) or a **floating card** (tiles, board panes, the server route's 900px `fixedWidth` column — `rounded-md`, the 55% dimmed `rk-card-border`, floating with 6px gaps on the shared stage ground). The attached frame, the stage ground AND the sidebar share one palette-derived **chrome material** (`bg-bg-chrome`): the stage ground IS the chrome (the flush stage) and the sidebar is a flat column of it — no card border, no radius — so sidebar, ground, top bar and status bar read as one gray window chrome around palette-colored content tiles (`bg-bg-primary`). All four routes share that ground: Shell routes (terminal, `/$server`, `/board/$name`) get it from Shell's universal stage; the host page `/` mounts no Shell and sets `bg-bg-chrome-raised` on its own root (`host-overview-page.tsx:304`). The sidebar card floats 6px above the status bar; its drag-resize handle carries the `.rk-divider` gap-seam chrome straddling the 6px gap rather than a seam bar.
+**Decision**: Every chrome surface is either **attached frame** (top bar + status bar ONLY — flush, square, full-width, never rounded, never inset by stage padding; the status bar is a direct outer-grid child so the stage's 6px padding never reaches it) or a **floating card** (tiles, board panes, the server route's 900px `fixedWidth` column — `rounded-md`, the 55% dimmed `rk-card-border`, floating with 6px gaps on the shared stage ground). The attached frame, the stage ground AND the sidebar share one palette-derived **chrome material** (`bg-bg-chrome`): the stage ground IS the chrome (the flush stage) and the sidebar is a flat column of it — no card border, no radius — so sidebar, ground, top bar and status bar read as one gray window chrome around palette-colored content tiles (`bg-bg-primary`). All four routes share that ground: Shell routes (terminal, `/$server`, `/board/$name`) get it from Shell's universal stage; the host page `/` mounts no Shell and sets `bg-bg-chrome-raised` on its own root (`host-overview-page.tsx:304`). The sidebar card floats 6px above the status bar; its drag-resize handle carries the `.rk-divider` gap-seam chrome straddling the 6px gap rather than a seam bar. The top band's left segment belongs to the sidebar column: while the sidebar is open on desktop, the bar's `SidebarHead` paints the brand and the sidebar toggle over the bar's left end (width `sidebarWidth + STAGE_PADDING_PX + STAGE_COLUMN_GAP_PX`, the stage constants), and the bar's 3px bottom seam stays ONE continuous line on the single full-width header — the head carries no border ([ui/top-bar](/run-kit/ui/top-bar.md) § Sidebar head).
 **Why**: One organizing rule keeps every seam decidable; a half-card sidebar corner, a stage-scoped status bar, or per-route grounds each break it. One continuous ground gives all four routes the same visual floor; making the sidebar a flat column of that ground (rather than a card on it) is the macOS full-bleed sidebar reading — a border around a gray card inside a gray frame added a seam with no meaning. Sharing the frame's material is the macOS window-chrome reading (sidebar + toolbar on one gray, content well keeping its own color); an sRGB lighten/darken step cannot serve as that material because it is a different visible size on dark vs light palettes, so the material is an OKLab lightness step (§ Design Decisions → OKLCH ΔL derivation with partial chroma).
 **Rejected**: An attached square sidebar with a `border-r` seam welded to the status bar (the sidebar sits on no ground, and the junction reads as a square T); a sidebar bottom gap + rounded bottom-right corner on an attached sidebar (a half-card); the status bar starting right of the sidebar (a stage-scoped strip carrying host-global segments, and two competing bottom edges); scrollable status-bar overflow (a scrolling bar hides what it exists to show — overflow degrades by ladder instead); the sidebar on `bg-bg-primary` like the content tiles (the panel blurs into the terminal field — on dark themes the gap ground measured ΔL 0.005–0.011, perceptually nothing); a carded chrome sidebar on a `bg-bg-chrome-raised` ground (the gap-seam variant — previewed live and dropped: the card border inside the same-material frame read as clutter).
-*Introduced by*: 260815-19me-composed-frame-unification
+*Introduced by*: 260815-19me-composed-frame-unification; the sidebar head 260915-lm5q-full-height-sidebar-head
 
-### Chrome material over lifted card / recessed / full-height
-**Decision**: The attached frame (top bar + status bar) and the sidebar share one derived gray material (`bg-bg-chrome`); content tiles keep `palette.background`.
-**Why**: It is the macOS reading the design asked for and maps 1:1 onto the two-family chrome vocabulary; a gray card inside a palette-colored frame is the least coherent state, and recessed clamps at black on #000-background themes.
-**Rejected**: Lifted card as a shipped intermediate (no new information over a devtools check); recessed (clamp, no room on ayu-dark); full-height sidebar (a layout change, not a color change).
-*Introduced by*: 260915-zeid-chrome-material-surface
+### Chrome material over lifted card / recessed
+**Decision**: The attached frame (top bar + status bar) and the sidebar share one derived gray material (`bg-bg-chrome`); content tiles keep `palette.background`. The full-height sidebar variant is built as a layout change on top of this shared material — the sidebar column's head paints over the top bar's left end ([ui/top-bar](/run-kit/ui/top-bar.md) § Sidebar head).
+**Why**: It is the macOS reading the design asked for and maps 1:1 onto the two-family chrome vocabulary; a gray card inside a palette-colored frame is the least coherent state, and recessed clamps at black on #000-background themes. With the material shared, the full-height layout is a painted head, visually identical to a real root-grid column.
+**Rejected**: Lifted card as a shipped intermediate (no new information over a devtools check); recessed (clamp, no room on ayu-dark).
+*Introduced by*: 260915-zeid-chrome-material-surface; full-height built 260915-lm5q-full-height-sidebar-head
+
+### Continuous seam on a single element
+**Decision**: The header keeps `border-b-[3px] border-border` full-width; the sidebar head carries no border.
+**Why**: The seam must read continuous from the left edge to the right edge across head and bar; one element cannot be split.
+**Rejected**: A head with its own bottom border (a seam between two borders); a border on the sidebar aside (starts 6px lower, breaking the line).
+*Introduced by*: 260915-lm5q-full-height-sidebar-head
+
+### Brand row is mobile-only
+**Decision**: `SidebarBrand` renders only on mobile; the desktop brand lives in the top bar's sidebar head.
+**Why**: Two brands stacked ~50px apart on desktop would be redundant; on phones the drawer's brand row is the only brand surface.
+**Rejected**: Keeping the in-aside brand row on desktop under the head.
+*Introduced by*: 260915-lm5q-full-height-sidebar-head
+
+### Toggle relocation without focus management
+**Decision**: Toggling from the sidebar head unmounts it and mounts the cluster hamburger; no focus is moved.
+**Why**: Keyboard reachability is carried by the `sidebar-toggle` palette entry and the sidebar chords; focus relocation after a toggle-initiated move is a deferred follow-up.
+**Rejected**: Focusing the relocated toggle after a toggle-initiated relocation (deferred to a follow-up).
+*Introduced by*: 260915-lm5q-full-height-sidebar-head
 
 ### OKLCH ΔL derivation with partial chroma
 **Decision**: The chrome tokens are `oklch(L ± 0.06, C × 0.35, h)` of the background, gamut-reduced by chroma; the raised token is a further 0.035 step in the same direction.

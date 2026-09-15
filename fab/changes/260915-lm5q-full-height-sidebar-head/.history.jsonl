@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-15T22:44:29Z"}
+{"args":"Full-Height Sidebar — the sidebar column owns the top-left band: TopBar renders a sidebar head (brand + toggle) over its left end, sized sidebarWidth + stage padding + column gap, the bar grid starts at the content column, the 3px bottom border stays one continuous line; SidebarBrand becomes mobile-only; hardens the uncommitted preview in top-bar.tsx / sidebar/index.tsx","cmd":"fab-new","event":"command","ts":"2026-09-15T22:44:29Z"}
+{"delta":"+0.0","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-09-15T22:47:47Z"}
+{"delta":"+0.0","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-09-15T22:48:34Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-15T22:51:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-15T22:52:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-15T23:02:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-15T23:07:06Z"}
+{"event":"review","result":"passed","ts":"2026-09-15T23:07:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-15T23:12:13Z"}

@@ -18,6 +18,13 @@ import type { WindowInfo } from "@/types";
 
 type CopyableRowKey = "tmx" | "cwd" | "git" | "fab" | "pr";
 
+/** localStorage key + default of the PANE panel's collapsed/expanded state
+ *  (CollapsiblePanel's `storageKey`). Exported because the status bar's yield
+ *  rule subscribes to the same boolean: the panel is "on screen" only while
+ *  expanded, so a collapsed panel hands the window cluster back to the bar. */
+export const PANE_PANEL_OPEN_STORAGE_KEY = "runkit-panel-window";
+export const PANE_PANEL_DEFAULT_OPEN = true;
+
 // How long the post-completion / throttled "checkmark" shows before reverting to
 // the idle refresh icon — the copy rows' feedback cadence, shared so the two
 // can't diverge.
@@ -231,8 +238,8 @@ export function WindowPanel({ window: win, operator }: WindowPanelProps) {
   return (
     <CollapsiblePanel
       title="Pane"
-      storageKey="runkit-panel-window"
-      defaultOpen={true}
+      storageKey={PANE_PANEL_OPEN_STORAGE_KEY}
+      defaultOpen={PANE_PANEL_DEFAULT_OPEN}
       headerRight={headerRight}
       headerAction={<PaneRefreshButton />}
     >
@@ -273,9 +280,15 @@ function CopyableRow({ prefix, copied, onCopy, children, title, tipLabel, flex =
   continuation?: ReactNode;
 }) {
   const buttonClass = "group text-left w-full cursor-pointer hover:bg-bg-inset bg-transparent border-0 p-0 m-0 font-inherit text-inherit";
+  // A flex container trims a flex item's trailing collapsible space, so the
+  // 4-advance key column (and the 9-advance `copied ✓`) must end in an NBSP
+  // there — the PrLinkRow contract; inline mode keeps the plain space.
+  const gap = flex ? "\u00a0" : " ";
   const prefixSpan = (
     <Tip label={tipLabel} placement="right">
-      <span className={flex ? "text-text-secondary shrink-0" : "text-text-secondary"}>{copied ? "copied \u2713 " : `${prefix} `}</span>
+      <span className={flex ? "text-text-secondary shrink-0" : "text-text-secondary"}>
+        {copied ? `copied \u2713${gap}` : `${prefix}${gap}`}
+      </span>
     </Tip>
   );
   if (continuation) {
@@ -352,11 +365,14 @@ function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel, contin
         <span className="flex items-center w-full min-w-0 pr-6">
         {/* Non-collapsing spacing: the anchor is a flex container, so a
             whitespace-only {" "} text node between flex items is dropped and a
-            trailing collapsible space trimmed. The gaps before the icon and
-            before the segments therefore live as NBSPs INSIDE the prefix/icon
-            spans, not as separate text nodes. CopyableRow renders `${prefix} `
-            (3-char prefix + a gap space = 4 monospace advances before its
-            icon), so the at-rest prefix here is "pr"+NBSP+NBSP (also 4 advances)
+            trailing collapsible space trimmed. The gap before the icon
+            therefore lives as NBSPs INSIDE the prefix span, and the gap before
+            the segments is an NBSP text node (an NBSP-only node survives; a
+            space-only one does not) placed OUTSIDE the 14px icon span so it
+            measures one 12px advance and the value column lines up with the
+            inline rows' {" "}. CopyableRow renders `${prefix} ` (3-char prefix
+            + a gap = 4 monospace advances before its icon; an NBSP gap in its
+            flex mode), so the at-rest prefix here is "pr"+NBSP+NBSP (also 4 advances)
             to keep the icon/content column-aligned with tmx/cwd/git/fab and the
             no-URL pr branch. Lowercase "pr" \u2014 the register keys are one
             lowercase vocabulary (tmx/cwd/git/out/agt/fab/pr/opr). The
@@ -367,7 +383,8 @@ function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel, contin
             {copied ? "copied \u2713\u00a0" : "pr\u00a0\u00a0"}
           </span>
         </Tip>
-        <span className={`${ICON_CLASS} shrink-0`} aria-hidden="true">{"\uf407\u00a0"}</span>
+        <span className={`${ICON_CLASS} shrink-0`} aria-hidden="true">{"\uf407"}</span>
+        {"\u00a0"}
         <span data-testid="pr-line" className="min-w-0 truncate">
           {children}
         </span>
@@ -517,8 +534,10 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
           in left-to-right glyph order) while the basename holds shrink-0. The
           flex CopyableRow lets the two spans carry their own shrink contracts;
           title and copy stay the full unabbreviated path. The icon/value gap
-          is an NBSP inside the icon span — a flex row drops whitespace-only
-          {" "} text nodes (the PrLinkRow contract). */}
+          is an NBSP text node — a flex row drops whitespace-only {" "} text
+          nodes but keeps an NBSP (the PrLinkRow contract) — placed OUTSIDE
+          the 14px icon span so it measures one 12px advance like the inline
+          rows' {" "} and the value column lines up. */}
       <CopyableRow
         prefix="cwd"
         tipLabel="Working directory"
@@ -527,7 +546,8 @@ function WindowContent({ win, operator }: { win: WindowInfo; operator?: Operator
         title={cwdMissing ? `${activePaneCwd} (no longer exists)` : activePaneCwd}
         flex
       >
-        <span className={`${ICON_CLASS} shrink-0`} aria-hidden="true">{"\uF413\u00a0"}</span>
+        <span className={`${ICON_CLASS} shrink-0`} aria-hidden="true">{"\uF413"}</span>
+        {"\u00a0"}
         <span className="flex min-w-0">
           {cwdParent && (
             <span

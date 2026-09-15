@@ -1054,3 +1054,27 @@ describe("opr register (operator watchlist)", () => {
     expect(opr.querySelector("span:last-child")!.className).toContain("text-text-primary");
   });
 });
+
+describe("StatusPanel register key column", () => {
+  // The key column is 4 monospace advances (3-char key + gap). The cwd row is
+  // a flex row, and a flex container trims a flex item's trailing collapsible
+  // space, so its gap must be an NBSP; inline rows keep the plain space.
+  it("the flex-mode cwd row ends its key in an NBSP, at rest and while showing copied feedback", () => {
+    const win = makeWindowWithPanes();
+    render(<StatusPanel window={win} />);
+    const cwdButton = document.querySelector("[title='/home/user/code/run-kit']") as HTMLButtonElement;
+    expect(cwdButton.textContent).toMatch(/^cwd\u00a0/);
+
+    fireEvent.click(cwdButton);
+    expect(cwdButton.textContent).toMatch(/^copied \u2713\u00a0/);
+  });
+
+  it("inline rows keep a plain-space gap after the key", () => {
+    const win = makeWindowWithPanes();
+    render(<StatusPanel window={win} />);
+    const tmxButton = screen.getByRole("button", { name: /tmx %5/ });
+    expect(tmxButton.textContent).toMatch(/^tmx\u0020/);
+    const gitButton = screen.getByRole("button", { name: /main/ });
+    expect(gitButton.textContent).toMatch(/^git\u0020/);
+  });
+});

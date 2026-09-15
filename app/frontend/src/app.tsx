@@ -164,12 +164,14 @@ import { useRecentlyClosed, buildReopenWindowAction, pushRecentlyClosed, popRece
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSidebarSectionVisible } from "@/hooks/use-sidebar-sections";
+import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { TopBar, type TopBarMode } from "@/components/top-bar";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { HeadsetIcon } from "@/components/sidebar/icons";
+import { PANE_PANEL_OPEN_STORAGE_KEY, PANE_PANEL_DEFAULT_OPEN } from "@/components/sidebar/status-panel";
 import { canRequestWindowOperatorAction } from "@/components/sidebar/row-flyout-card";
 import { SurfaceLayout } from "@/components/surface-layout";
 import { CronList } from "@/components/cron-list";
@@ -1372,14 +1374,18 @@ function AppShell() {
 
   // The register view has ONE desktop home at a time. The status bar's window
   // cluster exists because the desktop PANE panel is opt-in; while that panel
-  // is actually on screen — its section toggled on AND the sidebar rendered
-  // (Shell composes `sidebarOpen && !zenActive`, so zen hides the sidebar
-  // without touching the preference) — the bar yields the cluster and keeps
-  // only its host segments. Both booleans are the existing localStorage
-  // pub/sub, so the bar flips live with the rail toggle, `Panel: Toggle
-  // Pane`, and the sidebar chord — no new state.
+  // is actually on screen — its section toggled on, the panel EXPANDED (a
+  // collapsed header shows no registers), AND the sidebar rendered (Shell
+  // composes `sidebarOpen && !zenActive`, so zen hides the sidebar without
+  // touching the preference) — the bar yields the cluster and keeps only its
+  // host segments. All three booleans are existing persisted state — the
+  // section and panel-open flags ride `useLocalStorageBoolean`'s pub/sub (the
+  // latter is CollapsiblePanel's own key), `sidebarOpen` is ChromeContext
+  // state — so the bar flips live with the rail toggle, `Panel: Toggle Pane`,
+  // the panel's header chevron, and the sidebar chord — no new state.
   const [paneSectionVisible] = useSidebarSectionVisible("pane");
-  const paneRegistersVisible = paneSectionVisible && sidebarOpen && !zenOn;
+  const [panePanelOpen] = useLocalStorageBoolean(PANE_PANEL_OPEN_STORAGE_KEY, PANE_PANEL_DEFAULT_OPEN);
+  const paneRegistersVisible = paneSectionVisible && panePanelOpen && sidebarOpen && !zenOn;
 
   // Enter/exit body — the `zen-toggle` chord, the palette's `View: Enter/Exit
   // Zen Mode` entries, and the status-bar exit button all resolve here (one

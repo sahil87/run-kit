@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-15T02:41:13Z"}
+{"args":"Fix an alignment bug in the sidebar PANE panel (components/sidebar/status-panel.tsx, WindowPanel/WindowContent): the register rows (tmx, cwd, git, out — each with a leading icon) don't have their icons vertically aligned into a clean column; icon indentation/spacing is inconsistent row to row. Screenshot: /home/sahil/.uploads/260915080729-image.png. Check regression vs pane-status-bar-density plan (PRs #974/#978/#979). Plus: collapsing the PANE section should have the same effect on the status bar as hiding it — the bar's window cluster should return when the panel is collapsed, not only when it is hidden.","cmd":"fab-new","event":"command","ts":"2026-09-15T02:41:13Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-09-15T02:43:06Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-15T02:44:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-15T02:46:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-15T02:53:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-15T02:57:37Z"}
+{"event":"review","result":"passed","ts":"2026-09-15T02:57:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-15T02:58:43Z"}

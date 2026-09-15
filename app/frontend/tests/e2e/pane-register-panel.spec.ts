@@ -226,6 +226,52 @@ test.describe("PANE panel four-register view", () => {
    * 2. Assert register-output is visible.
    * 3. Assert register-agent has count 0 and the PR `pr-line` has count 0.
    */
+  /**
+   * Proves: the register rows form a monospace grid — the tmx, cwd, git, pr,
+   * and out rows' leading icons share one x-coordinate (a 4-advance key
+   * column), and the rows whose icon is a Nerd Font glyph (tmx, cwd, git, pr)
+   * share a value column too, so the panel reads as aligned columns rather
+   * than ragged rows. The cwd and pr rows are flex rows: their key gap would
+   * be trimmed as flex whitespace, and their icon→value gap would measure at
+   * the icon's larger font size, without the non-collapsible gaps placed as
+   * they are. The out row's braille glyph has a font-dependent advance, so
+   * its value column is not asserted.
+   *
+   * Steps:
+   * 1. Navigate to /default/1, then open the drawer.
+   * 2. Locate each row's icon span (the first `aria-hidden` span in the tmx,
+   *    cwd, git buttons, the pr anchor, and the register-output line) and
+   *    the value element that follows it.
+   * 3. Assert all five icon boxes share the tmx icon's left edge (±0.5px).
+   * 4. Assert the tmx, cwd, git, and pr value boxes share the tmx value's
+   *    left edge (±0.5px).
+   */
+  test("the tmx/cwd/git/pr/out icons and values align into columns", async ({ page }) => {
+    await gotoWindowWithDrawer(page, "1");
+    const glyphRows = [
+      page.getByRole("button", { name: /^tmx/ }),
+      page.locator('button[title="/home/sahil/code/sahil87/run-kit.worktrees/status-pyramid-ui-surfacing"]'),
+      page.getByRole("button", { name: /^git/ }),
+      page.locator("a", { has: page.getByTestId("pr-line") }),
+    ];
+    const rows = [...glyphRows, page.getByTestId("register-output")];
+    const iconLefts: number[] = [];
+    const valueLefts: number[] = [];
+    for (const row of rows) {
+      const icon = row.locator('span[aria-hidden="true"]').first();
+      await expect(icon).toBeVisible();
+      const value = icon.locator("xpath=following-sibling::span[1]");
+      const iconBox = await icon.boundingBox();
+      const valueBox = await value.boundingBox();
+      expect(iconBox).not.toBeNull();
+      expect(valueBox).not.toBeNull();
+      iconLefts.push(iconBox!.x);
+      valueLefts.push(valueBox!.x);
+    }
+    for (const x of iconLefts) expect(Math.abs(x - iconLefts[0])).toBeLessThanOrEqual(0.5);
+    for (const x of valueLefts.slice(0, glyphRows.length)) expect(Math.abs(x - valueLefts[0])).toBeLessThanOrEqual(0.5);
+  });
+
   test("a plain shell shows only the output register (absent layers absent)", async ({ page }) => {
     await gotoWindowWithDrawer(page, "2");
     await expect(page.getByTestId("register-output")).toBeVisible();
@@ -332,6 +378,40 @@ test.describe("PANE-on yields the status bar's window cluster (desktop)", () => 
 
     await sidebarToggle.click();
     await expect(paneHeader(page)).toBeVisible();
+    await expect(windowCluster(page)).toHaveCount(0);
+  });
+
+  /**
+   * Proves: collapsing the PANE panel has the same effect on the bar as
+   * hiding it — a collapsed header shows no registers, so the bar's window
+   * cluster returns while the header stays; expanding the panel yields the
+   * cluster again.
+   *
+   * Steps:
+   * 1. Seed `runkit-sidebar-section-pane = "true"`; navigate to /default/1.
+   * 2. Assert the PANE header is expanded (aria-expanded true) and
+   *    `status-bar-window` count 0.
+   * 3. Click the PANE header; assert aria-expanded false, the header still
+   *    visible, and `status-bar-window` count 1.
+   * 4. Click the header again; assert aria-expanded true and
+   *    `status-bar-window` count 0.
+   */
+  test("collapsing the PANE panel hands the registers back to the bar; expanding yields them", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("runkit-sidebar-section-pane", "true");
+    });
+    await page.goto(`/${SERVER}/1`);
+    await expect(hostCluster(page)).toBeVisible({ timeout: 10_000 });
+    await expect(paneHeader(page)).toHaveAttribute("aria-expanded", "true");
+    await expect(windowCluster(page)).toHaveCount(0);
+
+    await paneHeader(page).click();
+    await expect(paneHeader(page)).toHaveAttribute("aria-expanded", "false");
+    await expect(paneHeader(page)).toBeVisible();
+    await expect(windowCluster(page)).toHaveCount(1);
+
+    await paneHeader(page).click();
+    await expect(paneHeader(page)).toHaveAttribute("aria-expanded", "true");
     await expect(windowCluster(page)).toHaveCount(0);
   });
 });

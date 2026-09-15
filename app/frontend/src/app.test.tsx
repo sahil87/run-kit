@@ -1591,10 +1591,11 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
   describe("status bar window cluster yields to an on-screen PANE panel", () => {
     // The register view has one desktop home at a time: the bar's window
     // cluster (`status-bar-window`) renders iff the PANE panel is NOT on
-    // screen — section toggled on AND sidebar open (zen off). The host
-    // cluster renders in every state. Both inputs are localStorage-backed
-    // pub/sub booleans, seeded here before render and flipped at runtime
-    // through the rail's real toggle.
+    // screen — section toggled on AND the panel expanded AND sidebar open
+    // (zen off). The host cluster renders in every state. The three inputs
+    // are localStorage-backed booleans, seeded here before render and flipped
+    // at runtime through the rail's real toggle and the panel's own header
+    // chevron.
     afterEach(() => {
       localStorage.clear();
     });
@@ -1626,6 +1627,32 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
       localStorage.setItem("runkit-sidebar-open", "false");
       await renderTerminalRoute();
       expect(screen.getByTestId("status-bar-window")).toBeInTheDocument();
+    });
+
+    it("keeps the window cluster when the PANE section is on but the panel is collapsed", async () => {
+      // A collapsed panel header shows no registers, so the panel is not "on
+      // screen" — the bar must keep the cluster exactly as when the section
+      // is off. Seeds the panel's own persisted open state.
+      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      localStorage.setItem("runkit-panel-window", "false");
+      await renderTerminalRoute();
+      expect(screen.getByTestId("status-bar-window")).toBeInTheDocument();
+      expect(screen.getByTestId("status-bar-host")).toBeInTheDocument();
+    });
+
+    it("flips live with the PANE header chevron — collapse hands the cluster back, expand yields it", async () => {
+      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      await renderTerminalRoute();
+      expect(screen.queryByTestId("status-bar-window")).toBeNull();
+      const header = screen.getByRole("button", { name: /^Pane/ });
+      expect(header).toHaveAttribute("aria-expanded", "true");
+      fireEvent.click(header);
+      await waitFor(() => expect(screen.getByTestId("status-bar-window")).toBeInTheDocument());
+      expect(header).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(header);
+      await waitFor(() => expect(screen.queryByTestId("status-bar-window")).toBeNull());
+      // The grid never remounted across the flips.
+      expect(surfaceLayoutSpy.mounts).toEqual(["mount"]);
     });
 
     it("flips live with the rail toggle — no remount", async () => {

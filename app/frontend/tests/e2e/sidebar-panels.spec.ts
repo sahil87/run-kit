@@ -183,7 +183,8 @@ test.describe("Sidebar Host & Window Panels (visibility-gated, iha5)", () => {
      * 5. Click the sidebar's `Navigate to ${TEST_SESSION}` button (selects
      *    the first window in that session) — the drawer auto-closes on the
      *    destination tap, so re-open it via ensureDrawerOpen.
-     * 6. Within 3s, assert lines ^tmx and ^cwd appear inside the Pane panel.
+     * 6. Within 3s, assert lines ^tmx and ^cwd (key + gap, matched with \s
+     *    because the flex cwd row's gap is an NBSP) appear inside the Pane panel.
      */
     test("Window panel shows selected window info", async ({ page }) => {
       await gotoDrawer(page, `/${TMUX_SERVER}`);
@@ -212,8 +213,10 @@ test.describe("Sidebar Host & Window Panels (visibility-gated, iha5)", () => {
       await ensureDrawerOpen(page);
 
       // After selecting — should show tmx and cwd lines
-      await expect(panePanel.locator("text=/^tmx /")).toBeVisible({ timeout: 3_000 });
-      await expect(panePanel.locator("text=/^cwd /")).toBeVisible();
+      // The key gap is a plain space on inline rows and an NBSP on the flex
+      // cwd row; `text=` regexes test raw text, so match the gap with \s.
+      await expect(panePanel.locator("text=/^tmx\\s/")).toBeVisible({ timeout: 3_000 });
+      await expect(panePanel.locator("text=/^cwd\\s/")).toBeVisible();
     });
 
     /**
@@ -290,7 +293,7 @@ test.describe("Sidebar Host & Window Panels (visibility-gated, iha5)", () => {
      * 2. gotoDrawer(/board/${boardName}) — a lazy chunk, so gate on the
      *    pinned window's name rendering first.
      * 3. Locate the Pane header button, walk up to the outer panel, and
-     *    assert ^tmx and ^cwd rows appear (within 10s) while
+     *    assert ^tmx and ^cwd rows (key + \s gap) appear (within 10s) while
      *    `No tab selected` is absent — the focused-tile fallback filled the
      *    panel.
      * 4. Locate the Host outer panel and assert `cpu` (within 8s, first
@@ -328,8 +331,8 @@ test.describe("Sidebar Host & Window Panels (visibility-gated, iha5)", () => {
         const paneButton = page.getByRole("button", { name: /^Pane/ });
         await expect(paneButton).toBeVisible({ timeout: 10_000 });
         const panePanel = paneButton.locator("../..");
-        await expect(panePanel.locator("text=/^tmx /")).toBeVisible({ timeout: 10_000 });
-        await expect(panePanel.locator("text=/^cwd /")).toBeVisible();
+        await expect(panePanel.locator("text=/^tmx\\s/")).toBeVisible({ timeout: 10_000 });
+        await expect(panePanel.locator("text=/^cwd\\s/")).toBeVisible();
         await expect(panePanel.locator("text=No tab selected")).not.toBeVisible();
 
         // HOST panel — no currentServer on the board route, so the panel falls

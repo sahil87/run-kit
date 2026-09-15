@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef, useEffect, useLayoutEffect, type ReactNode } from "react";
+import { useCallback, useState, useRef, useEffect, useLayoutEffect, type ReactNode, type RefObject } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { LogoSpinner, useBrandLogoSweep } from "@/components/logo-spinner";
@@ -294,11 +294,13 @@ function SidebarHead({
   onToggleSidebar,
   hamburgerOpen,
   brandSweep,
+  toggleRef,
 }: {
   width: number;
   onToggleSidebar: () => void;
   hamburgerOpen: boolean;
   brandSweep: ReturnType<typeof useBrandLogoSweep>;
+  toggleRef: RefObject<HTMLButtonElement | null>;
 }) {
   return (
     <div className="absolute inset-y-0 left-0 flex items-center gap-2 pl-3 pr-3" style={{ width }}>
@@ -314,6 +316,7 @@ function SidebarHead({
         </a>
       </Tip>
       <button
+        ref={toggleRef}
         onClick={onToggleSidebar}
         aria-label="Toggle navigation"
         className={`ml-auto ${controlClass({ variant: "icon", rest: "border-border hover:border-text-secondary text-text-primary" })}`}
@@ -654,6 +657,30 @@ export function TopBar({
       ? sidebarWidth + STAGE_PADDING_PX + STAGE_COLUMN_GAP_PX
       : 0;
   const headShown = sidebarHeadWidth > 0;
+
+  // Focus handoff across the toggle's node swap: the head's toggle and the
+  // cluster's toggle are different buttons, and clicking either one unmounts
+  // it (the head appears/disappears with the sidebar), so focus would fall
+  // to the document body. The click records the replacement node; the effect
+  // focuses it once the swap commits. On mobile the head never shows and the
+  // cluster toggle stays mounted — no swap, no handoff.
+  const headToggleRef = useRef<HTMLButtonElement>(null);
+  const clusterToggleRef = useRef<HTMLButtonElement>(null);
+  const toggleFocusTargetRef = useRef<"head" | "cluster" | null>(null);
+  const handleHeadToggle = () => {
+    toggleFocusTargetRef.current = "cluster";
+    onToggleSidebar();
+  };
+  const handleClusterToggle = () => {
+    if (!isMobile) toggleFocusTargetRef.current = "head";
+    onToggleSidebar();
+  };
+  useLayoutEffect(() => {
+    const target = toggleFocusTargetRef.current;
+    toggleFocusTargetRef.current = null;
+    if (!target) return;
+    (target === "head" ? headToggleRef : clusterToggleRef).current?.focus();
+  }, [headShown]);
 
   // Move-don't-copy (260704-pr0p): the left breadcrumb always ends at the
   // PARENT; the current-page leaf is the centered heading. So the server crumb
@@ -1174,9 +1201,10 @@ export function TopBar({
       {headShown && (
         <SidebarHead
           width={sidebarHeadWidth}
-          onToggleSidebar={onToggleSidebar}
+          onToggleSidebar={handleHeadToggle}
           hamburgerOpen={hamburgerOpen}
           brandSweep={brandSweep}
+          toggleRef={headToggleRef}
         />
       )}
       {/* 3-column grid. At ≥ sm it is `1fr auto 1fr`: the center cell is truly
@@ -1220,7 +1248,8 @@ export function TopBar({
               (the toggle carries page-level chrome weight). */}
           {hasSidebar && !headShown && (
             <button
-              onClick={onToggleSidebar}
+              ref={clusterToggleRef}
+              onClick={handleClusterToggle}
               aria-label="Toggle navigation"
               className={controlClass({ variant: "icon", rest: "border-border hover:border-text-secondary text-text-primary" })}
             >
@@ -1383,7 +1412,22 @@ export function TopBar({
                   // the siblings' box styling with no hover affordance or caret.
                   // Same 6ch ellipsis-reserve floor as the server crumb.
                   <span className="hidden sm:flex items-center gap-1.5 min-w-0">
-                    {sessionSeparator && <BreadcrumbSeparator />}
+                    {/* The `›` ties the session crumb to the crumb on its
+                        LEFT. With the head up (`!rootSeparator`) that left
+                        crumb is the server crumb, which is itself hidden
+                        below `md` — gate the separator on the same
+                        breakpoint or the session crumb opens with an orphan
+                        `›` in the sm–md band. With the brand in the nav
+                        (`rootSeparator`) a left crumb always exists at
+                        `sm+`, so no gate. */}
+                    {sessionSeparator &&
+                      (showServerCrumb && !rootSeparator ? (
+                        <span className="hidden md:contents">
+                          <BreadcrumbSeparator />
+                        </span>
+                      ) : (
+                        <BreadcrumbSeparator />
+                      ))}
                     <span className={`${CRUMB_BOX_CLASS} min-w-[calc(6ch+0.875rem)]`}>
                       <span className="truncate max-w-[16ch]">{sessionName}</span>
                     </span>
@@ -1418,7 +1462,14 @@ export function TopBar({
                   )}
                   {sessionName && (
                     <span className="hidden sm:flex items-center gap-1.5">
-                      {sessionSeparator && <BreadcrumbSeparator />}
+                      {sessionSeparator &&
+                        (showServerCrumb && !rootSeparator ? (
+                          <span className="hidden md:contents">
+                            <BreadcrumbSeparator />
+                          </span>
+                        ) : (
+                          <BreadcrumbSeparator />
+                        ))}
                       <span className={CRUMB_BOX_CLASS}>
                         <span className="truncate max-w-[6ch]">{sessionName}</span>
                       </span>

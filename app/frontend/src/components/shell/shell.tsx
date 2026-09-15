@@ -6,6 +6,14 @@ import { useKeybindings } from "@/hooks/use-keybindings";
 import { matchesCombo, shouldSuppressChord } from "@/lib/keybindings";
 import { focusSidebarCurrentRow, restoreWindowFocus } from "@/lib/sidebar-events";
 
+/** The stage ground's padding on every side; the content column's left edge
+ *  is STAGE_PADDING_PX + sidebarWidth + STAGE_COLUMN_GAP_PX while the sidebar
+ *  is open. Exported so the top bar's sidebar head can overlay exactly that
+ *  region without duplicating the numbers. */
+export const STAGE_PADDING_PX = 6;
+/** The gap between the sidebar track and the content column while the sidebar is open. */
+export const STAGE_COLUMN_GAP_PX = 6;
+
 /**
  * `Cmd+B` (macOS) / `Shift+Ctrl+B` (Linux/Windows) — the stateful sidebar
  * chord (260819-qwr7 R5). Desktop arms:
@@ -263,8 +271,8 @@ export function Shell({
     gridTemplateColumns: sidebarVisible ? `${sidebarWidth}px 1fr` : "0 1fr",
     gridTemplateRows: "1fr auto",
     gridTemplateAreas: '"sidebar content" "sidebar bottombar"',
-    columnGap: sidebarVisible ? "6px" : "0",
-    padding: "6px",
+    columnGap: sidebarVisible ? `${STAGE_COLUMN_GAP_PX}px` : "0",
+    padding: `${STAGE_PADDING_PX}px`,
     minWidth: 0,
     minHeight: 0,
     transition: "grid-template-columns 150ms ease-out, column-gap 150ms ease-out",

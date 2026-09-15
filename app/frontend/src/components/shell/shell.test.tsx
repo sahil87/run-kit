@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { Shell } from "./shell";
+import { Shell, STAGE_PADDING_PX, STAGE_COLUMN_GAP_PX } from "./shell";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { stubMatchMedia } from "@/test-utils/match-media";
 
@@ -83,7 +83,7 @@ describe("Shell", () => {
     expect(stage().style.gridArea).toBe("stage");
     expect(stage().style.gridTemplateAreas).toContain('"sidebar content"');
     expect(stage().style.gridTemplateAreas).toContain('"sidebar bottombar"');
-    expect(stage().style.padding).toBe("6px");
+    expect(stage().style.padding).toBe(`${STAGE_PADDING_PX}px`);
     // No row-gap: grid gaps charge between tracks even at zero track height,
     // so a stage row-gap would sink the content column below the row-spanning
     // sidebar whenever the bottombar row is empty. The footer owns the seam,
@@ -120,7 +120,7 @@ describe("Shell", () => {
     renderShell({ open: true, mobile: false });
     // Default sidebar width is 220px (from chrome-context).
     expect(stage().style.gridTemplateColumns).toBe("220px 1fr");
-    expect(stage().style.columnGap).toBe("6px");
+    expect(stage().style.columnGap).toBe(`${STAGE_COLUMN_GAP_PX}px`);
   });
 
   describe("desktop sidebar aside (Shell-owned, 260719-rwqf)", () => {

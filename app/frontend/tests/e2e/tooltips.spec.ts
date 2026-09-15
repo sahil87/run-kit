@@ -62,10 +62,13 @@ test.describe("Tier-1 tooltips (Tip)", () => {
    * 1. Navigate to `/${TMUX_SERVER}` and wait for the Refresh page button
    *    (top-bar chrome rendered).
    * 2. Press Tab (bounded loop, ≤12 presses, keyboard modality from a
-   *    fresh page) until the brand crumb (`RunKit home` link) is
-   *    `document.activeElement`.
+   *    fresh page) until the brand link (`RunKit home`) is
+   *    `document.activeElement`. At this desktop viewport with the sidebar
+   *    open, that link is the sidebar head's brand anchor over the bar's
+   *    left end (the nav's brand crumb renders only while the head does
+   *    not) — it carries the same `Tip`.
    * 3. Assert a `role="tooltip"` element is visible and reads "Host" (the
-   *    crumb's level name).
+   *    link's level name).
    * 4. Assert the brand link carries `aria-describedby`.
    */
   test("keyboard focus opens the styled tip immediately", async ({ page }) => {
@@ -73,8 +76,8 @@ test.describe("Tier-1 tooltips (Tip)", () => {
     const refresh = page.getByRole("button", { name: "Refresh page" });
     await expect(refresh).toBeVisible({ timeout: 10_000 });
 
-    // Tab from a fresh page (keyboard modality) until the brand crumb has
-    // focus — its Tip names the crumb's level ("Host"). Bounded loop: the
+    // Tab from a fresh page (keyboard modality) until the brand link has
+    // focus — its Tip names the link's level ("Host"). Bounded loop: the
     // brand link is among the first few tab stops on every route.
     const brand = page.getByRole("link", { name: "RunKit home" });
     let focused = false;
@@ -82,7 +85,7 @@ test.describe("Tier-1 tooltips (Tip)", () => {
       await page.keyboard.press("Tab");
       focused = await brand.evaluate((el) => el === document.activeElement);
     }
-    expect(focused, "brand crumb never received keyboard focus").toBe(true);
+    expect(focused, "brand link never received keyboard focus").toBe(true);
 
     // Focus-visible opens with NO delay and wires the tooltip ARIA pattern.
     const tooltip = page.getByRole("tooltip");

@@ -1705,19 +1705,21 @@ export function Sidebar({
     // opens sibling tips instantly.
     <TipGroup>
     <nav ref={navRef} aria-label="Sessions" className="flex flex-col h-full">
-      {/* Brand row — logo + wordmark linking home (`/`). On phones this is the
-          brand's ONLY surface (the top-bar brand crumb hides below `sm`) and
-          the sole pointer home affordance there; on desktop it is a second,
-          deliberate appearance beside the top-bar crumb. Carries the same
-          glitch + ring-sweep hover treatments. Accessible name comes from the
-          wordmark text ("RunKit") — deliberately NOT the top-bar crumb's
-          "RunKit home" aria-label, which e2e selects by label and must stay
-          unique on desktop. */}
-      <SidebarBrand />
+      {/* Brand row — logo + wordmark linking home (`/`). MOBILE-ONLY: on
+          phones this is the brand's ONLY surface (the top-bar brand crumb
+          hides below `sm`) and the sole pointer home affordance there; on
+          desktop the brand lives in the top bar's sidebar head while the
+          sidebar is open (and in the bar's left crumb while it is closed), so
+          the row is not rendered and the section rail is the sidebar's first
+          row. Carries the same glitch + ring-sweep hover treatments.
+          Accessible name comes from the wordmark text ("RunKit") —
+          deliberately NOT the top-bar's "RunKit home" aria-label, which e2e
+          selects by label and must stay unique on desktop. */}
+      {isMobile && <SidebarBrand />}
 
-      {/* Section-visibility rail (iha5) — first child below the brand row;
-          toggles the optional sections below. Not self-hideable; Sessions has
-          no toggle. */}
+      {/* Section-visibility rail (iha5) — the sidebar's first row on desktop,
+          first below the brand row on mobile; toggles the optional sections
+          below. Not self-hideable; Sessions has no toggle. */}
       <SectionRail />
 
       {/* Boards — cross-server section, visibility-gated (default on; renders
@@ -2051,8 +2053,9 @@ function SelectionIndicator({
  * palette entries stay the always-available keyboard path (Constitution V).
  * Tips use `placement="top"` since the row hugs the viewport bottom.
  */
-/** Brand row at the sidebar's top — see the render-site comment for the
- *  phone-vs-desktop role split. A plain anchor (full navigation), matching the
+/** Brand row at the sidebar's top — mobile-only; see the render-site comment
+ *  for the phone-vs-desktop role split (on desktop the brand lives in the top
+ *  bar's sidebar head). A plain anchor (full navigation), matching the
  *  top-bar brand crumb's reload-boundary behavior. */
 function SidebarBrand() {
   const sweep = useBrandLogoSweep();

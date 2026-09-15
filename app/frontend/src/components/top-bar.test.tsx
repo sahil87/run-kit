@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act, waitFor, within } from "@testing-library/react";
 import { TopBar } from "./top-bar";
+import { STAGE_COLUMN_GAP_PX, STAGE_PADDING_PX } from "@/components/shell/shell";
 import { TopBarOverflowMenu } from "./top-bar-overflow-menu";
 import { TIP_OPEN_DELAY_MS } from "@/components/tip";
 import { ChromeProvider } from "@/contexts/chrome-context";
@@ -477,6 +478,136 @@ describe("TopBar", () => {
     const anchorBox = container.querySelector(".sm\\:min-w-\\[28ch\\]");
     expect(anchorBox).not.toBeNull();
     expect(anchorBox!.querySelector('[aria-label="Go back"]')).toBeNull();
+  });
+
+  describe("sidebar head (full-height sidebar)", () => {
+    // The head shows only while `!isMobile && hasSidebar && sidebarOpen`. The
+    // file-default matchMedia stub matches the max-width query (everything
+    // except the coarse-pointer queries), so it reports MOBILE — these desktop
+    // cases re-stub it wide (keeping dark scheme + reduced motion for
+    // ThemeProvider and the sweep guards). The width key pins the provider's
+    // sidebarWidth so the inset math is exact.
+    const stubDesktop = () =>
+      stubMatchMedia(
+        (q) => q.includes("prefers-color-scheme: dark") || q.includes("prefers-reduced-motion"),
+      );
+    beforeEach(() => {
+      stubDesktop();
+      localStorage.setItem("runkit-sidebar-width", "220");
+    });
+    afterEach(() => {
+      localStorage.removeItem("runkit-sidebar-width");
+    });
+
+    /** The head is the header's direct absolutely-positioned child. */
+    function headOf(container: HTMLElement) {
+      return container.querySelector("header > div.absolute");
+    }
+
+    it("paints the head over the bar's left end: brand link + toggle inside it, each exactly once in the document", () => {
+      const { container } = renderTopBar({ sidebarOpen: true });
+      expect(screen.getAllByLabelText("RunKit home")).toHaveLength(1);
+      expect(screen.getAllByLabelText("Toggle navigation")).toHaveLength(1);
+      const head = headOf(container)!;
+      expect(head).not.toBeNull();
+      expect(head).toContainElement(screen.getByLabelText("RunKit home"));
+      expect(head).toContainElement(screen.getByLabelText("Toggle navigation"));
+      // The left cluster carries neither control while the head shows: the
+      // history arrows lead it and the nav holds no brand crumb.
+      const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+      const cluster = nav.parentElement!;
+      expect(cluster).not.toContainElement(screen.getByLabelText("Toggle navigation"));
+      expect(within(nav).queryByLabelText("RunKit home")).not.toBeInTheDocument();
+    });
+
+    it("keeps the head's brand link and toggle as real Tab stops (anchor to /, button — no tabIndex removal)", () => {
+      renderTopBar({ sidebarOpen: true });
+      const brand = screen.getByLabelText("RunKit home");
+      const toggle = screen.getByLabelText("Toggle navigation");
+      expect(brand.tagName).toBe("A");
+      expect(brand).toHaveAttribute("href", "/");
+      expect(toggle.tagName).toBe("BUTTON");
+      expect(brand).not.toHaveAttribute("tabindex");
+      expect(toggle).not.toHaveAttribute("tabindex");
+    });
+
+    it("insets the header grid by the head width + 12 while the head shows (lockstep with the stage constants)", () => {
+      const { container } = renderTopBar({ sidebarOpen: true });
+      const header = container.querySelector("header")!;
+      // 220 (seeded provider width) + stage padding + column gap, + 12 = the
+      // `px-3` offset relative to the content column's left edge.
+      expect(header.style.paddingLeft).toBe(
+        `${220 + STAGE_PADDING_PX + STAGE_COLUMN_GAP_PX + 12}px`,
+      );
+    });
+
+    it("drops the leading › on the server crumb but keeps the session crumb's own (terminal route)", () => {
+      renderTopBar({ sidebarOpen: true });
+      const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+      // The nav no longer opens with the brand crumb's trailing separator.
+      expect(nav.textContent?.startsWith("›")).toBe(false);
+      // Server crumb: first child of its wrapper is the crumb itself, no `›`.
+      const serverWrapper = getVisibleCrumbText("runkit").closest("span.hidden")!;
+      expect(serverWrapper.firstElementChild!.textContent).not.toBe("›");
+      // Session crumb: it follows the server crumb, so its separator stays.
+      const sessionWrapper = getVisibleCrumbText("run-kit").closest("span.hidden")!;
+      expect(sessionWrapper.firstElementChild!.textContent).toBe("›");
+    });
+
+    it("drops the leading › on the session crumb when there is no server crumb (server route)", () => {
+      renderTopBar({
+        mode: "server",
+        sessionName: "run-kit",
+        windowName: "",
+        currentWindow: null,
+        sidebarOpen: true,
+      });
+      const sessionWrapper = getVisibleCrumbText("run-kit").closest("span.hidden")!;
+      expect(sessionWrapper.firstElementChild!.textContent).not.toBe("›");
+    });
+
+    it("renders no head with the sidebar closed — hamburger first in the cluster, brand crumb first in the nav, no inline paddingLeft", () => {
+      const { container } = renderTopBar({ sidebarOpen: false });
+      expect(headOf(container)).toBeNull();
+      expect(container.querySelector("header")!.style.paddingLeft).toBe("");
+      const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+      expect(nav.parentElement!.firstElementChild).toBe(screen.getByLabelText("Toggle navigation"));
+      expect(nav.firstElementChild).toContainElement(screen.getByLabelText("RunKit home"));
+    });
+
+    it("renders no head on the Host page even with the sidebar preference open", () => {
+      const { container } = renderTopBar({
+        mode: "host",
+        sessions: [],
+        currentSession: null,
+        currentWindow: null,
+        sessionName: "",
+        windowName: "",
+        server: "",
+        sidebarOpen: true,
+      });
+      expect(headOf(container)).toBeNull();
+      expect(screen.queryByLabelText("Toggle navigation")).not.toBeInTheDocument();
+      expect(container.querySelector("header")!.style.paddingLeft).toBe("");
+      // The brand stays in the breadcrumb nav (the bar is exactly today's).
+      expect(
+        screen.getByLabelText("RunKit home").closest('nav[aria-label="Breadcrumb"]'),
+      ).not.toBeNull();
+    });
+
+    it("renders no head on a mobile viewport even with the sidebar open (the drawer keeps the cluster hamburger)", () => {
+      stubMatchMedia(
+        (q) =>
+          q.includes("max-width") ||
+          q.includes("prefers-color-scheme: dark") ||
+          q.includes("prefers-reduced-motion"),
+      );
+      const { container } = renderTopBar({ sidebarOpen: true });
+      expect(headOf(container)).toBeNull();
+      expect(container.querySelector("header")!.style.paddingLeft).toBe("");
+      const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+      expect(nav.parentElement!.firstElementChild).toBe(screen.getByLabelText("Toggle navigation"));
+    });
   });
 
   it("fixed-width is MENU-ONLY (260731-oiho): no in-bar/probe toggle, always a menu checkbox row in terminal mode", () => {

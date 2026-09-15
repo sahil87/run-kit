@@ -2670,6 +2670,35 @@ describe("sidebar footer status row (260812-d1at — readouts + quiet status slo
   });
 });
 
+describe("Sidebar — brand row (mobile-only)", () => {
+  // The brand row renders ONLY on phones: on desktop the brand lives in the
+  // top bar (the sidebar head while the sidebar is open, the left root crumb
+  // while closed), so the section rail is the sidebar's first row there.
+  // Mirrors the footer block's re-stub/restore pattern.
+  afterEach(() => {
+    stubMatchMedia((q) => q.includes("prefers-color-scheme: dark"));
+  });
+
+  it("renders the RunKit wordmark anchor to / as the nav's first row on mobile", () => {
+    stubMatchMedia((q) => q.includes("max-width") || q.includes("prefers-color-scheme: dark"));
+    renderSidebar();
+    const nav = screen.getByRole("navigation", { name: "Sessions" });
+    // The accessible name is the wordmark text — deliberately NOT the top
+    // bar's "RunKit home" aria-label, which e2e selects by label and must
+    // stay unique on desktop.
+    const brand = within(nav).getByRole("link", { name: "RunKit" });
+    expect(brand).toHaveAttribute("href", "/");
+    expect(nav.firstElementChild).toContainElement(brand);
+  });
+
+  it("renders NO brand row on desktop", () => {
+    // File-default stub: desktop (no max-width / coarse match).
+    renderSidebar();
+    const nav = screen.getByRole("navigation", { name: "Sessions" });
+    expect(within(nav).queryByRole("link", { name: "RunKit" })).not.toBeInTheDocument();
+  });
+});
+
 describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
   // The file-default matchMedia stub reports DESKTOP (fine pointer, wide), so
   // the mobile drawer scroll+focus effect never runs here — every scroll call

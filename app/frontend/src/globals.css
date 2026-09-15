@@ -1612,8 +1612,8 @@ html[data-theme="light"] {
   transition: background-color 100ms ease-out 0ms;
 }
 .rk-divider:hover .rk-grips i,
-.rk-divider.rk-sash-hot .rk-grips i { background-color: var(--color-bg-chrome-raised); transition-delay: 150ms; }
-.rk-divider.rk-sash-lit .rk-grips i { background-color: var(--color-bg-chrome-raised); transition-delay: 0ms; }
+.rk-divider.rk-sash-hot .rk-grips i { background-color: var(--color-bg-chrome); transition-delay: 150ms; }
+.rk-divider.rk-sash-lit .rk-grips i { background-color: var(--color-bg-chrome); transition-delay: 0ms; }
 
 /* ── Picker band scroll strip (9hh6) ─────────────────────────────────────────
    The Label picker's color band scrolls HORIZONTALLY inside a fixed-height

@@ -16,7 +16,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 //
 // Subjects: the chrome material contract — sidebar aside, top-bar wash
 // wrapper and status bar all paint `--color-bg-chrome`; the Shell stage ground
-// between sidebar card and content tile paints `--color-bg-chrome-raised`;
+// is the chrome itself (the flush stage — the sidebar is a flat column of it
+// and only the content tile floats), so it paints `--color-bg-chrome` too;
 // the terminal itself keeps painting `palette.background` (probed through the
 // dev-only `window.__rkTerminals` registry's theme option, because xterm.js
 // paints its background onto the canvas and NEVER onto a DOM element —
@@ -152,13 +153,14 @@ async function expectChromeMaterial(
 
   const probe = await probeChrome(page);
   const chromeRgb = hexToRgbCss(probe.vars.chrome);
-  const chromeRaisedRgb = hexToRgbCss(probe.vars.chromeRaised);
 
-  // aside = top bar = status bar = chrome; the stage ground one step past it.
+  // aside = top bar = status bar = stage ground = chrome (flush stage). The
+  // raised token is the row-hover step only and never paints a surface here.
   expect(probe.asideBg).toBe(chromeRgb);
   expect(probe.wrapperBg).toBe(chromeRgb);
   expect(probe.statusBarBg).toBe(chromeRgb);
-  expect(probe.stageBg).toBe(chromeRaisedRgb);
+  expect(probe.stageBg).toBe(chromeRgb);
+  expect(hexToRgbCss(probe.vars.chromeRaised)).not.toBe(chromeRgb);
 
   // The chrome is NOT the terminal color, and the tile keeps the terminal on
   // palette.background: no DOM element paints the tile (transparent — a stray
@@ -183,9 +185,9 @@ test.describe("Chrome material surfaces", () => {
   /**
    * Proves: on a dark theme the sidebar aside, the top-bar wrapper and the
    * status bar all paint the derived `--color-bg-chrome`, the stage ground
-   * between the sidebar card and the content tile paints
-   * `--color-bg-chrome-raised`, and the terminal keeps `palette.background` —
-   * the chrome never bleeds into the content well.
+   * under the flat sidebar and around the content tile paints the same
+   * chrome (flush stage), and the terminal keeps `palette.background` — the
+   * chrome never bleeds into the content well.
    * Steps:
    * 1. Pin `default-dark` (settings stub + localStorage seed), emulate the
    *    dark color scheme, and navigate to the terminal route at 1440×900.
@@ -194,9 +196,9 @@ test.describe("Chrome material surfaces", () => {
    * 3. Probe computed backgrounds of the aside, the banner's wrapper, the
    *    status bar, the stage and the tile, plus the terminal's theme
    *    background.
-   * 4. Assert aside = wrapper = status bar = chrome, stage = chrome-raised,
-   *    chrome ≠ primary, tile unpainted (transparent), xterm theme
-   *    background = primary.
+   * 4. Assert aside = wrapper = status bar = stage = chrome, chrome ≠
+   *    primary, tile unpainted (transparent), xterm theme background =
+   *    primary.
    * 5. Attach a full-page screenshot.
    */
   test("dark theme: chrome surfaces paint the derived gray, terminal keeps the palette background", async ({

@@ -18,7 +18,7 @@ Conversational — a `/fab-discuss` session on 2026-09-15 produced the design st
 Key decisions from the discussion (all encoded in `## Assumptions`):
 
 - Chrome material over lifted-card / recessed / full-height — "chrome is chrome, content is content"; maps 1:1 onto the existing two-family chrome vocabulary.
-- Keep the 6px gap seam; the stage ground becomes a second chrome step (`chrome-raised`) so the gap reads on both theme categories.
+- ~~Keep the 6px gap seam; the stage ground becomes a second chrome step (`chrome-raised`)~~ **Amended 2026-09-16 after a live preview of PR #984: flush stage** — the stage ground (and host-page root) paint the chrome itself, the sidebar drops its card border and radius and sits flat on it, and `chrome-raised` is the row-hover step only.
 - Derivation constants: ΔL 0.06 (chrome), a further 0.035 (raised), chroma kept at 35% — OKLCH of `palette.background`, gamut-reduced by chroma the way the row families already are.
 - Row tints re-base onto the chrome hex (`computeRowTints` takes a surface argument) — otherwise tinted rows carry a terminal-colored halo on the gray.
 - The PWA `theme-color` / desktop-shell titlebar tint follows the chrome hex, because the chrome is now the titlebar's truthful neighbor.
@@ -209,7 +209,7 @@ The single theme-color writer holds `lastBackground` (bare path) and `currentAcc
 | # | Grade | Decision | Rationale | Scores |
 |---|-------|----------|-----------|--------|
 | 1 | Certain | Chrome material variant: sidebar + top bar + status bar + mobile drawer on one new derived gray; content tiles stay on `palette.background` | Discussed — user approved this variant explicitly over lifted/recessed/full-height and said "proceed" | S:95 R:70 A:90 D:95 |
-| 2 | Certain | Keep the 6px gap seam; the stage ground becomes `--color-bg-chrome-raised` (one further ΔL past the chrome) instead of `bg-bg-inset` | Discussed — user approved "6px gap"; flush/hairline seams rejected for this change | S:90 R:85 A:90 D:90 |
+| 2 | Certain | Flush stage seam: the stage ground and host-page root paint `--color-bg-chrome`, the sidebar is a flat borderless column on it, `--color-bg-chrome-raised` is hover only (amended 2026-09-16; the 6px-gap seam shipped first and was dropped after a live preview) | User decision after seeing both live; hairline seam still rejected | S:95 R:85 A:90 D:95 |
 | 3 | Certain | Derivation: OKLCH of `palette.background`, `CHROME_L_DELTA` 0.06 (up dark / down light), `CHROME_RAISED_L_DELTA` 0.035, `CHROME_CHROMA_KEEP` 0.35, gamut-reduced via the existing `oklchToHexInGamut` | Discussed — the study's § D/F mechanism with the exact constants; the row-family pipeline is the precedent | S:95 R:80 A:95 D:90 |
 | 4 | Certain | Both tokens registered in `UIColors`, `COLOR_CSS_MAP`, `@theme` and both `html[data-theme]` blocks with static fallbacks from the default palettes | Follows the existing token pattern (`bgInset`); `applyThemeToDOM` iterates the map | S:90 R:90 A:95 D:95 |
 | 5 | Certain | Host page `/` root ground moves from `bg-bg-inset` to `bg-bg-chrome-raised` | Description asked for this "for cross-route consistency (assumption to record)"; the host page mounts no Shell and sits under the same chrome top bar | S:80 R:90 A:80 D:80 |

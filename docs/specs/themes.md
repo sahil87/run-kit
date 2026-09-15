@@ -57,7 +57,7 @@ The 11 CSS custom properties are derived, not stored:
 | `--color-bg-card` | `lighten(background, 8%)` dark / `darken(background, 3%)` light |
 | `--color-bg-inset` | `darken(background, 5%)` dark / `darken(background, 6%)` light |
 | `--color-bg-chrome` | `oklch(L ± 0.06, C × 0.35, h)` of `background` — up on dark, down on light; gamut-reduced by chroma |
-| `--color-bg-chrome-raised` | one further `0.035` L step in the same direction, same chroma |
+| `--color-bg-chrome-raised` | one further `0.035` L step in the same direction, same chroma — the row-hover step above the chrome |
 | `--color-text-primary` | `palette.foreground` |
 | `--color-text-secondary` | `palette.ansi[8]` (bright black) |
 | `--color-border` | `blend(foreground, background, 0.25)` |

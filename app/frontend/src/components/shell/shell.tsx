@@ -92,17 +92,19 @@ function useSidebarKeyboardToggle(sidebarRef: RefObject<HTMLElement | null>) {
  *
  * The two-family chrome model: the FRAME family (top bar above Shell, status
  * bar below) is attached square chrome, never rounded, never inset. The CARD
- * family (the sidebar and every content surface) floats as rounded cards
- * (`rounded-md` + the shared dimmed `rk-card-border`) on one continuous
- * `bg-bg-chrome-raised` STAGE ground with 6px padding/gap. The stage is Shell's
- * UNIVERSAL desktop composition — every desktop route that mounts `<Shell>`
- * gets it (terminal, tmux Server, board).
+ * family (every content surface) floats as rounded cards (`rounded-md` + the
+ * shared dimmed `rk-card-border`) on one continuous `bg-bg-chrome` STAGE
+ * ground with 6px padding/gap. The sidebar is neither: it is a FLAT column of
+ * that ground (`bg-bg-chrome`, no border, no radius — the flush stage), so
+ * sidebar and ground read as one chrome surface and only content tiles float.
+ * The stage is Shell's UNIVERSAL desktop composition — every desktop route
+ * that mounts `<Shell>` gets it (terminal, tmux Server, board).
  *
  * Topology (desktop, viewport ≥ 640px):
  *   ┌─────────────────────────────────────┐
  *   │  ┌──────────┐  ┌─────────────────┐  │
- *   │  │ sidebar  │  │     content     │  │  ← stage (inset ground, 6px)
- *   │  │  (card)  │  ├─────────────────┤  │
+ *   │  │ sidebar  │  │     content     │  │  ← stage (chrome ground, 6px)
+ *   │  │  (flat)  │  ├─────────────────┤  │
  *   │  └──────────┘  │ bottombar       │  │
  *   │                └─────────────────┘  │
  *   ├─────────────────────────────────────┤
@@ -116,7 +118,7 @@ function useSidebarKeyboardToggle(sidebarRef: RefObject<HTMLElement | null>) {
  * - The stage is a NESTED grid rather than padding/gap on the outer grid:
  *   grid padding/gap apply to every track, so an outer-grid inset would push
  *   the status bar off the viewport edges and open seams around it — breaking
- *   the attached-frame contract. Nesting scopes the `bg-bg-chrome-raised p-[6px]`
+ *   the attached-frame contract. Nesting scopes the `bg-bg-chrome p-[6px]`
  *   ground (+ 6px column-gap; the bottom seam is footer-owned, see the
  *   bottombar note) to exactly the region that floats cards. Stage areas:
  *   `"sidebar content" / "sidebar bottombar"`; rows `1fr auto`; columns
@@ -278,20 +280,20 @@ export function Shell({
           )}
         </>
       ) : (
-        <div style={stageStyle} className="bg-bg-chrome-raised">
+        <div style={stageStyle} className="bg-bg-chrome">
           {/* Desktop sidebar aside (Shell-owned — 260719-rwqf). Gated the same
               way the callers used to gate their own asides (`sidebarVisible` —
               `sidebarOpen` composed with the zen render-time override — plus
               a `sidebarChildren` presence check), so it fully unmounts on
-              collapse — no zero-width rail. Card family: `rounded-md` + the
-              shared dimmed `rk-card-border` + `bg-bg-chrome`, floating on the
-              stage ground. */}
+              collapse — no zero-width rail. Flush stage: the aside paints
+              `bg-bg-chrome` with no border or radius — it is one column of the
+              chrome ground, not a floating card; only content tiles float. */}
           {sidebarVisible && sidebarChildren && (
             <aside
               ref={sidebarAsideRef}
               style={{ gridArea: "sidebar" }}
               aria-label="Sidebar"
-              className="relative flex flex-row overflow-hidden rounded-md border rk-card-border bg-bg-chrome"
+              className="relative flex flex-row overflow-hidden bg-bg-chrome"
             >
               <div className="flex-1 min-w-0 overflow-hidden">{sidebarChildren}</div>
             </aside>
@@ -300,7 +302,7 @@ export function Shell({
           {/* Sidebar drag-resize handle (AppShell only): a zero-width grid
               item pinned to the sidebar track's right edge with visible
               overflow, so the handle's hit zone straddles the 6px gap instead
-              of consuming layout width or doubling the card's border seam. */}
+              of consuming layout width or adding a seam of its own. */}
           {sidebarVisible && sidebarChildren && sidebarResizeHandle && (
             <div
               style={{ gridArea: "sidebar", justifySelf: "end" }}

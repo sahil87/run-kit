@@ -39,12 +39,12 @@ The desktop `<aside>` in `components/shell/shell.tsx` MUST replace `bg-bg-primar
 - **WHEN** the aside renders
 - **THEN** its class list contains `bg-bg-chrome` and not `bg-bg-primary`
 
-#### R4: Stage ground and host-page root become chrome-raised
-The Shell stage `<div>` (`className="bg-bg-inset"`, `shell.tsx:281`) MUST become `bg-bg-chrome-raised`, and the host page root (`components/host-overview-page.tsx:304`, `flex flex-col h-full bg-bg-inset`) MUST become `bg-bg-chrome-raised`, so every route sits on one ground under the chrome top bar. The 6px padding and column gap are unchanged. Doc comments (`shell.tsx:96-97, 119, 287`) MUST name the new token.
+#### R4: Flush stage — the ground is the chrome, the sidebar is a flat column of it
+The Shell stage `<div>` (`shell.tsx:281`) MUST paint `bg-bg-chrome`, and the host page root (`components/host-overview-page.tsx:304`) MUST paint `bg-bg-chrome`, so every route sits on one chrome ground under the chrome top bar. The desktop sidebar aside MUST drop `rounded-md border rk-card-border` and paint `bg-bg-chrome` flat (no border, no radius) — sidebar and ground are one surface; only content tiles float as cards. The 6px padding and column gap are unchanged. Doc comments (`shell.tsx` header, stage, aside, resize handle) MUST state the flush-stage contract. *(Amended 2026-09-16 from the 6px-gap seam — ground one ΔL past the chrome with a carded sidebar — after a live preview; the user chose the flush stage.)*
 
 - **GIVEN** the terminal route at desktop width
 - **WHEN** the stage renders
-- **THEN** the ground between the sidebar card and the content tile is `--color-bg-chrome-raised`, one step past the chrome, and the tile is `--color-bg-primary`
+- **THEN** the aside, the stage ground and the frame all paint `--color-bg-chrome`, the aside has no card border or radius, and the content tile floats on `--color-bg-primary` with its dimmed card border
 
 #### R5: Top bar paints the chrome on the wash element
 The top bar MUST paint `bg-bg-chrome`. The `TopBar` `<header>` has no background today and the instance-accent wash is painted inline by the wrapper `<div className="shrink-0">` in `app.tsx:510`; the chrome class MUST go on that same wrapper so the inline `washHex` (when set) overrides the class and the chrome shows when it is not. The wrapper's comment stating "the TopBar header has no background of its own" MUST be updated to describe the chrome-on-wrapper contract.
@@ -84,7 +84,7 @@ Rows sitting on the sidebar surface MUST hover with the opaque `hover:bg-bg-chro
 ### Global CSS: gap furniture
 
 #### R9: Lit sash grip dots vanish into the new ground
-`.rk-divider.rk-sash-hot .rk-grips i` and `.rk-divider.rk-sash-lit .rk-grips i` (`globals.css:1609-1610`) MUST invert to `var(--color-bg-chrome-raised)` instead of `var(--color-bg-inset)`. `.rk-scroll-fade-bottom` (a `mask-image`, surface-agnostic) and `.rk-band-fade` (lives in `bg-primary` popovers) MUST NOT change.
+`.rk-divider.rk-sash-hot .rk-grips i` and `.rk-divider.rk-sash-lit .rk-grips i` (`globals.css:1609-1610`) MUST invert to `var(--color-bg-chrome)` (the flush stage ground) instead of `var(--color-bg-inset)`. `.rk-scroll-fade-bottom` (a `mask-image`, surface-agnostic) and `.rk-band-fade` (lives in `bg-primary` popovers) MUST NOT change.
 
 - **GIVEN** the sidebar drag sash is hovered
 - **WHEN** the grip dots light
@@ -157,10 +157,10 @@ A new `app/frontend/tests/e2e/chrome-material.spec.ts` MUST, at 1440×900 on the
 **Rejected**: Pure neutral gray (pasted-on against tinted backgrounds); 100% chroma (stops reading as gray on the same themes); `mix(fg, 6%)` (tracks foreground hue — warm-on-cold themes go beige).
 *Introduced by*: 260915-zeid-chrome-material-surface
 
-#### One raised token for hover and ground
-**Decision**: `--color-bg-chrome-raised` serves both the uncolored row hover and the Shell stage ground.
-**Why**: Both are "one step past the chrome"; a hovered row matching the gap ground is harmless, and one token keeps the family to two.
-**Rejected**: Separate hover and ground tokens (a third derived color with no distinct meaning).
+#### Flush stage: the ground is the chrome, the raised token is hover only
+**Decision**: The stage ground and host-page root paint `bg-bg-chrome`; the sidebar is a flat column of it (no card border or radius); `--color-bg-chrome-raised` is reserved for the uncolored row hover and held-open fill.
+**Why**: With sidebar, top bar and status bar on one material, a distinct ground under a carded sidebar only drew a border around gray inside gray; flush is the macOS full-bleed sidebar reading, and the hover keeps the one step above the chrome to itself.
+**Rejected**: The 6px-gap seam with a carded sidebar on a chrome-raised ground (shipped first, previewed live, dropped as clutter on 2026-09-16); a hairline seam (the gap against the floating tile already separates); dropping the raised token (the hover needs its step).
 *Introduced by*: 260915-zeid-chrome-material-surface
 
 #### Theme-color follows the chrome
@@ -198,6 +198,7 @@ A new `app/frontend/tests/e2e/chrome-material.spec.ts` MUST, at 1440×900 on the
 ### Phase 4: Polish
 
 - [x] T016 `docs/specs/themes.md` § UI Color Derivation: "8 CSS custom properties" → 11 and the two new rows with formulas <!-- R11 -->
+- [x] T017 Flush stage amendment (2026-09-16): stage + host root → `bg-bg-chrome`, aside loses `rounded-md border rk-card-border`, sash grips → `--color-bg-chrome`; shell/host/e2e tests, comments, memory (visual-design, routes-and-shell, sidebar), Themes spec row and the study's seam row updated <!-- R4 -->
 
 ## Execution Order
 
@@ -213,12 +214,12 @@ A new `app/frontend/tests/e2e/chrome-material.spec.ts` MUST, at 1440×900 on the
 - [x] A-001 R1: `deriveUIColors` returns `bgChrome` and `bgChromeRaised` derived via named constants and `oklchToHexInGamut`, with a shared `hexToOklch` helper (no duplicated polar math)
 - [x] A-002 R2: both tokens are in `UIColors`, `COLOR_CSS_MAP` and all three `globals.css` blocks; `bg-bg-chrome` / `bg-bg-chrome-raised` classes are emitted; doc comments say 11
 - [x] A-003 R3: the desktop aside and mobile drawer carry `bg-bg-chrome`, card shape and drawer border unchanged
-- [x] A-004 R4: the Shell stage and the host-page root carry `bg-bg-chrome-raised`; no `bg-bg-inset` remains on either
+- [x] A-004 R4: the Shell stage and the host-page root carry `bg-bg-chrome`; the aside carries `bg-bg-chrome` with no `rounded-md` / `rk-card-border`; no `bg-bg-inset` or `bg-bg-chrome-raised` remains on either ground
 - [x] A-005 R5: the top-bar wash wrapper carries `bg-bg-chrome`, and the inline `washHex` still overrides it when an accent is set
 - [x] A-006 R6: the status bar carries `bg-bg-chrome`, flush and square as before
 - [x] A-007 R7: `computeRowTints(palette, surface)` blends into `surface`; both callers pass the chrome hex
 - [x] A-008 R8: the five listed sidebar sites hover/hold on `bg-bg-chrome-raised`; popup files are untouched
-- [x] A-009 R9: lit sash grips use `--color-bg-chrome-raised`; `.rk-scroll-fade-bottom` and `.rk-band-fade` unchanged
+- [x] A-009 R9: lit sash grips use `--color-bg-chrome`; `.rk-scroll-fade-bottom` and `.rk-band-fade` unchanged
 - [x] A-010 R10: theme-color meta, `deriveAccentHexes` and the `index.html` fallbacks base on the chrome hex
 - [x] A-011 R11: the Themes spec lists 11 derived properties with rows for both tokens
 
@@ -226,7 +227,7 @@ A new `app/frontend/tests/e2e/chrome-material.spec.ts` MUST, at 1440×900 on the
 
 - [x] A-012 R1: on `default-dark` the chrome's OKLab L is 0.06 ± 0.01 above the background and on `solarized-light` 0.06 ± 0.01 below; chroma ≤ 35% of the background's in both
 - [x] A-013 R7: with the chrome as surface, family `base` tints sit closer to the chrome than to the terminal color, and the gray sentinel's `selected` beats the raised hover step on both default palettes
-- [x] A-014 R4: on the terminal route the gap between sidebar card and content tile is visibly a different color from both (chrome-raised vs chrome vs primary), on dark and light
+- [x] A-014 R4: on the terminal route the sidebar and the stage ground read as one chrome surface and the content tile floats on it as the only card, on dark and light
 
 ### Scenario Coverage
 
@@ -250,6 +251,7 @@ A new `app/frontend/tests/e2e/chrome-material.spec.ts` MUST, at 1440×900 on the
 - [x] A-026 Test intent comments: every `test()` in the new spec carries Proves / Steps JSDoc and the file has a shared-setup header; no `.spec.md` companion
 - [x] A-027 No polling from the client: the e2e spec uses Playwright waits, not `setInterval`; no new client-side polling introduced
 - [x] A-028 Tests conform to spec: assertions encode R1–R14, not implementation accidents (Test Integrity)
+- [x] A-029 R4: `chrome-material.spec` asserts stage = chrome and raised ≠ chrome; `shell.test` asserts the aside has no card classes; gates green after the flush amendment
 
 ## Notes
 

@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screen Break Easter Egg Studies</title>
+<style>
+  :root {
+    --bg: #0f1117; --card: #171b24; --inset: #0a0c12; --row: #12151d;
+    --tp: #e8eaf0; --ts: #7a8394; --border: #454d66;
+    --green: #22c55e; --yellow: #facc15; --blue: #60a5fa; --red: #f87171; --purple: #c084fc; --gray: #7a8394;
+    --amber: #f59e0b; --accent: #7dd3fc;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  body.light {
+    --bg: #f8f9fb; --card: #ffffff; --inset: #eef0f4; --row: #f3f4f7;
+    --tp: #1a1d24; --ts: #6b7280; --border: #d1d5db;
+    --green: #16a34a; --yellow: #b07d02; --blue: #2563eb; --red: #dc2626; --purple: #9333ea; --gray: #6b7280; --accent: #0369a1;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--tp); font: 14px/1.5 ui-sans-serif, system-ui, sans-serif; padding: 28px 32px 80px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 42px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { font-size: 13px; margin: 18px 0 6px; color: var(--tp); }
+  .sub { color: var(--ts); margin: 0 0 18px; max-width: 900px; }
+  .sub b, .cap b, p b, li b, td b { color: var(--tp); }
+  p { max-width: 900px; color: #b6bcc9; }
+  body.light p { color: #4b5563; }
+  code { font-family: var(--mono); font-size: 11.5px; background: var(--inset); padding: 0 4px; border-radius: 3px; color: #cbd5e1; }
+  body.light code { color: #334155; }
+  table { border-collapse: collapse; font-size: 12px; margin: 8px 0 14px; }
+  td, th { border: 1px solid var(--border); padding: 4px 8px; text-align: left; color: #b6bcc9; vertical-align: top; }
+  body.light td { color: #4b5563; }
+  th { color: var(--tp); font-weight: 600; }
+  td.n { text-align: right; font-family: var(--mono); }
+  .tag { display: inline-block; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border); color: var(--ts); margin: 0 6px 0 0; vertical-align: middle; }
+  .tag.rec { border-color: var(--green); color: var(--green); }
+  .tag.bad { border-color: var(--red); color: var(--red); }
+  .tag.park { border-color: var(--blue); color: var(--blue); }
+  .tag.risk { border-color: var(--amber); color: var(--amber); }
+  ul { max-width: 900px; color: #b6bcc9; } body.light ul { color: #4b5563; }
+  li { margin: 3px 0; }
+
+  .toolbar { position: sticky; top: 0; z-index: 50; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(6px); padding: 8px 0 10px; margin: 0 0 10px; border-bottom: 1px solid var(--border); }
+  .toolbar button, .ctl button { font: 11px var(--mono); padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border); background: var(--card); color: var(--ts); cursor: pointer; }
+  .toolbar button.on, .ctl button.on { color: var(--green); border-color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
+  .toolbar .hint, .ctl .hint { font-size: 11px; color: var(--ts); margin-left: 6px; }
+  .ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .ctl label { font: 11px var(--mono); color: var(--ts); display: inline-flex; align-items: center; gap: 6px; }
+  .ctl input[type=range] { width: 320px; }
+  .ctl .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+
+  .study { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .study .cap { font-size: 11px; color: var(--ts); margin-top: 8px; line-height: 1.45; }
+  .study h3 { margin: 0 0 8px; }
+  .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
+  .six { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  @media (max-width: 1100px) { .three, .six { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 720px) { .three, .six { grid-template-columns: 1fr; } }
+  .frame .cap { margin-top: 6px; }
+  .frame .cap b { font-family: var(--mono); font-size: 10.5px; }
+
+  /* ---------- the mock run-kit screen (720 x 450 design space, scaled to fit) ---------- */
+  .fit { width: 100%; position: relative; overflow: hidden; border-radius: 6px; }
+  .screen {
+    --abg: #0f1117; --acard: #171b24; --ainset: #0a0c12; --atp: #e8eaf0; --ats: #7a8394; --abd: #454d66;
+    --agreen: #22c55e; --aacc: #5b8af0; --aterm: #b6bcc9;
+    position: absolute; left: 0; top: 0; width: 720px; height: 450px; transform-origin: 0 0; overflow: hidden;
+    background: #03040a; font-family: var(--mono); font-size: 11px; user-select: none;
+  }
+  .screen.lightapp { --abg: #f8f9fb; --acard: #ffffff; --ainset: #e8eaef; --atp: #1a1d24; --ats: #6b7280; --abd: #d1d5db; --agreen: #16a34a; --aacc: #4a7ae8; --aterm: #374151; }
+  .screen .inside { position: absolute; inset: 0; opacity: 0; background: #03040a; }
+  .screen .inside::after { content: ""; position: absolute; inset: 0; background: var(--glow); }
+  .screen .plate { position: absolute; inset: 0; z-index: 2; }
+  .screen svg.shards { z-index: 4; }
+  .screen .flash { z-index: 5; }
+  .screen .app { position: absolute; inset: 0; background: var(--abg); color: var(--atp); display: grid; grid-template-rows: 30px 1fr 22px; grid-template-columns: 196px 1fr; }
+  .screen .top { grid-column: 1 / 3; border-bottom: 1px solid var(--abd); display: flex; align-items: center; gap: 10px; padding: 0 10px; color: var(--ats); }
+  .screen .top .logo { width: 16px; height: 14px; }
+  .screen .top .crumb b { color: var(--atp); font-weight: 500; }
+  .screen .top .mid { flex: 1; text-align: center; color: var(--atp); }
+  .screen .top .btns { display: flex; gap: 4px; }
+  .screen .top .btns span { width: 22px; height: 18px; border: 1px solid var(--abd); border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; }
+  .screen .side { border-right: 1px solid var(--abd); background: var(--acard); padding: 6px 0; }
+  .screen .sec { font-size: 9px; letter-spacing: .08em; color: var(--ats); padding: 6px 10px 2px; }
+  .screen .srow { display: flex; align-items: center; gap: 6px; height: 21px; padding: 0 8px 0 6px; color: var(--ats); }
+  .screen .srow.sel { background: var(--ainset); color: var(--atp); }
+  .screen .srow .mk { width: 3px; height: 13px; border-radius: 1px; background: #f59e0b; opacity: .85; }
+  .screen .srow .mk.off { opacity: 0; }
+  .screen .srow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--agreen); flex: none; }
+  .screen .srow .dot.y { background: #facc15; } .screen .srow .dot.g { background: var(--ats); }
+  .screen .srow .nm { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .screen .srow .ch { font-size: 9.5px; opacity: .8; }
+  .screen .term { position: relative; padding: 10px 12px; white-space: pre; line-height: 1.5; overflow: hidden; color: var(--aterm); }
+  .screen .term .pr { color: var(--agreen); } .screen .term .dim { color: var(--ats); } .screen .term .acc { color: var(--aacc); }
+  .screen .term .cur { display: inline-block; width: 7px; height: 12px; background: var(--atp); vertical-align: -2px; opacity: .85; }
+  .screen .sbar { grid-column: 1 / 3; border-top: 1px solid var(--abd); display: flex; gap: 14px; align-items: center; padding: 0 10px; color: var(--ats); font-size: 10px; }
+  .screen .sbar .pr { color: var(--agreen); }
+  .screen svg.cracks, .screen svg.shards { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  .screen svg.cracks .dark path { fill: none; stroke: #04060b; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  .screen svg.cracks .lite path { fill: none; stroke: rgba(255,255,255,.55); stroke-width: .9; stroke-linecap: round; stroke-linejoin: round; }
+  .screen.lightapp svg.cracks .dark path { stroke: #1f2937; stroke-width: 2; }
+  .screen.lightapp svg.cracks .lite path { stroke: rgba(255,255,255,.9); }
+  .screen svg.cracks .dark path.ring { stroke-width: 1.6; opacity: .8; }
+  .screen svg.shards polygon { fill: rgba(226,232,255,.22); stroke: rgba(255,255,255,.65); stroke-width: .8; }
+  .screen.lightapp svg.shards polygon { fill: rgba(255,255,255,.75); stroke: rgba(30,41,59,.55); }
+  .screen .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+  .screen .creature { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 1; }
+  .screen .creature.out { z-index: 3; }
+  .screen .creature .sprite { position: absolute; width: 0; height: 0; }
+  .screen .creature .sprite svg { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; overflow: visible; }
+  .screen .tapzone { position: absolute; inset: 0; cursor: crosshair; z-index: 6; }
+  .screen .tapzone.off { pointer-events: none; }
+  .screen .impact { position: absolute; z-index: 6; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; border: 1px dashed rgba(255,255,255,.5); pointer-events: none; opacity: 0; transition: opacity .2s; }
+  .screen:hover .impact.show { opacity: 1; }
+
+  /* ---------- row-scale micro version ---------- */
+  .mini { width: 300px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 6px 0; font-family: var(--mono); font-size: 11px; position: relative; }
+  .mini .sec { font-size: 9px; letter-spacing: .08em; color: var(--ts); padding: 4px 10px 2px; }
+  .mrow-wrap { position: relative; height: 26px; width: 300px; overflow: visible; }
+  .mrow-wrap.gone { pointer-events: none; }
+  .mrow { position: absolute; inset: 0; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 6px; color: var(--ts); background: var(--card); }
+  .mrow.sel { background: var(--inset); color: var(--tp); }
+  .mrow .mk { width: 3px; height: 14px; border-radius: 1px; background: var(--amber); opacity: .85; }
+  .mrow .mk.off { opacity: 0; }
+  .mrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  .mrow .dot.y { background: var(--yellow); }
+  .mrow .nm { flex: 1; }
+  .mrow .x { width: 16px; height: 16px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; color: var(--ts); cursor: pointer; font-size: 12px; }
+  .mrow .x:hover { color: var(--red); background: color-mix(in srgb, var(--red) 15%, transparent); }
+  .mrow-wrap svg.cracks, .mrow-wrap svg.shards { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  .mrow-wrap svg.cracks .dark path { fill: none; stroke: #04060b; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  .mrow-wrap svg.cracks .lite path { fill: none; stroke: rgba(255,255,255,.5); stroke-width: .6; stroke-linecap: round; }
+  .mrow-wrap svg.shards { z-index: 3; }
+  .mrow-wrap svg.shards polygon { fill: rgba(226,232,255,.25); stroke: rgba(255,255,255,.6); stroke-width: .7; }
+  body.light .mrow-wrap svg.cracks .dark path { stroke: #1f2937; }
+  body.light .mrow-wrap svg.shards polygon { fill: rgba(255,255,255,.8); stroke: rgba(30,41,59,.5); }
+
+  .stack { font-family: var(--mono); font-size: 11.5px; }
+  .stack td:first-child { color: var(--ts); text-align: right; }
+  .kbd { font: 10.5px var(--mono); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 3px; padding: 0 5px; color: var(--tp); }
+  .rm-note { display: none; font-size: 12px; color: var(--amber); margin: 6px 0 0; }
+  body.rm .rm-note { display: block; }
+</style>
+</head>
+<body>
+
+<h1>Screen Break Easter Egg Studies</h1>
+<p class="sub">Design study for a one-shot, whole-viewport Easter egg in which the run-kit screen cracks open and something comes out of the monitor. The mock is the real mechanism, not a picture of it: the app shell gets an evenodd <code>clip-path</code> hole, the cracks draw in as dashed SVG strokes, glass shards from the hole fly out under gravity, and the thing inside is clipped to the hole until it is physically through, then released in front. Three candidates for what comes out (a green fist, the brand cube, an eye), the six-frame storyboard, the layer stack, a row-scale micro version for the sidebar force-kill, the trigger table, and the recorded decisions. Everything here is CSS transforms and SVG attribute updates on a handful of elements; nothing samples pixels.</p>
+
+<div class="toolbar">
+  <button id="tLight">Light page</button>
+  <button id="tLightApp">Light app</button>
+  <button id="tRM">Reduced motion</button>
+  <span class="hint">Reduced motion shows what the user with <code>prefers-reduced-motion</code> gets: nothing. The whole layer never mounts, same as every flair.</span>
+</div>
+<p class="rm-note">Reduced motion on: every mock below is frozen at t = 0 (intact screen). There is no static fallback frame by design: a crack that does not animate reads as a broken UI, so the egg is all or nothing.</p>
+
+<h2>1. The live break</h2>
+<div class="study">
+  <div class="ctl">
+    <button id="play">▶ Play</button>
+    <label>t <input id="scrub" type="range" min="0" max="1000" value="0"> <span id="tval" style="font-family:var(--mono)">0.00</span></label>
+    <span class="sep"></span>
+    <span class="hint" style="margin:0">comes out:</span>
+    <button data-v="fist" class="vbtn on">green fist</button>
+    <button data-v="cube" class="vbtn">brand cube</button>
+    <button data-v="eye" class="vbtn">the eye</button>
+    <span class="sep"></span>
+    <span class="hint" style="margin:0">click anywhere on the screen to set the impact point and replay · the eye follows your pointer</span>
+  </div>
+  <div id="live"></div>
+  <div class="cap">The 4.2 s timeline: <b>impact</b> (flash + 160 ms shake, radial cracks shoot out) → <b>shatter</b> (two ring cracks, the hole opens, nine glass shards tumble out and fall) → <b>emerge</b> (the thing inside is clipped to the hole, grows toward the viewer, and is released in front once it is through) → <b>hold</b> → <b>retreat</b> → <b>heal</b> (hole closes, cracks fade). The screen behind the hole is the "inside of the monitor": a dark ground with a glow in the creature's color, so the hole reads as depth, not as a missing rectangle. Cracks are clipped by the same evenodd path as the app, so they vanish where the hole is.</div>
+</div>
+
+<h2>2. Storyboard</h2>
+<p>Six fixed frames of the fist variant, one per phase. Every frame is the same renderer at a different <code>t</code>, so what you see here is exactly what the live mock passes through.</p>
+<div class="six" id="strip"></div>
+
+<h2>3. What comes out</h2>
+<p>Three candidates frozen at the top of the emerge phase (<code>t = 0.48</code>). Toggle them live in section 1.</p>
+<div class="three" id="variants"></div>
+<table>
+  <tr><th>Candidate</th><th>Reads as</th><th>Cost</th><th>Notes</th></tr>
+  <tr><td><b>Green fist</b> <span class="tag rec">PR merged</span></td><td>Something punched out from inside. The Hulk reference without a face or a name.</td><td>One SVG, ~12 shapes. Scale + rotate on emerge.</td><td>Same IP posture as the <code>spidey</code>/<code>ironman</code> flairs: an allusion, not a likeness. Works in both themes. The fist is what people will describe to each other.</td></tr>
+  <tr><td><b>Brand cube</b> <span class="tag park">parked</span></td><td>The logo escaping its ring. On-brand, zero IP.</td><td>Reuses the nine <code>logo-spinner.tsx</code> polygons verbatim + a green drop-shadow glow.</td><td>Tumbles out spinning, hovers, sinks back. Less funny than the fist, more "product". Could land back on the brand crumb instead of retreating (a second beat; parked).</td></tr>
+  <tr><td><b>The eye</b> <span class="tag rec">update available</span></td><td>Something in there is watching. Never comes out; the pupil follows the pointer and it blinks twice.</td><td>One SVG, ~8 shapes; pointer offset is one <code>transform</code>. Cheapest of the three.</td><td>Stays clipped to the hole the whole time, so there is no clip-release seam at all. Creepy-funny rather than heroic, and it never disrupts the UI it is peering out of.</td></tr>
+</table>
+
+<h2>4. How it is built</h2>
+<h3>Layer stack (top to bottom)</h3>
+<table class="stack">
+  <tr><th>z</th><th>Layer</th><th>What</th><th>Clip</th></tr>
+  <tr><td>6</td><td>shards <code>&lt;svg&gt;</code></td><td>Nine glass polygons cut from the final hole, sectors between adjacent cracks. Per frame: translate along the radial × speed, plus gravity (<code>420·s²</code>), plus spin; fade after half the flight.</td><td>none, <code>overflow: visible</code></td></tr>
+  <tr><td>5</td><td>creature (released)</td><td>The sprite once it is through the hole: in front of the app and the cracks, with a drop shadow for depth.</td><td>none</td></tr>
+  <tr><td>4</td><td>cracks <code>&lt;svg&gt;</code></td><td>Nine radial polylines from the impact point past the viewport edge, plus two jittered ring cracks. A dark 2.4 px stroke and a 0.9 px white stroke offset by (0.8, 0.8) for the glass highlight. Draw-in is <code>stroke-dasharray</code> = length, <code>stroke-dashoffset</code> = length × (1 − progress).</td><td>the app's evenodd path (no cracks inside the hole)</td></tr>
+  <tr><td>3</td><td>app shell (the glass)</td><td>The real UI. Gets <code>clip-path: url(#appclip)</code>, an <code>objectBoundingBox</code> <code>&lt;clipPath&gt;</code> whose single path is the outer rect plus the hole polygon with <code>clip-rule="evenodd"</code>. The shell also carries the 160 ms shake transform; the layers below do not shake because they are "behind the monitor".</td><td>evenodd hole</td></tr>
+  <tr><td>2</td><td>creature (inside)</td><td>Same sprite, before release: clipped to the hole so only what is visible through the opening renders. Release is a one-frame swap of <code>clip-path</code> from the hole to <code>none</code> at the moment the sprite's projected size ≈ the hole, masked by the shard flight.</td><td>hole only</td></tr>
+  <tr><td>1</td><td>inside ground</td><td><code>position: fixed; inset: 0</code> dark ground with a radial glow at the impact point in the creature's color. Opacity rides the hole's open amount.</td><td>none</td></tr>
+</table>
+<h3>Notes</h3>
+<ul>
+  <li><b>One clip path, two uses.</b> The hole polygon string is written once per frame; the app's clip is <code>"M0 0H1V1H0Z " + hole</code> with evenodd, the creature's clip is <code>hole</code> alone. Both <code>&lt;clipPath&gt;</code>s use <code>clipPathUnits="objectBoundingBox"</code> so one set of normalized coordinates fits whatever size the shell is. In the real app the geometry is generated in px from <code>window.innerWidth/Height</code> and normalized the same way.</li>
+  <li><b>Geometry is seeded, not random.</b> A tiny LCG with a fixed seed makes every run identical for a given impact point, which is what makes a storyboard and a screenshot test possible. The impact point is the only input.</li>
+  <li><b>No pixel capture.</b> html2canvas-style approaches are out (CSP, cost, the xterm canvases). The hole is real because the shell is clipped; the shards are glass-tinted polygons, not copies of the UI. This is the trade that keeps the whole thing at ~30 DOM nodes and transform/opacity/attribute updates only.</li>
+  <li><b>Where it mounts.</b> A single <code>&lt;ScreenBreak /&gt;</code> at the app-shell root, sibling of the toast layer, rendered only while an egg is in flight and unmounted at the end. It owns the ground, the two SVGs, the sprite and the <code>&lt;defs&gt;</code>; the shell receives only a <code>style.clipPath</code> and a transform for the shake. Same discipline as <code>FlairOverlay</code>: <code>aria-hidden</code>, <code>pointer-events: none</code>, no JS timers besides one <code>requestAnimationFrame</code> loop for the 4.2 s.</li>
+  <li><b>Reduced motion.</b> The <code>prefersReducedMotion()</code> helper the logo sweep already uses gates the mount. No static fallback (see the toolbar note).</li>
+  <li><span class="tag risk">verify early</span> <b>Repaint cost of clipping the shell.</b> <code>clip-path</code> on the element that contains the xterm canvases may force the terminals to repaint every frame. If it stutters on a full-width terminal, fall back to clipping only a fixed dark "glass" overlay drawn above the shell (the hole then shows the ground instead of removing the UI). Visually ~90% as good; the shake and the shards still sell it. Test on the live box before committing to the shell-clip design.</li>
+</ul>
+
+<h2>5. Row-scale micro version</h2>
+<p>The same generator at 300 × 26 px, seeded at the ✕, with a hole big enough to swallow the whole row. Cracks, glass shards, then the row height collapses and the rows below slide up. This is the cheap place to prototype the crack geometry and the feel of the shards before scaling to the viewport, and it is a fine egg on its own for the <span class="kbd">Ctrl</span>+click force kill.</p>
+<div class="study" style="display:inline-block">
+  <div class="ctl" style="margin-top:0"><button id="rowReset">↺ Reopen row</button><span class="hint">click the ✕ on the highlighted row</span></div>
+  <div class="mini" id="mini">
+    <div class="sec">WINDOWS</div>
+    <div class="mrow-wrap" data-row><div class="mrow"><span class="mk off"></span><span class="dot"></span><span class="nm">1 fair-gazelle</span><span class="x">✕</span></div></div>
+    <div class="mrow-wrap" data-row data-target><div class="mrow sel"><span class="mk"></span><span class="dot y"></span><span class="nm">2 nemo-flair</span><span class="x" id="killx">✕</span></div></div>
+    <div class="mrow-wrap" data-row><div class="mrow"><span class="mk off"></span><span class="dot"></span><span class="nm">3 quake-drawer</span><span class="x">✕</span></div></div>
+    <div class="mrow-wrap" data-row><div class="mrow"><span class="mk"></span><span class="dot"></span><span class="nm">4 status-fold</span><span class="x">✕</span></div></div>
+  </div>
+  <div class="cap" style="max-width:420px">1.6 s. Row-local: the shards overflow onto the neighbouring rows (the shards SVG is <code>overflow: visible</code> above them), which is what makes the collapse read as glass falling rather than a height transition. Reduced motion: the row just disappears as today.</div>
+</div>
+
+<h2>6. Triggers</h2>
+<p>Two eggs, each with one automatic occasion and one palette entry. The automatic occasions are derived transitions on data the frontend already receives over SSE: nothing is pushed, no verb is added, no file is watched.</p>
+<table>
+  <tr><th>Egg</th><th>Automatic occasion</th><th>Palette entry</th><th>Once-per key</th></tr>
+  <tr><td><b>Green fist</b></td><td>A sidebar PR flips to <b>merged</b> for the window you are viewing (previous→next state change, client-side).</td><td><code>Easter egg: Smash</code></td><td>the PR number</td></tr>
+  <tr><td><b>The eye</b></td><td>The UpdateChip transitions from <b>no update</b> to <b>update available</b>. A reload with the chip already showing does not fire.</td><td><code>Easter egg: Peek</code></td><td>the version string</td></tr>
+</table>
+<table>
+  <tr><th>Rule</th><th>Verdict</th><th>Why</th></tr>
+  <tr><td>Automatic triggers fire once per event identity (PR number, version string), stored per viewer in <code>localStorage</code></td><td><span class="tag rec">v1</span></td><td>Each merge and each release fires exactly once; two merges in one day both get their fist. Per-viewer state lives in localStorage by Principle IV. A daily cap is unnecessary and would misfire in the wrong direction.</td></tr>
+  <tr><td>Palette entries are never rate limited</td><td><span class="tag rec">v1</span></td><td>An explicit action that silently does nothing reads as a bug. Principle V wants every action in the palette anyway.</td></tr>
+  <tr><td>Re-entrancy guard: a trigger arriving while an egg is in flight is dropped, not queued</td><td><span class="tag rec">v1</span></td><td>Covers palette spamming and two PRs merging seconds apart. One <code>&lt;ScreenBreak /&gt;</code> mount, one in-flight flag.</td></tr>
+  <tr><td>Two palette entries, one per egg</td><td><span class="tag rec">v1</span></td><td>They are different eggs. The operator-compose e2e spec asserts an exact palette entry count; that assertion moves with them.</td></tr>
+  <tr><td>Brand cube</td><td><span class="tag park">parked</span></td><td>No occasion assigned. Candidate for a later beat that lands on the brand crumb.</td></tr>
+  <tr><td>A trigger file under <code>$XDG_STATE_HOME/run-kit/</code></td><td><span class="tag bad">rejected</span></td><td>A file you create then consume is a hand-rolled event queue, exactly the shape Principles II and X exist to prevent. It also needs a watcher and a consume-once contract for a joke.</td></tr>
+  <tr><td><code>rk tab smash</code> (an agent fires it)</td><td><span class="tag park">later</span></td><td>A one-shot needs an ephemeral event channel; flair options are persistent state and would leave the egg "on". Nothing to ride today. Revisit if the messaging spec grows a broadcast-to-viewer channel.</td></tr>
+  <tr><td>Konami code on the terminal</td><td><span class="tag bad">rejected</span></td><td>Keys go to the tmux pane; a chord listener above xterm competes with the terminal for input. The palette is the chord.</td></tr>
+</table>
+
+<h2>7. Decisions and open questions</h2>
+<table>
+  <tr><th>#</th><th>Decision</th><th>Rationale</th></tr>
+  <tr><td>1</td><td>A new one-shot event layer, not a 17th flair.</td><td>Flairs are row-scoped, ambient, persistent, CSS-only. This is viewport-scoped, 4 s, then gone. What carries over is the discipline (aria-hidden, pointer-events none, transforms only, reduced-motion gate), not the mount.</td></tr>
+  <tr><td>2</td><td>The hole is a real evenodd clip on the shell.</td><td>A drawn hole on top of an intact UI reads as a sticker. Removing the UI is what makes it "cracked open". Fallback to a clipped dark overlay only if the shell clip repaints too expensively (§4 risk).</td></tr>
+  <tr><td>3</td><td>Shards are glass, not UI copies.</td><td>Pixel capture is out. Tinted polygons with a white edge highlight read as glass at any size and cost nothing.</td></tr>
+  <tr><td>4</td><td>Seeded geometry from a single impact point.</td><td>Reproducible frames, storyboard-able, screenshot-testable. Vary the impact point per run, not the seed.</td></tr>
+  <tr><td>5</td><td>Fist on PR merged, eye on update available; cube parked.</td><td>The fist is the celebration. The eye never leaves the screen and is the quieter egg, which suits a passive "something new is in here" moment; it also has no clip-release seam. The cube is on-brand for a later landing beat.</td></tr>
+  <tr><td>6</td><td>Palette entries plus the two derived transitions; once per event identity, palette never limited, in-flight triggers dropped. No trigger file.</td><td>§6.</td></tr>
+  <tr><td>7</td><td>Build the row-scale version first.</td><td>Same generator, 1/20th the surface, and a legitimate egg on Ctrl+click kill. Proves the crack look before the viewport version.</td></tr>
+  <tr><td>8</td><td>No sound.</td><td>Autoplay policy, shared offices, and the terminal is the user's focus.</td></tr>
+</table>
+<h3>Open</h3>
+<ul>
+  <li>Shell clip repaint cost with two or more xterm canvases on screen (the §4 risk). Decides shell-clip vs overlay-clip.</li>
+  <li>Light theme inside-the-monitor ground: pure dark behind a light UI is strong; a warm grey may sit better. Check with the Light app toggle above.</li>
+  <li>Mobile: the palette exists on coarse pointers too. Run it at the same geometry or skip below 640 px? Leaning skip; the shards need room to fall.</li>
+  <li>Whether the cube variant should end by landing on the brand crumb (a second beat that reuses the existing detach-orbit-land sweep) instead of retreating.</li>
+</ul>
+
+<!-- ============================================================================================ -->
+<script>
+(() => {
+  const SW = 720, SH = 450;
+  let uid = 0;
+  const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+  const smooth = x => { x = clamp(x); return x * x * (3 - 2 * x); };
+  const easeOut = x => 1 - Math.pow(1 - clamp(x), 3);
+  const easeIn = x => Math.pow(clamp(x), 3);
+  const rng = seed => { let s = (seed >>> 0) || 1; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; };
+  const f1 = n => n.toFixed(1), f4 = n => n.toFixed(4);
+
+  // ---------- geometry: cracks, hole, shards from one impact point ----------
+  function buildBreak({ W, H, P, R, n = 9, seed = 7, rings = [] }) {
+    const rand = rng(seed);
+    const maxD = Math.max(...[[0, 0], [W, 0], [0, H], [W, H]].map(([x, y]) => Math.hypot(x - P.x, y - P.y))) + 80;
+    const base = rand() * Math.PI * 2;
+    const angles = [...Array(n)].map((_, i) => base + i * 2 * Math.PI / n + (rand() - 0.5) * 0.4).sort((a, b) => a - b);
+    const cracks = angles.map(a0 => {
+      const pts = [{ x: P.x, y: P.y, r: 0 }];
+      let r = 0, a = a0;
+      while (r < maxD) { r += 24 + rand() * 40; a += (rand() - 0.5) * 0.28; pts.push({ x: P.x + Math.cos(a) * r, y: P.y + Math.sin(a) * r, r }); }
+      return { a0, pts, j: 0.82 + rand() * 0.36, k: 0.5 + rand() * 0.25 };
+    });
+    const at = (c, r) => {
+      const p = c.pts;
+      for (let i = 1; i < p.length; i++) if (p[i].r >= r) { const f = (r - p[i - 1].r) / (p[i].r - p[i - 1].r); return { x: p[i - 1].x + (p[i].x - p[i - 1].x) * f, y: p[i - 1].y + (p[i].y - p[i - 1].y) * f }; }
+      return p[p.length - 1];
+    };
+    const holePts = t => {
+      const Rt = Math.max(R * t, 0.02), out = [];
+      for (let i = 0; i < n; i++) {
+        const c = cracks[i], c2 = cracks[(i + 1) % n];
+        const v1 = at(c, Rt * c.j), v2 = at(c2, Rt * c2.j);
+        let a1 = Math.atan2(v1.y - P.y, v1.x - P.x), a2 = Math.atan2(v2.y - P.y, v2.x - P.x);
+        if (a2 < a1) a2 += 2 * Math.PI;
+        const am = (a1 + a2) / 2;
+        out.push(v1, { x: P.x + Math.cos(am) * Rt * c.k, y: P.y + Math.sin(am) * Rt * c.k });
+      }
+      return out;
+    };
+    const holeD = t => 'M' + holePts(t).map(p => `${f4(p.x / W)} ${f4(p.y / H)}`).join('L') + 'Z';
+    const crackDs = cracks.map(c => 'M' + c.pts.map(p => `${f1(p.x)} ${f1(p.y)}`).join('L'));
+    const ringDs = rings.map(rr => {
+      const pts = []; const m = 18;
+      for (let i = 0; i < m; i++) { const a = i * 2 * Math.PI / m + (rand() - 0.5) * 0.15, r = rr * (0.88 + rand() * 0.24); pts.push(`${f1(P.x + Math.cos(a) * r)} ${f1(P.y + Math.sin(a) * r)}`); }
+      return 'M' + pts.join('L') + 'Z';
+    });
+    const fh = holePts(1);
+    const shards = [];
+    for (let i = 0; i < n; i++) {
+      const c = cracks[i], c2 = cracks[(i + 1) % n];
+      const poly = [at(c, R * 0.2), fh[2 * i], fh[2 * i + 1], fh[(2 * i + 2) % (2 * n)], at(c2, R * 0.24)];
+      const cx = poly.reduce((s, p) => s + p.x, 0) / poly.length, cy = poly.reduce((s, p) => s + p.y, 0) / poly.length;
+      const dl = Math.hypot(cx - P.x, cy - P.y) || 1;
+      shards.push({ points: poly.map(p => `${f1(p.x)},${f1(p.y)}`).join(' '), cx, cy, dir: { x: (cx - P.x) / dl, y: (cy - P.y) / dl }, speed: 90 + rand() * 170, spin: (rand() - 0.5) * 520 });
+    }
+    return { P, R, W, H, holeD, crackDs, ringDs, shards };
+  }
+
+  // ---------- Breaker: owns the cracks/shards SVGs + clip defs for one glass surface ----------
+  class Breaker {
+    constructor({ root, plate, glass, geo, gravity = 420 }) {
+      this.id = ++uid; this.geo = geo; this.gravity = gravity;
+      const ns = 'http://www.w3.org/2000/svg';
+      const mk = (tag, attrs = {}) => { const e = document.createElementNS(ns, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+      const defs = mk('svg', { width: 0, height: 0, style: 'position:absolute' });
+      const d = mk('defs');
+      const cpA = mk('clipPath', { id: `appclip-${this.id}`, clipPathUnits: 'objectBoundingBox' });
+      this.appPath = mk('path', { 'clip-rule': 'evenodd', d: 'M0 0H1V1H0Z' }); cpA.appendChild(this.appPath);
+      const cpH = mk('clipPath', { id: `hole-${this.id}`, clipPathUnits: 'objectBoundingBox' });
+      this.holePath = mk('path', { d: 'M0 0' }); cpH.appendChild(this.holePath);
+      d.appendChild(cpA); d.appendChild(cpH); defs.appendChild(d); root.appendChild(defs);
+      this.holeClip = `url(#hole-${this.id})`;
+      glass.style.clipPath = `url(#appclip-${this.id})`;
+
+      const cr = mk('svg', { class: 'cracks', viewBox: `0 0 ${geo.W} ${geo.H}`, preserveAspectRatio: 'none' });
+      const gd = mk('g', { class: 'dark' }), gl = mk('g', { class: 'lite' });
+      gl.setAttribute('transform', 'translate(0.8 0.8)');
+      cr.appendChild(gd); cr.appendChild(gl); cr.style.clipPath = `url(#appclip-${this.id})`;
+      plate.appendChild(cr); this.cracksSvg = cr;
+      this.strokes = [];
+      const add = (dStr, ring) => {
+        const a = mk('path', { d: dStr, class: ring ? 'ring' : '' }), b = mk('path', { d: dStr, class: ring ? 'ring' : '' });
+        gd.appendChild(a); gl.appendChild(b);
+        const len = a.getTotalLength() || 1;
+        for (const e of [a, b]) { e.style.strokeDasharray = `${len}`; e.style.strokeDashoffset = `${len}`; }
+        this.strokes.push({ a, b, len, ring });
+      };
+      geo.crackDs.forEach(s => add(s, false)); geo.ringDs.forEach(s => add(s, true));
+
+      const sh = mk('svg', { class: 'shards', viewBox: `0 0 ${geo.W} ${geo.H}`, preserveAspectRatio: 'none' });
+      this.shards = geo.shards.map(s => { const p = mk('polygon', { points: s.points }); p.style.opacity = 0; sh.appendChild(p); return { ...s, el: p }; });
+      root.appendChild(sh); this.shardsSvg = sh;
+    }
+    setHole(h) { const hd = this.geo.holeD(h); this.appPath.setAttribute('d', 'M0 0H1V1H0Z ' + hd); this.holePath.setAttribute('d', hd); }
+    setCracks(cp, rp) { for (const s of this.strokes) { const off = s.len * (1 - (s.ring ? rp : cp)); s.a.style.strokeDashoffset = off; s.b.style.strokeDashoffset = off; } }
+    setShards(sp, visible) {
+      for (const s of this.shards) {
+        const d = s.speed * sp, tx = s.dir.x * d * 1.3, ty = s.dir.y * d + this.gravity * sp * sp;
+        s.el.setAttribute('transform', `translate(${f1(tx)} ${f1(ty)}) rotate(${f1(s.spin * sp)} ${f1(s.cx)} ${f1(s.cy)})`);
+        s.el.style.opacity = visible ? (1 - smooth((sp - 0.45) / 0.55)) : 0;
+      }
+    }
+    setFade(op) { this.cracksSvg.style.opacity = op; }
+  }
+
+  // ---------- the mock run-kit app ----------
+  const LOGO = `<svg class="logo" viewBox="7 10 50 44"><polygon points="44,11.2 56,32 47.5,32 39.5,17.2" fill="#b4b4b4"/><polygon points="56,32 44,52.8 39.5,46.8 47.5,32" fill="#b4b4b4"/><polygon points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#2a2a2a"/><polygon points="20,52.8 8,32 16.5,32 24.5,46.8" fill="#2a2a2a"/><polygon points="8,32 20,11.2 24.5,17.2 16.5,32" fill="#2a2a2a"/><polygon points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill="#b4b4b4"/><polygon points="24.5,17.2 39.5,17.2 47.5,32 32,32" fill="#888"/><polygon points="47.5,32 39.5,46.8 24.5,46.8 32,32" fill="#737373"/><polygon points="24.5,46.8 16.5,32 24.5,17.2 32,32" fill="#545454"/></svg>`;
+  const appMarkup = () => `
+    <div class="top">${LOGO}<span class="crumb"><b>gcp-box</b> › fabKit</span><span class="mid">Tab: fair-gazelle</span>
+      <span class="btns"><span>⧉</span><span>⫽ ▾</span><span>↻</span><span>⋯</span></span></div>
+    <div class="side">
+      <div class="sec">SESSIONS</div>
+      <div class="srow"><span class="mk off"></span><span class="dot"></span><span class="nm">fabKit</span><span class="ch">6</span></div>
+      <div class="srow sel"><span class="mk"></span><span class="dot y"></span><span class="nm">2 fair-gazelle</span><span class="ch">apply</span></div>
+      <div class="srow"><span class="mk off"></span><span class="dot"></span><span class="nm">3 nemo-flair</span><span class="ch">#981</span></div>
+      <div class="srow"><span class="mk"></span><span class="dot g"></span><span class="nm">4 quake-drawer</span><span class="ch">review</span></div>
+      <div class="srow"><span class="mk off"></span><span class="dot"></span><span class="nm">5 status-fold</span><span class="ch">#980</span></div>
+      <div class="srow"><span class="mk off"></span><span class="dot"></span><span class="nm">6 osc52-min-len</span><span class="ch">#983</span></div>
+      <div class="sec" style="margin-top:8px">rk</div>
+      <div class="srow"><span class="mk off"></span><span class="dot"></span><span class="nm">operator</span><span class="ch">◷ 8m</span></div>
+      <div class="srow"><span class="mk off"></span><span class="dot"></span><span class="nm">serve</span></div>
+    </div>
+    <div class="term"><span class="pr">❯</span> just test-frontend
+<span class="dim">$ pnpm vitest run</span>
+
+ <span class="pr">✓</span> src/components/flair-overlay.test.tsx <span class="dim">(11 tests)</span> 42ms
+ <span class="pr">✓</span> src/components/swatch-popover.test.tsx <span class="dim">(23 tests)</span> 188ms
+ <span class="pr">✓</span> src/components/sidebar/window-row.test.tsx <span class="dim">(64 tests)</span> 901ms
+ <span class="pr">✓</span> src/lib/status-bar-fold.test.ts <span class="dim">(19 tests)</span> 14ms
+ <span class="pr">✓</span> src/themes.test.ts <span class="dim">(9 tests)</span> 6ms
+
+ <span class="dim">Test Files</span>  <span class="pr">212 passed</span> (212)
+      <span class="dim">Tests</span>  <span class="pr">3187 passed</span> (3187)
+   <span class="dim">Duration</span>  58.20s
+
+<span class="pr">❯</span> gh pr view --json state,mergeable
+<span class="acc">{</span> "state": "OPEN", "mergeable": "MERGEABLE" <span class="acc">}</span>
+<span class="pr">❯</span> <span class="cur"></span></div>
+    <div class="sbar"><span><span class="pr">●</span> fair-gazelle</span><span>apply 7/9</span><span>PR #984 · checks ✓</span><span style="flex:1"></span><span>◷ 8m</span><span>pane 1/2</span><span>v2.31.4</span></div>`;
+
+  // ---------- sprites ----------
+  const FIST = `<svg viewBox="0 0 200 200" width="300" height="300">
+    <ellipse cx="100" cy="158" rx="54" ry="36" fill="#1f7a3c" stroke="#0b3d1e" stroke-width="3"/>
+    <rect x="38" y="60" width="124" height="98" rx="28" fill="#3fb950" stroke="#0b3d1e" stroke-width="3.5"/>
+    <g stroke="#14532d" stroke-width="2.4">
+      <rect x="42" y="42" width="27" height="62" rx="13" fill="#4ade80"/><rect x="72" y="36" width="27" height="68" rx="13" fill="#4ade80"/>
+      <rect x="102" y="38" width="27" height="66" rx="13" fill="#4ade80"/><rect x="132" y="46" width="26" height="58" rx="13" fill="#4ade80"/>
+    </g>
+    <g fill="#86efac" opacity=".75"><ellipse cx="55.5" cy="50" rx="8" ry="5"/><ellipse cx="85.5" cy="44" rx="8" ry="5"/><ellipse cx="115.5" cy="46" rx="8" ry="5"/><ellipse cx="145" cy="54" rx="7.5" ry="5"/></g>
+    <g fill="none" stroke="#14532d" stroke-width="2" opacity=".7" stroke-linecap="round"><path d="M50 96 q6 8 14 6"/><path d="M80 96 q6 8 14 6"/><path d="M110 96 q6 8 14 6"/><path d="M139 98 q5 7 12 5"/></g>
+    <rect x="28" y="104" width="36" height="72" rx="17" fill="#4ade80" stroke="#14532d" stroke-width="2.6" transform="rotate(-38 46 140)"/>
+    <path d="M60 118 q14 14 44 12" fill="none" stroke="#14532d" stroke-width="2" opacity=".6" stroke-linecap="round"/>
+  </svg>`;
+  const CUBE = `<svg viewBox="7 10 50 44" width="260" height="229">
+    <polygon points="44,11.2 56,32 47.5,32 39.5,17.2" fill="#b4b4b4"/><polygon points="56,32 44,52.8 39.5,46.8 47.5,32" fill="#b4b4b4"/>
+    <polygon points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#2a2a2a"/><polygon points="20,52.8 8,32 16.5,32 24.5,46.8" fill="#2a2a2a"/>
+    <polygon points="8,32 20,11.2 24.5,17.2 16.5,32" fill="#2a2a2a"/><polygon points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill="#b4b4b4"/>
+    <polygon points="24.5,17.2 39.5,17.2 47.5,32 32,32" fill="#888888"/><polygon points="47.5,32 39.5,46.8 24.5,46.8 32,32" fill="#737373"/><polygon points="24.5,46.8 16.5,32 24.5,17.2 32,32" fill="#545454"/>
+  </svg>`;
+  const EYE = `<svg viewBox="0 0 200 200" width="460" height="460">
+    <defs><radialGradient id="iris" cx="45%" cy="40%"><stop offset="0" stop-color="#9dbcff"/><stop offset=".55" stop-color="#5b8af0"/><stop offset="1" stop-color="#1e3a8a"/></radialGradient></defs>
+    <g class="eyeball">
+      <ellipse cx="100" cy="100" rx="96" ry="60" fill="#e9e4d4"/>
+      <g fill="none" stroke="#c0392b" stroke-width="1.1" opacity=".55"><path d="M10 96 q22 -6 42 4"/><path d="M14 108 q18 4 36 -2"/><path d="M190 96 q-22 -8 -44 2"/><path d="M186 110 q-16 6 -34 -4"/></g>
+      <g class="pupil"><circle cx="100" cy="100" r="36" fill="url(#iris)"/><circle cx="100" cy="100" r="16" fill="#050508"/><circle cx="89" cy="89" r="5.5" fill="#fff" opacity=".85"/></g>
+    </g>
+  </svg>`;
+  const VARIANTS = {
+    fist: { svg: FIST, w: 300, h: 300, glow: 'rgba(34,197,94,.3)',
+      update(inst, { em, hole }) {
+        const s = 0.1 + 1.15 * em, released = em > 0.4;
+        inst.sprite.style.transform = `translate(${f1(inst.P.x)}px,${f1(inst.P.y)}px)`;
+        inst.spriteSvg.style.transform = `translate(-50%,-50%) scale(${s.toFixed(3)}) rotate(${f1((1 - em) * -28)}deg)`;
+        inst.creature.style.clipPath = released ? 'none' : inst.br.holeClip; inst.creature.classList.toggle('out', released);
+        inst.creature.style.opacity = (hole > 0.02 || released) && em > 0 ? 1 : 0;
+        inst.spriteSvg.style.filter = released ? `drop-shadow(0 ${f1(16 * em)}px ${f1(20 * em)}px rgba(0,0,0,.65))` : 'none';
+      } },
+    cube: { svg: CUBE, w: 260, h: 229, glow: 'rgba(130,168,247,.3)',
+      update(inst, { em, hole }) {
+        const s = 0.12 + 0.95 * em, released = em > 0.5;
+        inst.sprite.style.transform = `translate(${f1(inst.P.x)}px,${f1(inst.P.y)}px)`;
+        inst.spriteSvg.style.transform = `translate(-50%,-50%) scale(${s.toFixed(3)}) rotate(${f1(em * 560)}deg)`;
+        inst.creature.style.clipPath = released ? 'none' : inst.br.holeClip; inst.creature.classList.toggle('out', released);
+        inst.creature.style.opacity = (hole > 0.02 || released) && em > 0 ? 1 : 0;
+        inst.spriteSvg.style.filter = `drop-shadow(0 0 ${f1(6 + 16 * em)}px rgba(34,197,94,${(0.4 + 0.5 * em).toFixed(2)}))`;
+      } },
+    eye: { svg: EYE, w: 460, h: 460, glow: 'rgba(192,132,252,.25)',
+      update(inst, { em, hole, t }) {
+        const blink = c => { const d = Math.abs(t - c); return d < 0.03 ? 1 - d / 0.03 : 0; };
+        const b = Math.max(blink(0.4), blink(0.585));
+        const look = inst.pointer ? { x: clamp((inst.pointer.x - inst.P.x) / 260, -1, 1) * 22, y: clamp((inst.pointer.y - inst.P.y) / 180, -1, 1) * 14 }
+                                  : { x: Math.sin(t * 9) * 16, y: Math.cos(t * 6) * 8 };
+        inst.sprite.style.transform = `translate(${f1(inst.P.x)}px,${f1(inst.P.y)}px)`;
+        inst.spriteSvg.style.transform = `translate(-50%,-50%) scale(${(0.78 * inst.R / 76).toFixed(3)}) scaleY(${(1 - b).toFixed(3)})`;
+        inst.spriteSvg.querySelector('.pupil').setAttribute('transform', `translate(${f1(look.x)} ${f1(look.y)})`);
+        inst.creature.style.clipPath = inst.br.holeClip; inst.creature.classList.remove('out');
+        inst.creature.style.opacity = hole > 0.02 ? Math.min(1, hole * 2) : 0;
+        inst.spriteSvg.style.filter = 'none';
+      } },
+  };
+
+  // ---------- a screen instance ----------
+  const screens = [];
+  function makeScreen(host, opts = {}) {
+    host.classList.add('fit');
+    const el = document.createElement('div');
+    el.className = 'screen' + (document.body.classList.contains('lightapp') ? ' lightapp' : '');
+    el.innerHTML = `<div class="inside"></div><div class="creature"><div class="sprite"></div></div><div class="plate"><div class="app">${appMarkup()}</div></div><div class="flash"></div><div class="impact"></div>`;
+    host.appendChild(el);
+    const inst = { el, host, P: opts.P || { x: 470, y: 232 }, R: opts.R || 76, t: 0, pointer: null, variant: opts.variant || 'fist', k: 1 };
+    inst.inside = el.querySelector('.inside'); inst.creature = el.querySelector('.creature'); inst.sprite = el.querySelector('.sprite');
+    inst.plate = el.querySelector('.plate'); inst.app = el.querySelector('.app'); inst.flash = el.querySelector('.flash'); inst.impactEl = el.querySelector('.impact');
+    const rebuild = () => {
+      if (inst.br) { inst.br.cracksSvg.remove(); inst.br.shardsSvg.remove(); inst.br.appPath.ownerSVGElement.remove(); }
+      const geo = buildBreak({ W: SW, H: SH, P: inst.P, R: inst.R, n: 9, seed: 7, rings: [inst.R * 1.7, inst.R * 2.7] });
+      inst.br = new Breaker({ root: el, plate: inst.plate, glass: inst.app, geo });
+      el.appendChild(inst.flash); el.appendChild(inst.impactEl);
+      inst.impactEl.style.left = inst.P.x + 'px'; inst.impactEl.style.top = inst.P.y + 'px';
+    };
+    inst.setVariant = v => {
+      inst.variant = v; const V = VARIANTS[v];
+      inst.sprite.innerHTML = V.svg; inst.spriteSvg = inst.sprite.querySelector('svg');
+      inst.spriteSvg.style.width = V.w + 'px'; inst.spriteSvg.style.height = V.h + 'px';
+      inst.inside.style.setProperty('--glow', `radial-gradient(circle at ${inst.P.x}px ${inst.P.y}px, ${V.glow}, rgba(3,4,10,0) 48%)`);
+      inst.setT(inst.t);
+    };
+    inst.setImpact = P => { inst.P = P; rebuild(); inst.setVariant(inst.variant); };
+    inst.setT = t => {
+      inst.t = t;
+      if (document.body.classList.contains('rm')) t = 0;
+      const flash = t < 0.05 ? 1 - t / 0.05 : 0;
+      const shake = t > 0 && t < 0.16 ? 1 - t / 0.16 : 0;
+      const cp = easeOut(t / 0.2), rp = easeOut((t - 0.05) / 0.22);
+      const hole = easeOut((t - 0.05) / 0.15) * (1 - easeIn((t - 0.76) / 0.16));
+      const sp = clamp((t - 0.07) / 0.45);
+      const em = smooth((t - 0.22) / 0.3) * (1 - smooth((t - 0.6) / 0.2));
+      const fade = 1 - clamp((t - 0.88) / 0.12);
+      inst.br.setHole(hole); inst.br.setCracks(t > 0 ? cp : 0, t > 0 ? rp : 0); inst.br.setShards(sp, t > 0.06); inst.br.setFade(t > 0 ? fade : 1);
+      inst.flash.style.opacity = flash * 0.7;
+      inst.plate.style.transform = shake ? `translate(${f1(Math.sin(t * 420) * 5 * shake)}px,${f1(Math.cos(t * 330) * 4 * shake)}px)` : 'none';
+      inst.inside.style.opacity = Math.min(1, hole * 1.6);
+      VARIANTS[inst.variant].update(inst, { t, em, hole });
+    };
+    const fit = () => { const k = host.clientWidth / SW; inst.k = k; el.style.transform = `scale(${k})`; host.style.height = (SH * k) + 'px'; };
+    new ResizeObserver(fit).observe(host); fit();
+    rebuild(); inst.setVariant(inst.variant); inst.setT(0);
+    screens.push(inst);
+    return inst;
+  }
+
+  // ---------- section 1: live ----------
+  const live = makeScreen(document.getElementById('live'), { variant: 'fist' });
+  live.impactEl.classList.add('show');
+  const tap = document.createElement('div'); tap.className = 'tapzone'; live.el.appendChild(tap);
+  const scrub = document.getElementById('scrub'), tval = document.getElementById('tval'), playBtn = document.getElementById('play');
+  let raf = null, t0 = 0; const DUR = 4200;
+  const show = t => { live.setT(t); scrub.value = Math.round(t * 1000); tval.textContent = t.toFixed(2); };
+  const stop = () => { if (raf) cancelAnimationFrame(raf); raf = null; playBtn.textContent = '▶ Play'; };
+  const play = () => { stop(); t0 = performance.now(); playBtn.textContent = '■ Stop';
+    const step = now => { const t = clamp((now - t0) / DUR); show(t); if (t < 1) raf = requestAnimationFrame(step); else { raf = null; playBtn.textContent = '▶ Replay'; } };
+    raf = requestAnimationFrame(step); };
+  playBtn.onclick = () => raf ? stop() : play();
+  scrub.oninput = () => { stop(); show(scrub.value / 1000); };
+  const pt = e => { const r = live.el.getBoundingClientRect(); return { x: (e.clientX - r.left) / live.k, y: (e.clientY - r.top) / live.k }; };
+  tap.addEventListener('click', e => { live.setImpact(pt(e)); play(); });
+  tap.addEventListener('mousemove', e => { live.pointer = pt(e); if (!raf && live.variant === 'eye') live.setT(live.t); });
+  tap.addEventListener('mouseleave', () => { live.pointer = null; });
+  document.querySelectorAll('.vbtn').forEach(b => b.onclick = () => { document.querySelectorAll('.vbtn').forEach(x => x.classList.toggle('on', x === b)); live.setVariant(b.dataset.v); play(); });
+  setTimeout(play, 700);
+
+  // ---------- section 2: storyboard ----------
+  const FRAMES = [[0.02, 'impact', 'flash, shake begins, the first cracks shoot out of the impact point'], [0.1, 'shatter', 'ring cracks arrive, the hole opens, shards start to lift'], [0.2, 'shards fall', 'nine glass pieces tumble out under gravity; the inside glow shows through'], [0.4, 'emerge', 'clipped to the hole until its projected size matches it, then released in front'], [0.55, 'hold', 'out, in front of the cracks, with a drop shadow for depth'], [0.9, 'heal', 'retreated; the hole closes and the cracks fade']];
+  const strip = document.getElementById('strip');
+  FRAMES.forEach(([t, name, cap]) => {
+    const f = document.createElement('div'); f.className = 'frame';
+    const h = document.createElement('div'); f.appendChild(h);
+    const c = document.createElement('div'); c.className = 'cap'; c.innerHTML = `<b>t=${t.toFixed(2)} · ${name}</b><br>${cap}`; f.appendChild(c);
+    strip.appendChild(f);
+    const s = makeScreen(h, { variant: 'fist' }); s.fixedT = t; s.setT(t);
+  });
+
+  // ---------- section 3: variants ----------
+  const vh = document.getElementById('variants');
+  [['fist', 'Green fist', 'Punches out along the impact normal, grows toward the viewer, released in front at em ≈ 0.4.'], ['cube', 'Brand cube', 'The nine logo polygons, tumbling out with a green glow. Released at em ≈ 0.5 so the spin reads through the hole first.'], ['eye', 'The eye', 'Never released. Fills the hole, blinks twice, tracks the pointer (drifts when there is none).']].forEach(([v, name, cap]) => {
+    const f = document.createElement('div'); f.className = 'frame'; const h = document.createElement('div'); f.appendChild(h);
+    const c = document.createElement('div'); c.className = 'cap'; c.innerHTML = `<b>${name}</b><br>${cap}`; f.appendChild(c); vh.appendChild(f);
+    const s = makeScreen(h, { variant: v }); s.fixedT = 0.48; s.setT(0.48);
+  });
+
+  // ---------- section 5: row-scale micro version ----------
+  const target = document.querySelector('[data-target]');
+  const rowEl = target.querySelector('.mrow');
+  let rowBr = null, rowRaf = null;
+  const rowReset = () => {
+    if (rowRaf) cancelAnimationFrame(rowRaf); rowRaf = null;
+    if (rowBr) { rowBr.cracksSvg.remove(); rowBr.shardsSvg.remove(); rowBr.appPath.ownerSVGElement.remove(); rowBr = null; }
+    rowEl.style.clipPath = 'none'; rowEl.style.transform = 'none'; target.style.height = '26px'; target.classList.remove('gone');
+  };
+  const rowBreak = () => {
+    rowReset();
+    if (document.body.classList.contains('rm')) { target.style.height = '0px'; target.classList.add('gone'); return; }
+    const geo = buildBreak({ W: 300, H: 26, P: { x: 284, y: 13 }, R: 330, n: 7, seed: 11 });
+    rowBr = new Breaker({ root: target, plate: target, glass: rowEl, geo, gravity: 260 });
+    const t0 = performance.now(), DUR = 1600;
+    const step = now => {
+      const t = clamp((now - t0) / DUR);
+      const cp = easeOut(t / 0.25), hole = easeOut((t - 0.1) / 0.3), sp = clamp((t - 0.12) / 0.6);
+      const shake = t < 0.12 ? 1 - t / 0.12 : 0;
+      rowBr.setHole(hole); rowBr.setCracks(cp, cp); rowBr.setShards(sp, t > 0.1); rowBr.setFade(1 - clamp((t - 0.5) / 0.3));
+      rowEl.style.transform = shake ? `translate(${f1(Math.sin(t * 300) * 2 * shake)}px,0)` : 'none';
+      target.style.height = (26 * (1 - smooth((t - 0.45) / 0.35))).toFixed(1) + 'px';
+      if (t < 1) rowRaf = requestAnimationFrame(step); else { rowRaf = null; target.classList.add('gone'); }
+    };
+    rowRaf = requestAnimationFrame(step);
+  };
+  document.getElementById('killx').addEventListener('click', e => { e.stopPropagation(); rowBreak(); });
+  document.getElementById('rowReset').onclick = rowReset;
+
+  // ---------- toolbar ----------
+  const tLight = document.getElementById('tLight'), tLightApp = document.getElementById('tLightApp'), tRM = document.getElementById('tRM');
+  tLight.onclick = () => { document.body.classList.toggle('light'); tLight.classList.toggle('on'); };
+  tLightApp.onclick = () => { const on = document.body.classList.toggle('lightapp'); tLightApp.classList.toggle('on', on); screens.forEach(s => s.el.classList.toggle('lightapp', on)); };
+  tRM.onclick = () => { const on = document.body.classList.toggle('rm'); tRM.classList.toggle('on', on); stop(); screens.forEach(s => s.setT(s.fixedT != null ? s.fixedT : s.t)); if (!on) screens.forEach(s => s.setT(s.fixedT != null ? s.fixedT : s.t)); };
+})();
+</script>
+</body>
+</html>

@@ -14,6 +14,8 @@ The *dot* (a single colored dot, not the full line) reaches the remaining surfac
 
 **PR-field presence is backend-continuous**: the streamed `prNumber`/`prUrl`/`prState` these surfaces gate on carry server-side continuity — the branch→PR join is keyed on the pane's git root (cd-churn and same-worktree pane flips hit one stable entry), a detached HEAD (rebase) serves the last-known branch for a 5-minute grace, and unobserved refresher entries are retained for 30 minutes past their 5-minute resolution window — so the glyph and the L3 register hold steady through rebases, pane movement, and a reopened dashboard. Glyph semantics themselves are unchanged (`prOwnsGlyph`'s positive allowlist and `prGlyphColor`'s six-way chain below); the mechanism lives in [pr-status](/run-kit/architecture/pr-status.md) § Branch→PR Derivation. (260823-8ocy)
 
+The viewed window's `prState` also feeds the **Smash Easter egg**: an observed `open`/`closed` → `merged` flip on the window the user is viewing (first observation never fires — merged is a terminal state visible forever on old windows) fires the one-shot green-fist screen-break once per PR number via `runkit-egg-smash` — see [screen-break-eggs](/run-kit/ui/screen-break-eggs.md). (kp2l)
+
 ### `PR` (L3) register — colored segments + open-first (`status-panel.tsx`)
 
 > `WindowContent` renders the pyramid's **five orthogonal signal registers** (spec § Row Minimalism). See § Pane panel five-register view for the full L0–L4 model; this subsection covers the L3 `PR` register. (260706-y1ar)

@@ -156,6 +156,8 @@ import { ServerDialogsProvider, useServerDialogs } from "@/contexts/server-dialo
 import { PaletteActionsProvider, usePaletteActions, usePaletteActionsApi, usePaletteGlobals, useRegisterPaletteActions } from "@/contexts/palette-actions-context";
 import { ServerDialogs } from "@/components/server-dialogs";
 import { useGlobalPaletteActions } from "@/hooks/use-global-palette-actions";
+import { ScreenBreakController } from "@/components/screen-break";
+import { registerGlass } from "@/lib/screen-break-store";
 import { SessionProvider } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
@@ -488,6 +490,9 @@ function AppLayoutContent() {
     <div
       className="app-root flex flex-col"
       style={{ height: "var(--app-height, 100vh)" }}
+      // The glass of the screen-break eggs — the layer (a sibling below) clips
+      // and shakes this element, never a DOM-queried one.
+      ref={registerGlass}
     >
       {/* Desktop-shell chrome (260731-ofws), shell-only by `isShell()` gating
           (false in every browser and in Playwright): the titlebar strip is the
@@ -544,6 +549,10 @@ function AppLayoutContent() {
         list: the active route's registered actions first, then the global
         groups built above. The per-route palette mounts are gone. */}
     <LayoutCommandPalette />
+    {/* The ONE screen-break mount — a sibling of the `.app-root` glass, never
+        inside it: a clipped/transformed ancestor would clip or re-anchor the
+        layer's fixed fragments. Renders null while idle. */}
+    <ScreenBreakController />
     {/* The ONE GUI off-confirm mount — the palette's `GUI: Turn off` and the
         settings seam's interception share it via the gui-off context. */}
     {guiOffOpen && (

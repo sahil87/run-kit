@@ -1926,6 +1926,87 @@ html[data-theme="light"] {
   pointer-events: none;
 }
 
+/* ── Screen break (one-shot Easter-egg event layer) ──────────────────────────
+   The viewport-scoped counterpart of the flair overlays: two fixed,
+   pointer-events-none groups stacked AROUND the glass (the `.app-root` div,
+   which the JS layer positions + z-indexes inline for the flight) — the below
+   group (dark inside-ground + hole-clipped creature) at z-0, the above group
+   (cracks, released creature, shards, flash) at z-2; both stay under the
+   z-50 palette/toast layers. Every per-frame value (opacities, dash offsets,
+   transforms, the hole `d`) is written INLINE by the layer's single rAF loop;
+   these rules carry only the static styling. Under prefers-reduced-motion the
+   layer never mounts (the store's JS gate), so no hidden overrides are needed
+   here — motion-only by construction. ORDER MATTERS for the file's discipline:
+   base rules precede the reduced-motion block below. */
+
+.rk-sb-below,
+.rk-sb-above {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+.rk-sb-below { z-index: 0; }
+.rk-sb-above { z-index: 2; }
+
+/* The inside of the monitor — dark in BOTH themes (the glow gradient at the
+   impact point is set inline as background-image). */
+.rk-sb-ground {
+  position: absolute;
+  inset: 0;
+  background-color: #03040a;
+  background-repeat: no-repeat;
+}
+.rk-sb-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+}
+
+.rk-sb-creature { position: absolute; inset: 0; }
+.rk-sb-sprite { position: absolute; width: 0; height: 0; }
+.rk-sb-sprite svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 50% 50%;
+  overflow: visible;
+}
+
+.rk-sb-cracks,
+.rk-sb-shards {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.rk-sb-crack-dark path {
+  fill: none;
+  stroke: #04060b;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rk-sb-crack-lite path {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 0.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rk-sb-crack-dark path.rk-sb-ring { stroke-width: 1.6; opacity: 0.8; }
+.rk-sb-shards polygon {
+  fill: rgba(226, 232, 255, 0.22);
+  stroke: rgba(255, 255, 255, 0.65);
+  stroke-width: 0.8;
+}
+html[data-theme="light"] .rk-sb-crack-dark path { stroke: #1f2937; stroke-width: 2; }
+html[data-theme="light"] .rk-sb-crack-lite path { stroke: rgba(255, 255, 255, 0.9); }
+html[data-theme="light"] .rk-sb-shards polygon {
+  fill: rgba(255, 255, 255, 0.75);
+  stroke: rgba(30, 41, 59, 0.55);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rk-glint::after,
   .rk-glint:hover::after { animation: none; opacity: 0; }

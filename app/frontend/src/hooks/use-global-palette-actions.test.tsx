@@ -40,6 +40,7 @@ vi.mock("@/api/client", () => ({
 }));
 import { getCron, muteCron, deleteCron, startOperator } from "@/api/client";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
+import * as screenBreakStore from "@/lib/screen-break-store";
 import { setQuakeMachineState } from "@/lib/quake-terminal";
 import type { ProjectSession, WindowInfo } from "@/types";
 
@@ -217,6 +218,23 @@ describe("useGlobalPaletteActions", () => {
     expect(screen.getByText("Help: Keyboard Shortcuts")).toBeInTheDocument();
     expect(screen.getByText("Settings: Open")).toBeInTheDocument();
     expect(screen.getByText("Settings: Appearance")).toBeInTheDocument();
+  });
+
+  it("registers both Easter-egg entries on every route; selecting fires the store with force", () => {
+    const fire = vi.spyOn(screenBreakStore, "fire");
+    renderHook();
+    const byId = new Map(captured.map((a) => [a.id, a]));
+    expect(byId.get("easter-egg-smash")?.label).toBe("Easter egg: Smash");
+    expect(byId.get("easter-egg-peek")?.label).toBe("Easter egg: Peek");
+    // No chord — the palette is the chord.
+    expect(byId.get("easter-egg-smash")?.shortcut).toBeUndefined();
+    expect(byId.get("easter-egg-peek")?.shortcut).toBeUndefined();
+    act(() => byId.get("easter-egg-smash")?.onSelect());
+    expect(fire).toHaveBeenCalledExactlyOnceWith("smash", { force: true });
+    act(() => byId.get("easter-egg-peek")?.onSelect());
+    expect(fire).toHaveBeenLastCalledWith("peek", { force: true });
+    fire.mockRestore();
+    screenBreakStore._resetForTests();
   });
 
   it("registers the four Panel: Toggle actions, each flipping its section's persisted boolean (iha5 R6, wuiu R13)", () => {

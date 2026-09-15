@@ -323,6 +323,8 @@ Most treatments are FRAME-ANIMATED sprite sheets, not static sprites: each chara
 
 **Reduced motion**: flair is motion-only decoration carrying no semantic meaning, so under `prefers-reduced-motion` all sixteen overlays are hidden entirely — the gate block covers every flair pseudo and the cube/warp/nemo child spans, rain and scan included, plus the onepiece wave baseline. Marker wells and blocked hazard wedges are static. Source-order keeps the reduced-motion overrides after the base rules.
 
+**The viewport-scoped counterpart**: beside these row-scoped, ambient flairs there is one **viewport-scoped, one-shot event layer** — the screen-break Easter eggs. It carries the same discipline (aria-hidden, `pointer-events: none`, per-frame writes limited to transforms/opacity/SVG attributes, a single rAF loop) and a stricter reduced-motion posture: the layer NEVER mounts under `prefers-reduced-motion` (a static crack reads as a broken UI), so its `globals.css` block needs no reduced-motion override. Full mechanism: [screen-break-eggs](/run-kit/ui/screen-break-eggs.md). (kp2l)
+
 ### Braille Sparkline Renderer
 
 `app/frontend/src/lib/sparkline.ts` — converts an array of float values (0-100 range) into a Unicode braille sparkline string. Uses 8 vertical levels from the U+2800-U+28FF braille range filling bottom-to-top: `⣀⣄⣤⣦⣶⣷⣾⣿` (level 0 = `⣀`, level 7 = `⣿`). Values linearly interpolated across 8 levels. Zero-filled buffer renders as repeated `⣀`. Exported as `sparkline(samples: number[]): string`.

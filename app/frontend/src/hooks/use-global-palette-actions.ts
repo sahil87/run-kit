@@ -22,6 +22,8 @@ import { buildQuakeTerminalAction, buildQuakeTerminalListAction, buildQuakeTermi
 import { useQuakeMachineState, useQuakePinned, useQuakeTerminalContext } from "@/lib/quake-terminal";
 import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette/update";
 import { buildVersionAction, displayVersion } from "@/lib/palette/version";
+import { buildEasterEggActions } from "@/lib/palette/easter-eggs";
+import { fire as fireScreenBreak } from "@/lib/screen-break-store";
 import { copyToClipboard } from "@/lib/clipboard";
 
 /**
@@ -551,6 +553,12 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [],
   );
 
+  // Screen-break Easter eggs — the two one-shot eggs, global on every
+  // route. Palette fires are `force` (never rate limited, never persisted);
+  // the store's environmental gates (reduced motion, < 640 px, in-flight) are
+  // the only silent no-ops. No chord — the palette IS the chord.
+  const easterEggActions: PaletteAction[] = useMemo(() => buildEasterEggActions(fireScreenBreak), []);
+
   return useMemo(
     () =>
       // Every registered action with a palette entry renders its EFFECTIVE
@@ -558,10 +566,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...easterEggActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, easterEggActions, bindingByAction, bindingHost],
   );
 }

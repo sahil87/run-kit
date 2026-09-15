@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { copyToClipboard } from "@/lib/clipboard";
-import { clipboardProvider } from "./terminal-client";
+import { clipboardProvider, OSC52_MIN_COPY_LENGTH } from "./terminal-client";
 import { deriveXtermTheme, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "@/themes";
 
 describe("copyToClipboard", () => {
@@ -207,6 +207,54 @@ describe("clipboardProvider", () => {
       configurable: true,
     });
     await expect(clipboardProvider.readText("")).resolves.toBe("");
+  });
+
+  // A one-cell pointer jitter on a focus-click is a tmux drag that copies
+  // exactly one character or one space; the sink drops those so a focus-click
+  // in another tab never clobbers a clipboard the user just filled.
+  describe("OSC52_MIN_COPY_LENGTH filter", () => {
+    it("threshold is pinned at 2 — two-character tokens are legitimate copies", () => {
+      expect(OSC52_MIN_COPY_LENGTH).toBe(2);
+    });
+
+    it("drops whitespace-only payloads", async () => {
+      const clipboard = mockClipboard();
+      await clipboardProvider.writeText("", " ");
+      await clipboardProvider.writeText("", "   \n");
+      await clipboardProvider.writeText("", " \t ");
+      await clipboardProvider.writeText("", "\n");
+      expect(clipboard.writeText).not.toHaveBeenCalled();
+    });
+
+    it("drops a single character", async () => {
+      const clipboard = mockClipboard();
+      await clipboardProvider.writeText("", "a");
+      expect(clipboard.writeText).not.toHaveBeenCalled();
+    });
+
+    it("drops a single character padded with whitespace", async () => {
+      const clipboard = mockClipboard();
+      await clipboardProvider.writeText("", "  a ");
+      expect(clipboard.writeText).not.toHaveBeenCalled();
+    });
+
+    it("writes a two-character payload verbatim", async () => {
+      const clipboard = mockClipboard();
+      await clipboardProvider.writeText("", "rk");
+      expect(clipboard.writeText).toHaveBeenCalledWith("rk");
+    });
+
+    it("writes a passing payload untrimmed — surrounding whitespace intact", async () => {
+      const clipboard = mockClipboard();
+      await clipboardProvider.writeText("c", "  hello world\n");
+      expect(clipboard.writeText).toHaveBeenCalledWith("  hello world\n");
+    });
+
+    it("still rejects a non-clipboard selection target regardless of length", async () => {
+      const clipboard = mockClipboard();
+      await clipboardProvider.writeText("p", "long enough text");
+      expect(clipboard.writeText).not.toHaveBeenCalled();
+    });
   });
 });
 

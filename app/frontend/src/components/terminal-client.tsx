@@ -62,9 +62,22 @@ function effectiveXtermTheme(palette: Parameters<typeof deriveXtermTheme>[0], tr
 }
 
 /**
+ * Minimum whitespace-trimmed length an OSC 52 payload must have to reach the
+ * system clipboard. tmux's default `MouseDragEnd1Pane → copy-pipe-and-cancel`
+ * (with `set-clipboard on`) turns a one-cell pointer jitter on a focus-click
+ * into a drag that copies exactly one character (over text) or exactly one
+ * space (over a blank row) — clobbering the clipboard the user just filled in
+ * another tab. Two-character tokens (`rk`, `-v`, `..`) are legitimate copies,
+ * so this threshold MUST NOT exceed 2. Measurement only: a payload that passes
+ * is written verbatim, untrimmed.
+ */
+export const OSC52_MIN_COPY_LENGTH = 2;
+
+/**
  * Custom ClipboardProvider for the xterm.js ClipboardAddon.
  * Accepts both "" (empty/default) and "c" (explicit clipboard) as valid OSC 52
  * selection targets. Tmux sends "" by default; the built-in provider only accepts "c".
+ * Writes below OSC52_MIN_COPY_LENGTH (trimmed) are dropped silently.
  *
  * navigator.clipboard is undefined on plain-http non-localhost origins (e.g. a
  * Tailscale IP), so writes route through copyToClipboard (execCommand fallback,
@@ -78,6 +91,7 @@ export const clipboardProvider = {
   },
   async writeText(selection: string, text: string): Promise<void> {
     if (selection !== "c" && selection !== "") return;
+    if (text.trim().length < OSC52_MIN_COPY_LENGTH) return;
     await copyToClipboard(text);
   },
 };

@@ -644,7 +644,7 @@ function WindowRowInner({
     }
     // Uncolored rows follow the same text-only hover and held-shade rule.
     return `${base} text-text-secondary hover:text-text-primary${
-      flyout.open ? " text-text-primary bg-bg-card/50" : ""
+      flyout.open ? " text-text-primary bg-bg-chrome-raised" : ""
     }`;
   }, [tint, isSelected, showPinIcon, ghost, flyout.open]);
 

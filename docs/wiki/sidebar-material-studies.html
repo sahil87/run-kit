@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sidebar Material Studies</title>
+<style>
+  :root {
+    --bg: #0f1117; --card: #171b24; --inset: #0a0c12;
+    --tp: #e8eaf0; --ts: #7a8394; --border: #454d66;
+    --green: #22c55e; --yellow: #facc15; --blue: #60a5fa; --red: #f87171; --purple: #c084fc; --amber: #f59e0b; --accent: #7dd3fc;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  body.light {
+    --bg: #f8f9fb; --card: #ffffff; --inset: #eef0f4;
+    --tp: #1a1d24; --ts: #6b7280; --border: #d1d5db;
+    --green: #16a34a; --yellow: #b07d02; --blue: #2563eb; --red: #dc2626; --purple: #9333ea; --accent: #0369a1;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--tp); font: 14px/1.5 ui-sans-serif, system-ui, sans-serif; padding: 28px 32px 80px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 42px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { font-size: 13px; margin: 18px 0 6px; }
+  .sub { color: var(--ts); margin: 0 0 18px; max-width: 920px; }
+  .sub b, .cap b, p b, li b, td b { color: var(--tp); }
+  p { max-width: 920px; color: #b6bcc9; } body.light p { color: #4b5563; }
+  code { font-family: var(--mono); font-size: 11.5px; background: var(--inset); padding: 0 4px; border-radius: 3px; color: #cbd5e1; } body.light code { color: #334155; }
+  table { border-collapse: collapse; font-size: 12px; margin: 8px 0 14px; }
+  td, th { border: 1px solid var(--border); padding: 4px 8px; text-align: left; color: #b6bcc9; vertical-align: top; } body.light td { color: #4b5563; }
+  th { color: var(--tp); font-weight: 600; }
+  ul { max-width: 920px; color: #b6bcc9; } body.light ul { color: #4b5563; }
+  li { margin: 3px 0; }
+  .tag { display: inline-block; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border); color: var(--ts); margin: 0 6px 6px 0; white-space: nowrap; }
+  .tag.rec { border-color: var(--green); color: var(--green); }
+  .tag.bad { border-color: var(--red); color: var(--red); }
+  .tag.park { border-color: var(--blue); color: var(--blue); }
+  .tag.try { border-color: var(--amber); color: var(--amber); }
+  .note { border-left: 3px solid var(--blue); padding: 6px 12px; background: color-mix(in srgb, var(--blue) 8%, transparent); border-radius: 0 6px 6px 0; max-width: 920px; margin: 12px 0; color: #b6bcc9; } body.light .note { color: #4b5563; }
+
+  .toolbar { position: sticky; top: 0; z-index: 5; display: flex; gap: 10px 14px; align-items: center; flex-wrap: wrap; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(6px); padding: 8px 0 10px; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .toolbar .grp { display: inline-flex; align-items: center; gap: 4px; }
+  .toolbar .lbl { font: 10px var(--mono); color: var(--ts); text-transform: uppercase; letter-spacing: .06em; margin-right: 2px; }
+  .toolbar button, .toolbar select { font: 11px var(--mono); padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--card); color: var(--ts); cursor: pointer; }
+  .toolbar button.on { color: var(--green); border-color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
+  .toolbar label { font: 11px var(--mono); color: var(--ts); display: inline-flex; align-items: center; gap: 6px; }
+  .toolbar input[type=range] { width: 120px; }
+  .toolbar .hint { font-size: 11px; color: var(--ts); }
+
+  .study { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .study .cap { font-size: 11px; color: var(--ts); margin-top: 8px; line-height: 1.45; }
+  .study h3 { margin: 0 0 8px; }
+  .co { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; background: var(--amber); color: #000; font: 700 9.5px var(--mono); flex: none; vertical-align: middle; }
+  .legend li { margin: 4px 0; } .legend .co { margin-right: 6px; }
+  .readout { display: flex; gap: 18px; flex-wrap: wrap; font: 11.5px var(--mono); color: var(--ts); margin: 10px 0 0; align-items: center; }
+  .readout b { color: var(--tp); font-weight: 500; }
+  .sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--border); vertical-align: -3px; margin-right: 4px; }
+  .strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 14px; }
+  .strip .fr-wrap { zoom: .478; }
+  .strip .study { padding: 10px; }
+  .strip .study h3 { font-size: 12.5px; }
+  .fr-wrap { overflow: hidden; border-radius: 6px; }
+  .big { overflow-x: auto; }
+  .big .fr-wrap { min-width: 900px; }
+  .big .fr { min-width: 100%; }
+  .pair { display: inline-flex; align-items: center; gap: 0; border: 1px solid var(--border); border-radius: 3px; overflow: hidden; vertical-align: middle; height: 16px; }
+  .pair i { display: block; width: 18px; height: 16px; }
+  td.n { text-align: right; font-family: var(--mono); }
+  td.bad { color: var(--red); } td.ok { color: var(--green); } td.warn { color: var(--amber); }
+  .kv { font-family: var(--mono); font-size: 11.5px; }
+
+  /* ---------- app frame mock (900 × 560 design px; mirrors shell.tsx / top-bar.tsx / status-bar.tsx) ---------- */
+  .fr { width: 100%; min-width: 900px; height: 560px; display: grid; grid-template-rows: 44px 1fr 24px; grid-template-columns: 1fr; font-family: var(--mono); font-size: 12px; color: var(--f-tp); background: var(--f-bg); position: relative; overflow: hidden; }
+  .fr.fullh { grid-template-columns: 232px 1fr; grid-template-areas: "side top" "side stage" "side status"; }
+  .fr.fullh .top { grid-area: top; } .fr.fullh .stage { grid-area: stage; } .fr.fullh .status { grid-area: status; }
+  .fr.fullh .sidecol { grid-area: side; background: var(--f-chrome); border-right: 1px solid var(--f-seam); display: flex; flex-direction: column; min-height: 0; }
+  .fr.fullh .sidecol .side { border: 0; border-radius: 0; background: transparent; height: 100%; }
+  .fr.fullh .sidecol .brand { height: 44px; padding-top: 10px; }
+  .fr.fullh .top { grid-template-columns: auto 1fr auto; }
+  .fr.fullh .top .c { text-align: center; white-space: nowrap; }
+  .fr.fullh .top .mv { display: none; }
+  .fr.fullh .sidecol .brand .tog { margin-left: auto; }
+  .top { background: var(--f-frame); border-bottom: 3px solid var(--f-border); display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 12px; gap: 8px; }
+  .top .l, .top .r { display: flex; align-items: center; gap: 6px; } .top .r { justify-content: flex-end; }
+  .top .c { font-weight: 600; font-size: 13px; color: var(--f-tp); }
+  .top .c small { color: var(--f-ts); font-weight: 400; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; height: 26px; min-width: 26px; padding: 0 6px; border: 1px solid var(--f-border); border-radius: 4px; color: var(--f-ts); font-size: 11px; white-space: nowrap; }
+  .btn.on { color: var(--f-green); border-color: var(--f-green); }
+  .crumb { color: var(--f-ts); font-size: 11px; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 6px; border: 1px solid var(--f-border); border-radius: 4px; color: var(--f-ts); font-size: 10px; }
+  .chip .k { border: 1px solid var(--f-border); border-radius: 3px; padding: 0 3px; font-size: 9.5px; }
+  .stage { background: var(--f-ground); display: grid; grid-template-columns: 220px 1fr; column-gap: 6px; padding: 6px; min-height: 0; }
+  .fr.fullh .stage { grid-template-columns: 1fr; }
+  .fr.flush .stage, .fr.hair .stage { padding: 0; column-gap: 0; }
+  .fr.flush .stage { padding: 6px; column-gap: 6px; }
+  .side { background: var(--f-chrome); border: 1px solid var(--f-cardb); border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; font-size: 11.5px; }
+  .fr.recess .side, .fr.flush .side, .fr.hair .side { border: 0; border-radius: 0; }
+  .fr.hair .side { border-right: 1px solid var(--f-seam); }
+  .fr.recess .side { background: transparent; }
+  .tile { background: var(--f-bg); border: 1px solid var(--f-cardb); border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+  .fr.hair .tile { border: 0; border-radius: 0; }
+  .brand { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--f-border); color: var(--f-ts); height: 28px; }
+  .brand .logo { width: 14px; height: 14px; border-radius: 3px; background: linear-gradient(135deg, var(--f-ts), var(--f-border)); }
+  .brand b { color: var(--f-tp); font-weight: 600; }
+  .rail { display: flex; gap: 4px; padding: 4px 8px; border-bottom: 1px solid var(--f-border); }
+  .rail .btn { height: 22px; min-width: 22px; padding: 0; font-size: 10px; }
+  .sec { display: flex; align-items: center; gap: 6px; padding: 5px 8px; color: var(--f-ts); font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; font-weight: 700; border-top: 3px solid var(--f-border); }
+  .sec:first-child { border-top: 0; }
+  .sec .r { margin-left: auto; font-weight: 400; letter-spacing: 0; text-transform: none; display: inline-flex; gap: 4px; align-items: center; }
+  .sec .r .chip { height: 16px; font-size: 9px; padding: 0 4px; }
+  .srv { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 2px 8px 8px; }
+  .srv .t { height: 44px; border-radius: 4px; border: 1px solid var(--f-border); padding: 4px 6px; font-size: 10.5px; color: var(--f-tp); position: relative; overflow: hidden; }
+  .srv .t small { display: block; color: var(--f-ts); font-size: 9.5px; }
+  .rows { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; position: relative; }
+  .rows::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 22px; background: linear-gradient(to bottom, transparent, var(--f-chrome)); pointer-events: none; }
+  .fr.recess .rows::after { background: linear-gradient(to bottom, transparent, var(--f-ground)); }
+  .row { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px 0 22px; position: relative; white-space: nowrap; color: var(--f-tp); }
+  .row.ses { padding-left: 12px; font-weight: 700; text-transform: uppercase; font-size: 10.5px; letter-spacing: .03em; height: 26px; }
+  .row.sub { padding-left: 12px; color: var(--f-tp); }
+  .row .well { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; }
+  .row .d { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--f-ts); flex: none; }
+  .row .d.on { background: var(--f-yellow); border-color: var(--f-yellow); }
+  .row .d.dim { border-color: color-mix(in srgb, var(--f-ts) 50%, transparent); }
+  .row .nm { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .row .pr { margin-left: auto; color: var(--f-magenta); font-size: 11px; }
+  .row .pr.red { color: var(--f-red); }
+  .row .car { color: var(--f-ts); font-size: 9px; width: 8px; }
+  .row.hatch { background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--f-amber) 35%, transparent) 0 3px, transparent 3px 8px); background-size: 22px 100%; background-repeat: no-repeat; }
+  .row.dim { color: var(--f-ts); }
+  .row .hs { color: var(--f-ts); font-size: 10px; }
+  .thead { height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-bottom: 1px solid var(--f-border); color: var(--f-ts); font-size: 11px; }
+  .thead .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--f-yellow); }
+  .thead .r { margin-left: auto; display: flex; gap: 8px; }
+  .term { flex: 1; padding: 8px 12px; font-size: 11.5px; line-height: 1.55; color: var(--f-tp); overflow: hidden; position: relative; }
+  .term .tl { display: flex; gap: 0; margin-bottom: 8px; font-size: 10.5px; }
+  .term .tl span { padding: 0 6px; color: #fff; }
+  .term .tl .p1 { background: var(--f-accent); color: #000; } .term .tl .p2 { background: var(--f-yellow); color: #000; } .term .tl .p3 { background: var(--f-ts); color: #000; } .term .tl .p4 { background: var(--f-green); color: #000; }
+  .term .tl .ln { flex: 1; border-top: 1px solid var(--f-accent); margin-top: 7px; }
+  .term .ts { color: var(--f-ts); } .term .g { color: var(--f-green); } .term .a { color: var(--f-accent); }
+  .term .prompt { margin-top: 10px; }
+  .term .prompt::before { content: "› "; color: var(--f-ts); }
+  .tmuxline { height: 18px; display: flex; gap: 0; align-items: center; font-size: 10.5px; color: var(--f-tp); padding: 0 8px; }
+  .tmuxline .s { background: var(--f-accent); color: #000; padding: 0 5px; font-weight: 700; margin-right: 8px; }
+  .tmuxline .w { margin-right: 10px; color: var(--f-tp); }
+  .tmuxline .w.cur { background: var(--f-accent); color: #000; padding: 0 4px; }
+  .tmuxline .tm { margin-left: auto; }
+  .compose { height: 30px; border-top: 1px solid var(--f-border); display: flex; align-items: center; gap: 6px; padding: 0 8px; color: var(--f-ts); font-size: 11px; }
+  .compose .box { flex: 1; height: 22px; border: 1px solid var(--f-border); border-radius: 4px; padding: 0 8px; display: flex; align-items: center; }
+  .status { background: var(--f-frame); border-top: 1px solid var(--f-border); display: flex; align-items: center; gap: 12px; padding: 0 8px; font-size: 10.5px; color: var(--f-tp); white-space: nowrap; overflow: hidden; }
+  .status .k { color: var(--f-ts); } .status .g { color: var(--f-green); }
+  .status .r { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+  .status .cd { width: 8px; height: 8px; border-radius: 50%; background: var(--f-green); }
+  .callout { position: absolute; z-index: 3; }
+  .fly { position: absolute; z-index: 4; left: 232px; top: 292px; width: 230px; background: var(--f-bg); border: 1px solid var(--f-border); border-radius: 6px; padding: 8px 10px; font-size: 10.5px; color: var(--f-ts); box-shadow: 0 12px 28px -8px rgb(0 0 0 / .55), 0 4px 10px -4px rgb(0 0 0 / .4); }
+  .fly b { color: var(--f-tp); display: block; margin-bottom: 2px; font-size: 11px; }
+  .fr.fullh .fly { left: 244px; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <span class="grp"><span class="lbl">palette</span><select id="pal"></select></span>
+  <span class="grp" id="varGrp"><span class="lbl">variant</span>
+    <button data-v="today">today</button><button data-v="recess">recessed</button><button data-v="lift" class="on">lifted card</button><button data-v="chrome">chrome material</button><button data-v="fullh">full-height</button></span>
+  <span class="grp" id="seamGrp"><span class="lbl">seam</span>
+    <button data-s="gap" class="on">6px gap</button><button data-s="flush">flush stage</button><button data-s="hair">hairline</button></span>
+  <label>ΔL <input id="dl" type="range" min="0" max="0.14" step="0.005" value="0.06"> <span id="dlv">0.060</span></label>
+  <label>chroma kept <input id="ck" type="range" min="0" max="1" step="0.05" value="0.35"> <span id="ckv">35%</span></label>
+  <button id="tints" class="on">re-base row tints</button>
+  <button id="flyout">flyout card</button>
+  <button id="tLight">light page</button>
+</div>
+
+<h1>Sidebar Material Studies</h1>
+<p class="sub">Design study (260915 discussion) for giving the desktop <b>sidebar</b> a surface of its own — a gray material distinct from the terminal, the way macOS window chrome (sidebar, toolbar) sits on a gray material while the content well keeps its own color. Today every desktop surface — sidebar card, terminal tile, top bar, status bar — paints <code>--color-bg-primary</code> = <code>palette.background</code>, separated only by the 6px stage ground (<code>bg-bg-inset</code>) and the 55%-alpha card border. Authorities: <code>docs/specs/themes.md</code> § UI Color Derivation (every UI color derives from the 22-color palette — the gray must too), <code>visual-design.md</code> § Two-family chrome vocabulary (floating cards on the stage vs the attached frame), <code>shell.tsx</code> (the stage grid). Every frame below is generated from a real theme palette; the toolbar drives the big mock in § B.</p>
+
+<h2>A · Today — annotated</h2>
+<div class="study">
+  <div class="big"><div class="fr-wrap" id="frToday"></div></div>
+  <ul class="legend" style="margin-top:12px">
+    <li><span class="co">1</span><b>Sidebar card</b> — <code>bg-bg-primary</code> on <code>rounded-md</code> + <code>rk-card-border</code> (<code>shell.tsx:294</code>). Same hex as the terminal.</li>
+    <li><span class="co">2</span><b>Terminal tile</b> — <code>bg-bg-primary</code>; xterm paints <code>palette.background</code>. Same hex as the sidebar, so the two cards read as one sheet split by a border.</li>
+    <li><span class="co">3</span><b>Stage ground</b> — <code>bg-bg-inset</code> = <code>darken(background, 5%)</code>. On default-dark this derives to <code>#0e1016</code> against <code>#0f1117</code> — OKLab ΔL 0.005, invisible. The "floating cards" float on a ground nobody can see; the 55%-alpha border carries the whole separation. (On light themes the same token is ΔL 0.045 and the ground does show — § D.)</li>
+    <li><span class="co">4</span><b>Top bar + status bar</b> — the attached frame, also <code>bg-bg-primary</code> (<code>status-bar.tsx:1106</code>; the header inherits body). Four surfaces, one color.</li>
+    <li><span class="co">5</span><b>Row tints</b> — <code>computeRowTints</code> blends every family into <code>palette.background</code> (<code>themes.ts:621</code>); hover is <code>bg-bg-card/50</code>. Both assume the row sits on the page ground — the first thing that moves when the sidebar changes color.</li>
+  </ul>
+  <table style="margin-top:8px">
+    <tr><th>Surface</th><th>Token</th><th>Derivation</th><th>default-dark (live)</th><th>default-light</th></tr>
+    <tr><td>Sidebar card · terminal tile · top bar · status bar · flyout card · mobile drawer</td><td><code>--color-bg-primary</code></td><td><code>palette.background</code></td><td class="kv">#0f1117</td><td class="kv">#f8f9fb</td></tr>
+    <tr><td>Hover fill · tile-header ground · popups</td><td><code>--color-bg-card</code></td><td>dark <code>lighten 8%</code> · light <code>darken 3%</code></td><td class="kv">#22242a</td><td class="kv">#f0f1f3</td></tr>
+    <tr><td>Stage ground · status rail · PANE wells · switch-off track</td><td><code>--color-bg-inset</code></td><td>dark <code>darken 5%</code> · light <code>darken 6%</code></td><td class="kv">#0e1016</td><td class="kv">#e9eaec</td></tr>
+  </table>
+  <p class="cap">Live values read from the running app (<code>getComputedStyle(documentElement)</code>) — the <code>globals.css</code> fallbacks (<code>#171b24</code> / <code>#0a0c12</code>) are overwritten by <code>deriveUIColors</code> at runtime, so the inset ground is even flatter than the stylesheet suggests.</p>
+</div>
+
+<h2>B · The live mock</h2>
+<p>One frame, every control in the toolbar. <b>Variant</b> picks the structure; <b>seam</b> picks how the sidebar meets the terminal; <b>ΔL</b> is the OKLab lightness step between the gray and <code>palette.background</code> (sign by theme category — up on dark, down on light; <i>recessed</i> goes down on both); <b>chroma kept</b> is how much of the background's own hue survives in the gray (0 = neutral macOS gray, 100% = the theme's tint lifted as-is). <b>re-base row tints</b> toggles whether the family tints blend into the new surface (proposed) or still into <code>palette.background</code> (what ships today — watch the RUNKIT/FABKIT bands and the selected row grow a halo when it is off). <b>flyout card</b> drops a row-hover card so you can judge popup occlusion on the new ground.</p>
+<div class="study">
+  <div class="big"><div class="fr-wrap" id="frLive"></div></div>
+  <div class="readout" id="readout"></div>
+</div>
+
+<h2>C · Candidates side by side</h2>
+<p>The five structures at fixed settings (ΔL 0.06, chroma kept 35%, tints re-based), rendered from the selected palette and its opposite-category sibling so the same idea is judged on dark and light at once. The top-right corner of each caption carries the verdict.</p>
+<div class="strip" id="strip"></div>
+
+<h2>D · Deriving the gray per theme</h2>
+<p>The gray cannot be a hex: 70 palettes ship, and the Themes spec derives every UI color from the palette. Four candidate formulas on 14 themes. Each cell is the gray beside that theme's background with the WCAG contrast between them (1.0 = identical). A step under ~1.15 does not read as a different surface; over ~1.6 the sidebar starts to look like a different app.</p>
+<div style="overflow-x:auto"><table id="derive"></table></div>
+<ul>
+  <li><b>Today's tokens are asymmetric by category.</b> On dark themes <code>card</code> (<code>lighten 8%</code>) is a visible ΔL 0.06–0.08 step while <code>inset</code> (<code>darken 5%</code>) is ΔL 0.005–0.011 — invisible. On light themes it flips: <code>card</code> (<code>darken 3%</code>) is ΔL 0.02, barely a surface, while <code>inset</code> (<code>darken 6%</code>) is ΔL 0.045 and plainly visible. So the stage ground shows on light and vanishes on dark; the cards separate on dark and merge on light. A sidebar material needs one token that is the same visible step in both categories — which neither existing token is.</li>
+  <li><b>OKLab ΔL</b> is perceptually even across all 70 and across categories — the same visible step on ayu-dark, nord and solarized-light. (WCAG ratios are shown small for reference only: the +0.05 flare term compresses them near black, so a plainly visible 0.06 step reads as 1.14:1 on default-dark and 1.20:1 on default-light.) Chroma is scaled, not zeroed: at 0 (pure neutral) the gray fights a tinted terminal (solarized's teal, ubuntu's aubergine, tomorrow-night-blue) — the chrome looks pasted on. At 100% the gray inherits the theme's tint and stops reading as "gray" on those same themes. ~35% keeps kinship without the tint.</li>
+  <li><b>mix(fg 6%)</b> is the shortcut (one <code>blendHex</code>); it tracks foreground hue, so warm-on-cold themes (gruvbox-dark's cream text on gray) go beige. Rejected.</li>
+  <li><b>Recessed</b> (ΔL down on dark) clamps at black for the handful of #000-background themes (synthwave, tomorrow-night-bright, dark-pastel) and has almost no room on ayu-dark / night-owl — the <span class="tag bad" style="margin:0">clamp</span> cells. Lifting always has room.</li>
+</ul>
+
+<h2>E · What re-points when the sidebar leaves <code>bg-primary</code></h2>
+<p>Inventory of the surfaces that assume the sidebar sits on the page ground. The mechanism proposed for all of them is one new derived token, <code>--color-bg-chrome</code> (Tailwind <code>bg-bg-chrome</code>), plus chrome-relative companions where a surface today leans on <code>card</code>/<code>inset</code> for its contrast.</p>
+<table>
+  <tr><th>Surface</th><th>Today</th><th>Where</th><th>Under a gray sidebar</th></tr>
+  <tr><td>Sidebar card</td><td><code>bg-bg-primary</code></td><td><code>shell.tsx:294</code></td><td><code>bg-bg-chrome</code>. The one-line change every variant starts from.</td></tr>
+  <tr><td>Row family tints (rest 14% · hover 22% · selected 40%)</td><td>blend into <code>palette.background</code></td><td><code>themes.ts:621 computeRowTints</code></td><td>Blend into the chrome hex instead — <code>computeRowTints(palette, surface)</code>. Otherwise every tinted band carries a terminal-colored halo (toggle it off in § B).</td></tr>
+  <tr><td>Uncolored hover</td><td><code>bg-bg-card/50</code></td><td><code>window-row.tsx:647</code>, <code>session-row.tsx:333</code>, <code>server-panel.tsx:285</code>, <code>boards-section.tsx:149</code>, <code>index.tsx:2990</code>, <code>pin-popover.tsx</code> ×3</td><td>On the <i>lifted</i> variant the sidebar <b>is</b> card-colored and hover vanishes. Needs <code>--color-bg-chrome-hover</code> (chrome ± a second ΔL step) — the same recipe as the tints, so it stays a 2-token family.</td></tr>
+  <tr><td>Status rail (coarse) · PANE wells · switch-off track</td><td><code>bg-bg-inset</code></td><td><code>session-row.tsx:474</code>, <code>index.tsx:2834</code>, <code>window-row.tsx:1066</code>, <code>status-panel.tsx:282/363</code></td><td>Inset is defined against the page ground; on a lifted gray it becomes a darker well (fine on dark, reads as a hole on light). Re-point to <code>chrome-inset</code>, or accept — flag for review on light themes.</td></tr>
+  <tr><td>Row-flyout card · identity tips</td><td><code>bg-bg-primary</code> + <code>.rk-popup-elev</code></td><td><code>row-flyout-card.tsx</code>, <code>globals.css:1522</code></td><td><b>Gets better.</b> The popup was designed to separate by occlusion because bg-card measured ~1.1:1 against the ground; on a gray sidebar the terminal-colored card separates by lightness too. Leave as is.</td></tr>
+  <tr><td>Scroll fade · band fade</td><td>gradient to <code>--color-bg-primary</code></td><td><code>globals.css:580 .rk-scroll-fade-bottom</code>, <code>:1631 .rk-band-fade</code></td><td>Fade must end on the surface it sits on, or a lighter/darker smear appears at the sidebar's bottom edge. Point at <code>currentBackground</code> via a scoped var.</td></tr>
+  <tr><td>Hairlines inside the sidebar</td><td><code>--color-border</code> = <code>blend(fg, bg, .25)</code></td><td>panel seams, brand row, rail</td><td>Derived against the page ground; on a lifted gray the 3px panel seams lose ~10% contrast. Acceptable at ΔL ≤ 0.07; above that derive a <code>chrome-border</code>.</td></tr>
+  <tr><td>Mobile drawer</td><td><code>bg-bg-primary</code></td><td><code>shell.tsx:366</code></td><td>Follow the sidebar (<code>bg-bg-chrome</code>) so the drawer and the desktop card are the same object.</td></tr>
+  <tr><td>Top bar · status bar</td><td>inherit body / <code>bg-bg-primary</code></td><td><code>top-bar.tsx:1093</code>, <code>status-bar.tsx:1106</code></td><td>Unchanged for <i>recessed</i>/<i>lifted</i>; <code>bg-bg-chrome</code> for <i>chrome material</i>/<i>full-height</i>. Then <code>theme-color</code> / the desktop titlebar tint should follow the chrome hex (<code>instance-accent.ts</code>), since the chrome is now the titlebar's neighbor.</td></tr>
+  <tr><td>Sash grip dots</td><td>invert to <code>bg-inset</code> when lit</td><td><code>globals.css:1609</code></td><td>Sit in the gap between chrome and tile — keep; the ground is unchanged in the gap variants.</td></tr>
+  <tr><td>Stage ground</td><td><code>bg-bg-inset</code></td><td><code>shell.tsx:281</code></td><td><i>gap</i>: ground steps one more ΔL below the chrome so the seam stays visible. <i>flush</i>: ground = chrome, the sidebar loses its card, only the terminal floats. <i>hairline</i>: no ground at all — sidebar and tile are square and touch on a 1px seam (the macOS-literal reading; also what the full-height variant needs).</td></tr>
+</table>
+
+<h2>F · Recommendation</h2>
+<table>
+  <tr><th>#</th><th>Candidate</th><th>Verdict</th><th>Why</th></tr>
+  <tr><td>1</td><td><b>Lifted card</b> — sidebar on the gray, terminal / top bar / status bar untouched, 6px gap kept</td><td><span class="tag rec">first live trial</span></td><td>The smallest change that answers the question (one class in <code>shell.tsx</code> + the tint re-base). The sidebar reads as a panel; the frame still matches the terminal, so the app keeps its terminal-first identity. Target ΔL 0.05–0.06, chroma 35%. For a zero-token live look on a dark theme, <code>bg-bg-card</code> on the aside is already ΔL 0.07 — but it is invisible on light (ΔL 0.02), which is exactly why the real change is the token.</td></tr>
+  <tr><td>2</td><td><b>Chrome material</b> — sidebar + top bar + status bar on the gray, terminal is the lone content well</td><td><span class="tag rec">recommended end state</span></td><td>The macOS "mixed" reading: chrome is chrome, content is content. Maps 1:1 onto the existing two-family vocabulary (attached frame + sidebar = chrome material; content tiles = palette). Makes the PWA titlebar colour truthful. Costs the top bar's terminal-colored look; judge after #1 has lived a day.</td></tr>
+  <tr><td>3</td><td><b>Full-height sidebar</b> — chrome material + the sidebar column spans the top bar</td><td><span class="tag park">park</span></td><td>Most literal macOS shape, but the top bar is a persistent root mount above Shell with the sidebar toggle, history arrows and breadcrumb living in its left cell — all of which would move into the sidebar's head. A layout change, not a color change; revisit only if #2 lands and the empty left cell of the top bar bothers.</td></tr>
+  <tr><td>4</td><td><b>Recessed</b> — sidebar drops its card and becomes the stage ground</td><td><span class="tag bad">reject</span></td><td>Clamps at black on the #000 themes, nearly invisible on ayu-dark / night-owl, and on light themes it is indistinguishable from <i>lifted</i> with a flush seam. The card also carries the drag-resize sash affordance.</td></tr>
+  <tr><td>—</td><td>Seam</td><td><span class="tag rec">6px gap</span> <span class="tag try">hairline with #2</span></td><td>Keep the gap for #1 — the stage ground steps below the chrome so the gap finally shows. For #2 the hairline seam is worth a look: with the frame already gray, the gap between gray sidebar and gray frame stops meaning anything.</td></tr>
+</table>
+<div class="note"><b>Mechanism, whichever wins:</b> one derived token <code>--color-bg-chrome</code> in <code>deriveUIColors</code> — <code>oklch(L ± 0.06, C × 0.35, h)</code> of <code>palette.background</code>, gamut-reduced by chroma like the row families — plus <code>--color-bg-chrome-hover</code> one further step, <code>computeRowTints</code> taking the surface hex, and the § E re-points. A Themes-spec row under § UI Color Derivation and a <code>visual-design.md</code> amendment to the two-family vocabulary (the sidebar joins the frame's material while keeping the card's shape). Nothing here touches tmux or the terminal palette: xterm keeps painting <code>palette.background</code>, which is the whole point.</div>
+<h3>Open questions</h3>
+<ul>
+  <li><b>Boards / server route.</b> The board page and the 900px server column are floating cards on the same stage. Under #2 they stay palette-colored (content), which is consistent — but the server route's tiles are chrome-like lists, not terminal content. Decide per route when #2 is drafted.</li>
+  <li><b>Light themes.</b> A gray sidebar beside a white terminal is exactly Finder; the risk is the other way — <code>bg-inset</code> wells inside the gray reading as holes. Check solarized-light and gruvbox-light specifically (both have cream backgrounds whose neutral-gray step looks cold).</li>
+  <li><b>Row-color legibility.</b> Family tints were tuned at 14/22/40% against the page ground; on a lighter dark-theme gray the 14% rest band loses a little pop. Re-measure the WCAG border guardrail (3.0) after re-basing — the guardrail already handles it but the visual weight may want 16/24/40.</li>
+</ul>
+
+<script>
+const PALETTES = {"default-dark":{"name":"Default Dark","category":"dark","background":"#0f1117","foreground":"#e8eaf0","ansi":["#0f1117","#e06c75","#22c55e","#e8a84f","#5b8af0","#c678dd","#56b6c2","#e8eaf0","#7a8394","#e06c75","#22c55e","#e8a84f","#5b8af0","#c678dd","#56b6c2","#ffffff"]},"dracula":{"name":"Dracula","category":"dark","background":"#282a36","foreground":"#f8f8f2","ansi":["#21222c","#ff5555","#50fa7b","#f1fa8c","#bd93f9","#ff79c6","#8be9fd","#f8f8f2","#6272a4","#ff6e6e","#69ff94","#ffffa5","#d6acff","#ff92df","#a4ffff","#ffffff"]},"nord":{"name":"Nord","category":"dark","background":"#2e3440","foreground":"#d8dee9","ansi":["#3b4252","#bf616a","#a3be8c","#ebcb8b","#81a1c1","#b48ead","#88c0d0","#e5e9f0","#4c566a","#bf616a","#a3be8c","#ebcb8b","#81a1c1","#b48ead","#88c0d0","#eceff4"]},"gruvbox-dark":{"name":"Gruvbox Dark","category":"dark","background":"#282828","foreground":"#ebdbb2","ansi":["#282828","#cc241d","#98971a","#d79921","#458588","#b16286","#689d6a","#a89984","#928374","#fb4934","#b8bb26","#fabd2f","#83a598","#d3869b","#8ec07c","#ebdbb2"]},"solarized-dark":{"name":"Solarized Dark","category":"dark","background":"#002b36","foreground":"#839496","ansi":["#073642","#dc322f","#859900","#b58900","#268bd2","#d33682","#2aa198","#eee8d5","#586e75","#cb4b16","#859900","#b58900","#268bd2","#6c71c4","#2aa198","#fdf6e3"]},"tokyo-night":{"name":"Tokyo Night","category":"dark","background":"#1a1b26","foreground":"#c0caf5","ansi":["#15161e","#f7768e","#9ece6a","#e0af68","#7aa2f7","#bb9af7","#7dcfff","#a9b1d6","#414868","#f7768e","#9ece6a","#e0af68","#7aa2f7","#bb9af7","#7dcfff","#c0caf5"]},"catppuccin-mocha":{"name":"Catppuccin Mocha","category":"dark","background":"#1e1e2e","foreground":"#cdd6f4","ansi":["#45475a","#f38ba8","#a6e3a1","#f9e2af","#89b4fa","#f5c2e7","#94e2d5","#bac2de","#585b70","#f38ba8","#a6e3a1","#f9e2af","#89b4fa","#f5c2e7","#94e2d5","#a6adc8"]},"github-dark":{"name":"GitHub Dark","category":"dark","background":"#101216","foreground":"#8b949e","ansi":["#000000","#f78166","#56d364","#e3b341","#6ca4f8","#db61a2","#2b7489","#ffffff","#4d4d4d","#f78166","#56d364","#e3b341","#6ca4f8","#db61a2","#2b7489","#ffffff"]},"ubuntu":{"name":"Ubuntu","category":"dark","background":"#300a24","foreground":"#eeeeec","ansi":["#2e3436","#cc0000","#4e9a06","#c4a000","#3465a4","#75507b","#06989a","#d3d7cf","#555753","#ef2929","#8ae234","#fce94f","#729fcf","#ad7fa8","#34e2e2","#eeeeec"]},"default-light":{"name":"Default Light","category":"light","background":"#f8f9fb","foreground":"#1a1d24","ansi":["#1a1d24","#e53e3e","#16a34a","#ca8a04","#4a7ae8","#9333ea","#0891b2","#f8f9fb","#6b7280","#e53e3e","#16a34a","#ca8a04","#4a7ae8","#9333ea","#0891b2","#ffffff"]},"solarized-light":{"name":"Solarized Light","category":"light","background":"#fdf6e3","foreground":"#657b83","ansi":["#073642","#dc322f","#859900","#b58900","#268bd2","#d33682","#2aa198","#eee8d5","#002b36","#cb4b16","#859900","#b58900","#268bd2","#6c71c4","#2aa198","#fdf6e3"]},"gruvbox-light":{"name":"Gruvbox Light","category":"light","background":"#fbf1c7","foreground":"#3c3836","ansi":["#fbf1c7","#cc241d","#98971a","#d79921","#458588","#b16286","#689d6a","#7c6f64","#928374","#9d0006","#79740e","#b57614","#076678","#8f3f71","#427b58","#3c3836"]},"catppuccin-latte":{"name":"Catppuccin Latte","category":"light","background":"#eff1f5","foreground":"#4c4f69","ansi":["#5c5f77","#d20f39","#40a02b","#df8e1d","#1e66f5","#8839ef","#179299","#acb0be","#6c6f85","#d20f39","#40a02b","#df8e1d","#1e66f5","#8839ef","#179299","#bcc0cc"]},"github-light":{"name":"GitHub Light","category":"light","background":"#ffffff","foreground":"#24292e","ansi":["#24292e","#d73a49","#22863a","#b08800","#0366d6","#6f42c1","#1b7c83","#6a737d","#959da5","#cb2431","#28a745","#dbab09","#2188ff","#8a63d2","#3192aa","#d1d5da"]}};
+const ORDER = ["default-dark","dracula","solarized-dark","nord","gruvbox-dark","tokyo-night","catppuccin-mocha","ubuntu","github-dark","default-light","solarized-light","github-light","gruvbox-light","catppuccin-latte"];
+const SIBLING = { "default-dark":"default-light", "dracula":"default-light", "solarized-dark":"solarized-light", "nord":"catppuccin-latte", "gruvbox-dark":"gruvbox-light", "tokyo-night":"github-light", "catppuccin-mocha":"catppuccin-latte", "ubuntu":"solarized-light", "github-dark":"github-light", "default-light":"default-dark", "solarized-light":"solarized-dark", "github-light":"github-dark", "gruvbox-light":"gruvbox-dark", "catppuccin-latte":"catppuccin-mocha" };
+
+// ---------- color math (sRGB ⇄ OKLab/OKLCH; mirrors themes.ts conversions) ----------
+const hexToRgb = h => { h = h.replace('#',''); if (h.length===3) h = h.split('').map(c=>c+c).join(''); return [0,2,4].map(i=>parseInt(h.slice(i,i+2),16)); };
+const rgbToHex = ([r,g,b]) => '#' + [r,g,b].map(v => Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');
+const lin = c => { c/=255; return c <= 0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4); };
+const unlin = c => { const v = c <= 0.0031308 ? c*12.92 : 1.055*Math.pow(c,1/2.4)-0.055; return v*255; };
+function rgbToOklab(rgb){ const [r,g,b]=rgb.map(lin);
+  const l=0.4122214708*r+0.5363325363*g+0.0514459929*b, m=0.2119034982*r+0.6806995451*g+0.1073969566*b, s=0.0883024619*r+0.2817188376*g+0.6299787005*b;
+  const l_=Math.cbrt(l), m_=Math.cbrt(m), s_=Math.cbrt(s);
+  return [0.2104542553*l_+0.7936177850*m_-0.0040720468*s_, 1.9779984951*l_-2.4285922050*m_+0.4505937099*s_, 0.0259040371*l_+0.7827717662*m_-0.8086757660*s_]; }
+function oklabToRgb([L,a,b]){ const l_=L+0.3963377774*a+0.2158037573*b, m_=L-0.1055613458*a-0.0638541728*b, s_=L-0.0894841775*a-1.2914855480*b;
+  const l=l_**3, m=m_**3, s=s_**3;
+  return [4.0767416621*l-3.3077115913*m+0.2309699292*s, -1.2684380046*l+2.6097574011*m-0.3413193965*s, -0.0041960863*l-0.7034186147*m+1.7076147010*s].map(unlin); }
+const inGamut = rgb => rgb.every(v => v >= -0.5 && v <= 255.5);
+function oklchToHexInGamut(L, C, h){ L = Math.max(0, Math.min(1, L)); for (let i=0;i<24;i++){ const a=C*Math.cos(h), b=C*Math.sin(h); const rgb=oklabToRgb([L,a,b]); if (inGamut(rgb)) return rgbToHex(rgb); C*=0.9; } return rgbToHex(oklabToRgb([L,0,0])); }
+function toOklch(hex){ const [L,a,b]=rgbToOklab(hexToRgb(hex)); return [L, Math.hypot(a,b), Math.atan2(b,a)]; }
+const blend = (fg, bg, r) => { const f=hexToRgb(fg), b=hexToRgb(bg); return rgbToHex(f.map((v,i)=>b[i]+(v-b[i])*r)); };
+const lighten = (hex, pct) => rgbToHex(hexToRgb(hex).map(v => v + (255-v)*pct/100));
+const darken = (hex, pct) => rgbToHex(hexToRgb(hex).map(v => v*(1-pct/100)));
+function saturate(hex, f){ const [r,g,b]=hexToRgb(hex); const gray=0.299*r+0.587*g+0.114*b; return rgbToHex([r,g,b].map(v=>gray+(v-gray)*f)); }
+const relLum = hex => { const [r,g,b]=hexToRgb(hex).map(lin); return 0.2126*r+0.7152*g+0.0722*b; };
+const contrast = (a,b) => { const l1=relLum(a), l2=relLum(b); return (Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05); };
+
+// The proposed derivation: OKLab step from palette.background, chroma scaled.
+function chromeFor(bg, category, dL, keep, dir){ const [L,C,h]=toOklch(bg); const sign = dir === 'down' ? -1 : (category==='dark' ? 1 : -1); const L2 = L + sign*dL; const clamped = L2 < 0.005 || L2 > 0.995; return { hex: oklchToHexInGamut(L2, C*keep, h), clamped }; }
+
+// ---------- frame renderer ----------
+function ui(p){ const isDark = p.category==='dark'; return {
+  bg: p.background, tp: p.foreground, ts: blend(p.foreground, p.ansi[8], 0.3), border: blend(p.foreground, p.background, 0.25),
+  card: isDark ? lighten(p.background, 8) : darken(p.background, 3), inset: isDark ? darken(p.background, 5) : darken(p.background, 6),
+  green: p.ansi[2], yellow: p.ansi[3], red: p.ansi[1], accent: p.ansi[4], magenta: p.ansi[5], amber: p.ansi[3] }; }
+
+function frame(opts){
+  const p = PALETTES[opts.palette]; const u = ui(p); const dark = p.category==='dark';
+  const v = opts.variant, seam = opts.seam;
+  let chrome = u.bg, frameBg = u.bg, ground = u.inset, cardb = blend(u.border, u.bg, 0.55) /* 55%-alpha card border approx */, seamc = u.border, cls = [];
+  if (v === 'recess') { const c = chromeFor(u.bg, p.category, opts.dl, opts.keep, 'down'); chrome = c.hex; ground = c.hex; cls.push('recess'); }
+  else if (v !== 'today') { const c = chromeFor(u.bg, p.category, opts.dl, opts.keep); chrome = c.hex;
+    if (v === 'chrome' || v === 'fullh') frameBg = chrome;
+    if (seam === 'gap') ground = chromeFor(u.bg, p.category, opts.dl + 0.035, opts.keep).hex;   // one step past the chrome so the gap shows
+    if (seam === 'flush') { ground = chrome; cls.push('flush'); }
+    if (seam === 'hair') { ground = chrome; cls.push('hair'); }
+    if (v === 'fullh') { cls.push('fullh'); if (seam === 'gap') { ground = chromeFor(u.bg, p.category, opts.dl + 0.035, opts.keep).hex; } }
+  }
+  if (v === 'recess' && seam === 'hair') cls.push('hair');
+  // hover: one step past the chrome (proposed --color-bg-chrome-hover); today: bg-card/50 over bg
+  const hover = v === 'today' ? blend(u.card, u.bg, 0.5) : chromeFor(chrome, p.category, 0.035, opts.keep).hex;
+  const surface = opts.rebase ? chrome : u.bg;
+  const tint = (src, r) => blend(saturate(src, 1.5), surface, r);
+  const selGray = blend(p.ansi[8], surface, 0.5);
+  const rowSurface = v === 'recess' ? ground : chrome;
+  const vars = `--f-bg:${u.bg};--f-chrome:${chrome};--f-frame:${frameBg};--f-ground:${ground};--f-border:${u.border};--f-cardb:${cardb};--f-seam:${seamc};--f-tp:${u.tp};--f-ts:${u.ts};--f-green:${u.green};--f-yellow:${u.yellow};--f-red:${u.red};--f-accent:${u.accent};--f-magenta:${u.magenta};--f-amber:${u.amber};--f-hover:${hover}`;
+  const win = (name, dot, extra='', pr='') => `<div class="row ${extra}"><span class="d ${dot}"></span><span class="nm">${name}</span>${pr?`<span class="pr ${pr==='red'?'red':''}">⑂</span>`:''}</div>`;
+  const rows = `
+    <div class="row ses" style="background:${tint(u.accent,0.34)};color:${u.tp}"><span class="car">⑂</span><span class="nm" style="color:${u.accent}">LOOM</span></div>
+    <div class="row ses" style="background:${tint(u.green,0.14)}"><span class="car">▸</span><span class="nm" style="color:${u.green}">FABKIT</span></div>
+    <div class="row ses" style="background:${tint(u.red,0.22)}"><span class="car">▾</span><span class="nm" style="color:${u.red}">RUNKIT</span></div>
+    <div class="row"><span class="well" style="background:${tint(u.red,0.14)}"></span><span class="hs">🎧</span><span class="nm">operator</span></div>
+    <div class="row sub" style="background:${tint(u.green,0.14)}"><span class="car">▾</span><span class="nm">runKit</span></div>
+    ${win('run-kit','')}${win('tmux-mouse-bin…','on')}${win('rk-tab-new-ses…','','', 'pr')}${win('cron-tabs-unga…','','','pr')}${win('cloudy-ermine','','','pr')}
+    ${win('agent-tile-con…','','hatch')}${win('agent-agnostic…','')}${win('web-pane-file-…','')}${win('acp-protocol-r…','')}
+    <div class="row" style="background:${hover}"><span class="d"></span><span class="nm">rebranding-stu…</span></div>
+    ${win('status-bar-des…','')}${win('quake-terminal…','')}${win('port-conflict-…','')}
+    <div class="row" style="background:${selGray};font-weight:600"><span class="d on"></span><span class="nm">riff-drifty-nu…</span></div>
+    ${win('github-support…','')}${win('quake-terminal…','','','pr')}
+    <div class="row sub"><span class="car">▾</span><span class="nm">completed</span></div>
+    ${win('mermaid-zoom-f…','dim','dim','red')}`;
+  const side = `<div class="side">
+      <div class="brand"><span class="logo"></span><b>RunKit</b>${v === 'fullh' ? '<span class="btn tog" style="height:22px;min-width:22px">◫</span>' : ''}</div>
+      <div class="rail"><span class="btn on">▦</span><span class="btn on">≡</span><span class="btn">▭</span><span class="btn">∿</span></div>
+      <div class="sec">▸ Boards <span class="r">⌖</span></div>
+      <div class="sec">▾ Servers <span class="r">+</span></div>
+      <div class="srv"><div class="t" style="background:${tint(u.accent,0.22)}">loom<small>86</small></div><div class="t" style="background:${tint(u.yellow,0.18)}">fabKit<small>13</small></div></div>
+      <div class="sec">Sessions <span class="r"><span class="chip">ALL</span></span></div>
+      <div class="rows">${rows}</div>
+    </div>`;
+  const top = `<div class="top">
+      <div class="l"><span class="btn mv">◫</span><span class="btn">‹</span><span class="btn">›</span><span class="btn mv"><span class="logo" style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${u.ts};margin-right:5px"></span>RunKit</span><span class="crumb">›</span><span class="btn">runKit</span><span class="crumb mv">›</span><span class="btn mv">runKit</span></div>
+      <div class="c">riff-drifty-numbat <small>▾</small></div>
+      <div class="r"><span class="chip">◉ <span class="k">Shift+Ctrl+J</span></span><span class="btn on">&gt;_</span><span class="btn">{}</span><span class="btn">://</span><span class="btn">▦</span><span class="btn">↻</span><span class="btn">⚙</span><span class="btn">⌄</span></div>
+    </div>`;
+  const tile = `<div class="tile">
+      <div class="thead"><span class="dot"></span> &gt;_ Terminal <span class="r"><span>⌕</span><span>⇩</span><span>◫ ⊟ ⊠</span></span></div>
+      <div class="term">
+        <div class="tl"><span class="p1">🖥 run-kit.worktrees/drifty-numbat</span><span class="p2">⇡</span><span class="p3">⑂ drifty-numbat</span><span class="p4">claude</span><span class="ln"></span></div>
+        <div><b>Claude Code</b> <span class="ts">v2.1.272</span></div>
+        <div class="ts">Fable 5.1 with high effort · Claude Team</div>
+        <div class="ts">~/code/sahil87/run-kit.worktrees/drifty-numbat</div>
+        <div class="prompt">/fab-discuss</div>
+        <div><span class="a">●</span> Loading the preamble and always-load layer for a discussion session.</div>
+        <div class="ts">&nbsp;&nbsp;Searched for 1 pattern, ran 7 shell commands</div>
+        <div class="prompt">I want to evaluate a UI where the left panel's background is not the same as the terminal background but more of a gray shade…</div>
+        <div><span class="a">●</span> Context loaded. The sidebar card, top bar, status bar and terminal all sit on the same palette background.</div>
+        <div class="ts">&nbsp;&nbsp;<span class="g">✓</span> 14 palettes extracted · live screenshot captured</div>
+        <div class="prompt" style="margin-top:22px">▍</div>
+      </div>
+      <div class="tmuxline"><span class="s">runKit</span><span class="w">‹udit</span><span class="w">14:riff-darting-dunlin</span><span class="w">15:github-support-reply</span><span class="w cur">18:riff-drifty-numbat</span><span class="tm">16:47</span></div>
+      <div class="compose"><span class="btn" style="height:22px;min-width:22px">📎</span><span class="btn" style="height:22px;min-width:22px">a|</span><div class="box">Compose text — Enter inserts · Ctrl+Enter sends · ↑ history · Esc → terminal</div></div>
+    </div>`;
+  const status = `<div class="status"><span>⑂ drifty-numbat</span><span><span class="g">●</span> agt active</span><span><span class="k">tmx</span> %142</span><span><span class="k">cwd</span> drifty-numbat</span>
+      <div class="r"><span><span class="k">cpu</span> 4% · <span class="k">mem</span> <span class="g">31%</span> · <span class="k">ld</span> 4%</span><span>◷ in 1m</span><span>runKit</span><span class="k">dev-ws-sahil02 <b>v3.19.66</b></span><span class="chip" style="height:16px;font-size:9px">⌘K</span><span class="chip" style="height:16px;font-size:9px;color:${u.green};border-color:${u.green}">a</span><span class="cd"></span></div></div>`;
+  const fly = opts.flyout ? `<div class="fly"><b>rebranding-studies</b>runKit · %138 · claude<br><span style="color:${u.green}">●</span> active 2m · ⑂ rebranding-studies<br><span class="ts">note · tests green, drafting PR</span></div>` : '';
+  const callouts = opts.callouts ? `
+      <span class="co callout" style="left:196px;top:342px">1</span><span class="co callout" style="left:700px;top:400px">2</span>
+      <span class="co callout" style="left:224px;top:210px">3</span><span class="co callout" style="left:540px;top:14px">4</span><span class="co callout" style="left:6px;top:236px">5</span>` : '';
+  const body = v === 'fullh'
+    ? `<div class="sidecol">${side}</div>${top}<div class="stage">${tile}</div>${status}`
+    : `${top}<div class="stage">${side}${tile}</div>${status}`;
+  return `<div class="fr ${cls.join(' ')}" style="${vars}">${body}${fly}${callouts}</div>`;
+}
+
+// ---------- state + wiring ----------
+const state = { palette: 'default-dark', variant: 'lift', seam: 'gap', dl: 0.06, keep: 0.35, rebase: true, flyout: false };
+const $ = s => document.querySelector(s);
+const palSel = $('#pal'); for (const id of ORDER) { const o = document.createElement('option'); o.value = id; o.textContent = `${PALETTES[id].name} (${PALETTES[id].category})`; palSel.appendChild(o); }
+palSel.value = state.palette;
+palSel.onchange = () => { state.palette = palSel.value; renderAll(); };
+document.querySelectorAll('#varGrp button').forEach(b => b.onclick = () => { state.variant = b.dataset.v; renderAll(); });
+document.querySelectorAll('#seamGrp button').forEach(b => b.onclick = () => { state.seam = b.dataset.s; renderAll(); });
+$('#dl').oninput = e => { state.dl = +e.target.value; $('#dlv').textContent = state.dl.toFixed(3); renderLive(); };
+$('#ck').oninput = e => { state.keep = +e.target.value; $('#ckv').textContent = Math.round(state.keep*100) + '%'; renderLive(); };
+$('#tints').onclick = () => { state.rebase = !state.rebase; $('#tints').classList.toggle('on', state.rebase); renderLive(); };
+$('#flyout').onclick = () => { state.flyout = !state.flyout; $('#flyout').classList.toggle('on', state.flyout); renderLive(); };
+$('#tLight').onclick = () => { document.body.classList.toggle('light'); $('#tLight').classList.toggle('on'); };
+
+function renderLive(){
+  document.querySelectorAll('#varGrp button').forEach(b => b.classList.toggle('on', b.dataset.v === state.variant));
+  document.querySelectorAll('#seamGrp button').forEach(b => b.classList.toggle('on', b.dataset.s === state.seam));
+  $('#frLive').innerHTML = frame({ ...state });
+  const p = PALETTES[state.palette]; const u = ui(p);
+  const c = state.variant === 'today' ? { hex: u.bg } : chromeFor(u.bg, p.category, state.dl, state.keep, state.variant === 'recess' ? 'down' : undefined);
+  const [L0] = toOklch(u.bg), [L1] = toOklch(c.hex);
+  $('#readout').innerHTML = `<span><i class="sw" style="background:${u.bg}"></i>terminal <b>${u.bg}</b> L ${L0.toFixed(3)}</span>
+    <span><i class="sw" style="background:${c.hex}"></i>sidebar <b>${c.hex}</b> L ${L1.toFixed(3)}${c.clamped ? ' <span style="color:var(--red)">clamped</span>' : ''}</span>
+    <span>chrome : terminal <b>${contrast(c.hex, u.bg).toFixed(2)}:1</b></span>
+    <span>secondary text on sidebar <b>${contrast(u.ts, c.hex).toFixed(2)}:1</b> <span style="color:${contrast(u.ts, c.hex) >= 4.5 ? 'var(--green)' : 'var(--amber)'}">${contrast(u.ts, c.hex) >= 4.5 ? 'AA' : 'below AA'}</span></span>
+    <span>card today <b>${u.card}</b> (${contrast(u.card, u.bg).toFixed(2)}:1)</span>`;
+}
+function renderStrip(){
+  const cands = [
+    ['today','gap','Today','tag','same sheet'],
+    ['recess','gap','Recessed — sidebar is the ground','tag bad','reject'],
+    ['lift','gap','Lifted card — sidebar only','tag rec','first trial'],
+    ['chrome','gap','Chrome material — sidebar + frame, gap seam','tag rec','end state'],
+    ['chrome','hair','Chrome material — hairline seam','tag try','try with #2'],
+    ['fullh','hair','Full-height sidebar','tag park','park'],
+  ];
+  const pals = [state.palette, SIBLING[state.palette]];
+  let html = '';
+  for (const pal of pals) for (const [v, s, title, tag, verdict] of cands) {
+    html += `<div class="study"><h3>${title} <span class="${tag}" style="float:right;margin:0">${verdict}</span></h3><div class="fr-wrap">${frame({ palette: pal, variant: v, seam: s, dl: 0.06, keep: 0.35, rebase: true })}</div><div class="cap">${PALETTES[pal].name} · ΔL 0.06 · chroma 35%</div></div>`;
+  }
+  $('#strip').innerHTML = html;
+}
+function renderDerive(){
+  const cell = (hex, bg, clamped) => { const dL = Math.abs(toOklch(hex)[0] - toOklch(bg)[0]); const cls = dL < 0.03 ? 'bad' : dL > 0.09 ? 'warn' : 'ok'; return `<td class="n ${cls}"><span class="pair"><i style="background:${bg}"></i><i style="background:${hex}"></i></span> ${dL.toFixed(3)} <small style="color:var(--ts)">${contrast(hex, bg).toFixed(2)}:1</small>${clamped ? ' <span class="tag bad" style="margin:0 0 0 4px">clamp</span>' : ''}</td>`; };
+  let html = `<tr><th>Theme</th><th>background</th><th>inset today<br><small>darken 5 / darken 6</small></th><th>card today<br><small>lighten 8 / darken 3</small></th><th>OKLab ΔL 0.06 · chroma 0<br><small>neutral gray</small></th><th>OKLab ΔL 0.06 · chroma 35%<br><small>proposed</small></th><th>OKLab ΔL 0.06 · chroma 100%<br><small>tint kept</small></th><th>mix(fg, 6%)</th><th>recessed ΔL −0.06</th></tr>`;
+  for (const id of ORDER) { const p = PALETTES[id]; const u = ui(p);
+    const n = chromeFor(u.bg, p.category, 0.06, 0), k = chromeFor(u.bg, p.category, 0.06, 0.35), t = chromeFor(u.bg, p.category, 0.06, 1), r = chromeFor(u.bg, p.category, 0.06, 0.35, 'down');
+    html += `<tr><td><b>${p.name}</b> <span style="color:var(--ts)">${p.category}</span></td><td class="kv">${u.bg}</td>${cell(u.inset, u.bg)}${cell(u.card, u.bg)}${cell(n.hex, u.bg, n.clamped)}${cell(k.hex, u.bg, k.clamped)}${cell(t.hex, u.bg, t.clamped)}${cell(blend(u.tp, u.bg, 0.06), u.bg)}${cell(r.hex, u.bg, r.clamped)}</tr>`; }
+  $('#derive').innerHTML = html;
+}
+function renderAll(){ $('#frToday').innerHTML = frame({ palette: state.palette, variant: 'today', seam: 'gap', dl: 0, keep: 1, rebase: true, callouts: true }); renderLive(); renderStrip(); }
+renderAll(); renderDerive();
+</script>
+</body>
+</html>

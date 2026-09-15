@@ -327,10 +327,12 @@ describe("ThemeProvider", () => {
   });
 
   describe("theme-color meta tag synchronization", () => {
+    // The meta follows the CHROME hex (the top bar's surface — the titlebar's
+    // truthful neighbor), not the terminal background.
     it.each([
-      { button: "Set Dark", expected: DEFAULT_DARK_THEME.palette.background },
-      { button: "Set Light", expected: DEFAULT_LIGHT_THEME.palette.background },
-      { button: "Set Dracula", expected: "#282a36" },
+      { button: "Set Dark", expected: deriveUIColors(DEFAULT_DARK_THEME.palette, "dark").bgChrome },
+      { button: "Set Light", expected: deriveUIColors(DEFAULT_LIGHT_THEME.palette, "light").bgChrome },
+      { button: "Set Dracula", expected: deriveUIColors(getThemeById("dracula")!.palette, "dark").bgChrome },
     ])("syncs theme-color after $button", ({ button, expected }) => {
       render(
         <ThemeProvider>
@@ -355,18 +357,22 @@ describe("ThemeProvider", () => {
       );
 
       // System mode starts with dark OS
-      expect(themeColorMeta.getAttribute("content")).toBe(DEFAULT_DARK_THEME.palette.background);
+      expect(themeColorMeta.getAttribute("content")).toBe(
+        deriveUIColors(DEFAULT_DARK_THEME.palette, "dark").bgChrome,
+      );
 
       // OS switches to light
       act(() => {
         simulateChange(false);
       });
-      expect(themeColorMeta.getAttribute("content")).toBe(DEFAULT_LIGHT_THEME.palette.background);
+      expect(themeColorMeta.getAttribute("content")).toBe(
+        deriveUIColors(DEFAULT_LIGHT_THEME.palette, "light").bgChrome,
+      );
     });
   });
 
   describe("CSS custom properties", () => {
-    it("applies all 9 CSS custom properties via deriveUIColors to document.documentElement.style", () => {
+    it("applies all 11 CSS custom properties via deriveUIColors to document.documentElement.style", () => {
       render(
         <ThemeProvider>
           <TestConsumer />
@@ -378,6 +384,8 @@ describe("ThemeProvider", () => {
       expect(style.getPropertyValue("--color-bg-primary")).toBe(derived.bgPrimary);
       expect(style.getPropertyValue("--color-bg-card")).toBe(derived.bgCard);
       expect(style.getPropertyValue("--color-bg-inset")).toBe(derived.bgInset);
+      expect(style.getPropertyValue("--color-bg-chrome")).toBe(derived.bgChrome);
+      expect(style.getPropertyValue("--color-bg-chrome-raised")).toBe(derived.bgChromeRaised);
       expect(style.getPropertyValue("--color-text-primary")).toBe(derived.textPrimary);
       expect(style.getPropertyValue("--color-text-secondary")).toBe(derived.textSecondary);
       expect(style.getPropertyValue("--color-border")).toBe(derived.border);

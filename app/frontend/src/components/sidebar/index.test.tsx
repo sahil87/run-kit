@@ -21,6 +21,7 @@ import { QUAKE_TERMINAL_EVENT } from "@/lib/quake-terminal";
 import {
   computeRowTints,
   computeRowBorders,
+  deriveUIColors,
   UNCOLORED_SELECTED_KEY,
   DEFAULT_DARK_THEME,
 } from "@/themes";
@@ -1869,7 +1870,7 @@ describe("Sidebar — tinted server-group header fill (t1ca)", () => {
   // the default dark theme (the theme the jsdom matchMedia stub resolves), so
   // no hex is hardcoded here either.
   const palette = DEFAULT_DARK_THEME.palette;
-  const tints = computeRowTints(palette);
+  const tints = computeRowTints(palette, deriveUIColors(palette, DEFAULT_DARK_THEME.category).bgChrome);
   const borders = computeRowBorders(palette, DEFAULT_DARK_THEME.category);
 
   /** jsdom normalizes inline style colors to `rgb(r, g, b)`. */
@@ -1996,7 +1997,7 @@ describe("Sidebar — server-group header card + color picker (x4sf)", () => {
   // header container ([data-server]) because the SERVER-panel tiles carry the
   // same aria wording for the same actions.
   const palette = DEFAULT_DARK_THEME.palette;
-  const tints = computeRowTints(palette);
+  const tints = computeRowTints(palette, deriveUIColors(palette, DEFAULT_DARK_THEME.category).bgChrome);
 
   /** jsdom normalizes inline style colors to `rgb(r, g, b)`. */
   function rgb(hex: string): string {

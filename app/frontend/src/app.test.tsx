@@ -15,6 +15,7 @@ import {
   buildWindowSwitchActions,
   resolveServerView,
   ServerShell,
+  AppLayout,
 } from "@/app";
 import { availableViews, hasCode } from "@/lib/window-view";
 import type { ServerInfo } from "@/api/client";
@@ -27,6 +28,8 @@ import {
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import { InstanceNameProvider } from "@/contexts/instance-name-context";
+import { InstanceAccentValueProvider } from "@/contexts/instance-accent-context";
+import type { InstanceAccent } from "@/contexts/instance-accent-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ZenProvider, useZenDispatch } from "@/contexts/zen-context";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
@@ -1681,5 +1684,109 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
       act(() => zenDispatchRef.current?.(false));
       await waitFor(() => expect(screen.queryByTestId("status-bar-window")).toBeNull());
     });
+  });
+});
+
+describe("top-bar wash wrapper — chrome paint + inline wash precedence", () => {
+  // The wrapper div (AppLayout) carries BOTH the bar's surface class and the
+  // inline accent wash, so the wash overrides the class when an accent is set
+  // and the chrome shows when it is not. Asserted on the real AppLayout render
+  // (a host route is enough — the wrapper is route-agnostic).
+  stubMatchMedia(() => false);
+
+  const noAccent: InstanceAccent = {
+    color: null,
+    isExplicit: false,
+    stripeHex: null,
+    washHex: null,
+    titlebarHex: null,
+    setColor: () => {},
+  };
+
+  function WrapperRouteRoot({ accent }: { accent: InstanceAccent }) {
+    return (
+      <ThemeProvider>
+        <ToastProvider>
+          <InstanceAccentValueProvider value={accent}>
+            <InstanceNameProvider>
+              <ChromeProvider>
+                <ZenProvider>
+                  <FocusedTerminalProvider>
+                    <OptimisticProvider>
+                      <TopBarSlotProvider>
+                        <FocusedPaneProvider>
+                          <MetricsProvider value={null}>
+                            <HostMetricsProvider value={null}>
+                              <StandaloneSessionContextProvider
+                                value={{
+                                  currentServer: null,
+                                  servers: [],
+                                  serversLoaded: true,
+                                  sessionsByServer: new Map(),
+                                  isConnectedByServer: new Map(),
+                                }}
+                              >
+                                <Outlet />
+                              </StandaloneSessionContextProvider>
+                            </HostMetricsProvider>
+                          </MetricsProvider>
+                        </FocusedPaneProvider>
+                      </TopBarSlotProvider>
+                    </OptimisticProvider>
+                  </FocusedTerminalProvider>
+                </ZenProvider>
+              </ChromeProvider>
+            </InstanceNameProvider>
+          </InstanceAccentValueProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    );
+  }
+
+  function renderLayout(accent: InstanceAccent) {
+    const rootRoute = createRootRoute({
+      component: () => <WrapperRouteRoot accent={accent} />,
+    });
+    const layoutRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      id: "app",
+      component: AppLayout,
+    });
+    const indexRoute = createRoute({
+      getParentRoute: () => layoutRoute,
+      path: "/",
+      component: () => <div data-testid="leaf" />,
+    });
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([layoutRoute.addChildren([indexRoute])]),
+      history: createMemoryHistory({ initialEntries: ["/"] }),
+    });
+    render(<RouterProvider router={router} />);
+  }
+
+  /** The wrapper is the banner landmark's parent (TopBar renders its own
+   *  `<header>`; the wrapper is the plain div above the content region). */
+  async function washWrapper(): Promise<HTMLElement> {
+    const banner = await screen.findByRole("banner");
+    return banner.parentElement!;
+  }
+
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
+
+  it("paints bg-bg-chrome with no inline background when no instance accent is set", async () => {
+    renderLayout(noAccent);
+    const wrapper = await washWrapper();
+    expect(wrapper.className).toContain("bg-bg-chrome");
+    expect(wrapper.style.backgroundColor).toBe("");
+  });
+
+  it("the inline washHex overrides the chrome class when an accent is set", async () => {
+    renderLayout({ ...noAccent, color: "4", isExplicit: true, washHex: "#112233", stripeHex: "#334455", titlebarHex: "#223344" });
+    const wrapper = await washWrapper();
+    expect(wrapper.className).toContain("bg-bg-chrome");
+    expect(wrapper.style.backgroundColor).toBe("rgb(17, 34, 51)");
   });
 });

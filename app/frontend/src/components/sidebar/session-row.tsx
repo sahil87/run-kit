@@ -330,7 +330,7 @@ function SessionRowInner({
       // The row carries NO left padding: the collapse chevron is the gutter,
       // occupying the same left column as the window row's marker well (see
       // the chevron below).
-      className={`flex items-center justify-between group${ghost ? "" : " coarse:pr-[56px]"} relative${tint ? "" : " hover:bg-bg-card/50"} transition-colors${isDragSource ? " opacity-50" : ""}`}
+      className={`flex items-center justify-between group${ghost ? "" : " coarse:pr-[56px]"} relative${tint ? "" : " hover:bg-bg-chrome-raised"} transition-colors${isDragSource ? " opacity-50" : ""}`}
       draggable={draggable}
       onDragStart={
         onDragStart

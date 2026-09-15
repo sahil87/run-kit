@@ -2,6 +2,7 @@ import {
   adjustBorderForContrast,
   blendHex,
   colorValueToHex,
+  deriveUIColors,
   BORDER_MIN_CONTRAST,
 } from "@/themes";
 import type { Theme } from "@/themes";
@@ -27,11 +28,11 @@ import type { Theme } from "@/themes";
  *  titlebar before any fetch resolves. */
 export const INSTANCE_COLOR_STORAGE_KEY = "runkit-instance-color";
 
-/** Ratio of the accent blended into the theme background for the top-bar wash
+/** Ratio of the accent blended into the chrome surface for the top-bar wash
  *  (intake latitude: ~6-7%; one trivially-tunable constant). */
 export const INSTANCE_WASH_RATIO = 0.065;
 
-/** Ratio of the accent blended into the theme background for the PWA titlebar
+/** Ratio of the accent blended into the chrome surface for the PWA titlebar
  *  (theme-color meta) tint — user-tuned to 35% (the mock-parity 12% read
  *  nearly black); a taste constant, trivially tunable. */
 export const INSTANCE_TITLEBAR_RATIO = 0.35;
@@ -75,15 +76,18 @@ export function writeInstanceColorEcho(echo: InstanceColorEcho | null): void {
  *  `washHex` the subtle top-bar background blend, and `titlebarHex` the
  *  slightly stronger blend that becomes the theme-color meta content (the
  *  installed-PWA titlebar tint — subtle wash above, full-brightness stripe
- *  below). Accepts family names and legacy descriptors incl. blends ("1+3")
- *  via the owned-family mapping. Null when the value maps to no owned family. */
+ *  below). All three blend/guard against the CHROME hex, not the terminal
+ *  background: every accent surface (wash, titlebar band, stripe) renders on
+ *  the chrome material, so the chrome is their truthful neighbor. Accepts
+ *  family names and legacy descriptors incl. blends ("1+3") via the
+ *  owned-family mapping. Null when the value maps to no owned family. */
 export function deriveAccentHexes(
   value: string,
   theme: Theme,
 ): { stripeHex: string; washHex: string; titlebarHex: string } | null {
   const src = colorValueToHex(value, theme.palette);
   if (src == null) return null;
-  const bg = theme.palette.background;
+  const bg = deriveUIColors(theme.palette, theme.category).bgChrome;
   return {
     stripeHex: adjustBorderForContrast(src, bg, theme.category === "dark", BORDER_MIN_CONTRAST),
     washHex: blendHex(src, bg, INSTANCE_WASH_RATIO),
@@ -94,9 +98,9 @@ export function deriveAccentHexes(
 // ── Single theme-color meta writer ───────────────────────────────────────────
 // React passive effects run child-first: ThemeProvider's applyThemeToDOM effect
 // fires AFTER any child accent effect on a theme switch and would clobber an
-// accent-tinted meta tag with the bare background. Both writers therefore
-// funnel through this module's shared state — last-write-wins over one content
-// derivation (accent hex when an accent is set, else the theme background).
+// accent-tinted meta tag with the bare chrome. Both writers therefore funnel
+// through this module's shared state — last-write-wins over one content
+// derivation (accent hex when an accent is set, else the theme's chrome hex).
 
 let currentAccentHex: string | null = null;
 let lastBackground: string | null = null;
@@ -108,7 +112,7 @@ function writeMeta(): void {
   if (tc) tc.setAttribute("content", content);
 }
 
-/** Theme-side write: record the active theme background and re-apply. Called
+/** Theme-side write: record the active theme's chrome hex and re-apply. Called
  *  by theme-context's applyThemeToDOM on every theme application. */
 export function applyThemeColorMeta(background: string): void {
   lastBackground = background;

@@ -44,7 +44,7 @@ import type { MetricsSnapshot, WindowInfo } from "@/types";
 /**
  * StatusBar (260814-ldbs R4/R5) — the shell's full-width ATTACHED status strip
  * on desktop: frame chrome like the top bar (flush, square, 1px `border-t`
- * seam, `bg-bg-primary`), never a card. It absorbs the sidebar's retired
+ * seam, `bg-bg-chrome`), never a card. It absorbs the sidebar's retired
  * desktop PANE/HOST panels: the LEFT cluster mirrors the CURRENT WINDOW's
  * registers (terminal route only), the RIGHT cluster carries the host
  * segments + the ⌘K / compose hints the deleted fine-pointer bottom bar used
@@ -1103,7 +1103,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
       role="region"
       aria-label="Status bar"
       data-testid="status-bar"
-      className={`${BAR_HEIGHT} relative flex items-center overflow-hidden border-t border-border bg-bg-primary px-2 font-mono text-[10.5px] leading-none`}
+      className={`${BAR_HEIGHT} relative flex items-center overflow-hidden border-t border-border bg-bg-chrome px-2 font-mono text-[10.5px] leading-none`}
     >
       {/* LEFT — the current-window mirror (terminal route only). No gap on
           the root: the right cluster's `ml-auto` spring supplies the

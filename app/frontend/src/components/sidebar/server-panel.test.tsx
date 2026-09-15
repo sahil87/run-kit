@@ -13,7 +13,7 @@ import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import type { ServerInfo } from "@/api/client";
 import { stubMatchMedia } from "@/test-utils/match-media";
-import { computeRowTints, computeRowBorders, DEFAULT_DARK_THEME, type RowTint } from "@/themes";
+import { computeRowTints, computeRowBorders, deriveUIColors, DEFAULT_DARK_THEME, type RowTint } from "@/themes";
 
 // jsdom does not implement matchMedia — ThemeProvider + useIsMobile both need it.
 // Default to the fine-pointer / desktop-width branch unless a test overrides.
@@ -459,7 +459,7 @@ describe("ServerPanel", () => {
     });
 
     it("hatches the top stripe for an external server with no assigned color; an assigned color still wins", () => {
-      const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette);
+      const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette, deriveUIColors(DEFAULT_DARK_THEME.palette, "dark").bgChrome);
       const rowBorders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
       renderPanel({
         server: "ext",

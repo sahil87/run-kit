@@ -30,6 +30,8 @@
   --color-bg-primary: #0f1117;
   --color-bg-card: #171b24;
   --color-bg-inset: #0a0c12;
+  --color-bg-chrome: #1e1f21;
+  --color-bg-chrome-raised: #262729;
   --color-text-primary: #e8eaf0;
   --color-text-secondary: #7a8394;
   --color-border: #454d66;
@@ -53,6 +55,8 @@ html[data-theme="dark"] {
   --color-bg-primary: #0f1117;
   --color-bg-card: #171b24;
   --color-bg-inset: #0a0c12;
+  --color-bg-chrome: #1e1f21;
+  --color-bg-chrome-raised: #262729;
   --color-text-primary: #e8eaf0;
   --color-text-secondary: #7a8394;
   --color-border: #454d66;
@@ -71,6 +75,8 @@ html[data-theme="light"] {
   --color-bg-primary: #f8f9fb;
   --color-bg-card: #ffffff;
   --color-bg-inset: #e8eaef;
+  --color-bg-chrome: #e5e5e6;
+  --color-bg-chrome-raised: #d9dada;
   --color-text-primary: #1a1d24;
   --color-text-secondary: #6b7280;
   --color-border: #d1d5db;
@@ -1606,8 +1612,8 @@ html[data-theme="light"] {
   transition: background-color 100ms ease-out 0ms;
 }
 .rk-divider:hover .rk-grips i,
-.rk-divider.rk-sash-hot .rk-grips i { background-color: var(--color-bg-inset); transition-delay: 150ms; }
-.rk-divider.rk-sash-lit .rk-grips i { background-color: var(--color-bg-inset); transition-delay: 0ms; }
+.rk-divider.rk-sash-hot .rk-grips i { background-color: var(--color-bg-chrome-raised); transition-delay: 150ms; }
+.rk-divider.rk-sash-lit .rk-grips i { background-color: var(--color-bg-chrome-raised); transition-delay: 0ms; }
 
 /* ── Picker band scroll strip (9hh6) ─────────────────────────────────────────
    The Label picker's color band scrolls HORIZONTALLY inside a fixed-height

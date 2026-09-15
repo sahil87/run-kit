@@ -7,7 +7,7 @@ import {
   setAccentThemeColor,
   INSTANCE_COLOR_STORAGE_KEY,
 } from "./instance-accent";
-import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "./themes";
+import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, blendHex, colorValueToHex, deriveUIColors } from "./themes";
 
 beforeEach(() => {
   localStorage.clear();
@@ -78,6 +78,18 @@ describe("deriveAccentHexes", () => {
     const light = deriveAccentHexes("4", DEFAULT_LIGHT_THEME);
     expect(dark?.washHex).not.toBe(light?.washHex);
     expect(dark?.titlebarHex).not.toBe(light?.titlebarHex);
+  });
+
+  it("blends wash/titlebar into the CHROME hex (the surface the top bar paints), not the terminal background", () => {
+    for (const theme of [DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME]) {
+      const chrome = deriveUIColors(theme.palette, theme.category).bgChrome;
+      const src = colorValueToHex("4", theme.palette)!;
+      const hexes = deriveAccentHexes("4", theme)!;
+      expect(hexes.washHex).toBe(blendHex(src, chrome, 0.065));
+      expect(hexes.titlebarHex).toBe(blendHex(src, chrome, 0.35));
+      // Distinct from the terminal-background blend the old base produced.
+      expect(hexes.titlebarHex).not.toBe(blendHex(src, theme.palette.background, 0.35));
+    }
   });
 });
 

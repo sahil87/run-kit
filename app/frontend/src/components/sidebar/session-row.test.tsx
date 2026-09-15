@@ -7,7 +7,7 @@ import type { ProjectSession } from "@/types";
 import { makeSession, makeWindow } from "@/test-utils/fixtures";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { ThemeProvider } from "@/contexts/theme-context";
-import { computeRowTints, DEFAULT_DARK_THEME } from "@/themes";
+import { computeRowTints, deriveUIColors, DEFAULT_DARK_THEME } from "@/themes";
 
 afterEach(() => {
   cleanup();
@@ -489,7 +489,7 @@ describe("SessionRow", () => {
     }
 
     it("renders the 56px tier-tinted rail with an empty glyph slot + chevron, and no cluster buttons", () => {
-      const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette);
+      const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette, deriveUIColors(DEFAULT_DARK_THEME.palette, "dark").bgChrome);
       const session = makeSession({ name: "agent-work", sessionColor: "2" });
       render(<SessionRow {...rowProps(session)} sessionColor="2" rowTints={rowTints} onSpawnAgent={noop} />);
       const rail = screen.getByTestId("status-rail");

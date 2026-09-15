@@ -9,7 +9,12 @@ import {
   UNCOLORED_SELECTED_KEY,
   computeRowTints,
   computeRowBorders,
+  deriveUIColors,
 } from "@/themes";
+
+/** The chrome hex the component blends its tint previews into (rows render on
+ *  the sidebar chrome, so the popover's previews must match that surface). */
+const DARK_CHROME = deriveUIColors(DEFAULT_DARK_THEME.palette, "dark").bgChrome;
 
 /** The STORED value the write seam maps a picked display value to: a NORMAL
  *  shade maps to its legacy descriptor ("orange" → "1+3", the vocabulary
@@ -123,7 +128,7 @@ describe("SwatchPopover", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
-    const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    const tints = computeRowTints(DEFAULT_DARK_THEME.palette, DARK_CHROME);
     for (const value of ["blue", "blue-dark"]) {
       const swatch = screen.getByRole("option", { name: `Color ${value}` });
       expect(swatch.style.backgroundColor).toBe(rgb(tints.get(value)!.selected));
@@ -253,7 +258,7 @@ describe("SwatchPopover", () => {
 
   // ── Composite preview row + combo caption. ──
   describe("composite preview", () => {
-    const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    const tints = computeRowTints(DEFAULT_DARK_THEME.palette, DARK_CHROME);
     const borders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
 
     it("renders the row's resting look: tint, row name, and the combo caption (no marker stripe)", () => {
@@ -335,7 +340,7 @@ describe("SwatchPopover", () => {
   // Banded structure: a color scroll strip and a two-row flair strip, each
   // with a header clear cell.
   describe("banded Label picker", () => {
-    const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    const tints = computeRowTints(DEFAULT_DARK_THEME.palette, DARK_CHROME);
     const borders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
 
     function renderLabelPicker(extra: Partial<React.ComponentProps<typeof SwatchPopover>> = {}) {

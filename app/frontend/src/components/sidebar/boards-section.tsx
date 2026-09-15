@@ -145,8 +145,8 @@ export function BoardsSection() {
                   aria-current={isActive ? "page" : undefined}
                   className={`w-full flex items-center justify-between gap-2 pl-5 pr-2 py-px text-left transition-colors min-h-[24px] coarse:min-h-[36px] ${
                     isActive
-                      ? "bg-bg-card text-text-primary font-medium"
-                      : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
+                      ? "bg-bg-chrome-raised text-text-primary font-medium"
+                      : "text-text-secondary hover:text-text-primary hover:bg-bg-chrome-raised"
                   }${isDragSource ? " opacity-50" : ""}`}
                   // Drop-target ring mirrors the session cross-move highlight
                   // in session-row.tsx (isSessionDropTarget).

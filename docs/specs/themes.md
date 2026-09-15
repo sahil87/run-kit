@@ -6,7 +6,7 @@ Each theme stores a full **22-color ANSI terminal palette** — the canonical co
 
 | Consumer | What it uses | How applied |
 |----------|-------------|-------------|
-| **Web UI** (CSS) | 8 derived colors (bg, text, border, accent) | `document.documentElement.style` inline CSS custom properties |
+| **Web UI** (CSS) | 11 derived colors (bg, chrome, text, border, accent) | `document.documentElement.style` inline CSS custom properties |
 | **xterm.js** (terminal canvas) | All 22 colors (fg, bg, cursor, selection, 16 ANSI) | `terminal.options.theme = deriveXtermTheme(palette)` |
 | **tmux** (status bar, pane borders) | ANSI colour indices in static tmux.conf | Automatic — xterm.js controls what `colour0`–`colour15` look like |
 
@@ -49,18 +49,23 @@ type ThemePalette = {
 
 ### UI Color Derivation
 
-The 8 CSS custom properties are derived, not stored:
+The 11 CSS custom properties are derived, not stored:
 
 | CSS property | Derived from |
 |-------------|-------------|
 | `--color-bg-primary` | `palette.background` |
 | `--color-bg-card` | `lighten(background, 8%)` dark / `darken(background, 3%)` light |
 | `--color-bg-inset` | `darken(background, 5%)` dark / `darken(background, 6%)` light |
+| `--color-bg-chrome` | `oklch(L ± 0.06, C × 0.35, h)` of `background` — up on dark, down on light; gamut-reduced by chroma |
+| `--color-bg-chrome-raised` | one further `0.035` L step in the same direction, same chroma |
 | `--color-text-primary` | `palette.foreground` |
 | `--color-text-secondary` | `palette.ansi[8]` (bright black) |
 | `--color-border` | `blend(foreground, background, 0.25)` |
 | `--color-accent` | `palette.ansi[4]` (blue) |
 | `--color-accent-green` | `palette.ansi[2]` (green) |
+
+(The eleventh, `--color-accent-bright`, is `lighten(accent, 25%)` dark /
+`saturate(darken(accent, 12%), ×1.15)` light.)
 
 ## Row Color System — Owned Palette + Axis Split
 

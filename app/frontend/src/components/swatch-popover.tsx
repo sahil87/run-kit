@@ -9,6 +9,7 @@ import {
   computeRowTints,
   computeRowBorders,
   colorValueToHex,
+  deriveUIColors,
   parseColorValue,
   formatColorValue,
   familyToLegacy,
@@ -147,7 +148,12 @@ export function SwatchPopover({
   onSelectFlair,
 }: SwatchPopoverProps) {
   const { theme } = useTheme();
-  const rowTints = useMemo(() => computeRowTints(theme.palette), [theme.palette]);
+  // Rows render on the sidebar chrome, so tints blend into the chrome hex —
+  // a terminal-colored base would leave a halo around every tinted band.
+  const rowTints = useMemo(
+    () => computeRowTints(theme.palette, deriveUIColors(theme.palette, theme.category).bgChrome),
+    [theme.palette, theme.category],
+  );
   const rowBorders = useMemo(
     () => computeRowBorders(theme.palette, theme.category),
     [theme.palette, theme.category],

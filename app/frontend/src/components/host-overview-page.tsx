@@ -301,7 +301,7 @@ export function HostOverviewPage() {
   );
 
   return (
-    <div className="flex flex-col h-full bg-bg-inset">
+    <div className="flex flex-col h-full bg-bg-chrome-raised">
       {/* The host-mode TopBar mount moved to the persistent root layout
           (260707-4vq2). Its route-derived mode is `host` (brand root crumb +
           the solo `Host` center heading + route-agnostic controls; no

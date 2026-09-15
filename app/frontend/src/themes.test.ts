@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   THEMES,
   getThemeById,
@@ -125,9 +127,11 @@ describe("themes", () => {
   });
 
   describe("COLOR_CSS_MAP", () => {
-    it("maps all 9 color keys to CSS custom property names", () => {
-      expect(Object.keys(COLOR_CSS_MAP)).toHaveLength(9);
+    it("maps all 11 color keys to CSS custom property names", () => {
+      expect(Object.keys(COLOR_CSS_MAP)).toHaveLength(11);
       expect(COLOR_CSS_MAP.bgPrimary).toBe("--color-bg-primary");
+      expect(COLOR_CSS_MAP.bgChrome).toBe("--color-bg-chrome");
+      expect(COLOR_CSS_MAP.bgChromeRaised).toBe("--color-bg-chrome-raised");
       expect(COLOR_CSS_MAP.accent).toBe("--color-accent");
       expect(COLOR_CSS_MAP.accentBright).toBe("--color-accent-bright");
     });
@@ -169,11 +173,11 @@ describe("deriveUIColors", () => {
     expect(ui.border).not.toBe(theme.palette.background);
   });
 
-  it("all 9 keys are valid hex", () => {
+  it("all 11 keys are valid hex", () => {
     for (const theme of THEMES) {
       const ui = deriveUIColors(theme.palette, theme.category);
       const keys = Object.keys(ui) as (keyof UIColors)[];
-      expect(keys).toHaveLength(9);
+      expect(keys).toHaveLength(11);
       for (const key of keys) {
         expect(ui[key]).toMatch(HEX_RE);
       }
@@ -193,6 +197,96 @@ describe("deriveUIColors", () => {
         expect(luminance(ui.accentBright)).toBeLessThan(luminance(ui.accent));
       }
     }
+  });
+});
+
+describe("chrome tokens", () => {
+  const chroma = (hex: string) => {
+    const { a, b } = hexToOklab(hex);
+    return Math.hypot(a, b);
+  };
+  // 8-bit rounding plus any gamut chroma-reduction leave L itself exact; the
+  // 0.01 tolerance covers the hex round-trip only.
+  const L_TOLERANCE = 0.01;
+  // Hex quantization can nudge the reconstructed chroma slightly past the
+  // scaled source, so the bound carries a small epsilon.
+  const CHROMA_EPSILON = 0.002;
+
+  it("default-dark: chrome steps +0.06, raised a further +0.035, chroma ≤ 35% of the background's", () => {
+    const p = DEFAULT_DARK_THEME.palette;
+    const ui = deriveUIColors(p, "dark");
+    const bgL = hexToOklab(p.background).L;
+    const chromeL = hexToOklab(ui.bgChrome).L;
+    const raisedL = hexToOklab(ui.bgChromeRaised).L;
+    expect(Math.abs(chromeL - bgL - 0.06)).toBeLessThan(L_TOLERANCE);
+    expect(Math.abs(raisedL - chromeL - 0.035)).toBeLessThan(L_TOLERANCE);
+    expect(chroma(ui.bgChrome)).toBeLessThanOrEqual(chroma(p.background) * 0.35 + CHROMA_EPSILON);
+    expect(chroma(ui.bgChromeRaised)).toBeLessThanOrEqual(chroma(p.background) * 0.35 + CHROMA_EPSILON);
+  });
+
+  it("solarized-light: chrome steps −0.06, raised a further −0.035 (down on light)", () => {
+    const solarized = getThemeById("solarized-light")!;
+    const p = solarized.palette;
+    const ui = deriveUIColors(p, "light");
+    const bgL = hexToOklab(p.background).L;
+    const chromeL = hexToOklab(ui.bgChrome).L;
+    const raisedL = hexToOklab(ui.bgChromeRaised).L;
+    expect(Math.abs(bgL - chromeL - 0.06)).toBeLessThan(L_TOLERANCE);
+    expect(Math.abs(chromeL - raisedL - 0.035)).toBeLessThan(L_TOLERANCE);
+    expect(chroma(ui.bgChrome)).toBeLessThanOrEqual(chroma(p.background) * 0.35 + CHROMA_EPSILON);
+    expect(chroma(ui.bgChromeRaised)).toBeLessThanOrEqual(chroma(p.background) * 0.35 + CHROMA_EPSILON);
+  });
+
+  it("#000000-background themes derive a chrome distinct from the background (no black clamp)", () => {
+    for (const id of ["tomorrow-night-bright", "synthwave", "dark-pastel"]) {
+      const theme = getThemeById(id)!;
+      expect(theme.palette.background).toBe("#000000");
+      const ui = deriveUIColors(theme.palette, theme.category);
+      expect(ui.bgChrome).not.toBe(theme.palette.background);
+      expect(ui.bgChromeRaised).not.toBe(theme.palette.background);
+      expect(ui.bgChromeRaised).not.toBe(ui.bgChrome);
+    }
+  });
+
+  it("chrome is the same visible step in both directions across all 70 themes", () => {
+    for (const theme of THEMES) {
+      const ui = deriveUIColors(theme.palette, theme.category);
+      const bgL = hexToOklab(theme.palette.background).L;
+      const chromeL = hexToOklab(ui.bgChrome).L;
+      const step = chromeL - bgL;
+      if (theme.category === "dark") {
+        expect(Math.abs(step - 0.06)).toBeLessThan(L_TOLERANCE);
+      } else {
+        expect(Math.abs(step + 0.06)).toBeLessThan(L_TOLERANCE);
+      }
+    }
+  });
+
+  it("the globals.css static fallbacks equal the derived default values", () => {
+    // Drift pin: the first-paint fallbacks in globals.css must always be the
+    // deriveUIColors output for the default palettes — a stale literal would
+    // flash the wrong chrome before applyThemeToDOM runs.
+    const css = readFileSync(resolve(__dirname, "globals.css"), "utf8");
+    const blockValues = (block: string): Record<string, string> => {
+      const out: Record<string, string> = {};
+      for (const m of block.matchAll(/(--color-bg-chrome(?:-raised)?):\s*(#[0-9a-fA-F]{6})/g)) {
+        out[m[1]] = m[2].toLowerCase();
+      }
+      return out;
+    };
+    const themeBlock = css.match(/@theme\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const darkBlock = css.match(/html\[data-theme="dark"\]\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const lightBlock = css.match(/html\[data-theme="light"\]\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const dark = deriveUIColors(DEFAULT_DARK_THEME.palette, "dark");
+    const light = deriveUIColors(DEFAULT_LIGHT_THEME.palette, "light");
+    for (const [name, block] of [["@theme", themeBlock], ["dark", darkBlock]] as const) {
+      const values = blockValues(block);
+      expect(values["--color-bg-chrome"], `${name} --color-bg-chrome`).toBe(dark.bgChrome);
+      expect(values["--color-bg-chrome-raised"], `${name} --color-bg-chrome-raised`).toBe(dark.bgChromeRaised);
+    }
+    const lightValues = blockValues(lightBlock);
+    expect(lightValues["--color-bg-chrome"]).toBe(light.bgChrome);
+    expect(lightValues["--color-bg-chrome-raised"]).toBe(light.bgChromeRaised);
   });
 });
 
@@ -524,8 +618,12 @@ describe("OKLCH helpers", () => {
 });
 
 describe("computeRowTints", () => {
+  // The sidebar renders rows on the chrome, so every call blends into the
+  // chrome hex — the surface the tints sit on.
+  const darkChrome = deriveUIColors(DEFAULT_DARK_THEME.palette, "dark").bgChrome;
+
   it("returns an entry for every family/shade value plus the uncolored sentinel", () => {
-    const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    const tints = computeRowTints(DEFAULT_DARK_THEME.palette, darkChrome);
     // Each of the 10 families' NORMAL shade is keyed under BOTH its family name
     // AND its legacy descriptor (20 keys); each LIGHT/DARK shade under its
     // `{family}-light`/`{family}-dark` value only (20 keys — no legacy form
@@ -539,17 +637,17 @@ describe("computeRowTints", () => {
 
   it("dark tints derive from the dark source hex through the same pipeline (distinct from normal)", () => {
     const p = DEFAULT_DARK_THEME.palette;
-    const tints = computeRowTints(p);
+    const tints = computeRowTints(p, darkChrome);
     const fg = saturateHex(colorValueToHex("blue-dark", p)!, 1.5);
-    expect(tints.get("blue-dark")!.base).toBe(blendHex(fg, p.background, 0.14));
-    expect(tints.get("blue-dark")!.selected).toBe(blendHex(fg, p.background, 0.4));
+    expect(tints.get("blue-dark")!.base).toBe(blendHex(fg, darkChrome, 0.14));
+    expect(tints.get("blue-dark")!.selected).toBe(blendHex(fg, darkChrome, 0.4));
     // The dark entry is its own tint, not an alias of the normal one.
     expect(tints.get("blue-dark")).not.toBe(tints.get("blue"));
     expect(tints.get("blue-dark")!.base).not.toBe(tints.get("blue")!.base);
   });
 
   it("keys tints under BOTH the family name AND its legacy descriptor (same entry)", () => {
-    const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    const tints = computeRowTints(DEFAULT_DARK_THEME.palette, darkChrome);
     // Consumers look up the RAW stored value, and the backend still emits legacy
     // forms ("1+3"/"4"), so both vocabularies MUST be keys pointing at the same
     // tint — a family-name-only map would leave every pre-existing colored row
@@ -563,21 +661,55 @@ describe("computeRowTints", () => {
 
   it("no-regression: a family tint matches the documented saturate→blend pipeline (selected=0.40)", () => {
     const p = DEFAULT_DARK_THEME.palette;
-    const tints = computeRowTints(p);
+    const tints = computeRowTints(p, darkChrome);
     const SATURATE = 1.5;
     const RATIOS = { base: 0.14, hover: 0.22, selected: 0.4 } as const;
     for (const value of PICKER_COLOR_VALUES) {
       const fg = saturateHex(colorValueToHex(value, p)!, SATURATE);
       const tint = tints.get(value)!;
-      expect(tint.base).toBe(blendHex(fg, p.background, RATIOS.base));
-      expect(tint.hover).toBe(blendHex(fg, p.background, RATIOS.hover));
-      expect(tint.selected).toBe(blendHex(fg, p.background, RATIOS.selected));
+      expect(tint.base).toBe(blendHex(fg, darkChrome, RATIOS.base));
+      expect(tint.hover).toBe(blendHex(fg, darkChrome, RATIOS.hover));
+      expect(tint.selected).toBe(blendHex(fg, darkChrome, RATIOS.selected));
+    }
+  });
+
+  it("blends into the surface argument, not the terminal background", () => {
+    // OKLab distance helper — tints must sit closer to the chrome they render
+    // on than to the terminal color (a terminal blend haloes on the chrome).
+    const distance = (x: string, y: string) => {
+      const a = hexToOklab(x), b = hexToOklab(y);
+      return Math.hypot(a.L - b.L, a.a - b.a, a.b - b.b);
+    };
+    for (const theme of THEMES) {
+      const ui = deriveUIColors(theme.palette, theme.category);
+      const tints = computeRowTints(theme.palette, ui.bgChrome);
+      for (const value of PICKER_COLOR_VALUES) {
+        const base = tints.get(value)!.base;
+        expect(distance(base, ui.bgChrome)).toBeLessThan(distance(base, theme.palette.background));
+      }
+    }
+  });
+
+  it("the uncolored-selected gray sentinel beats the chrome-raised hover step on both default palettes", () => {
+    const distance = (x: string, y: string) => {
+      const a = hexToOklab(x), b = hexToOklab(y);
+      return Math.hypot(a.L - b.L, a.a - b.a, a.b - b.b);
+    };
+    for (const theme of [DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME]) {
+      const ui = deriveUIColors(theme.palette, theme.category);
+      const sentinel = computeRowTints(theme.palette, ui.bgChrome).get(UNCOLORED_SELECTED_KEY)!;
+      // The selected blend must sit FARTHER from the chrome than the raised
+      // hover does, or selection would lose to hover on the chrome surface.
+      expect(distance(sentinel.selected, ui.bgChrome)).toBeGreaterThan(
+        distance(ui.bgChromeRaised, ui.bgChrome),
+      );
     }
   });
 
   it("all values are valid hex strings", () => {
     for (const theme of THEMES) {
-      const tints = computeRowTints(theme.palette);
+      const surface = deriveUIColors(theme.palette, theme.category).bgChrome;
+      const tints = computeRowTints(theme.palette, surface);
       for (const [, tint] of tints) {
         expect(tint.base).toMatch(HEX_RE);
         expect(tint.hover).toMatch(HEX_RE);
@@ -587,7 +719,7 @@ describe("computeRowTints", () => {
   });
 
   it("hover blend differs from base, selected differs from both", () => {
-    const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    const tints = computeRowTints(DEFAULT_DARK_THEME.palette, darkChrome);
     const tint = tints.get("blue")!;
     expect(tint.base).not.toBe(tint.hover);
     expect(tint.selected).not.toBe(tint.base);

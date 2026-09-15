@@ -22,7 +22,7 @@ import { displayVersion } from "@/lib/palette/version";
 import { copyToClipboard } from "@/lib/clipboard";
 import { formatCombo } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
-import { computeRowTints, computeRowBorders, UNCOLORED_SELECTED_KEY } from "@/themes";
+import { computeRowTints, computeRowBorders, deriveUIColors, UNCOLORED_SELECTED_KEY } from "@/themes";
 import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
@@ -232,8 +232,13 @@ export function Sidebar({
   const ctx = useSessionContext();
   const { servers, sessionsByServer, isConnectedByServer, refreshServers, attachServer } = ctx;
   // Pre-compute row tints + contrast-adjusted borders from the active theme.
+  // Tints blend into the chrome hex the sidebar rows render on, not the
+  // terminal background — blending into `bgPrimary` would halo on the chrome.
   const { theme } = useTheme();
-  const rowTints = useMemo(() => computeRowTints(theme.palette), [theme.palette]);
+  const rowTints = useMemo(
+    () => computeRowTints(theme.palette, deriveUIColors(theme.palette, theme.category).bgChrome),
+    [theme.palette, theme.category],
+  );
   const rowBorders = useMemo(
     () => computeRowBorders(theme.palette, theme.category),
     [theme.palette, theme.category],
@@ -2987,7 +2992,7 @@ function ServerGroupInner(props: ServerGroupProps) {
           {visibleSessions.length === 0 && sessions.length === 0 ? (
             <button
               onClick={() => onCreateSession(server)}
-              className="block w-full pl-2 pr-2 py-1 text-left text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card/50 transition-colors"
+              className="block w-full pl-2 pr-2 py-1 text-left text-xs text-text-secondary hover:text-text-primary hover:bg-bg-chrome-raised transition-colors"
             >
               {createSessionChord
                 ? `(no sessions — a session groups tabs; + new, or ${createSessionChord})`

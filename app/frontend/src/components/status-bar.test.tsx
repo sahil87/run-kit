@@ -170,7 +170,7 @@ describe("StatusBar (260814-ldbs)", () => {
     const bar = screen.getByTestId("status-bar");
     expect(bar).toHaveAttribute("role", "region");
     expect(bar.className).toContain("border-t");
-    expect(bar.className).toContain("bg-bg-primary");
+    expect(bar.className).toContain("bg-bg-chrome");
   });
 
   describe("left window cluster (terminal route)", () => {

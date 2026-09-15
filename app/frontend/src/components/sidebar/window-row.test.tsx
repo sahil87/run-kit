@@ -7,7 +7,7 @@ import { FLYOUT_OPEN_DELAY_MS, resetFlyoutWarmState } from "./row-flyout-card";
 import { ToastProvider } from "@/components/toast";
 import { ThemeProvider } from "@/contexts/theme-context";
 import * as optimisticContext from "@/contexts/optimistic-context";
-import { computeRowTints, computeRowBorders, DEFAULT_DARK_THEME } from "@/themes";
+import { computeRowTints, computeRowBorders, deriveUIColors, DEFAULT_DARK_THEME } from "@/themes";
 import type { WindowInfo } from "@/types";
 import type { MergedWindow } from "@/store/window-store";
 import { makeWindow } from "@/test-utils/fixtures";
@@ -843,7 +843,7 @@ describe("WindowRow", () => {
   // Selection remains tint + typography, while markers occupy a fixed,
   // display-only well at the physical left edge.
   describe("axis split + display-only marker well", () => {
-    const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette, deriveUIColors(DEFAULT_DARK_THEME.palette, "dark").bgChrome);
     const rowBorders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
 
     beforeEach(() => {
@@ -1240,7 +1240,7 @@ describe("held-row continuity while the flyout is open (E1)", () => {
     // At rest the shade/brightening exist only as hover: variants — no bare
     // tokens (the regexes reject the `hover:`-prefixed copies via the
     // preceding-space requirement).
-    expect(button.className).not.toMatch(/(?:^| )bg-bg-card\/50/);
+    expect(button.className).not.toMatch(/(?:^| )bg-bg-chrome-raised/);
     expect(button.className).not.toMatch(/(?:^| )text-text-primary/);
 
     act(() => {
@@ -1252,7 +1252,7 @@ describe("held-row continuity while the flyout is open (E1)", () => {
     // Open card ⇒ the held-row cue: the shade + brightening become
     // UNCONDITIONAL classes, so they survive the pointer traveling onto the
     // card (where CSS :hover on the row is lost).
-    expect(button.className).toMatch(/(?:^| )bg-bg-card\/50/);
+    expect(button.className).toMatch(/(?:^| )bg-bg-chrome-raised/);
     expect(button.className).toMatch(/(?:^| )text-text-primary/);
   });
 });
@@ -1392,7 +1392,7 @@ describe("coarse pointer: rest glyph, rail target, and plain status dot", () => 
 
     it("deepens to the selected-tint variant on the selected row (derived from the tint system, no new token)", () => {
       mockCoarsePointer();
-      const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette);
+      const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette, deriveUIColors(DEFAULT_DARK_THEME.palette, "dark").bgChrome);
       const win = makeWindow({ windowId: "@0", index: 0, name: "sel", color: "orange" });
       const props = {
         win,
@@ -1603,7 +1603,7 @@ describe("coarse pointer: rest glyph, rail target, and plain status dot", () => 
             onColorChange={noop}
             onMarkerChange={noop}
             onFlairChange={noop}
-            rowTints={computeRowTints(DEFAULT_DARK_THEME.palette)}
+            rowTints={computeRowTints(DEFAULT_DARK_THEME.palette, deriveUIColors(DEFAULT_DARK_THEME.palette, "dark").bgChrome)}
             rowBorders={computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category)}
             server="srv"
             {...extra}

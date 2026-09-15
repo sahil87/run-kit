@@ -21,6 +21,8 @@ export type UIColors = {
   bgPrimary: string;
   bgCard: string;
   bgInset: string;
+  bgChrome: string;
+  bgChromeRaised: string;
   textPrimary: string;
   textSecondary: string;
   border: string;
@@ -44,6 +46,8 @@ export const COLOR_CSS_MAP: Record<keyof UIColors, string> = {
   bgPrimary: "--color-bg-primary",
   bgCard: "--color-bg-card",
   bgInset: "--color-bg-inset",
+  bgChrome: "--color-bg-chrome",
+  bgChromeRaised: "--color-bg-chrome-raised",
   textPrimary: "--color-text-primary",
   textSecondary: "--color-text-secondary",
   border: "--color-border",
@@ -151,14 +155,29 @@ export function saturateHex(hex: string, factor: number): string {
 
 // ── Derivation functions ─────────────────────────────────────────────────────
 
-/** Derive the 9 UI CSS colors from a full theme palette. */
+/** OKLab lightness step from the palette background to the chrome material
+ *  (sidebar, top bar, status bar, mobile drawer). Up on dark, down on light. */
+const CHROME_L_DELTA = 0.06;
+/** Further lightness step, same direction, for the surface one level above the
+ *  chrome: uncolored row hover on the chrome, and the Shell stage ground. */
+const CHROME_RAISED_L_DELTA = 0.035;
+/** Fraction of the background's OKLab chroma the chrome keeps — a gray that
+ *  still leans the palette's way rather than a neutral slab. */
+const CHROME_CHROMA_KEEP = 0.35;
+
+/** Derive the 11 UI CSS colors from a full theme palette. */
 export function deriveUIColors(palette: ThemePalette, category: "dark" | "light"): UIColors {
   const isDark = category === "dark";
   const accent = palette.ansi[4];
+  const bgLch = hexToOklch(palette.background);
+  const chromeChroma = bgLch.C * CHROME_CHROMA_KEEP;
+  const chromeDir = isDark ? 1 : -1;
   return {
     bgPrimary: palette.background,
     bgCard: isDark ? lightenHex(palette.background, 8) : darkenHex(palette.background, 3),
     bgInset: isDark ? darkenHex(palette.background, 5) : darkenHex(palette.background, 6),
+    bgChrome: oklchToHexInGamut(bgLch.L + chromeDir * CHROME_L_DELTA, chromeChroma, bgLch.hueDeg),
+    bgChromeRaised: oklchToHexInGamut(bgLch.L + chromeDir * (CHROME_L_DELTA + CHROME_RAISED_L_DELTA), chromeChroma, bgLch.hueDeg),
     textPrimary: palette.foreground,
     textSecondary: blendHex(palette.foreground, palette.ansi[8], 0.3),
     border: blendHex(palette.foreground, palette.background, 0.25),
@@ -341,10 +360,15 @@ export function oklchToHexInGamut(L: number, C: number, hueDeg: number): string 
   return oklchToHex(L, c, hueDeg);
 }
 
+/** Convert a hex sRGB color to OKLCH (polar OKLab): L, chroma, hue in degrees. */
+export function hexToOklch(hex: string): { L: number; C: number; hueDeg: number } {
+  const { L, a, b } = hexToOklab(hex);
+  return { L, C: Math.hypot(a, b), hueDeg: (Math.atan2(b, a) * 180) / Math.PI };
+}
+
 /** OKLab chroma (distance from the neutral axis) of a hex color. */
 function oklabChroma(hex: string): number {
-  const { a, b } = hexToOklab(hex);
-  return Math.hypot(a, b);
+  return hexToOklch(hex).C;
 }
 
 /** Chroma floor: near-monochrome themes still get distinguishable families. */
@@ -587,9 +611,9 @@ export function colorValueToHex(value: string, palette: ThemePalette): string | 
 
 /** Pre-blended row tint colors for a single owned family at three states. */
 export type RowTint = {
-  base: string;     // 14% saturated-source into background
-  hover: string;    // 22% saturated-source into background
-  selected: string; // 40% saturated-source into background
+  base: string;     // 14% saturated-source into the surface
+  hover: string;    // 22% saturated-source into the surface
+  selected: string; // 40% saturated-source into the surface
 };
 
 const TINT_SATURATE_FACTOR = 1.5;
@@ -598,7 +622,8 @@ const TINT_HOVER_RATIO = 0.22;
 // Selection is now carried by tint DEPTH alone (the 4px left border was removed
 // in the axis split), so the selected tint is deepened from 0.32 → 0.40.
 const TINT_SELECTED_RATIO = 0.4;
-/** Uncolored selected rows use a deeper ratio so they beat the bg-card/50 hover. */
+/** Uncolored selected rows use a deeper ratio so they beat the
+ *  `bg-bg-chrome-raised` hover step on the chrome surface. */
 const UNCOLORED_SELECTED_RATIO = 0.5;
 
 /**
@@ -616,10 +641,13 @@ const UNCOLORED_SELECTED_RATIO = 0.5;
  * tints read as their intended color rather than grayish, while blend ratios
  * stay muted. Gray (ANSI 8) is not saturated (near-zero saturation by
  * definition) and uses a 0.5 selected ratio so uncolored selected rows beat
- * the bg-card/50 hover.
+ * the chrome-raised hover.
+ *
+ * `surface` is the hex the rows render on (the sidebar chrome); blending into
+ * anything else would leave a foreign-colored halo around every tinted band.
  */
-export function computeRowTints(palette: ThemePalette): Map<string, RowTint> {
-  const bg = palette.background;
+export function computeRowTints(palette: ThemePalette, surface: string): Map<string, RowTint> {
+  const bg = surface;
   const tints = new Map<string, RowTint>();
 
   const tintFor = (src: string): RowTint => {

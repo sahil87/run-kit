@@ -282,7 +282,7 @@ function ServerTile({
   const bodyBg = isActive
     ? tint?.selected ?? uncoloredSelectedTint?.selected
     : tint?.base;
-  const uncoloredHoverClass = !tint && !isActive ? "hover:bg-bg-card/50" : "";
+  const uncoloredHoverClass = !tint && !isActive ? "hover:bg-bg-chrome-raised" : "";
   // De-emphasize infrastructure servers (daemon + test sockets) and external
   // servers alike: grey the name, not disabled. Hover/click/active-selection
   // stay unchanged so the tile remains fully attachable and never reads as

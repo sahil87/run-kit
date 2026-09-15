@@ -500,14 +500,16 @@ function AppLayoutContent() {
       {isShell() && <ShellAccentReporter />}
       {/* Plain `div`, not `header`: `TopBar` already renders its own `<header>`
           (the banner landmark), so wrapping it in a second `<header>` would
-          nest two `role="banner"` landmarks. This wrapper only owns the
+          nest two `role="banner"` landmarks. This wrapper owns the
           `shrink-0` sizing that keeps the bar at its natural height above the
-          `flex-1` content region (plus the instance-accent stripe/wash — the
-          TopBar header has no background of its own, so the wash on this
-          wrapper shows through). While zen mode applies the BAR is not
+          `flex-1` content region AND the top bar's surface paint: the
+          `bg-bg-chrome` class is the base, and the inline `washHex` (when an
+          instance accent is set) overrides it — the TopBar header has no
+          background of its own, so one element carrying class + inline wash
+          keeps the wash on top. While zen mode applies the BAR is not
           rendered (the wrapper collapses to zero height — the stripe/wash
           above are chrome identity and stay). */}
-      <div className="shrink-0" style={washHex ? { backgroundColor: washHex } : undefined}>
+      <div className="shrink-0 bg-bg-chrome" style={washHex ? { backgroundColor: washHex } : undefined}>
         {stripeHex && (
           <div aria-hidden="true" style={{ height: "2px", backgroundColor: stripeHex }} />
         )}

@@ -72,10 +72,10 @@ function readPreference(): { preference: string; themeDark: string; themeLight: 
 function applyThemeToDOM(theme: Theme): void {
   const root = document.documentElement;
 
-  // Derive the 9 UI colors from the full palette
+  // Derive the 11 UI colors from the full palette
   const uiColors: UIColors = deriveUIColors(theme.palette, theme.category);
 
-  // Set all 9 CSS custom properties
+  // Set all 11 CSS custom properties
   const colorKeys = Object.keys(COLOR_CSS_MAP) as (keyof UIColors)[];
   for (const key of colorKeys) {
     root.style.setProperty(COLOR_CSS_MAP[key], uiColors[key]);
@@ -88,10 +88,11 @@ function applyThemeToDOM(theme: Theme): void {
   root.style.setProperty("color-scheme", theme.category);
 
   // Update meta theme-color through the shared single writer — the instance
-  // accent (when resolved) wins over the bare background, and funneling both
+  // accent (when resolved) wins over the bare chrome, and funneling both
   // writers through one module removes the child-vs-parent effect-ordering
   // race that would otherwise let a theme switch clobber the accent tint.
-  applyThemeColorMeta(theme.palette.background);
+  // The chrome hex is the titlebar's truthful neighbor: the top bar paints it.
+  applyThemeColorMeta(uiColors.bgChrome);
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {

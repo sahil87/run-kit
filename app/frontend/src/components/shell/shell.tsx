@@ -94,7 +94,7 @@ function useSidebarKeyboardToggle(sidebarRef: RefObject<HTMLElement | null>) {
  * bar below) is attached square chrome, never rounded, never inset. The CARD
  * family (the sidebar and every content surface) floats as rounded cards
  * (`rounded-md` + the shared dimmed `rk-card-border`) on one continuous
- * `bg-bg-inset` STAGE ground with 6px padding/gap. The stage is Shell's
+ * `bg-bg-chrome-raised` STAGE ground with 6px padding/gap. The stage is Shell's
  * UNIVERSAL desktop composition — every desktop route that mounts `<Shell>`
  * gets it (terminal, tmux Server, board).
  *
@@ -116,7 +116,7 @@ function useSidebarKeyboardToggle(sidebarRef: RefObject<HTMLElement | null>) {
  * - The stage is a NESTED grid rather than padding/gap on the outer grid:
  *   grid padding/gap apply to every track, so an outer-grid inset would push
  *   the status bar off the viewport edges and open seams around it — breaking
- *   the attached-frame contract. Nesting scopes the `bg-bg-inset p-[6px]`
+ *   the attached-frame contract. Nesting scopes the `bg-bg-chrome-raised p-[6px]`
  *   ground (+ 6px column-gap; the bottom seam is footer-owned, see the
  *   bottombar note) to exactly the region that floats cards. Stage areas:
  *   `"sidebar content" / "sidebar bottombar"`; rows `1fr auto`; columns
@@ -278,20 +278,20 @@ export function Shell({
           )}
         </>
       ) : (
-        <div style={stageStyle} className="bg-bg-inset">
+        <div style={stageStyle} className="bg-bg-chrome-raised">
           {/* Desktop sidebar aside (Shell-owned — 260719-rwqf). Gated the same
               way the callers used to gate their own asides (`sidebarVisible` —
               `sidebarOpen` composed with the zen render-time override — plus
               a `sidebarChildren` presence check), so it fully unmounts on
               collapse — no zero-width rail. Card family: `rounded-md` + the
-              shared dimmed `rk-card-border` + `bg-bg-primary`, floating on the
+              shared dimmed `rk-card-border` + `bg-bg-chrome`, floating on the
               stage ground. */}
           {sidebarVisible && sidebarChildren && (
             <aside
               ref={sidebarAsideRef}
               style={{ gridArea: "sidebar" }}
               aria-label="Sidebar"
-              className="relative flex flex-row overflow-hidden rounded-md border rk-card-border bg-bg-primary"
+              className="relative flex flex-row overflow-hidden rounded-md border rk-card-border bg-bg-chrome"
             >
               <div className="flex-1 min-w-0 overflow-hidden">{sidebarChildren}</div>
             </aside>
@@ -363,7 +363,7 @@ export function Shell({
             role="dialog"
             aria-modal="true"
             aria-label="Navigation"
-            className="absolute inset-y-0 left-0 z-50 w-[92%] max-w-[340px] bg-bg-primary border-r border-border overflow-y-auto shadow-2xl pointer-events-auto"
+            className="absolute inset-y-0 left-0 z-50 w-[92%] max-w-[340px] bg-bg-chrome border-r border-border overflow-y-auto shadow-2xl pointer-events-auto"
           >
             {sidebarChildren}
           </aside>

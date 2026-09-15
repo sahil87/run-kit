@@ -89,7 +89,7 @@ describe("Shell", () => {
     // sidebar whenever the bottombar row is empty. The footer owns the seam,
     // content-gated (`:has(>*)`), asserted on its class below.
     expect(stage().style.rowGap).toBe("");
-    expect(stage().className).toContain("bg-bg-inset");
+    expect(stage().className).toContain("bg-bg-chrome-raised");
     // The Shell-owned placements: bottom bar in its footer (inside the stage),
     // status bar in the outer row — desktop only.
     const footer = screen.getByTestId("bottombar").parentElement!;
@@ -132,11 +132,11 @@ describe("Shell", () => {
       expect(aside).toContainElement(screen.getByTestId("sidebar"));
       // It is placed in the stage's `sidebar` grid area.
       expect(aside.style.gridArea).toBe("sidebar");
-      // Card family: rounded, dimmed card border, primary ground — no attached
+      // Card family: rounded, dimmed card border, chrome ground — no attached
       // border-r seam.
       expect(aside.className).toContain("rounded-md");
       expect(aside.className).toContain("rk-card-border");
-      expect(aside.className).toContain("bg-bg-primary");
+      expect(aside.className).toContain("bg-bg-chrome");
       expect(aside.className).not.toContain("border-r");
     });
 

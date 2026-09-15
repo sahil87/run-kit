@@ -399,6 +399,14 @@ export function TerminalClient({
       // Component unmounted while awaiting font loads
       if (cancelled || !terminalRef.current) return;
 
+      // Both link sources open through here. The library defaults for both
+      // open a URL-less blank window and then assign location.href — inside
+      // the desktop shell that reaches setWindowOpenHandler as "about:blank"
+      // (denied, link dead), and the URL is gone by the time main sees it.
+      const openLink = (uri: string) => {
+        window.open(uri, "_blank", "noopener,noreferrer");
+      };
+
       terminal = new Terminal({
         cursorBlink: true,
         fontFamily: '"MonaspiceNe Nerd Font Mono", ui-monospace, monospace',
@@ -418,6 +426,14 @@ export function TerminalClient({
         // a pane loses to driving CLI agents. Matches the ESC-prefix convention
         // the bottom bar's `sendSpecial` already uses for synthetic Alt keys.
         macOptionIsMeta: true,
+        // OSC 8 hyperlinks (agents emit them for markdown link text) activate
+        // through xterm's own OscLinkProvider, which is reachable only from
+        // this option — WebLinksAddon below never sees them, since its regex
+        // reads visible text and link text carries no URL. Without a handler
+        // the provider falls back to a confirm() dialog plus the same broken
+        // blank-window navigation. `allowNonHttpProtocols` stays unset, so the
+        // provider keeps refusing anything but http/https.
+        linkHandler: { activate: (_event, uri) => openLink(uri) },
       });
 
       const fitAddon = new FitAddon();
@@ -435,16 +451,10 @@ export function TerminalClient({
       // Clipboard addon — enriched clipboard support
       terminal.loadAddon(new ClipboardAddon(undefined, clipboardProvider));
 
-      // Clickable URLs. The explicit handler matters: the addon's default
-      // opens a blank window and assigns location.href — inside the desktop
-      // shell that surfaces as "about:blank" (denied, link dead). Passing the
-      // URI through window.open keeps browser behavior identical and lets the
-      // shell's setWindowOpenHandler see the real URL and route it externally.
-      terminal.loadAddon(
-        new WebLinksAddon((_event, uri) => {
-          window.open(uri, "_blank", "noopener,noreferrer");
-        }),
-      );
+      // Clickable bare URLs, matched by regex over visible text — the only
+      // linkifier for output from programs that emit no OSC 8. Shares the
+      // opener above so the two link paths cannot drift.
+      terminal.loadAddon(new WebLinksAddon((_event, uri) => openLink(uri)));
 
       // xterm defaults to Unicode 6 width tables, but tmux lays out its buffer
       // using wcwidth (Unicode 14/15). Without this addon, emojis tmux treats

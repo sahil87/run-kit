@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 17
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-15T18:58:50Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-15T19:02:27Z"}
     hydrate: {started_at: "2026-09-15T19:02:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-15T19:08:38Z"}
     ship: {started_at: "2026-09-15T19:08:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-15T19:11:51Z"}
-    review-pr: {started_at: "2026-09-15T19:11:51Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-15T19:11:51Z", driver: git-pr, iterations: 1, completed_at: "2026-09-15T19:27:10Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/985
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Screen-break Easter eggs: a one-shot whole-viewport crack-open layer (evenodd clip on .app-root, seeded cracks/shards, 4.2 s) with two eggs — green fist on PR merged, eye on update available — fired by derived transitions once per identity and by two palette entries; design study committed to docs/wiki'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-15T19:11:51Z
+last_updated: 2026-09-15T19:27:10Z

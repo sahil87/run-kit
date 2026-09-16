@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 12
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-16T18:06:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T18:09:56Z"}
     hydrate: {started_at: "2026-09-16T18:09:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T18:18:45Z"}
     ship: {started_at: "2026-09-16T18:18:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T18:20:14Z"}
-    review-pr: {started_at: "2026-09-16T18:20:14Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-16T18:20:14Z", driver: git-pr, iterations: 1, completed_at: "2026-09-16T18:41:28Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/1011
 change_type_source: explicit
@@ -56,4 +56,4 @@ true_impact:
 summary: 'Hook launcher: an rk-owned launcher symlink (third internal/selfpath resolver) targets the Cellar binary — written first by rk agent setup, re-pointed by brew daemons at serve start — and every hook wrapper execs it first with the brew stable symlink as fallback (all installer kinds, opencode RK_FALLBACK included); rk doctor parses every embedded path and fails only when all dangle; code-server RK_BIN moved to the launcher; active age is emitted on the mux/rollup machine surfaces (SPA renders durations only for waiting/idle).'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-16T18:20:14Z
+last_updated: 2026-09-16T18:41:28Z

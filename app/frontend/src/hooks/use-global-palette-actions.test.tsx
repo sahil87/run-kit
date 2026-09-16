@@ -362,9 +362,20 @@ describe("useGlobalPaletteActions — Cron entry actions (wuiu R14)", () => {
     mockDeleteCron.mockClear();
   });
 
+  // The actions register disabled before the fetch resolves and re-register
+  // enabled once the entries land, so waiting for the fetch CALL alone races
+  // the re-render — wait for the populated option list instead.
+  const entriesLoaded = () =>
+    waitFor(() =>
+      expect(captured.find((a) => a.id === "cron-mute-entry")?.optionPicker?.options).toHaveLength(
+        CRON_ENTRIES.length,
+      ),
+    );
+
   it("registers Cron: mute…/Cron: delete… with the server's entries as single-select options", async () => {
     renderHook();
     await waitFor(() => expect(mockGetCron).toHaveBeenCalledWith("alpha"));
+    await entriesLoaded();
     const byId = new Map(captured.map((a) => [a.id, a]));
     const mute = byId.get("cron-mute-entry");
     const del = byId.get("cron-delete-entry");
@@ -379,7 +390,7 @@ describe("useGlobalPaletteActions — Cron entry actions (wuiu R14)", () => {
 
   it("Cron: mute… applies the mute POST for the first selected key", async () => {
     renderHook();
-    await waitFor(() => expect(mockGetCron).toHaveBeenCalled());
+    await entriesLoaded();
     const mute = captured.find((a) => a.id === "cron-mute-entry");
     await act(async () => mute?.optionPicker?.onApply(["a1b2"]));
     expect(mockMuteCron).toHaveBeenCalledWith("alpha", "a1b2", true);
@@ -387,7 +398,7 @@ describe("useGlobalPaletteActions — Cron entry actions (wuiu R14)", () => {
 
   it("Cron: delete… applies the delete POST and drops the entry from the option list", async () => {
     renderHook();
-    await waitFor(() => expect(mockGetCron).toHaveBeenCalled());
+    await entriesLoaded();
     const del = captured.find((a) => a.id === "cron-delete-entry");
     await act(async () => del?.optionPicker?.onApply(["c3d4"]));
     expect(mockDeleteCron).toHaveBeenCalledWith("alpha", "c3d4");

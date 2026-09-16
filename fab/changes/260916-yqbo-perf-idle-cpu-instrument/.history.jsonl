@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-16T11:33:00Z"}
+{"args":"Add just perf-idle-cpu — an ad-hoc Playwright/CDP probe that loads one rk route against a live daemon, idles for N seconds, and prints per-process CPU %, renderer main-thread breakdown, running-animation inventory, per-socket message and byte rates by event type, and the top JS self-time entries (change 0 of fab/plans/sahil/26-09-16-idle-cpu.md)","cmd":"fab-new","event":"command","ts":"2026-09-16T11:33:00Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-16T11:36:47Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-16T11:37:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T11:37:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T11:48:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-16T11:54:08Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T11:54:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-16T11:56:01Z"}

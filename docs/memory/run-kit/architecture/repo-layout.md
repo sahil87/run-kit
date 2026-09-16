@@ -36,7 +36,7 @@ config/
 VERSION               # Semver source of truth (e.g. 0.1.0) — injected via ldflags (see build-and-release.md)
 scripts/              # build.sh (frontend → copy dist → copy tmux.conf → go build), release.sh (bump VERSION, tag, push),
                       #   sync-skill.sh (skill bundle + topic pages → cmd/rk/skill/), dev-desktop.sh, build-desktop.sh,
-                      #   test-*.sh / pw.sh (test harness) — see build-and-release.md and architecture/testing.md
+                      #   test-*.sh / pw.sh (test harness), perf-idle-cpu.sh/.mjs (live-daemon idle-CPU probe) — see build-and-release.md and architecture/testing.md
 .github/              # workflows/release.yml (v* tag → cross-compile 4 targets → GitHub Release → Homebrew tap; desktop jobs
                       #   attach packages) and formula-template.rb (Homebrew formula template) — see build-and-release.md
 fab/                  # Fab-kit project config + changes

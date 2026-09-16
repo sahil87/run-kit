@@ -112,6 +112,14 @@ test-e2e *args:
 pw *args:
     scripts/pw.sh {{args}}
 
+# Idle-CPU probe against a LIVE daemon (just perf-idle-cpu /runKit 30, just perf-idle-cpu /runKit/@99 --reduced-motion)
+# Loads one rk route, idles N seconds, prints per-process CPU %, renderer
+# main-thread breakdown, running animations, per-socket msg/s + kB/s by event
+# type, and the top JS self-time entries. Base URL from `rk url` (--url
+# overrides). Not a test — it asserts nothing; one instance at a time.
+perf-idle-cpu *args:
+    scripts/perf-idle-cpu.sh {{args}}
+
 # ─── Assets ──────────────────────────────────────────────────
 
 # Generate icon variants from canonical icon.svg

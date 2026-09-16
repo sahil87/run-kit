@@ -23,8 +23,9 @@
  * non-animating crack reads as a broken UI).
  */
 
-import { Fragment, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
+  dismiss,
   finish,
   getGlass,
   getState,
@@ -41,10 +42,28 @@ import {
   type BreakGeometry,
 } from "@/lib/screen-break-geometry";
 import { useScreenBreakTriggers } from "@/hooks/use-screen-break-triggers";
+import { getSettingsEntries } from "@/api/client";
+import { seedEasterEggsEnabled } from "@/lib/screen-break-store";
 import { EyeSprite, FistSprite } from "./screen-break-sprites";
 
 const FLIGHT_MS = 12000;
 const SHARD_GRAVITY = 420;
+/** Timeline speed after a dismiss — the remaining heal plays this many times faster. */
+const DISMISS_SPEED = 3;
+
+/**
+ * Where a dismissed flight resumes on the timeline. The creature's emerge
+ * curve is a smoothstep in (0.30–0.44) and its mirror out (0.64–0.76), so a
+ * click mid-emerge resumes on the retreat at the point with the SAME emerge
+ * amount — no jump in the sprite's size. A click on the plateau resumes at
+ * the start of the retreat; a click during the retreat resumes in place.
+ * Clicks are only possible while the creature is visible (t ≥ 0.30).
+ */
+function dismissOrigin(td: number): number {
+  if (td >= 0.64) return td;
+  if (td >= 0.44) return 0.64;
+  return 0.64 + 0.12 * (1 - clamp((td - 0.3) / 0.14));
+}
 
 const GLOW: Record<ScreenBreakFlight["egg"], string> = {
   smash: "rgba(34,197,94,.3)",
@@ -220,6 +239,10 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
         writeSprite(aboveSpriteRef.current, s, rotate);
         if (inside) inside.style.opacity = released ? "0" : opacity;
         if (above) above.style.opacity = released ? opacity : "0";
+        // A hidden slot must not catch clicks: opacity 0 still hit-tests,
+        // visibility does not (and it inherits down to the sprite's shapes).
+        if (inside) inside.style.visibility = released ? "hidden" : "visible";
+        if (above) above.style.visibility = released ? "visible" : "hidden";
         const shadow = released ? `drop-shadow(0 ${f1(16 * em)}px ${f1(20 * em)}px rgba(0,0,0,.65))` : "none";
         for (const el of [insideSpriteRef.current, aboveSpriteRef.current]) {
           const svg = el?.firstElementChild;
@@ -243,6 +266,8 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
         pupil?.setAttribute("transform", `translate(${f1(look.x)} ${f1(look.y)})`);
         if (inside) inside.style.opacity = hole > 0.02 ? `${Math.min(1, hole * 2)}` : "0";
         if (above) above.style.opacity = "0";
+        if (inside) inside.style.visibility = hole > 0.02 ? "visible" : "hidden";
+        if (above) above.style.visibility = "hidden";
       }
     };
 
@@ -255,8 +280,18 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
     };
 
     let raf = 0;
+    let dismissFrom: { td: number; v0: number } | null = null;
     const frame = (now: number) => {
-      const t = clamp((now - flight.startedAt) / FLIGHT_MS);
+      const raw = clamp((now - flight.startedAt) / FLIGHT_MS);
+      const live = getState().flight;
+      const dismissedAt = live?.startedAt === flight.startedAt ? live.dismissedAt : undefined;
+      if (dismissedAt !== undefined && dismissFrom === null) {
+        const td = clamp((dismissedAt - flight.startedAt) / FLIGHT_MS);
+        dismissFrom = { td, v0: dismissOrigin(td) };
+      }
+      const t = dismissFrom
+        ? clamp(dismissFrom.v0 + (raw - dismissFrom.td) * DISMISS_SPEED)
+        : raw;
       applyFrame(t);
       if (t < 1) {
         raf = requestAnimationFrame(frame);
@@ -314,7 +349,7 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
           data-part="creature-inside"
           style={{ clipPath: "url(#rk-sb-hole)", opacity: 0 }}
         >
-          <div ref={insideSpriteRef} className="rk-sb-sprite">
+          <div ref={insideSpriteRef} className="rk-sb-sprite" onClick={() => dismiss()}>
             {sprite}
           </div>
         </div>
@@ -410,7 +445,7 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
           data-part="creature-above"
           style={{ opacity: 0 }}
         >
-          <div ref={aboveSpriteRef} className="rk-sb-sprite">
+          <div ref={aboveSpriteRef} className="rk-sb-sprite" onClick={() => dismiss()}>
             {sprite}
           </div>
         </div>
@@ -437,8 +472,43 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
 }
 
 /** The layout-level mount: the layer plus its automatic triggers. Mounted once
- *  in AppLayoutContent, beside the glass it clips. */
+ *  in AppLayoutContent, beside the glass it clips. One mount GET seeds the
+ *  store's `easter_eggs` gate — no polling, no SSE; other browsers pick a flip
+ *  up on reload. A missing key or a rejected fetch keeps the default (on). The
+ *  triggers mount only once that read has settled: an occasion already
+ *  observable at page load (a lit update chip) must not outrun a persisted
+ *  off value. */
 export function ScreenBreakController() {
+  const [seeded, setSeeded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    getSettingsEntries()
+      .then((entries) => {
+        if (cancelled) return;
+        const entry = entries.find((e) => e.key === "easter_eggs");
+        seedEasterEggsEnabled(entry === undefined || entry.value !== false);
+      })
+      .catch(() => {
+        // Fetch failure keeps the store enabled (default on).
+      })
+      .finally(() => {
+        if (!cancelled) setSeeded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return (
+    <>
+      {seeded && <ScreenBreakTriggers />}
+      <ScreenBreak />
+    </>
+  );
+}
+
+/** The triggers hook's conditional-mount wrapper — hooks cannot be gated
+ *  inline, so the controller renders this only once the seed read settles. */
+function ScreenBreakTriggers() {
   useScreenBreakTriggers();
-  return <ScreenBreak />;
+  return null;
 }

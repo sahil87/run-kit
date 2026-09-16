@@ -1,0 +1,59 @@
+id: hn6s
+name: 260916-hn6s-easter-eggs-setting
+created: 2026-09-16T13:46:58Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 19
+    acceptance_completed: 19
+confidence:
+    certain: 9
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 76.9
+        reversibility: 88.8
+        competence: 86.5
+        disambiguation: 81.2
+stage_metrics:
+    intake: {started_at: "2026-09-16T13:46:58Z", driver: fab-new, iterations: 1, completed_at: "2026-09-16T13:52:20Z"}
+    apply: {started_at: "2026-09-16T13:52:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T14:00:22Z"}
+    review: {started_at: "2026-09-16T14:00:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T14:05:07Z"}
+    hydrate: {started_at: "2026-09-16T14:05:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T14:09:44Z"}
+    ship: {started_at: "2026-09-16T14:09:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T14:13:03Z"}
+    review-pr: {started_at: "2026-09-16T14:13:03Z", driver: git-pr, iterations: 1, completed_at: "2026-09-16T14:31:23Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/997
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 924
+    deleted: 28
+    net: 896
+    excluding:
+        added: 378
+        deleted: 16
+        net: 362
+    tests:
+        added: 126
+        deleted: 6
+        net: 120
+    computed_at: "2026-09-16T14:13:03Z"
+    computed_at_stage: ship
+summary: Added the easter_eggs registry setting (default on) gating the screen-break eggs' automatic occasions — backend registry entry, store enabled gate with force bypass, controller mount fetch, seam store mirror, and a General → This host dialog row
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-16T14:31:23Z

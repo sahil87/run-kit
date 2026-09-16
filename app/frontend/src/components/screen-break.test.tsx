@@ -1,13 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, act } from "@testing-library/react";
-import { ScreenBreak } from "./screen-break";
+import { render, screen, cleanup, act, fireEvent, waitFor } from "@testing-library/react";
+import { ScreenBreak, ScreenBreakController } from "./screen-break";
+import { StandaloneSessionContextProvider } from "@/contexts/session-context";
+import type { SessionContextType } from "@/contexts/session-context";
+import type { SettingsEntry } from "@/api/client";
 import {
   _resetForTests,
+  easterEggsEnabled,
   fire,
   finish,
   getState,
+  PEEK_KEY,
   registerGlass,
 } from "@/lib/screen-break-store";
+
+const getSettingsEntries = vi.fn();
+vi.mock("@/api/client", () => ({
+  getSettingsEntries: (...a: unknown[]) => getSettingsEntries(...a),
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  useMatches: () => [{ params: {} }],
+}));
 
 /**
  * The ScreenBreak layer against a registered glass div: idle renders null;
@@ -197,6 +211,38 @@ describe("ScreenBreak", () => {
     act(() => finish());
   });
 
+  it("clicking the released fist dismisses: the flight heals fast and the glass is cleaned", () => {
+    render(<ScreenBreak />);
+    act(() => {
+      fire("smash", { force: true });
+    });
+    const startedAt = getState().flight!.startedAt;
+    stepTo(startedAt + 6000);
+    const inside = document.querySelector<HTMLElement>('[data-part="creature-inside"]')!;
+    const above = document.querySelector<HTMLElement>('[data-part="creature-above"]')!;
+    // Only the visible slot may catch clicks — the hidden one is visibility:hidden.
+    expect(inside.style.visibility).toBe("hidden");
+    expect(above.style.visibility).toBe("visible");
+
+    // jsdom's selector engine does not resolve `svg *` across the namespace boundary.
+    const shape = above.querySelector("svg")!.firstElementChild!;
+    vi.spyOn(performance, "now").mockReturnValue(startedAt + 6000);
+    act(() => {
+      fireEvent.click(shape);
+    });
+    expect(getState().flight!.dismissedAt).toBe(startedAt + 6000);
+
+    // 1.5 s after the click the compressed heal has run past t = 1:
+    // resume at 0.64 (the retreat) + 0.125 × 3 = 1.015 → finish.
+    stepTo(startedAt + 6100);
+    expect(screen.queryByTestId("screen-break")).not.toBeNull();
+    stepTo(startedAt + 7500);
+    expect(screen.queryByTestId("screen-break")).toBeNull();
+    expect(getState().flight).toBeNull();
+    expect(glass.style.clipPath).toBe("");
+    expect(glass.style.transform).toBe("");
+  });
+
   it("reduced motion: fire is a no-op and nothing mounts", () => {
     stubMotion(true);
     render(<ScreenBreak />);
@@ -205,5 +251,123 @@ describe("ScreenBreak", () => {
     });
     expect(screen.queryByTestId("screen-break")).toBeNull();
     expect(glass.style.clipPath).toBe("");
+  });
+});
+
+describe("ScreenBreakController — the easter_eggs mount fetch", () => {
+  beforeEach(() => {
+    _resetForTests();
+    localStorage.clear();
+    stubMotion(false);
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 });
+    getSettingsEntries.mockReset();
+  });
+  afterEach(() => {
+    cleanup();
+    _resetForTests();
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  function renderController() {
+    // The triggers hook's contexts ride the standalone provider; the mocked
+    // useMatches is a route with no window param, so no trigger fires.
+    return render(
+      <StandaloneSessionContextProvider value={{}}>
+        <ScreenBreakController />
+      </StandaloneSessionContextProvider>,
+    );
+  }
+
+  function updateAvailable(key: string): SessionContextType["updateAvailable"] {
+    return { tools: [{ tool: "run-kit", current: "3.8.0", latest: "3.9.0" }], key, current: "3.8.0", latest: "3.9.0" };
+  }
+
+  function renderControllerWithUpdate() {
+    // The update chip is lit from the first render — the peek trigger's
+    // arrival case is the one that can outrun the seed read.
+    return render(
+      <StandaloneSessionContextProvider
+        value={{ daemonVersion: "3.8.0", updateAvailable: updateAvailable("run-kit@3.9.0") }}
+      >
+        <ScreenBreakController />
+      </StandaloneSessionContextProvider>,
+    );
+  }
+
+  function eggEntry(value: unknown): SettingsEntry {
+    return {
+      key: "easter_eggs",
+      kind: "bool",
+      default: "true",
+      description: "",
+      category: "behavior",
+      ui: true,
+      live: true,
+      value,
+    };
+  }
+
+  it("an easter_eggs: false entry disables the automatic occasions", async () => {
+    getSettingsEntries.mockResolvedValue([
+      {
+        key: "easter_eggs",
+        kind: "bool",
+        default: "true",
+        description: "",
+        category: "behavior",
+        ui: true,
+        live: true,
+        value: false,
+      },
+    ]);
+    renderController();
+    await waitFor(() => expect(easterEggsEnabled()).toBe(false));
+  });
+
+  it("a missing key keeps the store enabled (default on)", async () => {
+    getSettingsEntries.mockResolvedValue([]);
+    renderController();
+    await waitFor(() => expect(getSettingsEntries).toHaveBeenCalled());
+    await act(async () => {});
+    expect(easterEggsEnabled()).toBe(true);
+  });
+
+  it("a rejected fetch keeps the store enabled", async () => {
+    getSettingsEntries.mockRejectedValue(new Error("no API"));
+    renderController();
+    await act(async () => {});
+    expect(easterEggsEnabled()).toBe(true);
+  });
+
+  it("the triggers stay unmounted until the seed read settles — a lit update chip cannot outrun a persisted off value", async () => {
+    let resolveFetch: (entries: SettingsEntry[]) => void = () => {};
+    getSettingsEntries.mockReturnValue(
+      new Promise((res) => {
+        resolveFetch = res;
+      }),
+    );
+    renderControllerWithUpdate();
+    await act(async () => {});
+    // Fetch still pending: no trigger has mounted, so the lit chip fired nothing.
+    expect(getState().flight).toBeNull();
+    expect(localStorage.getItem(PEEK_KEY)).toBeNull();
+
+    await act(async () => {
+      resolveFetch([eggEntry(false)]);
+    });
+    await waitFor(() => expect(easterEggsEnabled()).toBe(false));
+    await act(async () => {});
+    // The trigger's arrival observation now runs against the seeded off value.
+    expect(getState().flight).toBeNull();
+    expect(localStorage.getItem(PEEK_KEY)).toBeNull();
+  });
+
+  it("a lit update chip fires on arrival once the seed read settles with the store on", async () => {
+    getSettingsEntries.mockResolvedValue([]);
+    renderControllerWithUpdate();
+    await waitFor(() => expect(getState().flight?.egg).toBe("peek"));
+    expect(localStorage.getItem(PEEK_KEY)).toBe("run-kit@3.9.0");
+    act(() => finish());
   });
 });

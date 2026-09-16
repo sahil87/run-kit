@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-16T14:57:05Z"}
+{"args":"Latch well — latched toggle controls press into the ground (recessed well: derived bgWell/accentGreenInk/borderPressed tokens + inset shade) instead of lighting up with a green ring + wash; replaces the three LATCHED_ARM* arms in control.tsx; commits docs/wiki/toggle-depth-studies.html","cmd":"fab-new","event":"command","ts":"2026-09-16T14:57:05Z"}
+{"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-09-16T14:59:23Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-09-16T14:59:44Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-16T15:00:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T15:04:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T15:14:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-16T15:18:43Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T15:18:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-16T15:21:43Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-16T15:22:44Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T15:34:17Z"}

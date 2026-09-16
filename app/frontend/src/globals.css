@@ -38,6 +38,13 @@
   --color-accent: #5b8af0;
   --color-accent-bright: #82a8f7;
   --color-accent-green: #22c55e;
+  /* Latch well — the recessed on-state of latched controls: floor one OKLab
+     step from the chrome toward mid-gray (up on dark, down on light), glyph
+     ink at ≥3:1 on that floor, pressed border one step below the border. Static values are deriveUIColors' output for
+     the default palettes (pinned by themes.test.ts). */
+  --color-bg-well: #303135;
+  --color-accent-green-ink: #22c55e;
+  --color-border-pressed: #26282e;
   /* Signal hues (status dots, PR glyphs, waiting attention, errors). Dark
      values are the legacy Tailwind -400 hexes — dark stays pixel-identical;
      light values meet the ≥3:1 WCAG 1.4.11 graphics bar on light surfaces. */
@@ -63,11 +70,17 @@ html[data-theme="dark"] {
   --color-accent: #5b8af0;
   --color-accent-bright: #82a8f7;
   --color-accent-green: #22c55e;
+  --color-bg-well: #303135;
+  --color-accent-green-ink: #22c55e;
+  --color-border-pressed: #26282e;
   --color-signal-yellow: #facc15;
   --color-signal-purple: #c084fc;
   --color-signal-blue: #60a5fa;
   --color-signal-red: #f87171;
   --color-marker-ink: #f59e0b;
+  --ctl-well-shadow: inset 0 1.5px 2.5px rgb(0 0 0 / 0.6), inset 0 0 0 1px rgb(0 0 0 / 0.2);
+  --ctl-well-shadow-hover: inset 0 2px 3.5px rgb(0 0 0 / 0.78), inset 0 0 0 1px rgb(0 0 0 / 0.25);
+  --ctl-well-lip: inset 0 -1px 0 rgb(255 255 255 / 0.05);
 }
 
 html[data-theme="light"] {
@@ -85,11 +98,20 @@ html[data-theme="light"] {
      lighter on dark, darker + more saturated on light (lighter would wash out). */
   --color-accent-bright: #3b66d6;
   --color-accent-green: #16a34a;
+  --color-bg-well: #d6d6d7;
+  --color-accent-green-ink: #00872e;
+  --color-border-pressed: #9b9c9f;
   --color-signal-yellow: #b07d02;
   --color-signal-purple: #9333ea;
   --color-signal-blue: #2563eb;
   --color-signal-red: #dc2626;
   --color-marker-ink: #d97706;
+  /* A light well reads from its dark top edge; the lip is kept as a
+     transparent shadow so the two-shadow list stays valid (`none` inside a
+     shadow list drops the whole declaration). */
+  --ctl-well-shadow: inset 0 1px 2px rgb(0 0 0 / 0.28), inset 0 0 0 1px rgb(0 0 0 / 0.04);
+  --ctl-well-shadow-hover: inset 0 1.5px 3px rgb(0 0 0 / 0.36), inset 0 0 0 1px rgb(0 0 0 / 0.05);
+  --ctl-well-lip: inset 0 -1px 0 rgb(255 255 255 / 0);
 }
 
 /* Control-layer geometry tokens — theme-independent, colors stay derived from
@@ -106,6 +128,11 @@ html[data-theme="light"] {
   --ctl-chip-h: 33px; /* fine chip min height */
   --ctl-chip-w: 35px; /* fine chip min width */
   --ctl-chip-coarse: 40px; /* coarse chip min (both axes) */
+  /* Latch-well depth — the one place a --ctl-* token is per theme category:
+     the dark pair is the default here and the light block overrides it. */
+  --ctl-well-shadow: inset 0 1.5px 2.5px rgb(0 0 0 / 0.6), inset 0 0 0 1px rgb(0 0 0 / 0.2);
+  --ctl-well-shadow-hover: inset 0 2px 3.5px rgb(0 0 0 / 0.78), inset 0 0 0 1px rgb(0 0 0 / 0.25);
+  --ctl-well-lip: inset 0 -1px 0 rgb(255 255 255 / 0.05);
 }
 
 body {
@@ -256,11 +283,31 @@ summary {
    primary text color, and nothing recolors the chip itself: the call-site
    Tailwind hover utilities (hover:border-text-secondary,
    hover:text-text-primary) are the neutral hover, and latched states
-   (LATCHED_ARM: green ink + border) keep their hue under hover — only the
-   fill deliberately deepens (/15 → /25). The button MUST
+   (the well: green ink on the recessed floor) keep their hue under hover —
+   only the well's shade deepens (.rk-latch-well below). The button MUST
    clip the strip (overflow:hidden) — verified safe because the font/bell
    popovers are SIBLINGS of their trigger buttons, not children, so clipping
    the button never clips the popover. */
+/* Latch well = the on-state of every latched control (the Control primitive's
+   LATCHED_WELL arm). The control sits IN the ground: floor (--color-bg-well)
+   + this inset top shade and 1px inner edge (the hole's walls), plus a 1px
+   lighter lip along the bottom edge (the lit far wall). The floor steps toward
+   mid-gray on both categories — lighter than the chrome on dark — because a
+   dark shade on a near-black floor paints nothing.
+   Hover deepens the shade one step — the depth analogue of a fill deepen —
+   while the arm's ink and border hold. Per-category values live on the
+   --ctl-well-* tokens (dark default on :root, light override on the theme
+   block). Unlayered so it outranks Tailwind's `transition-colors`, which
+   would otherwise leave box-shadow out of the transition set. */
+.rk-latch-well {
+  box-shadow: var(--ctl-well-shadow), var(--ctl-well-lip);
+  transition-property: color, background-color, border-color, box-shadow;
+  transition-duration: var(--ctl-duration);
+}
+.rk-latch-well:hover {
+  box-shadow: var(--ctl-well-shadow-hover), var(--ctl-well-lip);
+}
+
 @keyframes rk-glint-sweep {
   0% { transform: translateX(-160%) skewX(-20deg); opacity: 0; }
   10% { opacity: 1; }
@@ -669,15 +716,13 @@ summary {
 
 /* ── Flair overlays (decoration-only channel) ────────────────────────────────
    Always-on CSS-only overlays for rows carrying a flair value (`rain` / `scan` /
-   `nyan` /
-   `naruto` / `onepiece` / `pacman` / `matrix` / `aquarium` / `nemo` /
-   `roadrunner` / `invaders` / `cube` / `warp` / `spidey` / `ironman` / `noon`) — pure decoration: no wiring to
-   @rk_pane_agent_state or
-   the status pyramid, and it animates in EVERY row state. Mounted on window
-   and session rows (NOT server group headers) as an absolutely-positioned
-   inner element (inset-0, overflow-hidden, pointer-events-none, z-5):
-   clipping lives on the overlay, NEVER the
-   row root (whose top-full popovers must stay unclipped).
+   `nyan` / `naruto` / `onepiece` / `pacman` / `matrix` / `aquarium` / `nemo` /
+   `roadrunner` / `invaders` / `cube` / `warp` / `spidey` / `ironman` / `noon`)
+   — pure decoration: no wiring to @rk_pane_agent_state or the status pyramid,
+   and it animates in EVERY row state. Mounted as an absolutely-positioned inner
+   element (inset-0, overflow-hidden, pointer-events-none, z-5): clipping lives
+   on the overlay, NEVER the row root (whose top-full popovers must stay
+   unclipped).
 
    `rain` and `scan` are the marker axis's retired motion (the dashed data rain
    and the double scanlines + crawl + refresh band) — as flairs they are
@@ -687,26 +732,52 @@ summary {
    the row/preview mount; --color-border fallback).
 
    Sprites are ORIGINAL pixel art as inline SVG data URIs — no external
-   requests, no copyrighted assets. Constraints the rules below rely on:
-   - Traversal is background-position only, NEVER transform (an animated
-     translateY range grows the compositor layer beyond the row box and the
-     HTML5 drag-ghost snapshot then carries a sliver of the neighboring row
-     along) and never `left` (layout thrash). The
-     cube/warp/nemo treatments animate transforms on dedicated CHILD SPANS instead
-     of the row pseudos — the sanctioned exception, guarded by hiding the
-     whole overlay while its row is a drag source.
-   - Each sprite is a VERTICAL sheet of 22px frames (frame n at y = -22n).
-     The two background-position LONGHANDS animate independently without
-     clobbering: -x carries the linear traversal, -y steps frames (step-end).
-   - The pseudos are fixed 22px strips (static centering, no animated
-     layout), so px frame offsets hold at every row height (24px rows, 36px
-     coarse rows, 18px picker preview cells).
-   - Sprite layers are no-repeat, sliding off-left negative → off-right
-     calc(100% + Npx) so any row width traverses edge-to-edge; a trail layer
-     rides the SAME keyframes, its from/to constants balanced per layer
-     (start − image width + end equal) so the trail stays glued to the sprite.
-   - ::before ambience tiles drift the OPPOSITE way, displaced by exact tile
-     multiples per loop (seamless).
+   requests, no copyrighted assets.
+
+   COMPOSITOR-ONLY DISCIPLINE. Every @keyframes rk-flair-* animates ONLY
+   transform and/or opacity, on real child spans rendered by FlairOverlay —
+   never background-position on a pseudo-element: an animated
+   background-position ticks style recalc on the main thread at 60/s per
+   overlay (measured: five overlays ≈ 1800 recalcs/30s against a ≈130 floor),
+   while transform/opacity on child spans runs on the compositor. The rules
+   below rely on:
+   - No iteration shorter than 1s. Each iteration boundary of a composited
+     animation costs one main-thread frame (measured ≈0.045 renderer points
+     per boundary/s), so a sub-second cadence is encoded as an explicit
+     keyframe list inside a ≥1s iteration — keyframe stops inside an iteration
+     are free. nemo's 0.2–0.4s articulations become 8s lists (21 stops at the
+     0.4s cadence, 41 at 0.2s) with per-segment ease-in-out (visually
+     identical to alternate); sheet frame steppers repeat their frame cycle
+     inside a 2–3.2s step-end list at the same visible cadence.
+   - Pixel-art layers move in whole device pixels. background-position was
+     pixel-snapped, so a fractional composited translate would bilinear-blur
+     the sheets (measured: 7 distinct colors snapped vs 18–19 blurred on the
+     nyan row). Quantized layers run a steps() count equal to the traversal
+     distance in px: width-dependent traversals read the overlay's rounded
+     integer width (--rk-flair-w, kept current by FlairOverlay's
+     ResizeObserver; 240 fallback before the first observation) as
+     steps(calc((var(--rk-flair-w, 240) + K) * var(--rk-flair-dpr, 1))) with
+     K = end margin − start offset − layer width, the from/to constants
+     balanced per flair so glued layers share one distance; fixed-period tiles
+     use steps(P × dpr) over a span covering the box plus the displacement.
+     --rk-flair-dpr doubles every count under 2dppx so a hop stays one device
+     pixel. 100cqw is NOT used in quantized traversals (a non-integer
+     container width would make the step size fractional); smooth vector
+     layers (nemo's fish, cube, warp, the scan band) stay linear and may use
+     100cqw/100cqh.
+   - A stepped sprite is TWO elements — a frame box (one frame's geometry,
+     overflow-hidden, carrying the traversal) holding an inner sheet span
+     (the full sheet, carrying the frame stepper) — because one element's
+     single transform property cannot carry two independent animations.
+   - DOM order IS the paint order: the former ::before ambience first, the
+     character last; z-index only where the old rules set it (nemo's bubbles
+     z-1 under fish/weed z-2, scan's band z-6).
+   All geometry keeps the established fixed 22px strips with static centering
+   (24px rows, 36px coarse rows, 18/28px picker cells — spidey's bottom:-8px
+   30px strip and ironman's centered 30px strip excepted, as before). Every
+   overlay hides while its row is a drag source (FlairOverlay's guard): an
+   animated transform range grows the compositor layer beyond the row box and
+   the HTML5 drag-ghost snapshot would carry a sliver of the neighboring row.
    WebGL was rejected: browsers cap live contexts per page (~8–16) and every
    flaired row would need one.
 
@@ -714,66 +785,104 @@ summary {
    the prefers-reduced-motion block so its equal-specificity hidden overrides
    win by source order — the flairs are motion-only and hide entirely there. */
 
+/* Every overlay is a size query container (100cqw/100cqh in transform
+   keyframes resolve against it; the overlay is absolute inset-0, so sizing
+   off the row is unaffected). --rk-flair-dpr folds the device-pixel factor
+   into the steps() counts. */
+.rk-flair-rain, .rk-flair-scan, .rk-flair-nyan, .rk-flair-naruto,
+.rk-flair-onepiece, .rk-flair-pacman, .rk-flair-matrix, .rk-flair-aquarium,
+.rk-flair-nemo, .rk-flair-roadrunner, .rk-flair-invaders, .rk-flair-cube,
+.rk-flair-warp, .rk-flair-spidey, .rk-flair-ironman, .rk-flair-noon {
+  container-type: size;
+  --rk-flair-dpr: 1;
+}
+@media (min-resolution: 2dppx) {
+  .rk-flair-rain, .rk-flair-scan, .rk-flair-nyan, .rk-flair-naruto,
+  .rk-flair-onepiece, .rk-flair-pacman, .rk-flair-matrix, .rk-flair-aquarium,
+  .rk-flair-nemo, .rk-flair-roadrunner, .rk-flair-invaders, .rk-flair-cube,
+  .rk-flair-warp, .rk-flair-spidey, .rk-flair-ironman, .rk-flair-noon {
+    --rk-flair-dpr: 2;
+  }
+}
+
 /* rain: two sparse 1px dash tracks streaming LEFT→RIGHT across the row's full
    width — each track a horizontal dash gradient with its own rhythm (7/29 on a
    36px period at y 8px; 5/23 on a 28px period at y 16px), so the lanes drift at
    different speeds and read as rain rather than a marquee. SEAMLESS LOOP: each
-   layer's tile is ONE FIXED PERIOD wide (36px/28px — never "100%", which makes
-   the tile element-width-dependent and snaps at the loop boundary), and the
-   keyframes displace each layer by an integer multiple of its own period
-   (72 = 2×36, 56 = 2×28), so the cycle point is invisible.
-   background-position only — never transform (the drag-ghost rule). */
-@keyframes rk-flair-rain {
-  from { background-position: 0 8px, 0 16px; }
-  to { background-position: 72px 8px, 56px 16px; }
+   lane's tile is ONE FIXED PERIOD wide (36px/28px — never "100%", which makes
+   the tile element-width-dependent and snaps at the loop boundary), and each
+   lane span (box + displacement wide, extra period on the left where the tiles
+   arrive) translates RIGHT by an integer multiple of its own period
+   (72 = 2×36, 56 = 2×28) with a steps() count equal to the displacement, so
+   the hops are whole device pixels and the cycle point is invisible. */
+@keyframes rk-flair-rain-a {
+  from { transform: translateX(0); }
+  to { transform: translateX(72px); }
 }
-.rk-flair-rain::before {
-  content: "";
+@keyframes rk-flair-rain-b {
+  from { transform: translateX(0); }
+  to { transform: translateX(56px); }
+}
+.rk-flair-rain .rk-rain-lane-a,
+.rk-flair-rain .rk-rain-lane-b {
   position: absolute;
-  inset: 0;
+  height: 1px;
   pointer-events: none;
-  background-image:
-    linear-gradient(to right, color-mix(in srgb, var(--rk-flair-color, var(--color-border)) 22%, transparent) 0 7px, transparent 7px 36px),
-    linear-gradient(to right, color-mix(in srgb, var(--rk-flair-color, var(--color-border)) 16%, transparent) 0 5px, transparent 5px 28px);
-  background-size: 36px 1px, 28px 1px;
-  background-repeat: repeat-x, repeat-x;
-  background-position: 0 8px, 0 16px;
-  animation: rk-flair-rain 2.8s linear infinite;
+  background-repeat: repeat-x;
+}
+.rk-flair-rain .rk-rain-lane-a {
+  left: -72px;
+  top: 8px;
+  width: calc(100% + 72px);
+  background-image: linear-gradient(to right, color-mix(in srgb, var(--rk-flair-color, var(--color-border)) 22%, transparent) 0 7px, transparent 7px 36px);
+  background-size: 36px 1px;
+  animation: rk-flair-rain-a 2.8s steps(calc(72 * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-rain .rk-rain-lane-b {
+  left: -56px;
+  top: 16px;
+  width: calc(100% + 56px);
+  background-image: linear-gradient(to right, color-mix(in srgb, var(--rk-flair-color, var(--color-border)) 16%, transparent) 0 5px, transparent 5px 28px);
+  background-size: 28px 1px;
+  animation: rk-flair-rain-b 2.8s steps(calc(56 * var(--rk-flair-dpr, 1))) infinite;
 }
 
-/* scan: CRT scanlines (1px lines on a 3px period) + a slow downward crawl of
-   the gradient period + an occasional refresh band rolling top→bottom (a soft
-   ~12px band via ::after, parked above the box for 60% of the cycle). All
-   background-position-y motion, NEVER transform (the drag-ghost rule). */
+/* scan: CRT scanlines (1px lines on a 3px period) crawling downward + an
+   occasional soft ~12px refresh band rolling top→bottom (parked above the box
+   for 60% of the cycle). The crawl span covers the box plus one 3px period
+   above and steps one whole pixel per hop; the band is a soft gradient, so it
+   stays linear and unquantized (100cqh parks its top at the box bottom —
+   fully exited). */
 @keyframes rk-flair-scan-crawl {
-  from { background-position-y: 0; }
-  to { background-position-y: 3px; } /* one gradient period */
+  from { transform: translateY(0); }
+  to { transform: translateY(3px); } /* one gradient period */
 }
 @keyframes rk-flair-scan-band {
-  /* Rest phase then a single slow sweep: parked fully above the box (a
-     no-repeat background outside its area paints nothing) for most of the
-     cycle, then one top→bottom roll. 100% background-position-y is
-     (box - band) aligned, so +12px puts the band's top at the box bottom —
-     fully exited. */
-  0%, 60% { background-position-y: -12px; }
-  100% { background-position-y: calc(100% + 12px); }
+  /* Rest phase then a single slow sweep: parked fully above the box for most
+     of the cycle, then one top→bottom roll. */
+  0%, 60% { transform: translateY(-12px); }
+  100% { transform: translateY(100cqh); }
 }
-.rk-flair-scan::before {
-  content: "";
+.rk-flair-scan .rk-scan-crawl {
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  top: -3px;
+  height: calc(100% + 3px);
   pointer-events: none;
   background-image: repeating-linear-gradient(
     to bottom,
     color-mix(in srgb, var(--rk-flair-color, var(--color-border)) 24%, transparent) 0 1px,
     transparent 1px 3px
   );
-  animation: rk-flair-scan-crawl 2.4s linear infinite;
+  animation: rk-flair-scan-crawl 2.4s steps(calc(3 * var(--rk-flair-dpr, 1))) infinite;
 }
-.rk-flair-scan::after {
-  content: "";
+.rk-flair-scan .rk-scan-band {
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 12px;
   z-index: 6;
   pointer-events: none;
   background-image: linear-gradient(
@@ -782,310 +891,618 @@ summary {
     color-mix(in srgb, var(--rk-flair-color, var(--color-border)) 45%, transparent),
     transparent
   );
-  background-repeat: no-repeat;
-  background-size: 100% 12px;
-  background-position-y: -12px;
   animation: rk-flair-scan-band 7s linear infinite;
 }
 
-/* nyan: ::after layers the cat sheet (36×88, 4 frames) and a 140px rainbow
-   trail glued to its left edge, stepped together at ~6.7fps (the trail
-   jiggles ±1px); ::before is an 80px star tile (2-frame sheet) drifting the
-   opposite way, one tile per loop. ~9s traversal. */
-@keyframes rk-flair-nyan-x {
-  from { background-position-x: -36px, -176px; }
-  to { background-position-x: calc(100% + 40px), calc(100% + 4px); }
+/* nyan: the cat frame box (36×22, holding the 36×88 4-frame sheet: leg-shuffle
+   A/B, tail wag up/down, 1px body bob, ~6.7fps) crosses with the 140×22
+   rainbow trail box (6 full-saturation stripes, left edge faded through an SVG
+   mask) glued to its left edge and jiggled ±1px at frame cadence on its inner
+   span; the stars tile span (80px 2-frame twinkling tile) drifts the OPPOSITE
+   way, one tile per loop. Both traversals share K = 40 (cat: end 40 − start
+   −36 − width 36; trail: end 4 − start −176 − width 140), so one steps()
+   count keeps them glued. ~9s traversal. */
+@keyframes rk-flair-nyan-cat-x {
+  from { transform: translateX(-36px); }
+  to { transform: translateX(calc(var(--rk-flair-w, 240) * 1px + 4px)); }
 }
-@keyframes rk-flair-nyan-y {
-  0% { background-position-y: 0px, 0px; }
-  25% { background-position-y: -22px, 1px; }
-  50% { background-position-y: -44px, 0px; }
-  75% { background-position-y: -66px, 1px; }
-  100% { background-position-y: -66px, 1px; }
+@keyframes rk-flair-nyan-trail-x {
+  from { transform: translateX(-176px); }
+  to { transform: translateX(calc(var(--rk-flair-w, 240) * 1px - 136px)); }
+}
+/* The 0.6s 4-frame cycle repeated four times inside a 2.4s iteration —
+   keyframe stops inside an iteration are free, iteration boundaries are
+   not. */
+@keyframes rk-flair-nyan-cat-frames {
+  0% { transform: translateY(0px); }
+  6.25% { transform: translateY(-22px); }
+  12.5% { transform: translateY(-44px); }
+  18.75% { transform: translateY(-66px); }
+  25% { transform: translateY(0px); }
+  31.25% { transform: translateY(-22px); }
+  37.5% { transform: translateY(-44px); }
+  43.75% { transform: translateY(-66px); }
+  50% { transform: translateY(0px); }
+  56.25% { transform: translateY(-22px); }
+  62.5% { transform: translateY(-44px); }
+  68.75% { transform: translateY(-66px); }
+  75% { transform: translateY(0px); }
+  81.25% { transform: translateY(-22px); }
+  87.5% { transform: translateY(-44px); }
+  93.75% { transform: translateY(-66px); }
+  100% { transform: translateY(-66px); }
+}
+@keyframes rk-flair-nyan-trail-jiggle {
+  0% { transform: translateY(0px); }
+  6.25% { transform: translateY(1px); }
+  12.5% { transform: translateY(0px); }
+  18.75% { transform: translateY(1px); }
+  25% { transform: translateY(0px); }
+  31.25% { transform: translateY(1px); }
+  37.5% { transform: translateY(0px); }
+  43.75% { transform: translateY(1px); }
+  50% { transform: translateY(0px); }
+  56.25% { transform: translateY(1px); }
+  62.5% { transform: translateY(0px); }
+  68.75% { transform: translateY(1px); }
+  75% { transform: translateY(0px); }
+  81.25% { transform: translateY(1px); }
+  87.5% { transform: translateY(0px); }
+  93.75% { transform: translateY(1px); }
+  100% { transform: translateY(1px); }
 }
 @keyframes rk-flair-nyan-stars-x {
-  from { background-position-x: 0; }
-  to { background-position-x: -80px; }
+  from { transform: translateX(0); }
+  to { transform: translateX(-80px); }
 }
-@keyframes rk-flair-nyan-stars-y {
-  0% { background-position-y: 0; }
-  50% { background-position-y: -22px; }
-  100% { background-position-y: -22px; }
+/* The 0.9s twinkle alternation repeated twice inside a 1.8s iteration. */
+@keyframes rk-flair-nyan-stars-frames {
+  0% { transform: translateY(0); }
+  25% { transform: translateY(-22px); }
+  50% { transform: translateY(0); }
+  75% { transform: translateY(-22px); }
+  100% { transform: translateY(-22px); }
 }
-.rk-flair-nyan::before {
-  content: "";
+.rk-flair-nyan .rk-nyan-stars {
   position: absolute;
   left: 0;
-  right: 0;
   top: 50%;
+  width: calc(100% + 80px);
   height: 22px;
   margin-top: -11px;
+  overflow: hidden;
+  pointer-events: none;
+  animation: rk-flair-nyan-stars-x 2.4s steps(calc(80 * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-nyan .rk-nyan-stars-sheet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 44px;
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='44' viewBox='0 0 80 44'%3E%3Cg fill='white' fill-opacity='0.38'%3E%3Crect x='11' y='3' width='1' height='5'/%3E%3Crect x='9' y='5' width='5' height='1'/%3E%3Crect x='51' y='13' width='1' height='1'/%3E%3Crect x='68' y='7' width='1' height='1'/%3E%3C/g%3E%3Cg fill='white' fill-opacity='0.38' transform='translate(0,22)'%3E%3Crect x='11' y='5' width='1' height='1'/%3E%3Crect x='50' y='11' width='1' height='5'/%3E%3Crect x='48' y='13' width='5' height='1'/%3E%3Crect x='68' y='16' width='1' height='1'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 80px 44px;
   background-repeat: repeat-x;
-  background-position: 0 0;
-  animation:
-    rk-flair-nyan-stars-x 2.4s linear infinite,
-    rk-flair-nyan-stars-y 0.9s step-end infinite;
+  animation: rk-flair-nyan-stars-frames 1.8s step-end infinite;
 }
-.rk-flair-nyan::after {
-  content: "";
+.rk-flair-nyan .rk-nyan-cat,
+.rk-flair-nyan .rk-nyan-trail {
   position: absolute;
   left: 0;
-  right: 0;
   top: 50%;
   height: 22px;
   margin-top: -11px;
+  overflow: hidden;
   pointer-events: none;
   opacity: 0.92;
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='88' viewBox='0 0 36 88'%3E%3Cdefs%3E%3Cg id='c'%3E%3Crect x='4' y='5' width='23' height='14' fill='%23f0b060'/%3E%3Crect x='6' y='7' width='19' height='10' fill='%23f78fc0'/%3E%3Crect x='8' y='9' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='12' y='12' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='16' y='8' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='19' y='13' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='10' y='15' width='1' height='1' fill='%23d6579e'/%3E%3Crect x='23' y='7' width='2' height='3' fill='%23a8b0bc'/%3E%3Crect x='33' y='7' width='2' height='3' fill='%23a8b0bc'/%3E%3Crect x='22' y='9' width='14' height='10' fill='%23a8b0bc'/%3E%3Crect x='25' y='12' width='2' height='2' fill='%23272b31'/%3E%3Crect x='31' y='12' width='2' height='2' fill='%23272b31'/%3E%3Crect x='29' y='14' width='1' height='1' fill='%23272b31'/%3E%3Crect x='27' y='16' width='4' height='1' fill='%23272b31'/%3E%3Crect x='23' y='15' width='2' height='2' fill='%23f08fa8'/%3E%3Crect x='34' y='15' width='2' height='2' fill='%23f08fa8'/%3E%3C/g%3E%3Cg id='ta'%3E%3Crect x='0' y='9' width='3' height='2' fill='%23a8b0bc'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%23a8b0bc'/%3E%3C/g%3E%3Cg id='tb'%3E%3Crect x='0' y='13' width='3' height='2' fill='%23a8b0bc'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%23a8b0bc'/%3E%3C/g%3E%3Cg id='la'%3E%3Crect x='5' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='10' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='16' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='21' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3C/g%3E%3Cg id='lb'%3E%3Crect x='7' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='13' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='18' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='23' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23c'/%3E%3Cuse href='%23ta'/%3E%3Cuse href='%23la'/%3E%3C/g%3E%3Cg transform='translate(0,23)'%3E%3Cuse href='%23c'/%3E%3Cuse href='%23ta'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cuse href='%23c'/%3E%3Cuse href='%23tb'/%3E%3Cuse href='%23la'/%3E%3C/g%3E%3Cg transform='translate(0,67)'%3E%3Cuse href='%23c'/%3E%3Cuse href='%23tb'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='22' viewBox='0 0 140 22'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='white' stop-opacity='0'/%3E%3Cstop offset='0.35' stop-color='white' stop-opacity='0.75'/%3E%3Cstop offset='1' stop-color='white' stop-opacity='0.95'/%3E%3C/linearGradient%3E%3Cmask id='m'%3E%3Crect width='140' height='22' fill='url(%23g)'/%3E%3C/mask%3E%3C/defs%3E%3Cg mask='url(%23m)' opacity='0.62'%3E%3Crect y='2' width='140' height='3' fill='%23ff2222'/%3E%3Crect y='5' width='140' height='3' fill='%23ff9900'/%3E%3Crect y='8' width='140' height='3' fill='%23ffee00'/%3E%3Crect y='11' width='140' height='3' fill='%2333dd22'/%3E%3Crect y='14' width='140' height='3' fill='%231e90ff'/%3E%3Crect y='17' width='140' height='3' fill='%237b46ff'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: 36px 88px, 140px 22px;
-  background-repeat: no-repeat, no-repeat;
-  background-position: -36px 0, -176px 0;
-  animation:
-    rk-flair-nyan-x 9s linear infinite,
-    rk-flair-nyan-y 0.6s step-end infinite;
 }
-
-/* naruto: ::after layers the runner sheet (30×88, 4 frames — spiky hair,
-   headband + fluttering ribbon tails, whisker mark, short swept-back arm
-   stubs, 3-pose leg cycle) and the 120×44 2-frame trail glued behind,
-   stepping at ~8fps; ::before is a faint speed-streak tile racing the
-   opposite way. ~6s traversal. */
-@keyframes rk-flair-naruto-x {
-  from { background-position-x: -30px, -150px; }
-  to { background-position-x: calc(100% + 34px), calc(100% + 4px); }
+.rk-flair-nyan .rk-nyan-cat {
+  width: 36px;
+  animation: rk-flair-nyan-cat-x 9s steps(calc((var(--rk-flair-w, 240) + 40) * var(--rk-flair-dpr, 1))) infinite;
 }
-@keyframes rk-flair-naruto-y {
-  0% { background-position-y: 0px, 0px; }
-  25% { background-position-y: -22px, -22px; }
-  50% { background-position-y: -44px, 0px; }
-  75% { background-position-y: -66px, -22px; }
-  100% { background-position-y: -66px, -22px; }
+.rk-flair-nyan .rk-nyan-trail {
+  width: 140px;
+  animation: rk-flair-nyan-trail-x 9s steps(calc((var(--rk-flair-w, 240) + 40) * var(--rk-flair-dpr, 1))) infinite;
 }
-@keyframes rk-flair-naruto-streaks {
-  from { background-position-x: 0; }
-  to { background-position-x: -48px; }
-}
-.rk-flair-naruto::before {
-  content: "";
+.rk-flair-nyan .rk-nyan-cat-sheet,
+.rk-flair-nyan .rk-nyan-trail-sheet {
   position: absolute;
   left: 0;
-  right: 0;
+  top: 0;
+  pointer-events: none;
+  background-repeat: no-repeat;
+}
+.rk-flair-nyan .rk-nyan-cat-sheet {
+  width: 36px;
+  height: 88px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='88' viewBox='0 0 36 88'%3E%3Cdefs%3E%3Cg id='c'%3E%3Crect x='4' y='5' width='23' height='14' fill='%23f0b060'/%3E%3Crect x='6' y='7' width='19' height='10' fill='%23f78fc0'/%3E%3Crect x='8' y='9' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='12' y='12' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='16' y='8' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='19' y='13' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='10' y='15' width='1' height='1' fill='%23d6579e'/%3E%3Crect x='23' y='7' width='2' height='3' fill='%23a8b0bc'/%3E%3Crect x='33' y='7' width='2' height='3' fill='%23a8b0bc'/%3E%3Crect x='22' y='9' width='14' height='10' fill='%23a8b0bc'/%3E%3Crect x='25' y='12' width='2' height='2' fill='%23272b31'/%3E%3Crect x='31' y='12' width='2' height='2' fill='%23272b31'/%3E%3Crect x='29' y='14' width='1' height='1' fill='%23272b31'/%3E%3Crect x='27' y='16' width='4' height='1' fill='%23272b31'/%3E%3Crect x='23' y='15' width='2' height='2' fill='%23f08fa8'/%3E%3Crect x='34' y='15' width='2' height='2' fill='%23f08fa8'/%3E%3C/g%3E%3Cg id='ta'%3E%3Crect x='0' y='9' width='3' height='2' fill='%23a8b0bc'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%23a8b0bc'/%3E%3C/g%3E%3Cg id='tb'%3E%3Crect x='0' y='13' width='3' height='2' fill='%23a8b0bc'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%23a8b0bc'/%3E%3C/g%3E%3Cg id='la'%3E%3Crect x='5' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='10' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='16' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='21' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3C/g%3E%3Cg id='lb'%3E%3Crect x='7' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='13' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='18' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='23' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23c'/%3E%3Cuse href='%23ta'/%3E%3Cuse href='%23la'/%3E%3C/g%3E%3Cg transform='translate(0,23)'%3E%3Cuse href='%23c'/%3E%3Cuse href='%23ta'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cuse href='%23c'/%3E%3Cuse href='%23tb'/%3E%3Cuse href='%23la'/%3E%3C/g%3E%3Cg transform='translate(0,67)'%3E%3Cuse href='%23c'/%3E%3Cuse href='%23tb'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 36px 88px;
+  animation: rk-flair-nyan-cat-frames 2.4s step-end infinite;
+}
+.rk-flair-nyan .rk-nyan-trail-sheet {
+  width: 140px;
+  height: 22px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='22' viewBox='0 0 140 22'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='white' stop-opacity='0'/%3E%3Cstop offset='0.35' stop-color='white' stop-opacity='0.75'/%3E%3Cstop offset='1' stop-color='white' stop-opacity='0.95'/%3E%3C/linearGradient%3E%3Cmask id='m'%3E%3Crect width='140' height='22' fill='url(%23g)'/%3E%3C/mask%3E%3C/defs%3E%3Cg mask='url(%23m)' opacity='0.62'%3E%3Crect y='2' width='140' height='3' fill='%23ff2222'/%3E%3Crect y='5' width='140' height='3' fill='%23ff9900'/%3E%3Crect y='8' width='140' height='3' fill='%23ffee00'/%3E%3Crect y='11' width='140' height='3' fill='%2333dd22'/%3E%3Crect y='14' width='140' height='3' fill='%231e90ff'/%3E%3Crect y='17' width='140' height='3' fill='%237b46ff'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 140px 22px;
+  animation: rk-flair-nyan-trail-jiggle 2.4s step-end infinite;
+}
+
+/* naruto: an orange-clad runner in the arms-back naruto-run lean — the runner
+   frame box (30×22, holding the 30×88 4-frame sheet: spiky hair, headband +
+   fluttering ribbon tails, whisker mark, short swept-back arm stubs, 3-pose
+   leg cycle, ~8fps) with the 120×44 2-frame trail box (drifting leaves, dust
+   puffs, speed lines) glued behind; the streaks span is a faint 48px
+   speed-streak tile racing the opposite way — two periods per 1.4s iteration
+   (96px, the 0.7s/48px cadence held inside a ≥1s iteration). Traversals share
+   K = 34 (runner: end 34 − start −30 − width 30; trail: end 4 − start −150 −
+   width 120). ~6s traversal. */
+@keyframes rk-flair-naruto-streaks {
+  from { transform: translateX(0); }
+  to { transform: translateX(-96px); }
+}
+@keyframes rk-flair-naruto-runner-x {
+  from { transform: translateX(-30px); }
+  to { transform: translateX(calc(var(--rk-flair-w, 240) * 1px + 4px)); }
+}
+@keyframes rk-flair-naruto-trail-x {
+  from { transform: translateX(-150px); }
+  to { transform: translateX(calc(var(--rk-flair-w, 240) * 1px - 116px)); }
+}
+/* The 0.5s 4-frame cycle repeated four times inside a 2s iteration. */
+@keyframes rk-flair-naruto-runner-frames {
+  0% { transform: translateY(0px); }
+  6.25% { transform: translateY(-22px); }
+  12.5% { transform: translateY(-44px); }
+  18.75% { transform: translateY(-66px); }
+  25% { transform: translateY(0px); }
+  31.25% { transform: translateY(-22px); }
+  37.5% { transform: translateY(-44px); }
+  43.75% { transform: translateY(-66px); }
+  50% { transform: translateY(0px); }
+  56.25% { transform: translateY(-22px); }
+  62.5% { transform: translateY(-44px); }
+  68.75% { transform: translateY(-66px); }
+  75% { transform: translateY(0px); }
+  81.25% { transform: translateY(-22px); }
+  87.5% { transform: translateY(-44px); }
+  93.75% { transform: translateY(-66px); }
+  100% { transform: translateY(-66px); }
+}
+/* The 0.5s 2-frame trail toggle repeated four times inside the same 2s
+   iteration. */
+@keyframes rk-flair-naruto-trail-frames {
+  0% { transform: translateY(0px); }
+  12.5% { transform: translateY(-22px); }
+  25% { transform: translateY(0px); }
+  37.5% { transform: translateY(-22px); }
+  50% { transform: translateY(0px); }
+  62.5% { transform: translateY(-22px); }
+  75% { transform: translateY(0px); }
+  87.5% { transform: translateY(-22px); }
+  100% { transform: translateY(-22px); }
+}
+.rk-flair-naruto .rk-naruto-streaks {
+  position: absolute;
+  left: 0;
   top: 50%;
+  width: calc(100% + 96px);
   height: 22px;
   margin-top: -11px;
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='22' viewBox='0 0 48 22'%3E%3Crect x='4' y='7' width='20' height='1' fill='%23aab2c0' fill-opacity='0.10'/%3E%3Crect x='28' y='13' width='16' height='1' fill='%23aab2c0' fill-opacity='0.08'/%3E%3C/svg%3E");
   background-size: 48px 22px;
   background-repeat: repeat-x;
-  background-position: 0 0;
-  animation: rk-flair-naruto-streaks 0.7s linear infinite;
+  animation: rk-flair-naruto-streaks 1.4s steps(calc(96 * var(--rk-flair-dpr, 1))) infinite;
 }
-.rk-flair-naruto::after {
-  content: "";
+.rk-flair-naruto .rk-naruto-runner,
+.rk-flair-naruto .rk-naruto-trail {
   position: absolute;
   left: 0;
-  right: 0;
   top: 50%;
   height: 22px;
   margin-top: -11px;
+  overflow: hidden;
   pointer-events: none;
   opacity: 0.92;
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='88' viewBox='0 0 30 88'%3E%3Cdefs%3E%3Cg id='u'%3E%3Cpath d='M15 6 L11 4 L15 9 Z' fill='%23f6d32d'/%3E%3Cpath d='M16 4 L17 1 L18 4 Z' fill='%23f6d32d'/%3E%3Cpath d='M18 4 L20 0 L21 4 Z' fill='%23f6d32d'/%3E%3Cpath d='M21 4 L23 1 L24 4 Z' fill='%23f6d32d'/%3E%3Cpath d='M24 4 L26 2 L26 4 Z' fill='%23f6d32d'/%3E%3Crect x='16' y='3' width='10' height='2' fill='%23f6d32d'/%3E%3Crect x='16' y='5' width='10' height='2' fill='%232f4f9f'/%3E%3Crect x='19' y='5' width='4' height='2' fill='%23cdd6e4'/%3E%3Crect x='17' y='7' width='8' height='4' fill='%23f2c49b'/%3E%3Crect x='23' y='8' width='1' height='1' fill='%23222222'/%3E%3Crect x='18' y='9' width='2' height='1' fill='%23c97f4f'/%3E%3Cpath d='M16 11 L21 11 L19 17 L13 17 Z' fill='%23ff7f27'/%3E%3Crect x='13' y='10' width='3' height='1' fill='%23ff7f27'/%3E%3Crect x='11' y='9' width='2' height='1' fill='%23ff7f27'/%3E%3Crect x='9' y='8' width='2' height='2' fill='%23f2c49b'/%3E%3Crect x='13' y='13' width='3' height='1' fill='%23ff7f27'/%3E%3Crect x='11' y='14' width='2' height='1' fill='%23ff7f27'/%3E%3Crect x='9' y='14' width='2' height='2' fill='%23f2c49b'/%3E%3C/g%3E%3Cg id='t1'%3E%3Crect x='12' y='4' width='4' height='1' fill='%232f4f9f'/%3E%3Crect x='9' y='3' width='3' height='1' fill='%232f4f9f'/%3E%3C/g%3E%3Cg id='t2'%3E%3Crect x='12' y='6' width='4' height='1' fill='%232f4f9f'/%3E%3Crect x='9' y='7' width='3' height='1' fill='%232f4f9f'/%3E%3C/g%3E%3Cg id='la'%3E%3Cpath d='M16 17 L19 17 L22 19 L21 21 L18 19 Z' fill='%23ff7f27'/%3E%3Crect x='21' y='19' width='3' height='2' fill='%23303338'/%3E%3Cpath d='M13 17 L15 17 L11 20 L10 19 Z' fill='%23ff7f27'/%3E%3Crect x='8' y='19' width='3' height='2' fill='%23303338'/%3E%3C/g%3E%3Cg id='lb'%3E%3Crect x='15' y='17' width='3' height='3' fill='%23ff7f27'/%3E%3Crect x='15' y='20' width='4' height='2' fill='%23303338'/%3E%3Cpath d='M13 17 L14 18 L11 19 L10 18 Z' fill='%23ff7f27'/%3E%3Crect x='8' y='18' width='3' height='2' fill='%23303338'/%3E%3C/g%3E%3Cg id='lc'%3E%3Cpath d='M15 17 L18 17 L20 20 L18 21 Z' fill='%23ff7f27'/%3E%3Crect x='19' y='20' width='3' height='2' fill='%23303338'/%3E%3Cpath d='M13 17 L14 17 L12 20 L11 19 Z' fill='%23ff7f27'/%3E%3Crect x='9' y='19' width='3' height='2' fill='%23303338'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23u'/%3E%3Cuse href='%23t1'/%3E%3Cuse href='%23la'/%3E%3C/g%3E%3Cg transform='translate(0,23)'%3E%3Cuse href='%23u'/%3E%3Cuse href='%23t2'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cuse href='%23u'/%3E%3Cuse href='%23t1'/%3E%3Cuse href='%23lc'/%3E%3C/g%3E%3Cg transform='translate(0,67)'%3E%3Cuse href='%23u'/%3E%3Cuse href='%23t2'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='44' viewBox='0 0 120 44'%3E%3Cg%3E%3Crect x='30' y='8' width='40' height='1' fill='%23ffffff' fill-opacity='0.22'/%3E%3Crect x='10' y='12' width='55' height='1' fill='%23ff7f27' fill-opacity='0.3'/%3E%3Crect x='45' y='15' width='35' height='1' fill='%23ffffff' fill-opacity='0.18'/%3E%3Crect x='25' y='5' width='2' height='2' fill='%234caf50' fill-opacity='0.7'/%3E%3Crect x='70' y='10' width='2' height='2' fill='%234caf50' fill-opacity='0.6'/%3E%3Ccircle cx='95' cy='18' r='1.5' fill='%23888888' fill-opacity='0.3'/%3E%3Ccircle cx='108' cy='19' r='1' fill='%23888888' fill-opacity='0.25'/%3E%3C/g%3E%3Cg transform='translate(0,22)'%3E%3Crect x='22' y='8' width='40' height='1' fill='%23ffffff' fill-opacity='0.22'/%3E%3Crect x='4' y='12' width='55' height='1' fill='%23ff7f27' fill-opacity='0.3'/%3E%3Crect x='38' y='15' width='35' height='1' fill='%23ffffff' fill-opacity='0.18'/%3E%3Crect x='18' y='9' width='2' height='2' fill='%234caf50' fill-opacity='0.7'/%3E%3Crect x='63' y='4' width='2' height='2' fill='%234caf50' fill-opacity='0.6'/%3E%3Ccircle cx='88' cy='19' r='1.5' fill='%23888888' fill-opacity='0.3'/%3E%3Ccircle cx='102' cy='18' r='1' fill='%23888888' fill-opacity='0.25'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: 30px 88px, 120px 44px;
-  background-repeat: no-repeat, no-repeat;
-  background-position: -30px 0, -150px 0;
-  animation:
-    rk-flair-naruto-x 6s linear infinite,
-    rk-flair-naruto-y 0.5s step-end infinite;
 }
-
-/* onepiece: ::after is a bottom-anchored strip with the ship sheet (34×88,
-   4 frames — straw-hat Jolly-Roger emblem on the mainsail, plain black
-   pennant) stepping at ~2.5fps; ::before is TWO scallop-wave tiles (16px +
-   24px periods) drifting the opposite way at different speeds. ~14s
-   traversal. */
-@keyframes rk-flair-onepiece-x {
-  from { background-position-x: -34px; }
-  to { background-position-x: calc(100% + 34px); }
+.rk-flair-naruto .rk-naruto-runner {
+  width: 30px;
+  animation: rk-flair-naruto-runner-x 6s steps(calc((var(--rk-flair-w, 240) + 34) * var(--rk-flair-dpr, 1))) infinite;
 }
-@keyframes rk-flair-onepiece-y {
-  0% { background-position-y: 0px; }
-  25% { background-position-y: -22px; }
-  50% { background-position-y: -44px; }
-  75% { background-position-y: -66px; }
-  100% { background-position-y: -66px; }
+.rk-flair-naruto .rk-naruto-trail {
+  width: 120px;
+  animation: rk-flair-naruto-trail-x 6s steps(calc((var(--rk-flair-w, 240) + 34) * var(--rk-flair-dpr, 1))) infinite;
 }
-@keyframes rk-flair-onepiece-waves {
-  from { background-position-x: 0, 0; }
-  to { background-position-x: -48px, -72px; }
-}
-.rk-flair-onepiece::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='4' viewBox='0 0 16 4'%3E%3Cpath d='M0 2 Q4 0 8 2 T16 2' fill='none' stroke='%235b8fd9' stroke-opacity='0.5' stroke-width='1.2'/%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='5' viewBox='0 0 24 5'%3E%3Cpath d='M0 3 Q6 1 12 3 T24 3' fill='none' stroke='%237fb3e8' stroke-opacity='0.3' stroke-width='1'/%3E%3C/svg%3E");
-  background-size: 16px 4px, 24px 5px;
-  background-repeat: repeat-x, repeat-x;
-  background-position: 0 100%, 0 calc(100% - 2px);
-  animation: rk-flair-onepiece-waves 4s linear infinite;
-}
-.rk-flair-onepiece::after {
-  content: "";
+.rk-flair-naruto .rk-naruto-runner-sheet,
+.rk-flair-naruto .rk-naruto-trail-sheet {
   position: absolute;
   left: 0;
-  right: 0;
+  top: 0;
+  pointer-events: none;
+  background-repeat: no-repeat;
+}
+.rk-flair-naruto .rk-naruto-runner-sheet {
+  width: 30px;
+  height: 88px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='88' viewBox='0 0 30 88'%3E%3Cdefs%3E%3Cg id='u'%3E%3Cpath d='M15 6 L11 4 L15 9 Z' fill='%23f6d32d'/%3E%3Cpath d='M16 4 L17 1 L18 4 Z' fill='%23f6d32d'/%3E%3Cpath d='M18 4 L20 0 L21 4 Z' fill='%23f6d32d'/%3E%3Cpath d='M21 4 L23 1 L24 4 Z' fill='%23f6d32d'/%3E%3Cpath d='M24 4 L26 2 L26 4 Z' fill='%23f6d32d'/%3E%3Crect x='16' y='3' width='10' height='2' fill='%23f6d32d'/%3E%3Crect x='16' y='5' width='10' height='2' fill='%232f4f9f'/%3E%3Crect x='19' y='5' width='4' height='2' fill='%23cdd6e4'/%3E%3Crect x='17' y='7' width='8' height='4' fill='%23f2c49b'/%3E%3Crect x='23' y='8' width='1' height='1' fill='%23222222'/%3E%3Crect x='18' y='9' width='2' height='1' fill='%23c97f4f'/%3E%3Cpath d='M16 11 L21 11 L19 17 L13 17 Z' fill='%23ff7f27'/%3E%3Crect x='13' y='10' width='3' height='1' fill='%23ff7f27'/%3E%3Crect x='11' y='9' width='2' height='1' fill='%23ff7f27'/%3E%3Crect x='9' y='8' width='2' height='2' fill='%23f2c49b'/%3E%3Crect x='13' y='13' width='3' height='1' fill='%23ff7f27'/%3E%3Crect x='11' y='14' width='2' height='1' fill='%23ff7f27'/%3E%3Crect x='9' y='14' width='2' height='2' fill='%23f2c49b'/%3E%3C/g%3E%3Cg id='t1'%3E%3Crect x='12' y='4' width='4' height='1' fill='%232f4f9f'/%3E%3Crect x='9' y='3' width='3' height='1' fill='%232f4f9f'/%3E%3C/g%3E%3Cg id='t2'%3E%3Crect x='12' y='6' width='4' height='1' fill='%232f4f9f'/%3E%3Crect x='9' y='7' width='3' height='1' fill='%232f4f9f'/%3E%3C/g%3E%3Cg id='la'%3E%3Cpath d='M16 17 L19 17 L22 19 L21 21 L18 19 Z' fill='%23ff7f27'/%3E%3Crect x='21' y='19' width='3' height='2' fill='%23303338'/%3E%3Cpath d='M13 17 L15 17 L11 20 L10 19 Z' fill='%23ff7f27'/%3E%3Crect x='8' y='19' width='3' height='2' fill='%23303338'/%3E%3C/g%3E%3Cg id='lb'%3E%3Crect x='15' y='17' width='3' height='3' fill='%23ff7f27'/%3E%3Crect x='15' y='20' width='4' height='2' fill='%23303338'/%3E%3Cpath d='M13 17 L14 18 L11 19 L10 18 Z' fill='%23ff7f27'/%3E%3Crect x='8' y='18' width='3' height='2' fill='%23303338'/%3E%3C/g%3E%3Cg id='lc'%3E%3Cpath d='M15 17 L18 17 L20 20 L18 21 Z' fill='%23ff7f27'/%3E%3Crect x='19' y='20' width='3' height='2' fill='%23303338'/%3E%3Cpath d='M13 17 L14 17 L12 20 L11 19 Z' fill='%23ff7f27'/%3E%3Crect x='9' y='19' width='3' height='2' fill='%23303338'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23u'/%3E%3Cuse href='%23t1'/%3E%3Cuse href='%23la'/%3E%3C/g%3E%3Cg transform='translate(0,23)'%3E%3Cuse href='%23u'/%3E%3Cuse href='%23t2'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cuse href='%23u'/%3E%3Cuse href='%23t1'/%3E%3Cuse href='%23lc'/%3E%3C/g%3E%3Cg transform='translate(0,67)'%3E%3Cuse href='%23u'/%3E%3Cuse href='%23t2'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 30px 88px;
+  animation: rk-flair-naruto-runner-frames 2s step-end infinite;
+}
+.rk-flair-naruto .rk-naruto-trail-sheet {
+  width: 120px;
+  height: 44px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='44' viewBox='0 0 120 44'%3E%3Cg%3E%3Crect x='30' y='8' width='40' height='1' fill='%23ffffff' fill-opacity='0.22'/%3E%3Crect x='10' y='12' width='55' height='1' fill='%23ff7f27' fill-opacity='0.3'/%3E%3Crect x='45' y='15' width='35' height='1' fill='%23ffffff' fill-opacity='0.18'/%3E%3Crect x='25' y='5' width='2' height='2' fill='%234caf50' fill-opacity='0.7'/%3E%3Crect x='70' y='10' width='2' height='2' fill='%234caf50' fill-opacity='0.6'/%3E%3Ccircle cx='95' cy='18' r='1.5' fill='%23888888' fill-opacity='0.3'/%3E%3Ccircle cx='108' cy='19' r='1' fill='%23888888' fill-opacity='0.25'/%3E%3C/g%3E%3Cg transform='translate(0,22)'%3E%3Crect x='22' y='8' width='40' height='1' fill='%23ffffff' fill-opacity='0.22'/%3E%3Crect x='4' y='12' width='55' height='1' fill='%23ff7f27' fill-opacity='0.3'/%3E%3Crect x='38' y='15' width='35' height='1' fill='%23ffffff' fill-opacity='0.18'/%3E%3Crect x='18' y='9' width='2' height='2' fill='%234caf50' fill-opacity='0.7'/%3E%3Crect x='63' y='4' width='2' height='2' fill='%234caf50' fill-opacity='0.6'/%3E%3Ccircle cx='88' cy='19' r='1.5' fill='%23888888' fill-opacity='0.3'/%3E%3Ccircle cx='102' cy='18' r='1' fill='%23888888' fill-opacity='0.25'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 120px 44px;
+  animation: rk-flair-naruto-trail-frames 2s step-end infinite;
+}
+
+/* onepiece: a pirate ship under sail — the bottom-anchored ship frame box
+   (34×22, holding the 34×88 4-frame sheet: sail billow A/B with a large
+   straw-hat Jolly-Roger emblem on the mainsail, a plain black pennant on the
+   mast, ±1.4° hull roll via per-frame SVG rotate, 1px bob, stern wake dashes,
+   ~2.5fps) plus TWO scallop-wave tile spans (16px and 24px periods) drifting
+   the opposite way at different speeds — parallax swell, each displaced by
+   exact tile multiples per iteration (48 = 3×16, 72 = 3×24). K = 34 (end 34
+   − start −34 − width 34). ~14s traversal. */
+@keyframes rk-flair-onepiece-wave-a {
+  from { transform: translateX(0); }
+  to { transform: translateX(-48px); }
+}
+@keyframes rk-flair-onepiece-wave-b {
+  from { transform: translateX(0); }
+  to { transform: translateX(-72px); }
+}
+@keyframes rk-flair-onepiece-ship-x {
+  from { transform: translateX(-34px); }
+  to { transform: translateX(calc(var(--rk-flair-w, 240) * 1px)); }
+}
+@keyframes rk-flair-onepiece-ship-frames {
+  0% { transform: translateY(0); }
+  25% { transform: translateY(-22px); }
+  50% { transform: translateY(-44px); }
+  75% { transform: translateY(-66px); }
+  100% { transform: translateY(-66px); }
+}
+.rk-flair-onepiece .rk-onepiece-wave-a,
+.rk-flair-onepiece .rk-onepiece-wave-b {
+  position: absolute;
+  left: 0;
+  pointer-events: none;
+  background-repeat: repeat-x;
+}
+.rk-flair-onepiece .rk-onepiece-wave-a {
   bottom: 0;
+  width: calc(100% + 48px);
+  height: 4px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='4' viewBox='0 0 16 4'%3E%3Cpath d='M0 2 Q4 0 8 2 T16 2' fill='none' stroke='%235b8fd9' stroke-opacity='0.5' stroke-width='1.2'/%3E%3C/svg%3E");
+  background-size: 16px 4px;
+  animation: rk-flair-onepiece-wave-a 4s steps(calc(48 * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-onepiece .rk-onepiece-wave-b {
+  bottom: 2px;
+  width: calc(100% + 72px);
+  height: 5px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='5' viewBox='0 0 24 5'%3E%3Cpath d='M0 3 Q6 1 12 3 T24 3' fill='none' stroke='%237fb3e8' stroke-opacity='0.3' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: 24px 5px;
+  animation: rk-flair-onepiece-wave-b 4s steps(calc(72 * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-onepiece .rk-onepiece-ship {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 34px;
   height: 22px;
+  overflow: hidden;
   pointer-events: none;
   opacity: 0.92;
+  animation: rk-flair-onepiece-ship-x 14s steps(calc((var(--rk-flair-w, 240) + 34) * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-onepiece .rk-onepiece-ship-sheet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 34px;
+  height: 88px;
+  pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='88' viewBox='0 0 34 88'%3E%3Cdefs%3E%3Cg id='h'%3E%3Crect x='4' y='14' width='26' height='1' fill='%23543314'/%3E%3Crect x='4' y='15' width='26' height='2' fill='%237a4a21'/%3E%3Crect x='5' y='17' width='24' height='1' fill='%23543314'/%3E%3Crect x='6' y='18' width='21' height='1' fill='%237a4a21'/%3E%3Crect x='8' y='19' width='17' height='1' fill='%235d3a1a'/%3E%3Crect x='3' y='12' width='3' height='3' fill='%237a4a21'/%3E%3Crect x='28' y='12' width='3' height='3' fill='%237a4a21'/%3E%3Crect x='30' y='11' width='4' height='1' fill='%23543314'/%3E%3Crect x='16' y='1' width='2' height='13' fill='%233d2b1f'/%3E%3Crect x='10' y='3' width='14' height='1' fill='%233d2b1f'/%3E%3C/g%3E%3Cg id='sa'%3E%3Cpath d='M11 4 Q26 6 24 13 L13 13 Q15 8 11 4 Z' fill='%23efe8d6'/%3E%3C/g%3E%3Cg id='sb'%3E%3Cpath d='M11 4 Q24 6 22 13 L13 13 Q14 8 11 4 Z' fill='%23e6dfc9'/%3E%3C/g%3E%3Cg id='fa'%3E%3Cpath d='M18 0 L25 1 L24 3 L18 3 Z' fill='%231d1d1d'/%3E%3C/g%3E%3Cg id='fb'%3E%3Cpath d='M18 0 L24 0 L25 3 L18 3 Z' fill='%231d1d1d'/%3E%3C/g%3E%3Cg id='w1'%3E%3Crect x='0' y='16' width='3' height='1' fill='%23ffffff' fill-opacity='0.35'/%3E%3Crect x='1' y='18' width='2' height='1' fill='%23ffffff' fill-opacity='0.25'/%3E%3C/g%3E%3Cg id='w2'%3E%3Crect x='0' y='17' width='4' height='1' fill='%23ffffff' fill-opacity='0.3'/%3E%3Crect x='2' y='19' width='2' height='1' fill='%23ffffff' fill-opacity='0.2'/%3E%3C/g%3E%3Cg id='em'%3E%3Crect x='15' y='5' width='6' height='2' fill='%23f6d32d'/%3E%3Crect x='15' y='6' width='6' height='1' fill='%23c93838'/%3E%3Crect x='14' y='7' width='8' height='1' fill='%23f6d32d'/%3E%3Crect x='16' y='8' width='4' height='3' fill='%231d1d1d'/%3E%3Crect x='17' y='9' width='1' height='1' fill='%23efe8d6'/%3E%3Crect x='19' y='9' width='1' height='1' fill='%23efe8d6'/%3E%3Crect x='14' y='11' width='8' height='1' fill='%231d1d1d'/%3E%3Crect x='13' y='10' width='1' height='1' fill='%231d1d1d'/%3E%3Crect x='22' y='10' width='1' height='1' fill='%231d1d1d'/%3E%3Crect x='13' y='12' width='1' height='1' fill='%231d1d1d'/%3E%3Crect x='22' y='12' width='1' height='1' fill='%231d1d1d'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23h'/%3E%3Cuse href='%23sa'/%3E%3Cuse href='%23em'/%3E%3Cuse href='%23fa'/%3E%3Cuse href='%23w1'/%3E%3C/g%3E%3Cg transform='translate(0,22) rotate(1.4 17 16)'%3E%3Cuse href='%23h'/%3E%3Cuse href='%23sa'/%3E%3Cuse href='%23em'/%3E%3Cuse href='%23fb'/%3E%3Cuse href='%23w2'/%3E%3C/g%3E%3Cg transform='translate(0,43)'%3E%3Cuse href='%23h'/%3E%3Cuse href='%23sb'/%3E%3Cuse href='%23em' transform='translate(-1,0)'/%3E%3Cuse href='%23fa'/%3E%3Cuse href='%23w1'/%3E%3C/g%3E%3Cg transform='translate(0,66) rotate(-1.4 17 16)'%3E%3Cuse href='%23h'/%3E%3Cuse href='%23sb'/%3E%3Cuse href='%23em' transform='translate(-1,0)'/%3E%3Cuse href='%23fb'/%3E%3Cuse href='%23w2'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 34px 88px;
   background-repeat: no-repeat;
-  background-position: -34px 0;
-  animation:
-    rk-flair-onepiece-x 14s linear infinite,
-    rk-flair-onepiece-y 1.6s step-end infinite;
+  animation: rk-flair-onepiece-ship-frames 1.6s step-end infinite;
 }
 
-/* pacman: the yellow chomper, LEFT→RIGHT. ::after is a 22px strip with THREE
-   layers — the pacman sheet (20×44: 2 frames — wedge mouth open / closed at
-   ~5fps chomp), a 140px dot layer (nine 3×3 pellets at 16px pitch, far end
-   faded through an SVG mask) glued so its left edge sits at pacman's mouth —
-   the dots LEAD (the trail geometry of nyan, run forwards: dots in front,
-   blank behind) — and a 16×44 red-ghost sheet (2-frame skirt wiggle) glued
-   26px behind. All three constants are balanced (−154/−140/−180 →
-   +64/+198/+34) so the chase never separates, and the from-offsets park ALL
-   THREE layers fully off-left (pacman enters a beat after his dots) just as
-   the to-offsets park them fully off-right — loop boundaries happen with a
-   completely empty row. ~7s traversal. */
-@keyframes rk-flair-pacman-x {
-  from { background-position-x: -154px, -140px, -180px; }
-  to { background-position-x: calc(100% + 64px), calc(100% + 198px), calc(100% + 34px); }
+/* pacman: the yellow chomper, LEFT→RIGHT — THREE frame boxes: the 20×22
+   pacman box (holding the 20×44 2-frame sheet: wedge mouth open/closed at
+   ~5fps chomp), the 140×22 dots box (nine 3×3 pellets at 16px pitch, far end
+   faded through an SVG mask — static inside its box) glued so the dots LEAD
+   ahead of the mouth, and the 16×22 red-ghost box (2-frame skirt wiggle)
+   glued 26px behind. The from/to constants are balanced (−154/−140/−180 →
+   +64/+198/+34) so all three share one distance — K = 198 (= 64 + 154 − 20) —
+   and the chase never separates; the from-offsets park ALL THREE boxes fully
+   off-left (pacman enters a beat after his dots) just as the to-offsets park
+   them fully off-right — loop boundaries happen with a completely empty row.
+   The 0.4s 2-frame chomp/wiggle is repeated six times inside a 2.4s
+   iteration. ~7s traversal. */
+@keyframes rk-flair-pacman-chomp-x {
+  from { transform: translateX(-154px); }
+  to { transform: translateX(calc(var(--rk-flair-w, 240) * 1px + 44px)); }
 }
-@keyframes rk-flair-pacman-y {
-  0% { background-position-y: 0px, 0px, 0px; }
-  50% { background-position-y: -22px, 0px, -22px; }
-  100% { background-position-y: -22px, 0px, -22px; }
+@keyframes rk-flair-pacman-dots-x {
+  from { transform: translateX(-140px); }
+  to { transform: translateX(calc(var(--rk-flair-w, 240) * 1px + 58px)); }
 }
-.rk-flair-pacman::after {
-  content: "";
+@keyframes rk-flair-pacman-ghost-x {
+  from { transform: translateX(-180px); }
+  to { transform: translateX(calc(var(--rk-flair-w, 240) * 1px + 18px)); }
+}
+@keyframes rk-flair-pacman-chomp-frames {
+  0% { transform: translateY(0px); }
+  8.3333% { transform: translateY(-22px); }
+  16.6667% { transform: translateY(0px); }
+  25% { transform: translateY(-22px); }
+  33.3333% { transform: translateY(0px); }
+  41.6667% { transform: translateY(-22px); }
+  50% { transform: translateY(0px); }
+  58.3333% { transform: translateY(-22px); }
+  66.6667% { transform: translateY(0px); }
+  75% { transform: translateY(-22px); }
+  83.3333% { transform: translateY(0px); }
+  91.6667% { transform: translateY(-22px); }
+  100% { transform: translateY(-22px); }
+}
+@keyframes rk-flair-pacman-ghost-frames {
+  0% { transform: translateY(0px); }
+  8.3333% { transform: translateY(-22px); }
+  16.6667% { transform: translateY(0px); }
+  25% { transform: translateY(-22px); }
+  33.3333% { transform: translateY(0px); }
+  41.6667% { transform: translateY(-22px); }
+  50% { transform: translateY(0px); }
+  58.3333% { transform: translateY(-22px); }
+  66.6667% { transform: translateY(0px); }
+  75% { transform: translateY(-22px); }
+  83.3333% { transform: translateY(0px); }
+  91.6667% { transform: translateY(-22px); }
+  100% { transform: translateY(-22px); }
+}
+.rk-flair-pacman .rk-pacman-chomp,
+.rk-flair-pacman .rk-pacman-dots,
+.rk-flair-pacman .rk-pacman-ghost {
   position: absolute;
   left: 0;
-  right: 0;
   top: 50%;
   height: 22px;
   margin-top: -11px;
+  overflow: hidden;
   pointer-events: none;
   opacity: 0.92;
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='44' viewBox='0 0 20 44'%3E%3Cg fill='%23ffd83d'%3E%3Crect x='6' y='2' width='7' height='1'/%3E%3Crect x='4' y='3' width='11' height='1'/%3E%3Crect x='3' y='4' width='13' height='1'/%3E%3Crect x='2' y='5' width='15' height='1'/%3E%3Crect x='1' y='6' width='17' height='1'/%3E%3Crect x='1' y='7' width='17' height='1'/%3E%3Crect x='1' y='8' width='13' height='1'/%3E%3Crect x='1' y='9' width='11' height='1'/%3E%3Crect x='1' y='10' width='10' height='1'/%3E%3Crect x='1' y='11' width='10' height='1'/%3E%3Crect x='1' y='12' width='11' height='1'/%3E%3Crect x='1' y='13' width='13' height='1'/%3E%3Crect x='1' y='14' width='17' height='1'/%3E%3Crect x='2' y='15' width='15' height='1'/%3E%3Crect x='3' y='16' width='13' height='1'/%3E%3Crect x='4' y='17' width='11' height='1'/%3E%3Crect x='6' y='18' width='7' height='1'/%3E%3C/g%3E%3Crect x='7' y='5' width='2' height='2' fill='%23222222'/%3E%3Cg fill='%23ffd83d' transform='translate(0,22)'%3E%3Crect x='6' y='2' width='7' height='1'/%3E%3Crect x='4' y='3' width='11' height='1'/%3E%3Crect x='3' y='4' width='13' height='1'/%3E%3Crect x='2' y='5' width='15' height='1'/%3E%3Crect x='1' y='6' width='17' height='1'/%3E%3Crect x='1' y='7' width='17' height='1'/%3E%3Crect x='1' y='8' width='17' height='1'/%3E%3Crect x='1' y='9' width='17' height='1'/%3E%3Crect x='1' y='10' width='16' height='1'/%3E%3Crect x='1' y='11' width='16' height='1'/%3E%3Crect x='1' y='12' width='17' height='1'/%3E%3Crect x='1' y='13' width='17' height='1'/%3E%3Crect x='1' y='14' width='17' height='1'/%3E%3Crect x='2' y='15' width='15' height='1'/%3E%3Crect x='3' y='16' width='13' height='1'/%3E%3Crect x='4' y='17' width='11' height='1'/%3E%3Crect x='6' y='18' width='7' height='1'/%3E%3C/g%3E%3Crect x='7' y='27' width='2' height='2' fill='%23222222'/%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='22' viewBox='0 0 140 22'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='white' stop-opacity='1'/%3E%3Cstop offset='0.55' stop-color='white' stop-opacity='0.9'/%3E%3Cstop offset='1' stop-color='white' stop-opacity='0.12'/%3E%3C/linearGradient%3E%3Cmask id='m'%3E%3Crect width='140' height='22' fill='url(%23g)'/%3E%3C/mask%3E%3C/defs%3E%3Cg mask='url(%23m)' fill='%23e8eaf0' fill-opacity='0.8'%3E%3Crect x='4' y='10' width='3' height='3'/%3E%3Crect x='20' y='10' width='3' height='3'/%3E%3Crect x='36' y='10' width='3' height='3'/%3E%3Crect x='52' y='10' width='3' height='3'/%3E%3Crect x='68' y='10' width='3' height='3'/%3E%3Crect x='84' y='10' width='3' height='3'/%3E%3Crect x='100' y='10' width='3' height='3'/%3E%3Crect x='116' y='10' width='3' height='3'/%3E%3Crect x='132' y='10' width='3' height='3'/%3E%3C/g%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='44' viewBox='0 0 16 44'%3E%3Cdefs%3E%3Cg id='gb'%3E%3Crect x='4' y='3' width='8' height='1' fill='%23ff4545'/%3E%3Crect x='3' y='4' width='10' height='1' fill='%23ff4545'/%3E%3Crect x='2' y='5' width='12' height='8' fill='%23ff4545'/%3E%3Crect x='5' y='6' width='2' height='3' fill='white'/%3E%3Crect x='9' y='6' width='2' height='3' fill='white'/%3E%3Crect x='6' y='7' width='1' height='2' fill='%2320242e'/%3E%3Crect x='10' y='7' width='1' height='2' fill='%2320242e'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23gb'/%3E%3Crect x='2' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='6' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='10' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23gb'/%3E%3Crect x='3' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='7' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='11' y='13' width='2' height='2' fill='%23ff4545'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: 20px 44px, 140px 22px, 16px 44px;
-  background-repeat: no-repeat, no-repeat, no-repeat;
-  background-position: -154px 0, -140px 0, -180px 0;
-  animation:
-    rk-flair-pacman-x 7s linear infinite,
-    rk-flair-pacman-y 0.4s step-end infinite;
 }
-
-/* matrix: ambient glyph rain — NO traversal, no character sheet. ::before is
-   full-box (inset 0: rain has no px sprite frames, and the tiles are seamless
-   at any box height — on rows it reads as the strip, on tiles it fills the
-   box) with THREE repeating tiles of vertical katakana-like stroke clusters
-   in accent-green tones (the palette's #22c55e family, hardcoded because CSS
-   custom properties cannot resolve inside data URIs), each stack BRIGHTEST
-   at its falling head. One linear loop drops the three layers by 1 / 2 / 4
-   exact tile heights respectively (88 / 132 / 176px over 9s), so each layer
-   rains at its own speed and every loop boundary is an exact tile multiple —
-   seamless. */
-@keyframes rk-flair-matrix-fall {
-  from { background-position-y: 0px, 0px, 0px; }
-  to { background-position-y: 88px, 132px, 176px; }
+.rk-flair-pacman .rk-pacman-chomp {
+  width: 20px;
+  animation: rk-flair-pacman-chomp-x 7s steps(calc((var(--rk-flair-w, 240) + 198) * var(--rk-flair-dpr, 1))) infinite;
 }
-.rk-flair-matrix::before {
-  content: "";
+.rk-flair-pacman .rk-pacman-dots {
+  width: 140px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='22' viewBox='0 0 140 22'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='white' stop-opacity='1'/%3E%3Cstop offset='0.55' stop-color='white' stop-opacity='0.9'/%3E%3Cstop offset='1' stop-color='white' stop-opacity='0.12'/%3E%3C/linearGradient%3E%3Cmask id='m'%3E%3Crect width='140' height='22' fill='url(%23g)'/%3E%3C/mask%3E%3C/defs%3E%3Cg mask='url(%23m)' fill='%23e8eaf0' fill-opacity='0.8'%3E%3Crect x='4' y='10' width='3' height='3'/%3E%3Crect x='20' y='10' width='3' height='3'/%3E%3Crect x='36' y='10' width='3' height='3'/%3E%3Crect x='52' y='10' width='3' height='3'/%3E%3Crect x='68' y='10' width='3' height='3'/%3E%3Crect x='84' y='10' width='3' height='3'/%3E%3Crect x='100' y='10' width='3' height='3'/%3E%3Crect x='116' y='10' width='3' height='3'/%3E%3Crect x='132' y='10' width='3' height='3'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 140px 22px;
+  background-repeat: no-repeat;
+  animation: rk-flair-pacman-dots-x 7s steps(calc((var(--rk-flair-w, 240) + 198) * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-pacman .rk-pacman-ghost {
+  width: 16px;
+  animation: rk-flair-pacman-ghost-x 7s steps(calc((var(--rk-flair-w, 240) + 198) * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-pacman .rk-pacman-chomp-sheet,
+.rk-flair-pacman .rk-pacman-ghost-sheet {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
   pointer-events: none;
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='88' viewBox='0 0 32 88'%3E%3Cg fill='%23a8ffc0'%3E%3Crect x='4' y='74' width='3' height='1' fill-opacity='0.55'/%3E%3Crect x='6' y='75' width='1' height='2' fill-opacity='0.55'/%3E%3Crect x='18' y='40' width='3' height='1' fill-opacity='0.5'/%3E%3Crect x='20' y='41' width='1' height='2' fill-opacity='0.5'/%3E%3C/g%3E%3Cg fill='%2322c55e'%3E%3Crect x='4' y='64' width='3' height='1' fill-opacity='0.3'/%3E%3Crect x='4' y='65' width='1' height='2' fill-opacity='0.3'/%3E%3Crect x='5' y='54' width='1' height='3' fill-opacity='0.26'/%3E%3Crect x='4' y='56' width='3' height='1' fill-opacity='0.26'/%3E%3Crect x='4' y='44' width='3' height='1' fill-opacity='0.22'/%3E%3Crect x='6' y='45' width='1' height='2' fill-opacity='0.22'/%3E%3Crect x='4' y='34' width='1' height='3' fill-opacity='0.18'/%3E%3Crect x='4' y='24' width='3' height='1' fill-opacity='0.14'/%3E%3Crect x='4' y='25' width='1' height='2' fill-opacity='0.14'/%3E%3Crect x='5' y='14' width='1' height='3' fill-opacity='0.10'/%3E%3Crect x='4' y='4' width='3' height='1' fill-opacity='0.07'/%3E%3Crect x='18' y='30' width='3' height='1' fill-opacity='0.28'/%3E%3Crect x='18' y='31' width='1' height='2' fill-opacity='0.28'/%3E%3Crect x='19' y='20' width='1' height='3' fill-opacity='0.24'/%3E%3Crect x='18' y='22' width='3' height='1' fill-opacity='0.24'/%3E%3Crect x='18' y='10' width='3' height='1' fill-opacity='0.18'/%3E%3Crect x='18' y='2' width='1' height='3' fill-opacity='0.12'/%3E%3Crect x='18' y='50' width='3' height='1' fill-opacity='0.08'/%3E%3Crect x='19' y='60' width='1' height='3' fill-opacity='0.12'/%3E%3Crect x='18' y='70' width='3' height='1' fill-opacity='0.16'/%3E%3Crect x='20' y='71' width='1' height='2' fill-opacity='0.16'/%3E%3Crect x='18' y='80' width='1' height='3' fill-opacity='0.2'/%3E%3C/g%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='66' viewBox='0 0 24 66'%3E%3Cg fill='%238fffb0'%3E%3Crect x='8' y='56' width='3' height='1' fill-opacity='0.45'/%3E%3Crect x='10' y='57' width='1' height='2' fill-opacity='0.45'/%3E%3C/g%3E%3Cg fill='%2322c55e'%3E%3Crect x='8' y='46' width='3' height='1' fill-opacity='0.26'/%3E%3Crect x='8' y='47' width='1' height='2' fill-opacity='0.26'/%3E%3Crect x='9' y='36' width='1' height='3' fill-opacity='0.22'/%3E%3Crect x='8' y='26' width='3' height='1' fill-opacity='0.17'/%3E%3Crect x='8' y='16' width='1' height='3' fill-opacity='0.13'/%3E%3Crect x='8' y='6' width='3' height='1' fill-opacity='0.09'/%3E%3C/g%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='44' viewBox='0 0 40 44'%3E%3Cg fill='%238fffb0'%3E%3Crect x='6' y='34' width='3' height='1' fill-opacity='0.3'/%3E%3Crect x='8' y='35' width='1' height='2' fill-opacity='0.3'/%3E%3Crect x='26' y='14' width='3' height='1' fill-opacity='0.24'/%3E%3Crect x='28' y='15' width='1' height='2' fill-opacity='0.24'/%3E%3C/g%3E%3Cg fill='%2322c55e'%3E%3Crect x='6' y='24' width='3' height='1' fill-opacity='0.18'/%3E%3Crect x='7' y='14' width='1' height='3' fill-opacity='0.14'/%3E%3Crect x='6' y='4' width='3' height='1' fill-opacity='0.10'/%3E%3Crect x='26' y='4' width='3' height='1' fill-opacity='0.12'/%3E%3Crect x='26' y='24' width='3' height='1' fill-opacity='0.10'/%3E%3Crect x='27' y='34' width='1' height='3' fill-opacity='0.08'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: 32px 88px, 24px 66px, 40px 44px;
-  background-repeat: repeat, repeat, repeat;
-  background-position: 0 0, 0 0, 0 0;
-  animation: rk-flair-matrix-fall 9s linear infinite;
+  background-repeat: no-repeat;
+}
+.rk-flair-pacman .rk-pacman-chomp-sheet {
+  width: 20px;
+  height: 44px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='44' viewBox='0 0 20 44'%3E%3Cg fill='%23ffd83d'%3E%3Crect x='6' y='2' width='7' height='1'/%3E%3Crect x='4' y='3' width='11' height='1'/%3E%3Crect x='3' y='4' width='13' height='1'/%3E%3Crect x='2' y='5' width='15' height='1'/%3E%3Crect x='1' y='6' width='17' height='1'/%3E%3Crect x='1' y='7' width='17' height='1'/%3E%3Crect x='1' y='8' width='13' height='1'/%3E%3Crect x='1' y='9' width='11' height='1'/%3E%3Crect x='1' y='10' width='10' height='1'/%3E%3Crect x='1' y='11' width='10' height='1'/%3E%3Crect x='1' y='12' width='11' height='1'/%3E%3Crect x='1' y='13' width='13' height='1'/%3E%3Crect x='1' y='14' width='17' height='1'/%3E%3Crect x='2' y='15' width='15' height='1'/%3E%3Crect x='3' y='16' width='13' height='1'/%3E%3Crect x='4' y='17' width='11' height='1'/%3E%3Crect x='6' y='18' width='7' height='1'/%3E%3C/g%3E%3Crect x='7' y='5' width='2' height='2' fill='%23222222'/%3E%3Cg fill='%23ffd83d' transform='translate(0,22)'%3E%3Crect x='6' y='2' width='7' height='1'/%3E%3Crect x='4' y='3' width='11' height='1'/%3E%3Crect x='3' y='4' width='13' height='1'/%3E%3Crect x='2' y='5' width='15' height='1'/%3E%3Crect x='1' y='6' width='17' height='1'/%3E%3Crect x='1' y='7' width='17' height='1'/%3E%3Crect x='1' y='8' width='17' height='1'/%3E%3Crect x='1' y='9' width='17' height='1'/%3E%3Crect x='1' y='10' width='16' height='1'/%3E%3Crect x='1' y='11' width='16' height='1'/%3E%3Crect x='1' y='12' width='17' height='1'/%3E%3Crect x='1' y='13' width='17' height='1'/%3E%3Crect x='1' y='14' width='17' height='1'/%3E%3Crect x='2' y='15' width='15' height='1'/%3E%3Crect x='3' y='16' width='13' height='1'/%3E%3Crect x='4' y='17' width='11' height='1'/%3E%3Crect x='6' y='18' width='7' height='1'/%3E%3C/g%3E%3Crect x='7' y='27' width='2' height='2' fill='%23222222'/%3E%3C/svg%3E");
+  background-size: 20px 44px;
+  animation: rk-flair-pacman-chomp-frames 2.4s step-end infinite;
+}
+.rk-flair-pacman .rk-pacman-ghost-sheet {
+  width: 16px;
+  height: 44px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='44' viewBox='0 0 16 44'%3E%3Cdefs%3E%3Cg id='gb'%3E%3Crect x='4' y='3' width='8' height='1' fill='%23ff4545'/%3E%3Crect x='3' y='4' width='10' height='1' fill='%23ff4545'/%3E%3Crect x='2' y='5' width='12' height='8' fill='%23ff4545'/%3E%3Crect x='5' y='6' width='2' height='3' fill='white'/%3E%3Crect x='9' y='6' width='2' height='3' fill='white'/%3E%3Crect x='6' y='7' width='1' height='2' fill='%2320242e'/%3E%3Crect x='10' y='7' width='1' height='2' fill='%2320242e'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23gb'/%3E%3Crect x='2' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='6' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='10' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23gb'/%3E%3Crect x='3' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='7' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='11' y='13' width='2' height='2' fill='%23ff4545'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 16px 44px;
+  animation: rk-flair-pacman-ghost-frames 2.4s step-end infinite;
 }
 
-/* aquarium: the asciiquarium homage. ::after is a 22px strip with THREE
-   layers — an orange fish sheet (18×44, 2-frame tail flap, facing right)
-   crossing LEFT→RIGHT once per 22s loop, a blue fish sheet (16×44, facing
-   left) crossing RIGHT→LEFT TWICE per loop — its mid-loop keyframe pair
-   (50% / 50.01%) teleports it between fully-off-screen positions, giving two
-   genuinely different speeds on one pseudo with no visible snap — and a
-   10×44 seaweed sheet (2-frame sway) anchored at a constant 6px near the
-   left edge. The y-step keyframes toggle the three sheets at 2.5 / 5 / 2.5
-   flips per second from one step-end cadence. ::before is a rising-bubble
-   tile (36×44, repeat) drifting UP exactly one tile per 5s loop. */
-@keyframes rk-flair-aquarium-x {
-  0% { background-position-x: -18px, calc(100% + 20px), 6px; }
-  50% { background-position-x: calc(50% + 2px), -16px, 6px; }
-  50.01% { background-position-x: calc(50% + 2px), calc(100% + 20px), 6px; }
-  100% { background-position-x: calc(100% + 22px), -16px, 6px; }
+/* matrix: ambient glyph rain — NO traversal, no character sheet. THREE tile
+   spans of vertical katakana-like stroke clusters in accent-green tones (the
+   palette's #22c55e family, hardcoded because CSS custom properties cannot
+   resolve inside data URIs), each stack BRIGHTEST at its falling head; each
+   span covers the box plus its displacement above (the tiles are seamless at
+   any box height — on rows they read as the strip, on taller boxes they fill
+   the box). One loop drops the three layers by 1 / 2 / 4 exact tile heights
+   respectively (88 / 132 / 176px over 9s — 132 = 2×66, 176 = 4×44), so each
+   layer rains at its own speed and every loop boundary is an exact tile
+   multiple — seamless. */
+@keyframes rk-flair-matrix-fall-a {
+  from { transform: translateY(0); }
+  to { transform: translateY(88px); }
 }
-@keyframes rk-flair-aquarium-y {
-  0% { background-position-y: 0px, 0px, 0px; }
-  25% { background-position-y: 0px, -22px, 0px; }
-  50% { background-position-y: -22px, 0px, -22px; }
-  75% { background-position-y: -22px, -22px, -22px; }
-  100% { background-position-y: -22px, -22px, -22px; }
+@keyframes rk-flair-matrix-fall-b {
+  from { transform: translateY(0); }
+  to { transform: translateY(132px); }
+}
+@keyframes rk-flair-matrix-fall-c {
+  from { transform: translateY(0); }
+  to { transform: translateY(176px); }
+}
+.rk-flair-matrix .rk-matrix-fall-a,
+.rk-flair-matrix .rk-matrix-fall-b,
+.rk-flair-matrix .rk-matrix-fall-c {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  background-repeat: repeat;
+}
+.rk-flair-matrix .rk-matrix-fall-a {
+  top: -88px;
+  height: calc(100% + 88px);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='88' viewBox='0 0 32 88'%3E%3Cg fill='%23a8ffc0'%3E%3Crect x='4' y='74' width='3' height='1' fill-opacity='0.55'/%3E%3Crect x='6' y='75' width='1' height='2' fill-opacity='0.55'/%3E%3Crect x='18' y='40' width='3' height='1' fill-opacity='0.5'/%3E%3Crect x='20' y='41' width='1' height='2' fill-opacity='0.5'/%3E%3C/g%3E%3Cg fill='%2322c55e'%3E%3Crect x='4' y='64' width='3' height='1' fill-opacity='0.3'/%3E%3Crect x='4' y='65' width='1' height='2' fill-opacity='0.3'/%3E%3Crect x='5' y='54' width='1' height='3' fill-opacity='0.26'/%3E%3Crect x='4' y='56' width='3' height='1' fill-opacity='0.26'/%3E%3Crect x='4' y='44' width='3' height='1' fill-opacity='0.22'/%3E%3Crect x='6' y='45' width='1' height='2' fill-opacity='0.22'/%3E%3Crect x='4' y='34' width='1' height='3' fill-opacity='0.18'/%3E%3Crect x='4' y='24' width='3' height='1' fill-opacity='0.14'/%3E%3Crect x='4' y='25' width='1' height='2' fill-opacity='0.14'/%3E%3Crect x='5' y='14' width='1' height='3' fill-opacity='0.10'/%3E%3Crect x='4' y='4' width='3' height='1' fill-opacity='0.07'/%3E%3Crect x='18' y='30' width='3' height='1' fill-opacity='0.28'/%3E%3Crect x='18' y='31' width='1' height='2' fill-opacity='0.28'/%3E%3Crect x='19' y='20' width='1' height='3' fill-opacity='0.24'/%3E%3Crect x='18' y='22' width='3' height='1' fill-opacity='0.24'/%3E%3Crect x='18' y='10' width='3' height='1' fill-opacity='0.18'/%3E%3Crect x='18' y='2' width='1' height='3' fill-opacity='0.12'/%3E%3Crect x='18' y='50' width='3' height='1' fill-opacity='0.08'/%3E%3Crect x='19' y='60' width='1' height='3' fill-opacity='0.12'/%3E%3Crect x='18' y='70' width='3' height='1' fill-opacity='0.16'/%3E%3Crect x='20' y='71' width='1' height='2' fill-opacity='0.16'/%3E%3Crect x='18' y='80' width='1' height='3' fill-opacity='0.2'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 32px 88px;
+  animation: rk-flair-matrix-fall-a 9s steps(calc(88 * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-matrix .rk-matrix-fall-b {
+  top: -132px;
+  height: calc(100% + 132px);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='66' viewBox='0 0 24 66'%3E%3Cg fill='%238fffb0'%3E%3Crect x='8' y='56' width='3' height='1' fill-opacity='0.45'/%3E%3Crect x='10' y='57' width='1' height='2' fill-opacity='0.45'/%3E%3C/g%3E%3Cg fill='%2322c55e'%3E%3Crect x='8' y='46' width='3' height='1' fill-opacity='0.26'/%3E%3Crect x='8' y='47' width='1' height='2' fill-opacity='0.26'/%3E%3Crect x='9' y='36' width='1' height='3' fill-opacity='0.22'/%3E%3Crect x='8' y='26' width='3' height='1' fill-opacity='0.17'/%3E%3Crect x='8' y='16' width='1' height='3' fill-opacity='0.13'/%3E%3Crect x='8' y='6' width='3' height='1' fill-opacity='0.09'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 24px 66px;
+  animation: rk-flair-matrix-fall-b 9s steps(calc(132 * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-matrix .rk-matrix-fall-c {
+  top: -176px;
+  height: calc(100% + 176px);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='44' viewBox='0 0 40 44'%3E%3Cg fill='%238fffb0'%3E%3Crect x='6' y='34' width='3' height='1' fill-opacity='0.3'/%3E%3Crect x='8' y='35' width='1' height='2' fill-opacity='0.3'/%3E%3Crect x='26' y='14' width='3' height='1' fill-opacity='0.24'/%3E%3Crect x='28' y='15' width='1' height='2' fill-opacity='0.24'/%3E%3C/g%3E%3Cg fill='%2322c55e'%3E%3Crect x='6' y='24' width='3' height='1' fill-opacity='0.18'/%3E%3Crect x='7' y='14' width='1' height='3' fill-opacity='0.14'/%3E%3Crect x='6' y='4' width='3' height='1' fill-opacity='0.10'/%3E%3Crect x='26' y='4' width='3' height='1' fill-opacity='0.12'/%3E%3Crect x='26' y='24' width='3' height='1' fill-opacity='0.10'/%3E%3Crect x='27' y='34' width='1' height='3' fill-opacity='0.08'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 40px 44px;
+  animation: rk-flair-matrix-fall-c 9s steps(calc(176 * var(--rk-flair-dpr, 1))) infinite;
+}
+
+/* aquarium: the asciiquarium homage — THREE frame boxes on the 22px strip:
+   the orange fish box (18×22, holding the 18×44 2-frame tail-flap sheet,
+   facing right) crossing LEFT→RIGHT once per 22s loop (K = 22: end 22 −
+   start −18 − width 18), the blue fish box (16×22, facing left) crossing
+   RIGHT→LEFT TWICE per loop — its mid-loop 50% / 50.01% keyframe pair
+   teleports it between fully-off-screen positions (each crossing is one
+   full-width segment of the SAME W + 20px distance, so one steps() count
+   keeps every hop one device pixel; the teleport segment runs the same count
+   in 2.2ms, which lands inside a single frame), giving two genuinely
+   different speeds on one box with no visible snap — and the 10×22 seaweed
+   box (2-frame sway) anchored at a constant 6px near the left edge. The
+   frame steppers hold today's 2.5 / 5 / 2.5 frame-changes-per-second
+   cadences inside a 3.2s iteration (8 / 16 / 8 changes per list). The bubbles
+   span is a rising-bubble tile (36×44, repeat) drifting UP exactly one tile
+   per 5s loop. */
+@keyframes rk-flair-aquarium-orange-x {
+  from { transform: translateX(-18px); }
+  to { transform: translateX(calc(var(--rk-flair-w, 240) * 1px + 4px)); }
+}
+@keyframes rk-flair-aquarium-blue-x {
+  0% { transform: translateX(calc(var(--rk-flair-w, 240) * 1px + 4px)); }
+  50% { transform: translateX(-16px); }
+  50.01% { transform: translateX(calc(var(--rk-flair-w, 240) * 1px + 4px)); }
+  100% { transform: translateX(-16px); }
+}
+/* Orange + weed: the 0.8s 2-frame toggle (0.4s per frame) four times per
+   3.2s iteration; blue: the 0.2s-per-frame toggle sixteen times. */
+@keyframes rk-flair-aquarium-orange-frames {
+  0% { transform: translateY(0px); }
+  12.5% { transform: translateY(-22px); }
+  25% { transform: translateY(0px); }
+  37.5% { transform: translateY(-22px); }
+  50% { transform: translateY(0px); }
+  62.5% { transform: translateY(-22px); }
+  75% { transform: translateY(0px); }
+  87.5% { transform: translateY(-22px); }
+  100% { transform: translateY(-22px); }
+}
+@keyframes rk-flair-aquarium-blue-frames {
+  0% { transform: translateY(0px); }
+  6.25% { transform: translateY(-22px); }
+  12.5% { transform: translateY(0px); }
+  18.75% { transform: translateY(-22px); }
+  25% { transform: translateY(0px); }
+  31.25% { transform: translateY(-22px); }
+  37.5% { transform: translateY(0px); }
+  43.75% { transform: translateY(-22px); }
+  50% { transform: translateY(0px); }
+  56.25% { transform: translateY(-22px); }
+  62.5% { transform: translateY(0px); }
+  68.75% { transform: translateY(-22px); }
+  75% { transform: translateY(0px); }
+  81.25% { transform: translateY(-22px); }
+  87.5% { transform: translateY(0px); }
+  93.75% { transform: translateY(-22px); }
+  100% { transform: translateY(-22px); }
+}
+@keyframes rk-flair-aquarium-weed-frames {
+  0% { transform: translateY(0px); }
+  12.5% { transform: translateY(-22px); }
+  25% { transform: translateY(0px); }
+  37.5% { transform: translateY(-22px); }
+  50% { transform: translateY(0px); }
+  62.5% { transform: translateY(-22px); }
+  75% { transform: translateY(0px); }
+  87.5% { transform: translateY(-22px); }
+  100% { transform: translateY(-22px); }
 }
 @keyframes rk-flair-aquarium-bubbles {
-  from { background-position-y: 0; }
-  to { background-position-y: -44px; }
+  from { transform: translateY(0); }
+  to { transform: translateY(-44px); }
 }
-.rk-flair-aquarium::before {
-  content: "";
+.rk-flair-aquarium .rk-aquarium-bubbles {
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: calc(100% + 44px);
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='44' viewBox='0 0 36 44'%3E%3Cg fill='white'%3E%3Ccircle cx='6' cy='32' r='1.5' fill-opacity='0.3'/%3E%3Ccircle cx='15' cy='20' r='1' fill-opacity='0.25'/%3E%3Ccircle cx='24' cy='28' r='2' fill-opacity='0.2'/%3E%3Ccircle cx='31' cy='10' r='1' fill-opacity='0.3'/%3E%3Ccircle cx='10' cy='6' r='1' fill-opacity='0.2'/%3E%3Ccircle cx='28' cy='38' r='1' fill-opacity='0.22'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 36px 44px;
   background-repeat: repeat;
-  background-position: 0 0;
-  animation: rk-flair-aquarium-bubbles 5s linear infinite;
+  animation: rk-flair-aquarium-bubbles 5s steps(calc(44 * var(--rk-flair-dpr, 1))) infinite;
 }
-.rk-flair-aquarium::after {
-  content: "";
+.rk-flair-aquarium .rk-aquarium-orange,
+.rk-flair-aquarium .rk-aquarium-blue,
+.rk-flair-aquarium .rk-aquarium-weed {
   position: absolute;
   left: 0;
-  right: 0;
   top: 50%;
   height: 22px;
   margin-top: -11px;
+  overflow: hidden;
   pointer-events: none;
   opacity: 0.92;
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='44' viewBox='0 0 18 44'%3E%3Cdefs%3E%3Cg id='fa'%3E%3Crect x='4' y='8' width='8' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='9' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='10' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='11' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='12' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='4' y='13' width='8' height='1' fill='%23f6a34c'/%3E%3Crect x='5' y='7' width='4' height='1' fill='%23d07f2e'/%3E%3Crect x='11' y='10' width='1' height='1' fill='%2320242e'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23fa'/%3E%3Crect x='0' y='8' width='2' height='3' fill='%23e88f35'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23fa'/%3E%3Crect x='0' y='11' width='2' height='3' fill='%23e88f35'/%3E%3C/g%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='44' viewBox='0 0 16 44'%3E%3Cdefs%3E%3Cg id='fb'%3E%3Crect x='4' y='8' width='8' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='9' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='10' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='11' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='12' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='4' y='13' width='8' height='1' fill='%235b8fd9'/%3E%3Crect x='6' y='7' width='4' height='1' fill='%234a7ac0'/%3E%3Crect x='4' y='10' width='1' height='1' fill='%2320242e'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23fb'/%3E%3Crect x='14' y='8' width='2' height='3' fill='%234a7ac0'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23fb'/%3E%3Crect x='14' y='11' width='2' height='3' fill='%234a7ac0'/%3E%3C/g%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='44' viewBox='0 0 10 44'%3E%3Cg fill='%233fae5c'%3E%3Crect x='4' y='16' width='2' height='6' fill-opacity='0.8'/%3E%3Crect x='3' y='11' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='4' y='6' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='3' y='4' width='2' height='2' fill-opacity='0.8'/%3E%3Crect x='1' y='18' width='2' height='4' fill-opacity='0.65'/%3E%3Crect x='0' y='16' width='2' height='2' fill-opacity='0.65'/%3E%3C/g%3E%3Cg fill='%233fae5c' transform='translate(0,22)'%3E%3Crect x='4' y='16' width='2' height='6' fill-opacity='0.8'/%3E%3Crect x='5' y='11' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='6' y='6' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='6' y='4' width='2' height='2' fill-opacity='0.8'/%3E%3Crect x='1' y='18' width='2' height='4' fill-opacity='0.65'/%3E%3Crect x='2' y='16' width='2' height='2' fill-opacity='0.65'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: 18px 44px, 16px 44px, 10px 44px;
-  background-repeat: no-repeat, no-repeat, no-repeat;
-  background-position: -18px 0, calc(100% + 20px) 0, 6px 0;
-  animation:
-    rk-flair-aquarium-x 22s linear infinite,
-    rk-flair-aquarium-y 0.8s step-end infinite;
+}
+.rk-flair-aquarium .rk-aquarium-orange {
+  width: 18px;
+  animation: rk-flair-aquarium-orange-x 22s steps(calc((var(--rk-flair-w, 240) + 22) * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-aquarium .rk-aquarium-blue {
+  width: 16px;
+  animation: rk-flair-aquarium-blue-x 22s steps(calc((var(--rk-flair-w, 240) + 20) * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-aquarium .rk-aquarium-weed {
+  left: 6px;
+  width: 10px;
+}
+.rk-flair-aquarium .rk-aquarium-orange-sheet,
+.rk-flair-aquarium .rk-aquarium-blue-sheet,
+.rk-flair-aquarium .rk-aquarium-weed-sheet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 44px;
+  pointer-events: none;
+  background-repeat: no-repeat;
+}
+.rk-flair-aquarium .rk-aquarium-orange-sheet {
+  width: 18px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='44' viewBox='0 0 18 44'%3E%3Cdefs%3E%3Cg id='fa'%3E%3Crect x='4' y='8' width='8' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='9' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='10' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='11' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='12' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='4' y='13' width='8' height='1' fill='%23f6a34c'/%3E%3Crect x='5' y='7' width='4' height='1' fill='%23d07f2e'/%3E%3Crect x='11' y='10' width='1' height='1' fill='%2320242e'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23fa'/%3E%3Crect x='0' y='8' width='2' height='3' fill='%23e88f35'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23fa'/%3E%3Crect x='0' y='11' width='2' height='3' fill='%23e88f35'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 18px 44px;
+  animation: rk-flair-aquarium-orange-frames 3.2s step-end infinite;
+}
+.rk-flair-aquarium .rk-aquarium-blue-sheet {
+  width: 16px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='44' viewBox='0 0 16 44'%3E%3Cdefs%3E%3Cg id='fb'%3E%3Crect x='4' y='8' width='8' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='9' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='10' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='11' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='12' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='4' y='13' width='8' height='1' fill='%235b8fd9'/%3E%3Crect x='6' y='7' width='4' height='1' fill='%234a7ac0'/%3E%3Crect x='4' y='10' width='1' height='1' fill='%2320242e'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23fb'/%3E%3Crect x='14' y='8' width='2' height='3' fill='%234a7ac0'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23fb'/%3E%3Crect x='14' y='11' width='2' height='3' fill='%234a7ac0'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 16px 44px;
+  animation: rk-flair-aquarium-blue-frames 3.2s step-end infinite;
+}
+.rk-flair-aquarium .rk-aquarium-weed-sheet {
+  width: 10px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='44' viewBox='0 0 10 44'%3E%3Cg fill='%233fae5c'%3E%3Crect x='4' y='16' width='2' height='6' fill-opacity='0.8'/%3E%3Crect x='3' y='11' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='4' y='6' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='3' y='4' width='2' height='2' fill-opacity='0.8'/%3E%3Crect x='1' y='18' width='2' height='4' fill-opacity='0.65'/%3E%3Crect x='0' y='16' width='2' height='2' fill-opacity='0.65'/%3E%3C/g%3E%3Cg fill='%233fae5c' transform='translate(0,22)'%3E%3Crect x='4' y='16' width='2' height='6' fill-opacity='0.8'/%3E%3Crect x='5' y='11' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='6' y='6' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='6' y='4' width='2' height='2' fill-opacity='0.8'/%3E%3Crect x='1' y='18' width='2' height='4' fill-opacity='0.65'/%3E%3Crect x='2' y='16' width='2' height='2' fill-opacity='0.65'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 10px 44px;
+  animation: rk-flair-aquarium-weed-frames 3.2s step-end infinite;
 }
 
 /* nemo: aquarium's scene redrawn in HD — the SAME cast on the SAME
@@ -1106,98 +1523,267 @@ summary {
    clipped to the body outline by a clipPath inside each body SVG (ids are
    scoped per data URI, so both fish may reuse id names — they are kept
    distinct anyway).
-   Markup contract: the overlay holds (FlairOverlay renders them) TWO
+   Markup contract: the overlay holds (FlairOverlay renders them) ONE
+   <span class="rk-nemo-bubbles"> (aquarium's bubble arrangement), TWO
    <span class="rk-nemo-fish"> — .rk-nemo-orange then .rk-nemo-blue — each
    holding .rk-nemo-tail, .rk-nemo-fin and .rk-nemo-body spans (DOM order IS
    the paint order: tail and fin behind, body on top covering their roots),
-   plus ONE <span class="rk-nemo-weed"> of three .rk-nemo-blade spans;
-   bubbles ride the overlay's ::before. WHY every moving part is its OWN
-   element carrying its OWN art: a CSS animation inside an SVG data URI used
-   as background-image does not run in Chrome/Safari. Only a real element
-   can take a real transform, so each tail wags, each fin flutters and each
-   blade sways on its own eased loop (the sanctioned cube/warp exception to
-   the row transform ban — rows hide the overlay while drag-sourced).
+   plus ONE <span class="rk-nemo-weed"> of three .rk-nemo-blade spans.
+   WHY every moving part is its OWN element carrying its OWN art: a CSS
+   animation inside an SVG data URI used as background-image does not run in
+   Chrome/Safari. Only a real element can take a real transform, so each tail
+   wags, each fin flutters and each blade sways on its own eased loop (rows
+   hide the overlay while drag-sourced — the drag-ghost rule).
    Construction:
    - Each .rk-nemo-fish span is a box the exact width of aquarium's sprite
      sheet (orange 18px, blue 16px) and 22px tall, centred on the band
      (top: 50%, margin-top: -11px), so the art — drawn at y≈5.6..14.5 of the
      22px viewBox, the band aquarium's art occupies (its sheets draw at
      y=7..14) — lands where aquarium's fish swim. opacity: 0.92 copies
-     aquarium's ::after strip opacity.
-   - The traversals copy aquarium's rk-flair-aquarium-x keyframes exactly.
-     A percentage background-position resolves against (container − image),
-     so aquarium's calc(100% + 22px) on its 18px sheet and calc(100% + 20px)
-     on its 16px sheet both place the sheet's LEFT edge at 100% + 4px;
-     translateX positions the left edge directly, so the rules below subtract
-     the sprite width from the copied margins (calc(100cqw + 22px - --fw)
-     etc.). The result is pixel-identical to aquarium: same speeds, same
-     positions, same off-screen gaps. 100cqw resolves against the overlay
-     (container-type: size — the cube precedent): a % translateX would
-     resolve against the fish's own box, never the row. The blue fish crosses
-     TWICE per loop: the 50% / 50.01% keyframe pair teleports it between two
-     fully-off-screen positions, giving two crossings on one element with no
-     visible snap. Both traversals are LINEAR because aquarium's are — an
-     eased crossing would drift out of step with it.
+     aquarium's strip opacity.
+   - The traversals copy aquarium's keyframes exactly. translateX positions
+     the left edge directly, so the endpoints subtract the sprite width from
+     the copied margins (calc(100cqw + 22px - --fw) etc.). The result is
+     pixel-identical to aquarium: same speeds, same positions, same
+     off-screen gaps. 100cqw resolves against the overlay (container-type:
+     size on the shared overlay rule): a % translateX would resolve against
+     the fish's own box, never the row. The blue fish crosses TWICE per loop:
+     the 50% / 50.01% keyframe pair teleports it between two fully-off-screen
+     positions — two crossings on one element with no visible snap. Both
+     traversals are LINEAR because aquarium's are — an eased crossing would
+     drift out of step with it. The fish are smooth vector art, so their
+     traversals need no steps() quantization.
    - Tail and fin motion is the continuous counterpart of aquarium's 2-frame
-     y-step toggle at the SAME cadence: rk-flair-aquarium-y runs a 0.8s
-     period on which the orange tail changes frame twice (2.5/sec) and the
-     blue tail four times (5/sec), so the orange wags at 0.4s alternate (one
-     full cycle per 0.8s) and the blue at 0.2s. Each fin flutters at its
-     fish's cadence on a staggered negative delay, so tail and fin never
-     read as one rigid rock (aquarium's fin is static — baked into its
-     sheet; the flutter is the requested HD addition). The tail's ±22° swing
-     about its body joint moves the fork tips ~3px peak-to-peak — the 3px
-     hop aquarium's second frame gives its tail. Both transform-origins are
-     DERIVED from --fw/--fh (px projections of the viewBox joint
-     coordinates), so resizing a sprite box cannot silently move the hinges
-     off the joints.
+     y-step toggle at the SAME cadence: the orange tail changes frame twice
+     per 0.8s (2.5/sec) and the blue four times (5/sec), so the orange wags
+     one full cycle per 0.8s and the blue per 0.4s. Each wag cadence is
+     encoded as an 8s explicit-keyframe list — 21 stops for the 0.4s
+     half-wag, 41 stops for the 0.2s half-wag — with ease-in-out per segment,
+     visually identical to the old sub-second alternate loops but with one
+     iteration boundary per 8s instead of 2.5–5 per second. Each fin
+     flutters at its fish's cadence on a staggered negative delay (kept
+     verbatim: blue tail −0.13s, orange fin −0.1s, blue fin −0.05s), so tail
+     and fin never read as one rigid rock (aquarium's fin is static — baked
+     into its sheet; the flutter is the requested HD addition). The tail's
+     ±22° swing about its body joint moves the fork tips ~3px peak-to-peak —
+     the 3px hop aquarium's second frame gives its tail. Both
+     transform-origins are DERIVED from --fw/--fh (px projections of the
+     viewBox joint coordinates), so resizing a sprite box cannot silently
+     move the hinges off the joints.
    - The weed clump keeps its place (aquarium's constant 6px from the left
      edge, bottom-anchored to the band floor: 50% + 11px − 15px height) and
-     its blades sway at aquarium's cadence — 0.4s alternate, the 2.5
+     its blades sway at aquarium's cadence — the 0.4s half-wag list, the 2.5
      frame-changes/sec of the 2-frame sheet — with the middle blade
-     counter-phased and all three on staggered negative delays, so the clump
-     never rotates as one rigid group. ±7° puts the tall blade's tip at
-     ~3.4px peak-to-peak — the up-to-3px hop aquarium's sway frame gives its
-     blades.
-   - ::before keeps aquarium's own bubble arrangement: a repeating 36×44
-     tile drifting UP exactly one tile per 5s loop, so the wrap is seamless.
-     The ONLY linear loops in the block are the two fish traversals and this
-     bubble tile — every articulation (tail, fin, blade) is eased, and no
-     step-end appears anywhere in it.
+     counter-phased and all three on staggered negative delays (0 / −0.13s /
+     −0.27s), so the clump never rotates as one rigid group. ±7° puts the
+     tall blade's tip at ~3.4px peak-to-peak — the up-to-3px hop aquarium's
+     sway frame gives its blades.
+   - The bubbles span keeps aquarium's own bubble arrangement: a repeating
+     36×44 tile drifting UP exactly one tile per 5s loop (quantized — bubbles
+     are pixel circles), z-1 under fish and weed z-2.
+   - The ONLY linear loops in the block are the two fish traversals; every
+     articulation (tail, fin, blade) is eased, and no step-end appears
+     anywhere in it.
    - All geometry is the established fixed 22px band with static centering,
      so it holds in 18px picker cells, 22px rows, 36px coarse rows and full
      SERVER tiles; the cqw traversals follow whatever width mounts it. */
 @keyframes rk-flair-nemo-sway {
-  from { transform: rotate(-7deg); }
-  to { transform: rotate(7deg); }
+  0% { transform: rotate(-7deg); }
+  5% { transform: rotate(7deg); }
+  10% { transform: rotate(-7deg); }
+  15% { transform: rotate(7deg); }
+  20% { transform: rotate(-7deg); }
+  25% { transform: rotate(7deg); }
+  30% { transform: rotate(-7deg); }
+  35% { transform: rotate(7deg); }
+  40% { transform: rotate(-7deg); }
+  45% { transform: rotate(7deg); }
+  50% { transform: rotate(-7deg); }
+  55% { transform: rotate(7deg); }
+  60% { transform: rotate(-7deg); }
+  65% { transform: rotate(7deg); }
+  70% { transform: rotate(-7deg); }
+  75% { transform: rotate(7deg); }
+  80% { transform: rotate(-7deg); }
+  85% { transform: rotate(7deg); }
+  90% { transform: rotate(-7deg); }
+  95% { transform: rotate(7deg); }
+  100% { transform: rotate(-7deg); }
 }
 /* Counter-phase sway so adjacent blades never mirror each other. */
 @keyframes rk-flair-nemo-sway-alt {
-  from { transform: rotate(7deg); }
-  to { transform: rotate(-7deg); }
+  0% { transform: rotate(7deg); }
+  5% { transform: rotate(-7deg); }
+  10% { transform: rotate(7deg); }
+  15% { transform: rotate(-7deg); }
+  20% { transform: rotate(7deg); }
+  25% { transform: rotate(-7deg); }
+  30% { transform: rotate(7deg); }
+  35% { transform: rotate(-7deg); }
+  40% { transform: rotate(7deg); }
+  45% { transform: rotate(-7deg); }
+  50% { transform: rotate(7deg); }
+  55% { transform: rotate(-7deg); }
+  60% { transform: rotate(7deg); }
+  65% { transform: rotate(-7deg); }
+  70% { transform: rotate(7deg); }
+  75% { transform: rotate(-7deg); }
+  80% { transform: rotate(7deg); }
+  85% { transform: rotate(-7deg); }
+  90% { transform: rotate(7deg); }
+  95% { transform: rotate(-7deg); }
+  100% { transform: rotate(7deg); }
+}
+@keyframes rk-flair-nemo-tail {
+  0% { transform: rotate(-22deg); }
+  5% { transform: rotate(22deg); }
+  10% { transform: rotate(-22deg); }
+  15% { transform: rotate(22deg); }
+  20% { transform: rotate(-22deg); }
+  25% { transform: rotate(22deg); }
+  30% { transform: rotate(-22deg); }
+  35% { transform: rotate(22deg); }
+  40% { transform: rotate(-22deg); }
+  45% { transform: rotate(22deg); }
+  50% { transform: rotate(-22deg); }
+  55% { transform: rotate(22deg); }
+  60% { transform: rotate(-22deg); }
+  65% { transform: rotate(22deg); }
+  70% { transform: rotate(-22deg); }
+  75% { transform: rotate(22deg); }
+  80% { transform: rotate(-22deg); }
+  85% { transform: rotate(22deg); }
+  90% { transform: rotate(-22deg); }
+  95% { transform: rotate(22deg); }
+  100% { transform: rotate(-22deg); }
+}
+@keyframes rk-flair-nemo-tail-fast {
+  0% { transform: rotate(-22deg); }
+  2.5% { transform: rotate(22deg); }
+  5% { transform: rotate(-22deg); }
+  7.5% { transform: rotate(22deg); }
+  10% { transform: rotate(-22deg); }
+  12.5% { transform: rotate(22deg); }
+  15% { transform: rotate(-22deg); }
+  17.5% { transform: rotate(22deg); }
+  20% { transform: rotate(-22deg); }
+  22.5% { transform: rotate(22deg); }
+  25% { transform: rotate(-22deg); }
+  27.5% { transform: rotate(22deg); }
+  30% { transform: rotate(-22deg); }
+  32.5% { transform: rotate(22deg); }
+  35% { transform: rotate(-22deg); }
+  37.5% { transform: rotate(22deg); }
+  40% { transform: rotate(-22deg); }
+  42.5% { transform: rotate(22deg); }
+  45% { transform: rotate(-22deg); }
+  47.5% { transform: rotate(22deg); }
+  50% { transform: rotate(-22deg); }
+  52.5% { transform: rotate(22deg); }
+  55% { transform: rotate(-22deg); }
+  57.5% { transform: rotate(22deg); }
+  60% { transform: rotate(-22deg); }
+  62.5% { transform: rotate(22deg); }
+  65% { transform: rotate(-22deg); }
+  67.5% { transform: rotate(22deg); }
+  70% { transform: rotate(-22deg); }
+  72.5% { transform: rotate(22deg); }
+  75% { transform: rotate(-22deg); }
+  77.5% { transform: rotate(22deg); }
+  80% { transform: rotate(-22deg); }
+  82.5% { transform: rotate(22deg); }
+  85% { transform: rotate(-22deg); }
+  87.5% { transform: rotate(22deg); }
+  90% { transform: rotate(-22deg); }
+  92.5% { transform: rotate(22deg); }
+  95% { transform: rotate(-22deg); }
+  97.5% { transform: rotate(22deg); }
+  100% { transform: rotate(-22deg); }
+}
+@keyframes rk-flair-nemo-fin {
+  0% { transform: rotate(-18deg); }
+  5% { transform: rotate(18deg); }
+  10% { transform: rotate(-18deg); }
+  15% { transform: rotate(18deg); }
+  20% { transform: rotate(-18deg); }
+  25% { transform: rotate(18deg); }
+  30% { transform: rotate(-18deg); }
+  35% { transform: rotate(18deg); }
+  40% { transform: rotate(-18deg); }
+  45% { transform: rotate(18deg); }
+  50% { transform: rotate(-18deg); }
+  55% { transform: rotate(18deg); }
+  60% { transform: rotate(-18deg); }
+  65% { transform: rotate(18deg); }
+  70% { transform: rotate(-18deg); }
+  75% { transform: rotate(18deg); }
+  80% { transform: rotate(-18deg); }
+  85% { transform: rotate(18deg); }
+  90% { transform: rotate(-18deg); }
+  95% { transform: rotate(18deg); }
+  100% { transform: rotate(-18deg); }
+}
+@keyframes rk-flair-nemo-fin-fast {
+  0% { transform: rotate(-18deg); }
+  2.5% { transform: rotate(18deg); }
+  5% { transform: rotate(-18deg); }
+  7.5% { transform: rotate(18deg); }
+  10% { transform: rotate(-18deg); }
+  12.5% { transform: rotate(18deg); }
+  15% { transform: rotate(-18deg); }
+  17.5% { transform: rotate(18deg); }
+  20% { transform: rotate(-18deg); }
+  22.5% { transform: rotate(18deg); }
+  25% { transform: rotate(-18deg); }
+  27.5% { transform: rotate(18deg); }
+  30% { transform: rotate(-18deg); }
+  32.5% { transform: rotate(18deg); }
+  35% { transform: rotate(-18deg); }
+  37.5% { transform: rotate(18deg); }
+  40% { transform: rotate(-18deg); }
+  42.5% { transform: rotate(18deg); }
+  45% { transform: rotate(-18deg); }
+  47.5% { transform: rotate(18deg); }
+  50% { transform: rotate(-18deg); }
+  52.5% { transform: rotate(18deg); }
+  55% { transform: rotate(-18deg); }
+  57.5% { transform: rotate(18deg); }
+  60% { transform: rotate(-18deg); }
+  62.5% { transform: rotate(18deg); }
+  65% { transform: rotate(-18deg); }
+  67.5% { transform: rotate(18deg); }
+  70% { transform: rotate(-18deg); }
+  72.5% { transform: rotate(18deg); }
+  75% { transform: rotate(-18deg); }
+  77.5% { transform: rotate(18deg); }
+  80% { transform: rotate(-18deg); }
+  82.5% { transform: rotate(18deg); }
+  85% { transform: rotate(-18deg); }
+  87.5% { transform: rotate(18deg); }
+  90% { transform: rotate(-18deg); }
+  92.5% { transform: rotate(18deg); }
+  95% { transform: rotate(-18deg); }
+  97.5% { transform: rotate(18deg); }
+  100% { transform: rotate(-18deg); }
 }
 @keyframes rk-flair-nemo-bubbles {
-  from { background-position-y: 0; }
-  to { background-position-y: -44px; }
+  from { transform: translateY(0); }
+  to { transform: translateY(-44px); }
 }
-.rk-flair-nemo {
-  /* Query container for the fish traversals' 100cqw (the cube precedent) —
-     the overlay is absolute inset-0, so sizing off the row is unaffected. */
-  container-type: size;
-}
-.rk-flair-nemo::before {
-  /* Rising bubbles — aquarium's own ::before arrangement: a repeating 36×44
-     tile drifting UP exactly one tile per loop, so the wrap is seamless. */
-  content: "";
+.rk-flair-nemo .rk-nemo-bubbles {
+  /* Rising bubbles — aquarium's own arrangement: a repeating 36×44 tile
+     drifting UP exactly one tile per loop, so the wrap is seamless. */
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: calc(100% + 44px);
   z-index: 1;
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='44' viewBox='0 0 36 44'%3E%3Cg fill='white'%3E%3Ccircle cx='6' cy='32' r='1.5' fill-opacity='0.3'/%3E%3Ccircle cx='15' cy='20' r='1' fill-opacity='0.25'/%3E%3Ccircle cx='24' cy='28' r='2' fill-opacity='0.2'/%3E%3Ccircle cx='31' cy='10' r='1' fill-opacity='0.3'/%3E%3Ccircle cx='10' cy='6' r='1' fill-opacity='0.2'/%3E%3Ccircle cx='28' cy='38' r='1' fill-opacity='0.22'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 36px 44px;
   background-repeat: repeat;
-  background-position: 0 0;
-  animation: rk-flair-nemo-bubbles 5s linear infinite;
+  animation: rk-flair-nemo-bubbles 5s steps(calc(44 * var(--rk-flair-dpr, 1))) infinite;
 }
 .rk-flair-nemo .rk-nemo-weed {
   /* Seaweed clump at aquarium's constant 6px from the left edge, bottom-
@@ -1213,17 +1799,16 @@ summary {
   pointer-events: none;
 }
 /* One tight box per blade, origin at the base (a rooted blade bends from
-   its base, never its middle), all three swaying at aquarium's cadence —
-   0.4s alternate, the 2.5 frame-changes/sec of the 2-frame sheet — with the
-   middle blade counter-phased and staggered negative delays, so the clump
-   never rotates as one rigid group. */
+   its base, never its middle), all three swaying at aquarium's cadence with
+   the middle blade counter-phased and staggered negative delays, so the
+   clump never rotates as one rigid group. */
 .rk-flair-nemo .rk-nemo-blade {
   position: absolute;
   pointer-events: none;
   background-repeat: no-repeat;
   background-size: 100% 100%;
   transform-origin: bottom center;
-  animation: rk-flair-nemo-sway 0.4s ease-in-out infinite alternate;
+  animation: rk-flair-nemo-sway 8s ease-in-out infinite;
 }
 .rk-flair-nemo .rk-nemo-blade:nth-child(1) {
   left: 4px;
@@ -1255,18 +1840,18 @@ summary {
    layers (tail, fin, body) so the tail and fin can move on their own hinges.
    The orange faces right and crosses LEFT→RIGHT; the blue faces left and
    crosses RIGHT→LEFT. */
-/* The traversals copy aquarium's rk-flair-aquarium-x keyframes exactly. A
-   percentage background-position resolves against (container − image), so
-   aquarium's calc(100% + 22px) on its 18px sheet places the sheet's LEFT
-   edge at 100% + 4px; translateX positions the left edge directly, so the
-   copied 22px/20px margins are reduced by the sprite width --fw. The orange
-   crosses ONCE per 22s loop, from -18px (its own width off the left edge)
-   to 100cqw + 4px; the blue crosses TWICE per loop, from 100cqw + 4px to
-   -16px, its 50% / 50.01% pair teleporting it between the two
-   fully-off-screen ends — two crossings on one element with no visible
-   snap. Both run LINEAR because aquarium's do; 100cqw resolves against the
-   overlay (container-type: size) — a % translateX would resolve against the
-   fish's own box, never the row. */
+/* The traversals copy aquarium's keyframes exactly. A percentage
+   background-position resolves against (container − image), so aquarium's
+   calc(100% + 22px) on its 18px sheet places the sheet's LEFT edge at
+   100% + 4px; translateX positions the left edge directly, so the copied
+   22px/20px margins are reduced by the sprite width --fw. The orange crosses
+   ONCE per 22s loop, from -18px (its own width off the left edge) to
+   100cqw + 4px; the blue crosses TWICE per loop, from 100cqw + 4px to -16px,
+   its 50% / 50.01% pair teleporting it between the two fully-off-screen ends
+   — two crossings on one element with no visible snap. Both run LINEAR
+   because aquarium's do; 100cqw resolves against the overlay
+   (container-type: size on the shared overlay rule) — a % translateX would
+   resolve against the fish's own box, never the row. */
 @keyframes rk-flair-nemo-swim-orange {
   from { transform: translateX(calc(-1 * var(--fw))); }
   to { transform: translateX(calc(100cqw + 22px - var(--fw))); }
@@ -1276,24 +1861,6 @@ summary {
   50% { transform: translateX(calc(-1 * var(--fw))); }
   50.01% { transform: translateX(calc(100cqw + 20px - var(--fw))); }
   100% { transform: translateX(calc(-1 * var(--fw))); }
-}
-/* Tail wag: the continuous counterpart of aquarium's 2-frame step-end tail
-   toggle at the SAME cadence — rk-flair-aquarium-y runs a 0.8s period on
-   which the orange tail changes frame twice (2.5/sec), so the orange wags
-   at 0.4s alternate (one full cycle per 0.8s); the blue tail changes four
-   times per period (5/sec), so it wags at 0.2s. ±22° about the body joint
-   moves the fork tips ~3px peak-to-peak — the 3px hop aquarium's second
-   frame gives its tail. */
-@keyframes rk-flair-nemo-tail {
-  from { transform: rotate(-22deg); }
-  to { transform: rotate(22deg); }
-}
-/* Pectoral fin flutter: aquarium's fin is static (baked into its sheet), so
-   this is the requested HD addition — run at each fish's own tail cadence,
-   a quarter cycle behind its tail (the negative delays below). */
-@keyframes rk-flair-nemo-fin {
-  from { transform: rotate(-18deg); }
-  to { transform: rotate(18deg); }
 }
 .rk-flair-nemo .rk-nemo-fish {
   /* --fw/--fh are the single source of truth for the sprite box: the swim
@@ -1338,7 +1905,7 @@ summary {
   background-size: 100% 100%;
 }
 .rk-flair-nemo .rk-nemo-tail {
-  animation: rk-flair-nemo-tail 0.4s ease-in-out infinite alternate;
+  animation: rk-flair-nemo-tail 8s ease-in-out infinite;
 }
 .rk-flair-nemo .rk-nemo-orange .rk-nemo-tail {
   /* body joint at viewBox (4.8, 10.5) of 18x22 */
@@ -1349,11 +1916,11 @@ summary {
   /* body joint at viewBox (11.2, 10.5) of 16x22 */
   transform-origin: calc(var(--fw) * 11.2 / 16) calc(var(--fh) * 10.5 / 22);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='22' viewBox='0 0 16 22'%3E%3Cpath d='M11.2 10.5 C12.5 9.5 13.9 8.3 15.3 7.2 C14.7 8.9 14.2 9.9 13.6 10.5 C14.2 11.1 14.7 12.1 15.3 13.8 C13.9 12.7 12.5 11.5 11.2 10.5 Z' fill='%23ffd23f' stroke='%2312121a' stroke-width='0.22'/%3E%3C/svg%3E");
-  animation-duration: 0.2s;
+  animation-name: rk-flair-nemo-tail-fast;
   animation-delay: -0.13s;
 }
 .rk-flair-nemo .rk-nemo-fin {
-  animation: rk-flair-nemo-fin 0.4s ease-in-out infinite alternate;
+  animation: rk-flair-nemo-fin 8s ease-in-out infinite;
   animation-delay: -0.1s;
 }
 .rk-flair-nemo .rk-nemo-orange .rk-nemo-fin {
@@ -1365,7 +1932,7 @@ summary {
   /* fin root at viewBox (7.8, 12.6) of 16x22 */
   transform-origin: calc(var(--fw) * 7.8 / 16) calc(var(--fh) * 12.6 / 22);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='22' viewBox='0 0 16 22'%3E%3Cpath d='M7.8 12.4 C6.5 12.5 5.3 13.2 4.7 14.5 C6.0 14.4 7.2 13.7 7.8 12.9 Z' fill='%232f86dd' stroke='%2312121a' stroke-width='0.2'/%3E%3C/svg%3E");
-  animation-duration: 0.2s;
+  animation-name: rk-flair-nemo-fin-fast;
   animation-delay: -0.05s;
 }
 .rk-flair-nemo .rk-nemo-orange .rk-nemo-body {
@@ -1385,8 +1952,8 @@ summary {
    are staggered by negative animation-delays (−1.2s / −2.4s) so one plane
    is always mid-flight — continuous depth zoom. The overlay's own
    overflow-hidden clips the past-camera blowout. Transforms live on the
-   child spans, never the row pseudos — rows hide the overlay while
-   drag-sourced (FlairOverlay's guard). */
+   child spans — rows hide the overlay while drag-sourced (FlairOverlay's
+   guard). */
 @keyframes rk-flair-warp-zoom {
   0% { transform: translateZ(-160px); opacity: 0; }
   20% { opacity: 0.75; }
@@ -1409,106 +1976,134 @@ summary {
 .rk-flair-warp .rk-warp-plane:nth-child(2) { animation-delay: -1.2s; }
 .rk-flair-warp .rk-warp-plane:nth-child(3) { animation-delay: -2.4s; }
 
-/* roadrunner: the zip-blur bird, LEFT→RIGHT. ::after is a 22px strip with
-   the 2-frame sheet (36×44 — blue bird head/crest/beak up front, body
-   dissolved into speed streaks, yellow leg-blur, dust puffs) stepping at
-   ~3.3fps; ::before is a faint speed-streak tile racing the opposite way
-   (own streak keyframes — same pattern as naruto's, never shared). ~3s
-   traversal. */
+/* roadrunner: the zip-blur bird, LEFT→RIGHT — the bird frame box (36×22,
+   holding the 36×44 2-frame sheet: blue bird head/crest/beak up front, body
+   dissolved into horizontal speed streaks, yellow leg-blur, dust puffs)
+   stepping at ~3.3fps (the 0.3s toggle repeated eight times inside a 2.4s
+   iteration); the streaks span is a faint 48px speed-streak tile racing the
+   opposite way (own streak keyframes — same pattern as naruto's, never
+   shared; two periods per 1.4s iteration). K = 40 (end 40 − start −36 −
+   width 36). ~3s traversal. */
 @keyframes rk-flair-roadrunner-streaks {
-  from { background-position-x: 0; }
-  to { background-position-x: -48px; }
+  from { transform: translateX(0); }
+  to { transform: translateX(-96px); }
 }
-.rk-flair-roadrunner::before {
-  content: "";
+@keyframes rk-flair-roadrunner-bird-x {
+  from { transform: translateX(-36px); }
+  to { transform: translateX(calc(var(--rk-flair-w, 240) * 1px + 4px)); }
+}
+@keyframes rk-flair-roadrunner-bird-frames {
+  0% { transform: translateY(0px); }
+  6.25% { transform: translateY(-22px); }
+  12.5% { transform: translateY(0px); }
+  18.75% { transform: translateY(-22px); }
+  25% { transform: translateY(0px); }
+  31.25% { transform: translateY(-22px); }
+  37.5% { transform: translateY(0px); }
+  43.75% { transform: translateY(-22px); }
+  50% { transform: translateY(0px); }
+  56.25% { transform: translateY(-22px); }
+  62.5% { transform: translateY(0px); }
+  68.75% { transform: translateY(-22px); }
+  75% { transform: translateY(0px); }
+  81.25% { transform: translateY(-22px); }
+  87.5% { transform: translateY(0px); }
+  93.75% { transform: translateY(-22px); }
+  100% { transform: translateY(-22px); }
+}
+.rk-flair-roadrunner .rk-roadrunner-streaks {
   position: absolute;
   left: 0;
-  right: 0;
   top: 50%;
+  width: calc(100% + 96px);
   height: 22px;
   margin-top: -11px;
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='22' viewBox='0 0 48 22'%3E%3Crect x='4' y='7' width='20' height='1' fill='%23aab2c0' fill-opacity='0.10'/%3E%3Crect x='28' y='13' width='16' height='1' fill='%23aab2c0' fill-opacity='0.08'/%3E%3C/svg%3E");
   background-size: 48px 22px;
   background-repeat: repeat-x;
-  background-position: 0 0;
-  animation: rk-flair-roadrunner-streaks 0.7s linear infinite;
+  animation: rk-flair-roadrunner-streaks 1.4s steps(calc(96 * var(--rk-flair-dpr, 1))) infinite;
 }
-
-@keyframes rk-flair-roadrunner-x {
-  from { background-position-x: -36px; }
-  to { background-position-x: calc(100% + 40px); }
-}
-@keyframes rk-flair-roadrunner-y {
-  0% { background-position-y: 0px; }
-  50% { background-position-y: -22px; }
-  100% { background-position-y: -22px; }
-}
-.rk-flair-roadrunner::after {
-  content: "";
+.rk-flair-roadrunner .rk-roadrunner-bird {
   position: absolute;
   left: 0;
-  right: 0;
   top: 50%;
+  width: 36px;
   height: 22px;
   margin-top: -11px;
+  overflow: hidden;
   pointer-events: none;
   opacity: 0.92;
+  animation: rk-flair-roadrunner-bird-x 3s steps(calc((var(--rk-flair-w, 240) + 40) * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-roadrunner .rk-roadrunner-bird-sheet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 36px;
+  height: 44px;
+  pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='44' viewBox='0 0 36 44'%3E%3Cg%3E%3Cpath d='M19 2 L18 0 L20 2 Z' fill='%233a56c4'/%3E%3Cpath d='M21 2 L20 0 L22 2 Z' fill='%233a56c4'/%3E%3Cpath d='M23 2 L22 0 L24 2 Z' fill='%233a56c4'/%3E%3Crect x='20' y='2' width='6' height='4' fill='%234a6fd9'/%3E%3Crect x='24' y='3' width='2' height='2' fill='%23ffffff'/%3E%3Crect x='25' y='3' width='1' height='1' fill='%23222222'/%3E%3Crect x='26' y='4' width='6' height='1' fill='%23f2c94c'/%3E%3Crect x='26' y='5' width='4' height='1' fill='%23d8a73a'/%3E%3Crect x='21' y='6' width='2' height='3' fill='%234a6fd9'/%3E%3Crect x='4' y='9' width='16' height='2' fill='%234a6fd9' fill-opacity='0.85'/%3E%3Crect x='0' y='11' width='18' height='1' fill='%234a6fd9' fill-opacity='0.5'/%3E%3Crect x='8' y='12' width='10' height='1' fill='%23cdd6e4' fill-opacity='0.45'/%3E%3Crect x='5' y='13' width='11' height='1' fill='%234a6fd9' fill-opacity='0.3'/%3E%3Crect x='10' y='15' width='9' height='1' fill='%23e8c352' fill-opacity='0.6'/%3E%3Crect x='8' y='17' width='11' height='1' fill='%23e8c352' fill-opacity='0.4'/%3E%3Crect x='12' y='19' width='6' height='1' fill='%23e8c352' fill-opacity='0.3'/%3E%3Ccircle cx='3' cy='16' r='1.5' fill='%239aa3b2' fill-opacity='0.3'/%3E%3Ccircle cx='6' cy='19' r='1' fill='%239aa3b2' fill-opacity='0.25'/%3E%3C/g%3E%3Cg transform='translate(0,23)'%3E%3Cpath d='M19 2 L18 0 L20 2 Z' fill='%233a56c4'/%3E%3Cpath d='M21 2 L20 0 L22 2 Z' fill='%233a56c4'/%3E%3Cpath d='M23 2 L22 0 L24 2 Z' fill='%233a56c4'/%3E%3Crect x='20' y='2' width='6' height='4' fill='%234a6fd9'/%3E%3Crect x='24' y='3' width='2' height='2' fill='%23ffffff'/%3E%3Crect x='25' y='3' width='1' height='1' fill='%23222222'/%3E%3Crect x='26' y='4' width='6' height='1' fill='%23f2c94c'/%3E%3Crect x='26' y='5' width='4' height='1' fill='%23d8a73a'/%3E%3Crect x='21' y='6' width='2' height='3' fill='%234a6fd9'/%3E%3Crect x='6' y='9' width='16' height='2' fill='%234a6fd9' fill-opacity='0.85'/%3E%3Crect x='2' y='11' width='18' height='1' fill='%234a6fd9' fill-opacity='0.5'/%3E%3Crect x='10' y='12' width='10' height='1' fill='%23cdd6e4' fill-opacity='0.45'/%3E%3Crect x='7' y='13' width='11' height='1' fill='%234a6fd9' fill-opacity='0.3'/%3E%3Crect x='8' y='15' width='9' height='1' fill='%23e8c352' fill-opacity='0.6'/%3E%3Crect x='6' y='17' width='11' height='1' fill='%23e8c352' fill-opacity='0.4'/%3E%3Crect x='14' y='19' width='6' height='1' fill='%23e8c352' fill-opacity='0.3'/%3E%3Ccircle cx='5' cy='16' r='1.5' fill='%239aa3b2' fill-opacity='0.3'/%3E%3Ccircle cx='4' cy='19' r='1' fill='%239aa3b2' fill-opacity='0.25'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 36px 44px;
   background-repeat: no-repeat;
-  background-position: -36px 0;
-  animation:
-    rk-flair-roadrunner-x 3s linear infinite,
-    rk-flair-roadrunner-y 0.3s step-end infinite;
+  animation: rk-flair-roadrunner-bird-frames 2.4s step-end infinite;
 }
 
-/* invaders: the stepped wandering trio. ::after is a centered 22px
-   strip with the crab-trio sheet (44×44, 2-frame arm wiggle, 10px crabs)
-   shuffling left↔right across the FULL box width in 26 discrete jumps —
-   background-position-x 0%→100% with steps(26, jump-none) over 13s alternate
-   (percentage positioning maps image-edge to box-edge, so the wander is
-   box-agnostic with zero transforms), each jump landing on the 1s step-end
-   y-wiggle so every step flips an arm. Pure background-position, never
-   transform. */
+/* invaders: the stepped wandering trio — the trio frame box (44×22, holding
+   the 44×44 2-frame crab-trio sheet, 10px crabs) shuffling left↔right across
+   the FULL box width in 26 discrete jumps — translateX(0 → W − 44px) with
+   steps(26, jump-none) over 13s alternate (the 44px box on the 44px sheet:
+   today's percentage wander mapped image-edge to box-edge, and so does
+   this), each jump landing on the 2s step-end y-wiggle so every step flips
+   an arm. The 26-jump shuffle is the identity read, so it keeps its
+   fractional-step timing instead of per-pixel quantization. */
 @keyframes rk-flair-invaders-wander {
-  from { background-position-x: 0%; }
-  to { background-position-x: 100%; }
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(var(--rk-flair-w, 240) * 1px - 44px)); }
 }
 @keyframes rk-flair-invaders-wiggle {
-  0% { background-position-y: 0px; }
-  50% { background-position-y: -22px; }
-  100% { background-position-y: -22px; }
+  0% { transform: translateY(0px); }
+  25% { transform: translateY(-22px); }
+  50% { transform: translateY(0px); }
+  75% { transform: translateY(-22px); }
+  100% { transform: translateY(-22px); }
 }
-.rk-flair-invaders::after {
-  content: "";
+.rk-flair-invaders .rk-invaders-trio {
   position: absolute;
   left: 0;
-  right: 0;
   top: 50%;
+  width: 44px;
   height: 22px;
   margin-top: -11px;
+  overflow: hidden;
   pointer-events: none;
   opacity: 0.9;
+  animation: rk-flair-invaders-wander 13s steps(26, jump-none) infinite alternate;
+}
+.rk-flair-invaders .rk-invaders-trio-sheet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 44px;
+  height: 44px;
+  pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Cdefs%3E%3Cg id='cb'%3E%3Crect x='2' y='0' width='1' height='1'/%3E%3Crect x='7' y='0' width='1' height='1'/%3E%3Crect x='3' y='1' width='4' height='1'/%3E%3Crect x='1' y='2' width='8' height='1'/%3E%3Crect x='0' y='3' width='10' height='1'/%3E%3Crect x='1' y='4' width='8' height='1'/%3E%3Crect x='3' y='3' width='1' height='1' fill='%230f1117'/%3E%3Crect x='6' y='3' width='1' height='1' fill='%230f1117'/%3E%3C/g%3E%3Cg id='ia'%3E%3Cuse href='%23cb'/%3E%3Crect x='0' y='4' width='1' height='3'/%3E%3Crect x='9' y='4' width='1' height='3'/%3E%3Crect x='1' y='7' width='2' height='1'/%3E%3Crect x='4' y='7' width='2' height='1'/%3E%3Crect x='7' y='7' width='2' height='1'/%3E%3C/g%3E%3Cg id='ib'%3E%3Cuse href='%23cb'/%3E%3Crect x='0' y='5' width='1' height='2'/%3E%3Crect x='9' y='5' width='1' height='2'/%3E%3Crect x='2' y='7' width='2' height='1'/%3E%3Crect x='5' y='7' width='2' height='1'/%3E%3Crect x='8' y='7' width='2' height='1'/%3E%3C/g%3E%3Cg id='shy'%3E%3Cg fill='%233fae5c' fill-opacity='0.5'%3E%3Crect x='20' y='17' width='10' height='3'/%3E%3Crect x='21' y='16' width='8' height='1'/%3E%3Crect x='46' y='17' width='10' height='3'/%3E%3Crect x='47' y='16' width='8' height='1'/%3E%3C/g%3E%3C/g%3E%3C/defs%3E%3Cg fill='%23b9f6ca'%3E%3Cuse href='%23ia' transform='translate(1,7)'/%3E%3Cuse href='%23ia' transform='translate(17,7)'/%3E%3Cuse href='%23ia' transform='translate(33,7)'/%3E%3C/g%3E%3Cg fill='%23b9f6ca' transform='translate(0,22)'%3E%3Cuse href='%23ib' transform='translate(1,7)'/%3E%3Cuse href='%23ib' transform='translate(17,7)'/%3E%3Cuse href='%23ib' transform='translate(33,7)'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 44px 44px;
   background-repeat: no-repeat;
-  background-position: 0% 0;
-  animation:
-    rk-flair-invaders-wander 13s steps(26, jump-none) infinite alternate,
-    rk-flair-invaders-wiggle 1s step-end infinite;
+  animation: rk-flair-invaders-wiggle 2s step-end infinite;
 }
 
 /* cube: the DVD-ricochet wireframe. Markup contract: the overlay holds
    <span class="rk-cube-x"><span class="rk-cube-y"><span class="rk-cube">
    6× <span class="rk-cube-face"/></span></span></span>. container-type: size
-   makes the overlay a query container; the nested wrappers ricochet the cube
-   around the WHOLE box — translateX(calc(100cqw - 18px)) on a 16s alternate
-   loop, translateY(calc(100cqh - 18px)) on an incommensurate 7.5s alternate —
+   (the shared overlay rule) makes the overlay a query container; the nested
+   wrappers ricochet the cube around the WHOLE box in container-query units —
+   translateX(calc(100cqw - 18px)) on a 16s alternate loop,
+   translateY(calc(100cqh - 18px)) on an incommensurate 7.5s alternate —
    while the 16px 6-face accent-green wireframe cube (translateZ(8px))
    tumbles on an 8s spin under a 260px perspective (deliberately flat).
-   Transforms ride these CHILD SPANS only (the row transform ban) — rows hide
-   the overlay entirely while a drag source. */
+   Transforms ride these CHILD SPANS only — rows hide the overlay entirely
+   while a drag source. */
 @keyframes rk-flair-cube-x {
   from { transform: translateX(0); }
   to { transform: translateX(calc(100cqw - 18px)); }
@@ -1520,9 +2115,6 @@ summary {
 @keyframes rk-flair-cube-spin {
   from { transform: rotateX(-18deg) rotateY(0deg); }
   to { transform: rotateX(342deg) rotateY(360deg); }
-}
-.rk-flair-cube {
-  container-type: size;
 }
 .rk-flair-cube .rk-cube-x {
   position: absolute;
@@ -1560,284 +2152,380 @@ summary {
 .rk-flair-cube .rk-cube-face:nth-child(5) { transform: rotateX(90deg) translateZ(8px); }
 .rk-flair-cube .rk-cube-face:nth-child(6) { transform: rotateX(-90deg) translateZ(8px); }
 
-/* spidey: the web-swinger, LEFT→RIGHT. ::after is a 30px strip anchored
+/* spidey: the web-swinger, LEFT→RIGHT — the figure frame box (32×30, holding
+   the 32×240 8-frame sheet: a red/blue homage figure ~15px tall — 3px head,
+   4×5 torso, 1px limb strokes; red torso/arms, blue legs) anchored
    bottom: -8px — the ONE flair whose strip is not center-glued: the bottom
-   8px of every frame hang below the box and the overlay's clip cuts them,
-   so at the dip of a swing the figure sinks through the row's bottom edge
-   and rides half-seen (head + chest) before climbing back out. The sheet
-   (32×240, 8 frames, ~15px figure — 3px head, 1px limbs, red torso/arms +
-   blue legs) encodes a full two-throw cycle: throw (web line angled AHEAD
-   to a new anchor at the frame top) → dip (web vertical, body low, legs in
-   the clipped zone) → rise (web angled BEHIND, legs kicking out) → release
-   (no web, free flight at the arc's top) — then the same four phases again
-   with the opposite arm, so successive swings read hand-over-hand. The
-   per-frame anchor x walks BACKWARD (~9px/frame) against the traversal
-   (~10-12px/frame on typical row widths), so each web's anchor point holds
-   near-still in box space while the body swings past under it. ::before is
-   a faint NYC-skyline silhouette tile (72px period, two tone depths of a
-   neutral gray at 10%/16% fill — solid blocks only, Empire-State stepped
-   spire included) hugging the box BOTTOM at 12px tall, drifting the
-   opposite way one tile per loop (own keyframes, never shared) — rooftops
-   he swings over and dips behind. ~9s traversal, loop boundaries fully
+   8px of every frame hang below the box and the overlay's clip cuts them, so
+   at the dip of a swing the figure sinks through the row's bottom edge and
+   rides half-seen (head + chest) before climbing back out. The sheet encodes
+   a full two-throw cycle at ~3.3fps: throw (web line angled AHEAD to a new
+   anchor at the frame top) → dip (web vertical, body low, legs in the
+   clipped zone) → rise (web angled BEHIND, legs kicking out) → release (no
+   web, free flight at the arc's top) — then the same four phases again with
+   the opposite arm, so successive swings read hand-over-hand. The per-frame
+   anchor x walks BACKWARD (~9px/frame) against the traversal (~10-12px/frame
+   on typical row widths), so each web's anchor point holds near-still in box
+   space while the body swings past under it. The city span is a faint
+   NYC-skyline silhouette tile (72px period, two tone depths of a neutral
+   gray at 10%/16% fill — solid blocks only, Empire-State stepped spire
+   included) hugging the box BOTTOM at 12px tall, drifting the opposite way
+   one tile per loop — rooftops he swings over and dips behind. K = 32 (end
+   32 − start −32 − width 32). ~9s traversal, loop boundaries fully
    off-screen. */
-@keyframes rk-flair-spidey-x {
-  from { background-position-x: -32px; }
-  to { background-position-x: calc(100% + 32px); }
-}
-@keyframes rk-flair-spidey-y {
-  0% { background-position-y: 0px; }
-  12.5% { background-position-y: -30px; }
-  25% { background-position-y: -60px; }
-  37.5% { background-position-y: -90px; }
-  50% { background-position-y: -120px; }
-  62.5% { background-position-y: -150px; }
-  75% { background-position-y: -180px; }
-  87.5% { background-position-y: -210px; }
-  100% { background-position-y: -210px; }
-}
 @keyframes rk-flair-spidey-city {
-  from { background-position-x: 0; }
-  to { background-position-x: -72px; }
+  from { transform: translateX(0); }
+  to { transform: translateX(-72px); }
 }
-.rk-flair-spidey::before {
-  content: "";
+@keyframes rk-flair-spidey-figure-x {
+  from { transform: translateX(-32px); }
+  to { transform: translateX(calc(var(--rk-flair-w, 240) * 1px)); }
+}
+@keyframes rk-flair-spidey-figure-frames {
+  0% { transform: translateY(0); }
+  12.5% { transform: translateY(-30px); }
+  25% { transform: translateY(-60px); }
+  37.5% { transform: translateY(-90px); }
+  50% { transform: translateY(-120px); }
+  62.5% { transform: translateY(-150px); }
+  75% { transform: translateY(-180px); }
+  87.5% { transform: translateY(-210px); }
+  100% { transform: translateY(-210px); }
+}
+.rk-flair-spidey .rk-spidey-city {
   position: absolute;
   left: 0;
-  right: 0;
   bottom: 0;
+  width: calc(100% + 72px);
   height: 12px;
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='12' viewBox='0 0 72 12'%3E%3Cg fill='%237a8394' fill-opacity='0.10'%3E%3Crect x='2' y='4' width='6' height='8'/%3E%3Crect x='20' y='5' width='5' height='7'/%3E%3Crect x='44' y='3' width='6' height='9'/%3E%3Crect x='62' y='5' width='6' height='7'/%3E%3C/g%3E%3Cg fill='%237a8394' fill-opacity='0.16'%3E%3Crect x='8' y='6' width='8' height='6'/%3E%3Crect x='10' y='3' width='4' height='3'/%3E%3Crect x='11' y='2' width='2' height='1'/%3E%3Crect x='12' y='0' width='1' height='2'/%3E%3Crect x='28' y='7' width='7' height='5'/%3E%3Crect x='36' y='5' width='4' height='7'/%3E%3Crect x='40' y='8' width='4' height='4'/%3E%3Crect x='55' y='7' width='2' height='1'/%3E%3Crect x='54' y='8' width='4' height='4'/%3E%3Crect x='66' y='7' width='5' height='5'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 72px 12px;
   background-repeat: repeat-x;
-  background-position: 0 0;
-  animation: rk-flair-spidey-city 18s linear infinite;
+  animation: rk-flair-spidey-city 18s steps(calc(72 * var(--rk-flair-dpr, 1))) infinite;
 }
-.rk-flair-spidey::after {
-  content: "";
+.rk-flair-spidey .rk-spidey-figure {
   position: absolute;
   left: 0;
-  right: 0;
   bottom: -8px;
+  width: 32px;
   height: 30px;
+  overflow: hidden;
   pointer-events: none;
   opacity: 0.92;
+  animation: rk-flair-spidey-figure-x 9s steps(calc((var(--rk-flair-w, 240) + 32) * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-spidey .rk-spidey-figure-sheet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 32px;
+  height: 240px;
+  pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='240' viewBox='0 0 32 240'%3E%3Cg%3E%3Cpath d='M26 0 L22 5' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Cpath d='M18 11 L22 5' stroke='%23c92a2a' stroke-width='1'/%3E%3Crect x='15' y='6' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='17' y='7' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='14' y='9' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='14' y='14' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M14 11 L11 14' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M15 15 L12 19' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M16 15 L14 20' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,30)'%3E%3Cpath d='M16.5 0 L16.5 12' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Cpath d='M16.5 16 L16.5 12' stroke='%23c92a2a' stroke-width='1'/%3E%3Crect x='14' y='13' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='16' y='14' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='13' y='16' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='13' y='21' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M13 17 L11 20' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M14 21 L12 26' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M16 21 L15 27' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,60)'%3E%3Cpath d='M8 0 L13 8' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Cpath d='M14 13 L13 8' stroke='%23c92a2a' stroke-width='1'/%3E%3Crect x='14' y='10' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='16' y='11' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='13' y='13' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='13' y='18' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M13 14 L10 16' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M15 18 L19 21' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M14 18 L18 23' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,90)'%3E%3Crect x='15' y='5' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='17' y='6' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='14' y='8' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='14' y='13' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M14 9 L10 6' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M18 9 L22 7' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M15 14 L19 16' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M14 14 L17 18' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,120)'%3E%3Cpath d='M25 0 L21 5' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Cpath d='M17 11 L21 5' stroke='%23c92a2a' stroke-width='1'/%3E%3Crect x='14' y='6' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='16' y='7' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='13' y='9' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='13' y='14' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M13 11 L10 13' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M14 15 L11 20' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M15 15 L13 19' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,150)'%3E%3Cpath d='M17.5 0 L17.5 12' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Cpath d='M17.5 16 L17.5 12' stroke='%23c92a2a' stroke-width='1'/%3E%3Crect x='15' y='13' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='17' y='14' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='14' y='16' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='14' y='21' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M14 17 L12 20' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M17 21 L19 26' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M15 21 L16 27' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,180)'%3E%3Cpath d='M9 0 L14 8' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Cpath d='M15 13 L14 8' stroke='%23c92a2a' stroke-width='1'/%3E%3Crect x='15' y='10' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='17' y='11' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='14' y='13' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='14' y='18' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M14 14 L11 16' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M16 18 L20 22' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M15 18 L19 24' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,210)'%3E%3Crect x='15' y='5' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='17' y='6' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='14' y='8' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='14' y='13' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M14 9 L10 7' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M18 9 L22 5' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M15 14 L18 17' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M14 14 L16 18' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 32px 240px;
   background-repeat: no-repeat;
-  background-position: -32px 0;
-  animation:
-    rk-flair-spidey-x 9s linear infinite,
-    rk-flair-spidey-y 2.4s step-end infinite;
+  animation: rk-flair-spidey-figure-frames 2.4s step-end infinite;
 }
 
-/* ironman: the fly-by zoom loop — ONE character, ONE background layer on
-   ::after (no glued companion layers; thruster/repulsor streaks are baked
-   into each frame at that frame's scale). Frame-encoded fake zoom: the DRAWN
-   figure's size varies across the sheet while the 36x30 frame geometry stays
-   fixed. The sheet is 36x660 — twenty-two 30px frames on a centered 30px
-   strip (spidey licenses the taller strip): an A/B thruster-flicker pair per
-   size beat so the cadence holds 5fps (1.25% stops on the shared 16s
-   duration) while the size narrative advances. Leg 1 — approach (0-40%):
-   right-facing flight frames growing ~=6->10->15->20px (frames 0-7) as
-   rk-flair-ironman-x carries the strip from -36px (fully off-screen left) to
-   calc(100% - 8px) — near the right edge, still fully on-screen. The turn
-   (40-60%): the ~=26-28px heroes — right-facing (frames 8-9, 40-46.25%),
-   three-quarter front with lit palm repulsors (frames 10-11, 46.25-53.75%),
-   left-facing (frames 12-13, 53.75-60%) — while -x creeps to
-   calc(100% - 4px) at 50% and then REVERSES on-screen; the front frame
-   straddles the reversal moment so it reads as a banked turn, never a bounce
-   or a teleport. Leg 2 — return (60-100%): left-facing frames shrinking
+/* ironman: the fly-by zoom loop — ONE character frame box (36×30, holding the
+   36×660 sheet; no glued companion layers — thruster/repulsor streaks are
+   baked into each frame at that frame's scale). Frame-encoded fake zoom: the
+   DRAWN figure's size varies across the sheet while the 36x30 frame geometry
+   stays fixed. Twenty-two 30px frames on a centered 30px strip (spidey
+   licenses the taller strip): an A/B thruster-flicker pair per size beat so
+   the cadence holds 5fps (1.25% stops on the shared 16s duration) while the
+   size narrative advances. Leg 1 — approach (0-40%): right-facing flight
+   frames growing ~=6->10->15->20px (frames 0-7) as the box travels from
+   -36px (fully off-screen left) to W - 44px (image-edge terms: calc(100% -
+   8px) on the 36px sheet) — near the right edge, still fully on-screen. The
+   turn (40-60%): the ~=26-28px heroes — right-facing (frames 8-9,
+   40-46.25%), three-quarter front with lit palm repulsors (frames 10-11,
+   46.25-53.75%), left-facing (frames 12-13, 53.75-60%) — while x creeps to
+   W - 40px at 50% and then REVERSES on-screen; the front frame straddles
+   the reversal moment so it reads as a banked turn, never a bounce or a
+   teleport. Leg 2 — return (60-100%): left-facing frames shrinking
    ~=20->15->10->6px (frames 14-21 — the approach art mirrored, so the baked
-   streaks correctly trail right) as -x runs back to -36px, receding into the
-   skyline. Both longhands share ONE 16s duration so the frame narrative
-   stays locked to the traversal; the loop boundary lives ONLY at the
-   far-left off-screen park (0% = 100% = -36px), so the wrap is invisible.
-   ::before is a TWO-LAYER Manhattan parallax (distinct artwork from spidey's
-   single strip): a near 96x12 tile (stepped rooftops, water towers, one
-   taller stepped spire — the tower stand-in; 12% fill) and a far 64x8 tile
-   (lower sparser blocks, 6% fill), both bottom-anchored repeat-x, drifting
-   right-to-left at 12px/s vs 4px/s — each displaced by an exact multiple of
-   its own period per loop (192 = 2x96, 64 = 1x64), so both wrap points are
-   invisible. */
-@keyframes rk-flair-ironman-city {
-  from { background-position-x: 0, 0; }
-  to { background-position-x: -192px, -64px; }
+   streaks correctly trail right) as x runs back to -36px, receding into the
+   skyline. Traversal and frame list share ONE 16s duration so the frame
+   narrative stays locked to the traversal; the loop boundary lives ONLY at
+   the far-left off-screen park (0% = 100% = -36px), so the wrap is
+   invisible. The multi-stop traversal is the ONE unquantized pixel-art
+   traversal: steps() applies one count to every segment, which cannot
+   express the stop pattern, so it stays linear on whole-pixel keyframe
+   endpoints (its figures are 6-28px with baked streaks, where sub-pixel
+   softness is least visible). The city spans are a TWO-LAYER Manhattan
+   parallax (distinct artwork from spidey's single strip): a near 96x12 tile
+   (stepped rooftops, water towers, one taller stepped spire — the tower
+   stand-in; 12% fill) and a far 64x8 tile (lower sparser blocks, 6% fill),
+   both bottom-anchored repeat-x drifting right-to-left at different speeds
+   (12px/s vs 4px/s), each displaced by an exact multiple of its own period
+   per loop (192 = 2x96, 64 = 1x64), so both wrap points are invisible. */
+@keyframes rk-flair-ironman-city-near {
+  from { transform: translateX(0); }
+  to { transform: translateX(-192px); }
 }
-.rk-flair-ironman::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='12' viewBox='0 0 96 12'%3E%3Cg fill='%23828a99' fill-opacity='0.12'%3E%3Crect x='0' y='5' width='10' height='7'/%3E%3Crect x='3' y='3' width='3' height='2'/%3E%3Crect x='16' y='3' width='10' height='9'/%3E%3Crect x='18' y='1' width='6' height='2'/%3E%3Crect x='40' y='4' width='10' height='8'/%3E%3Crect x='42' y='2' width='6' height='2'/%3E%3Crect x='43' y='0' width='4' height='2'/%3E%3Crect x='56' y='6' width='8' height='6'/%3E%3Crect x='64' y='9' width='7' height='3'/%3E%3Crect x='66' y='7' width='3' height='2'/%3E%3Crect x='72' y='4' width='12' height='8'/%3E%3Crect x='75' y='2' width='6' height='2'/%3E%3Crect x='88' y='7' width='6' height='5'/%3E%3C/g%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='8' viewBox='0 0 64 8'%3E%3Cg fill='%23828a99' fill-opacity='0.06'%3E%3Crect x='2' y='4' width='7' height='4'/%3E%3Crect x='14' y='2' width='8' height='6'/%3E%3Crect x='30' y='5' width='7' height='3'/%3E%3Crect x='44' y='3' width='9' height='5'/%3E%3Crect x='58' y='5' width='5' height='3'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: 96px 12px, 64px 8px;
-  background-repeat: repeat-x, repeat-x;
-  background-position: 0 bottom, 0 bottom;
-  animation: rk-flair-ironman-city 16s linear infinite;
+@keyframes rk-flair-ironman-city-far {
+  from { transform: translateX(0); }
+  to { transform: translateX(-64px); }
 }
-@keyframes rk-flair-ironman-x {
-  0% { background-position-x: -36px; }
-  40% { background-position-x: calc(100% - 8px); }
-  50% { background-position-x: calc(100% - 4px); }
-  60% { background-position-x: calc(100% - 24px); }
-  100% { background-position-x: -36px; }
-}
-@keyframes rk-flair-ironman-y {
-  0% { background-position-y: 0px; }
-  1.25% { background-position-y: -30px; }
-  2.5% { background-position-y: 0px; }
-  3.75% { background-position-y: -30px; }
-  5% { background-position-y: 0px; }
-  6.25% { background-position-y: -30px; }
-  7.5% { background-position-y: 0px; }
-  8.75% { background-position-y: -30px; }
-  10% { background-position-y: -60px; }
-  11.25% { background-position-y: -90px; }
-  12.5% { background-position-y: -60px; }
-  13.75% { background-position-y: -90px; }
-  15% { background-position-y: -60px; }
-  16.25% { background-position-y: -90px; }
-  17.5% { background-position-y: -60px; }
-  18.75% { background-position-y: -90px; }
-  20% { background-position-y: -120px; }
-  21.25% { background-position-y: -150px; }
-  22.5% { background-position-y: -120px; }
-  23.75% { background-position-y: -150px; }
-  25% { background-position-y: -120px; }
-  26.25% { background-position-y: -150px; }
-  27.5% { background-position-y: -120px; }
-  28.75% { background-position-y: -150px; }
-  30% { background-position-y: -180px; }
-  31.25% { background-position-y: -210px; }
-  32.5% { background-position-y: -180px; }
-  33.75% { background-position-y: -210px; }
-  35% { background-position-y: -180px; }
-  36.25% { background-position-y: -210px; }
-  37.5% { background-position-y: -180px; }
-  38.75% { background-position-y: -210px; }
-  40% { background-position-y: -240px; }
-  41.25% { background-position-y: -270px; }
-  42.5% { background-position-y: -240px; }
-  43.75% { background-position-y: -270px; }
-  45% { background-position-y: -240px; }
-  46.25% { background-position-y: -300px; }
-  47.5% { background-position-y: -330px; }
-  48.75% { background-position-y: -300px; }
-  50% { background-position-y: -330px; }
-  51.25% { background-position-y: -300px; }
-  52.5% { background-position-y: -330px; }
-  53.75% { background-position-y: -360px; }
-  55% { background-position-y: -390px; }
-  56.25% { background-position-y: -360px; }
-  57.5% { background-position-y: -390px; }
-  58.75% { background-position-y: -360px; }
-  60% { background-position-y: -420px; }
-  61.25% { background-position-y: -450px; }
-  62.5% { background-position-y: -420px; }
-  63.75% { background-position-y: -450px; }
-  65% { background-position-y: -420px; }
-  66.25% { background-position-y: -450px; }
-  67.5% { background-position-y: -420px; }
-  68.75% { background-position-y: -450px; }
-  70% { background-position-y: -480px; }
-  71.25% { background-position-y: -510px; }
-  72.5% { background-position-y: -480px; }
-  73.75% { background-position-y: -510px; }
-  75% { background-position-y: -480px; }
-  76.25% { background-position-y: -510px; }
-  77.5% { background-position-y: -480px; }
-  78.75% { background-position-y: -510px; }
-  80% { background-position-y: -540px; }
-  81.25% { background-position-y: -570px; }
-  82.5% { background-position-y: -540px; }
-  83.75% { background-position-y: -570px; }
-  85% { background-position-y: -540px; }
-  86.25% { background-position-y: -570px; }
-  87.5% { background-position-y: -540px; }
-  88.75% { background-position-y: -570px; }
-  90% { background-position-y: -600px; }
-  91.25% { background-position-y: -630px; }
-  92.5% { background-position-y: -600px; }
-  93.75% { background-position-y: -630px; }
-  95% { background-position-y: -600px; }
-  96.25% { background-position-y: -630px; }
-  97.5% { background-position-y: -600px; }
-  98.75% { background-position-y: -630px; }
-  100% { background-position-y: -600px; }
-}
-.rk-flair-ironman::after {
-  content: "";
+.rk-flair-ironman .rk-ironman-city-near,
+.rk-flair-ironman .rk-ironman-city-far {
   position: absolute;
   left: 0;
-  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  background-repeat: repeat-x;
+}
+.rk-flair-ironman .rk-ironman-city-near {
+  width: calc(100% + 192px);
+  height: 12px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='12' viewBox='0 0 96 12'%3E%3Cg fill='%23828a99' fill-opacity='0.12'%3E%3Crect x='0' y='5' width='10' height='7'/%3E%3Crect x='3' y='3' width='3' height='2'/%3E%3Crect x='16' y='3' width='10' height='9'/%3E%3Crect x='18' y='1' width='6' height='2'/%3E%3Crect x='40' y='4' width='10' height='8'/%3E%3Crect x='42' y='2' width='6' height='2'/%3E%3Crect x='43' y='0' width='4' height='2'/%3E%3Crect x='56' y='6' width='8' height='6'/%3E%3Crect x='64' y='9' width='7' height='3'/%3E%3Crect x='66' y='7' width='3' height='2'/%3E%3Crect x='72' y='4' width='12' height='8'/%3E%3Crect x='75' y='2' width='6' height='2'/%3E%3Crect x='88' y='7' width='6' height='5'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 96px 12px;
+  animation: rk-flair-ironman-city-near 16s steps(calc(192 * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-ironman .rk-ironman-city-far {
+  width: calc(100% + 64px);
+  height: 8px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='8' viewBox='0 0 64 8'%3E%3Cg fill='%23828a99' fill-opacity='0.06'%3E%3Crect x='2' y='4' width='7' height='4'/%3E%3Crect x='14' y='2' width='8' height='6'/%3E%3Crect x='30' y='5' width='7' height='3'/%3E%3Crect x='44' y='3' width='9' height='5'/%3E%3Crect x='58' y='5' width='5' height='3'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 64px 8px;
+  animation: rk-flair-ironman-city-far 16s steps(calc(64 * var(--rk-flair-dpr, 1))) infinite;
+}
+@keyframes rk-flair-ironman-x {
+  0% { transform: translateX(-36px); }
+  40% { transform: translateX(calc(var(--rk-flair-w, 240) * 1px - 44px)); }
+  50% { transform: translateX(calc(var(--rk-flair-w, 240) * 1px - 40px)); }
+  60% { transform: translateX(calc(var(--rk-flair-w, 240) * 1px - 60px)); }
+  100% { transform: translateX(-36px); }
+}
+@keyframes rk-flair-ironman-frames {
+  0% { transform: translateY(0px); }
+  1.25% { transform: translateY(-30px); }
+  2.5% { transform: translateY(0px); }
+  3.75% { transform: translateY(-30px); }
+  5% { transform: translateY(0px); }
+  6.25% { transform: translateY(-30px); }
+  7.5% { transform: translateY(0px); }
+  8.75% { transform: translateY(-30px); }
+  10% { transform: translateY(-60px); }
+  11.25% { transform: translateY(-90px); }
+  12.5% { transform: translateY(-60px); }
+  13.75% { transform: translateY(-90px); }
+  15% { transform: translateY(-60px); }
+  16.25% { transform: translateY(-90px); }
+  17.5% { transform: translateY(-60px); }
+  18.75% { transform: translateY(-90px); }
+  20% { transform: translateY(-120px); }
+  21.25% { transform: translateY(-150px); }
+  22.5% { transform: translateY(-120px); }
+  23.75% { transform: translateY(-150px); }
+  25% { transform: translateY(-120px); }
+  26.25% { transform: translateY(-150px); }
+  27.5% { transform: translateY(-120px); }
+  28.75% { transform: translateY(-150px); }
+  30% { transform: translateY(-180px); }
+  31.25% { transform: translateY(-210px); }
+  32.5% { transform: translateY(-180px); }
+  33.75% { transform: translateY(-210px); }
+  35% { transform: translateY(-180px); }
+  36.25% { transform: translateY(-210px); }
+  37.5% { transform: translateY(-180px); }
+  38.75% { transform: translateY(-210px); }
+  40% { transform: translateY(-240px); }
+  41.25% { transform: translateY(-270px); }
+  42.5% { transform: translateY(-240px); }
+  43.75% { transform: translateY(-270px); }
+  45% { transform: translateY(-240px); }
+  46.25% { transform: translateY(-300px); }
+  47.5% { transform: translateY(-330px); }
+  48.75% { transform: translateY(-300px); }
+  50% { transform: translateY(-330px); }
+  51.25% { transform: translateY(-300px); }
+  52.5% { transform: translateY(-330px); }
+  53.75% { transform: translateY(-360px); }
+  55% { transform: translateY(-390px); }
+  56.25% { transform: translateY(-360px); }
+  57.5% { transform: translateY(-390px); }
+  58.75% { transform: translateY(-360px); }
+  60% { transform: translateY(-420px); }
+  61.25% { transform: translateY(-450px); }
+  62.5% { transform: translateY(-420px); }
+  63.75% { transform: translateY(-450px); }
+  65% { transform: translateY(-420px); }
+  66.25% { transform: translateY(-450px); }
+  67.5% { transform: translateY(-420px); }
+  68.75% { transform: translateY(-450px); }
+  70% { transform: translateY(-480px); }
+  71.25% { transform: translateY(-510px); }
+  72.5% { transform: translateY(-480px); }
+  73.75% { transform: translateY(-510px); }
+  75% { transform: translateY(-480px); }
+  76.25% { transform: translateY(-510px); }
+  77.5% { transform: translateY(-480px); }
+  78.75% { transform: translateY(-510px); }
+  80% { transform: translateY(-540px); }
+  81.25% { transform: translateY(-570px); }
+  82.5% { transform: translateY(-540px); }
+  83.75% { transform: translateY(-570px); }
+  85% { transform: translateY(-540px); }
+  86.25% { transform: translateY(-570px); }
+  87.5% { transform: translateY(-540px); }
+  88.75% { transform: translateY(-570px); }
+  90% { transform: translateY(-600px); }
+  91.25% { transform: translateY(-630px); }
+  92.5% { transform: translateY(-600px); }
+  93.75% { transform: translateY(-630px); }
+  95% { transform: translateY(-600px); }
+  96.25% { transform: translateY(-630px); }
+  97.5% { transform: translateY(-600px); }
+  98.75% { transform: translateY(-630px); }
+  100% { transform: translateY(-600px); }
+}
+.rk-flair-ironman .rk-ironman-figure {
+  position: absolute;
+  left: 0;
   top: 50%;
+  width: 36px;
   height: 30px;
   margin-top: -15px;
+  overflow: hidden;
   pointer-events: none;
   opacity: 0.92;
+  animation: rk-flair-ironman-x 16s linear infinite;
+}
+.rk-flair-ironman .rk-ironman-figure-sheet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 36px;
+  height: 660px;
+  pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='660' viewBox='0 0 36 660'%3E%3Cdefs%3E%3Cg id='bS'%3E%3Crect x='14' y='13' width='4' height='3' fill='%23c92a2a'/%3E%3Crect x='18' y='12' width='2' height='3' fill='%23c92a2a'/%3E%3Crect x='19' y='13' width='1' height='2' fill='%23f2b632'/%3E%3C/g%3E%3Cg id='bM'%3E%3Crect x='12' y='12' width='2' height='4' fill='%23c92a2a'/%3E%3Crect x='14' y='12' width='4' height='4' fill='%23c92a2a'/%3E%3Crect x='15' y='13' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='18' y='11' width='3' height='4' fill='%23c92a2a'/%3E%3Crect x='19' y='12' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='20' y='12' width='1' height='1' fill='%23e6f7ff'/%3E%3C/g%3E%3Cg id='bL'%3E%3Crect x='10' y='12' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='10' y='15' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='12' y='13' width='3' height='4' fill='%23c92a2a'/%3E%3Crect x='15' y='12' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='17' y='13' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='16' y='13' width='1' height='1' fill='%23bfe8ff'/%3E%3Crect x='20' y='11' width='4' height='4' fill='%23c92a2a'/%3E%3Crect x='21' y='12' width='3' height='2' fill='%23f2b632'/%3E%3Crect x='23' y='12' width='1' height='1' fill='%23e6f7ff'/%3E%3C/g%3E%3Cg id='bX'%3E%3Crect x='8' y='11' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='8' y='16' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='10' y='12' width='4' height='2' fill='%23c92a2a'/%3E%3Crect x='10' y='15' width='4' height='2' fill='%23c92a2a'/%3E%3Crect x='14' y='11' width='7' height='7' fill='%23c92a2a'/%3E%3Crect x='17' y='13' width='3' height='3' fill='%23f2b632'/%3E%3Crect x='18' y='14' width='1' height='1' fill='%23bfe8ff'/%3E%3Crect x='15' y='16' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='19' y='10' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='19' y='17' width='5' height='1' fill='%23c92a2a'/%3E%3Crect x='24' y='17' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='21' y='11' width='1' height='2' fill='%23c92a2a'/%3E%3Crect x='22' y='9' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='23' y='10' width='4' height='3' fill='%23f2b632'/%3E%3Crect x='26' y='11' width='1' height='1' fill='%23e6f7ff'/%3E%3C/g%3E%3Cg id='bH'%3E%3Crect x='4' y='11' width='3' height='3' fill='%23f2b632'/%3E%3Crect x='4' y='16' width='3' height='3' fill='%23f2b632'/%3E%3Crect x='7' y='12' width='5' height='2' fill='%23c92a2a'/%3E%3Crect x='7' y='16' width='5' height='2' fill='%23c92a2a'/%3E%3Crect x='12' y='10' width='9' height='9' fill='%23c92a2a'/%3E%3Crect x='15' y='12' width='4' height='4' fill='%23f2b632'/%3E%3Crect x='17' y='13' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='17' y='13' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='15' y='16' width='3' height='2' fill='%23f2b632'/%3E%3Crect x='18' y='9' width='3' height='2' fill='%23f2b632'/%3E%3Crect x='19' y='17' width='7' height='2' fill='%23c92a2a'/%3E%3Crect x='26' y='17' width='3' height='2' fill='%23f2b632'/%3E%3Crect x='21' y='10' width='2' height='3' fill='%23c92a2a'/%3E%3Crect x='23' y='8' width='6' height='6' fill='%23c92a2a'/%3E%3Crect x='24' y='9' width='5' height='5' fill='%23f2b632'/%3E%3Crect x='26' y='10' width='3' height='1' fill='%23e6f7ff'/%3E%3Crect x='27' y='12' width='2' height='1' fill='%23c92a2a'/%3E%3C/g%3E%3Cg id='bF'%3E%3Crect x='16' y='4' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='17' y='6' width='3' height='3' fill='%23f2b632'/%3E%3Crect x='17' y='7' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='19' y='7' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='15' y='9' width='7' height='9' fill='%23c92a2a'/%3E%3Crect x='16' y='10' width='5' height='3' fill='%23f2b632'/%3E%3Crect x='18' y='11' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='17' y='14' width='3' height='2' fill='%23f2b632'/%3E%3Crect x='13' y='9' width='2' height='3' fill='%23c92a2a'/%3E%3Crect x='22' y='9' width='2' height='3' fill='%23c92a2a'/%3E%3Crect x='13' y='9' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='22' y='9' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='12' y='12' width='2' height='5' fill='%23c92a2a'/%3E%3Crect x='23' y='12' width='2' height='5' fill='%23c92a2a'/%3E%3Crect x='12' y='17' width='2' height='2' fill='%23bfe8ff'/%3E%3Crect x='23' y='17' width='2' height='2' fill='%23bfe8ff'/%3E%3Crect x='16' y='18' width='2' height='6' fill='%23c92a2a'/%3E%3Crect x='19' y='18' width='2' height='6' fill='%23c92a2a'/%3E%3Crect x='16' y='24' width='2' height='3' fill='%23f2b632'/%3E%3Crect x='19' y='24' width='2' height='3' fill='%23f2b632'/%3E%3C/g%3E%3Cg id='sSa'%3E%3Crect x='12' y='13' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='13' y='14' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='8' y='14' width='4' height='1' fill='%239fdcff' fill-opacity='0.4'/%3E%3C/g%3E%3Cg id='sSb'%3E%3Crect x='12' y='14' width='1' height='1' fill='%239fdcff'/%3E%3Crect x='9' y='14' width='3' height='1' fill='%239fdcff' fill-opacity='0.3'/%3E%3C/g%3E%3Cg id='sMa'%3E%3Crect x='10' y='13' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='11' y='13' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='6' y='13' width='4' height='1' fill='%239fdcff' fill-opacity='0.4'/%3E%3Crect x='7' y='15' width='3' height='1' fill='%239fdcff' fill-opacity='0.3'/%3E%3C/g%3E%3Cg id='sMb'%3E%3Crect x='10' y='13' width='2' height='1' fill='%239fdcff'/%3E%3Crect x='7' y='13' width='3' height='1' fill='%239fdcff' fill-opacity='0.3'/%3E%3Crect x='8' y='15' width='2' height='1' fill='%239fdcff' fill-opacity='0.25'/%3E%3C/g%3E%3Cg id='sLa'%3E%3Crect x='8' y='12' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='8' y='15' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='9' y='12' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='9' y='16' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='4' y='13' width='4' height='1' fill='%239fdcff' fill-opacity='0.4'/%3E%3Crect x='3' y='15' width='5' height='1' fill='%239fdcff' fill-opacity='0.3'/%3E%3C/g%3E%3Cg id='sLb'%3E%3Crect x='8' y='13' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='5' y='13' width='3' height='1' fill='%239fdcff' fill-opacity='0.3'/%3E%3Crect x='5' y='15' width='3' height='1' fill='%239fdcff' fill-opacity='0.25'/%3E%3C/g%3E%3Cg id='sXa'%3E%3Crect x='5' y='11' width='3' height='2' fill='%239fdcff'/%3E%3Crect x='5' y='16' width='3' height='2' fill='%239fdcff'/%3E%3Crect x='6' y='11' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='6' y='17' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='1' y='12' width='4' height='1' fill='%239fdcff' fill-opacity='0.4'/%3E%3Crect x='0' y='17' width='5' height='1' fill='%239fdcff' fill-opacity='0.35'/%3E%3Crect x='2' y='14' width='3' height='1' fill='%239fdcff' fill-opacity='0.25'/%3E%3C/g%3E%3Cg id='sXb'%3E%3Crect x='6' y='11' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='6' y='16' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='2' y='12' width='4' height='1' fill='%239fdcff' fill-opacity='0.3'/%3E%3Crect x='2' y='17' width='4' height='1' fill='%239fdcff' fill-opacity='0.25'/%3E%3C/g%3E%3Cg id='sHa'%3E%3Crect x='1' y='10' width='3' height='4' fill='%239fdcff'/%3E%3Crect x='1' y='16' width='3' height='4' fill='%239fdcff'/%3E%3Crect x='2' y='11' width='2' height='2' fill='%23e6f7ff'/%3E%3Crect x='2' y='17' width='2' height='2' fill='%23e6f7ff'/%3E%3Crect x='0' y='12' width='1' height='1' fill='%239fdcff' fill-opacity='0.5'/%3E%3Crect x='0' y='18' width='1' height='1' fill='%239fdcff' fill-opacity='0.4'/%3E%3C/g%3E%3Cg id='sHb'%3E%3Crect x='2' y='11' width='2' height='3' fill='%239fdcff'/%3E%3Crect x='2' y='16' width='2' height='3' fill='%239fdcff'/%3E%3Crect x='3' y='12' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='3' y='17' width='1' height='1' fill='%23e6f7ff'/%3E%3C/g%3E%3Cg id='tFa'%3E%3Crect x='16' y='27' width='2' height='2' fill='%23e6f7ff'/%3E%3Crect x='19' y='27' width='2' height='2' fill='%23e6f7ff'/%3E%3Crect x='17' y='29' width='1' height='1' fill='%239fdcff' fill-opacity='0.6'/%3E%3Crect x='19' y='29' width='1' height='1' fill='%239fdcff' fill-opacity='0.6'/%3E%3C/g%3E%3Cg id='tFb'%3E%3Crect x='16' y='27' width='2' height='1' fill='%239fdcff'/%3E%3Crect x='19' y='27' width='2' height='1' fill='%239fdcff'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23bS'/%3E%3Cuse href='%23sSa'/%3E%3Cg transform='translate(0,30)'%3E%3Cuse href='%23bS'/%3E%3Cuse href='%23sSb'/%3E%3C/g%3E%3Cg transform='translate(0,60)'%3E%3Cuse href='%23bM'/%3E%3Cuse href='%23sMa'/%3E%3C/g%3E%3Cg transform='translate(0,90)'%3E%3Cuse href='%23bM'/%3E%3Cuse href='%23sMb'/%3E%3C/g%3E%3Cg transform='translate(0,120)'%3E%3Cuse href='%23bL'/%3E%3Cuse href='%23sLa'/%3E%3C/g%3E%3Cg transform='translate(0,150)'%3E%3Cuse href='%23bL'/%3E%3Cuse href='%23sLb'/%3E%3C/g%3E%3Cg transform='translate(0,180)'%3E%3Cuse href='%23bX'/%3E%3Cuse href='%23sXa'/%3E%3C/g%3E%3Cg transform='translate(0,210)'%3E%3Cuse href='%23bX'/%3E%3Cuse href='%23sXb'/%3E%3C/g%3E%3Cg transform='translate(0,240)'%3E%3Cuse href='%23bH'/%3E%3Cuse href='%23sHa'/%3E%3C/g%3E%3Cg transform='translate(0,270)'%3E%3Cuse href='%23bH'/%3E%3Cuse href='%23sHb'/%3E%3C/g%3E%3Cg transform='translate(0,300)'%3E%3Cuse href='%23bF'/%3E%3Cuse href='%23tFa'/%3E%3C/g%3E%3Cg transform='translate(0,330)'%3E%3Cuse href='%23bF'/%3E%3Cuse href='%23tFb'/%3E%3C/g%3E%3Cg transform='translate(0,360)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bH'/%3E%3Cuse href='%23sHa'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,390)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bH'/%3E%3Cuse href='%23sHb'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,420)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bX'/%3E%3Cuse href='%23sXa'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,450)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bX'/%3E%3Cuse href='%23sXb'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,480)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bL'/%3E%3Cuse href='%23sLa'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,510)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bL'/%3E%3Cuse href='%23sLb'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,540)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bM'/%3E%3Cuse href='%23sMa'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,570)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bM'/%3E%3Cuse href='%23sMb'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,600)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bS'/%3E%3Cuse href='%23sSa'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,630)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bS'/%3E%3Cuse href='%23sSb'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
   background-size: 36px 660px;
   background-repeat: no-repeat;
-  background-position: -36px 0;
-  animation:
-    rk-flair-ironman-x 16s linear infinite,
-    rk-flair-ironman-y 16s step-end infinite;
+  animation: rk-flair-ironman-frames 16s step-end infinite;
 }
 
-
-/* noon: ::after is an 80x88 4-frame sheet of the brand wordmark. Both n
-   glyphs WALK, counter-phase (2 frames apart, so opposite legs lead), while
-   the two o pills hold still; a 0.3/0.4/0.55 alpha ramp rises to the lead
-   walker, so the row resolves to "noon" mid-traverse. Art is defs+use — the o
-   pill, the n shoulder and one leg are defined once and instanced. ::before is
-   a 30px dust tile drifting the opposite way. ~7s traversal, ~8fps. */
-@keyframes rk-flair-noon-x {
-  from { background-position-x: -80px; }
-  to { background-position-x: calc(100% + 80px); }
-}
-@keyframes rk-flair-noon-y {
-  0% { background-position-y: 0px; }
-  25% { background-position-y: -22px; }
-  50% { background-position-y: -44px; }
-  75% { background-position-y: -66px; }
-  100% { background-position-y: -66px; }
-}
+/* noon: the noon wordmark walking — the wordmark frame box (80×22, holding
+   the 80x88 4-frame sheet in which both `n` glyphs WALK, counter-phase (2
+   frames apart, so opposite legs lead), while the two `o` pills hold still,
+   over a 0.3/0.4/0.55 alpha ramp rising to the lead walker, so the row
+   resolves to "noon" mid-traverse; art is defs+use — the o pill, the n
+   shoulder and one leg are defined once and instanced) bottom-anchored; the
+   dust span is a 30px dust-mote tile drifting the opposite way. K = 80 (end
+   80 − start −80 − width 80). ~7s traversal; the 0.125s 4-frame cycle
+   (32 frame-changes/s) fills a 2s iteration. */
 @keyframes rk-flair-noon-dust {
-  from { background-position-x: 0; }
-  to { background-position-x: -30px; }
+  from { transform: translateX(0); }
+  to { transform: translateX(-30px); }
 }
-.rk-flair-noon::before {
-  content: "";
+@keyframes rk-flair-noon-x {
+  from { transform: translateX(-80px); }
+  to { transform: translateX(calc(var(--rk-flair-w, 240) * 1px)); }
+}
+@keyframes rk-flair-noon-frames {
+  0% { transform: translateY(0px); }
+  1.5625% { transform: translateY(-22px); }
+  3.125% { transform: translateY(-44px); }
+  4.6875% { transform: translateY(-66px); }
+  6.25% { transform: translateY(0px); }
+  7.8125% { transform: translateY(-22px); }
+  9.375% { transform: translateY(-44px); }
+  10.9375% { transform: translateY(-66px); }
+  12.5% { transform: translateY(0px); }
+  14.0625% { transform: translateY(-22px); }
+  15.625% { transform: translateY(-44px); }
+  17.1875% { transform: translateY(-66px); }
+  18.75% { transform: translateY(0px); }
+  20.3125% { transform: translateY(-22px); }
+  21.875% { transform: translateY(-44px); }
+  23.4375% { transform: translateY(-66px); }
+  25% { transform: translateY(0px); }
+  26.5625% { transform: translateY(-22px); }
+  28.125% { transform: translateY(-44px); }
+  29.6875% { transform: translateY(-66px); }
+  31.25% { transform: translateY(0px); }
+  32.8125% { transform: translateY(-22px); }
+  34.375% { transform: translateY(-44px); }
+  35.9375% { transform: translateY(-66px); }
+  37.5% { transform: translateY(0px); }
+  39.0625% { transform: translateY(-22px); }
+  40.625% { transform: translateY(-44px); }
+  42.1875% { transform: translateY(-66px); }
+  43.75% { transform: translateY(0px); }
+  45.3125% { transform: translateY(-22px); }
+  46.875% { transform: translateY(-44px); }
+  48.4375% { transform: translateY(-66px); }
+  50% { transform: translateY(0px); }
+  51.5625% { transform: translateY(-22px); }
+  53.125% { transform: translateY(-44px); }
+  54.6875% { transform: translateY(-66px); }
+  56.25% { transform: translateY(0px); }
+  57.8125% { transform: translateY(-22px); }
+  59.375% { transform: translateY(-44px); }
+  60.9375% { transform: translateY(-66px); }
+  62.5% { transform: translateY(0px); }
+  64.0625% { transform: translateY(-22px); }
+  65.625% { transform: translateY(-44px); }
+  67.1875% { transform: translateY(-66px); }
+  68.75% { transform: translateY(0px); }
+  70.3125% { transform: translateY(-22px); }
+  71.875% { transform: translateY(-44px); }
+  73.4375% { transform: translateY(-66px); }
+  75% { transform: translateY(0px); }
+  76.5625% { transform: translateY(-22px); }
+  78.125% { transform: translateY(-44px); }
+  79.6875% { transform: translateY(-66px); }
+  81.25% { transform: translateY(0px); }
+  82.8125% { transform: translateY(-22px); }
+  84.375% { transform: translateY(-44px); }
+  85.9375% { transform: translateY(-66px); }
+  87.5% { transform: translateY(0px); }
+  89.0625% { transform: translateY(-22px); }
+  90.625% { transform: translateY(-44px); }
+  92.1875% { transform: translateY(-66px); }
+  93.75% { transform: translateY(0px); }
+  95.3125% { transform: translateY(-22px); }
+  96.875% { transform: translateY(-44px); }
+  98.4375% { transform: translateY(-66px); }
+  100% { transform: translateY(-66px); }
+}
+.rk-flair-noon .rk-noon-dust {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 50%;
+  width: calc(100% + 30px);
+  height: 22px;
+  margin-top: -11px;
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='22' viewBox='0 0 30 22'%3E%3Cg fill='%23D2451A'%3E%3Crect x='4' y='5' width='1' height='1' fill-opacity='.3'/%3E%3Crect x='17' y='12' width='1' height='1' fill-opacity='.22'/%3E%3Crect x='25' y='7' width='1' height='1' fill-opacity='.26'/%3E%3Crect x='10' y='16' width='1' height='1' fill-opacity='.18'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 30px 22px;
   background-repeat: repeat-x;
-  background-position: 0 50%;
-  animation: rk-flair-noon-dust 11s linear infinite;
+  animation: rk-flair-noon-dust 11s steps(calc(30 * var(--rk-flair-dpr, 1))) infinite;
 }
-.rk-flair-noon::after {
-  content: "";
+.rk-flair-noon .rk-noon-wordmark {
   position: absolute;
   left: 0;
-  right: 0;
   bottom: 0;
+  width: 80px;
   height: 22px;
+  overflow: hidden;
+  pointer-events: none;
+  animation: rk-flair-noon-x 7s steps(calc((var(--rk-flair-w, 240) + 80) * var(--rk-flair-dpr, 1))) infinite;
+}
+.rk-flair-noon .rk-noon-wordmark-sheet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 80px;
+  height: 88px;
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='88' viewBox='0 0 80 88'%3E%3Cdefs%3E%3Cpath id='o' fill-rule='evenodd' d='M7.7 0A7.7 7.7 0 0 1 15.4 7.7V13.3A7.7 7.7 0 0 1 7.7 21A7.7 7.7 0 0 1 0 13.3V7.7A7.7 7.7 0 0 1 7.7 0ZM7.7 4.2A3.5 3.5 0 0 1 11.2 7.7V13.3A3.5 3.5 0 0 1 7.7 16.8A3.5 3.5 0 0 1 4.2 13.3V7.7A3.5 3.5 0 0 1 7.7 4.2Z'/%3E%3Cpath id='s' d='M0 7.7A7.7 7.7 0 0 1 15.4 7.7L11.2 7.7A3.5 3.5 0 0 0 4.2 7.7Z'/%3E%3Crect id='l' y='5.4' width='4.2' height='14.9' rx='2.1'/%3E%3C/defs%3E%3Cg fill='%23D2451A'%3E%3Cg transform='translate(0 0)'%3E%3Cg transform='translate(6 1)'%3E%3Cg fill-opacity='0.3'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(-16 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(12.5 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(23.5 1)'%3E%3Cuse href='%23o' fill-opacity='0.4'/%3E%3C/g%3E%3Cg transform='translate(41 1)'%3E%3Cuse href='%23o' fill-opacity='0.55'/%3E%3C/g%3E%3Cg transform='translate(58.5 1)'%3E%3Cg fill-opacity='0.95'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(12.5 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(-16 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0 22)'%3E%3Cg transform='translate(6 0)'%3E%3Cg fill-opacity='0.3'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(-4.5 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(3.5 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(23.5 1)'%3E%3Cuse href='%23o' fill-opacity='0.4'/%3E%3C/g%3E%3Cg transform='translate(41 1)'%3E%3Cuse href='%23o' fill-opacity='0.55'/%3E%3C/g%3E%3Cg transform='translate(58.5 0)'%3E%3Cg fill-opacity='0.95'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(3.5 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(-4.5 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0 44)'%3E%3Cg transform='translate(6 1)'%3E%3Cg fill-opacity='0.3'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(12.5 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(-16 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(23.5 1)'%3E%3Cuse href='%23o' fill-opacity='0.4'/%3E%3C/g%3E%3Cg transform='translate(41 1)'%3E%3Cuse href='%23o' fill-opacity='0.55'/%3E%3C/g%3E%3Cg transform='translate(58.5 1)'%3E%3Cg fill-opacity='0.95'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(-16 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(12.5 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0 66)'%3E%3Cg transform='translate(6 0)'%3E%3Cg fill-opacity='0.3'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(3.5 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(-4.5 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(23.5 1)'%3E%3Cuse href='%23o' fill-opacity='0.4'/%3E%3C/g%3E%3Cg transform='translate(41 1)'%3E%3Cuse href='%23o' fill-opacity='0.55'/%3E%3C/g%3E%3Cg transform='translate(58.5 0)'%3E%3Cg fill-opacity='0.95'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(-4.5 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(3.5 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
   background-size: 80px 88px;
   background-repeat: no-repeat;
-  background-position: -80px 0;
-  animation:
-    rk-flair-noon-x 7s linear infinite,
-    rk-flair-noon-y 0.125s step-end infinite;
+  animation: rk-flair-noon-frames 2s step-end infinite;
 }
 
-/* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
-   decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
 /* ── Row-flyout card entrance (window-row register flyout, E1) ─────────────
    Cold opens slide the card out of its row (6px) with a fade; warm retargets
    between rows do NOT carry the class (they snap — see row-flyout-card.tsx
@@ -2012,6 +2700,12 @@ html[data-theme="light"] {
 
 .rk-sb-creature { position: absolute; inset: 0; }
 .rk-sb-sprite { position: absolute; width: 0; height: 0; }
+/* The creature is the ONE click target of the layer: its painted shapes
+   re-enable hit-testing (the groups above are pointer-events: none) so a
+   click on the fist or the eye dismisses the flight early, while the cracks
+   and the rest of the viewport stay transparent to the pointer. The slot's
+   `visibility` (written per frame) hides the inactive slot from hit-testing. */
+.rk-sb-sprite svg * { pointer-events: visiblePainted; cursor: pointer; }
 .rk-sb-sprite svg {
   position: absolute;
   left: 0;
@@ -2098,42 +2792,12 @@ html[data-theme="light"] .rk-sb-shards polygon {
   /* Flair overlays (all sixteen named states): motion-only ambient decoration
      with NO static label cue of their own — hidden entirely, including the
      onepiece wave baseline (a bare wave line without its ship would read as
-     residue) and the cube/warp/nemo child spans (transform-driven treatments). */
-  .rk-flair-rain::before,
-  .rk-flair-scan::before,
-  .rk-flair-scan::after,
-  .rk-flair-nyan::before,
-  .rk-flair-nyan::after,
-  .rk-flair-naruto::before,
-  .rk-flair-naruto::after,
-  .rk-flair-onepiece::before,
-  .rk-flair-onepiece::after,
-  .rk-flair-pacman::after,
-  .rk-flair-matrix::before,
-  .rk-flair-aquarium::before,
-  .rk-flair-aquarium::after,
-  .rk-flair-nemo::before,
-  .rk-flair-nemo .rk-nemo-fish,
-  .rk-flair-nemo .rk-nemo-orange,
-  .rk-flair-nemo .rk-nemo-blue,
-  .rk-flair-nemo .rk-nemo-tail,
-  .rk-flair-nemo .rk-nemo-fin,
-  .rk-flair-nemo .rk-nemo-body,
-  .rk-flair-nemo .rk-nemo-weed,
-  .rk-flair-nemo .rk-nemo-blade,
-  .rk-flair-roadrunner::before,
-  .rk-flair-roadrunner::after,
-  .rk-flair-invaders::after,
-  .rk-flair-cube .rk-cube-x,
-  .rk-flair-cube .rk-cube-y,
-  .rk-flair-cube .rk-cube,
-  .rk-flair-warp .rk-warp-plane,
-  .rk-flair-spidey::before,
-  .rk-flair-spidey::after,
-  .rk-flair-ironman::before,
-  .rk-flair-ironman::after,
-  .rk-flair-noon::before,
-  .rk-flair-noon::after { animation: none; display: none; }
+     residue). One rule per overlay span covers every layer span it holds. */
+  .rk-flair-rain, .rk-flair-scan, .rk-flair-nyan, .rk-flair-naruto,
+  .rk-flair-onepiece, .rk-flair-pacman, .rk-flair-matrix, .rk-flair-aquarium,
+  .rk-flair-nemo, .rk-flair-roadrunner, .rk-flair-invaders, .rk-flair-cube,
+  .rk-flair-warp, .rk-flair-spidey, .rk-flair-ironman,
+  .rk-flair-noon { animation: none; display: none; }
   /* Flyout-card entrance: pure flourish — the card simply appears. */
   .rk-flyout-in { animation: none; }
   /* Gap-seam sash: the hover anti-flicker delay and fades are zeroed (the pill

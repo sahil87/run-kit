@@ -722,15 +722,16 @@ describe("ComposeStrip", () => {
     // bare-Enter path there).
     expect(sendBtn().disabled).toBe(false);
     expect(sendBtn().className).toContain("border-border");
-    expect(sendBtn().className).not.toContain("border-accent-green");
+    expect(sendBtn().className).not.toContain("rk-latch-well");
     // Whitespace-only counts as empty too — enabled, still secondary.
     act(() => fireEvent.change(input(), { target: { value: "   " } }));
     expect(sendBtn().disabled).toBe(false);
     expect(sendBtn().className).toContain("border-border");
     expect(insertBtn().disabled).toBe(true);
-    // With text the green latch fill returns and Send transmits text + trailing \r.
+    // With text the latch well returns and Send transmits text + trailing \r.
     act(() => fireEvent.change(input(), { target: { value: "via send" } }));
-    expect(sendBtn().className).toContain("border-accent-green");
+    expect(sendBtn().className).toContain("rk-latch-well");
+    expect(sendBtn().className).toContain("border-border-pressed");
     expect(insertBtn().disabled).toBe(false);
     await act(async () => fireEvent.click(sendBtn()));
     expect(sendToWindowMock).toHaveBeenLastCalledWith("srv", "@1", "via send", "submit");

@@ -1974,11 +1974,12 @@ describe("TopBar", () => {
       for (const button of buttons) {
         expect(button.className.split(" ")).not.toContain("border");
         expect(button.className).not.toContain("border-transparent");
-        expect(button.className).not.toContain("border-accent-green");
+        expect(button.className).not.toContain("border-border-pressed");
       }
-      expect(buttons[0].className).toContain("bg-accent-green/15");
-      expect(buttons[0].className).toContain("text-accent-green");
-      expect(buttons[1].className).not.toContain("bg-accent-green/15");
+      expect(buttons[0].className).toContain("rk-latch-well");
+      expect(buttons[0].className).toContain("bg-bg-well");
+      expect(buttons[0].className).toContain("text-accent-green-ink");
+      expect(buttons[1].className).not.toContain("bg-bg-well");
     });
   });
 

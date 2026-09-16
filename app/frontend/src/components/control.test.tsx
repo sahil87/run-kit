@@ -15,15 +15,12 @@ const ICON_REST = "border-border text-text-secondary hover:border-text-secondary
 const ICON_CLASS = `rk-glint ${ICON_BASE} ${ICON_REST}`;
 const BAR_AXIS_H = "h-[28px] coarse:h-[40px]";
 const SEGMENT_AXIS_H = "h-[26px] coarse:h-[38px]";
-const ARM =
-  "bg-accent-green/15 border-accent-green text-accent-green hover:bg-accent-green/25";
-const ARM_RINGED =
-  "bg-accent-green/15 ring-1 ring-inset ring-accent-green text-accent-green hover:bg-accent-green/25";
-const ARM_FLUSH =
-  "bg-accent-green/15 text-accent-green hover:bg-accent-green/25";
+// The latch well: plain (borderless controls, flush segments) and bordered.
+const WELL = "rk-latch-well bg-bg-well text-accent-green-ink";
+const WELL_BORDERED = `${WELL} border-border-pressed`;
 const CHIP_BASE =
-  "rk-glint min-h-[33px] min-w-[35px] coarse:min-h-[40px] coarse:min-w-[40px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded transition-colors active:bg-bg-card";
-const CHIP_REST = "hover:border-text-secondary";
+  "rk-glint min-h-[33px] min-w-[35px] coarse:min-h-[40px] coarse:min-w-[40px] flex items-center justify-center px-1 py-0 text-xs border rounded transition-colors active:bg-bg-card";
+const CHIP_REST = "border-border hover:border-text-secondary";
 const CELL_BASE =
   "px-2 py-1 min-h-[40px] min-w-[40px] flex items-center justify-center text-xs rounded";
 const CELL_REST = "text-text-secondary hover:text-text-primary hover:bg-bg-card";
@@ -49,13 +46,13 @@ describe("controlClass — icon variant", () => {
     expect(controlClass({ variant: "icon" })).toBe(ICON_CLASS);
   });
   it("pressed and open swap REST for the latched arm (REST-swap)", () => {
-    const expected = `rk-glint ${ICON_BASE} ${ARM}`;
+    const expected = `rk-glint ${ICON_BASE} ${WELL_BORDERED}`;
     expect(controlClass({ variant: "icon", pressed: true })).toBe(expected);
     expect(controlClass({ variant: "icon", open: true })).toBe(expected);
   });
   it("pressed output carries no rest hover utilities (no arm stacking)", () => {
     const out = controlClass({ variant: "icon", pressed: true });
-    expect(out).toContain(ARM);
+    expect(out).toContain(WELL_BORDERED);
     expect(out).not.toContain("hover:border-text-secondary");
     expect(out).not.toContain(ICON_REST);
   });
@@ -89,7 +86,7 @@ describe("controlClass — icon variant", () => {
         pressed: true,
         rest: "border border-accent-green hover:border-accent-green",
       }),
-    ).toBe(`${BAR_AXIS_H} ${ARM}`);
+    ).toBe(`${BAR_AXIS_H} ${WELL_BORDERED}`);
   });
   it("box:height composes the disabled recipe when the prop is provided", () => {
     expect(controlClass({ variant: "icon", box: "height", glint: false, disabled: true })).toBe(
@@ -108,7 +105,7 @@ describe("controlClass — chip variant", () => {
     expect(controlClass({ variant: "chip" })).toBe(`${CHIP_BASE} ${CHIP_REST}`);
   });
   it("pressed swaps CHIP_REST for the latched arm", () => {
-    expect(controlClass({ variant: "chip", pressed: true })).toBe(`${CHIP_BASE} ${ARM}`);
+    expect(controlClass({ variant: "chip", pressed: true })).toBe(`${CHIP_BASE} ${WELL_BORDERED}`);
   });
   it("disabled composes the bordered recipe", () => {
     expect(controlClass({ variant: "chip", disabled: true })).toBe(
@@ -118,7 +115,7 @@ describe("controlClass — chip variant", () => {
   it("ringed selects the borderless menu key-cell recipe", () => {
     expect(controlClass({ variant: "chip", ringed: true })).toBe(`${CELL_BASE} ${CELL_REST}`);
     expect(controlClass({ variant: "chip", ringed: true, pressed: true })).toBe(
-      `${CELL_BASE} ${ARM_RINGED}`,
+      `${CELL_BASE} ${WELL}`,
     );
     expect(controlClass({ variant: "chip", ringed: true, disabled: true })).toBe(
       `${CELL_BASE} ${CELL_REST} ${ROW_DISABLED}`,
@@ -131,13 +128,13 @@ describe("controlClass — toggle variant", () => {
   it("composes call-site base + rest, defaulting rest to the bordered neutral arm", () => {
     expect(controlClass({ variant: "toggle", base: BASE })).toBe(`${BASE} ${ICON_REST}`);
   });
-  it("pressed swaps in the bordered arm; ringed selects the ring-inset arm", () => {
+  it("pressed swaps in the bordered well; ringed selects the plain well", () => {
     expect(controlClass({ variant: "toggle", base: BASE, pressed: true })).toBe(
-      `${BASE} ${ARM}`,
+      `${BASE} ${WELL_BORDERED}`,
     );
     expect(
       controlClass({ variant: "toggle", base: "b", rest: "r", ringed: true, pressed: true }),
-    ).toBe(`b ${ARM_RINGED}`);
+    ).toBe(`b ${WELL}`);
   });
   it("rest override is swapped out wholesale when pressed (no arm stacking)", () => {
     const out = controlClass({
@@ -151,7 +148,7 @@ describe("controlClass — toggle variant", () => {
   });
   it("onBorder prepends the border width utility to the on-state", () => {
     expect(controlClass({ variant: "toggle", base: "b", onBorder: true, pressed: true })).toBe(
-      `b border ${ARM}`,
+      `b border ${WELL_BORDERED}`,
     );
   });
   it("disabled composes the recipe matching the rest-arm shape", () => {
@@ -170,7 +167,7 @@ describe("controlClass — segment variant", () => {
   });
   it("open swaps in the latched arm", () => {
     expect(controlClass({ variant: "segment", open: true })).toBe(
-      `${SEGMENT_AXIS_H} ${ARM}`,
+      `${SEGMENT_AXIS_H} ${WELL_BORDERED}`,
     );
   });
   it("rest override covers the plain-segment and toggle-cell arms", () => {
@@ -183,31 +180,31 @@ describe("controlClass — segment variant", () => {
         rest: "border-transparent text-text-secondary hover:text-text-primary",
         pressed: true,
       }),
-    ).toBe(`${SEGMENT_AXIS_H} ${ARM}`);
+    ).toBe(`${SEGMENT_AXIS_H} ${WELL_BORDERED}`);
   });
   it("disabled composes the ink-neutralizing recipe", () => {
     expect(controlClass({ variant: "segment", disabled: true })).toBe(
       `${SEGMENT_AXIS_H} ${SEGMENT_OFF} ${OFF_INK}`,
     );
   });
-  it("flush swaps in the wash-only arm for pressed and open states", () => {
-    const expected = `${SEGMENT_AXIS_H} ${ARM_FLUSH}`;
+  it("flush swaps in the plain well for pressed and open states", () => {
+    const expected = `${SEGMENT_AXIS_H} ${WELL}`;
     expect(controlClass({ variant: "segment", flush: true, pressed: true })).toBe(expected);
     expect(controlClass({ variant: "segment", flush: true, open: true })).toBe(expected);
-    expect(expected).not.toContain("border-accent-green");
+    expect(expected).not.toContain("border-border-pressed");
   });
   it("flush keeps the rest arm and composes the disabled recipe", () => {
     expect(controlClass({ variant: "segment", flush: true })).toBe(
       `${SEGMENT_AXIS_H} ${SEGMENT_OFF}`,
     );
     expect(controlClass({ variant: "segment", flush: true, pressed: true, disabled: true })).toBe(
-      `${SEGMENT_AXIS_H} ${ARM_FLUSH} ${OFF_INK}`,
+      `${SEGMENT_AXIS_H} ${WELL} ${OFF_INK}`,
     );
   });
   it("without flush remains byte-identical for existing segment consumers", () => {
     expect(controlClass({ variant: "segment" })).toBe(`${SEGMENT_AXIS_H} ${SEGMENT_OFF}`);
     expect(controlClass({ variant: "segment", open: true })).toBe(
-      `${SEGMENT_AXIS_H} ${ARM}`,
+      `${SEGMENT_AXIS_H} ${WELL_BORDERED}`,
     );
     expect(
       controlClass({
@@ -215,7 +212,7 @@ describe("controlClass — segment variant", () => {
         rest: "border-transparent text-text-secondary hover:text-text-primary",
         pressed: true,
       }),
-    ).toBe(`${SEGMENT_AXIS_H} ${ARM}`);
+    ).toBe(`${SEGMENT_AXIS_H} ${WELL_BORDERED}`);
   });
 });
 
@@ -275,7 +272,7 @@ describe("<Control>", () => {
       </Control>,
     );
     const btn = getByRole("button");
-    expect(btn.className).toBe(`${CHIP_BASE} ${ARM}`);
+    expect(btn.className).toBe(`${CHIP_BASE} ${WELL_BORDERED}`);
     expect(btn.getAttribute("aria-pressed")).toBe("true");
   });
   it("omits aria-pressed when pressed is not provided, binds disabled, defaults type=button", () => {

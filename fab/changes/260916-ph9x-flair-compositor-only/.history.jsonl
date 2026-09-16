@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-16T14:11:57Z"}
+{"args":"Flair overlays run on the compositor — or pause when their row is not visible — so five on-screen flairs cost within noise of no flairs, with every flair's look unchanged. Change 1 of 5 in fab/plans/sahil/26-09-16-idle-cpu.md (full lane, research phase R1+R2).","cmd":"fab-new","event":"command","ts":"2026-09-16T14:11:57Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-09-16T14:45:20Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-16T14:46:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T14:46:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T15:58:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-16T16:08:52Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T16:08:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-16T16:17:42Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-16T16:18:57Z"}

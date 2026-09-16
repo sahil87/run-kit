@@ -501,13 +501,14 @@ describe("SurfaceLayout zoom", () => {
     expect(screen.getByTestId("surface-divider-0")).toBeTruthy();
   });
 
-  it("zoomed tile shows the green ringed latch on its zoom verb and hides its promote/swap verbs", () => {
+  it("zoomed tile shows the latch well on its zoom verb and hides its promote/swap verbs", () => {
     renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
     fireEvent.click(screen.getByRole("button", { name: "Expand Code" }));
     const unzoom = screen.getByRole("button", { name: "Restore Code" });
     expect(unzoom.querySelector('[data-icon="zoom"]')).toBeTruthy();
-    expect(unzoom.className).toContain("text-accent-green");
-    expect(unzoom.className).toContain("ring-accent-green");
+    expect(unzoom.className).toContain("text-accent-green-ink");
+    expect(unzoom.className).toContain("rk-latch-well");
+    expect(unzoom.className).not.toContain("ring-accent-green");
     expect(unzoom).toHaveAttribute("aria-pressed", "true");
     // Promote/swap are no-ops on a zoomed render — hidden; ✕ stays.
     expect(screen.queryByRole("button", { name: "Promote Code" })).toBeNull();

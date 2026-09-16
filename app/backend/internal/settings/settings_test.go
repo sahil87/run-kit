@@ -111,7 +111,7 @@ func TestSaveAndLoad(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	s := Settings{Theme: "system", ThemeDark: "dracula", ThemeLight: "solarized-light", CronTicker: true}
+	s := Settings{Theme: "system", ThemeDark: "dracula", ThemeLight: "solarized-light", CronTicker: true, EasterEggs: true}
 	if err := Save(s); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestLoadMissingFile(t *testing.T) {
 }
 
 func TestSerialize(t *testing.T) {
-	got := serialize(Settings{Theme: "catppuccin-mocha", ThemeDark: "catppuccin-mocha", ThemeLight: "github-light", CronTicker: true})
+	got := serialize(Settings{Theme: "catppuccin-mocha", ThemeDark: "catppuccin-mocha", ThemeLight: "github-light", CronTicker: true, EasterEggs: true})
 	want := "theme: catppuccin-mocha\ntheme_dark: catppuccin-mocha\ntheme_light: github-light\n"
 	if got != want {
 		t.Errorf("serialize = %q, want %q", got, want)
@@ -360,7 +360,7 @@ func TestParseOptionalSettings(t *testing.T) {
 }
 
 func TestSerializeOptionalSettings(t *testing.T) {
-	base := Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", CronTicker: true}
+	base := Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", CronTicker: true, EasterEggs: true}
 	cases := []struct {
 		name   string
 		mutate func(*Settings)
@@ -431,7 +431,7 @@ func TestSerializeOptionalSettings(t *testing.T) {
 }
 
 func TestSerializeEmptyOptionalSettingsIsByteIdentical(t *testing.T) {
-	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", CronTicker: true, LogLevel: "info"})
+	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", CronTicker: true, EasterEggs: true, LogLevel: "info"})
 	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n"
 	if got != want {
 		t.Errorf("serialize with optional defaults = %q, want %q", got, want)
@@ -511,6 +511,7 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 		"instance_name":  stringValueFixture("my-box", "dev mini", SetInstanceName, GetInstanceName),
 		"auto_name":      registryValueFixture(`true`, true, `false`, false, false),
 		"cron_ticker":    registryValueFixture(`false`, false, `true`, true, true),
+		"easter_eggs":    registryValueFixture(`false`, false, `true`, true, true),
 		"gui.enabled":    registryValueFixture(`true`, true, `false`, false, false),
 		"gui.wm":         registryValueFixture(`"openbox"`, "openbox", `"xfwm4"`, "xfwm4", ""),
 		"gui.geometry":   registryValueFixture(`"auto"`, "auto", `"1600x900"`, "1600x900", "1920x1080"),
@@ -698,6 +699,42 @@ func TestCronTicker(t *testing.T) {
 		s.CronTicker = true
 		if out := serialize(s); strings.Contains(out, "cron_ticker") {
 			t.Errorf("cron_ticker emitted for the on default — files without the key must serialize byte-identically:\n%s", out)
+		}
+	})
+}
+
+func TestEasterEggs(t *testing.T) {
+	t.Run("defaults on", func(t *testing.T) {
+		if !Default().EasterEggs {
+			t.Error("Default().EasterEggs = false, want true")
+		}
+		if !parse("theme: dark\n").EasterEggs {
+			t.Error("EasterEggs = false for a file without the key, want true")
+		}
+	})
+
+	t.Run("parses ParseBool values, tolerates garbage", func(t *testing.T) {
+		for value, want := range map[string]bool{"true": true, "1": true, "false": false, "0": false, "\"false\"": false} {
+			if got := parse("easter_eggs: " + value + "\n").EasterEggs; got != want {
+				t.Errorf("parse easter_eggs: %s → %v, want %v", value, got, want)
+			}
+		}
+		// An unparseable value keeps the default (on) — the safe direction for
+		// a cosmetic default-on feature.
+		if got := parse("easter_eggs: yes-please\n").EasterEggs; !got {
+			t.Error("parse easter_eggs: garbage → false, want true (default kept)")
+		}
+	})
+
+	t.Run("round-trips and is omitted when on", func(t *testing.T) {
+		s := Default()
+		s.EasterEggs = false
+		if got := parse(serialize(s)); got.EasterEggs {
+			t.Error("EasterEggs=false lost in serialize/parse round-trip")
+		}
+		s.EasterEggs = true
+		if out := serialize(s); strings.Contains(out, "easter_eggs") {
+			t.Errorf("easter_eggs emitted for the on default — files without the key must serialize byte-identically:\n%s", out)
 		}
 	})
 }

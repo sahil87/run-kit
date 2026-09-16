@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toggle Depth Studies</title>
+<style>
+  :root {
+    --bg: #0f1117; --card: #171b24; --inset: #0a0c12; --chrome: #1a1b1f; --chrome-raised: #222327;
+    --tp: #e8eaf0; --ts: #7a8394; --border: #454d66;
+    --green: #22c55e; --yellow: #facc15; --blue: #60a5fa; --red: #f87171; --amber: #f59e0b;
+    --well-shadow: inset 0 1.5px 2.5px rgb(0 0 0 / .60);
+    --well-shadow-hover: inset 0 2px 3.5px rgb(0 0 0 / .78);
+    --well-lip: inset 0 -1px 0 rgb(255 255 255 / .05);
+    --key-shadow: inset 0 2px 0 rgb(0 0 0 / .55);
+    /* C′ — theme-derived well: floor = one OKLab step (ΔL .06) below the chrome ground, ink = glyph-safe green, border darkens */
+    --wf: #0a0c12; --wi: #22c55e; --wb: #2a3040;
+    --ws: inset 0 1.5px 2.5px rgb(0 0 0 / .60); --wsh: inset 0 2px 3.5px rgb(0 0 0 / .78); --wl: inset 0 -1px 0 rgb(255 255 255 / .05);
+    --prose: #b6bcc9;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  body.light {
+    --bg: #f8f9fb; --card: #ffffff; --inset: #e8eaef; --chrome: #e9eaeb; --chrome-raised: #dedee0;
+    --tp: #1a1d24; --ts: #6b7280; --border: #d1d5db;
+    --green: #16a34a; --yellow: #b07d02; --blue: #2563eb; --red: #dc2626; --amber: #d97706;
+    --well-shadow: inset 0 1.5px 2.5px rgb(0 0 0 / .18);
+    --well-shadow-hover: inset 0 2px 3.5px rgb(0 0 0 / .26);
+    --well-lip: inset 0 -1px 0 rgb(255 255 255 / .9);
+    --key-shadow: inset 0 2px 0 rgb(0 0 0 / .16);
+    --wf: #d6d6d6; --wi: #15803d; --wb: #9ca3af;
+    --ws: inset 0 1px 2px rgb(0 0 0 / .28), inset 0 0 0 1px rgb(0 0 0 / .04); --wsh: inset 0 1.5px 3px rgb(0 0 0 / .36), inset 0 0 0 1px rgb(0 0 0 / .05); --wl: inset 0 -1px 0 rgb(255 255 255 / 0); /* a transparent shadow, not `none` — `none` inside a shadow list drops the whole declaration */
+    --prose: #4b5563;
+  }
+  body.black {
+    --bg: #000000; --card: #141414; --inset: #000000; --chrome: #0a0a0a; --chrome-raised: #161616;
+    --tp: #e5e5e5; --ts: #7a7a7a; --border: #3a3a3a;
+    --well-shadow: inset 0 1.5px 2.5px rgb(0 0 0 / .9);
+    --well-shadow-hover: inset 0 2px 3.5px rgb(0 0 0 / .95);
+    --well-lip: inset 0 -1px 0 rgb(255 255 255 / .12);
+    --key-shadow: inset 0 2px 0 rgb(0 0 0 / .9);
+    --wf: #000000; --wi: #22c55e; --wb: #2a2a2a;
+    --ws: inset 0 1.5px 2.5px rgb(0 0 0 / .9); --wsh: inset 0 2px 3.5px rgb(0 0 0 / .95); --wl: inset 0 -1px 0 rgb(255 255 255 / .12);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--tp); font: 14px/1.5 ui-sans-serif, system-ui, sans-serif; padding: 28px 32px 80px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 42px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { font-size: 13px; margin: 0 0 8px; }
+  .sub { color: var(--ts); margin: 0 0 18px; max-width: 920px; }
+  p, ul { max-width: 920px; color: var(--prose); }
+  li { margin: 3px 0; }
+  p b, li b, td b, .cap b { color: var(--tp); }
+  code { font-family: var(--mono); font-size: 11.5px; background: var(--inset); padding: 0 4px; border-radius: 3px; color: var(--tp); }
+  table { border-collapse: collapse; font-size: 12px; margin: 8px 0 14px; }
+  td, th { border: 1px solid var(--border); padding: 4px 8px; text-align: left; color: var(--prose); vertical-align: top; }
+  th { color: var(--tp); font-weight: 600; }
+  .tag { display: inline-block; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border); color: var(--ts); margin: 0 6px 6px 0; white-space: nowrap; }
+  .tag.rec { border-color: var(--green); color: var(--green); }
+  .tag.bad { border-color: var(--red); color: var(--red); }
+  .tag.park { border-color: var(--blue); color: var(--blue); }
+  .tag.try { border-color: var(--amber); color: var(--amber); }
+  .note { border-left: 3px solid var(--blue); padding: 6px 12px; background: color-mix(in srgb, var(--blue) 8%, transparent); border-radius: 0 6px 6px 0; max-width: 920px; margin: 12px 0; color: var(--prose); }
+  .note.warn { border-color: var(--amber); background: color-mix(in srgb, var(--amber) 8%, transparent); }
+
+  .toolbar { position: sticky; top: 0; z-index: 5; display: flex; gap: 10px 14px; align-items: center; flex-wrap: wrap; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(6px); padding: 8px 0 10px; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .toolbar .grp { display: inline-flex; align-items: center; gap: 4px; }
+  .toolbar .lbl { font: 10px var(--mono); color: var(--ts); text-transform: uppercase; letter-spacing: .06em; margin-right: 2px; }
+  .toolbar button { font: 11px var(--mono); padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--card); color: var(--ts); cursor: pointer; }
+  .toolbar button.on { color: var(--green); border-color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
+  .toolbar .hint { font-size: 11px; color: var(--ts); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .card.rec { border-color: color-mix(in srgb, var(--green) 55%, var(--border)); }
+  .cap { font-size: 11px; color: var(--ts); margin-top: 8px; line-height: 1.45; }
+  .readout { font: 11px var(--mono); color: var(--ts); margin-top: 6px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .readout b { color: var(--tp); font-weight: 500; }
+  .readout .low { color: var(--amber); }
+  .co { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; background: var(--amber); color: #000; font: 700 9.5px var(--mono); flex: none; vertical-align: middle; margin-right: 6px; }
+
+  /* ---------- specimen board: mirrors the app's chrome ground (sidebar/top bar/bottom bar sit on --color-bg-chrome) ---------- */
+  .board { background: var(--chrome); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; display: grid; grid-template-columns: 92px 1fr; gap: 8px 12px; align-items: center; font-family: var(--mono); }
+  .board .k { font: 10px var(--mono); color: var(--ts); text-transform: uppercase; letter-spacing: .06em; }
+  .row { display: flex; align-items: center; gap: 4px; }
+  .row.rail { gap: 4px; padding: 4px 0; }
+  .row.chips { gap: 6px; }
+  body.coarse .row.chips { gap: 4px; }
+
+  /* every specimen button */
+  .t { font: 12px var(--mono); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; color: var(--ts); background: transparent; border: 0; padding: 0; transition: background-color 150ms, color 150ms, border-color 150ms, box-shadow 150ms; position: relative; outline: none; }
+  .t svg { display: block; }
+  .t:hover, .t.hov { color: var(--tp); }
+  .t:focus-visible, .t.foc { outline: 2px solid var(--green); outline-offset: 2px; }
+  /* shipped :active snap — bg-card, instant */
+  .t:active:not(.nosnap), .t.act { background: var(--card); transition: none; }
+  body.snap-well .t:active:not(.nosnap), body.snap-well .t.act { background: var(--inset); box-shadow: var(--well-shadow), var(--well-lip); }
+
+  /* geometry per specimen family (fine / coarse) */
+  .t.rl { width: 24px; height: 24px; border-radius: 2px; }                                  /* section rail: min 24, rounded-sm */
+  .t.ic { width: 28px; height: 28px; border-radius: 4px; border: 1px solid var(--border); } /* top-bar icon square */
+  .t.ic:hover, .t.ic.hov { border-color: var(--ts); }
+  .t.ch { min-width: 35px; min-height: 33px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--border); font-size: 12px; } /* bottom-bar kbd chip */
+  .t.ch:hover, .t.ch.hov { border-color: var(--ts); color: var(--ts); }
+  .seg-wrap { display: inline-flex; align-items: stretch; height: 28px; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .t.sg { width: 26px; height: 26px; border-radius: 0; font-size: 11px; }                 /* flush segment inside a bordered wrapper */
+  .t.sg + .t.sg { border-left: 1px solid var(--border); }
+  .t.vb { width: 24px; height: 24px; border-radius: 4px; }                                  /* tile-header verb */
+  .t.vb:hover, .t.vb.hov { background: var(--inset); }
+  body.coarse .t.rl { width: 30px; height: 30px; }
+  body.coarse .t.ic { width: 40px; height: 40px; }
+  body.coarse .t.ch { min-width: 40px; min-height: 40px; }
+  body.coarse .seg-wrap { height: 40px; } body.coarse .t.sg { width: 38px; height: 38px; }
+  body.coarse .t.vb { width: 26px; height: 26px; }
+  body.coarse .t.rl svg { width: 15px; height: 15px; }
+
+  /* ================= OPTION A — today: ring/border + 15% wash + green ink ================= */
+  .oA .t.on { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
+  .oA .t.on:hover, .oA .t.on.hov { background: color-mix(in srgb, var(--green) 25%, transparent); color: var(--green); }
+  .oA .t.rl.on, .oA .t.vb.on { box-shadow: inset 0 0 0 1px var(--green); }
+  .oA .t.ic.on, .oA .t.ch.on { border-color: var(--green); }
+
+  /* ================= OPTION B — well, depth only, neutral ink ================= */
+  .oB .t.on { background: var(--inset); color: var(--tp); box-shadow: var(--well-shadow), var(--well-lip); }
+  .oB .t.on:hover, .oB .t.on.hov { box-shadow: var(--well-shadow-hover), var(--well-lip); }
+  .oB .t.ic.on, .oB .t.ch.on { border-color: color-mix(in srgb, var(--border) 60%, var(--inset)); }
+
+  /* ================= OPTION C — well + green ink (depth = pressed, hue = state) ================= */
+  .oC .t.on { background: var(--inset); color: var(--green); box-shadow: var(--well-shadow), var(--well-lip); }
+  .oC .t.on:hover, .oC .t.on.hov { color: var(--green); box-shadow: var(--well-shadow-hover), var(--well-lip); }
+  .oC .t.ic.on, .oC .t.ch.on { border-color: color-mix(in srgb, var(--border) 60%, var(--inset)); }
+
+  /* ================= OPTION C′ — the well with theme-derived floor / ink / border ================= */
+  .oC2 .t.on { background: var(--wf); color: var(--wi); box-shadow: var(--ws), var(--wl); }
+  .oC2 .t.on:hover, .oC2 .t.on.hov { color: var(--wi); box-shadow: var(--wsh), var(--wl); }
+  .oC2 .t.ic.on, .oC2 .t.ch.on { border-color: var(--wb); }
+  .oC2 .t.sg.on + .t.sg { border-left-color: var(--wb); }
+
+  /* ================= OPTION D — keycap: well + hard top shadow + 1px glyph drop ================= */
+  .oD .t.on { background: var(--inset); color: var(--green); box-shadow: var(--key-shadow), var(--well-lip); }
+  .oD .t.on > * { transform: translateY(1px); }
+  .oD .t.on:hover, .oD .t.on.hov { color: var(--green); }
+  .oD .t.ic.on, .oD .t.ch.on { border-color: color-mix(in srgb, var(--border) 60%, var(--inset)); }
+
+  /* ================= OPTION E — inverse video ================= */
+  .oE .t.on { background: var(--tp); color: var(--chrome); }
+  .oE .t.on:hover, .oE .t.on.hov { color: var(--chrome); background: color-mix(in srgb, var(--tp) 88%, var(--chrome)); }
+  .oE .t.ic.on, .oE .t.ch.on { border-color: var(--tp); }
+
+  /* ================= OPTION F — wash only (drop the ring) ================= */
+  .oF .t.on { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
+  .oF .t.on:hover, .oF .t.on.hov { background: color-mix(in srgb, var(--green) 25%, transparent); color: var(--green); }
+
+  /* ================= OPTION G — underbar (tab idiom) ================= */
+  .oG .t.on { color: var(--tp); box-shadow: inset 0 -2px 0 var(--green); }
+  .oG .t.ic.on, .oG .t.ch.on { box-shadow: inset 0 -2px 0 var(--green); }
+  .oG .t.sg.on { box-shadow: inset 0 -2px 0 var(--green); }
+
+  /* ---------- state ladder strip ---------- */
+  .ladder { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+  .ladder .cell { background: var(--chrome); border: 1px solid var(--border); border-radius: 6px; padding: 12px 6px 8px; text-align: center; }
+  .ladder .cell .k { display: block; font: 10px var(--mono); color: var(--ts); margin-top: 8px; text-transform: uppercase; letter-spacing: .05em; }
+  .ladder .cell .row { justify-content: center; }
+  .filmstrip { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+  .filmstrip .card h3 { font-size: 12px; }
+  .filmstrip .board { grid-template-columns: 1fr; }
+  .exclusive .seg-wrap { height: 28px; }
+  .exclusive .t.sg { width: 34px; }
+  .exclusive.big .t.sg { width: 44px; height: 30px; } .exclusive.big .seg-wrap { height: 32px; }
+  kbd.k2 { font: 11px var(--mono); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; color: var(--ts); }
+</style>
+</head>
+<body>
+
+<h1>Toggle Depth Studies</h1>
+<p class="sub">How a latched ("on") toggle button should look — pressed <b>in</b> rather than lit up with a border. Specimens are the five latching families that share one arm today: the sidebar section rail, the top-bar icon square, the bottom-bar kbd chips, the flush surface-toggle segments, and a tile-header verb. Every button is live — click to flip it. Toggle theme and pointer in the toolbar; hover the buttons for the hover arm.</p>
+
+<div class="toolbar">
+  <span class="grp"><span class="lbl">theme</span>
+    <button data-theme="dark" class="on">dark</button><button data-theme="light">light</button><button data-theme="black">pure black</button></span>
+  <span class="grp"><span class="lbl">pointer</span>
+    <button data-pointer="fine" class="on">fine</button><button data-pointer="coarse">coarse</button></span>
+  <span class="grp"><span class="lbl">press snap</span>
+    <button data-snap="card" class="on">today · card fill</button><button data-snap="well">proposed · well</button></span>
+  <span class="grp"><button id="reset">reset states</button></span>
+  <span class="hint">hold a button down to see the press snap · Tab to see the focus ring</span>
+</div>
+
+<h2>0 · Today, annotated</h2>
+<p>The screenshot: two of the four section-rail toggles are on. The shipped latch (<code>LATCHED_ARM_RINGED</code> in <code>control.tsx</code>) is <span class="co">1</span> a 1px <code>ring-inset</code> in accent-green, <span class="co">2</span> a 15% green wash, <span class="co">3</span> green glyph ink. Hover deepens the wash to 25%. It is the one latch algebra every latching control composes — bordered controls paint the ring on their real border (<code>LATCHED_ARM</code>), flush segments drop the border axis (<code>LATCHED_ARM_FLUSH</code>).</p>
+<p>Why it looks like this: the control contract settled <b>scheme C — accent-green means state, never hover</b>. Hover is hue-free brightness; a green control always reads "on". The ring-inset was chosen over a real border so latching never shifts layout. Both of those decisions survive every option below; what changes is the <b>shape</b> of the on-state — an outline that lights up (additive) versus a well the button sits in (subtractive).</p>
+<div class="grid">
+  <div class="card oA"><h3>Section rail as shipped</h3><div class="board" data-spec="rail-only"></div>
+    <div class="cap"><span class="co">1</span>ring · <span class="co">2</span>wash · <span class="co">3</span>ink — three additive channels on one 24px box. Four adjacent toggles with two on read as two lit LEDs; the eye is drawn to the on-state's <em>edge</em> rather than the glyph.</div></div>
+  <div class="card"><h3>What "pressed in" needs</h3>
+    <p style="font-size:12.5px;margin:0">A latched key in the physical world is <b>lower</b> than its neighbours, <b>darker</b> at the top edge (it sits in shadow), and carries <b>no outline of its own</b> — the outline belongs to the hole. Three CSS channels map onto that: ground = <code>--color-bg-inset</code> (the recessed-well token the switch-off track and marker wells already use), an <code>inset</code> box-shadow for the top-edge shade, and no ring. The open question is whether the glyph ink stays green (state hue) or goes neutral (depth alone).</p></div>
+</div>
+
+<h2>1 · Seven treatments, five families each</h2>
+<p>Each card runs one on-state recipe across all five latching families. The rail has Boards + Server on; the top bar has autofit on; the chips have <kbd class="k2">⌃</kbd> latched; the segments have <code>web</code> open; the tile verb is the find bar (open). Readouts show the glyph-ink : ground contrast ratio for the on-state in the current theme (WCAG 1.4.11 asks ≥ 3:1 for non-text UI).</p>
+<div class="grid" id="options">
+  <div class="card oA" data-opt="A"><h3>A · Today — ring + wash + green ink</h3><span class="tag">baseline</span><div class="board"></div><div class="readout"></div>
+    <div class="cap"><b>For:</b> unambiguous on-state, one algebra everywhere, no layout shift. <b>Against:</b> reads as <em>lit</em>, not pressed; the ring competes with the focus ring for the "outline" channel (they differ only by offset); on the rail, two lit boxes out of four dominate the row.</div></div>
+
+  <div class="card oB" data-opt="B"><h3>B · Well — depth only, neutral ink</h3><span class="tag try">depth alone</span><div class="board"></div><div class="readout"></div>
+    <div class="cap"><b>For:</b> the purest "key is down" reading; hue stays free for status. <b>Against:</b> breaks scheme C's promise that a latched control is green, so <em>on</em> now depends on a 1–2px shadow — weak at a glance on a busy sidebar, invisible in a screenshot at 50% zoom, and on light themes <code>bg-inset</code> is one step from the chrome ground so the shadow carries everything.</div></div>
+
+  <div class="card oC" data-opt="C"><h3>C · Well + green ink — on the existing tokens</h3><span class="tag try">dark only</span><span class="tag">depth = pressed · hue = state</span><div class="board"></div><div class="readout"></div>
+    <div class="cap"><b>For:</b> the button visibly drops into the ground (what you asked for) while the glyph keeps the green that scheme C reserves for state — two independent channels agree, so it survives both a colour-blind read (depth) and a squint read (hue). The wash and the ring go away; the ink stays exactly where today's contrast budget already lives. <b>Against:</b> two shadow tokens to theme (<code>--well-shadow</code> per theme category); on pure-black palettes <code>bg-inset</code> clamps to the ground, so the well needs the 1px bottom lip to keep an edge (toggle <em>pure black</em> above). <b>Light theme:</b> fails — <code>bg-inset</code> sits 0.000 ΔL from the chrome ground so the floor vanishes, the accent-green glyph (2.7 : 1) is fainter than the neutral off glyphs (4.0 : 1), and the dimmed border reads as <em>disabled</em>. Every channel that carries the well in dark is absent or inverted in light. See C′.</div></div>
+
+  <div class="card oC2 rec" data-opt="C2"><h3>C′ · Well — theme-derived floor, ink and border</h3><span class="tag rec">recommended</span><span class="tag">same shape as C · light fixed</span><div class="board"></div><div class="readout"></div>
+    <div class="cap">Identical to C in dark and pure black. In light, three tokens change: the <b>floor</b> is derived as one OKLab step (ΔL 0.06) below the chrome ground — <code>#d6d6d6</code> here — the same derivation the chrome material uses, instead of <code>bg-inset</code>; the <b>glyph ink</b> is a darker green (<code>#15803d</code>, 4.2 : 1 on the chrome, 3.5 : 1 on the floor — the first light-theme latch ink to clear the 3 : 1 non-text floor); the <b>border</b> of bordered controls darkens toward secondary text instead of fading. The shadow is tighter and ~28% instead of 18%, with a faint 1px inner edge, and the white bottom lip is dropped (a light well is read from its dark top edge, not a bright bottom one). <b>Cost:</b> a fourth palette-derived colour — a green <em>ink</em> variant distinct from the fill/track green — because the light palettes' <code>accentGreen</code> is tuned as a wash and switch-track colour and has never been a glyph on the chrome ground.</div></div>
+
+  <div class="card oD" data-opt="D"><h3>D · Keycap — hard top shadow + 1px glyph drop</h3><span class="tag try">most physical</span><div class="board"></div><div class="readout"></div>
+    <div class="cap"><b>For:</b> the strongest press metaphor — a flat 2px shade band plus the glyph moving down 1px, the way a real key travels. <b>Against:</b> the glyph shift is a transform (no layout change) but a 1px jump on toggle reads as jitter next to unmoved siblings, and the hard band looks like a rendering seam at 24px; on the 33px chips it's fine. Better reserved for the kbd chips alone if anywhere.</div></div>
+
+  <div class="card oE" data-opt="E"><h3>E · Inverse video</h3><span class="tag park">terminal idiom</span><div class="board"></div><div class="readout"></div>
+    <div class="cap"><b>For:</b> the app's own vocabulary — the typed-label cursor and the boot sweep already use inverse video, so a swapped fg/bg block is native here and reads instantly. <b>Against:</b> it's the heaviest treatment on the page: two solid blocks in the rail pull more attention than the section headings they control, and it's neither green (state) nor recessed (pressed) — a third vocabulary. Parked for something that must shout (a blocked/armed state), not for latches.</div></div>
+
+  <div class="card oF" data-opt="F"><h3>F · Wash only — drop the ring</h3><span class="tag">minimal diff</span><div class="board"></div><div class="readout"></div>
+    <div class="cap"><b>For:</b> a one-line change — <code>LATCHED_ARM_FLUSH</code> becomes the only arm. Removes the outline the eye snagged on. <b>Against:</b> still additive: a lit pad, not a pressed key. It answers "less border", not "pressed in".</div></div>
+
+  <div class="card oG" data-opt="G"><h3>G · Underbar — neutral ink + 2px green bar</h3><span class="tag park">exclusive groups</span><div class="board"></div><div class="readout"></div>
+    <div class="cap"><b>For:</b> the tab idiom — it's what the watched-row underbar already does, and it's the right shape for a one-of-N choice (the surface switcher in <em>switch</em> mode, activity tabs). <b>Against:</b> for an independent any-subset latch (rail, chips) an underbar says "current", not "on". Keep it for exclusive groups where the segments already sit in one bordered wrapper.</div></div>
+</div>
+
+<h2>2 · Press vs latch — one depth channel</h2>
+<p>Today's momentary press feedback (the global <code>:active</code> rule, touch's only feedback channel) snaps the background to <code>bg-card</code> — which on dark themes is <em>lighter</em> than the chrome ground. Under a well metaphor that is backwards: a finger pushing a button should make it go <em>down</em>, and a latched button should stay down. Flip the toolbar's <b>press snap</b> to the proposed arm and hold a button: the press becomes a transient well (<code>bg-inset</code> + the well shadow), and latching is "the well stays, and the ink turns green". One channel, two durations.</p>
+<div class="ladder oC2" id="ladder">
+  <div class="cell"><div class="row rail"><button class="t rl" data-icon="boards"></button></div><span class="k">rest</span></div>
+  <div class="cell"><div class="row rail"><button class="t rl hov" data-icon="boards"></button></div><span class="k">hover</span></div>
+  <div class="cell"><div class="row rail"><button class="t rl act" data-icon="boards"></button></div><span class="k">press (:active)</span></div>
+  <div class="cell"><div class="row rail"><button class="t rl on" data-icon="boards"></button></div><span class="k">latched</span></div>
+  <div class="cell"><div class="row rail"><button class="t rl on hov" data-icon="boards"></button></div><span class="k">latched + hover</span></div>
+  <div class="cell"><div class="row rail"><button class="t rl on foc" data-icon="boards"></button></div><span class="k">latched + focus</span></div>
+</div>
+<div class="cap" style="max-width:920px">Ladder under option C′. Hover on a latched control: the ink holds green (hue-stable, as today) and the shade deepens one step — the well analogue of today's 15% → 25% wash step. Focus keeps the green <code>outline</code> at 2px offset; with no ring in the latch there is no longer a second green outline for it to be confused with.</div>
+
+<div class="note warn">The proposed press snap changes a global rule, not a latch arm — every control on the page would snap into a well on pointer-down. That is the point (one depth channel), but it is a separate decision from the latch shape and should ship as its own change so it can be reverted alone.</div>
+
+<h2>3 · Exclusive groups get one key down</h2>
+<p>An any-subset latch (rail, chips, tile verbs) and a one-of-N choice (surface switcher in <em>switch</em> mode, terminal activity tabs) are different controls wearing the same arm today. In a connected segmented group the well reads best when exactly one segment is down and the rest stay flush with the wrapper — the classic radio-key strip. Below, the same three-segment group under C′ (well) and G (underbar), fine and coarse.</p>
+<div class="filmstrip">
+  <div class="card oC2 exclusive"><h3>C′ · one segment down</h3><div class="board"><div class="row" data-spec="segs-only"></div></div><div class="cap">Wrapper owns the border; the down segment sits in the well. The divider between segments stays, so the well has visible walls.</div></div>
+  <div class="card oG exclusive"><h3>G · underbar</h3><div class="board"><div class="row" data-spec="segs-only"></div></div><div class="cap">Reads as "current tab". Right when the segments are views of one thing (tty / web / code); wrong when they can be combined.</div></div>
+  <div class="card oC2 exclusive big"><h3>C′ · toggle mode — a subset may be open</h3><div class="board"><div class="row" data-spec="segs-multi"></div></div><div class="cap">The same wrapper in <em>toggle</em> mode (up to three tiles open): several wells side by side still parse, because each well has its own top shade. An underbar would not scale to this.</div></div>
+</div>
+
+<h2>4 · How each kind of toggle should be handled</h2>
+<table>
+  <tr><th>Kind</th><th>Sites today</th><th>Arm</th><th>Recommended</th></tr>
+  <tr><td><b>Independent latch</b> — any subset on</td><td>section rail (4) · gui-toolbar stats/capture/toolbar (3) · tile verbs: fullscreen, find, export, zoom (4) · find-bar case/regex (2) · top-bar autofit · bottom-bar ⌃ ⌥ compose scroll-lock</td><td><code>LATCHED_ARM</code> / <code>_RINGED</code></td><td><b>Well + green ink (C′)</b>. Bordered controls keep their border; it darkens toward secondary text so pressed goes darker in every channel on both theme categories.</td></tr>
+  <tr><td><b>Exclusive choice</b> — one of N</td><td>surface toggles in switch mode · terminal activity tabs</td><td><code>LATCHED_ARM_FLUSH</code></td><td><b>Well (C′)</b> when the segments are actions that combine (surface tiles); <b>underbar (G)</b> when they are lenses on one thing (activity tabs). Decide per group, not per site.</td></tr>
+  <tr><td><b>Open-latch</b> — trigger stays on while its menu is open</td><td>split ▾, layout ▾, overflow ⋯, export ▾, F▴</td><td>same arm as pressed</td><td><b>Well, neutral ink (B)</b>. A held-down key while its menu is up is the macOS reading; green would claim "state" for something that is only transiently open. This is the one place the depth-only arm is right.</td></tr>
+  <tr><td><b>Momentary press</b></td><td>every control (global <code>:active</code>)</td><td><code>bg-card</code> snap</td><td><b>Well snap</b> (bg-inset + well shadow, instant). Own change, own revert.</td></tr>
+  <tr><td><b>Switch</b> (<code>role=switch</code>)</td><td>Protect row, settings BoolToggle</td><td><code>SWITCH_TRACK_*</code></td><td>Unchanged — the OFF track is already the well; ON is the green track. Same algebra, already depth-coded.</td></tr>
+  <tr><td><b>Checked menu row</b></td><td>menu rows with ✓</td><td><code>MENU_ROW_CHECKED</code></td><td>Unchanged — rows are not keys; the ✓ is the state mark.</td></tr>
+</table>
+
+<h2>5 · Theme derivation — why C works in dark and not in light</h2>
+<table>
+  <tr><th>Channel</th><th>Dark</th><th>Light</th><th>Consequence</th></tr>
+  <tr><td>Ground step, chrome → <code>bg-inset</code> (OKLab ΔL)</td><td>0.068</td><td>0.000</td><td>the well floor is invisible in light; only the shadow is left</td></tr>
+  <tr><td>On glyph — accent-green on the ground</td><td>7.6 : 1</td><td>2.7 : 1</td><td>in light the <em>on</em> glyph is fainter than the <em>off</em> glyph</td></tr>
+  <tr><td>Off glyph — secondary text on the ground</td><td>4.5 : 1</td><td>4.0 : 1</td><td>the hierarchy inverts: pressed reads as washed-out</td></tr>
+  <tr><td>Bordered controls, border dimmed toward the well</td><td>darker → pressed</td><td>lighter → disabled</td><td>pressed must go darker in <em>every</em> channel on a light ground</td></tr>
+</table>
+<p><code>bg-inset</code> is derived per palette by darkening the background a fixed sRGB percentage (5% dark, 6% light) — a step that is visible on one theme category and invisible on the other, the same asymmetry the sidebar-material study measured for the chrome ground. Accent-green is derived as a fill/track colour and on light palettes lands below secondary text in contrast; today's ring has been hiding that. C′ fixes both by derivation, not by hand-picked hexes: floor = chrome ground minus ΔL 0.06 in OKLab (chroma kept), ink = the palette green driven down in OKLab lightness until it clears 3 : 1 on the floor, border = the border token mixed toward secondary text. On pure-black palettes the floor clamps to the ground and the 1px bottom lip keeps the rim.</p>
+<div class="note warn"><b>Amendment after shipping (default-dark, real 24px rail):</b> the dark C′ floor as built here — <code>bgChrome</code> stepped 0.06 <em>toward black</em> — read as unpressed in the live sidebar: a dark inset shade on a near-black floor paints nothing, so depth rode the floor step alone. The shipped derivation steps the dark floor <em>up</em> 0.09 toward mid-gray instead (<code>#303135</code> on the default palette, clearing the row-hover fill <code>bgChromeRaised</code> by ≥ 0.05 L) and adds a 20% 1px inner edge to the dark shade; the light recipe is unchanged. The well steps toward mid-gray on both categories.</div>
+
+<h2>6 · Rejected and parked</h2>
+<table>
+  <tr><th>Treatment</th><th>Verdict</th><th>Why</th></tr>
+  <tr><td>C · well on the existing tokens</td><td>superseded by C′</td><td>right shape, wrong tokens: <code>bg-inset</code> and <code>accent-green</code> carry the well in dark and vanish in light (§ 5).</td></tr>
+  <tr><td>B · depth only</td><td>rejected for latches</td><td>drops the state hue scheme C promises; the on-state becomes a 2px shadow. Kept for the <em>open-latch</em> only.</td></tr>
+  <tr><td>D · keycap glyph drop</td><td>parked</td><td>1px glyph travel reads as jitter beside unmoved siblings at 24px; revisit for the 33/40px kbd chips only.</td></tr>
+  <tr><td>E · inverse video</td><td>parked</td><td>a third vocabulary, and too loud for a row of four; candidate for an alarm-class state, not a latch.</td></tr>
+  <tr><td>F · wash only</td><td>rejected</td><td>answers "less border", not "pressed in"; still additive.</td></tr>
+  <tr><td>G · underbar</td><td>kept for exclusive lens groups</td><td>says "current", not "on"; wrong for any-subset latches.</td></tr>
+  <tr><td>Outer drop shadow on OFF buttons (raise the neighbours instead)</td><td>rejected</td><td>every rest-state control on the page would grow a shadow; the constitution's flat chrome and the borderless tile-header vocabulary both lose.</td></tr>
+</table>
+
+<h2>7 · Recommendation</h2>
+<table>
+  <tr><th>#</th><th>Change</th><th>Touches</th><th>Notes</th></tr>
+  <tr><td>1</td><td><b>Well tokens</b> — three new palette-derived UI colours in <code>deriveUIColors</code>: <code>bgWell</code> (chrome ground − ΔL 0.06 OKLab, chroma kept, clamped), <code>accentGreenInk</code> (the palette green driven down in OKLab L until ≥ 3 : 1 on <code>bgWell</code>; unchanged on dark where it already clears), <code>borderPressed</code> (border → secondary text mix); plus <code>--ctl-well-shadow</code> / <code>--ctl-well-shadow-hover</code> / <code>--ctl-well-lip</code> per theme category beside the other <code>--ctl-*</code> tokens</td><td>themes derivation (<code>deriveUIColors</code> + its tests) · globals.css @theme · visual-design memory § Color Tokens</td><td>Pure derivation, no per-palette hand tuning — the light values in C′ are what the formula produces for the default palette. Ships first so 2 is a pure recipe swap.</td></tr>
+  <tr><td>2</td><td><b>Latch well</b> — replace the three green arms in <code>control.tsx</code> with one well recipe (<code>bg-bg-well text-accent-green-ink shadow-[var(--ctl-well-shadow)]</code>; bordered variants take <code>border-border-pressed</code>)</td><td>control.tsx · control.test.tsx · <code>/__controls</code> PNG baselines · visual-design memory § Latch vocabulary + § Design Decisions (ring-inset entry superseded)</td><td>All 20-odd sites move at once because they compose the arm — no call-site edits. The <code>ringed</code> option loses its meaning (no ring to paint) and can be retired in the same pass or one later.</td></tr>
+  <tr><td>3</td><td><b>Open-latch goes neutral</b> — <code>open</code> composes the well with neutral ink instead of sharing the pressed arm</td><td>control.tsx (the <code>pressed || open</code> fold) · tests · gallery</td><td>Small; the first place <code>open</code> and <code>pressed</code> diverge, so it wants its own test rows.</td></tr>
+  <tr><td>4</td><td><b>Press snap becomes a well</b> — the global <code>:active</code> rule paints <code>bg-inset</code> + the well shadow instead of <code>bg-card</code></td><td>globals.css · visual-design memory § Global Control-State Rules</td><td>Independent of 2; ship after it so the latch can be judged on its own.</td></tr>
+  <tr><td>5</td><td><b>Exclusive groups pick an idiom</b> — surface toggles in switch mode stay on the well; terminal activity tabs move to the underbar</td><td>top-bar.tsx · terminal-activity-tabs.tsx</td><td>Optional; only if the lens-vs-action split above feels right once 2 has landed.</td></tr>
+</table>
+<p class="cap" style="max-width:920px">Three-line summary: keep scheme C (green = state), swap the additive ring-and-wash for a subtractive well whose floor and ink are derived per theme category, and let the momentary press share that well so "down" means the same thing for 150 ms and for an hour.</p>
+
+<script>
+(function () {
+  const ICONS = {
+    boards: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>',
+    server: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01"/><path d="M6 18h.01"/></svg>',
+    pane:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18"/></svg>',
+    host:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+    autofit:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>',
+    find:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
+    zoom:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>',
+  };
+  const rail = (on) => ['boards','server','pane','host'].map((k,i) => `<button class="t rl${on.includes(i)?' on':''}" data-icon="${k}" aria-pressed="${on.includes(i)}"></button>`).join('');
+  const icon = (k,on) => `<button class="t ic${on?' on':''}" data-icon="${k}" aria-pressed="${!!on}"></button>`;
+  const chips = () => ['⌃','Tab','F▴','⌥','Esc'].map((l,i) => `<button class="t ch${i===0?' on':''}" aria-pressed="${i===0}"><span>${l}</span></button>`).join('');
+  const segs = (on, labels=['tty','web','code']) => `<span class="seg-wrap" data-mode="${Array.isArray(on)?'multi':'single'}">${labels.map((l,i) => `<button class="t sg${(Array.isArray(on)?on.includes(i):on===i)?' on':''}" aria-pressed="${Array.isArray(on)?on.includes(i):on===i}"><span>${l}</span></button>`).join('')}</span>`;
+  const verb = (k,on) => `<button class="t vb${on?' on':''}" data-icon="${k}" aria-pressed="${!!on}"></button>`;
+
+  function fullBoard() {
+    return `<span class="k">rail</span><div class="row rail">${rail([0,1])}</div>
+            <span class="k">top bar</span><div class="row">${icon('autofit',true)}${icon('zoom',false)}</div>
+            <span class="k">chips</span><div class="row chips">${chips()}</div>
+            <span class="k">segments</span><div class="row">${segs(1)}</div>
+            <span class="k">tile verb</span><div class="row">${verb('find',true)}${verb('zoom',false)}</div>`;
+  }
+  document.querySelectorAll('#options .board').forEach(b => b.innerHTML = fullBoard());
+  document.querySelectorAll('[data-spec="rail-only"]').forEach(b => b.innerHTML = `<span class="k">rail</span><div class="row rail">${rail([0,1])}</div>`);
+  document.querySelectorAll('[data-spec="segs-only"]').forEach(b => b.innerHTML = segs(1));
+  document.querySelectorAll('[data-spec="segs-multi"]').forEach(b => b.innerHTML = segs([0,1], ['tty','web','code','gui']));
+  document.querySelectorAll('[data-icon]').forEach(b => { if (!b.innerHTML.trim()) b.innerHTML = ICONS[b.dataset.icon]; });
+
+  // live toggling — rail/chips/verbs/icons are independent latches; single-mode segments are exclusive
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('.t'); if (!t || t.closest('#ladder')) return;
+    const wrap = t.closest('.seg-wrap');
+    if (wrap && wrap.dataset.mode === 'single') {
+      wrap.querySelectorAll('.t').forEach(s => { s.classList.remove('on'); s.setAttribute('aria-pressed','false'); });
+      t.classList.add('on'); t.setAttribute('aria-pressed','true'); return;
+    }
+    t.classList.toggle('on'); t.setAttribute('aria-pressed', t.classList.contains('on'));
+  });
+
+  // toolbar
+  const body = document.body;
+  document.querySelectorAll('.toolbar [data-theme]').forEach(b => b.onclick = () => { body.classList.remove('light','black'); if (b.dataset.theme !== 'dark') body.classList.add(b.dataset.theme); sib(b); readouts(); });
+  document.querySelectorAll('.toolbar [data-pointer]').forEach(b => b.onclick = () => { body.classList.toggle('coarse', b.dataset.pointer === 'coarse'); sib(b); });
+  document.querySelectorAll('.toolbar [data-snap]').forEach(b => b.onclick = () => { body.classList.toggle('snap-well', b.dataset.snap === 'well'); sib(b); });
+  document.getElementById('reset').onclick = () => { document.querySelectorAll('#options .board').forEach(b => b.innerHTML = fullBoard()); document.querySelectorAll('#options [data-icon]').forEach(b => b.innerHTML = ICONS[b.dataset.icon]); };
+  function sib(b) { b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); }
+
+  // contrast readouts (glyph ink vs on-state ground, computed from live styles)
+  function lum(rgb) { const c = rgb.map(v => { v /= 255; return v <= .03928 ? v/12.92 : Math.pow((v+.055)/1.055, 2.4); }); return .2126*c[0] + .7152*c[1] + .0722*c[2]; }
+  function parse(s) {
+    // Chrome serializes color-mix() results as color(srgb r g b / a) with 0–1 floats; plain colors as rgb()/rgba() 0–255.
+    const m = (s.match(/[\d.]+/g) || ['0','0','0','1']).map(Number);
+    const scale = s.startsWith('color(srgb') ? 255 : 1;
+    return { rgb: m.slice(0,3).map(v => Math.round(v * scale)), a: m.length > 3 ? m[3] : 1 };
+  }
+  function over(fg, bg) { return fg.rgb.map((v,i) => Math.round(v*fg.a + bg.rgb[i]*(1-fg.a))); }
+  function readouts() {
+    // wait out the 150ms colour transitions, else the sample lands mid-fade
+    setTimeout(() => {
+      document.querySelectorAll('#options .card').forEach(card => {
+        const on = card.querySelector('.t.rl.on'); const board = card.querySelector('.board'); if (!on) return;
+        const cs = getComputedStyle(on); const ink = parse(cs.color); const g = parse(cs.backgroundColor); const ground = parse(getComputedStyle(board).backgroundColor);
+        const groundRGB = over(g, ground); const ratio = (Math.max(lum(ink.rgb), lum(groundRGB)) + .05) / (Math.min(lum(ink.rgb), lum(groundRGB)) + .05);
+        const off = card.querySelector('.t.rl:not(.on)'); const offInk = parse(getComputedStyle(off).color);
+        const offRatio = (Math.max(lum(offInk.rgb), lum(ground.rgb)) + .05) / (Math.min(lum(offInk.rgb), lum(ground.rgb)) + .05);
+        card.querySelector('.readout').innerHTML = `<span>on ink : ground <b class="${ratio < 3 ? 'low' : ''}">${ratio.toFixed(1)} : 1</b></span><span>off ink : ground <b>${offRatio.toFixed(1)} : 1</b></span><span>${body.classList.contains('light') ? 'light' : body.classList.contains('black') ? 'pure black' : 'dark'}</span>`;
+      });
+    }, 220);
+  }
+  readouts();
+})();
+</script>
+</body>
+</html>

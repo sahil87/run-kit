@@ -8,6 +8,13 @@
  * reload never replays an occasion that already counted; a `force` (palette)
  * fire bypasses the identity check and writes nothing, so pressing the entry
  * can never consume a future automatic occasion.
+ *
+ * The `easter_eggs` setting gates the automatic occasions only: while disabled,
+ * a non-force `fire` returns false with no side effects — and in particular
+ * writes no identity, because the triggers fire only on observed transitions,
+ * so nothing needs consuming and re-enabling later cannot replay an old
+ * occasion. A flight already in progress when the flag flips off is not
+ * cancelled; the gate governs starting, not running.
  */
 
 import { prefersReducedMotion } from "@/lib/motion";
@@ -28,6 +35,8 @@ export type ScreenBreakFlight = {
   R: number;
   W: number;
   H: number;
+  /** Set by `dismiss()`; the layer compresses the rest of the flight into a fast heal from here. */
+  dismissedAt?: number;
 };
 
 export type ScreenBreakState = { flight: ScreenBreakFlight | null };
@@ -35,6 +44,27 @@ export type ScreenBreakState = { flight: ScreenBreakFlight | null };
 let state: ScreenBreakState = { flight: null };
 const listeners = new Set<() => void>();
 let glass: HTMLElement | null = null;
+let enabled = true;
+let committed = false;
+
+/** Flip the automatic occasions. Palette (`force`) fires ignore this. Marks
+ *  the value as committed so a mount-fetch seed still in flight cannot
+ *  overwrite it with the older fetched value. */
+export function setEasterEggsEnabled(v: boolean): void {
+  enabled = v;
+  committed = true;
+}
+
+/** The controller's mount-fetch seed. A flip committed through the settings
+ *  seam while the fetch was in flight is newer — the seed then changes
+ *  nothing. */
+export function seedEasterEggsEnabled(v: boolean): void {
+  if (!committed) enabled = v;
+}
+
+export function easterEggsEnabled(): boolean {
+  return enabled;
+}
 
 function notify(): void {
   for (const listener of listeners) listener();
@@ -82,14 +112,18 @@ function writeIdentity(key: string, identity: string): void {
 /**
  * Start a flight. Returns false with no side effects when: reduced motion is
  * preferred; the viewport is narrower than 640 px; a flight is already in
- * progress (dropped, never queued); or a non-force `identity` equals the value
- * stored under the egg's key. A non-force fire with an identity records it
- * before the flight starts (storage failure still fires).
+ * progress (dropped, never queued); the store is disabled and the fire is not
+ * forced (no identity write — the triggers fire only on observed transitions,
+ * so nothing needs consuming and re-enabling cannot replay an old occasion);
+ * or a non-force `identity` equals the value stored under the egg's key. A
+ * non-force fire with an identity records it before the flight starts (storage
+ * failure still fires).
  */
 export function fire(egg: ScreenBreakEgg, opts?: { force?: boolean; identity?: string }): boolean {
   if (prefersReducedMotion()) return false;
   if (typeof window === "undefined" || window.innerWidth < MIN_VIEWPORT_WIDTH) return false;
   if (state.flight) return false;
+  if (!enabled && !opts?.force) return false;
   const identity = opts?.identity;
   if (!opts?.force && identity) {
     if (readIdentity(keyFor(egg)) === identity) return false;
@@ -110,8 +144,24 @@ export function finish(): void {
   notify();
 }
 
+/**
+ * Dismiss the flight early. Stamps `dismissedAt`; the layer's frame loop
+ * remaps the remaining timeline into a fast heal (the creature retreats, the
+ * hole closes, the cracks fade — never a cut). The creature sprite is the only
+ * click target — the layer itself stays pointer-transparent so the app keeps
+ * working under the cracks. No-op without a flight or when already dismissed.
+ */
+export function dismiss(): boolean {
+  if (!state.flight || state.flight.dismissedAt !== undefined) return false;
+  state = { flight: { ...state.flight, dismissedAt: performance.now() } };
+  notify();
+  return true;
+}
+
 export function _resetForTests(): void {
   state = { flight: null };
   glass = null;
+  enabled = true;
+  committed = false;
   listeners.clear();
 }

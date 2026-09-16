@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   _resetForTests,
+  easterEggsEnabled,
   fire,
+  dismiss,
   finish,
   getState,
   PEEK_KEY,
+  seedEasterEggsEnabled,
+  setEasterEggsEnabled,
   SMASH_KEY,
   subscribe,
 } from "./screen-break-store";
@@ -100,6 +104,53 @@ describe("screen-break store", () => {
     expect(localStorage.getItem(SMASH_KEY)).toBe("984");
   });
 
+  it("disabled: a non-force fire returns false and writes no identity", () => {
+    setEasterEggsEnabled(false);
+    expect(fire("smash", { identity: "1" })).toBe(false);
+    expect(getState().flight).toBeNull();
+    expect(localStorage.getItem(SMASH_KEY)).toBeNull();
+  });
+
+  it("disabled: a force fire still starts and writes nothing", () => {
+    setEasterEggsEnabled(false);
+    expect(fire("smash", { force: true })).toBe(true);
+    expect(getState().flight?.egg).toBe("smash");
+    expect(localStorage.getItem(SMASH_KEY)).toBeNull();
+  });
+
+  it("re-enabling lets the same identity fire — a gated fire consumed nothing", () => {
+    setEasterEggsEnabled(false);
+    expect(fire("smash", { identity: "1" })).toBe(false);
+    setEasterEggsEnabled(true);
+    expect(fire("smash", { identity: "1" })).toBe(true);
+    expect(localStorage.getItem(SMASH_KEY)).toBe("1");
+  });
+
+  it("_resetForTests restores the enabled default", () => {
+    setEasterEggsEnabled(false);
+    expect(easterEggsEnabled()).toBe(false);
+    _resetForTests();
+    expect(easterEggsEnabled()).toBe(true);
+  });
+
+  it("the mount-fetch seed applies when no flip was committed", () => {
+    seedEasterEggsEnabled(false);
+    expect(easterEggsEnabled()).toBe(false);
+  });
+
+  it("a committed flip wins over a mount-fetch seed resolving later", () => {
+    setEasterEggsEnabled(false);
+    seedEasterEggsEnabled(true);
+    expect(easterEggsEnabled()).toBe(false);
+  });
+
+  it("_resetForTests clears the committed flag — a seed applies again", () => {
+    setEasterEggsEnabled(false);
+    _resetForTests();
+    seedEasterEggsEnabled(false);
+    expect(easterEggsEnabled()).toBe(false);
+  });
+
   it("a throwing localStorage neither blocks nor breaks the fire", () => {
     const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("denied");
@@ -111,6 +162,17 @@ describe("screen-break store", () => {
     expect(getState().flight?.egg).toBe("peek");
     get.mockRestore();
     set.mockRestore();
+  });
+
+  it("dismiss stamps the flight once; without a flight it is a no-op", () => {
+    expect(dismiss()).toBe(false);
+    fire("smash", { force: true });
+    expect(getState().flight!.dismissedAt).toBeUndefined();
+    expect(dismiss()).toBe(true);
+    const stamp = getState().flight!.dismissedAt;
+    expect(typeof stamp).toBe("number");
+    expect(dismiss()).toBe(false);
+    expect(getState().flight!.dismissedAt).toBe(stamp);
   });
 
   it("finish clears the flight and notifies subscribers", () => {

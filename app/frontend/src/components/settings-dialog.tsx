@@ -541,6 +541,7 @@ function GeneralPanel({
   const sshHostValue = registry.settingValue("ssh_host");
   const sshHost = typeof sshHostValue === "string" ? sshHostValue : "";
   const autoNameEntry = registry.entries.find((e) => e.key === "auto_name");
+  const easterEggsEntry = registry.entries.find((e) => e.key === "easter_eggs");
   return (
     <>
       <section aria-label="This host settings">
@@ -573,6 +574,20 @@ function GeneralPanel({
               label="Auto-name tabs"
               on={registry.settingValue("auto_name") === true}
               commit={(on) => registry.commitSetting("auto_name", on)}
+            />
+          </PreferenceRow>
+          <PreferenceRow
+            label="Easter eggs"
+            sublabel={easterEggsEntry?.description}
+            htmlFor="settings-easter-eggs"
+          >
+            {/* `!== false` reads ON before the fetch resolves and when the key
+                is absent — the registry default is on. */}
+            <BoolToggle
+              id="settings-easter-eggs"
+              label="Easter eggs"
+              on={registry.settingValue("easter_eggs") !== false}
+              commit={(on) => registry.commitSetting("easter_eggs", on)}
             />
           </PreferenceRow>
         </div>

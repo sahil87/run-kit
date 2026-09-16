@@ -273,6 +273,9 @@ export function buildBreak({
     ) + CORNER_MARGIN_PX;
   const inView = (p: BreakPoint) =>
     p.x > -VIEW_MARGIN_PX && p.x < W + VIEW_MARGIN_PX && p.y > -VIEW_MARGIN_PX && p.y < H + VIEW_MARGIN_PX;
+  // Strict viewport test for dead-pixel line sources: a margin-band source would
+  // clamp onto an edge and can collapse a partial line to zero length.
+  const onScreen = (p: BreakPoint) => p.x >= 0 && p.x <= W && p.y >= 0 && p.y <= H;
 
   /** Local heading of the segment containing `r` (last segment's past the end). */
   const dirAt = (c: { pts: WalkPoint[] }, r: number): number => {
@@ -532,11 +535,12 @@ export function buildBreak({
   // Dead-pixel lines — from branch tips (fallback: primary points), popping
   // in instantly with a flicker. Every endpoint lands inside [0,W] × [0,H].
   const lines: BreakLine[] = [];
+  const usableTips = tips.filter(onScreen);
   const sources =
-    tips.length >= LINE_MIN_TIPS
-      ? [...tips]
+    usableTips.length >= LINE_MIN_TIPS
+      ? [...usableTips]
       : [
-          ...tips,
+          ...usableTips,
           ...primaries.map((c) => ({
             ...at(c, Math.min(c.len * LINE_FALLBACK_LEN, R * LINE_FALLBACK_R_MULT)),
             start: LINE_FALLBACK_START,
@@ -545,7 +549,7 @@ export function buildBreak({
   const nl = LINE_COUNT_BASE + Math.floor(rand() * LINE_COUNT_RAND);
   for (let i = 0; i < nl && sources.length; i++) {
     const s = sources.splice(Math.floor(rand() * sources.length), 1)[0];
-    if (!inView(s)) {
+    if (!onScreen(s)) {
       i--;
       if (!sources.length) break;
       continue;

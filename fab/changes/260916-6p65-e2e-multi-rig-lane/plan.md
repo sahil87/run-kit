@@ -21,7 +21,7 @@ The Playwright run receives `E2E_RIGS` (a JSON array of `{port, codeServerPort, 
 
 `app/frontend/tests/e2e/_rig.ts` exports `applyWorkerRig()`, called first thing in `playwright.config.ts`. When both `E2E_RIGS` and `TEST_PARALLEL_INDEX` are set, it rewrites the harness env vars in the worker process to that worker's rig row — `E2E_PORT`, `RK_PORT`, `RK_CODE_SERVER_PORT` (the row's `codeServerPort`), `E2E_TMUX_SERVER`, `E2E_TMUX_FAMILY`, `XDG_STATE_HOME`, `RK_CONFIG_DIR` (`<stateHome>/config`) — and throws when the index has no row. Ordering contract: Playwright sets `TEST_PARALLEL_INDEX` in each worker and re-evaluates the config file there before loading spec files, so the rewrite precedes every module-level env read in the helpers and specs and also feeds the worker's own `use.baseURL`. The main process has no index and keeps rig 0 for the reporter, the webServer probe and global teardown. Spec files are unchanged.
 
-The config's `workers` follows `RK_E2E_WORKERS` (a positive integer, else 1); `fullyParallel` stays off so a file's tests run serially on that file's rig, since a file's `beforeAll` seeds tmux state its tests share.
+The config's `workers` is the `E2E_RIGS` row count (1 when the harness passed no table — a bare `playwright test` or `just pw`), never `RK_E2E_WORKERS` by itself, so an inherited value cannot put two workers on one rig; `fullyParallel` stays off so a file's tests run serially on that file's rig, since a file's `beforeAll` seeds tmux state its tests share.
 
 ### Vite: per-instance dep cache
 

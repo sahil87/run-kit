@@ -42,7 +42,7 @@ Conversational mode. Key decisions from the conversation: parallelism inside a s
 
 `applyWorkerRig()` runs first thing in the config. When `E2E_RIGS` and `TEST_PARALLEL_INDEX` are both set it rewrites the harness env vars in the worker process to that worker's rig row (`E2E_PORT`, `RK_PORT`, `RK_CODE_SERVER_PORT` from the row's `codeServerPort`, `E2E_TMUX_SERVER`, `E2E_TMUX_FAMILY`, `XDG_STATE_HOME`, `RK_CONFIG_DIR=<stateHome>/config`); a missing row throws (worker count and rig count disagree). Playwright sets `TEST_PARALLEL_INDEX` in each worker and re-evaluates the config there before loading spec files, so the rewrite lands ahead of every module-level env read (`_tmux.ts`, `_ports.ts`, `_settings.ts`, `_gui.ts`, `_boards.ts`, the three specs that read `E2E_PORT`) and ahead of `use.baseURL`, which the worker also takes from its own loaded config. The main process has no index and keeps rig 0 (reporter, `webServer` probe, global teardown's primary). No spec file changes.
 
-`workers` follows `RK_E2E_WORKERS` (positive integer, else 1); `fullyParallel` stays off so tests within a file remain serial on the file's rig. Comments updated: serial-within-a-rig rationale; the timeout comment now names the 4-vCPU runner.
+`workers` is the `E2E_RIGS` row count (1 when the harness passed no table), never `RK_E2E_WORKERS` by itself, so an inherited value cannot put two workers on one rig; `fullyParallel` stays off so tests within a file remain serial on the file's rig. Comments updated: serial-within-a-rig rationale; the timeout comment now names the 4-vCPU runner.
 
 ### 3. `app/frontend/vite.config.ts` — `cacheDir`
 

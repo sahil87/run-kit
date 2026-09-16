@@ -629,3 +629,222 @@ export async function setShellAccent(hex: string): Promise<boolean> {
     typeof result === "object" && result !== null && "ok" in result && result.ok === true
   );
 }
+
+/** The bridge's `web` group — the web tile's native-engine channels. Shipped
+ *  whole in one shell release, so all seven members are required together. */
+interface ShellWebBridge {
+  create: (tabKey: string, url: string) => Promise<unknown>;
+  destroy: (tabKey: string) => Promise<unknown>;
+  bounds: (tabKey: string, x: number, y: number, width: number, height: number) => Promise<unknown>;
+  visible: (tabKey: string, visible: boolean) => Promise<unknown>;
+  load: (tabKey: string, url: string) => Promise<unknown>;
+  reload: (tabKey: string) => Promise<unknown>;
+  onEvent: (handler: (payload: unknown) => void) => () => void;
+}
+
+function isWebBridge(value: unknown): value is ShellWebBridge {
+  if (typeof value !== "object" || value === null) return false;
+  return (
+    "create" in value &&
+    typeof value.create === "function" &&
+    "destroy" in value &&
+    typeof value.destroy === "function" &&
+    "bounds" in value &&
+    typeof value.bounds === "function" &&
+    "visible" in value &&
+    typeof value.visible === "function" &&
+    "load" in value &&
+    typeof value.load === "function" &&
+    "reload" in value &&
+    typeof value.reload === "function" &&
+    "onEvent" in value &&
+    typeof value.onEvent === "function"
+  );
+}
+
+/** The `web` group when the bridge carries one — absent on older shells. */
+function webBridge(): ShellWebBridge | null {
+  const candidate = typeof window === "undefined" ? undefined : window.runkitShell;
+  if (typeof candidate !== "object" || candidate === null) return null;
+  if (!("web" in candidate)) return null;
+  return isWebBridge(candidate.web) ? candidate.web : null;
+}
+
+/** True when the shell can host web-tile guests (`runkitShell.web` present). */
+export function canShellWeb(): boolean {
+  return webBridge() !== null;
+}
+
+export interface ShellWebRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function isOkResult(result: unknown): boolean {
+  return (
+    typeof result === "object" && result !== null && "ok" in result && result.ok === true
+  );
+}
+
+/**
+ * Ask the shell to create the guest view for a web tab, loading `url`.
+ * Resolves `false` outside the shell, on an older shell without the `web`
+ * group, or when the shell rejects/denies the call. Never throws.
+ */
+export async function createShellWebView(tabKey: string, url: string): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge) return false;
+  try {
+    return isOkResult(await bridge.create(tabKey, url));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Destroy a web tab's guest view. Resolves `false` outside the shell, on an
+ * older shell, or when the shell rejects/denies the call. Never throws.
+ */
+export async function destroyShellWebView(tabKey: string): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge) return false;
+  try {
+    return isOkResult(await bridge.destroy(tabKey));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Position a guest view over its tile's content rect (viewport coordinates —
+ * the host view fills the window content area, so no offset applies). The
+ * shell parks bounds sent while the guest is hidden and applies them on show.
+ * Resolves `false` outside the shell, on an older shell, or when the shell
+ * rejects/denies the call. Never throws.
+ */
+export async function setShellWebViewBounds(
+  tabKey: string,
+  rect: ShellWebRect,
+): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge) return false;
+  try {
+    return isOkResult(await bridge.bounds(tabKey, rect.x, rect.y, rect.width, rect.height));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Show or hide a guest view. Resolves `false` outside the shell, on an older
+ * shell, or when the shell rejects/denies the call. Never throws.
+ */
+export async function setShellWebViewVisible(
+  tabKey: string,
+  visible: boolean,
+): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge) return false;
+  try {
+    return isOkResult(await bridge.visible(tabKey, visible));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Navigate a guest view to `url`. Resolves `false` outside the shell, on an
+ * older shell, or when the shell rejects/denies the call. Never throws.
+ */
+export async function loadShellWebView(tabKey: string, url: string): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge) return false;
+  try {
+    return isOkResult(await bridge.load(tabKey, url));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reload a guest view. Resolves `false` outside the shell, on an older shell,
+ * or when the shell rejects/denies the call. Never throws.
+ */
+export async function reloadShellWebView(tabKey: string): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge) return false;
+  try {
+    return isOkResult(await bridge.reload(tabKey));
+  } catch {
+    return false;
+  }
+}
+
+/** One relayed guest event, demuxed SPA-side by `tabKey`. Mirrors the shell's
+ *  `web:event` relay table; a newer shell may relay kinds this SPA does not
+ *  know — those parse to null and are dropped. */
+export type ShellWebEvent =
+  | { tabKey: string; kind: "title"; title: string }
+  | { tabKey: string; kind: "favicon"; favicons: string[] }
+  | { tabKey: string; kind: "loading"; loading: boolean }
+  | { tabKey: string; kind: "failed"; code: number; description: string; url: string }
+  | { tabKey: string; kind: "url"; url: string; canGoBack: boolean; canGoForward: boolean }
+  | { tabKey: string; kind: "focus" }
+  | { tabKey: string; kind: "zoom"; direction: "in" | "out" };
+
+/** Structural parse of one relay payload; null for anything malformed or an
+ *  unknown kind (a newer shell may relay kinds this SPA does not know). */
+export function parseShellWebEvent(payload: unknown): ShellWebEvent | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  if (!("tabKey" in payload) || typeof payload.tabKey !== "string") return null;
+  if (!("kind" in payload) || typeof payload.kind !== "string") return null;
+  const tabKey = payload.tabKey;
+  switch (payload.kind) {
+    case "title":
+      if (!("title" in payload) || typeof payload.title !== "string") return null;
+      return { tabKey, kind: "title", title: payload.title };
+    case "favicon": {
+      if (!("favicons" in payload) || !Array.isArray(payload.favicons)) return null;
+      // One bad entry drops only itself — the rest of the list still parses.
+      const favicons = payload.favicons.filter(
+        (favicon): favicon is string => typeof favicon === "string",
+      );
+      return { tabKey, kind: "favicon", favicons };
+    }
+    case "loading":
+      if (!("loading" in payload) || typeof payload.loading !== "boolean") return null;
+      return { tabKey, kind: "loading", loading: payload.loading };
+    case "failed":
+      if (!("code" in payload) || typeof payload.code !== "number") return null;
+      if (!("description" in payload) || typeof payload.description !== "string") return null;
+      if (!("url" in payload) || typeof payload.url !== "string") return null;
+      return { tabKey, kind: "failed", code: payload.code, description: payload.description, url: payload.url };
+    case "url":
+      if (!("url" in payload) || typeof payload.url !== "string") return null;
+      if (!("canGoBack" in payload) || typeof payload.canGoBack !== "boolean") return null;
+      if (!("canGoForward" in payload) || typeof payload.canGoForward !== "boolean") return null;
+      return { tabKey, kind: "url", url: payload.url, canGoBack: payload.canGoBack, canGoForward: payload.canGoForward };
+    case "focus":
+      return { tabKey, kind: "focus" };
+    case "zoom":
+      if (!("direction" in payload)) return null;
+      if (payload.direction !== "in" && payload.direction !== "out") return null;
+      return { tabKey, kind: "zoom", direction: payload.direction };
+    default:
+      return null;
+  }
+}
+
+/** Subscribe to the relay. Returns the unsubscribe — ALWAYS, including the
+ *  no-op disposer outside the shell — so a mount effect can return it
+ *  unconditionally. Malformed payloads are dropped before `handler`. */
+export function onShellWebEvent(handler: (event: ShellWebEvent) => void): () => void {
+  const bridge = webBridge();
+  if (!bridge) return () => {};
+  return bridge.onEvent((payload: unknown) => {
+    const event = parseShellWebEvent(payload);
+    if (event) handler(event);
+  });
+}

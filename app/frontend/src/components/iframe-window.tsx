@@ -38,6 +38,17 @@ import {
   WEB_FRAME_IFRAME_DEFAULT_CAPABILITIES,
   WebFrameIframe,
 } from "@/components/web-frame-iframe";
+import {
+  WEB_FRAME_NATIVE_DEFAULT_CAPABILITIES,
+  WebFrameNative,
+} from "@/components/web-frame-native";
+import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
+import { canShellWeb } from "@/lib/shell";
+import {
+  WEB_NATIVE_ENGINE_DEFAULT,
+  WEB_NATIVE_ENGINE_PREF_KEY,
+  selectWebEngineKind,
+} from "@/lib/web-engine-pref";
 import type {
   FrameChromeState,
   WebFrameCapabilities,
@@ -125,19 +136,23 @@ function externalFavicon(url: string): string | null {
   }
 }
 
-/** The engine kind this chrome mounts. */
-const ENGINE_KIND: WebFrameEngineKind = "iframe";
-
 /** Map an engine kind to its component — the single place the chrome names
  *  an engine implementation; every member of the union needs an arm here. */
 function createEngine(kind: WebFrameEngineKind): ComponentType<WebFrameEngineProps> {
   switch (kind) {
     case "iframe":
       return WebFrameIframe;
+    case "native":
+      return WebFrameNative;
   }
 }
 
-const Engine = createEngine(ENGINE_KIND);
+/** Pre-report capability seed per kind — the knowledge stays in each engine
+ *  module. */
+const DEFAULT_CAPABILITIES: Record<WebFrameEngineKind, WebFrameCapabilities> = {
+  iframe: WEB_FRAME_IFRAME_DEFAULT_CAPABILITIES,
+  native: WEB_FRAME_NATIVE_DEFAULT_CAPABILITIES,
+};
 
 /** Value equality for the state-report dedupe guard — engines may rebuild
  *  the capability/find objects per report, and an equal report must not
@@ -179,6 +194,18 @@ export function IframeWindow({
   shouldReclaimChord,
   onPageMeta,
 }: IframeWindowProps) {
+  // Engine selection: bridge presence × the per-viewer preference (the pure
+  // rule shared with the palette entry). canShellWeb() is read per render —
+  // the preload injects the bridge before any SPA script runs, so it is
+  // stable; the read is cheap. A preference flip remounts every tab on the
+  // other engine (the kind-qualified key below); the outgoing native engines
+  // destroy their guests in cleanup.
+  const [nativeEnabled] = useLocalStorageBoolean(
+    WEB_NATIVE_ENGINE_PREF_KEY,
+    WEB_NATIVE_ENGINE_DEFAULT,
+  );
+  const engineKind = selectWebEngineKind(canShellWeb(), nativeEnabled);
+  const Engine = createEngine(engineKind);
   // Content selector: the family drives everything. Onboarding (the reduced
   // live URL bar + the three fill-path instructions) renders iff the family
   // is EMPTY; with ≥1 tab every frame mounts regardless of the active slot.
@@ -259,7 +286,7 @@ export function IframeWindow({
   // Before an engine's first report the chrome seeds from the engine kind's
   // declared default capabilities — the knowledge stays in the engine module;
   // the pre-report paint matches a same-origin frame's.
-  const supports = activeChrome?.supports ?? WEB_FRAME_IFRAME_DEFAULT_CAPABILITIES;
+  const supports = activeChrome?.supports ?? DEFAULT_CAPABILITIES[engineKind];
   const canGoBack = activeChrome?.canGoBack ?? supports.history;
   const canGoForward = activeChrome?.canGoForward ?? supports.history;
   const trackedLocation = activeChrome?.trackedLocation ?? null;
@@ -1366,7 +1393,7 @@ export function IframeWindow({
         >
           {tabs.map((tabUrl, i) => (
             <Engine
-              key={tabUrl}
+              key={`${engineKind}:${tabUrl}`}
               url={tabUrl}
               active={i + 1 === activeIndex}
               zoom={zoom}

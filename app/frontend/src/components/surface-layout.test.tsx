@@ -60,12 +60,21 @@ vi.mock("@/components/code-surface", () => ({
     return <div data-testid="mock-code" />;
   },
 }));
-vi.mock("@/components/iframe-window", () => ({
-  IframeWindow: (props: Record<string, unknown>) => {
-    iframeSpy(props);
-    return <div data-testid="mock-iframe" />;
-  },
-}));
+vi.mock("@/components/iframe-window", async () => {
+  // The web tile additionally mirrors the layout's drag flag (the native
+  // engine's live-resize trigger) onto the mock for assertion.
+  const { useTileDragging } = await vi.importActual<
+    typeof import("@/lib/tile-drag-context")
+  >("@/lib/tile-drag-context");
+  return {
+    IframeWindow: (props: Record<string, unknown>) => {
+      iframeSpy(props);
+      return (
+        <div data-testid="mock-iframe" data-tile-dragging={String(useTileDragging())} />
+      );
+    },
+  };
+});
 // The gui tile is lazy-loaded (noVNC's weight); the mock's default export
 // resolves the dynamic import instantly and records the seam props.
 const guiSpy = vi.hoisted(() => vi.fn());
@@ -2508,5 +2517,42 @@ describe("SurfaceLayout gui tile", () => {
     expect(
       screen.getByTestId("surface-tile-gui").querySelectorAll(".bg-bg-card"),
     ).toHaveLength(0);
+  });
+});
+
+describe("SurfaceLayout TileDragContext (the native web engine's live-resize signal)", () => {
+  it("a divider drag flips the web tile's context flag false → true → false", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["tty", "web"] } });
+    const tile = () => screen.getByTestId("mock-iframe");
+    expect(tile().dataset.tileDragging).toBe("false");
+    const divider = screen.getByTestId("surface-divider-0");
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500 });
+    expect(tile().dataset.tileDragging).toBe("true");
+    fireEvent.pointerUp(divider, { pointerId: 1 });
+    expect(tile().dataset.tileDragging).toBe("false");
+  });
+
+  it("the intersection drag flips the flag the same way", () => {
+    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
+    // jsdom's rects are all zeros — mock the grid's box so the two-axis drag
+    // math has a measured container.
+    vi.spyOn(screen.getByTestId("surface-layout"), "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 1200,
+      height: 1200,
+      right: 1200,
+      bottom: 1200,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    const tile = () => screen.getByTestId("mock-iframe");
+    expect(tile().dataset.tileDragging).toBe("false");
+    const zone = screen.getByTestId("surface-divider-intersection");
+    fireEvent.pointerDown(zone, { pointerId: 1, clientX: 400, clientY: 800 });
+    expect(tile().dataset.tileDragging).toBe("true");
+    fireEvent.pointerUp(zone, { pointerId: 1 });
+    expect(tile().dataset.tileDragging).toBe("false");
   });
 });

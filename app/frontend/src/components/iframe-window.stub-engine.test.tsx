@@ -2,6 +2,11 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { act, render, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { IframeWindow } from "./iframe-window";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
+import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
+import {
+  WEB_NATIVE_ENGINE_DEFAULT,
+  WEB_NATIVE_ENGINE_PREF_KEY,
+} from "@/lib/web-engine-pref";
 import type { FrameChromeState } from "@/lib/web-frame-engine";
 
 // The chrome's engine boundary is module-mocked: the stub below registers a
@@ -54,6 +59,51 @@ vi.mock("@/components/web-frame-iframe", async (importOriginal) => {
     },
   };
 });
+
+// The native engine is module-mocked with a recording stub beside the iframe
+// stub: mounts/unmounts per tab URL are recorded so the kind-flip remount is
+// assertable; the stub reports NO state, so the chrome renders the kind's
+// pre-report capability seed (WEB_FRAME_NATIVE_DEFAULT_CAPABILITIES).
+const mockNative = vi.hoisted(() => ({
+  mounts: [] as string[],
+  unmounts: [] as string[],
+  handle: {
+    kind: "native" as const,
+    reload: vi.fn(),
+    retry: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    find: vi.fn(),
+    stopFind: vi.fn(),
+  },
+}));
+
+vi.mock("@/components/web-frame-native", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/web-frame-native")>();
+  const React = await import("react");
+  return {
+    WEB_FRAME_NATIVE_DEFAULT_CAPABILITIES: actual.WEB_FRAME_NATIVE_DEFAULT_CAPABILITIES,
+    WebFrameNative: (props: import("@/lib/web-frame-engine").WebFrameEngineProps) => {
+      React.useEffect(() => {
+        mockNative.mounts.push(props.url);
+        props.registerHandle(props.url, mockNative.handle);
+        return () => {
+          mockNative.unmounts.push(props.url);
+          props.unregisterHandle(props.url);
+        };
+      }, [props.url]);
+      return React.createElement("div", { "data-testid": "stub-native-engine" });
+    },
+  };
+});
+
+// canShellWeb() is the chrome's bridge-presence read; mocked so the selection
+// rule runs without installing a bridge on window.
+const mockShell = vi.hoisted(() => ({ canShellWeb: vi.fn(() => false) }));
+vi.mock("@/lib/shell", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/shell")>()),
+  canShellWeb: mockShell.canShellWeb,
+}));
 
 const ALL_SUPPORT = {
   history: true,
@@ -117,6 +167,10 @@ afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();
   mockEngine.state = chromeState();
+  mockNative.mounts = [];
+  mockNative.unmounts = [];
+  mockShell.canShellWeb.mockReturnValue(false);
+  localStorage.clear();
 });
 
 describe("IframeWindow over a stub engine", () => {
@@ -245,5 +299,83 @@ describe("IframeWindow over a stub engine", () => {
     fireEvent.keyDown(input, { key: "Escape" });
     expect(screen.queryByTestId("web-find-bar")).toBeNull();
     expect(mockEngine.handle.stopFind).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** A sibling control flipping the engine preference through the same
+ *  production path the palette entry uses (the hook's same-tab pub/sub). */
+function PrefToggle() {
+  const [, setNativeEnabled] = useLocalStorageBoolean(
+    WEB_NATIVE_ENGINE_PREF_KEY,
+    WEB_NATIVE_ENGINE_DEFAULT,
+  );
+  return (
+    <button data-testid="pref-toggle" onClick={() => setNativeEnabled(false)}>
+      toggle
+    </button>
+  );
+}
+
+describe("IframeWindow engine selection", () => {
+  it("mounts the iframe engine with no bridge regardless of the preference", () => {
+    localStorage.setItem(WEB_NATIVE_ENGINE_PREF_KEY, "true");
+    mockShell.canShellWeb.mockReturnValue(false);
+    renderChrome({ tabs: ["/proxy/8080/docs"] });
+    expect(screen.getByTestId("stub-engine")).toBeTruthy();
+    expect(screen.queryByTestId("stub-native-engine")).toBeNull();
+  });
+
+  it("mounts the native engine on bridge + preference, seeding its capabilities (◀ ▶ hidden, find bar disabled)", () => {
+    localStorage.setItem(WEB_NATIVE_ENGINE_PREF_KEY, "true");
+    mockShell.canShellWeb.mockReturnValue(true);
+    renderChrome({ tabs: ["/proxy/8080/docs"] });
+    expect(screen.getByTestId("stub-native-engine")).toBeTruthy();
+    expect(screen.queryByTestId("stub-engine")).toBeNull();
+    expect(mockNative.mounts).toEqual(["/proxy/8080/docs"]);
+    // The stub reports nothing, so the chrome renders the native pre-report
+    // seed: no history ⇒ the buttons are hidden rather than dead.
+    expect(screen.queryByLabelText("Back")).toBeNull();
+    expect(screen.queryByLabelText("Forward")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Find in page"));
+    expect(screen.getByText("page is cross-origin — find unavailable")).toBeTruthy();
+    expect((screen.getByLabelText("Find query") as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("mounts the iframe engine on bridge + preference off", () => {
+    localStorage.setItem(WEB_NATIVE_ENGINE_PREF_KEY, "false");
+    mockShell.canShellWeb.mockReturnValue(true);
+    renderChrome({ tabs: ["/proxy/8080/docs"] });
+    expect(screen.getByTestId("stub-engine")).toBeTruthy();
+    expect(screen.queryByTestId("stub-native-engine")).toBeNull();
+    expect(mockNative.mounts).toEqual([]);
+  });
+
+  it("flipping the preference through the hook's setter remounts every tab on the other engine", () => {
+    localStorage.setItem(WEB_NATIVE_ENGINE_PREF_KEY, "true");
+    mockShell.canShellWeb.mockReturnValue(true);
+    render(
+      <StandaloneSessionContextProvider
+        value={{
+          sessionsByServer: new Map([["runkit", []]]),
+          sessionOrderByServer: new Map([["runkit", []]]),
+          isConnectedByServer: new Map([["runkit", false]]),
+          metricsByServer: new Map(),
+          currentServer: "runkit",
+          servers: [{ name: "runkit", sessionCount: 0 }],
+          refreshServers: vi.fn(),
+        }}
+      >
+        <IframeWindow tabs={["/proxy/8080/docs", "https://github.com/x"]} />
+        <PrefToggle />
+      </StandaloneSessionContextProvider>,
+    );
+    expect(screen.getAllByTestId("stub-native-engine")).toHaveLength(2);
+    expect(mockNative.mounts).toEqual(["/proxy/8080/docs", "https://github.com/x"]);
+    act(() => {
+      fireEvent.click(screen.getByTestId("pref-toggle"));
+    });
+    expect(mockNative.unmounts).toEqual(["/proxy/8080/docs", "https://github.com/x"]);
+    expect(screen.queryByTestId("stub-native-engine")).toBeNull();
+    expect(screen.getAllByTestId("stub-engine")).toHaveLength(2);
   });
 });

@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-16T18:16:54Z"}
+{"args":"In a shell that carries the web bridge group the web tile mounts a native engine — it measures the tile content rect, drives the view over the bridge, feeds the chrome from the event channel, hides while a modal overlay is open, and offers a per-viewer palette toggle back to the iframe engine. Change 3f of 6 in fab/plans/sahil/26-09-16-web-tile-native-browser.md (frontend half only; 3d merged). Full lane, then fab-fff through PR.","cmd":"fab-new","event":"command","ts":"2026-09-16T18:16:54Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-16T18:21:12Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-16T18:21:26Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-16T18:21:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T18:22:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T18:39:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-16T18:46:40Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T18:46:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-16T18:54:58Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-09-16T18:56:03Z"}

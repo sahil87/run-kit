@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   addShellHost,
   addShellHostDirect,
@@ -11,14 +11,23 @@ import {
   canRenameShellHost,
   canSetShellHostUrl,
   canReorderShellHosts,
+  canShellWeb,
   closeShellWindow,
+  createShellWebView,
+  destroyShellWebView,
   isShell,
   listShellServers,
+  loadShellWebView,
+  onShellWebEvent,
+  parseShellWebEvent,
   confirmedRemoveShellHost,
   newShellWindow,
+  reloadShellWebView,
   removeShellHost,
   renameShellHost,
   setShellHostUrl,
+  setShellWebViewBounds,
+  setShellWebViewVisible,
   reorderShellHosts,
   setShellAccent,
   setShellBadge,
@@ -364,5 +373,184 @@ describe("listShellServers optional fields", () => {
       });
       expect(await listShellServers()).toBeNull();
     }
+  });
+});
+
+// The web group backs the web tile's native engine: all seven members shipped
+// together in one shell release, so presence is all-or-nothing; the invokers
+// degrade to false and the subscription to a no-op disposer everywhere else.
+
+function fullWebBridge(overrides: Record<string, unknown> = {}) {
+  return {
+    create: vi.fn(() => Promise.resolve({ ok: true })),
+    destroy: vi.fn(() => Promise.resolve({ ok: true })),
+    bounds: vi.fn(() => Promise.resolve({ ok: true })),
+    visible: vi.fn(() => Promise.resolve({ ok: true })),
+    load: vi.fn(() => Promise.resolve({ ok: true })),
+    reload: vi.fn(() => Promise.resolve({ ok: true })),
+    onEvent: vi.fn((_handler: (payload: unknown) => void) => vi.fn()),
+    ...overrides,
+  };
+}
+
+function webBridgeWith(web: unknown): void {
+  window.runkitShell = { version: "1.2.3", platform: "darwin", web };
+}
+
+describe("canShellWeb", () => {
+  it("is false in a plain browser and on a shell without the web group", () => {
+    expect(canShellWeb()).toBe(false);
+    window.runkitShell = { version: "1.2.3", platform: "darwin" };
+    expect(canShellWeb()).toBe(false);
+  });
+
+  it("is false on a partial group (a missing member fails the whole group)", () => {
+    const partial = fullWebBridge();
+    delete (partial as Record<string, unknown>).onEvent;
+    webBridgeWith(partial);
+    expect(canShellWeb()).toBe(false);
+  });
+
+  it("is false when a member is not a function", () => {
+    webBridgeWith(fullWebBridge({ create: "nope" }));
+    expect(canShellWeb()).toBe(false);
+  });
+
+  it("is true on the full seven-member group", () => {
+    webBridgeWith(fullWebBridge());
+    expect(canShellWeb()).toBe(true);
+  });
+});
+
+describe("web bridge invokers", () => {
+  it("forward arguments and resolve true on { ok: true }", async () => {
+    const web = fullWebBridge();
+    webBridgeWith(web);
+    expect(await createShellWebView("web-1", "https://github.com")).toBe(true);
+    expect(web.create).toHaveBeenCalledWith("web-1", "https://github.com");
+    expect(await destroyShellWebView("web-1")).toBe(true);
+    expect(web.destroy).toHaveBeenCalledWith("web-1");
+    expect(await setShellWebViewBounds("web-1", { x: 10, y: 20, width: 300, height: 200 })).toBe(true);
+    expect(web.bounds).toHaveBeenCalledWith("web-1", 10, 20, 300, 200);
+    expect(await setShellWebViewVisible("web-1", false)).toBe(true);
+    expect(web.visible).toHaveBeenCalledWith("web-1", false);
+    expect(await loadShellWebView("web-1", "https://example.com")).toBe(true);
+    expect(web.load).toHaveBeenCalledWith("web-1", "https://example.com");
+    expect(await reloadShellWebView("web-1")).toBe(true);
+    expect(web.reload).toHaveBeenCalledWith("web-1");
+  });
+
+  it("resolve false outside the shell and on an older shell without the group", async () => {
+    expect(await createShellWebView("web-1", "https://github.com")).toBe(false);
+    expect(await destroyShellWebView("web-1")).toBe(false);
+    expect(await setShellWebViewBounds("web-1", { x: 0, y: 0, width: 1, height: 1 })).toBe(false);
+    expect(await setShellWebViewVisible("web-1", true)).toBe(false);
+    expect(await loadShellWebView("web-1", "https://example.com")).toBe(false);
+    expect(await reloadShellWebView("web-1")).toBe(false);
+    window.runkitShell = { version: "1.2.3", platform: "darwin" };
+    expect(await createShellWebView("web-1", "https://github.com")).toBe(false);
+    expect(await reloadShellWebView("web-1")).toBe(false);
+  });
+
+  it("resolve false on a non-{ok:true} result and on a rejected invoke, never throwing", async () => {
+    webBridgeWith(fullWebBridge({ reload: () => Promise.resolve({ ok: false, error: "Unknown tab" }) }));
+    expect(await reloadShellWebView("web-9")).toBe(false);
+    webBridgeWith(fullWebBridge({ reload: () => Promise.reject(new Error("ipc gone")) }));
+    expect(await reloadShellWebView("web-9")).toBe(false);
+    webBridgeWith(fullWebBridge({ visible: () => Promise.resolve("shown") }));
+    expect(await setShellWebViewVisible("web-1", true)).toBe(false);
+  });
+});
+
+describe("parseShellWebEvent", () => {
+  it("parses each relay kind with its fields", () => {
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "title", title: "GitHub" })).toEqual({
+      tabKey: "web-1",
+      kind: "title",
+      title: "GitHub",
+    });
+    expect(
+      parseShellWebEvent({ tabKey: "web-1", kind: "favicon", favicons: ["https://x/f.ico"] }),
+    ).toEqual({ tabKey: "web-1", kind: "favicon", favicons: ["https://x/f.ico"] });
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "loading", loading: true })).toEqual({
+      tabKey: "web-1",
+      kind: "loading",
+      loading: true,
+    });
+    expect(
+      parseShellWebEvent({ tabKey: "web-1", kind: "failed", code: -105, description: "NAME_NOT_RESOLVED", url: "https://x" }),
+    ).toEqual({ tabKey: "web-1", kind: "failed", code: -105, description: "NAME_NOT_RESOLVED", url: "https://x" });
+    expect(
+      parseShellWebEvent({ tabKey: "web-1", kind: "url", url: "https://x/y", canGoBack: true, canGoForward: false }),
+    ).toEqual({ tabKey: "web-1", kind: "url", url: "https://x/y", canGoBack: true, canGoForward: false });
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "focus" })).toEqual({
+      tabKey: "web-1",
+      kind: "focus",
+    });
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "zoom", direction: "in" })).toEqual({
+      tabKey: "web-1",
+      kind: "zoom",
+      direction: "in",
+    });
+  });
+
+  it("returns null for non-objects, a missing/non-string tabKey, and unknown kinds", () => {
+    expect(parseShellWebEvent("garbage")).toBeNull();
+    expect(parseShellWebEvent(null)).toBeNull();
+    expect(parseShellWebEvent(42)).toBeNull();
+    expect(parseShellWebEvent({ kind: "title", title: "x" })).toBeNull();
+    expect(parseShellWebEvent({ tabKey: 7, kind: "title", title: "x" })).toBeNull();
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "bogus" })).toBeNull();
+  });
+
+  it("returns null on wrong-typed required fields", () => {
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "title" })).toBeNull();
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "title", title: 3 })).toBeNull();
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "loading", loading: "yes" })).toBeNull();
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "failed", code: "x", description: "d", url: "u" })).toBeNull();
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "url", url: "https://x", canGoBack: true })).toBeNull();
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "favicon", favicons: "no" })).toBeNull();
+  });
+
+  it("keeps only string favicon entries and accepts only in/out zoom directions", () => {
+    expect(
+      parseShellWebEvent({ tabKey: "web-1", kind: "favicon", favicons: ["https://x/f.ico", 42, null] }),
+    ).toEqual({ tabKey: "web-1", kind: "favicon", favicons: ["https://x/f.ico"] });
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "zoom", direction: "in" })).not.toBeNull();
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "zoom", direction: "out" })).not.toBeNull();
+    expect(parseShellWebEvent({ tabKey: "web-1", kind: "zoom", direction: "reset" })).toBeNull();
+  });
+});
+
+describe("onShellWebEvent", () => {
+  it("returns a callable no-op disposer outside the shell and never fires", () => {
+    const handler = vi.fn();
+    const off = onShellWebEvent(handler);
+    expect(typeof off).toBe("function");
+    off();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("forwards parsed events and drops malformed payloads", () => {
+    let relay: ((payload: unknown) => void) | null = null;
+    const disposer = vi.fn();
+    webBridgeWith(
+      fullWebBridge({
+        onEvent: (h: (payload: unknown) => void) => {
+          relay = h;
+          return disposer;
+        },
+      }),
+    );
+    const handler = vi.fn();
+    const off = onShellWebEvent(handler);
+    expect(relay).not.toBeNull();
+    relay!({ tabKey: "web-1", kind: "title", title: "GitHub" });
+    relay!({ tabKey: "web-1", kind: "bogus" });
+    relay!("garbage");
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith({ tabKey: "web-1", kind: "title", title: "GitHub" });
+    off();
+    expect(disposer).toHaveBeenCalledTimes(1);
   });
 });

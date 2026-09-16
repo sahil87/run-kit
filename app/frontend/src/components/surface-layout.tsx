@@ -28,6 +28,7 @@ import {
   type SurfaceKind,
 } from "@/lib/surface-layout";
 import { clampBoundary } from "@/lib/right-panel";
+import { TileDragContext } from "@/lib/tile-drag-context";
 import { codeRootFor } from "@/lib/code-folder-latch";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import type { CodeFollowSrc } from "@/hooks/use-code-workspace";
@@ -2570,12 +2571,16 @@ export function SurfaceLayout({
       ...retainedCodeTiles.map((tile) => ({ tile, hidden: true })),
     ];
     return (
-      <div
-        data-testid="surface-layout"
-        className="flex-1 min-h-0 min-w-0 flex flex-col"
-      >
-        {allTiles.map(({ tile, hidden }) => renderTile(tile, hidden, true))}
-      </div>
+      // The drag flag crosses to the native web engine as a context (the
+      // mobile branch drags nothing, but the provider stays uniform).
+      <TileDragContext.Provider value={false}>
+        <div
+          data-testid="surface-layout"
+          className="flex-1 min-h-0 min-w-0 flex flex-col"
+        >
+          {allTiles.map(({ tile, hidden }) => renderTile(tile, hidden, true))}
+        </div>
+      </TileDragContext.Provider>
     );
   }
 
@@ -2594,6 +2599,9 @@ export function SurfaceLayout({
   const junction = junctionPoint(specs);
   const axes = intersectionAxes(layout.shape);
   return (
+    // The same expression that drives the tiles' mid-drag pointer-events-none
+    // class also feeds the native web engine's live-resize loop.
+    <TileDragContext.Provider value={draggingIndex !== null || draggingIntersection}>
     <div
       ref={gridRef}
       data-testid="surface-layout"
@@ -2672,5 +2680,6 @@ export function SurfaceLayout({
         />
       )}
     </div>
+    </TileDragContext.Provider>
   );
 }

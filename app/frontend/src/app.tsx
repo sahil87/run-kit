@@ -105,7 +105,9 @@ import { buildServerProtectActions } from "@/lib/palette/server-protect";
 import { buildServerAdoptActions } from "@/lib/palette/server-adopt";
 import { buildServerSetColorAction } from "@/lib/palette/server-color";
 import { buildShellServerActions } from "@/lib/palette/shell";
-import { canCloseShellWindow, canNewShellWindow, closeShellWindow, isShell, newShellWindow, switchShellServer } from "@/lib/shell";
+import { buildWebEngineActions } from "@/lib/palette/web-engine";
+import { canCloseShellWindow, canNewShellWindow, canShellWeb, closeShellWindow, isShell, newShellWindow, switchShellServer } from "@/lib/shell";
+import { WEB_NATIVE_ENGINE_DEFAULT, WEB_NATIVE_ENGINE_PREF_KEY } from "@/lib/web-engine-pref";
 import { ShellTitlebarStrip } from "@/components/desktop-shell/titlebar-strip";
 import { ShellAccentReporter } from "@/components/desktop-shell/accent-reporter";
 import { ShellBadgeReporter } from "@/components/desktop-shell/badge-reporter";
@@ -4578,6 +4580,26 @@ function AppShell() {
     [shellServers, addToast],
   );
 
+  // The web tile's engine opt-out (Constitution V): `Web: Use embedded
+  // browser` flips the per-viewer localStorage preference between the native
+  // and iframe engines. Gated on the `web` bridge group's own presence
+  // (canShellWeb() — the canNewShellWindow() truthful-signal precedent), not
+  // on isShell() and not on a web tile being open: a viewer may pre-toggle.
+  // The same useLocalStorageBoolean key the chrome reads keeps both in sync.
+  const [nativeEngineEnabled, setNativeEngineEnabled] = useLocalStorageBoolean(
+    WEB_NATIVE_ENGINE_PREF_KEY,
+    WEB_NATIVE_ENGINE_DEFAULT,
+  );
+  const webEngineActions: PaletteAction[] = useMemo(
+    () =>
+      buildWebEngineActions({
+        available: canShellWeb(),
+        enabled: nativeEngineEnabled,
+        onToggle: setNativeEngineEnabled,
+      }),
+    [nativeEngineEnabled, setNativeEngineEnabled],
+  );
+
   // Navigate to a waiting target on the bare terminal route (empty search —
   // the target window resolves its own stored layout; the compose strip is
   // where the user answers the agent). A SAME-SERVER target needs the tmux
@@ -4874,11 +4896,11 @@ function AppShell() {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...guiActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...cronActions, ...buildDataTableActions(mountedDataTables), ...macroPaletteActions],
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...guiActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...webEngineActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...cronActions, ...buildDataTableActions(mountedDataTables), ...macroPaletteActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, guiActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, cronActions, mountedDataTables, macroPaletteActions, bindingByAction, bindingHost],
+    [sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, guiActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, webEngineActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, cronActions, mountedDataTables, macroPaletteActions, bindingByAction, bindingHost],
   );
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders

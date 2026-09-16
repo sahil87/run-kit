@@ -20,7 +20,7 @@
  */
 
 /** Which renderer sits behind the web tile's chrome. */
-export type WebFrameEngineKind = "iframe";
+export type WebFrameEngineKind = "iframe" | "native";
 
 /** What an engine can do — the chrome renders per these, never per origin. */
 export interface WebFrameCapabilities {

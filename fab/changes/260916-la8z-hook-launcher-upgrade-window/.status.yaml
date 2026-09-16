@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,25 +33,27 @@ stage_metrics:
     apply: {started_at: "2026-09-16T17:36:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T18:06:29Z"}
     review: {started_at: "2026-09-16T18:06:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T18:09:56Z"}
     hydrate: {started_at: "2026-09-16T18:09:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T18:18:45Z"}
-    ship: {started_at: "2026-09-16T18:18:45Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-16T18:18:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T18:20:14Z"}
+    review-pr: {started_at: "2026-09-16T18:20:14Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1011
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1943
+    deleted: 452
+    net: 1491
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1174
+        deleted: 349
+        net: 825
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-16T18:18:45Z"
-    computed_at_stage: hydrate
+        added: 665
+        deleted: 115
+        net: 550
+    computed_at: "2026-09-16T18:20:14Z"
+    computed_at_stage: ship
 summary: 'Hook launcher: an rk-owned launcher symlink (third internal/selfpath resolver) targets the Cellar binary — written first by rk agent setup, re-pointed by brew daemons at serve start — and every hook wrapper execs it first with the brew stable symlink as fallback (all installer kinds, opencode RK_FALLBACK included); rk doctor parses every embedded path and fails only when all dangle; code-server RK_BIN moved to the launcher; active age is emitted on the mux/rollup machine surfaces (SPA renders durations only for waiting/idle).'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-16T18:18:45Z
+last_updated: 2026-09-16T18:20:14Z

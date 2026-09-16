@@ -497,30 +497,34 @@ summary {
   animation: rk-caret-blink 1.06s steps(1) infinite;
 }
 
-/* Waiting halo = attention overlay (change 260706-y1ar; status-pyramid.md
-   § The Channel Model / D3). NOT a hover treatment — it renders whenever an
-   agent is `waiting` (blocked on a human), the single most notification-worthy
-   state. A constant-YELLOW pulsing halo (a box-shadow ring) is layered around
-   the status dot; the dot's own core hue + shape are untouched (family identity
-   must survive attention). The SEMANTIC is constant — yellow = "an agent needs
-   you now" in every theme — but the VALUE is per-theme via
-   `--color-signal-yellow` (dark keeps the legacy yellow-400 value; light
-   darkens to a gold that meets the ≥3:1 graphics bar). Applied to the wrapper span so it
-   never disturbs the inner dot markup.
-   Reduced motion: a STATIC yellow ring (no pulse) — attention is never encoded
-   in motion alone (gated below). */
+/* Waiting halo = attention overlay (status-pyramid.md § The Channel Model).
+   Renders whenever an agent is `waiting`. A constant-YELLOW pulsing ring on a
+   ::after pseudo-element (border, not box-shadow) animated with transform +
+   opacity ONLY, so N waiting dots tick the compositor, never the main thread —
+   an animated box-shadow cost ~1 point of a core per visible dot (2026-09-16).
+   The dot's own core hue + shape are untouched (family identity must survive
+   attention). `border-radius: inherit` keeps the ring on the dot's silhouette.
+   The ring colour is the 85% peak; opacity 0.65 → 1 walks it 55% → 85%.
+   Geometry: an absolutely positioned pseudo's containing block is the dot's
+   PADDING box, and Chromium snaps the dot's fractional 1.8px ring border when
+   resolving that padding edge, so the inset must clear 1px of border, not
+   1.8px — inset -2.5px with a 1.5px border puts the ring flush OUTSIDE the
+   dot's border-box, where the retired box-shadow spread painted (verified by
+   screenshot pair at 1x and 2x; waiting always renders the ring base — a
+   solid dot never waits — so the ring border is always present on a halo
+   host). Reduced motion: a STATIC 2px yellow ring, no animation (gated below). */
 @keyframes rk-waiting-halo {
-  0%, 100% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--color-signal-yellow) 55%, transparent); }
-  50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-signal-yellow) 85%, transparent); }
+  0%, 100% { transform: scale(1); opacity: 0.65; }
+  50% { transform: scale(1.3); opacity: 1; }
 }
-.rk-waiting-halo {
-  /* NO border-radius here: the halo is a box-shadow, which follows the
-     element's OWN corner radius. The dot sets its shape via a Tailwind
-     `rounded-*` utility (rounded-full for circles, rounded-none for the
-     `done` square); an unlayered `border-radius: 9999px` here would beat
-     Tailwind v4's layered `rounded-none` and force a waiting done-SQUARE to
-     render as a circle (breaking "shape untouched" — R2). Letting the shadow
-     inherit the element radius keeps square corners sharp. */
+.rk-waiting-halo { position: relative; }
+.rk-waiting-halo::after {
+  content: "";
+  position: absolute;
+  inset: -2.5px;
+  border: 1.5px solid color-mix(in srgb, var(--color-signal-yellow) 85%, transparent);
+  border-radius: inherit;
+  pointer-events: none;
   animation: rk-waiting-halo 1.4s ease-in-out infinite;
 }
 
@@ -535,16 +539,25 @@ summary {
   background: repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 3px);
 }
 
-/* Waiting seam = the board-pane form of the same attention overlay. A waiting
-   pane's border pulses in the signal yellow (3px, border-width system —
-   board-pane.tsx switches to border-[3px] and adds this class). Reduced motion:
-   a static yellow border (gated below). */
+/* Waiting seam = the board-pane form of the attention overlay. The pane's own
+   3px border (board-pane.tsx switches to border-[3px] and adds this class) is
+   the 55% trough; a full-yellow ::after ring over the border fades in and out
+   with opacity ONLY (composited), so the seam never ticks the main thread.
+   Reduced motion: the border alone at full yellow, the ring hidden (gated below). */
 @keyframes rk-waiting-seam {
-  0%, 100% { border-color: color-mix(in srgb, var(--color-signal-yellow) 55%, transparent); }
-  50% { border-color: var(--color-signal-yellow); }
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
 }
 .rk-waiting-seam {
-  border-color: var(--color-signal-yellow);
+  border-color: color-mix(in srgb, var(--color-signal-yellow) 55%, transparent);
+}
+.rk-waiting-seam::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border: 3px solid var(--color-signal-yellow);
+  border-radius: inherit;
+  pointer-events: none;
   animation: rk-waiting-seam 1.4s ease-in-out infinite;
 }
 
@@ -2774,8 +2787,16 @@ html[data-theme="light"] .rk-sb-shards polygon {
      (a glyph, not a flourish), so only the blink is zeroed. */
   .rk-compose-caret { animation: none; opacity: 1; }
   /* Waiting overlay → static yellow ring / seam (attention never motion-only). */
-  .rk-waiting-halo { animation: none; box-shadow: 0 0 0 2px var(--color-signal-yellow); }
-  .rk-waiting-seam { animation: none; border-color: var(--color-signal-yellow); }
+  .rk-waiting-halo::after {
+    animation: none;
+    inset: -3px;
+    border-width: 2px;
+    border-color: var(--color-signal-yellow);
+    opacity: 1;
+    transform: none;
+  }
+  .rk-waiting-seam { border-color: var(--color-signal-yellow); }
+  .rk-waiting-seam::after { display: none; }
   /* Pending-switch mask still SHOWS (input safety is never motion-only) — only
      its fade-in is dropped so it appears as an instant cut. */
   .rk-window-switch-mask { animation: none; }

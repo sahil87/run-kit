@@ -38,10 +38,10 @@ export type { WatchedFlag };
  *     footprint so the center stays legible; unflagged dots stay at DOT_SIZE.
  *   - ATTENTION = the additive constant-yellow pulsing halo when the agent is
  *     `waiting` (state.waiting). NEVER touches the core hue or shape; it is a
- *     box-shadow ring layered over ANY tier (blue core + yellow halo = "fab
- *     building asking"). Static yellow ring under prefers-reduced-motion
- *     (globals.css). A waiting agent renders the RING base — blocked is at
- *     rest by definition.
+ *     ::after pseudo-element ring layered over ANY tier (blue core + yellow
+ *     halo = "fab building asking"). Static yellow ring under
+ *     prefers-reduced-motion (globals.css). A waiting agent renders the RING
+ *     base — blocked is at rest by definition.
  *   - RELATION = the additive watched underbar when the mount passes the
  *     `watched` flag (today: the sidebar window row). A 1px neutral bar
  *     (`text-text-secondary`, painted from currentColor) just below the dot —
@@ -95,11 +95,12 @@ export function StatusDot({
 
   // Additive waiting halo (status-pyramid.md § The Channel Model). When the
   // rolled-up agent state is `waiting`, wrap the dot in a constant-yellow
-  // pulsing halo (a box-shadow ring, static under reduced-motion). It is
-  // ADDITIVE — the core hue (`color`) and shape below are untouched, so a blue
-  // building dot keeps its blue core; only the yellow halo is layered on. The
-  // class rides the dot element itself (box-shadow renders outside the
-  // border-box, so it disturbs neither the dot's size nor its hue).
+  // pulsing halo (a ::after pseudo-element ring animated on the compositor,
+  // static under reduced-motion). It is ADDITIVE — the core hue (`color`) and
+  // shape below are untouched, so a blue building dot keeps its blue core; only
+  // the yellow halo is layered on. The class rides the dot element itself; the
+  // ring is absolutely positioned out of flow, so it disturbs neither the dot's
+  // size nor its hue.
   const halo = state.waiting ? " rk-waiting-halo" : "";
 
   // The accessible name lives on `aria-label`; no native `title` (the flyout
@@ -170,9 +171,10 @@ export function StatusDot({
   // neutral bar painted from currentColor just below the dot — never the
   // phase hue, never accent-green. 4px below the 7px dot and 3px below the 9px
   // flagged dot so the watched footprint stays ~12px tall either way and the
-  // bar clears the waiting halo's 3px box-shadow reach. The wrapper carries no
-  // overflow rule: the halo paints outside the dot's border-box. The bar is
-  // aria-hidden decoration with no hit target — the dot keeps role/label.
+  // bar clears the waiting halo ring's 3px reach. The wrapper carries no
+  // overflow rule: the halo's pseudo ring paints outside the dot's border-box.
+  // The bar is aria-hidden decoration with no hit target — the dot keeps
+  // role/label.
   return (
     <span className="relative inline-flex items-center justify-center shrink-0">
       {dot}

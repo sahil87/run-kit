@@ -120,9 +120,10 @@ test.describe("Agent: Next waiting palette action", () => {
   /**
    * Proves: under `prefers-reduced-motion: reduce` the waiting halo renders as
    * a STATIC yellow ring — the globals.css reduced-motion block zeroes the
-   * pulse animation, but a visible box-shadow ring remains (attention is never
-   * encoded in motion alone). Only real-browser CSS evaluates media queries +
-   * globals.css (jsdom does not), so this lives in e2e.
+   * pulse animation, but a visible ring still paints on the dot's ::after
+   * pseudo-element (attention is never encoded in motion alone). Only
+   * real-browser CSS evaluates media queries + globals.css (jsdom does not),
+   * so this lives in e2e.
    *
    * Steps:
    * 1. Emulate reduced motion; mock the backend with @2 waiting; navigate to
@@ -130,9 +131,10 @@ test.describe("Agent: Next waiting palette action", () => {
    * 2. Locate the waiting window's status dot by its composed aria-label
    *    (`agent — idle — agent waiting 3m`) and assert it carries the
    *    `rk-waiting-halo` class.
-   * 3. Assert its computed `animation-name` is `none` (no pulse).
-   * 4. Assert its computed `box-shadow` is non-empty (the static ring still
-   *    paints).
+   * 3. Assert the dot's ::after computed `animation-name` is `none` (no
+   *    pulse) and its `border-top-width` is `2px` (the static ring's width).
+   * 4. Assert the ::after `border-top-color` is not transparent (the static
+   *    full-yellow ring actually paints).
    */
   test("waiting halo is a static ring under prefers-reduced-motion", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
@@ -145,12 +147,14 @@ test.describe("Agent: Next waiting palette action", () => {
     await expect(halo).toBeVisible({ timeout: 5_000 });
     await expect(halo).toHaveClass(/rk-waiting-halo/);
 
-    const anim = await halo.evaluate((el) => getComputedStyle(el).animationName);
-    expect(anim).toBe("none");
-    // The static form is still a visible ring, not nothing (a non-empty
-    // box-shadow proves the reduced-motion fallback painted the yellow outline).
-    const shadow = await halo.evaluate((el) => getComputedStyle(el).boxShadow);
-    expect(shadow).not.toBe("none");
-    expect(shadow.length).toBeGreaterThan(0);
+    // The static form is carried by the dot's ::after ring: no animation, a
+    // 2px border, and a non-transparent (full-yellow) border color.
+    const ring = await halo.evaluate((el) => {
+      const cs = getComputedStyle(el, "::after");
+      return { animationName: cs.animationName, borderTopWidth: cs.borderTopWidth, borderTopColor: cs.borderTopColor };
+    });
+    expect(ring.animationName).toBe("none");
+    expect(ring.borderTopWidth).toBe("2px");
+    expect(ring.borderTopColor).not.toBe("rgba(0, 0, 0, 0)");
   });
 });

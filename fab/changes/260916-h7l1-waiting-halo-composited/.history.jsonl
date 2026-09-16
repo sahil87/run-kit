@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-16T14:05:33Z"}
+{"args":"The waiting halo pulses via a composited pseudo-element ring (transform + opacity) instead of an animated box-shadow, and the board pane's waiting seam via a composited overlay instead of animated border-color, so N waiting agents cost within noise of zero — the ring stays visible and static under reduced motion as today. Change 2 of 5 in fab/plans/sahil/26-09-16-idle-cpu.md.","cmd":"fab-new","event":"command","ts":"2026-09-16T14:05:33Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-09-16T14:09:55Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-09-16T14:10:11Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-16T14:10:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T14:11:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T14:49:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-16T14:56:10Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T14:56:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-16T14:59:34Z"}

@@ -331,12 +331,19 @@ describe("chrome tokens", () => {
 describe("latch well tokens", () => {
   const L = (hex: string) => hexToOklab(hex).L;
 
-  it("the well floor sits one OKLab step (0.06) below the chrome on both categories, clamped at black", () => {
+  it("the well floor steps toward mid-gray: 0.06 below the chrome on light, 0.09 above it on dark", () => {
     for (const theme of THEMES) {
       const ui = deriveUIColors(theme.palette, theme.category);
-      const expected = Math.max(0, L(ui.bgChrome) - 0.06);
-      expect(Math.abs(L(ui.bgWell) - expected), theme.id).toBeLessThan(0.01);
-      expect(L(ui.bgWell), theme.id).toBeLessThanOrEqual(L(ui.bgChrome));
+      if (theme.category === "dark") {
+        expect(Math.abs(L(ui.bgWell) - (L(ui.bgChrome) + 0.09)), theme.id).toBeLessThan(0.01);
+        // Clear of the row-hover fill (chrome + 0.035) by at least 0.05 L, so a
+        // pressed control never reads as a hovered one.
+        expect(L(ui.bgWell) - L(ui.bgChromeRaised), theme.id).toBeGreaterThan(0.05);
+      } else {
+        const expected = Math.max(0, L(ui.bgChrome) - 0.06);
+        expect(Math.abs(L(ui.bgWell) - expected), theme.id).toBeLessThan(0.01);
+        expect(L(ui.bgWell), theme.id).toBeLessThan(L(ui.bgChrome));
+      }
     }
   });
 
@@ -352,6 +359,18 @@ describe("latch well tokens", () => {
     for (const theme of THEMES) {
       const ui = deriveUIColors(theme.palette, theme.category);
       expect(contrastRatio(ui.accentGreenInk, ui.bgWell), theme.id).toBeGreaterThanOrEqual(BORDER_MIN_CONTRAST);
+    }
+  });
+
+  it("dark: the well is lighter than the chrome, so the glyph ink is lifted only where the green falls under 3:1 there", () => {
+    for (const theme of THEMES.filter((t) => t.category === "dark")) {
+      const ui = deriveUIColors(theme.palette, "dark");
+      expect(L(ui.bgWell), theme.id).toBeGreaterThan(L(ui.bgChrome));
+      if (contrastRatio(theme.palette.ansi[2], ui.bgWell) >= BORDER_MIN_CONTRAST) {
+        expect(ui.accentGreenInk, theme.id).toBe(theme.palette.ansi[2]);
+      } else {
+        expect(L(ui.accentGreenInk), theme.id).toBeGreaterThan(L(theme.palette.ansi[2]));
+      }
     }
   });
 

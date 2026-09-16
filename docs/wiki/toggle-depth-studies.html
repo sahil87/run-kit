@@ -265,6 +265,8 @@
   <tr><td>Bordered controls, border dimmed toward the well</td><td>darker → pressed</td><td>lighter → disabled</td><td>pressed must go darker in <em>every</em> channel on a light ground</td></tr>
 </table>
 <p><code>bg-inset</code> is derived per palette by darkening the background a fixed sRGB percentage (5% dark, 6% light) — a step that is visible on one theme category and invisible on the other, the same asymmetry the sidebar-material study measured for the chrome ground. Accent-green is derived as a fill/track colour and on light palettes lands below secondary text in contrast; today's ring has been hiding that. C′ fixes both by derivation, not by hand-picked hexes: floor = chrome ground minus ΔL 0.06 in OKLab (chroma kept), ink = the palette green driven down in OKLab lightness until it clears 3 : 1 on the floor, border = the border token mixed toward secondary text. On pure-black palettes the floor clamps to the ground and the 1px bottom lip keeps the rim.</p>
+<div class="note warn"><b>Amendment after shipping (default-dark, real 24px rail):</b> the dark C′ floor as built here — <code>bgChrome</code> stepped 0.06 <em>toward black</em> — read as unpressed in the live sidebar: a dark inset shade on a near-black floor paints nothing, so depth rode the floor step alone. The shipped derivation steps the dark floor <em>up</em> 0.09 toward mid-gray instead (<code>#303135</code> on the default palette, clearing the row-hover fill <code>bgChromeRaised</code> by ≥ 0.05 L) and adds a 20% 1px inner edge to the dark shade; the light recipe is unchanged. The well steps toward mid-gray on both categories.</div>
+
 <h2>6 · Rejected and parked</h2>
 <table>
   <tr><th>Treatment</th><th>Verdict</th><th>Why</th></tr>

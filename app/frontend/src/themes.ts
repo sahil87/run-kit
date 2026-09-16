@@ -29,7 +29,8 @@ export type UIColors = {
   accent: string;
   accentBright: string;
   accentGreen: string;
-  /** Latch well floor — the chrome ground one OKLab step down. */
+  /** Latch well floor — the chrome ground one OKLab step toward mid-gray
+   *  (down on light, up on dark). */
   bgWell: string;
   /** Latch glyph ink — the palette green, moved in OKLab L until it clears
    *  the non-text contrast floor against `bgWell`. */
@@ -189,14 +190,17 @@ export const CHROME_MIN_L = 0.16;
  *  on (sidebar rows, top bar, status bar) — text AA. Palettes whose bright
  *  black is very dark (Tokyo Night) would otherwise land near 3:1 there. */
 const TEXT_SECONDARY_MIN_CONTRAST = 4.5;
-/** OKLab lightness step from the chrome ground DOWN to the latch well floor —
- *  down on both categories, because a pressed key sits below its neighbours
- *  whatever the theme. Same-visible-step reasoning as CHROME_L_DELTA: an sRGB
- *  percentage (the bgInset recipe) is invisible on light palettes. Because the
- *  dark chrome is floored at CHROME_MIN_L first, even a pure-black palette
- *  lands its well near L 0.10 — below its chrome, never at the ground; the L 0
- *  clamp is a guard, not a reachable case for the bundled palettes. */
-const WELL_L_DELTA = 0.06;
+/** OKLab lightness steps from the chrome ground to the latch well floor. The
+ *  well steps TOWARD MID-GRAY on both categories — down on light, UP on dark —
+ *  because the depth cue is the well's dark inset shade, and a dark shade on
+ *  a near-black floor paints nothing: a dark well that stepped toward black
+ *  read as unpressed at 24px. Same-visible-step reasoning as CHROME_L_DELTA
+ *  (an sRGB percentage, the bgInset recipe, is invisible on light palettes).
+ *  The dark step is the larger one so the floor clears the row-hover fill
+ *  (`bgChromeRaised`, chrome + CHROME_RAISED_L_DELTA) by ≥ 0.05 L — a pressed
+ *  key must never read as a hovered one. */
+const WELL_L_DELTA_LIGHT = 0.06;
+const WELL_L_DELTA_DARK = 0.09;
 /** OKLab lightness step from `border` DOWN to the pressed border on latched
  *  bordered controls. Down on both categories: a lighter border reads as
  *  disabled, so pressed must darken every channel. */
@@ -218,7 +222,8 @@ export function deriveUIColors(palette: ThemePalette, category: "dark" | "light"
   const chromeDir = isDark ? 1 : -1;
   const chromeL = isDark ? Math.max(bgLch.L + CHROME_L_DELTA, CHROME_MIN_L) : bgLch.L - CHROME_L_DELTA;
   const bgChrome = oklchToHexInGamut(chromeL, chromeChroma, bgLch.hueDeg);
-  const bgWell = oklchToHexInGamut(Math.max(0, chromeL - WELL_L_DELTA), chromeChroma, bgLch.hueDeg);
+  const wellL = isDark ? chromeL + WELL_L_DELTA_DARK : Math.max(0, chromeL - WELL_L_DELTA_LIGHT);
+  const bgWell = oklchToHexInGamut(wellL, chromeChroma, bgLch.hueDeg);
   const border = blendHex(palette.foreground, palette.background, 0.25);
   return {
     bgPrimary: palette.background,

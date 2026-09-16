@@ -39,10 +39,10 @@
   --color-accent-bright: #82a8f7;
   --color-accent-green: #22c55e;
   /* Latch well — the recessed on-state of latched controls: floor one OKLab
-     step below the chrome, glyph ink at ≥3:1 on that floor, pressed border
-     one step below the border. Static values are deriveUIColors' output for
+     step from the chrome toward mid-gray (up on dark, down on light), glyph
+     ink at ≥3:1 on that floor, pressed border one step below the border. Static values are deriveUIColors' output for
      the default palettes (pinned by themes.test.ts). */
-  --color-bg-well: #0d0e11;
+  --color-bg-well: #303135;
   --color-accent-green-ink: #22c55e;
   --color-border-pressed: #26282e;
   /* Signal hues (status dots, PR glyphs, waiting attention, errors). Dark
@@ -70,7 +70,7 @@ html[data-theme="dark"] {
   --color-accent: #5b8af0;
   --color-accent-bright: #82a8f7;
   --color-accent-green: #22c55e;
-  --color-bg-well: #0d0e11;
+  --color-bg-well: #303135;
   --color-accent-green-ink: #22c55e;
   --color-border-pressed: #26282e;
   --color-signal-yellow: #facc15;
@@ -78,8 +78,8 @@ html[data-theme="dark"] {
   --color-signal-blue: #60a5fa;
   --color-signal-red: #f87171;
   --color-marker-ink: #f59e0b;
-  --ctl-well-shadow: inset 0 1.5px 2.5px rgb(0 0 0 / 0.6);
-  --ctl-well-shadow-hover: inset 0 2px 3.5px rgb(0 0 0 / 0.78);
+  --ctl-well-shadow: inset 0 1.5px 2.5px rgb(0 0 0 / 0.6), inset 0 0 0 1px rgb(0 0 0 / 0.2);
+  --ctl-well-shadow-hover: inset 0 2px 3.5px rgb(0 0 0 / 0.78), inset 0 0 0 1px rgb(0 0 0 / 0.25);
   --ctl-well-lip: inset 0 -1px 0 rgb(255 255 255 / 0.05);
 }
 
@@ -130,8 +130,8 @@ html[data-theme="light"] {
   --ctl-chip-coarse: 40px; /* coarse chip min (both axes) */
   /* Latch-well depth — the one place a --ctl-* token is per theme category:
      the dark pair is the default here and the light block overrides it. */
-  --ctl-well-shadow: inset 0 1.5px 2.5px rgb(0 0 0 / 0.6);
-  --ctl-well-shadow-hover: inset 0 2px 3.5px rgb(0 0 0 / 0.78);
+  --ctl-well-shadow: inset 0 1.5px 2.5px rgb(0 0 0 / 0.6), inset 0 0 0 1px rgb(0 0 0 / 0.2);
+  --ctl-well-shadow-hover: inset 0 2px 3.5px rgb(0 0 0 / 0.78), inset 0 0 0 1px rgb(0 0 0 / 0.25);
   --ctl-well-lip: inset 0 -1px 0 rgb(255 255 255 / 0.05);
 }
 
@@ -290,9 +290,10 @@ summary {
    the button never clips the popover. */
 /* Latch well = the on-state of every latched control (the Control primitive's
    LATCHED_WELL arm). The control sits IN the ground: floor (--color-bg-well)
-   + this inset top shade, plus a 1px lighter lip along the bottom edge that
-   keeps a rim legible on very dark wells (near-black palettes, whose chrome
-   is floored at CHROME_MIN_L, put the well around L 0.10).
+   + this inset top shade and 1px inner edge (the hole's walls), plus a 1px
+   lighter lip along the bottom edge (the lit far wall). The floor steps toward
+   mid-gray on both categories — lighter than the chrome on dark — because a
+   dark shade on a near-black floor paints nothing.
    Hover deepens the shade one step — the depth analogue of a fill deepen —
    while the arm's ink and border hold. Per-category values live on the
    --ctl-well-* tokens (dark default on :root, light override on the theme

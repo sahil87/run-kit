@@ -10,18 +10,18 @@
 #### R1: Three palette-derived UI colors
 `deriveUIColors` in `app/frontend/src/themes.ts` MUST return three additional `UIColors` keys, each derived from the palette (never a hand-picked hex), and `COLOR_CSS_MAP` MUST map them to `--color-bg-well`, `--color-accent-green-ink`, `--color-border-pressed`:
 
-- `bgWell` — the chrome ground stepped **down** in OKLab lightness by `WELL_L_DELTA = 0.06` on BOTH categories (`L = chromeL − 0.06`, clamped at 0), keeping the chrome's chroma and hue (`chromeChroma`, `bgLch.hueDeg`), gamut-clamped via `oklchToHexInGamut`.
+- `bgWell` — the chrome ground stepped **toward mid-gray** in OKLab lightness: `WELL_L_DELTA_LIGHT = 0.06` down on light (`L = chromeL − 0.06`, clamped at 0), `WELL_L_DELTA_DARK = 0.09` UP on dark (clearing the `bgChromeRaised` hover fill by ≥ 0.05 L), keeping the chrome's chroma and hue (`chromeChroma`, `bgLch.hueDeg`), gamut-clamped via `oklchToHexInGamut`.
 - `accentGreenInk` — `adjustBorderForContrast(palette.ansi[2], bgWell, isDark, BORDER_MIN_CONTRAST)`: the palette green moved in OKLab L (darker on light, lighter on dark) until it clears 3 : 1 against `bgWell`; unchanged where it already clears.
 - `borderPressed` — the `border` token stepped **down** in OKLab lightness by `PRESSED_BORDER_L_DELTA = 0.12` (a/b preserved, L clamped at 0): darker than `border` on both categories.
 
 - **GIVEN** the default light palette
 - **WHEN** `deriveUIColors(palette, "light")` runs
 - **THEN** `bgWell` has lower OKLab L than `bgChrome`, `contrastRatio(accentGreenInk, bgWell) ≥ 3.0`, and `borderPressed` has lower OKLab L than `border`
-- **AND** for the default dark palette `accentGreenInk === palette.ansi[2]` (already ≥ 3 : 1)
+- **AND** for the default dark palette `bgWell` has higher OKLab L than `bgChrome` and `accentGreenInk === palette.ansi[2]` (already ≥ 3 : 1)
 
 - **GIVEN** every one of the 70 bundled themes
 - **WHEN** the three keys are derived
-- **THEN** each is a valid 6-digit hex, `bgWell` L < `bgChrome` L (or equals the clamp on pure-black palettes), `accentGreenInk` clears 3 : 1 on `bgWell`, and `borderPressed` L < `border` L
+- **THEN** each is a valid 6-digit hex, `bgWell` L < `bgChrome` L on light and > `bgChrome` L on dark, `accentGreenInk` clears 3 : 1 on `bgWell`, and `borderPressed` L < `border` L
 
 ### CSS: tokens, static defaults, well shadow
 
@@ -101,7 +101,7 @@ composed through the existing REST-swap (`BASE + (arm | REST)`, never stacked): 
 ### Design Decisions
 
 #### Well tokens are derived, not reused from `bgInset` / `accentGreen`
-**Decision**: The latch well floor, ink and pressed border are three new `deriveUIColors` outputs — an OKLab step below the chrome ground, a 3 : 1 contrast-driven green, an OKLab step below the border — rather than reusing `bgInset` and `accentGreen`.
+**Decision**: The latch well floor, ink and pressed border are three new `deriveUIColors` outputs — an OKLab step from the chrome ground toward mid-gray (0.09 up on dark, 0.06 down on light), a 3 : 1 contrast-driven green, an OKLab step below the border — rather than reusing `bgInset` and `accentGreen`.
 **Why**: `bgInset` is an sRGB percentage step that sits at 0.000 OKLab ΔL from the chrome on light palettes (0.068 on dark), and `accentGreen` is 2.7 : 1 on light against 4.0 : 1 for the neutral off glyph — every channel that carries the well in dark vanishes or inverts in light. The chrome derivation already proved the OKLab-step approach reads the same on every palette.
 **Rejected**: Hand-pinned light hexes (drift per palette; the study values are what the formula produces for the default palette anyway); mixing `border` toward `textSecondary` for the pressed border (lighter than `border` on dark, so it cannot go darker on both categories).
 *Introduced by*: 260916-e3sg-latch-well
@@ -203,5 +203,6 @@ None — this change replaces the three latch arms in place and makes no existin
 | 4 | Certain | `KBD_BASE` loses `border-border`, `KBD_REST` gains it | Intake R3 note; the top-bar pair is the existing precedent | S:85 R:90 A:90 D:85 |
 | 5 | Confident | Static `@theme` / theme-block literals are pinned to the formula's default-palette output and covered by the extended drift-pin test, so the exact hexes are read from the implementation rather than copied from the study | The study values were the formula's output for the default palettes within hex rounding; the drift-pin test is the existing precedent for `--color-bg-chrome` | S:75 R:90 A:85 D:80 |
 | 6 | Certain | Five tasks; the change runs in the light lane (inline apply/hydrate/ship, dispatched review) | Task count ≤ 5 by honest decomposition: one derivation unit, one stylesheet unit, one primitive unit, one test/baseline unit, one docs+gates unit | S:85 R:90 A:90 D:85 |
+| 7 | Certain | Dark well floor steps UP 0.09 toward gray (light stays 0.06 down); dark shade gains a 20% 1px inner edge | User review of the shipped dark rail: the toward-black floor read as unpressed; a dark shade on a near-black floor paints nothing, and 0.09 clears the hover fill by ≥ 0.05 L (0.06 would sit 0.025 above it) | S:90 R:85 A:90 D:90 |
 
-6 assumptions (4 certain, 2 confident, 0 tentative).
+7 assumptions (5 certain, 2 confident, 0 tentative).

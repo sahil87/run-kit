@@ -6,6 +6,7 @@ import {
   finish,
   getState,
   PEEK_KEY,
+  seedEasterEggsEnabled,
   setEasterEggsEnabled,
   SMASH_KEY,
   subscribe,
@@ -129,6 +130,24 @@ describe("screen-break store", () => {
     expect(easterEggsEnabled()).toBe(false);
     _resetForTests();
     expect(easterEggsEnabled()).toBe(true);
+  });
+
+  it("the mount-fetch seed applies when no flip was committed", () => {
+    seedEasterEggsEnabled(false);
+    expect(easterEggsEnabled()).toBe(false);
+  });
+
+  it("a committed flip wins over a mount-fetch seed resolving later", () => {
+    setEasterEggsEnabled(false);
+    seedEasterEggsEnabled(true);
+    expect(easterEggsEnabled()).toBe(false);
+  });
+
+  it("_resetForTests clears the committed flag — a seed applies again", () => {
+    setEasterEggsEnabled(false);
+    _resetForTests();
+    seedEasterEggsEnabled(false);
+    expect(easterEggsEnabled()).toBe(false);
   });
 
   it("a throwing localStorage neither blocks nor breaks the fire", () => {

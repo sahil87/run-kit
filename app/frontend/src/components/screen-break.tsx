@@ -23,7 +23,7 @@
  * non-animating crack reads as a broken UI).
  */
 
-import { Fragment, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   finish,
   getGlass,
@@ -42,7 +42,7 @@ import {
 } from "@/lib/screen-break-geometry";
 import { useScreenBreakTriggers } from "@/hooks/use-screen-break-triggers";
 import { getSettingsEntries } from "@/api/client";
-import { setEasterEggsEnabled } from "@/lib/screen-break-store";
+import { seedEasterEggsEnabled } from "@/lib/screen-break-store";
 import { EyeSprite, FistSprite } from "./screen-break-sprites";
 
 const FLIGHT_MS = 12000;
@@ -441,23 +441,41 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
 /** The layout-level mount: the layer plus its automatic triggers. Mounted once
  *  in AppLayoutContent, beside the glass it clips. One mount GET seeds the
  *  store's `easter_eggs` gate — no polling, no SSE; other browsers pick a flip
- *  up on reload. A missing key or a rejected fetch keeps the default (on). */
+ *  up on reload. A missing key or a rejected fetch keeps the default (on). The
+ *  triggers mount only once that read has settled: an occasion already
+ *  observable at page load (a lit update chip) must not outrun a persisted
+ *  off value. */
 export function ScreenBreakController() {
+  const [seeded, setSeeded] = useState(false);
   useEffect(() => {
     let cancelled = false;
     getSettingsEntries()
       .then((entries) => {
         if (cancelled) return;
         const entry = entries.find((e) => e.key === "easter_eggs");
-        setEasterEggsEnabled(entry === undefined || entry.value !== false);
+        seedEasterEggsEnabled(entry === undefined || entry.value !== false);
       })
       .catch(() => {
         // Fetch failure keeps the store enabled (default on).
+      })
+      .finally(() => {
+        if (!cancelled) setSeeded(true);
       });
     return () => {
       cancelled = true;
     };
   }, []);
+  return (
+    <>
+      {seeded && <ScreenBreakTriggers />}
+      <ScreenBreak />
+    </>
+  );
+}
+
+/** The triggers hook's conditional-mount wrapper — hooks cannot be gated
+ *  inline, so the controller renders this only once the seed read settles. */
+function ScreenBreakTriggers() {
   useScreenBreakTriggers();
-  return <ScreenBreak />;
+  return null;
 }

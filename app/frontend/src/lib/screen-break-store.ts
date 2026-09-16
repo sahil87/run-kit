@@ -43,10 +43,21 @@ let state: ScreenBreakState = { flight: null };
 const listeners = new Set<() => void>();
 let glass: HTMLElement | null = null;
 let enabled = true;
+let committed = false;
 
-/** Flip the automatic occasions. Palette (`force`) fires ignore this. */
+/** Flip the automatic occasions. Palette (`force`) fires ignore this. Marks
+ *  the value as committed so a mount-fetch seed still in flight cannot
+ *  overwrite it with the older fetched value. */
 export function setEasterEggsEnabled(v: boolean): void {
   enabled = v;
+  committed = true;
+}
+
+/** The controller's mount-fetch seed. A flip committed through the settings
+ *  seam while the fetch was in flight is newer — the seed then changes
+ *  nothing. */
+export function seedEasterEggsEnabled(v: boolean): void {
+  if (!committed) enabled = v;
 }
 
 export function easterEggsEnabled(): boolean {
@@ -135,5 +146,6 @@ export function _resetForTests(): void {
   state = { flight: null };
   glass = null;
   enabled = true;
+  committed = false;
   listeners.clear();
 }

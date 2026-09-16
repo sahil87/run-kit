@@ -2,12 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
 import { ScreenBreak, ScreenBreakController } from "./screen-break";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
+import type { SessionContextType } from "@/contexts/session-context";
+import type { SettingsEntry } from "@/api/client";
 import {
   _resetForTests,
   easterEggsEnabled,
   fire,
   finish,
   getState,
+  PEEK_KEY,
   registerGlass,
 } from "@/lib/screen-break-store";
 
@@ -244,6 +247,35 @@ describe("ScreenBreakController — the easter_eggs mount fetch", () => {
     );
   }
 
+  function updateAvailable(key: string): SessionContextType["updateAvailable"] {
+    return { tools: [{ tool: "run-kit", current: "3.8.0", latest: "3.9.0" }], key, current: "3.8.0", latest: "3.9.0" };
+  }
+
+  function renderControllerWithUpdate() {
+    // The update chip is lit from the first render — the peek trigger's
+    // arrival case is the one that can outrun the seed read.
+    return render(
+      <StandaloneSessionContextProvider
+        value={{ daemonVersion: "3.8.0", updateAvailable: updateAvailable("run-kit@3.9.0") }}
+      >
+        <ScreenBreakController />
+      </StandaloneSessionContextProvider>,
+    );
+  }
+
+  function eggEntry(value: unknown): SettingsEntry {
+    return {
+      key: "easter_eggs",
+      kind: "bool",
+      default: "true",
+      description: "",
+      category: "behavior",
+      ui: true,
+      live: true,
+      value,
+    };
+  }
+
   it("an easter_eggs: false entry disables the automatic occasions", async () => {
     getSettingsEntries.mockResolvedValue([
       {
@@ -274,5 +306,36 @@ describe("ScreenBreakController — the easter_eggs mount fetch", () => {
     renderController();
     await act(async () => {});
     expect(easterEggsEnabled()).toBe(true);
+  });
+
+  it("the triggers stay unmounted until the seed read settles — a lit update chip cannot outrun a persisted off value", async () => {
+    let resolveFetch: (entries: SettingsEntry[]) => void = () => {};
+    getSettingsEntries.mockReturnValue(
+      new Promise((res) => {
+        resolveFetch = res;
+      }),
+    );
+    renderControllerWithUpdate();
+    await act(async () => {});
+    // Fetch still pending: no trigger has mounted, so the lit chip fired nothing.
+    expect(getState().flight).toBeNull();
+    expect(localStorage.getItem(PEEK_KEY)).toBeNull();
+
+    await act(async () => {
+      resolveFetch([eggEntry(false)]);
+    });
+    await waitFor(() => expect(easterEggsEnabled()).toBe(false));
+    await act(async () => {});
+    // The trigger's arrival observation now runs against the seeded off value.
+    expect(getState().flight).toBeNull();
+    expect(localStorage.getItem(PEEK_KEY)).toBeNull();
+  });
+
+  it("a lit update chip fires on arrival once the seed read settles with the store on", async () => {
+    getSettingsEntries.mockResolvedValue([]);
+    renderControllerWithUpdate();
+    await waitFor(() => expect(getState().flight?.egg).toBe("peek"));
+    expect(localStorage.getItem(PEEK_KEY)).toBe("run-kit@3.9.0");
+    act(() => finish());
   });
 });

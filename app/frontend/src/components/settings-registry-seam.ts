@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getSettingsEntries,
   postSettings,
@@ -26,7 +26,9 @@ import { invalidateOpenContext } from "@/hooks/use-open-targets";
  * through ANY route (context setter or generic POST) reflects in the row's
  * control and its modified dot alike. Per-key mirror logic in consumers is
  * forbidden (the rework-cycle-1/3 defect class); context-less keys update the
- * fetched list optimistically via `commitSetting`.
+ * fetched list optimistically via `commitSetting`. A commit landing while the
+ * mount fetch is still in flight is recorded and reapplied over the fetched
+ * list — a stale read never clobbers a newer write.
  *
  * Write routing: keys with an existing optimistic context POST through that
  * context's setter (theme via `setTheme`, `instance_color` via
@@ -35,9 +37,10 @@ import { invalidateOpenContext } from "@/hooks/use-open-targets";
  * `ssh_host`, `log_level`, `tmux_conf`) POST via `postSettings` and update the
  * shared list on success. The `gui.enabled` off direction detours through the
  * injected off-confirm seam before its POST. An `easter_eggs` commit mirrors
- * the value into the screen-break store after the POST — the trigger hook
- * reads the store, not the fetched list, so the flip applies without a reload.
- * A backend rejection rejects `commitSetting`, so the
+ * the value into the screen-break store after the POST (a null unset mirrors
+ * the registry default — on — into both the store and the entry) — the
+ * trigger hook reads the store, not the fetched list, so the flip applies
+ * without a reload. A backend rejection rejects `commitSetting`, so the
  * row surfaces the 400 inline (the TextSetting contract) without clobbering
  * the stored value.
  */
@@ -55,11 +58,21 @@ export function useSettingsRegistry(options?: {
   const { addToast } = useToast();
 
   const [entries, setEntries] = useState<SettingsEntry[]>([]);
+  // Values committed while the mount fetch is still in flight are newer than
+  // whatever the fetch returns — the read resolution reapplies them over the
+  // fetched list instead of clobbering them.
+  const committedRef = useRef(new Map<string, unknown>());
   useEffect(() => {
     let alive = true;
     getSettingsEntries()
       .then((list) => {
-        if (alive) setEntries(list);
+        if (!alive) return;
+        const committed = committedRef.current;
+        setEntries(
+          committed.size === 0
+            ? list
+            : list.map((e) => (committed.has(e.key) ? { ...e, value: committed.get(e.key) } : e)),
+        );
       })
       .catch(() => {
         // A failed registry fetch leaves the table empty; the curated rows
@@ -71,6 +84,7 @@ export function useSettingsRegistry(options?: {
   }, []);
 
   const updateEntryValue = useCallback((key: string, value: unknown) => {
+    committedRef.current.set(key, value);
     setEntries((prev) => prev.map((e) => (e.key === key ? { ...e, value } : e)));
   }, []);
 
@@ -165,7 +179,10 @@ export function useSettingsRegistry(options?: {
         }
         case "easter_eggs": {
           await postSettings({ easter_eggs: value });
-          updateEntryValue("easter_eggs", value);
+          // null (unset) restores the registry default — mirror the default
+          // (on), not null, so the All-settings row's `value === true` read
+          // and its modified dot agree with the General row's `!== false`.
+          updateEntryValue("easter_eggs", value === null ? true : value);
           // The trigger hook reads the store, not the fetched list — mirror the
           // committed value so the next automatic occasion respects the toggle
           // without a reload. null (unset) restores the registry default: on.
@@ -176,6 +193,7 @@ export function useSettingsRegistry(options?: {
           // Draft-less controls (toggle, select) must not snap back during
           // the round trip: apply optimistically, roll back on rejection.
           let prev: unknown = null;
+          committedRef.current.set(key, value);
           setEntries((cur) => {
             prev = cur.find((e) => e.key === key)?.value ?? null;
             return cur.map((e) => (e.key === key ? { ...e, value } : e));

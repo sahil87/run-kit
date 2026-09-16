@@ -577,20 +577,23 @@ test.describe("Settings dialog", () => {
 
   /**
    * Proves: the General tab's curated `Easter eggs` switch (This host,
-   * directly after Auto-name tabs) persists through the live API: it starts
-   * checked (the registry default is on), clicking it POSTs `easter_eggs:
-   * false` which `GET /api/settings` then serves back, and clicking again
-   * restores on. The restore runs in a `finally` so the per-run config root is
-   * left as found even on failure.
+   * directly after Auto-name tabs) persists through the live API: clicking it
+   * POSTs the negation of its current value which `GET /api/settings` then
+   * serves back, and clicking again round-trips to the initial value. The
+   * initial `aria-checked` is read, not assumed — interactive `just pw` runs
+   * against the developer's real config, which may already carry
+   * `easter_eggs: false`. The restore runs in a `finally` so the per-run
+   * config root is left as found even on failure.
    *
    * Steps:
    * 1. Navigate to `/rk-test-e2e` and wait for the Connected indicator.
    * 2. Open the dialog via the top-bar gear; assert the General tab is
-   *    selected and the `Easter eggs` switch is checked (default on).
+   *    selected and read the `Easter eggs` switch's `aria-checked` as the
+   *    initial value.
    * 3. Click the switch; poll `GET /api/settings` until its `easter_eggs`
-   *    entry reads `false`.
-   * 4. Finally: click the switch back on and poll `GET /api/settings` until
-   *    the entry reads `true` again.
+   *    entry reads the negation.
+   * 4. Finally: if the switch moved, click it back and poll
+   *    `GET /api/settings` until the entry reads the initial value again.
    */
   test("the General tab's Easter eggs switch persists through the live API (and restores)", async ({ page }) => {
     await gotoServerReady(page, TMUX_SERVER);
@@ -604,20 +607,20 @@ test.describe("Settings dialog", () => {
     );
 
     const toggle = dialog.locator("#settings-easter-eggs");
-    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    const initial = (await toggle.getAttribute("aria-checked")) === "true";
 
     try {
       await toggle.click();
       await expect
         .poll(() => pollSetting(page, "easter_eggs"), { timeout: 5_000 })
-        .toBe(false);
+        .toBe(!initial);
     } finally {
-      // Restore the default (on) so the run leaves the config root as found.
-      if ((await toggle.getAttribute("aria-checked")) === "false") {
+      // Restore the prior value so the run leaves the config root as found.
+      if ((await toggle.getAttribute("aria-checked")) === (initial ? "false" : "true")) {
         await toggle.click();
         await expect
           .poll(() => pollSetting(page, "easter_eggs"), { timeout: 5_000 })
-          .toBe(true);
+          .toBe(initial);
       }
     }
   });

@@ -187,7 +187,7 @@ describe("useSettingsRegistry — the easter_eggs store mirror", () => {
     expect(setEasterEggsEnabled).toHaveBeenCalledWith(false);
   });
 
-  it("null (unset) restores the registry default: the store goes back on", async () => {
+  it("null (unset) restores the registry default: the store and the entry go back on", async () => {
     getSettingsEntries.mockResolvedValue([eggEntry(false)]);
     postSettings.mockResolvedValue(undefined);
     const { result } = renderHook(() => useSettingsRegistry());
@@ -199,6 +199,30 @@ describe("useSettingsRegistry — the easter_eggs store mirror", () => {
 
     expect(postSettings).toHaveBeenCalledWith({ easter_eggs: null });
     expect(setEasterEggsEnabled).toHaveBeenCalledWith(true);
+    // The entry mirrors the registry default, not null — the All-settings
+    // row reads `value === true` and its modified dot compares against it.
+    expect(result.current.settingValue("easter_eggs")).toBe(true);
+  });
+
+  it("a mount fetch resolving after a commit does not overwrite the committed value", async () => {
+    let resolveFetch: (list: SettingsEntry[]) => void = () => {};
+    getSettingsEntries.mockReturnValue(
+      new Promise((res) => {
+        resolveFetch = res;
+      }),
+    );
+    postSettings.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useSettingsRegistry());
+
+    await act(async () => {
+      await result.current.commitSetting("easter_eggs", false);
+    });
+    // The fetch was issued before the commit and still serves the old value.
+    await act(async () => {
+      resolveFetch([eggEntry(true)]);
+    });
+
+    expect(result.current.settingValue("easter_eggs")).toBe(false);
   });
 
   it("a rejected POST leaves the store untouched", async () => {

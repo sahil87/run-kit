@@ -244,7 +244,9 @@ describe("QuakeTerminal", () => {
     // ends; the registration releases with the unmount, not the machine flip.
     stepMachine();
     expect(getQuakeMachineState()).toBe("rest");
-    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
+    // The unmount rides the slide's timeout fallback (jsdom fires no
+    // transitionend); give it headroom under full-suite load.
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull(), { timeout: 3000 });
     expect(overlayCount("modal")).toBe(0);
   });
 

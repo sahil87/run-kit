@@ -69,12 +69,12 @@ The following surfaces SHALL call `useOccludes("modal", <predicate>)` (the hook 
 
 ### Frontend: toast placement
 
-#### R8: Toasts anchor over the top-bar band, never on the stage
-`ToastContainer` in `toast.tsx` SHALL use `fixed top-2 right-2` (stack growing downward) in place of `bottom-4 right-4`; `role="alert"`, `aria-live`, the 4 s timer, variants, action button and `onDismiss` are unchanged. A comment states the constraint (a native web view paints over the stage) without history.
+#### R8: Toasts anchor over the status bar on desktop, never on the stage or the top bar
+`ToastContainer` in `toast.tsx` SHALL anchor `fixed bottom-1 right-2` on desktop (over the status bar's right end) and keep `fixed bottom-4 right-4` on mobile (`useIsMobile()` — no status bar and no native view there); `role="alert"`, `aria-live`, the 4 s timer, variants, action button and `onDismiss` are unchanged. The stack MUST NOT sit over the top bar, whose controls (the overflow chevron in particular) must stay hit-testable at every width. A comment states the constraint (a native web view paints over the stage) without history.
 
 - **GIVEN** a toast is added
 - **WHEN** the container renders
-- **THEN** its class list contains `top-2` and `right-2` and not `bottom-4`
+- **THEN** on desktop its class list contains `bottom-1` and `right-2` and no `top-` anchor; on mobile it contains `bottom-4 right-4`
 - **AND** every existing toast behavior test still passes
 
 ### Frontend: no behavior change for current viewers
@@ -101,9 +101,9 @@ No component SHALL read the registry to change rendering in this change; the ifr
 *Introduced by*: 260916-ter5-overlay-presence-registry
 
 #### Toasts live over chrome
-**Decision**: The toast stack anchors top-right over the top-bar band on every form factor.
-**Why**: A toast is not modal-class (it must not blank the page for 4 s) and clipping the guest around it reflows the page; the top bar exists on phones, browsers and the shell, while the status bar is desktop-only and shorter than a toast.
-**Rejected**: Bottom-right over the status bar (desktop-only, 24 px — the toast would straddle the stage); registering toasts as `modal` (hides the page on every notification); clipping (change 4's transient rule, and it reflows).
+**Decision**: On desktop the toast stack anchors bottom-right over the status bar's right end; on mobile it stays at the stage's bottom-right corner.
+**Why**: A toast is not modal-class (it must not blank the page for 4 s) and clipping the guest around it reflows the page. Every part of the top bar is interactive — a toast there blocks the overflow chevron, the gear and the heading for its whole life (the `top-bar-overflow` e2e contract caught this). The status bar's right end is the least interactive chrome; a toast straddles a few pixels into the stage there, which is the cheapest overlap available. Mobile has no status bar and no native view, so the stage corner costs nothing.
+**Rejected**: Top-right over the top bar (blocks the right cluster; failed the chevron hit-test); the top bar's center (the rename heading, the switcher and the quake launcher live there, and the center collapses below `sm`); registering toasts as `modal` (hides the page on every notification); clipping (change 4's transient rule, and it reflows).
 *Introduced by*: 260916-ter5-overlay-presence-registry
 
 ## Tasks
@@ -121,7 +121,7 @@ No component SHALL read the registry to change rendering in this change; the ifr
 - [x] T006 [P] Register the quake drawer: `useOccludes("modal", open)` in `quake-terminal.tsx`; add a `quake-terminal.test.tsx` case around open/close <!-- R6 -->
 - [x] T007 [P] Register the screen-break egg: `useOccludes("modal", flight !== null)` in `ScreenBreak` before its early return; add a `screen-break.test.tsx` case (1 during the flight, 0 after finish/unmount) <!-- R6 -->
 - [x] T008 [P] Register the mobile drawer: `useOccludes("modal", drawerActive)` in `shell/shell.tsx`; add a `shell.test.tsx` case (mobile+open registers, desktop open does not) <!-- R6 -->
-- [x] T009 [P] Move the toast stack to `fixed top-2 right-2` in `toast.tsx` with the constraint comment; add a `toast.test.tsx` class assertion <!-- R8 -->
+- [x] T009 [P] Move the toast stack in `toast.tsx` to `fixed bottom-1 right-2` on desktop (over the status bar) and keep `bottom-4 right-4` on mobile via `useIsMobile()`, with the constraint comment; add `toast.test.tsx` class assertions for both form factors <!-- R8 -->
 
 ### Phase 3: Integration & Edge Cases
 
@@ -136,7 +136,7 @@ No component SHALL read the registry to change rendering in this change; the ifr
 - [x] A-001 R1: `lib/overlay-presence.ts` exports the five functions and the `OverlayKind` type, imports no React, and its Vitest passes
 - [x] A-002 R5: `hooks/use-occludes.ts` acquires while `open` and releases on close and unmount; its Vitest passes
 - [x] A-003 R6: All seven surfaces (palette, dialog primitive, theme selector, cron sheet modal variant, quake drawer, screen-break, mobile drawer) call `useOccludes("modal", …)` with the hook above any early return
-- [x] A-004 R8: `ToastContainer` carries `fixed top-2 right-2` and no `bottom-4`
+- [x] A-004 R8: `ToastContainer` carries `fixed bottom-1 right-2` on desktop and `bottom-4 right-4` on mobile, never a `top-` anchor; `top-bar-overflow.spec` passes
 
 ### Behavioral Correctness
 

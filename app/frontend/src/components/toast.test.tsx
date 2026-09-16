@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, cleanup } from "@testing-library/react";
 import { ToastProvider, useToast } from "./toast";
+import { stubMatchMedia } from "@/test-utils/match-media";
 
 function TestConsumer({ onViewBoard }: { onViewBoard?: () => void } = {}) {
   const { addToast } = useToast();
@@ -30,6 +31,7 @@ describe("Toast system", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     cleanup();
   });
 
@@ -42,7 +44,8 @@ describe("Toast system", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("anchors the stack over the top-bar band, not the stage's bottom corner", () => {
+  it("on desktop anchors the stack over the status bar's right end, off the stage and off the top bar", () => {
+    stubMatchMedia(() => false);
     render(
       <ToastProvider>
         <TestConsumer />
@@ -56,9 +59,28 @@ describe("Toast system", () => {
     const container = screen.getByTestId("toast-stack");
     expect(container).toContainElement(screen.getByRole("alert"));
     expect(container.className).toContain("fixed");
-    expect(container.className).toContain("top-2");
+    expect(container.className).toContain("bottom-1");
     expect(container.className).toContain("right-2");
+    expect(container.className).not.toContain("top-");
     expect(container.className).not.toContain("bottom-4");
+  });
+
+  it("on mobile keeps the stack at the stage's bottom-right corner (no status bar, no native view)", () => {
+    stubMatchMedia((q) => q.includes("max-width"));
+    render(
+      <ToastProvider>
+        <TestConsumer />
+      </ToastProvider>,
+    );
+
+    act(() => {
+      screen.getByText("Error Toast").click();
+    });
+
+    const container = screen.getByTestId("toast-stack");
+    expect(container.className).toContain("bottom-4");
+    expect(container.className).toContain("right-4");
+    expect(container.className).not.toContain("top-");
   });
 
   it("shows a toast when addToast is called", () => {

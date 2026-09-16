@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 type ToastVariant = "error" | "info";
 
@@ -65,15 +66,19 @@ export function useOptionalToast(): ToastContextType | null {
 }
 
 function ToastContainer({ toasts, onRemove }: { toasts: ToastEntry[]; onRemove: (id: string) => void }) {
+  const isMobile = useIsMobile();
   if (toasts.length === 0) return null;
 
-  // Anchored over the top-bar band, never the stage corner: a native web view
-  // in the desktop shell paints above the SPA, so a toast on the stage would
-  // be hidden behind a web tile. The top bar exists on every form factor.
+  // Desktop: anchored over the status bar's right end, the least interactive
+  // chrome — a native web view in the desktop shell paints above the SPA, so
+  // a toast on the stage would be hidden behind a web tile, and a toast over
+  // the top bar blocks its controls. Mobile has no status bar and no native
+  // view, so the stage corner stays.
+  const anchor = isMobile ? "bottom-4 right-4" : "bottom-1 right-2";
   return (
     <div
       data-testid="toast-stack"
-      className="fixed top-2 right-2 z-50 flex flex-col gap-2 pointer-events-none"
+      className={`fixed ${anchor} z-50 flex flex-col gap-2 pointer-events-none`}
       aria-live="polite"
     >
       {toasts.map((toast) => (

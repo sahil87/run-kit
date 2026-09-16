@@ -142,7 +142,7 @@ A web tile's content can render in the shell's own Chromium rather than an ifram
 
 **Bounds park while a guest is hidden.** `setBounds` on a view hidden with `setVisible(false)` re-shows it (Electron 43 / Linux/X11), so `web:bounds` on a hidden guest records the rect only; `web:visible {true}` applies the recorded rect immediately before `setVisible(true)` in the same turn. Bounds are DIP coordinates relative to the host view, applied verbatim — the host view fills the window content area (`syncViewBounds`: `{0, 0, contentWidth, contentHeight}`), so host-view coordinates ARE `win.contentView` coordinates and no offset is added.
 
-**One relay channel, main→renderer.** `wireGuestRelay` sends every guest event to the OWNING host webContents (`webContents.fromId(hostContentsId)`, skipped silently when it is absent or destroyed) on `web:event` as `{ tabKey, kind, … }`, demuxed SPA-side by `tabKey`:
+**One relay channel, main→renderer.** `wireGuestRelay` sends every guest event to the OWNING host webContents (`webContents.fromId(hostContentsId)`, skipped silently when it is absent or destroyed — and skipped when the emitting guest is no longer the registry's current entry for its (hostContentsId, tabKey): teardown unregisters before `webContents.close()`, and a closing renderer's late loading/navigation/failure events must never reach a replacement guest created under the same tabKey) on `web:event` as `{ tabKey, kind, … }`, demuxed SPA-side by `tabKey`:
 
 | webContents event | `kind` | extra |
 |---|---|---|

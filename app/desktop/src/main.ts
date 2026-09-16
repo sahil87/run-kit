@@ -986,6 +986,14 @@ function destroyWindowViews(windowId: number): void {
  */
 function wireGuestRelay(contents: WebContents, hostContentsId: number, tabKey: string): void {
   const relay = (kind: string, extra: Record<string, unknown> = {}): void => {
+    // Only the registry's CURRENT guest for this (host, tabKey) may speak for
+    // it. Teardown unregisters before `webContents.close()`, and a closing
+    // renderer still emits did-stop-loading / did-fail-load / navigation
+    // events — with no identity check a replacement guest created under the
+    // same tabKey (web:create's replace-on-collision) would receive the dead
+    // guest's late events as its own.
+    const current = findWebViewBySender(webViews, hostContentsId, tabKey);
+    if (!current || current.webContentsId !== contents.id) return;
     const host = webContents.fromId(hostContentsId);
     if (!host || host.isDestroyed()) return;
     host.send("web:event", { tabKey, kind, ...extra });

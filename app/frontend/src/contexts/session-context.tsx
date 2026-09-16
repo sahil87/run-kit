@@ -603,9 +603,14 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // freshly-parsed (referentially-new) object, forcing a redundant
   // HostMetricsContext re-render.
   const hostMetricsPrevRef = useRef<string>("");
+  // Latest host snapshot, ref-backed so the stable socket handlers can seed a
+  // server slice that subscribes AFTER the last metrics frame arrived (the
+  // server now suppresses identical frames, so no later event would fill it).
+  const hostMetricsSnapRef = useRef<MetricsSnapshot | null>(null);
   const applyHostMetrics = useCallback((raw: string, snap: MetricsSnapshot): boolean => {
     if (raw === hostMetricsPrevRef.current) return false;
     hostMetricsPrevRef.current = raw;
+    hostMetricsSnapRef.current = snap;
     setHostMetrics(snap);
     return true;
   }, []);
@@ -1070,10 +1075,24 @@ export function SessionProvider({ children }: SessionProviderProps) {
         ackedServersRef.current.add(key);
         bumpReceiptTick(key);
         // The server ack snapshot is the sessions payload (parity with the
-        // first `event: sessions`). null means "no snapshot yet".
+        // first `event: sessions`). null means "no snapshot yet". The slice is
+        // also seeded with the retained host metrics: the hub broadcasts
+        // `metrics` only when it changed, so a server attached after the last
+        // frame (e.g. a sidebar server on `/`, whose cached replay preceded the
+        // attach) would otherwise hold a null metrics slice until the host
+        // snapshot next moves.
         const sessions = Array.isArray(snapshot) ? (snapshot as ProjectSession[]) : [];
+        const seedMetrics = hostMetricsSnapRef.current;
         startTransition(() => {
-          updateSlice(key, { sessions, isConnected: socketConnectedRef.current }, true);
+          updateSlice(
+            key,
+            {
+              sessions,
+              isConnected: socketConnectedRef.current,
+              ...(seedMetrics ? { metrics: seedMetrics } : {}),
+            },
+            true,
+          );
         });
       },
       onGone: (key) => {

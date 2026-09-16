@@ -176,57 +176,77 @@ func legacySettingsPath() (string, error) {
 	return filepath.Join(home, ".rk", "settings.yaml"), nil
 }
 
+// resolveSource names the settings file Load reads: config.yaml under the
+// config root when it can be opened as a regular file, else the legacy
+// ~/.rk/settings.yaml (skipped under the RK_CONFIG_DIR override), else
+// ("", false). Load and Stamp both go through it so they can never disagree
+// about the source — an unreadable or directory-shaped primary path falls
+// back to the legacy file for BOTH, otherwise Stamp would fingerprint a path
+// Load never parsed and later edits to the real source would go unnoticed.
+func resolveSource() (string, bool) {
+	p, err := configPath()
+	if err != nil {
+		return "", false
+	}
+	if readableFile(p) {
+		return p, true
+	}
+	if configRootOverridden() {
+		return "", false
+	}
+	legacy, lerr := legacySettingsPath()
+	if lerr != nil {
+		return "", false
+	}
+	if readableFile(legacy) {
+		return legacy, true
+	}
+	return "", false
+}
+
+// readableFile reports whether path opens as a regular file — the same
+// condition under which os.ReadFile succeeds, probed without reading it.
+func readableFile(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	return err == nil && fi.Mode().IsRegular()
+}
+
 // Load reads config.yaml from the config root (see Dir) and returns the
 // parsed Settings. When that file is unreadable, it falls back to the legacy
 // ~/.rk/settings.yaml (same format — skipped under the RK_CONFIG_DIR
 // override); when both are absent or unreadable it returns Default().
 func Load() Settings {
-	p, err := configPath()
-	if err != nil {
+	p, ok := resolveSource()
+	if !ok {
 		return Default()
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
-		if configRootOverridden() {
-			return Default()
-		}
-		legacy, lerr := legacySettingsPath()
-		if lerr != nil {
-			return Default()
-		}
-		data, err = os.ReadFile(legacy)
-		if err != nil {
-			return Default()
-		}
+		return Default()
 	}
 	return parse(string(data))
 }
 
 // Stamp returns a change fingerprint of the settings file Load would read:
-// path + mtime + size of config.yaml, falling back to the legacy
-// ~/.rk/settings.yaml exactly as Load does (skipped under the RK_CONFIG_DIR
-// override). An absent file yields the stable empty fingerprint, so "no file"
-// never reads as a change. Callers use it as a cheap stat gate to re-parse
-// only when the file changed.
+// path + mtime + size of the source resolveSource picks, so the fallback to
+// the legacy file is identical to Load's. An absent or unreadable source
+// yields the stable empty fingerprint, so "no file" never reads as a change.
+// Callers use it as a cheap stat gate to re-parse only when the file changed.
 func Stamp() string {
-	p, err := configPath()
+	p, ok := resolveSource()
+	if !ok {
+		return ""
+	}
+	fi, err := os.Stat(p)
 	if err != nil {
 		return ""
 	}
-	if fi, serr := os.Stat(p); serr == nil {
-		return stampString(p, fi)
-	}
-	if configRootOverridden() {
-		return ""
-	}
-	legacy, lerr := legacySettingsPath()
-	if lerr != nil {
-		return ""
-	}
-	if fi, serr := os.Stat(legacy); serr == nil {
-		return stampString(legacy, fi)
-	}
-	return ""
+	return stampString(p, fi)
 }
 
 // stampString renders the fingerprint for one stat-ed file.

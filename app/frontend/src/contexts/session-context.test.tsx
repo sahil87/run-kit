@@ -682,6 +682,27 @@ describe("SessionProvider — server-independent host metrics", () => {
     expect(sliceRenders).toBeGreaterThan(sliceRendersAfterFirst);
   });
 
+  it("seeds a server attached after the last metrics frame from the retained host snapshot", async () => {
+    // On `/` the cached metrics replay lands before any server is attached.
+    // The hub suppresses identical `metrics` frames, so the later server
+    // subscription must be seeded from the retained snapshot — its ack carries
+    // only sessions and no metrics event follows until the host snapshot moves.
+    vi.mocked(listServers).mockResolvedValue([{ name: "work", sessionCount: 0 }]);
+    setMockMatches([]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => { WS.forHostMetrics()!.emit("metrics", FAKE_METRICS); });
+    expect(result.current.metricsByServer.get("work")).toBeUndefined();
+
+    await act(async () => {
+      result.current.attachServer("work");
+    });
+    act(() => { WS.forServer("work")!.emit("sessions", []); });
+
+    expect(result.current.metricsByServer.get("work")?.hostname).toBe("test-box");
+  });
+
   it("opens the metrics subscription on / then drops it once a server attaches", async () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
     setMockMatches([{ params: {} }]);

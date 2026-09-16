@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { applyWorkerRig } from "./tests/e2e/_rig";
+import { applyWorkerRig, rigCount } from "./tests/e2e/_rig";
 
 // Multi-rig lane: inside a worker process this re-points the harness env
 // vars at the worker's own rig. It MUST run before the first env read below
@@ -12,10 +12,11 @@ applyWorkerRig();
 // 3333 is the fail-closed connect-to-nothing fallback.
 const port = Number(process.env.E2E_PORT ?? "3333");
 
-// Worker pool size, harness-set (RK_E2E_WORKERS). Anything but a positive
-// integer means the single-rig lane: one worker.
-const workersRaw = Number(process.env.RK_E2E_WORKERS ?? "1");
-const workers = Number.isInteger(workersRaw) && workersRaw >= 1 ? workersRaw : 1;
+// Worker pool size = the number of rigs the harness actually started
+// (E2E_RIGS rows), never RK_E2E_WORKERS by itself: a worker with no rig of
+// its own would share rig 0 and reintroduce the SSE cross-talk race. No rig
+// table (bare `playwright test`, `just pw`) means one worker.
+const workers = Math.max(1, rigCount());
 
 export default defineConfig({
   testDir: "./tests/e2e",

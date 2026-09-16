@@ -35,11 +35,29 @@ interface Rig {
   stateHome: string;
 }
 
-export function applyWorkerRig(): void {
+function readRigs(): Rig[] {
   const raw = process.env.E2E_RIGS;
+  if (!raw) return [];
+  const rigs = JSON.parse(raw) as unknown;
+  if (!Array.isArray(rigs)) {
+    throw new Error("E2E_RIGS is not a JSON array — the harness rig table is malformed");
+  }
+  return rigs as Rig[];
+}
+
+/** How many rigs the harness started — the Playwright worker pool must never
+ *  be wider than this, or two workers would share a rig. 0 when the harness
+ *  passed no table (a bare `playwright test` or the interactive `just pw`
+ *  lane), which the config treats as one worker. */
+export function rigCount(): number {
+  return readRigs().length;
+}
+
+export function applyWorkerRig(): void {
   const index = process.env.TEST_PARALLEL_INDEX;
-  if (!raw || index === undefined) return;
-  const rigs = JSON.parse(raw) as Rig[];
+  if (index === undefined) return;
+  const rigs = readRigs();
+  if (rigs.length === 0) return;
   const rig = rigs[Number(index)];
   if (!rig) {
     throw new Error(

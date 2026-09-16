@@ -14,7 +14,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
 		"instance_name", "auto_name", "cron_ticker", "gui.enabled", "gui.wm", "gui.geometry",
-		"tmux_conf", "log_level", "server_colors", "server_flairs", "board_order",
+		"tmux_conf", "log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
 	}
 	if len(infos) != len(wantKeys) {
 		t.Fatalf("Registry() returned %d entries, want %d", len(infos), len(wantKeys))
@@ -46,6 +46,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 		{"server_colors", "map", "{}", "appearance", true, true, nil},
 		{"server_flairs", "map", "{}", "appearance", true, true, nil},
 		{"board_order", "list", "[]", "layout", true, true, nil},
+		{"riff_presets", "map", `{"blank":"","discuss":"/fab-discuss","incognito":"/fab-incognito"}`, "behavior", false, true, nil},
 	}
 	for _, c := range checks {
 		info, ok := byKey[c.key]
@@ -104,6 +105,7 @@ func TestReadValue_defaultSettings(t *testing.T) {
 		{"server_colors", map[string]string(nil)},
 		{"server_flairs", map[string]string(nil)},
 		{"board_order", []string(nil)},
+		{"riff_presets", map[string]string(nil)},
 	}
 	for _, c := range cases {
 		got, ok := ReadValue(&s, c.key)
@@ -282,4 +284,99 @@ func TestApplyValue_unknownKey(t *testing.T) {
 	if err := ApplyValue(&s, "bogus_key", json.RawMessage(`1`)); err == nil {
 		t.Fatal("ApplyValue(bogus_key) succeeded, want error")
 	}
+}
+
+// TestApplyValue_riffPresets pins the riff_presets per-entry merge: additions
+// and built-in overrides set, entry null unsets, a non-object body and a
+// malformed preset name are rejected without mutation.
+func TestApplyValue_riffPresets(t *testing.T) {
+	s := Default()
+
+	// Add a user preset and override a built-in's value.
+	if err := ApplyValue(&s, "riff_presets", json.RawMessage(`{"review": "/code-review high", "blank": "/fab-discuss"}`)); err != nil {
+		t.Fatalf("apply riff_presets: %v", err)
+	}
+	want := map[string]string{"review": "/code-review high", "blank": "/fab-discuss"}
+	if !reflect.DeepEqual(s.RiffPresets, want) {
+		t.Fatalf("riff_presets = %v, want %v", s.RiffPresets, want)
+	}
+
+	// Entry null unsets just that entry.
+	if err := ApplyValue(&s, "riff_presets", json.RawMessage(`{"review": null}`)); err != nil {
+		t.Fatalf("apply riff_presets null entry: %v", err)
+	}
+	if !reflect.DeepEqual(s.RiffPresets, map[string]string{"blank": "/fab-discuss"}) {
+		t.Errorf("riff_presets after unset = %v, want {blank: /fab-discuss}", s.RiffPresets)
+	}
+
+	// A non-object body is rejected without mutation.
+	if err := ApplyValue(&s, "riff_presets", json.RawMessage(`"not an object"`)); err == nil {
+		t.Fatal("ApplyValue(riff_presets, string) succeeded, want error")
+	}
+	if !reflect.DeepEqual(s.RiffPresets, map[string]string{"blank": "/fab-discuss"}) {
+		t.Errorf("riff_presets mutated on rejection: %v", s.RiffPresets)
+	}
+
+	// A malformed preset name is rejected (strict write) without mutation.
+	if err := ApplyValue(&s, "riff_presets", json.RawMessage(`{"-bad": "/x"}`)); err == nil {
+		t.Fatal("ApplyValue(riff_presets, bad name) succeeded, want error")
+	}
+	if err := ApplyValue(&s, "riff_presets", json.RawMessage(`{"bad name": "/x"}`)); err == nil {
+		t.Fatal("ApplyValue(riff_presets, spaced name) succeeded, want error")
+	}
+	if !reflect.DeepEqual(s.RiffPresets, map[string]string{"blank": "/fab-discuss"}) {
+		t.Errorf("riff_presets mutated on bad-name rejection: %v", s.RiffPresets)
+	}
+
+	// Top-level null clears the whole map.
+	if err := ApplyValue(&s, "riff_presets", json.RawMessage(`null`)); err != nil {
+		t.Fatalf("apply riff_presets null: %v", err)
+	}
+	if s.RiffPresets != nil {
+		t.Errorf("riff_presets after top-level null = %v, want nil", s.RiffPresets)
+	}
+}
+
+// TestRiffPresetsMergedView pins the merged accessor: built-ins first in
+// canonical order (an override keeps BuiltIn with the user's value), user
+// additions sorted after; never empty.
+func TestRiffPresetsMergedView(t *testing.T) {
+	t.Run("empty user map returns the three built-ins in canonical order", func(t *testing.T) {
+		got := RiffPresets(Default())
+		want := []RiffPreset{
+			{Name: "discuss", Skill: "/fab-discuss", BuiltIn: true},
+			{Name: "incognito", Skill: "/fab-incognito", BuiltIn: true},
+			{Name: "blank", Skill: "", BuiltIn: true},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("RiffPresets(Default()) = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("override keeps BuiltIn, additions sort after", func(t *testing.T) {
+		s := Default()
+		s.RiffPresets = map[string]string{"blank": "/fab-discuss", "review": "/code-review high"}
+		got := RiffPresets(s)
+		want := []RiffPreset{
+			{Name: "discuss", Skill: "/fab-discuss", BuiltIn: true},
+			{Name: "incognito", Skill: "/fab-incognito", BuiltIn: true},
+			{Name: "blank", Skill: "/fab-discuss", BuiltIn: true},
+			{Name: "review", Skill: "/code-review high", BuiltIn: false},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("RiffPresets() = %+v, want %+v", got, want)
+		}
+		m := RiffPresetMap(got)
+		if m["blank"] != "/fab-discuss" || m["review"] != "/code-review high" || len(m) != 4 {
+			t.Errorf("RiffPresetMap() = %v", m)
+		}
+	})
+
+	t.Run("LoadRiffPresets on an isolated empty root returns the built-ins", func(t *testing.T) {
+		t.Setenv(ConfigDirEnv, t.TempDir())
+		got := LoadRiffPresets()
+		if len(got) != len(BuiltinRiffPresets) {
+			t.Fatalf("LoadRiffPresets() = %d presets, want %d built-ins", len(got), len(BuiltinRiffPresets))
+		}
+	})
 }

@@ -53,36 +53,32 @@ rk riff --skill /a --cmd x --cmd y --layout main-vertical
 
 ## Presets
 
-Define common pane shapes in `fab/project/config.yaml` under `riff.presets.<name>`:
+Three built-in presets ship with the binary: `discuss` (→ `/fab-discuss`), `incognito` (→ `/fab-incognito`), and `blank` (a bare agent, nothing typed into it). Add your own — or override a built-in's skill — under `riff_presets` in `~/.config/run-kit/config.yaml`:
 
 ```yaml
-riff:
-  presets:
-    ship:
-      layout: main-vertical
-      panes:
-        - skill: /fab-fff
-        - cmd: just dev
-        - cmd: just test-e2e --ui
-      wt_args: ["--base", "main"]
+riff_presets:
+  review: "/code-review high"   # an addition: rk riff review
+  blank: "/fab-discuss"         # an override of the built-in
 ```
+
+Each preset is exactly one skill pane (`""` = a bare agent).
 
 Invoke by name (positional or via `--preset`):
 
 ```bash
-rk riff ship                # positional preset name
-rk riff --preset ship       # explicit form
-rk riff --list-presets      # list all defined presets
+rk riff incognito           # positional preset name
+rk riff --preset blank      # explicit form
+rk riff --list-presets      # list the merged presets (built-ins + user)
 ```
 
-CLI `--skill` / `--cmd` flags **replace** the preset's panes entirely; CLI `--layout` overrides the preset's layout.
+CLI `--skill` / `--cmd` flags **replace** the preset's pane entirely.
 
 ## Parallel spawning with `--count`
 
 `-N <N>` (or `--count <N>`) creates N worktree/window pairs in parallel, each with the same pane shape:
 
 ```bash
-rk riff ship --count 3      # 3 parallel ship workspaces
+rk riff discuss --count 3   # 3 parallel discuss workspaces
 rk riff -N 5 --skill /fab-fff
 ```
 

@@ -40,7 +40,7 @@ import (
 	"sync"
 	"time"
 
-	"rk/internal/fabconfig"
+	"rk/internal/settings"
 	"rk/internal/tmux"
 )
 
@@ -51,7 +51,7 @@ const (
 	WtTimeout        = 30 * time.Second
 	TmuxTimeout      = 10 * time.Second
 	FabTimeout       = 10 * time.Second
-	DefaultRiffSkill = "/fab-discuss"
+	DefaultRiffSkill = settings.RiffDiscussSkill // the built-in `discuss` preset's value — one source for the bare `rk riff` default
 	DefaultLauncher  = "claude --dangerously-skip-permissions"
 )
 
@@ -98,10 +98,11 @@ type PaneSpec struct {
 	Value string
 }
 
-// Pane-kind constants, aliased from fabconfig so there's a single source of truth.
+// Pane-kind constants for PaneSpec.Kind, riff-owned (the engine's single
+// source of truth).
 const (
-	PaneKindSkill = fabconfig.PaneKindSkill
-	PaneKindCmd   = fabconfig.PaneKindCmd
+	PaneKindSkill = "skill"
+	PaneKindCmd   = "cmd"
 )
 
 // EffectiveSpec is the fully-resolved plan for spawning riff windows on a
@@ -169,7 +170,7 @@ type Options struct {
 	Session  string // target session the window is created in (scopes tmux window ops)
 	RepoRoot string // repo root for wt create / launcher resolution (required)
 	Task     string // optional task text → launcher positional arg (auto-submits)
-	Preset   string // optional preset name from the repo's fab/project/config.yaml
+	Preset   string // optional preset name from run-kit's riff_presets (built-ins + user)
 	// Where selects isolation: "checkout" opens the window directly in RepoRoot
 	// (no worktree); "worktree" or "" (default) creates a worktree first.
 	Where string
@@ -220,17 +221,22 @@ const (
 	whereCheckout = "checkout"
 )
 
+// loadRiffPresets is the preset-source seam (production: the settings-backed
+// merged view) — tests inject a fixed table without touching the config root.
+var loadRiffPresets = settings.LoadRiffPresets
+
 // Spawn is the single-window entry used by the HTTP handler. It resolves the
-// launcher (rooted at opts.RepoRoot), resolves the preset (if named) from the
-// repo config, composes the effective pane spec per the task/preset rules
-// (R6/R7), then runs the wt+tmux spawn sequence once and returns the created
-// window's identity.
+// launcher (rooted at opts.RepoRoot), resolves the preset (if named) from
+// run-kit's riff_presets (built-ins + user), composes the effective pane spec
+// per the task/preset rules (R6/R7), then runs the wt+tmux spawn sequence once
+// and returns the created window's identity.
 //
 // Pane composition:
 //   - task non-empty  → a single skill pane with Task as the launcher arg
-//     (replaces any preset panes; the preset still contributes layout+wt_args).
-//   - task empty, preset panes present → the preset panes.
-//   - task empty, no preset panes      → a single BARE skill pane (blank agent).
+//     (replaces the preset's pane).
+//   - task empty, preset → the preset's single skill pane (empty skill = bare
+//     launcher).
+//   - task empty, no preset → a single BARE skill pane (blank agent).
 //
 // Isolation (opts.Where):
 //   - "worktree" (or "", default) → `wt create` (optionally --worktree-name) then
@@ -263,22 +269,22 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, err
 	}
 
-	var preset *fabconfig.Preset
+	var preset *Preset
 	if opts.Preset != "" {
-		presets := fabconfig.ReadPresets(opts.RepoRoot)
-		p, ok := presets[opts.Preset]
+		available := settings.RiffPresetMap(loadRiffPresets())
+		skill, ok := available[opts.Preset]
 		if !ok {
-			return Result{}, ValidationErr("run-kit riff: unknown preset %q (defined: %s)", opts.Preset, joinPresetNames(presets))
+			return Result{}, ValidationErr("run-kit riff: unknown preset %q (defined: %s)", opts.Preset, joinPresetNames(available))
 		}
-		preset = &p
+		preset = &Preset{Name: opts.Preset, Skill: skill}
 	}
 
 	// composePanes maps the (task, preset) pair to the endpoint's CLI-pane input
 	// for ResolveEffectiveSpec (the blank-agent-vs-/fab-discuss distinction).
 	cliPanes := composePanes(opts.Task, preset)
 
-	// layoutExplicit=false so a preset layout (when present) wins; auto-by-count
-	// otherwise. The endpoint exposes no --layout, so the CLI never forces one.
+	// layoutExplicit=false (the endpoint exposes no --layout) so the layout is
+	// auto-by-count; a single pane forces "" either way.
 	spec, err := ResolveEffectiveSpec(cliPanes, false, "auto", 1, preset, nil)
 	if err != nil {
 		return Result{}, err

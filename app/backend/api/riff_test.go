@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"rk/internal/riff"
+	"rk/internal/settings"
 	"rk/internal/tmux"
 )
 
@@ -339,7 +340,7 @@ func TestRiffSpawnSessionReadError(t *testing.T) {
 func TestRiffSpawnUnknownPreset(t *testing.T) {
 	repo := gitRepoDir(t)
 	ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
-	engine := &mockRiffEngine{err: riff.ValidationErr("run-kit riff: unknown preset %q (defined: %s)", "nope", "(none)")}
+	engine := &mockRiffEngine{err: riff.ValidationErr("run-kit riff: unknown preset %q (defined: %s)", "nope", "blank, discuss, incognito")}
 	rec := postRiff(t, ops, engine, `{"preset":"nope","session":"mysess"}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
@@ -361,6 +362,10 @@ func TestRiffSpawnSubprocessError(t *testing.T) {
 
 func getRiffPresets(t *testing.T, ops *mockTmuxOps, session string) *httptest.ResponseRecorder {
 	t.Helper()
+	// Isolate the config root so the default preset source (the settings-backed
+	// merged view) deterministically returns the built-ins; tests wanting a
+	// custom table override the seam via stubLoadRiffPresets.
+	t.Setenv(settings.ConfigDirEnv, t.TempDir())
 	router := newTestRouterWithRiff(&mockSessionFetcher{}, ops, &mockRiffEngine{})
 	req := httptest.NewRequest(http.MethodGet, "/api/riff/presets?server=work&session="+session, nil)
 	rec := httptest.NewRecorder()
@@ -368,22 +373,22 @@ func getRiffPresets(t *testing.T, ops *mockTmuxOps, session string) *httptest.Re
 	return rec
 }
 
-// TestRiffPresetsSuccess: a repo with two presets returns them in YAML source
-// order, each {name, layout, paneCount}.
+// stubLoadRiffPresets points the presets endpoint's source seam at a fixed
+// table for the test's duration.
+func stubLoadRiffPresets(t *testing.T, presets []settings.RiffPreset) {
+	t.Helper()
+	orig := loadRiffPresets
+	loadRiffPresets = func() []settings.RiffPreset { return presets }
+	t.Cleanup(func() { loadRiffPresets = orig })
+}
+
+// TestRiffPresetsSuccess: the endpoint returns the merged presets — the three
+// built-ins in canonical order, then user additions — each {name, layout: "",
+// paneCount: 1} (every preset is exactly one skill pane).
 func TestRiffPresetsSuccess(t *testing.T) {
 	repo := gitRepoDir(t)
-	writeFabConfig(t, repo, `riff:
-  presets:
-    ship:
-      layout: deck-h
-      panes:
-        - skill: "/fab-fff"
-        - cmd: "just dev"
-    investigate:
-      layout: v
-      panes:
-        - skill: "/fab-discuss"
-`)
+	stubLoadRiffPresets(t, append(append([]settings.RiffPreset{}, settings.BuiltinRiffPresets...),
+		settings.RiffPreset{Name: "review", Skill: "/code-review high"}))
 	ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
 
 	rec := getRiffPresets(t, ops, "mysess")
@@ -396,18 +401,17 @@ func TestRiffPresetsSuccess(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(got.Presets) != 2 {
-		t.Fatalf("presets = %v, want 2", got.Presets)
+	wantNames := []string{"discuss", "incognito", "blank", "review"}
+	if len(got.Presets) != len(wantNames) {
+		t.Fatalf("presets = %v, want %d", got.Presets, len(wantNames))
 	}
-	// Source order: ship before investigate.
-	if got.Presets[0].Name != "ship" || got.Presets[1].Name != "investigate" {
-		t.Errorf("preset order = [%s, %s], want [ship, investigate]", got.Presets[0].Name, got.Presets[1].Name)
-	}
-	if got.Presets[0].Layout != "deck-h" || got.Presets[0].PaneCount != 2 {
-		t.Errorf("ship summary = %+v, want layout deck-h, paneCount 2", got.Presets[0])
-	}
-	if got.Presets[1].Layout != "v" || got.Presets[1].PaneCount != 1 {
-		t.Errorf("investigate summary = %+v, want layout v, paneCount 1", got.Presets[1])
+	for i, want := range wantNames {
+		if got.Presets[i].Name != want {
+			t.Errorf("presets[%d].Name = %q, want %q (canonical order, additions last)", i, got.Presets[i].Name, want)
+		}
+		if got.Presets[i].Layout != "" || got.Presets[i].PaneCount != 1 {
+			t.Errorf("presets[%d] = %+v, want layout \"\" and paneCount 1", i, got.Presets[i])
+		}
 	}
 }
 
@@ -447,11 +451,12 @@ func TestRiffPresetsTiers(t *testing.T) {
 	}
 }
 
-// TestRiffPresetsEmpty: a repo with no presets returns 200 with an empty list.
-// A gitRepoDir with no fab config is ALSO a non-fab project, so tiers is [] too
-// (the tier gate — see TestRiffPresetsNonFabRepoTiersEmpty for the dedicated
-// gate assertion).
-func TestRiffPresetsEmpty(t *testing.T) {
+// TestRiffPresetsBuiltinsOnly: with no user config the endpoint returns the
+// three built-ins in canonical order — the list is never empty. A gitRepoDir
+// with no fab config is ALSO a non-fab project, so tiers is [] too (the tier
+// gate — see TestRiffPresetsNonFabRepoTiersEmpty for the dedicated gate
+// assertion).
+func TestRiffPresetsBuiltinsOnly(t *testing.T) {
 	repo := gitRepoDir(t) // no fab config → non-fab project
 	ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
 	rec := getRiffPresets(t, ops, "mysess")
@@ -465,11 +470,14 @@ func TestRiffPresetsEmpty(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.Presets == nil {
-		t.Error("presets should be [] (non-nil), not null")
+	wantNames := []string{"discuss", "incognito", "blank"}
+	if len(got.Presets) != len(wantNames) {
+		t.Fatalf("presets = %v, want the 3 built-ins", got.Presets)
 	}
-	if len(got.Presets) != 0 {
-		t.Errorf("presets = %v, want empty", got.Presets)
+	for i, want := range wantNames {
+		if got.Presets[i].Name != want {
+			t.Errorf("presets[%d].Name = %q, want %q", i, got.Presets[i].Name, want)
+		}
 	}
 	if got.Tiers == nil {
 		t.Error("tiers should be [] (non-nil), not null, on a non-fab repo")

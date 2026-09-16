@@ -253,6 +253,25 @@ func TestParseOptionalSettings(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:  "riff presets keep empty values and skip malformed names",
+			input: "riff_presets:\n  review: \"/code-review high\"\n  blank: \"\"\n  \"bad name\": \"/x\"\n  -bad: \"/y\"\n",
+			check: func(t *testing.T, s Settings) {
+				want := map[string]string{"review": "/code-review high", "blank": ""}
+				if !reflect.DeepEqual(s.RiffPresets, want) {
+					t.Errorf("RiffPresets = %v, want %v (empty value survives; malformed names skipped)", s.RiffPresets, want)
+				}
+			},
+		},
+		{
+			name:  "missing riff presets",
+			input: "theme: dracula\n",
+			check: func(t *testing.T, s Settings) {
+				if s.RiffPresets != nil {
+					t.Errorf("RiffPresets = %v, want nil", s.RiffPresets)
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -350,6 +369,14 @@ func TestSerializeOptionalSettings(t *testing.T) {
 				s.ServerFlairs = map[string]string{"default": "nyan", "dev": "cube"}
 			},
 			want: "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nserver_flairs:\n  default: \"nyan\"\n  dev: \"cube\"\n",
+		},
+		{
+			name: "riff presets serialize sorted and quoted, after board_order",
+			mutate: func(s *Settings) {
+				s.BoardOrder = []string{"reviews"}
+				s.RiffPresets = map[string]string{"review": "/code-review high", "blank": ""}
+			},
+			want: "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nboard_order:\n  - \"reviews\"\nriff_presets:\n  blank: \"\"\n  review: \"/code-review high\"\n",
 		},
 		{
 			name:   "board order",
@@ -485,6 +512,11 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 		"server_flairs": stringValueFixture("cube", "warp", func(v *string) error {
 			return SetServerFlair("default", v)
 		}, func() *string { return GetServerFlair("default") }),
+		// Map-kind entries merge per entry, so each patch asserts the merged map.
+		"riff_presets": registryValueFixture(
+			`{"review": "/code-review high"}`, map[string]string{"review": "/code-review high"},
+			`{"blank": "/fab-discuss"}`, map[string]string{"review": "/code-review high", "blank": "/fab-discuss"},
+			map[string]string(nil)),
 		"board_order": func(t *testing.T, _ *registryEntry) {
 			t.Setenv("HOME", t.TempDir())
 			if got := GetBoardOrder(); got != nil {

@@ -20,6 +20,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/cron"
 	"rk/internal/daemon"
+	"rk/internal/fabconfig"
 	"rk/internal/gui"
 	"rk/internal/mcp"
 	"rk/internal/settings"
@@ -176,6 +177,20 @@ func runDoctorChecks() doctorReport {
 		}
 	}
 
+	// Stale project riff: block — the preset layer moved to run-kit's own
+	// riff_presets setting, so a leftover top-level riff: key in the cwd repo's
+	// fab/project/config.yaml is silently ignored at spawn. Advisory only,
+	// WARN-shaped (the removedEnvCheck "second return false → no row" pattern,
+	// but never flipping the verdict — a third-party repo's stale config must
+	// not fail rk doctor).
+	if cwd, err := os.Getwd(); err == nil {
+		if repoRoot := config.FindGitRoot(cwd); repoRoot != "" && fabconfig.IsFabProject(repoRoot) {
+			if c, ok := riffPresetsBlockCheck(repoRoot, fabconfig.HasTopLevelKey); ok {
+				report.Checks = append(report.Checks, c)
+			}
+		}
+	}
+
 	return report
 }
 
@@ -265,6 +280,22 @@ func removedEnvCheck() (doctorCheck, bool) {
 		OK:        false,
 		Hint:      "RK_SSH_HOST is no longer read — set the ssh_host key in ~/.config/run-kit/config.yaml",
 		failLabel: "RK_SSH_HOST set but ignored",
+	}, true
+}
+
+// riffPresetsBlockCheck advises when the repo's fab/project/config.yaml still
+// carries a top-level riff: key — rk no longer reads it (presets live under
+// riff_presets in ~/.config/run-kit/config.yaml). WARN-shaped: OK with a Note,
+// never a verdict flipper. The second return value is false when the key is
+// absent — no row, no noise (the removedEnvCheck pattern).
+func riffPresetsBlockCheck(repoRoot string, hasKey func(string, string) bool) (doctorCheck, bool) {
+	if !hasKey(repoRoot, "riff") {
+		return doctorCheck{}, false
+	}
+	return doctorCheck{
+		Name: "riff presets",
+		OK:   true,
+		Note: "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/run-kit/config.yaml",
 	}, true
 }
 

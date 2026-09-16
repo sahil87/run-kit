@@ -170,7 +170,8 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
         />
       </div>
 
-      {/* Preset — only shown when the repo defines presets. */}
+      {/* Preset — hidden only when the preflight fetch failed; a live backend
+          always returns the riff_presets built-ins. */}
       {presets.length > 0 && (
         <div className="mb-3">
           <p className="text-xs text-text-secondary mb-1.5">Preset (optional):</p>

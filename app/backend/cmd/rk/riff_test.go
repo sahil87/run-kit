@@ -16,8 +16,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"rk/internal/fabconfig"
 	"rk/internal/riff"
+	"rk/internal/settings"
 	"rk/internal/testutil"
 )
 
@@ -180,52 +180,67 @@ func freshPaneFlagSet(skill, cmd *paneFlag) *pflag.FlagSet {
 	return fs
 }
 
-// TestPrintPresets covers the empty-map and multi-preset rendering (CLI-side).
+// TestPrintPresets covers the merged-list rendering (CLI-side): the built-in
+// markers in canonical order, the overridden marker, a user addition without a
+// marker, and the bare "" skill rendering.
 func TestPrintPresets(t *testing.T) {
-	t.Run("empty map prints no-presets line", func(t *testing.T) {
+	t.Run("built-ins carry the marker in canonical order", func(t *testing.T) {
 		var buf bytes.Buffer
-		if err := printPresets(map[string]fabconfig.Preset{}, &buf, ""); err != nil {
+		if err := printPresets(settings.BuiltinRiffPresets, &buf); err != nil {
 			t.Fatalf("err: %v", err)
 		}
-		if !strings.Contains(buf.String(), "No presets defined in fab/project/config.yaml") {
-			t.Errorf("output missing no-presets line: %q", buf.String())
+		want := `discuss: (built-in)
+  panes:
+    - skill: /fab-discuss
+
+incognito: (built-in)
+  panes:
+    - skill: /fab-incognito
+
+blank: (built-in)
+  panes:
+    - skill: ""
+`
+		if buf.String() != want {
+			t.Errorf("output = %q, want %q", buf.String(), want)
 		}
 	})
 
-	t.Run("two presets render all fields", func(t *testing.T) {
-		// Change into a tempdir with no fab/project/config.yaml so the
-		// ordered-read fallback path kicks in (alphabetical order).
-		restore := chdir(t, t.TempDir())
-		defer restore()
-
-		presets := map[string]fabconfig.Preset{
-			"ship": {
-				Layout: "deck-h",
-				Panes: []fabconfig.PaneSpec{
-					{Kind: fabconfig.PaneKindSkill, Skill: "/fab-fff"},
-					{Kind: fabconfig.PaneKindCmd, Cmd: "just dev"},
-				},
-				WtArgs: []string{"--base", "main"},
-			},
-			"bare": {
-				Layout: "",
-				Panes:  nil,
-			},
-		}
+	t.Run("overridden built-in and user addition", func(t *testing.T) {
+		presets := append([]settings.RiffPreset{}, settings.BuiltinRiffPresets...)
+		presets[2].Skill = "/fab-discuss" // blank overridden to a real skill
+		presets = append(presets, settings.RiffPreset{Name: "review", Skill: "/code-review high"})
 		var buf bytes.Buffer
-		if err := printPresets(presets, &buf, ""); err != nil {
+		if err := printPresets(presets, &buf); err != nil {
 			t.Fatalf("err: %v", err)
 		}
 		out := buf.String()
-		for _, want := range []string{"ship:", "bare:", "/fab-fff", "just dev", "--base", "main", "layout: deck-h"} {
+		for _, want := range []string{
+			"blank: (built-in, overridden)",
+			"review:\n  panes:\n    - skill: /code-review high",
+		} {
 			if !strings.Contains(out, want) {
 				t.Errorf("output missing %q; got: %s", want, out)
 			}
 		}
-		bareIdx := strings.Index(out, "bare:")
-		shipIdx := strings.Index(out, "ship:")
-		if bareIdx < 0 || shipIdx < 0 || bareIdx > shipIdx {
-			t.Errorf("alphabetical order failed: bare=%d ship=%d", bareIdx, shipIdx)
+		if strings.Contains(out, "review: (built-in)") {
+			t.Errorf("user addition must not carry a built-in marker; got: %s", out)
+		}
+		if strings.Contains(out, "layout:") || strings.Contains(out, "wt_args:") {
+			t.Errorf("output must not carry layout/wt_args lines; got: %s", out)
+		}
+	})
+
+	t.Run("an empty config still lists the built-ins", func(t *testing.T) {
+		t.Setenv("RK_CONFIG_DIR", t.TempDir())
+		var buf bytes.Buffer
+		if err := printPresets(settings.LoadRiffPresets(), &buf); err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		for _, name := range []string{"discuss: (built-in)", "incognito: (built-in)", "blank: (built-in)"} {
+			if !strings.Contains(buf.String(), name) {
+				t.Errorf("output missing %q; got: %s", name, buf.String())
+			}
 		}
 	})
 }

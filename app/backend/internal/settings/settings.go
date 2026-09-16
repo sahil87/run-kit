@@ -68,6 +68,12 @@ type Settings struct {
 	// (the sort itself lives at the API layer — this package only persists the
 	// list). nil when no order has been set (legacy files / never reordered).
 	BoardOrder []string
+	// RiffPresets is the USER tier of rk riff presets only: preset name → skill
+	// invocation ("" = a bare agent). The built-ins live in BuiltinRiffPresets
+	// (the code tier), not in this map — a user entry matching a built-in's name
+	// overrides it, any other name is an addition. RiffPresets(Settings) is the
+	// merged view every read site uses. nil at default so the section omits.
+	RiffPresets map[string]string
 	// AutoName arms the auto-name-on-idle trigger: on a window's busy→idle
 	// transition the server's operator window is handed a fix-tab-name request.
 	// Strictly opt-in (default false — the trigger injects prompts into the
@@ -497,6 +503,20 @@ var registry = []registryEntry{
 		read:    func(s *Settings) any { return s.BoardOrder },
 		apply:   listValue(func(s *Settings) *[]string { return &s.BoardOrder }),
 	},
+	{
+		key: "riff_presets", kind: "map", def: riffPresetsDefaultText,
+		desc:     "Preset name → skill invocation for rk riff <name>; a name matching a built-in (discuss, incognito, blank) overrides it, any other name is an addition. Empty value = bare agent.",
+		category: "behavior", ui: false, live: true,
+		// Preset names are strict identifiers: a name is a line-scanner map key
+		// (a `:` would split the line) and a CLI positional (`rk riff <name>` —
+		// a leading `-` would read as a flag). Skipped on parse, 400 on apply.
+		section: mapSectionChecked("riff_presets", func(s *Settings) *map[string]string { return &s.RiffPresets }, validateRiffPresetName, normalizeRiffPresetValue),
+		// The USER tier as stored (nil → JSON null, like the other maps at
+		// default) — the built-ins are the code tier, never persisted.
+		read: func(s *Settings) any { return s.RiffPresets },
+		apply: mapValueChecked(func(s *Settings) *map[string]string { return &s.RiffPresets },
+			validateRiffPresetName, validateRiffPresetValue, normalizeRiffPresetValue),
+	},
 }
 
 // quoteTrimmedScalar builds the parse hook for a plain string scalar: the
@@ -549,6 +569,13 @@ func quotedScalarOmittingDefault(key, def string, target func(*Settings) *string
 // malformed. Serialization sorts keys for deterministic output and always
 // quotes values so they round-trip unambiguously.
 func mapSection(key string, target func(s *Settings) *map[string]string, normalize func(string) (string, bool)) nestedSection {
+	return mapSectionChecked(key, target, nil, normalize)
+}
+
+// mapSectionChecked is mapSection plus a name gate: a non-nil validateName
+// skips entries whose key fails it (tolerant read, matching the strict-write
+// mapValueChecked apply hook).
+func mapSectionChecked(key string, target func(s *Settings) *map[string]string, validateName func(string) string, normalize func(string) (string, bool)) nestedSection {
 	return nestedSection{
 		key: key,
 		parseEntry: func(s *Settings, trimmed string) {
@@ -559,6 +586,9 @@ func mapSection(key string, target func(s *Settings) *map[string]string, normali
 			name := strings.TrimSpace(k)
 			value := strings.Trim(strings.TrimSpace(v), "\"")
 			if name == "" {
+				return
+			}
+			if validateName != nil && validateName(name) != "" {
 				return
 			}
 			normalized, ok := normalize(value)
@@ -632,6 +662,22 @@ func normalizeFlairValue(value string) (string, bool) {
 	}
 	return "", false
 }
+
+// validateRiffPresetName is the name gate for the riff_presets section: the
+// shared strict-identifier rule (validate.ValidateIdentifier). A preset name is
+// a line-scanner map key (a `:` would split the line) and a CLI positional
+// (`rk riff <name>` — a leading `-` would read as a flag), though it never
+// enters argv as anything but a map-key lookup.
+func validateRiffPresetName(name string) string {
+	return validate.ValidateIdentifier(name, "Preset name")
+}
+
+// validateRiffPresetValue / normalizeRiffPresetValue accept any skill text —
+// values reach the launcher only through the skill-pane path (shell-quoted
+// positional or typed-after-boot), the same latitude --skill already has. The
+// empty string MUST survive the parse path (a bare agent).
+func validateRiffPresetValue(string) string          { return "" }
+func normalizeRiffPresetValue(value string) (string, bool) { return value, true }
 
 // KeyInfo is the exported, read-only metadata view of one registry entry —
 // what GET /api/settings serves alongside the current value.
@@ -804,6 +850,13 @@ func boolValue(target func(*Settings) *bool, def bool) func(*Settings, json.RawM
 // endpoints), and a top-level null clears the whole map. All entries are
 // validated before any mutation.
 func mapValue(target func(*Settings) *map[string]string, validator func(string) string, normalize func(string) (string, bool)) func(*Settings, json.RawMessage) error {
+	return mapValueChecked(target, nil, validator, normalize)
+}
+
+// mapValueChecked is mapValue plus a strict-write name gate: a non-nil
+// validateName rejects any patch entry whose key fails it (error → 400), before
+// any value validation or mutation.
+func mapValueChecked(target func(*Settings) *map[string]string, validateName func(string) string, validator func(string) string, normalize func(string) (string, bool)) func(*Settings, json.RawMessage) error {
 	return func(s *Settings, raw json.RawMessage) error {
 		if jsonNull(raw) {
 			*target(s) = nil
@@ -820,6 +873,11 @@ func mapValue(target func(*Settings) *map[string]string, validator func(string) 
 		}
 		sort.Strings(names)
 		for _, name := range names {
+			if validateName != nil {
+				if msg := validateName(name); msg != "" {
+					return errors.New(msg)
+				}
+			}
 			v := entries[name]
 			if v == nil {
 				continue // entry null unsets — nothing to validate
@@ -1071,4 +1129,82 @@ func SetBoardOrder(names []string) error {
 		s.BoardOrder = names
 	}
 	return Save(s)
+}
+
+// --- riff presets -----------------------------------------------------------
+
+// RiffDiscussSkill is the one source of the /fab-discuss literal: the built-in
+// `discuss` preset's skill, aliased by riff.DefaultRiffSkill so the bare
+// `rk riff` default and the built-in cannot drift.
+const RiffDiscussSkill = "/fab-discuss"
+
+// riffPresetsDefaultText is the riff_presets registry entry's `def` text: the
+// built-in map as sorted-key JSON (display metadata for GET /api/settings).
+const riffPresetsDefaultText = `{"blank":"","discuss":"/fab-discuss","incognito":"/fab-incognito"}`
+
+// RiffPreset is one riff preset in the merged view: a name and the single
+// skill it renders into one skill pane (an empty Skill is the bare launcher).
+// BuiltIn marks the name as a built-in — the Skill may still be a user
+// override of the built-in's value.
+type RiffPreset struct {
+	Name    string
+	Skill   string
+	BuiltIn bool
+}
+
+// BuiltinRiffPresets is the code-default preset tier, in canonical display
+// order. The user tier (Settings.RiffPresets) stores overrides/additions only.
+var BuiltinRiffPresets = []RiffPreset{
+	{Name: "discuss", Skill: RiffDiscussSkill, BuiltIn: true},
+	{Name: "incognito", Skill: "/fab-incognito", BuiltIn: true},
+	{Name: "blank", Skill: "", BuiltIn: true}, // empty skill = bare launcher
+}
+
+// RiffPresets returns the effective preset list: built-ins in canonical order
+// (discuss, incognito, blank), each carrying a user override when the user map
+// names it, followed by user-added names sorted. Never empty.
+func RiffPresets(s Settings) []RiffPreset {
+	out := make([]RiffPreset, 0, len(BuiltinRiffPresets)+len(s.RiffPresets))
+	for _, b := range BuiltinRiffPresets {
+		p := b
+		if v, ok := s.RiffPresets[b.Name]; ok {
+			p.Skill = v
+		}
+		out = append(out, p)
+	}
+	var added []string
+	for name := range s.RiffPresets {
+		if !isBuiltinRiffPreset(name) {
+			added = append(added, name)
+		}
+	}
+	sort.Strings(added)
+	for _, name := range added {
+		out = append(out, RiffPreset{Name: name, Skill: s.RiffPresets[name]})
+	}
+	return out
+}
+
+// LoadRiffPresets is RiffPresets(Load()).
+func LoadRiffPresets() []RiffPreset {
+	return RiffPresets(Load())
+}
+
+// RiffPresetMap projects a merged preset list to a name → skill lookup map.
+func RiffPresetMap(presets []RiffPreset) map[string]string {
+	out := make(map[string]string, len(presets))
+	for _, p := range presets {
+		out[p.Name] = p.Skill
+	}
+	return out
+}
+
+// isBuiltinRiffPreset reports whether name is one of the built-in preset names.
+func isBuiltinRiffPreset(name string) bool {
+	for _, b := range BuiltinRiffPresets {
+		if b.Name == name {
+			return true
+		}
+	}
+	return false
 }

@@ -2034,3 +2034,125 @@ func TestLocaleCheckNeverFlipsVerdict(t *testing.T) {
 		t.Error("runDoctorChecks must append the locale row unconditionally")
 	}
 }
+
+// --- riff presets (stale project riff: block) row ----------------------------
+
+// TestRiffPresetsBlockCheck pins the WARN-shaped advisory: no row when the
+// repo's fab config carries no top-level riff: key; an OK row with the
+// migration note when it does.
+func TestRiffPresetsBlockCheck(t *testing.T) {
+	t.Run("key absent yields no row", func(t *testing.T) {
+		if _, present := riffPresetsBlockCheck("/repo", func(string, string) bool { return false }); present {
+			t.Error("no riff: key: a check row was returned, want none")
+		}
+	})
+
+	t.Run("key present yields an OK row with the note", func(t *testing.T) {
+		c, present := riffPresetsBlockCheck("/repo", func(_ string, key string) bool { return key == "riff" })
+		if !present {
+			t.Fatal("riff: key present: no check returned, want a row")
+		}
+		if !c.OK {
+			t.Error("check OK = false, want true (WARN-shaped — never a failure)")
+		}
+		if c.Name != "riff presets" {
+			t.Errorf("name = %q, want %q", c.Name, "riff presets")
+		}
+		want := "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/run-kit/config.yaml"
+		if c.Note != want {
+			t.Errorf("note = %q, want %q", c.Note, want)
+		}
+	})
+}
+
+// gitRepoWithFabConfig stages a temp git repo (a .git marker dir); when body is
+// non-empty it also writes fab/project/config.yaml. Returns the repo root.
+func gitRepoWithFabConfig(t *testing.T, body string) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if body != "" {
+		dir := filepath.Join(root, "fab", "project")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir fab/project: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(body), 0o644); err != nil {
+			t.Fatalf("write config.yaml: %v", err)
+		}
+	}
+	return root
+}
+
+func doctorHasRiffPresetsRow(report doctorReport) (doctorCheck, bool) {
+	for _, c := range report.Checks {
+		if c.Name == "riff presets" {
+			return c, true
+		}
+	}
+	return doctorCheck{}, false
+}
+
+// TestRiffPresetsBlockRowGating covers the row's presence gates end-to-end
+// through runDoctorChecks: no row outside a git repo, in a non-fab repo, or in
+// a fab project without a top-level riff: key; the row appears when the key is
+// present.
+func TestRiffPresetsBlockRowGating(t *testing.T) {
+	t.Run("not a git repo → no row", func(t *testing.T) {
+		restore := chdir(t, t.TempDir())
+		defer restore()
+		if _, found := doctorHasRiffPresetsRow(runDoctorChecks()); found {
+			t.Error("non-git cwd: riff presets row present, want absent")
+		}
+	})
+
+	t.Run("git repo without fab config → no row", func(t *testing.T) {
+		restore := chdir(t, gitRepoWithFabConfig(t, ""))
+		defer restore()
+		if _, found := doctorHasRiffPresetsRow(runDoctorChecks()); found {
+			t.Error("non-fab repo: riff presets row present, want absent")
+		}
+	})
+
+	t.Run("fab config without riff key → no row", func(t *testing.T) {
+		restore := chdir(t, gitRepoWithFabConfig(t, "project:\n    name: x\n"))
+		defer restore()
+		if _, found := doctorHasRiffPresetsRow(runDoctorChecks()); found {
+			t.Error("fab config without riff:: riff presets row present, want absent")
+		}
+	})
+
+	t.Run("fab config with riff key → OK row", func(t *testing.T) {
+		restore := chdir(t, gitRepoWithFabConfig(t, "riff:\n  presets: {}\n"))
+		defer restore()
+		c, found := doctorHasRiffPresetsRow(runDoctorChecks())
+		if !found {
+			t.Fatal("riff: key present: row absent, want present")
+		}
+		if !c.OK || !strings.Contains(c.Note, "riff: block that rk no longer reads") {
+			t.Errorf("row = %+v, want OK with the advisory note", c)
+		}
+	})
+}
+
+// TestRiffPresetsBlockRowNeverFlipsVerdict proves the advisory row cannot change
+// the overall report verdict: the same repo with and without the riff: key
+// yields the same report.OK.
+func TestRiffPresetsBlockRowNeverFlipsVerdict(t *testing.T) {
+	repo := gitRepoWithFabConfig(t, "project:\n    name: x\n")
+	restore := chdir(t, repo)
+	defer restore()
+	without := runDoctorChecks().OK
+
+	if err := os.WriteFile(filepath.Join(repo, "fab", "project", "config.yaml"), []byte("riff:\n  presets: {}\n"), 0o644); err != nil {
+		t.Fatalf("write config.yaml: %v", err)
+	}
+	with := runDoctorChecks()
+	if with.OK != without {
+		t.Errorf("report.OK flipped with the advisory row present: %v → %v", without, with.OK)
+	}
+	if _, found := doctorHasRiffPresetsRow(with); !found {
+		t.Error("riff presets row should be present after adding the riff: key")
+	}
+}

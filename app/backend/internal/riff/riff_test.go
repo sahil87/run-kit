@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"rk/internal/fabconfig"
+	"rk/internal/settings"
 	"rk/internal/testutil"
 )
 
@@ -1117,16 +1117,16 @@ func TestAutoLayout(t *testing.T) {
 // TestResolveActivePreset covers positional match, positional non-match,
 // --preset resolution, conflict, unknown preset, and no-preset-available.
 func TestResolveActivePreset(t *testing.T) {
-	presets := map[string]fabconfig.Preset{
-		"ship":        {Layout: "deck-h"},
-		"investigate": {Layout: "v"},
+	presets := map[string]string{
+		"ship":        "/fab-fff",
+		"investigate": "/fab-discuss",
 	}
 	t.Run("positional match consumes arg", func(t *testing.T) {
 		p, rem, err := ResolveActivePreset([]string{"ship", "--", "--base", "main"}, "ship", "", presets)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if p == nil || p.Layout != "deck-h" {
+		if p == nil || p.Name != "ship" || p.Skill != "/fab-fff" {
 			t.Errorf("preset = %#v, want ship", p)
 		}
 		if !reflect.DeepEqual(rem, []string{"--", "--base", "main"}) {
@@ -1150,7 +1150,7 @@ func TestResolveActivePreset(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if p == nil || p.Layout != "v" {
+		if p == nil || p.Name != "investigate" || p.Skill != "/fab-discuss" {
 			t.Errorf("preset = %#v, want investigate", p)
 		}
 	})
@@ -1189,37 +1189,21 @@ func TestResolveActivePreset(t *testing.T) {
 	})
 }
 
-// TestResolveEffectiveSpec covers pane/layout/wt-args precedence rules.
+// TestResolveEffectiveSpec covers pane/layout/passthrough resolution rules.
 func TestResolveEffectiveSpec(t *testing.T) {
-	t.Run("preset panes used when no CLI panes", func(t *testing.T) {
-		preset := &fabconfig.Preset{
-			Panes: []fabconfig.PaneSpec{
-				{Kind: fabconfig.PaneKindSkill, Skill: "/fab-fff"},
-				{Kind: fabconfig.PaneKindCmd, Cmd: "just dev"},
-			},
-		}
+	t.Run("preset pane used when no CLI panes", func(t *testing.T) {
+		preset := &Preset{Name: "incognito", Skill: "/fab-incognito"}
 		spec, err := ResolveEffectiveSpec(nil, false, "auto", 1, preset, nil)
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
-		if len(spec.Panes) != 2 {
-			t.Errorf("panes = %v, want 2", spec.Panes)
-		}
-		if spec.Panes[0] != (PaneSpec{Kind: PaneKindSkill, Value: "/fab-fff"}) {
-			t.Errorf("pane[0] = %#v", spec.Panes[0])
-		}
-		if spec.Panes[1] != (PaneSpec{Kind: PaneKindCmd, Value: "just dev"}) {
-			t.Errorf("pane[1] = %#v", spec.Panes[1])
+		want := []PaneSpec{{Kind: PaneKindSkill, Value: "/fab-incognito"}}
+		if !reflect.DeepEqual(spec.Panes, want) {
+			t.Errorf("panes = %#v, want %#v", spec.Panes, want)
 		}
 	})
 	t.Run("CLI panes replace preset panes", func(t *testing.T) {
-		preset := &fabconfig.Preset{
-			Panes: []fabconfig.PaneSpec{
-				{Kind: fabconfig.PaneKindSkill, Skill: "/fab-fff"},
-				{Kind: fabconfig.PaneKindCmd, Cmd: "just dev"},
-				{Kind: fabconfig.PaneKindCmd, Cmd: "just logs"},
-			},
-		}
+		preset := &Preset{Name: "incognito", Skill: "/fab-incognito"}
 		cli := []PaneSpec{{Kind: PaneKindSkill, Value: "/review"}}
 		spec, err := ResolveEffectiveSpec(cli, false, "auto", 1, preset, nil)
 		if err != nil {
@@ -1229,15 +1213,12 @@ func TestResolveEffectiveSpec(t *testing.T) {
 			t.Errorf("panes = %#v, want 1 review pane", spec.Panes)
 		}
 	})
-	t.Run("CLI layout overrides preset layout", func(t *testing.T) {
-		preset := &fabconfig.Preset{
-			Layout: "deck-h",
-			Panes: []fabconfig.PaneSpec{
-				{Kind: fabconfig.PaneKindSkill, Skill: "/a"},
-				{Kind: fabconfig.PaneKindCmd, Cmd: "x"},
-			},
+	t.Run("explicit CLI layout wins", func(t *testing.T) {
+		cli := []PaneSpec{
+			{Kind: PaneKindSkill, Value: "/a"},
+			{Kind: PaneKindCmd, Value: "x"},
 		}
-		spec, err := ResolveEffectiveSpec(nil, true, "even-vertical", 1, preset, nil)
+		spec, err := ResolveEffectiveSpec(cli, true, "even-vertical", 1, nil, nil)
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
@@ -1245,15 +1226,12 @@ func TestResolveEffectiveSpec(t *testing.T) {
 			t.Errorf("layout = %q, want even-vertical", spec.Layout)
 		}
 	})
-	t.Run("explicit --layout auto overrides preset layout", func(t *testing.T) {
-		preset := &fabconfig.Preset{
-			Layout: "deck-h",
-			Panes: []fabconfig.PaneSpec{
-				{Kind: fabconfig.PaneKindSkill, Skill: "/a"},
-				{Kind: fabconfig.PaneKindCmd, Cmd: "x"},
-			},
+	t.Run("explicit --layout auto resolves auto-by-count", func(t *testing.T) {
+		cli := []PaneSpec{
+			{Kind: PaneKindSkill, Value: "/a"},
+			{Kind: PaneKindCmd, Value: "x"},
 		}
-		spec, err := ResolveEffectiveSpec(nil, true, "auto", 1, preset, nil)
+		spec, err := ResolveEffectiveSpec(cli, true, "auto", 1, nil, nil)
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
@@ -1271,38 +1249,23 @@ func TestResolveEffectiveSpec(t *testing.T) {
 			t.Errorf("layout = %q, want empty (1-pane suppression)", spec.Layout)
 		}
 	})
-	t.Run("single-pane from preset suppresses preset layout", func(t *testing.T) {
-		preset := &fabconfig.Preset{
-			Layout: "tiled",
-			Panes:  []fabconfig.PaneSpec{{Kind: fabconfig.PaneKindSkill, Skill: "/a"}},
-		}
+	t.Run("preset with empty skill yields one bare pane and empty layout", func(t *testing.T) {
+		preset := &Preset{Name: "blank", Skill: ""}
 		spec, err := ResolveEffectiveSpec(nil, false, "auto", 1, preset, nil)
 		if err != nil {
 			t.Fatalf("err: %v", err)
+		}
+		want := []PaneSpec{{Kind: PaneKindSkill, Value: ""}}
+		if !reflect.DeepEqual(spec.Panes, want) {
+			t.Errorf("panes = %#v, want %#v (one bare skill pane)", spec.Panes, want)
 		}
 		if spec.Layout != "" {
-			t.Errorf("layout = %q, want empty (1-pane preset suppression)", spec.Layout)
+			t.Errorf("layout = %q, want empty", spec.Layout)
 		}
 	})
-	t.Run("preset layout used when CLI is auto", func(t *testing.T) {
-		preset := &fabconfig.Preset{
-			Layout: "deck-h",
-			Panes: []fabconfig.PaneSpec{
-				{Kind: fabconfig.PaneKindSkill, Skill: "/a"},
-				{Kind: fabconfig.PaneKindCmd, Cmd: "x"},
-			},
-		}
-		spec, err := ResolveEffectiveSpec(nil, false, "auto", 1, preset, nil)
-		if err != nil {
-			t.Fatalf("err: %v", err)
-		}
-		if spec.Layout != "main-horizontal" {
-			t.Errorf("layout = %q, want main-horizontal (canonical of deck-h)", spec.Layout)
-		}
-	})
-	t.Run("preset wt_args prepended to passthrough", func(t *testing.T) {
-		preset := &fabconfig.Preset{WtArgs: []string{"--base", "main"}}
-		spec, err := ResolveEffectiveSpec(nil, false, "auto", 1, preset, []string{"--reuse"})
+	t.Run("passthrough is exactly the user's -- args", func(t *testing.T) {
+		preset := &Preset{Name: "blank", Skill: ""}
+		spec, err := ResolveEffectiveSpec(nil, false, "auto", 1, preset, []string{"--base", "main", "--reuse"})
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
@@ -1408,18 +1371,13 @@ func TestApplySkillPrefix(t *testing.T) {
 // NOT share. A nil result means "defer to preset/default"; a non-nil result
 // means "these panes replace the preset's".
 func TestComposePanes(t *testing.T) {
-	presetWithPanes := &fabconfig.Preset{
-		Panes: []fabconfig.PaneSpec{
-			{Kind: fabconfig.PaneKindSkill, Skill: "/fab-fff"},
-			{Kind: fabconfig.PaneKindCmd, Cmd: "just dev"},
-		},
-	}
-	emptyPreset := &fabconfig.Preset{}
+	preset := &Preset{Name: "incognito", Skill: "/fab-incognito"}
+	barePreset := &Preset{Name: "blank", Skill: ""}
 
 	cases := []struct {
 		name   string
 		task   string
-		preset *fabconfig.Preset
+		preset *Preset
 		want   []PaneSpec
 	}{
 		{
@@ -1428,27 +1386,27 @@ func TestComposePanes(t *testing.T) {
 			want: []PaneSpec{{Kind: PaneKindSkill, Value: "fix the bug"}},
 		},
 		{
-			name:   "task + preset → task pane replaces preset panes",
+			name:   "task + preset → task pane replaces the preset's pane",
 			task:   "ship it",
-			preset: presetWithPanes,
+			preset: preset,
 			want:   []PaneSpec{{Kind: PaneKindSkill, Value: "ship it"}},
 		},
 		{
-			name:   "empty task + preset with panes → nil (defer to preset panes)",
+			name:   "empty task + preset → nil (defer to the preset's pane)",
 			task:   "",
-			preset: presetWithPanes,
+			preset: preset,
+			want:   nil,
+		},
+		{
+			name:   "empty task + bare preset → nil (defer to the preset's bare pane)",
+			task:   "",
+			preset: barePreset,
 			want:   nil,
 		},
 		{
 			name: "empty task + no preset → single BARE skill pane (blank agent, NOT /fab-discuss)",
 			task: "",
 			want: []PaneSpec{{Kind: PaneKindSkill, Value: ""}},
-		},
-		{
-			name:   "empty task + preset with no panes → single BARE skill pane",
-			task:   "",
-			preset: emptyPreset,
-			want:   []PaneSpec{{Kind: PaneKindSkill, Value: ""}},
 		},
 	}
 	for _, tc := range cases {
@@ -1669,6 +1627,100 @@ func TestPlanFanOutRollback(t *testing.T) {
 }
 
 var errTestFail = &ExitCodeError{Code: ExitSubprocess, Msg: "test"}
+
+// stubLoadRiffPresets points the preset-source seam at a fixed table for the
+// test's duration, so Spawn's preset resolution never touches the config root.
+func stubLoadRiffPresets(t *testing.T, presets []settings.RiffPreset) {
+	t.Helper()
+	orig := loadRiffPresets
+	loadRiffPresets = func() []settings.RiffPreset { return presets }
+	t.Cleanup(func() { loadRiffPresets = orig })
+}
+
+// TestSpawn_PresetFromSettings covers Spawn's settings-backed preset resolution:
+// the blank built-in composes a launcher-only shell string (no positional, no
+// typed delivery), the incognito built-in renders /fab-incognito through
+// ApplySkillPrefix, a user addition resolves through the same seam, and an
+// unknown name is a ValidationErr listing the defined names.
+func TestSpawn_PresetFromSettings(t *testing.T) {
+	userPresets := append(append([]settings.RiffPreset{}, settings.BuiltinRiffPresets...),
+		settings.RiffPreset{Name: "review", Skill: "/code-review high"})
+
+	setup := func(t *testing.T) (repoRoot, newWindowLog string) {
+		t.Helper()
+		dir := t.TempDir()
+		repoRoot = filepath.Join(t.TempDir(), "my-checkout")
+		if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+			t.Fatalf("mkdir repoRoot: %v", err)
+		}
+		newWindowLog = filepath.Join(dir, "new-window.log")
+		testutil.WriteStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
+		testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
+		t.Setenv("PATH", dir)
+		stubLoadRiffPresets(t, userPresets)
+		return repoRoot, newWindowLog
+	}
+
+	t.Run("blank built-in spawns the bare launcher", func(t *testing.T) {
+		repoRoot, newWindowLog := setup(t)
+		_, err := Spawn(context.Background(), Options{RepoRoot: repoRoot, Where: "checkout", Preset: "blank"})
+		if err != nil {
+			t.Fatalf("Spawn(blank) error: %v", err)
+		}
+		logged, readErr := os.ReadFile(newWindowLog)
+		if readErr != nil {
+			t.Fatalf("read new-window log: %v", readErr)
+		}
+		if !strings.Contains(string(logged), "-i -c 'claude'") {
+			t.Errorf("blank shell string = %q, want the bare launcher wrap", string(logged))
+		}
+		if strings.Contains(string(logged), "claude '\\''") {
+			t.Errorf("blank shell string carries a quoted positional: %q", string(logged))
+		}
+	})
+
+	t.Run("incognito built-in renders /fab-incognito", func(t *testing.T) {
+		repoRoot, newWindowLog := setup(t)
+		_, err := Spawn(context.Background(), Options{RepoRoot: repoRoot, Where: "checkout", Preset: "incognito"})
+		if err != nil {
+			t.Fatalf("Spawn(incognito) error: %v", err)
+		}
+		logged, readErr := os.ReadFile(newWindowLog)
+		if readErr != nil {
+			t.Fatalf("read new-window log: %v", readErr)
+		}
+		if !strings.Contains(string(logged), `claude '\''/fab-incognito'\''`) {
+			t.Errorf("incognito shell string missing the quoted skill positional: %q", string(logged))
+		}
+	})
+
+	t.Run("user addition resolves through the same seam", func(t *testing.T) {
+		repoRoot, newWindowLog := setup(t)
+		_, err := Spawn(context.Background(), Options{RepoRoot: repoRoot, Where: "checkout", Preset: "review"})
+		if err != nil {
+			t.Fatalf("Spawn(review) error: %v", err)
+		}
+		logged, readErr := os.ReadFile(newWindowLog)
+		if readErr != nil {
+			t.Fatalf("read new-window log: %v", readErr)
+		}
+		if !strings.Contains(string(logged), "/code-review high") {
+			t.Errorf("review shell string missing the user skill: %q", string(logged))
+		}
+	})
+
+	t.Run("unknown preset is a ValidationErr listing the defined names", func(t *testing.T) {
+		repoRoot, _ := setup(t)
+		_, err := Spawn(context.Background(), Options{RepoRoot: repoRoot, Where: "checkout", Preset: "nope"})
+		var ec *ExitCodeError
+		if !errors.As(err, &ec) || ec.Code != ExitValidation {
+			t.Fatalf("Spawn(nope) error = %v, want an ExitValidation ExitCodeError", err)
+		}
+		if !strings.Contains(ec.Msg, `unknown preset "nope" (defined: blank, discuss, incognito, review)`) {
+			t.Errorf("error message = %q, want the sorted defined-names list", ec.Msg)
+		}
+	})
+}
 
 // TestParsePaneID covers the trimmed-single-line parse rule for the stdout of
 // `tmux new-window -P -F '#{pane_id}'`. Pure.

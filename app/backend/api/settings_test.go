@@ -72,7 +72,7 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
 		"instance_name", "auto_name", "cron_ticker", "gui.enabled", "gui.wm", "gui.geometry",
 		"tmux_conf",
-		"log_level", "server_colors", "server_flairs", "board_order",
+		"log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
 	}
 	if len(entries) != len(wantKeys) {
 		t.Fatalf("GET returned %d entries, want %d", len(entries), len(wantKeys))
@@ -105,6 +105,9 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	}
 	if got, ok := byKey["board_order"].Value.([]any); !ok || len(got) != 0 {
 		t.Errorf("board_order.value = %v, want []", byKey["board_order"].Value)
+	}
+	if got, ok := byKey["riff_presets"].Value.(map[string]any); !ok || len(got) != 0 {
+		t.Errorf("riff_presets.value = %v, want {} (the stored user tier is empty at default)", byKey["riff_presets"].Value)
 	}
 	if got := byKey["auto_name"].Value; got != false {
 		t.Errorf("auto_name.value = %v, want false", got)

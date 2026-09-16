@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME; test-only RK_CONFIG_DIR override); the internal/settings registry and its 16-key inventory behind /api/settings; override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the rk-owned hash-stamped managed tmux.conf + `@rk_srv_managed`-gated reloads; breadcrumb migrations, ~/.rk tenants, cb/ + code/ + gui/ state tenants."
+description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME; test-only RK_CONFIG_DIR override); the internal/settings registry and its 17-key inventory behind /api/settings; override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the rk-owned hash-stamped managed tmux.conf + `@rk_srv_managed`-gated reloads; breadcrumb migrations, ~/.rk tenants, cb/ + code/ + gui/ state tenants."
 ---
 # Configuration
 
@@ -44,7 +44,7 @@ The path segment, worktree badge, and git branch are **read from daemon-stamped 
 
 Serialization stays hand-rolled (line-scanner parse + string-builder serialize — no yaml.v3) and byte-stable: tolerant reads per key (quote-strip, `validate.NormalizeColorValue`, flair-set membership, `strconv.ParseBool`, malformed-entry skip), omit-when-default/empty, nested sections with sorted map keys and quoted values. An untouched settings file round-trips byte-identically.
 
-The 16-key inventory:
+The 17-key inventory:
 
 | key | type | default | category | ui | live | notes |
 |---|---|---|---|---|---|---|
@@ -57,6 +57,7 @@ The 16-key inventory:
 | `server_colors` | map[string]string | `{}` | appearance | yes | yes | mapSection with color normalize |
 | `server_flairs` | map[string]string | `{}` | appearance | yes | yes | mapSection with flair-set membership normalize |
 | `board_order` | []string | `[]` | layout | yes | yes | listSection |
+| `riff_presets` | map[string]string | the three built-ins | behavior | no | yes | preset name → skill invocation for `rk riff <name>`; the user tier stores overrides/additions only (nil default — the section omits, so a file without it round-trips byte-identically); the built-ins (`discuss` → `/fab-discuss`, `incognito` → `/fab-incognito`, `blank` → `""` bare agent) live in the `BuiltinRiffPresets` code tier; the merged never-empty view is `RiffPresets`/`LoadRiffPresets` (built-ins first in canonical order, an override keeping `BuiltIn: true`, additions sorted); a name must be a strict identifier (`validate.ValidateIdentifier`) — skipped on parse, 400 on apply; empty value = bare agent (file-only — `mapValue`'s trimmed-empty-unsets contract makes override-to-bare inexpressible over HTTP) (see [rk-riff](/run-kit/rk-riff.md) § Presets) |
 | `auto_name` | bool | `false` | behavior | yes | yes | a settings POST rewires the hub's auto-name tracker live (see [architecture](/run-kit/architecture.md) § SSE Hub) |
 | `cron_ticker` | bool | `true` | behavior | yes | yes | gates the daemon cron ticker per iteration (see [cron](/run-kit/cron.md) § Daemon Ticker Invoker) |
 | `gui.enabled` | bool | `false` | behavior | yes | yes | the GUI surface switch — flat dotted YAML line, no env form; a settings POST ensures/kills the `rk-gui` session and flips the stream synchronously (see [gui](/run-kit/gui.md)) |
@@ -65,7 +66,7 @@ The 16-key inventory:
 | `tmux_conf` | path string | `""` | advanced | yes | no | user owns the file; rk performs no ensure/refresh/doctor on it |
 | `log_level` | enum (`info`/`debug`) | `info` | advanced | yes | no | read at serve startup |
 
-`live: false` keys (`tmux_conf`, `log_level`) are restart-bound (read once at tmux/serve startup); `live: true` keys apply on next read — `auto_name`'s one read-once consumer (the hub's tracker) is re-applied live by the settings POST. The exported accessor surface (`Load`, `Save`, `Default`, `Get/SetServerColor`, `Get/SetServerFlair`, `Get/SetInstanceColor`, `Get/SetSSHHost`, `Get/SetInstanceName`, `Get/SetBoardOrder`) sits over the registry. (li54)
+`live: false` keys (`tmux_conf`, `log_level`) are restart-bound (read once at tmux/serve startup); `live: true` keys apply on next read — `auto_name`'s one read-once consumer (the hub's tracker) is re-applied live by the settings POST. The exported accessor surface (`Load`, `Save`, `Default`, `Get/SetServerColor`, `Get/SetServerFlair`, `Get/SetInstanceColor`, `Get/SetSSHHost`, `Get/SetInstanceName`, `Get/SetBoardOrder`) sits over the registry, plus the riff-preset surface: the `BuiltinRiffPresets` code-tier table, the `RiffDiscussSkill` constant (the one source of the `/fab-discuss` literal, aliased by `riff.DefaultRiffSkill`), and the merged-view accessors `RiffPresets(Settings)`, `LoadRiffPresets()`, and the `RiffPresetMap` projection. (li54)
 
 ## Settings HTTP API
 
@@ -204,6 +205,12 @@ Every scaffold path (`EnsureConfig`, `ForceWriteConfig`, `rk mux init-conf`, `PO
 **Why**: mirrors the `SetServerColor(server, color *string)` one-entry semantics so client setters stay one-entry-sized; a full-map replace would force every color-picker click to read-modify-write the whole map client-side (racy across tabs).
 **Rejected**: wholesale map replacement (race-prone, bigger client diffs); JSON-merge-patch RFC 7386 wholesale-object semantics (breaks the one-entry setter shape).
 *Introduced by*: 260823-f1ot-settings-api-hard-fold
+
+### Built-ins as a code tier, user map stores overrides only
+**Decision**: `Settings.RiffPresets` stores only the user's preset entries (nil default); the three built-ins live in the package-level `BuiltinRiffPresets` table; `RiffPresets(Settings)` returns the merged view (built-ins in canonical order, then user additions sorted — never empty).
+**Why**: keeps omit-when-default and byte-stable round-trip with zero `mapSection` changes — a default-seeded map would either serialize three lines into every saved file or need a per-entry omit branch.
+**Rejected**: seeding the map in `Default()`.
+*Introduced by*: 260916-i567-builtin-riff-presets-settings-registry
 
 ### Hash-stamped header as the ownership declaration
 **Decision**: ownership and staleness of the managed tmux.conf are derived from a SHA-256 stamp in the file's own first line; the three-state check is a pure local computation against the embed.

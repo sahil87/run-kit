@@ -9,13 +9,12 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"sort"
 	"strings"
 	"syscall"
 
 	"rk/internal/config"
-	"rk/internal/fabconfig"
 	"rk/internal/riff"
+	"rk/internal/settings"
 	"rk/internal/tmux"
 	"rk/internal/validate"
 
@@ -63,9 +62,8 @@ var riffCmd = &cobra.Command{
 	Short: "Create a worktree, tmux window, and Claude Code session",
 	Long: `Create a git worktree via wt, open a new tmux window in it, and launch
 a Claude Code session with a skill or slash-command. Supports multi-pane
-windows via repeatable --skill and --cmd flags, named layouts, presets
-defined in fab/project/config.yaml, and parallel spawning across N worktrees
-via --count.
+windows via repeatable --skill and --cmd flags, named layouts, presets from
+run-kit's riff_presets, and parallel spawning across N worktrees via --count.
 
 Prerequisites:
   - You must be inside a tmux session ($TMUX set).
@@ -91,10 +89,14 @@ Launcher resolution:
   'claude --dangerously-skip-permissions' with the '/' skill prefix.
 
 Presets:
-  Named invocations like 'run-kit riff ship' or 'run-kit riff --preset ship' pull
-  layout, panes, and wt_args from fab/project/config.yaml under riff.presets.
-  CLI --skill/--cmd flags replace the preset's panes entirely. CLI --layout
-  overrides preset layout. Run 'run-kit riff --list-presets' to see defined presets.
+  Named invocations like 'run-kit riff incognito' or 'run-kit riff --preset
+  incognito' resolve against run-kit's riff_presets: three built-ins ship with
+  the binary (discuss → /fab-discuss, incognito → /fab-incognito, blank → a
+  bare agent), and user entries under riff_presets in
+  ~/.config/run-kit/config.yaml add to them — a name matching a built-in
+  overrides it. Each preset is exactly one skill pane. CLI --skill/--cmd flags
+  replace the preset's pane entirely. Run 'run-kit riff --list-presets' to see
+  the merged list.
 
 Count:
   --count N (short -N) creates N worktree/window pairs in parallel, each with
@@ -108,9 +110,9 @@ Examples:
   run-kit riff --skill /fab-fff --cmd "just dev"         # 2 panes (even-horizontal by default)
   run-kit riff --cmd --skill /fab --cmd htop --skill     # 4 interleaved panes (auto-tiled)
   run-kit riff --skill /a --cmd x --cmd y --layout main-vertical
-  run-kit riff ship                                      # invoke the 'ship' preset
-  run-kit riff --preset investigate                      # named-flag preset alias
-  run-kit riff ship --count 3                            # 3 parallel ship workspaces (also: -N 3)
+  run-kit riff incognito                                 # invoke the 'incognito' built-in preset
+  run-kit riff --preset blank                            # named-flag preset alias
+  run-kit riff discuss --count 3                         # 3 parallel discuss workspaces (also: -N 3)
   run-kit riff -- --worktree-name pacing-canyon          # name the worktree
 
 Exit codes:
@@ -153,7 +155,7 @@ func init() {
 
 	riffCmd.Flags().StringVar(&riffLayoutFlag, "layout", "auto", layoutFlagUsage())
 	riffCmd.Flags().IntVarP(&riffCountFlag, "count", "N", 1, "Spawn N worktree/window pairs in parallel (N >= 1)")
-	riffCmd.Flags().StringVar(&riffPresetFlag, "preset", "", "Named preset from fab/project/config.yaml (riff.presets.<name>)")
+	riffCmd.Flags().StringVar(&riffPresetFlag, "preset", "", "Named preset from run-kit's riff_presets (built-ins: discuss, incognito, blank)")
 	riffCmd.Flags().BoolVar(&riffListPresetsFlg, "list-presets", false, "List defined presets and exit")
 	riffCmd.Flags().StringVarP(&riffServerFlag, "server", "L", "", "Address the named tmux server (no $TMUX required; with --session unset and no $TMUX the window lands in the server's current session)")
 	riffCmd.Flags().StringVar(&riffSessionFlag, "session", "", "Session the window is created in (=S exact form, e.g. --session =work)")
@@ -273,8 +275,7 @@ func runRiff(cmd *cobra.Command, args []string) error {
 	// Step 1: --list-presets is a pure read + print. Must short-circuit BEFORE
 	// preconditions — a user outside tmux should still be able to list presets.
 	if riffListPresetsFlg {
-		presets := readPresetsForRepo(repoRoot)
-		return printPresets(presets, cmd.OutOrStdout(), repoRoot)
+		return printPresets(settings.LoadRiffPresets(), cmd.OutOrStdout())
 	}
 
 	// Step 2: preconditions (fast-fail order: $TMUX first, wt second). An
@@ -317,19 +318,20 @@ func runRiff(cmd *cobra.Command, args []string) error {
 	// a web-UI-only affordance. Never errors — falls back to the default.
 	agent := riff.ResolveAgent(ctx, repoRoot, "")
 
-	// Step 6: preset resolution.
-	presets := readPresetsForRepo(repoRoot)
+	// Step 6: preset resolution against run-kit's riff_presets (built-ins +
+	// user) — not repo-scoped.
+	available := settings.RiffPresetMap(settings.LoadRiffPresets())
 	positional := ""
 	if len(args) > 0 {
 		positional = args[0]
 	}
-	preset, remaining, err := riff.ResolveActivePreset(args, positional, riffPresetFlag, presets)
+	preset, remaining, err := riff.ResolveActivePreset(args, positional, riffPresetFlag, available)
 	if err != nil {
 		return &riff.ExitCodeError{Code: riff.ExitValidation, Msg: err.Error()}
 	}
 
 	// Step 7: effective spec (engine helper). cobra's Changed() tells us whether
-	// --layout was explicitly set — the signal to override a preset layout.
+	// --layout was explicitly set.
 	layoutExplicit := cmd.Flags().Changed("layout")
 	spec, err := riff.ResolveEffectiveSpec(riffPaneSpecs, layoutExplicit, canonicalLayout, riffCountFlag, preset, remaining)
 	if err != nil {
@@ -445,94 +447,40 @@ func checkPreconditions(server string) error {
 	return nil
 }
 
-// readPresetsForRepo returns the presets map from fab/project/config.yaml at
-// the given repo root ("" → the process cwd's repo, the pre---repo path).
-// Returns an empty map on any failure (matching fabconfig's silent-best-effort
-// posture).
-func readPresetsForRepo(repoRoot string) map[string]fabconfig.Preset {
-	if repoRoot == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return map[string]fabconfig.Preset{}
-		}
-		repoRoot = config.FindGitRoot(cwd)
-	}
-	if repoRoot == "" {
-		return map[string]fabconfig.Preset{}
-	}
-	return fabconfig.ReadPresets(repoRoot)
-}
-
-// readPresetsOrderedForRepo is readPresetsForRepo but preserves YAML source
-// order. Used by printPresets for deterministic --list-presets output.
-func readPresetsOrderedForRepo(repoRoot string) []fabconfig.PresetEntry {
-	if repoRoot == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return nil
-		}
-		repoRoot = config.FindGitRoot(cwd)
-	}
-	if repoRoot == "" {
-		return nil
-	}
-	return fabconfig.ReadPresetsOrdered(repoRoot)
-}
-
-// printPresets writes the presets map to out as indented YAML-like plain text,
-// in YAML source order (via readPresetsOrderedForRepo). Empty map → a single
-// "no presets defined" line. Returns nil on all paths.
-func printPresets(presets map[string]fabconfig.Preset, out io.Writer, repoRoot string) error {
-	ordered := readPresetsOrderedForRepo(repoRoot)
-	// If ordered is empty but presets is non-empty, the map was supplied by a
-	// test (bypassing disk). Fall back to sorted keys for deterministic output.
-	if len(ordered) == 0 && len(presets) > 0 {
-		names := make([]string, 0, len(presets))
-		for k := range presets {
-			names = append(names, k)
-		}
-		sort.Strings(names)
-		for _, n := range names {
-			ordered = append(ordered, fabconfig.PresetEntry{Name: n, Preset: presets[n]})
-		}
-	}
-	if len(ordered) == 0 {
-		fmt.Fprintln(out, "No presets defined in fab/project/config.yaml")
-		return nil
-	}
-	for i, entry := range ordered {
+// printPresets writes the merged preset list (built-ins + user, in RiffPresets
+// order) to out as indented plain text: one `name:` block per preset — suffixed
+// ` (built-in)`, or ` (built-in, overridden)` when the user's value replaced the
+// built-in's — with its single skill pane (`""` for the bare launcher). The
+// list is never empty (the built-ins always exist). Returns nil on all paths.
+func printPresets(presets []settings.RiffPreset, out io.Writer) error {
+	for i, p := range presets {
 		if i > 0 {
 			fmt.Fprintln(out)
 		}
-		fmt.Fprintf(out, "%s:\n", entry.Name)
-		layout := entry.Preset.Layout
-		if layout == "" {
-			layout = "(default: auto)"
+		marker := ""
+		if p.BuiltIn {
+			marker = " (built-in)"
+			if skill, ok := builtinRiffPresetSkill(p.Name); ok && skill != p.Skill {
+				marker = " (built-in, overridden)"
+			}
 		}
-		fmt.Fprintf(out, "  layout: %s\n", layout)
+		fmt.Fprintf(out, "%s:%s\n", p.Name, marker)
 		fmt.Fprintln(out, "  panes:")
-		if len(entry.Preset.Panes) == 0 {
-			fmt.Fprintln(out, "    (none)")
-		} else {
-			for _, p := range entry.Preset.Panes {
-				switch p.Kind {
-				case fabconfig.PaneKindSkill:
-					fmt.Fprintf(out, "    - skill: %s\n", quoteIfEmpty(p.Skill))
-				case fabconfig.PaneKindCmd:
-					fmt.Fprintf(out, "    - cmd: %s\n", quoteIfEmpty(p.Cmd))
-				}
-			}
-		}
-		fmt.Fprintln(out, "  wt_args:")
-		if len(entry.Preset.WtArgs) == 0 {
-			fmt.Fprintln(out, "    (none)")
-		} else {
-			for _, a := range entry.Preset.WtArgs {
-				fmt.Fprintf(out, "    - %s\n", a)
-			}
-		}
+		fmt.Fprintf(out, "    - skill: %s\n", quoteIfEmpty(p.Skill))
 	}
 	return nil
+}
+
+// builtinRiffPresetSkill returns the code-default skill for a built-in preset
+// name (ok=false for user-added names) — the reference an override is detected
+// against in printPresets.
+func builtinRiffPresetSkill(name string) (string, bool) {
+	for _, b := range settings.BuiltinRiffPresets {
+		if b.Name == name {
+			return b.Skill, true
+		}
+	}
+	return "", false
 }
 
 // quoteIfEmpty renders an empty string as the literal "" so bare skill/cmd

@@ -11,6 +11,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/fabconfig"
 	"rk/internal/riff"
+	"rk/internal/settings"
 	"rk/internal/tmux"
 	"rk/internal/validate"
 )
@@ -20,7 +21,8 @@ import (
 //
 //   - POST /api/riff           — spawn a riff window (worktree + tmux window +
 //                                agent launcher) in the target session's repo.
-//   - GET  /api/riff/presets   — list the target repo's riff presets.
+//   - GET  /api/riff/presets   — list the merged riff presets (run-kit's
+//                                riff_presets: built-ins + user).
 //
 // Both derive the REPO ROOT from the target session's active-pane cwd (the
 // daemon's own cwd is not the target repo). The engine does the wt+tmux work;
@@ -218,13 +220,20 @@ func (s *Server) handleRiffSpawn(w http.ResponseWriter, r *http.Request) {
 // wedged subprocess chain.
 const riffSpawnTimeout = 90 * time.Second
 
-// handleRiffPresets lists the target repo's riff presets.
+// loadRiffPresets is the preset-source seam for the presets endpoint
+// (production: the settings-backed merged view) — tests inject a fixed table
+// without touching the config root.
+var loadRiffPresets = settings.LoadRiffPresets
+
+// handleRiffPresets lists the riff presets the spawn dialog offers.
 //
 //	GET /api/riff/presets?server=<name>&session=<name>
 //	200: {"presets":[{"name","layout","paneCount"}], "tiers":[...]}
-//	     (presets in YAML source order, [] when none; tiers gated on
-//	      fabconfig.IsFabProject — fab-kit built-ins ∪ the repo's agent.tiers
-//	      ("default" first) for a fab project, [] for a non-fab repo)
+//	     (presets come from run-kit's riff_presets — the built-ins plus user
+//	     entries in ~/.config/run-kit/config.yaml — never empty; every row is
+//	     one skill pane: layout "", paneCount 1; tiers gated on
+//	     fabconfig.IsFabProject — fab-kit built-ins ∪ the repo's agent.tiers
+//	     ("default" first) for a fab project, [] for a non-fab repo)
 //	400: invalid session or non-repo cwd
 func (s *Server) handleRiffPresets(w http.ResponseWriter, r *http.Request) {
 	server := serverFromRequest(r)
@@ -246,13 +255,13 @@ func (s *Server) handleRiffPresets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ordered := fabconfig.ReadPresetsOrdered(repoRoot)
-	presets := make([]riffPresetSummary, 0, len(ordered))
-	for _, entry := range ordered {
+	merged := loadRiffPresets()
+	presets := make([]riffPresetSummary, 0, len(merged))
+	for _, p := range merged {
 		presets = append(presets, riffPresetSummary{
-			Name:      entry.Name,
-			Layout:    entry.Preset.Layout,
-			PaneCount: len(entry.Preset.Panes),
+			Name:      p.Name,
+			Layout:    "",
+			PaneCount: 1,
 		})
 	}
 	// tiers rides this one preflight fetch (mockup-v2) so the dialog populates

@@ -410,11 +410,21 @@ const MaxTierNameLength = 64
 // empty); this rule applies to a NON-empty tier that will reach argv. A leading
 // `-` is rejected (see tierNamePattern) so the tier can't become a bare flag.
 func ValidateTier(name string) string {
+	return ValidateIdentifier(name, "Tier name")
+}
+
+// ValidateIdentifier is the shared strict-identifier rule behind ValidateTier
+// (tierNamePattern, MaxTierNameLength): alphanumeric plus hyphen and
+// underscore, ≤ 64 chars, leading char constrained to alphanumeric or
+// underscore so a name reaching argv as a bare positional can never read as a
+// flag (constitution §I). label prefixes the error messages ("Tier name").
+// Returns empty string if valid.
+func ValidateIdentifier(name, label string) string {
 	if len(name) > MaxTierNameLength {
-		return fmt.Sprintf("Tier name exceeds maximum length of %d characters", MaxTierNameLength)
+		return fmt.Sprintf("%s exceeds maximum length of %d characters", label, MaxTierNameLength)
 	}
 	if !tierNamePattern.MatchString(name) {
-		return "Tier name must contain only alphanumeric characters, hyphens, and underscores, and must not start with a hyphen"
+		return label + " must contain only alphanumeric characters, hyphens, and underscores, and must not start with a hyphen"
 	}
 	return ""
 }

@@ -6,9 +6,10 @@ import type { KeyBinding } from "@/lib/keybindings";
  * EXISTING validated action: a riff preset (spawned via the already-validated
  * `POST /api/riff` seam) or a command-palette action (dispatched in-place).
  * Macros NEVER carry shell strings — the riff target is a preset NAME only;
- * pane commands/arguments live in the preset definition inside
- * `fab/project/config.yaml` (the committed-config trust boundary,
- * Constitution I).
+ * the skill lives in the preset definition under `riff_presets` in run-kit's
+ * `~/.config/run-kit/config.yaml` (built-ins ship in the binary), and presets
+ * are skill-only so the settings-API-writable file never contributes a raw
+ * shell string (Constitution I).
  *
  * v1 riff targets deliberately carry NO `args` passthrough: the POST /api/riff
  * body has no args seam and its `task` field REPLACES preset panes

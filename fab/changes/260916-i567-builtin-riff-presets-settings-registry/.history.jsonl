@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-16T06:01:44Z"}
+{"args":"Built-in riff presets in run-kit's settings registry (riff_presets), retiring riff.presets from fab/project/config.yaml: discuss → /fab-discuss, incognito → /fab-incognito, blank → bare agent; skill-only user presets in ~/.config/run-kit/config.yaml; fabconfig preset reader deleted; rk doctor advisory for a stale riff: block; MCP description updated.","cmd":"fab-new","event":"command","ts":"2026-09-16T06:01:44Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-09-16T06:06:40Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-09-16T06:07:09Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-16T06:07:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T06:10:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T06:35:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-16T06:41:19Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T06:41:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-16T06:51:40Z"}

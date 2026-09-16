@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260916-ph9x-flair-compositor-only** — Flair overlays run on the compositor
 - **260916-fxt1-web-frame-engine-seam** — Web Frame Engine Seam
 - **260916-yqbo-perf-idle-cpu-instrument** — Idle-CPU Instrument (`just perf-idle-cpu`)
 - **260915-zeid-chrome-material-surface** — Chrome Material — a derived gray surface for the sidebar, top bar and status bar

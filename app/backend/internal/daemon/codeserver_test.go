@@ -28,10 +28,10 @@ func withCodeServerSeams(t *testing.T, sessionExists bool) (spawned *[][]string,
 	home = t.TempDir()
 
 	origExists, origSpawn, origHome := codeServerSessionExists, codeServerSpawn, codeServerUserHomeDir
-	origJob, origSelf := codeServerRunJob, codeServerSelfPath
+	origJob, origSelf, origInstallSelf := codeServerRunJob, codeServerSelfPath, codeServerInstallSelfPath
 	t.Cleanup(func() {
 		codeServerSessionExists, codeServerSpawn, codeServerUserHomeDir = origExists, origSpawn, origHome
-		codeServerRunJob, codeServerSelfPath = origJob, origSelf
+		codeServerRunJob, codeServerSelfPath, codeServerInstallSelfPath = origJob, origSelf, origInstallSelf
 	})
 
 	codeServerSessionExists = func(context.Context) bool { return sessionExists }
@@ -45,6 +45,7 @@ func withCodeServerSeams(t *testing.T, sessionExists bool) (spawned *[][]string,
 		return JobTarget{Session: JobsSessionName, Window: window, WindowID: "@1"}, true, nil
 	}
 	codeServerSelfPath = func() (string, error) { return "/usr/local/bin/rk", nil }
+	codeServerInstallSelfPath = func() (string, error) { return "/usr/local/bin/rk", nil }
 	return spawned, jobs, home
 }
 
@@ -127,8 +128,9 @@ func TestEnsureCodeServerSpawnCarriesLauncherRkBinOnBrew(t *testing.T) {
 	testutil.StubOnPath(t, "code-server", "#!/bin/sh\nexit 0\n")
 	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
 	spawned, _, _ := withCodeServerSeams(t, false)
-	// The default seam is selfpath.Launcher; compose the same derivation over a
-	// synthetic home so the assertion pins the rk-owned launcher symlink.
+	// The default seam is selfpath.LauncherOrStable; stub the launcher-half
+	// derivation over a synthetic home so the assertion pins the rk-owned
+	// launcher symlink.
 	codeServerSelfPath = func() (string, error) {
 		return selfpath.LauncherFor("/h"), nil
 	}
@@ -158,13 +160,20 @@ func TestEnsureCodeServerSpawnCarriesLauncherRkBinOnBrew(t *testing.T) {
 	}
 }
 
-func TestEnsureCodeServerInstallJobCarriesLauncherRkPathOnBrew(t *testing.T) {
+func TestEnsureCodeServerInstallJobCarriesStableRkPathOnBrew(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)
 	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
 	_, jobs, _ := withCodeServerSeams(t, false)
+	// The install chain resolves through its own stable-path seam — never the
+	// launcher, which may not exist (setup is optional) and whose Cellar target
+	// a mid-download brew upgrade can delete. The launcher stubbed on the
+	// RK_BIN seam must NOT leak into the job argv.
 	codeServerSelfPath = func() (string, error) {
 		return selfpath.LauncherFor("/h"), nil
+	}
+	codeServerInstallSelfPath = func() (string, error) {
+		return selfpath.StableFor("/opt/homebrew/Cellar/run-kit/1.2.3/bin/run-kit"), nil
 	}
 
 	ensureCodeServer()
@@ -172,9 +181,9 @@ func TestEnsureCodeServerInstallJobCarriesLauncherRkPathOnBrew(t *testing.T) {
 	if len(*jobs) != 1 {
 		t.Fatalf("job spawns = %d, want 1", len(*jobs))
 	}
-	want := `'/h/.local/share/rk/bin/run-kit' code-server install && '/h/.local/share/rk/bin/run-kit' code-server start`
+	want := `'/opt/homebrew/bin/run-kit' code-server install && '/opt/homebrew/bin/run-kit' code-server start`
 	if got := (*jobs)[0][1]; got != want {
-		t.Errorf("job argv = %q, want the launcher chain %q", got, want)
+		t.Errorf("job argv = %q, want the stable-path chain %q", got, want)
 	}
 }
 
@@ -541,7 +550,7 @@ func TestEnsureCodeServerInstallJobQuotesExePath(t *testing.T) {
 	t.Setenv("PATH", dir)
 	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
 	_, jobs, _ := withCodeServerSeams(t, false)
-	codeServerSelfPath = func() (string, error) { return "/Users/Jane Doe/bin/rk", nil }
+	codeServerInstallSelfPath = func() (string, error) { return "/Users/Jane Doe/bin/rk", nil }
 
 	ensureCodeServer()
 

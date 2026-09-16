@@ -62,6 +62,55 @@ func TestLauncherComposesUserHomeDir(t *testing.T) {
 	}
 }
 
+func TestLiveLauncherFor(t *testing.T) {
+	newHome := func(t *testing.T) string {
+		t.Helper()
+		home := t.TempDir()
+		if err := os.MkdirAll(filepath.Dir(LauncherFor(home)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return home
+	}
+	target := filepath.Join(t.TempDir(), "run-kit")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("live symlink accepted", func(t *testing.T) {
+		home := newHome(t)
+		if err := os.Symlink(target, LauncherFor(home)); err != nil {
+			t.Fatal(err)
+		}
+		p, ok := LiveLauncherFor(home)
+		if !ok || p != LauncherFor(home) {
+			t.Errorf("LiveLauncherFor = (%q, %t), want (%q, true)", p, ok, LauncherFor(home))
+		}
+	})
+	t.Run("absent rejected", func(t *testing.T) {
+		if _, ok := LiveLauncherFor(newHome(t)); ok {
+			t.Error("LiveLauncherFor accepted an absent launcher")
+		}
+	})
+	t.Run("foreign regular file rejected", func(t *testing.T) {
+		home := newHome(t)
+		if err := os.WriteFile(LauncherFor(home), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := LiveLauncherFor(home); ok {
+			t.Error("LiveLauncherFor accepted a regular file (foreign — never rk's)")
+		}
+	})
+	t.Run("dangling symlink rejected", func(t *testing.T) {
+		home := newHome(t)
+		if err := os.Symlink(filepath.Join(home, "deleted-keg"), LauncherFor(home)); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := LiveLauncherFor(home); ok {
+			t.Error("LiveLauncherFor accepted a dangling symlink")
+		}
+	})
+}
+
 func TestReplaceSymlinkReplacesTargetAtomically(t *testing.T) {
 	dir := t.TempDir()
 	link := filepath.Join(dir, "run-kit")

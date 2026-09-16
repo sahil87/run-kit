@@ -2574,6 +2574,91 @@ func TestGuiDisplayForeignPointerSkipsBlock(t *testing.T) {
 	}
 }
 
+// mutatingReader answers the pending consent prompt with "y" while applying
+// a filesystem mutation on the first read — the concurrent-`rk serve` race
+// window between installLauncherPointer's two probes.
+type mutatingReader struct {
+	mutate func() error
+	done   bool
+}
+
+func (r *mutatingReader) Read(p []byte) (int, error) {
+	if r.done {
+		return 0, io.EOF
+	}
+	r.done = true
+	if err := r.mutate(); err != nil {
+		return 0, err
+	}
+	return copy(p, "y\n"), nil
+}
+
+// TestGuiDisplayRepointedPointerSurvivesPendingPrompt pins the re-probe's
+// second half: a symlink re-pointed while the consent prompt is pending (a
+// concurrent rk flipping the launcher mid-upgrade) wins — setup must not
+// clobber the newer Cellar target with the stale one captured before the
+// prompt.
+func TestGuiDisplayRepointedPointerSurvivesPendingPrompt(t *testing.T) {
+	home := t.TempDir()
+	link := guiPointerPath(home)
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/cellar/ancient/bin/run-kit", link); err != nil {
+		t.Fatal(err)
+	}
+	reader := &mutatingReader{mutate: func() error {
+		if err := os.Remove(link); err != nil {
+			return err
+		}
+		return os.Symlink("/cellar/new/bin/run-kit", link)
+	}}
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	pointerState, err := installLauncherPointer(sink, bufio.NewReader(reader), home, "/cellar/old/bin/run-kit", consent{stdinIsTTY: true})
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if pointerState != guiPointerInPlace {
+		t.Errorf("re-pointed pointer verdict = %v, want guiPointerInPlace (the newer pointer is rk's)", pointerState)
+	}
+	if got, err := os.Readlink(link); err != nil || got != "/cellar/new/bin/run-kit" {
+		t.Errorf("pointer target = %q (err %v), want the concurrent /cellar/new/bin/run-kit untouched", got, err)
+	}
+	if !strings.Contains(out.String(), "re-pointed while the prompt was pending") {
+		t.Errorf("missing the re-pointed note: %q", out.String())
+	}
+}
+
+// TestGuiDisplayConcurrentIdenticalLinkIsNoOp: a pointer linked to the same
+// target while the prompt was pending (a parallel setup run) reads as
+// already-current, not as another relink.
+func TestGuiDisplayConcurrentIdenticalLinkIsNoOp(t *testing.T) {
+	home := t.TempDir()
+	link := guiPointerPath(home)
+	target := "/cellar/current/bin/run-kit"
+	reader := &mutatingReader{mutate: func() error {
+		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+			return err
+		}
+		return os.Symlink(target, link)
+	}}
+
+	var out bytes.Buffer
+	sink := newSinkWriters(&out, &out)
+	pointerState, err := installLauncherPointer(sink, bufio.NewReader(reader), home, target, consent{stdinIsTTY: true})
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if pointerState != guiPointerInPlace {
+		t.Errorf("concurrent-link verdict = %v, want guiPointerInPlace", pointerState)
+	}
+	if !strings.Contains(out.String(), "pointer already links") {
+		t.Errorf("missing the already-current note: %q", out.String())
+	}
+}
+
 // TestGuiDisplayDeclinedPointerSkipsBlock: declining the pointer prompt leaves
 // the bin dir uncreated and skips the block — the same posture as a declined
 // shim write skipping the PATH block.

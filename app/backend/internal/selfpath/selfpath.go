@@ -15,7 +15,8 @@
 // cleanup, AFTER the new keg is linked — so the launcher is live exactly during
 // the unlink→install→link window in which the stable symlink dangles. Callers
 // that must keep working mid-upgrade (the installed hook wrapper, code-server's
-// RK_BIN) exec the launcher first and the stable path as fallback.
+// RK_BIN) exec the launcher first and the stable path as fallback;
+// LauncherOrStable codifies that ladder for single-path consumers.
 package selfpath
 
 import (
@@ -96,6 +97,39 @@ func Launcher() (string, error) {
 		return "", err
 	}
 	return LauncherFor(home), nil
+}
+
+// LiveLauncherFor returns the launcher path for home when it is a live
+// rk-owned pointer — a symlink (rk only ever places symlinks there; a regular
+// file is the user's and never rk's) whose target currently resolves. An
+// absent, foreign, or dangling launcher reports ok=false: `rk agent setup` is
+// optional, and Homebrew's post-link cleanup deletes the old Cellar target, so
+// neither presence nor liveness can be assumed.
+func LiveLauncherFor(home string) (path string, ok bool) {
+	p := LauncherFor(home)
+	info, err := os.Lstat(p)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return "", false
+	}
+	if _, err := os.Stat(p); err != nil {
+		return "", false
+	}
+	return p, true
+}
+
+// LauncherOrStable resolves the rk path for a long-lived consumer handed a
+// single path (code-server's RK_BIN): the launcher when LiveLauncherFor
+// accepts it, Stable otherwise. The launcher wins when live because its
+// Cellar target survives the mid-upgrade window in which the stable symlink
+// dangles; a missing/foreign/dangling launcher must not be exported, so the
+// version-stable path is the floor.
+func LauncherOrStable() (string, error) {
+	if home, err := os.UserHomeDir(); err == nil {
+		if p, ok := LiveLauncherFor(home); ok {
+			return p, nil
+		}
+	}
+	return Stable()
 }
 
 // ReplaceSymlink atomically points linkPath at target: the new symlink is

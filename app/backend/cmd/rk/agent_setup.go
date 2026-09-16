@@ -1768,11 +1768,26 @@ func installLauncherPointer(sink outputSink, reader *bufio.Reader, home, target 
 	// Re-probe right before the write: the prompt above may have been pending
 	// for a while, and rename would clobber whatever now sits at the path. A
 	// non-symlink that appeared meanwhile is the user's — refuse, never replace.
-	if _, _, foreign, err := guiPointerProbe(linkPath); err != nil {
+	// A symlink whose state moved meanwhile (a concurrent rk re-pointing the
+	// launcher mid-upgrade) wins too: committing the stale target captured
+	// before the prompt could re-pin an old or already-deleted keg.
+	freshCurrent, freshExists, foreign, err := guiPointerProbe(linkPath)
+	if err != nil {
 		return guiPointerDeclined, err
-	} else if foreign {
+	}
+	switch {
+	case foreign:
 		sink.Notef("launcher: %s changed to a non-symlink while the prompt was pending — leaving it untouched (rk only replaces pointers it owns).\n", linkPath)
 		return guiPointerForeign, nil
+	case !freshExists && exists:
+		sink.Notef("launcher: %s was removed while the prompt was pending — leaving it absent.\n", linkPath)
+		return guiPointerDeclined, nil
+	case freshExists && freshCurrent == target:
+		sink.Notef("launcher: pointer already links %s -> %s — nothing to do.\n", linkPath, target)
+		return guiPointerInPlace, nil
+	case freshExists && freshCurrent != current:
+		sink.Notef("launcher: %s was re-pointed while the prompt was pending (now -> %s) — leaving the newer pointer untouched.\n", linkPath, freshCurrent)
+		return guiPointerInPlace, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(linkPath), 0o755); err != nil {
 		return guiPointerDeclined, fmt.Errorf("launcher: create %s: %w", filepath.Dir(linkPath), err)

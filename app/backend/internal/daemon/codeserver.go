@@ -69,14 +69,26 @@ var codeServerRunJob = func(ctx context.Context, window string, argv []string) (
 }
 
 // codeServerSelfPath resolves the rk path for the spawn argv's RK_BIN env
-// element and the install job's shell chain: the rk-owned launcher symlink.
-// The rk-code-server session outlives the binary version that spawned it, and
-// the code-bridge extension execs $RK_BIN per editor action — the launcher
-// (targeting the Cellar binary, deleted only in Homebrew's post-link cleanup)
-// is the path that stays live through a `brew upgrade` window, when the
-// brew-prefix stable symlink dangles. A package seam (mirroring
-// codeServerUserHomeDir) so tests return a fixed path.
-var codeServerSelfPath = selfpath.Launcher
+// element: the rk-owned launcher symlink when it is a live owned pointer,
+// the version-stable path otherwise (`rk agent setup` is optional, so an
+// absent, foreign, or dangling launcher must not be exported — every bridge
+// action would fail, or worse, exec the foreign file). The rk-code-server
+// session outlives the binary version that spawned it, and the code-bridge
+// extension execs $RK_BIN per editor action — the launcher (targeting the
+// Cellar binary, deleted only in Homebrew's post-link cleanup) is the path
+// that stays live through a `brew upgrade` window, when the brew-prefix
+// stable symlink dangles. A package seam (mirroring codeServerUserHomeDir) so
+// tests return a fixed path.
+var codeServerSelfPath = selfpath.LauncherOrStable
+
+// codeServerInstallSelfPath resolves the rk path for the install job's shell
+// chain: the version-stable path, never the launcher. The chain runs on
+// machines that may never have run `rk agent setup` (no launcher at all — a
+// fresh install would exec a nonexistent path), and a `brew upgrade` landing
+// during the ~100MB download can delete the launcher's old Cellar target
+// before the `code-server start` half of the chain runs. A package seam
+// (mirroring codeServerSelfPath) so tests return a fixed path.
+var codeServerInstallSelfPath = selfpath.Stable
 
 // codeServerSeedSettings is the write-once baseline for the rk-owned profile:
 // the first two settings are settings-only (no CLI flags exist — verified
@@ -287,7 +299,7 @@ func ensureCodeServerCore(cli bool) (EnsureOutcome, error) {
 // daemon start. The chain's && IS the B→C sequencing (daemon start is
 // one-shot; no supervisor loop, Constitution VI).
 func spawnCodeServerInstallJob(ctx context.Context) {
-	exe, err := codeServerSelfPath()
+	exe, err := codeServerInstallSelfPath()
 	if err != nil {
 		slog.Warn("code-server install job skipped: could not resolve the rk binary path — run `rk code-server install` manually", "err", err)
 		return
@@ -327,8 +339,9 @@ func spawnCodeServerInstallJob(ctx context.Context) {
 // `env -u` (inside a VS Code integrated terminal that var flips code-server
 // into `code`-CLI mode — "open in existing instance" → exits with "Please
 // specify at least one file or folder"; the dev.sh lesson). The same env
-// prefix sets RK_BIN to the version-stable rk path (the brew-prefix symlink on
-// a Homebrew install — never the Cellar path, which `brew upgrade` deletes
+// prefix sets RK_BIN to the long-lived rk path (the rk-owned launcher symlink
+// when it is a live owned pointer, else the brew-prefix stable symlink on a
+// Homebrew install — never the bare Cellar path, which `brew upgrade` deletes
 // while this session keeps running) so the bridge extension can run rk
 // regardless of the window's PATH; an unresolvable self-path omits the
 // element and never blocks the spawn. Loopback-only +

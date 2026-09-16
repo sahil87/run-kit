@@ -1251,7 +1251,7 @@ export function IframeWindow({
             // muscle memory) — the same path as the `+` button.
             if (e.target === e.currentTarget) openDraftRef.current();
           }}
-          className="shrink-0 flex items-stretch gap-px px-1 border-b border-border bg-bg-card overflow-x-auto font-mono text-[11px] select-none"
+          className="shrink-0 flex items-stretch gap-px px-1 border-b border-border bg-bg-primary overflow-x-auto font-mono text-[11px] select-none"
         >
           {tabs.map((tabUrl, i) => {
             const n = i + 1;

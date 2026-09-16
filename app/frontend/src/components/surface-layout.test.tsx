@@ -383,7 +383,7 @@ describe("SurfaceLayout tile verbs", () => {
     expect(close.className).toContain("hover:text-signal-red");
     const swap = screen.getByRole("button", { name: "Swap Code" });
     expect(swap.className).toContain("hover:text-text-primary");
-    expect(swap.className).toContain("hover:bg-bg-inset");
+    expect(swap.className).toContain("hover:bg-bg-card");
   });
 });
 
@@ -828,19 +828,20 @@ describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
 });
 
 describe("SurfaceLayout header chrome (260812-wfic R3)", () => {
-  it("renders the kind glyph, a 35px bg-bg-card header, and the meta as an inset chip", () => {
+  it("renders the kind glyph, a 35px header on the tile surface, and the meta as a card chip", () => {
     renderLayout({ layout: { shape: "split-h", order: ["code", "web"] } });
     const codeTile = screen.getByTestId("surface-tile-code");
     const header = codeTile.firstElementChild!;
     expect(header.className).toContain("h-[35px]");
-    expect(header.className).toContain("bg-bg-card");
+    expect(header.className).toContain("bg-bg-primary");
+    expect(header.className).not.toContain("bg-bg-card");
     expect(header.className).toContain("text-[11px]");
     // The SURFACE_GLYPH kind glyph precedes the label.
     expect(header.textContent).toContain("{}");
     expect(header.textContent).toContain("Code");
     // The meta text is an inset chip, subordinate to the label.
     const chip = within(codeTile as HTMLElement).getByText("repo");
-    expect(chip.className).toContain("bg-bg-inset");
+    expect(chip.className).toContain("bg-bg-card");
     expect(chip.className).toContain("rounded");
     expect(chip.className).toContain("px-1.5");
     expect(chip.className).toContain("text-[10px]");
@@ -2042,9 +2043,9 @@ describe("SurfaceLayout gui tile", () => {
       gui: { ...GUI_ON, wm: "", display: "" },
     });
     expect(await screen.findByTestId("mock-gui")).toBeTruthy();
-    // No meta chip: the `bg-bg-inset` span is the meta chip's alone in this header.
+    // No meta chip: the `bg-bg-card` span is the meta chip's alone in this header.
     expect(
-      screen.getByTestId("surface-tile-gui").querySelectorAll(".bg-bg-inset"),
+      screen.getByTestId("surface-tile-gui").querySelectorAll(".bg-bg-card"),
     ).toHaveLength(0);
   });
 });

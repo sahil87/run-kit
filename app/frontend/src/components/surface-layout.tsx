@@ -117,8 +117,12 @@ import {
  *   `bg-bg-inset` ground itself are provided by the Shell STAGE
  *   (260814-ldbs) — this grid ceded its own `p-[6px]`/`bg-bg-inset` so the
  *   tiles and the rail card share ONE continuous ground. Each tile carries a
- *   35px `bg-bg-card` header (32px content + 3px bottom rule, aligned with
- *   the sidebar rail's `border-t-[3px]` seam) —
+ *   35px header painted on the tile's own `bg-bg-primary` surface (32px
+ *   content + 3px bottom rule, aligned with the sidebar rail's
+ *   `border-t-[3px]` seam) — the rule separates header from content, never a
+ *   second surface color, so header, content and compose strip read as one
+ *   well inside the chrome frame; its verb hovers and meta chip use
+ *   `bg-bg-card`, the one step above that surface —
  *   kind glyph (`SURFACE_GLYPH`) + surface name + the small meta as an inset
  *   chip (code-root basename for code, the active web tab's host for web) — with
  *   rest-visible boxed verb buttons (24×24, 26×26 coarse; 14px SVG glyphs
@@ -377,7 +381,7 @@ function defaultRatios(arity: 1 | 2 | 3): LayoutRatios {
  *    every plain verb. */
 const VERB_BUTTON_BASE =
   "inline-flex items-center justify-center h-[24px] w-[24px] coarse:h-[26px] coarse:w-[26px] rounded transition-colors";
-const VERB_BUTTON_CLASS = `${VERB_BUTTON_BASE} hover:bg-bg-inset`;
+const VERB_BUTTON_CLASS = `${VERB_BUTTON_BASE} hover:bg-bg-card`;
 
 /** Tty progress colors (260819-1vxq, design study state 03): green = running,
  *  red = error, amber = pause/warning — the existing signal-token vocabulary.
@@ -1840,7 +1844,7 @@ export function SurfaceLayout({
             chrome-rule weight (top bar, bottom bar, and sidebar panels all use
             3px rules). */}
         {!mobile && (
-          <div className="flex items-center gap-1.5 px-1.5 h-[35px] shrink-0 border-b-[3px] border-border bg-bg-card font-mono text-[11px] text-text-secondary select-none">
+          <div className="flex items-center gap-1.5 px-1.5 h-[35px] shrink-0 border-b-[3px] border-border bg-bg-primary font-mono text-[11px] text-text-secondary select-none">
             {kind === "tty" && statusWindow && <StatusDot win={statusWindow} />}
             {kind === "tty" && ttyChip && (
               <span
@@ -1876,7 +1880,7 @@ export function SurfaceLayout({
                     className={`min-w-0 truncate rounded px-1.5 text-[10px] ${
                       guiCaptured
                         ? "bg-accent-green/15 text-accent-green"
-                        : "bg-bg-inset text-text-secondary"
+                        : "bg-bg-card text-text-secondary"
                     }`}
                   >
                     {meta}
@@ -1922,7 +1926,7 @@ export function SurfaceLayout({
                     className={controlClass({
                       variant: "toggle",
                       base: VERB_BUTTON_BASE,
-                      rest: "hover:bg-bg-inset hover:text-text-primary",
+                      rest: "hover:bg-bg-card hover:text-text-primary",
                       ringed: true,
                       pressed: guiTileFullscreen,
                       disabled: !guiFullscreenRow,
@@ -1947,7 +1951,7 @@ export function SurfaceLayout({
                   className={controlClass({
                     variant: "toggle",
                     base: VERB_BUTTON_BASE,
-                    rest: "hover:bg-bg-inset hover:text-text-primary",
+                    rest: "hover:bg-bg-card hover:text-text-primary",
                     ringed: true,
                     pressed: findOpen,
                   })}
@@ -1969,7 +1973,7 @@ export function SurfaceLayout({
                     className={controlClass({
                       variant: "toggle",
                       base: VERB_BUTTON_BASE,
-                      rest: "hover:bg-bg-inset hover:text-text-primary",
+                      rest: "hover:bg-bg-card hover:text-text-primary",
                       ringed: true,
                       pressed: exportMenuPos !== null,
                     })}
@@ -2100,7 +2104,7 @@ export function SurfaceLayout({
                     className={controlClass({
                       variant: "toggle",
                       base: VERB_BUTTON_BASE,
-                      rest: "hover:bg-bg-inset hover:text-text-primary",
+                      rest: "hover:bg-bg-card hover:text-text-primary",
                       ringed: true,
                       pressed: isZoomed,
                     })}

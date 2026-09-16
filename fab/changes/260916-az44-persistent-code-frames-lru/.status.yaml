@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 11
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-16T11:18:47Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-16T11:24:05Z"}
     hydrate: {started_at: "2026-09-16T11:24:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T11:32:28Z"}
     ship: {started_at: "2026-09-16T11:32:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T11:35:04Z"}
-    review-pr: {started_at: "2026-09-16T11:35:04Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-16T11:35:04Z", driver: git-pr, iterations: 1, completed_at: "2026-09-16T12:13:00Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/990
 change_type_source: explicit
@@ -56,4 +56,4 @@ true_impact:
 summary: code frames persist across same-server window switches via a bounded per-server LRU in SurfaceLayout (cap 3 desktop / 1 mobile, evict on overflow/kill/root-divergence/reachability loss); useCodeWorkspace becomes a per-window src map (codeSrcFor, liveWindowIds pruning); follow records a pending target pre-POST; restoreFocus code arm focuses the retained frame explicitly; steal guard reverts fresh-boot grabs only
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-16T11:35:04Z
+last_updated: 2026-09-16T12:13:00Z

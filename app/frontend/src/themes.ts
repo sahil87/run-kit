@@ -29,6 +29,13 @@ export type UIColors = {
   accent: string;
   accentBright: string;
   accentGreen: string;
+  /** Latch well floor — the chrome ground one OKLab step down. */
+  bgWell: string;
+  /** Latch glyph ink — the palette green, moved in OKLab L until it clears
+   *  the non-text contrast floor against `bgWell`. */
+  accentGreenInk: string;
+  /** Latched bordered controls — `border` one OKLab step down. */
+  borderPressed: string;
 };
 
 export type Theme = {
@@ -54,6 +61,9 @@ export const COLOR_CSS_MAP: Record<keyof UIColors, string> = {
   accent: "--color-accent",
   accentBright: "--color-accent-bright",
   accentGreen: "--color-accent-green",
+  bgWell: "--color-bg-well",
+  accentGreenInk: "--color-accent-green-ink",
+  borderPressed: "--color-border-pressed",
 };
 
 // ── Color helpers (module-private) ───────────────────────────────────────────
@@ -179,8 +189,25 @@ export const CHROME_MIN_L = 0.16;
  *  on (sidebar rows, top bar, status bar) — text AA. Palettes whose bright
  *  black is very dark (Tokyo Night) would otherwise land near 3:1 there. */
 const TEXT_SECONDARY_MIN_CONTRAST = 4.5;
+/** OKLab lightness step from the chrome ground DOWN to the latch well floor —
+ *  down on both categories, because a pressed key sits below its neighbours
+ *  whatever the theme. Same-visible-step reasoning as CHROME_L_DELTA: an sRGB
+ *  percentage (the bgInset recipe) is invisible on light palettes. Clamps at
+ *  L 0 on pure-black palettes, where the well shadow's lip carries the rim. */
+const WELL_L_DELTA = 0.06;
+/** OKLab lightness step from `border` DOWN to the pressed border on latched
+ *  bordered controls. Down on both categories: a lighter border reads as
+ *  disabled, so pressed must darken every channel. */
+const PRESSED_BORDER_L_DELTA = 0.12;
 
-/** Derive the 11 UI CSS colors from a full theme palette. */
+/** Lower a hex color's OKLab lightness by `delta`, keeping a/b (hue and
+ *  chroma identity), clamped at black. */
+function stepDownL(hex: string, delta: number): string {
+  const lab = hexToOklab(hex);
+  return oklabToHex({ L: Math.max(0, lab.L - delta), a: lab.a, b: lab.b });
+}
+
+/** Derive the 14 UI CSS colors from a full theme palette. */
 export function deriveUIColors(palette: ThemePalette, category: "dark" | "light"): UIColors {
   const isDark = category === "dark";
   const accent = palette.ansi[4];
@@ -189,6 +216,8 @@ export function deriveUIColors(palette: ThemePalette, category: "dark" | "light"
   const chromeDir = isDark ? 1 : -1;
   const chromeL = isDark ? Math.max(bgLch.L + CHROME_L_DELTA, CHROME_MIN_L) : bgLch.L - CHROME_L_DELTA;
   const bgChrome = oklchToHexInGamut(chromeL, chromeChroma, bgLch.hueDeg);
+  const bgWell = oklchToHexInGamut(Math.max(0, chromeL - WELL_L_DELTA), chromeChroma, bgLch.hueDeg);
+  const border = blendHex(palette.foreground, palette.background, 0.25);
   return {
     bgPrimary: palette.background,
     bgCard: isDark ? lightenHex(palette.background, 8) : darkenHex(palette.background, 3),
@@ -205,12 +234,17 @@ export function deriveUIColors(palette: ThemePalette, category: "dark" | "light"
       isDark,
       TEXT_SECONDARY_MIN_CONTRAST,
     ),
-    border: blendHex(palette.foreground, palette.background, 0.25),
+    border,
     accent,
     // "bright" = more salient than accent relative to the theme background:
     // lighter on dark, darker + more saturated on light (lighter would wash out).
     accentBright: isDark ? lightenHex(accent, 25) : saturateHex(darkenHex(accent, 12), 1.15),
     accentGreen: palette.ansi[2],
+    bgWell,
+    // The palette green is a fill/track colour; as a glyph on the well it must
+    // clear the non-text floor, which the light palettes' greens do not.
+    accentGreenInk: adjustBorderForContrast(palette.ansi[2], bgWell, isDark, BORDER_MIN_CONTRAST),
+    borderPressed: stepDownL(border, PRESSED_BORDER_L_DELTA),
   };
 }
 

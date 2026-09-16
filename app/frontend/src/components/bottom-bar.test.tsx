@@ -196,9 +196,10 @@ describe("BottomBar scroll-lock", () => {
     // Button should now show locked state
     const lockedBtn = screen.getByLabelText(/Scroll lock on/);
     expect(lockedBtn).toBeInTheDocument();
-    expect(lockedBtn.className).toContain("bg-accent-green/15");
-    expect(lockedBtn.className).toContain("border-accent-green");
-    expect(lockedBtn.className).toContain("text-accent-green");
+    expect(lockedBtn.className).toContain("rk-latch-well");
+    expect(lockedBtn.className).toContain("bg-bg-well");
+    expect(lockedBtn.className).toContain("border-border-pressed");
+    expect(lockedBtn.className).toContain("text-accent-green-ink");
 
     // Icon should be lock symbol
     const kbd = lockedBtn.querySelector("kbd");
@@ -210,7 +211,7 @@ describe("BottomBar scroll-lock", () => {
 
     const btn = screen.getByLabelText("Show keyboard");
     expect(btn.className).toContain("text-text-secondary");
-    expect(btn.className).not.toContain("bg-accent-green/15");
+    expect(btn.className).not.toContain("bg-bg-well");
 
     const kbd = btn.querySelector("kbd");
     expect(kbd?.textContent).toBe("\u2328");
@@ -344,10 +345,10 @@ describe("BottomBar chips on the coarse-only bar (260723-fm08; gate 260814-ldbs)
     renderBottomBar({ onOpenCompose: vi.fn() });
     const trigger = screen.getByLabelText("Function keys");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
-    expect(trigger.className).not.toContain("border-accent-green");
+    expect(trigger.className).not.toContain("border-border-pressed");
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
-    expect(trigger.className).toContain("border-accent-green");
+    expect(trigger.className).toContain("border-border-pressed");
   });
 
   it("Option latch row toggles aria-checked and keeps the menu open; arrows send-and-stay", () => {

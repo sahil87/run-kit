@@ -12,19 +12,18 @@
  *    steppers that never carried it.
  *  - `chip` — the bottom-bar kbd chips (`KBD_*`, 33×35 fine / 40 coarse).
  *    `ringed` selects the borderless F▴-menu key-cell recipe (`FN_ITEM_*`,
- *    40 flat — the bar renders coarse-only) whose state arm is the ring-inset
- *    `LATCHED_ARM_RINGED`.
+ *    40 flat — the bar renders coarse-only) whose state arm is the plain
+ *    well (`LATCHED_WELL` — no border axis).
  *  - `toggle` — a latching button with call-site geometry: `base` (required)
- *    plus the green arm on-state — `LATCHED_ARM`, or `LATCHED_ARM_RINGED` with
- *    `ringed` (borderless controls paint the border axis as an inset ring so
- *    latching never shifts layout). `onBorder` prepends the `border` width
+ *    plus the well on-state — `LATCHED_WELL_BORDERED`, or the plain
+ *    `LATCHED_WELL` with `ringed` (borderless controls paint no border axis,
+ *    so latching never shifts layout). `onBorder` prepends the `border` width
  *    utility to the on-state for bases that carry no border at rest (the
- *    compose-strip history chip) — the arm's border color needs it.
+ *    compose-strip history chip) — the arm's pressed border color needs it.
  *  - `segment` — a segment inside a bordered chip wrapper
  *    (`TOP_BAR_SEGMENT_H` — 26/38, the 2px-wrapper-border inset), with the
- *    split/open-chevron rest arm by default. `flush` selects a wash-only
- *    state arm for connected segmented controls whose wrapper owns the
- *    outline.
+ *    split/open-chevron rest arm by default. `flush` selects the plain well
+ *    for connected segmented controls whose wrapper owns the outline.
  *  - `menu-row` — the one menu-row scale (`MENU_ROW_*`, 28/40 floors);
  *    `pressed`/`open` compose the checked arm (`MENU_ROW_CHECKED`); the ✓
  *    mark stays call-site content (`MENU_ROW_CHECK_MARK`). The disabled
@@ -117,22 +116,22 @@ const TOP_BAR_BUTTON_H = "h-[28px] coarse:h-[40px]"; // lockstep: --ctl-h-bar / 
 const TOP_BAR_SEGMENT_H = "h-[26px] coarse:h-[38px]"; // lockstep: --ctl-h-bar / --ctl-h-bar-coarse minus the 2px wrapper border
 
 /**
- * The one latched/on state arm (scheme C: green = state). Composed with a
- * BASE that carries NO hover color utilities (REST swapped out) so nothing
- * competes with the latch border — class stacking ties on specificity and
- * loses on compiled source order. Lockstep: the latch color algebra is
+ * The one latched/on state arm (scheme C: green = state), expressed as a
+ * recessed well: the control sits IN the ground — the palette-derived floor
+ * (`bg-bg-well`), glyph ink held at ≥3:1 on that floor
+ * (`text-accent-green-ink`), and the inset top shade + bottom lip painted by
+ * the `rk-latch-well` utility (globals.css owns the per-theme shadow pair and
+ * the hover deepen). No ring, no wash: depth says "pressed", hue says "on".
+ * Composed with a BASE that carries NO hover color utilities (REST swapped
+ * out) so nothing competes with the arm — class stacking ties on specificity
+ * and loses on compiled source order. Lockstep: the latch algebra is
  * documented in docs/memory/run-kit/ui/visual-design.md.
  */
-const LATCHED_ARM =
-  "bg-accent-green/15 border-accent-green text-accent-green hover:bg-accent-green/25";
-/** Border-axis equivalent for borderless controls (rail toggles, find-bar and
- *  tile-verb glyph buttons) — ring-inset paints inside, so latching never
- *  shifts layout. */
-const LATCHED_ARM_RINGED =
-  "bg-accent-green/15 ring-1 ring-inset ring-accent-green text-accent-green hover:bg-accent-green/25";
-/** Wash-only latch for connected segments whose wrapper owns the border. */
-const LATCHED_ARM_FLUSH =
-  "bg-accent-green/15 text-accent-green hover:bg-accent-green/25";
+const LATCHED_WELL = "rk-latch-well bg-bg-well text-accent-green-ink";
+/** Bordered controls keep their border and it darkens with the well — a
+ *  lighter border would read as disabled. The BASE carries only the `border`
+ *  width; the color lives on the REST arm so the pressed color never ties. */
+const LATCHED_WELL_BORDERED = `${LATCHED_WELL} border-border-pressed`;
 
 /**
  * Dialog wide-button geometry — the floor every dialog button carries: 28px
@@ -171,19 +170,21 @@ const CONFIRM_DANGER = `py-1.5 bg-signal-red/20 border border-signal-red rounded
 // decided by compiled source order — a latched chip must keep its latch
 // border under hover):
 //
-//  - `KBD_BASE` — geometry, border box, radius, transition, pressed fill.
-//    No hover color utilities. (The select guard and the focus ring are the
-//    global unlayered rules in globals.css, which cover every control.)
-//  - `KBD_REST` — the neutral-hover arm.
+//  - `KBD_BASE` — geometry, border width, radius, transition, pressed fill.
+//    No color utilities at all — the border color rides the REST arm so the
+//    well's pressed border never ties with it. (The select guard and the
+//    focus ring are the global unlayered rules in globals.css, which cover
+//    every control.)
+//  - `KBD_REST` — the rest border color + the neutral-hover arm.
 const KBD_BASE =
-  "rk-glint min-h-[33px] min-w-[35px] coarse:min-h-[40px] coarse:min-w-[40px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded transition-colors active:bg-bg-card";
-const KBD_REST = "hover:border-text-secondary";
+  "rk-glint min-h-[33px] min-w-[35px] coarse:min-h-[40px] coarse:min-w-[40px] flex items-center justify-center px-1 py-0 text-xs border rounded transition-colors active:bg-bg-card";
+const KBD_REST = "border-border hover:border-text-secondary";
 
 /** F▴ menu key buttons (F-keys, Esc, nav, arrows, the ⌥ latch cell). Flat
  *  40px both pointer classes — the bar (and so this menu) renders only on
  *  coarse pointers, so a fine/coarse split would be dead code. Lockstep:
  *  --ctl-chip-coarse in globals.css (:root) — the pair MUST change together.
- *  BASE/REST split so the ⌥ latch composes BASE + LATCHED_ARM_RINGED with no
+ *  BASE/REST split so the ⌥ latch composes BASE + LATCHED_WELL with no
  *  competing hover utility. */
 const FN_ITEM_BASE =
   "px-2 py-1 min-h-[40px] min-w-[40px] flex items-center justify-center text-xs rounded";
@@ -216,7 +217,7 @@ const WIDE_BTN_CLASS = `py-1.5 bg-bg-card border border-border rounded hover:bor
 interface ControlClassCommon {
   /** Height-axis contract label; defaulted per variant. */
   size?: ControlSize;
-  /** Latched on-state → the variant's green arm (`MENU_ROW_CHECKED` for
+  /** Latched on-state → the variant's well arm (`MENU_ROW_CHECKED` for
    *  menu-row). `<Control>` reflects it to `aria-pressed`. */
   pressed?: boolean;
   /** Open-latch — the same arm as `pressed`; `aria-expanded` stays at the
@@ -244,7 +245,7 @@ export type ControlClassOptions = ControlClassCommon &
       }
     | {
         variant: "chip";
-        /** Borderless F▴-menu key-cell recipe (ring-inset state arm). */
+        /** Borderless F▴-menu key-cell recipe (plain-well state arm). */
         ringed?: boolean;
       }
     | {
@@ -253,7 +254,7 @@ export type ControlClassOptions = ControlClassCommon &
         base: string;
         /** Rest-arm override; defaults to the bordered neutral arm. */
         rest?: string;
-        /** Borderless latch — ring-inset state arm. */
+        /** Borderless latch — the plain well, no border axis. */
         ringed?: boolean;
         /** Prepend the `border` width utility to the on-state (bases with no
          *  border at rest). */
@@ -263,7 +264,7 @@ export type ControlClassOptions = ControlClassCommon &
         variant: "segment";
         /** Rest-arm override (plain segments, toggle cells). */
         rest?: string;
-        /** Wash-only latch for connected groups whose wrapper owns the outline. */
+        /** Plain-well latch for connected groups whose wrapper owns the outline. */
         flush?: boolean;
       }
     | {
@@ -312,14 +313,14 @@ export function controlClass(options: ControlClassOptions): string {
       const glint = options.glint !== false ? "rk-glint " : "";
       if (options.box === "height") {
         out = options.pressed || options.open
-          ? `${glint}${TOP_BAR_BUTTON_H} ${LATCHED_ARM}`
+          ? `${glint}${TOP_BAR_BUTTON_H} ${LATCHED_WELL_BORDERED}`
           : `${glint}${TOP_BAR_BUTTON_H}${options.rest ? ` ${options.rest}` : ""}`;
         if (disabled !== undefined) out += ` ${DISABLED_BORDERED}`;
         break;
       }
       const arm = options.pressed || options.open;
       out = arm
-        ? `${glint}${TOP_BAR_BUTTON_BASE} ${LATCHED_ARM}`
+        ? `${glint}${TOP_BAR_BUTTON_BASE} ${LATCHED_WELL_BORDERED}`
         : `${glint}${TOP_BAR_BUTTON_BASE} ${options.rest ?? TOP_BAR_BUTTON_REST}`;
       if (disabled !== undefined) out += ` ${DISABLED_BORDERED}`;
       break;
@@ -327,7 +328,7 @@ export function controlClass(options: ControlClassOptions): string {
     case "chip": {
       const base = options.ringed ? FN_ITEM_BASE : KBD_BASE;
       const rest = options.ringed ? FN_ITEM_REST : KBD_REST;
-      const arm = options.ringed ? LATCHED_ARM_RINGED : LATCHED_ARM;
+      const arm = options.ringed ? LATCHED_WELL : LATCHED_WELL_BORDERED;
       out = options.pressed || options.open ? `${base} ${arm}` : `${base} ${rest}`;
       if (disabled !== undefined) {
         out += ` ${options.ringed ? MENU_ROW_DISABLED : DISABLED_BORDERED}`;
@@ -337,7 +338,7 @@ export function controlClass(options: ControlClassOptions): string {
     case "toggle": {
       const rest = options.rest ?? TOP_BAR_BUTTON_REST;
       const arm = `${options.onBorder ? "border " : ""}${
-        options.ringed ? LATCHED_ARM_RINGED : LATCHED_ARM
+        options.ringed ? LATCHED_WELL : LATCHED_WELL_BORDERED
       }`;
       out = options.pressed || options.open ? `${options.base} ${arm}` : `${options.base} ${rest}`;
       if (disabled !== undefined) {
@@ -347,7 +348,7 @@ export function controlClass(options: ControlClassOptions): string {
     }
     case "segment": {
       const rest = options.rest ?? SEGMENT_REST;
-      const arm = options.flush ? LATCHED_ARM_FLUSH : LATCHED_ARM;
+      const arm = options.flush ? LATCHED_WELL : LATCHED_WELL_BORDERED;
       out = `${TOP_BAR_SEGMENT_H} ${options.pressed || options.open ? arm : rest}`;
       if (disabled !== undefined) out += ` ${DISABLED_INK}`;
       break;

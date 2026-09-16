@@ -38,6 +38,13 @@
   --color-accent: #5b8af0;
   --color-accent-bright: #82a8f7;
   --color-accent-green: #22c55e;
+  /* Latch well — the recessed on-state of latched controls: floor one OKLab
+     step below the chrome, glyph ink at ≥3:1 on that floor, pressed border
+     one step below the border. Static values are deriveUIColors' output for
+     the default palettes (pinned by themes.test.ts). */
+  --color-bg-well: #0d0e11;
+  --color-accent-green-ink: #22c55e;
+  --color-border-pressed: #26282e;
   /* Signal hues (status dots, PR glyphs, waiting attention, errors). Dark
      values are the legacy Tailwind -400 hexes — dark stays pixel-identical;
      light values meet the ≥3:1 WCAG 1.4.11 graphics bar on light surfaces. */
@@ -63,11 +70,17 @@ html[data-theme="dark"] {
   --color-accent: #5b8af0;
   --color-accent-bright: #82a8f7;
   --color-accent-green: #22c55e;
+  --color-bg-well: #0d0e11;
+  --color-accent-green-ink: #22c55e;
+  --color-border-pressed: #26282e;
   --color-signal-yellow: #facc15;
   --color-signal-purple: #c084fc;
   --color-signal-blue: #60a5fa;
   --color-signal-red: #f87171;
   --color-marker-ink: #f59e0b;
+  --ctl-well-shadow: inset 0 1.5px 2.5px rgb(0 0 0 / 0.6);
+  --ctl-well-shadow-hover: inset 0 2px 3.5px rgb(0 0 0 / 0.78);
+  --ctl-well-lip: inset 0 -1px 0 rgb(255 255 255 / 0.05);
 }
 
 html[data-theme="light"] {
@@ -85,11 +98,20 @@ html[data-theme="light"] {
      lighter on dark, darker + more saturated on light (lighter would wash out). */
   --color-accent-bright: #3b66d6;
   --color-accent-green: #16a34a;
+  --color-bg-well: #d6d6d7;
+  --color-accent-green-ink: #00872e;
+  --color-border-pressed: #9b9c9f;
   --color-signal-yellow: #b07d02;
   --color-signal-purple: #9333ea;
   --color-signal-blue: #2563eb;
   --color-signal-red: #dc2626;
   --color-marker-ink: #d97706;
+  /* A light well reads from its dark top edge; the lip is kept as a
+     transparent shadow so the two-shadow list stays valid (`none` inside a
+     shadow list drops the whole declaration). */
+  --ctl-well-shadow: inset 0 1px 2px rgb(0 0 0 / 0.28), inset 0 0 0 1px rgb(0 0 0 / 0.04);
+  --ctl-well-shadow-hover: inset 0 1.5px 3px rgb(0 0 0 / 0.36), inset 0 0 0 1px rgb(0 0 0 / 0.05);
+  --ctl-well-lip: inset 0 -1px 0 rgb(255 255 255 / 0);
 }
 
 /* Control-layer geometry tokens — theme-independent, colors stay derived from
@@ -106,6 +128,11 @@ html[data-theme="light"] {
   --ctl-chip-h: 33px; /* fine chip min height */
   --ctl-chip-w: 35px; /* fine chip min width */
   --ctl-chip-coarse: 40px; /* coarse chip min (both axes) */
+  /* Latch-well depth — the one place a --ctl-* token is per theme category:
+     the dark pair is the default here and the light block overrides it. */
+  --ctl-well-shadow: inset 0 1.5px 2.5px rgb(0 0 0 / 0.6);
+  --ctl-well-shadow-hover: inset 0 2px 3.5px rgb(0 0 0 / 0.78);
+  --ctl-well-lip: inset 0 -1px 0 rgb(255 255 255 / 0.05);
 }
 
 body {
@@ -256,11 +283,29 @@ summary {
    primary text color, and nothing recolors the chip itself: the call-site
    Tailwind hover utilities (hover:border-text-secondary,
    hover:text-text-primary) are the neutral hover, and latched states
-   (LATCHED_ARM: green ink + border) keep their hue under hover — only the
-   fill deliberately deepens (/15 → /25). The button MUST
+   (the well: green ink on the recessed floor) keep their hue under hover —
+   only the well's shade deepens (.rk-latch-well below). The button MUST
    clip the strip (overflow:hidden) — verified safe because the font/bell
    popovers are SIBLINGS of their trigger buttons, not children, so clipping
    the button never clips the popover. */
+/* Latch well = the on-state of every latched control (the Control primitive's
+   LATCHED_WELL arm). The control sits IN the ground: floor (--color-bg-well)
+   + this inset top shade, plus a 1px lighter lip along the bottom edge that
+   keeps a rim on pure-black palettes where the floor clamps to the ground.
+   Hover deepens the shade one step — the depth analogue of a fill deepen —
+   while the arm's ink and border hold. Per-category values live on the
+   --ctl-well-* tokens (dark default on :root, light override on the theme
+   block). Unlayered so it outranks Tailwind's `transition-colors`, which
+   would otherwise leave box-shadow out of the transition set. */
+.rk-latch-well {
+  box-shadow: var(--ctl-well-shadow), var(--ctl-well-lip);
+  transition-property: color, background-color, border-color, box-shadow;
+  transition-duration: var(--ctl-duration);
+}
+.rk-latch-well:hover {
+  box-shadow: var(--ctl-well-shadow-hover), var(--ctl-well-lip);
+}
+
 @keyframes rk-glint-sweep {
   0% { transform: translateX(-160%) skewX(-20deg); opacity: 0; }
   10% { opacity: 1; }

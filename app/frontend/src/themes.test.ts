@@ -23,6 +23,7 @@ import {
   oklchToHex,
   oklchInGamut,
   oklchToHexInGamut,
+  hexToOklch,
   themeColorStats,
   saturateHex,
   hexToOklab,
@@ -128,9 +129,12 @@ describe("themes", () => {
   });
 
   describe("COLOR_CSS_MAP", () => {
-    it("maps all 11 color keys to CSS custom property names", () => {
-      expect(Object.keys(COLOR_CSS_MAP)).toHaveLength(11);
+    it("maps all 14 color keys to CSS custom property names", () => {
+      expect(Object.keys(COLOR_CSS_MAP)).toHaveLength(14);
       expect(COLOR_CSS_MAP.bgPrimary).toBe("--color-bg-primary");
+      expect(COLOR_CSS_MAP.bgWell).toBe("--color-bg-well");
+      expect(COLOR_CSS_MAP.accentGreenInk).toBe("--color-accent-green-ink");
+      expect(COLOR_CSS_MAP.borderPressed).toBe("--color-border-pressed");
       expect(COLOR_CSS_MAP.bgChrome).toBe("--color-bg-chrome");
       expect(COLOR_CSS_MAP.bgChromeRaised).toBe("--color-bg-chrome-raised");
       expect(COLOR_CSS_MAP.accent).toBe("--color-accent");
@@ -174,11 +178,11 @@ describe("deriveUIColors", () => {
     expect(ui.border).not.toBe(theme.palette.background);
   });
 
-  it("all 11 keys are valid hex", () => {
+  it("all 14 keys are valid hex", () => {
     for (const theme of THEMES) {
       const ui = deriveUIColors(theme.palette, theme.category);
       const keys = Object.keys(ui) as (keyof UIColors)[];
-      expect(keys).toHaveLength(11);
+      expect(keys).toHaveLength(14);
       for (const key of keys) {
         expect(ui[key]).toMatch(HEX_RE);
       }
@@ -292,7 +296,9 @@ describe("chrome tokens", () => {
     const css = readFileSync(resolve(process.cwd(), "src/globals.css"), "utf8");
     const blockValues = (block: string): Record<string, string> => {
       const out: Record<string, string> = {};
-      for (const m of block.matchAll(/(--color-bg-chrome(?:-raised)?):\s*(#[0-9a-fA-F]{6})/g)) {
+      for (const m of block.matchAll(
+        /(--color-(?:bg-chrome(?:-raised)?|bg-well|accent-green-ink|border-pressed)):\s*(#[0-9a-fA-F]{6})/g,
+      )) {
         out[m[1]] = m[2].toLowerCase();
       }
       return out;
@@ -302,14 +308,90 @@ describe("chrome tokens", () => {
     const lightBlock = css.match(/html\[data-theme="light"\]\s*\{([\s\S]*?)\}/)?.[1] ?? "";
     const dark = deriveUIColors(DEFAULT_DARK_THEME.palette, "dark");
     const light = deriveUIColors(DEFAULT_LIGHT_THEME.palette, "light");
+    const pinned = [
+      ["--color-bg-chrome", "bgChrome"],
+      ["--color-bg-chrome-raised", "bgChromeRaised"],
+      ["--color-bg-well", "bgWell"],
+      ["--color-accent-green-ink", "accentGreenInk"],
+      ["--color-border-pressed", "borderPressed"],
+    ] as const;
     for (const [name, block] of [["@theme", themeBlock], ["dark", darkBlock]] as const) {
       const values = blockValues(block);
-      expect(values["--color-bg-chrome"], `${name} --color-bg-chrome`).toBe(dark.bgChrome);
-      expect(values["--color-bg-chrome-raised"], `${name} --color-bg-chrome-raised`).toBe(dark.bgChromeRaised);
+      for (const [cssVar, key] of pinned) {
+        expect(values[cssVar], `${name} ${cssVar}`).toBe(dark[key]);
+      }
     }
     const lightValues = blockValues(lightBlock);
-    expect(lightValues["--color-bg-chrome"]).toBe(light.bgChrome);
-    expect(lightValues["--color-bg-chrome-raised"]).toBe(light.bgChromeRaised);
+    for (const [cssVar, key] of pinned) {
+      expect(lightValues[cssVar], `light ${cssVar}`).toBe(light[key]);
+    }
+  });
+});
+
+describe("latch well tokens", () => {
+  const L = (hex: string) => hexToOklab(hex).L;
+
+  it("the well floor sits one OKLab step (0.06) below the chrome on both categories, clamped at black", () => {
+    for (const theme of THEMES) {
+      const ui = deriveUIColors(theme.palette, theme.category);
+      const expected = Math.max(0, L(ui.bgChrome) - 0.06);
+      expect(Math.abs(L(ui.bgWell) - expected), theme.id).toBeLessThan(0.01);
+      expect(L(ui.bgWell), theme.id).toBeLessThanOrEqual(L(ui.bgChrome));
+    }
+  });
+
+  it("the well keeps the chrome's hue and stays within its chroma", () => {
+    const p = DEFAULT_DARK_THEME.palette;
+    const ui = deriveUIColors(p, "dark");
+    const { a: ca, b: cb } = hexToOklab(ui.bgChrome);
+    const { a, b } = hexToOklab(ui.bgWell);
+    expect(Math.hypot(a, b)).toBeLessThanOrEqual(Math.hypot(ca, cb) + 0.002);
+  });
+
+  it("the glyph ink clears the 3:1 non-text floor against the well on all 70 themes", () => {
+    for (const theme of THEMES) {
+      const ui = deriveUIColors(theme.palette, theme.category);
+      expect(contrastRatio(ui.accentGreenInk, ui.bgWell), theme.id).toBeGreaterThanOrEqual(BORDER_MIN_CONTRAST);
+    }
+  });
+
+  it("default-dark: the palette green already clears the floor and is used unchanged", () => {
+    const ui = deriveUIColors(DEFAULT_DARK_THEME.palette, "dark");
+    expect(ui.accentGreenInk).toBe(DEFAULT_DARK_THEME.palette.ansi[2]);
+  });
+
+  it("default-light: the palette green is driven darker, hue and chroma held", () => {
+    const p = DEFAULT_LIGHT_THEME.palette;
+    const ui = deriveUIColors(p, "light");
+    expect(contrastRatio(p.ansi[2], ui.bgWell)).toBeLessThan(BORDER_MIN_CONTRAST);
+    expect(ui.accentGreenInk).not.toBe(p.ansi[2]);
+    expect(L(ui.accentGreenInk)).toBeLessThan(L(p.ansi[2]));
+    // Only L moves; the sRGB encode may clamp a channel at the darker L, so
+    // hue/chroma are held within encode tolerance rather than exactly.
+    const src = hexToOklch(p.ansi[2]);
+    const ink = hexToOklch(ui.accentGreenInk);
+    expect(Math.abs(ink.hueDeg - src.hueDeg)).toBeLessThan(5);
+    expect(Math.abs(ink.C - src.C)).toBeLessThan(0.02);
+  });
+
+  it("the pressed border is one OKLab step (0.12) below the border on all 70 themes", () => {
+    for (const theme of THEMES) {
+      const ui = deriveUIColors(theme.palette, theme.category);
+      const expected = Math.max(0, L(ui.border) - 0.12);
+      expect(Math.abs(L(ui.borderPressed) - expected), theme.id).toBeLessThan(0.01);
+      expect(L(ui.borderPressed), theme.id).toBeLessThan(L(ui.border));
+    }
+  });
+
+  it("#000000-background themes still derive valid well tokens", () => {
+    for (const id of ["tomorrow-night-bright", "synthwave", "dark-pastel"]) {
+      const theme = getThemeById(id)!;
+      const ui = deriveUIColors(theme.palette, theme.category);
+      expect(ui.bgWell).toMatch(HEX_RE);
+      expect(ui.accentGreenInk).toMatch(HEX_RE);
+      expect(ui.borderPressed).toMatch(HEX_RE);
+      expect(contrastRatio(ui.accentGreenInk, ui.bgWell)).toBeGreaterThanOrEqual(BORDER_MIN_CONTRAST);
+    }
   });
 });
 

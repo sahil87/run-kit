@@ -444,15 +444,16 @@ describe("GuiToolbar — the pinned capture verb", () => {
     expect(spy).toHaveBeenCalledWith();
   });
 
-  it("latches with the ringed arm recipe without leaving the 24px verb box", () => {
+  it("latches with the plain well recipe without leaving the 24px verb box", () => {
     const { rerenderWith } = setup({ coarsePointer: false });
     const verb = screen.getByTestId("gui-capture-toggle");
-    expect(verb.className).not.toContain("text-accent-green");
+    expect(verb.className).not.toContain("text-accent-green-ink");
     rerenderWith({ capture: true, input: { capture: true } });
     expect(verb).toHaveAttribute("aria-pressed", "true");
-    expect(verb.className).toContain("text-accent-green");
-    // The ringed arm paints ring-inset, so the box geometry never moves.
-    expect(verb.className).toContain("ring-inset");
+    expect(verb.className).toContain("text-accent-green-ink");
+    // The plain well paints no border axis, so the box geometry never moves.
+    expect(verb.className).toContain("rk-latch-well");
+    expect(verb.className).not.toContain("border-border-pressed");
     expect(verb.className).toContain("w-[24px]");
   });
 

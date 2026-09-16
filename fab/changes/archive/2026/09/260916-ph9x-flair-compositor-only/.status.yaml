@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 16
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-16T15:58:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T16:08:52Z"}
     hydrate: {started_at: "2026-09-16T16:08:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T16:17:42Z"}
     ship: {started_at: "2026-09-16T16:17:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T16:18:57Z"}
-    review-pr: {started_at: "2026-09-16T16:18:57Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-16T16:18:57Z", driver: git-pr, iterations: 1, completed_at: "2026-09-16T17:06:56Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/1003
 change_type_source: explicit
@@ -56,4 +56,4 @@ true_impact:
 summary: 'Flair overlays run compositor-only: transform/opacity keyframes on FlairOverlay child spans, ≥1 s iterations, steps()-quantized pixel-art traversals via a ResizeObserver width var; five on-screen flairs drop from 16.0% to 7.5% renderer (no-flair comparator 5.0%)'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-16T16:18:57Z
+last_updated: 2026-09-16T17:06:56Z

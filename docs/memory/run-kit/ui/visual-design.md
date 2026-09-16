@@ -25,10 +25,10 @@ A three-tier border-width vocabulary, all in `--color-border`: (260702-6m46)
 | `--color-bg-primary` | `#0f1117` | `#f8f9fb` | Page background |
 | `--color-bg-card` | `#171b24` | `#ffffff` | Card backgrounds |
 | `--color-bg-inset` | `#0a0c12` | `#e8eaef` | Recessed wells and popup furniture: the coarse status rail, PANE wells, the switch-off track, tile text previews, popup title bars and action trays |
-| `--color-bg-chrome` | `#1e1f21` | `#e5e5e6` | Chrome material: the Shell stage ground + host page root, the flat sidebar column, mobile drawer, top bar (wash wrapper), status bar, lit sash grip dots; the theme-color / instance-accent blend base |
-| `--color-bg-chrome-raised` | `#262729` | `#d9dada` | One lightness step past the chrome: the uncolored row hover / held-open fill on the sidebar — the only thing on the chrome that rises above it |
+| `--color-bg-chrome` | `#1a1b1f` | `#e9eaeb` | Chrome material: the Shell stage ground + host page root, the flat sidebar column, mobile drawer, top bar (wash wrapper), status bar, lit sash grip dots; the theme-color / instance-accent blend base |
+| `--color-bg-chrome-raised` | `#222327` | `#dedee0` | One lightness step past the chrome: the uncolored row hover / held-open fill on the sidebar — the only thing on the chrome that rises above it |
 | `--color-text-primary` | `#e8eaf0` | `#1a1d24` | Primary text |
-| `--color-text-secondary` | `#7a8394` | `#6b7280` | Secondary text, labels |
+| `--color-text-secondary` | `#7a8394` | `#6b7280` | Secondary text, labels — derived as `blend(fg, ansi[8], 0.3)` then lifted (dark) / deepened (light) in OKLab L until it clears 4.5:1 against `--color-bg-chrome`; the static values are the default palettes' bright black |
 | `--color-border` | `#454d66` | `#d1d5db` | Borders, dividers |
 | `--color-accent` | `#5b8af0` | `#4a7ae8` | Non-control uses only: links, hover reveals, status/data-viz hues, the per-instance accent system — no control carries it (state is green, input focus borders are green, hovers are neutral) |
 | `--color-accent-green` | `#22c55e` | `#16a34a` | State only — activity indicators, latched/armed controls, checked/selected menu rows and settings pickers, the global focus ring, the live-input focus border |
@@ -46,7 +46,7 @@ A blocking inline `<script>` in `index.html` `<head>` reads `localStorage("runki
 ### PWA Meta Tags & Theme Color
 
 `app/frontend/index.html` includes PWA-related tags in `<head>`:
-- `<meta name="theme-color" content="#1e1f21" />` — initial value matching the default-dark chrome hex
+- `<meta name="theme-color" content="#1a1b1f" />` — initial value matching the default-dark chrome hex
 - `<meta name="apple-mobile-web-app-capable" content="yes" />` — enables standalone mode on iOS
 - `<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />` — content renders behind the status bar
 - `<link rel="apple-touch-icon" href="/generated-icons/icon-192.png" />` — homescreen icon for iOS
@@ -618,8 +618,8 @@ breaks the "stage 3 fills the well" reading; and shrinking the coarse row to ~26
 *Introduced by*: 260915-lm5q-full-height-sidebar-head
 
 ### OKLCH ΔL derivation with partial chroma
-**Decision**: The chrome tokens are `oklch(L ± 0.06, C × 0.35, h)` of the background, gamut-reduced by chroma; the raised token is a further 0.035 step in the same direction.
-**Why**: `bgCard`/`bgInset` are sRGB percentage steps that are visible on one theme category and invisible on the other (dark: card ΔL 0.06–0.08, inset 0.005–0.011; light: card 0.02, inset 0.045). An OKLab step is the same visible step on every palette; keeping 35% chroma stops the gray fighting tinted terminals (solarized, ubuntu) without inheriting the full tint.
+**Decision**: The chrome tokens are `oklch(L ± 0.045, C × 0.6, h)` of the background, gamut-reduced by chroma; the raised token is a further 0.035 step in the same direction; on dark palettes the chrome L floors at 0.16 (`CHROME_MIN_L`) because OKLab compresses near black and a 0.045 step from #000000 encodes back to #000000. Secondary text is floored at 4.5:1 against the chrome (OKLab L nudge, hue and chroma preserved).
+**Why**: `bgCard`/`bgInset` are sRGB percentage steps that are visible on one theme category and invisible on the other (dark: card ΔL 0.06–0.08, inset 0.005–0.011; light: card 0.02, inset 0.045). An OKLab step is the same visible step on every palette; keeping 60% chroma lets tinted palettes (Solarized's teal, Ubuntu's aubergine) keep their cast instead of going neutral, while the gray still reads as gray. The step is 0.045 rather than 0.06 because on mid-dark tinted palettes (Tokyo Night, Nord) the larger step landed on a flat concrete gray; and secondary text is floored at 4.5:1 against the chrome because palettes with a very dark bright black (Tokyo Night measured 2.9:1) otherwise read washed out on the lifted surface.
 **Rejected**: Pure neutral gray (pasted-on against tinted backgrounds); 100% chroma (stops reading as gray on the same themes); `mix(fg, 6%)` (tracks foreground hue — warm-on-cold themes go beige).
 *Introduced by*: 260915-zeid-chrome-material-surface
 

@@ -163,8 +163,8 @@
     <button data-v="today">today</button><button data-v="recess">recessed</button><button data-v="lift" class="on">lifted card</button><button data-v="chrome">chrome material</button><button data-v="fullh">full-height</button></span>
   <span class="grp" id="seamGrp"><span class="lbl">seam</span>
     <button data-s="gap" class="on">6px gap</button><button data-s="flush">flush stage</button><button data-s="hair">hairline</button></span>
-  <label>ΔL <input id="dl" type="range" min="0" max="0.14" step="0.005" value="0.06"> <span id="dlv">0.060</span></label>
-  <label>chroma kept <input id="ck" type="range" min="0" max="1" step="0.05" value="0.35"> <span id="ckv">35%</span></label>
+  <label>ΔL <input id="dl" type="range" min="0" max="0.14" step="0.005" value="0.045"> <span id="dlv">0.045</span></label>
+  <label>chroma kept <input id="ck" type="range" min="0" max="1" step="0.05" value="0.6"> <span id="ckv">60%</span></label>
   <button id="tints" class="on">re-base row tints</button>
   <button id="flyout">flyout card</button>
   <button id="tLight">light page</button>
@@ -200,7 +200,7 @@
 </div>
 
 <h2>C · Candidates side by side</h2>
-<p>The five structures at fixed settings (ΔL 0.06, chroma kept 35%, tints re-based), rendered from the selected palette and its opposite-category sibling so the same idea is judged on dark and light at once. The top-right corner of each caption carries the verdict.</p>
+<p>The five structures at fixed settings (ΔL 0.045, chroma kept 60% — the shipped values after the Tokyo Night tuning; the first cut was 0.06 / 35% — tints re-based), rendered from the selected palette and its opposite-category sibling so the same idea is judged on dark and light at once. The top-right corner of each caption carries the verdict.</p>
 <div class="strip" id="strip"></div>
 
 <h2>D · Deriving the gray per theme</h2>
@@ -239,7 +239,7 @@
   <tr><td>4</td><td><b>Recessed</b> — sidebar drops its card and becomes the stage ground</td><td><span class="tag bad">reject</span></td><td>Clamps at black on the #000 themes, nearly invisible on ayu-dark / night-owl, and on light themes it is indistinguishable from <i>lifted</i> with a flush seam. The card also carries the drag-resize sash affordance.</td></tr>
   <tr><td>—</td><td>Seam</td><td><span class="tag rec">flush stage</span> <span class="tag bad">6px gap</span> <span class="tag park">hairline</span></td><td><b>Decided 2026-09-16 after a live preview of both:</b> flush stage — the ground is the chrome, the sidebar sits flat on it with no card border, only the content tile floats. The 6px-gap variant (ground one ΔL past the chrome under a carded sidebar) shipped first in PR #984 and read as clutter: a border around gray inside gray. Hairline stays parked — the gap against the floating tile already separates.</td></tr>
 </table>
-<div class="note"><b>Mechanism, whichever wins:</b> one derived token <code>--color-bg-chrome</code> in <code>deriveUIColors</code> — <code>oklch(L ± 0.06, C × 0.35, h)</code> of <code>palette.background</code>, gamut-reduced by chroma like the row families — plus <code>--color-bg-chrome-hover</code> one further step, <code>computeRowTints</code> taking the surface hex, and the § E re-points. A Themes-spec row under § UI Color Derivation and a <code>visual-design.md</code> amendment to the two-family vocabulary (the sidebar joins the frame's material while keeping the card's shape). Nothing here touches tmux or the terminal palette: xterm keeps painting <code>palette.background</code>, which is the whole point.</div>
+<div class="note"><b>Mechanism, whichever wins:</b> one derived token <code>--color-bg-chrome</code> in <code>deriveUIColors</code> — <code>oklch(L ± 0.06, C × 0.35, h)</code> as first shipped; tuned on 2026-09-16 to <code>L ± 0.045, C × 0.6</code> plus a 4.5:1 floor for secondary text against the chrome after Tokyo Night read washed out (its bright black is so dark that secondary text measured 2.9:1 on the lifted surface; chroma barely moved that palette, lightness and the text floor did) — of <code>palette.background</code>, gamut-reduced by chroma like the row families — plus <code>--color-bg-chrome-hover</code> one further step, <code>computeRowTints</code> taking the surface hex, and the § E re-points. A Themes-spec row under § UI Color Derivation and a <code>visual-design.md</code> amendment to the two-family vocabulary (the sidebar joins the frame's material while keeping the card's shape). Nothing here touches tmux or the terminal palette: xterm keeps painting <code>palette.background</code>, which is the whole point.</div>
 <h3>Open questions</h3>
 <ul>
   <li><b>Boards / server route.</b> The board page and the 900px server column are floating cards on the same stage. Under #2 they stay palette-colored (content), which is consistent — but the server route's tiles are chrome-like lists, not terminal content. Decide per route when #2 is drafted.</li>
@@ -363,7 +363,7 @@ function frame(opts){
 }
 
 // ---------- state + wiring ----------
-const state = { palette: 'default-dark', variant: 'lift', seam: 'gap', dl: 0.06, keep: 0.35, rebase: true, flyout: false };
+const state = { palette: 'default-dark', variant: 'chrome', seam: 'flush', dl: 0.045, keep: 0.6, rebase: true, flyout: false };
 const $ = s => document.querySelector(s);
 const palSel = $('#pal'); for (const id of ORDER) { const o = document.createElement('option'); o.value = id; o.textContent = `${PALETTES[id].name} (${PALETTES[id].category})`; palSel.appendChild(o); }
 palSel.value = state.palette;
@@ -401,7 +401,7 @@ function renderStrip(){
   const pals = [state.palette, SIBLING[state.palette]];
   let html = '';
   for (const pal of pals) for (const [v, s, title, tag, verdict] of cands) {
-    html += `<div class="study"><h3>${title} <span class="${tag}" style="float:right;margin:0">${verdict}</span></h3><div class="fr-wrap">${frame({ palette: pal, variant: v, seam: s, dl: 0.06, keep: 0.35, rebase: true })}</div><div class="cap">${PALETTES[pal].name} · ΔL 0.06 · chroma 35%</div></div>`;
+    html += `<div class="study"><h3>${title} <span class="${tag}" style="float:right;margin:0">${verdict}</span></h3><div class="fr-wrap">${frame({ palette: pal, variant: v, seam: s, dl: 0.045, keep: 0.6, rebase: true })}</div><div class="cap">${PALETTES[pal].name} · ΔL 0.045 · chroma 60%</div></div>`;
   }
   $('#strip').innerHTML = html;
 }

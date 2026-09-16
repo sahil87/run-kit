@@ -56,10 +56,10 @@ The 11 CSS custom properties are derived, not stored:
 | `--color-bg-primary` | `palette.background` |
 | `--color-bg-card` | `lighten(background, 8%)` dark / `darken(background, 3%)` light |
 | `--color-bg-inset` | `darken(background, 5%)` dark / `darken(background, 6%)` light |
-| `--color-bg-chrome` | `oklch(L ± 0.06, C × 0.35, h)` of `background` — up on dark, down on light; gamut-reduced by chroma |
+| `--color-bg-chrome` | `oklch(L ± 0.045, C × 0.6, h)` of `background` — up on dark (floored at L 0.16 so pure-black palettes still lift), down on light; gamut-reduced by chroma |
 | `--color-bg-chrome-raised` | one further `0.035` L step in the same direction, same chroma — the row-hover step above the chrome |
 | `--color-text-primary` | `palette.foreground` |
-| `--color-text-secondary` | `palette.ansi[8]` (bright black) |
+| `--color-text-secondary` | `blend(foreground, ansi[8], 0.3)`, then OKLab L nudged (lighter on dark, darker on light) until ≥ 4.5:1 against `--color-bg-chrome` — the surface secondary text mostly sits on, and the binding case in both categories |
 | `--color-border` | `blend(foreground, background, 0.25)` |
 | `--color-accent` | `palette.ansi[4]` (blue) |
 | `--color-accent-green` | `palette.ansi[2]` (green) |

@@ -9,6 +9,8 @@ Conversational, then a live preview. The design study `docs/wiki/sidebar-materia
 
 **A working preview exists UNCOMMITTED in the working tree** — `git diff app/frontend/src/components/top-bar.tsx app/frontend/src/components/sidebar/index.tsx`. Apply MUST build on it (harden, name, test, document), not re-derive it. The working tree also carries the archive move of change `260915-zeid-chrome-material-surface` (folders under `fab/changes/archive/` + `fab/changes/archive/index.md`); it rides this change's ship commit untouched.
 
+**Follow-on commits on PR #986 (2026-09-16, user-directed, outside the plan's tasks):** (1) the tile header and web tab strip paint the tile's `bg-bg-primary` surface instead of `bg-bg-card` so header, content and compose strip read as one well; (2) chrome tuning after Tokyo Night read washed out — `CHROME_L_DELTA` 0.06 → 0.045, `CHROME_CHROMA_KEEP` 0.35 → 0.6, and `textSecondary` floored at 4.5:1 against the chrome via the existing OKLab-L contrast nudge; (3) scrollbars reveal on hover with the 6px gutter reserved and a transparent track. Each is recorded in the memory it touches.
+
 This intake was created by `/fab-proceed`'s promptless dispatch from the synthesized description below; every decision in it was taken in the conversation and is encoded as a Certain/Confident assumption. No question was asked.
 
 > **Title:** Full-Height Sidebar — the sidebar column owns the top-left band

@@ -32,6 +32,7 @@ import {
   adjustBorderForContrast,
   BORDER_MIN_CONTRAST,
   blendHex,
+  CHROME_MIN_L,
 } from "./themes";
 import type { Theme, ThemePalette, UIColors } from "./themes";
 
@@ -144,7 +145,7 @@ describe("deriveUIColors", () => {
     const ui = deriveUIColors(dracula.palette, "dark");
     expect(ui.bgPrimary).toBe("#282a36");
     expect(ui.textPrimary).toBe("#f8f8f2");
-    expect(ui.textSecondary).toBe("#8f9abb"); // foreground blended 30% into ansi[8]
+    expect(ui.textSecondary).toBe("#98a3c5"); // foreground blended 30% into ansi[8], then lifted to 4.5:1 against the chrome
     expect(ui.accent).toBe("#bd93f9"); // ansi[4]
     expect(ui.accentGreen).toBe("#50fa7b"); // ansi[2]
   });
@@ -212,29 +213,29 @@ describe("chrome tokens", () => {
   // scaled source, so the bound carries a small epsilon.
   const CHROMA_EPSILON = 0.002;
 
-  it("default-dark: chrome steps +0.06, raised a further +0.035, chroma ≤ 35% of the background's", () => {
+  it("default-dark: chrome steps +0.045, raised a further +0.035, chroma ≤ 60% of the background's", () => {
     const p = DEFAULT_DARK_THEME.palette;
     const ui = deriveUIColors(p, "dark");
     const bgL = hexToOklab(p.background).L;
     const chromeL = hexToOklab(ui.bgChrome).L;
     const raisedL = hexToOklab(ui.bgChromeRaised).L;
-    expect(Math.abs(chromeL - bgL - 0.06)).toBeLessThan(L_TOLERANCE);
+    expect(Math.abs(chromeL - bgL - 0.045)).toBeLessThan(L_TOLERANCE);
     expect(Math.abs(raisedL - chromeL - 0.035)).toBeLessThan(L_TOLERANCE);
-    expect(chroma(ui.bgChrome)).toBeLessThanOrEqual(chroma(p.background) * 0.35 + CHROMA_EPSILON);
-    expect(chroma(ui.bgChromeRaised)).toBeLessThanOrEqual(chroma(p.background) * 0.35 + CHROMA_EPSILON);
+    expect(chroma(ui.bgChrome)).toBeLessThanOrEqual(chroma(p.background) * 0.6 + CHROMA_EPSILON);
+    expect(chroma(ui.bgChromeRaised)).toBeLessThanOrEqual(chroma(p.background) * 0.6 + CHROMA_EPSILON);
   });
 
-  it("solarized-light: chrome steps −0.06, raised a further −0.035 (down on light)", () => {
+  it("solarized-light: chrome steps −0.045, raised a further −0.035 (down on light)", () => {
     const solarized = getThemeById("solarized-light")!;
     const p = solarized.palette;
     const ui = deriveUIColors(p, "light");
     const bgL = hexToOklab(p.background).L;
     const chromeL = hexToOklab(ui.bgChrome).L;
     const raisedL = hexToOklab(ui.bgChromeRaised).L;
-    expect(Math.abs(bgL - chromeL - 0.06)).toBeLessThan(L_TOLERANCE);
+    expect(Math.abs(bgL - chromeL - 0.045)).toBeLessThan(L_TOLERANCE);
     expect(Math.abs(chromeL - raisedL - 0.035)).toBeLessThan(L_TOLERANCE);
-    expect(chroma(ui.bgChrome)).toBeLessThanOrEqual(chroma(p.background) * 0.35 + CHROMA_EPSILON);
-    expect(chroma(ui.bgChromeRaised)).toBeLessThanOrEqual(chroma(p.background) * 0.35 + CHROMA_EPSILON);
+    expect(chroma(ui.bgChrome)).toBeLessThanOrEqual(chroma(p.background) * 0.6 + CHROMA_EPSILON);
+    expect(chroma(ui.bgChromeRaised)).toBeLessThanOrEqual(chroma(p.background) * 0.6 + CHROMA_EPSILON);
   });
 
   it("#000000-background themes derive a chrome distinct from the background (no black clamp)", () => {
@@ -253,13 +254,35 @@ describe("chrome tokens", () => {
       const ui = deriveUIColors(theme.palette, theme.category);
       const bgL = hexToOklab(theme.palette.background).L;
       const chromeL = hexToOklab(ui.bgChrome).L;
-      const step = chromeL - bgL;
       if (theme.category === "dark") {
-        expect(Math.abs(step - 0.06)).toBeLessThan(L_TOLERANCE);
+        // Near black the step floors at CHROME_MIN_L (the pure-black palettes).
+        const expected = Math.max(bgL + 0.045, CHROME_MIN_L);
+        expect(Math.abs(chromeL - expected)).toBeLessThan(L_TOLERANCE);
       } else {
-        expect(Math.abs(step + 0.06)).toBeLessThan(L_TOLERANCE);
+        expect(Math.abs(bgL - chromeL - 0.045)).toBeLessThan(L_TOLERANCE);
       }
     }
+  });
+
+  it("secondary text clears AA (4.5:1) against the chrome and the background on all 70 themes", () => {
+    for (const theme of THEMES) {
+      const ui = deriveUIColors(theme.palette, theme.category);
+      expect(contrastRatio(ui.textSecondary, ui.bgChrome)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(ui.textSecondary, ui.bgPrimary)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("tokyo-night: the very dark bright-black is lifted for secondary text instead of reading washed out", () => {
+    const theme = getThemeById("tokyo-night")!;
+    const ui = deriveUIColors(theme.palette, "dark");
+    const raw = blendHex(theme.palette.foreground, theme.palette.ansi[8], 0.3);
+    expect(contrastRatio(raw, ui.bgChrome)).toBeLessThan(4.5);
+    expect(contrastRatio(ui.textSecondary, ui.bgChrome)).toBeGreaterThanOrEqual(4.5);
+    // Only L moves: hue/chroma identity of the secondary text is preserved.
+    const { a: ra, b: rb } = hexToOklab(raw);
+    const { a, b } = hexToOklab(ui.textSecondary);
+    expect(Math.abs(a - ra)).toBeLessThan(0.01);
+    expect(Math.abs(b - rb)).toBeLessThan(0.01);
   });
 
   it("the globals.css static fallbacks equal the derived default values", () => {

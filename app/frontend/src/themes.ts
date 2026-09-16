@@ -156,14 +156,29 @@ export function saturateHex(hex: string, factor: number): string {
 // ── Derivation functions ─────────────────────────────────────────────────────
 
 /** OKLab lightness step from the palette background to the chrome material
- *  (sidebar, top bar, status bar, mobile drawer). Up on dark, down on light. */
-const CHROME_L_DELTA = 0.06;
+ *  (sidebar, top bar, status bar, mobile drawer). Up on dark, down on light.
+ *  Large enough to read as a second surface on near-black palettes, small
+ *  enough that mid-dark tinted palettes (Tokyo Night, Nord) keep their cast
+ *  instead of turning concrete gray. */
+const CHROME_L_DELTA = 0.045;
 /** Further lightness step, same direction, for the surface one level above the
  *  chrome: uncolored row hover on the chrome, and the Shell stage ground. */
 const CHROME_RAISED_L_DELTA = 0.035;
 /** Fraction of the background's OKLab chroma the chrome keeps — a gray that
- *  still leans the palette's way rather than a neutral slab. */
-const CHROME_CHROMA_KEEP = 0.35;
+ *  still leans the palette's way rather than a neutral slab. Tinted palettes
+ *  (Solarized's teal, Ubuntu's aubergine) keep most of their hue; on
+ *  low-chroma palettes the value is nearly moot. */
+const CHROME_CHROMA_KEEP = 0.6;
+/** Lightness floor for the chrome on dark palettes. OKLab compresses near
+ *  black: from a pure-black background a 0.045 step encodes back to #000000,
+ *  so the chrome lifts to at least this L (about the lightness of ayu-dark's
+ *  background) and the raised step counts from there. Exported for the
+ *  derivation tests; light palettes never approach the equivalent ceiling. */
+export const CHROME_MIN_L = 0.16;
+/** Minimum WCAG contrast of secondary text against the chrome it mostly sits
+ *  on (sidebar rows, top bar, status bar) — text AA. Palettes whose bright
+ *  black is very dark (Tokyo Night) would otherwise land near 3:1 there. */
+const TEXT_SECONDARY_MIN_CONTRAST = 4.5;
 
 /** Derive the 11 UI CSS colors from a full theme palette. */
 export function deriveUIColors(palette: ThemePalette, category: "dark" | "light"): UIColors {
@@ -172,14 +187,24 @@ export function deriveUIColors(palette: ThemePalette, category: "dark" | "light"
   const bgLch = hexToOklch(palette.background);
   const chromeChroma = bgLch.C * CHROME_CHROMA_KEEP;
   const chromeDir = isDark ? 1 : -1;
+  const chromeL = isDark ? Math.max(bgLch.L + CHROME_L_DELTA, CHROME_MIN_L) : bgLch.L - CHROME_L_DELTA;
+  const bgChrome = oklchToHexInGamut(chromeL, chromeChroma, bgLch.hueDeg);
   return {
     bgPrimary: palette.background,
     bgCard: isDark ? lightenHex(palette.background, 8) : darkenHex(palette.background, 3),
     bgInset: isDark ? darkenHex(palette.background, 5) : darkenHex(palette.background, 6),
-    bgChrome: oklchToHexInGamut(bgLch.L + chromeDir * CHROME_L_DELTA, chromeChroma, bgLch.hueDeg),
-    bgChromeRaised: oklchToHexInGamut(bgLch.L + chromeDir * (CHROME_L_DELTA + CHROME_RAISED_L_DELTA), chromeChroma, bgLch.hueDeg),
+    bgChrome,
+    bgChromeRaised: oklchToHexInGamut(chromeL + chromeDir * CHROME_RAISED_L_DELTA, chromeChroma, bgLch.hueDeg),
     textPrimary: palette.foreground,
-    textSecondary: blendHex(palette.foreground, palette.ansi[8], 0.3),
+    // The chrome is the surface secondary text mostly sits on, and it is the
+    // binding case in both categories (lighter than the background on dark,
+    // darker on light), so clearing AA there clears it on the background too.
+    textSecondary: adjustBorderForContrast(
+      blendHex(palette.foreground, palette.ansi[8], 0.3),
+      bgChrome,
+      isDark,
+      TEXT_SECONDARY_MIN_CONTRAST,
+    ),
     border: blendHex(palette.foreground, palette.background, 0.25),
     accent,
     // "bright" = more salient than accent relative to the theme background:

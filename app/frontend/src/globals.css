@@ -30,8 +30,8 @@
   --color-bg-primary: #0f1117;
   --color-bg-card: #171b24;
   --color-bg-inset: #0a0c12;
-  --color-bg-chrome: #1e1f21;
-  --color-bg-chrome-raised: #262729;
+  --color-bg-chrome: #1a1b1f;
+  --color-bg-chrome-raised: #222327;
   --color-text-primary: #e8eaf0;
   --color-text-secondary: #7a8394;
   --color-border: #454d66;
@@ -55,8 +55,8 @@ html[data-theme="dark"] {
   --color-bg-primary: #0f1117;
   --color-bg-card: #171b24;
   --color-bg-inset: #0a0c12;
-  --color-bg-chrome: #1e1f21;
-  --color-bg-chrome-raised: #262729;
+  --color-bg-chrome: #1a1b1f;
+  --color-bg-chrome-raised: #222327;
   --color-text-primary: #e8eaf0;
   --color-text-secondary: #7a8394;
   --color-border: #454d66;
@@ -75,8 +75,8 @@ html[data-theme="light"] {
   --color-bg-primary: #f8f9fb;
   --color-bg-card: #ffffff;
   --color-bg-inset: #e8eaef;
-  --color-bg-chrome: #e5e5e6;
-  --color-bg-chrome-raised: #d9dada;
+  --color-bg-chrome: #e9eaeb;
+  --color-bg-chrome-raised: #dedee0;
   --color-text-primary: #1a1d24;
   --color-text-secondary: #6b7280;
   --color-border: #d1d5db;

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content, viewport-fit=cover" />
     <title>RunKit</title>
     <meta name="description" content="Web-based agent orchestration dashboard" />
-    <meta name="theme-color" content="#1e1f21" />
+    <meta name="theme-color" content="#1a1b1f" />
     <link rel="apple-touch-icon" href="/generated-icons/icon-192.png" />
     <link rel="manifest" href="/manifest.json" />
     <script>
@@ -32,7 +32,7 @@
           if (echo && typeof echo.hex === "string" && /^#[0-9a-fA-F]{6}$/.test(echo.hex)) tint = echo.hex;
         } catch(e) {}
         var tc = document.querySelector('meta[name="theme-color"]');
-        if (tc) tc.setAttribute('content', tint || (resolved === 'dark' ? '#1e1f21' : '#e5e5e6'));
+        if (tc) tc.setAttribute('content', tint || (resolved === 'dark' ? '#1a1b1f' : '#e9eaeb'));
       })();
     </script>
     <link rel="icon" type="image/svg+xml" href="/generated-icons/favicon.svg" />

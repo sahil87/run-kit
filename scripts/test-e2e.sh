@@ -28,6 +28,12 @@ E2E_WORKERS="${RK_E2E_WORKERS:-1}"
 # `10#` forces decimal so a leading zero ("08") is neither an arithmetic error
 # nor octal.
 { [[ "$E2E_WORKERS" =~ ^[0-9]+$ ]] && [ $(( 10#$E2E_WORKERS )) -ge 1 ]; } && E2E_WORKERS=$(( 10#$E2E_WORKERS )) || E2E_WORKERS=1
+# The rig table wraps inside a 100-triple block (see the rig loop below), so
+# more rigs than triples would alias rig 100 onto rig 0's ports undetected.
+if [ "$E2E_WORKERS" -gt 100 ]; then
+  echo "ERROR: RK_E2E_WORKERS=$E2E_WORKERS exceeds the 100 port triples of the e2e block (3400-3699); one rig per triple." >&2
+  exit 1
+fi
 
 # Per-worktree exclusive lock — the rig identity (port triple + socket
 # family) derives from E2E_TOKEN, so one lock per token is one lock per rig.

@@ -21,8 +21,8 @@ export default defineConfig({
   testDir: "./tests/e2e",
   grepInvert: process.env.RK_E2E_PERF === "1" ? undefined : /@perf/,
   // Per-test timeout. Wider on CI: the SSE-driven UI updates that most specs
-  // assert on are noticeably slower on a 2-vCPU shared runner where air, Vite,
-  // Chromium and tmux all contend for the box. Specs gate on real readiness
+  // assert on are noticeably slower on a 4-vCPU shared runner where two rigs'
+  // Go, Vite, Chromium and tmux all contend for the box. Specs gate on real readiness
   // signals (see _ready.ts); this is the outer budget those gates live within.
   timeout: process.env.CI ? 30_000 : 10_000,
   retries: 1,

@@ -103,7 +103,7 @@ jobs:
     name: E2E (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     # Blocking gate (since 260602-a1wo). The e2e suite is SSE-driven and shares
-    # one dev + tmux server per shard; under a 2-vCPU runner's contention a
+    # two rigs per shard; under a 4-vCPU runner's contention a
     # rotating subset of tests can lose the timing race (the flaky set is
     # non-deterministic). Readiness gates (see tests/e2e/_ready.ts) reduce this,
     # and proper de-flaking (deterministic polls / optimistic-aware waits) is a
@@ -144,8 +144,9 @@ jobs:
       # + Vite per Playwright worker — so a shard runs two spec files at once
       # without the SSE cross-talk a shared rig would cause.
       - name: Runner shape
-        # Spike instrumentation: the worker count is sized to the vCPU count,
-        # and this makes the runner's real shape visible in the log.
+        # RK_E2E_WORKERS below is sized to the runner's vCPU count (4 on the
+        # public-repo ubuntu-latest); this keeps the real shape visible in the
+        # log so a runner change is noticed rather than felt as flakes.
         run: |
           echo "vCPUs: $(nproc)"
           free -g

@@ -49,3 +49,12 @@ export function isEditorDeeplink(url: string): boolean {
 export function windowOpenAction(url: string): "open-external" | "deny" {
   return isHttpUrl(url) || isEditorDeeplink(url) ? "open-external" : "deny";
 }
+
+/** Guest (web tile) navigation policy: guests browse anywhere http(s) in
+ *  place; every other scheme is dropped — NOT forwarded to openExternal.
+ *  Editor deeplinks and mailto: from a guest page are dropped too: the
+ *  host-page forward exists for the SPA's own "Open in app" targets, and a
+ *  guest is an arbitrary web page. */
+export function guestNavigationAction(url: string): "allow" | "deny" {
+  return isHttpUrl(url) ? "allow" : "deny";
+}

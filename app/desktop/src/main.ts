@@ -20,6 +20,16 @@
  * window decisions (duplication targets, titles, restore): ./window-registry;
  * the cold-start window-set store: ./windows (windows.json).
  *
+ * Web-tile GUEST views (the SPA's native-engine web tabs) are per-(window,
+ * host, tabKey) WebContentsViews attached as SIBLINGS of the host view on the
+ * window's contentView (a child of the host view never paints — Electron
+ * 43/Linux), in a dedicated hardened partition with NO preload. Their
+ * registry (./web-views, electron-free, node:test covered) is the z-order
+ * authority: addChildView(host) raises the host above its guests, so the
+ * attach seam re-raises the incoming host's guests and the detach seam hides
+ * the outgoing host's. The `web:*` IPC surface is gated on a registered-host
+ * sender that owns a host view, plus tabKey membership under that sender.
+ *
  * This shell is a VIEWER (Constitution VI): it loads an existing `rk serve`
  * URL and NEVER spawns or supervises the rk daemon on its own initiative.
  * child_process is used ONLY for explicit user-initiated actions — `rk daemon`
@@ -45,6 +55,7 @@ import {
   net,
   session,
   shell,
+  webContents,
   WebContents,
   WebContentsView,
 } from "electron";
@@ -89,7 +100,7 @@ import {
   parseRemoteAddOutput,
 } from "./remote-host";
 import { availableUpdateVersion, isUpdateCheckDue } from "./update-check";
-import { isEditorDeeplink, isHttpUrl, windowOpenAction } from "./window-open";
+import { guestNavigationAction, isEditorDeeplink, isHttpUrl, windowOpenAction } from "./window-open";
 import {
   addHost,
   findHostByOrigin,
@@ -125,8 +136,25 @@ import {
   setViewBadge,
   setViewThemeColor,
   switchPaint,
+  ViewEntry,
   ViewsState,
 } from "./views";
+import {
+  addWebView,
+  emptyWebViews,
+  findWebViewBySender,
+  hostAttachPlan,
+  hostDetachPlan,
+  isGuestContents,
+  removeHostWebViews,
+  removeHostWebViewsEverywhere,
+  removeWebView,
+  removeWindowWebViews,
+  setWebViewBounds,
+  setWebViewVisible,
+  WebViewEntry,
+  WebViewsState,
+} from "./web-views";
 import {
   loadWindows,
   saveWindows,
@@ -421,7 +449,13 @@ function routeForView(win: BrowserWindow, hostId: string): string {
 
 function showWelcome(win: BrowserWindow, query?: Record<string, string>): void {
   const current = activeView(views, win.id);
-  if (current) win.contentView.removeChildView(current.handle);
+  if (current) {
+    // The welcome page must never be covered by a guest of the outgoing host.
+    for (const handle of hostDetachPlan(webViews, win.id, current.hostId)) {
+      handle.setVisible(false);
+    }
+    win.contentView.removeChildView(current.handle);
+  }
   views = deactivateViews(views, win.id);
   repaintBadge(); // this window's host leaves the displayed set (caches kept)
   applyOverlayColor(welcomeStripColor(nativeTheme.shouldUseDarkColors), win); // welcome's static strip color
@@ -494,6 +528,42 @@ function hostWebPreferences(): Electron.WebPreferences {
     additionalArguments: [`--runkit-shell-version=${app.getVersion()}`],
   };
 }
+
+// ─── Web-tile guests (WebContentsView siblings of the host view) ────────────
+
+/** Guests run in a dedicated partition — separate from the default session
+ *  the SPA runs in, so external logins persist like a browser profile and
+ *  never share a jar with rk. */
+const GUEST_PARTITION = "persist:rk-web";
+const GUEST_BACKGROUND = "#0f1117"; // the host view's boot background
+const GUEST_BORDER_RADIUS_PX = 6;
+/** The SPA's per-tab identity is bounded (the strict badge:set posture). */
+const TAB_KEY_MAX_LENGTH = 128;
+
+let guestSessionRef: Electron.Session | null = null;
+function guestSession(): Electron.Session {
+  if (guestSessionRef) return guestSessionRef;
+  const s = session.fromPartition(GUEST_PARTITION);
+  // Deny-by-default: a guest is an arbitrary page; nothing it asks for
+  // (camera, geolocation, notifications, clipboard) is granted.
+  s.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  guestSessionRef = s;
+  return s;
+}
+
+/** Guest hardening — NO preload: a guest never sees runkitShell. */
+function guestWebPreferences(): Electron.WebPreferences {
+  return {
+    session: guestSession(),
+    sandbox: true,
+    contextIsolation: true,
+    nodeIntegration: false,
+  };
+}
+
+/** Per-(window, host, tabKey) guest registry — pure logic in ./web-views,
+ *  handles are WebContentsViews. */
+let webViews: WebViewsState<WebContentsView> = emptyWebViews();
 
 /** Apply a strip color to ONE window's win/linux window-controls overlay.
  *  darwin returns early (traffic lights are OS-drawn and take no color); a
@@ -656,11 +726,14 @@ async function showDeadHostInterstitial(
 /**
  * Create + wire a host view for one window. Security wiring beyond
  * webPreferences needs no per-view work: the app-level `web-contents-created`
- * handler (window-open policy + navigation guard) and the session-wide
- * permission handler already cover every webContents created, and IPC sender
- * gating keys on sender-frame origin. What IS per-view: the theme-color cache
- * feeding THAT window's overlay, the window-title route refresh, and the
- * version-skew fallback strip with its per-view inserted-CSS key.
+ * handler (window-open policy + navigation guard, which branches guest views
+ * — a host view's web-tile tabs — to a scheme allowlist instead of the
+ * host-origin one) and the session-wide permission handler already cover
+ * every webContents created, and IPC sender gating keys on sender-frame
+ * origin. What IS per-view: the theme-color cache feeding THAT window's
+ * overlay, the window-title route refresh, the version-skew fallback strip
+ * with its per-view inserted-CSS key, and the guest teardown on did-navigate
+ * (a host-page navigation discards the SPA renderer that owned the tabKeys).
  */
 function createHostView(win: BrowserWindow, hostId: string): WebContentsView {
   const windowId = win.id;
@@ -710,6 +783,13 @@ function createHostView(win: BrowserWindow, hostId: string): WebContentsView {
   // load-failure flag (it never fires for Chromium's error page).
   contents.on("did-navigate", (_event, url) => {
     fallbackCssKey = null;
+    // A host-page navigation discards the SPA renderer that owned this
+    // webContents' tabKeys (a reload, the interstitial commit) — its guests
+    // die with it; the fresh SPA re-creates what it mounts. The initial load
+    // fires this with zero guests (a no-op).
+    const { state: afterGuests, removed: guests } = removeHostWebViews(webViews, contents.id);
+    webViews = afterGuests;
+    for (const guest of guests) destroyWebView(guest);
     const isInterstitial = isInterstitialUrl(url);
     applyLoadFlag({ kind: "did-navigate", isInterstitial });
     if (!isInterstitial) stopInterstitialHealthPoll(windowId, hostId);
@@ -803,10 +883,30 @@ function attachHostView(
   }
   if (!entry) return; // unreachable — addView just registered it
   if (current && current.hostId !== host.id) {
+    // Hide the outgoing host's guests before its view leaves the tree — a
+    // later re-attach of a different host must never reveal them. Their
+    // SPA-requested `visible` flags are untouched (a re-attach restores them).
+    for (const handle of hostDetachPlan(webViews, windowId, current.hostId)) {
+      handle.setVisible(false);
+    }
     win.contentView.removeChildView(current.handle);
   }
   win.contentView.addChildView(entry.handle);
   syncViewBounds(win, entry.handle);
+  // addChildView(host) raises the host above every guest, so the incoming
+  // host's guests are re-raised on EVERY attach (a same-host re-attach
+  // included): re-adding an existing child raises it, then the SPA-requested
+  // visibility is restored (parked bounds applied before setVisible(true) —
+  // setBounds on a hidden view would re-show it).
+  for (const item of hostAttachPlan(webViews, windowId, host.id)) {
+    win.contentView.addChildView(item.handle);
+    if (item.visible) {
+      item.handle.setBounds(item.bounds);
+      item.handle.setVisible(true);
+    } else {
+      item.handle.setVisible(false);
+    }
+  }
   views = activateView(views, windowId, host.id);
   const paint = switchPaint(views, windowId, host.id);
   applyOverlayColor(paint.themeColor ?? DEFAULT_STRIP_COLOR, win);
@@ -828,6 +928,10 @@ function attachHostView(
  * entry dies with the views.
  */
 function destroyHostViews(hostId: string): void {
+  // The host's guests die first, in EVERY window, before the host views close.
+  const { state: afterGuests, removed: guests } = removeHostWebViewsEverywhere(webViews, hostId);
+  webViews = afterGuests;
+  for (const guest of guests) destroyWebView(guest);
   const { state, removed } = removeHostViews(views, hostId);
   views = state;
   for (const entry of removed) {
@@ -859,6 +963,11 @@ function destroyHostViews(hostId: string): void {
  * lazily from the captured routes.
  */
 function destroyWindowViews(windowId: number): void {
+  // The window's guests die with it — the window is closing, so detach is
+  // skipped inside destroyWebView and the webContents are closed.
+  const { state: afterGuests, removed: guests } = removeWindowWebViews(webViews, windowId);
+  webViews = afterGuests;
+  for (const guest of guests) destroyWebView(guest);
   const { state, removed } = removeWindowViews(views, windowId);
   views = state;
   for (const entry of removed) {
@@ -867,6 +976,104 @@ function destroyWindowViews(windowId: number): void {
     rawAccentReported.delete(viewKey(entry.windowId, entry.hostId));
     if (!entry.handle.webContents.isDestroyed()) entry.handle.webContents.close();
   }
+}
+
+/**
+ * Relay one guest event to the OWNING host webContents on the single
+ * `web:event` channel, demuxed SPA-side by `tabKey`. Skipped silently when
+ * the host webContents is gone (a destroyed host's late guest event relays
+ * nowhere).
+ */
+function wireGuestRelay(contents: WebContents, hostContentsId: number, tabKey: string): void {
+  const relay = (kind: string, extra: Record<string, unknown> = {}): void => {
+    const host = webContents.fromId(hostContentsId);
+    if (!host || host.isDestroyed()) return;
+    host.send("web:event", { tabKey, kind, ...extra });
+  };
+  contents.on("page-title-updated", (_event, title) => relay("title", { title }));
+  contents.on("page-favicon-updated", (_event, favicons) => relay("favicon", { favicons }));
+  contents.on("did-start-loading", () => relay("loading", { loading: true }));
+  contents.on("did-stop-loading", () => relay("loading", { loading: false }));
+  // Subframe and superseded-navigation (ERR_ABORTED) failures are not relayed
+  // — the nextLoadFailed rule: only a real main-frame failure is news.
+  contents.on("did-fail-load", (_event, errorCode, description, url, isMainFrame) => {
+    if (!isMainFrame || errorCode === ERR_ABORTED) return;
+    relay("failed", { code: errorCode, description, url });
+  });
+  const relayUrl = (url: string): void =>
+    relay("url", {
+      url,
+      canGoBack: contents.navigationHistory.canGoBack(),
+      canGoForward: contents.navigationHistory.canGoForward(),
+    });
+  contents.on("did-navigate", (_event, url) => relayUrl(url));
+  contents.on("did-navigate-in-page", (_event, url) => relayUrl(url));
+  contents.on("focus", () => relay("focus"));
+  // Relayed as a direction, NEVER applied here — the SPA's zoom buckets own
+  // the factor and send it back.
+  contents.on("zoom-changed", (_event, direction) => relay("zoom", { direction }));
+}
+
+/**
+ * Create + wire a guest for one (host view, tabKey). The guest is a SIBLING
+ * of the host view on the window's contentView — a child of the host view
+ * never paints (Electron 43 / Linux). Adding after the host is attached lands
+ * the guest above it; the attach seam (hostAttachPlan in attachHostView)
+ * re-raises it on every host switch. The URL arrives http(s)-validated by the
+ * `web:create` handler (a main-initiated loadURL bypasses will-navigate).
+ */
+function createWebView(
+  win: BrowserWindow,
+  host: ViewEntry<WebContentsView>,
+  tabKey: string,
+  url: string,
+): void {
+  const view = new WebContentsView({ webPreferences: guestWebPreferences() });
+  view.setBackgroundColor(GUEST_BACKGROUND);
+  view.setBorderRadius(GUEST_BORDER_RADIUS_PX);
+  win.contentView.addChildView(view);
+  // A guest created by a DETACHED host's still-live SPA starts hidden —
+  // showing it would paint over whatever host is actually displayed. The
+  // attach plan shows it (at its recorded bounds) when that host returns.
+  view.setVisible(activeHostForWindow(views, win.id) === host.hostId);
+  webViews = addWebView(webViews, {
+    windowId: win.id,
+    hostId: host.hostId,
+    hostContentsId: host.webContentsId,
+    tabKey,
+    handle: view,
+    webContentsId: view.webContents.id,
+  });
+  wireGuestRelay(view.webContents, host.webContentsId, tabKey);
+  void view.webContents.loadURL(url);
+}
+
+/** The guest's owning host is the one attached in its window. Painting a
+ *  guest (show, bounds) is gated on this: a detached host's SPA stays alive
+ *  and may still drive its guests, but must never paint over the displayed
+ *  host — its requests are recorded and the attach plan applies them. */
+function isGuestHostAttached(entry: WebViewEntry<WebContentsView>): boolean {
+  return activeHostForWindow(views, entry.windowId) === entry.hostId;
+}
+
+/**
+ * Destroy one guest: unregister, detach from its window when the window is
+ * alive (tolerating a view already off the tree), and close its webContents
+ * (never twice). Callers: `web:destroy`, the host webContents `did-navigate`
+ * seam in createHostView, destroyHostViews, destroyWindowViews.
+ */
+function destroyWebView(entry: WebViewEntry<WebContentsView>): void {
+  const { state } = removeWebView(webViews, entry.hostContentsId, entry.tabKey);
+  webViews = state;
+  const win = windows.get(entry.windowId);
+  if (win && !win.isDestroyed()) {
+    try {
+      win.contentView.removeChildView(entry.handle);
+    } catch {
+      // The view may already be off the tree (host detach raced a destroy).
+    }
+  }
+  if (!entry.handle.webContents.isDestroyed()) entry.handle.webContents.close();
 }
 
 // ─── Menu ───────────────────────────────────────────────────────────────────
@@ -1654,6 +1861,75 @@ function parseSetUrlPayload(value: unknown): { id: string; url: string } | null 
   return { id: value.id, url: value.url };
 }
 
+// web:* payload validators — the same structural-narrowing shape as the
+// parse*Payload set above (unknown in, narrowed out, no casts).
+
+function isTabKey(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= TAB_KEY_MAX_LENGTH;
+}
+
+function parseWebTabKeyPayload(value: unknown): { tabKey: string } | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("tabKey" in value) || !isTabKey(value.tabKey)) return null;
+  return { tabKey: value.tabKey };
+}
+
+function parseWebCreatePayload(value: unknown): { tabKey: string; url: string } | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("tabKey" in value) || !isTabKey(value.tabKey)) return null;
+  // Main-initiated loadURL bypasses will-navigate, so the scheme allowlist is
+  // enforced HERE — a guest must never be pointed at a non-http(s) URL.
+  if (!("url" in value) || typeof value.url !== "string" || !isHttpUrl(value.url)) return null;
+  return { tabKey: value.tabKey, url: value.url };
+}
+
+/** web:load carries the same {tabKey, url} shape (and http(s) rule) as web:create. */
+function parseWebLoadPayload(value: unknown): { tabKey: string; url: string } | null {
+  return parseWebCreatePayload(value);
+}
+
+function parseWebBoundsPayload(
+  value: unknown,
+): { tabKey: string; x: number; y: number; width: number; height: number } | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("tabKey" in value) || !isTabKey(value.tabKey)) return null;
+  // CSS px arrive as floats (getBoundingClientRect); sizes can't be negative.
+  if (!("x" in value) || typeof value.x !== "number" || !Number.isFinite(value.x)) return null;
+  if (!("y" in value) || typeof value.y !== "number" || !Number.isFinite(value.y)) return null;
+  if (!("width" in value) || typeof value.width !== "number" || !Number.isFinite(value.width)) return null;
+  if (!("height" in value) || typeof value.height !== "number" || !Number.isFinite(value.height)) return null;
+  if (value.width < 0 || value.height < 0) return null;
+  return {
+    tabKey: value.tabKey,
+    x: Math.round(value.x),
+    y: Math.round(value.y),
+    width: Math.round(value.width),
+    height: Math.round(value.height),
+  };
+}
+
+function parseWebVisiblePayload(value: unknown): { tabKey: string; visible: boolean } | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("tabKey" in value) || !isTabKey(value.tabKey)) return null;
+  if (!("visible" in value) || typeof value.visible !== "boolean") return null;
+  return { tabKey: value.tabKey, visible: value.visible };
+}
+
+/** A web:* sender must be a registered-host page WITH a host view (the
+ *  welcome page passes isHostsSender but owns no guests). */
+function webSenderHost(event: IpcMainInvokeEvent): ViewEntry<WebContentsView> | null {
+  if (!isHostsSender(event)) return null;
+  return findViewByWebContentsId(views, event.sender.id);
+}
+
+/** …and the tabKey must belong to THAT sender. */
+function webSenderGuest(
+  event: IpcMainInvokeEvent,
+  tabKey: string,
+): WebViewEntry<WebContentsView> | null {
+  return webSenderHost(event) ? findWebViewBySender(webViews, event.sender.id, tabKey) : null;
+}
+
 /**
  * The window an IPC call acts on: the SENDER's window — a host view's
  * window by registry lookup, the window itself for a welcome page (the
@@ -1975,6 +2251,111 @@ function registerIpcHandlers(): void {
     }
     return { ok: true };
   });
+
+  // web:* — the web tile's native engine (the `web` bridge group). One tighter
+  // ladder than the other hosts-gated channels: the sender must be a
+  // registered-host page ("Not allowed") that OWNS a host view ("No host view"
+  // — the welcome page passes the gate but owns no view), the payload must
+  // validate ("Invalid request"), and the tabKey must belong to THAT sender's
+  // host webContents ("Unknown tab") — two windows showing one host are two
+  // host webContents, so tabKeys never cross over.
+  ipcMain.handle("web:create", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    const host = webSenderHost(event);
+    if (!host) return { ok: false, error: "No host view" };
+    // A host view whose window is gone is no host view at all — same rung.
+    const win = windows.get(host.windowId);
+    if (!win || win.isDestroyed()) return { ok: false, error: "No host view" };
+    const parsed = parseWebCreatePayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    // Replace, never stack: the SPA's mount/unmount can race (a StrictMode
+    // double-mount), and a stale guest would leak a renderer.
+    const existing = findWebViewBySender(webViews, event.sender.id, parsed.tabKey);
+    if (existing) destroyWebView(existing);
+    createWebView(win, host, parsed.tabKey, parsed.url);
+    return { ok: true };
+  });
+
+  ipcMain.handle("web:destroy", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebTabKeyPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    destroyWebView(guest);
+    return { ok: true };
+  });
+
+  // web:bounds — DIP coordinates relative to the host view's content, applied
+  // verbatim: the host view fills the window content area, so host-view
+  // coordinates ARE win.contentView coordinates and no offset is added. The
+  // rect is PARKED, not applied, on a HIDDEN guest (setBounds on a hidden view
+  // re-shows it — Electron 43 / Linux) or on a guest whose owning host is
+  // detached (applying would paint over the displayed host); web:visible
+  // {true} and the attach plan apply the record on show.
+  ipcMain.handle("web:bounds", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebBoundsPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    const bounds = { x: parsed.x, y: parsed.y, width: parsed.width, height: parsed.height };
+    webViews = setWebViewBounds(webViews, guest.hostContentsId, guest.tabKey, bounds);
+    if (guest.visible && isGuestHostAttached(guest)) guest.handle.setBounds(bounds);
+    return { ok: true };
+  });
+
+  // web:visible — the SPA-requested visibility, recorded independently of the
+  // host detach hide so a re-attach restores exactly this. On show, and only
+  // when the owning host is the one attached (a detached host's SPA must not
+  // paint over the displayed host — the attach plan applies the record on
+  // return), the parked bounds apply immediately BEFORE setVisible(true)
+  // (same turn, same reason as the parked-bounds rule above).
+  ipcMain.handle("web:visible", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebVisiblePayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    webViews = setWebViewVisible(webViews, guest.hostContentsId, guest.tabKey, parsed.visible);
+    if (parsed.visible) {
+      if (isGuestHostAttached(guest)) {
+        guest.handle.setBounds(guest.bounds);
+        guest.handle.setVisible(true);
+      }
+    } else {
+      guest.handle.setVisible(false);
+    }
+    return { ok: true };
+  });
+
+  // web:load / web:reload — the address bar's navigation verbs. loadURL
+  // bypasses will-navigate, so the URL arrives http(s)-validated by
+  // parseWebLoadPayload (the scheme allowlist holds on every entry).
+  ipcMain.handle("web:load", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebLoadPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    void guest.handle.webContents.loadURL(parsed.url);
+    return { ok: true };
+  });
+
+  ipcMain.handle("web:reload", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebTabKeyPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    guest.handle.webContents.reload();
+    return { ok: true };
+  });
 }
 
 // ─── Window lifecycle + security wiring ─────────────────────────────────────
@@ -2168,6 +2549,14 @@ app.on("web-contents-created", (_event, contents) => {
     event: { preventDefault: () => void },
     url: string,
   ): void => {
+    // Guests (web-tile views) answer to a SCHEME allowlist, not the host-origin
+    // allowlist: they browse http(s) freely in place, and every other scheme
+    // is dropped — never forwarded to openExternal (that forward exists for
+    // the SPA's own deeplink targets; a guest is an arbitrary web page).
+    if (isGuestContents(webViews, contents.id)) {
+      if (guestNavigationAction(url) === "deny") event.preventDefault();
+      return;
+    }
     if (isAllowedNavigation(url)) return;
     event.preventDefault();
     if (isHttpUrl(url) || isEditorDeeplink(url)) void shell.openExternal(url);

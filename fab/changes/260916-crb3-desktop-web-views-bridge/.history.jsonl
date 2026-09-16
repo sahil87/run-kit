@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-16T14:16:28Z"}
+{"args":"The desktop shell can host a web tile's content in a WebContentsView — a runkitShell.web bridge group, an electron-free registry keyed (window, host, tabKey), main handlers for create/destroy/bounds/visible/load/reload, a one-channel event relay, a dedicated persist:rk-web partition with no preload, and a navigation guard that lets guests browse http(s) while the host allowlist keeps applying to hosts. Change 3d of the web-tile native browser plan; guests are siblings of the host view per the spike verdict.","cmd":"fab-new","event":"command","ts":"2026-09-16T14:16:28Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-16T14:19:29Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-16T14:20:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T14:23:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T14:31:39Z"}
+{"event":"review","result":"failed","ts":"2026-09-16T14:36:39Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T14:36:39Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T14:39:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-16T14:42:25Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T14:42:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-16T14:48:03Z"}

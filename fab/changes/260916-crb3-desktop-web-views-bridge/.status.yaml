@@ -1,0 +1,57 @@
+id: crb3
+name: 260916-crb3-desktop-web-views-bridge
+created: 2026-09-16T14:16:28Z
+created_by: sahil87
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 36
+    acceptance_completed: 36
+confidence:
+    certain: 21
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 84.3
+        reversibility: 88.2
+        competence: 91.4
+        disambiguation: 88.6
+stage_metrics:
+    intake: {started_at: "2026-09-16T14:16:28Z", driver: fab-new, iterations: 1, completed_at: "2026-09-16T14:23:27Z"}
+    apply: {started_at: "2026-09-16T14:36:39Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-16T14:39:18Z"}
+    review: {started_at: "2026-09-16T14:39:18Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-16T14:42:25Z"}
+    hydrate: {started_at: "2026-09-16T14:42:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T14:48:03Z"}
+    ship: {started_at: "2026-09-16T14:48:03Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-16T14:48:03Z"
+    computed_at_stage: hydrate
+summary: 'Desktop shell hosts web-tile guests as WebContentsView siblings of the host view: electron-free web-views.ts registry (z-order plans, parked bounds, attached-host gate), persist:rk-web partition with no preload, six gated web:* IPC channels + web:event relay, runkitShell.web preload group, guest http(s) navigation guard'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-16T14:48:03Z

@@ -22,6 +22,12 @@
  *     hex string) persisted per host for the switcher's edge bars — the
  *     full-strength color the theme-color meta's 35% titlebar blend cannot
  *     carry. Gated and validated exactly like `badge:*` main-side.
+ *   - `web`: the web tile's native engine — create/destroy/bounds/visible/
+ *     load/reload invokers for the `web:*` channels plus `onEvent` on the
+ *     `web:event` relay. Additive: older SPAs never call it; the SPA narrows
+ *     the group's presence before use. Privileged main-side for registered-
+ *     host views only (isHostsSender + a host view + tabKey membership under
+ *     the sender).
  *   - `__welcome`: IPC invokers used by the welcome page only. They are
  *     exposed everywhere but privileged NOWHERE except the welcome page —
  *     every `welcome:*` handler in main.ts verifies `event.senderFrame.url`
@@ -89,6 +95,26 @@ contextBridge.exposeInMainWorld("runkitShell", {
   },
   accent: {
     set: (hex: string): Promise<unknown> => ipcRenderer.invoke("accent:set", hex),
+  },
+  web: {
+    create: (tabKey: string, url: string): Promise<unknown> =>
+      ipcRenderer.invoke("web:create", { tabKey, url }),
+    destroy: (tabKey: string): Promise<unknown> =>
+      ipcRenderer.invoke("web:destroy", { tabKey }),
+    bounds: (tabKey: string, x: number, y: number, width: number, height: number): Promise<unknown> =>
+      ipcRenderer.invoke("web:bounds", { tabKey, x, y, width, height }),
+    visible: (tabKey: string, visible: boolean): Promise<unknown> =>
+      ipcRenderer.invoke("web:visible", { tabKey, visible }),
+    load: (tabKey: string, url: string): Promise<unknown> =>
+      ipcRenderer.invoke("web:load", { tabKey, url }),
+    reload: (tabKey: string): Promise<unknown> => ipcRenderer.invoke("web:reload", { tabKey }),
+    // Returns the unsubscribe — a subscription that cannot be dropped leaks a
+    // listener per engine mount, and every relayed event then fires N times.
+    onEvent: (handler: (payload: unknown) => void): (() => void) => {
+      const listener = (_event: unknown, payload: unknown): void => handler(payload);
+      ipcRenderer.on("web:event", listener);
+      return () => ipcRenderer.removeListener("web:event", listener);
+    },
   },
   __welcome: {
     testHost: (url: string): Promise<unknown> =>

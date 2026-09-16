@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isEditorDeeplink, isHttpUrl, windowOpenAction } from "./window-open";
+import { guestNavigationAction, isEditorDeeplink, isHttpUrl, windowOpenAction } from "./window-open";
 
 test("https URLs open externally", () => {
   assert.equal(windowOpenAction("https://github.com/sahil87/run-kit/pull/1"), "open-external");
@@ -75,4 +75,23 @@ test("non-allowlisted schemes stay denied — openExternal is never a pass-throu
   assert.equal(windowOpenAction("vscode-insiders://vscode-remote/ssh-remote+h/p"), "deny");
   assert.equal(windowOpenAction("smb://fileserver/share"), "deny");
   assert.equal(windowOpenAction("file:///etc/passwd"), "deny");
+});
+
+// Guest (web tile) navigation: a scheme allowlist, NOT the host-origin
+// allowlist — guests browse any http(s) in place; every other scheme is
+// dropped (never forwarded to openExternal — that forward exists for the
+// SPA's own deeplink targets, and a guest is an arbitrary web page).
+
+test("guests navigate http(s) in place", () => {
+  assert.equal(guestNavigationAction("https://github.com/sahil87/run-kit"), "allow");
+  assert.equal(guestNavigationAction("http://localhost:8080/docs"), "allow");
+});
+
+test("guest navigation to a non-http(s) scheme is denied, not forwarded", () => {
+  assert.equal(guestNavigationAction("vscode://vscode-remote/ssh-remote+h/p"), "deny");
+  assert.equal(guestNavigationAction("mailto:user@example.com"), "deny");
+  assert.equal(guestNavigationAction("file:///etc/passwd"), "deny");
+  assert.equal(guestNavigationAction("about:blank"), "deny");
+  assert.equal(guestNavigationAction("javascript:alert(1)"), "deny");
+  assert.equal(guestNavigationAction("smb://fileserver/share"), "deny");
 });

@@ -173,17 +173,24 @@ summary {
   -webkit-app-region: no-drag;
 }
 
-/* ── Scrollbars: reserved gutter, thumb only under the pointer ───────────────
-   Every scroll container keeps a classic 6px bar so its gutter is reserved and
-   nothing shifts when the thumb appears. The track is transparent, so the
-   gutter takes the surface it sits on (chrome, tile, popup) instead of
-   painting a page-colored stripe down a chrome panel. The thumb is
-   transparent at rest and shows only while the pointer is inside the scrolling
-   element — hover reaches the scroller from any descendant — which is the
-   platform overlay behaviour the fixed width otherwise opts out of. Coarse
-   pointers have no hover and keep the thumb visible. Overflow itself is
-   signalled elsewhere (the sidebar's scroll-edge fade), so a hidden thumb is
-   not the only affordance.
+/* ── Scrollbars: reserved gutter, bar only while the pointer (or focus) is in ──
+   Classic 6px bars everywhere (the fixed width opts out of platform overlay
+   bars). The track is transparent so the gutter takes the surface it sits on
+   (chrome, tile, popup) instead of painting a page-colored stripe down a
+   chrome panel; the thumb is the border color.
+   VERTICAL scrollers (Tailwind's `overflow-y-auto` / `overflow-auto`) reveal
+   their bar by toggling overflow, not by tinting the thumb: at rest they are
+   `overflow-y: hidden` with `scrollbar-gutter: stable`, so the 6px gutter is
+   reserved and nothing shifts; while the pointer is inside the scroller (hover
+   reaches it from any descendant) or focus is within it (keyboard users) the
+   overflow returns to `auto` and the bar exists. Creating and destroying the
+   bar is a real style change on the element, so every engine repaints it —
+   a thumb-color rule on the scrollbar pseudo-element can be left stale when
+   the pointer exits through a portal (the row flyout card). Wheel scrolling
+   needs the pointer inside, so it always finds `auto`; programmatic scrolling
+   (`scrollIntoView`) works on `hidden` too. Coarse pointers have no hover and
+   keep `auto`. HORIZONTAL bands have no reservable gutter (`scrollbar-gutter`
+   is inline-end only), so `.rk-band-scroll` keeps a thumb-tint reveal below.
    Firefox styles bars through the standard properties, and in Chromium those
    properties disable the -webkit- pseudo styling on the same element, so the
    standard rules are scoped to engines without the pseudo. */
@@ -195,29 +202,27 @@ summary {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 3px;
-}
-*:hover::-webkit-scrollbar-thumb {
   background: var(--color-border);
+  border-radius: 3px;
 }
 @supports not selector(::-webkit-scrollbar) {
   * {
     scrollbar-width: thin;
-    scrollbar-color: transparent transparent;
-  }
-  *:hover {
     scrollbar-color: var(--color-border) transparent;
   }
 }
+.overflow-y-auto,
+.overflow-auto {
+  scrollbar-gutter: stable;
+}
+.overflow-y-auto:not(:hover):not(:focus-within),
+.overflow-auto:not(:hover):not(:focus-within) {
+  overflow-y: hidden;
+}
 @media (any-pointer: coarse) {
-  ::-webkit-scrollbar-thumb {
-    background: var(--color-border);
-  }
-  @supports not selector(::-webkit-scrollbar) {
-    * {
-      scrollbar-color: var(--color-border) transparent;
-    }
+  .overflow-y-auto:not(:hover):not(:focus-within),
+  .overflow-auto:not(:hover):not(:focus-within) {
+    overflow-y: auto;
   }
 }
 

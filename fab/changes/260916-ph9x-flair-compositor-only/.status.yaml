@@ -1,0 +1,57 @@
+id: ph9x
+name: 260916-ph9x-flair-compositor-only
+created: 2026-09-16T14:11:57Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 16
+    acceptance_count: 26
+    acceptance_completed: 26
+confidence:
+    certain: 10
+    confident: 7
+    tentative: 1
+    unresolved: 0
+    score: 3.4
+    fuzzy: true
+    dimensions:
+        signal: 72.2
+        reversibility: 83.6
+        competence: 79.2
+        disambiguation: 75.0
+stage_metrics:
+    intake: {started_at: "2026-09-16T14:11:57Z", driver: fab-new, iterations: 1, completed_at: "2026-09-16T14:46:49Z"}
+    apply: {started_at: "2026-09-16T14:46:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T15:58:52Z"}
+    review: {started_at: "2026-09-16T15:58:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T16:08:52Z"}
+    hydrate: {started_at: "2026-09-16T16:08:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T16:17:42Z"}
+    ship: {started_at: "2026-09-16T16:17:42Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-16T16:17:42Z"
+    computed_at_stage: hydrate
+summary: 'Flair overlays run compositor-only: transform/opacity keyframes on FlairOverlay child spans, ≥1 s iterations, steps()-quantized pixel-art traversals via a ResizeObserver width var; five on-screen flairs drop from 16.0% to 7.5% renderer (no-flair comparator 5.0%)'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-16T16:17:42Z

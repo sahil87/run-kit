@@ -411,6 +411,27 @@ func TestIsTerminalRejectsNonTTYFiles(t *testing.T) {
 	}
 }
 
+// An empty launcher path (a foreign file holds the launcher slot, so it must
+// never be exec'd) yields the single-path stable shape on both variants.
+func TestAgentStateHookCommandNoLauncherIsSinglePath(t *testing.T) {
+	const stable = "/opt/homebrew/bin/rk"
+	cmd := agentStateHookCommand("", stable, agentStateIdle, "claude")
+	want := `/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "` + stable + `" agent hook --agent claude idle 2>/dev/null || true'`
+	if cmd != want {
+		t.Errorf("single-path wrapper:\n got %s\nwant %s", cmd, want)
+	}
+	if strings.Contains(cmd, `""`) {
+		t.Errorf("an empty launcher path must never be embedded: %s", cmd)
+	}
+	js := agentStateHookCommandJSON("", stable, agentStateIdle, "agy")
+	if strings.Contains(js, `""`) || strings.Count(js, rkHookMarkerAgentHookFamily) != 1 || !strings.HasSuffix(js, `echo "{}"'`) {
+		t.Errorf("JSON single-path wrapper malformed: %s", js)
+	}
+	if plugin := opencodePluginFile("", stable); !strings.Contains(plugin, `const RK = "`+stable+`";`) || strings.Contains(plugin, `const RK = "";`) {
+		t.Errorf("opencode plugin without a launcher must carry the stable path in RK: %s", plugin[:400])
+	}
+}
+
 func TestAgentStateHookCommandShape(t *testing.T) {
 	const stable = "/opt/homebrew/bin/rk"
 	cmd := agentStateHookCommand(testLauncherPath, stable, agentStateWaiting, "claude")
@@ -916,6 +937,9 @@ func TestValidateHookPath(t *testing.T) {
 		`/tmp/$HOME/rk`,      // $ expands inside double quotes
 		"/tmp/`id`/rk",       // backtick substitutes inside double quotes
 		`/tmp/back\slash/rk`, // \ escapes inside double quotes
+		"/tmp/new\nline/rk",  // newline breaks the generated JS / TOML strings
+		"/tmp/tab\there/rk",  // any control character does
+		"/tmp/del\x7f/rk",
 	}
 	for _, p := range invalid {
 		if err := validateHookPath(p); err == nil {
@@ -2795,7 +2819,7 @@ func TestGuiDisplayUninstallLeavesSymlinkedBinDir(t *testing.T) {
 func TestReplaceSymlinkSweepsStaleTemp(t *testing.T) {
 	dir := t.TempDir()
 	link := filepath.Join(dir, "run-kit")
-	staleLink := filepath.Join(dir, ".run-kit.tmp-1")
+	staleLink := filepath.Join(dir, ".run-kit.tmp-2147483000")
 	staleFile := filepath.Join(dir, ".run-kit.tmp-2")
 	if err := os.Symlink("/old", staleLink); err != nil {
 		t.Fatal(err)

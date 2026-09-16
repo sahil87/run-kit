@@ -189,17 +189,19 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		if err != nil {
 			return fmt.Errorf("ensuring tmux config: %w", err)
 		}
+		// Brew detection is computed once for the whole startup; the launcher
+		// re-point runs only on a brew daemon (a dev-worktree or e2e-rig serve
+		// must never re-point the machine's hooks at a throwaway build). It runs
+		// BEFORE the optional reload sweep below: the sweep can take up to 30 s,
+		// and code-server bridge actions exec RK_BIN with no fallback, so a stale
+		// launcher must be repaired first.
+		selfBrew := resolveBrewInstalled()
+		repointLauncher(selfBrew)
 		if refreshed {
 			sweepCtx, sweepCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			tmux.RefreshSweep(sweepCtx)
 			sweepCancel()
 		}
-
-		// Brew detection is computed once for the whole startup; the launcher
-		// re-point runs only on a brew daemon (a dev-worktree or e2e-rig serve
-		// must never re-point the machine's hooks at a throwaway build).
-		selfBrew := resolveBrewInstalled()
-		repointLauncher(selfBrew)
 
 		// No startup sweep: relay ephemerals are gone (the relay attaches the PTY
 		// directly to the real session), and board pin-sessions (`_rk-pin-*`) are

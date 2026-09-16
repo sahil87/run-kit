@@ -1229,6 +1229,11 @@ func quotedList(paths []string) string {
 // from which one synthetic two-path command is built. The scan keys on the
 // ` agent hook ` / ` agent-hook ` invocation markers — the same ownership
 // signal markerFileOwned uses.
+// opencodeMissingRKConst is the sentinel path extractRkHookCommands reports
+// for a plugin file whose `const RK` line is missing; it can never stat, so
+// checkHookRkPath fails the row and names it.
+const opencodeMissingRKConst = "<missing const RK>"
+
 func extractRkHookCommands(content string) []string {
 	var cmds []string
 	var doc map[string]any
@@ -1267,6 +1272,12 @@ func extractRkHookCommands(content string) []string {
 		cmds = append(cmds, fmt.Sprintf(`; "%s" agent hook x || "%s" agent hook `, rk, rkFallback))
 	case rk != "":
 		cmds = append(cmds, fmt.Sprintf(`; "%s" agent hook `, rk))
+	case rkFallback != "":
+		// An rk-owned plugin with RK_FALLBACK but no RK (truncated or
+		// hand-edited): report() calls the missing RK first and swallows the
+		// exception, so no hook ever writes. Surface it as a dangling path
+		// rather than letting an empty extraction read healthy.
+		cmds = append(cmds, fmt.Sprintf(`; "%s" agent hook `, opencodeMissingRKConst))
 	}
 	return cmds
 }

@@ -318,6 +318,19 @@ describe("WatchedTable", () => {
     expect(reversed).toEqual(["plain-worker", "idle-worker", "waiting-worker"]);
   });
 
+  it("sorting by awaiting ignores the age of active rows (they tie, as before)", () => {
+    renderTable([
+      workerRow(makeWindow({ windowId: "@1", name: "old-active", monitored: true, monitoredChange: "a", agentState: "active", agentIdleDuration: "12m" })),
+      workerRow(makeWindow({ windowId: "@2", name: "young-active", monitored: true, monitoredChange: "b", agentState: "active", agentIdleDuration: "1m" })),
+      workerRow(makeWindow({ windowId: "@3", name: "idle-worker", monitored: true, monitoredChange: "c", agentState: "idle", agentIdleDuration: "1m" })),
+    ]);
+    fireEvent.click(screen.getByLabelText("Sort by awaiting"));
+    const names = screen.getAllByTestId("watched-row-navigate").map((el) => el.textContent);
+    // Both active rows rank ahead of idle; their hidden ages contribute nothing,
+    // so they keep their input order instead of re-ordering by age.
+    expect(names).toEqual(["old-active", "young-active", "idle-worker"]);
+  });
+
   it("an item row falls back to `added … ago` and then —", () => {
     renderTable([
       itemRow({ id: "a", kind: "note", addedAt: NOW - 600 }),

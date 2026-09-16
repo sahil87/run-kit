@@ -145,7 +145,7 @@ func TestReplaceSymlinkSweepsStaleTemps(t *testing.T) {
 	if err := os.Symlink("/target/a", link); err != nil {
 		t.Fatal(err)
 	}
-	stale := filepath.Join(dir, ".run-kit.tmp-1")
+	stale := filepath.Join(dir, ".run-kit.tmp-2147483000")
 	if err := os.Symlink("/target/old", stale); err != nil {
 		t.Fatal(err)
 	}

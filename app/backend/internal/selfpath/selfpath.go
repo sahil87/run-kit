@@ -20,10 +20,13 @@
 package selfpath
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 )
 
 // CellarMarker is the Cellar path segment that identifies a Homebrew-installed
@@ -140,15 +143,25 @@ func LauncherOrStable() (string, error) {
 // crashed between Symlink and Rename are swept first (only symlinks — a
 // regular file under the temp pattern is not rk's).
 func ReplaceSymlink(target, linkPath string) error {
-	pattern := filepath.Join(filepath.Dir(linkPath), "."+filepath.Base(linkPath)+".tmp-*")
+	// Sweep temps left by a crashed earlier run — but only those whose owner
+	// pid (the name suffix) is gone. Setup and the daemon's start-time re-point
+	// can overlap, and removing a live process's fresh temp would fail its
+	// Rename with ENOENT.
+	prefix := "." + filepath.Base(linkPath) + ".tmp-"
+	pattern := filepath.Join(filepath.Dir(linkPath), prefix+"*")
 	if stale, _ := filepath.Glob(pattern); len(stale) > 0 {
 		for _, p := range stale {
-			if fi, err := os.Lstat(p); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-				_ = os.Remove(p)
+			fi, err := os.Lstat(p)
+			if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+				continue
 			}
+			if owner, err := strconv.Atoi(strings.TrimPrefix(filepath.Base(p), prefix)); err == nil && owner != os.Getpid() && processAlive(owner) {
+				continue
+			}
+			_ = os.Remove(p)
 		}
 	}
-	tmp := filepath.Join(filepath.Dir(linkPath), fmt.Sprintf(".%s.tmp-%d", filepath.Base(linkPath), os.Getpid()))
+	tmp := filepath.Join(filepath.Dir(linkPath), fmt.Sprintf("%s%d", prefix, os.Getpid()))
 	if err := os.Symlink(target, tmp); err != nil {
 		return err
 	}
@@ -157,4 +170,14 @@ func ReplaceSymlink(target, linkPath string) error {
 		return err
 	}
 	return nil
+}
+
+// processAlive is the kill(pid, 0) liveness probe: no signal is sent. EPERM
+// means the process exists but is not ours, which still counts as alive.
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }

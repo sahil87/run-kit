@@ -403,6 +403,11 @@ func tomlBasicString(s string) string {
 // Bun-only `$` shell) so the SAME file also runs under plain node — which is
 // how the isolated test executes the installed plugin byte-for-byte.
 func opencodePluginFile(launcherPath, rkPath string) string {
+	if launcherPath == "" {
+		// No rk-owned launcher to exec (see runAgentSetup): both rungs carry the
+		// stable path so the plugin's fallback chain stays well-formed.
+		launcherPath = rkPath
+	}
 	return `// ` + skillManagedByMarker + ` — installed by ` + "`rk agent setup`" + `; do not edit
 // (re-running setup replaces this file in place; --uninstall removes it).
 //

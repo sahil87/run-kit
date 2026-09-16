@@ -1615,6 +1615,24 @@ func TestCheckHookRkPathTwoPathVerdicts(t *testing.T) {
 // dangling-path verdict matches the shell wrappers (fail only when both
 // dangle); a plugin carrying only RK (pre-fallback generation) parses to the
 // single path.
+// A marker-owned plugin that lost its `const RK` line (fallback-only) must not
+// read healthy: the extraction yields a sentinel path that can never stat.
+func TestExtractRkHookCommandsFallbackOnlyPluginIsUnhealthy(t *testing.T) {
+	content := "// " + skillManagedByMarker + "\nconst RK_FALLBACK = \"/opt/homebrew/bin/rk\";\n"
+	cmds := extractRkHookCommands(content)
+	if len(cmds) != 1 || !strings.Contains(cmds[0], opencodeMissingRKConst) {
+		t.Fatalf("fallback-only plugin must yield the missing-RK sentinel command, got %q", cmds)
+	}
+	paths := hookRkPaths(cmds[0])
+	if len(paths) != 1 || paths[0] != opencodeMissingRKConst {
+		t.Fatalf("hookRkPaths = %q, want the sentinel", paths)
+	}
+	hint, _ := checkHookRkPath(agentConfig{name: "OpenCode", filePath: "/x/run-kit.js"}, "/x/run-kit.js", cmds[0], func(string) (os.FileInfo, error) { return nil, os.ErrNotExist })
+	if hint == "" || !strings.Contains(hint, opencodeMissingRKConst) {
+		t.Errorf("expected a failing hint naming the sentinel, got %q", hint)
+	}
+}
+
 func TestExtractRkHookCommandsTwoConstPlugin(t *testing.T) {
 	const stable = "/opt/homebrew/bin/rk"
 	cmds := extractRkHookCommands(opencodePluginFile(testLauncherPath, stable))

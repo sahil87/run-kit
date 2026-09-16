@@ -194,9 +194,13 @@ const AWAITING_RANK_SCALE = 1e9;
 
 function awaitingSortValue(row: TrackedRow): number {
   if (row.kind !== "worker") return 3 * AWAITING_RANK_SCALE;
-  const rank =
-    row.win.agentState === "waiting" ? 0 : row.win.agentState === "active" ? 1 : row.win.agentState === "idle" ? 2 : 3;
-  return rank * AWAITING_RANK_SCALE + durationSeconds(row.win.agentIdleDuration);
+  const state = row.win.agentState;
+  const rank = state === "waiting" ? 0 : state === "active" ? 1 : state === "idle" ? 2 : 3;
+  // The backend now carries an age for `active` too (a lost-write signal for
+  // machine consumers); the table neither renders nor sorts on it, so active
+  // rows keep tying as they always have.
+  const restState = state === "waiting" || state === "idle";
+  return rank * AWAITING_RANK_SCALE + (restState ? durationSeconds(row.win.agentIdleDuration) : 0);
 }
 
 /** Parse the `6m`-style idle-duration string back to seconds for sorting. */

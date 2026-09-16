@@ -144,6 +144,14 @@ const (
 // than attempting escaping), which together close the interpolation surface
 // (Constitution §I).
 func agentStateHookCommand(launcherPath, stablePath, state, provider string) string {
+	if launcherPath == "" {
+		// No rk-owned launcher to exec (a foreign file holds the path): the
+		// stable path alone, the shape gen-3 installs carried.
+		return fmt.Sprintf(
+			`/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "%s" agent hook --agent %s %s 2>/dev/null || true'`,
+			stablePath, provider, state,
+		)
+	}
 	return fmt.Sprintf(
 		`/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "%s" agent hook --agent %s %s 2>/dev/null || "%s" agent hook --agent %s %s 2>/dev/null || true'`,
 		launcherPath, provider, state, stablePath, provider, state,
@@ -158,6 +166,12 @@ func agentStateHookCommand(launcherPath, stablePath, state, provider string) str
 // so native permission and termination behavior is preserved exactly. Always
 // exits 0 (the trailing echo is the last command).
 func agentStateHookCommandJSON(launcherPath, stablePath, state, provider string) string {
+	if launcherPath == "" {
+		return fmt.Sprintf(
+			`/bin/sh -c '[ -n "$TMUX_PANE" ] && "%s" agent hook --agent %s %s 2>/dev/null; echo "{}"'`,
+			stablePath, provider, state,
+		)
+	}
 	return fmt.Sprintf(
 		`/bin/sh -c '[ -n "$TMUX_PANE" ] && { "%s" agent hook --agent %s %s 2>/dev/null || "%s" agent hook --agent %s %s 2>/dev/null; }; echo "{}"'`,
 		launcherPath, provider, state, stablePath, provider, state,
@@ -223,6 +237,14 @@ func validateHookPath(path string) error {
 	}
 	if strings.ContainsAny(path, hookUnsafePathChars) {
 		return fmt.Errorf("resolved run-kit path %q contains a shell-unsafe character (one of %s) and cannot be embedded in the hook command; install run-kit at a conventional path and re-run", path, hookUnsafePathChars)
+	}
+	// Control characters (newline, tab, DEL, …) are legal in a Unix path but
+	// break the generated OpenCode JS string and Kimi TOML basic string, so the
+	// install would succeed and leave an unparsable hook file behind.
+	for _, r := range path {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("resolved run-kit path %q contains a control character and cannot be embedded in the hook command; install run-kit at a conventional path and re-run", path)
+		}
 	}
 	return nil
 }
@@ -427,11 +449,11 @@ func agentRegistry(home string) []agentConfig {
 			// Only the documented fields are emitted — unknown fields fail the
 			// whole config load. SessionStart sources are startup|resume (no
 			// compact source), so the stamp token's compact gate is inert.
-			name:         "Kimi Code",
-			provider:     "kimi",
-			kind:         kindMarkerBlock,
-			blockPath:    filepath.Join(kimiHome, "config.toml"),
-			blockContent: kimiHooksBlock,
+			name:            "Kimi Code",
+			provider:        "kimi",
+			kind:            kindMarkerBlock,
+			blockPath:       filepath.Join(kimiHome, "config.toml"),
+			blockContent:    kimiHooksBlock,
 			hooks:           kimiHooks,
 			postInstallNote: "Kimi Code reads hooks at session start — start a new kimi session to pick them up.",
 		},
@@ -560,9 +582,9 @@ func (c consent) authorizeWrite(out io.Writer, reader *bufio.Reader, dryRunNote,
 func newAgentSetupCmd(use string, deprecated bool) *cobra.Command {
 	var uninstall, yes, dryRun bool
 	c := &cobra.Command{
-		Use:   use,
-		Short: "Install agent-harness hooks that report agent state to run-kit",
-		Long:  agentSetupLong,
+		Use:          use,
+		Short:        "Install agent-harness hooks that report agent state to run-kit",
+		Long:         agentSetupLong,
 		Args:         usageArgs(cobra.NoArgs),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -670,6 +692,14 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 		pointerState, err = installLauncherPointer(sink, reader, home, target, cons)
 		if err != nil {
 			return err
+		}
+		// A foreign regular file at the launcher path is never exec'd: a hook
+		// that ran it would exit 0 and mask the stable fallback, silently
+		// losing every state write. The wrappers then carry the stable path
+		// alone (the pre-launcher shape); the pointer note above already says
+		// how to reclaim the path.
+		if pointerState == guiPointerForeign {
+			launcherPath = ""
 		}
 	}
 	for _, ac := range agentRegistry(home) {

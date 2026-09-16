@@ -10,6 +10,10 @@ Three theme modes: **system** (follows OS), **light**, **dark**. Default: system
 
 Theme is applied via `data-theme` attribute on `<html>` (`"dark"` or `"light"`). CSS custom properties in `globals.css` switch values per `html[data-theme="dark"]` and `html[data-theme="light"]` selectors. The `@theme` block registers token names for Tailwind CSS 4 with dark palette as initial values.
 
+### Scrollbars
+
+Every scroll container keeps a classic 6px bar (`::-webkit-scrollbar` width/height in `globals.css`) so the gutter is always reserved and nothing shifts when a thumb appears; the track is transparent (the gutter takes the surface it sits on — chrome, tile, popup); the thumb is transparent at rest and paints `--color-border` only while the pointer is inside the scrolling element (`*:hover::-webkit-scrollbar-thumb` — hover reaches the scroller from any descendant, so pointing at a sidebar row reveals the sessions list's bar). Coarse pointers keep the thumb visible (no hover). Engines without the `-webkit-` pseudo (Firefox) get the same through `scrollbar-width: thin` + `scrollbar-color`, scoped with `@supports not selector(::-webkit-scrollbar)` because in Chromium the standard properties disable the pseudo styling on the same element. `.rk-band-scroll` (the horizontal bands) follows the same rest/hover split. Overflow is signalled independently where it matters (the sidebar scroll-edge fade), so a resting thumb is not the only affordance.
+
 ### Border-Width System
 
 A three-tier border-width vocabulary, all in `--color-border`: (260702-6m46)

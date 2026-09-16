@@ -173,18 +173,52 @@ summary {
   -webkit-app-region: no-drag;
 }
 
-/* Scrollbar styling */
+/* ── Scrollbars: reserved gutter, thumb only under the pointer ───────────────
+   Every scroll container keeps a classic 6px bar so its gutter is reserved and
+   nothing shifts when the thumb appears. The track is transparent, so the
+   gutter takes the surface it sits on (chrome, tile, popup) instead of
+   painting a page-colored stripe down a chrome panel. The thumb is
+   transparent at rest and shows only while the pointer is inside the scrolling
+   element — hover reaches the scroller from any descendant — which is the
+   platform overlay behaviour the fixed width otherwise opts out of. Coarse
+   pointers have no hover and keep the thumb visible. Overflow itself is
+   signalled elsewhere (the sidebar's scroll-edge fade), so a hidden thumb is
+   not the only affordance.
+   Firefox styles bars through the standard properties, and in Chromium those
+   properties disable the -webkit- pseudo styling on the same element, so the
+   standard rules are scoped to engines without the pseudo. */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
-
 ::-webkit-scrollbar-track {
-  background: var(--color-bg-primary);
+  background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
+  background: transparent;
   border-radius: 3px;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  *:hover {
+    scrollbar-color: var(--color-border) transparent;
+  }
+}
+@media (any-pointer: coarse) {
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-color: var(--color-border) transparent;
+    }
+  }
 }
 
 @keyframes logo-chase {
@@ -1915,11 +1949,13 @@ html[data-theme="light"] {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
+  scrollbar-color: transparent transparent;
   padding-bottom: 5px;
 }
 .rk-band-scroll::-webkit-scrollbar { height: 6px; }
-.rk-band-scroll::-webkit-scrollbar-thumb { background: var(--color-border); }
+.rk-band-scroll:hover { scrollbar-color: var(--color-border) transparent; }
+.rk-band-scroll::-webkit-scrollbar-thumb { background: transparent; }
+.rk-band-scroll:hover::-webkit-scrollbar-thumb { background: var(--color-border); }
 .rk-band-fade { position: relative; }
 .rk-band-fade::after {
   content: "";

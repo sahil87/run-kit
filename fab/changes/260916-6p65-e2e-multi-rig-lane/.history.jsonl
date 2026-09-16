@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-16T17:37:13Z"}
+{"args":"adopt: e2e multi-rig lane (PR #1007)","cmd":"fab-new","event":"command","ts":"2026-09-16T17:37:13Z"}
+{"cmd":"fab-adopt","event":"command","ts":"2026-09-16T17:37:13Z"}
+{"action":"enter","driver":"fab-adopt","event":"stage-transition","stage":"apply","ts":"2026-09-16T17:40:49Z"}
+{"action":"enter","driver":"fab-adopt","event":"stage-transition","stage":"review","ts":"2026-09-16T17:40:49Z"}
+{"action":"enter","driver":"fab-adopt","event":"stage-transition","stage":"hydrate","ts":"2026-09-16T17:47:24Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T17:47:24Z"}
+{"action":"enter","driver":"fab-adopt","event":"stage-transition","stage":"ship","ts":"2026-09-16T17:57:56Z"}

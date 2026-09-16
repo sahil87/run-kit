@@ -1,0 +1,57 @@
+id: 6p65
+name: 260916-6p65-e2e-multi-rig-lane
+created: 2026-09-16T17:37:13Z
+created_by: Sahil Ahuja
+change_type: ci
+issues: []
+progress:
+    intake: done
+    apply: skipped
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 1
+    acceptance_count: 1
+    acceptance_completed: 1
+confidence:
+    certain: 3
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 71.9
+        reversibility: 87.5
+        competence: 78.8
+        disambiguation: 73.8
+stage_metrics:
+    intake: {started_at: "2026-09-16T17:37:13Z", driver: fab-new, iterations: 1, completed_at: "2026-09-16T17:40:49Z"}
+    apply: {iterations: 1}
+    review: {started_at: "2026-09-16T17:40:49Z", driver: fab-adopt, iterations: 1, completed_at: "2026-09-16T17:47:24Z"}
+    hydrate: {started_at: "2026-09-16T17:47:24Z", driver: fab-adopt, iterations: 1, completed_at: "2026-09-16T17:57:56Z"}
+    ship: {started_at: "2026-09-16T17:57:56Z", driver: fab-adopt, iterations: 1}
+prs: []
+base_branch: main
+change_type_source: explicit
+summary: 'adopted off-pipeline change (PR #1007), apply skipped: e2e harness multi-rig lane — RK_E2E_WORKERS starts one complete rig per Playwright worker, CI runs two per shard'
+true_impact:
+    added: 331
+    deleted: 97
+    net: 234
+    excluding:
+        added: 331
+        deleted: 97
+        net: 234
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-16T17:57:56Z"
+    computed_at_stage: hydrate
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-16T17:57:56Z

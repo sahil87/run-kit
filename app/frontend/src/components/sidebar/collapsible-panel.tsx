@@ -234,10 +234,14 @@ export function CollapsiblePanel({
       }
     : {
         height: isOpen ? `${effectiveResizableHeight}px` : "0px",
-        // Resizable mode clips Y to `auto` (scrolls internally) and X to `hidden` so grid
-        // content doesn't bleed into the panels below or cause horizontal overflow.
-        overflowY: (transitioning || !isOpen ? "hidden" : "auto") as React.CSSProperties["overflowY"],
-        overflowX: "hidden" as React.CSSProperties["overflowX"],
+        // Resizable mode scrolls internally. The open, settled state carries
+        // NO inline overflow: the `overflow-y-auto` utility class below owns it,
+        // so the viewport joins the stylesheet's scrollbar rule (reserved
+        // gutter, bar only while the pointer or focus is inside — globals.css
+        // § Scrollbars) exactly like the sessions list. Only the height
+        // animation and the closed state clip inline, where the class would
+        // otherwise let content bleed mid-transition.
+        overflowY: (transitioning || !isOpen ? "hidden" : undefined) as React.CSSProperties["overflowY"],
       };
 
   const transitionClass = legacyMode
@@ -313,7 +317,7 @@ export function CollapsiblePanel({
       {/* Content area */}
       <div
         ref={contentRef}
-        className={`${transitionClass}${!legacyMode && isOpen && !transitioning && contentHasOverflowBelow ? " rk-scroll-fade-bottom" : ""}`}
+        className={`${transitionClass}${legacyMode ? "" : " overflow-y-auto overflow-x-hidden"}${!legacyMode && isOpen && !transitioning && contentHasOverflowBelow ? " rk-scroll-fade-bottom" : ""}`}
         style={contentStyle}
       >
         <div className={contentClassName ?? "pl-5 pr-1.5 sm:pr-2 pb-1.5"}>

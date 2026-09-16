@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-16T13:46:58Z"}
+{"args":"easter_eggs setting — a registry switch to turn the screen-break Easter eggs off (default on; palette entries keep working)","cmd":"fab-new","event":"command","ts":"2026-09-16T13:46:58Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-16T13:48:57Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-16T13:49:12Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-16T13:49:56Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-16T13:52:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T13:52:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T14:00:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-16T14:05:07Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T14:05:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-16T14:09:44Z"}

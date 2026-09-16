@@ -4,6 +4,7 @@ import {
   postSettings,
   type SettingsEntry,
 } from "@/api/client";
+import { setEasterEggsEnabled } from "@/lib/screen-break-store";
 import { useInstanceAccent } from "@/contexts/instance-accent-context";
 import { useInstanceName } from "@/contexts/instance-name-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
@@ -33,8 +34,10 @@ import { invalidateOpenContext } from "@/hooks/use-open-targets";
  * `useInstanceName().setInstanceName`); context-less keys (`auto_name`,
  * `ssh_host`, `log_level`, `tmux_conf`) POST via `postSettings` and update the
  * shared list on success. The `gui.enabled` off direction detours through the
- * injected off-confirm seam before its POST. A backend rejection rejects
- * `commitSetting`, so the
+ * injected off-confirm seam before its POST. An `easter_eggs` commit mirrors
+ * the value into the screen-break store after the POST — the trigger hook
+ * reads the store, not the fetched list, so the flip applies without a reload.
+ * A backend rejection rejects `commitSetting`, so the
  * row surfaces the 400 inline (the TextSetting contract) without clobbering
  * the stored value.
  */
@@ -158,6 +161,15 @@ export function useSettingsRegistry(options?: {
           }
           await postSettings({ "gui.enabled": value });
           updateEntryValue("gui.enabled", value);
+          return;
+        }
+        case "easter_eggs": {
+          await postSettings({ easter_eggs: value });
+          updateEntryValue("easter_eggs", value);
+          // The trigger hook reads the store, not the fetched list — mirror the
+          // committed value so the next automatic occasion respects the toggle
+          // without a reload. null (unset) restores the registry default: on.
+          setEasterEggsEnabled(value !== false);
           return;
         }
         default: {

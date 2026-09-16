@@ -1,13 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, act } from "@testing-library/react";
-import { ScreenBreak } from "./screen-break";
+import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
+import { ScreenBreak, ScreenBreakController } from "./screen-break";
+import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import {
   _resetForTests,
+  easterEggsEnabled,
   fire,
   finish,
   getState,
   registerGlass,
 } from "@/lib/screen-break-store";
+
+const getSettingsEntries = vi.fn();
+vi.mock("@/api/client", () => ({
+  getSettingsEntries: (...a: unknown[]) => getSettingsEntries(...a),
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  useMatches: () => [{ params: {} }],
+}));
 
 /**
  * The ScreenBreak layer against a registered glass div: idle renders null;
@@ -205,5 +216,63 @@ describe("ScreenBreak", () => {
     });
     expect(screen.queryByTestId("screen-break")).toBeNull();
     expect(glass.style.clipPath).toBe("");
+  });
+});
+
+describe("ScreenBreakController — the easter_eggs mount fetch", () => {
+  beforeEach(() => {
+    _resetForTests();
+    localStorage.clear();
+    stubMotion(false);
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 });
+    getSettingsEntries.mockReset();
+  });
+  afterEach(() => {
+    cleanup();
+    _resetForTests();
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  function renderController() {
+    // The triggers hook's contexts ride the standalone provider; the mocked
+    // useMatches is a route with no window param, so no trigger fires.
+    return render(
+      <StandaloneSessionContextProvider value={{}}>
+        <ScreenBreakController />
+      </StandaloneSessionContextProvider>,
+    );
+  }
+
+  it("an easter_eggs: false entry disables the automatic occasions", async () => {
+    getSettingsEntries.mockResolvedValue([
+      {
+        key: "easter_eggs",
+        kind: "bool",
+        default: "true",
+        description: "",
+        category: "behavior",
+        ui: true,
+        live: true,
+        value: false,
+      },
+    ]);
+    renderController();
+    await waitFor(() => expect(easterEggsEnabled()).toBe(false));
+  });
+
+  it("a missing key keeps the store enabled (default on)", async () => {
+    getSettingsEntries.mockResolvedValue([]);
+    renderController();
+    await waitFor(() => expect(getSettingsEntries).toHaveBeenCalled());
+    await act(async () => {});
+    expect(easterEggsEnabled()).toBe(true);
+  });
+
+  it("a rejected fetch keeps the store enabled", async () => {
+    getSettingsEntries.mockRejectedValue(new Error("no API"));
+    renderController();
+    await act(async () => {});
+    expect(easterEggsEnabled()).toBe(true);
   });
 });

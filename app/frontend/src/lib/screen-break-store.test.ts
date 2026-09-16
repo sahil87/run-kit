@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   _resetForTests,
+  easterEggsEnabled,
   fire,
   finish,
   getState,
   PEEK_KEY,
+  setEasterEggsEnabled,
   SMASH_KEY,
   subscribe,
 } from "./screen-break-store";
@@ -98,6 +100,35 @@ describe("screen-break store", () => {
     localStorage.setItem(SMASH_KEY, "984");
     expect(fire("smash", { force: true, identity: "984" })).toBe(true);
     expect(localStorage.getItem(SMASH_KEY)).toBe("984");
+  });
+
+  it("disabled: a non-force fire returns false and writes no identity", () => {
+    setEasterEggsEnabled(false);
+    expect(fire("smash", { identity: "1" })).toBe(false);
+    expect(getState().flight).toBeNull();
+    expect(localStorage.getItem(SMASH_KEY)).toBeNull();
+  });
+
+  it("disabled: a force fire still starts and writes nothing", () => {
+    setEasterEggsEnabled(false);
+    expect(fire("smash", { force: true })).toBe(true);
+    expect(getState().flight?.egg).toBe("smash");
+    expect(localStorage.getItem(SMASH_KEY)).toBeNull();
+  });
+
+  it("re-enabling lets the same identity fire — a gated fire consumed nothing", () => {
+    setEasterEggsEnabled(false);
+    expect(fire("smash", { identity: "1" })).toBe(false);
+    setEasterEggsEnabled(true);
+    expect(fire("smash", { identity: "1" })).toBe(true);
+    expect(localStorage.getItem(SMASH_KEY)).toBe("1");
+  });
+
+  it("_resetForTests restores the enabled default", () => {
+    setEasterEggsEnabled(false);
+    expect(easterEggsEnabled()).toBe(false);
+    _resetForTests();
+    expect(easterEggsEnabled()).toBe(true);
   });
 
   it("a throwing localStorage neither blocks nor breaks the fire", () => {

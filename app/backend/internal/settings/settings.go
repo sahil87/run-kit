@@ -84,6 +84,11 @@ type Settings struct {
 	// default; read by the ticker at every iteration, so a flip takes effect
 	// without a daemon restart.
 	CronTicker bool
+	// EasterEggs shows the screen-break Easter eggs' AUTOMATIC occasions (the
+	// fist when the viewed tab's PR merges, the eye when an update chip lights).
+	// On by default. Read by the frontend on page load and applied live in the
+	// browser that flips it; the palette's explicit Easter egg entries ignore it.
+	EasterEggs bool
 	// GUIEnabled turns the GUI surface on: the daemon runs the host desktop
 	// (the rk-gui sibling session) and the UI shows the 4th tile toggle.
 	// Strictly opt-in (default false) — no code path other than an explicit
@@ -115,6 +120,7 @@ func Default() Settings {
 		ThemeDark:   "default-dark",
 		ThemeLight:  "default-light",
 		CronTicker:  true,
+		EasterEggs:  true,
 		GUIGeometry: gui.GeometryDefault,
 		LogLevel:    "info",
 	}
@@ -398,6 +404,26 @@ var registry = []registryEntry{
 		},
 		read:  func(s *Settings) any { return s.CronTicker },
 		apply: boolValue(func(s *Settings) *bool { return &s.CronTicker }, true),
+	},
+	{
+		key: "easter_eggs", kind: "bool", def: "true",
+		desc:     "Shows the screen-break Easter eggs: the fist when the viewed tab's PR merges, the eye when an update is available. Off hides the automatic ones; the palette's Easter egg entries still work.",
+		category: "behavior", ui: true, live: true,
+		// Tolerant read: any strconv.ParseBool value; anything else keeps the
+		// default (on) — the safe direction for a cosmetic default-on feature.
+		parse: func(s *Settings, value string) {
+			if b, err := strconv.ParseBool(strings.Trim(value, "\"")); err == nil {
+				s.EasterEggs = b
+			}
+		},
+		serialize: func(s *Settings) string {
+			if !s.EasterEggs {
+				return "easter_eggs: false\n"
+			}
+			return ""
+		},
+		read:  func(s *Settings) any { return s.EasterEggs },
+		apply: boolValue(func(s *Settings) *bool { return &s.EasterEggs }, true),
 	},
 	{
 		key: "gui.enabled", kind: "bool", def: "false",
@@ -841,8 +867,8 @@ func nonEmptyString(target func(*Settings) *string, def string) func(*Settings, 
 	}
 }
 
-// boolValue builds the apply hook for a bool scalar (auto_name, cron_ticker):
-// a JSON bool sets; null unsets to the key's registry default.
+// boolValue builds the apply hook for a bool scalar (auto_name, cron_ticker,
+// easter_eggs): a JSON bool sets; null unsets to the key's registry default.
 func boolValue(target func(*Settings) *bool, def bool) func(*Settings, json.RawMessage) error {
 	return func(s *Settings, raw json.RawMessage) error {
 		if jsonNull(raw) {

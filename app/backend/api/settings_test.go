@@ -70,7 +70,7 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	entries := getSettingsList(t, router)
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
-		"instance_name", "auto_name", "cron_ticker", "gui.enabled", "gui.wm", "gui.geometry",
+		"instance_name", "auto_name", "cron_ticker", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry",
 		"tmux_conf",
 		"log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
 	}
@@ -114,6 +114,9 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	}
 	if got := byKey["cron_ticker"].Value; got != true {
 		t.Errorf("cron_ticker.value = %v, want true", got)
+	}
+	if e := byKey["easter_eggs"]; e.Kind != "bool" || e.Default != "true" || e.Value != true || e.Options != nil {
+		t.Errorf("easter_eggs entry = %+v, want kind=bool default=true value=true options=nil", e)
 	}
 	if got := byKey["gui.enabled"].Value; got != false {
 		t.Errorf("gui.enabled.value = %v, want false", got)

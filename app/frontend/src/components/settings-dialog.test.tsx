@@ -567,6 +567,33 @@ describe("SettingsDialog", () => {
     expect(value.setInstanceName).toHaveBeenCalledWith(null);
   });
 
+  describe("Easter eggs row (General → This host)", () => {
+    const EGG_DESC = "Shows the screen-break Easter eggs: the fist and the eye.";
+
+    it("renders checked with the registry description; clicking it commits easter_eggs: false", async () => {
+      vi.mocked(getSettingsEntries).mockResolvedValue([
+        { ...registryEntry("easter_eggs", "bool", true), description: EGG_DESC },
+      ]);
+      renderDialog();
+      const toggle = screen.getByRole("switch", { name: "Easter eggs" });
+      await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+      expect(screen.getByText(EGG_DESC)).toBeInTheDocument();
+
+      fireEvent.click(toggle);
+      await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ easter_eggs: false }));
+    });
+
+    it("renders checked (default-on) when the entry is absent", async () => {
+      vi.mocked(getSettingsEntries).mockResolvedValue([]);
+      renderDialog();
+      await waitFor(() => expect(getSettingsEntries).toHaveBeenCalled());
+      expect(screen.getByRole("switch", { name: "Easter eggs" })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+    });
+  });
+
   it("the instance-name placeholder is the real hostname (the unset fallback)", () => {
     renderDialog();
     const input = screen.getByLabelText("Instance name") as HTMLInputElement;

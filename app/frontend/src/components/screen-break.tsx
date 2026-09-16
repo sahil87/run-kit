@@ -41,6 +41,8 @@ import {
   type BreakGeometry,
 } from "@/lib/screen-break-geometry";
 import { useScreenBreakTriggers } from "@/hooks/use-screen-break-triggers";
+import { getSettingsEntries } from "@/api/client";
+import { setEasterEggsEnabled } from "@/lib/screen-break-store";
 import { EyeSprite, FistSprite } from "./screen-break-sprites";
 
 const FLIGHT_MS = 12000;
@@ -437,8 +439,25 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
 }
 
 /** The layout-level mount: the layer plus its automatic triggers. Mounted once
- *  in AppLayoutContent, beside the glass it clips. */
+ *  in AppLayoutContent, beside the glass it clips. One mount GET seeds the
+ *  store's `easter_eggs` gate — no polling, no SSE; other browsers pick a flip
+ *  up on reload. A missing key or a rejected fetch keeps the default (on). */
 export function ScreenBreakController() {
+  useEffect(() => {
+    let cancelled = false;
+    getSettingsEntries()
+      .then((entries) => {
+        if (cancelled) return;
+        const entry = entries.find((e) => e.key === "easter_eggs");
+        setEasterEggsEnabled(entry === undefined || entry.value !== false);
+      })
+      .catch(() => {
+        // Fetch failure keeps the store enabled (default on).
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   useScreenBreakTriggers();
   return <ScreenBreak />;
 }

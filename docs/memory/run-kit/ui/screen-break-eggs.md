@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The screen-break Easter eggs — a one-shot, whole-viewport event layer clipping the .app-root glass with a real evenodd hole, a seeded crack web (tapered branching primaries, partial arcs, frost) plus flickering dead-pixel LCD lines, falling shards, and a slow 12 s timeline; a green fist on PR merged (smash), an eye on update available (peek). Triggers fire once per identity (runkit-egg-smash/-peek keys); two palette entries fire on demand; reduced motion never mounts; viewports < 640 px no-op."
+description: "The screen-break Easter eggs — a one-shot, whole-viewport event layer clipping the .app-root glass with a real evenodd hole, a seeded crack web plus flickering dead-pixel LCD lines, falling shards, and a slow 12 s timeline; a green fist on PR merged (smash), an eye on update available (peek). The `easter_eggs` setting (default on) gates the automatic occasions; the two palette entries bypass it. Triggers fire once per identity; reduced motion never mounts; viewports < 640 px no-op."
 ---
 # run-kit UI — Screen-Break Easter Eggs
 
@@ -99,18 +99,21 @@ Never released — clipped to `#rk-sb-hole` for the whole flight, above slot alw
 
 ## The store — gates and once-per-identity
 
-`app/frontend/src/lib/screen-break-store.ts` is a dependency-free module store: `fire(egg, opts?): boolean`, `subscribe(listener)` (consumed via `useSyncExternalStore`), `getState()` (`{ flight: null | { egg, startedAt, P, R, W, H } }`), `finish()`, `registerGlass`/`getGlass`, and the key constants `SMASH_KEY = "runkit-egg-smash"` / `PEEK_KEY = "runkit-egg-peek"`. `fire` returns `false` with no side effects when:
+`app/frontend/src/lib/screen-break-store.ts` is a dependency-free module store: `fire(egg, opts?): boolean`, `subscribe(listener)` (consumed via `useSyncExternalStore`), `getState()` (`{ flight: null | { egg, startedAt, P, R, W, H } }`), `finish()`, `registerGlass`/`getGlass`, the key constants `SMASH_KEY = "runkit-egg-smash"` / `PEEK_KEY = "runkit-egg-peek"`, and the **enabled gate** — module state defaulting to `true` behind `setEasterEggsEnabled(v)` / `easterEggsEnabled()` (reset to `true` by `_resetForTests()`), fed from the `easter_eggs` registry setting (§ Triggers). `fire` returns `false` with no side effects when:
 
 - `prefersReducedMotion()` is true (the `lib/motion.ts` helper) — the layer never mounts, nothing is written; **no static fallback**
 - `window.innerWidth < 640` — the shards need room to fall
 - a flight is already in progress — dropped, never queued (palette spam and back-to-back merges both drop)
+- the store is disabled and the fire is not forced — the gate sits after the in-flight check and before the identity block, and writes **no identity**: the triggers fire only on observed transitions, so nothing needs consuming and re-enabling later cannot replay an old occasion (§ Design Decisions)
 - a non-force `identity` equals the value stored under the egg's key
 
-A non-force fire with an identity **writes the identity to localStorage BEFORE the flight starts** (try/catch; storage failure still fires). `force: true` (the palette) bypasses the identity check and **writes nothing**. Storage access is try/catch-wrapped; absence (private mode) degrades to "fire".
+A non-force fire with an identity **writes the identity to localStorage BEFORE the flight starts** (try/catch; storage failure still fires). `force: true` (the palette) bypasses the identity check AND the enabled gate and **writes nothing**. Storage access is try/catch-wrapped; absence (private mode) degrades to "fire". A flight already in progress when the setting flips off is not cancelled — the gate governs starting, not running. (hn6s)
 
 ## Triggers — client-side derived transitions
 
 `useScreenBreakTriggers()` (`hooks/use-screen-break-triggers.ts`, mounted inside `ScreenBreakController`) derives both occasions from data the frontend already receives — no backend change, no `rk` verb, no API route, no tmux option, no trigger file.
+
+The enabled gate's value is seeded once per page load: `ScreenBreakController` runs one `getSettingsEntries()` in a mount effect and calls `setEasterEggsEnabled(entry === undefined || entry.value !== false)` — a missing key or a rejected fetch keeps the store enabled (the default-on posture), and a resolution arriving after unmount is dropped. A same-browser flip applies immediately through the settings seam's `easter_eggs` commit case ([dialogs-and-state](/run-kit/ui/dialogs-and-state.md) § Settings Dialog → the registry seam's write routing); other browsers pick the value up on their next reload. No polling, no SSE. (hn6s)
 
 - **`smash`** resolves the viewed window from the deepest `useMatches()` params (`server`, `window`) against `SessionContext`'s sessions (the same walk `useGlobalPaletteActions` uses) and watches that window's `prState`: only an **observed** `"open"`/`"closed"` → `"merged"` flip with a defined `prNumber` fires, with identity `String(prNumber)`. The first observation of a window never fires (merged is a terminal state visible forever on old windows); switching windows resets the observed-previous; routes without a `window` param never fire.
 - **`peek`** watches `useUpdateNotification()`'s `showChip` and `key`: `showChip` becoming true — **including the first observation with the chip already lit** — or a `key` change while lit, fires with identity `key ?? latest ?? ""` (skipped when empty). The stored `runkit-egg-peek` key is what makes a reload with the chip already showing idempotent; a later release (new key) fires once. Any route.
@@ -124,11 +127,11 @@ Two global entries (every route), built by the pure `buildEasterEggActions(fire)
 | `easter-egg-smash` | `Easter egg: Smash` | `the screen cracks open` | `fire("smash", { force: true })` |
 | `easter-egg-peek` | `Easter egg: Peek` | `something in there is watching` | `fire("peek", { force: true })` |
 
-Palette fires are `force`: never rate limited, never persisted — the only silent no-ops are the environmental gates (reduced motion, < 640 px, in-flight). No keyboard chord — the palette IS the chord (Constitution V).
+Palette fires are `force`: never rate limited, never persisted — the only silent no-ops are the environmental gates (reduced motion, < 640 px, in-flight). They bypass the `easter_eggs` enabled gate too, so the entries keep working while the setting is off. No keyboard chord — the palette IS the chord (Constitution V).
 
 ## Tests
 
-Colocated Vitest covers the geometry determinism and shape contracts (`screen-break-geometry.test.ts` — two builds serialize identically including `holePts(0/0.5/1)`, `n ∈ [8, 10]`, `shards.length === n`, `holePts(1).length === 2n`, exactly n groups of three `ease: "smooth"` pieces chaining `s0 = 0 → s1 = 1`, the per-stroke timing envelope `start ≥ 0 ∧ dur > 0 ∧ start + dur ≤ 1`, 5–8 lines with in-bounds endpoints and palette colours, shard `dir`/`speed`/`spin` bounds, plus the `normalizeHole`/`holePathAt`/`pickImpact`/`radiusFor` cases), the store's gates/identity semantics (`screen-break-store.test.ts`), the layer's mount/cleanup/clip behavior retimed to the 12 s flight (`screen-break.test.tsx` — t = 1 at `startedAt + 12100`, the fist-released / eye-clipped probes at `startedAt + 6000` inside `em`'s plateau, plus DOM probes: the LCD SVG carries `2 × lines.length` `<line>` children, the frost circle is the cracks SVG's first child with `radialGradient#rk-sb-frost` in defs, and every crack path carries a `stroke-width` attribute), the trigger flips (`use-screen-break-triggers.test.tsx`), and the palette builder (`easter-eggs.test.ts`). The e2e spec `app/frontend/tests/e2e/screen-break.spec.ts` proves the palette's Smash entry mounts `[data-testid="screen-break"]` and that it detaches within 15 s with `.app-root` left clean — the mount test sets `test.setTimeout(30_000)` — under `test.use({ contextOptions: { reducedMotion: "no-preference" } })`, since `playwright.config.ts` sets `reducedMotion: "reduce"` globally — and that under the default reduce context the same action never mounts the layer. (kp2l, 23xd)
+Colocated Vitest covers the geometry determinism and shape contracts (`screen-break-geometry.test.ts` — two builds serialize identically including `holePts(0/0.5/1)`, `n ∈ [8, 10]`, `shards.length === n`, `holePts(1).length === 2n`, exactly n groups of three `ease: "smooth"` pieces chaining `s0 = 0 → s1 = 1`, the per-stroke timing envelope `start ≥ 0 ∧ dur > 0 ∧ start + dur ≤ 1`, 5–8 lines with in-bounds endpoints and palette colours, shard `dir`/`speed`/`spin` bounds, plus the `normalizeHole`/`holePathAt`/`pickImpact`/`radiusFor` cases), the store's gates/identity semantics (`screen-break-store.test.ts` — including the enabled gate: a disabled non-force fire returns `false` with no identity write, `force` bypasses the gate, re-enabling fires and writes the identity normally, `_resetForTests()` restores enabled), the layer's mount/cleanup/clip behavior retimed to the 12 s flight (`screen-break.test.tsx` — t = 1 at `startedAt + 12100`, the fist-released / eye-clipped probes at `startedAt + 6000` inside `em`'s plateau, plus DOM probes: the LCD SVG carries `2 × lines.length` `<line>` children, the frost circle is the cracks SVG's first child with `radialGradient#rk-sb-frost` in defs, and every crack path carries a `stroke-width` attribute — plus the `ScreenBreakController` mount-fetch cases with `getSettingsEntries` mocked: an `easter_eggs: false` entry disables the store, a missing entry or a rejected fetch keeps it enabled), the trigger flips (`use-screen-break-triggers.test.tsx`), and the palette builder (`easter-eggs.test.ts`). The seam's `easter_eggs` commit case (POST then store mirror; `null` re-enables) lives in `settings-registry-seam.test.tsx`, the General-tab row in `settings-dialog.test.tsx`, and `tests/e2e/settings-dialog.spec.ts` round-trips the `Easter eggs` toggle through `GET /api/settings`. (hn6s) The e2e spec `app/frontend/tests/e2e/screen-break.spec.ts` proves the palette's Smash entry mounts `[data-testid="screen-break"]` and that it detaches within 15 s with `.app-root` left clean — the mount test sets `test.setTimeout(30_000)` — under `test.use({ contextOptions: { reducedMotion: "no-preference" } })`, since `playwright.config.ts` sets `reducedMotion: "reduce"` globally — and that under the default reduce context the same action never mounts the layer. (kp2l, 23xd)
 
 ## Design Decisions
 
@@ -203,3 +206,27 @@ Colocated Vitest covers the geometry determinism and shape contracts (`screen-br
 **Why**: The shards were already approved as-is, and the crack-realism study's own comparison table lists them as unchanged; a stretch factor from the study's mock is an undocumented artefact and would be a one-constant change if ever wanted.
 **Rejected**: Adopting the mock's 1.3× horizontal factor silently.
 *Introduced by*: 260916-23xd-screen-break-crack-realism
+
+### A per-instance registry key, not a per-viewer preference
+**Decision**: The off switch for the automatic occasions is the `easter_eggs` key in the `internal/settings` registry (bool, default `true`, behavior category, ui + live), stored in `config.yaml` and exposed as a General → This host row in the settings dialog.
+**Why**: "Someone finds it distracting" is a property of the box, and Constitution IV allows exactly one registry-driven settings surface — only registry keys get a row there.
+**Rejected**: A localStorage toggle — invisible in Settings and per browser.
+*Introduced by*: 260916-hn6s-easter-eggs-setting
+
+### Palette fires bypass the enabled gate
+**Decision**: Only the automatic occasions are gated; `Easter egg: Smash`/`Peek` keep firing while the setting is off because they already pass `force: true`.
+**Why**: Typing "Easter egg" into the palette is explicit intent, and the force-bypass design already treats `force` as "skip the automatic-occasion bookkeeping" — the enabled gate is one more piece of that bookkeeping. Keeping the entries also keeps the palette the complete action registry (Constitution V).
+**Rejected**: Hiding the palette entries when off — changes the palette registry and its e2e counts for no benefit.
+*Introduced by*: 260916-hn6s-easter-eggs-setting
+
+### Disabled fires write no identity
+**Decision**: A gated non-force fire returns `false` before the identity block; nothing is consumed.
+**Why**: Triggers fire only on observed previous→next transitions (the first observation of a merged window never fires; the peek chip fires on `showChip` going true or a key change), so a merge that happened while eggs were off is never replayed later and nothing needs consuming to prevent it — the gate is a pure early return.
+**Rejected**: Recording the identity anyway — it would silently eat a future automatic occasion that never showed.
+*Introduced by*: 260916-hn6s-easter-eggs-setting
+
+### One mount GET plus a write-side seam hook, no SSE
+**Decision**: `ScreenBreakController` seeds the store with one `getSettingsEntries()` at mount (missing key or rejected fetch ⇒ enabled); the settings seam's `easter_eggs` commit case mirrors the committed value into the store after its POST; other browsers pick the flip up on reload.
+**Why**: Mirrors the theme context's mount-fetch posture (`deduplicatedFetch` shares a concurrent settings-dialog fetch); an SSE event for a rarely flipped cosmetic key is surface without payoff.
+**Rejected**: A `setInterval` re-read (client-polling anti-pattern); a `POST /api/settings` side effect broadcasting the key.
+*Introduced by*: 260916-hn6s-easter-eggs-setting

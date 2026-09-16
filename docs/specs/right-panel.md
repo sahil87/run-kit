@@ -226,8 +226,21 @@ window-views R3's spirit extends to placement.
 
 Collapsing the panel or switching surfaces hides the surface's
 iframe/terminal (`display`-level), preserving in-memory state (editor
-selection, undo stack, scroll). Eviction beyond that is a small LRU decision
-deferred until latency data exists.
+selection, undo stack, scroll). The code surface extends this across
+same-server window switches: the tile renderer keeps a bounded LRU of live
+code frames keyed by the window's workspace src — the active window's frame
+visible, the retained ones display-hidden — capped at 3 frames on desktop and
+1 on mobile (the cap counts the active window's frame). Eviction (= unmount,
+which lets code-server dispose the workbench) fires on LRU overflow at a
+switch, on the frame's window leaving the live set (killed/closed), on a
+non-follow code-root change, and on a code-server reachability `true→false`
+flip (all frames drop). A follow (the editor's own File > Open Folder)
+updates the frame's record in place and never evicts. The bound exists
+because each live frame holds a ~250–320 MB extension-host process on the
+server plus a browser renderer; the retention exists because a remount is a
+full workbench reboot (measured 1.4 s to the workbench chrome, ~2 s to
+explorer rows, ~2.9 s to the SCM status item on a warm cache) while a
+display-hidden frame re-shows in ~16 ms.
 
 ### P4 — Attention must escape the panel
 

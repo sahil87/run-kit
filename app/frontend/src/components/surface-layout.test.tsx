@@ -8,6 +8,7 @@ import type { WindowInfo } from "@/types";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { makeWindow } from "@/test-utils/fixtures";
 import { entryKey, useWindowStore } from "@/store/window-store";
+import type { CodeBridgeResult } from "@/api/client";
 import type { GuiSurfaceCommands } from "./gui-surface";
 import type { GuiPointerMode, GuiZoom } from "@/lib/gui-posture";
 import type { GuiPaletteAction } from "@/lib/palette/gui";
@@ -123,8 +124,12 @@ type LayoutOverrides = {
   onRatioCommit?: () => void;
   onCodeFolderNavigated?: (folder: string) => void;
   shouldReclaimChord?: (kind: SurfaceKind) => (e: KeyboardEvent) => boolean;
-  codeWorkspaceSrc?: string | null;
-  codeFollowSrc?: { src: string; nonce: number } | null;
+  codeSrcFor?: (windowId: string) => string | null;
+  liveWindowIds?: ReadonlySet<string>;
+  codeRootForWindow?: (windowId: string) => string;
+  fetchBridgeStatusFor?: Parameters<typeof SurfaceLayout>[0]["fetchBridgeStatusFor"];
+  codeFollowSrc?: { src: string; nonce: number; root: string } | null;
+  codeReachable?: boolean;
   zoomToggleRef?: { current: (() => void) | null };
   onZoomChange?: (zoomed: boolean) => void;
   onFocusedKindChange?: (kind: SurfaceKind) => void;
@@ -178,7 +183,7 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       focusRef={{ current: null }}
       scrollLocked={false}
       onSessionNotFound={vi.fn()}
-      codeReachable
+      codeReachable={overrides.codeReachable ?? true}
       onPromote={overrides.onPromote ?? vi.fn()}
       onSwap={overrides.onSwap ?? vi.fn()}
       onClose={overrides.onClose ?? vi.fn()}
@@ -187,7 +192,10 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       onRatioCommit={overrides.onRatioCommit}
       onCodeFolderNavigated={overrides.onCodeFolderNavigated}
       shouldReclaimChord={overrides.shouldReclaimChord}
-      codeWorkspaceSrc={overrides.codeWorkspaceSrc}
+      codeSrcFor={overrides.codeSrcFor}
+      liveWindowIds={overrides.liveWindowIds}
+      codeRootForWindow={overrides.codeRootForWindow}
+      fetchBridgeStatusFor={overrides.fetchBridgeStatusFor}
       codeFollowSrc={overrides.codeFollowSrc}
       zoomToggleRef={overrides.zoomToggleRef}
       onZoomChange={overrides.onZoomChange}
@@ -648,18 +656,37 @@ describe("SurfaceLayout per-window reset (server-keyed grid, windowId prop chang
     expect(screen.queryByTestId("progress-chip")).toBeNull();
   });
 
-  it("keeps the tty tile's DOM node across the switch; a non-tty tile's node remounts", () => {
-    const { rerender } = renderLayout({ layout: SPLIT });
+  it("keeps the tty tile's and the code frame's DOM nodes across the switch; the web tile's node remounts", () => {
+    const LAYOUT: Layout = { shape: "row", order: ["tty", "code", "web"] };
+    const codeSrcFor = (id: string) => `/code/?workspace=/ws${id}`;
+    const { rerender } = renderLayout({ layout: LAYOUT, codeSrcFor });
     const ttyNode = screen.getByTestId("mock-terminal");
+    const codeNode = screen.getByTestId("mock-code");
     const webNode = screen.getByTestId("mock-iframe");
 
-    rerender(layoutElement({ layout: SPLIT, windowId: "@2" }));
+    rerender(layoutElement({ layout: LAYOUT, windowId: "@2", codeSrcFor }));
     // The whole point of the server-keyed grid: the tty tile (and its
-    // TerminalClient) is the SAME instance after a same-server switch.
+    // TerminalClient) is the SAME instance after a same-server switch — and
+    // the code frame now survives too, retained display-hidden while @2's own
+    // frame shows.
     expect(screen.getByTestId("mock-terminal")).toBe(ttyNode);
-    // Non-tty tiles carry `windowId` in their key — content identity changes
-    // with the window, so the web tile remounts.
+    expect(screen.getAllByTestId("mock-code")).toHaveLength(2);
+    expect(screen.getAllByTestId("mock-code")).toContain(codeNode);
+    expect(codeNode.isConnected).toBe(true);
+    expect(
+      within(screen.getByTestId("surface-tile-code")).getByTestId("mock-code"),
+    ).not.toBe(codeNode);
+    // web/gui tiles still carry `windowId` in their key — content identity
+    // changes with the window, so the web tile remounts.
     expect(screen.getByTestId("mock-iframe")).not.toBe(webNode);
+
+    // Back to @1: the retained frame becomes visible as the IDENTICAL node
+    // (no remount, no reload — the switch-back fast path).
+    rerender(layoutElement({ layout: LAYOUT, windowId: "@1", codeSrcFor }));
+    expect(screen.getAllByTestId("mock-code")).toHaveLength(2);
+    expect(
+      within(screen.getByTestId("surface-tile-code")).getByTestId("mock-code"),
+    ).toBe(codeNode);
   });
 
   it("first mount fires NO reset side effects (no duplicate kind report, no key writes)", () => {
@@ -710,11 +737,11 @@ describe("SurfaceLayout code tile folder (260813-if5d)", () => {
 
   it("carries the workspace src and follow override down to the code tile", () => {
     // Mount gating + the follow rule are parent-orchestrated (app.tsx); the
-    // layout layer only carries the props — null src ⇒ the tile pends.
-    const followSrc = { src: "/code/?workspace=%2Fstate%2F%407-bbbbbb.code-workspace", nonce: 2 };
+    // layout layer only carries the props — a null lookup ⇒ the tile pends.
+    const followSrc = { src: "/code/?workspace=%2Fstate%2F%407-bbbbbb.code-workspace", nonce: 2, root: "/other" };
     renderLayout({
       layout: { shape: "split-h", order: ["tty", "code"] },
-      codeWorkspaceSrc: "/code/?workspace=%2Fstate%2F%407-3fa1c9.code-workspace",
+      codeSrcFor: () => "/code/?workspace=%2Fstate%2F%407-3fa1c9.code-workspace",
       codeFollowSrc: followSrc,
     });
     const props = codeSpy.mock.calls.at(-1)?.[0];
@@ -727,6 +754,276 @@ describe("SurfaceLayout code tile folder (260813-if5d)", () => {
     const props = codeSpy.mock.calls.at(-1)?.[0];
     expect(props?.workspaceSrc).toBeNull();
     expect(props?.followSrc).toBeNull();
+  });
+});
+
+describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
+  const CODE_LAYOUT: Layout = { shape: "split-h", order: ["tty", "code"] };
+  // Every window resolves immediately, to a src that embeds its id.
+  const srcFor = (id: string) => `/code/?workspace=/ws${id}`;
+  const codeSrcForAll = (id: string) => srcFor(id);
+  const codeNodes = () => screen.getAllByTestId("mock-code");
+  /** The visible code tile's frame node (retained wrappers carry a distinct
+   *  testid, so `surface-tile-code` is unique). */
+  const visibleCodeNode = () =>
+    within(screen.getByTestId("surface-tile-code")).getByTestId("mock-code");
+  /** Props of the CURRENTLY mounted frames — valid only for the render pass
+   *  since the last `codeSpy.mockClear()` (the spy accumulates across renders,
+   *  and an evicted frame's stale props must never read as current). */
+  const mountedCodeProps = () =>
+    codeSpy.mock.calls.map(([props]) => props as Record<string, unknown>);
+
+  it("a fourth distinct window's frame evicts the least-recently-shown (cap 3); a re-show bumps", () => {
+    const { rerender } = renderLayout({ layout: CODE_LAYOUT, codeSrcFor: codeSrcForAll });
+    const node1 = visibleCodeNode();
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@2", codeSrcFor: codeSrcForAll }));
+    const node2 = visibleCodeNode();
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@3", codeSrcFor: codeSrcForAll }));
+    expect(codeNodes()).toHaveLength(3);
+
+    // Re-show @1: it bumps to most-recently-shown as the IDENTICAL node.
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@1", codeSrcFor: codeSrcForAll }));
+    expect(visibleCodeNode()).toBe(node1);
+
+    // @4's frame overflows the cap: the least-recently-shown (@2) evicts;
+    // @1 (just re-shown) and @3 persist.
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@4", codeSrcFor: codeSrcForAll }));
+    expect(codeNodes()).toHaveLength(3);
+    expect(node1.isConnected).toBe(true);
+    expect(node2.isConnected).toBe(false);
+  });
+
+  it("isMobile caps at 1: a new window's frame evicts the previous one — but a frame survives a switch to a window with no code tile", () => {
+    const { rerender } = renderLayout({
+      layout: CODE_LAYOUT,
+      isMobile: true,
+      mobileActiveSlot: 1,
+      codeSrcFor: codeSrcForAll,
+    });
+    const node1 = visibleCodeNode();
+    // @2 never creates a frame (no code tile in its layout): @1's survives.
+    rerender(layoutElement({
+      layout: { shape: "single", order: ["tty"] },
+      isMobile: true,
+      windowId: "@2",
+      codeSrcFor: codeSrcForAll,
+    }));
+    expect(codeNodes()).toHaveLength(1);
+    expect(node1.isConnected).toBe(true);
+    // @3 creates one: at cap 1 the previous frame evicts.
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      isMobile: true,
+      mobileActiveSlot: 1,
+      windowId: "@3",
+      codeSrcFor: codeSrcForAll,
+    }));
+    expect(codeNodes()).toHaveLength(1);
+    expect(node1.isConnected).toBe(false);
+  });
+
+  it("codeReachable true→false drops every frame; the recovery mounts a FRESH frame at the current src", () => {
+    const { rerender } = renderLayout({ layout: CODE_LAYOUT, codeSrcFor: codeSrcForAll });
+    const node1 = visibleCodeNode();
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@2", codeSrcFor: codeSrcForAll }));
+    const node2 = visibleCodeNode();
+    expect(codeNodes()).toHaveLength(2);
+
+    // The host went away: both frames drop; the active tile falls back to the
+    // no-record render (reachable=false, no workspace src). The drop lands via
+    // an effect after a render pass, so the LAST pass's props are the settled
+    // ones.
+    codeSpy.mockClear();
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@2", codeSrcFor: codeSrcForAll, codeReachable: false }));
+    expect(node1.isConnected).toBe(false);
+    expect(node2.isConnected).toBe(false);
+    expect(codeNodes()).toHaveLength(1);
+    const downProps = mountedCodeProps().at(-1)!;
+    expect(downProps.reachable).toBe(false);
+    expect(downProps.workspaceSrc).toBeNull();
+
+    // The recovery starts from an empty LRU: @2's frame is a NEW node.
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@2", codeSrcFor: codeSrcForAll }));
+    expect(codeNodes()).toHaveLength(1);
+    expect(visibleCodeNode()).not.toBe(node2);
+  });
+
+  it("a window leaving the live set drops its frame (kill while hidden), the active one untouched", () => {
+    const { rerender } = renderLayout({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      liveWindowIds: new Set(["@1", "@2"]),
+    });
+    const node1 = visibleCodeNode();
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      windowId: "@2",
+      codeSrcFor: codeSrcForAll,
+      liveWindowIds: new Set(["@1", "@2"]),
+    }));
+    const node2 = visibleCodeNode();
+    expect(codeNodes()).toHaveLength(2);
+
+    // @1 was killed while hidden: its frame unmounts through the ordinary
+    // path; @2's frame is untouched.
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      windowId: "@2",
+      codeSrcFor: codeSrcForAll,
+      liveWindowIds: new Set(["@2"]),
+    }));
+    expect(node1.isConnected).toBe(false);
+    expect(node2.isConnected).toBe(true);
+    expect(codeNodes()).toHaveLength(1);
+  });
+
+  it("a non-follow root change evicts the frame; it re-mounts fresh at the new root", () => {
+    const { rerender } = renderLayout({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: () => "/repo",
+    });
+    const node1 = visibleCodeNode();
+
+    // `rk tab code set /other` moved the shared root — no follow nonce, so
+    // the divergence evicts; the record re-creates at the CURRENT src and the
+    // frame remounts (the editor was pointing at the wrong folder).
+    codeSpy.mockClear();
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      window: { gitRoot: "/other", codeRoot: "/other" },
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: () => "/other",
+    }));
+    expect(node1.isConnected).toBe(false);
+    // The eviction/re-creation takes several render passes on one rerender
+    // (drop → pending → re-create); the LAST pass's frame is the fresh mount
+    // at the new root.
+    const remounted = mountedCodeProps().at(-1)!;
+    expect(remounted.gitRoot).toBe("/other");
+    expect(remounted.workspaceSrc).toBe(srcFor("@1"));
+    expect(visibleCodeNode()).toBeTruthy();
+  });
+
+  it("a follow is never evicted by its own latch write — the payload tick can outrun the nonce", () => {
+    const { rerender } = renderLayout({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: () => "/repo",
+    });
+    const node1 = visibleCodeNode();
+
+    // The editor navigated itself (File > Open Folder): the frame's load seam
+    // reports the folder, and the pending-follow target is recorded
+    // synchronously with the report — before the parent's latch POST.
+    const report = codeSpy.mock.calls.at(-1)?.[0]?.onFolderNavigated;
+    expect(typeof report).toBe("function");
+    act(() => report("/other"));
+
+    // The payload's codeRoot tick lands BEFORE the follow nonce (the latch
+    // POST's option write wakes the SSE hub ahead of the POST response + the
+    // re-derivation GET): the divergence reads as the follow's own write, the
+    // baseline moves in place, and the live frame is NOT evicted.
+    codeSpy.mockClear();
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: () => "/other",
+    }));
+    expect(visibleCodeNode()).toBe(node1);
+    expect(mountedCodeProps().at(-1)?.gitRoot).toBe("/other");
+
+    // The nonce lands last (both orderings are safe): still the same frame,
+    // and the follow override reached it.
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: () => "/other",
+      codeFollowSrc: { src: srcFor("@1"), nonce: 1, root: "/other" },
+    }));
+    expect(visibleCodeNode()).toBe(node1);
+    expect(codeSpy.mock.calls.at(-1)?.[0]?.followSrc).toEqual({
+      src: srcFor("@1"),
+      nonce: 1,
+      root: "/other",
+    });
+  });
+
+  it("closing the code tile keeps its frame retained and counting toward the cap", () => {
+    const { rerender } = renderLayout({ layout: CODE_LAYOUT, codeSrcFor: codeSrcForAll });
+    const node1 = visibleCodeNode();
+    // Close the tile (the parent collapses the layout): the frame stays
+    // mounted-hidden, the identical node.
+    rerender(layoutElement({ layout: { shape: "single", order: ["tty"] }, codeSrcFor: codeSrcForAll }));
+    expect(node1.isConnected).toBe(true);
+    expect(codeNodes()).toHaveLength(1);
+
+    // It still counts toward the cap: @2 and @3 fill it, @4 overflows @1 out.
+    for (const id of ["@2", "@3"]) {
+      rerender(layoutElement({ layout: CODE_LAYOUT, windowId: id, codeSrcFor: codeSrcForAll }));
+    }
+    expect(codeNodes()).toHaveLength(3);
+    expect(node1.isConnected).toBe(true);
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@4", codeSrcFor: codeSrcForAll }));
+    expect(codeNodes()).toHaveLength(3);
+    expect(node1.isConnected).toBe(false);
+  });
+
+  it("a window whose src is still pending creates no frame and does not count toward the cap", () => {
+    // @2 never resolves (its GET is in flight): no record, no cap slot.
+    const sparse = (id: string) => (id === "@2" ? null : srcFor(id));
+    const { rerender } = renderLayout({ layout: CODE_LAYOUT, codeSrcFor: sparse });
+    const node1 = visibleCodeNode();
+    codeSpy.mockClear();
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@2", codeSrcFor: sparse }));
+    // The active tile pends (workspace src null) and mounts no frame — the
+    // mounted set is @1's retained frame plus @2's pending placeholder (a
+    // window switch renders in more than one pass, so assert the SET).
+    const pendingSrcs = new Set(mountedCodeProps().map((p) => p.workspaceSrc));
+    expect(pendingSrcs).toEqual(new Set([srcFor("@1"), null]));
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@3", codeSrcFor: sparse }));
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@4", codeSrcFor: sparse }));
+    // Three real frames (@1, @3, @4) — @2's pending tile never counted, so @1
+    // was never evicted.
+    expect(codeNodes()).toHaveLength(3);
+    expect(node1.isConnected).toBe(true);
+  });
+
+  it("a retained frame keeps its own window's seams (per-frame bridge fetcher; no active-window focus closures)", () => {
+    const fetchers: Record<string, () => Promise<CodeBridgeResult>> = {
+      "@1": vi.fn(),
+      "@2": vi.fn(),
+    };
+    const factorySpy = vi.fn((id: string) => fetchers[id]);
+    const { rerender } = renderLayout({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      fetchBridgeStatusFor: factorySpy,
+    });
+    codeSpy.mockClear();
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      windowId: "@2",
+      codeSrcFor: codeSrcForAll,
+      fetchBridgeStatusFor: factorySpy,
+    }));
+    expect(factorySpy).toHaveBeenCalledWith("@1");
+    expect(factorySpy).toHaveBeenCalledWith("@2");
+    const bySrc = new Map(mountedCodeProps().map((p) => [p.workspaceSrc, p]));
+    // The retained frame (@1): its rescue verdict reads ITS OWN window's
+    // bridge status, and its focus/follow seams are unbound — a hidden frame
+    // can neither receive focus nor navigate, so nothing may ever record
+    // against the ACTIVE window's focus-memory key from it.
+    const retained = bySrc.get(srcFor("@1"))!;
+    expect(retained.fetchBridgeStatus).toBe(fetchers["@1"]);
+    expect(retained.followSrc).toBeNull();
+    expect(retained.onInteract).toBeUndefined();
+    expect(retained.onProgrammaticFocus).toBeUndefined();
+    expect(retained.onFolderNavigated).toBeUndefined();
+    // The active frame keeps the ordinary wiring.
+    const active = bySrc.get(srcFor("@2"))!;
+    expect(active.fetchBridgeStatus).toBe(fetchers["@2"]);
+    expect(typeof active.onInteract).toBe("function");
   });
 });
 

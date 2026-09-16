@@ -137,6 +137,7 @@ describe("useCodeWorkspace — follow rule", () => {
       expect(result.current.followSrc).toEqual({
         src: codeServerWorkspaceSrc(newPath),
         nonce: 1,
+        root: "/other",
       }),
     );
     // A second navigation bumps the nonce — each follow is a fresh license.
@@ -222,5 +223,174 @@ describe("useCodeWorkspace — seed-refusal degrade", () => {
       expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
     );
     warn.mockRestore();
+  });
+});
+
+describe("useCodeWorkspace — per-window map", () => {
+  const WIN_A = { gitRoot: "/repo-a", codeRoot: "/repo-a" };
+  const WIN_B = { gitRoot: "/repo-b", codeRoot: "/repo-b" };
+  const WS_A = "/state/run-kit/code/default/@7-aaaaaa.code-workspace";
+  const WS_B = "/state/run-kit/code/default/@8-bbbbbb.code-workspace";
+  const windowsById = () =>
+    new Map<string, { gitRoot: string; codeRoot: string }>([
+      ["@7", WIN_A],
+      ["@8", WIN_B],
+    ]);
+
+  it("A→B→A yields exactly one fetch for A, and the revisit resolves synchronously (no pending tick)", async () => {
+    fetchCodeWorkspace.mockImplementation((_server: string, id: string) =>
+      Promise.resolve({
+        status: "ok",
+        path: id === "@7" ? WS_A : WS_B,
+        root: id === "@7" ? "/repo-a" : "/repo-b",
+      }),
+    );
+    const { result, rerender } = renderHook(
+      ({ windowId, win }) => useCodeWorkspace("default", windowId, win, true, false),
+      { initialProps: { windowId: "@7", win: WIN_A } },
+    );
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_A)),
+    );
+
+    rerender({ windowId: "@8", win: WIN_B });
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_B)),
+    );
+
+    // The revisit resolves from the map at render time — synchronously, with
+    // no effect round-trip and no refetch.
+    rerender({ windowId: "@7", win: WIN_A });
+    expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_A));
+    expect(fetchCodeWorkspace).toHaveBeenCalledTimes(2);
+    expect(
+      fetchCodeWorkspace.mock.calls.filter(([, id]) => id === "@7"),
+    ).toHaveLength(1);
+  });
+
+  it("the per-window lookup exposes the other window's src while A is active", async () => {
+    fetchCodeWorkspace.mockImplementation((_server: string, id: string) =>
+      Promise.resolve({
+        status: "ok",
+        path: id === "@7" ? WS_A : WS_B,
+        root: id === "@7" ? "/repo-a" : "/repo-b",
+      }),
+    );
+    const options = { windowsById: windowsById() };
+    const { result, rerender } = renderHook(
+      ({ windowId, win }) => useCodeWorkspace("default", windowId, win, true, false, options),
+      { initialProps: { windowId: "@7", win: WIN_A } },
+    );
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_A)),
+    );
+    rerender({ windowId: "@8", win: WIN_B });
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_B)),
+    );
+    rerender({ windowId: "@7", win: WIN_A });
+
+    // A is active again; B's resolved src stays readable for its retained frame.
+    expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_A));
+    expect(result.current.codeSrcFor("@8")).toBe(codeServerWorkspaceSrc(WS_B));
+    expect(result.current.codeSrcFor("@9")).toBeNull();
+  });
+
+  it("followFolder updates only its own window's entry", async () => {
+    fetchCodeWorkspace.mockImplementation((_server: string, id: string) =>
+      Promise.resolve({
+        status: "ok",
+        path: id === "@7" ? WS_A : WS_B,
+        root: id === "@7" ? "/repo-a" : "/repo-b",
+      }),
+    );
+    const { result, rerender } = renderHook(
+      ({ windowId, win, options }) =>
+        useCodeWorkspace("default", windowId, win, true, false, options),
+      {
+        initialProps: {
+          windowId: "@7",
+          win: WIN_A,
+          options: { windowsById: windowsById() },
+        },
+      },
+    );
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_A)),
+    );
+    rerender({
+      windowId: "@8",
+      win: WIN_B,
+      options: { windowsById: windowsById() },
+    });
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_B)),
+    );
+    rerender({
+      windowId: "@7",
+      win: WIN_A,
+      options: { windowsById: windowsById() },
+    });
+
+    const followPath = "/state/run-kit/code/default/@7-cccccc.code-workspace";
+    fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: followPath, root: "/other" });
+    act(() => result.current.followFolder("/other"));
+    await waitFor(() => expect(result.current.followSrc?.nonce).toBe(1));
+
+    // The payload catches up: A's codeRoot is now the followed folder, so the
+    // follow's entry is the one the lookup resolves.
+    const movedA = { gitRoot: "/other", codeRoot: "/other" };
+    rerender({
+      windowId: "@7",
+      win: movedA,
+      options: { windowsById: new Map([["@7", movedA], ["@8", WIN_B]]) },
+    });
+    expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(followPath));
+    // B's entry is untouched by A's follow.
+    expect(result.current.codeSrcFor("@8")).toBe(codeServerWorkspaceSrc(WS_B));
+  });
+
+  it("prunes entries for windows that left the live set", async () => {
+    fetchCodeWorkspace.mockImplementation((_server: string, id: string) =>
+      Promise.resolve({
+        status: "ok",
+        path: id === "@7" ? WS_A : WS_B,
+        root: id === "@7" ? "/repo-a" : "/repo-b",
+      }),
+    );
+    const live = new Set(["@7", "@8"]);
+    const { result, rerender } = renderHook(
+      ({ windowId, win, options }) =>
+        useCodeWorkspace("default", windowId, win, true, false, options),
+      {
+        initialProps: {
+          windowId: "@7",
+          win: WIN_A,
+          options: { windowsById: windowsById(), liveWindowIds: live },
+        },
+      },
+    );
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_A)),
+    );
+    rerender({
+      windowId: "@8",
+      win: WIN_B,
+      options: { windowsById: windowsById(), liveWindowIds: live },
+    });
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_B)),
+    );
+
+    // @8 is killed (leaves the payload): its entry drops with the frame
+    // eviction; the active window's entry survives.
+    const afterKill = new Set(["@7"]);
+    rerender({
+      windowId: "@7",
+      win: WIN_A,
+      options: { windowsById: windowsById(), liveWindowIds: afterKill },
+    });
+    expect(result.current.codeSrcFor("@8")).toBeNull();
+    expect(result.current.codeSrcFor("@7")).toBe(codeServerWorkspaceSrc(WS_A));
   });
 });

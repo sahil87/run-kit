@@ -193,6 +193,24 @@ export async function expectActiveElement(
     .toBe(true);
 }
 
+/** Switch windows through the sidebar row — the ONLY switch path usable by
+ *  specs covering in-memory per-window state (focus memory, the code-frame
+ *  LRU): a `page.goto` reload would wipe the state under test. The row's
+ *  button routes through `navigateToWindow`, identical to a real sidebar
+ *  click. Shared by the focus-restore and code-surface specs. */
+export async function switchToWindow(page: Page, windowId: string): Promise<void> {
+  const row = page
+    .locator("nav[aria-label='Sessions']")
+    .locator(`[data-window-id="${windowId}"]`)
+    .getByRole("button")
+    .first();
+  await expect(row).toBeVisible({ timeout: READY_TIMEOUT });
+  await row.click();
+  await expect(row).toHaveAttribute("aria-current", "page", {
+    timeout: READY_TIMEOUT,
+  });
+}
+
 export async function seedComposeStrip(page: Page, on: boolean): Promise<void> {
   // Init scripts re-run on every navigation, reload included — so the seed
   // writes only when the key is ABSENT (the fresh-context case). A value the

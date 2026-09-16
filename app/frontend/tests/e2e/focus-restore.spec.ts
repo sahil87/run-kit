@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { focusGrabCodeStubHtml, startCodeStub, type CodeStub } from "./_ports";
-import { READY_TIMEOUT, expectActiveElement, resolveWindow as resolveWindowRaw, seedComposeStrip } from "./_ready";
+import { READY_TIMEOUT, expectActiveElement, resolveWindow as resolveWindowRaw, seedComposeStrip, switchToWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
 /**
@@ -83,23 +83,6 @@ async function makeWindow(
 async function gotoWindow(page: Page, windowId: string, search = ""): Promise<void> {
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}${search}`);
   await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-    timeout: READY_TIMEOUT,
-  });
-}
-
-/** Switch windows through the sidebar row — the ONLY switch path usable here:
- *  focus memory is in-memory by design, so a `page.goto` reload would wipe the
- *  very state under test. The row's button routes through `navigateToWindow`,
- *  identical to a real sidebar click. */
-async function switchToWindow(page: Page, windowId: string): Promise<void> {
-  const row = page
-    .locator("nav[aria-label='Sessions']")
-    .locator(`[data-window-id="${windowId}"]`)
-    .getByRole("button")
-    .first();
-  await expect(row).toBeVisible({ timeout: READY_TIMEOUT });
-  await row.click();
-  await expect(row).toHaveAttribute("aria-current", "page", {
     timeout: READY_TIMEOUT,
   });
 }

@@ -30,6 +30,7 @@ import {
 import { clampBoundary } from "@/lib/right-panel";
 import { codeRootFor } from "@/lib/code-folder-latch";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import type { CodeFollowSrc } from "@/hooks/use-code-workspace";
 import type { GuiSignal } from "@/contexts/session-context";
 import type { GuiPointerMode, GuiQuality, GuiZoom } from "@/lib/gui-posture";
 import type { GuiRestartResult, GuiSurfaceCommands } from "@/components/gui-surface";
@@ -160,6 +161,16 @@ import {
  *   surface kind and is per-window — `app.tsx` keys this component by
  *   server, so the set (with the other per-window transient state) resets via
  *   the `[server, windowId]` reset effect on a window switch.
+ * - **Code-frame retention (the P3 cross-window half)**: the `code` tile
+ *   additionally survives a same-server WINDOW switch — the component keeps a
+ *   per-server ordered list of live frame records (`{windowId, src, root}`,
+ *   most-recently-shown last), rendering every non-active record as a
+ *   display-hidden tile (`hidden` class, never `visibility`/off-screen) and
+ *   evicting on overflow (cap 3 desktop / 1 mobile), window kill, non-follow
+ *   root divergence, or a reachability true→false flip. An iframe unmount is
+ *   a page unload — code-server disposes the connection and kills the
+ *   workbench's extension host (~250–320 MB each, hence the bound), and a
+ *   fresh boot costs seconds while a display-hidden frame re-shows in ~16 ms.
  * - **Dividers (R5; gap-seam sash 260814-011r)**: drag mutates RATIOS only
  *   (never shape/order), clamped via `clampBoundary` (280px floor both
  *   sides on the boundary's own axis; sibling chaining on row/col only —
@@ -191,6 +202,40 @@ import {
 /** Human labels for the tile header + verb aria-labels live in
  *  `lib/surface-layout.ts` (`SURFACE_LABEL` — shared with the surface
  *  toggles, palette, and mobile switch group so none drift). */
+
+/** Live code-frame retention caps (measured: each live frame is one
+ *  ~250–320 MB extension-host process on the server plus a browser renderer).
+ *  The cap counts the ACTIVE window's frame; a pending tile (src unresolved)
+ *  has no frame and never counts. Mobile keeps one frame — the narrow-or-
+ *  coarse `isMobile` prop selects. */
+const CODE_FRAME_CAP_DESKTOP = 3;
+const CODE_FRAME_CAP_MOBILE = 1;
+
+/** A retained code frame — one live `CodeSurface` instance. `src` is the
+ *  creation-time mount src: the frame's identity and React key, never
+ *  rewritten (a follow re-navigates the LIVE frame through the `followSrc`
+ *  nonce, and the mount-generation rule pins the iframe's src anyway).
+ *  `root` is the eviction baseline — the window's `codeRootFor` at creation,
+ *  moved in place by a follow so the payload's codeRoot update never reads as
+ *  a divergence. */
+interface CodeFrameRecord {
+  windowId: string;
+  src: string;
+  root: string;
+}
+
+/** One grid entry: a visible slot, an ever-opened-but-closed kind, or a
+ *  retained code frame from a non-active window (all rendered through the
+ *  same flat list so the visible↔hidden transition never remounts). */
+interface TileModel {
+  kind: SurfaceKind;
+  slot: number;
+  occ: number;
+  /** The frame this tile renders (code tiles only): the active window's
+   *  record when one exists, or a retained record for a non-active window.
+   *  Undefined ⇒ the active window's code tile with no record yet. */
+  frame?: CodeFrameRecord;
+}
 
 interface SurfaceLayoutProps {
   /** The RESOLVED layout (app.tsx ran the ladder + degradation). */
@@ -273,22 +318,32 @@ interface SurfaceLayoutProps {
    *  tile's `CodeSurface`, which reports the folder the EDITOR navigated itself
    *  to. The parent latches it — this component only carries the prop. */
   onCodeFolderNavigated?: (folder: string) => void;
-  /** The code tile's mount src (the tab-keyed workspace derivation): null ⇒
-   *  the workspace path is not resolved yet and the tile renders its pending
-   *  state; a string is the mount URL (the `?workspace=` form, or the
-   *  `?folder=` degrade after a failed derivation). The parent (app.tsx's
+  /** Per-window lookup over the parent's resolved srcs (the hook's map): the
+   *  active window's src reads through it (null ⇒ the tile renders its
+   *  pending state), so a revisit resolves synchronously. Retained frames
+   *  never consult it — they read their record. The parent (app.tsx's
    *  layout-state block) owns the fetch — this component only carries the
-   *  prop. Absent ⇒ treated as pending. */
-  codeWorkspaceSrc?: string | null;
+   *  prop. */
+  codeSrcFor?: (windowId: string) => string | null;
+  /** The server's live window ids (payload-derived): a frame record whose
+   *  window leaves the set (killed/closed) is evicted. Absent ⇒ no kill
+   *  eviction. */
+  liveWindowIds?: ReadonlySet<string>;
+  /** The CURRENT code root of any live window (payload-derived) — the
+   *  root-divergence eviction's comparison input. Absent ⇒ no root
+   *  eviction. */
+  codeRootForWindow?: (windowId: string) => string;
   /** The follow-navigation override: after the editor navigated ITSELF to a
    *  new folder, the parent re-derived the workspace URL and hands it down
    *  with a fresh nonce — the one sanctioned parent re-navigation. Carried
-   *  straight to CodeSurface. */
-  codeFollowSrc?: { src: string; nonce: number } | null;
-  /** First-boot rescue's status-read seam: the code tile's baseline/verdict
-   *  fetcher, built in app.tsx as `() => fetchCodeBridge(server, windowId)`.
-   *  Carried straight to CodeSurface; absent ⇒ no rescue runs. */
-  fetchBridgeStatus?: () => Promise<CodeBridgeResult>;
+   *  straight to CodeSurface, and the nonce adoption moves the active frame
+   *  record's eviction baseline (`root`) in place. Active-window only. */
+  codeFollowSrc?: CodeFollowSrc | null;
+  /** First-boot rescue's status-read seam, as a PER-WINDOW factory: a
+   *  retained frame's verdict can fire after its window stopped being
+   *  active, so each frame's fetcher binds the FRAME's window, not the
+   *  active one. Absent ⇒ no rescue runs. */
+  fetchBridgeStatusFor?: (windowId: string) => () => Promise<CodeBridgeResult>;
   /** Chord-reclaim predicate FACTORY (260819-ie2i R3): called with a tile's
    *  kind at each iframe mount to bind the kind-aware registry predicate —
    *  `case "code"` passes `shouldReclaimChord("code")` to CodeSurface
@@ -637,9 +692,11 @@ export function SurfaceLayout({
   guiCommandsRef,
   guiActions = [],
   onCodeFolderNavigated,
-  codeWorkspaceSrc,
+  codeSrcFor,
+  liveWindowIds,
+  codeRootForWindow,
   codeFollowSrc,
-  fetchBridgeStatus,
+  fetchBridgeStatusFor,
   shouldReclaimChord,
   onProgrammaticFocus,
   onPromote,
@@ -911,6 +968,124 @@ export function SurfaceLayout({
       return missing.length > 0 ? [...prev, ...missing] : prev;
     });
   }, [layout.order]);
+
+  // ── Code-frame retention (the P3 cross-window half) ─────────────────────
+  // An ordered list of live code-frame records, most-recently-shown LAST.
+  // Unlike `everOpened` this is deliberately NOT per-window: the list is the
+  // cross-window state, so the `[server, windowId]` reset effect never
+  // touches it (the component is keyed by server, making the list per-server
+  // by construction). A record is created only for the ACTIVE window once its
+  // src has resolved and its code tile is open — a pending tile has no frame
+  // and never counts toward the cap.
+  const [codeFrames, setCodeFrames] = useState<CodeFrameRecord[]>([]);
+  const codeFrameCap = isMobile ? CODE_FRAME_CAP_MOBILE : CODE_FRAME_CAP_DESKTOP;
+  const activeCodeSrc = codeSrcFor?.(windowId) ?? null;
+  const activeCodeRoot = codeRootFor(win);
+  const activeCodeTileOpen = layout.order.includes("code");
+
+  // Show bookkeeping: the active window's record is created on first resolve
+  // and bumped to most-recently-shown on every show; overflow evicts the
+  // least-recently-shown record (the list head — the active window's record
+  // is last here, so it is never this eviction's victim). A retained frame
+  // never bumps itself: it cannot become visible without being the active
+  // window. Gated on reachability — an unreachable host holds no frames (the
+  // eviction effect below drops them on the true→false flip).
+  useEffect(() => {
+    if (!codeReachable || !activeCodeTileOpen || activeCodeSrc === null) return;
+    if (activeCodeRoot === "") return;
+    setCodeFrames((prev) => {
+      const at = prev.findIndex((r) => r.windowId === windowId);
+      let next = prev;
+      if (at < 0) {
+        next = [...prev, { windowId, src: activeCodeSrc, root: activeCodeRoot }];
+      } else if (at === prev.length - 1) {
+        return prev; // already most-recently-shown
+      } else {
+        next = [...prev.slice(0, at), ...prev.slice(at + 1), prev[at]];
+      }
+      if (next.length > codeFrameCap) next = next.slice(next.length - codeFrameCap);
+      return next;
+    });
+    // `codeFrames` is a dep so an eviction (or a follow's in-place baseline
+    // move) re-runs the check: a dropped active record is re-created at the
+    // CURRENT src on the next render. Idempotent — a present, most-recent
+    // record returns `prev` unchanged.
+  }, [server, windowId, activeCodeSrc, activeCodeRoot, activeCodeTileOpen, codeReachable, codeFrameCap, codeFrames]);
+
+  // A follow (the editor's own File > Open Folder) is never an eviction. The
+  // frame's load-seam report is recorded as a PENDING follow target
+  // synchronously at report time (see the `onFolderNavigated` wrapper in
+  // renderContent) — BEFORE the parent's latch POST, whose option write wakes
+  // the SSE hub: the payload tick carrying the new codeRoot can land before
+  // the POST response and the re-derivation GET produce the follow nonce, and
+  // the eviction effect must not read the follow's own write as an external
+  // divergence. A divergence TOWARD the pending target IS the follow: the
+  // baseline moves in place and the pending target clears. A failed latch
+  // POST leaves the payload unmoved, so nothing diverges and the frame
+  // survives at its own (working) `?folder=` navigation.
+  const pendingCodeFollowRef = useRef<{ windowId: string; root: string } | null>(null);
+
+  // Eviction reconciliation (payload-driven — no timers): (a) the frame's
+  // window left the server's live set (killed/closed); (b) the window's live
+  // code root diverged from the record's baseline by anything OTHER than a
+  // follow (a transient empty read never evicts); (c) reachability flipped
+  // true→false — every frame is dead with the host; plus a runtime cap
+  // decrease (an isMobile flip) evicts down immediately.
+  useEffect(() => {
+    setCodeFrames((prev) => {
+      if (prev.length === 0) return prev;
+      if (!codeReachable) return [];
+      let next = prev;
+      let changed = false;
+      if (liveWindowIds) {
+        next = next.filter((r) => liveWindowIds.has(r.windowId));
+      }
+      if (codeRootForWindow) {
+        const reconciled: CodeFrameRecord[] = [];
+        for (const r of next) {
+          const current = codeRootForWindow(r.windowId);
+          if (current === "" || current === r.root) {
+            reconciled.push(r);
+            continue;
+          }
+          const pending = pendingCodeFollowRef.current;
+          if (pending && pending.windowId === r.windowId && pending.root === current) {
+            // The follow's own latch write: move the baseline in place, keep
+            // the frame.
+            pendingCodeFollowRef.current = null;
+            reconciled.push({ ...r, root: current });
+            changed = true;
+            continue;
+          }
+          changed = true; // genuine external divergence — evict
+        }
+        next = reconciled;
+      }
+      if (next.length > codeFrameCap) {
+        next = next.slice(next.length - codeFrameCap);
+        changed = true;
+      }
+      return changed || next.length !== prev.length ? next : prev;
+    });
+  }, [codeReachable, liveWindowIds, codeRootForWindow, codeFrameCap]);
+
+  // The nonce half of the follow: when the parent's re-derivation GET lands
+  // before the payload tick, the baseline moves here instead (the eviction
+  // effect's pending-target arm covers the opposite ordering). The record's
+  // `src` stays the creation src (the frame's identity; the mount-generation
+  // rule pins the iframe's src).
+  const codeFollowNonceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!codeFollowSrc || codeFollowSrc.nonce === codeFollowNonceRef.current) return;
+    codeFollowNonceRef.current = codeFollowSrc.nonce;
+    pendingCodeFollowRef.current = null;
+    const followRoot = codeFollowSrc.root;
+    setCodeFrames((prev) =>
+      prev.some((r) => r.windowId === windowId && r.root !== followRoot)
+        ? prev.map((r) => (r.windowId === windowId ? { ...r, root: followRoot } : r))
+        : prev,
+    );
+  }, [codeFollowSrc, windowId]);
 
   // ⏶ Zoom: one surface fills the layout area; the shared layout is
   // untouched. Per-viewer and PERSISTED as the zoomed surface KIND under
@@ -1527,13 +1702,14 @@ export function SurfaceLayout({
    *  focus into a frame fires NO focusin in the parent, so each iframe
    *  surface reports its own interaction via `onInteract` (contentDocument
    *  listeners same-origin; `IframeWindow` adds a window-blur fallback for
-   *  cross-origin content). */
+   *  cross-origin content). A code tile carrying a frame RECORD binds that
+   *  record's window (never the active one). */
   const renderContent = (
-    kind: SurfaceKind,
-    slot: number,
+    tile: TileModel,
     primaryTty: boolean,
     hidden: boolean,
   ) => {
+    const { kind, slot } = tile;
     switch (kind) {
       case "tty":
         return (
@@ -1616,19 +1792,29 @@ export function SurfaceLayout({
           />
         ) : null;
       case "code": {
+        const frame = tile.frame;
+        const frameWindowId = frame?.windowId ?? windowId;
+        const isActiveWindowFrame = frameWindowId === windowId;
         // The code root (`codeRootFor`): the shared `@rk_win_code_root` when
         // set, the derived gitRoot pre-seed — a pane switch can neither null
         // this tile nor retarget the editor; the live derivation only ever
-        // seeds it (the parent's seed effect, on first code-tile render).
-        const codeRoot = codeRootFor(win);
+        // seeds it (the parent's seed effect, on first code-tile render). A
+        // retained frame keeps ITS window's baseline root.
+        const codeRoot = frame ? frame.root : activeCodeRoot;
         return codeRoot ? (
           <CodeSurface
             gitRoot={codeRoot}
-            // The mount src arrives resolved (or null ⇒ pending) from the
-            // parent's derivation GET; the component never composes it.
-            workspaceSrc={codeWorkspaceSrc ?? null}
-            followSrc={codeFollowSrc ?? null}
-            fetchBridgeStatus={fetchBridgeStatus}
+            // The mount src comes from the frame RECORD once one exists —
+            // fixed at creation (the mount-generation rule). Before the
+            // record exists the tile pends (null), exactly the pre-retention
+            // pending state.
+            workspaceSrc={frame ? frame.src : null}
+            // The follow override only ever targets the active window's frame.
+            followSrc={isActiveWindowFrame ? (codeFollowSrc ?? null) : null}
+            // Per-frame rescue fetcher: a retained frame's verdict can fire
+            // after its window stopped being active — it reads ITS window's
+            // bridge status.
+            fetchBridgeStatus={fetchBridgeStatusFor?.(frameWindowId)}
             reachable={codeReachable}
             shouldReclaimChord={shouldReclaimChord?.("code")}
             onInteract={
@@ -1644,8 +1830,25 @@ export function SurfaceLayout({
                   }
                 : undefined
             }
-            onProgrammaticFocus={onProgrammaticFocus}
-            onFolderNavigated={onCodeFolderNavigated}
+            // A retained (other-window) frame is display-hidden and can
+            // neither receive focus nor navigate — its focus/follow seams
+            // stay unbound so nothing can ever record against the ACTIVE
+            // window's focus-memory key from a hidden frame.
+            onProgrammaticFocus={isActiveWindowFrame ? onProgrammaticFocus : undefined}
+            onFolderNavigated={
+              isActiveWindowFrame
+                ? (folder) => {
+                    // Record the follow target SYNCHRONOUSLY with the
+                    // navigation report — before the parent's latch POST,
+                    // whose option write wakes the SSE hub: the payload tick
+                    // can outrun the follow nonce, and the eviction effect
+                    // reads this target to tell the follow's own write from
+                    // an external root change.
+                    pendingCodeFollowRef.current = { windowId: frameWindowId, root: folder };
+                    onCodeFolderNavigated?.(folder);
+                  }
+                : undefined
+            }
           />
         ) : null;
       }
@@ -1712,32 +1915,52 @@ export function SurfaceLayout({
   };
 
   // Tile models: every VISIBLE slot plus every ever-opened kind that is
-  // currently closed (hidden). The React key is stable per (kind, occurrence)
-  // across the visible↔hidden transition — THAT is what makes
+  // currently closed (hidden), plus every RETAINED code frame (a record
+  // belonging to a non-active window). The React key is stable per (kind,
+  // occurrence) across the visible↔hidden transition — THAT is what makes
   // hide-never-unmount survive React reconciliation. The tty tile's key is
   // additionally WINDOW-INDEPENDENT: it must survive a same-server window
   // switch (the grid is keyed by server) so the terminal's same-session ride
-  // keeps its xterm instance and stream; every non-tty tile carries `windowId`
-  // in its key because its content identity changes with the window (per-url
-  // iframes, code mount-once bookkeeping, the gui RFB session).
+  // keeps its xterm instance and stream. The code tile is likewise
+  // window-independent, keyed by its frame record (`code:<windowId>:<src>` —
+  // the src is fixed at creation; the window id rides along because the
+  // `?folder=` degrade form is folder-keyed, so src alone is not unique): a
+  // same-server switch re-renders the mounted frame instead of
+  // unmounting it (an iframe unmount is a page unload — code-server kills the
+  // workbench). A code tile with no record yet (src pending) keys as
+  // `code:pending` — no iframe exists to lose on the pending→resolved
+  // remount. web/gui tiles keep `windowId` in their key (per-url iframes,
+  // the gui RFB session — content identity changes with the window).
+  const activeCodeFrame = codeFrames.find((r) => r.windowId === windowId);
   let ttySeen = 0;
-  const visibleTiles = layout.order.map((kind, slot) => {
+  const visibleTiles: TileModel[] = layout.order.map((kind, slot) => {
     const occ = kind === "tty" ? ttySeen++ : 0;
-    return { kind, slot, occ };
+    return { kind, slot, occ, frame: kind === "code" ? activeCodeFrame : undefined };
   });
   const firstTtySlot = layout.order.indexOf("tty");
-  const hiddenTiles = everOpened
+  const hiddenTiles: TileModel[] = everOpened
     .filter((kind) => !layout.order.includes(kind))
-    .map((kind) => ({ kind, slot: -1, occ: 0 }));
+    .map((kind) => ({ kind, slot: -1, occ: 0, frame: kind === "code" ? activeCodeFrame : undefined }));
+  // Retained frames render as display-hidden tiles through the same flat
+  // list — closing the code tile in a window keeps its frame retained (it
+  // keeps counting toward the cap), and a switch away demotes the visible
+  // tile to here WITHOUT a key change.
+  const retainedCodeTiles: TileModel[] = codeFrames
+    .filter((r) => r.windowId !== windowId)
+    .map((record) => ({ kind: "code", slot: -1, occ: 0, frame: record }));
 
   const renderTile = (
-    tile: { kind: SurfaceKind; slot: number; occ: number },
+    tile: TileModel,
     hidden: boolean,
     mobile: boolean,
   ) => {
     const { kind, slot, occ } = tile;
     const suffix = occ > 0 ? `-${occ + 1}` : "";
-    const testId = `surface-tile-${kind}${suffix}`;
+    // A retained (other-window) code frame must NOT share the active tile's
+    // testid — `surface-tile-code` stays unique for locators; the retained
+    // wrapper disambiguates by `data-window-id`.
+    const retainedCode = kind === "code" && tile.frame !== undefined && tile.frame.windowId !== windowId;
+    const testId = retainedCode ? "surface-tile-code-retained" : `surface-tile-${kind}${suffix}`;
     const label = SURFACE_LABEL[kind];
     // The keyboard-capture latch swaps the gui meta chip to its CONSEQUENCE
     // label — words, not hue alone: green wash + ink, no ring (a label, not
@@ -1790,8 +2013,19 @@ export function SurfaceLayout({
       kind === "gui" ? guiActions.find((a) => a.id === "gui-fullscreen") : undefined;
     return (
       <div
-        key={kind === "tty" ? `${kind}${suffix}` : `${kind}${suffix}:${windowId}`}
+        key={
+          kind === "tty"
+            ? `${kind}${suffix}`
+            : kind === "code"
+              ? // The frame's window id is in the key: `?workspace=` srcs are
+                // tab-keyed but the `?folder=` degrade form is FOLDER-keyed —
+                // two windows rooted at the same folder whose derivations both
+                // degrade would otherwise produce identical keys.
+                `code${suffix}:${tile.frame ? `${tile.frame.windowId}:${tile.frame.src}` : "pending"}`
+              : `${kind}${suffix}:${windowId}`
+        }
         data-testid={testId}
+        {...(retainedCode ? { "data-window-id": tile.frame?.windowId } : {})}
         // Mobile tiles MUST carry flex-1: the single visible slot fills the
         // column. Without it the tile is content-sized — xterm's own canvas
         // becomes the measure, a stable fixed point (canvas sizes tile sizes
@@ -2241,7 +2475,7 @@ export function SurfaceLayout({
           // drag kinds — single-axis divider and the two-axis intersection.
           className={`flex-1 min-h-0 flex flex-col ${draggingIndex !== null || draggingIntersection ? "pointer-events-none" : ""}`}
         >
-          {renderContent(kind, slot, slot === firstTtySlot, hidden)}
+          {renderContent(tile, tile.slot === firstTtySlot, hidden)}
           {/* In-tile compose-strip dock (260813-j3jb): desktop only, first
               tty tile only — the strip sits below the terminal body, inside
               the tile frame. */}
@@ -2257,11 +2491,13 @@ export function SurfaceLayout({
   // only when the target surface is not open (an `addSurface` growth). All
   // resolved surfaces stay mounted-hidden so switching loses no state.
   //
-  // IMPORTANT (both branches): visible + hidden tiles render from ONE flat
-  // array. Two separate `{arr1}{arr2}` expression slots reconcile
+  // IMPORTANT (both branches): visible + hidden + retained tiles render from
+  // ONE flat array. Two separate `{arr1}{arr2}` expression slots reconcile
   // POSITIONALLY, so a keyed tile moving between them would UNMOUNT/remount —
   // silently breaking hide-never-unmount (P3/R6) on close (the e2e
-  // element-identity assertion caught exactly this).
+  // element-identity assertion caught exactly this). Retained code frames ride
+  // the same rule: the switch demotes the visible code tile to a hidden
+  // retained entry with an unchanged key.
   if (isMobile) {
     const mobileSlot =
       mobileActiveSlot !== undefined &&
@@ -2272,6 +2508,7 @@ export function SurfaceLayout({
     const allTiles = [
       ...visibleTiles.map((tile) => ({ tile, hidden: tile.slot !== mobileSlot })),
       ...hiddenTiles.map((tile) => ({ tile, hidden: true })),
+      ...retainedCodeTiles.map((tile) => ({ tile, hidden: true })),
     ];
     return (
       <div
@@ -2289,6 +2526,7 @@ export function SurfaceLayout({
       hidden: zoomed && tile.slot !== zoomedIndex,
     })),
     ...hiddenTiles.map((tile) => ({ tile, hidden: true })),
+    ...retainedCodeTiles.map((tile) => ({ tile, hidden: true })),
   ];
   const specs = dividerSpecs(layout.shape, effRatios);
   // The main-* T-junction: geometry single-sourced from the divider specs,

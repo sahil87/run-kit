@@ -6,6 +6,7 @@ import {
   readStoredView,
   windowViewStorageKey,
   type ViewName,
+  type ViewWindow,
 } from "@/lib/window-view";
 import {
   availableSurfaces,
@@ -1166,26 +1167,51 @@ function AppShell() {
   // until then, `?folder=` degrade on a non-409 failure or a refused seed).
   // `followFolder` is the follow rule's re-derivation half for the handler
   // below.
-  const { codeSrc, followSrc, followFolder } = useCodeWorkspace(
+  //
+  // The resolved srcs live in a per-window MAP that survives window switches
+  // (a revisit resolves synchronously — no pending flash — and a retained
+  // frame's src outlives its window's active period). The map's cross-window
+  // inputs: `codeWindowsById` (the lookup's per-window root resolution) and
+  // `liveWindowIds` (pruning dead windows' entries alongside their frames).
+  const codeWindowsById = useMemo(() => {
+    const map = new Map<string, ViewWindow>();
+    for (const s of sessions) {
+      for (const w of s.windows) map.set(w.windowId, w);
+    }
+    return map;
+  }, [sessions]);
+  const liveWindowIds = useMemo<ReadonlySet<string>>(
+    () => new Set(codeWindowsById.keys()),
+    [codeWindowsById],
+  );
+  const { codeSrcFor, followSrc, followFolder } = useCodeWorkspace(
     server,
     windowParam,
     effectiveWindow,
     layout.order.includes("code"),
     codeSeedRejected,
+    { windowsById: codeWindowsById, liveWindowIds },
   );
 
-  // The first-boot rescue's status-read seam (the code tile's two
-  // decision-point GETs): CodeSurface owns the mount generation and the
-  // load-event seam, so the fetcher is injected rather than the server/window
-  // pair. Without a window route there is no code tile — the unavailable
-  // answer keeps the rescue fail-closed. useCallback-stable so CodeSurface's
-  // ref mirror never churns.
-  const fetchBridgeStatus = useCallback(
-    () =>
-      windowParam
-        ? fetchCodeBridge(server, windowParam)
-        : Promise.resolve({ status: "unavailable" as const }),
-    [server, windowParam],
+  // The first-boot rescue's status-read seam, as a PER-WINDOW factory: a
+  // retained frame's baseline/verdict reads can fire after its window stopped
+  // being active, so each frame's fetcher binds the FRAME's window. CodeSurface
+  // owns the mount generation and the load-event seam, so the fetcher is
+  // injected rather than the server/window pair. The factory is
+  // useCallback-stable; the per-frame closures it returns are created per
+  // render, which is inert — CodeSurface mirrors the prop into a ref read only
+  // at verdict time, and the rescue effect keys on `[reachable, src]`.
+  const fetchBridgeStatusFor = useCallback(
+    (windowId: string) => () => fetchCodeBridge(server, windowId),
+    [server],
+  );
+
+  // The root-divergence eviction's comparison input: a live window's CURRENT
+  // code root (`""` when the window is gone or unresolvable — never an
+  // eviction input).
+  const codeRootForWindow = useCallback(
+    (windowId: string) => codeRootFor(codeWindowsById.get(windowId) ?? null),
+    [codeWindowsById],
   );
 
   // Follow write (spec right-panel.md § The code lens): after the seed, the
@@ -1759,22 +1785,24 @@ function AppShell() {
     }
   }, [layout]);
 
-  // Focus restore + steal guard (spec right-panel.md § The code lens): the
-  // tile grid REMOUNTS on every window switch (the `${server}:${windowId}`
-  // key below) and nothing would otherwise reclaim DOM focus — worse, the
-  // code tile's iframe reloads and the workbench's one-shot load-time grab
-  // would win by default. `restoreFocus` routes to the window's RECORDED
-  // focus kind (`undefined` ⇒ the first-visit resolver: compose while the
-  // strip is on, else tty): tty via
+  // Focus restore + steal guard (spec right-panel.md § The code lens): a
+  // window switch re-renders the server-keyed tile grid and nothing would
+  // otherwise reclaim DOM focus — and when the code tile does boot a fresh
+  // workbench (first visit, post-eviction re-show, reachability recovery)
+  // its one-shot load-time grab would win by default. `restoreFocus` routes
+  // to the window's RECORDED focus kind (`undefined` ⇒ the first-visit
+  // resolver: compose while the strip is on, else tty): tty via
   // `focusTerminalRef` with a rAF retry (the ref registers late in
   // TerminalClient init), compose via the registered strip focuser with a tty
-  // fallback when it declines (disabled/unmounted), code as a no-op (the
-  // workbench's own grab restores it). Reads only refs + module state, so a
-  // stable identity is safe. Returns a cancel that abandons any pending
-  // retry. `exclude` (a chord hide passes the just-closed kind) resolves
-  // memory pointing at the hidden tile to the tty default — a tile that just
-  // left the layout is never a return target, and `code`'s no-op arm would
-  // otherwise strand focus (its workbench grab never fires on a chord hide).
+  // fallback when it declines (disabled/unmounted), code by focusing the
+  // visible active-window frame's contentWindow with the same rAF retry (a
+  // RETAINED frame fires no grab on the return, so the restore cannot ride
+  // it). Reads only refs + module state, so a stable identity is safe.
+  // Returns a cancel that abandons any pending retry. `exclude` (a chord hide
+  // passes the just-closed kind) resolves memory pointing at the hidden tile
+  // to the tty default — a tile that just left the layout is never a return
+  // target, and a hidden code tile fails the arm's `:not(.hidden)` selector,
+  // which would otherwise strand focus until the retry deadline.
   const restoreFocus = useCallback((key: string, exclude?: SurfaceKind): (() => void) => {
     let cancelled = false;
     let rafId = 0;
@@ -1795,7 +1823,30 @@ function AppShell() {
     const recalled = recallFocus(key);
     const resolved = recalled ?? firstVisitKind();
     const kind = resolved === exclude ? "tty" : resolved;
-    if (kind === "code") return cancel; // the workbench's own grab restores it
+    if (kind === "code") {
+      // A RETAINED code frame fires no load-time grab on the return (the
+      // frame LRU keeps it mounted), so the restore can no longer ride the
+      // workbench's grab — focus the frame explicitly (the recorded
+      // fallback). A fresh boot (post-eviction, reachability recovery) still
+      // grabs on load and lands in the same place. Retry like the tty arm:
+      // on a re-show after eviction the iframe element takes a beat to
+      // mount. The active window's tile only — retained frames of OTHER
+      // windows carry a distinct testid, and a hidden frame must never be
+      // focused.
+      const focusCode = () => {
+        if (cancelled) return;
+        const frame = document.querySelector<HTMLIFrameElement>(
+          '[data-testid="surface-tile-code"]:not(.hidden) iframe[title="Code editor"]',
+        );
+        if (frame) {
+          frame.contentWindow?.focus();
+          return;
+        }
+        if (Date.now() < deadline) rafId = requestAnimationFrame(focusCode);
+      };
+      rafId = requestAnimationFrame(focusCode);
+      return cancel;
+    }
     if (kind === "compose") {
       // A RECORDED compose (a return to a window the user composed in) finds
       // the body already mounted: one attempt, decline ⇒ tty.
@@ -5484,9 +5535,12 @@ function AppShell() {
               // the mounted grid with a new `windowId` prop — the tty tile's
               // TerminalClient (xterm instance + relay stream) must survive so
               // the relay's same-session ride and deferred-reset/clear designs
-              // apply. Per-window transient state (zoom, focused slot, the
+              // apply, and the code tile's frame survives via the component's
+              // per-server frame LRU (keyed by the frame record's
+              // windowId + creation src, stable across window switches).
+              // Per-window transient state (zoom, focused slot, the
               // hide-never-unmount set, find, page title, progress) resets by
-              // a `[server, windowId]` effect inside the component; non-tty
+              // a `[server, windowId]` effect inside the component; web/gui
               // tiles remount via `windowId` in their own keys.
               key={server}
               // The rendered layout: the payload's `@rk_win_layout` value,
@@ -5544,15 +5598,23 @@ function AppShell() {
               // the ONLY writer of `@rk_win_code_root`.
               onCodeFolderNavigated={handleCodeFolderNavigated}
               // Mount gating (the derivation GET lives in this component's
-              // layout-state block): null ⇒ the code tile renders its pending
-              // state until the workspace path resolves.
-              codeWorkspaceSrc={codeSrc}
+              // layout-state block): `codeSrcFor` is the per-window lookup
+              // over the hook's resolved-src map — a null read for the active
+              // window renders the code tile's pending state until the
+              // workspace path resolves, and a revisit resolves
+              // synchronously. `liveWindowIds`/`codeRootForWindow` feed the
+              // kill and root-divergence evictions.
+              codeSrcFor={codeSrcFor}
+              liveWindowIds={liveWindowIds}
+              codeRootForWindow={codeRootForWindow}
               // The follow rule's re-navigation: nonce-keyed, so only an
               // editor-initiated folder navigation ever moves a live frame.
               codeFollowSrc={followSrc}
-              // The first-boot rescue's two status reads (baseline + verdict)
-              // per code-tile mount generation.
-              fetchBridgeStatus={fetchBridgeStatus}
+              // The first-boot rescue's status reads (baseline + verdict) per
+              // code-tile mount generation — a per-window factory because a
+              // retained frame's verdict can fire after its window stopped
+              // being active.
+              fetchBridgeStatusFor={fetchBridgeStatusFor}
               shouldReclaimChord={reclaimChordForKind}
               onPromote={(surface) => applyLayout(promote(layout, surface))}
               onSwap={(surface) => applyLayout(swapWithNext(layout, surface))}

@@ -4,8 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CODE_BOOT_RESCUE_RECHECK_MS, CODE_BOOT_RESCUE_WAIT_MS } from "../../src/lib/code-boot-rescue";
-import { plainCodeStubHtml, reserveDeadPort, startCodeStub, type CodeStub, type DeadPort } from "./_ports";
-import { openPalette, READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
+import { plainCodeStubHtml, focusGrabCodeStubHtml, reserveDeadPort, startCodeStub, type CodeStub, type DeadPort } from "./_ports";
+import { openPalette, READY_TIMEOUT, expectActiveElement, resolveWindow as resolveWindowRaw, switchToWindow } from "./_ready";
 import {
   TMUX_SERVER,
   createSession,
@@ -92,6 +92,17 @@ import { stubProxyPorts } from "./_web-tile";
  *   `@rk_win_layout` tmux option — the SHARED layout the translation / verbs
  *   write (never the URL; the URL stays bare after translation drops the
  *   inbound params).
+ * - `switchToWindow(page, id)` (from `_ready.ts`, shared with the
+ *   focus-restore spec): an IN-APP window switch through the sidebar row —
+ *   the only switch path the frame-retention tests can use: the frame
+ *   LRU is in-memory component state, so a `page.goto` reload would wipe the
+ *   state under test.
+ * - The retention describe re-binds the stub port with the focus-grab page
+ *   (`focusGrabCodeStubHtml`, `_ports.ts`): it runs AFTER the stub-down
+ *   describe (the first describe's afterAll has closed its stub), and its
+ *   tests count `Code editor` iframe `load`s via the same addInitScript
+ *   capture listener the rescue tests use — a retained frame re-showing must
+ *   not fire a second `load` (no remount, no second focus grab).
  * - Locators: the `Code tile` / `Web tile` top-bar toggles (role + accessible
  *   name SCOPED to the `banner` — the top bar's aria-hidden measurement probe
  *   duplicates every in-bar control, so accessible-name queries are the only
@@ -142,6 +153,11 @@ async function gotoWindow(
     timeout: READY_TIMEOUT,
   });
 }
+
+// In-app window switches (`switchToWindow` from `_ready.ts` — shared with the
+// focus-restore spec): the ONLY switch path usable by the retention tests,
+// since the code-frame LRU is in-memory component state and a `page.goto`
+// reload would wipe the state under test.
 
 // The surface toggles live in the top bar's `surface-toggles` group (the right
 // rail is REMOVED — composed-frame unification). Banner-scoped accessible-name
@@ -501,6 +517,79 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
   });
 
   /**
+   * Proves: a same-server window switch no longer reboots the editor — the
+   * code tile's frame is retained (hide-never-unmount extended across
+   * windows), so opening the tile in window A, switching to B and back, fires
+   * exactly ONE iframe `load` for A's frame across the whole round trip, and
+   * the frame element is the identical node (no remount, no re-boot).
+   *
+   * Steps:
+   * 1. Register a capture-phase `load` counter via addInitScript (the iframe
+   *    `load` does not bubble, so document-level capture is the counter),
+   *    then create repo-cwd windows A and B and navigate to A.
+   * 2. Open the code tile via the `Code tile` top-bar toggle, await the
+   *    iframe, capture its element handle, and assert the counter reads 1.
+   * 3. Switch to B and back to A via the sidebar (in-app — a reload would
+   *    wipe the in-memory frame list under test).
+   * 4. Assert the code iframe is visible again, the element is the identical
+   *    node, and the counter still reads 1 after a settle window (a remount
+   *    or a reload would have fired a second `load`).
+   */
+  test("a switch away and back re-shows the retained code frame — exactly one iframe load, same element", async ({
+    page,
+  }) => {
+    // Two windows, two in-app switches, plus a settle window — carries the
+    // 30s budget (the sidebar-panels precedent).
+    test.setTimeout(30_000);
+    await page.addInitScript(() => {
+      const w = window as unknown as { __codeIframeLoads: number };
+      w.__codeIframeLoads = 0;
+      document.addEventListener(
+        "load",
+        (e) => {
+          if (e.target instanceof HTMLIFrameElement && e.target.title === "Code editor") {
+            w.__codeIframeLoads++;
+          }
+        },
+        true,
+      );
+    });
+    const idA = await makeWindow(page, `cs-keep-a-${Date.now()}`);
+    const idB = await makeWindow(page, `cs-keep-b-${Date.now()}`);
+    await gotoWindow(page, idA);
+
+    await codeToggle(page).click();
+    await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    const handleBefore = await codeIframe(page).elementHandle();
+    expect(handleBefore, "code iframe element").not.toBeNull();
+    await expect
+      .poll(
+        () => page.evaluate(() => (window as unknown as { __codeIframeLoads: number }).__codeIframeLoads),
+        { timeout: READY_TIMEOUT },
+      )
+      .toBe(1);
+
+    // Away and back IN-APP: the frame is retained display-hidden while B is
+    // shown (B has no code tile), then becomes visible again.
+    await switchToWindow(page, idB);
+    await expect(terminal(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await switchToWindow(page, idA);
+    await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
+
+    const handleAfter = await codeIframe(page).elementHandle();
+    expect(
+      await page.evaluate(([a, b]) => a === b, [handleBefore, handleAfter]),
+    ).toBe(true);
+    // No remount and no reload: the counter never moved. The settle window
+    // gives a stray second load time to land before the read.
+    await page.waitForTimeout(1_000);
+    const loads = await page.evaluate(
+      () => (window as unknown as { __codeIframeLoads: number }).__codeIframeLoads,
+    );
+    expect(loads).toBe(1);
+  });
+
+  /**
    * Proves: the first-boot rescue never reloads a frame whose boot the bridge
    * host record positively confirms — with a pid-alive tab-keyed record
    * (written into the harness's per-run state home AFTER the tile mounted, so
@@ -727,5 +816,120 @@ test.describe("Code lens & CODE surface (phase 2) — stub down", () => {
       },
     );
     await expect(codeIframe(page)).toHaveCount(0);
+  });
+});
+
+test.describe("Code frame retention — no focus-grab replay on a switch back", () => {
+  // Second stub lifecycle: the first describe's afterAll closed the plain
+  // stub, so this describe re-binds the seeded port with the focus-grab page.
+  let grabStub: CodeStub;
+
+  test.beforeAll(async () => {
+    grabStub = await startCodeStub(focusGrabCodeStubHtml(300));
+  });
+
+  test.afterAll(async () => {
+    await new Promise((resolve) => grabStub.server.close(resolve));
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize(DESKTOP_VIEWPORT);
+  });
+
+  /**
+   * Proves: a retained code frame fires no second load-time focus grab on the
+   * away-and-back return — the frame never reloads, so the workbench's
+   * one-shot grab does not re-fire, the steal guard has nothing to revert,
+   * and the window's remembered focus (the terminal) holds.
+   *
+   * Steps:
+   * 1. Register the capture-phase iframe `load` counter via addInitScript,
+   *    create windows A and B, navigate to A, and click the terminal (the
+   *    genuine pointerdown records `tty` for A).
+   * 2. Open the code tile via the `Code tile` toggle (the click disarms this
+   *    visit's guard, so the grab stands); await the iframe and the stub's
+   *    grab (its document title flips to `grabbed`); assert focus is on the
+   *    iframe and the load counter reads 1.
+   * 3. Switch to B and back to A via the sidebar; await the code iframe.
+   * 4. Assert the load counter still reads 1 (no remount → no second grab),
+   *    the frame's title is still `grabbed` from the FIRST load, and
+   *    `document.activeElement` is inside `.xterm` — the remembered tty
+   *    focus, with the steal guard never re-triggered by the retained frame.
+   */
+  test("a retained frame does not re-fire the workbench's focus grab; the terminal keeps focus", async ({
+    page,
+  }) => {
+    // Two windows, two in-app switches, the grab delay, and a settle window —
+    // carries the 30s budget (the focus-restore.spec precedent).
+    test.setTimeout(30_000);
+    await page.addInitScript(() => {
+      const w = window as unknown as { __codeIframeLoads: number };
+      w.__codeIframeLoads = 0;
+      document.addEventListener(
+        "load",
+        (e) => {
+          if (e.target instanceof HTMLIFrameElement && e.target.title === "Code editor") {
+            w.__codeIframeLoads++;
+          }
+        },
+        true,
+      );
+    });
+    const idA = await makeWindow(page, `cs-grab-a-${Date.now()}`);
+    const idB = await makeWindow(page, `cs-grab-b-${Date.now()}`);
+    await gotoWindow(page, idA);
+    // The genuine terminal interaction that records `tty` for window A.
+    await terminal(page).click();
+
+    await codeToggle(page).click();
+    await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    const frame = await codeIframe(page).elementHandle();
+    expect(frame, "code iframe element").not.toBeNull();
+    // Gate on the grab having FIRED (the stub's one-shot title flip) so no
+    // assertion can pass vacuously.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            (f) => (f as HTMLIFrameElement).contentDocument?.title ?? "",
+            frame,
+          ),
+        { timeout: READY_TIMEOUT },
+      )
+      .toBe("grabbed");
+    await expectActiveElement(page, "code-iframe");
+    await expect
+      .poll(
+        () => page.evaluate(() => (window as unknown as { __codeIframeLoads: number }).__codeIframeLoads),
+        { timeout: READY_TIMEOUT },
+      )
+      .toBe(1);
+
+    // Away and back: the retained frame re-shows without reloading, so no
+    // second grab fires and the remembered tty focus is restored.
+    await switchToWindow(page, idB);
+    await expect(terminal(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await switchToWindow(page, idA);
+    await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await page.waitForTimeout(1_000);
+    const loads = await page.evaluate(
+      () => (window as unknown as { __codeIframeLoads: number }).__codeIframeLoads,
+    );
+    expect(loads).toBe(1);
+    // The title is the FIRST load's grab mark — a reload would have reset and
+    // re-set it (indistinguishable), so the load counter above is the
+    // no-second-grab proof; this guards the frame is the same live document.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            (f) => (f as HTMLIFrameElement).contentDocument?.title ?? "",
+            frame,
+          ),
+        { timeout: READY_TIMEOUT },
+      )
+      .toBe("grabbed");
+    await expectActiveElement(page, "xterm");
   });
 });

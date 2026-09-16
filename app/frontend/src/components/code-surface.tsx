@@ -179,10 +179,14 @@ export function CodeSurface({
 
   // P3: one `src` per iframe MOUNT GENERATION. The iframe mounts only while
   // `reachable` AND the workspace src has resolved (non-null) — a reachability
-  // false→true flip or a window-switch remount boots at the CURRENT src
+  // false→true flip or a frame eviction + re-creation (the frame LRU's
+  // overflow/kill/root-divergence drops) boots at the CURRENT src
   // (fresh workbench, right workspace) while a mounted frame is never
   // parent-navigated: a `src` React re-renders IS a navigation, even to the
-  // URL the frame already sits at. Held in a ref, not `useMemo`: a memo
+  // URL the frame already sits at. A window switch alone is NOT a generation
+  // boundary — the retained frame re-shows untouched (its `reachable`/`src`
+  // props don't change, so the effects below never re-arm on show/hide).
+  // Held in a ref, not `useMemo`: a memo
   // cache is a performance hint React may drop, and dropping this one would
   // reload the editor out from under the user. The pending → resolved
   // transition adopts the first non-null src of the generation; any later
@@ -323,8 +327,10 @@ export function CodeSurface({
   }, [reachable, src]);
 
   // First-boot rescue: per mount generation (this effect's [reachable, src]
-  // keying re-runs on every generation boundary — the reachable flip, a
-  // window-switch remount, or a followSrc nonce adoption), a `?workspace=`
+  // keying re-runs on every generation boundary — the reachable flip, an
+  // eviction + re-creation, or a followSrc nonce adoption — never a window
+  // switch alone, which keeps the retained frame's props unchanged), a
+  // `?workspace=`
   // mount gets at most THREE status reads and at most ONE reload. The
   // baseline read at src adoption captures BOTH stamps (host record and
   // empty-boot marker); the first `load` arms the wait timer; at its expiry a

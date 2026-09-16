@@ -357,7 +357,7 @@ func TestRiffTargetingFlagsJSONReceipt(t *testing.T) {
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetContext(context.Background())
 
-	if err := runRiff(cmd, nil); err != nil {
+	if err := runRiff(cmd, nil, nil); err != nil {
 		t.Fatalf("runRiff: %v", err)
 	}
 
@@ -418,7 +418,7 @@ func TestRiffSessionFlagValidation(t *testing.T) {
 	bare := &cobra.Command{}
 	bare.SetContext(context.Background())
 	riffSessionFlag = "boot" // no "=" prefix
-	if err := runRiff(bare, nil); err == nil || exitCode(err) != exitUsage {
+	if err := runRiff(bare, nil, nil); err == nil || exitCode(err) != exitUsage {
 		t.Errorf("--session boot: err = %v (code %d), want exit 2", err, exitCode(err))
 	}
 	riffSessionFlag = ""
@@ -427,7 +427,7 @@ func TestRiffSessionFlagValidation(t *testing.T) {
 	if err := os.MkdirAll(riffRepoFlag, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := runRiff(bare, nil); err == nil || exitCode(err) != exitUsage {
+	if err := runRiff(bare, nil, nil); err == nil || exitCode(err) != exitUsage {
 		t.Errorf("--repo <subdir>: err = %v (code %d), want exit 2", err, exitCode(err))
 	}
 }
@@ -474,4 +474,120 @@ func TestRiffJSONPreconditionEnvelope(t *testing.T) {
 	if doc.OK || doc.Error.Code != "operational" || !strings.Contains(doc.Error.Message, "not inside a tmux session") {
 		t.Errorf("envelope = %q, want ok:false operational naming the precondition", stdout.String())
 	}
+}
+
+// TestSplitAtSeparator pins the argv split at the first `--`: the head is
+// flag-parsed and preset-resolved, the tail forwards verbatim to `wt create`.
+func TestSplitAtSeparator(t *testing.T) {
+	cases := []struct {
+		name     string
+		argv     []string
+		wantHead []string
+		wantTail []string
+	}{
+		{name: "no separator", argv: []string{"discuss", "--count", "3"}, wantHead: []string{"discuss", "--count", "3"}, wantTail: nil},
+		{name: "separator only", argv: []string{"--"}, wantHead: []string{}, wantTail: []string{}},
+		{name: "preset-named token after separator", argv: []string{"--", "discuss"}, wantHead: []string{}, wantTail: []string{"discuss"}},
+		{name: "head and tail", argv: []string{"discuss", "--", "--base", "main"}, wantHead: []string{"discuss"}, wantTail: []string{"--base", "main"}},
+		{name: "first separator wins", argv: []string{"--", "--", "x"}, wantHead: []string{}, wantTail: []string{"--", "x"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			head, tail := splitAtSeparator(tc.argv)
+			if !reflect.DeepEqual(head, tc.wantHead) {
+				t.Errorf("head = %v, want %v", head, tc.wantHead)
+			}
+			if !reflect.DeepEqual(tail, tc.wantTail) {
+				t.Errorf("tail = %v, want %v", tail, tc.wantTail)
+			}
+		})
+	}
+}
+
+// TestRiffPassthroughBoundary pins the `--` passthrough contract at the
+// runRiff level: wtArgs tokens are NEVER preset candidates — a preset-named
+// tail token (`rk riff -- discuss`) reaches wt create verbatim, and a tail
+// token cannot trigger the positional/--preset mutual-exclusion error.
+func TestRiffPassthroughBoundary(t *testing.T) {
+	dir := t.TempDir()
+	repoRoot := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	worktree := filepath.Join(t.TempDir(), "swift-fox")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("mkdir worktree: %v", err)
+	}
+	wtLog := filepath.Join(dir, "wt.log")
+	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf '%s\n' \"$*\" >> "+wtLog+"\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+	testutil.WriteStub(t, dir, "tmux", "#!/bin/sh\n"+
+		"case \"$1\" in\n"+
+		"  -L) shift 2 ;;\n"+
+		"esac\n"+
+		"case \"$1\" in\n"+
+		"  list-windows) exit 0 ;;\n"+
+		"  new-window) echo '%20' ;;\n"+
+		"  select-pane) exit 0 ;;\n"+
+		"  display-message) echo '@9' ;;\n"+
+		"  list-panes) printf '%s\n' '%20' ;;\n"+
+		"  *) exit 0 ;;\n"+
+		"esac\n")
+	testutil.WriteStub(t, dir, "git", "#!/bin/sh\necho 'feature-x'\n")
+	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\nprintf 'command: claude --dangerously-skip-permissions\\nskill_prefix: /\\n'\n")
+	t.Setenv("PATH", dir)
+
+	origRepo, origPreset := riffRepoFlag, riffPresetFlag
+	riffRepoFlag = repoRoot
+	t.Cleanup(func() { riffRepoFlag, riffPresetFlag = origRepo, origPreset })
+
+	wtArgv := func(t *testing.T) string {
+		t.Helper()
+		data, err := os.ReadFile(wtLog)
+		if err != nil {
+			t.Fatalf("read wt log: %v", err)
+		}
+		return string(data)
+	}
+
+	newCmd := func() *cobra.Command {
+		cmd := &cobra.Command{}
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetContext(context.Background())
+		return cmd
+	}
+
+	t.Run("preset-named tail token forwards to wt", func(t *testing.T) {
+		riffPaneSpecs = nil
+		if err := runRiff(newCmd(), nil, []string{"discuss"}); err != nil {
+			t.Fatalf("runRiff: %v", err)
+		}
+		got := wtArgv(t)
+		if !strings.Contains(got, "discuss") {
+			t.Errorf("wt argv = %q, want the tail token forwarded verbatim", got)
+		}
+	})
+
+	t.Run("preset head token plus tail", func(t *testing.T) {
+		riffPaneSpecs = nil
+		if err := os.Remove(wtLog); err != nil {
+			t.Fatal(err)
+		}
+		if err := runRiff(newCmd(), []string{"discuss"}, []string{"--base", "main"}); err != nil {
+			t.Fatalf("runRiff: %v", err)
+		}
+		got := wtArgv(t)
+		if !strings.Contains(got, "--base main") {
+			t.Errorf("wt argv = %q, want the --base main passthrough", got)
+		}
+	})
+
+	t.Run("--preset plus preset-named tail token does not conflict", func(t *testing.T) {
+		riffPaneSpecs = nil
+		riffPresetFlag = "discuss"
+		defer func() { riffPresetFlag = "" }()
+		if err := runRiff(newCmd(), nil, []string{"discuss"}); err != nil {
+			t.Fatalf("runRiff: %v", err)
+		}
+	})
 }

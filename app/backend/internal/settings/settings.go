@@ -672,12 +672,27 @@ func validateRiffPresetName(name string) string {
 	return validate.ValidateIdentifier(name, "Preset name")
 }
 
-// validateRiffPresetValue / normalizeRiffPresetValue accept any skill text —
-// values reach the launcher only through the skill-pane path (shell-quoted
-// positional or typed-after-boot), the same latitude --skill already has. The
-// empty string MUST survive the parse path (a bare agent).
-func validateRiffPresetValue(string) string          { return "" }
-func normalizeRiffPresetValue(value string) (string, bool) { return value, true }
+// validateRiffPresetValue / normalizeRiffPresetValue accept any skill text the
+// line-scoped settings format can round-trip. Values reach the launcher only
+// through the skill-pane path (shell-quoted positional or typed-after-boot),
+// the same latitude --skill already has — but the map serializer writes values
+// raw inside double quotes and the parser reads one line per entry, so a value
+// carrying a double quote or a newline cannot persist intact: rejected on
+// apply (strict write, 400), dropped on parse (tolerant read). Values are
+// trimmed; the empty string MUST survive both paths (a bare agent).
+func validateRiffPresetValue(value string) string {
+	if strings.ContainsAny(value, "\"\n") {
+		return "must not contain double quotes or newlines (the settings format cannot round-trip them)"
+	}
+	return ""
+}
+func normalizeRiffPresetValue(value string) (string, bool) {
+	v := strings.TrimSpace(value)
+	if validateRiffPresetValue(v) != "" {
+		return "", false
+	}
+	return v, true
+}
 
 // KeyInfo is the exported, read-only metadata view of one registry entry —
 // what GET /api/settings serves alongside the current value.

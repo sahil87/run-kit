@@ -264,6 +264,16 @@ func TestParseOptionalSettings(t *testing.T) {
 			},
 		},
 		{
+			name:  "riff preset values are trimmed and quote-carrying values dropped",
+			input: "riff_presets:\n  review: \"  /code-review high  \"\n  quoted: \"/x \"y\"\"\n",
+			check: func(t *testing.T, s Settings) {
+				want := map[string]string{"review": "/code-review high"}
+				if !reflect.DeepEqual(s.RiffPresets, want) {
+					t.Errorf("RiffPresets = %v, want %v (inner whitespace trimmed; quote-carrying value dropped)", s.RiffPresets, want)
+				}
+			},
+		},
+		{
 			name:  "missing riff presets",
 			input: "theme: dracula\n",
 			check: func(t *testing.T, s Settings) {

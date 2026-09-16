@@ -141,3 +141,18 @@ func rewritePaneSpaceForm(argv []string) []string {
 func isPaneBareFlag(tok string) bool {
 	return tok == "--skill" || tok == "--cmd"
 }
+
+// splitAtSeparator splits argv at the first `--` token: the head is parsed by
+// pflag (flags + the positional preset candidate), the tail passes through to
+// `wt create` verbatim. pflag's Parse drops the separator itself from Args(),
+// so the boundary must be captured BEFORE Parse — otherwise a preset-named
+// token after `--` (e.g. `rk riff -- discuss`) would be consumed as the
+// positional preset and lost from the passthrough.
+func splitAtSeparator(argv []string) (head, tail []string) {
+	for i, tok := range argv {
+		if tok == "--" {
+			return argv[:i], argv[i+1:]
+		}
+	}
+	return argv, nil
+}

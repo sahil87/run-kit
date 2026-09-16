@@ -449,7 +449,7 @@ var Table = []Row{
 			{Name: "session", Flag: "--session", Type: ArgString, Pattern: `^=.+$`,
 				Description: "Session the window is created in (=S exact form; default: the server's current session)"},
 			{Name: "preset", Positional: 1, Type: ArgString,
-				Description: "Named preset from run-kit's riff_presets (built-ins: discuss, incognito, blank)"},
+				Description: "Named preset from run-kit's riff_presets (built-ins: discuss, incognito, blank, plus user additions/overrides in ~/.config/run-kit/config.yaml)"},
 			{Name: "skill", Flag: "--skill", Type: ArgStringArray,
 				Description: "Slash command for a pane (repeatable, one pane per item in order; a bare item launches a blank agent)"},
 			{Name: "layout", Flag: "--layout", Type: ArgString},

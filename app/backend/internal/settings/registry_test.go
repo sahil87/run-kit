@@ -328,6 +328,18 @@ func TestApplyValue_riffPresets(t *testing.T) {
 		t.Errorf("riff_presets mutated on bad-name rejection: %v", s.RiffPresets)
 	}
 
+	// A value carrying a double quote or a newline is rejected (strict write)
+	// without mutation — the line-scoped format cannot round-trip it.
+	if err := ApplyValue(&s, "riff_presets", json.RawMessage(`{"review": "/x \"quoted\""}`)); err == nil {
+		t.Fatal("ApplyValue(riff_presets, quoted value) succeeded, want error")
+	}
+	if err := ApplyValue(&s, "riff_presets", json.RawMessage(`{"review": "/x\n/y"}`)); err == nil {
+		t.Fatal("ApplyValue(riff_presets, newline value) succeeded, want error")
+	}
+	if !reflect.DeepEqual(s.RiffPresets, map[string]string{"blank": "/fab-discuss"}) {
+		t.Errorf("riff_presets mutated on bad-value rejection: %v", s.RiffPresets)
+	}
+
 	// Top-level null clears the whole map.
 	if err := ApplyValue(&s, "riff_presets", json.RawMessage(`null`)); err != nil {
 		t.Fatalf("apply riff_presets null: %v", err)

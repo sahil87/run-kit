@@ -115,7 +115,7 @@ rk riff --skill /fab-discuss
 rk riff --skill /fab-fff --cmd "just dev" --cmd "just test-watch" --layout main-vertical
 
 # Three parallel attempts at the same change
-rk riff ship --count 3
+rk riff discuss --count 3
 
 # Investigate a bug with a shell pane handy
 rk riff --skill /fab-discuss --cmd

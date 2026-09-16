@@ -141,7 +141,7 @@ var (
 
 func init() {
 	// Interspersed=true (pflag default) so flags may appear before OR after
-	// the positional preset token (e.g., `rk riff ship --count 3`). The
+	// the positional preset token (e.g., `rk riff discuss --count 3`). The
 	// `--` separator still terminates parsing so wt passthrough works.
 	riffCmd.Flags().SetInterspersed(true)
 
@@ -193,6 +193,12 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 
 	rewritten := rewritePaneSpaceForm(args)
 
+	// pflag's Parse drops the "--" separator from Args(), so the boundary must
+	// be captured here: only the head is flag-parsed and preset-resolved; the
+	// tail forwards to `wt create` verbatim — a preset-named token after "--"
+	// (`rk riff -- discuss`) is a wt argument, never the positional preset.
+	riffArgv, wtArgv := splitAtSeparator(rewritten)
+
 	for _, tok := range rewritten {
 		if tok == "-h" || tok == "--help" {
 			return cmd.Help()
@@ -212,10 +218,10 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 	// (*riff.ExitCodeError, from runRiff) is still printed here and os.Exited with
 	// its own class code (1/2/3) — that path owns its bare-message stderr and is
 	// unchanged.
-	if parseErr := cmd.Flags().Parse(rewritten); parseErr != nil {
+	if parseErr := cmd.Flags().Parse(riffArgv); parseErr != nil {
 		return usageError(parseErr)
 	}
-	err := runRiff(cmd, cmd.Flags().Args())
+	err := runRiff(cmd, cmd.Flags().Args(), wtArgv)
 	if err == nil {
 		return nil
 	}
@@ -243,14 +249,14 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 //  3. Signal wrap on root context
 //  4. Layout / count / preset-conflict validation (fail-fast, no subprocess)
 //  5. Launcher resolution (engine helper, rooted at the repo root)
-//  6. Preset resolution (positional or --preset)
-//  7. Effective spec assembly (engine helper)
+//  6. Preset resolution (positional or --preset; args are pre-"--" only)
+//  7. Effective spec assembly (engine helper; wtArgs forward to wt create)
 //  8. Dispatch to riff.Run (engine owns count==1 direct spawn + count≥2 fan-out)
-func runRiff(cmd *cobra.Command, args []string) error {
+func runRiff(cmd *cobra.Command, args, wtArgs []string) error {
 	// Step 0: targeting flags. --repo must name a git toplevel (it replaces the
-	// process-cwd derivation for wt create, launcher resolution, and preset
-	// reads — the MCP executor's cwd is not the repo); --session takes the =S
-	// exact form; -L is a validated server name.
+	// process-cwd derivation for wt create and launcher resolution — the MCP
+	// executor's cwd is not the repo); --session takes the =S exact form; -L is
+	// a validated server name.
 	repoRoot, err := riffRepoRoot()
 	if err != nil {
 		return err
@@ -331,9 +337,10 @@ func runRiff(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 7: effective spec (engine helper). cobra's Changed() tells us whether
-	// --layout was explicitly set.
+	// --layout was explicitly set. The wt passthrough is the positionals left
+	// after preset consumption plus the verbatim post-"--" tokens.
 	layoutExplicit := cmd.Flags().Changed("layout")
-	spec, err := riff.ResolveEffectiveSpec(riffPaneSpecs, layoutExplicit, canonicalLayout, riffCountFlag, preset, remaining)
+	spec, err := riff.ResolveEffectiveSpec(riffPaneSpecs, layoutExplicit, canonicalLayout, riffCountFlag, preset, append(remaining, wtArgs...))
 	if err != nil {
 		return err
 	}

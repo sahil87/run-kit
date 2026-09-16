@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 12
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-16T12:57:42Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-16T13:01:50Z"}
     hydrate: {started_at: "2026-09-16T13:01:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T13:11:02Z"}
     ship: {started_at: "2026-09-16T13:11:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T13:12:25Z"}
-    review-pr: {started_at: "2026-09-16T13:12:25Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-16T13:12:25Z", driver: git-pr, iterations: 1, completed_at: "2026-09-16T14:01:32Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/993
 change_type_source: explicit
@@ -56,4 +56,4 @@ true_impact:
 summary: Web tile split into an engine-blind IframeWindow chrome and a WebFrameIframe engine behind the lib/web-frame-engine.ts capability contract; probes, find, reclaim and the scale wrapper live in the engine
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-16T13:12:25Z
+last_updated: 2026-09-16T14:01:32Z

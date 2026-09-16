@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
+import { useOccludes } from "@/hooks/use-occludes";
 import { controlClass } from "@/components/control";
 import {
   SWITCH_KNOB_OFF,
@@ -88,6 +89,9 @@ export function CronEntryDetailSheet({
 }) {
   const sheetRef = useRef<HTMLDivElement>(null);
   useFocusTrap(sheetRef, true, onClose);
+  // Only the modal shell occludes the stage; the inline variant sits inside
+  // a container (the quake drawer) that registers itself.
+  useOccludes("modal", !inline);
 
   const [mutedOverride, setMutedOverride] = useState<boolean | null>(null);
   const [pinnedOverride, setPinnedOverride] = useState<boolean | null>(null);

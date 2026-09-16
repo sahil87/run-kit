@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { CommandPalette, type PaletteAction } from "./command-palette";
+import { _resetForTests as resetOverlayPresence, count as overlayCount } from "@/lib/overlay-presence";
 
 function makeActions(labels: string[]): PaletteAction[] {
   return labels.map((label, i) => ({
@@ -42,6 +43,17 @@ describe("CommandPalette", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
     expect(screen.getByPlaceholderText(/^Type a command/)).toHaveFocus();
+  });
+
+  it("registers as a modal overlay while open and releases on close", () => {
+    resetOverlayPresence();
+    const actions = makeActions(["New Session"]);
+    render(<CommandPalette actions={actions} />);
+    expect(overlayCount("modal")).toBe(0);
+    openPalette();
+    expect(overlayCount("modal")).toBe(1);
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+    expect(overlayCount("modal")).toBe(0);
   });
 
 

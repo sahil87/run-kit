@@ -1,10 +1,23 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { Dialog } from "./dialog";
+import { _resetForTests as resetOverlayPresence, count as overlayCount } from "@/lib/overlay-presence";
 
 afterEach(cleanup);
 
 describe("Dialog", () => {
+  it("registers as a modal overlay while mounted and releases on unmount", () => {
+    resetOverlayPresence();
+    const { unmount } = render(
+      <Dialog title="Confirm" onClose={() => {}}>
+        <p>body</p>
+      </Dialog>,
+    );
+    expect(overlayCount("modal")).toBe(1);
+    unmount();
+    expect(overlayCount("modal")).toBe(0);
+  });
+
   it("renders title and children", () => {
     render(
       <Dialog title="Kill window?" onClose={() => {}}>

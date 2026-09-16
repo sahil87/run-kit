@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Shell, STAGE_PADDING_PX, STAGE_COLUMN_GAP_PX } from "./shell";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { stubMatchMedia } from "@/test-utils/match-media";
+import { _resetForTests as resetOverlayPresence, count as overlayCount } from "@/lib/overlay-presence";
 
 function renderShell(opts: { open?: boolean; mobile?: boolean; sidebarChildren?: ReactNode } = {}) {
   const {
@@ -242,6 +243,18 @@ describe("Shell", () => {
   it("does not render the mobile overlay when sidebarOpen is false", () => {
     renderShell({ open: false, mobile: true });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("the mobile drawer registers as a modal overlay while open; the desktop sidebar never does", () => {
+    resetOverlayPresence();
+    const mobile = renderShell({ open: true, mobile: true });
+    expect(overlayCount("modal")).toBe(1);
+    mobile.unmount();
+    expect(overlayCount("modal")).toBe(0);
+
+    renderShell({ open: true, mobile: false });
+    expect(screen.getByRole("complementary", { name: "Sidebar" })).toBeInTheDocument();
+    expect(overlayCount("modal")).toBe(0);
   });
 
   describe("mobile drawer focus trap", () => {

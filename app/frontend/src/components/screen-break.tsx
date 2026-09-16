@@ -44,6 +44,7 @@ import {
 import { useScreenBreakTriggers } from "@/hooks/use-screen-break-triggers";
 import { getSettingsEntries } from "@/api/client";
 import { seedEasterEggsEnabled } from "@/lib/screen-break-store";
+import { useOccludes } from "@/hooks/use-occludes";
 import { EyeSprite, FistSprite } from "./screen-break-sprites";
 
 const FLIGHT_MS = 12000;
@@ -77,6 +78,8 @@ function pathLength(el: SVGPathElement): number {
 
 export function ScreenBreak() {
   const flight = useSyncExternalStore(subscribe, getState).flight;
+  // The layer covers the whole viewport for the full flight, heal included.
+  useOccludes("modal", flight !== null);
   if (!flight) return null;
   // key restarts the layer (fresh geometry, fresh rAF) if a later fire lands
   // on the same tick as a finish.

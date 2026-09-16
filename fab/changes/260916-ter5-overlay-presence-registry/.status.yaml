@@ -1,0 +1,57 @@
+id: ter5
+name: 260916-ter5-overlay-presence-registry
+created: 2026-09-16T14:15:22Z
+created_by: sahil87
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 13
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 78.9
+        reversibility: 94.6
+        competence: 89.3
+        disambiguation: 83.6
+stage_metrics:
+    intake: {started_at: "2026-09-16T14:15:22Z", driver: fab-new, iterations: 1, completed_at: "2026-09-16T14:18:12Z"}
+    apply: {started_at: "2026-09-16T14:18:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T14:24:27Z"}
+    review: {started_at: "2026-09-16T14:24:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T14:31:22Z"}
+    hydrate: {started_at: "2026-09-16T14:31:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T14:33:26Z"}
+    ship: {started_at: "2026-09-16T14:33:26Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-16T14:33:26Z"
+    computed_at_stage: hydrate
+summary: Added the SPA overlay-presence registry (lib/overlay-presence.ts + useOccludes) that every modal-class surface registers in while open, and moved the toast stack off the stage to the top-bar band.
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-16T14:33:26Z

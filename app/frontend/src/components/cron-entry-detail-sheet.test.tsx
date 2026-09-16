@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { CronEntryDetailSheet } from "./cron-entry-detail-sheet";
 import type { CronEntry } from "@/api/client";
+import { _resetForTests as resetOverlayPresence, count as overlayCount } from "@/lib/overlay-presence";
 
 const ENTRY: CronEntry = {
   id: "a3f9",
@@ -148,6 +149,18 @@ describe("CronEntryDetailSheet", () => {
     );
     expect(screen.getByRole("button", { name: "Close entry details" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+  });
+
+  it("the modal variant registers as a modal overlay while mounted; the inline variant does not", () => {
+    installFetch();
+    resetOverlayPresence();
+    const modal = render(<CronEntryDetailSheet server="srv" entry={ENTRY} onClose={vi.fn()} />);
+    expect(overlayCount("modal")).toBe(1);
+    modal.unmount();
+    expect(overlayCount("modal")).toBe(0);
+
+    render(<CronEntryDetailSheet server="srv" entry={ENTRY} onClose={vi.fn()} inline />);
+    expect(overlayCount("modal")).toBe(0);
   });
 
   it("the inline variant drops the modal shell: no backdrop, no aria-modal, absolute inset-0 panel", () => {

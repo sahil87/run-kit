@@ -3,6 +3,7 @@ import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useOccludes } from "@/hooks/use-occludes";
 import { matchesCombo, shouldSuppressChord } from "@/lib/keybindings";
 import { focusSidebarCurrentRow, restoreWindowFocus } from "@/lib/sidebar-events";
 import { STAGE_PADDING_PX, STAGE_COLUMN_GAP_PX } from "@/lib/stage-geometry";
@@ -239,6 +240,7 @@ export function Shell({
   // the grid and is never a modal, so its Tab navigation is unchanged.
   const drawerActive = isMobile && sidebarOpen && !!sidebarChildren;
   useFocusTrap(drawerRef, drawerActive, () => setSidebarOpen(false));
+  useOccludes("modal", drawerActive);
 
   // Desktop: outer rows `"stage" / "statusbar"` — the stage nested grid owns
   // the inset ground and the sidebar column (with its width-collapse

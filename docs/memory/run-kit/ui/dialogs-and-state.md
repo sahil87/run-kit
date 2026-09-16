@@ -1,5 +1,5 @@
 ---
-description: "Component conventions; modal dialogs and popup surfaces including the spring-loaded marker pad and the GUI off-/restart-confirms on one shared shell (with the settings-seam gui.enabled off-interception and the per-viewer gui postures (the rk-gui-* keys, keyboard capture included, and the bare-WM strip dismissal)); clipboard and e2e host-state rules; the Zustand window store, optimistic mutation feedback, and recently-closed mirror."
+description: "Component conventions; modal dialogs and popup surfaces (the spring-loaded marker pad, the GUI off-/restart-confirms on one shared shell with the gui.enabled off-interception and per-viewer rk-gui-* postures); the overlay-presence registry (the modal count every modal-class surface registers in — the hide signal for surfaces that cannot be painted over) and the top-bar toast stack; clipboard and e2e host-state rules; the Zustand window store, optimistic mutation feedback, recently-closed mirror."
 type: memory
 ---
 # run-kit UI — Dialogs & Client State
@@ -204,6 +204,31 @@ The popup fits the measured sidebar width through `markerPadPopoverLayout`: at t
 
 Open state is row-local, with a module-scoped `activeMarkerPad` registry enforcing exactly one open pad across all rows, following the `activeFlyout` idiom. A capture-phase document `pointerdown` listener dismisses outside presses while ignoring the pad and its own strip. Pointer and keyboard movement live-preview cells on the row; Escape previews the committed value before cancelling, so dismissal cannot leave a walked highlight painted.
 
+## Overlay Presence
+
+`app/frontend/src/lib/overlay-presence.ts` is the SPA's single "an occluding overlay is open" signal — a module-level **count** of mounted occluding overlays, per kind, with a synchronous subscription. It exists for a surface that cannot be painted over: the desktop shell's native web view (`WebContentsView`) is composited above the SPA's DOM, so nothing the SPA draws — palette, dialog, drawer, toast, tip — can appear over it, and the view hides itself while a modal-class overlay is open. The module imports no React and touches no DOM, `window`, or storage.
+
+**API**: `OverlayKind = "modal" | "transient"`; `acquire(kind): () => void` (the returned release is idempotent — a second call is a no-op, the count never goes negative); `count(kind?)` (per kind, or the sum when omitted); `isModalOpen()` (`count("modal") > 0` — the hide signal); `subscribe(listener): () => void` (fires synchronously, with no payload, after every acquire and every effective release; listeners are iterated over a snapshot so an unsubscribe mid-notify is safe); `_resetForTests()`. Only `modal` feeds `isModalOpen()`; `transient` is counted and subscribable for the clip rule, which is a later consumer, and nothing registers it yet.
+
+**Hook**: `hooks/use-occludes.ts` — `useOccludes(kind, open)` holds a registration while `open` is true and releases on `open → false` and on unmount; called above any early `return null`. A component that only mounts while open passes `true`. StrictMode's effect double-invocation settles at one registration.
+
+**Registering surfaces** (`modal`, the full inventory):
+
+| Surface | Predicate |
+|---------|-----------|
+| Command palette (`command-palette.tsx`) | `open` |
+| `Dialog` primitive (`dialog.tsx`) — one call covers every consumer, the settings dialog's panels included | `true` while mounted |
+| Theme selector (`theme-selector.tsx`) | `open` |
+| Cron entry detail sheet (`cron-entry-detail-sheet.tsx`), modal variant only | `!inline` |
+| Quake drawer (`quake-terminal.tsx`) | `open` — the mount flag, true through the exit slide, so a hidden surface re-shows once the drawer has left the stage |
+| Screen-break egg (`screen-break.tsx` `ScreenBreak`) | `flight !== null` — the whole 12 s flight, heal included |
+| Mobile sidebar drawer (`shell/shell.tsx`) | `drawerActive` (`isMobile && sidebarOpen && !!sidebarChildren`) |
+| Color picker modal mount (`app.tsx` `AppShell`) | `showColorPicker !== null` — the bespoke shell with a full backdrop around `SwatchPopover` |
+
+**Not registered** (transient, edge-overlapping — the clip rule's class): `Tip`, the row flyout card, the marker pad, the pin popover, the inline `SwatchPopover` mounts, the embedded `ThemePickerList`, the compose-history flyout, the status-bar and top-bar menus, the compose strip (not a dialog), and the inline cron sheet (it lives inside the registered quake drawer). Toasts are neither: they sit over chrome, off the stage (§ Error toast system).
+
+**Consumer seam**: readers call `subscribe` + `isModalOpen()` (or `useSyncExternalStore(subscribe, isModalOpen)` in React). No consumer reads it yet; the registry is inert until the native web engine subscribes. Covered by `lib/overlay-presence.test.ts`, `hooks/use-occludes.test.tsx`, and one acquire/release assertion in each registering component's colocated test.
+
 ## Zustand Window Store
 
 Window optimistic state is managed by a Zustand store at `app/frontend/src/store/window-store.ts`. This is the single source of truth for what windows are visible and what their display names are during the period between a user action and its SSE confirmation.
@@ -309,7 +334,7 @@ All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hoo
 
 3. **Inline progress** (async data): File upload shows an "Uploading..." badge in the terminal area. Directory autocomplete shows a spinner in the path input trailing slot. Server list refresh shows a spinner on the dropdown trigger.
 
-**Error toast system**: `ToastProvider` + `Toast` component (`app/frontend/src/components/toast.tsx`). Fixed bottom-right, auto-dismiss after 4 seconds, stacked vertically. Error variant has `var(--color-ansi-1)` (red) left accent border; info variant uses `var(--color-ansi-4)` (blue). Theme-aware via CSS custom properties. Despite the "error" name it is the general toast surface (the `info` variant carries success/neutral messages). `addToast(message, variant?, action?, onDismiss?)` takes an optional THIRD positional `action?: { label, onSelect }` (260718-gxrq) rendered as a keyboard-focusable `<button>` inside the toast body — selecting it dismisses the toast then runs `onSelect`; an optional FOURTH positional `onDismiss?: () => void` fires ONLY when the toast TIMES OUT (it is not fired when `action` was selected — the action owns its own follow-up); three-arg call sites stay valid. Used for the post-pin "Pinned to <board>" + "View board" toast (§ Post-pin success feedback + toast optional action), and the post-reopen "Resume agent" toast action whose onTimeout dismisses the closed record (§ Recently-closed mirror below).
+**Error toast system**: `ToastProvider` + `Toast` component (`app/frontend/src/components/toast.tsx`). The stack (`data-testid="toast-stack"`) is `fixed top-2 right-2` — over the top-bar band on every form factor, never the stage corner, because a native web view in the desktop shell paints above the SPA and would hide a stage-anchored toast; toasts auto-dismiss after 4 seconds and stack downward. Error variant has `var(--color-ansi-1)` (red) left accent border; info variant uses `var(--color-ansi-4)` (blue). Theme-aware via CSS custom properties. Despite the "error" name it is the general toast surface (the `info` variant carries success/neutral messages). `addToast(message, variant?, action?, onDismiss?)` takes an optional THIRD positional `action?: { label, onSelect }` (260718-gxrq) rendered as a keyboard-focusable `<button>` inside the toast body — selecting it dismisses the toast then runs `onSelect`; an optional FOURTH positional `onDismiss?: () => void` fires ONLY when the toast TIMES OUT (it is not fired when `action` was selected — the action owns its own follow-up); three-arg call sites stay valid. Used for the post-pin "Pinned to <board>" + "View board" toast (§ Post-pin success feedback + toast optional action), and the post-reopen "Resume agent" toast action whose onTimeout dismisses the closed record (§ Recently-closed mirror below).
 
 **Type guard**: `isGhostWindow(win)` exported from `optimistic-context.tsx` — narrows `WindowInfo | MergedWindow` to `MergedWindow & { optimistic: true }`. Used in the sidebar and the `SessionTiles` density view instead of `as` casts. `MergedWindow` type is defined in and exported from `app/frontend/src/store/window-store.ts`; it includes `windowId: string` as a required non-optional field.
 
@@ -524,3 +549,15 @@ which does not fit the cell width — the gloss is retained as the headings' acc
 **Decision**: The spawn-agent dialog's Worktree input is blank by default, carrying only the placeholder `auto-named (e.g. swift-fox)`; a blank value lets `wt` auto-name.
 **Why**: `wt` exposes no name-suggest seam, so any pre-filled value would have to be generated locally.
 **Rejected**: reimplementing `wt`'s name generator in the frontend (constitution §III).
+
+### Overlay presence is a count, not a focus read
+**Decision**: A module-level counter of mounted occluding overlays (per kind) with a synchronous subscription is the single "an overlay is open" signal (§ Overlay Presence); every modal-class surface registers through `useOccludes` while open.
+**Why**: Focus is stolen by iframes and native views exactly when the signal is needed, so a focus read lies; nested modals (a create dialog over a detail sheet, a confirm inside the quake drawer) need a count, not a boolean, to stay correct until the last one closes; module state needs no provider above the independently mounted palette, dialog, drawer and toast trees and is readable from non-React bridge code.
+**Rejected**: an `activeElement`/focus read (stolen by embedded frames); scraping `[role="dialog"]` from the DOM (misses the screen-break layer and the mobile drawer's backdrop, matches transient popovers that carry the role, double-counts nested dialogs); a React context (needs a provider spanning trees that mount separately).
+*Introduced by*: 260916-ter5-overlay-presence-registry
+
+### Toasts live over chrome
+**Decision**: The toast stack anchors top-right over the top-bar band on every form factor and never registers as an overlay.
+**Why**: A toast is not modal-class — hiding a native web view for 4 s on every notification would be wrong — and clipping the view around a toast reflows the page; the top bar exists on phones, browsers and the shell, while the status bar is desktop-only and shorter than a toast.
+**Rejected**: bottom-right over the status bar (desktop-only, 24 px, so the toast would still straddle the stage); registering toasts as `modal`; clipping the view around the toast.
+*Introduced by*: 260916-ter5-overlay-presence-registry

@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
+import { useOccludes } from "@/hooks/use-occludes";
 import { INPUT_FOCUS } from "@/components/controls";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { matchesCombo, type EffectiveBinding } from "@/lib/keybindings";
@@ -100,6 +101,7 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
   // element inside the palette has focus), Tab containment, and initial focus
   // (the input is the container's first — and only — focusable element).
   useFocusTrap(paletteRef, open, closePalette);
+  useOccludes("modal", open);
 
   // Rows are non-focusable divs: a mouse click on one blurs the input to
   // <body>, which would eat the next Space/Enter of a mixed mouse+keyboard

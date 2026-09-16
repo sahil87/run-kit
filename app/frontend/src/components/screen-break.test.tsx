@@ -13,6 +13,7 @@ import {
   PEEK_KEY,
   registerGlass,
 } from "@/lib/screen-break-store";
+import { _resetForTests as resetOverlayPresence, count as overlayCount } from "@/lib/overlay-presence";
 
 const getSettingsEntries = vi.fn();
 vi.mock("@/api/client", () => ({
@@ -123,6 +124,23 @@ describe("ScreenBreak", () => {
     expect(glass.style.transform).toBe("");
     expect(glass.style.position).toBe("");
     expect(glass.style.zIndex).toBe("");
+  });
+
+  it("registers as a modal overlay for the whole flight and releases when it ends", () => {
+    resetOverlayPresence();
+    render(<ScreenBreak />);
+    expect(overlayCount("modal")).toBe(0);
+    act(() => {
+      fire("smash", { force: true });
+    });
+    const startedAt = getState().flight!.startedAt;
+    expect(overlayCount("modal")).toBe(1);
+    // Still registered deep into the heal phase.
+    stepTo(startedAt + 11000);
+    expect(overlayCount("modal")).toBe(1);
+    stepTo(startedAt + 12100);
+    expect(getState().flight).toBeNull();
+    expect(overlayCount("modal")).toBe(0);
   });
 
   it("clears the glass on a mid-flight unmount", () => {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
+import { useOccludes } from "@/hooks/use-occludes";
 import { ThemePickerList } from "@/components/theme-picker-list";
 import type { Theme } from "@/themes";
 
@@ -12,6 +13,7 @@ import type { Theme } from "@/themes";
  */
 export function ThemeSelector() {
   const [open, setOpen] = useState(false);
+  useOccludes("modal", open);
 
   const { theme: currentTheme } = useTheme();
   const { setTheme, cancelPreview } = useThemeActions();

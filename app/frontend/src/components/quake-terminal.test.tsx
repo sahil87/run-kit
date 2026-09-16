@@ -17,6 +17,7 @@ import {
   writeQuakeOpacity,
 } from "@/lib/quake-terminal";
 import { getComposeDraft, hydrateComposeDrafts } from "@/lib/compose-draft-store";
+import { _resetForTests as resetOverlayPresence, count as overlayCount } from "@/lib/overlay-presence";
 import { entryKey } from "@/store/window-store";
 import { ApiError } from "@/api/client";
 import { stubMatchMedia } from "@/test-utils/match-media";
@@ -228,6 +229,23 @@ describe("QuakeTerminal", () => {
     stepMachine();
     await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
     expect(getQuakeMachineState()).toBe("rest");
+  });
+
+  it("registers as a modal overlay while the drawer is mounted, through the exit slide", async () => {
+    resetOverlayPresence();
+    renderQuake();
+    expect(overlayCount("modal")).toBe(0);
+
+    stepMachine();
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
+    expect(overlayCount("modal")).toBe(1);
+
+    // Rest: the drawer stays mounted (and registered) until the exit slide
+    // ends; the registration releases with the unmount, not the machine flip.
+    stepMachine();
+    expect(getQuakeMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
+    expect(overlayCount("modal")).toBe(0);
   });
 
   it.each(["toggle", "open"] as const)(

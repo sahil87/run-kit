@@ -5,6 +5,7 @@ import {
   useCurrentServerFromRoute,
 } from "@/contexts/session-context";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useOccludes } from "@/hooks/use-occludes";
 import { TerminalClient } from "@/components/terminal-client";
 import { QuakeSegments, type QuakeSegment } from "@/components/terminal-activity-tabs";
 import { CronList } from "@/components/cron-list";
@@ -236,6 +237,9 @@ export function QuakeTerminal() {
   const machine = useQuakeMachineState();
   const pinned = useQuakePinned();
   const [open, setOpen] = useState(false);
+  // The mount flag, not the machine: it stays true through the exit slide, so
+  // a surface hidden beneath the drawer re-shows once the drawer has left.
+  useOccludes("modal", open);
   // True while the exit slide runs: the component stays mounted with the
   // raised class until transitionend (or the timeout fallback) unmounts it.
   const [closing, setClosing] = useState(false);

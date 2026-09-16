@@ -42,6 +42,25 @@ describe("Toast system", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("anchors the stack over the top-bar band, not the stage's bottom corner", () => {
+    render(
+      <ToastProvider>
+        <TestConsumer />
+      </ToastProvider>,
+    );
+
+    act(() => {
+      screen.getByText("Error Toast").click();
+    });
+
+    const container = screen.getByTestId("toast-stack");
+    expect(container).toContainElement(screen.getByRole("alert"));
+    expect(container.className).toContain("fixed");
+    expect(container.className).toContain("top-2");
+    expect(container.className).toContain("right-2");
+    expect(container.className).not.toContain("bottom-4");
+  });
+
   it("shows a toast when addToast is called", () => {
     render(
       <ToastProvider>

@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-16T14:15:22Z"}
+{"args":"One SPA-side registry says whether a modal-class overlay is open — the palette, every dialog, the settings panel, the quake drawer, the screen-break egg and the mobile drawer register while open — so a surface that cannot be painted over (the native web view) can hide itself; toasts move over chrome so they never sit on the stage. Change 2 of 6 in fab/plans/sahil/26-09-16-web-tile-native-browser.md.","cmd":"fab-new","event":"command","ts":"2026-09-16T14:15:22Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-16T14:17:14Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-16T14:18:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T14:18:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T14:24:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-16T14:31:22Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T14:31:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-16T14:33:26Z"}

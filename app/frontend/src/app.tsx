@@ -163,6 +163,7 @@ import { SessionProvider } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { useDialogState } from "@/hooks/use-dialog-state";
+import { useOccludes } from "@/hooks/use-occludes";
 import { useRecentlyClosed, buildReopenWindowAction, pushRecentlyClosed, popRecentlyClosed } from "@/hooks/use-recently-closed";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -2009,6 +2010,9 @@ function AppShell() {
   // prefill is captured at OPEN time so it can't churn under the user's edit.
   const [sessionNamePrompt, setSessionNamePrompt] = useState<{ defaultName: string } | null>(null);
   const [showColorPicker, setShowColorPicker] = useState<"session" | "window" | "server" | null>(null);
+  // The color picker's mount below is a bespoke modal shell (full backdrop),
+  // so it registers here; the inline SwatchPopover mounts elsewhere do not.
+  useOccludes("modal", showColorPicker !== null);
   const [showCreateIframeDialog, setShowCreateIframeDialog] = useState(false);
   // The spawn-agent dialog's target is explicit `{server, session}` state (not a
   // boolean): the sidebar bot button can target ANY listed session on ANY server

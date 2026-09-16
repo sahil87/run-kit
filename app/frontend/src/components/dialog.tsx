@@ -1,5 +1,6 @@
 import { useRef, useId } from "react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
+import { useOccludes } from "@/hooks/use-occludes";
 
 type DialogProps = {
   title: string;
@@ -21,6 +22,9 @@ export function Dialog({ title, onClose, children, size = "sm" }: DialogProps) {
   // Dialog only mounts while open, so the trap is unconditionally active.
   // The hook owns focus-first-on-mount, Escape → onClose, and Tab wrap.
   useFocusTrap(dialogRef, true, onClose);
+  // One registration here covers every consumer that renders through the
+  // primitive (a bespoke modal that does not must register itself).
+  useOccludes("modal", true);
 
   // max-h + overflow-y keep tall dialogs (the lg settings pane) scrollable
   // inside short viewports instead of clipping off-screen; the calc offset

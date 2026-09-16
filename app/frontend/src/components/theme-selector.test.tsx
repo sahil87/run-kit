@@ -3,6 +3,7 @@ import { render, screen, fireEvent, cleanup, act } from "@testing-library/react"
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ThemeSelector } from "./theme-selector";
 import { THEMES, getThemeById, deriveUIColors } from "@/themes";
+import { _resetForTests as resetOverlayPresence, count as overlayCount } from "@/lib/overlay-presence";
 
 // Mock the API client module so we don't make real HTTP calls in tests
 vi.mock("@/api/client", () => ({
@@ -82,6 +83,16 @@ describe("ThemeSelector", () => {
     renderWithProvider();
     openSelector();
     expect(screen.getByPlaceholderText("Search themes...")).toHaveFocus();
+  });
+
+  it("registers as a modal overlay while open and releases on Escape", () => {
+    resetOverlayPresence();
+    renderWithProvider();
+    expect(overlayCount("modal")).toBe(0);
+    openSelector();
+    expect(overlayCount("modal")).toBe(1);
+    fireEvent.keyDown(screen.getByPlaceholderText("Search themes..."), { key: "Escape" });
+    expect(overlayCount("modal")).toBe(0);
   });
 
   it("shows all 20 themes", () => {

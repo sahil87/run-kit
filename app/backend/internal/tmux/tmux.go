@@ -445,6 +445,10 @@ const (
 	TmuxTimeout = 10 * time.Second
 	// ActivityThresholdSeconds is how recently a window must have had activity to be "active".
 	ActivityThresholdSeconds = 10
+	// WindowActivityActive / WindowActivityIdle are the WindowInfo.Activity
+	// states, derived from ActivityTimestamp against ActivityThresholdSeconds.
+	WindowActivityActive = "active"
+	WindowActivityIdle   = "idle"
 	// listDelim is the tab delimiter used in tmux format strings.
 	listDelim = "\t"
 	// PinSessionPrefix is the reserved name prefix for run-kit's single-window

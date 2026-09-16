@@ -638,10 +638,20 @@ describe("SessionProvider — server-independent host metrics", () => {
       host.latest = useHostMetrics();
       return null;
     }
+    // Per-server slice probe: useMetrics() reads the current server's slice,
+    // which the host-global metrics event fans out into.
+    let sliceRenders = 0;
+    const slice: { latest: MetricsSnapshot | null } = { latest: null };
+    function SliceProbe() {
+      sliceRenders += 1;
+      slice.latest = useMetrics();
+      return null;
+    }
     renderHook(() => useSessionContext(), {
       wrapper: ({ children }: { children: ReactNode }) => (
         <Wrapper>
           <HostProbe />
+          <SliceProbe />
           {children}
         </Wrapper>
       ),
@@ -650,17 +660,26 @@ describe("SessionProvider — server-independent host metrics", () => {
 
     act(() => { WS.global()!.emit("metrics", FAKE_METRICS); });
     expect(host.latest?.hostname).toBe("test-box");
+    expect(slice.latest?.hostname).toBe("test-box");
     const rendersAfterFirst = hostRenders;
+    const sliceRendersAfterFirst = sliceRenders;
 
-    // The SAME payload again — deduped on the raw string, no extra render.
+    // The SAME payload again — deduped on the raw string: no extra render,
+    // and the per-server slice fan-out is skipped too (it would re-render the
+    // whole tree on identical data).
     act(() => { WS.global()!.emit("metrics", FAKE_METRICS); });
     expect(hostRenders).toBe(rendersAfterFirst);
+    expect(sliceRenders).toBe(sliceRendersAfterFirst);
     expect(host.latest?.hostname).toBe("test-box");
+    expect(slice.latest?.hostname).toBe("test-box");
 
-    // A genuinely different payload DOES update.
+    // A genuinely different payload DOES update — both the host snapshot and
+    // the per-server slice.
     act(() => { WS.global()!.emit("metrics", { ...FAKE_METRICS, hostname: "other-box" }); });
     expect(host.latest?.hostname).toBe("other-box");
+    expect(slice.latest?.hostname).toBe("other-box");
     expect(hostRenders).toBeGreaterThan(rendersAfterFirst);
+    expect(sliceRenders).toBeGreaterThan(sliceRendersAfterFirst);
   });
 
   it("opens the metrics subscription on / then drops it once a server attaches", async () => {

@@ -1327,8 +1327,9 @@ func TestSSEHubSlowServerDoesNotDelayOthers(t *testing.T) {
 }
 
 // TestSSEHubSlowServerDoesNotDelayMetrics proves the host-global metrics
-// broadcast is independent of per-server work: it keeps being emitted every
-// tick even while one server's FetchSessions is hung.
+// broadcast is independent of per-server work: the first emit lands even
+// while one server's FetchSessions is hung (later ticks are deduped on the
+// unchanged snapshot, so the assertion is on the first frame).
 func TestSSEHubSlowServerDoesNotDelayMetrics(t *testing.T) {
 	sf := newBlockingSessionFetcher(
 		[]sessions.ProjectSession{{Name: "some-session", Windows: []tmux.WindowInfo{}}},
@@ -1461,4 +1462,275 @@ func TestSSEHubRetainScopingUnderFanOut(t *testing.T) {
 		t.Error("dead server's waiting-push episode was not reaped")
 	}
 	close(sf.release["blocked"])
+}
+
+// TestSSEHubGlobalsNotRebroadcastWhenUnchanged proves change-only emission:
+// with static collector snapshots, a run of dispatch ticks yields exactly one
+// frame of each host-global per client, and a client joining afterwards is
+// replayed each cached slot exactly once.
+func TestSSEHubGlobalsNotRebroadcastWhenUnchanged(t *testing.T) {
+	isolateSettings(t) // gui disabled: a stable all-zero payload
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
+	hub := newSSEHub(sf, metrics.NewCollector(2500*time.Millisecond), ports.NewCollector(2500*time.Millisecond), nil)
+	hub.codeServerPort = ln.Addr().(*net.TCPAddr).Port
+	hub.safetyInterval = 50 * time.Millisecond // ~8 dispatch ticks over the window below
+
+	client := hub.addTestClient(make(chan hubEvent, 64), metricsOnlyServer)
+	defer hub.removeClient(client)
+
+	time.Sleep(400 * time.Millisecond)
+	counts := map[string]int{}
+	for _, s := range drainConnEvents(client.ch) {
+		for _, typ := range []string{"metrics", "services", "code-server", "gui"} {
+			if strings.HasPrefix(s, "event: "+typ) {
+				counts[typ]++
+			}
+		}
+	}
+	for _, typ := range []string{"metrics", "services", "code-server", "gui"} {
+		if counts[typ] != 1 {
+			t.Errorf("%s frames over ~8 dispatch ticks = %d, want exactly 1 (the first emit)", typ, counts[typ])
+		}
+	}
+
+	// A late joiner is replayed each non-empty slot once, and the still-static
+	// ticks send it nothing further.
+	second := hub.addTestClient(make(chan hubEvent, 64), metricsOnlyServer)
+	defer hub.removeClient(second)
+	time.Sleep(150 * time.Millisecond)
+	replayed := map[string]int{}
+	for _, s := range drainConnEvents(second.ch) {
+		for _, typ := range []string{"metrics", "services", "code-server", "gui"} {
+			if strings.HasPrefix(s, "event: "+typ) {
+				replayed[typ]++
+			}
+		}
+	}
+	for _, typ := range []string{"metrics", "services", "code-server", "gui"} {
+		if replayed[typ] != 1 {
+			t.Errorf("late joiner %s frames = %d, want exactly 1 (the replay)", typ, replayed[typ])
+		}
+	}
+}
+
+// TestSSEHubGlobalsEmitOnChange proves the changed half of the contract: when
+// a global's payload moves, exactly one new frame ships and repetition stops
+// again. The code-server probe flip is the driver — a non-started metrics
+// collector's snapshot is static, so it cannot exercise the changed branch in
+// a unit hub; the three inline emitters share one shape.
+func TestSSEHubGlobalsEmitOnChange(t *testing.T) {
+	isolateSettings(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	hub := newSSEHub(&slowSessionFetcher{result: []sessions.ProjectSession{}}, nil, nil, nil)
+	hub.codeServerPort = port
+	hub.safetyInterval = 50 * time.Millisecond
+
+	client := hub.addTestClient(make(chan hubEvent, 64), metricsOnlyServer)
+	defer hub.removeClient(client)
+
+	waitForEvent(t, client.ch, "event: code-server", `{"reachable":true}`, 2*time.Second)
+	time.Sleep(150 * time.Millisecond) // let the first-tick stragglers (gui etc.) land
+	drainConnEvents(client.ch)
+
+	ln.Close()
+	hub.mu.Lock()
+	hub.codeServerProbeAt = time.Now().Add(-2 * codeServerProbeTTL) // expire the probe cache
+	hub.mu.Unlock()
+
+	waitForEvent(t, client.ch, "event: code-server", `{"reachable":false}`, 2*time.Second)
+	time.Sleep(300 * time.Millisecond) // ~6 more dispatch ticks
+	for _, s := range drainConnEvents(client.ch) {
+		if strings.HasPrefix(s, "event: code-server") {
+			t.Fatalf("duplicate code-server frame after the change: %q", s)
+		}
+	}
+}
+
+// TestSSEHubGlobalsSkipFoldOnlyTicks proves the gate placement: a tick whose
+// wait ended solely on a unit completion (resultsOnly) emits NO host-global
+// event — even when a global's payload has changed in the meantime — and the
+// next full tick still evaluates the emitters. Harness shape mirrors
+// TestSSE_PendingEventDrivenDispatchSurvivesResultsOnlyTick.
+func TestSSEHubGlobalsSkipFoldOnlyTicks(t *testing.T) {
+	isolateSettings(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	fetcher := &midFlightFetcher{
+		entered:  make(chan struct{}),
+		release:  make(chan struct{}),
+		baseline: []sessions.ProjectSession{{Name: "s1"}},
+		changed:  []sessions.ProjectSession{{Name: "s1"}, {Name: "s2"}},
+	}
+	sub := newStubSubscriber()
+	hub := newSSEHub(fetcher, nil, nil, nil)
+	hub.subscriber = sub
+	hub.codeServerPort = port
+	hub.safetyInterval = 10 * time.Second // ticks are bump/wake-driven only
+
+	client := hub.addTestClient(make(chan hubEvent, 64), "kits")
+	t.Cleanup(func() { hub.removeClient(client) })
+
+	// Bootstrap full tick: the first code-server frame and the baseline
+	// sessions snapshot land.
+	waitForEvent(t, client.ch, "event: code-server", `{"reachable":true}`, 2*time.Second)
+	waitForEvent(t, client.ch, "event: sessions", "s1", 2*time.Second)
+	time.Sleep(200 * time.Millisecond)
+	drainConnEvents(client.ch)
+
+	// Full tick 2: the bump dispatches the unit that blocks in FetchSessions;
+	// the emitter re-evaluates with the probe TTL fresh, so nothing new ships.
+	sub.Bump("kits")
+	select {
+	case <-fetcher.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("poll unit never entered the blocking fetch")
+	}
+
+	// The code-server payload flips while the unit is in flight.
+	ln.Close()
+	hub.mu.Lock()
+	hub.codeServerProbeAt = time.Now().Add(-2 * codeServerProbeTTL)
+	hub.mu.Unlock()
+
+	// The completion's results wake yields a fold-only tick: it must emit no
+	// global, changed payload or not. The unit returned the baseline, so no
+	// sessions frame is owed either — any frame here is a violation.
+	close(fetcher.release)
+	select {
+	case ev := <-client.ch:
+		t.Fatalf("fold-only tick emitted %q", ev.String())
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	// The next full tick evaluates the emitters and ships the pending flip.
+	sub.Bump("kits")
+	waitForEvent(t, client.ch, "event: code-server", `{"reachable":false}`, 2*time.Second)
+}
+
+// scriptedSessionFetcher returns results[i] on the i-th FetchSessions call
+// (the last entry repeats), stepping a server's snapshot through a scripted
+// sequence of changes.
+type scriptedSessionFetcher struct {
+	mu      sync.Mutex
+	calls   int
+	results [][]sessions.ProjectSession
+}
+
+func (f *scriptedSessionFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	i := f.calls
+	if i >= len(f.results) {
+		i = len(f.results) - 1
+	}
+	f.calls++
+	return f.results[i], nil
+}
+
+// TestSSEHubSessionsDedupIgnoresActiveActivityTimestamp proves the sessions
+// dedup key contract: an ActivityTimestamp move on an ACTIVE window is
+// suppressed (the client renders `flowing`, no timestamp), while the same
+// move on an idle window and an activity flip both ship; a suppressed tick
+// never leaks into the ack/replay snapshot, which stays the last SENT
+// payload.
+func TestSSEHubSessionsDedupIgnoresActiveActivityTimestamp(t *testing.T) {
+	window := func(activity string, ts int64) []sessions.ProjectSession {
+		return []sessions.ProjectSession{{Name: "s1", Windows: []tmux.WindowInfo{
+			{WindowID: "@1", Name: "w", Activity: activity, ActivityTimestamp: ts},
+		}}}
+	}
+	// setup wires a bump-driven hub (10s safety — ticks fire only on
+	// subscriber bumps and wakes) over the scripted fetcher and subscribes
+	// one client to "kits".
+	setup := func(t *testing.T, script [][]sessions.ProjectSession) (*sseHub, *stubSubscriber, *sseClient) {
+		t.Helper()
+		isolateSettings(t)
+		sub := newStubSubscriber()
+		hub := newSSEHub(&scriptedSessionFetcher{results: script}, nil, nil, nil)
+		hub.subscriber = sub
+		hub.safetyInterval = 10 * time.Second
+		client := hub.addTestClient(make(chan hubEvent, 64), "kits")
+		t.Cleanup(func() { hub.removeClient(client) })
+		return hub, sub, client
+	}
+	// settle waits out the bootstrap stragglers (gui slot, order bootstrap)
+	// and drains the channel so later silence assertions see only new frames.
+	settle := func(ch chan hubEvent) {
+		time.Sleep(200 * time.Millisecond)
+		drainConnEvents(ch)
+	}
+
+	t.Run("active-window timestamp move is suppressed; the ack stays the last sent payload", func(t *testing.T) {
+		hub, sub, client := setup(t, [][]sessions.ProjectSession{
+			window(tmux.WindowActivityActive, 1000),
+			window(tmux.WindowActivityActive, 2000),
+		})
+
+		waitForEvent(t, client.ch, "event: sessions", `"activityTimestamp":1000`, 2*time.Second)
+		settle(client.ch)
+
+		// Fetch 2 moves only the active window's timestamp: the key is
+		// unchanged, so no frame ships.
+		sub.Bump("kits")
+		select {
+		case ev := <-client.ch:
+			t.Fatalf("active-window timestamp move emitted %q, want suppression", ev.String())
+		case <-time.After(400 * time.Millisecond):
+		}
+
+		// A late subscriber's replay is the last SENT payload (ts 1000), not
+		// the suppressed one (ts 2000).
+		second := hub.addTestClient(make(chan hubEvent, 64), "kits")
+		defer hub.removeClient(second)
+		got := waitForEvent(t, second.ch, "event: sessions", "", 2*time.Second)
+		if !strings.Contains(got, `"activityTimestamp":1000`) || strings.Contains(got, `"activityTimestamp":2000`) {
+			t.Fatalf("ack/replay snapshot = %q, want the last sent payload (ts 1000)", got)
+		}
+	})
+
+	t.Run("idle-window timestamp move still ships", func(t *testing.T) {
+		_, sub, client := setup(t, [][]sessions.ProjectSession{
+			window(tmux.WindowActivityIdle, 1000),
+			window(tmux.WindowActivityIdle, 2000),
+		})
+
+		waitForEvent(t, client.ch, "event: sessions", `"activityTimestamp":1000`, 2*time.Second)
+		settle(client.ch)
+
+		// The idle window's timestamp drives the `idle <dur>` label, so the
+		// move is a real change.
+		sub.Bump("kits")
+		waitForEvent(t, client.ch, "event: sessions", `"activityTimestamp":2000`, 2*time.Second)
+	})
+
+	t.Run("activity flip ships with the latest timestamp", func(t *testing.T) {
+		_, sub, client := setup(t, [][]sessions.ProjectSession{
+			window(tmux.WindowActivityActive, 1000),
+			window(tmux.WindowActivityIdle, 2500),
+		})
+
+		waitForEvent(t, client.ch, "event: sessions", `"activity":"active"`, 2*time.Second)
+		settle(client.ch)
+
+		sub.Bump("kits")
+		got := waitForEvent(t, client.ch, "event: sessions", `"activity":"idle"`, 2*time.Second)
+		if !strings.Contains(got, `"activityTimestamp":2500`) {
+			t.Fatalf("flip frame = %q, want the window's latest activityTimestamp 2500", got)
+		}
+	})
 }

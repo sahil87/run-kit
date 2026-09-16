@@ -202,6 +202,38 @@ func Load() Settings {
 	return parse(string(data))
 }
 
+// Stamp returns a change fingerprint of the settings file Load would read:
+// path + mtime + size of config.yaml, falling back to the legacy
+// ~/.rk/settings.yaml exactly as Load does (skipped under the RK_CONFIG_DIR
+// override). An absent file yields the stable empty fingerprint, so "no file"
+// never reads as a change. Callers use it as a cheap stat gate to re-parse
+// only when the file changed.
+func Stamp() string {
+	p, err := configPath()
+	if err != nil {
+		return ""
+	}
+	if fi, serr := os.Stat(p); serr == nil {
+		return stampString(p, fi)
+	}
+	if configRootOverridden() {
+		return ""
+	}
+	legacy, lerr := legacySettingsPath()
+	if lerr != nil {
+		return ""
+	}
+	if fi, serr := os.Stat(legacy); serr == nil {
+		return stampString(legacy, fi)
+	}
+	return ""
+}
+
+// stampString renders the fingerprint for one stat-ed file.
+func stampString(path string, fi os.FileInfo) string {
+	return fmt.Sprintf("%s:%d:%d", path, fi.ModTime().UnixNano(), fi.Size())
+}
+
 // Save writes the settings to config.yaml under the config root (see Dir),
 // creating the root if absent. After a successful write, a still-present
 // legacy ~/.rk/settings.yaml is renamed to settings.yaml.migrated —

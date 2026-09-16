@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -399,5 +401,161 @@ func TestGuiPayloadCarriesHumanInputAgo(t *testing.T) {
 	}
 	if _, ok := hub.guiHumanInputAt("nope"); ok {
 		t.Error("guiHumanInputAt(nope) = ok, want not ok")
+	}
+}
+
+// guiTestConn registers a state-socket connection for host-global fan-out so
+// a test can count gui broadcasts (the addTestClient shape without starting
+// the poll loop).
+func guiTestConn(hub *sseHub) *stateConn {
+	sc := &stateConn{ch: make(chan hubEvent, 16), subs: map[string]*sseClient{}}
+	hub.mu.Lock()
+	hub.stateConns[sc] = true
+	hub.mu.Unlock()
+	return sc
+}
+
+// nextGuiFrame returns the next gui broadcast on ch, failing after timeout.
+func nextGuiFrame(t *testing.T, ch chan hubEvent, timeout time.Duration) string {
+	t.Helper()
+	select {
+	case ev := <-ch:
+		return ev.String()
+	case <-time.After(timeout):
+		t.Fatal("no gui frame broadcast")
+		return ""
+	}
+}
+
+// TestGuiTickDedupIgnoresHumanInputAge proves the gui dedup key flattens
+// human_input_ago_ms to a presence marker: the absent→present transition
+// emits one frame carrying the field, but the age moving on later ticks
+// re-emits nothing.
+func TestGuiTickDedupIgnoresHumanInputAge(t *testing.T) {
+	enableGuiSettings(t)
+	stub := &guiProbeStub{info: gui.Info{Reachable: true, Width: 1920, Height: 1080}}
+	hub := newGuiTestHub()
+	stubGuiSeams(hub, ":10", "Xtigervnc", true, stub.probe)
+	hub.guiLockedFn = func(context.Context) bool { return false }
+	sc := guiTestConn(hub)
+
+	hub.guiTick()
+	if got := nextGuiFrame(t, sc.ch, time.Second); !strings.HasPrefix(got, "event: gui") {
+		t.Fatalf("first frame = %q, want event: gui", got)
+	}
+
+	// Presence transition: absent → present ships one frame carrying the age.
+	hub.guiHumanInputSeen("host")
+	hub.guiTick()
+	got := nextGuiFrame(t, sc.ch, time.Second)
+	if !strings.Contains(got, "human_input_ago_ms") {
+		t.Fatalf("presence-transition frame = %q, want human_input_ago_ms present", got)
+	}
+
+	// The age moves, the marker does not: no re-emission.
+	time.Sleep(5 * time.Millisecond)
+	hub.guiTick()
+	select {
+	case ev := <-sc.ch:
+		t.Fatalf("tick with only the age moved emitted %q, want suppression", ev.String())
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// TestGuiTickEmitsOnReachableFlip proves the age-flattened key does not
+// swallow a real change: a probe flip after the TTL still emits a frame.
+func TestGuiTickEmitsOnReachableFlip(t *testing.T) {
+	enableGuiSettings(t)
+	stub := &guiProbeStub{info: gui.Info{Reachable: true, Width: 1920, Height: 1080}}
+	hub := newGuiTestHub()
+	stubGuiSeams(hub, ":10", "Xtigervnc", true, stub.probe)
+	hub.guiLockedFn = func(context.Context) bool { return false }
+	sc := guiTestConn(hub)
+
+	hub.guiTick()
+	if got := nextGuiFrame(t, sc.ch, time.Second); !strings.Contains(got, `"reachable":true`) {
+		t.Fatalf("first frame = %q, want reachable:true", got)
+	}
+
+	// A flip inside the TTL window is served from the probe cache — unchanged
+	// key, no frame.
+	stub.set(gui.Info{Reason: "not running"}, nil)
+	hub.guiTick()
+	select {
+	case ev := <-sc.ch:
+		t.Fatalf("in-TTL tick emitted %q, want the cached payload (no frame)", ev.String())
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	// After the TTL the re-probe flips the payload and one frame ships.
+	hub.mu.Lock()
+	hub.guiProbeAt = time.Now().Add(-2 * guiProbeTTL)
+	hub.mu.Unlock()
+	hub.guiTick()
+	if got := nextGuiFrame(t, sc.ch, time.Second); !strings.Contains(got, `"reachable":false`) {
+		t.Fatalf("post-TTL frame = %q, want reachable:false", got)
+	}
+
+	// And the flipped payload is then stable — no repetition.
+	hub.guiTick()
+	select {
+	case ev := <-sc.ch:
+		t.Fatalf("unchanged post-flip tick emitted %q, want suppression", ev.String())
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// TestGuiTickReloadsSettingsOnlyWhenStampChanges proves the stamp gate: a
+// rewrite that preserves the file's fingerprint (same size, same mtime) is
+// NOT re-parsed, while a moved mtime re-parses on the next tick.
+func TestGuiTickReloadsSettingsOnlyWhenStampChanges(t *testing.T) {
+	isolateSettings(t)
+	configFile := filepath.Join(os.Getenv("HOME"), ".config", "run-kit", "config.yaml")
+
+	st := settings.Load()
+	st.GUIEnabled = true
+	st.GUIGeometry = "1600x900"
+	if err := settings.Save(st); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	fi, err := os.Stat(configFile)
+	if err != nil {
+		t.Fatalf("stat settings: %v", err)
+	}
+
+	stub := &guiProbeStub{info: gui.Info{Reachable: true, Width: 1600, Height: 900}}
+	hub := newGuiTestHub()
+	stubGuiSeams(hub, ":10", "Xtigervnc", true, stub.probe)
+	hub.guiLockedFn = func(context.Context) bool { return false }
+
+	hub.guiTick()
+	if got := hub.cachedGui(t); !strings.Contains(got, `"geometry":"1600x900"`) {
+		t.Fatalf("payload = %s, want geometry 1600x900", got)
+	}
+
+	// Same-size rewrite + restored mtime ⇒ identical stamp ⇒ no reload, so
+	// the payload keeps the cached geometry. (The two geometry values
+	// serialize to the same length.)
+	st.GUIGeometry = "1280x720"
+	if err := settings.Save(st); err != nil {
+		t.Fatalf("re-save settings: %v", err)
+	}
+	if err := os.Chtimes(configFile, fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatalf("restore mtime: %v", err)
+	}
+	hub.guiTick()
+	if got := hub.cachedGui(t); !strings.Contains(got, `"geometry":"1600x900"`) {
+		t.Fatalf("payload = %s after a fingerprint-preserving rewrite, want the cached 1600x900 (no reload)", got)
+	}
+
+	// A moved mtime changes the stamp: the next tick reloads and the new
+	// geometry ships.
+	fresh := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(configFile, fresh, fresh); err != nil {
+		t.Fatalf("bump mtime: %v", err)
+	}
+	hub.guiTick()
+	if got := hub.cachedGui(t); !strings.Contains(got, `"geometry":"1280x720"`) {
+		t.Fatalf("payload = %s after the stamp moved, want the reloaded 1280x720", got)
 	}
 }

@@ -1181,3 +1181,81 @@ func TestSaveWithoutLegacyFileSucceeds(t *testing.T) {
 		t.Fatalf("new path not written: %v", err)
 	}
 }
+
+func TestStampUnchangedFileIsStable(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	if got := Stamp(); got != "" {
+		t.Errorf("Stamp (no file) = %q, want the stable empty fingerprint", got)
+	}
+	if err := Save(Default()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	first := Stamp()
+	if first == "" {
+		t.Fatal("Stamp after Save must be non-empty")
+	}
+	if got := Stamp(); got != first {
+		t.Errorf("Stamp on an unchanged file = %q, want %q", got, first)
+	}
+}
+
+func TestStampChangesOnSave(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	if err := Save(Default()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	before := Stamp()
+	// Rewrite with a different size so the fingerprint moves even inside one
+	// mtime tick.
+	s := Default()
+	s.InstanceName = "renamed-box"
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if got := Stamp(); got == before {
+		t.Errorf("Stamp after a re-Save = %q, unchanged from %q", got, before)
+	}
+}
+
+func TestStampLegacyFallback(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	// Absent primary + present legacy → the stamp mirrors Load's fallback.
+	legacy := filepath.Join(tmp, ".rk", "settings.yaml")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(legacy, []byte("theme: dracula\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	stamp := Stamp()
+	if stamp == "" {
+		t.Fatal("Stamp with only a legacy file must be non-empty")
+	}
+	if !strings.Contains(stamp, legacy) {
+		t.Errorf("Stamp = %q, want a fingerprint of the legacy path %q", stamp, legacy)
+	}
+}
+
+func TestStampConfigDirOverrideSkipsLegacy(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	legacy := filepath.Join(tmp, ".rk", "settings.yaml")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(legacy, []byte("theme: dracula\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	t.Setenv(ConfigDirEnv, t.TempDir())
+
+	if got := Stamp(); got != "" {
+		t.Errorf("Stamp under the override with an absent primary = %q, want the empty fingerprint (no legacy fallback)", got)
+	}
+}

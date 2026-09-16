@@ -603,10 +603,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // freshly-parsed (referentially-new) object, forcing a redundant
   // HostMetricsContext re-render.
   const hostMetricsPrevRef = useRef<string>("");
-  const applyHostMetrics = useCallback((raw: string, snap: MetricsSnapshot) => {
-    if (raw === hostMetricsPrevRef.current) return;
+  const applyHostMetrics = useCallback((raw: string, snap: MetricsSnapshot): boolean => {
+    if (raw === hostMetricsPrevRef.current) return false;
     hostMetricsPrevRef.current = raw;
     setHostMetrics(snap);
+    return true;
   }, []);
 
   // Same raw-payload dedup as `applyHostMetrics`, for the `services` event. It
@@ -621,8 +622,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
   }, []);
 
   // Same raw-payload dedup as `applyHostServices`, for the `code-server` event
-  // (host-global, rebroadcast every tick — the dedup collapses that repetition
-  // to actual port/reachability transitions).
+  // (host-global — the dedup collapses reconnect replays and ack repeats to
+  // actual port/reachability transitions).
   const codeServerPrevRef = useRef<string>("");
   const applyCodeServer = useCallback((raw: string, signal: CodeServerSignal) => {
     if (raw === codeServerPrevRef.current) return;
@@ -630,8 +631,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     setCodeServer(signal);
   }, []);
 
-  // Same raw-payload dedup as `applyCodeServer`, for the every-tick `gui`
-  // broadcast.
+  // Same raw-payload dedup as `applyCodeServer`, for the `gui` broadcast.
   const guiPrevRef = useRef<string>("");
   const applyGui = useCallback((raw: string, signal: GuiSignal | null) => {
     if (raw === guiPrevRef.current) return;
@@ -925,14 +925,19 @@ export function SessionProvider({ children }: SessionProviderProps) {
           const snap = data as MetricsSnapshot;
           // Dedupe on the raw payload (parity with applyHostMetrics's SSE
           // dedup): the metrics broadcast is host-global.
-          applyHostMetrics(JSON.stringify(data), snap);
+          const changed = applyHostMetrics(JSON.stringify(data), snap);
           // Also populate every attached server's per-server slice metrics, so
           // `useMetrics()` (current-server-scoped — the sidebar Host panel) stays
           // fed. Under SSE this rode each per-server stream's `metrics` listener;
           // the muxed socket delivers metrics ONCE as a global, so fan it into the
-          // subscribed servers' slices here (parity with the old per-server write).
-          for (const name of subscribedServersRef.current) {
-            updateSlice(name, { metrics: snap }, true);
+          // subscribed servers' slices here (parity with the old per-server write) —
+          // but only on a real change: an identical payload (reconnect replay, an
+          // ack repeating the slot) must not re-write every slice and re-render
+          // the tree on identical data.
+          if (changed) {
+            for (const name of subscribedServersRef.current) {
+              updateSlice(name, { metrics: snap }, true);
+            }
           }
           break;
         }

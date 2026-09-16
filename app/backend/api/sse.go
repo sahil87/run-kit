@@ -232,7 +232,8 @@ type sseHub struct {
 	// host-global event fan-out (once per connection, never once per
 	// subscription). A connection is added on hello and dropped on disconnect.
 	stateConns             map[*stateConn]bool
-	previousJSON           map[string]string            // per-server sessions JSON dedup cache
+	previousJSON           map[string]string            // per-server sessions JSON dedup cache (the last SENT payload — ack/replay snapshots read it)
+	previousSessionsKey    map[string]string            // per-server sessions dedup key: the payload rendered with ActivityTimestamp zeroed on active windows (the client renders no timestamp there)
 	previousOrderJSON      map[string]string            // per-server session-order event payload cache (only present when populated by a successful read or a POST broadcast)
 	orderBootstrapAttempts map[string]int               // per-server count of failed bootstrap attempts; capped at orderBootstrapMaxAttempts
 	previousRealSessions   map[string]map[string]bool   // per-server prior-tick real (non-anchor) session names for disappearance logging
@@ -294,8 +295,9 @@ type sseHub struct {
 	// The guiEnabled/guiProbeAt/guiInfo/guiBackend/guiDisplay/guiWM/guiViewers/
 	// cachedGuiJSON group implements the host-global `event: gui` slot
 	// (mirroring the code-server slot). guiEnabled and guiGeometry are re-read
-	// from the settings file every tick — a CLI-side `rk gui on` writes the
-	// file directly and must surface without a settings POST. guiProbeAt/guiInfo
+	// from the settings file behind the settingsStamp gate — a CLI-side
+	// `rk gui on` writes the file directly and must surface without a settings
+	// POST. guiProbeAt/guiInfo
 	// are the TTL-cached probe result; guiBackend/guiDisplay/guiWM are the
 	// supervisor's stamped session options from the last probe pass (the
 	// viewers>0 short-circuit keeps the last values — the stamps do not
@@ -315,6 +317,18 @@ type sseHub struct {
 	guiWM         string
 	guiViewers    map[string]int
 	cachedGuiJSON string
+	// cachedGuiKey is the dedup key beside cachedGuiJSON: the same payload
+	// with HumanInputAgoMS flattened to a presence marker — the age moves
+	// every tick once a viewer has driven the display and no stream consumer
+	// reads it, so it must not defeat change-only emission.
+	cachedGuiKey string
+	// settingsStamp/settingsCache/settingsLoaded gate guiTick's settings
+	// re-read behind a settings.Stamp fingerprint: the file is parsed on the
+	// first tick and again only when the stamp moves (a CLI-side `rk gui on`
+	// writes the file directly, so the POST path is not the only writer).
+	settingsStamp  string
+	settingsCache  settings.Settings
+	settingsLoaded bool
 	// guiLocked is the host resolution pin (@rk_gui_lock) as of the last
 	// probe pass (read beside the stamps). guiHumanInput is the
 	// last-relayed-human-input timestamp per id, written by the relay's
@@ -538,6 +552,7 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		clients:                make(map[string][]*sseClient),
 		stateConns:             make(map[*stateConn]bool),
 		previousJSON:           make(map[string]string),
+		previousSessionsKey:    make(map[string]string),
 		previousOrderJSON:      make(map[string]string),
 		orderBootstrapAttempts: make(map[string]int),
 		previousRealSessions:   make(map[string]map[string]bool),
@@ -758,21 +773,37 @@ func (h *sseHub) guiProbeTTLEffective() time.Duration {
 // hung endpoint can never stall the poll loop past one tick.
 const guiTickTimeout = 5 * time.Second
 
-// guiTick maintains the host-global `event: gui` slot and is invoked on every
-// poll tick beside codeServerTick. It re-reads gui.enabled from the settings
-// file EVERY tick (a CLI-side `rk gui on` writes the file directly and must
-// surface without a settings POST), refreshes the TTL-cached probe when
-// enabled, and broadcasts the always-list-shaped payload. The tmux option
-// read and the probe dial run OUTSIDE h.mu (the codeServerTick discipline).
+// guiTick maintains the host-global `event: gui` slot and is invoked on
+// dispatch ticks (never fold-only ticks) beside the code-server emitter. It
+// re-reads gui.enabled/gui.geometry from the settings file behind a
+// settings.Stamp gate — parsed on the first tick and again only when the
+// file's fingerprint moves (a CLI-side `rk gui on` writes the file directly
+// and must surface without a settings POST) — refreshes the TTL-cached probe
+// when enabled, and broadcasts the always-list-shaped payload only when its
+// dedup key changed. The tmux option read and the probe dial run OUTSIDE
+// h.mu (the codeServerTick discipline).
 // While at least one relay viewer is live the dial is skipped: reachability
 // follows from the live relay and each dial would write accept/close lines
 // into the supervisor pane's log.
 func (h *sseHub) guiTick() {
-	guiSettings := settings.Load()
-	enabled := guiSettings.GUIEnabled
+	stamp := settings.Stamp()
+	h.mu.RLock()
+	reload := !h.settingsLoaded || stamp != h.settingsStamp
+	h.mu.RUnlock()
+	if reload {
+		// Parsed outside h.mu; the poll loop is the only writer of the
+		// settings trio, so the re-lock cannot lose a concurrent update.
+		loaded := settings.Load()
+		h.mu.Lock()
+		h.settingsCache = loaded
+		h.settingsStamp = stamp
+		h.settingsLoaded = true
+		h.mu.Unlock()
+	}
 
 	h.mu.Lock()
-	h.guiGeometry = guiSettings.GUIGeometry
+	enabled := h.settingsCache.GUIEnabled
+	h.guiGeometry = h.settingsCache.GUIGeometry
 	if enabled != h.guiEnabled {
 		h.guiEnabled = enabled
 		// Force a fresh probe on the flip so a CLI on/off surfaces within one
@@ -836,18 +867,26 @@ func (h *sseHub) guiTick() {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	str := h.guiPayloadLocked()
-	if str == "" {
+	payload, key := h.guiPayloadLocked()
+	if payload == "" {
 		return
 	}
-	h.cachedGuiJSON = str
-	h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "gui", data: str})
+	if key != h.cachedGuiKey {
+		h.cachedGuiJSON = payload
+		h.cachedGuiKey = key
+		h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "gui", data: payload})
+	}
 }
 
-// guiPayloadLocked renders the `event: gui` payload from hub state. The
-// payload is ALWAYS a single-element list; a disabled GUI renders the fixed
-// all-zero entry. Caller MUST hold h.mu.
-func (h *sseHub) guiPayloadLocked() string {
+// guiPayloadLocked renders the `event: gui` payload from hub state, plus its
+// dedup key — the same payload with HumanInputAgoMS flattened to a
+// presence marker. That field is a live age (it moves every tick once any
+// viewer has driven the display) and no stream consumer reads it, so the AGE
+// is excluded from the key while still riding the wire; its PRESENCE stays
+// in the key (the omitempty absent→present transition is wire-visible).
+// The payload is ALWAYS a single-element list; a disabled GUI renders the
+// fixed all-zero entry. Caller MUST hold h.mu.
+func (h *sseHub) guiPayloadLocked() (payload, key string) {
 	entry := gui.StreamEntry{ID: daemon.GUIWindowName, Enabled: h.guiEnabled}
 	if h.guiEnabled {
 		entry.Backend = h.guiBackend
@@ -865,16 +904,26 @@ func (h *sseHub) guiPayloadLocked() string {
 	}
 	b, err := json.Marshal([]gui.StreamEntry{entry})
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return string(b)
+	// The age is clamped ≥ 1 when present, so > 0 ⟺ present; 1 is the
+	// presence marker (any fixed positive value would do).
+	if entry.HumanInputAgoMS > 0 {
+		entry.HumanInputAgoMS = 1
+	}
+	kb, err := json.Marshal([]gui.StreamEntry{entry})
+	if err != nil {
+		return "", ""
+	}
+	return string(b), string(kb)
 }
 
 // setGUIEnabled is the settings-POST apply seam: flips guiEnabled, zeroes the
 // probe age (the next tick re-probes), and re-renders + broadcasts
-// immediately so the POST caller's state socket sees the flip within one
-// state event instead of waiting out the poll cadence. The CLI path (`rk gui
-// on`) never calls this — the tick's per-tick settings re-read covers it.
+// immediately (and unconditionally — the flip path must stay one-state-event
+// fast) so the POST caller's state socket sees the flip within one state
+// event instead of waiting out the poll cadence. The CLI path (`rk gui on`)
+// never calls this — the tick's stamp-gated settings re-read covers it.
 func (h *sseHub) setGUIEnabled(enabled bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -891,12 +940,13 @@ func (h *sseHub) setGUIEnabled(enabled bool) {
 	if !enabled {
 		h.guiGeometry = ""
 	}
-	str := h.guiPayloadLocked()
-	if str == "" {
+	payload, key := h.guiPayloadLocked()
+	if payload == "" {
 		return
 	}
-	h.cachedGuiJSON = str
-	h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "gui", data: str})
+	h.cachedGuiJSON = payload
+	h.cachedGuiKey = key
+	h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "gui", data: payload})
 }
 
 // guiViewerAdd / guiViewerRemove track live /ws/gui/{id} relay connections
@@ -1762,11 +1812,11 @@ func (h *sseHub) poll() {
 	// observes the post-mutation tmux state immediately.
 	eventDrivenServers := map[string]bool{}
 	// resultsOnly marks ticks whose wait ended solely on unit completions
-	// with no event-driven flags pending: they fold/sweep/broadcast but do
-	// NOT dispatch (dispatching there would self-perpetuate — see
-	// waitForNext's resultsOnly return). A completion with a pending flag is
-	// a full tick: that flag's dispatch was skipped mid-flight and the
-	// completion is its prompt re-dispatch moment.
+	// with no event-driven flags pending: they fold/sweep but emit NO
+	// host-global event and do NOT dispatch (dispatching there would
+	// self-perpetuate — see waitForNext's resultsOnly return). A completion
+	// with a pending flag is a full tick: that flag's dispatch was skipped
+	// mid-flight and the completion is its prompt re-dispatch moment.
 	resultsOnly := false
 
 	for {
@@ -1818,9 +1868,9 @@ func (h *sseHub) poll() {
 			}
 		}
 
-		// Tick shape: fold → sweep → global broadcasts → dispatch → wait.
-		// Per-server work runs as concurrent units (bounded by
-		// ssePollConcurrency) that emit their own server's events as they
+		// Tick shape: fold → sweep → [dispatch tick: global broadcasts →
+		// dispatch] → wait. Per-server work runs as concurrent units (bounded
+		// by ssePollConcurrency) that emit their own server's events as they
 		// complete; the poll goroutine itself never executes fetch work, so
 		// one slow server cannot delay another server's snapshot, the
 		// host-global broadcasts, or the sweeps below.
@@ -1894,6 +1944,7 @@ func (h *sseHub) poll() {
 				delete(h.clients, server)
 				delete(h.cache, server)
 				delete(h.previousJSON, server)
+				delete(h.previousSessionsKey, server)
 				delete(h.previousRealSessions, server)
 				delete(h.orderBootstrapAttempts, server)
 				delete(h.previousOrderJSON, server)
@@ -1916,67 +1967,68 @@ func (h *sseHub) poll() {
 			h.mu.Unlock()
 		}
 
-		// Broadcast metrics to every state-socket connection (server-independent,
-		// every tick — a host-global event, fanned once per connection).
-		if h.metrics != nil {
-			snap := h.metrics.Snapshot()
-			metricsJSON, err := json.Marshal(snap)
-			if err == nil {
-				metricsStr := string(metricsJSON)
-				// Rendered before the lock — see broadcastSessionOrder.
-				ev := preRendered(hubEvent{kind: kindGlobal, typ: "metrics", data: metricsStr})
-				h.mu.Lock()
-				h.cachedMetricsJSON = metricsStr
-				h.broadcastGlobalLocked(ev)
-				h.mu.Unlock()
-			}
-		}
-
-		// Broadcast listening services to every state-socket connection
-		// (server-independent, every tick) — mirrors the metrics broadcast.
-		if h.services != nil {
-			snap := h.services.Snapshot()
-			servicesJSON, err := json.Marshal(snap)
-			if err == nil {
-				servicesStr := string(servicesJSON)
-				// Rendered before the lock — see broadcastSessionOrder.
-				ev := preRendered(hubEvent{kind: kindGlobal, typ: "services", data: servicesStr})
-				h.mu.Lock()
-				h.cachedServicesJSON = servicesStr
-				h.broadcastGlobalLocked(ev)
-				h.mu.Unlock()
-			}
-		}
-
-		// Broadcast the code-server signal (host-global, every tick when
-		// configured) — mirrors the services broadcast. Reachability comes from
-		// the TTL-cached probe; the payload is replayed to late joiners via
-		// cachedCodeServerJSON. Client-side raw-payload dedup (the services
-		// pattern) absorbs the per-tick repetition.
-		if h.codeServerPort != 0 {
-			_, reachable := h.codeServerTick()
-			if payload, err := json.Marshal(codeServerPayload{Reachable: reachable}); err == nil {
-				str := string(payload)
-				h.mu.Lock()
-				h.cachedCodeServerJSON = str
-				h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "code-server", data: str})
-				h.mu.Unlock()
-			}
-		}
-
-		// Broadcast the GUI state (host-global, every tick, enabled or not) —
-		// mirrors the code-server broadcast above. The tick re-reads
-		// gui.enabled from the settings file so a CLI-side `rk gui on`
-		// surfaces without a POST, and replays to late joiners via
-		// cachedGuiJSON.
-		h.guiTick()
-
-		// Dispatch this tick's per-server units — skipped on results-only
-		// ticks (see above). Each unit runs on its own goroutine (bounded by
-		// ssePollConcurrency via pollSem) and delivers its result to
-		// pollResults for a later tick's fold — the loop never joins on
-		// units, so a slow server cannot stall the tick.
+		// Dispatch-tick work — skipped on results-only ticks (see above): the
+		// host-global broadcasts ride dispatch ticks only, because a fold-only
+		// tick has nothing new to say (unit completions carry their own
+		// per-server frames), and each global emits only when its marshalled
+		// payload differs from the cached slot. Then this tick's per-server
+		// units dispatch, each on its own goroutine (bounded by
+		// ssePollConcurrency via pollSem) delivering its result to pollResults
+		// for a later tick's fold — the loop never joins on units, so a slow
+		// server cannot stall the tick.
 		if !resultsOnly {
+			// Metrics (server-independent, fanned once per connection). The
+			// collector snapshot and its marshal stay OUTSIDE h.mu; the
+			// compare against the cached slot and the slot write happen under
+			// it, and an unchanged payload emits nothing.
+			if h.metrics != nil {
+				snap := h.metrics.Snapshot()
+				if metricsJSON, err := json.Marshal(snap); err == nil {
+					metricsStr := string(metricsJSON)
+					h.mu.Lock()
+					if metricsStr != h.cachedMetricsJSON {
+						h.cachedMetricsJSON = metricsStr
+						h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "metrics", data: metricsStr}))
+					}
+					h.mu.Unlock()
+				}
+			}
+
+			// Listening services — same change-only shape as metrics.
+			if h.services != nil {
+				snap := h.services.Snapshot()
+				if servicesJSON, err := json.Marshal(snap); err == nil {
+					servicesStr := string(servicesJSON)
+					h.mu.Lock()
+					if servicesStr != h.cachedServicesJSON {
+						h.cachedServicesJSON = servicesStr
+						h.broadcastGlobalLocked(preRendered(hubEvent{kind: kindGlobal, typ: "services", data: servicesStr}))
+					}
+					h.mu.Unlock()
+				}
+			}
+
+			// The code-server signal — same change-only shape. Reachability
+			// comes from the TTL-cached probe; the payload is replayed to late
+			// joiners via cachedCodeServerJSON.
+			if h.codeServerPort != 0 {
+				_, reachable := h.codeServerTick()
+				if payload, err := json.Marshal(codeServerPayload{Reachable: reachable}); err == nil {
+					str := string(payload)
+					h.mu.Lock()
+					if str != h.cachedCodeServerJSON {
+						h.cachedCodeServerJSON = str
+						h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "code-server", data: str})
+					}
+					h.mu.Unlock()
+				}
+			}
+
+			// The GUI state (enabled or not) — change-only on the
+			// age-stripped key inside guiTick; replays to late joiners via
+			// cachedGuiJSON.
+			h.guiTick()
+
 			for _, server := range servers {
 				// Metrics-only clients (server-neutral, `?metrics=1`) have no tmux
 				// server — skip all session-fetch / order / reap work for them. They
@@ -2200,22 +2252,34 @@ func (h *sseHub) pollServerUnit(server string, invalidateCache bool) pollUnitRes
 		return res
 	}
 	jsonStr := string(jsonBytes)
+	key, err := sessionsDedupKey(result)
+	if err != nil {
+		return res
+	}
 
 	// Dedup-check and cache-update under the lock, but render OUTSIDE
 	// it: the envelope marshal on this hot tick must not extend h.mu
 	// hold time (it would block subscribe/unsubscribe/preview-scope
 	// updates). Splitting the critical section is safe:
-	//   - the ack-ordering invariant holds — previousJSON is updated
-	//     BEFORE any fan-out of that tick, so a subscribe ack reading
-	//     it is always ≥ every sessions frame already enqueued
+	//   - the ack-ordering invariant holds — previousJSON (the last SENT
+	//     payload; ack/replay snapshots read it) and previousSessionsKey
+	//     are updated TOGETHER BEFORE any fan-out of that tick, so a
+	//     subscribe ack reading previousJSON is always ≥ every sessions
+	//     frame already enqueued
 	//     (TestStateWS_SubscribeAckNotStaleUnderPollInterleave);
 	//   - a client subscribing in the gap replays the NEW snapshot in
 	//     addClient and then also receives the identical event below —
 	//     a benign duplicate (the client applies state by replacement).
+	// The dedup compares the KEY, not the payload: the key zeroes
+	// ActivityTimestamp on active windows so output churn on an
+	// already-`flowing` window does not re-emit a frame nothing visible
+	// reads, while a suppressed tick leaves previousJSON holding the last
+	// payload clients actually hold.
 	h.mu.Lock()
-	changed := jsonStr != h.previousJSON[server]
+	changed := key != h.previousSessionsKey[server]
 	if changed {
 		h.previousJSON[server] = jsonStr
+		h.previousSessionsKey[server] = key
 	}
 	h.mu.Unlock()
 	if changed {
@@ -2325,6 +2389,34 @@ func (h *sseHub) pollServerUnit(server string, invalidateCache bool) pollUnitRes
 	h.previousRealSessions[server] = currentReal
 	h.mu.Unlock()
 	return res
+}
+
+// sessionsDedupKey renders the dedup key for a sessions snapshot: the same
+// JSON the wire payload carries, but with ActivityTimestamp zeroed on every
+// window whose Activity is "active". The client renders no timestamp for an
+// active window (it shows `flowing`), so output churn there changes nothing
+// visible and must not re-emit the frame; an idle window's timestamp drives
+// its `idle <dur>` label and stays in the key. The input is the cached
+// result slice other consumers (attachPRStatus, previews) read, so the key
+// is built from shallow copies — result is never mutated.
+func sessionsDedupKey(result []sessions.ProjectSession) (string, error) {
+	keyed := make([]sessions.ProjectSession, len(result))
+	for i := range result {
+		keyed[i] = result[i]
+		windows := make([]tmux.WindowInfo, len(result[i].Windows))
+		copy(windows, result[i].Windows)
+		for j := range windows {
+			if windows[j].Activity == tmux.WindowActivityActive {
+				windows[j].ActivityTimestamp = 0
+			}
+		}
+		keyed[i].Windows = windows
+	}
+	b, err := json.Marshal(keyed)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // wake marks the server for an immediate snapshot pass. Non-blocking and safe

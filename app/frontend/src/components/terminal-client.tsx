@@ -10,6 +10,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { ProgressAddon } from "@xterm/addon-progress";
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useTheme } from "@/contexts/theme-context";
+import { useOptionalToast } from "@/components/toast";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { deriveXtermTheme } from "@/themes";
@@ -136,6 +137,63 @@ function setActiveRenderer(windowId: string, renderer: "webgl" | "canvas") {
 function unsetActiveRenderer(windowId: string) {
   if (typeof window === "undefined" || !window.__rkRenderer) return;
   delete window.__rkRenderer[windowId];
+}
+
+/** Toast text on the first WebGL context loss of a page load. */
+export const WEBGL_FALLBACK_TOAST =
+  "Terminal GPU rendering lost — using the slower DOM renderer";
+
+/**
+ * Live xterm instances on this page: every TerminalClient that finished init
+ * and has not unmounted holds a `__rkRenderer` entry. Chromium caps WebGL
+ * contexts at 16 per page and evicts the oldest, so this count at the moment
+ * of a loss is what separates "context budget" from "GPU reset".
+ */
+function mountedTerminalCount(): number {
+  if (typeof window === "undefined" || !window.__rkRenderer) return 0;
+  return Object.keys(window.__rkRenderer).length;
+}
+
+/**
+ * Once per page load: a board or hidden-tile set losing many contexts at once
+ * is one event to the user, while the console keeps the per-event count.
+ */
+let webglFallbackToastShown = false;
+
+/** Test seam only — production code never re-arms the one-shot toast. */
+export function resetWebglFallbackNoticeForTests(): void {
+  webglFallbackToastShown = false;
+}
+
+type WebglFallbackKind = "context-loss" | "unavailable";
+
+type FallbackToast = {
+  addToast: (message: string, variant?: "error" | "info") => void;
+} | null;
+
+/**
+ * The fallback is announced, not fixed: the DOM renderer roughly doubles
+ * renderer CPU, and how often real hardware lands there is the number a fix
+ * would be sized on. The `rk: xterm WebGL` prefix, the `{server}/{windowId}`
+ * pair and the `(N terminal(s) mounted)` suffix are the greppable contract.
+ *
+ * Only a RUNTIME loss toasts: a host with no WebGL at all (software-rendered
+ * headless Chromium) would otherwise raise an alert on every page load.
+ */
+function reportWebglFallback(
+  kind: WebglFallbackKind,
+  server: string,
+  windowId: string,
+  toast: FallbackToast,
+): void {
+  const n = mountedTerminalCount();
+  const what = kind === "context-loss" ? "context lost" : "unavailable at load";
+  console.warn(
+    `rk: xterm WebGL ${what} for ${server}/${windowId} — using the DOM renderer (${n} terminal${n === 1 ? "" : "s"} mounted)`,
+  );
+  if (kind !== "context-loss" || webglFallbackToastShown) return;
+  webglFallbackToastShown = true;
+  toast?.addToast(WEBGL_FALLBACK_TOAST, "info");
 }
 
 /**
@@ -271,6 +329,11 @@ export function TerminalClient({
   // keybinding refs above.
   const onProgressChangeRef = useRef(onProgressChange);
   onProgressChangeRef.current = onProgressChange;
+  // Provider-optional: isolated mounts (tests) degrade to no toast. Mirrored
+  // into a ref so the init effect's dependency list stays unchanged.
+  const toast = useOptionalToast();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
 
   // Register this terminal as the BottomBar's focused input target. The
   // single-terminal route trivially has only one terminal — this is the
@@ -508,12 +571,14 @@ export function TerminalClient({
           // Drop to the fallback renderer so output keeps flowing.
           try { webgl.dispose(); } catch { /* already disposing */ }
           setActiveRenderer(windowId, "canvas");
+          reportWebglFallback("context-loss", server, windowId, toastRef.current);
         });
         terminal.loadAddon(webgl);
         setActiveRenderer(windowId, "webgl");
       } catch {
         // canvas renderer continues working
         setActiveRenderer(windowId, "canvas");
+        reportWebglFallback("unavailable", server, windowId, toastRef.current);
       }
 
       // Keyboard input → current WebSocket (wsRef always points to latest)

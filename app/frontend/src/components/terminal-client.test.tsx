@@ -10,7 +10,14 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { ProgressAddon } from "@xterm/addon-progress";
-import { TerminalClient, SCROLLBACK_DESKTOP, SCROLLBACK_MOBILE } from "./terminal-client";
+import {
+  TerminalClient,
+  SCROLLBACK_DESKTOP,
+  SCROLLBACK_MOBILE,
+  WEBGL_FALLBACK_TOAST,
+  resetWebglFallbackNoticeForTests,
+} from "./terminal-client";
+import { ToastProvider } from "@/components/toast";
 import { COARSE_POINTER_QUERY } from "@/hooks/use-coarse-pointer";
 import type { OpenStreamOpts, RelayStream } from "@/lib/relay-mux";
 import { notifyFirstWrite } from "@/lib/window-transition";
@@ -1872,5 +1879,142 @@ describe("TerminalClient switch-receipt source — exactly one terminal reports 
       st.emitData("x".repeat(200));
     });
     expect(notifyFirstWrite).not.toHaveBeenCalled();
+  });
+});
+
+describe("TerminalClient WebGL fallback telemetry", () => {
+  // The fallback is announced, not fixed: every fallback path warns on the
+  // console with the greppable `rk: xterm WebGL` contract, and only the FIRST
+  // runtime context loss of a page load raises one info toast. The loss is
+  // forced by invoking the callback init() registered on the mocked addon.
+  type LossAddon = { dispose: ReturnType<typeof vi.fn>; onContextLoss: ReturnType<typeof vi.fn> };
+
+  function webglAddon(i = 0): LossAddon {
+    const addon = vi.mocked(WebglAddon).mock.results[i]?.value as LossAddon | undefined;
+    expect(addon).toBeDefined();
+    return addon as LossAddon;
+  }
+
+  function lossCallback(i = 0): () => void {
+    const cb = webglAddon(i).onContextLoss.mock.calls[0]?.[0];
+    expect(typeof cb).toBe("function");
+    return cb as () => void;
+  }
+
+  function renderInToastProvider(windowIds: string[]) {
+    return render(
+      <ToastProvider>
+        <ChromeProvider>
+          <FocusedTerminalProvider>
+            {windowIds.map((id) => (
+              <TerminalClient
+                key={id}
+                sessionName="test-session"
+                windowId={id}
+                server="default"
+                wsRef={createWsRef()}
+              />
+            ))}
+          </FocusedTerminalProvider>
+        </ChromeProvider>
+      </ToastProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: false,
+      media: "",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    MockStream.instances = [];
+    mockRelayMux.openStream.mockClear();
+    vi.mocked(Terminal).mockClear();
+    vi.mocked(UnicodeGraphemesAddon).mockClear();
+    vi.mocked(WebglAddon).mockClear();
+    resetWebglFallbackNoticeForTests();
+    delete window.__rkRenderer;
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    delete window.__rkRenderer;
+  });
+
+  it("a runtime context loss disposes the addon, records canvas, and warns once with server/window and the mounted count", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    renderTerminalClient(false);
+    await waitFor(() => expect(vi.mocked(WebglAddon)).toHaveBeenCalledTimes(1));
+    expect(window.__rkRenderer?.["@0"]).toBe("webgl");
+
+    act(() => lossCallback()());
+
+    expect(webglAddon().dispose).toHaveBeenCalledTimes(1);
+    expect(window.__rkRenderer?.["@0"]).toBe("canvas");
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain("rk: xterm WebGL context lost");
+    expect(message).toContain("default/@0");
+    expect(message).toContain("(1 terminal mounted)");
+  });
+
+  it("raises exactly one info toast per page load across terminals, while every loss warns", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = renderInToastProvider(["@1", "@2"]);
+    await waitFor(() => expect(vi.mocked(WebglAddon)).toHaveBeenCalledTimes(2));
+
+    act(() => {
+      lossCallback(0)();
+      lossCallback(1)();
+    });
+
+    const alerts = result.getAllByRole("alert");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].textContent).toContain(WEBGL_FALLBACK_TOAST);
+    expect(warn).toHaveBeenCalledTimes(2);
+    // Both terminals had finished init, so each loss reports the pair.
+    expect(String(warn.mock.calls[0]?.[0])).toContain("(2 terminals mounted)");
+    expect(String(warn.mock.calls[1]?.[0])).toContain("(2 terminals mounted)");
+  });
+
+  it("outside a ToastProvider a context loss still warns and never throws", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = renderTerminalClient(false);
+    await waitFor(() => expect(vi.mocked(WebglAddon)).toHaveBeenCalledTimes(1));
+
+    expect(() => act(() => lossCallback()())).not.toThrow();
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(result.queryByRole("alert")).toBeNull();
+  });
+
+  it("a load-time WebGL failure warns without a toast and the terminal still initialises", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // `function`, not an arrow: init() calls `new WebglAddon()`, and Vitest
+    // warns on the console (the spied channel) when an arrow mock is constructed.
+    vi.mocked(WebglAddon).mockImplementationOnce(function () {
+      throw new Error("no webgl");
+    });
+    const result = renderInToastProvider(["@0"]);
+
+    await waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain("rk: xterm WebGL unavailable at load");
+    expect(message).toContain("default/@0");
+    expect(message).toContain("(1 terminal mounted)");
+    expect(result.queryByRole("alert")).toBeNull();
+    expect(window.__rkRenderer?.["@0"]).toBe("canvas");
+
+    // The rest of init ran: the addons before WebGL loaded on the terminal.
+    const terminal = vi.mocked(Terminal).mock.results[0]?.value;
+    const loaded = terminal.loadAddon.mock.calls.map((c: unknown[]) => c[0]);
+    expect(loaded).toContain(vi.mocked(UnicodeGraphemesAddon).mock.results[0]?.value);
   });
 });

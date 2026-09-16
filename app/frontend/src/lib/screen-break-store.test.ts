@@ -3,6 +3,7 @@ import {
   _resetForTests,
   easterEggsEnabled,
   fire,
+  dismiss,
   finish,
   getState,
   PEEK_KEY,
@@ -161,6 +162,17 @@ describe("screen-break store", () => {
     expect(getState().flight?.egg).toBe("peek");
     get.mockRestore();
     set.mockRestore();
+  });
+
+  it("dismiss stamps the flight once; without a flight it is a no-op", () => {
+    expect(dismiss()).toBe(false);
+    fire("smash", { force: true });
+    expect(getState().flight!.dismissedAt).toBeUndefined();
+    expect(dismiss()).toBe(true);
+    const stamp = getState().flight!.dismissedAt;
+    expect(typeof stamp).toBe("number");
+    expect(dismiss()).toBe(false);
+    expect(getState().flight!.dismissedAt).toBe(stamp);
   });
 
   it("finish clears the flight and notifies subscribers", () => {

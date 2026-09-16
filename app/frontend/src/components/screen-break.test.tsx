@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, act, fireEvent, waitFor } from "@testing-library/react";
 import { ScreenBreak, ScreenBreakController } from "./screen-break";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import type { SessionContextType } from "@/contexts/session-context";
@@ -209,6 +209,38 @@ describe("ScreenBreak", () => {
       expect(Number(p.getAttribute("stroke-width"))).toBeGreaterThan(0);
     }
     act(() => finish());
+  });
+
+  it("clicking the released fist dismisses: the flight heals fast and the glass is cleaned", () => {
+    render(<ScreenBreak />);
+    act(() => {
+      fire("smash", { force: true });
+    });
+    const startedAt = getState().flight!.startedAt;
+    stepTo(startedAt + 6000);
+    const inside = document.querySelector<HTMLElement>('[data-part="creature-inside"]')!;
+    const above = document.querySelector<HTMLElement>('[data-part="creature-above"]')!;
+    // Only the visible slot may catch clicks — the hidden one is visibility:hidden.
+    expect(inside.style.visibility).toBe("hidden");
+    expect(above.style.visibility).toBe("visible");
+
+    // jsdom's selector engine does not resolve `svg *` across the namespace boundary.
+    const shape = above.querySelector("svg")!.firstElementChild!;
+    vi.spyOn(performance, "now").mockReturnValue(startedAt + 6000);
+    act(() => {
+      fireEvent.click(shape);
+    });
+    expect(getState().flight!.dismissedAt).toBe(startedAt + 6000);
+
+    // 1.5 s after the click the compressed heal has run past t = 1:
+    // resume at 0.64 (the retreat) + 0.125 × 3 = 1.015 → finish.
+    stepTo(startedAt + 6100);
+    expect(screen.queryByTestId("screen-break")).not.toBeNull();
+    stepTo(startedAt + 7500);
+    expect(screen.queryByTestId("screen-break")).toBeNull();
+    expect(getState().flight).toBeNull();
+    expect(glass.style.clipPath).toBe("");
+    expect(glass.style.transform).toBe("");
   });
 
   it("reduced motion: fire is a no-op and nothing mounts", () => {

@@ -2012,6 +2012,12 @@ html[data-theme="light"] {
 
 .rk-sb-creature { position: absolute; inset: 0; }
 .rk-sb-sprite { position: absolute; width: 0; height: 0; }
+/* The creature is the ONE click target of the layer: its painted shapes
+   re-enable hit-testing (the groups above are pointer-events: none) so a
+   click on the fist or the eye dismisses the flight early, while the cracks
+   and the rest of the viewport stay transparent to the pointer. The slot's
+   `visibility` (written per frame) hides the inactive slot from hit-testing. */
+.rk-sb-sprite svg * { pointer-events: visiblePainted; cursor: pointer; }
 .rk-sb-sprite svg {
   position: absolute;
   left: 0;

@@ -64,6 +64,15 @@
 - **GIVEN** the entry is absent
 - **THEN** the switch renders checked
 
+### Layer: click-to-dismiss (added in flight at the user's request, after review)
+
+#### R7: A click on the creature dismisses the flight with a fast heal
+The store MUST export `dismiss(): boolean` stamping `dismissedAt` on the live flight once (no-op without a flight or when stamped). The creature sprite MUST be the layer's only click target — `.rk-sb-sprite svg * { pointer-events: visiblePainted; cursor: pointer }` while both groups stay `pointer-events: none` — and the inactive creature slot MUST be `visibility: hidden` per frame so it cannot be hit. After a dismiss the frame loop MUST run `t = clamp(v0 + (raw − td)·3)` with `v0 = dismissOrigin(td)` resuming on the retreat curve at the same emerge amount (`td ≥ 0.64 → td`; `0.44 ≤ td < 0.64 → 0.64`; else `0.64 + 0.12·(1 − clamp((td − 0.3)/0.14))`), so the heal takes ~1.4 s and nothing cuts.
+
+- **GIVEN** a `smash` flight at t = 0.5 (fist released)
+- **WHEN** a painted shape of the above slot is clicked
+- **THEN** `dismissedAt` is stamped, and 1.5 s later the layer has unmounted with the glass clean
+
 ### Tests and gates
 
 #### R6: Coverage and gates
@@ -124,6 +133,7 @@ Go: `registry_test.go` (`wantKeys`, metadata checks, default cases), `settings_t
 
 - [x] T007 Add the General-toggle persistence e2e test to `app/frontend/tests/e2e/settings-dialog.spec.ts` (click `#settings-easter-eggs`, `expect.poll` GET `/api/settings` → `false`, click again → `true`, restore in `finally`, Proves/Steps JSDoc, no PR numbers or change IDs) <!-- R6 -->
 - [x] T008 Run the gates from the repo root: `env -u TMUX -u TMUX_PANE just test-backend`, `just test-frontend` (full Vitest), `just test-e2e settings-dialog.spec`, `just test-e2e screen-break.spec`; fix and re-run until all are green <!-- R6 -->
+- [x] T009 Click-to-dismiss (post-review addition): `dismiss()` in `screen-break-store.ts`, `dismissOrigin` + `DISMISS_SPEED` remap and per-frame slot `visibility` in `screen-break.tsx`, `.rk-sb-sprite svg *` pointer rule in `globals.css`, store + component tests, the e2e "clicking the fist heals the screen early" test; memory § The 12 s timeline → Dismiss and a Design Decisions entry; gates re-run (`just test-frontend`, `just test-e2e screen-break.spec`) <!-- R7 -->
 
 ## Execution Order
 
@@ -155,6 +165,8 @@ Go: `registry_test.go` (`wantKeys`, metadata checks, default cases), `settings_t
 - [x] A-011 R2: a flight already running when the setting flips off completes normally (no cancellation path added)
 - [x] A-012 R3: a controller unmount before the fetch resolves does not touch the store (cancelled flag)
 - [x] A-013 R4: `commitSetting("easter_eggs", null)` re-enables the store (registry default)
+- [x] A-020 R7: only the visible creature slot is hit-testable (inactive slot `visibility: hidden`; groups stay `pointer-events: none`); a click on a painted shape stamps `dismissedAt` once
+- [x] A-021 R7: the compressed heal resumes at the sprite's current emerge amount and unmounts the layer within ~1.5 s with the glass clean (unit + e2e)
 
 ### Code Quality
 
@@ -170,6 +182,7 @@ Go: `registry_test.go` (`wantKeys`, metadata checks, default cases), `settings_t
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+- **Post-review addition (R7/T009/A-020–021)**: click-to-dismiss was requested by the user after the review and review-pr stages passed and was added as a further commit on the same PR; it is covered by its own unit and e2e tests and re-gated with `just test-frontend` and `just test-e2e screen-break.spec`.
 
 ## Deletion Candidates
 

@@ -35,6 +35,8 @@ export type ScreenBreakFlight = {
   R: number;
   W: number;
   H: number;
+  /** Set by `dismiss()`; the layer compresses the rest of the flight into a fast heal from here. */
+  dismissedAt?: number;
 };
 
 export type ScreenBreakState = { flight: ScreenBreakFlight | null };
@@ -140,6 +142,20 @@ export function finish(): void {
   if (!state.flight) return;
   state = { flight: null };
   notify();
+}
+
+/**
+ * Dismiss the flight early. Stamps `dismissedAt`; the layer's frame loop
+ * remaps the remaining timeline into a fast heal (the creature retreats, the
+ * hole closes, the cracks fade — never a cut). The creature sprite is the only
+ * click target — the layer itself stays pointer-transparent so the app keeps
+ * working under the cracks. No-op without a flight or when already dismissed.
+ */
+export function dismiss(): boolean {
+  if (!state.flight || state.flight.dismissedAt !== undefined) return false;
+  state = { flight: { ...state.flight, dismissedAt: performance.now() } };
+  notify();
+  return true;
 }
 
 export function _resetForTests(): void {

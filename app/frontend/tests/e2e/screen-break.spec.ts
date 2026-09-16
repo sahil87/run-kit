@@ -97,6 +97,37 @@ test.describe("screen-break eggs — motion allowed", () => {
     await expect(page.locator(".app-root")).not.toHaveAttribute("style", /clip-path/);
     await expect(page.locator(".app-root")).not.toHaveAttribute("style", /transform/);
   });
+
+  /**
+   * Proves: clicking the fist dismisses the egg early — the flight compresses
+   * into a fast heal and the layer detaches long before the natural 12 s end,
+   * with the glass left clean. The creature is the layer's only click target.
+   * Steps:
+   * 1. Navigate to the mocked window route, open the palette, select
+   *    `Easter egg: Smash`.
+   * 2. Wait for the released fist (`[data-part="creature-above"]` visible).
+   * 3. Dispatch a click on one of the fist's painted shapes.
+   * 4. Assert the layer detaches within 4 s (the natural flight would need ~9 s
+   *    more from here).
+   * 5. Assert `.app-root` carries no inline `clip-path` or `transform`.
+   */
+  test("clicking the fist heals the screen early", async ({ page }) => {
+    test.setTimeout(30_000);
+    await page.goto(`/${SERVER}/1`);
+    await expect(
+      page.getByTestId("status-bar").locator("[aria-label='Connected']"),
+    ).toBeVisible();
+
+    await selectSmash(page);
+    const above = page.locator('[data-part="creature-above"]');
+    await expect(above).toHaveCSS("visibility", "visible", { timeout: 8_000 });
+
+    await above.locator("svg *").first().dispatchEvent("click");
+
+    await expect(page.getByTestId("screen-break")).toHaveCount(0, { timeout: 4_000 });
+    await expect(page.locator(".app-root")).not.toHaveAttribute("style", /clip-path/);
+    await expect(page.locator(".app-root")).not.toHaveAttribute("style", /transform/);
+  });
 });
 
 test.describe("screen-break eggs — reduced motion (config default)", () => {

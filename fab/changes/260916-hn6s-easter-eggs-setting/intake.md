@@ -206,6 +206,10 @@ const easterEggsEntry = registry.entries.find((e) => e.key === "easter_eggs");
 - `docs/memory/run-kit/ui/dialogs-and-state.md`: the General → This host row list gains `Easter eggs`; the seam paragraph's write-routing sentence gains the `easter_eggs` store-mirror case beside `gui.enabled`.
 - No spec change (`docs/specs/`), no wiki page.
 
+### 7. Click-to-dismiss (added in flight, after review, at the user's request)
+
+User: "Do you think one should be able to dismiss the easter egg by clicking on it twice (once might be a mistake)" → agreed design: a **single click on the creature** (fist or eye) dismisses; the layer itself stays pointer-transparent; no double click (a zoom gesture on touch, and it doubles the intercepted input), no Escape (keys belong to the tmux pane). Implementation: `dismiss()` in the store stamps `dismissedAt`; the layer's frame loop compresses the remaining timeline at 3× from the retreat curve at the sprite's current emerge amount (~1.4 s heal, never a cut); `.rk-sb-sprite svg *` gets `pointer-events: visiblePainted; cursor: pointer`; the inactive creature slot is `visibility: hidden` per frame so only the visible creature is hit-testable. User: "Instead of another change - just add as another commit to the current PR you are working on."
+
 ### Out of scope
 
 Any change to the eggs' geometry, timeline, trigger transition logic, or sprites; an env form for the key (preference keys have none — Constitution IV); an SSE broadcast for the key; a per-viewer localStorage override; cancelling an in-flight flight on flip.

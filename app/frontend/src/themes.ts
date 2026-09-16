@@ -192,8 +192,10 @@ const TEXT_SECONDARY_MIN_CONTRAST = 4.5;
 /** OKLab lightness step from the chrome ground DOWN to the latch well floor —
  *  down on both categories, because a pressed key sits below its neighbours
  *  whatever the theme. Same-visible-step reasoning as CHROME_L_DELTA: an sRGB
- *  percentage (the bgInset recipe) is invisible on light palettes. Clamps at
- *  L 0 on pure-black palettes, where the well shadow's lip carries the rim. */
+ *  percentage (the bgInset recipe) is invisible on light palettes. Because the
+ *  dark chrome is floored at CHROME_MIN_L first, even a pure-black palette
+ *  lands its well near L 0.10 — below its chrome, never at the ground; the L 0
+ *  clamp is a guard, not a reachable case for the bundled palettes. */
 const WELL_L_DELTA = 0.06;
 /** OKLab lightness step from `border` DOWN to the pressed border on latched
  *  bordered controls. Down on both categories: a lighter border reads as

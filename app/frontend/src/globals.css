@@ -291,7 +291,8 @@ summary {
 /* Latch well = the on-state of every latched control (the Control primitive's
    LATCHED_WELL arm). The control sits IN the ground: floor (--color-bg-well)
    + this inset top shade, plus a 1px lighter lip along the bottom edge that
-   keeps a rim on pure-black palettes where the floor clamps to the ground.
+   keeps a rim legible on very dark wells (near-black palettes, whose chrome
+   is floored at CHROME_MIN_L, put the well around L 0.10).
    Hover deepens the shade one step — the depth analogue of a fill deepen —
    while the arm's ink and border hold. Per-category values live on the
    --ctl-well-* tokens (dark default on :root, light override on the theme

@@ -1259,3 +1259,36 @@ func TestStampConfigDirOverrideSkipsLegacy(t *testing.T) {
 		t.Errorf("Stamp under the override with an absent primary = %q, want the empty fingerprint (no legacy fallback)", got)
 	}
 }
+
+func TestStampUnreadablePrimaryFallsBackLikeLoad(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	// A directory where config.yaml should be: os.Stat succeeds but ReadFile
+	// cannot — Load falls back to the legacy file, and Stamp must follow it
+	// to the same source instead of fingerprinting the unreadable primary.
+	primary, err := configPath()
+	if err != nil {
+		t.Fatalf("configPath: %v", err)
+	}
+	if err := os.MkdirAll(primary, 0755); err != nil {
+		t.Fatalf("MkdirAll(primary as dir): %v", err)
+	}
+	legacy := filepath.Join(tmp, ".rk", "settings.yaml")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(legacy, []byte("theme: dracula\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if got := Load().Theme; got != "dracula" {
+		t.Fatalf("Load with a directory-shaped primary = theme %q, want the legacy file's dracula", got)
+	}
+	stamp := Stamp()
+	if !strings.Contains(stamp, legacy) {
+		t.Errorf("Stamp = %q, want a fingerprint of the legacy path %q (the source Load read)", stamp, legacy)
+	}
+	if strings.Contains(stamp, primary+":") {
+		t.Errorf("Stamp = %q fingerprints the unreadable primary %q", stamp, primary)
+	}
+}

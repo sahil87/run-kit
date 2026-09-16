@@ -1,0 +1,57 @@
+id: 23xd
+name: 260916-23xd-screen-break-crack-realism
+created: 2026-09-16T11:54:47Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 23
+    acceptance_completed: 23
+confidence:
+    certain: 13
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 84.3
+        reversibility: 88.9
+        competence: 93.2
+        disambiguation: 89.6
+stage_metrics:
+    intake: {started_at: "2026-09-16T11:54:47Z", driver: fab-new, iterations: 1, completed_at: "2026-09-16T12:01:04Z"}
+    apply: {started_at: "2026-09-16T12:01:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T12:19:53Z"}
+    review: {started_at: "2026-09-16T12:19:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T12:24:44Z"}
+    hydrate: {started_at: "2026-09-16T12:24:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T12:28:36Z"}
+    ship: {started_at: "2026-09-16T12:28:36Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-16T12:28:36Z"
+    computed_at_stage: hydrate
+summary: 'screen-break eggs phase 2: tapered/branching seeded crack web with partial arcs, frost and 5–8 dead-pixel LCD lines; per-stroke timing windows on a slow 12 s flight; retimed tests; wiki study + decisions'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-16T12:28:36Z

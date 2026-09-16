@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screen Break Crack Realism Studies</title>
+<style>
+  :root {
+    --bg: #0f1117; --card: #171b24; --inset: #0a0c12; --tp: #e8eaf0; --ts: #7a8394; --border: #454d66;
+    --green: #22c55e; --red: #f87171; --blue: #60a5fa; --amber: #f59e0b;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--tp); font: 14px/1.5 ui-sans-serif, system-ui, sans-serif; padding: 28px 32px 80px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 42px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  p { max-width: 900px; color: #b6bcc9; }
+  .sub { color: var(--ts); margin: 0 0 18px; max-width: 900px; }
+  code { font-family: var(--mono); font-size: 11.5px; background: var(--inset); padding: 0 4px; border-radius: 3px; color: #cbd5e1; }
+  table { border-collapse: collapse; font-size: 12px; margin: 8px 0 14px; }
+  td, th { border: 1px solid var(--border); padding: 4px 8px; text-align: left; color: #b6bcc9; vertical-align: top; }
+  th { color: var(--tp); font-weight: 600; }
+  .ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .ctl button { font: 11px var(--mono); padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border); background: var(--card); color: var(--ts); cursor: pointer; }
+  .ctl button.on { color: var(--green); border-color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
+  .ctl label { font: 11px var(--mono); color: var(--ts); display: inline-flex; align-items: center; gap: 6px; }
+  .ctl input[type=range] { width: 360px; }
+  .ctl .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+  .ctl .hint { font-size: 11px; color: var(--ts); }
+  .study { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .study .cap { font-size: 11px; color: var(--ts); margin-top: 8px; line-height: 1.45; }
+  .study .cap b { color: var(--tp); }
+  .six { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
+  @media (max-width: 1100px) { .six { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 720px) { .six { grid-template-columns: 1fr; } }
+  .frame h3 { font-size: 12.5px; margin: 0 0 6px; font-family: var(--mono); color: var(--tp); }
+  .frame .cap { margin-top: 6px; }
+
+  /* ---------- the mock run-kit screen (720 x 450 design space, scaled to fit) ---------- */
+  .fit { width: 100%; position: relative; overflow: hidden; border-radius: 6px; }
+  .screen {
+    --abg: #0f1117; --acard: #171b24; --ainset: #0a0c12; --atp: #e8eaf0; --ats: #7a8394; --abd: #454d66;
+    --agreen: #22c55e; --aacc: #5b8af0; --aterm: #b6bcc9;
+    position: absolute; left: 0; top: 0; width: 720px; height: 450px; transform-origin: 0 0; overflow: hidden;
+    background: #03040a; font-family: var(--mono); font-size: 11px; user-select: none;
+  }
+  .screen.lightapp { --abg: #f8f9fb; --acard: #ffffff; --ainset: #e8eaef; --atp: #1a1d24; --ats: #6b7280; --abd: #d1d5db; --agreen: #16a34a; --aacc: #4a7ae8; --aterm: #374151; }
+  .screen .inside { position: absolute; inset: 0; opacity: 0; background: #03040a; z-index: 0; }
+  .screen .inside::after { content: ""; position: absolute; inset: 0; background: var(--glow); }
+  .screen .app { position: absolute; inset: 0; z-index: 2; background: var(--abg); color: var(--atp); display: grid; grid-template-rows: 30px 1fr 22px; grid-template-columns: 196px 1fr; }
+  .screen .plate { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+  .screen svg.shards { z-index: 5; }
+  .screen .flash { z-index: 6; }
+  .screen .top { grid-column: 1 / 3; border-bottom: 1px solid var(--abd); display: flex; align-items: center; gap: 10px; padding: 0 10px; color: var(--ats); }
+  .screen .top .logo { width: 16px; height: 14px; }
+  .screen .top .crumb b { color: var(--atp); font-weight: 500; }
+  .screen .top .mid { flex: 1; text-align: center; color: var(--atp); }
+  .screen .top .btns { display: flex; gap: 4px; }
+  .screen .top .btns span { width: 22px; height: 18px; border: 1px solid var(--abd); border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; }
+  .screen .side { border-right: 1px solid var(--abd); background: var(--acard); padding: 6px 0; }
+  .screen .sec { font-size: 9px; letter-spacing: .08em; color: var(--ats); padding: 6px 10px 2px; }
+  .screen .srow { display: flex; align-items: center; gap: 6px; height: 21px; padding: 0 8px 0 6px; color: var(--ats); }
+  .screen .srow.sel { background: var(--ainset); color: var(--atp); }
+  .screen .srow .mk { width: 3px; height: 13px; border-radius: 1px; background: #f59e0b; opacity: .85; }
+  .screen .srow .mk.off { opacity: 0; }
+  .screen .srow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--agreen); flex: none; }
+  .screen .srow .dot.y { background: #facc15; } .screen .srow .dot.g { background: var(--ats); }
+  .screen .srow .nm { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .screen .srow .ch { font-size: 9.5px; opacity: .8; }
+  .screen .term { position: relative; padding: 10px 12px; white-space: pre; line-height: 1.5; overflow: hidden; color: var(--aterm); }
+  .screen .term .pr { color: var(--agreen); } .screen .term .dim { color: var(--ats); } .screen .term .acc { color: var(--aacc); }
+  .screen .term .cur { display: inline-block; width: 7px; height: 12px; background: var(--atp); vertical-align: -2px; opacity: .85; }
+  .screen .sbar { grid-column: 1 / 3; border-top: 1px solid var(--abd); display: flex; gap: 14px; align-items: center; padding: 0 10px; color: var(--ats); font-size: 10px; }
+  .screen .sbar .pr { color: var(--agreen); }
+
+  .screen svg.cracks, .screen svg.shards, .screen svg.lcd { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  /* glass: tapered dark core + offset white highlight */
+  .screen svg.cracks .dark path { fill: none; stroke: #04060b; stroke-linecap: round; stroke-linejoin: round; }
+  .screen svg.cracks .lite path { fill: none; stroke: rgba(255,255,255,.62); stroke-linecap: round; stroke-linejoin: round; }
+  .screen.lightapp svg.cracks .dark path { stroke: #1f2937; }
+  .screen.lightapp svg.cracks .lite path { stroke: rgba(255,255,255,.95); }
+  /* lcd: ink blobs + tongues (comparison only, off by default), dead-pixel lines */
+  .screen svg.lcd .ink { filter: blur(1.1px); }
+  .screen svg.lcd .ink path { fill: none; stroke: #05070c; stroke-linecap: round; stroke-linejoin: round; }
+  .screen svg.lcd .ink path.blob { fill: #05070c; stroke: none; }
+  .screen svg.lcd .inkedge path { fill: none; stroke: rgba(150,105,255,.5); stroke-width: 2.6; filter: blur(1.6px); }
+  .screen svg.lcd .inkedge2 path { fill: none; stroke: rgba(255,255,255,.22); stroke-width: .9; }
+  .screen.lightapp svg.lcd .inkedge path { stroke: rgba(90,40,200,.45); }
+  .screen svg.lcd .lines line { stroke-linecap: butt; }
+  .screen svg.shards polygon { fill: rgba(226,232,255,.22); stroke: rgba(255,255,255,.65); stroke-width: .8; }
+  .screen.lightapp svg.shards polygon { fill: rgba(255,255,255,.75); stroke: rgba(30,41,59,.55); }
+  .screen .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+  .screen .creature { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 1; }
+  .screen .creature.out { z-index: 4; }
+  .screen .creature .sprite { position: absolute; width: 0; height: 0; }
+  .screen .creature .sprite svg { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; overflow: visible; }
+  .screen .tapzone { position: absolute; inset: 0; cursor: crosshair; z-index: 7; }
+  .stack { font-family: var(--mono); font-size: 11.5px; }
+</style>
+</head>
+<body>
+
+<h1>Screen Break Crack Realism Studies</h1>
+<p class="sub">Phase-2 mock for the screen-break Easter eggs, variant <b>C</b> (glass + dead-pixel lines, chosen 2026-09-16) at the <b>slow 12 s pacing</b>. The glass break: tapered radials that branch and sometimes stop mid-screen · partial arcs instead of full rings · a frosted crushed zone of micro-cracks around the hole · the shipped jagged hole and nine shards. The LCD layer: 5–8 dead-pixel rows/columns in magenta / cyan / green / white / yellow popping in from crack tips to the screen edge. Everything is SVG strokes and transforms, nothing samples pixels; this is the mechanism, not a picture of it. Ink (liquid-crystal bleed) is kept behind a toggle, off, for comparison only.</p>
+
+<h2>1. Live</h2>
+<div class="study">
+  <div class="ctl">
+    <button id="play">▶ Play</button>
+    <label>t <input id="scrub" type="range" min="0" max="1000" value="0"> <span id="tval" style="font-family:var(--mono)">0.0 s</span></label>
+    <span class="sep"></span>
+    <button id="tLines" class="on">Lines</button>
+    <button id="tInk">Ink</button>
+    <button id="tFist" class="on">Fist</button>
+    <button id="tLightApp">Light app</button>
+    <span class="sep"></span>
+    <button id="reroll">↻ new pattern</button>
+    <span class="hint">click the screen to move the impact point and replay</span>
+  </div>
+  <div id="live"></div>
+  <div class="cap"><b>Timeline (12 s):</b> impact flash + 300 ms shake · the crushed zone frosts over 0.1–0.6 s · primaries start travelling at 0.3–0.9 s and take 1.4–2.2 s each to reach the edge (ease-in-out, so they visibly creep) · branches fork off and arcs stitch neighbours 2–7 s · dead-pixel lines pop in 2–6.5 s · the hole opens 2.0–3.2 s and the shards fly · the fist comes through at 3.6 s, holds, retreats by 9.1 s · hole closes 9.1–10.3 s · everything fades 10.4–12 s. <b>Lines</b>/<b>Ink</b> hide or show their layers live; scrub to any moment and flip them.</div>
+</div>
+
+<h2>2. Filmstrip — six moments</h2>
+<div class="six" id="strip"></div>
+
+<h2>3. Shipped egg → this mock</h2>
+<table class="stack">
+  <tr><th></th><th>shipped (kp2l)</th><th>this mock</th></tr>
+  <tr><td>flight</td><td>4.2 s</td><td>12 s</td></tr>
+  <tr><td>radials</td><td>9 even, uniform 2.4 px, drawn in 0–0.84 s</td><td>8–10 uneven, tapered 3.0 → 1.0 px, ~35 % stop mid-screen, 1–3 branches each + sub-branches; start 0.3–0.9 s, travel 1.4–2.2 s</td></tr>
+  <tr><td>rings</td><td>two full 18-vertex rings</td><td>partial arcs between neighbouring primaries at 1.35 / 2.1 / 3.2 / 4.6 / 6.5 R, ~50 % occupancy, 2–7 s</td></tr>
+  <tr><td>crushed zone</td><td>—</td><td>26 micro-cracks in the 1.0–1.4 R annulus + a frost gradient</td></tr>
+  <tr><td>hole / shards</td><td>18-vertex jagged hole, 9 sector shards</td><td>unchanged</td></tr>
+  <tr><td>LCD</td><td>—</td><td>5–8 dead-pixel lines from crack tips (1 px at .9, or 2–4 px bands at .45) with a soft glow and a flicker, 2–6.5 s</td></tr>
+  <tr><td>fist</td><td>0.9–3.4 s</td><td>3.6–9.1 s</td></tr>
+  <tr><td>elements</td><td>~60</td><td>~150 (the 32 ms frame gate is re-measured in the port)</td></tr>
+</table>
+
+<h2>4. Decisions</h2>
+<p><b>Variant C chosen (2026-09-16):</b> glass realism plus dead-pixel lines ships; the ink layer (liquid-crystal bleed blobs and tongues) is rejected — the weaker cue on dark themes and it blots terminal text on light ones. The Ink toggle stays in this page as the comparison artefact it is.</p>
+<p><b>Reference-photo rework rejected:</b> an organic lobed hole with a bright pulverized ring of ~90 glass chips, 36 hairline radials, and glass dust was tried side by side and judged "looks worse". The shipped 18-vertex jagged hole and the sector shards stay unchanged.</p>
+<p><b>Pacing:</b> the slow 12 s flight is approved — a slow start so the crack web stays visible much longer, with the shipped beats (flash, hole, shards, creature, heal) kept in the same order.</p>
+<p><b>Deferred:</b> an <code>easter_eggs</code> settings-registry bool (default true) is a separate follow-up change, not part of this port.</p>
+
+<script>
+(() => {
+  const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+  const smooth = x => { x = clamp(x); return x * x * (3 - 2 * x); };
+  const easeOut = x => 1 - Math.pow(1 - clamp(x), 3);
+  const easeIn = x => Math.pow(clamp(x), 3);
+  const rng = seed => { let s = (seed >>> 0) || 1; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; };
+  const f1 = n => n.toFixed(1), f4 = n => n.toFixed(4);
+  const TAU = Math.PI * 2;
+  const FLIGHT = 12000;
+  let uid = 0;
+
+  // ---------- geometry ----------
+  // One impact point drives everything. Every stroke carries its own
+  // {start, dur} window on the 0–1 flight so the secondary structure creeps
+  // in over seconds instead of snapping in with the primaries.
+  function buildBreak({ W, H, P, R, seed = 7 }) {
+    const rand = rng(seed);
+    const maxD = Math.max(...[[0, 0], [W, 0], [0, H], [W, H]].map(([x, y]) => Math.hypot(x - P.x, y - P.y))) + 80;
+    const inView = p => p.x > -40 && p.x < W + 40 && p.y > -40 && p.y < H + 40;
+    const at = (c, r) => {
+      const p = c.pts;
+      for (let i = 1; i < p.length; i++) if (p[i].r >= r) { const f = (r - p[i - 1].r) / (p[i].r - p[i - 1].r); return { x: p[i - 1].x + (p[i].x - p[i - 1].x) * f, y: p[i - 1].y + (p[i].y - p[i - 1].y) * f, r }; }
+      return p[p.length - 1];
+    };
+    const dirAt = (c, r) => {
+      const p = c.pts;
+      for (let i = 1; i < p.length; i++) if (p[i].r >= r) return Math.atan2(p[i].y - p[i - 1].y, p[i].x - p[i - 1].x);
+      const a = p[p.length - 1], b = p[p.length - 2]; return Math.atan2(a.y - b.y, a.x - b.x);
+    };
+    const walk = (from, a, len, step, drift, kink) => {
+      const pts = [{ x: from.x, y: from.y, r: 0 }];
+      let r = 0;
+      while (r < len) {
+        r += step[0] + rand() * step[1];
+        a += (rand() - 0.5) * drift;
+        if (rand() < 0.1) a += (rand() - 0.5) * kink;
+        pts.push({ x: pts[pts.length - 1].x + Math.cos(a) * (r - pts[pts.length - 1].r), y: pts[pts.length - 1].y + Math.sin(a) * (r - pts[pts.length - 1].r), r });
+      }
+      return pts;
+    };
+
+    // primaries — uneven angular spacing, ~35 % stop mid-screen; start 0.3–0.9 s, travel 1.4–2.2 s with ease-in-out
+    const n = 8 + Math.floor(rand() * 3);
+    const base = rand() * TAU;
+    const angles = [...Array(n)].map((_, i) => base + i * TAU / n + (rand() - 0.5) * 0.9 * (TAU / n)).sort((a, b) => a - b);
+    const primaries = angles.map(a0 => {
+      const full = rand() < 0.65;
+      const len = full ? maxD : maxD * (0.3 + rand() * 0.4);
+      const pts = walk(P, a0, len, [16, 30], 0.22, 0.6);
+      for (const p of pts) p.r = Math.hypot(p.x - P.x, p.y - P.y);
+      return { pts, len: pts[pts.length - 1].r, j: 0.82 + rand() * 0.36, k: 0.5 + rand() * 0.25, start: 0.025 + rand() * 0.05, dur: 0.12 + rand() * 0.06 };
+    });
+    // taper split points: 0–30 % / 30–62 % / 62–100 % of the polyline
+    const split = (pts, cuts) => {
+      const total = pts[pts.length - 1].r, out = []; let seg = [pts[0]], ci = 0;
+      for (let i = 1; i < pts.length; i++) {
+        seg.push(pts[i]);
+        if (ci < cuts.length && pts[i].r >= total * cuts[ci]) { out.push(seg); seg = [pts[i]]; ci++; }
+      }
+      if (seg.length > 1) out.push(seg);
+      return out;
+    };
+    const dOf = pts => 'M' + pts.map(p => `${f1(p.x)} ${f1(p.y)}`).join('L');
+
+    const strokes = [];   // { d, w, lw, start, dur, s0, s1, ease } — s0/s1: this piece's fractional span of its parent crack
+    const addTapered = (pts, widths, lws, start, dur, ease = 'out') => {
+      const pieces = split(pts, widths.length === 3 ? [0.3, 0.62] : [0.45]);
+      const total = pts[pts.length - 1].r;
+      let acc = 0;
+      pieces.forEach((seg, i) => {
+        const span = (seg[seg.length - 1].r - seg[0].r) / total;
+        strokes.push({ d: dOf(seg), w: widths[Math.min(i, widths.length - 1)], lw: lws[Math.min(i, lws.length - 1)], start, dur, s0: acc, s1: acc + span, ease });
+        acc += span;
+      });
+    };
+    primaries.forEach(c => addTapered(c.pts, [3.0, 1.9, 1.0], [1.1, 0.8, 0.5], c.start, c.dur, 'smooth'));
+
+    // branches — fork off outside the hole, creep in during 2–7 s
+    const tips = [];
+    const branch = (parent, depth) => {
+      const nb = depth === 0 ? 1 + Math.floor(rand() * 3) : (rand() < 0.35 ? 1 : 0);
+      for (let b = 0; b < nb; b++) {
+        const startR = Math.max(R * 1.25, parent.pts[parent.pts.length - 1].r * (0.25 + rand() * 0.5));
+        if (startR >= parent.pts[parent.pts.length - 1].r * 0.9) continue;
+        const p0 = at(parent, startR);
+        if (!inView(p0)) continue;
+        const side = rand() < 0.5 ? -1 : 1;
+        const a = dirAt(parent, startR) + side * (0.35 + rand() * 0.5);
+        const remaining = parent.pts[parent.pts.length - 1].r - startR;
+        const blen = Math.max(28, remaining * (depth === 0 ? 0.15 + rand() * 0.35 : 0.3 + rand() * 0.3));
+        const pts = walk(p0, a, blen, [12, 22], 0.25, 0.5);
+        const start = depth === 0 ? 0.17 + rand() * 0.35 : parent.start + parent.dur * 0.6 + rand() * 0.1;
+        const dur = 0.06 + rand() * 0.12;
+        const br = { pts, start, dur };
+        addTapered(pts, depth === 0 ? [1.5, 0.8] : [0.9, 0.5], depth === 0 ? [0.6, 0.4] : [0.4, 0.3], start, dur);
+        const tip = pts[pts.length - 1];
+        if (inView(tip) && Math.hypot(tip.x - P.x, tip.y - P.y) > R * 1.4) tips.push({ x: tip.x, y: tip.y, start: start + dur });
+        if (depth === 0) branch(br, 1);
+      }
+    };
+    primaries.forEach(c => branch(c, 0));
+
+    // partial arcs — stitch neighbouring primaries at a few radii
+    for (const mult of [1.35, 2.1, 3.2, 4.6, 6.5]) {
+      const rr = mult * R;
+      for (let i = 0; i < n; i++) {
+        if (rand() > 0.5) continue;
+        const c1 = primaries[i], c2 = primaries[(i + 1) % n];
+        const r1 = rr * (0.92 + rand() * 0.16), r2 = rr * (0.92 + rand() * 0.16);
+        if (c1.len < r1 || c2.len < r2) continue;
+        const v1 = at(c1, r1), v2 = at(c2, r2);
+        if (!inView(v1) && !inView(v2)) continue;
+        let a1 = Math.atan2(v1.y - P.y, v1.x - P.x), a2 = Math.atan2(v2.y - P.y, v2.x - P.x);
+        if (a2 < a1) a2 += TAU;
+        const m = 3 + Math.floor(rand() * 3), pts = [{ ...v1, r: 0 }];
+        for (let k = 1; k < m; k++) {
+          const f = k / m, a = a1 + (a2 - a1) * f, r = (r1 + (r2 - r1) * f) * (0.95 + rand() * 0.1);
+          pts.push({ x: P.x + Math.cos(a) * r, y: P.y + Math.sin(a) * r, r: k });
+        }
+        pts.push({ ...v2, r: m });
+        strokes.push({ d: dOf(pts), w: 1.0 - mult * 0.06, lw: 0.5, start: 0.17 + rand() * 0.4, dur: 0.04 + rand() * 0.08, s0: 0, s1: 1, ease: 'out' });
+      }
+    }
+
+    // crushed zone — micro-cracks just outside the hole + a frosted disc
+    for (let i = 0; i < 26; i++) {
+      const a = rand() * TAU, r0 = R * (1.02 + rand() * 0.4), l = 5 + rand() * 12, d = rand() * TAU;
+      const x = P.x + Math.cos(a) * r0, y = P.y + Math.sin(a) * r0;
+      strokes.push({ d: `M${f1(x)} ${f1(y)}L${f1(x + Math.cos(d) * l)} ${f1(y + Math.sin(d) * l)}`, w: 0.8, lw: 0.4, start: 0.01 + rand() * 0.06, dur: 0.04, s0: 0, s1: 1, ease: 'out' });
+    }
+
+    // hole + shards (the shipped rule, keyed to the primaries)
+    const holePts = h => {
+      const Rt = Math.max(R * h, 0.02), out = [];
+      for (let i = 0; i < n; i++) {
+        const c = primaries[i], c2 = primaries[(i + 1) % n];
+        const v1 = at(c, Rt * c.j), v2 = at(c2, Rt * c2.j);
+        let a1 = Math.atan2(v1.y - P.y, v1.x - P.x), a2 = Math.atan2(v2.y - P.y, v2.x - P.x);
+        if (a2 < a1) a2 += TAU;
+        const am = (a1 + a2) / 2;
+        out.push(v1, { x: P.x + Math.cos(am) * Rt * c.k, y: P.y + Math.sin(am) * Rt * c.k });
+      }
+      return out;
+    };
+    const holeD = h => 'M' + holePts(h).map(p => `${f4(p.x / W)} ${f4(p.y / H)}`).join('L') + 'Z';
+    const fh = holePts(1), shards = [];
+    for (let i = 0; i < n; i++) {
+      const c = primaries[i], c2 = primaries[(i + 1) % n];
+      const poly = [at(c, R * 0.2), fh[2 * i], fh[2 * i + 1], fh[(2 * i + 2) % (2 * n)], at(c2, R * 0.24)];
+      const cx = poly.reduce((s, p) => s + p.x, 0) / poly.length, cy = poly.reduce((s, p) => s + p.y, 0) / poly.length;
+      const dl = Math.hypot(cx - P.x, cy - P.y) || 1;
+      shards.push({ points: poly.map(p => `${f1(p.x)},${f1(p.y)}`).join(' '), cx, cy, dir: { x: (cx - P.x) / dl, y: (cy - P.y) / dl }, speed: 90 + rand() * 170, spin: (rand() - 0.5) * 520 });
+    }
+
+    // LCD ink (comparison only) — blobs anchored near the impact and on the primaries, tongues along three cracks
+    const blobs = [];
+    for (let i = 0; i < 3; i++) {
+      let anchor;
+      if (i === 0) { const a = rand() * TAU, r = rand() * 0.5 * R; anchor = { x: P.x + Math.cos(a) * r, y: P.y + Math.sin(a) * r }; }
+      else { const c = primaries[Math.floor(rand() * n)]; anchor = at(c, Math.min(c.len * 0.8, R * (0.9 + rand() * 0.9))); }
+      const rad = R * (0.45 + rand() * 0.5), verts = 16, lobeA = rand() * TAU, pts = [];
+      for (let k = 0; k < verts; k++) {
+        const a = k * TAU / verts, lobe = 1 + 0.35 * Math.sin(a * 2 + lobeA) + 0.2 * Math.sin(a * 5 + lobeA * 3);
+        const r = rad * lobe * (0.85 + rand() * 0.3);
+        pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+      }
+      const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      let d = `M${f1(mid(pts[0], pts[1]).x)} ${f1(mid(pts[0], pts[1]).y)}`;
+      for (let k = 1; k <= verts; k++) { const c = pts[k % verts], m = mid(c, pts[(k + 1) % verts]); d += `Q${f1(c.x)} ${f1(c.y)} ${f1(m.x)} ${f1(m.y)}`; }
+      blobs.push({ d: d + 'Z', x: anchor.x, y: anchor.y, start: 0.12 + i * 0.08 + rand() * 0.05, dur: 0.28 + rand() * 0.2 });
+    }
+    const tongues = [];
+    const used = new Set();
+    while (tongues.length < 3 && used.size < n) {
+      const idx = Math.floor(rand() * n); if (used.has(idx)) continue; used.add(idx);
+      const c = primaries[idx], r1 = Math.min(c.len * 0.85, R * (1.6 + rand() * 1.6));
+      const pts = c.pts.filter(p => p.r >= R * 0.6 && p.r <= r1);
+      if (pts.length < 2) continue;
+      tongues.push({ d: dOf([at(c, R * 0.6), ...pts, at(c, r1)]), w: 5 + rand() * 4, start: 0.17 + rand() * 0.2, dur: 0.15 + rand() * 0.15 });
+    }
+
+    // dead-pixel lines — from branch tips (fallback: primary points), 60 % vertical, half run edge-to-edge; pop in 2–6.5 s
+    const COLORS = ['#ff3ad6', '#ff3ad6', '#35e8ff', '#35e8ff', '#62ff6a', '#ffffff', '#ffd23d'];
+    const lines = [];
+    const sources = tips.length >= 5 ? tips : [...tips, ...primaries.map(c => ({ ...at(c, Math.min(c.len * 0.7, R * 2.5)), start: 0.2 }))];
+    const nl = 5 + Math.floor(rand() * 4);
+    for (let i = 0; i < nl && sources.length; i++) {
+      const s = sources.splice(Math.floor(rand() * sources.length), 1)[0];
+      if (!inView(s)) { i--; if (!sources.length) break; continue; }
+      const vertical = rand() < 0.6, full = rand() < 0.5, band = rand() < 0.3;
+      const x = clamp(s.x, 0, W), y = clamp(s.y, 0, H);
+      let x1, y1, x2, y2;
+      if (vertical) { x1 = x2 = x; y1 = full ? 0 : y; y2 = full ? H : (s.y < P.y ? 0 : H); if (!full && s.y < P.y) { y1 = 0; y2 = y; } }
+      else { y1 = y2 = y; x1 = full ? 0 : x; x2 = full ? W : (s.x < P.x ? 0 : W); if (!full && s.x < P.x) { x1 = 0; x2 = x; } }
+      lines.push({ x1, y1, x2, y2, color: COLORS[Math.floor(rand() * COLORS.length)], w: band ? 2 + rand() * 2 : 1, op: band ? 0.45 : 0.9, start: Math.max(0.17, Math.min(0.55, (s.start || 0.2) + rand() * 0.1)), flick: rand() * 100 });
+    }
+
+    return { P, R, W, H, holeD, strokes, shards, blobs, tongues, lines };
+  }
+
+  // ---------- Breaker: owns the SVG layers + clip defs for one glass ----------
+  const ns = 'http://www.w3.org/2000/svg';
+  const mk = (tag, attrs = {}) => { const e = document.createElementNS(ns, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+  class Breaker {
+    constructor({ root, plate, glass, geo, gravity = 420 }) {
+      this.id = ++uid; this.geo = geo; this.gravity = gravity;
+      const defs = mk('svg', { width: 0, height: 0, style: 'position:absolute' });
+      const d = mk('defs');
+      const cpA = mk('clipPath', { id: `appclip-${this.id}`, clipPathUnits: 'objectBoundingBox' });
+      this.appPath = mk('path', { 'clip-rule': 'evenodd', d: 'M0 0H1V1H0Z' }); cpA.appendChild(this.appPath);
+      const cpH = mk('clipPath', { id: `hole-${this.id}`, clipPathUnits: 'objectBoundingBox' });
+      this.holePath = mk('path', { d: 'M0 0' }); cpH.appendChild(this.holePath);
+      const fg = mk('radialGradient', { id: `frost-${this.id}`, cx: geo.P.x, cy: geo.P.y, r: geo.R * 1.5, gradientUnits: 'userSpaceOnUse' });
+      fg.appendChild(mk('stop', { offset: '0.6', 'stop-color': 'rgba(255,255,255,0.16)' }));
+      fg.appendChild(mk('stop', { offset: '1', 'stop-color': 'rgba(255,255,255,0)' }));
+      d.appendChild(cpA); d.appendChild(cpH); d.appendChild(fg); defs.appendChild(d); root.appendChild(defs);
+      this.holeClip = `url(#hole-${this.id})`;
+      glass.style.clipPath = `url(#appclip-${this.id})`;
+
+      // LCD layer sits under the glass cracks, over the app; clipped by the same hole
+      const lcd = mk('svg', { class: 'lcd', viewBox: `0 0 ${geo.W} ${geo.H}`, preserveAspectRatio: 'none' });
+      lcd.style.clipPath = `url(#appclip-${this.id})`;
+      const gInk = mk('g', { class: 'ink' }), gEdge = mk('g', { class: 'inkedge' }), gEdge2 = mk('g', { class: 'inkedge2' }), gLines = mk('g', { class: 'lines' });
+      this.blobs = geo.blobs.map(b => {
+        const p = mk('path', { d: b.d, class: 'blob' }); p.style.opacity = 0; gInk.appendChild(p);
+        const e = mk('path', { d: b.d }); e.style.opacity = 0; gEdge.appendChild(e);
+        const e2 = mk('path', { d: b.d }); e2.style.opacity = 0; gEdge2.appendChild(e2);
+        return { ...b, el: p, edge: e, edge2: e2 };
+      });
+      this.tongues = geo.tongues.map(t => {
+        const p = mk('path', { d: t.d, 'stroke-width': f1(t.w) }); gInk.appendChild(p);
+        const len = p.getTotalLength() || 1; p.style.strokeDasharray = `${len}`; p.style.strokeDashoffset = `${len}`;
+        return { ...t, el: p, len };
+      });
+      this.lines = geo.lines.map(l => {
+        const glow = mk('line', { x1: f1(l.x1), y1: f1(l.y1), x2: f1(l.x2), y2: f1(l.y2), stroke: l.color, 'stroke-width': f1(l.w + 2.5) }); glow.style.opacity = 0; gLines.appendChild(glow);
+        const core = mk('line', { x1: f1(l.x1), y1: f1(l.y1), x2: f1(l.x2), y2: f1(l.y2), stroke: l.color, 'stroke-width': f1(l.w) }); core.style.opacity = 0; gLines.appendChild(core);
+        return { ...l, el: core, glow };
+      });
+      lcd.appendChild(gInk); lcd.appendChild(gEdge); lcd.appendChild(gEdge2); lcd.appendChild(gLines);
+      plate.appendChild(lcd); this.lcdSvg = lcd; this.gInk = gInk; this.gEdge = gEdge; this.gEdge2 = gEdge2; this.gLines = gLines;
+
+      const cr = mk('svg', { class: 'cracks', viewBox: `0 0 ${geo.W} ${geo.H}`, preserveAspectRatio: 'none' });
+      cr.style.clipPath = `url(#appclip-${this.id})`;
+      this.frost = mk('circle', { class: 'frost', cx: geo.P.x, cy: geo.P.y, r: geo.R * 1.5, fill: `url(#frost-${this.id})` }); this.frost.style.opacity = 0;
+      cr.appendChild(this.frost);
+      const gd = mk('g', { class: 'dark' }), gl = mk('g', { class: 'lite' });
+      gl.setAttribute('transform', 'translate(0.7 0.7)');
+      cr.appendChild(gd); cr.appendChild(gl);
+      plate.appendChild(cr); this.cracksSvg = cr;
+      this.strokes = geo.strokes.map(s => {
+        const a = mk('path', { d: s.d, 'stroke-width': f1(s.w) }), b = mk('path', { d: s.d, 'stroke-width': f1(s.lw) });
+        gd.appendChild(a); gl.appendChild(b);
+        const len = a.getTotalLength() || 1;
+        for (const e of [a, b]) { e.style.strokeDasharray = `${len}`; e.style.strokeDashoffset = `${len}`; }
+        return { ...s, a, b, len };
+      });
+
+      const sh = mk('svg', { class: 'shards', viewBox: `0 0 ${geo.W} ${geo.H}`, preserveAspectRatio: 'none' });
+      this.shards = geo.shards.map(s => { const p = mk('polygon', { points: s.points }); p.style.opacity = 0; sh.appendChild(p); return { ...s, el: p }; });
+      root.appendChild(sh); this.shardsSvg = sh;
+    }
+    setHole(h) { const hd = this.geo.holeD(h); this.appPath.setAttribute('d', 'M0 0H1V1H0Z ' + hd); this.holePath.setAttribute('d', hd); }
+    // t is flight time 0–1; each stroke draws over its own window, tapered pieces sequentially
+    setCracks(t) {
+      for (const s of this.strokes) {
+        const p = (s.ease === 'smooth' ? smooth : easeOut)((t - s.start) / s.dur);   // progress along the whole crack
+        const q = clamp((p - s.s0) / (s.s1 - s.s0 || 1));                            // this piece's share
+        const off = s.len * (1 - q);
+        s.a.style.strokeDashoffset = off; s.b.style.strokeDashoffset = off;
+      }
+      this.frost.style.opacity = 0.9 * easeOut((t - 0.008) / 0.045);
+    }
+    setLcd(t, ink, lines) {
+      this.gInk.style.display = ink ? '' : 'none'; this.gEdge.style.display = ink ? '' : 'none'; this.gEdge2.style.display = ink ? '' : 'none';
+      this.gLines.style.display = lines ? '' : 'none';
+      if (ink) {
+        for (const b of this.blobs) {
+          const g = smooth((t - b.start) / b.dur);
+          const sc = 0.15 + 0.85 * g;
+          const tr = `translate(${f1(b.x)} ${f1(b.y)}) scale(${sc.toFixed(3)})`;
+          b.el.setAttribute('transform', tr); b.edge.setAttribute('transform', tr); b.edge2.setAttribute('transform', tr);
+          b.el.style.opacity = g > 0 ? 0.95 : 0; b.edge.style.opacity = g > 0 ? 1 : 0; b.edge2.style.opacity = g > 0 ? 1 : 0;
+        }
+        for (const tg of this.tongues) tg.el.style.strokeDashoffset = tg.len * (1 - easeOut((t - tg.start) / tg.dur));
+      }
+      if (lines) {
+        for (const l of this.lines) {
+          const on = t >= l.start;
+          // LCD lines pop in instantly and flicker a little
+          const flick = on ? (Math.sin(t * 900 + l.flick) > 0.92 ? 0.55 : 1) : 0;
+          l.el.style.opacity = on ? l.op * flick : 0;
+          l.glow.style.opacity = on ? 0.22 * flick : 0;
+        }
+      }
+    }
+    setShards(sp, visible) {
+      for (const s of this.shards) {
+        const d = s.speed * sp, tx = s.dir.x * d * 1.3, ty = s.dir.y * d + this.gravity * sp * sp;
+        s.el.setAttribute('transform', `translate(${f1(tx)} ${f1(ty)}) rotate(${f1(s.spin * sp)} ${f1(s.cx)} ${f1(s.cy)})`);
+        s.el.style.opacity = visible ? (1 - smooth((sp - 0.45) / 0.55)) : 0;
+      }
+    }
+    setFade(op) { this.cracksSvg.style.opacity = op; this.lcdSvg.style.opacity = op; }
+  }
+
+  // ---------- the mock run-kit app ----------
+  const LOGO = `<svg class="logo" viewBox="7 10 50 44"><polygon points="44,11.2 56,32 47.5,32 39.5,17.2" fill="#b4b4b4"/><polygon points="56,32 44,52.8 39.5,46.8 47.5,32" fill="#b4b4b4"/><polygon points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#2a2a2a"/><polygon points="20,52.8 8,32 16.5,32 24.5,46.8" fill="#2a2a2a"/><polygon points="8,32 20,11.2 24.5,17.2 16.5,32" fill="#2a2a2a"/><polygon points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill="#b4b4b4"/><polygon points="24.5,17.2 39.5,17.2 47.5,32 32,32" fill="#888"/><polygon points="47.5,32 39.5,46.8 24.5,46.8 32,32" fill="#737373"/><polygon points="24.5,46.8 16.5,32 24.5,17.2 32,32" fill="#545454"/></svg>`;
+  const appMarkup = () => `
+    <div class="top">${LOGO}<span class="crumb"><b>gcp-box</b> › fabKit</span><span class="mid">Tab: fair-gazelle</span>
+      <span class="btns"><span>⧉</span><span>⫽ ▾</span><span>↻</span><span>⋯</span></span></div>
+    <div class="side">
+      <div class="sec">SESSIONS</div>
+      <div class="srow"><span class="mk off"></span><span class="dot"></span><span class="nm">fabKit</span><span class="ch">6</span></div>
+      <div class="srow sel"><span class="mk"></span><span class="dot y"></span><span class="nm">2 fair-gazelle</span><span class="ch">apply</span></div>
+      <div class="srow"><span class="mk off"></span><span class="dot"></span><span class="nm">3 nemo-flair</span><span class="ch">#981</span></div>
+      <div class="srow"><span class="mk"></span><span class="dot g"></span><span class="nm">4 quake-drawer</span><span class="ch">review</span></div>
+      <div class="srow"><span class="mk off"></span><span class="dot"></span><span class="nm">5 status-fold</span><span class="ch">#980</span></div>
+      <div class="srow"><span class="mk off"></span><span class="dot"></span><span class="nm">6 osc52-min-len</span><span class="ch">#983</span></div>
+      <div class="sec" style="margin-top:8px">rk</div>
+      <div class="srow"><span class="mk off"></span><span class="dot"></span><span class="nm">operator</span><span class="ch">◷ 8m</span></div>
+      <div class="srow"><span class="mk off"></span><span class="dot"></span><span class="nm">serve</span></div>
+    </div>
+    <div class="term"><span class="pr">❯</span> just test-frontend
+<span class="dim">$ pnpm vitest run</span>
+
+ <span class="pr">✓</span> src/components/flair-overlay.test.tsx <span class="dim">(11 tests)</span> 42ms
+ <span class="pr">✓</span> src/components/swatch-popover.test.tsx <span class="dim">(23 tests)</span> 188ms
+ <span class="pr">✓</span> src/components/sidebar/window-row.test.tsx <span class="dim">(64 tests)</span> 901ms
+ <span class="pr">✓</span> src/lib/status-bar-fold.test.ts <span class="dim">(19 tests)</span> 14ms
+ <span class="pr">✓</span> src/themes.test.ts <span class="dim">(9 tests)</span> 6ms
+
+ <span class="dim">Test Files</span>  <span class="pr">212 passed</span> (212)
+      <span class="dim">Tests</span>  <span class="pr">3187 passed</span> (3187)
+   <span class="dim">Duration</span>  58.20s
+
+<span class="pr">❯</span> gh pr view --json state,mergeable
+<span class="acc">{</span> "state": "OPEN", "mergeable": "MERGEABLE" <span class="acc">}</span>
+<span class="pr">❯</span> <span class="cur"></span></div>
+    <div class="sbar"><span><span class="pr">●</span> fair-gazelle</span><span>apply 7/9</span><span>PR #984 · checks ✓</span><span style="flex:1"></span><span>◷ 8m</span><span>pane 1/2</span><span>v2.31.4</span></div>`;
+
+  const FIST = `<svg viewBox="0 0 200 200" width="300" height="300">
+    <ellipse cx="100" cy="158" rx="54" ry="36" fill="#1f7a3c" stroke="#0b3d1e" stroke-width="3"/>
+    <rect x="38" y="60" width="124" height="98" rx="28" fill="#3fb950" stroke="#0b3d1e" stroke-width="3.5"/>
+    <g stroke="#14532d" stroke-width="2.4">
+      <rect x="42" y="42" width="27" height="62" rx="13" fill="#4ade80"/><rect x="72" y="36" width="27" height="68" rx="13" fill="#4ade80"/>
+      <rect x="102" y="38" width="27" height="66" rx="13" fill="#4ade80"/><rect x="132" y="46" width="26" height="58" rx="13" fill="#4ade80"/>
+    </g>
+    <g fill="#86efac" opacity=".75"><ellipse cx="55.5" cy="50" rx="8" ry="5"/><ellipse cx="85.5" cy="44" rx="8" ry="5"/><ellipse cx="115.5" cy="46" rx="8" ry="5"/><ellipse cx="145" cy="54" rx="7.5" ry="5"/></g>
+    <g fill="none" stroke="#14532d" stroke-width="2" opacity=".7" stroke-linecap="round"><path d="M50 96 q6 8 14 6"/><path d="M80 96 q6 8 14 6"/><path d="M110 96 q6 8 14 6"/><path d="M139 98 q5 7 12 5"/></g>
+    <rect x="28" y="104" width="36" height="72" rx="17" fill="#4ade80" stroke="#14532d" stroke-width="2.6" transform="rotate(-38 46 140)"/>
+    <path d="M60 118 q14 14 44 12" fill="none" stroke="#14532d" stroke-width="2" opacity=".6" stroke-linecap="round"/>
+  </svg>`;
+
+  // ---------- a Screen: fake app + break machinery, driven by t ----------
+  const W = 720, H = 450;
+  class Screen {
+    constructor(host, { P, seed, ink, lines, fist, light, interactive, onTap }) {
+      this.P = P; this.seed = seed; this.ink = ink; this.lines = lines; this.fist = fist;
+      this.fit = document.createElement('div'); this.fit.className = 'fit';
+      this.el = document.createElement('div'); this.el.className = 'screen' + (light ? ' lightapp' : '');
+      this.fit.appendChild(this.el); host.appendChild(this.fit);
+      const ro = new ResizeObserver(() => this.layout()); ro.observe(this.fit);
+      this.layout();
+      this.build();
+      if (interactive) {
+        const tz = document.createElement('div'); tz.className = 'tapzone'; this.el.appendChild(tz);
+        tz.addEventListener('click', e => { const r = this.el.getBoundingClientRect(); onTap({ x: (e.clientX - r.left) / this.scale, y: (e.clientY - r.top) / this.scale }); });
+      }
+    }
+    layout() { this.scale = this.fit.clientWidth / W; this.fit.style.height = `${H * this.scale}px`; this.el.style.transform = `scale(${this.scale})`; }
+    build() {
+      const el = this.el;
+      el.innerHTML = '';
+      const R = clamp(0.105 * W, 64, 160) * 0.62; // the mock screen is ~1/2.7 of a 1280 viewport, so scale R down with it
+      this.R = R;
+      const inside = document.createElement('div'); inside.className = 'inside';
+      inside.style.setProperty('--glow', `radial-gradient(circle at ${this.P.x}px ${this.P.y}px, rgba(34,197,94,.3), rgba(3,4,10,0) 48%)`);
+      el.appendChild(inside); this.inside = inside;
+      const cIn = document.createElement('div'); cIn.className = 'creature'; cIn.innerHTML = `<div class="sprite">${FIST}</div>`; el.appendChild(cIn);
+      const app = document.createElement('div'); app.className = 'app'; app.innerHTML = appMarkup(); el.appendChild(app);
+      const plate = document.createElement('div'); plate.className = 'plate'; el.appendChild(plate);
+      const cOut = document.createElement('div'); cOut.className = 'creature out'; cOut.innerHTML = `<div class="sprite">${FIST}</div>`; el.appendChild(cOut);
+      const flash = document.createElement('div'); flash.className = 'flash'; el.appendChild(flash);
+      this.cIn = cIn; this.cOut = cOut; this.flash = flash; this.app = app;
+      this.geo = buildBreak({ W, H, P: this.P, R, seed: this.seed });
+      this.br = new Breaker({ root: el, plate, glass: app, geo: this.geo });
+      cIn.style.clipPath = this.br.holeClip;
+      this.apply(0);
+    }
+    // 12 s flight, fractions: flash/shake 0–0.3 s · hole 2.0–3.2 s open, 9.1–10.3 s close ·
+    // shards from 2.2 s · fist 3.6 s in, 7.7–9.1 s out · fade 10.4–12 s
+    apply(t) {
+      const br = this.br, P = this.P, R = this.R;
+      const flash = t < 0.025 ? 1 - t / 0.025 : 0;
+      const shake = t < 0.025 ? 1 - t / 0.025 : 0;
+      const hole = easeOut((t - 0.17) / 0.1) * (1 - easeIn((t - 0.76) / 0.1));
+      const sp = clamp((t - 0.18) / 0.25);
+      const em = smooth((t - 0.3) / 0.14) * (1 - smooth((t - 0.64) / 0.12));
+      const fade = 1 - clamp((t - 0.87) / 0.13);
+      br.setHole(hole);
+      br.setCracks(t);
+      br.setLcd(t, this.ink, this.lines);
+      br.setShards(sp, t > 0.17);
+      br.setFade(fade);
+      this.inside.style.opacity = Math.min(1, hole * 1.6);
+      this.flash.style.opacity = flash * 0.7;
+      this.app.style.transform = shake ? `translate(${f1(Math.sin(t * 840) * 5 * shake)}px,${f1(Math.cos(t * 660) * 4 * shake)}px)` : 'none';
+      // fist
+      const s = (0.1 + 1.15 * em) * (R / 76), rot = (1 - em) * -28, released = em > 0.4;
+      const vis = this.fist && (hole > 0.02 || released) && em > 0;
+      for (const c of [this.cIn, this.cOut]) {
+        const sp_ = c.querySelector('.sprite'), svg = sp_.querySelector('svg');
+        sp_.style.transform = `translate(${f1(P.x)}px,${f1(P.y)}px)`;
+        svg.style.transform = `translate(-50%,-50%) scale(${s.toFixed(3)}) rotate(${f1(rot)}deg)`;
+        svg.style.filter = released ? `drop-shadow(0 ${f1(16 * em)}px ${f1(20 * em)}px rgba(0,0,0,.65))` : 'none';
+      }
+      this.cIn.style.opacity = vis && !released ? 1 : 0;
+      this.cOut.style.opacity = vis && released ? 1 : 0;
+    }
+  }
+
+  // ---------- live ----------
+  let P = { x: 400, y: 215 }, seed = 7;
+  const liveHost = document.getElementById('live');
+  let live = null, t = 0, playing = false, t0 = 0, raf = 0;
+  const scrub = document.getElementById('scrub'), tval = document.getElementById('tval'), playBtn = document.getElementById('play');
+  const flags = { ink: false, lines: true, fist: true, light: false };
+  const rebuild = () => {
+    liveHost.innerHTML = '';
+    live = new Screen(liveHost, { P, seed, ...flags, interactive: true, onTap: p => { P = p; rebuild(); start(); } });
+    live.apply(t);
+    buildStrip();
+  };
+  const show = tt => { t = clamp(tt); live.apply(t); scrub.value = Math.round(t * 1000); tval.textContent = `${(t * FLIGHT / 1000).toFixed(1)} s`; };
+  const step = now => { const tt = (now - t0) / FLIGHT; show(tt); if (tt < 1) raf = requestAnimationFrame(step); else { playing = false; playBtn.textContent = '▶ Replay'; } };
+  const start = () => { cancelAnimationFrame(raf); playing = true; playBtn.textContent = '❚❚ Pause'; t0 = performance.now(); raf = requestAnimationFrame(step); };
+  playBtn.addEventListener('click', () => { if (playing) { cancelAnimationFrame(raf); playing = false; playBtn.textContent = '▶ Play'; } else { if (t >= 1) t = 0; t0 = performance.now() - t * FLIGHT; playing = true; playBtn.textContent = '❚❚ Pause'; raf = requestAnimationFrame(step); } });
+  scrub.addEventListener('input', () => { cancelAnimationFrame(raf); playing = false; playBtn.textContent = '▶ Play'; show(scrub.value / 1000); });
+  const toggle = (id, key, after) => { const b = document.getElementById(id); b.addEventListener('click', () => { flags[key] = !flags[key]; b.classList.toggle('on', flags[key]); live[key] = flags[key]; if (after) after(); else live.apply(t); }); };
+  toggle('tInk', 'ink'); toggle('tLines', 'lines'); toggle('tFist', 'fist');
+  toggle('tLightApp', 'light', () => { rebuild(); });
+  document.getElementById('reroll').addEventListener('click', () => { seed = (seed * 31 + 17) % 100003; rebuild(); start(); });
+
+  // ---------- filmstrip ----------
+  const stripHost = document.getElementById('strip');
+  const MOMENTS = [
+    { t: 0.04, title: '0.5 s · the hit', cap: 'Flash and shake are over; the crushed zone has frosted; the primaries have only just started to travel.' },
+    { t: 0.125, title: '1.5 s · cracks travelling', cap: 'Primaries roughly halfway to the edge (ease-in-out, so they read as creeping).' },
+    { t: 0.25, title: '3 s · the hole opens', cap: 'Hole nearly open, shards flying, first branches forking; the fist is not through yet.' },
+    { t: 0.42, title: '5 s · the fist', cap: 'Fist released in front; arcs still arriving; the first dead-pixel lines have popped in.' },
+    { t: 0.72, title: '8.6 s · retreat', cap: 'Web fully developed, every line in; the fist is pulling back into the hole.' },
+    { t: 0.93, title: '11.2 s · heal', cap: 'Hole closed; cracks and lines fading together.' },
+  ];
+  function buildStrip() {
+    stripHost.innerHTML = '';
+    for (const m of MOMENTS) {
+      const fr = document.createElement('div'); fr.className = 'study frame';
+      fr.innerHTML = `<h3>${m.title}</h3>`;
+      const host = document.createElement('div'); fr.appendChild(host);
+      const cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = m.cap; fr.appendChild(cap);
+      stripHost.appendChild(fr);
+      const s = new Screen(host, { P, seed, ink: flags.ink, lines: flags.lines, fist: flags.fist, light: flags.light, interactive: false });
+      s.apply(m.t);
+    }
+  }
+
+  rebuild();
+  show(0);
+  setTimeout(start, 400);
+})();
+</script>
+</body>
+</html>

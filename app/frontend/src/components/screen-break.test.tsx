@@ -102,7 +102,7 @@ describe("ScreenBreak", () => {
     const startedAt = getState().flight!.startedAt;
     stepTo(startedAt + 100);
     expect(screen.getByTestId("screen-break")).toBeInTheDocument();
-    stepTo(startedAt + 4300);
+    stepTo(startedAt + 12100);
     expect(screen.queryByTestId("screen-break")).toBeNull();
     expect(getState().flight).toBeNull();
     expect(glass.style.clipPath).toBe("");
@@ -132,7 +132,7 @@ describe("ScreenBreak", () => {
       fire("smash", { force: true });
     });
     const startedAt = getState().flight!.startedAt;
-    stepTo(startedAt + 2100);
+    stepTo(startedAt + 6000);
     const inside = document.querySelector<HTMLElement>('[data-part="creature-inside"]')!;
     const above = document.querySelector<HTMLElement>('[data-part="creature-above"]')!;
     expect(inside.style.opacity).toBe("0");
@@ -147,12 +147,53 @@ describe("ScreenBreak", () => {
       fire("peek", { force: true });
     });
     const startedAt = getState().flight!.startedAt;
-    stepTo(startedAt + 2100);
+    stepTo(startedAt + 6000);
     const inside = document.querySelector<HTMLElement>('[data-part="creature-inside"]')!;
     const above = document.querySelector<HTMLElement>('[data-part="creature-above"]')!;
     expect(inside.style.clipPath).toBe("url(\"#rk-sb-hole\")");
     expect(inside.style.opacity).toBe("1");
     expect(above.style.opacity).toBe("0");
+    act(() => finish());
+  });
+
+  it("mounts the LCD svg with a glow+core line pair per dead-pixel line", () => {
+    render(<ScreenBreak />);
+    act(() => {
+      fire("smash", { force: true });
+    });
+    const lines = document.querySelectorAll(".rk-sb-lcd .rk-sb-lines line");
+    // 5–8 dead-pixel lines × (glow + core).
+    expect(lines.length % 2).toBe(0);
+    expect(lines.length).toBeGreaterThanOrEqual(10);
+    expect(lines.length).toBeLessThanOrEqual(16);
+    act(() => finish());
+  });
+
+  it("renders the frost circle first in the cracks svg, with its gradient in defs", () => {
+    render(<ScreenBreak />);
+    act(() => {
+      fire("smash", { force: true });
+    });
+    const cracks = document.querySelector(".rk-sb-cracks")!;
+    const frost = cracks.firstElementChild;
+    expect(frost?.tagName).toBe("circle");
+    expect(frost?.classList.contains("rk-sb-frost")).toBe(true);
+    const gradient = document.getElementById("rk-sb-frost");
+    expect(gradient?.tagName).toBe("radialGradient");
+    expect(frost?.getAttribute("fill")).toBe("url(#rk-sb-frost)");
+    act(() => finish());
+  });
+
+  it("carries a stroke-width attribute on every crack path", () => {
+    render(<ScreenBreak />);
+    act(() => {
+      fire("smash", { force: true });
+    });
+    const paths = document.querySelectorAll(".rk-sb-cracks path");
+    expect(paths.length).toBeGreaterThan(0);
+    for (const p of paths) {
+      expect(Number(p.getAttribute("stroke-width"))).toBeGreaterThan(0);
+    }
     act(() => finish());
   });
 

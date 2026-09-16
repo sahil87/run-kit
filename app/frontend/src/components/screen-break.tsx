@@ -1,12 +1,13 @@
 /**
  * ScreenBreak — the one-shot, whole-viewport Easter-egg event layer. Renders
- * `null` while idle; while a flight is in progress it renders the six-layer
- * stack around the glass (the `.app-root` div, registered into the store via
- * a ref callback): the dark inside-ground + hole-clipped creature BELOW the
- * glass, and the evenodd-clipped cracks, the released creature, the shards,
- * and the flash ABOVE it. The glass itself receives only inline `clip-path` /
- * `transform` (plus `position`/`z-index` when it computes `static`) — all
- * removed on finish, on unmount, and on cancel.
+ * `null` while idle; while a flight is in progress it renders the layer stack
+ * around the glass (the `.app-root` div, registered into the store via a ref
+ * callback): the dark inside-ground + hole-clipped creature BELOW the glass,
+ * and — ABOVE it — the dead-pixel LCD lines, the evenodd-clipped cracks (a
+ * frost circle over the crushed zone, then dark cores and offset highlights),
+ * the released creature, the shards, and the flash. The glass itself receives
+ * only inline `clip-path` / `transform` (plus `position`/`z-index` when it
+ * computes `static`) — all removed on finish, on unmount, and on cancel.
  *
  * The layer MUST be a sibling of the glass, never a descendant: `clip-path`
  * on an ancestor clips fixed descendants and `transform` re-anchors them, so
@@ -15,14 +16,14 @@
  *
  * Discipline (copied from FlairOverlay): aria-hidden, pointer-events none,
  * per-frame writes are transforms / opacity / filter / SVG attributes only,
- * ONE requestAnimationFrame loop drives the 4.2 s flight, no other timers;
+ * ONE requestAnimationFrame loop drives the 12 s flight, no other timers;
  * the single permitted event listener is a passive `pointermove` while the
  * eye is in flight. Under prefers-reduced-motion the store's `fire` never
  * starts a flight, so this layer never mounts (no static fallback — a
  * non-animating crack reads as a broken UI).
  */
 
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
   finish,
   getGlass,
@@ -42,7 +43,7 @@ import {
 import { useScreenBreakTriggers } from "@/hooks/use-screen-break-triggers";
 import { EyeSprite, FistSprite } from "./screen-break-sprites";
 
-const FLIGHT_MS = 4200;
+const FLIGHT_MS = 12000;
 const SHARD_GRAVITY = 420;
 
 const GLOW: Record<ScreenBreakFlight["egg"], string> = {
@@ -65,14 +66,7 @@ export function ScreenBreak() {
 
 function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
   const geo = useMemo<BreakGeometry>(
-    () =>
-      buildBreak({
-        W: flight.W,
-        H: flight.H,
-        P: flight.P,
-        R: flight.R,
-        rings: [flight.R * 1.7, flight.R * 2.7],
-      }),
+    () => buildBreak({ W: flight.W, H: flight.H, P: flight.P, R: flight.R }),
     [flight],
   );
 
@@ -80,10 +74,14 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
   const holePathRef = useRef<SVGPathElement>(null);
   const groundRef = useRef<HTMLDivElement>(null);
   const flashRef = useRef<HTMLDivElement>(null);
+  const frostRef = useRef<SVGCircleElement>(null);
   const cracksSvgRef = useRef<SVGSVGElement>(null);
+  const lcdSvgRef = useRef<SVGSVGElement>(null);
   const shardsRef = useRef<(SVGPolygonElement | null)[]>([]);
   const darkStrokesRef = useRef<(SVGPathElement | null)[]>([]);
   const liteStrokesRef = useRef<(SVGPathElement | null)[]>([]);
+  const lineCoreRef = useRef<(SVGLineElement | null)[]>([]);
+  const lineGlowRef = useRef<(SVGLineElement | null)[]>([]);
   const insideCreatureRef = useRef<HTMLDivElement>(null);
   const insideSpriteRef = useRef<HTMLDivElement>(null);
   const aboveCreatureRef = useRef<HTMLDivElement>(null);
@@ -106,19 +104,12 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
       glass.style.zIndex = "1";
     }
 
-    const dark = darkStrokesRef.current;
-    const lite = liteStrokesRef.current;
-    const strokes = geo.crackDs.map((_, i) => ({
-      a: dark[i],
-      b: lite[i],
-      len: dark[i] ? pathLength(dark[i]) : 1,
-      ring: false,
+    const strokes = geo.strokes.map((s, i) => ({
+      ...s,
+      a: darkStrokesRef.current[i],
+      b: liteStrokesRef.current[i],
+      len: darkStrokesRef.current[i] ? pathLength(darkStrokesRef.current[i]) : 1,
     }));
-    for (let i = 0; i < geo.ringDs.length; i++) {
-      const j = geo.crackDs.length + i;
-      const el = dark[j];
-      strokes.push({ a: el, b: lite[j], len: el ? pathLength(el) : 1, ring: true });
-    }
     for (const s of strokes) {
       for (const el of [s.a, s.b]) {
         if (!el) continue;
@@ -147,26 +138,53 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
       }
     };
 
+    // Timeline (fractions of the 12 s flight; seconds in brackets):
+    //   flash / shake   t < 0.025, decaying 1 − t/0.025                      [0–0.3 s]
+    //   frost           0.9 · easeOut((t − 0.008)/0.045)                     [0.1–0.6 s]
+    //   per stroke      own {start, dur, ease, s0, s1} window (dash rule below)
+    //   hole            easeOut((t − 0.17)/0.1) · (1 − easeIn((t − 0.76)/0.1))   [open 2.0–3.2 s, close 9.1–10.3 s]
+    //   shards          sp = clamp((t − 0.18)/0.25), visible once t > 0.17   [2.2–5.2 s]
+    //   creature        em = smooth((t − 0.3)/0.14) · (1 − smooth((t − 0.64)/0.12))  [in 3.6–5.3 s, out 7.7–9.1 s]
+    //   eye blinks      centres 0.47 and 0.58, ±0.03 — inside em's plateau  [5.6 s, 7.0 s]
+    //   per LCD line    on at its start, pops in instantly, flickers
+    //   fade            1 − clamp((t − 0.87)/0.13) — cracks AND lcd SVGs     [10.4–12 s]
     const applyFrame = (t: number) => {
-      const flash = t < 0.05 ? 1 - t / 0.05 : 0;
-      const shake = t < 0.16 ? 1 - t / 0.16 : 0;
-      const cracks = easeOut(t / 0.2);
-      const rings = easeOut((t - 0.05) / 0.22);
-      const hole = easeOut((t - 0.05) / 0.15) * (1 - easeIn((t - 0.76) / 0.16));
-      const sp = clamp((t - 0.07) / 0.45);
-      const em = smooth((t - 0.22) / 0.3) * (1 - smooth((t - 0.6) / 0.2));
-      const cracksFade = 1 - clamp((t - 0.88) / 0.12);
+      const flash = t < 0.025 ? 1 - t / 0.025 : 0;
+      const shake = t < 0.025 ? 1 - t / 0.025 : 0;
+      const hole = easeOut((t - 0.17) / 0.1) * (1 - easeIn((t - 0.76) / 0.1));
+      const sp = clamp((t - 0.18) / 0.25);
+      const em = smooth((t - 0.3) / 0.14) * (1 - smooth((t - 0.64) / 0.12));
+      const fade = 1 - clamp((t - 0.87) / 0.13);
 
       const holeD = holePathAt(geo, hole);
       appPathRef.current?.setAttribute("d", "M0 0H1V1H0Z " + holeD);
       holePathRef.current?.setAttribute("d", holeD);
 
+      // Each stroke draws over its own window; the tapered pieces of one crack
+      // chain via s0/s1 so they draw back-to-back as a single travelling crack.
       for (const s of strokes) {
-        const off = s.len * (1 - (s.ring ? rings : cracks));
+        const p = (s.ease === "smooth" ? smooth : easeOut)((t - s.start) / s.dur);
+        const q = clamp((p - s.s0) / (s.s1 - s.s0 || 1));
+        const off = s.len * (1 - q);
         s.a?.style.setProperty("stroke-dashoffset", `${off}`);
         s.b?.style.setProperty("stroke-dashoffset", `${off}`);
       }
-      if (cracksSvgRef.current) cracksSvgRef.current.style.opacity = `${cracksFade}`;
+      if (frostRef.current) {
+        frostRef.current.style.opacity = `${0.9 * easeOut((t - 0.008) / 0.045)}`;
+      }
+
+      geo.lines.forEach((l, i) => {
+        const core = lineCoreRef.current[i];
+        const glow = lineGlowRef.current[i];
+        const on = t >= l.start;
+        // LCD lines pop in instantly and flicker a little.
+        const flick = on ? (Math.sin(t * 900 + l.flick) > 0.92 ? 0.55 : 1) : 0;
+        if (core) core.style.opacity = on ? `${l.op * flick}` : "0";
+        if (glow) glow.style.opacity = on ? `${0.22 * flick}` : "0";
+      });
+
+      if (cracksSvgRef.current) cracksSvgRef.current.style.opacity = `${fade}`;
+      if (lcdSvgRef.current) lcdSvgRef.current.style.opacity = `${fade}`;
 
       geo.shards.forEach((s, i) => {
         const el = shardsRef.current[i];
@@ -177,14 +195,14 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
           "transform",
           `translate(${f1(tx)} ${f1(ty)}) rotate(${f1(s.spin * sp)} ${f1(s.cx)} ${f1(s.cy)})`,
         );
-        el.style.opacity = t > 0.06 ? `${1 - smooth((sp - 0.45) / 0.55)}` : "0";
+        el.style.opacity = t > 0.17 ? `${1 - smooth((sp - 0.45) / 0.55)}` : "0";
       });
 
       if (groundRef.current) groundRef.current.style.opacity = `${Math.min(1, hole * 1.6)}`;
       if (flashRef.current) flashRef.current.style.opacity = `${flash * 0.7}`;
       if (glass) {
         glass.style.transform = shake
-          ? `translate(${f1(Math.sin(t * 420) * 5 * shake)}px,${f1(Math.cos(t * 330) * 4 * shake)}px)`
+          ? `translate(${f1(Math.sin(t * 840) * 5 * shake)}px,${f1(Math.cos(t * 660) * 4 * shake)}px)`
           : "none";
       }
 
@@ -212,7 +230,7 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
           const d = Math.abs(t - c);
           return d < 0.03 ? 1 - d / 0.03 : 0;
         };
-        const b = Math.max(blink(0.4), blink(0.585));
+        const b = Math.max(blink(0.47), blink(0.58));
         const pointer = pointerRef.current;
         const look = pointer
           ? {
@@ -268,6 +286,16 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
           <clipPath id="rk-sb-hole" clipPathUnits="objectBoundingBox">
             <path ref={holePathRef} d="M0 0" />
           </clipPath>
+          <radialGradient
+            id="rk-sb-frost"
+            gradientUnits="userSpaceOnUse"
+            cx={flight.P.x}
+            cy={flight.P.y}
+            r={flight.R * 1.5}
+          >
+            <stop offset="0.6" stopColor="rgba(255,255,255,0.16)" />
+            <stop offset="1" stopColor="rgba(255,255,255,0)" />
+          </radialGradient>
         </defs>
       </svg>
 
@@ -293,6 +321,46 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
       </div>
 
       <div className="rk-sb-above">
+        {/* The LCD layer sits below the glass cracks: dead pixels read as the
+            panel underneath, and both SVGs share the app clip and the fade. */}
+        <svg
+          ref={lcdSvgRef}
+          className="rk-sb-lcd"
+          viewBox={`0 0 ${flight.W} ${flight.H}`}
+          preserveAspectRatio="none"
+          style={{ clipPath: "url(#rk-sb-appclip)" }}
+        >
+          <g className="rk-sb-lines">
+            {geo.lines.map((l, i) => (
+              <Fragment key={i}>
+                <line
+                  x1={l.x1}
+                  y1={l.y1}
+                  x2={l.x2}
+                  y2={l.y2}
+                  stroke={l.color}
+                  strokeWidth={l.w + 2.5}
+                  style={{ opacity: 0 }}
+                  ref={(el) => {
+                    lineGlowRef.current[i] = el;
+                  }}
+                />
+                <line
+                  x1={l.x1}
+                  y1={l.y1}
+                  x2={l.x2}
+                  y2={l.y2}
+                  stroke={l.color}
+                  strokeWidth={l.w}
+                  style={{ opacity: 0 }}
+                  ref={(el) => {
+                    lineCoreRef.current[i] = el;
+                  }}
+                />
+              </Fragment>
+            ))}
+          </g>
+        </svg>
         <svg
           ref={cracksSvgRef}
           className="rk-sb-cracks"
@@ -300,44 +368,37 @@ function ScreenBreakFlight({ flight }: { flight: ScreenBreakFlight }) {
           preserveAspectRatio="none"
           style={{ clipPath: "url(#rk-sb-appclip)" }}
         >
+          <circle
+            ref={frostRef}
+            className="rk-sb-frost"
+            cx={flight.P.x}
+            cy={flight.P.y}
+            r={flight.R * 1.5}
+            fill="url(#rk-sb-frost)"
+            style={{ opacity: 0 }}
+          />
           <g className="rk-sb-crack-dark">
-            {geo.crackDs.map((d, i) => (
+            {geo.strokes.map((s, i) => (
               <path
                 key={`d${i}`}
-                d={d}
+                d={s.d}
+                strokeWidth={s.w}
                 ref={(el) => {
                   darkStrokesRef.current[i] = el;
                 }}
               />
             ))}
-            {geo.ringDs.map((d, i) => (
-              <path
-                key={`dr${i}`}
-                d={d}
-                className="rk-sb-ring"
-                ref={(el) => {
-                  darkStrokesRef.current[geo.crackDs.length + i] = el;
-                }}
-              />
-            ))}
           </g>
-          <g className="rk-sb-crack-lite" transform="translate(0.8 0.8)">
-            {geo.crackDs.map((d, i) => (
+          {/* Width is a per-piece presentation attribute, not a class: a CSS
+              stroke-width rule would override every attribute. */}
+          <g className="rk-sb-crack-lite" transform="translate(0.7 0.7)">
+            {geo.strokes.map((s, i) => (
               <path
                 key={`l${i}`}
-                d={d}
+                d={s.d}
+                strokeWidth={s.lw}
                 ref={(el) => {
                   liteStrokesRef.current[i] = el;
-                }}
-              />
-            ))}
-            {geo.ringDs.map((d, i) => (
-              <path
-                key={`lr${i}`}
-                d={d}
-                className="rk-sb-ring"
-                ref={(el) => {
-                  liteStrokesRef.current[geo.crackDs.length + i] = el;
                 }}
               />
             ))}

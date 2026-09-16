@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-16T11:54:47Z"}
+{"args":"Screen-break Easter eggs phase 2 — realistic cracks, dead-pixel lines, and a slow 12 s flight (variant C, mock port)","cmd":"fab-new","event":"command","ts":"2026-09-16T11:54:47Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-09-16T11:57:57Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-09-16T11:58:27Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-16T11:59:12Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-16T12:01:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T12:01:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T12:19:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-16T12:24:44Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T12:24:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-16T12:28:36Z"}

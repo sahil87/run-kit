@@ -73,17 +73,18 @@ test.describe("screen-break eggs — motion allowed", () => {
   /**
    * Proves: the palette's `Easter egg: Smash` entry mounts the one-shot
    * screen-break layer over the app, and the layer detaches itself after the
-   * ~4.2 s flight with the glass (`.app-root`) left clean of inline mutations.
+   * ~12 s flight with the glass (`.app-root`) left clean of inline mutations.
    * Steps:
    * 1. Navigate to the mocked window route and open the palette.
    * 2. Filter to "Easter" and select `Easter egg: Smash`.
    * 3. Assert `[data-testid="screen-break"]` is visible (the flight started).
-   * 4. Assert the layer detaches within 6 s (the rAF loop ran to t = 1).
+   * 4. Assert the layer detaches within 15 s (the rAF loop ran to t = 1).
    * 5. Assert `.app-root` carries no inline `clip-path` or `transform`.
    */
   test("palette Smash mounts the layer, which detaches after the flight with the glass cleaned", async ({
     page,
   }) => {
+    test.setTimeout(30_000);
     await page.goto(`/${SERVER}/1`);
     await expect(
       page.getByTestId("status-bar").locator("[aria-label='Connected']"),
@@ -92,7 +93,7 @@ test.describe("screen-break eggs — motion allowed", () => {
     await selectSmash(page);
 
     await expect(page.getByTestId("screen-break")).toBeVisible();
-    await expect(page.getByTestId("screen-break")).toHaveCount(0, { timeout: 6_000 });
+    await expect(page.getByTestId("screen-break")).toHaveCount(0, { timeout: 15_000 });
     await expect(page.locator(".app-root")).not.toHaveAttribute("style", /clip-path/);
     await expect(page.locator(".app-root")).not.toHaveAttribute("style", /transform/);
   });

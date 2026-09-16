@@ -172,6 +172,28 @@ describe("Shell", () => {
       expect(handleSlot.parentElement).toBe(stage());
     });
 
+    it("drops the stage column transition while sidebarResizing, restoring it after", () => {
+      localStorage.setItem("runkit-sidebar-open", "true");
+      stubMatchMedia(() => false); // desktop
+      const tree = (resizing: boolean) => (
+        <ChromeProvider>
+          <Shell
+            sidebarChildren={<div data-testid="sidebar">SIDEBAR</div>}
+            sidebarResizeHandle={<div data-testid="resize-handle">HANDLE</div>}
+            sidebarResizing={resizing}
+          >
+            <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
+          </Shell>
+        </ChromeProvider>
+      );
+      const { rerender } = render(tree(true));
+      // A drag writes a width per pointermove; a 150ms tween restarted on each
+      // write would trail the pointer, so the stage snaps for the gesture.
+      expect(stage().style.transition).toBe("none");
+      rerender(tree(false));
+      expect(stage().style.transition).toContain("grid-template-columns 150ms");
+    });
+
     it("does not render sidebarResizeHandle in the mobile overlay", () => {
       // ChromeProvider reads the stored preference; pin open, mock mobile viewport.
       localStorage.setItem("runkit-sidebar-open", "true");

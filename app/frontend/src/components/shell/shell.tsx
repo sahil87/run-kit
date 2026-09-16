@@ -131,8 +131,10 @@ function useSidebarKeyboardToggle(sidebarRef: RefObject<HTMLElement | null>) {
  *   `${sidebarWidth}px 1fr` when `sidebarOpen`, else `0 1fr`, with a ~150ms
  *   ease-out transition on both `grid-template-columns` and `column-gap` (the
  *   column-gap collapses with the column so a hidden sidebar leaves no stray
- *   6px seam). Consumers' `gridArea: "content"` styles bind to the stage's
- *   template (areas bind to direct children).
+ *   6px seam). The transition is suppressed while `sidebarResizing` — a drag
+ *   writes a new width per pointermove, and a tween restarted on every write
+ *   trails the pointer until it stops. Consumers' `gridArea: "content"`
+ *   styles bind to the stage's template (areas bind to direct children).
  * - The sidebar is a CARD: it floats 6px from the viewport edges and 6px
  *   above the status bar (no more flush square T-junction). It still fully
  *   unmounts on collapse (`!isMobile && sidebarOpen && !!sidebarChildren`) —
@@ -165,6 +167,7 @@ export function Shell({
   children,
   sidebarChildren,
   sidebarResizeHandle,
+  sidebarResizing = false,
   bottomBarChildren,
   statusBarChildren,
   zenActive = false,
@@ -190,6 +193,12 @@ export function Shell({
    * border seam. The mobile overlay never renders it.
    */
   sidebarResizeHandle?: ReactNode;
+  /**
+   * True while the `sidebarResizeHandle` drag is in progress. Drops the
+   * stage's column transition for the duration so each pointermove width
+   * lands immediately; the toggle/zen animation resumes once the drag ends.
+   */
+  sidebarResizing?: boolean;
   /**
    * Bottom-bar row content: the compose strip + the BottomBar. Shell renders
    * the `<footer gridArea:"bottombar">` wrapper itself, inside the stage on
@@ -273,7 +282,9 @@ export function Shell({
     padding: `${STAGE_PADDING_PX}px`,
     minWidth: 0,
     minHeight: 0,
-    transition: "grid-template-columns 150ms ease-out, column-gap 150ms ease-out",
+    transition: sidebarResizing
+      ? "none"
+      : "grid-template-columns 150ms ease-out, column-gap 150ms ease-out",
   };
 
   return (

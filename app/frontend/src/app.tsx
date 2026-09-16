@@ -5358,6 +5358,7 @@ function AppShell() {
           />
         </>
       }
+      sidebarResizing={isDragging}
       sidebarResizeHandle={
         // Drag handle — Shell places it in a zero-width grid item pinned to
         // the sidebar card's right edge, so the 14px hit zone straddles the

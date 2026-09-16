@@ -3,12 +3,12 @@ import { render, cleanup, fireEvent, screen, waitFor } from "@testing-library/re
 import { IframeWindow } from "./iframe-window";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 
-// Mock the API client. `IframeWindow` reads `checkFrame` (the frame-refusal
-// probe for external URLs — default embeddable so existing tests render the
-// iframe) and the real `ApiError` class (the submit ladder's 400-fallback
-// narrows with instanceof, so the class identity must be the real one); the
-// URL bar's Enter-commit goes through the `onWriteUrl`/`onAddTab` props
-// (per-test spies — the caller owns the POSTs).
+// Mock the API client. The engine mounted under `IframeWindow` probes
+// external URLs through `checkFrame` (default embeddable so existing tests
+// render the iframe) and the real `ApiError` class (the submit ladder's
+// 400-fallback narrows with instanceof, so the class identity must be the
+// real one); the URL bar's Enter-commit goes through the
+// `onWriteUrl`/`onAddTab` props (per-test spies — the caller owns the POSTs).
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
   return {
@@ -118,120 +118,6 @@ describe("IframeWindow", () => {
     expect(iframe.src).toContain("https://example.com/docs");
   });
 
-  // Interaction seam: parent-document listeners never hear in-frame clicks
-  // (events stay in the frame's document; focus entering it fires no focusin
-  // in the parent), so the component reports them via onInteract —
-  // contentDocument listeners same-origin, window-blur fallback cross-origin.
-  describe("onInteract seam", () => {
-    const getIframe = () =>
-      screen.getByTitle("Proxied content") as HTMLIFrameElement;
-
-    it("fires on pointerdown and keydown inside the frame document", () => {
-      const onInteract = vi.fn();
-      renderIframe({
-        tabs: ["http://localhost:8080/docs"],
-        onInteract,
-      });
-      const doc = getIframe().contentDocument!;
-      doc.dispatchEvent(new Event("pointerdown"));
-      expect(onInteract).toHaveBeenCalledTimes(1);
-      doc.dispatchEvent(new Event("keydown"));
-      expect(onInteract).toHaveBeenCalledTimes(2);
-    });
-
-    it("a same-document load does not double-attach; a replaced document is re-attached", () => {
-      const onInteract = vi.fn();
-      renderIframe({
-        tabs: ["http://localhost:8080/docs"],
-        onInteract,
-      });
-      const iframe = getIframe();
-      const doc = iframe.contentDocument!;
-
-      // Same document across a load: still exactly one listener pair.
-      fireEvent.load(iframe);
-      doc.dispatchEvent(new Event("pointerdown"));
-      expect(onInteract).toHaveBeenCalledTimes(1);
-
-      // A navigation replaces the document — simulate by shadowing the
-      // instance getter with a fresh document, then firing load.
-      const freshDoc = document.implementation.createHTMLDocument();
-      Object.defineProperty(iframe, "contentDocument", {
-        value: freshDoc,
-        configurable: true,
-      });
-      fireEvent.load(iframe);
-      freshDoc.dispatchEvent(new Event("keydown"));
-      expect(onInteract).toHaveBeenCalledTimes(2);
-    });
-
-    it("blur fallback fires only when the iframe is the active element, and dies on unmount", () => {
-      const onInteract = vi.fn();
-      const { unmount } = renderIframe({
-        tabs: ["http://localhost:8080/docs"],
-        onInteract,
-      });
-      const iframe = getIframe();
-
-      // Focus elsewhere at blur: no report.
-      fireEvent.blur(window);
-      expect(onInteract).not.toHaveBeenCalled();
-
-      Object.defineProperty(document, "activeElement", {
-        value: iframe,
-        configurable: true,
-      });
-      try {
-        fireEvent.blur(window);
-        expect(onInteract).toHaveBeenCalledTimes(1);
-
-        unmount();
-        fireEvent.blur(window);
-        expect(onInteract).toHaveBeenCalledTimes(1);
-      } finally {
-        delete (document as { activeElement?: Element | null }).activeElement;
-      }
-    });
-
-    it("reports nothing and errors nothing when the prop is omitted", () => {
-      renderIframe({ tabs: ["http://localhost:8080/docs"] });
-      const iframe = getIframe();
-      expect(() => {
-        iframe.contentDocument!.dispatchEvent(new Event("pointerdown"));
-        fireEvent.load(iframe);
-        fireEvent.blur(window);
-      }).not.toThrow();
-    });
-
-    it("a handler supplied after mount reports (hidden tile with slot -1 becoming visible)", () => {
-      const onInteract = vi.fn();
-      const { rerender } = renderIframe({
-        tabs: ["http://localhost:8080/docs"],
-      });
-      rerender(
-        iframeElement(
-          { tabs: ["http://localhost:8080/docs"], onInteract },
-          "runkit",
-        ),
-      );
-      getIframe().contentDocument!.dispatchEvent(new Event("pointerdown"));
-      expect(onInteract).toHaveBeenCalledTimes(1);
-    });
-
-    it("unmount removes the frame-document listeners", () => {
-      const onInteract = vi.fn();
-      const { unmount } = renderIframe({
-        tabs: ["http://localhost:8080/docs"],
-        onInteract,
-      });
-      const doc = getIframe().contentDocument!;
-      unmount();
-      doc.dispatchEvent(new Event("pointerdown"));
-      doc.dispatchEvent(new Event("keydown"));
-      expect(onInteract).not.toHaveBeenCalled();
-    });
-  });
-
   // The `>_` switch-to-terminal button is removed (260819-v6y4 R13): the
   // top-bar surface toggles own view switching, and its R7 zero-POST concern
   // is covered by the surface-toggle path web-view-lens.spec.ts asserts.
@@ -240,94 +126,6 @@ describe("IframeWindow", () => {
       tabs: ["http://localhost:8080/docs"],
     });
     expect(screen.queryByLabelText("Switch to terminal")).toBeNull();
-  });
-
-  // Chord reclaim (260819-ie2i R1): the seam reports onInteract first, then
-  // consumes ONLY predicate-matching chords in the frame and re-dispatches a
-  // synthetic bubbling keydown on the parent document.
-  describe("chord reclaim seam", () => {
-    const getIframe = () =>
-      screen.getByTitle("Proxied content") as HTMLIFrameElement;
-
-    it("a matching chord is prevented in the frame and re-dispatched on the parent document", () => {
-      const onInteract = vi.fn();
-      renderIframe({
-        tabs: ["http://localhost:8080/docs"],
-        onInteract,
-        shouldReclaimChord: (e) => e.code === "KeyK",
-      });
-      const parentReceived = vi.fn();
-      document.addEventListener("keydown", parentReceived);
-      try {
-        const doc = getIframe().contentDocument!;
-        const event = new KeyboardEvent("keydown", {
-          key: "k",
-          code: "KeyK",
-          metaKey: true,
-          cancelable: true,
-        });
-        doc.dispatchEvent(event);
-        // onInteract reported first; the frame's event was consumed…
-        expect(onInteract).toHaveBeenCalledTimes(1);
-        expect(event.defaultPrevented).toBe(true);
-        // …and a synthetic copy (key/code/modifiers, bubbling) landed on the
-        // parent document.
-        expect(parentReceived).toHaveBeenCalledTimes(1);
-        const synthetic = parentReceived.mock.calls[0][0] as KeyboardEvent;
-        expect(synthetic.code).toBe("KeyK");
-        expect(synthetic.metaKey).toBe(true);
-        expect(synthetic.bubbles).toBe(true);
-      } finally {
-        document.removeEventListener("keydown", parentReceived);
-      }
-    });
-
-    it("a non-matching keydown passes through untouched (no prevent, no re-dispatch)", () => {
-      const onInteract = vi.fn();
-      renderIframe({
-        tabs: ["http://localhost:8080/docs"],
-        onInteract,
-        shouldReclaimChord: () => false,
-      });
-      const parentReceived = vi.fn();
-      document.addEventListener("keydown", parentReceived);
-      try {
-        const doc = getIframe().contentDocument!;
-        const event = new KeyboardEvent("keydown", {
-          key: "a",
-          code: "KeyA",
-          cancelable: true,
-        });
-        doc.dispatchEvent(event);
-        expect(onInteract).toHaveBeenCalledTimes(1);
-        expect(event.defaultPrevented).toBe(false);
-        expect(parentReceived).not.toHaveBeenCalled();
-      } finally {
-        document.removeEventListener("keydown", parentReceived);
-      }
-    });
-
-    it("without the predicate the seam stays report-only (legacy behavior)", () => {
-      const onInteract = vi.fn();
-      renderIframe({ tabs: ["http://localhost:8080/docs"], onInteract });
-      const parentReceived = vi.fn();
-      document.addEventListener("keydown", parentReceived);
-      try {
-        const doc = getIframe().contentDocument!;
-        const event = new KeyboardEvent("keydown", {
-          key: "k",
-          code: "KeyK",
-          metaKey: true,
-          cancelable: true,
-        });
-        doc.dispatchEvent(event);
-        expect(onInteract).toHaveBeenCalledTimes(1);
-        expect(event.defaultPrevented).toBe(false);
-        expect(parentReceived).not.toHaveBeenCalled();
-      } finally {
-        document.removeEventListener("keydown", parentReceived);
-      }
-    });
   });
 
   // Find bar (260819-ie2i R5/R7/R8): open seams, counter/navigation, the
@@ -633,54 +431,6 @@ describe("IframeWindow", () => {
       fireEvent(document, new CustomEvent("web-open-external"));
       expect(open).toHaveBeenCalledWith("/proxy/8080/docs", "_blank", "noopener");
       open.mockRestore();
-    });
-  });
-
-  describe("error states (R8)", () => {
-    it("frame-refusal: a probed-blocked external URL renders the refusal state with the escape hatch", async () => {
-      vi.mocked(checkFrame).mockResolvedValue({
-        reachable: true,
-        embeddable: false,
-        status: 200,
-        reason: "X-Frame-Options: DENY",
-      });
-      renderIframe({ tabs: ["https://github.com/sahil87/run-kit"] });
-      const box = await screen.findByTestId("web-tile-error");
-      expect(box.textContent).toContain("github.com refuses embedding");
-      expect(box.textContent).toContain("X-Frame-Options: DENY");
-      // The iframe is hidden while the error renders.
-      expect((screen.getByTitle("Proxied content") as HTMLIFrameElement).className).toContain("hidden");
-    });
-
-    it("unreachable external: reachable:false renders the connection-error state", async () => {
-      vi.mocked(checkFrame).mockResolvedValue({
-        reachable: false,
-        embeddable: false,
-        status: 0,
-        reason: "connect failed: connection refused",
-      });
-      renderIframe({ tabs: ["https://dead.example/"] });
-      const box = await screen.findByTestId("web-tile-error");
-      expect(box.textContent).toContain("dead.example can't be reached");
-      expect(box.textContent).toContain("connect failed");
-    });
-
-    it("dead proxied port: a 502 from the same-origin probe renders the Retry state", async () => {
-      const fetchStub = vi.fn().mockResolvedValue({ status: 502 });
-      vi.stubGlobal("fetch", fetchStub);
-      try {
-        renderIframe({ tabs: ["/proxy/8080/"] });
-        const box = await screen.findByTestId("web-tile-error");
-        expect(box.textContent).toContain("nothing listening on :8080");
-        expect(box.textContent).toContain("connection refused — the dev server may have stopped");
-        // Retry re-runs detection (and re-shows the error while 502 persists).
-        fetchStub.mockClear();
-        fireEvent.click(screen.getByLabelText("Retry"));
-        await screen.findByTestId("web-tile-error");
-        expect(fetchStub).toHaveBeenCalled();
-      } finally {
-        vi.unstubAllGlobals();
-      }
     });
   });
 

@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, type ComponentType } from "react";
 import { INPUT_FOCUS } from "@/components/controls";
-import { ApiError, checkFrame } from "@/api/client";
+import { ApiError } from "@/api/client";
 import { Tip, TipGroup } from "@/components/tip";
 import { FindBar } from "@/components/find-bar";
 import {
@@ -17,9 +17,7 @@ import {
   WEB_TAB_DRAFT_EVENT,
   classifyAddress,
   displayForm,
-  proxyPortOf,
   routeAddressSubmit,
-  toProxySrc,
   webTabTitle,
   type AddressKind,
 } from "@/lib/web-url";
@@ -35,15 +33,18 @@ import {
   type WebZoomDirection,
 } from "@/lib/web-zoom";
 import { applyWheelZoom, clampZoom } from "@/lib/zoom-gesture";
+import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
 import {
-  WEB_FIND_OPEN_EVENT,
-  applyHighlights,
-  clearHighlights,
-  collectMatches,
-  findWithWindow,
-  scrollToMatch,
-  stepMatch,
-} from "@/lib/find-in-page";
+  WEB_FRAME_IFRAME_DEFAULT_CAPABILITIES,
+  WebFrameIframe,
+} from "@/components/web-frame-iframe";
+import type {
+  FrameChromeState,
+  WebFrameCapabilities,
+  WebFrameEngineHandle,
+  WebFrameEngineKind,
+  WebFrameEngineProps,
+} from "@/lib/web-frame-engine";
 
 interface IframeWindowProps {
   /** Dense web-tab family (the window's `webTabs ?? []`). */
@@ -74,11 +75,11 @@ interface IframeWindowProps {
    *  the add verb selects only an empty family (append-or-focus). */
   onAddTab?: (target: string) => Promise<{ index: number; existed: boolean }>;
   /** Tile-focus seam: fired when a pointerdown/keydown arrives inside the
-   *  same-origin contentDocument, or — the cross-origin fallback — when the
-   *  parent window blurs with this iframe as the active element. Clicks
-   *  inside an iframe stay in the frame's document and moving focus into it
-   *  fires NO focusin in the parent, so without this seam in-frame
-   *  interaction is invisible to the tile wrapper. Absent ⇒ no reporting. */
+   *  engine's content, or — the unreadable-content fallback — when the parent
+   *  window blurs with the frame as the active element. Clicks inside an
+   *  iframe stay in the frame's document and moving focus into it fires NO
+   *  focusin in the parent, so without this seam in-frame interaction is
+   *  invisible to the tile wrapper. Absent ⇒ no reporting. */
   onInteract?: () => void;
   /** Chord-reclaim seam (260819-ie2i R1): the kind-bound predicate over
    *  in-frame keydowns. A MATCHING chord is consumed in the frame
@@ -89,11 +90,10 @@ interface IframeWindowProps {
    *  reports `onInteract` first. Absent ⇒ report-only (legacy behavior). */
   shouldReclaimChord?: (e: KeyboardEvent) => boolean;
   /** Page-meta seam (260819-v6y4 R10): fired on every ACTIVE frame `load`
-   *  with the same-origin document's title, `null` when cross-origin or
-   *  empty. The header (SurfaceLayout) owns the render, but only the mounted
-   *  iframe can read `contentDocument.title` — the
-   *  `onInteract`/`onFolderNavigated` callback-seam shape. Absent ⇒ no
-   *  reporting. */
+   *  with the reported page title, `null` when the engine reports none. The
+   *  header (SurfaceLayout) owns the render, but only the engine can read
+   *  its content's title — the `onInteract`/`onFolderNavigated`
+   *  callback-seam shape. Absent ⇒ no reporting. */
   onPageMeta?: (meta: { title: string | null }) => void;
 }
 
@@ -117,380 +117,6 @@ interface Draft {
   id: number;
 }
 
-/** The tile's error surface (260819-v6y4 R8) — rendered IN PLACE of the
- *  iframe's visible area; copy per the approved design study (states 05/06).
- *  A silent blank iframe is no longer a reachable state for a probed-blocked
- *  external URL or a dead proxied port. */
-type TileError =
-  | { kind: "refused"; host: string; reason: string }
-  | { kind: "unreachable"; host: string; reason: string }
-  | { kind: "dead-port"; port: number };
-
-/** The chrome-relevant slice of one frame's state, reported up by each
- *  WebFrame: every frame reports title/favicon (loaded same-origin frames),
- *  and the chrome binds to the ACTIVE frame's entry. */
-interface FrameChromeState {
-  loading: boolean;
-  crossOrigin: boolean;
-  trackedLocation: string | null;
-  title: string | null;
-  favicon: string | null;
-  tileError: TileError | null;
-}
-
-/** Parent → frame commands, registered per frame URL. */
-interface FrameHandle {
-  iframeRef: { current: HTMLIFrameElement | null };
-  refresh: () => void;
-  retry: () => void;
-  navigate: (delta: -1 | 1) => void;
-}
-
-interface WebFrameProps {
-  url: string;
-  active: boolean;
-  zoom: number;
-  wireGestureListeners: (target: Document | HTMLElement) => () => void;
-  onChromeState: (url: string, state: FrameChromeState) => void;
-  /** Fired on frame `load`; the parent consumes active-frame loads to reset
-   *  find state. Page metadata flows through the chrome-state map. */
-  onFrameLoad: (url: string) => void;
-  registerFrame: (url: string, handle: FrameHandle) => void;
-  unregisterFrame: (url: string) => void;
-  interactRef: { current: (() => void) | undefined };
-  reclaimRef: { current: ((e: KeyboardEvent) => boolean) | undefined };
-}
-
-/** One mounted web tab (P3 — hide, never unmount): owns its iframe element
- *  plus the frame-scoped state (loading, cross-origin, tracked location,
- *  probe/error). Identity is the URL — a selection change neither remounts
- *  the frame nor rewrites its `src`. Inactive frames run no probe; a frame
- *  probes on first mount and on activation. */
-function WebFrame({
-  url,
-  active,
-  zoom,
-  wireGestureListeners,
-  onChromeState,
-  onFrameLoad,
-  registerFrame,
-  unregisterFrame,
-  interactRef,
-  reclaimRef,
-}: WebFrameProps) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  // Load feedback (R11): set on mount/reload, cleared on `load`.
-  const [loading, setLoading] = useState(true);
-  const [crossOrigin, setCrossOrigin] = useState(false);
-  // Per-viewer current-path tracking (R7): the same-origin frame's location,
-  // read on its `load` events and kept in root-relative form (the viewer
-  // origin stripped). Display-only — NEVER POSTed (spec window-views R7).
-  const [trackedLocation, setTrackedLocation] = useState<string | null>(null);
-  // Per-frame title + favicon (the tab chrome reads EVERY same-origin frame's
-  // entry, so the inactive tabs can show their document title/icon before
-  // selection; display-only — never POSTed). Cleared on each fresh load attach.
-  const [title, setTitle] = useState<string | null>(null);
-  const [favicon, setFavicon] = useState<string | null>(null);
-  const [tileError, setTileError] = useState<TileError | null>(null);
-  // Bumped by the dead-port Retry button to re-run detection + reload.
-  const [probeNonce, setProbeNonce] = useState(0);
-  const onFrameLoadRef = useRef(onFrameLoad);
-  onFrameLoadRef.current = onFrameLoad;
-
-  useEffect(() => {
-    onChromeState(url, { loading, crossOrigin, trackedLocation, title, favicon, tileError });
-  }, [url, loading, crossOrigin, trackedLocation, title, favicon, tileError, onChromeState]);
-
-  // Interaction + reclaim seam: attach capture-phase pointerdown/keydown
-  // listeners to the same-origin contentDocument after every load — each
-  // navigation replaces the document, so the listener on the discarded one
-  // dies with it and the fresh document gets a new pair. The keydown handler
-  // reports `onInteract` first, then consults the reclaim predicate: a match
-  // is prevented in the frame and re-dispatched on the PARENT document (the
-  // CodeSurface `onKey` mechanism — bubbling reaches both the document-level
-  // palette listener and the window-level keybinding dispatcher). Cross-origin
-  // frames fail the location probe / contentDocument read; there the
-  // window-blur check is the fallback (activeElement lands on the iframe when
-  // focus enters it, but no focusin fires in the parent). blur only fires when
-  // focus LEAVES the parent — later in-frame clicks report nothing, which is
-  // fine: the tile is already focused by then. Listeners attach regardless of
-  // whether `onInteract` is currently set: the prop can arrive after mount (a
-  // hidden tile handed slot -1 becoming visible), and gating the attach on it
-  // would strand the seam — `report` reads the ref, so it simply no-ops until
-  // then. Every load also RESETS the find state (R8): matches, highlights, and
-  // the query die with the document they were collected from.
-  //
-  // The same load pass (260819-v6y4) clears the progress line, tracks the
-  // frame's current location for the address bar's display form, and reports
-  // the page title into the frame's chrome state — all same-origin-gated
-  // reads with the attach seam's try/catch posture.
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    let attachedDoc: Document | null = null;
-    let attachedGestures: (() => void) | null = null;
-    const report = () => interactRef.current?.();
-    const onKey = (e: KeyboardEvent) => {
-      report();
-      const reclaim = reclaimRef.current;
-      if (!reclaim?.(e)) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: e.key,
-          code: e.code,
-          ctrlKey: e.ctrlKey,
-          metaKey: e.metaKey,
-          shiftKey: e.shiftKey,
-          altKey: e.altKey,
-          bubbles: true,
-        }),
-      );
-    };
-    const attach = (fromLoad: boolean) => {
-      let doc: Document | null = null;
-      try {
-        // Same-origin probe: a cross-origin frame throws on location access
-        // and yields a null contentDocument — either one marks the tile
-        // cross-origin (find disabled, back/forward hidden, reload degrades
-        // to the bounce; the blur fallback stays the only interaction
-        // signal, unchanged).
-        void iframe.contentWindow?.location.href;
-        doc = iframe.contentDocument;
-      } catch {
-        doc = null;
-      }
-      setCrossOrigin(!doc);
-      // The load-gated work (R7/R10/R11) runs on the frame's `load` events
-      // ONLY — the mount-time attach sees the initial about:blank document,
-      // so clearing the progress line or tracking the location there would
-      // fire before the real src has loaded.
-      if (fromLoad) {
-        setLoading(false);
-        // Current-path tracking + title/favicon reporting: same-origin only.
-        // The tracked location is stored root-relative (viewer origin
-        // stripped) so the display-form derivation sees the same shape as a
-        // stored relative web address. about:blank (the cross-origin reload
-        // bounce's midpoint) reports nothing.
-        if (doc) {
-          try {
-            const loc = iframe.contentWindow?.location;
-            if (loc && loc.origin === window.location.origin && loc.href !== "about:blank") {
-              setTrackedLocation(loc.pathname + loc.search + loc.hash);
-              setTitle(doc.title !== "" ? doc.title : null);
-              setFavicon(frameFavicon(doc));
-            } else {
-              setTitle(null);
-              setFavicon("/favicon.ico");
-            }
-          } catch {
-            /* noop */
-          }
-          onFrameLoadRef.current(url);
-        } else {
-          // An unreadable navigation invalidates every value derived from the
-          // previous same-origin document. The stored tab URL then drives the
-          // label/icon fallbacks until a readable document loads again.
-          setTrackedLocation(null);
-          setTitle(null);
-          setFavicon(null);
-          onFrameLoadRef.current(url);
-        }
-      }
-      // R8 highlight reset — no stale highlight survives a navigation. The
-      // query/match reset lives on the parent's onFrameLoad (one find bar,
-      // bound to the active frame).
-      try {
-        const win = iframe.contentWindow;
-        if (doc && win) clearHighlights(win, doc);
-      } catch {
-        /* noop */
-      }
-      if (doc && doc !== attachedDoc) {
-        doc.addEventListener("pointerdown", report, true);
-        doc.addEventListener("keydown", onKey, true);
-        attachedDoc = doc;
-        // Zoom gestures (R8): same-origin frames only — a cross-origin frame
-        // never reaches this branch, so its gestures stay with the browser
-        // (the accepted platform limit; the chrome control + palette remain).
-        attachedGestures = wireGestureListeners(doc);
-      }
-    };
-    const onWindowBlur = () => {
-      if (document.activeElement === iframe) report();
-    };
-    const onLoad = () => attach(true);
-    attach(false);
-    iframe.addEventListener("load", onLoad);
-    window.addEventListener("blur", onWindowBlur);
-    return () => {
-      iframe.removeEventListener("load", onLoad);
-      window.removeEventListener("blur", onWindowBlur);
-      attachedGestures?.();
-      try {
-        attachedDoc?.removeEventListener("pointerdown", report, true);
-        attachedDoc?.removeEventListener("keydown", onKey, true);
-      } catch {
-        /* noop */
-      }
-    };
-    // Keyed on `url`: the frame mounts with its tab (React key), so this is
-    // effectively mount-scoped; the dep documents the frame's identity.
-  }, [url, wireGestureListeners, interactRef, reclaimRef]);
-
-  // Error-state probes (R8). External absolute URLs: the backend frame-check
-  // probe reads the refusal headers cross-origin iframes can't signal.
-  // Proxied ports: a same-origin fetch of the proxied path reads the reverse
-  // proxy's 502 (nothing listening). Probe results RENDER OVER the iframe
-  // area; the iframe stays mounted (hidden) so its listeners survive and a
-  // Retry needs no remount. Present/relative kinds never probe.
-  const addressKind = classifyAddress(url);
-  useEffect(() => {
-    if (!active) return;
-    let cancelled = false;
-    if (addressKind === "external") {
-      let host = url;
-      try {
-        host = new URL(url).host;
-      } catch {
-        /* displayForm posture — degrade to raw */
-      }
-      checkFrame(url).then((res) => {
-        if (cancelled) return;
-        if (!res.reachable) {
-          setTileError({ kind: "unreachable", host, reason: res.reason });
-          setLoading(false);
-        } else if (!res.embeddable) {
-          setTileError({ kind: "refused", host, reason: res.reason });
-          setLoading(false);
-        } else {
-          setTileError(null);
-        }
-      });
-    } else if (addressKind === "proxy") {
-      const port = proxyPortOf(url);
-      // A same-origin fetch failure is the app server itself being down —
-      // not a dead upstream — so it leaves the iframe alone.
-      fetch(toProxySrc(url))
-        .then((res) => {
-          if (cancelled) return;
-          if (res.status === 502 && port !== null) {
-            setTileError({ kind: "dead-port", port });
-            setLoading(false);
-          } else {
-            setTileError(null);
-          }
-        })
-        .catch(() => {
-          if (!cancelled) setTileError(null);
-        });
-    } else {
-      setTileError(null);
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [url, active, addressKind, probeNonce]);
-
-  // Real reload (R6): same-origin frames reload their CURRENT location
-  // (in-page state and the navigated-to page survive — no reset to the stored
-  // address);
-  // the about:blank bounce remains ONLY as the cross-origin fallback.
-  const refresh = useCallback(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    setLoading(true);
-    if (!crossOrigin) {
-      try {
-        iframe.contentWindow?.location.reload();
-        return;
-      } catch {
-        /* fall through to the bounce */
-      }
-    }
-    // Force reload by briefly clearing src then re-setting it
-    const src = iframe.src;
-    iframe.src = "about:blank";
-    // Use setTimeout(0) to ensure the browser processes the blank navigation
-    setTimeout(() => {
-      if (iframeRef.current) {
-        iframeRef.current.src = src;
-      }
-    }, 0);
-  }, [crossOrigin]);
-
-  // Back/forward (R5): contentWindow.history, same-origin only (the buttons
-  // are hidden when crossOrigin), per-viewer — never a web-option write. A
-  // boundary click is a harmless no-op (no canGoBack signal exists).
-  const navigate = useCallback((delta: -1 | 1) => {
-    try {
-      const win = iframeRef.current?.contentWindow;
-      if (!win) return;
-      if (delta < 0) win.history.back();
-      else win.history.forward();
-      setLoading(true);
-    } catch {
-      /* noop */
-    }
-  }, []);
-
-  const retry = useCallback(() => {
-    setTileError(null);
-    setLoading(true);
-    setProbeNonce((n) => n + 1);
-    refresh();
-  }, [refresh]);
-
-  useEffect(() => {
-    registerFrame(url, { iframeRef, refresh, retry, navigate });
-    return () => unregisterFrame(url);
-  }, [url, registerFrame, unregisterFrame, refresh, retry, navigate]);
-
-  return (
-    <iframe
-      ref={iframeRef}
-      src={toProxySrc(url)}
-      hidden={!active}
-      className={`border-0 ${active && tileError ? "hidden" : ""}`}
-      style={
-        !active || zoom === 1
-          ? { width: "100%", height: "100%" }
-          : {
-              width: `${100 / zoom}%`,
-              height: `${100 / zoom}%`,
-              transform: `scale(${zoom})`,
-              transformOrigin: "0 0",
-            }
-      }
-      title="Proxied content"
-      sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"
-    />
-  );
-}
-
-/** Match the icon-bearing rel tokens browsers commonly use for tab chrome. */
-const ICON_REL_PATTERN = /(?:^|\s)(?:icon|apple-touch-icon|apple-touch-icon-precomposed)(?:\s|$)/i;
-
-/** Resolve a same-origin frame's first declared icon, falling back to the
- *  frame origin's conventional `/favicon.ico`. */
-function frameFavicon(doc: Document): string {
-  const links = doc.querySelectorAll("link");
-  for (let i = 0; i < links.length; i++) {
-    const rel = links[i].getAttribute("rel");
-    if (rel && ICON_REL_PATTERN.test(rel)) {
-      const href = links[i].getAttribute("href");
-      if (!href) continue;
-      try {
-        return new URL(href, doc.location.href).href;
-      } catch {
-        continue;
-      }
-    }
-  }
-  return new URL("/favicon.ico", doc.location.origin).href;
-}
-
 function externalFavicon(url: string): string | null {
   try {
     return `https://${new URL(url).host}/favicon.ico`;
@@ -499,13 +125,48 @@ function externalFavicon(url: string): string | null {
   }
 }
 
+/** The engine kind this chrome mounts. */
+const ENGINE_KIND: WebFrameEngineKind = "iframe";
+
+/** Map an engine kind to its component — the single place the chrome names
+ *  an engine implementation; every member of the union needs an arm here. */
+function createEngine(kind: WebFrameEngineKind): ComponentType<WebFrameEngineProps> {
+  switch (kind) {
+    case "iframe":
+      return WebFrameIframe;
+  }
+}
+
+const Engine = createEngine(ENGINE_KIND);
+
+/** Value equality for the state-report dedupe guard — engines may rebuild
+ *  the capability/find objects per report, and an equal report must not
+ *  re-render the chrome. */
+function sameSupports(a: WebFrameCapabilities, b: WebFrameCapabilities): boolean {
+  return (
+    a.history === b.history &&
+    a.find === b.find &&
+    a.meta === b.meta &&
+    a.zoomGestures === b.zoomGestures &&
+    a.devtools === b.devtools
+  );
+}
+
+function sameFind(a: FrameChromeState["find"], b: FrameChromeState["find"]): boolean {
+  if (a === b) return true;
+  return a !== null && b !== null && a.active === b.active && a.total === b.total;
+}
+
 /** Renders a web-tab family with ONE browser-chrome set and one mounted
- *  iframe per tab (P3): back/forward + reload, a display/edit address bar,
+ *  engine per tab (P3): back/forward + reload, a display/edit address bar,
  *  find, open-in-browser, a load progress line, explicit error states, and
- *  the tab strip — every chrome control bound to the ACTIVE frame. The
- *  document CustomEvents (`web-find:open`, `web-address:focus`,
+ *  the tab strip — every chrome control bound to the ACTIVE frame's reported
+ *  state. The document CustomEvents (`web-find:open`, `web-address:focus`,
  *  `web-open-external`, `web-zoom`) keep exactly one listener here, so one
- *  IframeWindow per layout stays the single receiver. */
+ *  IframeWindow per layout stays the single receiver. The chrome renders per
+ *  the engine's reported capabilities, never per origin — a renderer that
+ *  does not embed has no meaningful origin answer, and per-feature flags are
+ *  the only axis every engine can answer. */
 export function IframeWindow({
   tabs,
   active,
@@ -556,7 +217,7 @@ export function IframeWindow({
   pageMetaRef.current = onPageMeta;
 
   // ── per-frame state (P3: one chrome, N frames) ──────────────────────────
-  // Each WebFrame reports its chrome slice up; the map is keyed by URL (the
+  // Each engine reports its chrome slice up; the map is keyed by URL (the
   // frame's identity — a remove-shift re-keys by URL, not slot). The chrome
   // below reads ONLY the active frame's entry.
   const [chromeStates, setChromeStates] = useState<ReadonlyMap<string, FrameChromeState>>(
@@ -569,11 +230,14 @@ export function IframeWindow({
       if (
         cur &&
         cur.loading === state.loading &&
-        cur.crossOrigin === state.crossOrigin &&
         cur.trackedLocation === state.trackedLocation &&
         cur.title === state.title &&
         cur.favicon === state.favicon &&
-        cur.tileError === state.tileError
+        cur.tileError === state.tileError &&
+        cur.canGoBack === state.canGoBack &&
+        cur.canGoForward === state.canGoForward &&
+        sameSupports(cur.supports, state.supports) &&
+        sameFind(cur.find, state.find)
       ) {
         return prev;
       }
@@ -582,26 +246,31 @@ export function IframeWindow({
       return next;
     });
   }, []);
-  const frameHandles = useRef(new Map<string, FrameHandle>());
-  const registerFrame = useCallback((frameUrl: string, handle: FrameHandle) => {
+  const frameHandles = useRef(new Map<string, WebFrameEngineHandle>());
+  const registerHandle = useCallback((frameUrl: string, handle: WebFrameEngineHandle) => {
     frameHandles.current.set(frameUrl, handle);
   }, []);
-  const unregisterFrame = useCallback((frameUrl: string) => {
+  const unregisterHandle = useCallback((frameUrl: string) => {
     frameHandles.current.delete(frameUrl);
   }, []);
 
   const activeChrome = url !== "" ? chromeStates.get(url) : undefined;
   const activeLoading = activeChrome?.loading ?? !onboarding;
-  const crossOrigin = activeChrome?.crossOrigin ?? false;
+  // Before an engine's first report the chrome seeds from the engine kind's
+  // declared default capabilities — the knowledge stays in the engine module;
+  // the pre-report paint matches a same-origin frame's.
+  const supports = activeChrome?.supports ?? WEB_FRAME_IFRAME_DEFAULT_CAPABILITIES;
+  const canGoBack = activeChrome?.canGoBack ?? supports.history;
+  const canGoForward = activeChrome?.canGoForward ?? supports.history;
   const trackedLocation = activeChrome?.trackedLocation ?? null;
   const tileError = activeChrome?.tileError ?? null;
 
-  // Find state belongs to the active document and dies with its load.
+  // Find state belongs to the active document and dies with its load: the
+  // engine clears its own matches on the same load edge; the chrome resets
+  // its query here.
   const handleFrameLoad = useCallback((frameUrl: string) => {
     if (frameUrl !== urlRef.current) return;
     setFindQuery("");
-    setFindMatches([]);
-    setFindActive(0);
   }, []);
 
   // Header metadata follows active-frame state, not load timing: inactive
@@ -683,7 +352,7 @@ export function IframeWindow({
   applyZoomFactorRef.current = applyZoomFactor;
 
   // Gesture plumbing (R6/R8; continuous 260824-iafo): both listener arms (the
-  // tile wrapper and the same-origin frame document) apply the continuous
+  // tile wrapper and the engine's content document) apply the continuous
   // mapping per event — no thresholds, no ladder (the ladder is the click
   // path's). Only ctrl/meta-modified wheel and Safari gesture* events are
   // intercepted — everything else passes through untouched. Returns the
@@ -737,29 +406,36 @@ export function IframeWindow({
    *  this. */
   const rawAddress = trackedLocation ?? url;
 
-  // ── find-in-page state (260819-ie2i R5–R8) — one bar, bound to the ACTIVE
-  // frame's document ───────────────────────────────────────────────────────
+  // ── find-in-page (260819-ie2i R5–R8) — one bar, bound to the ACTIVE
+  // engine. The chrome owns only the open state and the query; the engine
+  // owns matches, active index, and highlights behind its handle and reports
+  // {active, total} back through its state. ─────────────────────────────────
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
-  const [findMatches, setFindMatches] = useState<Range[]>([]);
-  const [findActive, setFindActive] = useState(0);
-  // Which highlight path the last apply took — the `window.find()` fallback
-  // needs per-step navigation calls the Highlight API does not.
-  const highlightApiRef = useRef(false);
+  const findWasOpenRef = useRef(false);
 
-  /** The ACTIVE frame's document + window, or null when
-   *  unavailable/cross-origin. Same try/catch posture as the attach seam. */
-  const findFrame = useCallback((): { doc: Document; win: Window } | null => {
-    const iframe = frameHandles.current.get(url)?.iframeRef.current;
-    if (!iframe) return null;
-    try {
-      const doc = iframe.contentDocument;
-      const win = iframe.contentWindow;
-      return doc && win ? { doc, win } : null;
-    } catch {
-      return null;
+  // While the bar is open, a query change or an active-url change starts a
+  // fresh search on the ACTIVE engine (an empty query stops it); closing the
+  // bar stops the search. Engines without find support no-op the command.
+  useEffect(() => {
+    const handle = frameHandles.current.get(url);
+    if (!findOpen) {
+      if (findWasOpenRef.current) handle?.stopFind();
+      findWasOpenRef.current = false;
+      return;
     }
-  }, [url]);
+    findWasOpenRef.current = true;
+    if (!handle) return;
+    if (findQuery !== "") handle.find(findQuery, { forward: true, findNext: false });
+    else handle.stopFind();
+  }, [findOpen, findQuery, url]);
+
+  const stepFind = useCallback(
+    (forward: boolean) => {
+      frameHandles.current.get(url)?.find(findQuery, { forward, findNext: true });
+    },
+    [url, findQuery],
+  );
 
   // The `web-find:open` seam (R4): the ⌘F chord handler, the palette action,
   // and any future opener dispatch one document CustomEvent; the mounted web
@@ -829,8 +505,8 @@ export function IframeWindow({
 
   // Zoom gestures on the tile's own chrome (R8): the URL bar, find bar, and
   // error surface are parent-document DOM, so the wrapper arm covers them —
-  // the frame arm (same-origin attach above) covers the page area. Wheel
-  // over an iframe never reaches the parent, so both arms are needed.
+  // the engine's arm (same-origin attach) covers the page area. Wheel over an
+  // iframe never reaches the parent, so both arms are needed.
   const wrapperRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -841,54 +517,8 @@ export function IframeWindow({
   // Autofocus on open is owned by the shared FindBar (it mounts only while
   // the bar is open and focuses its input on mount).
 
-  // Search: re-collect matches when the query (or origin posture) changes
-  // while the bar is open; the active match resets to the first.
-  useEffect(() => {
-    if (!findOpen) return;
-    const frame = findFrame();
-    if (!frame || crossOrigin) {
-      setFindMatches([]);
-      setFindActive(0);
-      return;
-    }
-    setFindMatches(collectMatches(frame.doc, findQuery));
-    setFindActive(0);
-  }, [findQuery, findOpen, crossOrigin, findFrame]);
-
-  // Highlight: apply (or clear) the frame highlights whenever the match set,
-  // the active index, or the bar's open state changes. Closing the bar or an
-  // empty/zero-match query clears all highlights (R5 Escape contract).
-  useEffect(() => {
-    const frame = findFrame();
-    if (!frame) return;
-    if (!findOpen || findMatches.length === 0) {
-      clearHighlights(frame.win, frame.doc);
-      highlightApiRef.current = false;
-      return;
-    }
-    const applied = applyHighlights(frame.win, frame.doc, findMatches, findActive);
-    highlightApiRef.current = applied;
-    const active = findMatches[findActive];
-    if (applied && active) scrollToMatch(active);
-    else if (!applied) findWithWindow(frame.win, findQuery, false);
-  }, [findMatches, findActive, findOpen, findQuery, findFrame]);
-
-  const stepFind = useCallback(
-    (delta: 1 | -1) => {
-      if (findMatches.length === 0) return;
-      setFindActive((a) => stepMatch(a, findMatches.length, delta));
-      // The window.find() fallback navigates per step; the Highlight API path
-      // re-applies via the effect above.
-      if (!highlightApiRef.current) {
-        const frame = findFrame();
-        if (frame) findWithWindow(frame.win, findQuery, delta === -1);
-      }
-    },
-    [findMatches.length, findQuery, findFrame],
-  );
-
   // Sync the URL bar text when the active address changes externally (an SSE
-  // push, a tab select, or a same-slot replace). The iframe side needs no
+  // push, a tab select, or a same-slot replace). The frame side needs no
   // sync: a changed tab URL re-keys (remounts) exactly that frame.
   useEffect(() => {
     setInputUrl(url);
@@ -896,19 +526,20 @@ export function IframeWindow({
   }, [url]);
 
   const handleRefresh = useCallback(() => {
-    frameHandles.current.get(url)?.refresh();
+    frameHandles.current.get(url)?.reload();
   }, [url]);
 
   const handleRetry = useCallback(() => {
     frameHandles.current.get(url)?.retry();
   }, [url]);
 
-  const navigateFrameHistory = useCallback(
-    (delta: -1 | 1) => {
-      frameHandles.current.get(url)?.navigate(delta);
-    },
-    [url],
-  );
+  const handleBack = useCallback(() => {
+    frameHandles.current.get(url)?.back();
+  }, [url]);
+
+  const handleForward = useCallback(() => {
+    frameHandles.current.get(url)?.forward();
+  }, [url]);
 
   // Open in browser (R9): the CURRENT address in a new tab — relative
   // addresses resolve naturally against the viewer's origin (stored web
@@ -1454,12 +1085,13 @@ export function IframeWindow({
           toggles own view switching). */}
       <TipGroup>
       <div className="flex items-center gap-1.5 px-2 h-[35px] border-b border-border bg-bg-primary shrink-0">
-        {!onboarding && !crossOrigin && (
+        {!onboarding && supports.history && (
           <>
             <Tip label="Back">
               <button
-                onClick={() => navigateFrameHistory(-1)}
-                className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
+                onClick={handleBack}
+                disabled={!canGoBack}
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded text-text-secondary enabled:hover:bg-bg-card enabled:hover:text-text-primary disabled:opacity-50"
                 aria-label="Back"
               >
                 <WebBackGlyph />
@@ -1467,8 +1099,9 @@ export function IframeWindow({
             </Tip>
             <Tip label="Forward">
               <button
-                onClick={() => navigateFrameHistory(1)}
-                className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
+                onClick={handleForward}
+                disabled={!canGoForward}
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded text-text-secondary enabled:hover:bg-bg-card enabled:hover:text-text-primary disabled:opacity-50"
                 aria-label="Forward"
               >
                 <WebForwardGlyph />
@@ -1583,20 +1216,20 @@ export function IframeWindow({
 
       {/* Find bar (260819-ie2i R5/R7) — a row below the URL bar per the
           approved design study (state 03), rendered by the shared FindBar;
-          this consumer owns the contentDocument search mechanism and keeps
-          the `web-find-bar` testid. Cross-origin frames render it disabled
-          with the hint. */}
+          the ACTIVE engine owns the search mechanism behind its handle and
+          reports {active, total} back through its state. An engine without
+          find support renders it disabled with the hint. */}
       {findOpen && !onboarding && (
         <FindBar
           query={findQuery}
-          matchIndex={findActive}
-          matchCount={findMatches.length}
+          matchIndex={activeChrome?.find?.active ?? 0}
+          matchCount={activeChrome?.find?.total ?? 0}
           onQueryChange={setFindQuery}
-          onNext={() => stepFind(1)}
-          onPrev={() => stepFind(-1)}
+          onNext={() => stepFind(true)}
+          onPrev={() => stepFind(false)}
           onClose={() => setFindOpen(false)}
-          disabled={crossOrigin}
-          statusText={crossOrigin ? "page is cross-origin — find unavailable" : undefined}
+          disabled={!supports.find}
+          statusText={!supports.find ? "page is cross-origin — find unavailable" : undefined}
           placeholder="Find in page"
           testId="web-find-bar"
         />
@@ -1607,9 +1240,10 @@ export function IframeWindow({
           prefers-reduced-motion (globals.css). */}
       {activeLoading && !onboarding && <div className="rk-web-progress" data-testid="web-load-progress" />}
 
-      {/* Error states (R8) render in place of the ACTIVE iframe's VISIBLE
-          area (the iframe stays mounted but hidden so its listeners survive
-          a Retry). Copy per the approved design study (states 05/06). */}
+      {/* Error states (R8) render in place of the ACTIVE frame's VISIBLE
+          area (the engine keeps its frame mounted but hidden so its
+          listeners survive a Retry). Copy per the approved design study
+          (states 05/06). */}
       {tileError && (
         <div
           className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2.5 text-center px-6"
@@ -1718,7 +1352,7 @@ export function IframeWindow({
           </span>
         </div>
       ) : (
-        // Scale wrapper (R2): the ACTIVE iframe renders at 1/s of the tile
+        // Scale wrapper (R2): the ACTIVE frame renders at 1/s of the tile
         // scaled back up by s, so the guest's CSS viewport shrinks/grows like
         // real browser zoom — responsive layouts adapt, and the mechanism
         // works for every address kind without reaching into the guest
@@ -1731,16 +1365,16 @@ export function IframeWindow({
           data-zoom={zoom}
         >
           {tabs.map((tabUrl, i) => (
-            <WebFrame
+            <Engine
               key={tabUrl}
               url={tabUrl}
               active={i + 1 === activeIndex}
               zoom={zoom}
               wireGestureListeners={wireGestureListeners}
-              onChromeState={handleChromeState}
-              onFrameLoad={handleFrameLoad}
-              registerFrame={registerFrame}
-              unregisterFrame={unregisterFrame}
+              onState={handleChromeState}
+              onLoad={handleFrameLoad}
+              registerHandle={registerHandle}
+              unregisterHandle={unregisterHandle}
               interactRef={interactRef}
               reclaimRef={reclaimRef}
             />

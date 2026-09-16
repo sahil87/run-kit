@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-16T12:15:15Z"}
+{"args":"The web tile's chrome stops knowing it drives an iframe — a WebFrameEngine contract with capability flags sits between IframeWindow's chrome and the per-tab frame, today's frame becomes the iframe engine, and every control renders per capability instead of per crossOrigin. No behavior change. (plan change 1 of 5, fab/plans/sahil/26-09-16-web-tile-native-browser.md)","cmd":"fab-new","event":"command","ts":"2026-09-16T12:15:15Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-09-16T12:20:15Z"}
+{"delta":"-0.1","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-09-16T12:20:28Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-16T12:20:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T12:20:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T12:49:20Z"}
+{"event":"review","result":"failed","ts":"2026-09-16T12:54:52Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T12:54:52Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T12:57:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-16T13:01:50Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T13:01:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-16T13:11:02Z"}

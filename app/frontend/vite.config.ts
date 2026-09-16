@@ -6,6 +6,11 @@ export default defineConfig({
   plugins: [
     react(),
   ],
+  // Dep-optimizer cache. Unset means Vite's default node_modules/.vite; the
+  // e2e harness's multi-rig lane runs several dev servers from this one
+  // checkout at once and gives each its own dir so they never race on the
+  // pre-bundle (scripts/test-e2e.sh).
+  cacheDir: process.env.VITE_CACHE_DIR || undefined,
   resolve: {
     alias: {
       "@": resolve(__dirname, "./src"),

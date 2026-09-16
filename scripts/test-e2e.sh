@@ -11,6 +11,21 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/e2e-env.sh"
 RK_CODE_SERVER_PORT="$E2E_CODE_SERVER_PORT"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Rig count. 1 (the default) is the single-rig lane: one tmux server + one
+# `just dev` shared by a serial Playwright run — what developers run locally.
+# RK_E2E_WORKERS=N (N>1) is the multi-rig lane: N complete rigs on this box
+# (tmux server, Go backend, Vite, code-server stub port, state home), one per
+# Playwright worker, so N spec files run at once. Every rig gets its own
+# socket SUB-family (${E2E_TMUX_FAMILY}w<i>-) and its backend's allowlist is
+# that sub-family, so rig A's server list never shows rig B's sessions — the
+# SSE cross-talk that forces the single-rig lane serial. The extra rigs take
+# the next port triples (+3 per rig) inside the 3400–3699 block; those
+# triples belong to OTHER worktrees' derivations on a shared dev box, which
+# is why this lane is meant for CI (one worktree per VM).
+E2E_WORKERS="${RK_E2E_WORKERS:-1}"
+{ [[ "$E2E_WORKERS" =~ ^[0-9]+$ ]] && [ "$E2E_WORKERS" -ge 1 ]; } || E2E_WORKERS=1
 
 # Per-worktree exclusive lock — the rig identity (port triple + socket
 # family) derives from E2E_TOKEN, so one lock per token is one lock per rig.
@@ -71,25 +86,31 @@ without_lock_fd() {
 # Specs that touch the file keep their snapshot/restore pattern as the
 # fallback for the interactive `just pw` lane, which sets no RK_CONFIG_DIR.
 E2E_STATE_HOME="$(mktemp -d)"
-RK_CONFIG_DIR="$E2E_STATE_HOME/config"
-mkdir -p "$RK_CONFIG_DIR"
 
-# Deterministic `installed: true` for the code-bridge status route: the
-# backend derives it from codeserver.ExtensionsDir, the rig's ONLY reader of
+# Lay out one rig's state home: the settings config dir plus a data home
+# carrying a fixture code-bridge extension manifest. The manifest gives the
+# code-bridge status route a deterministic `installed: true`: the backend
+# derives it from codeserver.ExtensionsDir, the rig's ONLY reader of
 # XDG_DATA_HOME (code-server is stubbed, and a spawn would respect the
-# externally-managed port preset). A per-run data home with a fixture bridge
-# extension manifest makes the answer independent of the box's real
-# extensions dir; it is forwarded ONLY to the dev-server launch below, never
-# to the Playwright run.
+# externally-managed port preset), so a per-run data home makes the answer
+# independent of the box's real extensions dir. The data home is forwarded
+# ONLY to the backend launch, never to the Playwright run.
+make_state_home() {
+  local root="$1"
+  local ext_dir="$root/data/code-server/extensions/run-kit.rk-code-bridge-0.0.0-e2e"
+  mkdir -p "$root/config" "$ext_dir"
+  printf '%s' '{"name":"rk-code-bridge","publisher":"run-kit","version":"0.0.0-e2e"}' \
+    > "$ext_dir/package.json"
+}
+make_state_home "$E2E_STATE_HOME"
+RK_CONFIG_DIR="$E2E_STATE_HOME/config"
 E2E_DATA_HOME="$E2E_STATE_HOME/data"
-E2E_BRIDGE_EXT_DIR="$E2E_DATA_HOME/code-server/extensions/run-kit.rk-code-bridge-0.0.0-e2e"
-mkdir -p "$E2E_BRIDGE_EXT_DIR"
-printf '%s' '{"name":"rk-code-bridge","publisher":"run-kit","version":"0.0.0-e2e"}' \
-  > "$E2E_BRIDGE_EXT_DIR/package.json"
 
-# DEV_PGID is the process-group ID of the detached dev server (set after launch).
-# Empty until then so cleanup running early is a no-op for the group kill.
-DEV_PGID=""
+# DEV_PGIDS holds the process-group IDs of the detached server launches (one
+# `just dev` group in the single-rig lane; a backend group and a Vite group
+# per rig in the multi-rig lane). Empty until launch so cleanup running early
+# is a no-op for the group kill.
+DEV_PGIDS=()
 
 cleanup() {
   # Kill ONLY the dev server's own process group — never `kill 0`.
@@ -103,9 +124,12 @@ cleanup() {
   # dev server is launched into its OWN process group below (via `set -m` job
   # control), so we target that group by negative PGID and leave the caller's
   # group untouched.
-  if [ -n "$DEV_PGID" ]; then
-    kill -- "-$DEV_PGID" 2>/dev/null || true
-  fi
+  # `${arr[@]+"${arr[@]}"}`: an empty array under `set -u` is an unbound
+  # variable on bash 3.2 (stock macOS), and cleanup can fire before any launch.
+  local pgid
+  for pgid in ${DEV_PGIDS[@]+"${DEV_PGIDS[@]}"}; do
+    kill -- "-$pgid" 2>/dev/null || true
+  done
   # Kill this worktree's own socket family: the primary (…-0) AND any
   # secondary servers tests spun up (…-multi-*, …-scope-*, …). The glob
   # anchors on E2E_TMUX_FAMILY (trailing hyphen included); because tokens are
@@ -149,12 +173,14 @@ trap cleanup EXIT
 # them from this worktree's own leftover `just dev`/previous run without the
 # old machine-wide 3020/3021 kill hazard.
 kill_triple() {
-  lsof -iTCP:"$E2E_PORT" -iTCP:$(( E2E_PORT + 1 )) -iTCP:$(( E2E_PORT + 2 )) -sTCP:LISTEN -t 2>/dev/null | xargs kill 2>/dev/null || true
+  local base="${1:-$E2E_PORT}"
+  lsof -iTCP:"$base" -iTCP:$(( base + 1 )) -iTCP:$(( base + 2 )) -sTCP:LISTEN -t 2>/dev/null | xargs kill 2>/dev/null || true
 }
 triple_busy() {
+  local base="${1:-$E2E_PORT}"
   # String capture, not a grep -q pipe: grep's early exit SIGPIPEs lsof and
   # pipefail would report the busy triple as free.
-  [ -n "$(lsof -iTCP:"$E2E_PORT" -iTCP:$(( E2E_PORT + 1 )) -iTCP:$(( E2E_PORT + 2 )) -sTCP:LISTEN -t 2>/dev/null)" ]
+  [ -n "$(lsof -iTCP:"$base" -iTCP:$(( base + 1 )) -iTCP:$(( base + 2 )) -sTCP:LISTEN -t 2>/dev/null)" ]
 }
 kill_triple
 sleep 1
@@ -178,27 +204,84 @@ if [ "$_steps" -gt 0 ]; then
   echo "      A stepped-forward rig is not derivable by 'just pw' — pass RK_E2E_PORT=$E2E_PORT to it."
 fi
 
-# Start a dedicated tmux server for e2e tests
-without_lock_fd tmux -L "$E2E_TMUX_SERVER" new-session -d -s e2e-init -x 80 -y 24
-# Convention: test servers carry the @rk_srv_ephemeral creator opt-out mark (belt-and-braces alongside the rk-test-* name umbrella).
-tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_srv_ephemeral 1
-# The rig's servers are rk's own substrate: mark them @rk_srv_managed so the
-# WS-attach conf reload fires (specs rely on rk's tmux.conf — e.g.
-# allow-passthrough for wrapped OSC — reaching the server on first view;
-# an unmarked server is external and rk no longer pushes conf into it).
-tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_srv_managed 1
+# Rig table, indexed by Playwright parallel index. The single-rig lane is one
+# row holding the derived identity unchanged. The multi-rig lane gives every
+# rig (rig 0 included) a socket sub-family so no rig's allowlist prefixes
+# another's servers; the family anchor E2E_TMUX_FAMILY still prefixes them
+# all, so the cleanup trap and global teardown reap every rig unchanged.
+RIG_PORT=()
+RIG_SERVER=()
+RIG_FAMILY=()
+RIG_STATE=()
+if [ "$E2E_WORKERS" -eq 1 ]; then
+  RIG_PORT+=("$E2E_PORT")
+  RIG_SERVER+=("$E2E_TMUX_SERVER")
+  RIG_FAMILY+=("$E2E_TMUX_FAMILY")
+  RIG_STATE+=("$E2E_STATE_HOME")
+else
+  for (( i=0; i<E2E_WORKERS; i++ )); do
+    _rig_port=$(( E2E_PORT + 3 * i ))
+    if [ $(( _rig_port + 2 )) -gt 3699 ]; then
+      echo "ERROR: rig $i's port triple (:$_rig_port) leaves the e2e block (3400-3699); lower RK_E2E_WORKERS or set RK_E2E_PORT." >&2
+      exit 1
+    fi
+    if [ "$i" -gt 0 ]; then
+      # Rig 0's triple was reclaimed and stepped above; the extra triples are
+      # claimed here the same self-scoped way but never stepped — a busy one
+      # is a foreign owner and the lane is CI-only, so fail loud instead.
+      kill_triple "$_rig_port"
+      sleep 1
+      if triple_busy "$_rig_port"; then
+        echo "ERROR: rig $i's port triple (:$_rig_port) is held by an unkillable owner; the multi-rig lane needs RK_E2E_WORKERS consecutive free triples." >&2
+        exit 1
+      fi
+    fi
+    RIG_PORT+=("$_rig_port")
+    RIG_SERVER+=("${E2E_TMUX_FAMILY}w${i}-0")
+    RIG_FAMILY+=("${E2E_TMUX_FAMILY}w${i}-")
+    RIG_STATE+=("$E2E_STATE_HOME/rig$i")
+    make_state_home "$E2E_STATE_HOME/rig$i"
+  done
+  # Rig 0 is what the harness-level vars describe from here on: the Playwright
+  # main process (reporter, webServer probe, global teardown's primary) and
+  # any worker whose rig lookup finds no row use these; workers re-point the
+  # same vars at their own row (tests/e2e/_rig.ts).
+  E2E_PORT="${RIG_PORT[0]}"
+  RK_CODE_SERVER_PORT=$(( E2E_PORT + 2 ))
+  E2E_TMUX_SERVER="${RIG_SERVER[0]}"
+  RK_CONFIG_DIR="${RIG_STATE[0]}/config"
+  echo "multi-rig lane: $E2E_WORKERS rigs — ports ${RIG_PORT[*]} — servers ${RIG_SERVER[*]}"
+fi
 
-# Pre-seed LEGACY option names so the daemon's once-per-server migration sweep
-# converges them to @rk_srv_*/@rk_win_* on attach (the WS-attach/reload-config
-# sweep hook). Removed when the legacy-name deprecation window closes. The
-# e2e-init first window carries window-scope legacy role/url/note; the legacy
-# sweep spec asserts the convergence.
-E2E_INIT_WIN_ID="$(tmux -L "$E2E_TMUX_SERVER" display-message -p -t e2e-init '#{window_id}')"
-tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_origin e2e-legacy
-tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_session_order '["e2e-init"]'
-tmux -L "$E2E_TMUX_SERVER" set-option -w -t "$E2E_INIT_WIN_ID" @rk_role operator
-tmux -L "$E2E_TMUX_SERVER" set-option -w -t "$E2E_INIT_WIN_ID" @rk_url /about:blank
-tmux -L "$E2E_TMUX_SERVER" set-option -w -t "$E2E_INIT_WIN_ID" @rk_note '1:e2e-legacy-note'
+# Start a dedicated tmux server for e2e tests and seed it. Each rig's primary
+# is seeded identically so every worker sees the same starting state.
+seed_tmux_server() {
+  local server="$1"
+  without_lock_fd tmux -L "$server" new-session -d -s e2e-init -x 80 -y 24
+  # Convention: test servers carry the @rk_srv_ephemeral creator opt-out mark (belt-and-braces alongside the rk-test-* name umbrella).
+  tmux -L "$server" set-option -s @rk_srv_ephemeral 1
+  # The rig's servers are rk's own substrate: mark them @rk_srv_managed so the
+  # WS-attach conf reload fires (specs rely on rk's tmux.conf — e.g.
+  # allow-passthrough for wrapped OSC — reaching the server on first view;
+  # an unmarked server is external and rk no longer pushes conf into it).
+  tmux -L "$server" set-option -s @rk_srv_managed 1
+
+  # Pre-seed LEGACY option names so the daemon's once-per-server migration sweep
+  # converges them to @rk_srv_*/@rk_win_* on attach (the WS-attach/reload-config
+  # sweep hook). Removed when the legacy-name deprecation window closes. The
+  # e2e-init first window carries window-scope legacy role/url/note; the legacy
+  # sweep spec asserts the convergence.
+  local init_win_id
+  init_win_id="$(tmux -L "$server" display-message -p -t e2e-init '#{window_id}')"
+  tmux -L "$server" set-option -s @rk_origin e2e-legacy
+  tmux -L "$server" set-option -s @rk_session_order '["e2e-init"]'
+  tmux -L "$server" set-option -w -t "$init_win_id" @rk_role operator
+  tmux -L "$server" set-option -w -t "$init_win_id" @rk_url /about:blank
+  tmux -L "$server" set-option -w -t "$init_win_id" @rk_note '1:e2e-legacy-note'
+}
+for _server in "${RIG_SERVER[@]}"; do
+  seed_tmux_server "$_server"
+done
 
 # Start the dev server in its OWN process group, so cleanup can kill the whole
 # dev subtree (just -> air/vite/node children) by PGID without ever signalling
@@ -230,51 +313,95 @@ tmux -L "$E2E_TMUX_SERVER" set-option -w -t "$E2E_INIT_WIN_ID" @rk_note '1:e2e-l
 # past this harness — see without_lock_fd), and carries E2E_HARNESS=1 so
 # dev.sh's lock probe stays quiet for the holder's own dev server.
 _close_lock="${_wt_lock_fd:+exec $_wt_lock_fd>&-;}"
-set -m
-bash -c "$_close_lock RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_FAMILY E2E_TMUX_FAMILY=$E2E_TMUX_FAMILY RK_CODE_SERVER_PORT=$RK_CODE_SERVER_PORT XDG_STATE_HOME=$E2E_STATE_HOME XDG_DATA_HOME=$E2E_DATA_HOME RK_CONFIG_DIR=$RK_CONFIG_DIR E2E_HARNESS=1 exec just dev" &
-DEV_PID=$!
-set +m
-
-# Verify job control actually put the child in its OWN process group before we
-# trust DEV_PGID for the negative-PGID kill in cleanup(). `set -m` normally
-# makes a background job a group leader (PGID == PID), but if it silently did
-# NOT (an unexpected shell/environment), DEV_PGID would equal THIS script's
-# PGID — and `kill -- -$DEV_PGID` would grenade the caller's whole group (the
-# exact disaster this design prevents). Read the child's real PGID via `ps` and
-# abort if it matches our own. DEV_PGID stays empty on abort, so the EXIT trap's
-# group-kill is a no-op. (Per PR #220 review.)
-DEV_PGID=$(ps -o pgid= -p "$DEV_PID" 2>/dev/null | tr -d ' ')
 SELF_PGID=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')
-if [ -z "$DEV_PGID" ]; then
-  echo "ERROR: could not read dev server PGID (pid $DEV_PID); aborting before the EXIT trap can mis-target." >&2
-  exit 1
-fi
-if [ "$DEV_PGID" = "$SELF_PGID" ]; then
-  echo "ERROR: dev server shares this script's process group ($DEV_PGID) — job control did not isolate it. Aborting so cleanup never signals the caller's group." >&2
-  DEV_PGID=""
-  exit 1
-fi
 
-# Wait for BOTH servers to be ready. The frontend (Vite, E2E_PORT) comes up
-# almost instantly, but the Go backend (E2E_PORT+1) is built from scratch by
-# air on a cold runner — a 15s+ compile in CI. Waiting only on Vite (the old
-# behavior) let Playwright start while every /api call still got ECONNREFUSED,
-# so sessions never rendered and tests timed out. Gate on the backend's
-# /api/health endpoint, which only answers once the compiled binary is live.
-BACKEND_PORT=$(( E2E_PORT + 1 ))
-echo "waiting for frontend (:$E2E_PORT) and backend (:$BACKEND_PORT/api/health)..."
-for i in $(seq 1 90); do
-  if curl -sf "http://localhost:$E2E_PORT" >/dev/null 2>&1 \
-    && curl -sf "http://localhost:$BACKEND_PORT/api/health" >/dev/null 2>&1; then
-    echo "both servers ready after ${i}s"
-    break
-  fi
-  if [ "$i" -eq 90 ]; then
-    echo "ERROR: servers not ready after 90s (frontend and/or backend never came up)" >&2
+# Launch a long-lived server command in its OWN process group and record the
+# group in DEV_PGIDS. The argument is a bash -c string; the lock fd is closed
+# ahead of it.
+#
+# Verify job control actually put the child in its OWN process group before we
+# trust the PGID for the negative-PGID kill in cleanup(). `set -m` normally
+# makes a background job a group leader (PGID == PID), but if it silently did
+# NOT (an unexpected shell/environment), the PGID would equal THIS script's
+# PGID — and `kill -- -$PGID` would grenade the caller's whole group (the
+# exact disaster this design prevents). Read the child's real PGID via `ps` and
+# abort if it matches our own; the group is not recorded on abort, so the EXIT
+# trap's group-kill skips it. (Per PR #220 review.)
+spawn_group() {
+  local cmd="$1" pid pgid
+  set -m
+  bash -c "$_close_lock $cmd" &
+  pid=$!
+  set +m
+  pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+  if [ -z "$pgid" ]; then
+    echo "ERROR: could not read server PGID (pid $pid); aborting before the EXIT trap can mis-target." >&2
     exit 1
   fi
-  sleep 1
+  if [ "$pgid" = "$SELF_PGID" ]; then
+    echo "ERROR: server shares this script's process group ($pgid) — job control did not isolate it. Aborting so cleanup never signals the caller's group." >&2
+    exit 1
+  fi
+  DEV_PGIDS+=("$pgid")
+}
+
+if [ "$E2E_WORKERS" -eq 1 ]; then
+  spawn_group "RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_FAMILY E2E_TMUX_FAMILY=$E2E_TMUX_FAMILY RK_CODE_SERVER_PORT=$RK_CODE_SERVER_PORT XDG_STATE_HOME=$E2E_STATE_HOME XDG_DATA_HOME=$E2E_DATA_HOME RK_CONFIG_DIR=$RK_CONFIG_DIR E2E_HARNESS=1 exec just dev"
+else
+  # Multi-rig lane: `just dev` cannot run twice in one worktree — every air
+  # instance builds to the same app/backend/tmp/rk — so the backend is built
+  # ONCE into the run's state home and each rig runs that binary directly
+  # (no live-reload; the suite never edits Go sources mid-run). Vite runs once
+  # per rig on the rig's own port with its own dep-optimizer cache dir, since
+  # two instances pre-bundling into one node_modules/.vite would race. The
+  # env mirrors what dev.sh gives `just dev` (RK_HOST, LOG_LEVEL, the +1
+  # backend port) so the rigs behave like the single-rig one.
+  cp "$REPO_ROOT/configs/tmux/default.conf" "$REPO_ROOT/app/backend/build/tmux.conf"
+  echo "multi-rig lane: building the backend once..."
+  (cd "$REPO_ROOT/app/backend" && go build -o "$E2E_STATE_HOME/rk" ./cmd/rk)
+  for (( i=0; i<E2E_WORKERS; i++ )); do
+    _p="${RIG_PORT[$i]}"; _f="${RIG_FAMILY[$i]}"; _s="${RIG_STATE[$i]}"
+    spawn_group "cd $REPO_ROOT/app/backend && RK_PORT=$(( _p + 1 )) RK_HOST=0.0.0.0 LOG_LEVEL=debug RK_SERVER_ALLOWLIST=$_f E2E_TMUX_FAMILY=$_f RK_CODE_SERVER_PORT=$(( _p + 2 )) XDG_STATE_HOME=$_s XDG_DATA_HOME=$_s/data RK_CONFIG_DIR=$_s/config exec $E2E_STATE_HOME/rk"
+    spawn_group "cd $REPO_ROOT/app/frontend && RK_PORT=$_p RK_HOST=0.0.0.0 VITE_CACHE_DIR=$_s/vite exec pnpm dev --port $_p"
+  done
+fi
+
+# Wait for BOTH servers of every rig to be ready. The frontend (Vite, the
+# rig's port) comes up almost instantly, but the Go backend (port+1) is built
+# from scratch by air on a cold runner — a 15s+ compile in CI. Waiting only on
+# Vite (the old behavior) let Playwright start while every /api call still got
+# ECONNREFUSED, so sessions never rendered and tests timed out. Gate on the
+# backend's /api/health endpoint, which only answers once the compiled binary
+# is live.
+wait_ready() {
+  local port="$1" backend_port=$(( $1 + 1 )) i
+  echo "waiting for frontend (:$port) and backend (:$backend_port/api/health)..."
+  for i in $(seq 1 90); do
+    if curl -sf "http://localhost:$port" >/dev/null 2>&1 \
+      && curl -sf "http://localhost:$backend_port/api/health" >/dev/null 2>&1; then
+      echo "both servers ready after ${i}s"
+      return 0
+    fi
+    if [ "$i" -eq 90 ]; then
+      echo "ERROR: servers not ready after 90s (frontend and/or backend on :$port never came up)" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+}
+for _p in "${RIG_PORT[@]}"; do
+  wait_ready "$_p"
 done
+
+# Rig table for the Playwright run (tests/e2e/_rig.ts): one JSON object per
+# worker parallel index. Values are harness-made — numeric ports, socket names
+# from the hyphen-free token, mktemp paths — so no JSON escaping is needed.
+E2E_RIGS="["
+for (( i=0; i<${#RIG_PORT[@]}; i++ )); do
+  [ "$i" -gt 0 ] && E2E_RIGS+=","
+  E2E_RIGS+="{\"port\":${RIG_PORT[$i]},\"tmuxServer\":\"${RIG_SERVER[$i]}\",\"tmuxFamily\":\"${RIG_FAMILY[$i]}\",\"stateHome\":\"${RIG_STATE[$i]}\"}"
+done
+E2E_RIGS+="]"
 
 # Run tests — pass server/family names so specs can target the right tmux
 # server and name secondaries inside this worktree's family. Forward any extra
@@ -286,8 +413,14 @@ done
 # for any non-Playwright reader in the child env. XDG_STATE_HOME is forwarded
 # so a spec can write into the SAME per-run state home the backend reads
 # (e.g. a fake code-bridge host record under run-kit/cb/hosts/).
+#
+# E2E_RIGS + RK_E2E_WORKERS drive the multi-rig lane on the Playwright side:
+# the config sizes its worker pool from RK_E2E_WORKERS and each worker
+# re-points the harness vars above at its own rig row (tests/e2e/_rig.ts).
+# E2E_TMUX_FAMILY stays the worktree-level anchor so global teardown sweeps
+# every rig's sub-family; the other vars describe rig 0.
 run_playwright() {
-  cd app/frontend && RK_PORT=$E2E_PORT E2E_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" E2E_TMUX_FAMILY="$E2E_TMUX_FAMILY" RK_CODE_SERVER_PORT="$RK_CODE_SERVER_PORT" XDG_STATE_HOME="$E2E_STATE_HOME" RK_CONFIG_DIR="$RK_CONFIG_DIR" without_lock_fd pnpm exec playwright test "$@"
+  cd app/frontend && RK_PORT=$E2E_PORT E2E_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" E2E_TMUX_FAMILY="$E2E_TMUX_FAMILY" RK_CODE_SERVER_PORT="$RK_CODE_SERVER_PORT" XDG_STATE_HOME="${RIG_STATE[0]}" RK_CONFIG_DIR="$RK_CONFIG_DIR" E2E_RIGS="$E2E_RIGS" RK_E2E_WORKERS="$E2E_WORKERS" without_lock_fd pnpm exec playwright test "$@"
 }
 
 # Concurrency throttle (load, not correctness — the derived identity already

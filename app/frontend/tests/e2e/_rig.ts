@@ -21,8 +21,12 @@
  */
 
 interface Rig {
-  /** Vite port; backend is +1, code-server stub +2. */
+  /** Vite port; the backend is +1. */
   port: number;
+  /** The code-server stub port the rig's backend forwards `/code/` to — the
+   *  harness's value verbatim (derived +2, or a preset RK_CODE_SERVER_PORT),
+   *  never re-derived here. */
+  codeServerPort: number;
   tmuxServer: string;
   /** This rig's socket sub-family — specs name secondaries under it and the
    *  rig's backend allowlists exactly it. */
@@ -45,7 +49,7 @@ export function applyWorkerRig(): void {
   }
   process.env.E2E_PORT = String(rig.port);
   process.env.RK_PORT = String(rig.port);
-  process.env.RK_CODE_SERVER_PORT = String(rig.port + 2);
+  process.env.RK_CODE_SERVER_PORT = String(rig.codeServerPort);
   process.env.E2E_TMUX_SERVER = rig.tmuxServer;
   process.env.E2E_TMUX_FAMILY = rig.tmuxFamily;
   process.env.XDG_STATE_HOME = rig.stateHome;

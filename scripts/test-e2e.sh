@@ -25,7 +25,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # triples belong to OTHER worktrees' derivations on a shared dev box, which
 # is why this lane is meant for CI (one worktree per VM).
 E2E_WORKERS="${RK_E2E_WORKERS:-1}"
-{ [[ "$E2E_WORKERS" =~ ^[0-9]+$ ]] && [ "$E2E_WORKERS" -ge 1 ]; } || E2E_WORKERS=1
+# `10#` forces decimal so a leading zero ("08") is neither an arithmetic error
+# nor octal.
+{ [[ "$E2E_WORKERS" =~ ^[0-9]+$ ]] && [ $(( 10#$E2E_WORKERS )) -ge 1 ]; } && E2E_WORKERS=$(( 10#$E2E_WORKERS )) || E2E_WORKERS=1
 
 # Per-worktree exclusive lock — the rig identity (port triple + socket
 # family) derives from E2E_TOKEN, so one lock per token is one lock per rig.
@@ -210,11 +212,16 @@ fi
 # another's servers; the family anchor E2E_TMUX_FAMILY still prefixes them
 # all, so the cleanup trap and global teardown reap every rig unchanged.
 RIG_PORT=()
+RIG_CODE_PORT=()
 RIG_SERVER=()
 RIG_FAMILY=()
 RIG_STATE=()
 if [ "$E2E_WORKERS" -eq 1 ]; then
   RIG_PORT+=("$E2E_PORT")
+  # The single rig's stub port is the derived +2 OR a preset RK_CODE_SERVER_PORT
+  # (e2e-env.sh honors the preset); the row carries whichever applies so the
+  # worker-side remap never re-derives it and discards the preset.
+  RIG_CODE_PORT+=("$RK_CODE_SERVER_PORT")
   RIG_SERVER+=("$E2E_TMUX_SERVER")
   RIG_FAMILY+=("$E2E_TMUX_FAMILY")
   RIG_STATE+=("$E2E_STATE_HOME")
@@ -237,6 +244,7 @@ else
       fi
     fi
     RIG_PORT+=("$_rig_port")
+    RIG_CODE_PORT+=("$(( _rig_port + 2 ))")
     RIG_SERVER+=("${E2E_TMUX_FAMILY}w${i}-0")
     RIG_FAMILY+=("${E2E_TMUX_FAMILY}w${i}-")
     RIG_STATE+=("$E2E_STATE_HOME/rig$i")
@@ -247,7 +255,7 @@ else
   # any worker whose rig lookup finds no row use these; workers re-point the
   # same vars at their own row (tests/e2e/_rig.ts).
   E2E_PORT="${RIG_PORT[0]}"
-  RK_CODE_SERVER_PORT=$(( E2E_PORT + 2 ))
+  RK_CODE_SERVER_PORT="${RIG_CODE_PORT[0]}"
   E2E_TMUX_SERVER="${RIG_SERVER[0]}"
   RK_CONFIG_DIR="${RIG_STATE[0]}/config"
   echo "multi-rig lane: $E2E_WORKERS rigs — ports ${RIG_PORT[*]} — servers ${RIG_SERVER[*]}"
@@ -361,18 +369,19 @@ else
   (cd "$REPO_ROOT/app/backend" && go build -o "$E2E_STATE_HOME/rk" ./cmd/rk)
   for (( i=0; i<E2E_WORKERS; i++ )); do
     _p="${RIG_PORT[$i]}"; _f="${RIG_FAMILY[$i]}"; _s="${RIG_STATE[$i]}"
-    spawn_group "cd $REPO_ROOT/app/backend && RK_PORT=$(( _p + 1 )) RK_HOST=0.0.0.0 LOG_LEVEL=debug RK_SERVER_ALLOWLIST=$_f E2E_TMUX_FAMILY=$_f RK_CODE_SERVER_PORT=$(( _p + 2 )) XDG_STATE_HOME=$_s XDG_DATA_HOME=$_s/data RK_CONFIG_DIR=$_s/config exec $E2E_STATE_HOME/rk"
+    spawn_group "cd $REPO_ROOT/app/backend && RK_PORT=$(( _p + 1 )) RK_HOST=0.0.0.0 LOG_LEVEL=debug RK_SERVER_ALLOWLIST=$_f E2E_TMUX_FAMILY=$_f RK_CODE_SERVER_PORT=${RIG_CODE_PORT[$i]} XDG_STATE_HOME=$_s XDG_DATA_HOME=$_s/data RK_CONFIG_DIR=$_s/config exec $E2E_STATE_HOME/rk"
     spawn_group "cd $REPO_ROOT/app/frontend && RK_PORT=$_p RK_HOST=0.0.0.0 VITE_CACHE_DIR=$_s/vite exec pnpm dev --port $_p"
   done
 fi
 
 # Wait for BOTH servers of every rig to be ready. The frontend (Vite, the
-# rig's port) comes up almost instantly, but the Go backend (port+1) is built
-# from scratch by air on a cold runner — a 15s+ compile in CI. Waiting only on
-# Vite (the old behavior) let Playwright start while every /api call still got
-# ECONNREFUSED, so sessions never rendered and tests timed out. Gate on the
-# backend's /api/health endpoint, which only answers once the compiled binary
-# is live.
+# rig's port) comes up almost instantly, but the Go backend (port+1) lags it:
+# in the single-rig lane air compiles it from scratch on a cold runner (a 15s+
+# compile in CI), and in the multi-rig lane the prebuilt binary still has to
+# bind and probe the socket dir. Waiting only on Vite (the old behavior) let
+# Playwright start while every /api call still got ECONNREFUSED, so sessions
+# never rendered and tests timed out. Gate on the backend's /api/health
+# endpoint, which only answers once the process is serving.
 wait_ready() {
   local port="$1" backend_port=$(( $1 + 1 )) i
   echo "waiting for frontend (:$port) and backend (:$backend_port/api/health)..."
@@ -399,7 +408,7 @@ done
 E2E_RIGS="["
 for (( i=0; i<${#RIG_PORT[@]}; i++ )); do
   [ "$i" -gt 0 ] && E2E_RIGS+=","
-  E2E_RIGS+="{\"port\":${RIG_PORT[$i]},\"tmuxServer\":\"${RIG_SERVER[$i]}\",\"tmuxFamily\":\"${RIG_FAMILY[$i]}\",\"stateHome\":\"${RIG_STATE[$i]}\"}"
+  E2E_RIGS+="{\"port\":${RIG_PORT[$i]},\"codeServerPort\":${RIG_CODE_PORT[$i]},\"tmuxServer\":\"${RIG_SERVER[$i]}\",\"tmuxFamily\":\"${RIG_FAMILY[$i]}\",\"stateHome\":\"${RIG_STATE[$i]}\"}"
 done
 E2E_RIGS+="]"
 

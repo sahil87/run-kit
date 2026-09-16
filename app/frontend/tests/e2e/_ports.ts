@@ -78,8 +78,9 @@ function resolveCodePort(): number | undefined {
 /** Start the stub "code-server" serving `html` on every request. Binds the
  *  harness-configured `RK_CODE_SERVER_PORT` when set (see `resolveCodePort`),
  *  else an ephemeral port; read the bound port from the returned `port`, not
- *  from a constant. `workers: 1` means the code specs never hold the harness
- *  port at the same time. */
+ *  from a constant. Two code specs never contend for one stub port: tests
+ *  within a file run serially, and each Playwright worker owns its own rig
+ *  (its own harness port) under the multi-rig lane. */
 export function startCodeStub(html: string): Promise<CodeStub> {
   const configured = resolveCodePort();
   const srv = http.createServer((_req, res) => {

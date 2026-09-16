@@ -316,8 +316,10 @@ interface SurfaceLayoutProps {
   guiActions?: GuiPaletteAction[];
   /** Follow-the-editor passthrough (260813-if5d R3): handed straight to the code
    *  tile's `CodeSurface`, which reports the folder the EDITOR navigated itself
-   *  to. The parent latches it — this component only carries the prop. */
-  onCodeFolderNavigated?: (folder: string) => void;
+   *  to. The parent latches it — this component only carries the prop. A
+   *  returned promise's REJECTION (the latch POST failed) clears the pending
+   *  follow target the wrapper records at report time. */
+  onCodeFolderNavigated?: (folder: string) => void | Promise<void>;
   /** Per-window lookup over the parent's resolved srcs (the hook's map): the
    *  active window's src reads through it (null ⇒ the tile renders its
    *  pending state), so a revisit resolves synchronously. Retained frames
@@ -1022,19 +1024,29 @@ export function SurfaceLayout({
   // divergence. A divergence TOWARD the pending target IS the follow: the
   // baseline moves in place and the pending target clears. A failed latch
   // POST leaves the payload unmoved, so nothing diverges and the frame
-  // survives at its own (working) `?folder=` navigation.
-  const pendingCodeFollowRef = useRef<{ windowId: string; root: string } | null>(null);
+  // survives at its own (working) `?folder=` navigation; the parent's
+  // rejection clears the target through the wrapper's `.catch`.
+  // Keyed by WINDOW ID: overlapping follows (A reports, the viewer switches,
+  // B reports before A's payload tick) must not overwrite each other.
+  const pendingCodeFollowRef = useRef<Map<string, string>>(new Map());
 
   // Eviction reconciliation (payload-driven — no timers): (a) the frame's
   // window left the server's live set (killed/closed); (b) the window's live
   // code root diverged from the record's baseline by anything OTHER than a
   // follow (a transient empty read never evicts); (c) reachability flipped
   // true→false — every frame is dead with the host; plus a runtime cap
-  // decrease (an isMobile flip) evicts down immediately.
+  // decrease (an isMobile flip) evicts down immediately, oldest NON-ACTIVE
+  // records first — the active window's record is protected even when its
+  // code tile is closed (a closed tile keeps its frame counted, and the
+  // show-bookkeeping effect can't bump it to the tail while it is).
   useEffect(() => {
     setCodeFrames((prev) => {
-      if (prev.length === 0) return prev;
-      if (!codeReachable) return [];
+      if (prev.length === 0 || !codeReachable) {
+        // No live frames — every pending target is stale (a follow implies a
+        // mounted frame, hence a record).
+        pendingCodeFollowRef.current.clear();
+        return codeReachable ? prev : [];
+      }
       let next = prev;
       let changed = false;
       if (liveWindowIds) {
@@ -1045,16 +1057,30 @@ export function SurfaceLayout({
         for (const r of next) {
           const current = codeRootForWindow(r.windowId);
           if (current === "" || current === r.root) {
+            // A pending target the current root already satisfies IS the
+            // follow's own write arriving after the nonce moved the baseline
+            // — consume it here so a later same-folder update can't inherit it.
+            if (current !== "" && pendingCodeFollowRef.current.get(r.windowId) === current) {
+              pendingCodeFollowRef.current.delete(r.windowId);
+            }
             reconciled.push(r);
             continue;
           }
-          const pending = pendingCodeFollowRef.current;
-          if (pending && pending.windowId === r.windowId && pending.root === current) {
-            // The follow's own latch write: move the baseline in place, keep
-            // the frame.
-            pendingCodeFollowRef.current = null;
+          const pending = pendingCodeFollowRef.current.get(r.windowId);
+          if (pending === current) {
+            // The follow's own latch write (payload-first ordering): move the
+            // baseline in place, keep the frame, consume the target.
+            pendingCodeFollowRef.current.delete(r.windowId);
             reconciled.push({ ...r, root: current });
             changed = true;
+            continue;
+          }
+          if (pending === r.root) {
+            // The nonce moved the baseline first; the payload tick hasn't
+            // landed — keep the frame AND the target until the current root
+            // observes it (dropping the target here would read the follow's
+            // own in-flight state as an external divergence on the next tick).
+            reconciled.push(r);
             continue;
           }
           changed = true; // genuine external divergence — evict
@@ -1062,23 +1088,38 @@ export function SurfaceLayout({
         next = reconciled;
       }
       if (next.length > codeFrameCap) {
-        next = next.slice(next.length - codeFrameCap);
+        let excess = next.length - codeFrameCap;
+        next = next.filter((r) => {
+          if (excess > 0 && r.windowId !== windowId) {
+            excess -= 1;
+            return false;
+          }
+          return true;
+        });
         changed = true;
+      }
+      // Targets whose record is gone (evicted above) are stale: a later
+      // same-folder update must never inherit one as a follow.
+      for (const id of pendingCodeFollowRef.current.keys()) {
+        if (!next.some((r) => r.windowId === id)) pendingCodeFollowRef.current.delete(id);
       }
       return changed || next.length !== prev.length ? next : prev;
     });
-  }, [codeReachable, liveWindowIds, codeRootForWindow, codeFrameCap]);
+  }, [codeReachable, liveWindowIds, codeRootForWindow, codeFrameCap, windowId]);
 
   // The nonce half of the follow: when the parent's re-derivation GET lands
   // before the payload tick, the baseline moves here instead (the eviction
-  // effect's pending-target arm covers the opposite ordering). The record's
+  // effect's pending-target arms cover both orderings). The pending target is
+  // deliberately LEFT SET: the eviction effect consumes it once the current
+  // root observes it — clearing it here would leave a window where the
+  // baseline moved but `codeRootForWindow` still returns the old root, and
+  // the next unrelated payload tick would evict the live frame. The record's
   // `src` stays the creation src (the frame's identity; the mount-generation
   // rule pins the iframe's src).
   const codeFollowNonceRef = useRef<number | null>(null);
   useEffect(() => {
     if (!codeFollowSrc || codeFollowSrc.nonce === codeFollowNonceRef.current) return;
     codeFollowNonceRef.current = codeFollowSrc.nonce;
-    pendingCodeFollowRef.current = null;
     const followRoot = codeFollowSrc.root;
     setCodeFrames((prev) =>
       prev.some((r) => r.windowId === windowId && r.root !== followRoot)
@@ -1843,9 +1884,17 @@ export function SurfaceLayout({
                     // whose option write wakes the SSE hub: the payload tick
                     // can outrun the follow nonce, and the eviction effect
                     // reads this target to tell the follow's own write from
-                    // an external root change.
-                    pendingCodeFollowRef.current = { windowId: frameWindowId, root: folder };
-                    onCodeFolderNavigated?.(folder);
+                    // an external root change. A REJECTED latch POST clears
+                    // the target (the eviction effect's pending arms would
+                    // otherwise accept a later same-folder update as the
+                    // failed follow); a fulfilled POST leaves it for the
+                    // payload/nonce to consume.
+                    pendingCodeFollowRef.current.set(frameWindowId, folder);
+                    Promise.resolve(onCodeFolderNavigated?.(folder)).catch(() => {
+                      if (pendingCodeFollowRef.current.get(frameWindowId) === folder) {
+                        pendingCodeFollowRef.current.delete(frameWindowId);
+                      }
+                    });
                   }
                 : undefined
             }
@@ -1938,7 +1987,17 @@ export function SurfaceLayout({
     return { kind, slot, occ, frame: kind === "code" ? activeCodeFrame : undefined };
   });
   const firstTtySlot = layout.order.indexOf("tty");
-  const hiddenTiles: TileModel[] = everOpened
+  // The active window's frame record forces a `code` hidden tile even when
+  // `everOpened` omits it: the per-window reset re-seeds that set from the
+  // new window's layout, so returning to a window whose code tile is CLOSED
+  // would otherwise drop the tile here while `retainedCodeTiles` below
+  // filters the record out as active — unmounting (killing) a frame the
+  // close-tile rule says stays retained and counted.
+  const hiddenKinds: SurfaceKind[] =
+    activeCodeFrame && !everOpened.includes("code")
+      ? [...everOpened, "code"]
+      : everOpened;
+  const hiddenTiles: TileModel[] = hiddenKinds
     .filter((kind) => !layout.order.includes(kind))
     .map((kind) => ({ kind, slot: -1, occ: 0, frame: kind === "code" ? activeCodeFrame : undefined }));
   // Retained frames render as display-hidden tiles through the same flat

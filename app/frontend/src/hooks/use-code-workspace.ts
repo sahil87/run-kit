@@ -141,20 +141,25 @@ export function useCodeWorkspace(
   // Entries for windows that left the server's live set (killed/closed) are
   // pruned alongside their frame's eviction. Both key shapes embed the window
   // id as the SECOND colon-segment (server and window id carry no colon).
+  // `liveWindowIds` belongs to the CURRENT server, so pruning is scoped to
+  // this server's key prefix — an unscoped pass would delete the previous
+  // server's entries on a server switch (or keep them on a coincidental
+  // window-id match), defeating the server-keyed lifetime cache.
   const liveWindowIds = options?.liveWindowIds;
   useEffect(() => {
     if (!liveWindowIds) return;
+    const prefix = `${server}:`;
     setResolved((prev) => {
       let next: Map<string, string> | null = null;
       for (const key of prev.keys()) {
-        if (!liveWindowIds.has(key.split(":")[1])) {
+        if (key.startsWith(prefix) && !liveWindowIds.has(key.split(":")[1])) {
           next ??= new Map(prev);
           next.delete(key);
         }
       }
       return next ?? prev;
     });
-  }, [liveWindowIds]);
+  }, [liveWindowIds, server]);
 
   const followFolder = useCallback(
     (folder: string) => {

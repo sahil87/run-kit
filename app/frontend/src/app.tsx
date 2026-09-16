@@ -1221,13 +1221,19 @@ function AppShell() {
   // the workspace is re-derived and the frame is landed on the `?workspace=`
   // URL — the one sanctioned parent re-navigation, nonce-gated in CodeSurface.
   const handleCodeFolderNavigated = useCallback(
-    (folder: string) => {
-      if (!windowParam || !effectiveWindow || folder === codeRootFor(effectiveWindow)) return;
-      setWindowOptions(server, windowParam, { "@rk_win_code_root": folder })
+    (folder: string): Promise<void> => {
+      if (!windowParam || !effectiveWindow || folder === codeRootFor(effectiveWindow)) {
+        return Promise.resolve();
+      }
+      return setWindowOptions(server, windowParam, { "@rk_win_code_root": folder })
         .then(() => followFolder(folder))
-        .catch((err: Error) =>
-          addToast(err.message || "Failed to set code folder", "error"),
-        );
+        .catch((err: Error) => {
+          addToast(err.message || "Failed to set code folder", "error");
+          // SurfaceLayout clears its pending follow target on this rejection —
+          // a swallowed failure would leave the stale target to be inherited
+          // by a later same-folder update.
+          throw err;
+        });
     },
     [server, windowParam, effectiveWindow, addToast, followFolder],
   );
@@ -1832,7 +1838,10 @@ function AppShell() {
       // on a re-show after eviction the iframe element takes a beat to
       // mount. The active window's tile only — retained frames of OTHER
       // windows carry a distinct testid, and a hidden frame must never be
-      // focused.
+      // focused. The deadline CHAINS to the tty retry: with no visible code
+      // frame (a closed tile, an unreachable host, a frame still mounting)
+      // the retry would otherwise expire silently and strand keyboard focus,
+      // disabling the `ttyOnly` chords.
       const focusCode = () => {
         if (cancelled) return;
         const frame = document.querySelector<HTMLIFrameElement>(
@@ -1842,7 +1851,7 @@ function AppShell() {
           frame.contentWindow?.focus();
           return;
         }
-        if (Date.now() < deadline) rafId = requestAnimationFrame(focusCode);
+        rafId = requestAnimationFrame(Date.now() < deadline ? focusCode : focusTty);
       };
       rafId = requestAnimationFrame(focusCode);
       return cancel;

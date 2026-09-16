@@ -122,7 +122,7 @@ type LayoutOverrides = {
   onSplitPane?: (horizontal: boolean) => void;
   onClosePane?: () => void;
   onRatioCommit?: () => void;
-  onCodeFolderNavigated?: (folder: string) => void;
+  onCodeFolderNavigated?: (folder: string) => void | Promise<void>;
   shouldReclaimChord?: (kind: SurfaceKind) => (e: KeyboardEvent) => boolean;
   codeSrcFor?: (windowId: string) => string | null;
   liveWindowIds?: ReadonlySet<string>;
@@ -878,10 +878,15 @@ describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
   });
 
   it("a non-follow root change evicts the frame; it re-mounts fresh at the new root", () => {
+    // The lookup keys on the window's CURRENT root: a root change resolves a
+    // DIFFERENT src, so a re-created frame that reused the stale source fails
+    // the workspaceSrc assertion below.
+    let currentRoot = "/repo";
+    const codeSrcForByRoot = (id: string) => srcFor(`${id}:${currentRoot}`);
     const { rerender } = renderLayout({
       layout: CODE_LAYOUT,
-      codeSrcFor: codeSrcForAll,
-      codeRootForWindow: () => "/repo",
+      codeSrcFor: codeSrcForByRoot,
+      codeRootForWindow: () => currentRoot,
     });
     const node1 = visibleCodeNode();
 
@@ -889,11 +894,12 @@ describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
     // the divergence evicts; the record re-creates at the CURRENT src and the
     // frame remounts (the editor was pointing at the wrong folder).
     codeSpy.mockClear();
+    currentRoot = "/other";
     rerender(layoutElement({
       layout: CODE_LAYOUT,
       window: { gitRoot: "/other", codeRoot: "/other" },
-      codeSrcFor: codeSrcForAll,
-      codeRootForWindow: () => "/other",
+      codeSrcFor: codeSrcForByRoot,
+      codeRootForWindow: () => currentRoot,
     }));
     expect(node1.isConnected).toBe(false);
     // The eviction/re-creation takes several render passes on one rerender
@@ -901,7 +907,7 @@ describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
     // at the new root.
     const remounted = mountedCodeProps().at(-1)!;
     expect(remounted.gitRoot).toBe("/other");
-    expect(remounted.workspaceSrc).toBe(srcFor("@1"));
+    expect(remounted.workspaceSrc).toBe(srcFor("@1:/other"));
     expect(visibleCodeNode()).toBeTruthy();
   });
 
@@ -947,6 +953,163 @@ describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
       nonce: 1,
       root: "/other",
     });
+  });
+
+  it("a nonce-first follow keeps its pending target until the payload observes it — an interim tick never evicts", () => {
+    let current = "/repo";
+    const { rerender } = renderLayout({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: () => current,
+    });
+    const node1 = visibleCodeNode();
+    const report = codeSpy.mock.calls.at(-1)?.[0]?.onFolderNavigated;
+    expect(typeof report).toBe("function");
+    act(() => report("/other"));
+
+    // The re-derivation GET lands BEFORE the payload tick: the nonce moves
+    // the baseline to /other while the live root still reads /repo.
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: () => current,
+      codeFollowSrc: { src: srcFor("@1"), nonce: 1, root: "/other" },
+    }));
+    expect(visibleCodeNode()).toBe(node1);
+
+    // An unrelated session update re-runs reconciliation with the root still
+    // unmoved: the kept target (== the moved baseline) marks the follow
+    // in-flight — no eviction.
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: () => current,
+      codeFollowSrc: { src: srcFor("@1"), nonce: 1, root: "/other" },
+    }));
+    expect(visibleCodeNode()).toBe(node1);
+
+    // The payload tick observes the follow: the target consumes, the frame
+    // stays the same node.
+    current = "/other";
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: () => current,
+      codeFollowSrc: { src: srcFor("@1"), nonce: 1, root: "/other" },
+    }));
+    expect(visibleCodeNode()).toBe(node1);
+  });
+
+  it("overlapping follows keep per-window pending targets — a switch mid-follow loses neither", () => {
+    const rootOf: Record<string, string> = { "@1": "/repo", "@2": "/repo" };
+    const { rerender } = renderLayout({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: (id) => rootOf[id] ?? "",
+    });
+    const node1 = visibleCodeNode();
+    const report1 = codeSpy.mock.calls.at(-1)?.[0]?.onFolderNavigated;
+    expect(typeof report1).toBe("function");
+    act(() => report1("/other-a"));
+
+    // Switch to @2 before @1's payload tick; @2 follows as well. A single
+    // shared target slot would lose @1's target here.
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      windowId: "@2",
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: (id) => rootOf[id] ?? "",
+    }));
+    const report2 = codeSpy.mock.calls
+      .filter(([props]) => typeof (props as Record<string, unknown>).onFolderNavigated === "function")
+      .at(-1)?.[0]?.onFolderNavigated;
+    expect(typeof report2).toBe("function");
+    act(() => report2("/other-b"));
+
+    // @1's latch write lands while @2 is active: @1's divergence TOWARD its
+    // own target is its follow — the baseline moves, the frame is kept.
+    rootOf["@1"] = "/other-a";
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      windowId: "@2",
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: (id) => rootOf[id] ?? "",
+    }));
+    expect(node1.isConnected).toBe(true);
+    expect(codeNodes()).toHaveLength(2);
+  });
+
+  it("a rejected latch POST clears the pending target — a later same-folder update evicts as a divergence", async () => {
+    const onCodeFolderNavigated = vi.fn(() => Promise.reject(new Error("latch failed")));
+    const { rerender } = renderLayout({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: () => "/repo",
+      onCodeFolderNavigated,
+    });
+    const node1 = visibleCodeNode();
+
+    // The editor navigated itself; the parent's latch POST REJECTS. The
+    // pending target recorded at report time clears once the rejection lands.
+    const report = codeSpy.mock.calls.at(-1)?.[0]?.onFolderNavigated;
+    expect(typeof report).toBe("function");
+    await act(async () => report("/other"));
+    expect(onCodeFolderNavigated).toHaveBeenCalledWith("/other");
+
+    // An external update to the same folder arrives later: with the target
+    // cleared it reads as a non-follow divergence and evicts (the frame
+    // points at a folder the shared root never adopted).
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: () => "/other",
+      onCodeFolderNavigated,
+    }));
+    expect(node1.isConnected).toBe(false);
+  });
+
+  it("returning to a window whose code tile is closed keeps its frame mounted-hidden", () => {
+    const { rerender } = renderLayout({ layout: CODE_LAYOUT, codeSrcFor: codeSrcForAll });
+    const node1 = visibleCodeNode();
+    // Close @1's tile, switch away and back: the per-window reset reseeds
+    // everOpened from @1's layout (no `code`), but the record must still
+    // render as a hidden tile — the close-tile rule keeps it retained.
+    rerender(layoutElement({ layout: { shape: "single", order: ["tty"] }, codeSrcFor: codeSrcForAll }));
+    expect(node1.isConnected).toBe(true);
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@2", codeSrcFor: codeSrcForAll }));
+    expect(codeNodes()).toHaveLength(2);
+    rerender(layoutElement({ layout: { shape: "single", order: ["tty"] }, codeSrcFor: codeSrcForAll }));
+    expect(node1.isConnected).toBe(true);
+    expect(codeNodes()).toHaveLength(2);
+  });
+
+  it("a runtime cap decrease evicts the oldest NON-ACTIVE records — the active window's closed-tile frame is protected", () => {
+    const { rerender } = renderLayout({ layout: CODE_LAYOUT, codeSrcFor: codeSrcForAll });
+    const node1 = visibleCodeNode();
+    // Close @1's tile, then fill the desktop cap from other windows.
+    rerender(layoutElement({ layout: { shape: "single", order: ["tty"] }, codeSrcFor: codeSrcForAll }));
+    expect(node1.isConnected).toBe(true);
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@2", codeSrcFor: codeSrcForAll }));
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@3", codeSrcFor: codeSrcForAll }));
+    expect(codeNodes()).toHaveLength(3);
+
+    // Back on @1 (tile still closed) the isMobile flip drops the cap to 1:
+    // @2 and @3 evict; @1's record survives — a head-slice would evict the
+    // ACTIVE window's record (the show effect can't bump it to the tail
+    // while its tile is closed) and leave @3's. The flip remounts the grid's
+    // nodes (the branch switch does that to every tile, tty included), so
+    // survival is asserted at RECORD level: the one mounted frame reads @1's
+    // creation src, through the active window's hidden-tile slot.
+    codeSpy.mockClear();
+    rerender(layoutElement({
+      layout: { shape: "single", order: ["tty"] },
+      isMobile: true,
+      mobileActiveSlot: 0,
+      codeSrcFor: codeSrcForAll,
+    }));
+    expect(codeNodes()).toHaveLength(1);
+    expect(mountedCodeProps().at(-1)?.workspaceSrc).toBe(srcFor("@1"));
+    expect(screen.getByTestId("surface-tile-code")).toBeTruthy();
   });
 
   it("closing the code tile keeps its frame retained and counting toward the cap", () => {

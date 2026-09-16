@@ -55,8 +55,16 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
  * - `expectActiveElement(page, target)`: polls `document.activeElement` until
  *   it is inside `.xterm`, is the `compose-strip-input` textarea, or is the
  *   `Code editor` iframe element.
- * - Budgets: every test calls `test.setTimeout(30_000)` — each drives two
- *   in-app window switches plus iframe reloads, past the 10s default.
+ * - Retention note: an away-and-back switch re-shows the window's RETAINED
+ *   frame (no reload, no second grab — spec right-panel.md § The code lens),
+ *   so only test (a) forces a FRESH boot on the return leg (it evicts A's
+ *   frame by overflowing the desktop frame cap, 3, before returning) — that
+ *   is the leg where the armed guard's grab reversion is exercised. Tests
+ *   (b)/(c) exercise the retained-frame restore: no grab re-fires, so the
+ *   restore router's explicit focus is what lands on the recorded kind.
+ * - Budgets: every test calls `test.setTimeout` — (a) drives six in-app
+ *   window switches plus iframe boots (60s), (b)/(c) two switches (30s),
+ *   past the 10s default.
  */
 
 // Own session so this file never collides with other specs (fullyParallel off).
@@ -87,7 +95,11 @@ async function gotoWindow(page: Page, windowId: string, search = ""): Promise<vo
   });
 }
 
-const codeIframe = (page: Page) => page.getByTitle("Code editor");
+// `surface-tile-code` is unique to the ACTIVE window's tile (retained frames
+// carry `surface-tile-code-retained`) — scoping keeps the locator singular
+// once several windows hold code frames.
+const codeIframe = (page: Page) =>
+  page.getByTestId("surface-tile-code").getByTitle("Code editor");
 const composeInput = (page: Page) => page.getByTestId("compose-strip-input");
 const railCodeButton = (page: Page) =>
   page.getByRole("button", { name: "Code tile" });
@@ -162,8 +174,9 @@ test.describe("Window-focus restore + code-server steal guard", () => {
   /**
    * Proves: the first visit to a window focuses the terminal on its own (the
    * `tty` default, replacing the accidental code-wins behavior), and after an
-   * away-and-back switch with the code tile open, the stub's grab is reverted
-   * to the xterm textarea and real keystrokes reach the tmux pane.
+   * away-and-back switch that boots a FRESH workbench (A's frame evicted via
+   * the desktop cap while away), the stub's grab is reverted to the xterm
+   * textarea and real keystrokes reach the tmux pane.
    *
    * Steps:
    * 1. Create window A running `cat` (typed STDIN echoes into the pane) and
@@ -174,17 +187,21 @@ test.describe("Window-focus restore + code-server steal guard", () => {
    * 2. Click the `Code tile` rail toggle (a persisted mutation; its pointerdown
    *    disarms this visit's guard); wait for the iframe and for the grab to
    *    fire; assert focus is on the iframe (the grab stands after a manual open).
-   * 3. Switch to B via the sidebar, then back to A; wait for the remounted
-   *    iframe's grab to fire again.
-   * 4. Assert `document.activeElement` is inside `.xterm` — the armed guard
+   * 3. Evict A's frame: create windows C and D, then open the code tile in B,
+   *    C, and D — the desktop frame cap (3) overflows and A's record (the
+   *    least-recently-shown) evicts. A plain away-and-back would re-show A's
+   *    RETAINED frame with no reload and no second grab, leaving the guard's
+   *    reversion path unexercised.
+   * 4. Switch back to A; wait for the freshly booted iframe's grab to fire.
+   * 5. Assert `document.activeElement` is inside `.xterm` — the armed guard
    *    reverted the grab to the remembered (default) `tty`.
-   * 5. Type a unique marker; poll `tmux capture-pane` until it echoes — the
+   * 6. Type a unique marker; poll `tmux capture-pane` until it echoes — the
    *    keystrokes landed in the pane, not the iframe.
    */
   test("(a) a window remembered as tty reverts the workbench grab to the terminal, and typing lands in the pane", async ({
     page,
   }) => {
-    test.setTimeout(30_000);
+    test.setTimeout(60_000);
     // Window A runs `cat` so typed STDIN echoes into the pane — tmux-side
     // proof of where the keystrokes went. Window B is the away-window.
     const idA = await makeWindow(page, `fr-a-tty-${Date.now()}`, { command: "cat" });
@@ -208,12 +225,24 @@ test.describe("Window-focus restore + code-server steal guard", () => {
     await expectGrabFired(page);
     await expectActiveElement(page, "code-iframe");
 
-    // Switch away and back IN-APP (memory is in-memory — a reload would wipe
-    // it). The code tile re-renders from the persisted layout, the remounted
-    // iframe grabs again — and this time the armed guard reverts it: nothing
-    // was ever recorded for A, so the tty default wins.
-    await switchToWindow(page, idB);
-    await expect(page.locator(".xterm").first()).toBeVisible({ timeout: READY_TIMEOUT });
+    // Evict A's frame before returning IN-APP (memory is in-memory — a reload
+    // would wipe it): opening the code tile in B, C, and D overflows the
+    // desktop frame cap (3) and drops A's record (the least-recently-shown).
+    // Without this the return would re-show A's RETAINED frame — no reload,
+    // no second grab, nothing for the guard to revert.
+    const evictors = [idB];
+    for (let i = 0; i < 2; i += 1) {
+      evictors.push(await makeWindow(page, `fr-evict-${i}-${Date.now()}`));
+    }
+    for (const id of evictors) {
+      await switchToWindow(page, id);
+      await railCodeButton(page).click();
+      await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    }
+
+    // Back to A: no record remains, so the code tile boots a FRESH workbench;
+    // its grab fires against the armed guard, and the revert lands on the
+    // remembered (default) `tty` — nothing was ever recorded for A.
     await switchToWindow(page, idA);
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expectGrabFired(page);
@@ -230,8 +259,8 @@ test.describe("Window-focus restore + code-server steal guard", () => {
 
   /**
    * Proves: focusing the compose textarea records `compose` for the window, and
-   * on return the restore router focuses the strip — and the re-fired grab is
-   * reverted to it, not to the editor or the terminal.
+   * on return the restore router focuses the strip — the retained frame fires
+   * no second grab, so the router's explicit focus lands undisturbed.
    *
    * Steps:
    * 1. Create windows A and B; seed the compose preference OFF so the chip
@@ -241,11 +270,11 @@ test.describe("Window-focus restore + code-server steal guard", () => {
    *    it holds focus (the genuine gesture that records `compose`).
    * 3. Click the `Code tile` rail toggle; wait for the iframe and the grab (the
    *    click disarmed this visit's guard, so the grab stands here).
-   * 4. Switch to B via the sidebar, then back to A; wait for the remounted
-   *    iframe's grab to fire.
+   * 4. Switch to B via the sidebar, then back to A — the return re-shows A's
+   *    RETAINED frame (no reload, no second grab).
    * 5. Assert `document.activeElement` is the `compose-strip-input` textarea.
    */
-  test("(b) a window remembered as compose reverts the grab to the strip textarea", async ({
+  test("(b) a window remembered as compose restores the strip textarea on return", async ({
     page,
   }) => {
     test.setTimeout(30_000);
@@ -276,32 +305,33 @@ test.describe("Window-focus restore + code-server steal guard", () => {
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expectGrabFired(page);
 
-    // Away and back: the strip is restored and the re-fired grab is reverted
-    // to it (never the editor, never the terminal).
+    // Away and back: A's RETAINED frame re-shows (no reload — no second grab
+    // fires), and the restore router focuses the remembered strip (never the
+    // editor, never the terminal).
     await switchToWindow(page, idB);
     await expect(page.locator(".xterm").first()).toBeVisible({ timeout: READY_TIMEOUT });
     await switchToWindow(page, idA);
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
-    await expectGrabFired(page);
     await expectActiveElement(page, "compose");
   });
 
   /**
    * Proves: after a genuine click into the editor (the only seam that records
-   * `code`), returning to the window lets the workbench's grab stand — the
-   * guard never fights a recorded `code` choice, so there is no revert loop.
+   * `code`), returning to the window focuses the RETAINED frame explicitly —
+   * a retained frame fires no load-time grab, so the restore router's code
+   * arm is what returns focus to the editor.
    *
    * Steps:
    * 1. Create windows A and B; navigate to A; open the code tile via the rail
    *    toggle; wait for the iframe and the grab.
    * 2. Click the stub editor's button through the frame; assert focus lands on
    *    the iframe element (records `code`, disarms the guard).
-   * 3. Switch to B via the sidebar, then back to A; wait for the remounted
-   *    iframe's grab to fire.
-   * 4. Assert `document.activeElement` is the `Code editor` iframe — the grab
-   *    was NOT reverted.
+   * 3. Switch to B via the sidebar, then back to A — the return re-shows A's
+   *    RETAINED frame (no reload, no second grab).
+   * 4. Assert `document.activeElement` is the `Code editor` iframe — the
+   *    restore router focused the recorded `code` target.
    */
-  test("(c) a window remembered as code lets the grab through — the grab IS the restore", async ({
+  test("(c) a window remembered as code restores focus to the retained editor frame", async ({
     page,
   }) => {
     test.setTimeout(30_000);
@@ -319,13 +349,13 @@ test.describe("Window-focus restore + code-server steal guard", () => {
     await page.frameLocator('iframe[title="Code editor"]').locator("#inner").click();
     await expectActiveElement(page, "code-iframe");
 
-    // Away and back: the remembered kind is `code`, so the guard lets the
-    // remounted workbench's grab stand — focus lands INSIDE the iframe.
+    // Away and back: A's RETAINED frame re-shows (no reload — no second grab
+    // fires), and the restore router's code arm focuses the frame explicitly —
+    // the remembered kind is `code`.
     await switchToWindow(page, idB);
     await expect(page.locator(".xterm").first()).toBeVisible({ timeout: READY_TIMEOUT });
     await switchToWindow(page, idA);
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
-    await expectGrabFired(page);
     await expectActiveElement(page, "code-iframe");
   });
 });

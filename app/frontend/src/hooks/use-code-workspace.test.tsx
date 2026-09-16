@@ -393,4 +393,56 @@ describe("useCodeWorkspace — per-window map", () => {
     expect(result.current.codeSrcFor("@8")).toBeNull();
     expect(result.current.codeSrcFor("@7")).toBe(codeServerWorkspaceSrc(WS_A));
   });
+
+  it("pruning is scoped to the current server — the previous server's entries survive", async () => {
+    fetchCodeWorkspace.mockImplementation((server: string, id: string) =>
+      Promise.resolve({
+        status: "ok",
+        path: `/ws/${server}${id}`,
+        root: id === "@7" ? "/repo-a" : "/repo-b",
+      }),
+    );
+    const both = new Set(["@7", "@8"]);
+    const { result, rerender } = renderHook(
+      ({ server, windowId, win, options }) =>
+        useCodeWorkspace(server, windowId, win, true, false, options),
+      {
+        initialProps: {
+          server: "other",
+          windowId: "@8",
+          win: WIN_B,
+          options: { windowsById: windowsById(), liveWindowIds: both },
+        },
+      },
+    );
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc("/ws/other@8")),
+    );
+
+    // Switch servers and kill @8 there: the prune must not touch "other"'s
+    // entry — its live set describes the CURRENT server only.
+    const afterKill = new Set(["@7"]);
+    rerender({
+      server: "default",
+      windowId: "@7",
+      win: WIN_A,
+      options: { windowsById: windowsById(), liveWindowIds: afterKill },
+    });
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc("/ws/default@7")),
+    );
+
+    // Back on "other", @8's entry resolves synchronously from the map — a
+    // pruned entry would pend and refetch.
+    rerender({
+      server: "other",
+      windowId: "@8",
+      win: WIN_B,
+      options: { windowsById: windowsById(), liveWindowIds: both },
+    });
+    expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc("/ws/other@8"));
+    expect(
+      fetchCodeWorkspace.mock.calls.filter(([s, id]) => s === "other" && id === "@8"),
+    ).toHaveLength(1);
+  });
 });

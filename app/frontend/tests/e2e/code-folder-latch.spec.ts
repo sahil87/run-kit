@@ -197,7 +197,8 @@ async function expectCodeRoot(windowId: string, expected: string): Promise<void>
 
 const railCodeButton = (page: Page) => page.getByRole("button", { name: "Code tile" });
 const codeTile = (page: Page) => page.getByTestId("surface-tile-code");
-const codeIframe = (page: Page) => page.getByTitle("Code editor");
+// Scoped to the active tile (retained frames of other windows stay mounted hidden).
+const codeIframe = (page: Page) => page.getByTestId("surface-tile-code").getByTitle("Code editor");
 const terminal = (page: Page) => page.locator(".xterm").first();
 
 let stub: CodeStub;

@@ -170,7 +170,9 @@ const webToggle = (page: Page) =>
   page.getByRole("banner").getByRole("button", { name: "Web tile" });
 // The panel slot is gone (260812-ab5v) — surfaces render as layout TILES.
 const codeTile = (page: Page) => page.getByTestId("surface-tile-code");
-const codeIframe = (page: Page) => page.getByTitle("Code editor");
+// Scoped to the active tile: other windows' retained frames stay mounted
+// hidden under `surface-tile-code-retained`, so a bare title match is not unique.
+const codeIframe = (page: Page) => page.getByTestId("surface-tile-code").getByTitle("Code editor");
 const pending = (page: Page) => page.getByTestId("code-surface-pending");
 const notRunning = (page: Page) => page.getByTestId("code-surface-empty");
 const terminal = (page: Page) => page.locator(".xterm").first();

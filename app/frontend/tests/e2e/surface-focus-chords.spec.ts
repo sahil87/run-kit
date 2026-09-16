@@ -23,8 +23,10 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 // desktop viewport (1440×800) — the chords' stateful arms are desktop-only.
 // Chord keydowns disarm the visit's steal guard (the restore effect's
 // capture-phase keydown disarm), so the stub's grab STANDS on the visit where
-// a chord opens the tile, and the revert under test happens on the
-// away-and-back return. Window switches go through the sidebar row
+// a chord opens the tile. On an away-and-back return the window's RETAINED
+// frame re-shows without a reload (no second grab), so the recording
+// asymmetry is proven by where the restore router lands DOM focus, not by a
+// revert. Window switches go through the sidebar row
 // (switchToWindow), never `page.goto`: focus memory is in-memory by design,
 // so a reload would wipe the state under test. Tile focus vs DOM focus: the
 // seam's contract is the focused-SLOT (the accent-green border); DOM focus
@@ -82,7 +84,10 @@ const CHORD_CODE = "Shift+Control+Digit2"; // ⌘2 on mac
 const CHORD_ZEN = "Shift+Control+Enter"; // ⇧⌘⏎ on mac
 const CHORD_SIDEBAR = "Shift+Control+KeyB"; // ⌘B on mac
 
-const codeIframe = (page: Page) => page.getByTitle("Code editor");
+// Scoped to the ACTIVE window's tile: code frames of other windows stay
+// mounted display-hidden (`surface-tile-code-retained`), so a bare title
+// match resolves to several iframes once a second window has opened one.
+const codeIframe = (page: Page) => page.getByTestId("surface-tile-code").getByTitle("Code editor");
 const ttyTile = (page: Page) => page.getByTestId("surface-tile-tty");
 const codeTile = (page: Page) => page.getByTestId("surface-tile-code");
 const railCodeButton = (page: Page) =>
@@ -184,9 +189,9 @@ test.describe("Surface focus chords (260819-qwr7)", () => {
    * Proves: all three states of the code tile chord against a real iframe
    * stub — including focus landing after the open — and the recording
    * asymmetry: ⌘2 writes no focus memory, so on an away-and-back return the
-   * armed guard reverts the remounted workbench's grab to the tty default
-   * (had the chord recorded `code`, the grab would stand — the
-   * focus-restore spec's (c) behavior).
+   * restore router lands DOM focus on the tty default even though the
+   * retained code frame is visible (had the chord recorded `code`, the
+   * router would focus the frame — the focus-restore spec's (c) behavior).
    *
    * Steps:
    * 1. Create windows A and B; navigate to A; assert the xterm holds focus
@@ -204,9 +209,10 @@ test.describe("Surface focus chords (260819-qwr7)", () => {
    * 6. Switch to B via the sidebar; press ⌘2; assert the grab fires and DOM
    *    focus lands in the iframe (B has NO focus memory — nothing was ever
    *    recorded).
-   * 7. Switch to A and back to B via the sidebar; assert the remounted
-   *    iframe's grab fires again but DOM focus lands on the xterm — the
-   *    armed guard reverted it, proving ⌘2 recorded nothing.
+   * 7. Switch to A and back to B via the sidebar; assert B's retained
+   *    iframe is visible (its earlier grab still recorded, no reload) but
+   *    DOM focus lands on the xterm — the router took the tty default,
+   *    proving ⌘2 recorded nothing.
    */
   test("(a) ⌘2 cycles hidden→open+focus, visible-unfocused→focus, focused→hide+restore; the chord never records `code`", async ({
     page,
@@ -255,9 +261,10 @@ test.describe("Surface focus chords (260819-qwr7)", () => {
 
     // The recording asymmetry, isolated on window B (nothing ever recorded
     // there): ⌘2 opens + focuses code, but writes NO focus memory. On the
-    // away-and-back return the armed guard therefore resolves the tty default
-    // and REVERTS the remounted stub's grab — had the chord recorded `code`,
-    // the grab would stand (the focus-restore spec's (c) behavior).
+    // away-and-back return the router therefore resolves the tty default and
+    // focuses the xterm while B's RETAINED frame re-shows without a reload —
+    // had the chord recorded `code`, the router would focus the frame (the
+    // focus-restore spec's (c) behavior).
     await switchToWindow(page, idB);
     await expect(page.locator(".xterm").first()).toBeVisible({ timeout: READY_TIMEOUT });
     // Same availability gate as above, for B's lens.
@@ -312,7 +319,7 @@ test.describe("Surface focus chords (260819-qwr7)", () => {
     await railCodeButton(page).click();
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expectGrabFired(page);
-    await page.frameLocator('iframe[title="Code editor"]').locator("#inner").click();
+    await codeTile(page).frameLocator('iframe[title="Code editor"]').locator("#inner").click();
     await expectActiveElement(page, "code-iframe");
     await expectTileFocused(page, "code");
 
@@ -389,7 +396,7 @@ test.describe("Surface focus chords (260819-qwr7)", () => {
     await railCodeButton(page).click();
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expectGrabFired(page);
-    await page.frameLocator('iframe[title="Code editor"]').locator("#inner").click();
+    await codeTile(page).frameLocator('iframe[title="Code editor"]').locator("#inner").click();
     await expectActiveElement(page, "code-iframe");
     await expectTileFocused(page, "code");
 

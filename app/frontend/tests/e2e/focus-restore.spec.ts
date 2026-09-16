@@ -346,7 +346,11 @@ test.describe("Window-focus restore + code-server steal guard", () => {
     await railCodeButton(page).click();
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expectGrabFired(page);
-    await page.frameLocator('iframe[title="Code editor"]').locator("#inner").click();
+    await page
+      .getByTestId("surface-tile-code")
+      .frameLocator('iframe[title="Code editor"]')
+      .locator("#inner")
+      .click();
     await expectActiveElement(page, "code-iframe");
 
     // Away and back: A's RETAINED frame re-shows (no reload — no second grab

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeVisibleCount } from "./top-bar-overflow";
+import { computeVisibleCount, orderForFit } from "./top-bar-overflow";
 
 describe("computeVisibleCount", () => {
   it("returns all items when everything fits", () => {
@@ -52,4 +52,38 @@ describe("computeVisibleCount", () => {
     expect(computeVisibleCount(120, [50, 30, 24, 24], 0, 4)).toBe(3);
   });
 
+});
+
+describe("orderForFit", () => {
+  it("moves dropLast entries to the tail and keeps each half's relative order", () => {
+    const entries = [
+      { id: "toggles", dropLast: true },
+      { id: "open" },
+      { id: "layout" },
+      { id: "refresh" },
+      { id: "settings" },
+    ];
+    expect(orderForFit(entries).map((e) => e.id)).toEqual(["open", "layout", "refresh", "settings", "toggles"]);
+  });
+
+  it("is the identity when nothing is dropLast", () => {
+    const entries: { id: string; dropLast?: boolean }[] = [{ id: "a" }, { id: "b" }, { id: "c" }];
+    expect(orderForFit(entries).map((e) => e.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("makes a dropLast entry the last to overflow under pressure", () => {
+    // Widths keyed by fit order; the fit keeps a SUFFIX of the reversed order.
+    const entries = [
+      { id: "toggles", dropLast: true, w: 90 },
+      { id: "open", w: 60 },
+      { id: "layout", w: 30 },
+      { id: "settings", w: 30 },
+    ];
+    const order = orderForFit(entries);
+    const widths = order.map((e) => e.w).reverse(); // tail first
+    // Budget for the toggles alone (+ nothing else).
+    const n = computeVisibleCount(100, widths, 0, 4);
+    const kept = order.slice(order.length - n).map((e) => e.id);
+    expect(kept).toEqual(["toggles"]);
+  });
 });

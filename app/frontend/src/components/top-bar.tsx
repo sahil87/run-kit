@@ -48,7 +48,8 @@ import {
 import { LayoutChip, LayoutMenuRows } from "@/components/layout-chip";
 import { QuakeLauncher } from "@/components/quake-launcher";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { computeVisibleCount } from "@/lib/top-bar-overflow";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { computeVisibleCount, orderForFit } from "@/lib/top-bar-overflow";
 import type { GuiPaletteAction } from "@/lib/palette/gui";
 import type { GuiQuality } from "@/lib/gui-posture";
 import { GuiToolbarMobileOverflow } from "@/components/gui-toolbar";
@@ -101,6 +102,12 @@ type RegistryEntry = {
    *  chevron block. The mobile surface-switch group uses this: it is the
    *  primary mobile tile-switch affordance, so other chips drop first. */
   pinned?: boolean;
+  /** When true the entry is the LAST fit candidate to overflow, regardless of
+   *  its bar position: the fit consumes the pyramid from its L1 head, but a
+   *  `dropLast` entry is moved to the tail of the fit ORDER while keeping its
+   *  registry slot in the bar. The desktop surface-toggle group uses this — it
+   *  sits leftmost in the cluster yet is the cluster's most important control. */
+  dropLast?: boolean;
   /** Chevron-menu section (260731-oiho) — Tiles / View / Window / App. */
   menuGroup: MenuGroup;
   barRender: () => ReactNode;
@@ -289,6 +296,13 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
  * caller), so the head's right edge lands exactly on the content column's
  * left edge.
  */
+/** Minimum bar width the head must leave beside itself. The bar's own
+ *  degradation (crumb collapse, the right cluster's overflow fit) was tuned
+ *  for a bar at least as wide as the desktop breakpoint; below that the head
+ *  yields and the classic bar returns, so the breadcrumb never spills into the
+ *  centered heading. */
+const HEAD_MIN_BAR_PX = 600;
+
 function SidebarHead({
   width,
   onToggleSidebar,
@@ -652,10 +666,15 @@ export function TopBar({
   // The numbers come from Shell's exported stage constants — the head and the
   // stage cannot drift apart. Zen mode hides the whole bar upstream, so a
   // zen-hidden sidebar with the preference still `open` never draws a head.
-  const sidebarHeadWidth =
-    !isMobile && hasSidebar && sidebarOpen
-      ? sidebarWidth + STAGE_PADDING_PX + STAGE_COLUMN_GAP_PX
-      : 0;
+  // The head is a layout decision, not just a color one: it takes its width
+  // out of the bar, and the bar's breakpoint-gated content (history arrows,
+  // crumb floors, the heading anchor) is sized for the VIEWPORT, not for what
+  // is left of the bar. So the head shows only while the bar keeps at least
+  // HEAD_MIN_BAR_PX beside it; narrower, the bar reclaims its full width and
+  // the toggle and brand return to the left cluster.
+  const headTrack = sidebarWidth + STAGE_PADDING_PX + STAGE_COLUMN_GAP_PX;
+  const barKeepsRoom = useMediaQuery(`(min-width: ${headTrack + HEAD_MIN_BAR_PX}px)`);
+  const sidebarHeadWidth = !isMobile && hasSidebar && sidebarOpen && barKeepsRoom ? headTrack : 0;
   const headShown = sidebarHeadWidth > 0;
 
   // Focus handoff across the toggle's node swap: the head's toggle and the
@@ -815,9 +834,11 @@ export function TopBar({
   // + the `Board: Unpin Focused Pane` palette action. The split is absent when
   // the board is empty (no `focusedPane`); the Kill row is disabled then.
   const rightItems: RegistryEntry[] = [
-    // Surface-toggle group — terminal-only, at the registry's L1 HEAD (first
-    // fit candidate to drop, leftmost in the bar): the retired right rail's
-    // open-tile toggles relocated as ONE bordered sub-group. One entry (not
+    // Surface-toggle group — terminal-only, at the registry's L1 HEAD
+    // (leftmost in the bar) but `dropLast`: it is the cluster's most
+    // important control, so it overflows only after every other fit
+    // candidate has. The retired right rail's open-tile toggles relocated as
+    // ONE bordered sub-group. One entry (not
     // three) so the probe measures the whole group once and the bar/menu
     // renderings share one slot-data source. Overflowed, it renders one
     // checkbox row per shown surface under the Tiles menu section. Hidden
@@ -834,6 +855,7 @@ export function TopBar({
       menuGroup: "tiles",
       hidden: !(mode === "terminal" && currentWindow && surfaceToggles),
       pinned: surfaceToggles?.mode === "switch",
+      dropLast: true,
       barRender: () =>
         surfaceToggles ? <SurfaceToggleGroup toggles={surfaceToggles} /> : null,
       menuRender: () =>
@@ -1085,6 +1107,12 @@ export function TopBar({
   // probe's children must stay index-aligned with the widths array the fit
   // reads, so the probe renders exactly this list.
   const fitCandidates = candidates.filter((e) => !e.menuOnly && !e.pinned);
+  // Fit ORDER: the pyramid (registry order) with `dropLast` entries moved to
+  // the tail, so they are the last to overflow. Bar RENDER order stays the
+  // registry order — a `dropLast` entry keeps its screen slot. The probe
+  // renders in fit order so its measured widths stay index-aligned with what
+  // `computeVisibleCount` consumes.
+  const fitOrder = orderForFit(fitCandidates);
 
   // Measurement: one ResizeObserver on the right cell + a hidden probe row that
   // renders every FIT candidate's BAR form so we always know each real width
@@ -1111,7 +1139,7 @@ export function TopBar({
   // fit, so they are deliberately absent from this key; the PINNED set rides
   // along (a pinned entry appearing/disappearing changes the reserved width).
   const candidateKey =
-    fitCandidates.map((c) => c.id).join(",") + "|" + pinnedItems.map((c) => c.id).join(",");
+    fitOrder.map((c) => c.id).join(",") + "|" + pinnedItems.map((c) => c.id).join(",");
 
   useLayoutEffect(() => {
     const cell = rightCellRef.current;
@@ -1161,15 +1189,16 @@ export function TopBar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidateKey, mode, updateKey, showChip]);
 
-  // Keep the LAST `visibleCount` fit candidates in-bar (the L3-end suffix); the
-  // rest (L1-end prefix) overflow. Surviving buttons keep their screen positions
-  // — dropping L1 leftward never shifts the L2/L3 tail. Menu rows list the
+  // Keep the LAST `visibleCount` entries of the fit ORDER in-bar (the L3-end
+  // suffix plus any `dropLast` entries); the rest (L1-end prefix) overflow.
+  // Surviving buttons keep their screen positions — dropping L1 leftward never
+  // shifts the L2/L3 tail, and a surviving `dropLast` entry stays in its slot. Menu rows list the
   // menuOnly entries (260731-oiho) plus the overflowed controls in pyramid order
   // (registry order = L1 → L2 → L3): deriving the overflow list by filtering the
   // FULL candidate list against the visible set keeps registry order for free.
-  const splitAt = fitCandidates.length - visibleCount;
-  const visibleItems = fitCandidates.slice(splitAt);
-  const visibleIds = new Set(visibleItems.map((e) => e.id));
+  const splitAt = fitOrder.length - visibleCount;
+  const visibleIds = new Set(fitOrder.slice(splitAt).map((e) => e.id));
+  const visibleItems = fitCandidates.filter((e) => visibleIds.has(e.id));
   const overflowItems = candidates.filter((e) => !visibleIds.has(e.id) && !e.pinned);
   const overflowRows: OverflowMenuRow[] = overflowItems
     .map((e) => ({ id: e.id, group: e.menuGroup, node: e.menuRender() }))
@@ -1272,7 +1301,11 @@ export function TopBar({
               breakpoint-hidden there (brand, server, session, the collapse
               rung), so the nav renders empty and a floor would only push the
               left-aligned heading right (the mobile grid content-sizes this
-              column). `flex-1` makes the nav claim the left cell's leftover
+              column). While the sidebar head shows the floor is OFF too
+              (`min-w-0`): the head takes its width out of the bar, and a
+              rigid floor in the `1fr` left track would spill the nav into
+              the centered heading — the crumb collapse (`… ▾`) absorbs the
+              squeeze instead. `flex-1` makes the nav claim the left cell's leftover
               width at `sm+` regardless of content size, so the crumb section's
               clientWidth stays the available-space signal even while collapsed
               (a content-sized nav would shrink to the `… ▾` trigger and the
@@ -1285,7 +1318,7 @@ export function TopBar({
               nav clips at its floor. */}
           <nav
             aria-label="Breadcrumb"
-            className="flex items-center gap-1.5 text-sm overflow-hidden sm:min-w-[150px] flex-1"
+            className={`flex items-center gap-1.5 text-sm overflow-hidden flex-1 ${headShown ? "min-w-0" : "sm:min-w-[150px]"}`}
           >
             {/* Brand root crumb — logo + wordmark, links to `/`. The nav's
                 first child (the breadcrumb's root — the `›` separator starts
@@ -1710,7 +1743,7 @@ export function TopBar({
             inert
             className="absolute -left-[9999px] top-0 flex items-center gap-3 pointer-events-none"
           >
-            {fitCandidates.map((e) => (
+            {fitOrder.map((e) => (
               <span key={e.id} className="flex items-center shrink-0">
                 {e.barRender()}
               </span>

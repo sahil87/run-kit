@@ -25,8 +25,9 @@ import { stubProxyPorts } from "./_web-tile";
 // NOWHERE at any width while their rows are ALWAYS in the menu; (h) the
 // Settings gear is a real fit candidate — the LAST one (Refresh drops before
 // it) — rendering in-bar between Refresh and the chevron at desktop widths.
-// The terminal fit tiers: L1 = the surface-toggle group (the L1 HEAD,
-// leftmost, first to drop as one unit ON DESKTOP) + the ▦ Layout chip
+// The terminal fit tiers: L1 = the ▦ Layout chip (the surface-toggle group
+// sits leftmost but is `dropLast` — the last fit candidate to overflow ON
+// DESKTOP, asserted as its own LAST set below)
 // (overflowed, it renders one `Layout: …` radio row per arity-valid shape);
 // L2 = empty; L3 = Refresh + Settings gear — the in-bar end state is
 // [toggles] · ▦Layout · Refresh · Gear · chevron, with the chevron the SOLE
@@ -82,13 +83,14 @@ function intersects(
 }
 
 // Right-cluster controls in pyramid order (L1 → L2 → L3), by accessible name.
-// Terminal route as of 260815-19me (composed-frame unification): L1's HEAD is
-// the surface-toggle group (`data-testid="surface-toggles"` — the REMOVED
-// right rail's open-tile toggles relocated into the bar as ONE bordered
-// sub-group, leftmost; detected via its "Terminal tile" button — tty is
-// always an available surface). On DESKTOP the group drops FIRST and as ONE
-// unit; the ▦ Layout chip (260812-ab5v R9; overflowed, it renders `Layout: …`
-// radio rows in the menu) drops next — the merged split control left the
+// Terminal route: the surface-toggle group (`data-testid="surface-toggles"` —
+// ONE bordered sub-group of per-surface tile toggles, leftmost in the bar;
+// detected via its "Terminal tile" button — tty is always an available
+// surface) is the cluster's `dropLast` entry ON DESKTOP: leftmost in the bar
+// yet at the TAIL of the fit order, so it overflows only after every pyramid
+// tier is gone (the LAST set below). The pyramid's L1 is the ▦ Layout chip
+// (overflowed, it renders `Layout: …` radio rows in the menu) — the merged
+// split control left the
 // terminal bar in 260813-w1lf (pane verbs moved to the tty tile header's pane
 // segment; the `split` entry is `menuOnly` in terminal mode now, its rows
 // ALWAYS in the chevron menu — see MENU_ONLY below). On MOBILE (<640px) the
@@ -112,13 +114,17 @@ function intersects(
 // a sized off-screen element "visible"; `getByTestId("surface-toggles")` is
 // likewise AMBIGUOUS — two copies when the group is in-bar).
 type NameMatcher = string | RegExp;
-const L1: NameMatcher[] = ["Terminal tile", "Layout"];
+const L1: NameMatcher[] = ["Layout"];
 const L2: NameMatcher[] = [];
 const L3: NameMatcher[] = ["Refresh page", "Open settings"];
-// Below the mobile breakpoint the group forks to PINNED switch mode — in-bar
-// by exemption, not by fit — so the pyramid assertions count only the FIT
-// candidates there.
-const L1_MOBILE: NameMatcher[] = L1.filter((n) => n !== "Terminal tile");
+// The surface-toggle group is the cluster's `dropLast` entry ON DESKTOP: it
+// keeps its leftmost slot but sits at the TAIL of the fit order, so it is the
+// last fit candidate to overflow — it must still be in-bar while ANY pyramid
+// tier member is. Below the mobile breakpoint the same group forks to PINNED
+// switch mode — in-bar by exemption, not by fit — so it is asserted visible
+// there and never counted as a fit candidate.
+const LAST: NameMatcher[] = ["Terminal tile"];
+const L1_MOBILE: NameMatcher[] = [...L1];
 // The demoted controls (260731-oiho + the terminal split in 260813-w1lf, the
 // n2n4 menuOnly mechanism): their bar forms render NOWHERE at ANY width; their
 // rows are ALWAYS in the menu.
@@ -288,10 +294,11 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 
   /**
    * Proves: the M1 fix (in-bar controls exist at wide widths) AND the
-   * pyramid drop order — overflow consumes from the front, so L1 (the
-   * surface-toggle group + the ▦ Layout chip; the group is the L1 head and
-   * drops first, as one unit) empties before L3 (Refresh · Settings gear)
-   * starts dropping (L2 is empty); each tier's in-bar count is monotonic
+   * pyramid drop order — overflow consumes from the front, so L1 (the ▦
+   * Layout chip) empties before L3 (Refresh · Settings gear) starts dropping
+   * (L2 is empty), while the surface-toggle group — the `dropLast` entry,
+   * leftmost in the bar yet last in the fit order — stays in-bar as one unit
+   * until every pyramid tier is gone; each tier's in-bar count is monotonic
    * non-increasing as width shrinks WITHIN each viewport regime — below
    * 640px the surface-toggle group forks to SWITCH mode and becomes PINNED
    * in-bar (exempt from the fit), freeing width, so the monotonic baseline
@@ -312,10 +319,13 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
    *    not atomic and the ResizeObserver-driven re-fit can re-render
    *    between them, so invariants are asserted on a settled layout. Assert
    *    L1 and L2 counts are non-increasing (re-baselining once when the
-   *    sweep crosses the 640px mobile boundary; the mobile L1 count
+   *    sweep crosses the 640px mobile boundary and once when the sidebar
+   *    head yields and the bar regains its width; the mobile L1 count
    *    excludes the pinned `Terminal tile` button); assert L2 is full while
-   *    any L1 is in-bar and L3 is full while any L2 is in-bar. At mobile
-   *    widths, assert the pinned `Terminal tile` button IS in-bar.
+   *    any L1 is in-bar and L3 is full while any L2 is in-bar; on desktop
+   *    assert the `dropLast` surface-toggle group is in-bar while any
+   *    pyramid member is, and non-increasing. At mobile widths, assert the
+   *    pinned `Terminal tile` button IS in-bar.
    * 3. At 375px assert the L1 FIT-candidate count is 0 (the layout chip
    *    overflowed; the pinned switch group is exempt from the count;
    *    Refresh survives — the ORDER, not an all-gone cliff, is the
@@ -342,7 +352,15 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     // consumes from the FRONT of the pyramid).
     let prevL1 = L1.length;
     let prevL2 = L2.length;
+    let prevLast = LAST.length;
     let prevWasDesktop = true;
+    // The sidebar head (desktop, sidebar open) takes its track out of the bar
+    // and yields once the bar would keep less than HEAD_MIN_BAR_PX beside it;
+    // when it yields the bar regains that width, so the monotonic baseline
+    // resets once at that crossing too (a regime change, like the mobile
+    // boundary). The head is the header's absolutely positioned child.
+    const headShown = async () => (await page.locator("header > div.absolute").count()) > 0;
+    let prevHead = await headShown();
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 800 });
       await expect(heading).toBeVisible({ timeout: 10_000 });
@@ -361,6 +379,13 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
         prevL2 = L2.length;
       }
       prevWasDesktop = isDesktopWidth;
+      const headNow = await headShown();
+      if (prevHead && !headNow) {
+        prevL1 = isDesktopWidth ? L1.length : L1_MOBILE.length;
+        prevL2 = L2.length;
+        prevLast = LAST.length;
+      }
+      prevHead = headNow;
       const [l1, l2, l3] = await settledTierCounts(page, isDesktopWidth);
       // The pinned switch group is ALWAYS in-bar at mobile widths on this
       // code-capable window ([tty, code] ≥ 2 shown surfaces) — the primary
@@ -375,6 +400,17 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
       // Monotonic non-increasing as width shrinks (each tier only loses members).
       expect(l1, `L1 in-bar non-increasing at ${width}px`).toBeLessThanOrEqual(prevL1);
       expect(l2, `L2 in-bar non-increasing at ${width}px`).toBeLessThanOrEqual(prevL2);
+
+      // The `dropLast` group (desktop only — pinned at mobile): in-bar while
+      // ANY pyramid member is, and non-increasing.
+      if (isDesktopWidth) {
+        const last = await inBarCount(page, LAST);
+        expect(last, `dropLast group non-increasing at ${width}px`).toBeLessThanOrEqual(prevLast);
+        if (l1 + l2 + l3 > 0) {
+          expect(last, `dropLast group intact while the pyramid has members at ${width}px`).toBe(LAST.length);
+        }
+        prevLast = last;
+      }
 
       // Pyramid consumed from the LEFT: L2 stays full until L1 is fully gone;
       // L3 stays full until L2 is fully gone.
@@ -506,8 +542,10 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
   test("the menuOnly rows (split / fixed-width / Aa / close-pane / Help / Keyboard) are in the menu even at a WIDE width", async ({
     page,
   }) => {
-    // The distinguishing 260731-oiho case: the bar has room at 1280px — the
-    // in-bar end state is [surface-toggles group] · ▦Layout · Refresh · Gear ·
+    // The distinguishing case: the bar has room at 1440px (with the sidebar
+    // head taking its 232px, 1280px no longer keeps the ▦ Layout chip — the
+    // pyramid's first member to yield — in-bar) — the in-bar end state is
+    // [surface-toggles group] · ▦Layout · Refresh · Gear ·
     // chevron (the split chip demoted to menuOnly in terminal mode,
     // 260813-w1lf; the rail-toggle chip REMOVED, 260815-19me) — yet the
     // demoted controls still live ONLY in the menu (menu-only, not
@@ -516,11 +554,11 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     const id = await resolveWindow(page, WINDOW_NAME);
     await gotoWindow(page, id);
     const heading = page.getByRole("button", { name: `Rename tab ${WINDOW_NAME}` });
-    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.setViewportSize({ width: 1440, height: 800 });
     await expect(heading).toBeVisible({ timeout: 10_000 });
-    // The bar carries the surface-toggle group (the L1 head — its "Terminal
-    // tile" button; tty is always an available surface) AND the ▦ Layout
-    // chip, group LEFTMOST (registry order)…
+    // The bar carries the surface-toggle group (the `dropLast` entry — its
+    // "Terminal tile" button; tty is always an available surface) AND the ▦
+    // Layout chip, group LEFTMOST (registry order)…
     const tileToggle = byRoleName(page, "Terminal tile");
     await expect(tileToggle).toBeVisible({ timeout: 10_000 });
     await expect(byRoleName(page, "Layout")).toBeVisible({ timeout: 10_000 });
@@ -721,29 +759,31 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
    * 1. Navigate to the web-capable window.
    * 2. Sweep 1440 → … → 375, gating on the renamable heading each
    *    iteration; at 1440px gate on a RETRYING `Terminal tile` visibility
-   *    expect (post-resize re-fit settle). At each DESKTOP width, if the
-   *    group is in-bar assert the full L1+L2+L3 in-bar count; at each
-   *    MOBILE width (<640px) assert the `Terminal tile` button IS in-bar
-   *    (the pinned switch group never overflows).
+   *    expect (post-resize re-fit settle). At each DESKTOP width, if any
+   *    pyramid candidate (L1/L2/L3) is in-bar assert the group is in-bar
+   *    too (it is `dropLast`), and if the group is gone assert every
+   *    pyramid candidate is gone; at each MOBILE width (<640px) assert the
+   *    `Terminal tile` button IS in-bar (the pinned switch group never
+   *    overflows).
    * 3. Assert the group was seen in-bar at some wide width (the desktop
    *    side of the contract).
    */
-  test("the surface-toggle group is the first fit candidate to yield on desktop (the ▦ Layout chip next); on mobile it is PINNED in-bar", async ({
+  test("the surface-toggle group is the LAST fit candidate to yield on desktop (dropLast); on mobile it is PINNED in-bar", async ({
     page,
   }) => {
     await gotoViewWindow(page);
     const heading = page.getByRole("button", { name: `Rename tab ${VIEW_WINDOW_NAME}` });
 
-    // With the rail removed (260815-19me) and the split control menuOnly in
-    // terminal mode (260813-w1lf), the FIRST fit candidate is the L1-head
-    // surface-toggle group — located via its "Terminal tile" button (tty is
-    // always available; the aria-hidden probe copy is excluded by the role
-    // query). The DESKTOP invariant across the sweep: whenever the group is
-    // still in-bar nothing has dropped yet, so every L1/L2/L3 control must
-    // also be in-bar (the surviving set is a suffix of the fit order). On
-    // MOBILE the group forks to switch mode and is PINNED (exempt from the
-    // fit): it stays in-bar at every mobile width while other candidates
-    // overflow around it.
+    // The surface-toggle group — located via its "Terminal tile" button (tty
+    // is always available; the aria-hidden probe copy is excluded by the role
+    // query) — is the cluster's `dropLast` entry: leftmost in the bar but at
+    // the TAIL of the fit order. The DESKTOP invariant across the sweep:
+    // whenever any pyramid candidate (L1/L2/L3) is still in-bar the group
+    // must be too, and once the group is gone every pyramid candidate is
+    // gone (the surviving set is a suffix of the fit order, and the group is
+    // its last element). On MOBILE the group forks to switch mode and is
+    // PINNED (exempt from the fit): it stays in-bar at every mobile width
+    // while other candidates overflow around it.
     const groupToggle = () => byRoleName(page, "Terminal tile");
     const allCandidates = [...L1, ...L2, ...L3];
     let sawInBar = false;
@@ -768,14 +808,17 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
       const inBar = (await groupToggle().count()) > 0;
       if (inBar) {
         sawInBar = true;
+      } else {
         // RETRYING: right after a resize the ResizeObserver-driven re-fit can
-        // still be mid-cascade — a plain read can catch a transient frame where
-        // the group is in-bar but a tail control hasn't re-rendered yet (flaked
-        // at 700px with the 260812-ab5v layout chip in the fit). When the group
-        // is SETTLED in-bar, the suffix-fit guarantees every candidate is too.
+        // still be mid-cascade. Once the dropLast group is SETTLED out of the
+        // bar, the suffix fit guarantees every pyramid candidate is out too.
         await expect
           .poll(() => inBarCount(page, allCandidates), { timeout: 10_000 })
-          .toBe(allCandidates.length);
+          .toBe(0);
+      }
+      // And whenever any pyramid candidate is in-bar, the group must be.
+      if ((await inBarCount(page, allCandidates)) > 0) {
+        await expect(groupToggle(), `dropLast group in-bar at ${width}px`).toBeVisible({ timeout: 10_000 });
       }
     }
     // The sweep genuinely exercised both sides: in-bar at some wide width
@@ -793,12 +836,14 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
    *
    * Steps:
    * 1. Navigate to the web-capable window (offers `[tty|web|code]`).
-   * 2. Step the viewport down from 800px in 10px increments (staying above
+   * 2. Step the viewport down from 800px in 20px increments (staying above
    *    the 640px mobile boundary), gating on the renamable heading each
    *    step, until a bounded RETRYING expect confirms the in-bar
-   *    `Terminal tile` button is gone (the group is the L1 head — first to
-   *    drop — so a narrow-enough desktop width always reaches this). Assert
-   *    such a width was found.
+   *    `Terminal tile` button is gone (the group is `dropLast` — the last
+   *    fit candidate to overflow — and the sidebar head yields before the
+   *    bar gets that narrow, so the group may never overflow on desktop:
+   *    then the test SKIPS, and the Tiles section stays covered by the unit
+   *    suite where jsdom overflows everything).
    * 3. Open the `More controls` menu; assert the `Tiles` and `View` section
    *    labels are both visible and the Tiles label's box sits ABOVE View's.
    * 4. Assert the `Terminal tile` checkbox row is visible with
@@ -815,26 +860,35 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     // the pinned in-bar switch group with NO menu rows — the main block's
     // 375px menu test proves that absence), so it appears only at a DESKTOP
     // width narrow enough to overflow it. Step down from 800px until the
-    // in-bar `Terminal tile` button is gone — the group is the L1 HEAD (first
-    // to drop), so a narrow-enough desktop width always reaches this. Each
-    // probe is a bounded RETRYING expect so a mid-cascade re-fit frame can't
-    // fake the drop.
+    // in-bar `Terminal tile` button is gone. The group is `dropLast` (the last
+    // fit candidate to overflow) and the sidebar head yields before the bar
+    // gets that narrow, so on this window the group may stay in-bar at every
+    // desktop width — then there is nothing to assert here and the test
+    // skips; the unit suite (`top-bar.test.tsx`, "overflows into a Tiles menu
+    // section…") covers the section's rendering in jsdom, where everything
+    // overflows. Each probe is a bounded RETRYING expect so a mid-cascade
+    // re-fit frame can't fake the drop.
+    // The sweep is expected to come up empty on this window (see above), so
+    // each step's probe is short and the steps are 20px — 8 bounded probes
+    // instead of 16 long ones; `test.slow()` triples the budget for the case
+    // where the group does drop and the menu assertions follow.
+    test.slow();
     let menuWidth = 0;
-    for (let w = 800; w > 640; w -= 10) {
+    for (let w = 800; w > 640; w -= 20) {
       await page.setViewportSize({ width: w, height: 800 });
       await expect(heading).toBeVisible({ timeout: 10_000 });
       try {
-        await expect(byRoleName(page, "Terminal tile")).toHaveCount(0, { timeout: 2_000 });
+        await expect(byRoleName(page, "Terminal tile")).toHaveCount(0, { timeout: 1_000 });
         menuWidth = w;
         break;
       } catch {
         // Still in-bar at this width — keep shrinking.
       }
     }
-    expect(
-      menuWidth,
-      "the surface-toggle group overflows at some desktop width (641–800px)",
-    ).toBeGreaterThan(0);
+    test.skip(
+      menuWidth === 0,
+      "the dropLast surface-toggle group stayed in-bar at every desktop width (641–800px); the Tiles section is unit-tested",
+    );
 
     await page.getByRole("button", { name: "More controls" }).click();
     const menu = page.getByRole("menu", { name: "More controls" });

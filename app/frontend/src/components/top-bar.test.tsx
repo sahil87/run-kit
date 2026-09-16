@@ -487,7 +487,18 @@ describe("TopBar", () => {
     // cases re-stub it wide (keeping dark scheme + reduced motion for
     // ThemeProvider and the sweep guards). The width key pins the provider's
     // sidebarWidth so the inset math is exact.
+    // Desktop, wide: the `(min-width: …)` query the head's room gate asks is
+    // matched too — the bar keeps ≥ HEAD_MIN_BAR_PX beside the head.
     const stubDesktop = () =>
+      stubMatchMedia(
+        (q) =>
+          q.includes("prefers-color-scheme: dark") ||
+          q.includes("prefers-reduced-motion") ||
+          q.includes("min-width"),
+      );
+    // Desktop, but the bar would keep less than HEAD_MIN_BAR_PX beside the
+    // head (the room gate's min-width query does not match).
+    const stubDesktopNarrow = () =>
       stubMatchMedia(
         (q) => q.includes("prefers-color-scheme: dark") || q.includes("prefers-reduced-motion"),
       );
@@ -518,6 +529,28 @@ describe("TopBar", () => {
       const cluster = nav.parentElement!;
       expect(cluster).not.toContainElement(screen.getByLabelText("Toggle navigation"));
       expect(within(nav).queryByLabelText("RunKit home")).not.toBeInTheDocument();
+    });
+
+    it("yields the head when the bar would keep less than HEAD_MIN_BAR_PX beside it: classic bar, no inset", () => {
+      stubDesktopNarrow();
+      const { container } = renderTopBar({ sidebarOpen: true });
+      expect(headOf(container)).toBeNull();
+      const header = container.querySelector("header")!;
+      expect(header.style.paddingLeft).toBe("");
+      // The toggle and the brand are back in the left cluster / the nav.
+      const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+      const cluster = nav.parentElement!;
+      expect(cluster).toContainElement(screen.getByLabelText("Toggle navigation"));
+      expect(within(nav).getByLabelText("RunKit home")).toBeInTheDocument();
+      // And the nav keeps its desktop floor.
+      expect(nav.className).toContain("sm:min-w-[150px]");
+    });
+
+    it("drops the breadcrumb's 150px floor while the head shows, so the crumb collapse absorbs the squeeze instead of spilling into the heading", () => {
+      renderTopBar({ sidebarOpen: true });
+      const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+      expect(nav.className).toContain("min-w-0");
+      expect(nav.className).not.toContain("sm:min-w-[150px]");
     });
 
     it("keeps the head's brand link and toggle as real Tab stops (anchor to /, button — no tabIndex removal)", () => {

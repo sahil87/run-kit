@@ -56,3 +56,15 @@ export function computeVisibleCount(
   }
   return count;
 }
+
+/**
+ * Order fit candidates for the overflow fit: the pyramid order (registry
+ * order — L1 first, so it drops first) with `dropLast` entries moved to the
+ * TAIL, so they are the last to overflow. The caller keeps rendering the bar
+ * in registry order; only the fit consumes this order (and its measurement
+ * probe renders in it, so measured widths stay index-aligned). Stable: the
+ * relative order inside each half is preserved.
+ */
+export function orderForFit<T extends { dropLast?: boolean }>(entries: readonly T[]): T[] {
+  return [...entries.filter((e) => !e.dropLast), ...entries.filter((e) => e.dropLast)];
+}

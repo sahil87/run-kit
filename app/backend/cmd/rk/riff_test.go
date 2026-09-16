@@ -536,9 +536,18 @@ func TestRiffPassthroughBoundary(t *testing.T) {
 	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\nprintf 'command: claude --dangerously-skip-permissions\\nskill_prefix: /\\n'\n")
 	t.Setenv("PATH", dir)
 
-	origRepo, origPreset := riffRepoFlag, riffPresetFlag
+	// -L waives the $TMUX precondition so the test is independent of whether the
+	// suite itself runs inside tmux (CI does not); the session seam stands in for
+	// the server's current-session lookup that -L without $TMUX triggers.
+	origRepo, origPreset, origServer := riffRepoFlag, riffPresetFlag, riffServerFlag
+	origSess := riffCurrentSessionFn
 	riffRepoFlag = repoRoot
-	t.Cleanup(func() { riffRepoFlag, riffPresetFlag = origRepo, origPreset })
+	riffServerFlag = "scratch"
+	riffCurrentSessionFn = func(_ context.Context, _ string) (string, error) { return "boot", nil }
+	t.Cleanup(func() {
+		riffRepoFlag, riffPresetFlag, riffServerFlag = origRepo, origPreset, origServer
+		riffCurrentSessionFn = origSess
+	})
 
 	wtArgv := func(t *testing.T) string {
 		t.Helper()

@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260916-jowy-xterm-webgl-fallback-telemetry** — xterm WebGL Fallback Telemetry
 - **260916-h7l1-waiting-halo-composited** — Waiting Halo and Seam Composited
 - **260916-ph9x-flair-compositor-only** — Flair overlays run on the compositor
 - **260916-fxt1-web-frame-engine-seam** — Web Frame Engine Seam

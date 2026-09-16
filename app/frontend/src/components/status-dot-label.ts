@@ -79,8 +79,8 @@ function coreLabel(win: WindowInfo, state: StatusDotState): string {
  * (status-pyramid.md § Accessibility): a review-failed window that is waiting
  * 3m reads "building — failed — at rest — agent waiting 3m"; a plain waiting
  * agent reads "agent — idle — agent waiting 2m". The duration is taken from
- * the rk-computed `agentIdleDuration` (populated for `waiting` and `idle`). No
- * suffix when the window is not waiting. The watched suffix mirrors the
+ * the rk-computed `agentIdleDuration` (populated for `active` too, rendered
+ * only for the two rest states). No suffix when the window is not waiting. The watched suffix mirrors the
  * underbar overlay: "— watched", or "— watched (operator stale)" when the
  * operator loop's tick is overdue; the exact monitored stage lives in the
  * `opr` register, not the label.
@@ -88,7 +88,10 @@ function coreLabel(win: WindowInfo, state: StatusDotState): string {
 export function dotLabel(win: WindowInfo, state: StatusDotState, watched?: WatchedFlag): string {
   let label = coreLabel(win, state);
   if (state.waiting) {
-    const dur = win.agentIdleDuration ? ` ${win.agentIdleDuration}` : "";
+    const dur =
+      win.agentIdleDuration && (win.agentState === "waiting" || win.agentState === "idle")
+        ? ` ${win.agentIdleDuration}`
+        : "";
     label = `${label} — agent waiting${dur}`;
   }
   if (watched) {

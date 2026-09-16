@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-16T17:27:44Z"}
+{"args":"Agent-state hook writes silently lost during brew upgrade window: rk-owned launcher symlink under ~/.local/share/rk/bin targeting the Cellar binary, daemon re-points at start, two-path hook wrapper fallback, expose active age, code-server RK_BIN on the launcher","cmd":"fab-new","event":"command","ts":"2026-09-16T17:27:44Z"}
+{"delta":"+2.7","event":"confidence","score":2.7,"trigger":"calc-score","ts":"2026-09-16T17:31:17Z"}
+{"delta":"-0.1","event":"confidence","score":2.6,"trigger":"calc-score","ts":"2026-09-16T17:32:01Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-09-16T17:34:19Z"}
+{"delta":"+0.8","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-09-16T17:34:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-16T17:36:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-16T18:06:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-16T18:09:56Z"}
+{"event":"review","result":"passed","ts":"2026-09-16T18:09:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-16T18:18:45Z"}

@@ -1,5 +1,5 @@
 ---
-description: "The `@rk_pane_agent_state` pane-option convention: three-state value schema, dual-read/dual-write over the retired unscoped name, shell reconciler, window rollup. Covers the seven-harness runtime registry, the `rk agent setup` installer (three artifact families — per-agent hooks, the tmux guard shim, the gui display block — over three installer kinds), the `rk agent hook` binary indirection, the SessionStart boot stamp, and the `@rk_pane_agent_session` agent-session-identity convention."
+description: "The `@rk_pane_agent_state` pane-option convention: three-state schema, dual-read/dual-write over the retired unscoped name, shell reconciler, window rollup (duration emitted for `active` too). Covers the seven-harness runtime registry, the `rk agent setup` installer (four artifact families: launcher pointer, per-agent hooks, tmux guard shim, gui display block) with the two-path hook wrapper, `rk agent hook` binary indirection, the SessionStart boot stamp, and `@rk_pane_agent_session` identity."
 type: memory
 ---
 # Agent-State Tier (`@rk_pane_agent_state`)
@@ -39,8 +39,9 @@ derivation (see [architecture](/run-kit/architecture.md)
 | States | `active` (`tmux.AgentStateActive`) \| `waiting` (`tmux.AgentStateWaiting`) \| `idle` (`tmux.AgentStateIdle`) |
 | Example | `waiting:1751790000` |
 
-The epoch suffix is **mandatory** — readers compute idle/waiting duration from
-it. Values MAY carry a third `:<pid>` segment (the agent process's pid, for the
+The epoch suffix is **mandatory** — readers compute the state's age from it
+(idle/waiting rest durations, and `active`'s age as the downstream staleness
+signal for a lost write). Values MAY carry a third `:<pid>` segment (the agent process's pid, for the
 PID-liveness reconciler); the schema is `<state>:<epoch>[:<pid>]`, formatted by
 the pure `formatAgentStateValue(state, epoch, pid)` in `cmd/rk/agent_hook.go`. The
 option name and the three
@@ -126,9 +127,14 @@ agent-state gate** and the **`rk mux await` observer** (both in
   (`waiting`=3, `active`=2, `idle`=1, unknown/empty=0) — the highest-ranked pane
   wins, so a split window with one `waiting` pane is a `waiting` window. Panes
   with no agent contribute nothing.
-- **Duration** is computed from the winning pane's `AgentStateEpoch` for `idle`
-  **and** `waiting` (both are durations a human cares about — how long at rest /
-  how long the human has been the blocker); `active` and unknown produce `""`.
+- **Duration** is computed from the winning pane's `AgentStateEpoch` for **any
+  known state** with `epoch > 0` — `active` carries its age too, because a lost
+  `idle` write on a live agent reads as a fresh `active` indefinitely (the
+  pid-liveness reconciler trusts a live pid, so nothing else ever flags it);
+  unknown produces `""`. The SPA renders the duration only for the two rest
+  states (`waiting`/`idle`) — the machine surfaces (`rk mux panes`, `rk mux
+  capture` — see [agent-messaging](/run-kit/agent-messaging.md)) carry it for
+  `active` as well.
 - **`formatAgentDuration(elapsedSeconds int64) string`** — the `Ns`/`Nm`/`Nh`
   floor-division style (`<60s`→`Ns`, `<3600s`→`Nm`, else `Nh`;
   non-positive → `""`), byte-compatible with fab's duration-string format so the
@@ -247,6 +253,12 @@ on the child re-exporting `$TMUX`) also survives hook contexts like
 the `<socket>,<pid>,<session>` `$TMUX` value on the first comma; empty/malformed →
 bare invocation (default socket, best effort — the wrapper's `|| true` holds).
 
+**Known gap — the tmux exec has the same upgrade-window class.** `rk agent hook`
+execs `tmux` via PATH (through the tmux guard shim → brew symlink), so a **tmux**
+upgrade re-opens the same dangling-binary window for the write itself that the
+two-path wrapper closes for the rk binary. Not addressed — recorded as the
+residual gap.
+
 ## `rk agent setup` — Hook Installer (`cmd/rk/agent_setup.go`)
 
 `rk agent setup` (the `setup` member of the `agent` family in `agent.go`) is
@@ -294,14 +306,16 @@ terminal, which would make the refusal silently not fire. A non-`*os.File` reade
 non-interactive path unless they set `stdinIsTTY` explicitly. Pinned by
 `TestIsTerminalRejectsNonTTYFiles`.
 
-**It installs THREE artifact families**: the **per-agent hook/plugin install**
+**It installs FOUR artifact families**: the **rk-owned launcher pointer** — the
+per-machine symlink `~/.local/share/rk/bin/run-kit` whose target is the resolved
+Cellar binary, written FIRST (ahead of the per-agent hooks that exec it), with
+`launcher:`-prefixed messages — then the **per-agent hook/plugin install**
 (three installer kinds, described below), the **user-global tmux guard shim** — a shim script plus a
 marker-owned `PATH` block that puts `rk mux guard` in front of every
 PATH-resolved `tmux` invocation, so `tmux kill-server` without an explicit
 `-L`/`-S` socket is refused — and the **user-global gui display artifact** — a
-per-machine pointer symlink (`~/.local/share/rk/bin/run-kit` → the validated rk
-path) plus a host-independent marker-owned shell-startup block that evals
-`rk gui env` through that pointer inside tmux panes, so `DISPLAY`/`RK_GUI_SOCKET`
+host-independent marker-owned shell-startup block that evals
+`rk gui env` through that launcher pointer inside tmux panes, so `DISPLAY`/`RK_GUI_SOCKET`
 reach new shells once the user turns the GUI on (full semantics in
 [gui](/run-kit/gui.md) § Agent verbs). (bbv1) (r7v8)
 The shim script is in its **second generation** —
@@ -431,43 +445,80 @@ loads plugins at startup. (nnqu)
 **Doctor aggregation**: `rk doctor`'s `agent hooks` row (`agentHooksCheck`)
 aggregates across **every** registry agent — per-agent generation
 classification including marker-file/marker-block presence and staleness —
-instead of returning after the first entry. (nnqu)
+instead of returning after the first entry. (nnqu) The path check is
+**multi-path**: `hookRkPaths` extracts every double-quoted token immediately
+before each ` agent hook ` occurrence (a two-path wrapper carries two), and the
+opencode plugin is parsed for both of its consts via `extractRkHookCommands`.
+The row **fails only when every embedded path dangles**; a dangling launcher
+with a live stable path (the expected state between brew cleanup and the next
+daemon start) or a dangling stable path with a live launcher passes with an
+advisory note (`launcher <path> dangling — re-run rk agent setup`), and a
+single-path wrapper passes with the note `single-path wrapper — re-run rk agent
+setup to add the launcher fallback`. `classifyHookGeneration` stays at three
+generations — the two-path shape carries the same ` agent hook ` family marker.
 
-**Hook command** (`agentStateHookCommand(rkPath, state, provider)`): a **stable
+**Hook command** (`agentStateHookCommand(launcherPath, stablePath, state, provider)`): a **stable
 delegating wrapper** that keeps all logic in the rk binary (see § `rk agent hook`
 above) —
 
 ```sh
-/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent hook --agent claude <state> 2>/dev/null || true'
+/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<launcher>" agent hook --agent claude <state> 2>/dev/null || "<stable>" agent hook --agent claude <state> 2>/dev/null || true'
 ```
 
-This is the **third-generation** form; installs written earlier carry the
-second-generation `agent-hook` literal (or the first-generation inlined
-one-liner) and keep working unmodified through the permanent hidden alias —
-they roll over to the new form only on the next `rk agent setup` re-run (no
-proactive migration). (260815-r2wp-agent-family)
+Two machine-derived absolute paths, each covering the other's upgrade hole:
+**`<launcher>`** is the rk-owned launcher symlink (`selfpath.LauncherFor(home)` =
+`~/.local/share/rk/bin/run-kit`), whose target is the resolved Cellar binary —
+live through Homebrew's unlink→install→link window, in which the brew-prefix
+symlink dangles (see [build-and-release](/run-kit/build-and-release.md)
+§ Homebrew Distribution). **`<stable>`** is the `resolveRkPath()` result (the
+brew-prefix stable symlink), re-linked in Homebrew's `finish` — it covers the
+gap between the old keg's cleanup and the daemon's next re-point of the
+launcher. The `||` chain advances **only on exec failure** (127/126): `rk agent
+hook` itself always exits 0, so a binary that runs is never retried on the
+second path. Both paths are validated by `validateHookPath` before any file is
+written, and both sit double-quoted inside the single-quoted `sh -c` body. The
+brew daemon re-points the launcher at every `rk serve` start — see
+[daemon-lifecycle](/run-kit/daemon-lifecycle.md) § `rk serve` Wiring.
 
-The interpreter is absolute like `<abs-rk>` itself: hooks fire under the
+This is still the **third-generation** form by marker (` agent hook `); the
+two-path shape adds a second invocation under the same family marker, so
+`isRkEntry` replaces single-path installs in place on the next `rk agent setup`
+re-run and `--uninstall` strips every generation. Installs written earlier
+carry the single-path third-generation form (or the second-generation
+`agent-hook` literal / first-generation inlined one-liner) and keep working
+unmodified through the permanent hidden alias and the wrapper's second path —
+they gain the launcher fallback only on the next re-run, plus an agent-session
+restart (harnesses snapshot hook config at session start; `rk doctor` notes the
+single-path shape). (260815-r2wp-agent-family)
+
+The interpreter is absolute like both rk paths: hooks fire under the
 harness's environment, and a bare `sh` fails on sessions whose PATH lacks /bin.
 
 The `$TMUX_PANE` guard stays in the wrapper as a cheap short-circuit (no binary
-spawn outside tmux); `|| true` preserves the never-fail contract even if the
-binary is missing or moved (silent no-op is acceptable — the PID-liveness
-reconciler clears stranded values). state and provider are fixed registry literals;
-the only machine-derived interpolation is `<abs-rk>`, closed by
+spawn outside tmux); `|| true` preserves the never-fail contract even if both
+binaries are missing or moved (silent no-op is acceptable — the PID-liveness
+reconciler clears stranded values, and `active`'s exposed age flags the
+live-idle-agent case). state and provider are fixed registry literals;
+the only machine-derived interpolations are the two paths, closed by
 `validateHookPath` (below). Delegating to the binary means hook *logic* changes
 ship with the binary on `brew upgrade rk`, no settings churn, no session
-restarts. (260707-qfps)
+restarts. (260707-qfps) Every installer kind carries the same two-path fallback
+in its own syntax: the JSON hooks merge and copilot's marker-owned file embed
+the shell wrapper verbatim, kimi's TOML block embeds it through
+`tomlBasicString`, and the opencode plugin declares `const RK` (launcher) plus
+`const RK_FALLBACK` (stable) and retries **only on a spawn-level exec failure**
+(the child `error` event — the exact equivalent of the shell's 127, since a
+spawned process's non-zero exit never retries).
 
 **agy wrapper variant** (`agentStateHookCommandJSON`): agy's hooks.json handler
 contract parses stdout as a JSON result object, so this variant runs the
-identical report and then echoes `{}` — a well-formed **no-decision** result (an
-empty object carries no allow/deny/continue field, so native permission and
-termination behavior is preserved exactly). It always exits 0 — the trailing
-echo is the last command. (nnqu)
+identical two-path report (braced `{ … || …; }` group) and then echoes `{}` — a
+well-formed **no-decision** result (an empty object carries no allow/deny/continue field,
+so native permission and termination behavior is preserved exactly). It always
+exits 0 — the trailing echo is the last command. (nnqu)
 
-**Install-time path resolution** (`resolveRkPath()`): the `<abs-rk>` embedded in
-the wrapper is resolved once per `runAgentSetup` invocation. It prefers
+**Install-time path resolution** (`resolveRkPath()`): the `<stable>` path
+embedded in the wrapper is resolved once per `runAgentSetup` invocation. It prefers
 `exec.LookPath("run-kit")` (the canonical name), then falls back to
 `exec.LookPath("rk")`, then `os.Executable()`. Either LookPath hit yields the
 STABLE Homebrew symlink (`/home/linuxbrew/.linuxbrew/bin/{run-kit,rk}` or
@@ -476,16 +527,26 @@ stable symlinks resolve to the same binary, so the order is functionally
 equivalent, and the `resolveRkPath` test is order-agnostic (asserts only
 non-empty + absolute). The `os.Executable()` fallback runs **without**
 `filepath.EvalSymlinks` (resolution would pin the Cellar version and re-freeze the
-hook). **Installed hooks embedding `…/bin/rk` remain valid indefinitely**: `rk`
+hook's stable path). **Installed hooks embedding `…/bin/rk` remain valid indefinitely**: `rk`
 stays a real on-PATH symlink (per the canonical-swap invariants — see
 [build-and-release](/run-kit/build-and-release.md) § Homebrew Distribution), so a hook
 resolved to `/opt/homebrew/bin/rk` keeps working. (260709-gidk) Before any merge
-the path is run through `validateHookPath`: a path containing any of `' " $ ` backslash (all
+BOTH paths — the `<stable>` result and the home-derived `<launcher>` path — are
+run through `validateHookPath`: a path containing any of `' " $ ` backslash (all
 shell-active inside the wrapper's double-in-single quoting) **fails the install
 with a clear error** — reject-don't-escape (escaping would have to survive three
 nested quoting layers; such paths never occur under Homebrew/conventional
 layouts, so the error is essentially unreachable in practice and a caller — human
 at a TTY or agent passing `--yes` — sees it and acts).
+
+The **launcher's own target** is resolved separately from the path embedded in
+the wrapper: `filepath.EvalSymlinks(rkPath)` of the validated PATH-found stable
+symlink — the resolved Cellar binary — falling back to `rkPath` unchanged when
+it does not resolve. The running setup binary's own location is deliberately
+not trusted: a dev-worktree `bin/rk agent setup` still points the machine's
+launcher at the installed Homebrew binary (the same posture `resolveRkPath`
+takes). The serve-time re-point, which runs from the installed daemon, uses
+`selfpath.Resolve()` instead.
 
 **jsonHooksMerge install** (`mergeHooks`/`unmergeHooks`, pure functions over
 `map[string]any` so tests skip the filesystem/prompt):
@@ -543,28 +604,47 @@ user config.
 
 ## Installer Structure — Per-Agent Loop, then the User-Global Blocks (`runAgentSetup`)
 
-`runAgentSetup` resolves the home dir, `$ZDOTDIR`, and the absolute rk path once
-at its boundary (so everything below stays pure over injected paths), then runs:
+`runAgentSetup` resolves the home dir, `$ZDOTDIR`, the absolute rk path, and
+the launcher path once at its boundary (both paths `validateHookPath`-validated
+before anything is written, so everything below stays pure over injected
+paths), then runs:
 
-1. **The per-agent loop** — `applyAgentConfig` for each registry row.
-2. **`applyTmuxShim`** — the user-global tmux guard shim (one shim, one PATH
+1. **The launcher pointer step** (`installLauncherPointer`, its own consent
+   prompt, `launcher:`-prefixed messages) — links `~/.local/share/rk/bin/run-kit`
+   → `filepath.EvalSymlinks(rkPath)` (the resolved Cellar binary; falls back to
+   `rkPath` unchanged when it does not resolve). It runs FIRST, ahead of every
+   per-agent hook install, the shim, and the gui block (artifact before the
+   things that exec it — the tmux-shim ordering precedent), because the
+   installed hook wrappers exec it first. A declined or foreign pointer never
+   blocks the hooks — the wrapper's second path covers a missing launcher. The
+   flow is the pointer flow the gui display artifact established: probe →
+   consent → `MkdirAll` after consent → re-probe → atomic replace via
+   `selfpath.ReplaceSymlink` (temp symlink + rename, stale-temp sweep); an
+   already-current symlink is a no-op; a symlink with any other target (a moved
+   install, a dangling brew-rename leftover, an older install's stable-path
+   target) is relinked on consent; a non-symlink is foreign and left untouched.
+   Its verdict (`guiPointerState`: InPlace / Foreign / Declined) is threaded
+   into step 4. Skipped entirely on uninstall.
+2. **The per-agent loop** — `applyAgentConfig` for each registry row.
+3. **`applyTmuxShim`** — the user-global tmux guard shim (one shim, one PATH
    block, not per agent), applied once **after** the loop. See
    [tmux-guard-shim](/run-kit/tmux-guard-shim.md) § `rk agent setup`
    install/uninstall contract. (260805-blyf-tmux-guard-path-shim)
-3. **`applyGuiDisplayBlocks`** — the user-global gui display artifact: the
-   per-machine pointer symlink (`installGuiDisplayPointer`, its own consent
-   prompt) and then the marker-owned `# >>> rk gui display >>>` block, applied
+4. **`applyGuiDisplayBlocks`** — the user-global gui display artifact: the
+   marker-owned `# >>> rk gui display >>>` block, applied
    once **after** `applyTmuxShim` into the same startup-file set
    (`tmuxGuardStartupFiles(home, zdotdir)`) with the same
    consent/diff/dry-run/uninstall machinery. It is **independent of the shim's
-   outcome** (a declined shim write does not skip it) but **gated on its own
-   pointer**: the block is written only when the pointer is in place (fresh,
+   outcome** (a declined shim write does not skip it) but **gated on the
+   launcher step's verdict** (consumed, not re-run): the block is written only
+   when the pointer is in place (fresh,
    current, or a dry-run preview), and a foreign non-symlink at the pointer
    path strips any existing block, so a startup file never execs a non-rk file.
    The block body is a `$HOME`-relative constant — byte-identical on every
    host — and the validated rk path lives only in the pointer, so dotfile-synced
    startup files converge. On uninstall it strips the blocks first, then removes
-   the pointer (`removeGuiDisplayPointer`), running with `rkPath=""` (removal
+   the pointer LAST (`removeLauncherPointer`, after the hooks and the gui block
+   that reference it), running with `rkPath=""` (removal
    needs no path). See [gui](/run-kit/gui.md) § Agent verbs. (bbv1) (r7v8)
 
 `applyAgentConfig` is the thin per-agent wrapper, running in order:
@@ -670,8 +750,11 @@ The `agentState` three-state value is a first-class UI input across every surfac
   § Web Push on Sustained Waiting.
 
 These surfaces consume the window-level rollup + `waiting > active > idle`
-precedence + the `formatAgentDuration` value (present for `waiting`/`idle`)
-documented above.
+precedence + the `formatAgentDuration` value documented above. The rollup
+populates the duration for `active` too; the SPA renders it only for the two
+rest states (every consumer gates on `agentState === "waiting" || "idle"`, so
+rendered output is unchanged), while the machine surfaces carry it for `active`
+as the staleness signal.
 
 ## Boot-Ready Signal
 
@@ -893,10 +976,10 @@ identity lands on the first PreInvocation `active` fire). (nnqu) The claude row:
 |-------|---------|--------|
 | `SessionStart` | — | `@rk_pane_agent_session`/`@rk_pane_chat` stamp **plus** `@rk_pane_agent_state idle:<epoch>[:<pid>]` (token `stamp`; the idle write is withheld when `source` equals the provider's `compactSource`) |
 
-- The installed command uses the standard `agentStateHookCommand(rkPath, state, provider)`
+- The installed command uses the standard `agentStateHookCommand(launcherPath, stablePath, state, provider)`
   wrapper — the positional-token `state` parameter carries the
   `stamp` literal from `h.state = agentHookStampToken`, producing
-  `/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent hook --agent claude stamp 2>/dev/null || true'`.
+  `/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<launcher>" agent hook --agent claude stamp 2>/dev/null || "<stable>" agent hook --agent claude stamp 2>/dev/null || true'`.
   The third-generation `isRkEntry` marker
   (`" agent hook "`) matches it, so idempotent re-run replacement and
   `--uninstall` need no marker changes.
@@ -1151,10 +1234,14 @@ writer skew and suppress agent state fleet-wide.
 **Rejected**: keep raw one-liners + drift detection (a doctor check / UI
 surfacing — mitigates *discovery* of the skew, not the fleet-wide migration
 itself); dual-path hook (binary-if-present + pure-tmux fallback inline — the
-fallback string IS the frozen logic being removed, and doubles the surface). No
+fallback string IS the frozen logic being removed, and doubles the surface; the
+shipped two-path form is launcher-vs-stable — two SPELLINGS of the same binary
+delegation, not an inline-logic fallback). No
 pure-tmux fallback when the binary is missing: silence is acceptable because the
 PID-liveness reconciler already clears state from dead agents and a stranded
-value clears when the agent/pane dies.
+value clears when the agent/pane dies; the residual live-idle-agent case (a lost
+write on a still-running agent) is surfaced instead by `active`'s exposed age on
+the machine surfaces.
 *Migration*: *logic* changes need no re-setup or restart. Matcher / event-mapping
 changes still need re-setup + restart (that mapping lives in the settings matchers).
 *Introduced by*: `260707-qfps-rk-agent-hook-indirection`
@@ -1172,13 +1259,17 @@ settings write regardless; stdin-JSON parsing does not change the installed
 command shape, so state derivation via stdin gains nothing over the matchers.
 *Introduced by*: `260707-qfps-rk-agent-hook-indirection`
 
-### Reject (don't escape) shell-unsafe rk paths; never Cellar-pin
-**Decision**: resolve `<abs-rk>` via `LookPath("run-kit")` → `LookPath("rk")` →
+### Reject (don't escape) shell-unsafe rk paths; the wrapper's stable path never Cellar-pins
+**Decision**: resolve the wrapper's `<stable>` path via `LookPath("run-kit")` →
+`LookPath("rk")` →
 `os.Executable()` without `EvalSymlinks`, and `validateHookPath`-reject any path
 containing `' " $ ` backslash with a clear install-time error rather than escaping
-it or silently falling back to bare `rk`.
+it or silently falling back to bare `rk`. The `<launcher>` path is the deliberate
+complement: it DOES resolve to the Cellar binary, via `EvalSymlinks(rkPath)` —
+see § Design Decisions → Two paths in the wrapper, each covering the other's hole.
 **Why**: hook-env PATH is untrustworthy, so the absolute path must be embedded;
-`EvalSymlinks` would pin the version-locked Cellar path and re-freeze the hook
+`EvalSymlinks` on the stable path would pin the version-locked Cellar path and
+re-freeze the hook
 (defeating the whole change); escaping would have to survive three nested quoting
 layers (shell-in-shell-in-JSON — fragile to write and review); a bare-`rk`
 fallback reintroduces the PATH dependency the absolute path exists to remove. Such
@@ -1186,6 +1277,35 @@ paths never occur under Homebrew/conventional layouts, so the install-time error
 essentially unreachable, and whatever caller triggered the install — a human at a
 TTY or an agent passing `--yes` — sees the error and can act.
 *Introduced by*: `260707-qfps-rk-agent-hook-indirection`
+
+### Two paths in the wrapper, each covering the other's hole
+**Decision**: the hook wrapper execs the rk-owned launcher (Cellar-targeted)
+first and the brew stable symlink second; the `||` chain advances only on exec
+failure because `rk agent hook` always exits 0.
+**Why**: Homebrew unlinks the stable symlink before the network-bound install
+phase and relinks in `finish`, but deletes the old keg only in cleanup after
+link; the launcher is live exactly when the stable symlink is not, and the
+stable symlink covers the moment after cleanup before the daemon re-points.
+Exposing `active`'s age on the machine surfaces is the defense in depth against
+any lost write that still slips through.
+**Rejected**: inline `tmux set-option` fallback (re-freezes option name/format
+into settings.json); retry-with-sleep (covers seconds, not the multi-minute
+network-dependent window); Cellar path pinned as the wrapper's only path at
+install (re-freezes the hook).
+*Introduced by*: 260916-la8z-hook-launcher-upgrade-window
+
+### The launcher's install-time target resolves the PATH-found stable symlink
+**Decision**: the launcher's target at install time is
+`filepath.EvalSymlinks(rkPath)` (fallback: `rkPath` unchanged), not the running
+setup binary's `selfpath.Resolve()`; the serve-time re-point (which runs from
+the installed daemon) uses `selfpath.Resolve()`.
+**Why**: `bin/rk agent setup` from a dev worktree is routine here, and
+`resolveRkPath` deliberately does not trust the running binary's location — the
+machine's launcher must point at the installed Homebrew binary regardless of
+which build ran the installer.
+**Rejected**: `selfpath.Resolve()` of the setup binary (points the machine's
+hooks at a dev build that will vanish).
+*Introduced by*: 260916-la8z-hook-launcher-upgrade-window
 
 ### Session-ref = the session UUID only (not the transcript path)
 **Decision**: `@rk_pane_agent_session`'s `<session-ref>` for `claude` is the session UUID

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"rk/internal/selfpath"
 	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
@@ -120,40 +121,46 @@ const (
 // until every session was restarted (the #320↔#321 skew). Delegating to the
 // binary lifts that freeze.
 //
-//	/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent hook --agent <provider> <state> 2>/dev/null || true'
+//	/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<launcher>" agent hook --agent <provider> <state> 2>/dev/null || "<stable>" agent hook --agent <provider> <state> 2>/dev/null || true'
 //
-// The interpreter is absolute for the same reason rkPath is (below): hooks fire
-// under the HARNESS's environment, and an agent session launched with a PATH
-// missing /bin and /usr/bin cannot resolve a bare `sh` — every hook fire then
-// fails loudly ("sh: not found") before the $TMUX_PANE guard can even run.
-// The $TMUX_PANE guard stays in the wrapper as a cheap short-circuit (no binary
-// spawn outside tmux). `|| true` preserves the never-fail contract even if the
-// binary is missing or moved. rkPath is the absolute rk path resolved at install
-// time (a stable symlink, never the version-pinned Cellar path — see
-// resolveRkPath); it is embedded double-quoted INSIDE the single-quoted sh -c
+// Two paths, each covering the other's upgrade hole: launcherPath is the
+// rk-owned launcher symlink (its target is the Cellar binary, live through
+// Homebrew's unlink→install→link window), stablePath is the brew-prefix
+// symlink (re-linked in finish, covering the gap between cleanup and the
+// daemon's next re-point of the launcher). The `||` chain only ever advances
+// on exec failure (127/126) — `rk agent hook` itself always exits 0. The
+// interpreter is absolute for the same reason the rk paths are (below): hooks
+// fire under the HARNESS's environment, and an agent session launched with a
+// PATH missing /bin and /usr/bin cannot resolve a bare `sh` — every hook fire
+// then fails loudly ("sh: not found") before the $TMUX_PANE guard can even
+// run. The $TMUX_PANE guard stays in the wrapper as a cheap short-circuit (no
+// binary spawn outside tmux). `|| true` preserves the never-fail contract even
+// if both binaries are missing or moved. Both paths are machine-derived at
+// install time; they are embedded double-quoted INSIDE the single-quoted sh -c
 // body, so a path containing any of ' " $ ` \ would break out of (or be
 // reinterpreted within) that quoting. state and provider are fixed registry
-// literals (never user input); rkPath is machine-derived and MUST be
-// pre-validated by validateHookPath (the install flow rejects shell-active
-// characters rather than attempting escaping), which together close the
-// interpolation surface (Constitution §I).
-func agentStateHookCommand(rkPath, state, provider string) string {
+// literals (never user input); both paths MUST be pre-validated by
+// validateHookPath (the install flow rejects shell-active characters rather
+// than attempting escaping), which together close the interpolation surface
+// (Constitution §I).
+func agentStateHookCommand(launcherPath, stablePath, state, provider string) string {
 	return fmt.Sprintf(
-		`/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "%s" agent hook --agent %s %s 2>/dev/null || true'`,
-		rkPath, provider, state,
+		`/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "%s" agent hook --agent %s %s 2>/dev/null || "%s" agent hook --agent %s %s 2>/dev/null || true'`,
+		launcherPath, provider, state, stablePath, provider, state,
 	)
 }
 
 // agentStateHookCommandJSON builds the wrapper variant for harnesses whose
 // hook contract parses stdout as a JSON result object (agy's hooks.json
-// handlers): the rk report runs identically, then `{}` is echoed so the fire
-// is a well-formed NO-DECISION result — an empty object carries no
-// allow/deny/continue field, so native permission and termination behavior is
-// preserved exactly. Always exits 0 (the trailing echo is the last command).
-func agentStateHookCommandJSON(rkPath, state, provider string) string {
+// handlers): the rk report runs identically (same two-path fallback as
+// agentStateHookCommand), then `{}` is echoed so the fire is a well-formed
+// NO-DECISION result — an empty object carries no allow/deny/continue field,
+// so native permission and termination behavior is preserved exactly. Always
+// exits 0 (the trailing echo is the last command).
+func agentStateHookCommandJSON(launcherPath, stablePath, state, provider string) string {
 	return fmt.Sprintf(
-		`/bin/sh -c '[ -n "$TMUX_PANE" ] && "%s" agent hook --agent %s %s 2>/dev/null; echo "{}"'`,
-		rkPath, provider, state,
+		`/bin/sh -c '[ -n "$TMUX_PANE" ] && { "%s" agent hook --agent %s %s 2>/dev/null || "%s" agent hook --agent %s %s 2>/dev/null; }; echo "{}"'`,
+		launcherPath, provider, state, stablePath, provider, state,
 	)
 }
 
@@ -284,14 +291,15 @@ type agentConfig struct {
 	namedHooksDoc bool
 
 	// kindMarkerFile: the marker-owned file path, its mode, and its full
-	// content builder (rkPath is the validated absolute rk path).
+	// content builder (launcher/stable are the validated absolute rk paths —
+	// launcher first, stable fallback).
 	filePath    string
 	fileMode    os.FileMode
-	fileContent func(rkPath string) string
+	fileContent func(launcher, stable string) string
 
 	// kindMarkerBlock: the user-owned file and the marker-block builder.
 	blockPath    string
-	blockContent func(rkPath string) (begin, end, block string)
+	blockContent func(launcher, stable string) (begin, end, block string)
 
 	// postInstallNote names the harness-side activation step the user still
 	// owns after a successful write (codex's /hooks trust review; the other
@@ -408,8 +416,8 @@ func agentRegistry(home string) []agentConfig {
 			kind:     kindMarkerFile,
 			filePath: filepath.Join(copilotHome, "hooks", "run-kit.json"),
 			fileMode: 0o600,
-			fileContent: func(rkPath string) string {
-				return copilotHooksFile(rkPath)
+			fileContent: func(launcher, stable string) string {
+				return copilotHooksFile(launcher, stable)
 			},
 			hooks:           copilotHooks,
 			postInstallNote: "Copilot CLI loads hook configuration at CLI start — restart running copilot sessions to pick it up.",
@@ -437,8 +445,8 @@ func agentRegistry(home string) []agentConfig {
 			kind:     kindMarkerFile,
 			filePath: filepath.Join(home, ".config", "opencode", "plugins", "run-kit.js"),
 			fileMode: 0o644,
-			fileContent: func(rkPath string) string {
-				return opencodePluginFile(rkPath)
+			fileContent: func(launcher, stable string) string {
+				return opencodePluginFile(launcher, stable)
 			},
 			postInstallNote: "OpenCode loads plugins at startup — restart running opencode sessions to pick it up.",
 		},
@@ -622,16 +630,48 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 	// within a single run, and resolving once keeps every installed hook entry
 	// consistent. Only the install path needs it; uninstall passes "". The path is
 	// validated before any merge: a shell-unsafe path must fail the install with a
-	// clear error, never be embedded (see validateHookPath).
+	// clear error, never be embedded (see validateHookPath). The launcher path (the
+	// rk-owned symlink the hooks exec FIRST) is home-derived and validated the same
+	// way — both paths sit inside the wrapper's quoting.
 	rkPath := ""
+	launcherPath := ""
 	if !uninstall {
 		rkPath = resolveRkPath()
 		if err := validateHookPath(rkPath); err != nil {
 			return err
 		}
+		launcherPath = selfpath.LauncherFor(home)
+		if err := validateHookPath(launcherPath); err != nil {
+			return err
+		}
 	}
 
 	reader := bufio.NewReader(in)
+
+	// The launcher pointer is a hooks-family artifact — the installed wrappers
+	// exec it first — so it is written AHEAD of every per-agent hook install, the
+	// shim, and the gui display block (artifact before the things that exec it,
+	// the tmux-shim ordering precedent). Its target is the RESOLVED Cellar binary
+	// (EvalSymlinks of the validated PATH-found stable path): the launcher's whole
+	// purpose is to stay live while brew's stable symlink dangles mid-upgrade, so
+	// it must not itself point at that symlink. The running setup binary's own
+	// location is deliberately not trusted (a dev-worktree `bin/rk agent setup`
+	// must still point the launcher at the installed Homebrew binary). A declined
+	// or foreign pointer never blocks the hooks — the wrapper's second path
+	// (rkPath) covers a missing launcher. On uninstall the pointer comes off LAST,
+	// after the hooks and the gui block that reference it.
+	pointerState := guiPointerDeclined
+	if !uninstall {
+		target := rkPath
+		if resolved, err := filepath.EvalSymlinks(rkPath); err == nil {
+			target = resolved
+		}
+		var err error
+		pointerState, err = installLauncherPointer(sink, reader, home, target, cons)
+		if err != nil {
+			return err
+		}
+	}
 	for _, ac := range agentRegistry(home) {
 		// Installs wire only harnesses whose binary is on PATH (writing config
 		// for a tool the machine does not have is noise, mirroring the shll
@@ -641,7 +681,7 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 			sink.Notef("%s: skipped (the %s binary is not on PATH).\n", ac.name, ac.providerBinary())
 			continue
 		}
-		if err := applyAgentConfig(sink, reader, ac, rkPath, uninstall, cons); err != nil {
+		if err := applyAgentConfig(sink, reader, ac, launcherPath, rkPath, uninstall, cons); err != nil {
 			return err
 		}
 	}
@@ -653,10 +693,9 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 		return err
 	}
 	// The gui display block is likewise user-global and runs after the shim.
-	// It does NOT depend on the shim being in place: it reaches rk through its
-	// own per-machine pointer (~/.local/share/rk/bin/run-kit, which carries the
-	// validated path) and gates on that pointer instead.
-	return applyGuiDisplayBlocks(sink, reader, home, os.Getenv("ZDOTDIR"), rkPath, uninstall, cons)
+	// It does NOT depend on the shim being in place: it reaches rk through the
+	// launcher pointer written above and gates on that step's verdict instead.
+	return applyGuiDisplayBlocks(sink, reader, home, os.Getenv("ZDOTDIR"), pointerState, uninstall, cons)
 }
 
 // applyAgentConfig applies the agent's installer kind and, on BOTH the install
@@ -671,15 +710,15 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 // harness has an activation step rk cannot perform for it — codex's /hooks
 // trust review, or a session restart to load hook/plugin config — so a
 // written-but-inactive hook is never represented as operational.
-func applyAgentConfig(sink outputSink, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool, cons consent) error {
+func applyAgentConfig(sink outputSink, reader *bufio.Reader, ac agentConfig, launcherPath, rkPath string, uninstall bool, cons consent) error {
 	var err error
 	switch ac.kind {
 	case kindMarkerFile:
-		err = applyAgentMarkerFile(sink, reader, ac, rkPath, uninstall, cons)
+		err = applyAgentMarkerFile(sink, reader, ac, launcherPath, rkPath, uninstall, cons)
 	case kindMarkerBlock:
-		err = applyAgentMarkerBlock(sink, reader, ac, rkPath, uninstall, cons)
+		err = applyAgentMarkerBlock(sink, reader, ac, launcherPath, rkPath, uninstall, cons)
 	default:
-		err = applyAgentHooks(sink, reader, ac, rkPath, uninstall, cons)
+		err = applyAgentHooks(sink, reader, ac, launcherPath, rkPath, uninstall, cons)
 	}
 	if err != nil {
 		return err
@@ -699,7 +738,7 @@ func applyAgentConfig(sink outputSink, reader *bufio.Reader, ac agentConfig, rkP
 // applyAgentHooks reads one agent's settings file, computes the merged (or
 // unmerged) result, prints a diff, and — on confirmation — writes it back. A
 // no-op (result identical to current) is reported and skipped without prompting.
-func applyAgentHooks(sink outputSink, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool, cons consent) error {
+func applyAgentHooks(sink outputSink, reader *bufio.Reader, ac agentConfig, launcherPath, rkPath string, uninstall bool, cons consent) error {
 	current, err := readSettings(ac.settingsPath)
 	if err != nil {
 		return fmt.Errorf("%s: read %s: %w", ac.name, ac.settingsPath, err)
@@ -714,9 +753,9 @@ func applyAgentHooks(sink outputSink, reader *bufio.Reader, ac agentConfig, rkPa
 		}
 	} else {
 		if ac.namedHooksDoc {
-			mergeNamedHook(next, rkPath)
+			mergeNamedHook(next, launcherPath, rkPath)
 		} else {
-			mergeHooks(next, ac.hooks, rkPath, ac.provider)
+			mergeHooks(next, ac.hooks, launcherPath, rkPath, ac.provider)
 		}
 	}
 
@@ -1028,7 +1067,7 @@ func writeSettings(path string, m map[string]any) error {
 // hooks.json, gemini settings.json) is:
 //
 //	hooks → <Event> → [ { matcher?, hooks: [ {type:"command", command} ] } ]
-func mergeHooks(settings map[string]any, hooks []agentHook, rkPath, provider string) {
+func mergeHooks(settings map[string]any, hooks []agentHook, launcherPath, rkPath, provider string) {
 	hooksRoot := asMap(settings["hooks"])
 	if hooksRoot == nil {
 		hooksRoot = map[string]any{}
@@ -1050,7 +1089,7 @@ func mergeHooks(settings map[string]any, hooks []agentHook, rkPath, provider str
 
 	// Now append the fresh rk entries.
 	for _, h := range hooks {
-		hooksRoot[h.event] = append(asSlice(hooksRoot[h.event]), rkHookEntry(h, rkPath, provider))
+		hooksRoot[h.event] = append(asSlice(hooksRoot[h.event]), rkHookEntry(h, launcherPath, rkPath, provider))
 	}
 
 	settings["hooks"] = hooksRoot
@@ -1081,12 +1120,12 @@ func unmergeHooks(settings map[string]any) {
 
 // rkHookEntry builds the nested hook-entry object (claude/codex/gemini shape)
 // for one agentHook: an optional matcher plus a single command handler.
-func rkHookEntry(h agentHook, rkPath, provider string) map[string]any {
+func rkHookEntry(h agentHook, launcherPath, rkPath, provider string) map[string]any {
 	entry := map[string]any{
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": agentStateHookCommand(rkPath, h.state, provider),
+				"command": agentStateHookCommand(launcherPath, rkPath, h.state, provider),
 			},
 		},
 	}
@@ -1618,11 +1657,12 @@ const guiDisplayBlock = guiDisplayBlockBegin + "\n" +
 // here, so "is a symlink" is the ownership test — a regular file or directory
 // at this path is the user's and is never touched.
 func guiPointerPath(home string) string {
-	return filepath.Join(rkBinDir(home), "run-kit")
+	return selfpath.LauncherFor(home)
 }
 
-// applyGuiDisplayBlocks installs (pointer, then the gated block upsert) or
-// uninstalls (block strip, then pointer removal) the gui display artifact.
+// applyGuiDisplayBlocks installs (the gated block upsert, gated on the launcher
+// step's verdict) or uninstalls (block strip, then pointer removal) the gui
+// display artifact.
 // Install gating mirrors the PATH block ↔ shim rule, for the same reason: a
 // block that execs the pointer path in front of a foreign file would run a
 // non-rk executable from every pane shell's startup, and in front of nothing
@@ -1637,18 +1677,14 @@ func guiPointerPath(home string) string {
 // independent: a declined pointer removal never skips the block strip and
 // vice versa. The strip runs first so a shell starting mid-uninstall never
 // execs a vanished target (the -x guard covers the window anyway).
-func applyGuiDisplayBlocks(sink outputSink, reader *bufio.Reader, home, zdotdir, rkPath string, uninstall bool, cons consent) error {
+func applyGuiDisplayBlocks(sink outputSink, reader *bufio.Reader, home, zdotdir string, pointerState guiPointerState, uninstall bool, cons consent) error {
 	if uninstall {
 		if err := applyGuiDisplayStartupBlocks(sink, reader, home, zdotdir, true, cons); err != nil {
 			return err
 		}
-		return removeGuiDisplayPointer(sink, reader, home, cons)
+		return removeLauncherPointer(sink, reader, home, cons)
 	}
-	state, err := installGuiDisplayPointer(sink, reader, home, rkPath, cons)
-	if err != nil {
-		return err
-	}
-	switch state {
+	switch pointerState {
 	case guiPointerInPlace:
 		return applyGuiDisplayStartupBlocks(sink, reader, home, zdotdir, false, cons)
 	case guiPointerForeign:
@@ -1660,7 +1696,7 @@ func applyGuiDisplayBlocks(sink outputSink, reader *bufio.Reader, home, zdotdir,
 	}
 }
 
-// guiPointerState is installGuiDisplayPointer's verdict on the pointer path,
+// guiPointerState is installLauncherPointer's verdict on the pointer path,
 // for block-writing purposes.
 type guiPointerState int
 
@@ -1676,41 +1712,44 @@ const (
 	guiPointerForeign
 )
 
-// installGuiDisplayPointer links guiPointerPath → rkPath. An already-current
+// installLauncherPointer links the launcher path → target (the resolved Cellar
+// binary — EvalSymlinks of the validated stable path, so the launcher stays
+// live while brew's stable symlink dangles mid-upgrade). An already-current
 // symlink is a reported no-op; a symlink with any other target (a moved
-// install, a dangling brew-rename leftover) is relinked on consent; a
+// install, a dangling brew-rename leftover, an older rk install's stable-path
+// target) is relinked on consent; a
 // non-symlink at the path is foreign and left untouched. The link is replaced
 // atomically (temp symlink in the same dir + rename) so a shell starting
 // mid-update never sees a missing pointer, and the bin dir is created only
 // AFTER consent so dry-run and declined prompts leave the filesystem
-// untouched. rkPath has already been validated by validateHookPath.
+// untouched. target has already been validated by validateHookPath.
 //
 // The returned state tells the caller whether a block may be written
 // (guiPointerInPlace), must be withheld but an existing one left alone
 // (guiPointerDeclined), or must be withheld AND an existing one stripped
 // (guiPointerForeign).
-func installGuiDisplayPointer(sink outputSink, reader *bufio.Reader, home, rkPath string, cons consent) (guiPointerState, error) {
+func installLauncherPointer(sink outputSink, reader *bufio.Reader, home, target string, cons consent) (guiPointerState, error) {
 	linkPath := guiPointerPath(home)
 	current, exists, foreign, err := guiPointerProbe(linkPath)
 	if err != nil {
 		return guiPointerDeclined, err
 	}
 	if foreign {
-		sink.Notef("gui display: %s exists and is not a symlink — leaving it untouched (rk only replaces pointers it owns).\n", linkPath)
+		sink.Notef("launcher: %s exists and is not a symlink — leaving it untouched (rk only replaces pointers it owns).\n", linkPath)
 		return guiPointerForeign, nil
 	}
-	if exists && current == rkPath {
-		sink.Notef("gui display: pointer already links %s -> %s — nothing to do.\n", linkPath, rkPath)
+	if exists && current == target {
+		sink.Notef("launcher: pointer already links %s -> %s — nothing to do.\n", linkPath, target)
 		return guiPointerInPlace, nil
 	}
 
 	out := cons.diffWriter(sink)
 	if exists {
-		fmt.Fprintf(out, "gui display: will relink %s -> %s (currently -> %s).\n", linkPath, rkPath, current)
+		fmt.Fprintf(out, "launcher: will relink %s -> %s (currently -> %s).\n", linkPath, target, current)
 	} else {
-		fmt.Fprintf(out, "gui display: will link %s -> %s.\n", linkPath, rkPath)
+		fmt.Fprintf(out, "launcher: will link %s -> %s.\n", linkPath, target)
 	}
-	dryRunNote := fmt.Sprintf("gui display: dry run — %s not written.", linkPath)
+	dryRunNote := fmt.Sprintf("launcher: dry run — %s not written.", linkPath)
 	ok, err := cons.authorizeWrite(sink.data, reader, dryRunNote, "\nWrite the pointer? [y/N] ")
 	if err != nil {
 		return guiPointerDeclined, err
@@ -1722,7 +1761,7 @@ func installGuiDisplayPointer(sink outputSink, reader *bufio.Reader, home, rkPat
 			// consented run would do (the shim's dry-run posture).
 			return guiPointerInPlace, nil
 		}
-		sink.Notef("gui display: skipped (no pointer written).\n")
+		sink.Notef("launcher: skipped (no pointer written).\n")
 		return guiPointerDeclined, nil
 	}
 
@@ -1732,16 +1771,16 @@ func installGuiDisplayPointer(sink outputSink, reader *bufio.Reader, home, rkPat
 	if _, _, foreign, err := guiPointerProbe(linkPath); err != nil {
 		return guiPointerDeclined, err
 	} else if foreign {
-		sink.Notef("gui display: %s changed to a non-symlink while the prompt was pending — leaving it untouched (rk only replaces pointers it owns).\n", linkPath)
+		sink.Notef("launcher: %s changed to a non-symlink while the prompt was pending — leaving it untouched (rk only replaces pointers it owns).\n", linkPath)
 		return guiPointerForeign, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(linkPath), 0o755); err != nil {
-		return guiPointerDeclined, fmt.Errorf("gui display: create %s: %w", filepath.Dir(linkPath), err)
+		return guiPointerDeclined, fmt.Errorf("launcher: create %s: %w", filepath.Dir(linkPath), err)
 	}
-	if err := replaceSymlink(rkPath, linkPath); err != nil {
-		return guiPointerDeclined, fmt.Errorf("gui display: link %s: %w", linkPath, err)
+	if err := selfpath.ReplaceSymlink(target, linkPath); err != nil {
+		return guiPointerDeclined, fmt.Errorf("launcher: link %s: %w", linkPath, err)
 	}
-	sink.Notef("gui display: linked %s -> %s.\n", linkPath, rkPath)
+	sink.Notef("launcher: linked %s -> %s.\n", linkPath, target)
 	return guiPointerInPlace, nil
 }
 
@@ -1755,86 +1794,59 @@ func guiPointerProbe(linkPath string) (current string, exists, foreign bool, err
 		if os.IsNotExist(err) {
 			return "", false, false, nil
 		}
-		return "", false, false, fmt.Errorf("gui display: stat %s: %w", linkPath, err)
+		return "", false, false, fmt.Errorf("launcher: stat %s: %w", linkPath, err)
 	}
 	if info.Mode()&os.ModeSymlink == 0 {
 		return "", true, true, nil
 	}
 	current, err = os.Readlink(linkPath)
 	if err != nil {
-		return "", true, false, fmt.Errorf("gui display: readlink %s: %w", linkPath, err)
+		return "", true, false, fmt.Errorf("launcher: readlink %s: %w", linkPath, err)
 	}
 	return current, true, false, nil
 }
 
-// replaceSymlink atomically points linkPath at target: the new symlink is
-// created under a temporary name in the same directory and renamed over the
-// old one, so no reader ever observes the path missing. Rename replaces an
-// existing symlink in place on every platform rk runs on. The temp entry is
-// removed on any failure, and temp SYMLINKS left by an earlier run that
-// crashed between Symlink and Rename are swept first (only symlinks — a
-// regular file under the temp pattern is not rk's).
-func replaceSymlink(target, linkPath string) error {
-	pattern := filepath.Join(filepath.Dir(linkPath), "."+filepath.Base(linkPath)+".tmp-*")
-	if stale, _ := filepath.Glob(pattern); len(stale) > 0 {
-		for _, p := range stale {
-			if fi, err := os.Lstat(p); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-				_ = os.Remove(p)
-			}
-		}
-	}
-	tmp := filepath.Join(filepath.Dir(linkPath), fmt.Sprintf(".%s.tmp-%d", filepath.Base(linkPath), os.Getpid()))
-	if err := os.Symlink(target, tmp); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, linkPath); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
-}
-
-// removeGuiDisplayPointer removes an rk-owned pointer on --uninstall. An
+// removeLauncherPointer removes an rk-owned pointer on --uninstall. An
 // absent pointer is silent (a machine that never installed it must see zero
 // output); a non-symlink at the path is left untouched with a note; a symlink
 // is removed on consent, and the bin dir is pruned afterwards if empty (best
 // effort — os.Remove refuses non-empty directories, and the prune runs only
 // when the parent is a REAL directory: a user's symlink named bin/ would
 // otherwise be removed as an ordinary entry).
-func removeGuiDisplayPointer(sink outputSink, reader *bufio.Reader, home string, cons consent) error {
+func removeLauncherPointer(sink outputSink, reader *bufio.Reader, home string, cons consent) error {
 	linkPath := guiPointerPath(home)
 	info, err := os.Lstat(linkPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		sink.Notef("gui display: %s: cannot stat (%v) — leaving it untouched (repair or remove it by hand, then re-run).\n", linkPath, err)
+		sink.Notef("launcher: %s: cannot stat (%v) — leaving it untouched (repair or remove it by hand, then re-run).\n", linkPath, err)
 		return nil
 	}
 	if info.Mode()&os.ModeSymlink == 0 {
-		sink.Notef("gui display: %s is not a symlink — leaving it untouched (rk only removes pointers it owns).\n", linkPath)
+		sink.Notef("launcher: %s is not a symlink — leaving it untouched (rk only removes pointers it owns).\n", linkPath)
 		return nil
 	}
 
-	sink.Notef("gui display: found the rk pointer at %s.\n\n", linkPath)
+	sink.Notef("launcher: found the rk pointer at %s.\n\n", linkPath)
 	promptSuffix := fmt.Sprintf("Remove %s? [y/N] ", linkPath)
-	ok, err := cons.authorizeWrite(sink.data, reader, "gui display: dry run — pointer left in place (nothing removed).", promptSuffix)
+	ok, err := cons.authorizeWrite(sink.data, reader, "launcher: dry run — pointer left in place (nothing removed).", promptSuffix)
 	if err != nil {
 		return err
 	}
 	if !ok {
 		if !cons.dryRun {
-			sink.Notef("gui display: pointer left in place (nothing removed).\n")
+			sink.Notef("launcher: pointer left in place (nothing removed).\n")
 		}
 		return nil
 	}
 	if err := os.Remove(linkPath); err != nil {
-		return fmt.Errorf("gui display: remove %s: %w", linkPath, err)
+		return fmt.Errorf("launcher: remove %s: %w", linkPath, err)
 	}
 	if fi, err := os.Lstat(filepath.Dir(linkPath)); err == nil && fi.IsDir() {
 		_ = os.Remove(filepath.Dir(linkPath))
 	}
-	sink.Notef("gui display: removed %s.\n", linkPath)
+	sink.Notef("launcher: removed %s.\n", linkPath)
 	return nil
 }
 

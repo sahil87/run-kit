@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	"rk/internal/selfpath"
 	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
@@ -121,10 +122,10 @@ const (
 const rkShimsRelDir = ".local/share/rk/shims"
 
 // rkBinRelDir is the per-machine pointer directory relative to $HOME — a
-// sibling of the shims dir that MUST stay off PATH (see guiPointerPath). Shared
-// by rkBinDir (Go) and the gui display block's shell literal, so the path the
-// block execs and the path rk links can never disagree.
-const rkBinRelDir = ".local/share/rk/bin"
+// sibling of the shims dir that MUST stay off PATH (see guiPointerPath).
+// Aliased to selfpath.LauncherRelDir so the Go side and the gui display
+// block's shell literal resolve through one owner.
+const rkBinRelDir = selfpath.LauncherRelDir
 
 // tmuxShimNormPathFunc is the shim's separator-normalizing helper, kept OUT of
 // tmuxShimTemplate and passed in as an argument: its ${x%%//*} / ${x%/}
@@ -380,7 +381,7 @@ func rkShimsDir(home string) string {
 
 // rkBinDir is the per-machine pointer directory for a given home.
 func rkBinDir(home string) string {
-	return filepath.Join(home, filepath.FromSlash(rkBinRelDir))
+	return filepath.Dir(selfpath.LauncherFor(home))
 }
 
 // --- guard decision ---------------------------------------------------------

@@ -242,8 +242,18 @@ func TestRollupAgentState(t *testing.T) {
 		if state != tmux.AgentStateActive {
 			t.Errorf("state = %q, want active", state)
 		}
-		if dur != "" {
-			t.Errorf("active duration = %q, want empty", dur)
+		if dur != "5s" {
+			t.Errorf("active duration = %q, want 5s (active carries a duration like any known state)", dur)
+		}
+	})
+
+	t.Run("aged active duration formatted from epoch", func(t *testing.T) {
+		panes := []tmux.PaneInfo{
+			{AgentState: tmux.AgentStateActive, AgentStateEpoch: now - 720},
+		}
+		state, dur := rollupAgentState(panes, now)
+		if state != tmux.AgentStateActive || dur != "12m" {
+			t.Errorf("got (%q, %q), want (active, 12m)", state, dur)
 		}
 	})
 

@@ -10,7 +10,15 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"rk/internal/selfpath"
 )
+
+// testLauncherPath is the launcher argument for the two-path hook wiring in
+// tests: the rk-owned launcher symlink the installed wrappers exec first, with
+// the existing fixture path ("/opt/homebrew/bin/rk" etc.) kept as the stable
+// fallback.
+const testLauncherPath = "/home/u/.local/share/rk/bin/run-kit"
 
 // claudeHooks builds the registry's Claude hook set for merge tests. It reads
 // the real registry so the fixture can never drift from what agent-setup
@@ -35,7 +43,7 @@ func TestMergeHooksAddsEntriesAndPreservesExisting(t *testing.T) {
 		},
 	}
 
-	mergeHooks(existing, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
+	mergeHooks(existing, claudeHooks(), testLauncherPath, "/opt/homebrew/bin/rk", "claude")
 
 	// Non-hook config preserved.
 	if existing["model"] != "opus" {
@@ -66,11 +74,11 @@ func TestMergeHooksAddsEntriesAndPreservesExisting(t *testing.T) {
 
 func TestMergeHooksIdempotent(t *testing.T) {
 	settings := map[string]any{}
-	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
+	mergeHooks(settings, claudeHooks(), testLauncherPath, "/opt/homebrew/bin/rk", "claude")
 	first, _ := json.Marshal(settings)
 
 	// A second merge must not add duplicates and must produce identical output.
-	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
+	mergeHooks(settings, claudeHooks(), testLauncherPath, "/opt/homebrew/bin/rk", "claude")
 	second, _ := json.Marshal(settings)
 
 	if string(first) != string(second) {
@@ -92,7 +100,7 @@ func TestUnmergeHooksRemovesOnlyRkEntries(t *testing.T) {
 			},
 		},
 	}
-	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
+	mergeHooks(settings, claudeHooks(), testLauncherPath, "/opt/homebrew/bin/rk", "claude")
 	unmergeHooks(settings)
 
 	if got := countRkEntries(settings); got != 0 {
@@ -112,7 +120,7 @@ func TestUnmergeHooksDropsEmptyEventAndRoot(t *testing.T) {
 	// When rk owns the ONLY entries, uninstall must remove empty event arrays and
 	// the now-empty hooks object entirely.
 	settings := map[string]any{}
-	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
+	mergeHooks(settings, claudeHooks(), testLauncherPath, "/opt/homebrew/bin/rk", "claude")
 	unmergeHooks(settings)
 
 	if _, ok := settings["hooks"]; ok {
@@ -184,7 +192,7 @@ func TestApplyAgentConfigDeclineDoesNotWrite(t *testing.T) {
 
 	var out bytes.Buffer
 	// Decline the confirmation (interactive TTY session simulated by feeding "n").
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("n\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("n\n")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -201,7 +209,7 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 	var out bytes.Buffer
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("install error: %v", err)
 	}
 	written, err := os.ReadFile(path)
@@ -222,7 +230,7 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 
 	// Second install is a no-op: nothing to do, no prompt consumed.
 	out.Reset()
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("second install error: %v", err)
 	}
 	if !strings.Contains(out.String(), "nothing to do") {
@@ -231,7 +239,7 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 
 	// Uninstall with confirmation clears the rk entries.
 	out.Reset()
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "", true, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "", "", true, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("uninstall error: %v", err)
 	}
 	after, err := readSettings(path)
@@ -253,7 +261,7 @@ func TestApplyAgentConfigYesWritesWithoutPrompt(t *testing.T) {
 
 	var out bytes.Buffer
 	// Empty (EOF) stdin — the interactive path declines on EOF; --yes overrides.
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
 		t.Fatalf("applyAgentConfig --yes error: %v", err)
 	}
 	written, err := os.ReadFile(path)
@@ -278,7 +286,7 @@ func TestApplyAgentConfigDryRunNeverWrites(t *testing.T) {
 		ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 		var out bytes.Buffer
-		if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, cons); err != nil {
+		if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, cons); err != nil {
 			t.Fatalf("applyAgentConfig dry-run error (cons=%+v): %v", cons, err)
 		}
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -308,7 +316,7 @@ func TestApplyAgentConfigNonTTYNoFlagRefuses(t *testing.T) {
 	var out bytes.Buffer
 	// consent{} → no flags, stdinIsTTY false (the non-TTY default). A write is
 	// pending (fresh machine), so authorizeWrite must refuse.
-	err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{})
+	err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{})
 	if err == nil {
 		t.Fatal("non-TTY no-flag run must refuse with an error, got nil")
 	}
@@ -404,7 +412,8 @@ func TestIsTerminalRejectsNonTTYFiles(t *testing.T) {
 }
 
 func TestAgentStateHookCommandShape(t *testing.T) {
-	cmd := agentStateHookCommand("/opt/homebrew/bin/rk", agentStateWaiting, "claude")
+	const stable = "/opt/homebrew/bin/rk"
+	cmd := agentStateHookCommand(testLauncherPath, stable, agentStateWaiting, "claude")
 	// The NEW stable form: self-locate via $TMUX_PANE, no-op outside tmux, never
 	// fail the agent, and DELEGATE to `rk agent hook` (all logic — the walk, the
 	// value formatting — lives in the binary, so it tracks `brew upgrade rk`).
@@ -415,15 +424,44 @@ func TestAgentStateHookCommandShape(t *testing.T) {
 	}
 	for _, want := range []string{
 		`[ -n "$TMUX_PANE" ] || exit 0`,
-		`"/opt/homebrew/bin/rk"`,     // absolute path, embedded quoted
+		`"` + testLauncherPath + `"`, // launcher path, embedded quoted
+		`"` + stable + `"`,           // stable fallback path, embedded quoted
 		" agent hook --agent claude", // the delegating invocation (family form)
 		"waiting",                    // the fixed state literal
 		"2>/dev/null",
-		"|| true",
+		"|| true", // the never-fail tail
 	} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("hook command missing %q: %s", want, cmd)
 		}
+	}
+	// Both paths, launcher FIRST, stable second — each covers the other's
+	// brew-upgrade hole, and the chain only advances on exec failure.
+	launcherInvocation := `"` + testLauncherPath + `" agent hook --agent claude waiting 2>/dev/null`
+	stableInvocation := `"` + stable + `" agent hook --agent claude waiting 2>/dev/null`
+	li := strings.Index(cmd, launcherInvocation)
+	si := strings.Index(cmd, stableInvocation)
+	if li < 0 || si < 0 {
+		t.Fatalf("wrapper must embed both invocations (launcher %q, stable %q): %s", testLauncherPath, stable, cmd)
+	}
+	if li > si {
+		t.Errorf("launcher invocation must precede the stable fallback: %s", cmd)
+	}
+	if !strings.HasSuffix(cmd, `|| true'`) {
+		t.Errorf("the || true tail must close the wrapper (never-fail): %s", cmd)
+	}
+	// The ` agent hook ` family marker appears twice (once per invocation) and
+	// keeps isRkEntry recognition, so a gen-3 single-path installed line is
+	// still REPLACED in place on re-run rather than duplicated alongside.
+	if n := strings.Count(cmd, rkHookMarkerAgentHookFamily); n != 2 {
+		t.Errorf("family marker count = %d, want 2: %s", n, cmd)
+	}
+	if !isRkEntry(map[string]any{"hooks": []any{map[string]any{"type": "command", "command": cmd}}}) {
+		t.Errorf("two-path wrapper must be recognized by isRkEntry: %s", cmd)
+	}
+	gen3SinglePath := `/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "` + stable + `" agent hook --agent claude waiting 2>/dev/null || true'`
+	if !isRkEntry(map[string]any{"hooks": []any{map[string]any{"type": "command", "command": gen3SinglePath}}}) {
+		t.Errorf("gen-3 single-path line must still be recognized (in-place replacement): %s", gen3SinglePath)
 	}
 	// The logic that MOVED into the binary must no longer appear in the hook body.
 	for _, notWant := range []string{rkHookMarker, "set-option", "ps -o comm=", "date +%s"} {
@@ -473,7 +511,7 @@ func TestSessionStartRegistryRowUsesStampToken(t *testing.T) {
 
 func TestMergeHooksInstallsSessionStartStampEntry(t *testing.T) {
 	settings := map[string]any{}
-	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
+	mergeHooks(settings, claudeHooks(), testLauncherPath, "/opt/homebrew/bin/rk", "claude")
 
 	cmds := findRkCommands(settings, "SessionStart")
 	if len(cmds) != 1 {
@@ -493,7 +531,7 @@ func TestMergeHooksInstallsSessionStartStampEntry(t *testing.T) {
 	}
 
 	// Idempotent re-run: still exactly one SessionStart entry.
-	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
+	mergeHooks(settings, claudeHooks(), testLauncherPath, "/opt/homebrew/bin/rk", "claude")
 	if got := len(findRkCommands(settings, "SessionStart")); got != 1 {
 		t.Errorf("SessionStart rk entries after re-merge = %d, want 1 (idempotent)", got)
 	}
@@ -536,7 +574,7 @@ func TestIsRkEntryMatchesAllGenerations(t *testing.T) {
 		t.Error("second-generation `agent-hook` entry should be recognized as rk-owned")
 	}
 	// Gen-3 entry (delegates to `rk agent hook`, no @rk_agent_state).
-	newEntry := rkHookEntry(agentHook{event: "Stop", state: agentStateIdle}, "/opt/homebrew/bin/rk", "claude")
+	newEntry := rkHookEntry(agentHook{event: "Stop", state: agentStateIdle}, testLauncherPath, "/opt/homebrew/bin/rk", "claude")
 	if !isRkEntry(newEntry) {
 		t.Error("new `agent hook` entry should be recognized as rk-owned")
 	}
@@ -583,7 +621,7 @@ func TestMergeHooksReplacesOlderGenerationsInPlace(t *testing.T) {
 		},
 	}
 
-	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
+	mergeHooks(settings, claudeHooks(), testLauncherPath, "/opt/homebrew/bin/rk", "claude")
 
 	// Exactly six rk entries — the older ones were REPLACED in place, not
 	// duplicated alongside the new ones.
@@ -634,7 +672,7 @@ func TestUnmergeHooksRemovesAllGenerations(t *testing.T) {
 			"UserPromptSubmit": []any{
 				legacyRkEntry("active"),
 				gen2RkEntry("active"),
-				rkHookEntry(agentHook{event: "UserPromptSubmit", state: agentStateActive}, "/opt/homebrew/bin/rk", "claude"),
+				rkHookEntry(agentHook{event: "UserPromptSubmit", state: agentStateActive}, testLauncherPath, "/opt/homebrew/bin/rk", "claude"),
 			},
 			"PreToolUse": []any{
 				map[string]any{
@@ -799,7 +837,7 @@ func TestApplyAgentConfigCleansLegacySkillOnInstall(t *testing.T) {
 
 	var out bytes.Buffer
 	// First "y" confirms the hooks write; second "y" confirms the legacy removal.
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\ny\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\ny\n")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
@@ -818,7 +856,7 @@ func TestApplyAgentConfigFreshMachineWritesNoSkill(t *testing.T) {
 
 	var out bytes.Buffer
 	// Single "y" confirms the hooks write; no skill prompt should ever be reached.
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if strings.Contains(out.String(), "rk-display") {
@@ -839,7 +877,7 @@ func TestApplyAgentConfigSkipsSkillWhenSkillsDirEmpty(t *testing.T) {
 	// Only the hooks artifact prompts; a single "y" confirms it. If a skill prompt
 	// were reached, the empty tail of the reader would surface as a decline, not a
 	// hang — so we also assert no skill output appears.
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if strings.Contains(out.String(), "rk-display") {
@@ -899,7 +937,7 @@ func TestAgentSetup_SplitChannels(t *testing.T) {
 
 	var data, chatter bytes.Buffer
 	sink := newSinkWriters(&data, &chatter)
-	if err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("y\n")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentHooks error: %v", err)
 	}
 
@@ -928,7 +966,7 @@ func TestAgentSetup_QuietDropsStatusKeepsDiff(t *testing.T) {
 	// A quiet sink: data survives, chatter is discarded (what newSink builds when
 	// --quiet is set).
 	sink := newSinkWriters(&data, io.Discard)
-	if err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
+	if err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
 		t.Fatalf("applyAgentHooks --dry-run error: %v", err)
 	}
 
@@ -962,7 +1000,7 @@ func TestAgentSetup_QuietYesSilentOnSuccess(t *testing.T) {
 	// only to prove the diff+status were ROUTED to it (and thus dropped under real
 	// --quiet), not to the data channel.
 	sink := newSinkWriters(&data, &chatter)
-	if err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+	if err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
 		t.Fatalf("applyAgentHooks --yes error: %v", err)
 	}
 	// The write happened — success is proven by the file, not by output.
@@ -996,7 +1034,7 @@ func TestAgentSetup_YesNonQuietShowsDiffOnStderr(t *testing.T) {
 	var data, chatter bytes.Buffer
 	// Non-quiet: chatter is a live buffer (would be os.Stderr in production).
 	sink := newSinkWriters(&data, &chatter)
-	if err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+	if err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
 		t.Fatalf("applyAgentHooks --yes error: %v", err)
 	}
 	// The diff renders on stderr (chatter) so a non-quiet --yes is not silent.
@@ -1022,7 +1060,7 @@ func TestAgentSetup_InteractiveDryRunDiffOnData(t *testing.T) {
 		var data, chatter bytes.Buffer
 		// Decline ("n") on a simulated TTY so nothing is written; the diff must
 		// still have rendered on the data channel to inform the [y/N] decision.
-		if err := applyAgentHooks(newSinkWriters(&data, &chatter), bufio.NewReader(strings.NewReader("n\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+		if err := applyAgentHooks(newSinkWriters(&data, &chatter), bufio.NewReader(strings.NewReader("n\n")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 			t.Fatalf("applyAgentHooks interactive error: %v", err)
 		}
 		if !strings.Contains(data.String(), "will install run-kit agent-state hooks") {
@@ -1036,7 +1074,7 @@ func TestAgentSetup_InteractiveDryRunDiffOnData(t *testing.T) {
 		ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 		var data, chatter bytes.Buffer
-		if err := applyAgentHooks(newSinkWriters(&data, &chatter), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
+		if err := applyAgentHooks(newSinkWriters(&data, &chatter), bufio.NewReader(strings.NewReader("")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
 			t.Fatalf("applyAgentHooks --dry-run error: %v", err)
 		}
 		if !strings.Contains(data.String(), "will install run-kit agent-state hooks") {
@@ -1056,7 +1094,7 @@ func TestAgentSetup_QuietRefusalSurvives(t *testing.T) {
 	var data bytes.Buffer
 	sink := newSinkWriters(&data, io.Discard)
 	// consent{} → no flags, non-TTY: a pending write must refuse with an error.
-	err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{})
+	err := applyAgentHooks(sink, bufio.NewReader(strings.NewReader("")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{})
 	if err == nil {
 		t.Fatal("non-TTY no-flag run must refuse with an error even under --quiet, got nil")
 	}
@@ -1835,7 +1873,7 @@ func TestApplyAgentHooksSummaryFreshInstall(t *testing.T) {
 	ac := agentConfig{name: "Test", provider: "claude", settingsPath: filepath.Join(dir, "settings.json"), hooks: claudeHooks()}
 
 	var out bytes.Buffer
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("install error: %v", err)
 	}
 	got := out.String()
@@ -1884,7 +1922,7 @@ func TestApplyAgentHooksSummaryReplacementCount(t *testing.T) {
 	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 
 	var out bytes.Buffer
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("install error: %v", err)
 	}
 	if !strings.Contains(out.String(), "(replaces 1 existing rk-owned entry in place; all other settings and non-rk hooks preserved)") {
@@ -1897,12 +1935,12 @@ func TestApplyAgentHooksSummaryUninstall(t *testing.T) {
 	path := filepath.Join(dir, "settings.json")
 	ac := agentConfig{name: "Test", provider: "claude", settingsPath: path, hooks: claudeHooks()}
 	var out bytes.Buffer
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
 		t.Fatalf("install error: %v", err)
 	}
 
 	out.Reset()
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "", true, consent{stdinIsTTY: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "", "", true, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("uninstall error: %v", err)
 	}
 	got := out.String()
@@ -1922,7 +1960,7 @@ func TestApplyAgentHooksDryRunFullBodies(t *testing.T) {
 	ac := agentConfig{name: "Test", provider: "claude", settingsPath: filepath.Join(dir, "settings.json"), hooks: claudeHooks()}
 
 	var out bytes.Buffer
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
 		t.Fatalf("dry-run error: %v", err)
 	}
 	got := out.String()
@@ -2105,13 +2143,22 @@ func TestTmuxShimDryRunFullBodies(t *testing.T) {
 
 // --- gui display block (third managed artifact) --------------------------------
 
-// installGuiDisplayBlock runs the install pass of applyGuiDisplayBlocks into a
-// temp home with non-interactive consent, failing the test on error.
+// installGuiDisplayBlock runs the launcher pointer step and then the gui
+// display block pass into a temp home with non-interactive consent — the two
+// steps runAgentSetup runs, in the same order (pointer first, block gated on
+// its verdict). rkPath is passed as the pointer target UNCHANGED (runAgentSetup
+// would EvalSymlinks it first; the fixture paths stand in for already-resolved
+// targets, which also keeps the test hermetic on machines where a fixture path
+// happens to exist).
 func installGuiDisplayBlock(t *testing.T, home, rkPath string) {
 	t.Helper()
 	var out bytes.Buffer
 	sink := newSinkWriters(&out, &out)
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", rkPath, false, consent{yes: true}); err != nil {
+	state, err := installLauncherPointer(sink, bufio.NewReader(strings.NewReader("")), home, rkPath, consent{yes: true})
+	if err != nil {
+		t.Fatalf("installLauncherPointer error: %v", err)
+	}
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", state, false, consent{yes: true}); err != nil {
 		t.Fatalf("applyGuiDisplayBlocks install error: %v", err)
 	}
 }
@@ -2207,7 +2254,11 @@ func TestGuiDisplayBlockIdempotentReinstall(t *testing.T) {
 	// note per file, and no prompt (consent{} would refuse on a pending write).
 	var out bytes.Buffer
 	sink := newSinkWriters(&out, &out)
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{}); err != nil {
+	pointerState, err := installLauncherPointer(sink, bufio.NewReader(strings.NewReader("")), home, "/opt/homebrew/bin/rk", consent{})
+	if err != nil {
+		t.Fatalf("pointer re-probe must not need consent, got: %v", err)
+	}
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", pointerState, false, consent{}); err != nil {
 		t.Fatalf("idempotent re-run must not need consent, got: %v", err)
 	}
 	if got := strings.Count(out.String(), "block already present"); got != 2 {
@@ -2234,7 +2285,7 @@ func TestGuiDisplayBlockUninstallRemovesExactly(t *testing.T) {
 
 	var out bytes.Buffer
 	sink := newSinkWriters(&out, &out)
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", guiPointerDeclined, true, consent{yes: true}); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
 	if got := readFileOrEmpty(t, zshenv); got != user {
@@ -2252,7 +2303,7 @@ func TestGuiDisplayBlockUninstallRemovesExactly(t *testing.T) {
 
 	// A second uninstall is silent — absence needs no narration.
 	out.Reset()
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", guiPointerDeclined, true, consent{yes: true}); err != nil {
 		t.Fatalf("second uninstall: %v", err)
 	}
 	if strings.Contains(out.String(), "gui display") {
@@ -2264,7 +2315,11 @@ func TestGuiDisplayBlockDryRunWritesNothing(t *testing.T) {
 	home := t.TempDir()
 	var out bytes.Buffer
 	sink := newSinkWriters(&out, &out)
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
+	pointerState, err := installLauncherPointer(sink, bufio.NewReader(strings.NewReader("")), home, "/opt/homebrew/bin/rk", consent{dryRun: true})
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", pointerState, false, consent{dryRun: true}); err != nil {
 		t.Fatalf("dry run: %v", err)
 	}
 	if got := out.String(); !strings.Contains(got, "gui display: will add the rk gui display block in "+filepath.Join(home, ".zshenv")) ||
@@ -2279,7 +2334,7 @@ func TestGuiDisplayBlockDryRunWritesNothing(t *testing.T) {
 	if _, err := os.Stat(rkBinDir(home)); !os.IsNotExist(err) {
 		t.Errorf("--dry-run created the bin dir; stat err = %v", err)
 	}
-	if !strings.Contains(out.String(), "gui display: dry run — "+guiPointerPath(home)+" not written.") {
+	if !strings.Contains(out.String(), "launcher: dry run — "+guiPointerPath(home)+" not written.") {
 		t.Errorf("dry-run output lacks the pointer note: %q", out.String())
 	}
 }
@@ -2294,7 +2349,11 @@ func TestGuiDisplayBlockMalformedRefused(t *testing.T) {
 	// .bashrc is well-formed-absent: the malformed file must not stop it.
 	var out bytes.Buffer
 	sink := newSinkWriters(&out, &out)
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+	pointerState, err := installLauncherPointer(sink, bufio.NewReader(strings.NewReader("")), home, "/opt/homebrew/bin/rk", consent{yes: true})
+	if err != nil {
+		t.Fatalf("pointer install: %v", err)
+	}
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", pointerState, false, consent{yes: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	if got := readFileOrEmpty(t, zshenv); got != malformed {
@@ -2327,7 +2386,11 @@ func TestGuiDisplayBlockIndependentOfShim(t *testing.T) {
 	if err := applyTmuxShim(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
 		t.Fatalf("applyTmuxShim: %v", err)
 	}
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+	pointerState, err := installLauncherPointer(sink, bufio.NewReader(strings.NewReader("")), home, "/opt/homebrew/bin/rk", consent{yes: true})
+	if err != nil {
+		t.Fatalf("installLauncherPointer: %v", err)
+	}
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", pointerState, false, consent{yes: true}); err != nil {
 		t.Fatalf("applyGuiDisplayBlocks: %v", err)
 	}
 
@@ -2365,7 +2428,11 @@ func TestGuiDisplayBlockTwoHostsByteIdentical(t *testing.T) {
 	}
 	var out bytes.Buffer
 	sink := newSinkWriters(&out, &out)
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), linux, "", "/home/linuxbrew/.linuxbrew/bin/run-kit", false, consent{}); err != nil {
+	pointerState, err := installLauncherPointer(sink, bufio.NewReader(strings.NewReader("")), linux, "/home/linuxbrew/.linuxbrew/bin/run-kit", consent{})
+	if err != nil {
+		t.Fatalf("pointer re-probe must not need consent, got: %v", err)
+	}
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), linux, "", pointerState, false, consent{}); err != nil {
 		t.Fatalf("re-run on the synced file must not need consent, got: %v", err)
 	}
 	if strings.Contains(out.String(), "replaced in position") || strings.Contains(out.String(), "will add") {
@@ -2388,7 +2455,11 @@ func TestGuiDisplayBlockOldBodyReplacedInPosition(t *testing.T) {
 
 	var out bytes.Buffer
 	sink := newSinkWriters(&out, &out)
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/run-kit", false, consent{yes: true}); err != nil {
+	pointerState, err := installLauncherPointer(sink, bufio.NewReader(strings.NewReader("")), home, "/opt/homebrew/bin/run-kit", consent{yes: true})
+	if err != nil {
+		t.Fatalf("pointer install: %v", err)
+	}
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", pointerState, false, consent{yes: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 	if !strings.Contains(out.String(), "replaced in position") {
@@ -2399,7 +2470,11 @@ func TestGuiDisplayBlockOldBodyReplacedInPosition(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/run-kit", false, consent{}); err != nil {
+	pointerState, err = installLauncherPointer(sink, bufio.NewReader(strings.NewReader("")), home, "/opt/homebrew/bin/run-kit", consent{})
+	if err != nil {
+		t.Fatalf("second run must not need consent, got: %v", err)
+	}
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", pointerState, false, consent{}); err != nil {
 		t.Fatalf("second run must not need consent, got: %v", err)
 	}
 	if !strings.Contains(out.String(), "block already present in "+zshenv) {
@@ -2426,11 +2501,19 @@ func TestGuiDisplayPointerRelink(t *testing.T) {
 
 	var out bytes.Buffer
 	sink := newSinkWriters(&out, &out)
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/home/linuxbrew/.linuxbrew/bin/run-kit", false, consent{yes: true}); err != nil {
+	pointerState, err := installLauncherPointer(sink, bufio.NewReader(strings.NewReader("")), home, "/home/linuxbrew/.linuxbrew/bin/run-kit", consent{yes: true})
+	if err != nil {
 		t.Fatalf("relink run: %v", err)
 	}
-	if !strings.Contains(out.String(), "will relink "+link+" -> /home/linuxbrew/.linuxbrew/bin/run-kit (currently -> /usr/local/Cellar/run-kit/0.0.1/bin/run-kit)") {
+	if pointerState != guiPointerInPlace {
+		t.Errorf("relink verdict = %v, want guiPointerInPlace", pointerState)
+	}
+	if !strings.Contains(out.String(), "launcher: will relink "+link+" -> /home/linuxbrew/.linuxbrew/bin/run-kit (currently -> /usr/local/Cellar/run-kit/0.0.1/bin/run-kit)") {
 		t.Errorf("relink wording missing or wrong: %q", out.String())
+	}
+	// The block pass over the in-place verdict is the "already present" no-op.
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", pointerState, false, consent{yes: true}); err != nil {
+		t.Fatalf("block pass after relink: %v", err)
 	}
 	assertGuiPointer(t, home, "/home/linuxbrew/.linuxbrew/bin/run-kit")
 	if got := readFileOrEmpty(t, filepath.Join(home, ".zshenv")); got != before {
@@ -2457,10 +2540,17 @@ func TestGuiDisplayForeignPointerSkipsBlock(t *testing.T) {
 
 	var out bytes.Buffer
 	sink := newSinkWriters(&out, &out)
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/run-kit", false, consent{yes: true}); err != nil {
+	pointerState, err := installLauncherPointer(sink, bufio.NewReader(strings.NewReader("")), home, "/opt/homebrew/bin/run-kit", consent{yes: true})
+	if err != nil {
+		t.Fatalf("pointer install: %v", err)
+	}
+	if pointerState != guiPointerForeign {
+		t.Errorf("foreign pointer verdict = %v, want guiPointerForeign", pointerState)
+	}
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", pointerState, false, consent{yes: true}); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if !strings.Contains(out.String(), "is not a symlink — leaving it untouched") || !strings.Contains(out.String(), "skipping the startup-file block") {
+	if !strings.Contains(out.String(), "launcher: "+link+" exists and is not a symlink — leaving it untouched") || !strings.Contains(out.String(), "skipping the startup-file block") {
 		t.Errorf("missing the foreign-pointer skip notes: %q", out.String())
 	}
 	for _, name := range []string{".zshenv", ".bashrc"} {
@@ -2473,7 +2563,7 @@ func TestGuiDisplayForeignPointerSkipsBlock(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", guiPointerDeclined, true, consent{yes: true}); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
 	if got := readFileOrEmpty(t, link); got != foreign {
@@ -2491,8 +2581,14 @@ func TestGuiDisplayDeclinedPointerSkipsBlock(t *testing.T) {
 	home := t.TempDir()
 	var out bytes.Buffer
 	sink := newSinkWriters(&out, &out)
-	err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("n\n")), home, "", "/opt/homebrew/bin/run-kit", false, consent{stdinIsTTY: true})
+	pointerState, err := installLauncherPointer(sink, bufio.NewReader(strings.NewReader("n\n")), home, "/opt/homebrew/bin/run-kit", consent{stdinIsTTY: true})
 	if err != nil {
+		t.Fatalf("declined install: %v", err)
+	}
+	if pointerState != guiPointerDeclined {
+		t.Errorf("declined pointer verdict = %v, want guiPointerDeclined", pointerState)
+	}
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", pointerState, false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("declined install: %v", err)
 	}
 	if !strings.Contains(out.String(), "skipped (no pointer written)") || !strings.Contains(out.String(), "skipping the startup-file block") {
@@ -2530,7 +2626,14 @@ func TestGuiDisplayForeignPointerStripsExistingBlock(t *testing.T) {
 
 	var out bytes.Buffer
 	sink := newSinkWriters(&out, &out)
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "/opt/homebrew/bin/run-kit", false, consent{yes: true}); err != nil {
+	pointerState, err := installLauncherPointer(sink, bufio.NewReader(strings.NewReader("")), home, "/opt/homebrew/bin/run-kit", consent{yes: true})
+	if err != nil {
+		t.Fatalf("re-install: %v", err)
+	}
+	if pointerState != guiPointerForeign {
+		t.Errorf("foreign pointer verdict = %v, want guiPointerForeign", pointerState)
+	}
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", pointerState, false, consent{yes: true}); err != nil {
 		t.Fatalf("re-install: %v", err)
 	}
 	if got := readFileOrEmpty(t, zshenv); got != user {
@@ -2554,7 +2657,14 @@ func TestGuiDisplayDeclinedRelinkKeepsExistingBlock(t *testing.T) {
 
 	var out bytes.Buffer
 	sink := newSinkWriters(&out, &out)
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("n\n")), home, "", "/home/linuxbrew/.linuxbrew/bin/run-kit", false, consent{stdinIsTTY: true}); err != nil {
+	pointerState, err := installLauncherPointer(sink, bufio.NewReader(strings.NewReader("n\n")), home, "/home/linuxbrew/.linuxbrew/bin/run-kit", consent{stdinIsTTY: true})
+	if err != nil {
+		t.Fatalf("declined relink: %v", err)
+	}
+	if pointerState != guiPointerDeclined {
+		t.Errorf("declined relink verdict = %v, want guiPointerDeclined", pointerState)
+	}
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", pointerState, false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("declined relink: %v", err)
 	}
 	assertGuiPointer(t, home, "/opt/homebrew/bin/run-kit")
@@ -2584,7 +2694,7 @@ func TestGuiDisplayUninstallLeavesSymlinkedBinDir(t *testing.T) {
 
 	var out bytes.Buffer
 	sink := newSinkWriters(&out, &out)
-	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", "", true, consent{yes: true}); err != nil {
+	if err := applyGuiDisplayBlocks(sink, bufio.NewReader(strings.NewReader("")), home, "", guiPointerDeclined, true, consent{yes: true}); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
 	if _, err := os.Lstat(guiPointerPath(home)); !os.IsNotExist(err) {
@@ -2608,7 +2718,7 @@ func TestReplaceSymlinkSweepsStaleTemp(t *testing.T) {
 	if err := os.WriteFile(staleFile, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := replaceSymlink("/new", link); err != nil {
+	if err := selfpath.ReplaceSymlink("/new", link); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(staleLink); !os.IsNotExist(err) {

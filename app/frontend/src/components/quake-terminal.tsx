@@ -912,7 +912,10 @@ export function QuakeTerminal() {
   if (!rendered || isMobile) return null;
 
   const agentState = target?.window.agentState;
-  const agentIdle = target?.window.agentIdleDuration;
+  // agentIdleDuration is populated for `active` too; render it only for the
+  // two rest states.
+  const agentIdle =
+    agentState === "waiting" || agentState === "idle" ? target?.window.agentIdleDuration : undefined;
 
   // The title-strip tick-age stamp reads the FIRST session on the resolved
   // server carrying `operatorLastTickAt > 0`; operator-less servers and older

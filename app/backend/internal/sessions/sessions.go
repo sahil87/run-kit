@@ -431,10 +431,12 @@ func FormatAgentDuration(elapsedSeconds int64) string {
 	}
 }
 
-// rollupAgentState derives the window-level agent state and idle/waiting
-// duration from the window's panes (post-reconciler), applying the
-// waiting > active > idle precedence. The duration is computed rk-side from the
-// winning pane's AgentStateEpoch for idle AND waiting (empty for active/unknown).
+// rollupAgentState derives the window-level agent state and duration from the
+// window's panes (post-reconciler), applying the waiting > active > idle
+// precedence. The duration is computed rk-side from the winning pane's
+// AgentStateEpoch for ANY known state (empty for unknown): active carries its
+// age too, because a lost idle write on a live agent reads as a fresh active
+// indefinitely — the age is the only downstream staleness signal.
 // Pure function (no I/O) so the rollup is unit-testable, mirroring the
 // parseWindows/parsePanes/applyActiveWindow split.
 func rollupAgentState(panes []tmux.PaneInfo, nowUnix int64) (state string, duration string) {
@@ -459,9 +461,10 @@ func rollupAgentState(panes []tmux.PaneInfo, nowUnix int64) (state string, durat
 	if state == "" {
 		return "", ""
 	}
-	// Duration is meaningful for idle and waiting (how long the human has been
-	// the blocker / how long at rest); active has no duration.
-	if (state == tmux.AgentStateIdle || state == tmux.AgentStateWaiting) && bestEpoch > 0 {
+	// Duration is emitted for any known state with epoch > 0 — active carries
+	// its age too, so a lost write on a live agent is not stale forever
+	// without a signal.
+	if bestEpoch > 0 {
 		duration = FormatAgentDuration(nowUnix - bestEpoch)
 	}
 	return state, duration

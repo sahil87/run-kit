@@ -220,8 +220,9 @@ func TestMuxPanesHasAgentNull(t *testing.T) {
 	})
 }
 
-// TestMuxPanesActiveStateDuration: an active pane surfaces its state but never
-// a duration (the mux capture semantics, R2).
+// TestMuxPanesActiveStateDuration: an active pane surfaces its state AND its
+// duration (any known state with epoch > 0 carries one — a lost write on a
+// live agent is otherwise invisible downstream).
 func TestMuxPanesActiveStateDuration(t *testing.T) {
 	f := &muxFake{paneWindows: map[string][]tmux.WindowInfo{
 		"work": {{
@@ -229,6 +230,8 @@ func TestMuxPanesActiveStateDuration(t *testing.T) {
 			Panes: []tmux.PaneInfo{
 				{PaneID: "%5", PaneIndex: 0, IsActive: true, Cwd: "/repo", Command: "node",
 					AgentState: tmux.AgentStateActive, AgentStateEpoch: 1_800_000_000},
+				{PaneID: "%6", PaneIndex: 1, IsActive: false, Cwd: "/repo", Command: "node",
+					AgentState: tmux.AgentStateActive, AgentStateEpoch: 1_800_000_300 - 720},
 			},
 		}},
 	}}
@@ -241,8 +244,12 @@ func TestMuxPanesActiveStateDuration(t *testing.T) {
 	if !strings.Contains(stdout, `"agent_state": "active"`) {
 		t.Errorf("stdout = %q, want the active state", stdout)
 	}
-	if !strings.Contains(stdout, `"agent_state_duration": null`) {
-		t.Errorf("stdout = %q, want a null duration for active", stdout)
+	if !strings.Contains(stdout, `"agent_state_duration": "5m"`) {
+		t.Errorf("stdout = %q, want the 5m duration for active (epoch 1_800_000_000)", stdout)
+	}
+	// The aged active pane (epoch 720s before now) reports 12m.
+	if !strings.Contains(stdout, `"agent_state_duration": "12m"`) {
+		t.Errorf("stdout = %q, want the 12m duration for the aged active pane", stdout)
 	}
 }
 

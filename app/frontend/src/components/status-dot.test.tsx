@@ -225,6 +225,16 @@ describe("dotLabel — hue-word + liveness-word + flags composition", () => {
     const win = makeWindow({ agentState: "idle" });
     expect(dotLabel(win, statusDotState(win))).toBe("agent — idle");
   });
+
+  it("an active agent with a duration renders no duration — rest states only", () => {
+    const win = makeWindow({ agentState: "active", agentIdleDuration: "12m" });
+    expect(dotLabel(win, statusDotState(win))).toBe("agent — active");
+    // The gate holds even when the caller hands a waiting overlay flag with a
+    // non-rest window.
+    expect(dotLabel(win, { phase: "agent", shape: "solid", waiting: true })).toBe(
+      "agent — active — agent waiting",
+    );
+  });
 });
 
 // The hover-card content-resolution suite moved with the surface: the

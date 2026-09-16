@@ -87,7 +87,8 @@ func TestMuxCaptureContextLineOmission(t *testing.T) {
 		{"no cwd", tmux.PaneFacts{AgentState: tmux.AgentStateIdle, AgentStateEpoch: 1_800_000_000}, "agent: idle (5m)"},
 		{"uninstrumented", tmux.PaneFacts{CWD: "/tmp"}, "cwd: /tmp"},
 		{"no parts", tmux.PaneFacts{}, ""},
-		{"active carries no duration", tmux.PaneFacts{CWD: "/tmp", AgentState: tmux.AgentStateActive, AgentStateEpoch: 1_800_000_000}, "cwd: /tmp | agent: active"},
+		{"active carries its duration", tmux.PaneFacts{CWD: "/tmp", AgentState: tmux.AgentStateActive, AgentStateEpoch: 1_800_000_000}, "cwd: /tmp | agent: active (5m)"},
+		{"aged active carries its duration", tmux.PaneFacts{CWD: "/tmp", AgentState: tmux.AgentStateActive, AgentStateEpoch: 1_800_000_300 - 720}, "cwd: /tmp | agent: active (12m)"},
 		{"waiting carries a duration", tmux.PaneFacts{AgentState: tmux.AgentStateWaiting, AgentStateEpoch: 1_800_000_180}, "agent: waiting (2m)"},
 	}
 	for _, tc := range cases {
@@ -275,7 +276,7 @@ func TestMuxCaptureClassifyHumanLine(t *testing.T) {
 		{
 			"active pane still classifies", tmux.PaneFacts{CWD: "/tmp", AgentState: tmux.AgentStateActive, AgentStateEpoch: 1_800_000_000},
 			"Proceed? [Y/n]\n",
-			[]string{"--- pane %5 ---", "cwd: /tmp | agent: active", "question: yes_no — Proceed? [Y/n]", "---"},
+			[]string{"--- pane %5 ---", "cwd: /tmp | agent: active (5m)", "question: yes_no — Proceed? [Y/n]", "---"},
 		},
 	}
 	for _, tc := range cases {

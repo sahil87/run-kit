@@ -32,7 +32,11 @@ func registryEntry(t *testing.T, home, provider string) agentConfig {
 func applyYes(t *testing.T, ac agentConfig, rkPath string, uninstall bool) *bytes.Buffer {
 	t.Helper()
 	var out bytes.Buffer
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, rkPath, uninstall, consent{yes: true}); err != nil {
+	launcher := ""
+	if !uninstall {
+		launcher = testLauncherPath
+	}
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, launcher, rkPath, uninstall, consent{yes: true}); err != nil {
 		t.Fatalf("applyAgentConfig(%s, uninstall=%v) error: %v", ac.provider, uninstall, err)
 	}
 	return &out
@@ -271,7 +275,7 @@ func TestKimiMarkerBlockLifecycle(t *testing.T) {
 
 	// Re-run is a no-op.
 	var out bytes.Buffer
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "nothing to do") {
@@ -322,8 +326,11 @@ func TestOpencodePluginLifecycle(t *testing.T) {
 	if !strings.Contains(content, skillManagedByMarker) {
 		t.Error("plugin must carry the managed-by marker")
 	}
-	if !strings.Contains(content, `const RK = "/opt/homebrew/bin/rk";`) {
-		t.Error("plugin must embed the validated absolute rk path")
+	if !strings.Contains(content, `const RK = "`+testLauncherPath+`";`) {
+		t.Error("plugin must embed the launcher path in RK")
+	}
+	if !strings.Contains(content, `const RK_FALLBACK = "/opt/homebrew/bin/rk";`) {
+		t.Error("plugin must embed the validated absolute rk path in RK_FALLBACK")
 	}
 	if !strings.Contains(content, `"--agent", "opencode"`) {
 		t.Error("plugin must invoke --agent opencode")
@@ -366,14 +373,14 @@ func TestNoSubagentEventsRegistered(t *testing.T) {
 				t.Errorf("%s registers subagent event %q — child events must never write the root pane", ac.provider, h.event)
 			}
 		}
-		if ac.fileContent != nil && strings.Contains(ac.fileContent("/opt/homebrew/bin/rk"), `"subagent`) {
+		if ac.fileContent != nil && strings.Contains(ac.fileContent(testLauncherPath, "/opt/homebrew/bin/rk"), `"subagent`) {
 			t.Errorf("%s plugin/file content registers subagent events", ac.provider)
 		}
 	}
 	// The opencode plugin has no hooks table — check its content for subagent
 	// EVENT registrations (the word "subagent" in prose is fine; a mapped
 	// event name is not).
-	plugin := opencodePluginFile("/opt/homebrew/bin/rk")
+	plugin := opencodePluginFile(testLauncherPath, "/opt/homebrew/bin/rk")
 	if strings.Contains(plugin, `"subagent`) || strings.Contains(plugin, "SubagentStart") || strings.Contains(plugin, "SubagentStop") {
 		t.Error("the opencode plugin must not map subagent events")
 	}
@@ -495,7 +502,7 @@ func TestCopilotMixedFileSurvivesInstallAndUninstall(t *testing.T) {
   "hooks": {
     "preToolUse": [
       {"type": "command", "command": "./my-guard.sh"},
-      {"type": "command", "command": "/bin/sh -c '[ -n \"$TMUX_PANE\" ] || exit 0; \"/opt/homebrew/bin/rk\" agent hook --agent copilot active 2>/dev/null || true'"}
+      {"type": "command", "command": "/bin/sh -c '[ -n \"$TMUX_PANE\" ] || exit 0; \"/home/u/.local/share/rk/bin/run-kit\" agent hook --agent copilot active 2>/dev/null || \"/opt/homebrew/bin/rk\" agent hook --agent copilot active 2>/dev/null || true'"}
     ]
   }
 }`)
@@ -536,7 +543,7 @@ func TestKimiDryRunNeverPrintsUserSecrets(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, testLauncherPath, "/opt/homebrew/bin/rk", false, consent{dryRun: true}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(out.String(), sentinel) {

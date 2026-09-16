@@ -115,8 +115,12 @@ describe("getAgentLine (L1)", () => {
     );
   });
 
-  it("bare state when no duration (active agents have none)", () => {
+  it("bare state when no duration", () => {
     expect(getAgentLine(makeWindow({ agentState: "active" }))).toBe("active");
+  });
+
+  it("active with a duration renders bare — the duration shows only on the rest states", () => {
+    expect(getAgentLine(makeWindow({ agentState: "active", agentIdleDuration: "12m" }))).toBe("active");
   });
 });
 

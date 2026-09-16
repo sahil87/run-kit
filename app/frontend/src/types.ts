@@ -190,8 +190,9 @@ export type WindowInfo = {
    *  Window-level rollup with precedence `waiting > active > idle`. See
    *  docs/specs/agent-state.md. */
   agentState?: string;
-  /** Idle/waiting duration (e.g. `2m`), computed server-side from the option's
-   *  epoch for the `idle` and `waiting` states; empty for `active`/unknown. */
+  /** Agent-state duration (e.g. `2m`), computed server-side from the option's
+   *  epoch for any known state (`active` included); consumers render it only
+   *  for the `idle` and `waiting` rest states. Empty for unknown states. */
   agentIdleDuration?: string;
   fabChange?: string;
   fabStage?: string;

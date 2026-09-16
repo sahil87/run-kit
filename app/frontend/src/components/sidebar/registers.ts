@@ -71,10 +71,13 @@ export function getOutputLine(win: WindowInfo, nowSeconds: number): string {
 }
 
 /** Build the L1 `agt` register string when an agent is present: e.g.
- *  `waiting 3m` / `active` / `idle 12m`. Null when no `agentState`. */
+ *  `waiting 3m` / `active` / `idle 12m`. Null when no `agentState`.
+ *  `agentIdleDuration` is populated for `active` too, but rendered only for
+ *  the two rest states. */
 export function getAgentLine(win: WindowInfo): string | null {
   if (!win.agentState) return null;
-  if (win.agentIdleDuration) return `${win.agentState} ${win.agentIdleDuration}`;
+  if (win.agentIdleDuration && (win.agentState === "waiting" || win.agentState === "idle"))
+    return `${win.agentState} ${win.agentIdleDuration}`;
   return win.agentState;
 }
 

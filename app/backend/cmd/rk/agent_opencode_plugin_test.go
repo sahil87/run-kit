@@ -146,3 +146,86 @@ for (const event of events) { await hooks.event({ event }); }
 		t.Errorf("payloads must carry the root/resumed session ids, log:\n%s", log)
 	}
 }
+
+// TestOpencodePluginLauncherFallback pins the two-path report end-to-end: with
+// RK (the launcher) naming a MISSING binary, the spawn-level exec failure
+// falls back to RK_FALLBACK and the report still lands; with BOTH paths
+// missing the plugin must not throw (the never-fail contract — a hook error
+// must never break the agent).
+func TestOpencodePluginLauncherFallback(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not available — skipping plugin execution test")
+	}
+	home := t.TempDir()
+
+	// The capture shim stands in for the rk binary (the RK_FALLBACK side).
+	logPath := filepath.Join(t.TempDir(), "rk-calls.log")
+	shim := filepath.Join(t.TempDir(), "rk-capture")
+	shimBody := fmt.Sprintf("#!/bin/sh\n{ printf '%%s\\n' \"$*\"; cat; printf '\\n'; } >> %s\n", logPath)
+	if err := os.WriteFile(shim, []byte(shimBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(t.TempDir(), "no-such-rk")
+
+	// One root busy event through the real plugin.
+	sessionsJSON := `{"ses_root":{}}`
+	eventsJSON := `[{"type":"session.status","properties":{"sessionID":"ses_root","status":{"type":"busy"}}}]`
+	driver := `import { runKit } from "./plugin.mjs";
+const sessions = JSON.parse(process.env.RK_SESSIONS_JSON);
+const events = JSON.parse(process.env.RK_EVENTS_JSON);
+const client = { session: { get: async ({ path }) => {
+  const s = sessions[path.id];
+  if (s === undefined) throw new Error("unknown session");
+  return { data: s };
+}}};
+const hooks = await runKit({ client });
+for (const event of events) { await hooks.event({ event }); }
+`
+
+	workDir := t.TempDir()
+	driverPath := filepath.Join(workDir, "driver.mjs")
+	if err := os.WriteFile(driverPath, []byte(driver), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pluginMJS := filepath.Join(workDir, "plugin.mjs")
+	runDriver := func() {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "node", driverPath)
+		cmd.Dir = workDir
+		cmd.Env = []string{
+			"PATH=" + os.Getenv("PATH"),
+			"HOME=" + home,
+			"TMUX_PANE=%42",
+			"RK_SESSIONS_JSON=" + sessionsJSON,
+			"RK_EVENTS_JSON=" + eventsJSON,
+		}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("driver failed (never-fail contract broken): %v\n%s", err, string(out))
+		}
+	}
+
+	// Launcher missing → the fallback (shim) receives the report.
+	if err := os.WriteFile(pluginMJS, []byte(opencodePluginFile(missing, shim)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runDriver()
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("capture log: %v", err)
+	}
+	if !strings.Contains(string(data), "agent hook --agent opencode active") {
+		t.Errorf("fallback did not reach RK_FALLBACK, log:\n%s", data)
+	}
+
+	// Both paths missing → no throw, no report.
+	if err := os.WriteFile(pluginMJS, []byte(opencodePluginFile(missing, missing)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runDriver()
+	data2, _ := os.ReadFile(logPath)
+	if string(data2) != string(data) {
+		t.Errorf("a both-missing report must be swallowed, log grew:\n%s", data2)
+	}
+}

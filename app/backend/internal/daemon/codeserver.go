@@ -68,14 +68,15 @@ var codeServerRunJob = func(ctx context.Context, window string, argv []string) (
 	return RunJob(ctx, window, argv)
 }
 
-// codeServerSelfPath resolves the version-stable rk path for the spawn argv's
-// RK_BIN env element and the install job's shell chain: the brew-prefix
-// symlink on a Homebrew install, the resolved binary elsewhere. The
-// rk-code-server session outlives the binary version that spawned it, and
-// `brew upgrade` deletes the old keg — a Cellar path here dies at the next
-// release. A package seam (mirroring codeServerUserHomeDir) so tests return a
-// fixed path.
-var codeServerSelfPath = selfpath.Stable
+// codeServerSelfPath resolves the rk path for the spawn argv's RK_BIN env
+// element and the install job's shell chain: the rk-owned launcher symlink.
+// The rk-code-server session outlives the binary version that spawned it, and
+// the code-bridge extension execs $RK_BIN per editor action — the launcher
+// (targeting the Cellar binary, deleted only in Homebrew's post-link cleanup)
+// is the path that stays live through a `brew upgrade` window, when the
+// brew-prefix stable symlink dangles. A package seam (mirroring
+// codeServerUserHomeDir) so tests return a fixed path.
+var codeServerSelfPath = selfpath.Launcher
 
 // codeServerSeedSettings is the write-once baseline for the rk-owned profile:
 // the first two settings are settings-only (no CLI flags exist — verified

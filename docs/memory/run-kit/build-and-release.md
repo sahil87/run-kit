@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Version management (VERSION file + ldflags), build pipeline (Vite dist copied into embed.FS), release flow & CI/CD (GitHub Releases, desktop packages as dependent jobs), Homebrew distribution via prebuilt binaries."
+description: "Version management (VERSION file + ldflags), build pipeline (Vite dist copied into embed.FS), release flow & CI/CD (GitHub Releases, desktop packages as dependent jobs), Homebrew distribution via prebuilt binaries — including the install_formula unlink→install→link→cleanup ordering and which rk path is live in each upgrade phase."
 ---
 # Build & Release
 
@@ -90,6 +90,7 @@ Install flow: `brew install sahil87/tap/run-kit` (fully qualified — the shll m
 - **Shell completion binds BOTH names** (zsh/bash): cobra generates completion for `run-kit` only, so `shell_init.go` appends an extra `compdef _run-kit rk` (zsh) and an extra `complete … rk` line reusing `__start_run-kit` (bash) so the daily-typed `rk` keeps tab completion. fish/powershell keep cobra's single-name binding.
 
 **Invariants — internals stay `rk`**: the Go module path (`module rk`), `cmd/rk/` directory, `RK_*` env vars, `rk-daemon` socket/session names, `~/.rk/` config dir, `dist/rk`/`bin/rk` build outputs, and release-artifact/tarball names (`rk-{os}-{arch}.tar.gz`, single `rk` member — the physical binary keeps its `rk` name; the formula renames at install time) are all `rk`. `rk` is a real on-PATH executable name **indefinitely** — installed `rk agent setup` hooks embed `/opt/homebrew/bin/rk` and fab-kit skills gate on `command -v rk`. Both names are fully interchangeable for every subcommand; the tap-repo `formula_renames.json` `{"rk": "run-kit"}` mapping is what lets pre-existing `rk` installs upgrade (see § Homebrew Distribution).
+**Upgrade-window path liveness** — Homebrew's `install_formula` phases are: **unlink** the old keg FIRST, then the network-dependent install phase (tap "newer version available" lookup, `compute_dependencies`/`install_dependencies`, pour — Homebrew 6 makes an un-timed `api.github.com` call inside tap upgrades, so this phase is minutes, not milliseconds), **link** the new keg in `finish`, and delete the old keg in **cleanup**, after the new link. Which rk path is live in each phase is the fact every `internal/selfpath` resolver audience derives from: the brew-prefix stable symlink (`<prefix>/bin/run-kit`) **dangles for the whole install phase**, while the old keg's Cellar binary keeps working **until cleanup** — so the rk-owned launcher (Cellar-targeted) is live exactly when the stable symlink is not, and the stable symlink covers the gap between cleanup and the daemon's next launcher re-point. The hook wrapper and code-server's `RK_BIN` therefore exec the launcher first with the stable path as fallback (see [agent-state](/run-kit/agent-state.md) § `rk agent setup` → Hook command, and [backend-packages](/run-kit/architecture/backend-packages.md) § `internal/selfpath`).
 
 
 ## Design Decisions

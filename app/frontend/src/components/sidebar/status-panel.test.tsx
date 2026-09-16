@@ -269,7 +269,7 @@ describe("StatusPanel", () => {
     const win = makeWindow({
       activity: "idle",
       activityTimestamp: 100,
-      agentState: "Thinking",
+      agentState: "waiting",
       agentIdleDuration: "2m",
       panes: [
         { paneId: "%1", paneIndex: 0, cwd: "/home", command: "claude", isActive: true },
@@ -278,7 +278,7 @@ describe("StatusPanel", () => {
     vi.setSystemTime(3_700_000);
     render(<StatusPanel window={win} />);
     expect(screen.getByText(/claude · idle 1h/)).toBeInTheDocument();
-    expect(screen.getByText(/Thinking 2m/)).toBeInTheDocument();
+    expect(screen.getByText(/waiting 2m/)).toBeInTheDocument();
   });
 });
 

@@ -482,7 +482,9 @@ and the **reconciled** agent state, both read in one `display-message` round
 trip by `tmux.PaneFactsCtx` (the parse + pid-liveness reconcile shared with
 `PaneAgentState`; a legacy or dead-pid value reads as unknown) — fab's
 change/stage fields are NOT carried (choreography facts, fab's layer). The
-duration shows for `idle` **and** `waiting` (epoch > 0), never `active`,
+duration shows for any known state with epoch > 0 — `idle`, `waiting`, **and**
+`active` (the age of a live `active` is the only downstream staleness signal for
+a lost write),
 formatted floor `Ns`/`Nm`/`Nh` via `sessions.FormatAgentDuration` (the
 `rollupAgentState` semantics). Under `--json` the envelope's `result` document
 carries (two-space-indented):
@@ -640,8 +642,9 @@ object per pane, with exactly
 last so the preceding key set is byte-stable for prefix decoders (fab's
 `rkPaneRow`); the agent fields are `null` when the pane
 is uninstrumented or the reconciler rejects the value (the `mux capture --json`
-semantics), and the duration appears only for `idle`/`waiting` (epoch > 0),
-never `active`, formatted via `sessions.FormatAgentDuration`. **`has_agent` is
+semantics), and the duration appears for any known state with epoch > 0 —
+`active` included, so the fab operator can apply an "active for Nm with no
+stage/PR delta" staleness rule — formatted via `sessions.FormatAgentDuration`. **`has_agent` is
 liveness, not instrumentation** — a tri-state `*bool` computed lazily by the
 `paneHasAgent` walk (the `rk mux process` walk above, comm/cmdline classification
 plus the agent-state pid cross-check): the walk runs only for rows whose
@@ -1079,14 +1082,17 @@ enumeration).
 *Introduced by*: `260910-7pek-mux-panes-has-agent`
 
 ### Duration semantics follow rk's sessions rollup, not fab's idle-only
-**Decision**: the capture duration shows for `idle` and `waiting` (JSON field
-`agent_state_duration`), not fab's idle-only `agent_idle_duration`.
-**Why**: rk's own reader semantics (`rollupAgentState`: "how long the human has
-been the blocker / how long at rest"); one convention inside rk beats
-byte-parity with a copy being demoted to dispatch-internal.
+**Decision**: the capture/panes duration shows for any known state with
+epoch > 0 (JSON field `agent_state_duration`) — `active` included — not fab's
+idle-only `agent_idle_duration`.
+**Why**: rk's own reader semantics (`rollupAgentState` — "how long the human has
+been the blocker / how long at rest", and for `active` the age is the only
+staleness signal for a lost write on a live agent); one convention inside rk
+beats byte-parity with a copy being demoted to dispatch-internal.
 **Rejected**: fab's idle-only field (would make rk's CLI disagree with rk's
-dashboard on what waiting duration means).
-*Introduced by*: `260815-82w7-mux-substrate-twins`
+dashboard on what waiting duration means, and would hide the stale-`active`
+case entirely).
+*Introduced by*: `260815-82w7-mux-substrate-twins` (`active` age: 260916-la8z-hook-launcher-upgrade-window)
 
 ### Plain capture is a new primitive, not a flag change
 **Decision**: the no-`-e` capture lives in `CapturePanePlainCtx` alongside

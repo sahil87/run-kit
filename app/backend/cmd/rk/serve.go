@@ -63,6 +63,68 @@ func resolveBrewInstalled() bool {
 	return selfpath.IsBrewInstalled(selfPath)
 }
 
+// Serve-time launcher re-point seams (the codeServerSelfPath package-var
+// style): tests substitute fakes so no test touches real symlinks in $HOME.
+var (
+	serveResolveSelf    = selfpath.Resolve
+	serveLauncherPath   = selfpath.Launcher
+	serveLstat          = os.Lstat
+	serveReadlink       = os.Readlink
+	serveReplaceSymlink = selfpath.ReplaceSymlink
+)
+
+// repointLauncher re-points the rk-owned launcher symlink at the running
+// daemon's resolved binary, so hooks keep execing a live rk through the
+// post-upgrade window between Homebrew's keg cleanup and the daemon restart
+// `rk update` performs (a manual `brew upgrade run-kit` re-points at the next
+// daemon start). Daemon start is the only trigger — no timer, no watcher (the
+// tmux.EnsureConfig posture). Brew-daemons only: a dev-worktree or e2e-rig
+// `rk serve` must never re-point the machine's hooks at a throwaway build.
+//
+// Ownership rules: an ABSENT launcher is left absent (the installer owns
+// creation), a non-symlink is the user's and never touched, and an
+// already-current symlink is a no-op. Best-effort, never fatal — every error
+// is a Warn and startup proceeds.
+func repointLauncher(brewDaemon bool) {
+	if !brewDaemon {
+		return
+	}
+	launcher, err := serveLauncherPath()
+	if err != nil {
+		slog.Warn("launcher re-point skipped", "err", err)
+		return
+	}
+	info, err := serveLstat(launcher)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			slog.Warn("launcher re-point skipped", "path", launcher, "err", err)
+		}
+		return
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		slog.Info("launcher is not rk-owned (not a symlink) — leaving it untouched", "path", launcher)
+		return
+	}
+	current, err := serveReadlink(launcher)
+	if err != nil {
+		slog.Warn("launcher re-point skipped", "path", launcher, "err", err)
+		return
+	}
+	resolved, err := serveResolveSelf()
+	if err != nil {
+		slog.Warn("launcher re-point skipped", "err", err)
+		return
+	}
+	if current == resolved {
+		return
+	}
+	if err := serveReplaceSymlink(resolved, launcher); err != nil {
+		slog.Warn("launcher re-point failed", "path", launcher, "err", err)
+		return
+	}
+	slog.Info("re-pointed launcher", "path", launcher, "from", current, "to", resolved)
+}
+
 const (
 	// daemonLogDirMode is the permission used for `os.MkdirAll` on the daemon
 	// log's parent directory.
@@ -133,6 +195,12 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 			sweepCancel()
 		}
 
+		// Brew detection is computed once for the whole startup; the launcher
+		// re-point runs only on a brew daemon (a dev-worktree or e2e-rig serve
+		// must never re-point the machine's hooks at a throwaway build).
+		selfBrew := resolveBrewInstalled()
+		repointLauncher(selfBrew)
+
 		// No startup sweep: relay ephemerals are gone (the relay attaches the PTY
 		// directly to the real session), and board pin-sessions (`_rk-pin-*`) are
 		// PERSISTENT across rk restarts (Constitution VI — tmux survives the
@@ -184,7 +252,6 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		// `event: update-available`. Both surfaces drive the web UI's update chip
 		// and the post-restart auto-reload. The checker suppresses itself for the
 		// "dev" sentinel / unparseable versions and is bound to the serve context.
-		selfBrew := resolveBrewInstalled()
 		apiServer.SetVersion(version, newBootID(), selfBrew, started, cfg.Port)
 		updateChecker := updatecheck.New(version, selfBrew)
 		updateChecker.OnQualify = apiServer.WireUpdateAvailableBroadcast()

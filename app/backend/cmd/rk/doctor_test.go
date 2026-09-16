@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1430,8 +1431,8 @@ func TestAgentHooksCheckNoRkEntriesIsNotInstalled(t *testing.T) {
 
 func TestAgentHooksCheckGen3Installed(t *testing.T) {
 	home := t.TempDir()
-	readFile, stat := agentHooksFixture(t, home, hookSettingsJSON(agentStateHookCommand("/opt/homebrew/bin/rk", "active", "claude")), nil,
-		map[string]bool{"/opt/homebrew/bin/rk": true})
+	readFile, stat := agentHooksFixture(t, home, hookSettingsJSON(agentStateHookCommand(testLauncherPath, "/opt/homebrew/bin/rk", "active", "claude")), nil,
+		map[string]bool{testLauncherPath: true, "/opt/homebrew/bin/rk": true})
 	c := agentHooksCheck(home, readFile, stat)
 	if !c.OK {
 		t.Errorf("OK = false, want true (gen-3 with a live rk path): %s", c.Hint)
@@ -1469,7 +1470,7 @@ func TestAgentHooksCheckGen2StaleFails(t *testing.T) {
 
 func TestAgentHooksCheckGen3DanglingPathFails(t *testing.T) {
 	home := t.TempDir()
-	readFile, stat := agentHooksFixture(t, home, hookSettingsJSON(agentStateHookCommand("/removed/keg/rk", "active", "claude")), nil, nil)
+	readFile, stat := agentHooksFixture(t, home, hookSettingsJSON(agentStateHookCommand("/removed/keg/run-kit", "/removed/keg/rk", "active", "claude")), nil, nil)
 	c := agentHooksCheck(home, readFile, stat)
 	if c.OK {
 		t.Error("OK = true, want false (gen-3 with a dangling rk path writes nothing)")
@@ -1494,7 +1495,7 @@ func TestAgentHooksCheckUnreadableFileFails(t *testing.T) {
 func TestClassifyHookGeneration(t *testing.T) {
 	gen1 := `tmux set-option -pt "$TMUX_PANE" ` + rkHookMarker + ` "active:1"`
 	gen2 := `"rk" agent-hook --agent claude active`
-	gen3 := agentStateHookCommand("/opt/homebrew/bin/rk", "idle", "claude")
+	gen3 := agentStateHookCommand(testLauncherPath, "/opt/homebrew/bin/rk", "idle", "claude")
 	cases := []struct {
 		cmd  string
 		want int
@@ -1511,13 +1512,127 @@ func TestClassifyHookGeneration(t *testing.T) {
 	}
 }
 
-func TestHookRkPath(t *testing.T) {
-	cmd := agentStateHookCommand("/opt/homebrew/bin/rk", "active", "claude")
-	if got := hookRkPath(cmd); got != "/opt/homebrew/bin/rk" {
-		t.Errorf("hookRkPath = %q, want /opt/homebrew/bin/rk", got)
+func TestHookRkPaths(t *testing.T) {
+	// A two-path (fourth-generation) wrapper parses to BOTH embedded paths in
+	// launcher-first order; a gen-3 single-path command parses to the one.
+	twoPath := agentStateHookCommand(testLauncherPath, "/opt/homebrew/bin/rk", "active", "claude")
+	got := hookRkPaths(twoPath)
+	if len(got) != 2 || got[0] != testLauncherPath || got[1] != "/opt/homebrew/bin/rk" {
+		t.Errorf("hookRkPaths(two-path) = %v, want [%s /opt/homebrew/bin/rk]", got, testLauncherPath)
 	}
-	if got := hookRkPath("no quoted token"); got != "" {
-		t.Errorf("hookRkPath on an unquoted command = %q, want empty", got)
+	twoPathJSON := agentStateHookCommandJSON(testLauncherPath, "/opt/homebrew/bin/rk", "idle", "agy")
+	got = hookRkPaths(twoPathJSON)
+	if len(got) != 2 || got[0] != testLauncherPath || got[1] != "/opt/homebrew/bin/rk" {
+		t.Errorf("hookRkPaths(two-path JSON) = %v, want [%s /opt/homebrew/bin/rk]", got, testLauncherPath)
+	}
+	singlePath := `/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "/opt/homebrew/bin/rk" agent hook --agent claude active 2>/dev/null || true'`
+	if got := hookRkPaths(singlePath); len(got) != 1 || got[0] != "/opt/homebrew/bin/rk" {
+		t.Errorf("hookRkPaths(single-path) = %v, want [/opt/homebrew/bin/rk]", got)
+	}
+	if got := hookRkPaths("no quoted token"); len(got) != 0 {
+		t.Errorf("hookRkPaths on an unquoted command = %v, want empty", got)
+	}
+}
+
+// TestCheckHookRkPathTwoPathVerdicts pins the two-path dangling semantics: the
+// check fails only when EVERY embedded path dangles (the hint lists them all);
+// a partially dangling two-path wrapper passes with an advisory note naming
+// the dangling side; a single-path (gen-3) wrapper passes with the
+// add-the-fallback note.
+func TestCheckHookRkPathTwoPathVerdicts(t *testing.T) {
+	agent := agentConfig{name: "Test", provider: "claude"}
+	statFor := func(live ...string) func(string) (os.FileInfo, error) {
+		return func(path string) (os.FileInfo, error) {
+			if slices.Contains(live, path) {
+				return fakeFileInfo{mode: 0o755}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+	}
+	const stable = "/opt/homebrew/bin/rk"
+	twoPath := agentStateHookCommand(testLauncherPath, stable, "active", "claude")
+	twoPathJSON := agentStateHookCommandJSON(testLauncherPath, stable, "idle", "agy")
+
+	t.Run("both paths live pass without a note (classic and JSON)", func(t *testing.T) {
+		for _, cmd := range []string{twoPath, twoPathJSON} {
+			hint, note := checkHookRkPath(agent, "settings.json", cmd, statFor(testLauncherPath, stable))
+			if hint != "" || note != "" {
+				t.Errorf("checkHookRkPath(both live) = (%q, %q), want clean pass", hint, note)
+			}
+		}
+	})
+
+	t.Run("all paths dangling fails, hint lists every path", func(t *testing.T) {
+		hint, note := checkHookRkPath(agent, "settings.json", twoPath, statFor())
+		if hint == "" {
+			t.Fatal("all-dangling must fail")
+		}
+		if !strings.Contains(hint, testLauncherPath) || !strings.Contains(hint, stable) {
+			t.Errorf("hint = %q, want both dangling paths named", hint)
+		}
+		if note != "" {
+			t.Errorf("a failing check carries no advisory note, got %q", note)
+		}
+	})
+
+	t.Run("launcher dangling, stable live → pass with the launcher note", func(t *testing.T) {
+		hint, note := checkHookRkPath(agent, "settings.json", twoPath, statFor(stable))
+		if hint != "" {
+			t.Fatalf("partially dangling must pass, got hint %q", hint)
+		}
+		want := "launcher " + testLauncherPath + " dangling — re-run `rk agent setup`"
+		if note != want {
+			t.Errorf("note = %q, want %q", note, want)
+		}
+	})
+
+	t.Run("stable dangling, launcher live → pass with the stable note", func(t *testing.T) {
+		hint, note := checkHookRkPath(agent, "settings.json", twoPath, statFor(testLauncherPath))
+		if hint != "" {
+			t.Fatalf("partially dangling must pass, got hint %q", hint)
+		}
+		want := "stable path " + stable + " dangling — re-run `rk agent setup`"
+		if note != want {
+			t.Errorf("note = %q, want %q", note, want)
+		}
+	})
+
+	t.Run("single-path gen-3 wrapper passes with the fallback note", func(t *testing.T) {
+		singlePath := `/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "` + stable + `" agent hook --agent claude active 2>/dev/null || true'`
+		hint, note := checkHookRkPath(agent, "settings.json", singlePath, statFor(stable))
+		if hint != "" {
+			t.Fatalf("a live single-path wrapper must pass, got hint %q", hint)
+		}
+		want := "single-path wrapper — re-run `rk agent setup` to add the launcher fallback"
+		if note != want {
+			t.Errorf("note = %q, want %q", note, want)
+		}
+	})
+}
+
+// TestExtractRkHookCommandsTwoConstPlugin pins the plugin parse: the RK and
+// RK_FALLBACK consts synthesize ONE combined two-invocation command, so the
+// dangling-path verdict matches the shell wrappers (fail only when both
+// dangle); a plugin carrying only RK (pre-fallback generation) parses to the
+// single path.
+func TestExtractRkHookCommandsTwoConstPlugin(t *testing.T) {
+	const stable = "/opt/homebrew/bin/rk"
+	cmds := extractRkHookCommands(opencodePluginFile(testLauncherPath, stable))
+	if len(cmds) != 1 {
+		t.Fatalf("two-const plugin must synthesize exactly one combined command, got %v", cmds)
+	}
+	got := hookRkPaths(cmds[0])
+	if len(got) != 2 || got[0] != testLauncherPath || got[1] != stable {
+		t.Errorf("combined command paths = %v, want [%s %s] (launcher first)", got, testLauncherPath, stable)
+	}
+
+	rkOnly := "const RK = \"/opt/homebrew/bin/rk\";\nexecFile(RK, [\"agent\", \"hook\"])\n"
+	cmds = extractRkHookCommands(rkOnly)
+	if len(cmds) != 1 {
+		t.Fatalf("single-const plugin must yield one command, got %v", cmds)
+	}
+	if got := hookRkPaths(cmds[0]); len(got) != 1 || got[0] != stable {
+		t.Errorf("single-const paths = %v, want [%s]", got, stable)
 	}
 }
 
@@ -1603,10 +1718,10 @@ func TestAgentHooksCheckAggregatesProviders(t *testing.T) {
 	// claude gen-3 (healthy) + codex gen-3 (healthy) → one aggregated note
 	// naming both providers.
 	bodies := map[string][]byte{
-		filepath.Join(home, ".claude", "settings.json"): hookSettingsJSON(agentStateHookCommand("/opt/homebrew/bin/rk", "active", "claude")),
-		filepath.Join(home, ".codex", "hooks.json"):     hookSettingsJSON(agentStateHookCommand("/opt/homebrew/bin/rk", "stamp", "codex")),
+		filepath.Join(home, ".claude", "settings.json"): hookSettingsJSON(agentStateHookCommand(testLauncherPath, "/opt/homebrew/bin/rk", "active", "claude")),
+		filepath.Join(home, ".codex", "hooks.json"):     hookSettingsJSON(agentStateHookCommand(testLauncherPath, "/opt/homebrew/bin/rk", "stamp", "codex")),
 	}
-	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{"/opt/homebrew/bin/rk": true})
+	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{testLauncherPath: true, "/opt/homebrew/bin/rk": true})
 	c := agentHooksCheck(home, readFile, stat)
 	if !c.OK {
 		t.Fatalf("OK = false, want true: %s", c.Hint)
@@ -1625,10 +1740,10 @@ func TestAgentHooksCheckStaleInAnyProviderFails(t *testing.T) {
 	// must fail regardless of registry order.
 	gen2 := `/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "/opt/homebrew/bin/rk" agent-hook --agent codex stamp 2>/dev/null || true'`
 	bodies := map[string][]byte{
-		filepath.Join(home, ".claude", "settings.json"): hookSettingsJSON(agentStateHookCommand("/opt/homebrew/bin/rk", "active", "claude")),
+		filepath.Join(home, ".claude", "settings.json"): hookSettingsJSON(agentStateHookCommand(testLauncherPath, "/opt/homebrew/bin/rk", "active", "claude")),
 		filepath.Join(home, ".codex", "hooks.json"):     hookSettingsJSON(gen2),
 	}
-	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{"/opt/homebrew/bin/rk": true})
+	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{testLauncherPath: true, "/opt/homebrew/bin/rk": true})
 	c := agentHooksCheck(home, readFile, stat)
 	if c.OK {
 		t.Error("OK = true, want false (a stale entry in ANY provider fails the row)")
@@ -1645,7 +1760,7 @@ func TestAgentHooksCheckCopilotMarkerFile(t *testing.T) {
 	t.Setenv("KIMI_CODE_HOME", "")
 	// A copilot marker file whose embedded rk path dangles fails; a healthy one
 	// reports installed.
-	dangling := copilotHooksFile("/removed/keg/rk")
+	dangling := copilotHooksFile("/removed/keg/run-kit", "/removed/keg/rk")
 	bodies := map[string][]byte{filepath.Join(home, ".copilot", "hooks", "run-kit.json"): []byte(dangling)}
 	readFile, stat := agentHooksMapFixture(t, bodies, nil)
 	c := agentHooksCheck(home, readFile, stat)
@@ -1656,8 +1771,8 @@ func TestAgentHooksCheckCopilotMarkerFile(t *testing.T) {
 		t.Errorf("Hint = %q, want the copilot prefix", c.Hint)
 	}
 
-	bodies[filepath.Join(home, ".copilot", "hooks", "run-kit.json")] = []byte(copilotHooksFile("/opt/homebrew/bin/rk"))
-	readFile, stat = agentHooksMapFixture(t, bodies, map[string]bool{"/opt/homebrew/bin/rk": true})
+	bodies[filepath.Join(home, ".copilot", "hooks", "run-kit.json")] = []byte(copilotHooksFile(testLauncherPath, "/opt/homebrew/bin/rk"))
+	readFile, stat = agentHooksMapFixture(t, bodies, map[string]bool{testLauncherPath: true, "/opt/homebrew/bin/rk": true})
 	c = agentHooksCheck(home, readFile, stat)
 	if !c.OK || !strings.Contains(c.Note, "copilot") {
 		t.Errorf("healthy copilot marker file: OK = %v Note = %q", c.OK, c.Note)
@@ -1677,11 +1792,11 @@ func TestAgentHooksCheckKimiMarkerBlock(t *testing.T) {
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("COPILOT_HOME", "")
 	t.Setenv("KIMI_CODE_HOME", "")
-	_, _, block := kimiHooksBlock("/opt/homebrew/bin/rk")
+	_, _, block := kimiHooksBlock(testLauncherPath, "/opt/homebrew/bin/rk")
 	bodies := map[string][]byte{
 		filepath.Join(home, ".kimi-code", "config.toml"): []byte("model = \"k2\"\n" + block),
 	}
-	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{"/opt/homebrew/bin/rk": true})
+	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{testLauncherPath: true, "/opt/homebrew/bin/rk": true})
 	c := agentHooksCheck(home, readFile, stat)
 	if !c.OK || !strings.Contains(c.Note, "kimi") {
 		t.Errorf("healthy kimi block: OK = %v Note = %q", c.OK, c.Note)
@@ -1702,17 +1817,18 @@ func TestAgentHooksCheckOpencodePlugin(t *testing.T) {
 	t.Setenv("COPILOT_HOME", "")
 	t.Setenv("KIMI_CODE_HOME", "")
 	bodies := map[string][]byte{
-		filepath.Join(home, ".config", "opencode", "plugins", "run-kit.js"): []byte(opencodePluginFile("/opt/homebrew/bin/rk")),
+		filepath.Join(home, ".config", "opencode", "plugins", "run-kit.js"): []byte(opencodePluginFile(testLauncherPath, "/opt/homebrew/bin/rk")),
 	}
-	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{"/opt/homebrew/bin/rk": true})
+	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{testLauncherPath: true, "/opt/homebrew/bin/rk": true})
 	c := agentHooksCheck(home, readFile, stat)
 	if !c.OK || !strings.Contains(c.Note, "opencode") {
 		t.Errorf("healthy opencode plugin: OK = %v Note = %q", c.OK, c.Note)
 	}
 
-	// A dangling RK path fails — hookRkPath must recover the path from the
-	// plugin's `const RK = "<path>";` line so the dangle is caught.
-	bodies[filepath.Join(home, ".config", "opencode", "plugins", "run-kit.js")] = []byte(opencodePluginFile("/removed/keg/rk"))
+	// Both embedded paths dangling fails — extractRkHookCommands recovers them
+	// from the plugin's `const RK = "..."` / `const RK_FALLBACK = "..."` lines
+	// so the dangle is caught.
+	bodies[filepath.Join(home, ".config", "opencode", "plugins", "run-kit.js")] = []byte(opencodePluginFile("/removed/keg/run-kit", "/removed/keg/rk"))
 	readFile, stat = agentHooksMapFixture(t, bodies, nil)
 	c = agentHooksCheck(home, readFile, stat)
 	if c.OK || !strings.Contains(c.Hint, "OpenCode") {
@@ -1725,17 +1841,17 @@ func TestAgentHooksCheckAgyNamedDoc(t *testing.T) {
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("COPILOT_HOME", "")
 	t.Setenv("KIMI_CODE_HOME", "")
-	settings := map[string]any{"run-kit": agyNamedHookEntry("/opt/homebrew/bin/rk")}
+	settings := map[string]any{"run-kit": agyNamedHookEntry(testLauncherPath, "/opt/homebrew/bin/rk")}
 	body, _ := json.Marshal(settings)
 	bodies := map[string][]byte{filepath.Join(home, ".gemini", "config", "hooks.json"): body}
-	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{"/opt/homebrew/bin/rk": true})
+	readFile, stat := agentHooksMapFixture(t, bodies, map[string]bool{testLauncherPath: true, "/opt/homebrew/bin/rk": true})
 	c := agentHooksCheck(home, readFile, stat)
 	if !c.OK || !strings.Contains(c.Note, "agy") {
 		t.Errorf("healthy agy named hook: OK = %v Note = %q", c.OK, c.Note)
 	}
 
 	// Dangling embedded rk path fails.
-	settings["run-kit"] = agyNamedHookEntry("/removed/keg/rk")
+	settings["run-kit"] = agyNamedHookEntry("/removed/keg/run-kit", "/removed/keg/rk")
 	body, _ = json.Marshal(settings)
 	bodies[filepath.Join(home, ".gemini", "config", "hooks.json")] = body
 	readFile, stat = agentHooksMapFixture(t, bodies, nil)

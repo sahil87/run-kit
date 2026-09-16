@@ -945,25 +945,27 @@ func classifyHookGeneration(cmd string) int {
 	return 0
 }
 
-// hookRkPath extracts the rk binary path embedded in a gen-3 hook command —
-// the double-quoted token immediately before the ` agent hook ` invocation
-// marker (both wrapper variants: the classic `|| exit 0; "<rk>"` and the
-// JSON-output `&& "<rk>"`). "" when the command does not carry one.
-func hookRkPath(cmd string) string {
-	idx := strings.Index(cmd, " agent hook ")
-	if idx < 0 {
-		return ""
+// hookRkPaths extracts every rk binary path embedded in a gen-3 hook command —
+// the double-quoted token immediately before each ` agent hook ` invocation
+// marker. A fourth-generation wrapper carries TWO invocations (launcher first,
+// stable fallback second); a third-generation one carries one. Empty when the
+// command carries none.
+func hookRkPaths(cmd string) []string {
+	var paths []string
+	rest := cmd
+	for {
+		idx := strings.Index(rest, rkHookMarkerAgentHookFamily)
+		if idx < 0 {
+			return paths
+		}
+		head := rest[:idx]
+		if end := strings.LastIndex(head, `"`); end >= 0 {
+			if start := strings.LastIndex(head[:end], `"`); start >= 0 {
+				paths = append(paths, head[start+1:end])
+			}
+		}
+		rest = rest[idx+len(rkHookMarkerAgentHookFamily):]
 	}
-	head := cmd[:idx]
-	end := strings.LastIndex(head, `"`)
-	if end < 0 {
-		return ""
-	}
-	start := strings.LastIndex(head[:end], `"`)
-	if start < 0 {
-		return ""
-	}
-	return head[start+1 : end]
 }
 
 // agentHooksCheck reports the rk-owned agent-hooks install state across EVERY
@@ -980,8 +982,9 @@ func hookRkPath(cmd string) string {
 func agentHooksCheck(home string, readFile func(string) ([]byte, error), stat func(string) (os.FileInfo, error)) doctorCheck {
 	check := doctorCheck{Name: "agent hooks", failLabel: "agent hooks", OK: true}
 	var installed []string
+	var notes []string
 	for _, agent := range agentRegistry(home) {
-		st, failHint := agentHooksStatus(agent, readFile, stat)
+		st, failHint, note := agentHooksStatus(agent, readFile, stat)
 		if failHint != "" {
 			check.OK = false
 			check.Hint = failHint
@@ -990,20 +993,28 @@ func agentHooksCheck(home string, readFile func(string) ([]byte, error), stat fu
 		if st {
 			installed = append(installed, agent.provider)
 		}
+		if note != "" {
+			notes = append(notes, fmt.Sprintf("%s: %s", agent.name, note))
+		}
 	}
 	if len(installed) == 0 {
 		check.Note = "not installed (optional — install with `rk agent setup`)"
 		return check
 	}
 	check.Note = fmt.Sprintf("installed (generation 3): %s; writes %s + %s", strings.Join(installed, ", "), tmux.AgentStateOption, tmux.LegacyAgentStateOption)
+	if len(notes) > 0 {
+		check.Note += " — " + strings.Join(notes, "; ")
+	}
 	return check
 }
 
 // agentHooksStatus reports whether one registry agent has rk-owned hooks
 // installed, returning a failure hint when the agent's artifacts are present
-// but broken (stale generation, dangling rk path, unreadable/malformed file).
-// Absent artifacts are (false, "") — the hooks are optional.
-func agentHooksStatus(agent agentConfig, readFile func(string) ([]byte, error), stat func(string) (os.FileInfo, error)) (installed bool, failHint string) {
+// but broken (stale generation, every embedded rk path dangling,
+// unreadable/malformed file) and an advisory note when they pass with a
+// caveat (a partially dangling two-path wrapper, a single-path gen-3 wrapper).
+// Absent artifacts are (false, "", "") — the hooks are optional.
+func agentHooksStatus(agent agentConfig, readFile func(string) ([]byte, error), stat func(string) (os.FileInfo, error)) (installed bool, failHint, note string) {
 	switch agent.kind {
 	case kindMarkerFile:
 		return markerFileHooksStatus(agent, readFile, stat)
@@ -1019,20 +1030,20 @@ func agentHooksStatus(agent agentConfig, readFile func(string) ([]byte, error), 
 // "hooks" root; agy's named-hooks document IS the root (walked whole). The
 // recursive command walk collects every "command" string in the relevant
 // subtree, so both shapes classify through the same generation markers.
-func jsonHooksStatus(agent agentConfig, readFile func(string) ([]byte, error), stat func(string) (os.FileInfo, error)) (bool, string) {
+func jsonHooksStatus(agent agentConfig, readFile func(string) ([]byte, error), stat func(string) (os.FileInfo, error)) (bool, string, string) {
 	data, err := readFile(agent.settingsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return false, ""
+			return false, "", ""
 		}
 		// A present-but-unreadable settings file is NOT the absent case: the
 		// hooks it carries may be firing (or failing) on every turn while
 		// doctor cannot vouch for them.
-		return false, fmt.Sprintf("%s: unreadable settings file at %s (%v) — fix its permissions or remove it, then re-run `rk doctor`", agent.name, agent.settingsPath, err)
+		return false, fmt.Sprintf("%s: unreadable settings file at %s (%v) — fix its permissions or remove it, then re-run `rk doctor`", agent.name, agent.settingsPath, err), ""
 	}
 	var settings map[string]any
 	if err := json.Unmarshal(data, &settings); err != nil {
-		return false, fmt.Sprintf("%s: settings file at %s is not parseable JSON (%v) — fix it, then re-run `rk doctor`", agent.name, agent.settingsPath, err)
+		return false, fmt.Sprintf("%s: settings file at %s is not parseable JSON (%v) — fix it, then re-run `rk doctor`", agent.name, agent.settingsPath, err), ""
 	}
 	root := any(asMap(settings["hooks"]))
 	if agent.namedHooksDoc {
@@ -1040,6 +1051,7 @@ func jsonHooksStatus(agent agentConfig, readFile func(string) ([]byte, error), s
 	}
 	var stale, gen3 int
 	staleGen := 0
+	note := ""
 	for _, cmd := range walkJSONCommands(root) {
 		switch gen := classifyHookGeneration(cmd); gen {
 		case 1, 2:
@@ -1049,8 +1061,12 @@ func jsonHooksStatus(agent agentConfig, readFile func(string) ([]byte, error), s
 			}
 		case 3:
 			gen3++
-			if hint := checkHookRkPath(agent, agent.settingsPath, cmd, stat); hint != "" {
-				return false, hint
+			hint, n := checkHookRkPath(agent, agent.settingsPath, cmd, stat)
+			if hint != "" {
+				return false, hint, ""
+			}
+			if note == "" {
+				note = n
 			}
 		}
 	}
@@ -1059,13 +1075,13 @@ func jsonHooksStatus(agent agentConfig, readFile func(string) ([]byte, error), s
 		if stale == 1 {
 			noun = "entry"
 		}
-		return false, fmt.Sprintf("%s: %d stale hook %s in %s (generation %d) — they write legacy option names; re-run `rk agent setup` to replace them", agent.name, stale, noun, agent.settingsPath, staleGen)
+		return false, fmt.Sprintf("%s: %d stale hook %s in %s (generation %d) — they write legacy option names; re-run `rk agent setup` to replace them", agent.name, stale, noun, agent.settingsPath, staleGen), ""
 	}
 	if agent.namedHooksDoc {
 		_, ok := settings[rkNamedHookKey]
-		return ok, ""
+		return ok, "", note
 	}
-	return gen3 > 0, ""
+	return gen3 > 0, "", note
 }
 
 // walkJSONCommands collects every "command" string value in a JSON-shaped
@@ -1096,75 +1112,122 @@ func walkJSONCommands(v any) []string {
 // markerFileHooksStatus checks a kindMarkerFile agent (copilot/opencode): the
 // marker-owned file exists, and every embedded rk hook command's path resolves
 // to an executable.
-func markerFileHooksStatus(agent agentConfig, readFile func(string) ([]byte, error), stat func(string) (os.FileInfo, error)) (bool, string) {
+func markerFileHooksStatus(agent agentConfig, readFile func(string) ([]byte, error), stat func(string) (os.FileInfo, error)) (bool, string, string) {
 	data, err := readFile(agent.filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return false, ""
+			return false, "", ""
 		}
-		return false, fmt.Sprintf("%s: unreadable hooks file at %s (%v) — fix its permissions or remove it, then re-run `rk doctor`", agent.name, agent.filePath, err)
+		return false, fmt.Sprintf("%s: unreadable hooks file at %s (%v) — fix its permissions or remove it, then re-run `rk doctor`", agent.name, agent.filePath, err), ""
 	}
 	content := string(data)
 	if !markerFileOwned(content) {
 		// A foreign marker-less file at the path is not an rk install.
-		return false, ""
+		return false, "", ""
 	}
+	note := ""
 	for _, cmd := range extractRkHookCommands(content) {
-		if hint := checkHookRkPath(agent, agent.filePath, cmd, stat); hint != "" {
-			return false, hint
+		hint, n := checkHookRkPath(agent, agent.filePath, cmd, stat)
+		if hint != "" {
+			return false, hint, ""
+		}
+		if note == "" {
+			note = n
 		}
 	}
-	return true, ""
+	return true, "", note
 }
 
 // markerBlockHooksStatus checks a kindMarkerBlock agent (kimi): the
 // marker-owned block is present and well-formed, and its embedded rk paths
 // resolve. A malformed block (begin without end, or a duplicated begin) fails
 // with the repair hint rather than being guessed at.
-func markerBlockHooksStatus(agent agentConfig, readFile func(string) ([]byte, error), stat func(string) (os.FileInfo, error)) (bool, string) {
+func markerBlockHooksStatus(agent agentConfig, readFile func(string) ([]byte, error), stat func(string) (os.FileInfo, error)) (bool, string, string) {
 	data, err := readFile(agent.blockPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return false, ""
+			return false, "", ""
 		}
-		return false, fmt.Sprintf("%s: unreadable config at %s (%v) — fix its permissions, then re-run `rk doctor`", agent.name, agent.blockPath, err)
+		return false, fmt.Sprintf("%s: unreadable config at %s (%v) — fix its permissions, then re-run `rk doctor`", agent.name, agent.blockPath, err), ""
 	}
-	begin, end, _ := agent.blockContent("")
+	begin, end, _ := agent.blockContent("", "")
 	lines := strings.Split(string(data), "\n")
 	start, stop, found, blockErr := markerBlockBounds(lines, begin, end)
 	if blockErr != nil {
-		return false, fmt.Sprintf("%s: %s: %v — repair or remove the block by hand, then re-run `rk agent setup`", agent.name, agent.blockPath, blockErr)
+		return false, fmt.Sprintf("%s: %s: %v — repair or remove the block by hand, then re-run `rk agent setup`", agent.name, agent.blockPath, blockErr), ""
 	}
 	if !found {
-		return false, ""
+		return false, "", ""
 	}
+	note := ""
 	for _, line := range lines[start : stop+1] {
 		if cmd, ok := kimiBlockCommand(line); ok {
-			if hint := checkHookRkPath(agent, agent.blockPath, cmd, stat); hint != "" {
-				return false, hint
+			hint, n := checkHookRkPath(agent, agent.blockPath, cmd, stat)
+			if hint != "" {
+				return false, hint, ""
+			}
+			if note == "" {
+				note = n
 			}
 		}
 	}
-	return true, ""
+	return true, "", note
 }
 
-// checkHookRkPath fails when a gen-3 hook command's embedded rk path dangles.
-func checkHookRkPath(agent agentConfig, path, cmd string, stat func(string) (os.FileInfo, error)) string {
-	rkPath := hookRkPath(cmd)
-	if rkPath == "" {
-		return ""
+// checkHookRkPath checks every rk path embedded in a gen-3 hook command. It
+// FAILS only when every embedded path dangles (the hook fires and writes
+// nothing on both paths). A partially dangling two-path wrapper passes with a
+// note — a dangling launcher is the expected state between brew cleanup and
+// the daemon's next re-point, so failing on it would page for a self-healing
+// condition; the same holds for a dangling stable path behind a live launcher.
+// A single-path (third-generation) wrapper passes with the re-run note: it
+// works, but lacks the launcher fallback.
+func checkHookRkPath(agent agentConfig, path, cmd string, stat func(string) (os.FileInfo, error)) (failHint, note string) {
+	paths := hookRkPaths(cmd)
+	if len(paths) == 0 {
+		return "", ""
 	}
-	info, statErr := stat(rkPath)
-	if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-		return fmt.Sprintf("%s: gen-3 hook in %s execs %q, which is not an existing regular executable — hooks fire and write nothing; re-run `rk agent setup`", agent.name, path, rkPath)
+	live := make([]bool, len(paths))
+	liveCount := 0
+	for i, p := range paths {
+		info, statErr := stat(p)
+		if statErr == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
+			live[i] = true
+			liveCount++
+		}
 	}
-	return ""
+	if liveCount == 0 {
+		return fmt.Sprintf("%s: gen-3 hook in %s execs %s, none of which is an existing regular executable — hooks fire and write nothing; re-run `rk agent setup`", agent.name, path, quotedList(paths)), ""
+	}
+	if len(paths) == 1 {
+		return "", "single-path wrapper — re-run `rk agent setup` to add the launcher fallback"
+	}
+	for i, p := range paths {
+		if live[i] {
+			continue
+		}
+		if i == 0 {
+			return "", fmt.Sprintf("launcher %s dangling — re-run `rk agent setup`", p)
+		}
+		return "", fmt.Sprintf("stable path %s dangling — re-run `rk agent setup`", p)
+	}
+	return "", ""
+}
+
+// quotedList renders paths as `"a", "b"` for a failure hint.
+func quotedList(paths []string) string {
+	quoted := make([]string, len(paths))
+	for i, p := range paths {
+		quoted[i] = fmt.Sprintf("%q", p)
+	}
+	return strings.Join(quoted, ", ")
 }
 
 // extractRkHookCommands returns the rk hook command strings from raw file
 // content: the JSON form (copilot's `"command": "..."` values) and the JS
-// plugin's `const RK = "<path>"` plus its invocation line. The scan keys on
-// the ` agent hook ` / ` agent-hook ` invocation markers — the same ownership
+// plugin's `const RK = "<path>"` / `const RK_FALLBACK = "<path>"` consts,
+// from which one synthetic two-path command is built. The scan keys on the
+// ` agent hook ` / ` agent-hook ` invocation markers — the same ownership
 // signal markerFileOwned uses.
 func extractRkHookCommands(content string) []string {
 	var cmds []string
@@ -1181,14 +1244,29 @@ func extractRkHookCommands(content string) []string {
 		}
 		return cmds
 	}
-	// Non-JSON (the opencode plugin): the binary path sits in the RK const.
+	// Non-JSON (the opencode plugin): the binary paths sit in the RK and
+	// RK_FALLBACK consts. They are combined into ONE synthetic two-invocation
+	// command so the dangling-path semantics (fail only when both dangle) match
+	// the shell wrappers the plugin mirrors.
+	var rk, rkFallback string
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
 		if rest, ok := strings.CutPrefix(line, `const RK = "`); ok {
 			if p, ok := strings.CutSuffix(rest, `";`); ok {
-				cmds = append(cmds, fmt.Sprintf(`; "%s" agent hook `, p))
+				rk = p
 			}
 		}
+		if rest, ok := strings.CutPrefix(line, `const RK_FALLBACK = "`); ok {
+			if p, ok := strings.CutSuffix(rest, `";`); ok {
+				rkFallback = p
+			}
+		}
+	}
+	switch {
+	case rk != "" && rkFallback != "":
+		cmds = append(cmds, fmt.Sprintf(`; "%s" agent hook x || "%s" agent hook `, rk, rkFallback))
+	case rk != "":
+		cmds = append(cmds, fmt.Sprintf(`; "%s" agent hook `, rk))
 	}
 	return cmds
 }

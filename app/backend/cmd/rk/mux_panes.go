@@ -161,12 +161,13 @@ func runMuxPanes(cmd *cobra.Command) error {
 					Command:      p.Command,
 					CWD:          p.Cwd,
 				}
-				// Duration follows the sessions rollup semantics: meaningful
-				// for idle and waiting (epoch > 0), never shown for active.
+				// Duration follows the sessions rollup semantics: emitted for
+				// any known state with epoch > 0, active included — a lost
+				// write on a live agent is otherwise invisible downstream.
 				if p.AgentState != "" {
 					state := p.AgentState
 					row.AgentState = &state
-					if (p.AgentState == tmux.AgentStateIdle || p.AgentState == tmux.AgentStateWaiting) && p.AgentStateEpoch > 0 {
+					if p.AgentStateEpoch > 0 {
 						if d := sessions.FormatAgentDuration(nowUnix - p.AgentStateEpoch); d != "" {
 							row.AgentStateDuration = &d
 						}

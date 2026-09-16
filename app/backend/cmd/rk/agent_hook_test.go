@@ -923,7 +923,9 @@ func TestRunAgentHookAgyStopFullyIdleGate(t *testing.T) {
 }
 
 func TestAgentStateHookCommandJSONShape(t *testing.T) {
-	cmd := agentStateHookCommandJSON("/opt/homebrew/bin/rk", "idle", "agy")
+	const launcher = "/home/u/.local/share/rk/bin/run-kit"
+	const stable = "/opt/homebrew/bin/rk"
+	cmd := agentStateHookCommandJSON(launcher, stable, "idle", "agy")
 	// Emits {} (a well-formed no-decision result) even outside tmux, and never
 	// fails: the trailing echo is the last command.
 	if !strings.Contains(cmd, `echo "{}"`) {
@@ -935,5 +937,26 @@ func TestAgentStateHookCommandJSONShape(t *testing.T) {
 	// Never emits a decision field.
 	if strings.Contains(cmd, "decision") || strings.Contains(cmd, "allow") || strings.Contains(cmd, "deny") || strings.Contains(cmd, "force_continue") {
 		t.Errorf("telemetry hook must never emit a decision: %s", cmd)
+	}
+	// Both embedded paths, launcher first, stable second — each covering the
+	// other's brew-upgrade hole.
+	launcherInvocation := `"` + launcher + `" agent hook --agent agy idle 2>/dev/null`
+	stableInvocation := `"` + stable + `" agent hook --agent agy idle 2>/dev/null`
+	li := strings.Index(cmd, launcherInvocation)
+	si := strings.Index(cmd, stableInvocation)
+	if li < 0 || si < 0 {
+		t.Fatalf("wrapper must embed both invocations (launcher %q, stable %q): %s", launcher, stable, cmd)
+	}
+	if li > si {
+		t.Errorf("launcher invocation must precede the stable fallback: %s", cmd)
+	}
+	// The ` agent hook ` family marker appears twice and keeps isRkEntry
+	// recognition, so a gen-3 single-path installed line is still replaced
+	// in place.
+	if n := strings.Count(cmd, " agent hook "); n != 2 {
+		t.Errorf(`" agent hook " marker count = %d, want 2: %s`, n, cmd)
+	}
+	if !isRkEntry(map[string]any{"hooks": []any{map[string]any{"type": "command", "command": cmd}}}) {
+		t.Errorf("two-path JSON wrapper must be recognized by isRkEntry: %s", cmd)
 	}
 }

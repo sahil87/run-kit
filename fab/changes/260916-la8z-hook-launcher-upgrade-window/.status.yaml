@@ -1,0 +1,57 @@
+id: la8z
+name: 260916-la8z-hook-launcher-upgrade-window
+created: 2026-09-16T17:27:44Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 26
+    acceptance_completed: 26
+confidence:
+    certain: 5
+    confident: 8
+    tentative: 0
+    unresolved: 0
+    score: 3.4
+    fuzzy: true
+    dimensions:
+        signal: 75.4
+        reversibility: 80.0
+        competence: 75.8
+        disambiguation: 70.8
+stage_metrics:
+    intake: {started_at: "2026-09-16T17:27:44Z", driver: fab-new, iterations: 1, completed_at: "2026-09-16T17:36:04Z"}
+    apply: {started_at: "2026-09-16T17:36:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T18:06:29Z"}
+    review: {started_at: "2026-09-16T18:06:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T18:09:56Z"}
+    hydrate: {started_at: "2026-09-16T18:09:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T18:18:45Z"}
+    ship: {started_at: "2026-09-16T18:18:45Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-16T18:18:45Z"
+    computed_at_stage: hydrate
+summary: 'Hook launcher: an rk-owned launcher symlink (third internal/selfpath resolver) targets the Cellar binary — written first by rk agent setup, re-pointed by brew daemons at serve start — and every hook wrapper execs it first with the brew stable symlink as fallback (all installer kinds, opencode RK_FALLBACK included); rk doctor parses every embedded path and fails only when all dangle; code-server RK_BIN moved to the launcher; active age is emitted on the mux/rollup machine surfaces (SPA renders durations only for waiting/idle).'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-16T18:18:45Z

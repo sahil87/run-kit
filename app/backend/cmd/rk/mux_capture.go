@@ -183,10 +183,11 @@ func runMuxCapture(cmd *cobra.Command, target string) error {
 		return fmt.Errorf("read pane context: %w", err)
 	}
 
-	// Duration follows the sessions rollup semantics: meaningful for idle and
-	// waiting (epoch > 0), never shown for active.
+	// Duration follows the sessions rollup semantics: emitted for any known
+	// state with epoch > 0, active included — a lost write on a live agent is
+	// otherwise invisible downstream.
 	var duration string
-	if (facts.AgentState == tmux.AgentStateIdle || facts.AgentState == tmux.AgentStateWaiting) && facts.AgentStateEpoch > 0 {
+	if facts.AgentState != "" && facts.AgentStateEpoch > 0 {
 		duration = sessions.FormatAgentDuration(muxCaptureNowFn().Unix() - facts.AgentStateEpoch)
 	}
 

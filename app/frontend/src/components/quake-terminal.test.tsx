@@ -1018,6 +1018,30 @@ describe("QuakeTerminal", () => {
     expect(within(header).getByTestId("quake-terminal-state")).toHaveTextContent("waiting 2m");
   });
 
+  it("an active operator window with a duration renders the state alone — the duration is rest-states-only", () => {
+    renderQuake({
+      sessionsByServer: new Map([
+        [
+          "srv1",
+          [
+            { name: "main", windows: [] },
+            {
+              name: "_rk-operator",
+              hidden: true,
+              windows: [win({ windowId: "@9", name: "operator", role: "operator", agentState: "active", agentIdleDuration: "12m" })],
+            },
+          ],
+        ],
+      ]),
+    });
+    openDrawer();
+
+    const header = screen.getByTestId("quake-terminal-header");
+    const state = within(header).getByTestId("quake-terminal-state");
+    expect(state).toHaveTextContent("active");
+    expect(state).not.toHaveTextContent("12m");
+  });
+
   it("the palette fallback request opens the quake terminal and sends the query immediately", async () => {
     renderQuake();
     act(() => {

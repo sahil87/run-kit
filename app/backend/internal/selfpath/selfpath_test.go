@@ -1,6 +1,10 @@
 package selfpath
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestStableForMapsCellarPathToBrewPrefixSymlink(t *testing.T) {
 	cases := []struct {
@@ -35,5 +39,86 @@ func TestStableComposesResolveAndStableFor(t *testing.T) {
 	}
 	if want := StableFor(resolved); got != want {
 		t.Errorf("Stable() = %q, want StableFor(Resolve()) = %q", got, want)
+	}
+}
+
+func TestLauncherFor(t *testing.T) {
+	if got := LauncherFor("/home/u"); got != "/home/u/.local/share/rk/bin/run-kit" {
+		t.Errorf("LauncherFor = %q, want /home/u/.local/share/rk/bin/run-kit", got)
+	}
+}
+
+func TestLauncherComposesUserHomeDir(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Launcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := LauncherFor(home); got != want {
+		t.Errorf("Launcher() = %q, want LauncherFor(home) = %q", got, want)
+	}
+}
+
+func TestReplaceSymlinkReplacesTargetAtomically(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "run-kit")
+	if err := os.Symlink("/target/a", link); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReplaceSymlink("/target/b", link); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s is not a symlink", link)
+	}
+	target, err := os.Readlink(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != "/target/b" {
+		t.Errorf("link target = %q, want /target/b", target)
+	}
+	if stale, _ := filepath.Glob(filepath.Join(dir, ".run-kit.tmp-*")); len(stale) != 0 {
+		t.Errorf("temp entries left behind: %v", stale)
+	}
+}
+
+func TestReplaceSymlinkSweepsStaleTemps(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "run-kit")
+	if err := os.Symlink("/target/a", link); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(dir, ".run-kit.tmp-1")
+	if err := os.Symlink("/target/old", stale); err != nil {
+		t.Fatal(err)
+	}
+	// A regular file under the temp pattern is not rk's and survives the sweep.
+	foreign := filepath.Join(dir, ".run-kit.tmp-2")
+	if err := os.WriteFile(foreign, []byte("user file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReplaceSymlink("/target/b", link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(stale); !os.IsNotExist(err) {
+		t.Errorf("stale temp symlink not swept: %v", err)
+	}
+	if _, err := os.Lstat(foreign); err != nil {
+		t.Errorf("foreign temp file removed: %v", err)
+	}
+	target, err := os.Readlink(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != "/target/b" {
+		t.Errorf("link target = %q, want /target/b", target)
 	}
 }

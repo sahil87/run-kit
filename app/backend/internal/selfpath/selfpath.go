@@ -4,15 +4,22 @@
 // share these so the brew-install detection cannot drift between the two entry
 // points into the same self-upgrade behavior.
 //
-// Two resolvers, two audiences. Resolve names the binary that is actually
+// Three resolvers, three audiences. Resolve names the binary that is actually
 // running — the input brew detection needs (the Cellar marker) and the path the
 // daemon's own respawn wants. Stable names the path that survives a
-// `brew upgrade`: on a Homebrew install the old keg is deleted, so any process
-// spawned to outlive this binary's version (a tmux session's argv, an RK_BIN
-// env element, a shell chain) must carry the brew-prefix symlink instead.
+// `brew upgrade` as a whole: on a Homebrew install the old keg is deleted, so
+// any process spawned to outlive this binary's version (a tmux session's argv,
+// an RK_BIN env element, a shell chain) must carry the brew-prefix symlink
+// instead. Launcher names the rk-owned symlink in the per-machine launcher
+// directory; its target is the Cellar binary, which Homebrew deletes only in
+// cleanup, AFTER the new keg is linked — so the launcher is live exactly during
+// the unlink→install→link window in which the stable symlink dangles. Callers
+// that must keep working mid-upgrade (the installed hook wrapper, code-server's
+// RK_BIN) exec the launcher first and the stable path as fallback.
 package selfpath
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,4 +76,51 @@ func Stable() (string, error) {
 		return "", err
 	}
 	return StableFor(resolved), nil
+}
+
+// LauncherRelDir is the per-machine launcher directory relative to $HOME. It
+// MUST stay off PATH: callers resolve the stable path with
+// exec.LookPath("run-kit") first, so a launcher on PATH would resolve to itself
+// on the next re-run and the link would loop.
+const LauncherRelDir = ".local/share/rk/bin"
+
+// LauncherFor returns the rk-owned launcher symlink path for a given home.
+func LauncherFor(home string) string {
+	return filepath.Join(home, filepath.FromSlash(LauncherRelDir), "run-kit")
+}
+
+// Launcher is LauncherFor(os.UserHomeDir()).
+func Launcher() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return LauncherFor(home), nil
+}
+
+// ReplaceSymlink atomically points linkPath at target: the new symlink is
+// created under a temporary name in the same directory and renamed over the
+// old one, so no reader ever observes the path missing. Rename replaces an
+// existing symlink in place on every platform rk runs on. The temp entry is
+// removed on any failure, and temp SYMLINKS left by an earlier run that
+// crashed between Symlink and Rename are swept first (only symlinks — a
+// regular file under the temp pattern is not rk's).
+func ReplaceSymlink(target, linkPath string) error {
+	pattern := filepath.Join(filepath.Dir(linkPath), "."+filepath.Base(linkPath)+".tmp-*")
+	if stale, _ := filepath.Glob(pattern); len(stale) > 0 {
+		for _, p := range stale {
+			if fi, err := os.Lstat(p); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+				_ = os.Remove(p)
+			}
+		}
+	}
+	tmp := filepath.Join(filepath.Dir(linkPath), fmt.Sprintf(".%s.tmp-%d", filepath.Base(linkPath), os.Getpid()))
+	if err := os.Symlink(target, tmp); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, linkPath); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }

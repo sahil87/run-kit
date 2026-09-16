@@ -123,14 +123,14 @@ func TestEnsureCodeServerSpawnCarriesRkBin(t *testing.T) {
 	}
 }
 
-func TestEnsureCodeServerSpawnCarriesStableRkBinOnBrew(t *testing.T) {
+func TestEnsureCodeServerSpawnCarriesLauncherRkBinOnBrew(t *testing.T) {
 	testutil.StubOnPath(t, "code-server", "#!/bin/sh\nexit 0\n")
 	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
 	spawned, _, _ := withCodeServerSeams(t, false)
-	// The default seam is selfpath.Stable; compose the same derivation over a
-	// synthetic Cellar path so the assertion pins the brew-prefix symlink.
+	// The default seam is selfpath.Launcher; compose the same derivation over a
+	// synthetic home so the assertion pins the rk-owned launcher symlink.
 	codeServerSelfPath = func() (string, error) {
-		return selfpath.StableFor("/opt/homebrew/Cellar/run-kit/1.2.3/bin/run-kit"), nil
+		return selfpath.LauncherFor("/h"), nil
 	}
 
 	ensureCodeServer()
@@ -148,8 +148,8 @@ func TestEnsureCodeServerSpawnCarriesStableRkBinOnBrew(t *testing.T) {
 	if i < 0 || i+1 >= len(args) {
 		t.Fatalf("spawn argv = %v, want `-u VSCODE_IPC_HOOK_CLI RK_BIN=… <binary>`", args)
 	}
-	if args[i+1] != "RK_BIN=/opt/homebrew/bin/run-kit" {
-		t.Errorf("element after VSCODE_IPC_HOOK_CLI = %q, want RK_BIN=/opt/homebrew/bin/run-kit", args[i+1])
+	if args[i+1] != "RK_BIN=/h/.local/share/rk/bin/run-kit" {
+		t.Errorf("element after VSCODE_IPC_HOOK_CLI = %q, want RK_BIN=/h/.local/share/rk/bin/run-kit", args[i+1])
 	}
 	for _, a := range args {
 		if strings.Contains(a, "/Cellar/") {
@@ -158,13 +158,13 @@ func TestEnsureCodeServerSpawnCarriesStableRkBinOnBrew(t *testing.T) {
 	}
 }
 
-func TestEnsureCodeServerInstallJobCarriesStableRkPathOnBrew(t *testing.T) {
+func TestEnsureCodeServerInstallJobCarriesLauncherRkPathOnBrew(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)
 	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
 	_, jobs, _ := withCodeServerSeams(t, false)
 	codeServerSelfPath = func() (string, error) {
-		return selfpath.StableFor("/opt/homebrew/Cellar/run-kit/1.2.3/bin/run-kit"), nil
+		return selfpath.LauncherFor("/h"), nil
 	}
 
 	ensureCodeServer()
@@ -172,9 +172,9 @@ func TestEnsureCodeServerInstallJobCarriesStableRkPathOnBrew(t *testing.T) {
 	if len(*jobs) != 1 {
 		t.Fatalf("job spawns = %d, want 1", len(*jobs))
 	}
-	want := `'/opt/homebrew/bin/run-kit' code-server install && '/opt/homebrew/bin/run-kit' code-server start`
+	want := `'/h/.local/share/rk/bin/run-kit' code-server install && '/h/.local/share/rk/bin/run-kit' code-server start`
 	if got := (*jobs)[0][1]; got != want {
-		t.Errorf("job argv = %q, want the brew-prefix chain %q", got, want)
+		t.Errorf("job argv = %q, want the launcher chain %q", got, want)
 	}
 }
 

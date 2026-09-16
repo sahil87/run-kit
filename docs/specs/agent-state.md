@@ -38,8 +38,8 @@ is derived server-side.
 | States | `active` \| `waiting` \| `idle` |
 | Example | `waiting:1751790000:48213` |
 
-The epoch segment is **mandatory** — readers compute idle/waiting duration from
-it. The pid segment is the **agent process's pid** and SHOULD be written by all
+The epoch segment is **mandatory** — readers compute the state's age from it
+(Reader rule 2). The pid segment is the **agent process's pid** and SHOULD be written by all
 current writers (resolved inside the `rk agent hook` binary via the
 comm-validated ancestor walk of Writer rule 5 — never raw `$PPID`, which records
 the harness's ephemeral hook-wrapper shell, not the agent); it feeds the
@@ -86,8 +86,20 @@ Hook commands that write the option MUST:
    pid-writing hook skewed between #320 and #321 and suppressed agent state
    fleet-wide. Delegating to the binary removes that freeze.)* If the binary is
    missing at fire time the hook is a silent no-op (the wrapper's trailing
-   `|| true`) — acceptable, because the PID-liveness reconciler already clears
-   state from dead agents and a stranded value clears when the agent/pane dies.
+   `|| true`) — for a DEAD agent that is acceptable, because the PID-liveness
+   reconciler already clears its state. For a LIVE agent it is not: a lost
+   `idle` write leaves a stale `active` that every reader trusts while the pid
+   lives, so the pane reads busy indefinitely with no downstream signal. That
+   is why the wrapper carries TWO binary paths (see the canonical command
+   below): the rk-owned launcher symlink first, the Homebrew stable symlink
+   second, each covering the other's upgrade hole. The launcher's target is
+   the Cellar binary, which `brew upgrade` deletes only in cleanup, AFTER the
+   new keg is linked — so it is live exactly during the unlink→install→link
+   window in which the stable symlink dangles; after cleanup the launcher
+   dangles until the daemon re-points it at start (`rk update` restarts the
+   daemon seconds after the upgrade), and the stable path covers that second
+   gap. The `||` chain advances only on exec failure (127/126) — `rk agent
+   hook` itself always exits 0.
 5. **Carry the agent pid, resolved by a comm-validated ancestor walk in the
    binary** — NOT raw `$PPID`: harnesses spawn hook commands through an
    *ephemeral* intermediate shell that exits when the hook finishes (measured
@@ -104,13 +116,25 @@ Hook commands that write the option MUST:
 
 Canonical command — the stable delegating wrapper installed by `rk agent setup`
 (state and comm are fixed registry literals; nothing user-provided is
-interpolated; `<abs-rk>` is the absolute rk path resolved at install time, a
-stable symlink rather than a version-pinned path; the interpreter is absolute
-for the same reason — hooks fire under the harness's environment, and a bare
-`sh` fails on sessions whose PATH lacks /bin):
+interpolated; both paths are machine-derived at install time and validated to
+carry no shell-active characters; the interpreter is absolute for the same
+reason — hooks fire under the harness's environment, and a bare `sh` fails on
+sessions whose PATH lacks /bin). `<launcher>` is the rk-owned symlink
+`~/.local/share/rk/bin/run-kit` (target: the resolved Cellar binary, live
+through the brew unlink→link window; `rk serve` re-points it at daemon start
+after an upgrade); `<stable>` is the brew-prefix symlink (the `resolveRkPath`
+result — never a version-pinned Cellar path), the fallback for the window
+between keg cleanup and that re-point:
 
 ```sh
-/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent hook --agent claude <state> 2>/dev/null || true'
+/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<launcher>" agent hook --agent claude <state> 2>/dev/null || "<stable>" agent hook --agent claude <state> 2>/dev/null || true'
+```
+
+The JSON-result variant (harnesses that parse stdout as a result object) wraps
+the same two-path chain in braces and echoes the no-decision object last:
+
+```sh
+/bin/sh -c '[ -n "$TMUX_PANE" ] && { "<launcher>" agent hook --agent <provider> <state> 2>/dev/null || "<stable>" agent hook --agent <provider> <state> 2>/dev/null; }; echo "{}"'
 ```
 
 The old root form `rk agent-hook <state>` is a **permanent hidden alias** of
@@ -146,8 +170,11 @@ re-exports `$TMUX`.
 
 1. **Absent option → unknown** — render `—` (no agent, or an agent whose harness
    has no hooks installed).
-2. **Duration from epoch** — readers compute idle/waiting duration from the
-   epoch suffix; they MAY apply staleness heuristics on top.
+2. **Duration from epoch** — readers compute the state's age from the epoch
+   suffix for ANY known state, `active` included (an aged `active` is the only
+   staleness signal when an `idle` write was lost on a live agent); they MAY
+   apply staleness heuristics on top. Display surfaces MAY still render the
+   duration only for `waiting`/`idle`.
 3. **Reconciler** — clears stranded state from dead agents, in two forms:
    - **PID liveness (primary — pid-carrying values)**: the state is trusted iff
      the agent process is alive (`kill(pid, 0)`; `ESRCH` = dead → treat as no

@@ -53,13 +53,13 @@ func markerFileOwned(content string) bool {
 }
 
 // applyAgentMarkerFile installs (or --uninstall removes) a whole marker-owned
-// file: ac.fileContent(rkPath) is the desired content. Mirrors
+// file: ac.fileContent(launcher, stable) is the desired content. Mirrors
 // installTmuxShimFile's discipline: a marker-less foreign file (including a
 // zero-byte one) is left untouched; an already-current file is a no-op; a
 // change is shown as a diff (--dry-run) or a one-line summary, then written on
 // consent with the parent dir created. Uninstall removes only an owned file;
 // absent is silent. The now-empty parent dir is pruned best-effort on removal.
-func applyAgentMarkerFile(sink outputSink, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool, cons consent) error {
+func applyAgentMarkerFile(sink outputSink, reader *bufio.Reader, ac agentConfig, launcherPath, rkPath string, uninstall bool, cons consent) error {
 	current, exists, err := readFileIfExists(ac.filePath)
 	if err != nil {
 		return fmt.Errorf("%s: read %s: %w", ac.name, ac.filePath, err)
@@ -97,7 +97,7 @@ func applyAgentMarkerFile(sink outputSink, reader *bufio.Reader, ac agentConfig,
 		sink.Notef("%s: %s exists without an rk marker — leaving it untouched (rk only overwrites files it owns).\n", ac.name, ac.filePath)
 		return nil
 	}
-	desired := ac.fileContent(rkPath)
+	desired := ac.fileContent(launcherPath, rkPath)
 	if current == desired {
 		sink.Notef("%s: %s already installed — nothing to do.\n", ac.name, ac.filePath)
 		return nil
@@ -145,8 +145,8 @@ func applyAgentMarkerFile(sink outputSink, reader *bufio.Reader, ac agentConfig,
 // surrounding user content is preserved byte-exactly (upsertMarkerBlock /
 // removeMarkerBlock own that contract). The file is created on install when
 // absent.
-func applyAgentMarkerBlock(sink outputSink, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool, cons consent) error {
-	begin, end, block := ac.blockContent(rkPath)
+func applyAgentMarkerBlock(sink outputSink, reader *bufio.Reader, ac agentConfig, launcherPath, rkPath string, uninstall bool, cons consent) error {
+	begin, end, block := ac.blockContent(launcherPath, rkPath)
 
 	current, err := readSkill(ac.blockPath)
 	if err != nil {
@@ -236,11 +236,11 @@ const rkNamedHookKey = "run-kit"
 // which run-kit deliberately never registers: their contract answers
 // permission decisions). Handlers carry the JSON-output wrapper (agy's
 // contract parses stdout as a result object; `{}` is the no-decision answer).
-func agyNamedHookEntry(rkPath string) map[string]any {
+func agyNamedHookEntry(launcherPath, rkPath string) map[string]any {
 	handler := func(state string) map[string]any {
 		return map[string]any{
 			"type":    "command",
-			"command": agentStateHookCommandJSON(rkPath, state, "agy"),
+			"command": agentStateHookCommandJSON(launcherPath, rkPath, state, "agy"),
 			"timeout": 30,
 		}
 	}
@@ -252,8 +252,8 @@ func agyNamedHookEntry(rkPath string) map[string]any {
 
 // mergeNamedHook replaces rk's named entry in place (idempotent); every other
 // named hook is preserved untouched.
-func mergeNamedHook(settings map[string]any, rkPath string) {
-	settings[rkNamedHookKey] = agyNamedHookEntry(rkPath)
+func mergeNamedHook(settings map[string]any, launcherPath, rkPath string) {
+	settings[rkNamedHookKey] = agyNamedHookEntry(launcherPath, rkPath)
 }
 
 // unmergeNamedHook removes exactly rk's named entry.
@@ -297,12 +297,12 @@ var copilotHooks = []agentHook{
 // command is the same stable delegating sh -c line every harness gets; the
 // never-fail exit-0 contract is load-bearing here because Copilot's preToolUse
 // command hooks deny the tool call on any non-zero exit.
-func copilotHooksFile(rkPath string) string {
+func copilotHooksFile(launcherPath, rkPath string) string {
 	hooks := map[string]any{}
 	for _, h := range copilotHooks {
 		entry := map[string]any{
 			"type":    "command",
-			"command": agentStateHookCommand(rkPath, h.state, "copilot"),
+			"command": agentStateHookCommand(launcherPath, rkPath, h.state, "copilot"),
 		}
 		if h.matcher != "" {
 			entry["matcher"] = h.matcher
@@ -342,7 +342,7 @@ var kimiHooks = []agentHook{
 // (event, matcher, command) — kimi refuses to load a config whose [[hooks]]
 // entries carry unknown fields. The block is appended to (or replaced within)
 // the user's config.toml; no TOML parser is involved.
-func kimiHooksBlock(rkPath string) (begin, end, block string) {
+func kimiHooksBlock(launcherPath, rkPath string) (begin, end, block string) {
 	var b strings.Builder
 	b.WriteString(kimiHooksBlockBegin + "\n")
 	for _, h := range kimiHooks {
@@ -351,7 +351,7 @@ func kimiHooksBlock(rkPath string) (begin, end, block string) {
 		if h.matcher != "" {
 			fmt.Fprintf(&b, "matcher = %s\n", tomlBasicString(h.matcher))
 		}
-		fmt.Fprintf(&b, "command = %s\n", tomlBasicString(agentStateHookCommand(rkPath, h.state, "kimi")))
+		fmt.Fprintf(&b, "command = %s\n", tomlBasicString(agentStateHookCommand(launcherPath, rkPath, h.state, "kimi")))
 		b.WriteString("\n")
 	}
 	b.WriteString(kimiHooksBlockEnd + "\n")
@@ -402,7 +402,7 @@ func tomlBasicString(s string) string {
 // a hook error must never break the agent. It uses node:child_process (not the
 // Bun-only `$` shell) so the SAME file also runs under plain node — which is
 // how the isolated test executes the installed plugin byte-for-byte.
-func opencodePluginFile(rkPath string) string {
+func opencodePluginFile(launcherPath, rkPath string) string {
 	return `// ` + skillManagedByMarker + ` — installed by ` + "`rk agent setup`" + `; do not edit
 // (re-running setup replaces this file in place; --uninstall removes it).
 //
@@ -412,7 +412,12 @@ func opencodePluginFile(rkPath string) string {
 // unresolvable session ids are ignored, so a subagent can never replace the
 // pane's root identity or complete its turn. Never fails the agent: no-ops
 // outside tmux and swallows every error.
-const RK = "` + rkPath + `";
+//
+// Two binary paths, each covering the other's upgrade hole: RK is the rk-owned
+// launcher symlink (live through Homebrew's unlink→install→link window),
+// RK_FALLBACK is the brew-prefix stable symlink (live again after link).
+const RK = "` + launcherPath + `";
+const RK_FALLBACK = "` + rkPath + `";
 
 const EVENT_TOKEN = {
   "session.created": "stamp",
@@ -445,17 +450,25 @@ function sessionIDOf(event) {
 
 // report invokes the stable rk hook interface with the payload on stdin,
 // via node:child_process (Bun-compatible; also runs under plain node, which is
-// how the isolated test drives this file). Never throws.
+// how the isolated test drives this file). Never throws. The launcher is tried
+// first; ONLY a spawn-level exec failure (ENOENT — the binary missing
+// mid-upgrade) falls back to the stable path, never a non-zero exit from a
+// binary that ran.
 async function report(token, id) {
   try {
     const { spawn } = await import("node:child_process");
-    await new Promise((resolve) => {
-      const child = spawn(RK, ["agent", "hook", "--agent", "opencode", token], { stdio: ["pipe", "ignore", "ignore"] });
-      child.on("error", () => resolve());
-      child.on("close", () => resolve());
+    const run = (bin) => new Promise((resolve) => {
+      let settled = false;
+      const done = (spawned) => { if (!settled) { settled = true; resolve(spawned); } };
+      const child = spawn(bin, ["agent", "hook", "--agent", "opencode", token], { stdio: ["pipe", "ignore", "ignore"] });
+      child.on("error", () => done(false));
+      child.on("close", () => done(true));
       child.stdin.on("error", () => {});
       child.stdin.end(JSON.stringify({ session_id: id }));
     });
+    if (!(await run(RK))) {
+      await run(RK_FALLBACK);
+    }
   } catch {
     // never-fail: a hook error must never break the agent
   }

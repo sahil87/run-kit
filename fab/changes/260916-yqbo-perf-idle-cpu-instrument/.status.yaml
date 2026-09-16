@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 4
@@ -33,25 +33,27 @@ stage_metrics:
     apply: {started_at: "2026-09-16T11:37:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T11:48:42Z"}
     review: {started_at: "2026-09-16T11:48:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T11:54:08Z"}
     hydrate: {started_at: "2026-09-16T11:54:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T11:56:01Z"}
-    ship: {started_at: "2026-09-16T11:56:01Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-16T11:56:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-16T11:57:45Z"}
+    review-pr: {started_at: "2026-09-16T11:57:45Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/991
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1089
+    deleted: 3
+    net: 1086
     excluding:
-        added: 0
+        added: 619
         deleted: 0
-        net: 0
+        net: 619
     tests:
         added: 0
         deleted: 0
         net: 0
-    computed_at: "2026-09-16T11:56:01Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-09-16T11:57:45Z"
+    computed_at_stage: ship
 summary: 'Added just perf-idle-cpu — a Playwright/CDP idle-CPU probe (scripts/perf-idle-cpu.sh + .mjs) against a live daemon: per-process CPU %, renderer main-thread breakdown, running animations, per-socket rates by event type, top JS self time; documented in architecture/testing.md § Performance probes'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-16T11:56:01Z
+last_updated: 2026-09-16T11:57:45Z

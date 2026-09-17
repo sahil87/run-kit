@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 8
@@ -33,25 +33,27 @@ stage_metrics:
     apply: {started_at: "2026-09-17T09:54:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-17T10:23:34Z"}
     review: {started_at: "2026-09-17T10:23:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-17T10:26:44Z"}
     hydrate: {started_at: "2026-09-17T10:26:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-17T10:29:05Z"}
-    ship: {started_at: "2026-09-17T10:29:05Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-17T10:29:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-17T10:30:48Z"}
+    review-pr: {started_at: "2026-09-17T10:30:48Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1021
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 742
+    deleted: 8
+    net: 734
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 287
+        deleted: 4
+        net: 283
     tests:
-        added: 0
+        added: 105
         deleted: 0
-        net: 0
-    computed_at: "2026-09-17T10:29:05Z"
-    computed_at_stage: hydrate
+        net: 105
+    computed_at: "2026-09-17T10:30:48Z"
+    computed_at_stage: ship
 summary: Missing-server routes render the Server-not-found fallback once and idle (module-level NO_SESSIONS constant in AppShell); e2e guards main-thread idle via CDP TaskDuration
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-17T10:29:05Z
+last_updated: 2026-09-17T10:30:48Z

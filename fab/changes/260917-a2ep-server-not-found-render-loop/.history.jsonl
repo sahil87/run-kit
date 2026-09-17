@@ -8,3 +8,8 @@
 {"event":"review","result":"passed","ts":"2026-09-17T10:26:44Z"}
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-17T10:29:05Z"}
 {"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-17T10:30:48Z"}
+{"args":"timeout pr=1021","cmd":"git-pr-review","event":"command","ts":"2026-09-17T10:42:11Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-09-17T11:07:25Z"}
+{"args":"timeout pr=1021","cmd":"git-pr-review","event":"command","ts":"2026-09-17T11:18:23Z"}
+{"args":"review-gate-unavailable pr=1021","cmd":"git-pr-review","event":"command","ts":"2026-09-17T11:18:23Z"}
+{"event":"review","result":"passed","ts":"2026-09-17T11:18:23Z"}

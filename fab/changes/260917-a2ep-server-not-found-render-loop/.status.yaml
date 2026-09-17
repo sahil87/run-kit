@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 8
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-17T10:23:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-17T10:26:44Z"}
     hydrate: {started_at: "2026-09-17T10:26:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-17T10:29:05Z"}
     ship: {started_at: "2026-09-17T10:29:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-17T10:30:48Z"}
-    review-pr: {started_at: "2026-09-17T10:30:48Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-17T10:30:48Z", driver: git-pr, iterations: 1, completed_at: "2026-09-17T11:18:23Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/1021
 change_type_source: explicit
@@ -56,4 +56,4 @@ true_impact:
 summary: Missing-server routes render the Server-not-found fallback once and idle (module-level NO_SESSIONS constant in AppShell); e2e guards main-thread idle via CDP TaskDuration
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-17T10:30:48Z
+last_updated: 2026-09-17T11:18:23Z

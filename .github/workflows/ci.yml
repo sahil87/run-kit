@@ -241,9 +241,13 @@ jobs:
         with:
           package_json_file: app/desktop/package.json
 
+      # Node 22, not the other jobs' 20: app/desktop declares engines.node
+      # >=22.12.0 (release.yml's desktop jobs run 22), and `pnpm test` is
+      # `node --test "dist/**/*.test.js"` — Node 20's runner takes no glob
+      # and exits 1 with "Could not find …/dist/**/*.test.js".
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           cache-dependency-path: app/desktop/pnpm-lock.yaml
 

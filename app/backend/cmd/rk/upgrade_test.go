@@ -88,13 +88,14 @@ func brewInfoJSON(stable string) string {
 	return fmt.Sprintf(`{"formulae":[{"versions":{"stable":%q}}]}`, stable)
 }
 
-// withNoDesktopLeg pins the umbrella's desktop leg off (non-darwin) for tests
-// that exercise the CLI leg in isolation — without it, a test run on a real
-// Mac would let the desktop leg probe the machine's actual /Applications.
+// withNoDesktopLeg pins the umbrella's desktop leg off (unsupported platform)
+// for tests that exercise the CLI leg in isolation — without it, a test run
+// on a real Mac or Linux box would let the desktop leg probe the machine's
+// actual install root.
 func withNoDesktopLeg(t *testing.T) {
 	t.Helper()
 	orig := desktopGOOS
-	desktopGOOS = "linux"
+	desktopGOOS = "windows"
 	t.Cleanup(func() { desktopGOOS = orig })
 }
 
@@ -585,10 +586,10 @@ func TestUpdate_Umbrella_NoAppSilentSkip(t *testing.T) {
 	}
 }
 
-// TestUpdate_Umbrella_NonDarwinNeverConstructsInstaller pins R8's platform
-// gate: on a non-darwin platform the desktop leg no-ops before the installer
-// factory is even called.
-func TestUpdate_Umbrella_NonDarwinNeverConstructsInstaller(t *testing.T) {
+// TestUpdate_Umbrella_UnsupportedPlatformNeverConstructsInstaller pins R8's
+// platform gate: on a platform with no desktop package the desktop leg
+// no-ops before the installer factory is even called.
+func TestUpdate_Umbrella_UnsupportedPlatformNeverConstructsInstaller(t *testing.T) {
 	resetSkipFlag(t)
 	withNoCodeServerLeg(t)
 	withNoDesktopLeg(t)
@@ -596,7 +597,7 @@ func TestUpdate_Umbrella_NonDarwinNeverConstructsInstaller(t *testing.T) {
 
 	origFactory := newDesktopInstallerFn
 	newDesktopInstallerFn = func() *desktop.Installer {
-		t.Fatal("installer constructed despite the non-darwin platform gate")
+		t.Fatal("installer constructed despite the unsupported-platform gate")
 		return nil
 	}
 	t.Cleanup(func() { newDesktopInstallerFn = origFactory })
@@ -942,5 +943,75 @@ func TestUpdate_CodeServerLeg_AlreadyCurrentSkipsRespawn(t *testing.T) {
 	}
 	if *kills != 0 || *starts != 0 {
 		t.Errorf("kills=%d starts=%d, want 0/0", *kills, *starts)
+	}
+}
+
+// TestUpdate_Umbrella_LinuxDesktopLegUpdates pins R8 on linux: the desktop
+// leg runs against the platform default root (~/.rk/desktop under the pinned
+// home — the factory deliberately sets NO InstallDir), updates a stale
+// install, and prints the shared outcome line.
+func TestUpdate_Umbrella_LinuxDesktopLegUpdates(t *testing.T) {
+	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
+	withResolveExe(t, "/usr/local/bin/run-kit", nil) // CLI leg: guidance skip
+
+	version := "3.21.0"
+	var assetHits int
+	srv := linuxDesktopReleaseServer(t, &version, &assetHits)
+	home := t.TempDir()
+	running := false
+	withLinuxDesktopStub(t, srv, home, &version, &running)
+
+	root := filepath.Join(home, ".rk", "desktop")
+	if err := os.MkdirAll(filepath.Join(root, "3.20.9"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("3.20.9", filepath.Join(root, "current")); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	if err := updateCmd.RunE(updateCmd, nil); err != nil {
+		t.Fatalf("updateCmd.RunE returned error: %v", err)
+	}
+	want := "Updated Run Kit v3.20.9 -> v3.21.0 (" + filepath.Join(root, "3.21.0") + ")"
+	if !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout = %q, want %q", stdout.String(), want)
+	}
+	if assetHits != 1 {
+		t.Errorf("asset downloads = %d, want 1", assetHits)
+	}
+	if target, _ := os.Readlink(filepath.Join(root, "current")); target != "3.21.0" {
+		t.Errorf("current -> %q, want 3.21.0", target)
+	}
+}
+
+// TestUpdate_Umbrella_LinuxDesktopLegSilentSkip: nothing installed under the
+// linux default root ⇒ the desktop leg is a silent exit-0 skip.
+func TestUpdate_Umbrella_LinuxDesktopLegSilentSkip(t *testing.T) {
+	resetSkipFlag(t)
+	withNoCodeServerLeg(t)
+	withResolveExe(t, "/usr/local/bin/run-kit", nil) // CLI leg: guidance skip
+
+	version := "3.21.0"
+	var assetHits int
+	srv := linuxDesktopReleaseServer(t, &version, &assetHits)
+	home := t.TempDir() // no install
+	running := false
+	withLinuxDesktopStub(t, srv, home, &version, &running)
+
+	var stdout, stderr bytes.Buffer
+	setUpdateBuffers(t, &stdout, &stderr)
+
+	if err := updateCmd.RunE(updateCmd, nil); err != nil {
+		t.Fatalf("updateCmd.RunE returned error: %v", err)
+	}
+	if strings.Contains(stdout.String(), "Run Kit") {
+		t.Errorf("stdout = %q, want no desktop-leg output on the silent skip", stdout.String())
+	}
+	if assetHits != 0 {
+		t.Errorf("asset downloaded %d times despite no installed app", assetHits)
 	}
 }

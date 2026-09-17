@@ -9,6 +9,7 @@ import {
   availableUpdateVersion,
   isUpdateCheckDue,
   parseDesktopStatus,
+  updateMenuItems,
   UPDATE_CHECK_INTERVAL_MS,
 } from "./update-check";
 
@@ -52,7 +53,7 @@ test("keeps pre-release suffixes on parsed versions", () => {
 });
 
 test("unrecognizable output parses to all-null/false, never throws", () => {
-  assert.deepEqual(parseDesktopStatus("rk desktop is macOS-only\n"), {
+  assert.deepEqual(parseDesktopStatus("rk desktop supports macOS and Linux\n"), {
     installedVersion: null,
     latestVersion: null,
     updateAvailable: false,
@@ -107,4 +108,27 @@ test("a clock that moved backwards is due (negative delta must not suppress chec
   const now = 10 * UPDATE_CHECK_INTERVAL_MS;
   assert.equal(isUpdateCheckDue(now + 1, now), true);
   assert.equal(isUpdateCheckDue(now + UPDATE_CHECK_INTERVAL_MS, now), true);
+});
+
+// ─── updateMenuItems ────────────────────────────────────────────────────────
+// The single source of the Restart-to-Update item group — rendered by both
+// the mac App menu and the win/linux File menu (menu.ts cannot run under
+// node --test; the contract lives here).
+
+test("null update renders no items (win32, up to date, rk missing, failures)", () => {
+  assert.deepEqual(updateMenuItems(null), []);
+});
+
+test("an available update renders the labelled enabled item plus a separator", () => {
+  assert.deepEqual(updateMenuItems({ latestVersion: "3.21.0", updating: false }), [
+    { kind: "item", label: "Restart to Update (v3.21.0 available)…", enabled: true },
+    { kind: "separator" },
+  ]);
+});
+
+test("an in-flight update renders the disabled Updating… item plus a separator", () => {
+  assert.deepEqual(updateMenuItems({ latestVersion: "3.21.0", updating: true }), [
+    { kind: "item", label: "Updating…", enabled: false },
+    { kind: "separator" },
+  ]);
 });

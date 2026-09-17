@@ -41,7 +41,7 @@ The new workspace appears in the sidebar; click into it to drive the agent — o
 Two optional extras:
 
 - `shll setup agent` (once per machine; run automatically at the end of a toolkit install) makes agent panes report live **busy/waiting/idle** state in the dashboard — see [Agent state](#agent-state).
-- On a Mac, the [desktop app](#desktop-app-macos) is an alternative front door: `rk desktop install`, then one **Start & connect** click replaces the `daemon start` + `open` steps.
+- The [desktop app](#desktop-app) is an alternative front door on macOS and Linux: `rk desktop install`, then one **Start & connect** click replaces the `daemon start` + `open` steps.
 
 To upgrade later, `rk update` pulls the latest version via Homebrew and restarts the daemon. Coming from the old `rk` Homebrew formula, or something failing? See the [install & access guide](docs/site/install.md) and `rk doctor`.
 
@@ -167,16 +167,19 @@ Some browser features (clipboard, secure context) require HTTPS. Accessing HexoK
 
 For a stable custom hostname or public access via Funnel, see the [Tailscale guide](docs/site/install.md#tailscale-https).
 
-## Desktop app (macOS)
+## Desktop app
 
-A native desktop shell — an Electron window that wraps your dashboard and frees the browser-reserved `⌘` keyboard tier. Install and update it with the CLI:
+A native desktop shell — an Electron window that wraps your dashboard and frees the browser-reserved `⌘` keyboard tier. Install and update it with the CLI (macOS and Linux):
 
 ```sh
-rk desktop install    # fetch the latest release DMG, install to /Applications
+rk desktop install    # fetch the latest release and install it
 rk desktop update     # same, but a no-op when already current
+rk desktop status     # installed vs latest version (read-only)
 ```
 
-The CLI path matters: it produces a quarantine-free, digest-verified install that opens cleanly — a browser-downloaded DMG gets blocked by Gatekeeper on every install and update. The app's welcome page connects three ways: **This Mac** (one-click daemon start), **over SSH** (bootstraps HexoKit on the remote box via `rk remote`), or **a URL**. It never starts, stops, or updates anything on its own, and your tmux sessions survive every daemon action. Details and the manual fallback are in the [install & access guide](docs/site/install.md#desktop-app-macos).
+The CLI path matters: on macOS it produces a quarantine-free, digest-verified install that opens cleanly — a browser-downloaded DMG gets blocked by Gatekeeper on every install and update. On Linux it downloads the AppImage, verifies the release digest, extracts it into `~/.rk/desktop`, and writes a launcher entry plus a `run-kit-desktop` symlink in `~/.local/bin` (`rk desktop uninstall` removes it). Updates ship through `rk desktop update` or the app's **Restart to Update** menu item — the app never updates itself.
+
+The app's welcome page connects three ways: **This Mac / This Machine** (one-click daemon start), **over SSH** (bootstraps HexoKit on the remote box via `rk remote`), or **a URL**. It never starts, stops, or updates anything on its own, and your tmux sessions survive every daemon action. Details and the manual fallback are in the [install & access guide](docs/site/install.md#desktop-app).
 
 ## Push notifications
 
@@ -224,7 +227,7 @@ eval "$(rk shell-init zsh)"   # in ~/.zshrc — also: bash, fish, powershell
 | `rk board` | List boards and pin/unpin/reorder windows on the cross-server board dashboards (`show`/`pin`/`unpin`/`reorder`). Needs `rk serve` up. |
 | `rk role` | Mark or unmark the current window as the server's operator. |
 | `rk update` | Upgrade via Homebrew and restart the daemon. |
-| `rk desktop` | Install/update the macOS desktop app, quarantine-free (`install`, `update`, `status`). |
+| `rk desktop` | Install/update the desktop app on macOS and Linux (`install`, `update`, `status`, `uninstall`). |
 | `rk remote` | Use SSH-only machines as HexoKit hosts (`add`, `connect`, `list`, `status`, `disconnect`, `remove`). |
 | `rk completion` | Generate shell completion scripts (or use `rk shell-init` for eval-safe output). |
 

@@ -26,6 +26,7 @@ func writeFakeBundle(t *testing.T, dir string) string {
 
 func TestInstalledVersionNotInstalled(t *testing.T) {
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.InstallDir = t.TempDir()
 	ins.Run = func(_ context.Context, name string, args ...string) ([]byte, error) {
 		t.Fatalf("unexpected subprocess for a missing app: %s %v", name, args)
@@ -45,6 +46,7 @@ func TestInstalledVersionReadsPlist(t *testing.T) {
 	plist := writeFakeBundle(t, dir)
 
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.InstallDir = dir
 	var gotName string
 	var gotArgs []string
@@ -74,6 +76,7 @@ func TestInstalledVersionProbeFailure(t *testing.T) {
 	writeFakeBundle(t, dir)
 
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.InstallDir = dir
 	ins.Run = func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		return nil, errors.New("plutil exploded")
@@ -85,6 +88,7 @@ func TestInstalledVersionProbeFailure(t *testing.T) {
 
 func TestAppRunning(t *testing.T) {
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.InstallDir = "/Applications"
 
 	var gotName string

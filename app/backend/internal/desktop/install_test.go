@@ -151,6 +151,7 @@ func TestInstallSuccessFlow(t *testing.T) {
 	var rec []cmdRecord
 	var progress bytes.Buffer
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.Client = srv.Client()
 	ins.InstallDir = installDir
 	ins.Token = ""
@@ -221,6 +222,7 @@ func TestInstallChecksumMismatchAbortsBeforeMount(t *testing.T) {
 
 	var rec []cmdRecord
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.Client = srv.Client()
 	ins.InstallDir = t.TempDir()
 	ins.Token = ""
@@ -250,6 +252,7 @@ func TestInstallCodesignFailureAbortsAndDetaches(t *testing.T) {
 
 	var rec []cmdRecord
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.Client = srv.Client()
 	ins.InstallDir = installDir
 	ins.Token = ""
@@ -291,6 +294,7 @@ func TestInstallNoDigestNotesAndProceeds(t *testing.T) {
 	var rec []cmdRecord
 	var progress bytes.Buffer
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.Client = srv.Client()
 	ins.InstallDir = t.TempDir()
 	ins.Token = ""
@@ -316,6 +320,7 @@ func TestInstallNoAppBundleInDMG(t *testing.T) {
 
 	var rec []cmdRecord
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.Client = srv.Client()
 	ins.InstallDir = t.TempDir()
 	ins.Token = ""
@@ -346,6 +351,7 @@ func TestInstallMidCopyFailurePreservesExistingInstall(t *testing.T) {
 
 	var rec []cmdRecord
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.Client = srv.Client()
 	ins.InstallDir = installDir
 	ins.Token = ""
@@ -383,6 +389,7 @@ func TestInstallRunningAppQuitSwapRelaunch(t *testing.T) {
 	var rec []cmdRecord
 	var progress bytes.Buffer
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.Client = srv.Client()
 	ins.InstallDir = installDir
 	ins.Token = ""
@@ -452,6 +459,7 @@ func TestInstallQuitTimeoutAbortsWithoutSwap(t *testing.T) {
 
 	var rec []cmdRecord
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.Client = srv.Client()
 	ins.InstallDir = installDir
 	ins.Token = ""
@@ -494,6 +502,7 @@ func TestInstallRelaunchFailureNonFatal(t *testing.T) {
 	var rec []cmdRecord
 	var progress bytes.Buffer
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.Client = srv.Client()
 	ins.InstallDir = installDir
 	ins.Token = ""
@@ -530,6 +539,7 @@ func TestInstallBundleNameMismatch(t *testing.T) {
 
 	var rec []cmdRecord
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.Client = srv.Client()
 	ins.InstallDir = installDir
 	ins.Token = ""
@@ -565,6 +575,7 @@ func TestInstallDownloadHTTPError(t *testing.T) {
 
 	var rec []cmdRecord
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.Client = srv.Client()
 	ins.InstallDir = t.TempDir()
 	ins.Token = ""

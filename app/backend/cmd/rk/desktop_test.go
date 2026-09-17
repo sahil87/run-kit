@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"rk/internal/desktop"
@@ -32,9 +35,10 @@ func resetDesktopFlags(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() {
-		reset(desktopInstallCmd, map[string]string{"version": "", "force": "false", "path": desktop.DefaultInstallDir})
-		reset(desktopUpdateCmd, map[string]string{"force": "false", "path": desktop.DefaultInstallDir})
-		reset(desktopStatusCmd, map[string]string{"path": desktop.DefaultInstallDir})
+		reset(desktopInstallCmd, map[string]string{"version": "", "force": "false", "path": ""})
+		reset(desktopUpdateCmd, map[string]string{"force": "false", "path": ""})
+		reset(desktopStatusCmd, map[string]string{"path": ""})
+		reset(desktopUninstallCmd, map[string]string{"path": ""})
 		quiet = false
 		if f := rootCmd.PersistentFlags().Lookup("quiet"); f != nil {
 			_ = f.Value.Set("false")
@@ -172,7 +176,7 @@ func TestDesktopRegisteredWithChildrenAndFlags(t *testing.T) {
 	for _, c := range found.Commands() {
 		children[c.Name()] = true
 	}
-	for _, want := range []string{"install", "update", "status"} {
+	for _, want := range []string{"install", "update", "status", "uninstall"} {
 		if !children[want] {
 			t.Errorf("desktop child %q not registered", want)
 		}
@@ -187,15 +191,28 @@ func TestDesktopRegisteredWithChildrenAndFlags(t *testing.T) {
 			t.Errorf("update missing --%s", flag)
 		}
 	}
-	if desktopStatusCmd.Flags().Lookup("path") == nil {
-		t.Error("status missing --path")
+	for _, c := range []*cobra.Command{desktopStatusCmd, desktopUninstallCmd} {
+		if c.Flags().Lookup("path") == nil {
+			t.Errorf("%s missing --path", c.Name())
+		}
+	}
+	// The --path cobra default is deliberately "" — a per-platform literal
+	// would make the published help-dump reference platform-dependent.
+	for _, c := range []*cobra.Command{desktopInstallCmd, desktopUpdateCmd, desktopStatusCmd, desktopUninstallCmd} {
+		f := c.Flags().Lookup("path")
+		if f.DefValue != "" {
+			t.Errorf("%s --path default = %q, want empty (resolved per platform at runtime)", c.Name(), f.DefValue)
+		}
+		if !strings.Contains(f.Usage, "/Applications on macOS, ~/.rk/desktop on Linux") {
+			t.Errorf("%s --path usage %q should name both platform defaults", c.Name(), f.Usage)
+		}
 	}
 	// help-dump publishes UsageString, so the Long: help blocks are part of
 	// the contract surface (the daemon-children pattern).
 	if desktopCmd.Long == "" {
 		t.Error("desktop parent missing a Long: help block")
 	}
-	for _, c := range []*cobra.Command{desktopInstallCmd, desktopUpdateCmd, desktopStatusCmd} {
+	for _, c := range []*cobra.Command{desktopInstallCmd, desktopUpdateCmd, desktopStatusCmd, desktopUninstallCmd} {
 		if c.Long == "" {
 			t.Errorf("desktop %s missing a Long: help block", c.Name())
 		}
@@ -211,6 +228,9 @@ func TestDesktopRegisteredWithChildrenAndFlags(t *testing.T) {
 		if !strings.Contains(c.Long, "quit gracefully") {
 			t.Errorf("%s Long should describe the running-app auto-restart (quit gracefully → swap → relaunch)", c.Name())
 		}
+	}
+	if desktopCmd.Short != "Install and update the Run Kit desktop app (macOS, Linux)" {
+		t.Errorf("desktop Short = %q, want the macOS+Linux form", desktopCmd.Short)
 	}
 }
 
@@ -228,7 +248,7 @@ func TestDesktopEmptyPathUsageError(t *testing.T) {
 	}
 	t.Cleanup(func() { newDesktopInstallerFn = origFactory })
 
-	for _, sub := range []string{"install", "update", "status"} {
+	for _, sub := range []string{"install", "update", "status", "uninstall"} {
 		t.Run(sub, func(t *testing.T) {
 			_, _, err := execDesktop(t, "desktop", sub, "--path", "")
 			if err == nil {
@@ -244,9 +264,9 @@ func TestDesktopEmptyPathUsageError(t *testing.T) {
 	}
 }
 
-func TestDesktopMacOSGate(t *testing.T) {
+func TestDesktopPlatformGate(t *testing.T) {
 	orig := desktopGOOS
-	desktopGOOS = "linux"
+	desktopGOOS = "windows"
 	t.Cleanup(func() { desktopGOOS = orig })
 
 	origFactory := newDesktopInstallerFn
@@ -256,13 +276,13 @@ func TestDesktopMacOSGate(t *testing.T) {
 	}
 	t.Cleanup(func() { newDesktopInstallerFn = origFactory })
 
-	for _, sub := range []string{"install", "update", "status"} {
+	for _, sub := range []string{"install", "update", "status", "uninstall"} {
 		t.Run(sub, func(t *testing.T) {
 			_, _, err := execDesktop(t, "desktop", sub)
 			if err == nil {
-				t.Fatal("expected the macOS-only error, got nil")
+				t.Fatal("expected the platform-gate error, got nil")
 			}
-			want := "rk desktop is macOS-only (the shell is packaged as a macOS .app)"
+			want := "rk desktop supports macOS and Linux (the shell is packaged as a macOS .app and a Linux AppImage)"
 			if err.Error() != want {
 				t.Errorf("error = %q, want %q", err.Error(), want)
 			}
@@ -490,5 +510,283 @@ func TestDesktopQuietSplitsDataFromChatter(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Errorf("stderr = %q, want empty under --quiet", stderr)
+	}
+}
+
+// ─── Linux flows ─────────────────────────────────────────────────────────────
+
+// writeLinuxFixtureTree writes a minimal valid squashfs-root fixture into dir
+// (the fake --appimage-extract's job). AppRun is a real shell script so the
+// detached relaunch genuinely starts on the test host.
+func writeLinuxFixtureTree(t *testing.T, dir, version string) {
+	t.Helper()
+	mk := func(rel, content string, perm os.FileMode) {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), perm); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("AppRun", "#!/bin/sh\nexit 0\n", 0o755)
+	mk("run-kit-desktop", "fake-elf", 0o755)
+	mk(filepath.Join("resources", "app.asar"), "fake-asar", 0o644)
+	mk("run-kit-desktop.desktop",
+		"[Desktop Entry]\nName=Run Kit\nExec=AppRun --no-sandbox %U\nX-AppImage-Version="+version+"\n", 0o644)
+	mk(filepath.Join("usr", "share", "icons", "hicolor", "1024x1024", "apps", "run-kit-desktop.png"), "fake-png", 0o644)
+}
+
+// linuxDesktopReleaseServer serves a latest-release document with
+// x86_64/arm64 AppImage assets carrying the real sha256 of the served bytes.
+// The version rides a pointer so a test can bump it mid-scenario (install,
+// then a newer latest for update).
+func linuxDesktopReleaseServer(t *testing.T, version *string, assetHits *int) *httptest.Server {
+	t.Helper()
+	const payload = "fake-appimage-payload"
+	sum := sha256.Sum256([]byte(payload))
+	digest := hex.EncodeToString(sum[:])
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/dl/") {
+			*assetHits++
+			w.Write([]byte(payload))
+			return
+		}
+		base := "http://" + r.Host
+		fmt.Fprintf(w, `{"tag_name":"v%s","assets":[
+			{"name":"run-kit-desktop-%s-arm64.AppImage","browser_download_url":"%s/dl/arm64.AppImage","digest":"sha256:%s"},
+			{"name":"run-kit-desktop-%s-x86_64.AppImage","browser_download_url":"%s/dl/x86_64.AppImage","digest":"sha256:%s"}]}`,
+			*version, *version, base, digest, *version, base, digest)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// withLinuxDesktopStub pins the gate to linux and wires the factory: the
+// UserHome seam points at the given temp home, RunInDir is the fake
+// extractor, Run records pgrep and answers update-desktop-database, Signal is
+// recorded. InstallDir is left EMPTY so the platform default
+// (~/.rk/desktop under the pinned home) resolves through the UserHome seam.
+func withLinuxDesktopStub(t *testing.T, srv *httptest.Server, home string, version *string, running *bool) {
+	t.Helper()
+	origGOOS := desktopGOOS
+	desktopGOOS = "linux"
+	origFactory := newDesktopInstallerFn
+	newDesktopInstallerFn = func() *desktop.Installer {
+		ins := desktop.New()
+		ins.Client = srv.Client()
+		ins.APIBase = srv.URL
+		ins.Arch = "amd64"
+		ins.Token = ""
+		ins.UserHome = func() (string, error) { return home, nil }
+		ins.Run = func(_ context.Context, name string, args ...string) ([]byte, error) {
+			switch name {
+			case "pgrep":
+				if *running {
+					return []byte("4242\n"), nil
+				}
+				return nil, errors.New("exit status 1")
+			case "update-desktop-database":
+				return nil, nil
+			}
+			t.Fatalf("unexpected subprocess: %s %v", name, args)
+			return nil, nil
+		}
+		ins.RunInDir = func(_ context.Context, dir, name string, args ...string) ([]byte, error) {
+			if len(args) != 1 || args[0] != "--appimage-extract" {
+				t.Fatalf("extractor args = %v, want [--appimage-extract]", args)
+			}
+			writeLinuxFixtureTree(t, filepath.Join(dir, "squashfs-root"), *version)
+			return nil, nil
+		}
+		ins.Signal = func(pid int, sig syscall.Signal) error {
+			*running = false // the SIGTERM worked
+			return nil
+		}
+		return ins
+	}
+	t.Cleanup(func() {
+		desktopGOOS = origGOOS
+		newDesktopInstallerFn = origFactory
+	})
+}
+
+// TestDesktopLinuxInstallUpdateStatus runs the whole linux lifecycle through
+// the default install root (no --path anywhere).
+func TestDesktopLinuxInstallUpdateStatus(t *testing.T) {
+	version := "3.21.0"
+	var assetHits int
+	srv := linuxDesktopReleaseServer(t, &version, &assetHits)
+	home := t.TempDir()
+	running := false
+	withLinuxDesktopStub(t, srv, home, &version, &running)
+	root := filepath.Join(home, ".rk", "desktop")
+
+	// status before install: read-only report off the default root.
+	stdout, _, err := execDesktop(t, "desktop", "status")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !strings.Contains(stdout, "Installed: not installed") || !strings.Contains(stdout, "Latest:    v3.21.0") {
+		t.Errorf("status stdout = %q, want the not-installed report", stdout)
+	}
+
+	stdout, _, err = execDesktop(t, "desktop", "install")
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if !strings.Contains(stdout, "Installed Run Kit v3.21.0 to "+filepath.Join(root, "3.21.0")) {
+		t.Errorf("install stdout = %q, want the installed outcome line with the default root", stdout)
+	}
+	if target, err := os.Readlink(filepath.Join(root, "current")); err != nil || target != "3.21.0" {
+		t.Errorf("current -> %q (%v), want 3.21.0", target, err)
+	}
+	// Desktop integration landed under the pinned home.
+	if _, err := os.Stat(filepath.Join(home, ".local", "share", "applications", "run-kit-desktop.desktop")); err != nil {
+		t.Errorf("launcher entry missing: %v", err)
+	}
+
+	stdout, _, err = execDesktop(t, "desktop", "update")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !strings.Contains(stdout, "Already up to date (v3.21.0).") {
+		t.Errorf("update stdout = %q, want the up-to-date outcome line", stdout)
+	}
+
+	// A newer release appears; update installs it (the app not running).
+	version = "3.22.0"
+	stdout, _, err = execDesktop(t, "desktop", "update")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	want := "Updated Run Kit v3.21.0 -> v3.22.0 (" + filepath.Join(root, "3.22.0") + ")"
+	if !strings.Contains(stdout, want) {
+		t.Errorf("update stdout = %q, want %q", stdout, want)
+	}
+	if _, err := os.Stat(filepath.Join(root, "3.21.0")); !os.IsNotExist(err) {
+		t.Error("the old version dir survived the flip")
+	}
+}
+
+// TestDesktopLinuxUpdateRestartsRunningApp: the SIGTERM seam flips the probe
+// to not-running, so the update quits, swaps, relaunches, and announces the
+// restart as a data line.
+func TestDesktopLinuxUpdateRestartsRunningApp(t *testing.T) {
+	version := "3.21.0"
+	var assetHits int
+	srv := linuxDesktopReleaseServer(t, &version, &assetHits)
+	home := t.TempDir()
+	running := false
+	withLinuxDesktopStub(t, srv, home, &version, &running)
+	root := filepath.Join(home, ".rk", "desktop")
+
+	if _, _, err := execDesktop(t, "desktop", "install"); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	version = "3.22.0"
+	running = true
+
+	stdout, _, err := execDesktop(t, "desktop", "update")
+	if err != nil {
+		t.Fatalf("update with a running app must auto-restart, not refuse: %v", err)
+	}
+	if !strings.Contains(stdout, "Updated Run Kit v3.21.0 -> v3.22.0") {
+		t.Errorf("stdout = %q, want the updated outcome line", stdout)
+	}
+	if !strings.Contains(stdout, "Run Kit was running — restarted on the new version.") {
+		t.Errorf("stdout = %q, want the restart announcement data line", stdout)
+	}
+	if target, _ := os.Readlink(filepath.Join(root, "current")); target != "3.22.0" {
+		t.Errorf("current -> %q, want 3.22.0", target)
+	}
+}
+
+func TestDesktopLinuxUninstall(t *testing.T) {
+	version := "3.21.0"
+	var assetHits int
+	srv := linuxDesktopReleaseServer(t, &version, &assetHits)
+	home := t.TempDir()
+	running := false
+	withLinuxDesktopStub(t, srv, home, &version, &running)
+	root := filepath.Join(home, ".rk", "desktop")
+
+	if _, _, err := execDesktop(t, "desktop", "install"); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	stdout, _, err := execDesktop(t, "desktop", "uninstall")
+	if err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if !strings.Contains(stdout, "Uninstalled Run Kit from "+root) {
+		t.Errorf("stdout = %q, want the uninstalled outcome line naming the root", stdout)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Error("install root still present after uninstall")
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".local", "bin", "run-kit-desktop")); !os.IsNotExist(err) {
+		t.Error("bin symlink still present after uninstall")
+	}
+}
+
+func TestDesktopLinuxUninstallNotInstalled(t *testing.T) {
+	version := "3.21.0"
+	var assetHits int
+	srv := linuxDesktopReleaseServer(t, &version, &assetHits)
+	home := t.TempDir()
+	running := false
+	withLinuxDesktopStub(t, srv, home, &version, &running)
+
+	_, _, err := execDesktop(t, "desktop", "uninstall")
+	if err == nil || !strings.Contains(err.Error(), "Run Kit is not installed at ") {
+		t.Fatalf("error = %v, want the not-installed refusal", err)
+	}
+	if got := exitCode(err); got != 1 {
+		t.Errorf("exitCode = %d, want 1", got)
+	}
+}
+
+func TestDesktopUninstallDarwinRefusal(t *testing.T) {
+	orig := desktopGOOS
+	desktopGOOS = "darwin"
+	t.Cleanup(func() { desktopGOOS = orig })
+	origFactory := newDesktopInstallerFn
+	newDesktopInstallerFn = func() *desktop.Installer { return desktop.New() }
+	t.Cleanup(func() { newDesktopInstallerFn = origFactory })
+
+	_, _, err := execDesktop(t, "desktop", "uninstall")
+	want := `rk desktop uninstall is Linux-only — on macOS drag "Run Kit.app" to the Trash`
+	if err == nil || err.Error() != want {
+		t.Fatalf("error = %v, want %q", err, want)
+	}
+	if got := exitCode(err); got != 1 {
+		t.Errorf("exitCode = %d, want 1 (operational)", got)
+	}
+}
+
+// TestDesktopLinuxDefaultPathResolution: with no --path, the linux default
+// root resolves through the UserHome seam — a pre-existing install under
+// <home>/.rk/desktop is what status reports.
+func TestDesktopLinuxDefaultPathResolution(t *testing.T) {
+	version := "3.21.0"
+	var assetHits int
+	srv := linuxDesktopReleaseServer(t, &version, &assetHits)
+	home := t.TempDir()
+	running := false
+	withLinuxDesktopStub(t, srv, home, &version, &running)
+
+	root := filepath.Join(home, ".rk", "desktop")
+	if err := os.MkdirAll(filepath.Join(root, "3.20.7"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("3.20.7", filepath.Join(root, "current")); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, err := execDesktop(t, "desktop", "status")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !strings.Contains(stdout, "Installed: v3.20.7") {
+		t.Errorf("status stdout = %q, want the install under ~/.rk/desktop reported", stdout)
 	}
 }

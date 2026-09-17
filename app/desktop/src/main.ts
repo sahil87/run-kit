@@ -320,6 +320,14 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
+// Linux's dock badge (the Unity LauncherEntry D-Bus API behind
+// app.setBadgeCount) keys on the app's DESKTOP NAME, which must match the
+// .desktop filename the installer writes — without this the badge never
+// associates with the launcher entry.
+if (process.platform === "linux") {
+  app.setDesktopName("run-kit-desktop.desktop");
+}
+
 type PingResult =
   | { ok: true; origin: string; hostname: string }
   | { ok: false; error: string };
@@ -1784,12 +1792,13 @@ async function refreshDaemonMenu(): Promise<void> {
 //
 // Read-only detection: `rk desktop status` (stdout is stable data lines —
 // parsed in ./update-check, node:test covered) tells us whether a newer
-// desktop release exists. darwin-only (`rk desktop` is macOS-only), checked
-// at natural events (startup, window focus) through a 1h throttle — the
-// status call round-trips the GitHub releases API, so no perpetual timer
-// (the daemonMenuInfo cache pattern). Every absence state — non-darwin, rk
-// missing, status failure, app not installed, up to date — is SILENT: null
-// cache, no menu item, no error surface.
+// desktop release exists. darwin+linux only (`rk desktop` exists on both;
+// win32 has no desktop CLI), checked at natural events (startup, window
+// focus) through a 1h throttle — the status call round-trips the GitHub
+// releases API, so no perpetual timer (the daemonMenuInfo cache pattern).
+// Every absence state — unsupported platform, rk missing, status failure, app
+// not installed, up to date — is SILENT: null cache, no menu item, no error
+// surface.
 
 let updateMenuInfo: UpdateMenuInfo | null = null;
 /** Epoch ms of the last check ATTEMPT (failures consume the window too). */
@@ -1808,7 +1817,7 @@ function setUpdateMenuInfo(next: UpdateMenuInfo | null): void {
 
 /** Throttled `rk desktop status` check → change-gated menu rebuild. */
 async function refreshUpdateMenu(): Promise<void> {
-  if (process.platform !== "darwin") return;
+  if (process.platform !== "darwin" && process.platform !== "linux") return;
   // Never rewrite the cache mid-update: after a successful spawn the CLI owns
   // the outcome, and a focus-triggered check must not re-enable the item.
   if (updateMenuInfo?.updating) return;

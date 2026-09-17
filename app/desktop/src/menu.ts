@@ -67,9 +67,11 @@
  * Windows/Linux — NOTHING in the unshifted Ctrl tier is bound; the page tier
  * is completely clean. Chromium handles Ctrl+C/V/X/A/Z natively there, so
  * there is no Edit menu; File carries an accelerator-less New Window plus a
- * plain Quit item (the `quit` role default-binds Ctrl+Q on Linux); there is
- * no Window menu (native window chrome covers minimize/close; the `minimize`
- * role default-binds Ctrl+M); View items whose former role defaults sit in
+ * plain Quit item (the `quit` role default-binds Ctrl+Q on Linux), and on
+ * Linux the detection-gated accelerator-less Restart-to-Update group above
+ * Quit (win32 never caches an update — `rk desktop` does not exist there);
+ * there is no Window menu (native window chrome covers minimize/close; the
+ * `minimize` role default-binds Ctrl+M); View items whose former role defaults sit in
  * the unshifted Ctrl tier (reload Ctrl+R, zoom Ctrl+0/±) are
  * accelerator-less plain items, and the shifted-tier pair (force-reload,
  * devtools) is explicit too so it targets the focused view's webContents.
@@ -93,8 +95,10 @@ import {
 } from "electron";
 import { HostEntry } from "./hosts";
 import { daemonMenuModel, type DaemonMenuInfo } from "./local-daemon";
+import { updateMenuItems, type UpdateMenuInfo } from "./update-check";
 
 export type { DaemonMenuInfo } from "./local-daemon";
+export type { UpdateMenuInfo } from "./update-check";
 
 export interface MenuCallbacks {
   onSwitchHost: (id: string) => void;
@@ -115,21 +119,6 @@ export interface MenuCallbacks {
 }
 
 /**
- * Menu-relevant desktop-update state (cached in main, refreshed by the
- * `rk desktop status` check on startup/focus). `null` hides the App-menu
- * item entirely — non-darwin, rk missing, status failure, or up to date.
- */
-export interface UpdateMenuInfo {
-  /** Latest release version from `rk desktop status` (no leading "v"). */
-  latestVersion: string;
-  /** An `rk desktop update` spawn is in flight — retitle + disable the item. */
-  updating: boolean;
-}
-
-/** Post-click label while the detached CLI drives quit → swap → relaunch. */
-const UPDATING_LABEL = "Updating…";
-
-/**
  * One row of the mac Window menu's manual per-window list — the window's
  * current title as the label, checked on the focused window. Derived from
  * main's window registry on every rebuild.
@@ -138,10 +127,6 @@ export interface WindowMenuEntry {
   windowId: number;
   title: string;
   focused: boolean;
-}
-
-function restartToUpdateLabel(latestVersion: string): string {
-  return `Restart to Update (v${latestVersion} available)…`;
 }
 
 const MAX_SWITCHER_ACCELERATORS = 9;
@@ -171,29 +156,34 @@ function zoomBy(delta: number): void {
 }
 
 /**
+ * Render the pure update item-group model (update-check.ts) — the single
+ * source of the Restart-to-Update item, consumed by both platform menus so
+ * they cannot drift. Accelerator-less on every platform (the keyboard-tier
+ * seam is untouched).
+ */
+function renderUpdateItems(
+  update: UpdateMenuInfo | null,
+  callbacks: MenuCallbacks,
+): MenuItemConstructorOptions[] {
+  return updateMenuItems(update).map((m): MenuItemConstructorOptions => {
+    if (m.kind === "separator") return separator;
+    return m.enabled
+      ? { label: m.label, click: () => callbacks.onRestartToUpdate() }
+      : { label: m.label, enabled: false };
+  });
+}
+
+/**
  * macOS App menu (⌘Q/⌘H/⌥⌘H) — a mac-only shape. When an update is cached
  * (`update` non-null), a detection-gated, accelerator-less "Restart to
  * Update (vX.Y.Z available)…" item sits in its own group directly above
- * Quit (the keyboard-tier seam is untouched — no accelerator, no registry
- * mirror change). While the spawn is in flight it reads "Updating…" and is
- * disabled; the detached CLI drives the quit → swap → relaunch from there.
+ * Quit. While the spawn is in flight it reads "Updating…" and is disabled;
+ * the detached CLI drives the quit → swap → relaunch from there.
  */
 function macAppMenu(
   update: UpdateMenuInfo | null,
   callbacks: MenuCallbacks,
 ): MenuItemConstructorOptions {
-  const updateItems: MenuItemConstructorOptions[] =
-    update === null
-      ? []
-      : [
-          update.updating
-            ? { label: UPDATING_LABEL, enabled: false }
-            : {
-                label: restartToUpdateLabel(update.latestVersion),
-                click: () => callbacks.onRestartToUpdate(),
-              },
-          separator,
-        ];
   return {
     label: app.name,
     submenu: [
@@ -203,14 +193,23 @@ function macAppMenu(
       { role: "hideOthers" }, // ⌥⌘H
       { role: "unhide" },
       { type: "separator" },
-      ...updateItems,
+      ...renderUpdateItems(update, callbacks),
       { role: "quit" }, // ⌘Q
     ],
   };
 }
 
-/** Windows/Linux conventional minimal File menu — New Window + quit, accelerator-less. */
-function fileMenu(callbacks: MenuCallbacks): MenuItemConstructorOptions {
+/**
+ * Windows/Linux conventional minimal File menu — New Window + quit,
+ * accelerator-less. The detection-gated Restart-to-Update group sits directly
+ * above Quit exactly as in the mac App menu; on win32 the update cache is
+ * always null (`rk desktop` does not exist there), so the item renders only
+ * on Linux.
+ */
+function fileMenu(
+  update: UpdateMenuInfo | null,
+  callbacks: MenuCallbacks,
+): MenuItemConstructorOptions {
   return {
     label: "File",
     submenu: [
@@ -221,6 +220,7 @@ function fileMenu(callbacks: MenuCallbacks): MenuItemConstructorOptions {
         click: () => callbacks.onNewWindow(),
       },
       { type: "separator" },
+      ...renderUpdateItems(update, callbacks),
       {
         // Plain item, NOT `role: 'quit'` — that role default-binds Ctrl+Q on
         // Linux, which is the page tier there.
@@ -453,10 +453,9 @@ function macWindowMenu(
  * `focusedHostId` is the FOCUSED window's active host (switching is
  * per-window — the radio check marks follow focus); `windows` feeds the mac
  * Window menu's manual per-window list. `daemon` null hides the Daemon
- * menu (not installed / win32); `update` null hides the App-menu
- * Restart-to-Update item (non-darwin, rk missing, status failure, or up to
- * date — the item is mac-only by structure, since only `macAppMenu` renders
- * it).
+ * menu (not installed / win32); `update` null hides the Restart-to-Update
+ * item (win32, rk missing, status failure, or up to date — on darwin it
+ * renders in the App menu, on linux in the File menu, both above Quit).
  */
 export function buildMenu(
   hosts: HostEntry[],
@@ -467,7 +466,7 @@ export function buildMenu(
   update: UpdateMenuInfo | null,
 ): Menu {
   const template: MenuItemConstructorOptions[] = [
-    isMac ? macAppMenu(update, callbacks) : fileMenu(callbacks),
+    isMac ? macAppMenu(update, callbacks) : fileMenu(update, callbacks),
     ...(isMac ? [macEditMenu()] : []),
     viewMenu(),
     hostsMenu(hosts, focusedHostId, callbacks),

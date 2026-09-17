@@ -26,7 +26,17 @@ type InstallResult struct {
 	Restarted bool
 }
 
-// Install downloads, verifies, and installs the given release:
+// Install downloads, verifies, and installs the given release, dispatching on
+// the platform: the DMG flow on darwin (below), the AppImage flow on linux
+// (linux.go).
+func (ins *Installer) Install(ctx context.Context, rel Release) (InstallResult, error) {
+	if ins.GOOS == "linux" {
+		return ins.installLinux(ctx, rel)
+	}
+	return ins.installDarwin(ctx, rel)
+}
+
+// installDarwin is the macOS DMG flow:
 //
 //  1. Download the DMG to a temp file (SHA256 computed while streaming).
 //  2. Verify the SHA256 against the release digest when the API supplied one.
@@ -59,12 +69,28 @@ type InstallResult struct {
 //
 // All subprocesses run through the Runner seam (exec.CommandContext with
 // argument slices and timeouts).
-func (ins *Installer) Install(ctx context.Context, rel Release) (InstallResult, error) {
-	dmgPath, err := ins.download(ctx, rel)
+func (ins *Installer) installDarwin(ctx context.Context, rel Release) (InstallResult, error) {
+	root, err := ins.effectiveInstallDir()
 	if err != nil {
 		return InstallResult{}, err
 	}
+	dmgFile, err := os.CreateTemp("", "run-kit-desktop-*.dmg")
+	if err != nil {
+		return InstallResult{}, fmt.Errorf("creating temp file: %w", err)
+	}
+	dmgPath := dmgFile.Name()
+	dmgFile.Close()
 	defer os.Remove(dmgPath)
+
+	sum, err := ins.download(ctx, rel, dmgPath)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	if rel.Digest == "" {
+		fmt.Fprintf(ins.Progress, "note: release supplied no digest for %s; relying on signature verification\n", rel.AssetName)
+	} else if !strings.EqualFold(sum, rel.Digest) {
+		return InstallResult{}, fmt.Errorf("checksum mismatch for %s: downloaded sha256:%s, release digest sha256:%s — discarding download", rel.AssetName, sum, rel.Digest)
+	}
 
 	mount, err := os.MkdirTemp("", "run-kit-desktop-mnt-")
 	if err != nil {
@@ -105,12 +131,12 @@ func (ins *Installer) Install(ctx context.Context, rel Release) (InstallResult, 
 		return InstallResult{}, fmt.Errorf("signature verification failed — refusing to install an unverifiable app: %w", err)
 	}
 
-	// Stage inside InstallDir (same volume as the final path, so the rename
-	// below is atomic). The deterministic dot-prefixed name means a leftover
-	// from a previously interrupted run is reclaimed here rather than
+	// Stage inside the install root (same volume as the final path, so the
+	// rename below is atomic). The deterministic dot-prefixed name means a
+	// leftover from a previously interrupted run is reclaimed here rather than
 	// accumulating.
 	dest := ins.AppPath()
-	staged := filepath.Join(ins.InstallDir, "."+AppBundleName+".staging")
+	staged := filepath.Join(root, "."+AppBundleName+".staging")
 	if err := os.RemoveAll(staged); err != nil {
 		return InstallResult{}, fmt.Errorf("clearing leftover staged bundle %s: %w", staged, err)
 	}
@@ -164,12 +190,13 @@ func (ins *Installer) Install(ctx context.Context, rel Release) (InstallResult, 
 	return InstallResult{Version: rel.Version, Path: dest, Restarted: restarted}, nil
 }
 
-// download fetches the release asset to a temp file under a generous
-// network-sized timeout, computing the SHA256 while streaming. The checksum is
-// compared against the release digest when one was supplied; a mismatch
-// discards the download. Progress goes to ins.Progress (the chatter channel —
-// suppressed by --quiet).
-func (ins *Installer) download(ctx context.Context, rel Release) (string, error) {
+// download fetches the release asset to dest under a generous network-sized
+// timeout, computing the SHA256 while streaming, and returns the hex digest.
+// The checksum COMPARISON is the caller's: the darwin flow notes and continues
+// when the API supplied no digest (codesign stays the hard gate) while the
+// linux flow refuses outright (no second gate exists there). Progress goes to
+// ins.Progress (the chatter channel — suppressed by --quiet).
+func (ins *Installer) download(ctx context.Context, rel Release, dest string) (string, error) {
 	dlCtx, cancel := context.WithTimeout(ctx, downloadTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(dlCtx, http.MethodGet, rel.AssetURL, nil)
@@ -188,9 +215,9 @@ func (ins *Installer) download(ctx context.Context, rel Release) (string, error)
 		return "", fmt.Errorf("downloading %s: HTTP %d", rel.AssetName, resp.StatusCode)
 	}
 
-	tmp, err := os.CreateTemp("", "run-kit-desktop-*.dmg")
+	tmp, err := os.Create(dest)
 	if err != nil {
-		return "", fmt.Errorf("creating temp file: %w", err)
+		return "", fmt.Errorf("creating %s: %w", dest, err)
 	}
 	if resp.ContentLength > 0 {
 		fmt.Fprintf(ins.Progress, "Downloading %s (%d MB)...\n", rel.AssetName, resp.ContentLength>>20)
@@ -203,21 +230,13 @@ func (ins *Installer) download(ctx context.Context, rel Release) (string, error)
 	_, copyErr := io.Copy(io.MultiWriter(tmp, hasher, progress), resp.Body)
 	closeErr := tmp.Close()
 	if copyErr != nil || closeErr != nil {
-		os.Remove(tmp.Name())
+		os.Remove(dest)
 		if copyErr != nil {
 			return "", fmt.Errorf("downloading %s: %w", rel.AssetName, copyErr)
 		}
-		return "", fmt.Errorf("writing %s: %w", tmp.Name(), closeErr)
+		return "", fmt.Errorf("writing %s: %w", dest, closeErr)
 	}
-
-	sum := hex.EncodeToString(hasher.Sum(nil))
-	if rel.Digest == "" {
-		fmt.Fprintf(ins.Progress, "note: release supplied no digest for %s; relying on signature verification\n", rel.AssetName)
-	} else if !strings.EqualFold(sum, rel.Digest) {
-		os.Remove(tmp.Name())
-		return "", fmt.Errorf("checksum mismatch for %s: downloaded sha256:%s, release digest sha256:%s — discarding download", rel.AssetName, sum, rel.Digest)
-	}
-	return tmp.Name(), nil
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 // findAppBundle locates the .app bundle at the top level of the mounted image.

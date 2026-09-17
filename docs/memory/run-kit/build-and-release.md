@@ -30,7 +30,7 @@ Output: `dist/rk` — single static binary with embedded frontend assets, the co
 
 `justfile` recipes: `build` delegates to `scripts/build.sh`, `release` delegates to `scripts/release.sh`; `setup` also installs the `app/code-bridge` pnpm deps alongside the frontend's.
 
-**Desktop-shell build** — a separate, self-contained pipeline for the Electron viewer shell (`app/desktop`, see [desktop-shell](/run-kit/desktop-shell.md)), independent of `scripts/build.sh` and the Go binary: `just dev-desktop` → `scripts/dev-desktop.sh` (pnpm install when `node_modules` is missing, tsc compile, `pnpm exec electron .`; `RK_DESKTOP_URL=http://…` loads a URL directly without persisting it) and `just build-desktop [mac|win|linux]` → `scripts/build-desktop.sh` (target from the optional argument, else derived from `uname -s`; verifies the committed `app/desktop/build/icon.png` exists, `pnpm install --frozen-lockfile`, compile, `electron-builder --mac|--win|--linux --publish never --config.extraMetadata.version=$VERSION` with `$VERSION` from `git describe --tags --abbrev=0`, fallback `0.0.0-dev`), producing ad-hoc-signed per-arch DMGs, an NSIS installer, or AppImage + deb in `app/desktop/release/` (gitignored). Each platform's package can only be built on that platform's host. The scripts are the *local* path; releases build the same artifacts on native runners through the `desktop-macos`/`desktop-linux`/`desktop-windows` jobs with inline steps rather than `scripts/build-desktop.sh` (see § Release Flow & CI/CD).
+**Desktop-shell build** — a separate, self-contained pipeline for the Electron viewer shell (`app/desktop`, see [desktop-shell](/run-kit/desktop-shell.md)), independent of `scripts/build.sh` and the Go binary: `just dev-desktop` → `scripts/dev-desktop.sh` (pnpm install when `node_modules` is missing, tsc compile, `pnpm exec electron .`; `RK_DESKTOP_URL=http://…` loads a URL directly without persisting it) and `just build-desktop [mac|win|linux]` → `scripts/build-desktop.sh` (target from the optional argument, else derived from `uname -s`; verifies the committed `app/desktop/build/icon.png` exists, `pnpm install --frozen-lockfile`, compile, `electron-builder --mac|--win|--linux --publish never --config.extraMetadata.version=$VERSION` with `$VERSION` from `git describe --tags --abbrev=0`, fallback `0.0.0-dev`), producing ad-hoc-signed per-arch DMGs, an NSIS installer, or AppImages (x64 + arm64 — the sole Linux format) in `app/desktop/release/` (gitignored). Each platform's package can only be built on that platform's host. The scripts are the *local* path; releases build the same artifacts on native runners through the `desktop-macos`/`desktop-linux`/`desktop-windows` jobs with inline steps rather than `scripts/build-desktop.sh` (see § Release Flow & CI/CD).
 
 
 ## Release Flow & CI/CD
@@ -50,7 +50,7 @@ Cross-compile targets: `darwin/arm64`, `darwin/amd64`, `linux/arm64`, `linux/amd
 | Job | Runner | Build flag | Artifacts uploaded |
 |-----|--------|-----------|--------------------|
 | `desktop-macos` | macos-latest | `--mac` (+ `CSC_IDENTITY_AUTO_DISCOVERY: "false"`) | `release/*.dmg` |
-| `desktop-linux` | ubuntu-latest | `--linux` | `release/*.AppImage` + `release/*.deb` |
+| `desktop-linux` | ubuntu-latest | `--linux` | `release/*.AppImage` |
 | `desktop-windows` | windows-latest | `--win` | `release/*.exe` |
 
 The **shared step shape** (identical across all three, same pinned action SHAs):

@@ -25,13 +25,15 @@ const releaseJSON = `{
 }`
 
 // newTestInstaller returns an Installer pointed at the given httptest server
-// with a runner that fails the test if any subprocess runs.
+// with a runner that fails the test if any subprocess runs. It pins the
+// darwin platform so the DMG assertions are host-independent.
 func newTestInstaller(t *testing.T, srv *httptest.Server) *Installer {
 	t.Helper()
 	ins := New()
 	ins.Client = srv.Client()
 	ins.APIBase = srv.URL
 	ins.Token = ""
+	ins.GOOS = "darwin"
 	ins.Run = func(_ context.Context, name string, args ...string) ([]byte, error) {
 		t.Fatalf("unexpected subprocess: %s %v", name, args)
 		return nil, nil
@@ -161,10 +163,81 @@ func TestResolveReleaseMissingArchAsset(t *testing.T) {
 
 func TestResolveReleaseUnsupportedArch(t *testing.T) {
 	ins := New()
+	ins.GOOS = "darwin"
 	ins.Arch = "riscv64"
 	_, err := ins.ResolveRelease(context.Background(), "")
 	if err == nil || !strings.Contains(err.Error(), "unsupported architecture") {
 		t.Errorf("error = %v, want an unsupported-architecture error", err)
+	}
+}
+
+// releaseJSONLinux is the Linux counterpart of releaseJSON: AppImage assets
+// (electron-builder's per-target arch naming — x86_64, not x64).
+const releaseJSONLinux = `{
+  "tag_name": "v3.13.0",
+  "assets": [
+    {"name": "run-kit-desktop-3.13.0-arm64.AppImage",
+     "browser_download_url": "https://example.invalid/arm64.AppImage",
+     "digest": "sha256:aabbcc"},
+    {"name": "run-kit-desktop-3.13.0-x86_64.AppImage",
+     "browser_download_url": "https://example.invalid/x86_64.AppImage",
+     "digest": "sha256:ddeeff"},
+    {"name": "run-kit-desktop-3.13.0-x64.dmg",
+     "browser_download_url": "https://example.invalid/x64.dmg"}
+  ]
+}`
+
+func TestResolveReleaseLinuxSelectsAppImage(t *testing.T) {
+	cases := []struct{ goarch, wantAsset, wantDigest string }{
+		{"amd64", "run-kit-desktop-3.13.0-x86_64.AppImage", "ddeeff"},
+		{"arm64", "run-kit-desktop-3.13.0-arm64.AppImage", "aabbcc"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.goarch, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Write([]byte(releaseJSONLinux))
+			}))
+			defer srv.Close()
+
+			ins := newTestInstaller(t, srv)
+			ins.GOOS = "linux"
+			ins.Arch = tc.goarch
+			rel, err := ins.ResolveRelease(context.Background(), "")
+			if err != nil {
+				t.Fatalf("ResolveRelease: %v", err)
+			}
+			if rel.AssetName != tc.wantAsset {
+				t.Errorf("asset = %q, want %q", rel.AssetName, tc.wantAsset)
+			}
+			if rel.Digest != tc.wantDigest {
+				t.Errorf("digest = %q, want %q", rel.Digest, tc.wantDigest)
+			}
+		})
+	}
+}
+
+func TestResolveReleaseLinuxMissingArchAsset(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"tag_name": "v3.13.0", "assets": []}`))
+	}))
+	defer srv.Close()
+
+	ins := newTestInstaller(t, srv)
+	ins.GOOS = "linux"
+	ins.Arch = "amd64"
+	_, err := ins.ResolveRelease(context.Background(), "")
+	want := "no x86_64 AppImage asset (looked for run-kit-desktop-*-x86_64.AppImage)"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %v, want a missing-asset error naming the AppImage arch", err)
+	}
+}
+
+func TestResolveReleaseUnsupportedPlatform(t *testing.T) {
+	ins := New()
+	ins.GOOS = "windows"
+	_, err := ins.ResolveRelease(context.Background(), "")
+	if err == nil || !strings.Contains(err.Error(), "unsupported platform") {
+		t.Errorf("error = %v, want an unsupported-platform error", err)
 	}
 }
 

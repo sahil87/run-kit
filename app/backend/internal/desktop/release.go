@@ -9,18 +9,19 @@ import (
 	"strings"
 )
 
-// Release is a resolved desktop-app release: the version plus the DMG asset
-// matching the host architecture.
+// Release is a resolved desktop-app release: the version plus the platform
+// asset (macOS DMG / Linux AppImage) matching the host architecture.
 type Release struct {
 	// Version is the release version with no leading "v" (e.g. "3.13.0").
 	Version string
-	// AssetName is the matched DMG asset filename.
+	// AssetName is the matched asset filename.
 	AssetName string
 	// AssetURL is the asset's browser_download_url.
 	AssetURL string
 	// Digest is the asset's SHA256 hex digest when the API supplied one
-	// ("" when absent or a non-sha256 algorithm — the checksum step is then
-	// skipped and codesign remains the hard verification gate).
+	// ("" when absent or a non-sha256 algorithm — on darwin the checksum step
+	// is then skipped and codesign remains the hard verification gate; on
+	// linux a missing digest REFUSES the install, there is no second gate).
 	Digest string
 }
 
@@ -39,17 +40,38 @@ type ghRelease struct {
 	Assets  []ghAsset `json:"assets"`
 }
 
-// archLabel maps a runtime.GOARCH value onto the DMG artifact arch label
-// (mirroring electron-builder's ${arch} naming: arm64 → arm64, amd64 → x64).
-func archLabel(goarch string) (string, error) {
-	switch goarch {
-	case "arm64":
-		return "arm64", nil
-	case "amd64":
-		return "x64", nil
-	default:
-		return "", fmt.Errorf("unsupported architecture %q — desktop DMGs are published for arm64 and x64 only", goarch)
+// archLabel maps a (GOOS, GOARCH) pair onto the release asset's arch label
+// and extension (mirroring electron-builder's per-target ${arch} naming:
+// darwin amd64 → x64 in the DMG name, while linux amd64 → x86_64 in the
+// AppImage name). Errors before any HTTP request on an unsupported pair.
+func archLabel(goos, goarch string) (label, suffix string, err error) {
+	switch goos {
+	case "darwin":
+		switch goarch {
+		case "arm64":
+			return "arm64", ".dmg", nil
+		case "amd64":
+			return "x64", ".dmg", nil
+		}
+		return "", "", fmt.Errorf("unsupported architecture %q — desktop DMGs are published for arm64 and x64 only", goarch)
+	case "linux":
+		switch goarch {
+		case "amd64":
+			return "x86_64", ".AppImage", nil
+		case "arm64":
+			return "arm64", ".AppImage", nil
+		}
+		return "", "", fmt.Errorf("unsupported architecture %q — desktop AppImages are published for x86_64 and arm64 only", goarch)
 	}
+	return "", "", fmt.Errorf("unsupported platform %q — the desktop shell is packaged for macOS and Linux only", goos)
+}
+
+// assetKind names the package format for error messages.
+func assetKind(goos string) string {
+	if goos == "linux" {
+		return "AppImage"
+	}
+	return "DMG"
 }
 
 // normalizeReleaseTag maps a user-supplied --version value onto the repo's
@@ -63,12 +85,12 @@ func normalizeReleaseTag(tag string) string {
 }
 
 // ResolveRelease queries the GitHub releases API for the latest release (tag
-// == "") or a specific tag, and selects the DMG asset for the host
+// == "") or a specific tag, and selects the asset for the host platform and
 // architecture. Unauthenticated by default (public repo); Token is sent purely
 // for rate-limit headroom. A 403/429 produces the explicit rate-limit error
 // the intake requires.
 func (ins *Installer) ResolveRelease(ctx context.Context, tag string) (Release, error) {
-	label, err := archLabel(ins.Arch)
+	label, suffix, err := archLabel(ins.GOOS, ins.Arch)
 	if err != nil {
 		return Release{}, err
 	}
@@ -117,9 +139,9 @@ func (ins *Installer) ResolveRelease(ctx context.Context, tag string) (Release, 
 		return Release{}, fmt.Errorf("decoding GitHub release response: %w", err)
 	}
 
-	suffix := "-" + label + ".dmg"
+	assetSuffix := "-" + label + suffix
 	for _, a := range rel.Assets {
-		if strings.HasPrefix(a.Name, assetPrefix) && strings.HasSuffix(a.Name, suffix) {
+		if strings.HasPrefix(a.Name, assetPrefix) && strings.HasSuffix(a.Name, assetSuffix) {
 			return Release{
 				Version:   strings.TrimPrefix(rel.TagName, "v"),
 				AssetName: a.Name,
@@ -128,12 +150,12 @@ func (ins *Installer) ResolveRelease(ctx context.Context, tag string) (Release, 
 			}, nil
 		}
 	}
-	return Release{}, fmt.Errorf("release %s has no %s DMG asset (looked for %s*%s)", rel.TagName, label, assetPrefix, suffix)
+	return Release{}, fmt.Errorf("release %s has no %s %s asset (looked for %s*%s)", rel.TagName, label, assetKind(ins.GOOS), assetPrefix, assetSuffix)
 }
 
 // parseSHA256Digest extracts the hex digest from a GitHub asset digest value
-// ("sha256:<hex>"). Absent or non-sha256 values yield "" — the checksum step
-// is skipped for those (codesign stays the hard gate).
+// ("sha256:<hex>"). Absent or non-sha256 values yield "" — how a missing
+// digest is handled is platform-specific (see Release.Digest).
 func parseSHA256Digest(d string) string {
 	if hex, ok := strings.CutPrefix(d, "sha256:"); ok {
 		return hex

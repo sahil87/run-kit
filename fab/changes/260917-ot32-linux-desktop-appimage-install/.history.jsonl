@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-17T09:20:20Z"}
+{"args":"Linux Desktop App — rk desktop installs, updates, and integrates the AppImage (from /fab-discuss study 2026-09-17: AppImage-only Linux format, drop deb; rk desktop install/update/status/uninstall on linux under ~/.rk/desktop; shell setDesktopName + Restart-to-Update on linux; docs)","cmd":"fab-new","event":"command","ts":"2026-09-17T09:20:20Z"}
+{"delta":"+3.1","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-09-17T09:26:52Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-17T09:28:45Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-17T09:31:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-17T09:36:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-17T09:55:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-17T09:58:34Z"}
+{"event":"review","result":"passed","ts":"2026-09-17T09:58:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-17T10:06:25Z"}

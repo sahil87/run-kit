@@ -11,8 +11,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// desktopGOOS is the platform the macOS-only gate checks. A seam var (not
-// runtime.GOOS inline) so tests can exercise both the gate and the darwin
+// desktopGOOS is the platform the macOS/Linux gate checks. A seam var (not
+// runtime.GOOS inline) so tests can exercise the gate and both platforms'
 // flows deterministically on any host — the innerServePIDFn/runBrewFn idiom.
 var desktopGOOS = runtime.GOOS
 
@@ -22,11 +22,11 @@ var desktopGOOS = runtime.GOOS
 // a recorded runner without network or macOS tools.
 var newDesktopInstallerFn = func() *desktop.Installer { return desktop.New() }
 
-// errDesktopMacOnly is the platform-gate refusal. The commands stay REGISTERED
-// on every platform so the `rk help-dump` command tree is platform-stable
-// (help-dump is a contract surface per the toolkit standards); only running
-// them is gated. Operational failure — exit 1.
-var errDesktopMacOnly = fmt.Errorf("rk desktop is macOS-only (the shell is packaged as a macOS .app)")
+// errDesktopUnsupportedPlatform is the platform-gate refusal. The commands
+// stay REGISTERED on every platform so the `rk help-dump` command tree is
+// platform-stable (help-dump is a contract surface per the toolkit
+// standards); only running them is gated. Operational failure — exit 1.
+var errDesktopUnsupportedPlatform = fmt.Errorf("rk desktop supports macOS and Linux (the shell is packaged as a macOS .app and a Linux AppImage)")
 
 // desktopRestartAnnouncement is the auto-restart outcome line — data (stdout,
 // survives --quiet): a caller must be able to tell "updated in place" from
@@ -35,32 +35,38 @@ const desktopRestartAnnouncement = "Run Kit was running — restarted on the new
 
 var desktopCmd = &cobra.Command{
 	Use:   "desktop",
-	Short: "Install and update the Run Kit desktop app (macOS)",
+	Short: "Install and update the Run Kit desktop app (macOS, Linux)",
 	Long: `Install and update the Run Kit desktop app — the Electron shell that wraps an
-rk serve dashboard (macOS only).
+rk serve dashboard (macOS and Linux).
 
-Why not just download the DMG? A browser download stamps the app with
-com.apple.quarantine, so Gatekeeper blocks it on every install and every
-update ("Apple could not verify..."). Fetching through this command produces a
-quarantine-free install: quarantine is applied by the downloading application,
-and command-line tools do not apply it. The installer verifies the download
-itself (SHA256 against the release digest when available, plus
-codesign --verify --deep --strict on the app) before installing.
+On macOS the CLI path produces a quarantine-free install: a browser DMG
+download stamps the app with com.apple.quarantine, so Gatekeeper blocks it on
+every install and update, while command-line downloads carry no quarantine
+attribute. The installer verifies the download itself before installing —
+SHA256 against the release digest, plus codesign --verify --deep --strict on
+the app bundle.
+
+On Linux the AppImage is extracted once into ~/.rk/desktop/<version>/ with a
+'current' symlink flipped atomically, the release digest is the hard
+verification gate (a release without one is refused), and a launcher entry,
+icon, and ~/.local/bin/run-kit-desktop symlink are written for desktop
+integration.
 
 A running app does not block install/update: the new version is downloaded,
 verified, and staged while the app runs, then the app is asked to quit
-gracefully, the bundle is swapped atomically, and the app is relaunched on the
+gracefully, the swap happens atomically, and the app is relaunched on the
 new version (the VSCode update pattern).
 
 Subcommands:
-  install  Fetch the latest release DMG and install to /Applications
-  update   Same, but a no-op when the installed app is already current
-  status   Show installed version vs latest (read-only)
+  install    Fetch the latest release and install it
+  update     Same, but a no-op when the installed app is already current
+  status     Show installed version vs latest (read-only)
+  uninstall  Remove the app and its desktop integration (Linux only)
 
 See 'run-kit desktop <subcommand> --help' for flags on each.`,
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-		if desktopGOOS != "darwin" {
-			return errDesktopMacOnly
+		if desktopGOOS != "darwin" && desktopGOOS != "linux" {
+			return errDesktopUnsupportedPlatform
 		}
 		return nil
 	},
@@ -68,15 +74,18 @@ See 'run-kit desktop <subcommand> --help' for flags on each.`,
 
 var desktopInstallCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Download and install the Run Kit desktop app (quarantine-free)",
-	Long: `Download the latest desktop release DMG (or a specific release via --version)
-and install it, quarantine-free.
+	Short: "Download and install the Run Kit desktop app",
+	Long: `Download the latest desktop release (or a specific release via --version)
+and install it.
 
 The download is verified before anything is touched: SHA256 against the
-release digest when the API supplies one, plus codesign --verify --deep
---strict on the mounted app. The new bundle is then staged next to the install
-target and swapped in atomically, so a failed download or copy never destroys
-an existing install.
+release digest. On macOS the app bundle additionally passes
+codesign --verify --deep --strict; on Linux the digest is the only gate and a
+release without one is refused. On Linux the AppImage is extracted once into
+~/.rk/desktop/<version>/ with an atomically-flipped 'current' symlink, plus a
+launcher entry, icon, and ~/.local/bin/run-kit-desktop symlink. The new
+version is staged next to the install target and swapped in atomically, so a
+failed download or copy never destroys an existing install.
 
 A running Run Kit app is handled automatically: it is asked to quit gracefully
 just before the swap, then relaunched on the new version. If it does not quit
@@ -86,8 +95,9 @@ When the resolved version is already installed, the command is a no-op;
 --force reinstalls anyway. --force overrides version state ONLY — it does not
 change how a running app is handled (quit, swap, relaunch).
 
---path installs somewhere other than /Applications — e.g. ~/Applications on a
-managed Mac where /Applications is not writable.`,
+--path installs somewhere other than the default root (/Applications on macOS,
+~/.rk/desktop on Linux) — e.g. ~/Applications on a managed Mac where
+/Applications is not writable.`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runDesktopInstall,
@@ -100,9 +110,10 @@ var desktopUpdateCmd = &cobra.Command{
 the installed app is already current; errors when no app is installed (run
 'run-kit desktop install' first).
 
-The installed version is read from the app bundle's Info.plist at check time —
-never assumed equal to the CLI version. There is deliberately no --version
-flag: update means "go to latest"; to pin a specific release use
+The installed version is derived from the install at check time (the app
+bundle's Info.plist on macOS, the 'current' symlink on Linux) — never assumed
+equal to the CLI version. There is deliberately no --version flag: update
+means "go to latest"; to pin a specific release use
 'run-kit desktop install --version <tag>'.
 
 A running Run Kit app is handled automatically: the new version is staged
@@ -113,8 +124,8 @@ app untouched.
 --force reinstalls even when already current. It overrides version state ONLY
 — it does not change how a running app is handled (quit, swap, relaunch).
 
---path targets an install outside /Applications — e.g. ~/Applications on a
-managed Mac where /Applications is not writable.`,
+--path targets an install outside the default root (/Applications on macOS,
+~/.rk/desktop on Linux) — e.g. ~/Applications on a managed Mac.`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runDesktopUpdate,
@@ -128,24 +139,43 @@ release, and whether an update is available. Read-only: nothing is downloaded
 or modified. The report is the requested result (data), so --quiet changes
 nothing.
 
---path points at an install outside /Applications — e.g. ~/Applications on a
-managed Mac.`,
+--path points at an install outside the default root (/Applications on macOS,
+~/.rk/desktop on Linux).`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runDesktopStatus,
 }
 
+var desktopUninstallCmd = &cobra.Command{
+	Use:   "uninstall",
+	Short: "Remove the Run Kit desktop app and its desktop integration (Linux)",
+	Long: `Remove the Run Kit desktop app from this machine (Linux only — on macOS drag
+"Run Kit.app" to the Trash).
+
+Refuses while the app is running (quit it first). Removes every installed
+version under the install root, the 'current' symlink, the launcher entry, the
+icon, and the ~/.local/bin/run-kit-desktop symlink. App settings and host
+registrations (~/.config/run-kit-desktop) are user data and are NOT removed.
+
+--path targets an install outside the default root (~/.rk/desktop).`,
+	Args:         cobra.NoArgs,
+	SilenceUsage: true,
+	RunE:         runDesktopUninstall,
+}
+
 func init() {
 	desktopInstallCmd.Flags().String("version", "", "install a specific release tag instead of the latest (e.g. v3.13.0)")
 	desktopInstallCmd.Flags().Bool("force", false, "reinstall even when the requested version is already installed")
-	desktopInstallCmd.Flags().String("path", desktop.DefaultInstallDir, "install directory")
+	desktopInstallCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.rk/desktop on Linux)")
 	desktopUpdateCmd.Flags().Bool("force", false, "reinstall even when already current")
-	desktopUpdateCmd.Flags().String("path", desktop.DefaultInstallDir, "install directory")
-	desktopStatusCmd.Flags().String("path", desktop.DefaultInstallDir, "install directory")
+	desktopUpdateCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.rk/desktop on Linux)")
+	desktopStatusCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.rk/desktop on Linux)")
+	desktopUninstallCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.rk/desktop on Linux)")
 
 	desktopCmd.AddCommand(desktopInstallCmd)
 	desktopCmd.AddCommand(desktopUpdateCmd)
 	desktopCmd.AddCommand(desktopStatusCmd)
+	desktopCmd.AddCommand(desktopUninstallCmd)
 
 	// Arg-count violations on the children are usage-class (exit 2). root.go's
 	// central wrap loop covers only rootCmd's direct children, so nested
@@ -158,20 +188,28 @@ func init() {
 }
 
 // desktopInstaller builds the configured installer for a command invocation:
-// the --path flag sets the install directory and download/verify progress is
+// the --path flag overrides the install root and download/verify progress is
 // wired to the sink's chatter channel (dropped by --quiet; outcome lines stay
-// data per Toolkit Principle 9). An explicitly-empty --path is a usage error
-// (exit 2) — silently substituting /Applications would contradict the flag.
+// data per Toolkit Principle 9). The flag's cobra default is deliberately ""
+// — a per-platform literal default would make the published help-dump
+// reference depend on the puller's platform — so an unchanged flag leaves
+// InstallDir empty and the installer resolves the platform default at use
+// time, while an explicitly-empty --path "" is a usage error (exit 2).
 func desktopInstaller(cmd *cobra.Command, sink outputSink) (*desktop.Installer, error) {
 	p, err := cmd.Flags().GetString("path")
 	if err != nil {
 		return nil, err
 	}
-	if p == "" {
-		return nil, usageError(fmt.Errorf("--path requires a non-empty directory (omit the flag for the %s default)", desktop.DefaultInstallDir))
+	// Validate before constructing: the usage error must not require the
+	// installer factory to run.
+	if cmd.Flags().Changed("path") && p == "" {
+		return nil, usageError(fmt.Errorf("--path requires a non-empty directory (omit the flag for the platform default install root: /Applications on macOS, ~/.rk/desktop on Linux)"))
 	}
 	ins := newDesktopInstallerFn()
-	ins.InstallDir = p
+	ins.GOOS = desktopGOOS
+	if cmd.Flags().Changed("path") {
+		ins.InstallDir = p
+	}
 	ins.Progress = sink.chatter
 	return ins, nil
 }
@@ -260,6 +298,26 @@ func desktopUpdateToLatest(ctx context.Context, ins *desktop.Installer, sink out
 	if res.Restarted {
 		sink.Dataf(desktopRestartAnnouncement)
 	}
+	return nil
+}
+
+func runDesktopUninstall(cmd *cobra.Command, _ []string) error {
+	sink := newSink(cmd)
+	// Flag validation precedes the platform refusal: a usage error stays
+	// exit 2 on every platform.
+	ins, err := desktopInstaller(cmd, sink)
+	if err != nil {
+		return err
+	}
+	if desktopGOOS == "darwin" {
+		return fmt.Errorf(`rk desktop uninstall is Linux-only — on macOS drag "Run Kit.app" to the Trash`)
+	}
+	res, err := ins.Uninstall(cmd.Context())
+	if err != nil {
+		return err
+	}
+	// Outcome line — data (survives --quiet).
+	sink.Dataf("Uninstalled Run Kit from %s\n", res.Root)
 	return nil
 }
 

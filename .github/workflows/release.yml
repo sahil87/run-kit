@@ -238,7 +238,7 @@ jobs:
         run: cd app/desktop && pnpm run compile
 
       # No signing on Linux — no codesign gate here (mac-only invariant).
-      - name: Build Linux packages (AppImage + deb, x64 + arm64)
+      - name: Build Linux packages (AppImage, x64 + arm64)
         run: |
           cd app/desktop
           pnpm exec electron-builder --linux --publish never \
@@ -249,7 +249,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ needs.release.outputs.tag }}" \
-            app/desktop/release/*.AppImage app/desktop/release/*.deb --clobber
+            app/desktop/release/*.AppImage --clobber
 
   desktop-windows:
     needs: release

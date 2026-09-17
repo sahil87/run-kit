@@ -174,10 +174,12 @@ independent legs:
                via --skip-brew-update), brew upgrade, then a daemon restart so
                the server picks up the new binary. A non-brew install prints
                manual-update guidance instead and moves on.
-  Desktop leg  (macOS) When the Run Kit desktop app is installed at
-               /Applications: update it to the latest release, auto-restarting
-               a running app (staged download, graceful quit, atomic swap,
-               relaunch). Skipped silently when no app is installed.
+  Desktop leg  (macOS, Linux) When the Run Kit desktop app is installed at
+               the platform's default install root (/Applications on macOS,
+               ~/.rk/desktop on Linux): update it to the latest release,
+               auto-restarting a running app (staged download, graceful quit,
+               atomic swap, relaunch). Skipped silently when no app is
+               installed.
   Code-server  When an rk-managed code-server install exists
   leg          (~/.rk/code-server-bin): update it to the latest release and
                respawn the session so the new binary takes effect.
@@ -189,8 +191,9 @@ Each leg is skipped when its target is not installed; skips exit 0. The exit
 code is non-zero only when a leg genuinely fails, and one leg's failure does
 not stop the other.
 
-The desktop leg only looks at /Applications — an app installed elsewhere is
-invisible to this command; keep using 'run-kit desktop update --path <dir>'
+The desktop leg only looks at the platform's default install root
+(/Applications on macOS, ~/.rk/desktop on Linux) — an app installed elsewhere
+is invisible to this command; keep using 'run-kit desktop update --path <dir>'
 for custom locations.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// stdout carries data (outcome lines + the not-brew guidance), stderr
@@ -342,20 +345,22 @@ func runUpdateCodeServerLeg(cmd *cobra.Command, sink outputSink) {
 }
 
 // runUpdateDesktopLeg updates the Run Kit desktop app when one is installed
-// at the default /Applications location — the umbrella's "whichever is
-// installed" desktop half. darwin-only (desktopGOOS); a non-darwin platform
-// and a missing app are both silent exit-0 skips (absence is a valid state
-// here, unlike standalone `rk desktop update`, which errors so an explicit
-// update of nothing stays a user error). Custom --path installs are
-// deliberately invisible: there is no state store to remember an install
-// location (Constitution II), so those keep `rk desktop update --path`.
+// at the platform's default install root (/Applications on macOS,
+// ~/.rk/desktop on Linux) — the umbrella's "whichever is installed" desktop
+// half. macOS/Linux only (desktopGOOS); another platform and a missing app
+// are both silent exit-0 skips (absence is a valid state here, unlike
+// standalone `rk desktop update`, which errors so an explicit update of
+// nothing stays a user error). Custom --path installs are deliberately
+// invisible: there is no state store to remember an install location
+// (Constitution II), so those keep `rk desktop update --path`.
 // A stale install runs the shared desktopUpdateToLatest flow, auto-restart
 // included.
 func runUpdateDesktopLeg(ctx context.Context, sink outputSink) error {
-	if desktopGOOS != "darwin" {
+	if desktopGOOS != "darwin" && desktopGOOS != "linux" {
 		return nil
 	}
 	ins := newDesktopInstallerFn()
+	ins.GOOS = desktopGOOS
 	ins.Progress = sink.chatter
 
 	installed, err := ins.InstalledVersion(ctx)

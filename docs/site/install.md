@@ -21,7 +21,7 @@ open http://localhost:3000      # open the dashboard in your browser
 run-kit riff                    # spawn an agent workspace (--skill /name picks the slash-command)
 ```
 
-On a Mac, the [desktop app](#desktop-app-macos) is an alternative front door: `run-kit desktop install`, then open **Run Kit.app** — its welcome page starts the daemon for you (one **Start & connect** click) and can also connect to HexoKit on other machines over SSH or a URL, so the `daemon start` and `open` steps above collapse into opening the app.
+On macOS and Linux, the [desktop app](#desktop-app) is an alternative front door: `run-kit desktop install`, then open the app — its welcome page starts the daemon for you (one **Start & connect** click) and can also connect to HexoKit on other machines over SSH or a URL, so the `daemon start` and `open` steps above collapse into opening the app.
 
 The last step also needs [`wt`](https://github.com/sahil87/wt) and your agent CLI on `PATH` — see [Prerequisites](#prerequisites) below.
 
@@ -49,27 +49,36 @@ Two caveats:
 run-kit update
 ```
 
-`run-kit update` pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately. It covers the CLI and daemon only — the desktop app updates separately, via `run-kit desktop update` or the app's **Restart to Update** menu item (see [Desktop app (macOS)](#desktop-app-macos)).
+`run-kit update` pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately. It covers the CLI and daemon only — the desktop app updates separately, via `run-kit desktop update` or the app's **Restart to Update** menu item (see [Desktop app](#desktop-app)).
 
 > **Upgrading from an earlier HexoKit?** Older installs had the agent-hook *logic* inlined in `~/.claude/settings.json`. Run `run-kit agent setup` once more to swap in the new delegating wrapper, then restart your agent sessions. Future hook fixes ship in the binary and track `run-kit update` with no re-setup.
 
 > **Coming from the old `rk` formula?** run-kit was originally published as `sahil87/tap/rk`. If brew warns that `sahil87/tap/rk was renamed to sahil87/tap/run-kit`, you have a keg installed under the old name — remove it with a benign `brew uninstall sahil87/tap/rk` (your config and the `rk` command alias are unaffected), then `brew install sahil87/tap/run-kit` if `run-kit` is no longer on your `PATH`.
 
-## Desktop app (macOS)
+## Desktop app
 
-The optional desktop shell wraps your dashboard in a native window and frees the browser-reserved `⌘` keyboard tier. Install and update it with the CLI:
+The optional desktop shell wraps your dashboard in a native window and frees the browser-reserved `⌘` keyboard tier. Install and update it with the CLI (macOS and Linux):
 
 ```bash
-run-kit desktop install    # fetch the latest release DMG, install to /Applications
+run-kit desktop install    # fetch the latest release and install it
 run-kit desktop update     # same, but a no-op when already current
 run-kit desktop status     # installed vs latest version (read-only)
 ```
 
-The CLI path is the primary one for a reason: the DMGs are ad-hoc signed (no notarization), so a browser download is stamped with `com.apple.quarantine` and Gatekeeper blocks the app on every install and update. Quarantine comes from the *downloading application* — command-line tools don't apply it — so the CLI produces a quarantine-free install that opens cleanly every time, verifying the download itself (SHA256 against the release digest when available, plus `codesign --verify --deep --strict`) before installing. Use `--path <dir>` to install somewhere other than `/Applications`, and `--version <tag>` to pin a specific release.
+The CLI path is the primary one for a reason. On macOS the DMGs are ad-hoc signed (no notarization), so a browser download is stamped with `com.apple.quarantine` and Gatekeeper blocks the app on every install and update; quarantine comes from the *downloading application* — command-line tools don't apply it — so the CLI produces a quarantine-free install that opens cleanly every time, verifying the download itself (SHA256 against the release digest, plus `codesign --verify --deep --strict`) before installing. Use `--path <dir>` to install somewhere other than `/Applications` (macOS) or `~/.rk/desktop` (Linux), and `--version <tag>` to pin a specific release.
 
-Without the CLI, the fallback is manual: download the DMG for your architecture from [GitHub Releases](https://github.com/sahil87/run-kit/releases), drag **Run Kit.app** into Applications, and clear quarantine via System Settings → Privacy & Security → **Open Anyway** (or `xattr -dr com.apple.quarantine "/Applications/Run Kit.app"`) — repeated on every manual update.
+On Linux the recommended path is the toolkit installer followed by the CLI:
 
-Inside the app, the welcome page offers three ways to connect, in descending order of "already have it here": **This Mac** (detects the local install and daemon state; one **Start & connect** button starts the daemon when needed — post-connect control lives under **Hosts → Local Daemon** in the menu), **over SSH** (`run-kit remote` under the hood: registers the machine, installs HexoKit there if missing, starts its daemon, opens a tunnel), and **a URL** (any reachable `run-kit serve` instance, e.g. the Tailscale HTTPS endpoint below). The app never starts or stops the daemon on its own — every daemon action is an explicit click, and your tmux sessions survive all of them.
+```bash
+curl -fsSL https://hexokit.com/install | sh -s -- run-kit   # installs the CLI
+run-kit desktop install                                     # installs the app
+```
+
+`run-kit desktop install` downloads the AppImage for your architecture, verifies its release digest (a release without one is refused), extracts it once into `~/.rk/desktop/<version>/` with an atomically-flipped `current` symlink, and writes a launcher entry, the icon, and a `run-kit-desktop` symlink in `~/.local/bin`. Updates arrive via `run-kit desktop update` or the app's **Restart to Update** menu item — the running app is quit gracefully, swapped, and relaunched. `run-kit desktop uninstall` removes the install and its desktop integration (your app settings under `~/.config/run-kit-desktop` are kept).
+
+Without the CLI on Linux, the fallback is manual: download the AppImage for your architecture (`x86_64` or `arm64`) from [GitHub Releases](https://github.com/sahil87/run-kit/releases), `chmod +x` it, and run it — with `./run-kit-desktop-<version>-<arch>.AppImage --appimage-extract-and-run` when libfuse2 is missing. The manual path gets no launcher entry and no update notice. On macOS without the CLI: download the DMG, drag **Run Kit.app** into Applications, and clear quarantine via System Settings → Privacy & Security → **Open Anyway** (or `xattr -dr com.apple.quarantine "/Applications/Run Kit.app"`) — repeated on every manual update.
+
+Inside the app, the welcome page offers three ways to connect, in descending order of "already have it here": **This Mac** / **This Machine** (detects the local install and daemon state; one **Start & connect** button starts the daemon when needed — post-connect control lives under **Hosts → Local Daemon** in the menu), **over SSH** (`run-kit remote` under the hood: registers the machine, installs HexoKit there if missing, starts its daemon, opens a tunnel), and **a URL** (any reachable `run-kit serve` instance, e.g. the Tailscale HTTPS endpoint below). The app never starts or stops the daemon on its own — every daemon action is an explicit click, and your tmux sessions survive all of them.
 
 ## code-server (the code lens)
 

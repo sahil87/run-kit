@@ -24,10 +24,12 @@ const (
 	relaunchTimeout  = 30 * time.Second
 )
 
-// quitApp asks the running app to quit gracefully via AppleScript. A graceful
-// quit (vs pkill) matters twice over: Electron gets its shutdown hooks, and
-// the shell's window `close` handler captures lastPath so the relaunch
-// restores the user's route.
+// quitApp asks the running app to quit gracefully via AppleScript (the darwin
+// arm; the linux arm is quitAppLinux in linux.go — SIGTERM to the main
+// process through the Signal seam). A graceful quit (vs pkill) matters twice
+// over on both platforms: Electron gets its shutdown hooks, and the shell's
+// window `close` handler captures lastPath so the relaunch restores the
+// user's route.
 func (ins *Installer) quitApp(ctx context.Context) error {
 	quitCtx, cancel := context.WithTimeout(ctx, quitTimeout)
 	defer cancel()
@@ -39,11 +41,12 @@ func (ins *Installer) quitApp(ctx context.Context) error {
 }
 
 // waitAppExit polls AppRunning until the app's processes are gone, bounded by
-// ins.QuitWait. The osascript quit returns as soon as the app *accepts* the
-// Apple event — actual process exit lags it, so the swap must wait here. The
-// bound is a context derived from QuitWait so a slow probe cannot stretch the
-// total wall time past it (probeTimeout caps each probe individually, but the
-// probe context descends from waitCtx).
+// ins.QuitWait. The quit delivery returns as soon as the app *accepts* the
+// request (the Apple event on darwin, signal delivery on linux) — actual
+// process exit lags it, so the swap must wait here. The bound is a context
+// derived from QuitWait so a slow probe cannot stretch the total wall time
+// past it (probeTimeout caps each probe individually, but the probe context
+// descends from waitCtx).
 func (ins *Installer) waitAppExit(ctx context.Context) error {
 	waitCtx, cancel := context.WithTimeout(ctx, ins.QuitWait)
 	defer cancel()
@@ -68,9 +71,11 @@ func (ins *Installer) waitAppExit(ctx context.Context) error {
 	}
 }
 
-// relaunchApp opens the freshly-installed bundle via `open -a`. Callers treat
-// a failure as non-fatal: the swap already succeeded, so failing the update
-// over a relaunch hiccup would misreport a completed install.
+// relaunchApp opens the freshly-installed bundle via `open -a` (the darwin
+// arm; the linux arm starts <root>/current/AppRun detached via startDetached
+// in linux.go). Callers treat a failure as non-fatal: the swap already
+// succeeded, so failing the update over a relaunch hiccup would misreport a
+// completed install.
 func (ins *Installer) relaunchApp(ctx context.Context, appPath string) error {
 	openCtx, cancel := context.WithTimeout(ctx, relaunchTimeout)
 	defer cancel()

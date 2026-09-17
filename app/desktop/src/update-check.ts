@@ -1,11 +1,13 @@
 /**
  * Update-check pure logic — `rk desktop status` stdout parsing, availability
- * derivation, and the check-cadence throttle predicate.
+ * derivation, the check-cadence throttle predicate, and the Restart-to-Update
+ * menu item-group model.
  *
  * Deliberately electron-free (the `hosts.ts` / `window-open.ts` /
  * `local-daemon.ts` precedent) so the sibling `update-check.test.ts` covers it
  * under plain `node --test`. The impure glue — spawning `rk desktop status`,
- * caching the result, rebuilding the menu — lives in `main.ts`.
+ * caching the result, rebuilding the menu — lives in `main.ts`; the menus
+ * render `updateMenuItems`' model in `menu.ts`.
  *
  * Contract: `rk desktop status` prints DATA on stdout (Toolkit Principle 9 —
  * stable, machine-consumable lines):
@@ -79,4 +81,47 @@ export function isUpdateCheckDue(lastCheckedAt: number | null, now: number): boo
   // re-passes the stale timestamp.
   if (now < lastCheckedAt) return true;
   return now - lastCheckedAt >= UPDATE_CHECK_INTERVAL_MS;
+}
+
+/**
+ * Menu-relevant desktop-update state (cached in main, refreshed by the
+ * `rk desktop status` check on startup/focus). `null` hides the
+ * Restart-to-Update item entirely — win32, rk missing, status failure, or up
+ * to date.
+ */
+export interface UpdateMenuInfo {
+  /** Latest release version from `rk desktop status` (no leading "v"). */
+  latestVersion: string;
+  /** An `rk desktop update` spawn is in flight — retitle + disable the item. */
+  updating: boolean;
+}
+
+/** Post-click label while the detached CLI drives quit → swap → relaunch. */
+const UPDATING_LABEL = "Updating…";
+
+function restartToUpdateLabel(latestVersion: string): string {
+  return `Restart to Update (v${latestVersion} available)…`;
+}
+
+/**
+ * One row of the update item group — the electron-free model both platform
+ * menus render (the daemonMenuModel pattern: menu.ts imports electron, so the
+ * item contract can only run under `node --test` from here).
+ */
+export type UpdateMenuItemModel =
+  | { kind: "item"; label: string; enabled: boolean }
+  | { kind: "separator" };
+
+/**
+ * The Restart-to-Update group: an accelerator-less item followed by a
+ * separator, or nothing when no update is cached. Rendered directly above
+ * Quit on macOS (App menu) and Linux (File menu); on win32 the cache is
+ * always null (`rk desktop` does not exist there), so no item ever renders.
+ */
+export function updateMenuItems(update: UpdateMenuInfo | null): UpdateMenuItemModel[] {
+  if (update === null) return [];
+  const item: UpdateMenuItemModel = update.updating
+    ? { kind: "item", label: UPDATING_LABEL, enabled: false }
+    : { kind: "item", label: restartToUpdateLabel(update.latestVersion), enabled: true };
+  return [item, { kind: "separator" }];
 }

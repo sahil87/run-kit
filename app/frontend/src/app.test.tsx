@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, cleanup, waitFor, act, within } from "@testing-library/react";
+import { createRoot, type Root } from "react-dom/client";
 import { useEffect } from "react";
 import {
   createMemoryHistory,
@@ -34,7 +35,7 @@ import { ChromeProvider } from "@/contexts/chrome-context";
 import { ZenProvider, useZenDispatch } from "@/contexts/zen-context";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
-import { TopBarSlotProvider } from "@/contexts/top-bar-slot-context";
+import { TopBarSlotProvider, useTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { ServerDialogsProvider } from "@/contexts/server-dialogs-context";
 import { PaletteActionsProvider } from "@/contexts/palette-actions-context";
@@ -1788,5 +1789,173 @@ describe("top-bar wash wrapper — chrome paint + inline wash precedence", () =>
     const wrapper = await washWrapper();
     expect(wrapper.className).toContain("bg-bg-chrome");
     expect(wrapper.style.backgroundColor).toBe("rgb(17, 34, 51)");
+  });
+});
+
+describe("absent-server route — the not-found fallback settles", () => {
+  // Renders ServerShell (AppShell) on a route whose server is NOT in the
+  // session context's server list (serversLoaded: true → the guard resolves
+  // "not-found"). The loop contract: the fallback commits once and the tree
+  // then STOPS re-rendering. The probe is a TopBarSlot consumer sibling —
+  // the slot registration channel is the loop's closing edge (a per-render
+  // unstable slot re-fires `setSlot`, which re-renders every consumer), so
+  // its render count over an idle window is the observable property. An
+  // unstable-identity regression drives the count unbounded; the fixed tree
+  // settles at zero growth.
+  stubMatchMedia(() => false);
+
+  let probeRenders = 0;
+  function SlotProbe() {
+    useTopBarSlot();
+    probeRenders++;
+    return null;
+  }
+
+  function MissingServerRoot() {
+    return (
+      <ThemeProvider>
+        <ToastProvider>
+          <InstanceNameProvider>
+            <ChromeProvider>
+              <ZenProvider>
+                <FocusedTerminalProvider>
+                  <OptimisticProvider>
+                    <TopBarSlotProvider>
+                      <SlotProbe />
+                      <FocusedPaneProvider>
+                        <ServerDialogsProvider>
+                          <PaletteActionsProvider globalActions={[]}>
+                            <GuiOffRequestProvider value={undefined}>
+                              <MetricsProvider value={null}>
+                                <HostMetricsProvider value={null}>
+                                  <StandaloneSessionContextProvider
+                                    value={{
+                                      currentServer: null,
+                                      servers: [
+                                        { name: "srv", sessionCount: 1 },
+                                      ] as ServerInfo[],
+                                      serversLoaded: true,
+                                      sessionsByServer: new Map(),
+                                      isConnectedByServer: new Map(),
+                                    }}
+                                  >
+                                    <Outlet />
+                                  </StandaloneSessionContextProvider>
+                                </HostMetricsProvider>
+                              </MetricsProvider>
+                            </GuiOffRequestProvider>
+                          </PaletteActionsProvider>
+                        </ServerDialogsProvider>
+                      </FocusedPaneProvider>
+                    </TopBarSlotProvider>
+                  </OptimisticProvider>
+                </FocusedTerminalProvider>
+              </ZenProvider>
+            </ChromeProvider>
+          </InstanceNameProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    );
+  }
+
+  const missingRootRoute = createRootRoute({ component: MissingServerRoot });
+  const missingServerRoute = createRoute({
+    getParentRoute: () => missingRootRoute,
+    path: "/$server",
+    component: ServerShell,
+  });
+  const missingServerIndexRoute = createRoute({
+    getParentRoute: () => missingServerRoute,
+    path: "/",
+  });
+  const missingTerminalRoute = createRoute({
+    getParentRoute: () => missingServerRoute,
+    path: "/$window",
+    validateSearch: validateTerminalSearch,
+    params: {
+      parse: (params) => ({ window: urlSegmentToWindowId(params.window) }),
+      stringify: (params) => ({ window: windowIdToUrlSegment(params.window) }),
+    },
+  });
+  const missingRouteTree = missingRootRoute.addChildren([
+    missingServerRoute.addChildren([missingServerIndexRoute, missingTerminalRoute]),
+  ]);
+
+  // Mount WITHOUT testing-library's act(): act drains React's work queue until
+  // it is empty, so an unbounded registration loop (the regression this block
+  // guards) would hang the test inside render() instead of failing it. A plain
+  // createRoot mount lets the cascade run as scheduler macrotasks — as in the
+  // browser — so the render-count assertion below fails fast. The
+  // act-environment flag is restored in afterEach.
+  const ACT_ENV_KEY = "IS_REACT_ACT_ENVIRONMENT";
+  let mounted: { root: Root; container: HTMLElement }[] = [];
+  let prevActEnv: unknown;
+
+  beforeEach(() => {
+    prevActEnv = Reflect.get(globalThis, ACT_ENV_KEY);
+    Reflect.set(globalThis, ACT_ENV_KEY, false);
+  });
+
+  function renderMissing(entries: string[]): HTMLElement {
+    const router = createRouter({
+      routeTree: missingRouteTree,
+      history: createMemoryHistory({ initialEntries: entries }),
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    root.render(<RouterProvider router={router} />);
+    mounted.push({ root, container });
+    return container;
+  }
+
+  /** Poll for rendered text with plain macrotasks (no act, no waitFor). */
+  async function awaitText(container: HTMLElement, text: string): Promise<void> {
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      if (container.textContent?.includes(text)) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`timed out waiting for "${text}"`);
+  }
+
+  /** Let one settle turn pass, then count probe renders over an idle window. */
+  async function countProbeRendersOver(windowMs: number): Promise<number> {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const before = probeRenders;
+    await new Promise((resolve) => setTimeout(resolve, windowMs));
+    return probeRenders - before;
+  }
+
+  afterEach(() => {
+    for (const { root, container } of mounted) {
+      root.unmount();
+      container.remove();
+    }
+    mounted = [];
+    Reflect.set(globalThis, ACT_ENV_KEY, prevActEnv);
+    probeRenders = 0;
+    localStorage.clear();
+  });
+
+  it("renders 'Server not found' and the slot-consumer tree then stops re-rendering", async () => {
+    const container = renderMissing(["/missing"]);
+
+    await awaitText(container, "Server not found");
+    expect(within(container).getByRole("heading", { name: "Server not found" })).toBeInTheDocument();
+    expect(within(container).getByText(/No tmux server named/)).toHaveTextContent("missing");
+
+    // A settled tree accrues no renders over an idle window. The bound is
+    // loose by design — the loop this guards grows the count by hundreds over
+    // the same window, so any small ceiling catches it without flaking on a
+    // late one-shot effect.
+    expect(await countProbeRendersOver(300)).toBeLessThanOrEqual(1);
+  });
+
+  it("the /$server/$window form settles the same way", async () => {
+    const container = renderMissing(["/missing/0"]);
+
+    await awaitText(container, "Server not found");
+    expect(await countProbeRendersOver(300)).toBeLessThanOrEqual(1);
   });
 });

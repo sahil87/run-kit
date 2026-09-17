@@ -1,0 +1,57 @@
+id: a2ep
+name: 260917-a2ep-server-not-found-render-loop
+created: 2026-09-17T09:45:37Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 19
+    acceptance_completed: 19
+confidence:
+    certain: 6
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 82.5
+        reversibility: 82.5
+        competence: 84.6
+        disambiguation: 84.2
+stage_metrics:
+    intake: {started_at: "2026-09-17T09:45:37Z", driver: fab-new, iterations: 1, completed_at: "2026-09-17T09:54:11Z"}
+    apply: {started_at: "2026-09-17T09:54:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-17T10:23:34Z"}
+    review: {started_at: "2026-09-17T10:23:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-17T10:26:44Z"}
+    hydrate: {started_at: "2026-09-17T10:26:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-17T10:29:05Z"}
+    ship: {started_at: "2026-09-17T10:29:05Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-17T10:29:05Z"
+    computed_at_stage: hydrate
+summary: Missing-server routes render the Server-not-found fallback once and idle (module-level NO_SESSIONS constant in AppShell); e2e guards main-thread idle via CDP TaskDuration
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-17T10:29:05Z

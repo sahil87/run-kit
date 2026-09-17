@@ -208,6 +208,7 @@ import { SessionTiles } from "@/components/session-tiles/session-tiles";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
+import type { ProjectSession } from "@/types";
 
 import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
@@ -887,6 +888,14 @@ const CONFIRMATION_WINDOW_MS = 5000;
  */
 const FOCUS_RESTORE_RETRY_MS = 5000;
 
+/** Fallback sessions array for a server the snapshot map has no entry for
+ *  (e.g. an absent server on a not-found route). Module-level so every render
+ *  sees the SAME reference — a per-render `?? []` would re-key every memo and
+ *  effect downstream (`useMergedSessions` → the top-bar slot →
+ *  `useRegisterTopBarSlot`'s `setSlot` effect → provider state → re-render),
+ *  closing a render loop on missing-server routes. */
+const NO_SESSIONS: ProjectSession[] = [];
+
 function AppShell() {
   const ctx = useSessionContext();
   const matches = useMatches();
@@ -896,7 +905,7 @@ function AppShell() {
   // here in practice. Fall back to URL params during the brief window between
   // navigation and the provider's next render with `currentServer` set.
   const server = ctx.currentServer ?? params.server ?? "";
-  const rawSessions = ctx.sessionsByServer.get(server) ?? [];
+  const rawSessions = ctx.sessionsByServer.get(server) ?? NO_SESSIONS;
   const isConnected = ctx.isConnectedByServer.get(server) ?? false;
   const servers = ctx.servers;
   const serversLoaded = ctx.serversLoaded;

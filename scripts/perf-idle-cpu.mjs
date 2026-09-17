@@ -9,7 +9,11 @@
 // runs from any cwd; ESM `import` ignores NODE_PATH, which is why the wrapper
 // does not set one. The browser is launched with channel "chromium" (the full
 // build): the default headless shell lacks SystemInfo.getProcessInfo, which the
-// per-process CPU column depends on.
+// per-process CPU column depends on. Whether a headless launch gets WebGL is
+// install-dependent (the full build here does, via SwiftShader; the headless
+// shell does not), so the summary names the xterm renderer per run; --headed
+// (a display supplied by the wrapper) is the real-display case and --no-webgl
+// forces the DOM renderer for an A/B.
 
 import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
@@ -28,6 +32,7 @@ const SETTLE_AFTER_LOAD_MS = 6000;
 const SETTLE_AFTER_THEN_MS = 6000;
 const SETTLE_AFTER_INJECT_MS = 1500;
 const NETWORK_IDLE_TIMEOUT_MS = 15000;
+const XTERM_MOUNT_POLL_MS = 250;
 const IN_APP_CLICK_TIMEOUT_MS = 5000;
 const PROFILER_SAMPLING_INTERVAL_US = 1000;
 const TOP_N = 12;
@@ -39,6 +44,23 @@ const FRAME_TYPE_KEY_MAX_KEYS = 3;
 const FRAME_TYPE_KEYS = ["type", "event", "kind", "op"];
 // Profiler pseudo-nodes that are not CPU work and would otherwise top every list.
 const PROFILE_EXCLUDED_FRAMES = new Set(["(idle)", "(root)"]);
+// Headed-only: a headed Chromium with no GPU needs these to expose software WebGL.
+// They ride only the --headed launch so the headless launch stays byte-identical
+// to every earlier headless row.
+const HEADED_CHROMIUM_ARGS = ["--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"];
+// --no-webgl: makes xterm's WebglAddon fail at load, so the page takes the DOM
+// renderer on purpose — the only way to get a dom row on a box whose headless
+// Chromium has software WebGL.
+const NO_WEBGL_CHROMIUM_ARGS = ["--disable-webgl", "--disable-webgl2"];
+// Cross-file contract with app/frontend/src/components/terminal-client.tsx: the
+// WebGL-fallback console line's prefix (reportWebglFallback) and the per-window
+// renderer registry it writes ("webgl" | "canvas"; "canvas" is xterm's DOM renderer).
+const WEBGL_FALLBACK_CONSOLE_PREFIX = "rk: xterm WebGL";
+const RENDERER_REGISTRY_GLOBAL = "__rkRenderer";
+// /$server/@N (the window id) or /$server/N — the terminal route. Board pages and
+// the dev-only controls gallery share the two-segment shape and are excluded.
+const TTY_ROUTE_RE = /^\/[^/]+\/@?\d+\/?$/;
+const NON_TTY_ROUTE_PREFIXES = ["/board/", "/__controls"];
 
 const EXIT_OK = 0;
 const EXIT_FAILURE = 1;
@@ -57,15 +79,26 @@ Load one rk route against a LIVE daemon, idle, and print where the CPU goes.
   --inject <js>          JavaScript evaluated in the page after load/--then and before sampling
                          (e.g. a <style> tag that pauses one flair, for a one-mechanism A/B)
   --then <path>          navigate in-app to <path> after the first load (click a[href=<path>], else pushState + popstate)
+  --headed               launch headed Chromium with software WebGL enabled (for a real display, or a box
+                         whose headless Chromium has no WebGL — check xterm-renderer= on a headless run
+                         first; the wrapper wraps in xvfb-run when DISPLAY is unset; GPU % under Xvfb is
+                         SwiftShader and not a number)
+  --no-webgl             disable WebGL in Chromium so xterm takes its DOM renderer (a deliberate
+                         xterm-renderer=dom row for a renderer A/B; combinable with --headed)
   --json <file>          also write the full profile as JSON to <file>
   --viewport <WxH>       viewport (default ${DEFAULT_VIEWPORT})
   --label <text>         label for the summary line (default: <path>[ -> <then>])
   -h, --help             this text
 
 Output: line 1 is a grep-able summary (renderer/gpu/browser %, main-thread %, recalcs,
-layouts, running animations, xterm + iframe counts, per-socket msg/s + kB/s), followed by
-## processes, ## renderer main thread, ## animations, ## sockets, ## js by script,
-## js self time, ## page.
+layouts, running animations, xterm count, xterm-renderer=webgl|dom|none|mixed|unknown (which
+xterm renderer the page used, read from the frontend's per-window registry), iframe count,
+per-socket msg/s + kB/s, trailing reduced-motion / headed / no-webgl tokens), followed by ## processes,
+## renderer main thread, ## animations, ## sockets, ## js by script, ## js self time, ## page
+(incl. the xterm renderer, the count of "${WEBGL_FALLBACK_CONSOLE_PREFIX}" console warnings, headed, no-webgl, chromium).
+
+A tty route (/<server>/@N) whose page has no terminal at sample end gets a stderr warning
+("not a tty measurement") — the run still exits 0; its sidebar/server numbers are valid.
 
 Exit codes: 0 sampled · 1 page failed to load / Chromium missing / CDP unavailable · 2 usage.
 Not a test — it asserts nothing. Run one instance at a time.`;
@@ -105,6 +138,8 @@ function parseCli(argv) {
         "reduced-motion": { type: "boolean", default: false },
         inject: { type: "string" },
         then: { type: "string" },
+        headed: { type: "boolean", default: false },
+        "no-webgl": { type: "boolean", default: false },
         json: { type: "string" },
         viewport: { type: "string" },
         label: { type: "string" },
@@ -141,6 +176,8 @@ function parseCli(argv) {
     reducedMotion: values["reduced-motion"],
     inject: values.inject ?? null,
     then,
+    headed: values.headed,
+    noWebgl: values["no-webgl"],
     jsonPath: values.json ?? null,
     viewport,
     viewportRaw,
@@ -157,9 +194,14 @@ function loadPlaywright() {
   }
 }
 
-async function launchChromium(chromium) {
+// The plain headless launch stays exactly `{ headless: true, channel: "chromium" }`
+// (no args key at all) so every earlier headless row remains comparable.
+async function launchChromium(chromium, { headed, noWebgl }) {
+  const args = [...(headed ? HEADED_CHROMIUM_ARGS : []), ...(noWebgl ? NO_WEBGL_CHROMIUM_ARGS : [])];
+  const launchOptions = { headless: !headed, channel: "chromium" };
+  if (args.length > 0) launchOptions.args = args;
   try {
-    return await chromium.launch({ headless: true, channel: "chromium" });
+    return await chromium.launch(launchOptions);
   } catch (err) {
     fail(
       `could not launch Chromium (channel "chromium"): ${firstLine(err.message)}\n` +
@@ -234,6 +276,62 @@ function frameTypeKey(frame, isText) {
   } catch {
     return "text";
   }
+}
+
+// Keeps only the frontend's WebGL-fallback warnings. They are a cross-check on the
+// renderer registry (collectInventory), never the source of the renderer kind: a
+// webgl page logs nothing, and a wording change would silently break derivation.
+function attachWebglConsoleCapture(page) {
+  const capture = { count: 0, first: null };
+  page.on("console", (msg) => {
+    const text = msg.text();
+    if (!text.startsWith(WEBGL_FALLBACK_CONSOLE_PREFIX)) return;
+    capture.count += 1;
+    if (capture.first === null) capture.first = text;
+  });
+  return capture;
+}
+
+// The frontend only writes the registry after a terminal's WebGL block ran, so an
+// `.xterm` with no entry is a frontend anomaly worth surfacing, not a dom fallback.
+function deriveXtermRenderer(xtermCount, registry) {
+  if (xtermCount === 0) return "none";
+  const kinds = new Set(Object.values(registry));
+  if (kinds.size === 0) return "unknown";
+  if (kinds.size > 1) return "mixed";
+  return kinds.has("webgl") ? "webgl" : "dom";
+}
+
+// `dom`/`mixed` without a fallback warning, or `webgl` with one, means the two
+// frontend signals disagree — reported, never reconciled.
+function webglConsoleMismatch(xtermRenderer, webglConsole) {
+  if (xtermRenderer === "webgl" && webglConsole.count > 0) return true;
+  if ((xtermRenderer === "dom" || xtermRenderer === "mixed") && webglConsole.count === 0) return true;
+  return false;
+}
+
+// Diagnostic for a tty route whose terminal never shows up: how long after load
+// the first `.xterm` appeared, or null if it had not by the end of the settle
+// window. Replaces no wait — the settle window is spent regardless — so the
+// sampled numbers are unchanged.
+async function waitForXtermMount(page, settleMs) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < settleMs) {
+    const mounted = await page.evaluate(() => document.querySelector(".xterm") !== null);
+    if (mounted) {
+      const elapsed = Date.now() - t0;
+      await page.waitForTimeout(Math.max(0, settleMs - elapsed));
+      return elapsed;
+    }
+    await page.waitForTimeout(XTERM_MOUNT_POLL_MS);
+  }
+  return null;
+}
+
+function isTtyRoute(routePath) {
+  const bare = routePath.replace(/[?#].*$/, "");
+  if (NON_TTY_ROUTE_PREFIXES.some((prefix) => bare.startsWith(prefix))) return false;
+  return TTY_ROUTE_RE.test(bare);
 }
 
 async function loadRoute(page, url) {
@@ -333,7 +431,7 @@ function summarizeProfile(profile) {
 }
 
 async function collectInventory(page) {
-  return page.evaluate(({ ANIMATION_TARGET_KEY_MAX_CHARS, IFRAME_SRC_MAX_CHARS }) => {
+  const raw = await page.evaluate(({ ANIMATION_TARGET_KEY_MAX_CHARS, IFRAME_SRC_MAX_CHARS, RENDERER_REGISTRY_GLOBAL }) => {
     const running = document.getAnimations().filter((a) => a.playState === "running");
     const names = {};
     for (const a of running) {
@@ -344,12 +442,15 @@ async function collectInventory(page) {
     }
     return {
       href: location.href,
+      visibilityState: document.visibilityState,
       xtermScreens: document.querySelectorAll(".xterm").length,
+      rendererRegistry: { ...(window[RENDERER_REGISTRY_GLOBAL] ?? {}) },
       iframes: [...document.querySelectorAll("iframe")].map((f) => f.src.slice(0, IFRAME_SRC_MAX_CHARS)),
       runningAnimations: running.length,
       animationNames: names,
     };
-  }, { ANIMATION_TARGET_KEY_MAX_CHARS, IFRAME_SRC_MAX_CHARS });
+  }, { ANIMATION_TARGET_KEY_MAX_CHARS, IFRAME_SRC_MAX_CHARS, RENDERER_REGISTRY_GLOBAL });
+  return { ...raw, xtermRenderer: deriveXtermRenderer(raw.xtermScreens, raw.rendererRegistry) };
 }
 
 function summarizeSockets(sockets, elapsedSec) {
@@ -394,13 +495,34 @@ function summaryLine(result) {
     `layouts=${renderer.layoutCount}`,
     `anims=${inventory.runningAnimations}`,
     `xterm=${inventory.xtermScreens}`,
+    `xterm-renderer=${inventory.xtermRenderer}`,
     `iframes=${inventory.iframes.length}`,
   ];
   for (const [url, s] of Object.entries(websockets)) {
     fields.push(`ws[${socketPath(url)}]=${s.msgPerSec}msg/s,${s.kBPerSec}kB/s`);
   }
   if (result.reducedMotion) fields.push("reduced-motion");
+  if (result.headed) fields.push("headed");
+  if (result.noWebgl) fields.push("no-webgl");
   return fields.join(" ");
+}
+
+function webglWarningsCell(result) {
+  const { webglConsole, inventory } = result;
+  let cell = String(webglConsole.count);
+  if (webglConsole.first) cell += ` — ${webglConsole.first}`;
+  if (webglConsoleMismatch(inventory.xtermRenderer, webglConsole)) cell += ` (registry says ${inventory.xtermRenderer} — mismatch)`;
+  return cell;
+}
+
+// A tty route whose window the daemon does not have is redirected to the server
+// page, so the landed path is the usual explanation for a missing terminal.
+function ttyRouteWarning(result) {
+  if (!result.ttyRoute || result.inventory.xtermScreens > 0) return null;
+  const landed = socketPath(result.inventory.href).replace(/\/+$/, "") || "/";
+  const requested = result.sampledPath.replace(/[?#].*$/, "").replace(/\/+$/, "") || "/";
+  const where = landed !== requested ? ` (page landed on ${landed} — the window probably does not exist)` : "";
+  return `no terminal mounted on ${result.sampledPath}${where} — not a tty measurement (xterm=0; the sidebar/server numbers are still valid)`;
 }
 
 function table(rows, { align = [] } = {}) {
@@ -464,9 +586,14 @@ function report(result) {
     table([
       ["href", inventory.href],
       ["xterm", String(inventory.xtermScreens)],
+      ["xterm renderer", inventory.xtermRenderer],
+      ["webgl warnings", webglWarningsCell(result)],
       ["iframes", inventory.iframes.length === 0 ? "(none)" : inventory.iframes.join(" ")],
       ["viewport", result.viewport],
       ["reduced-motion", String(result.reducedMotion)],
+      ["headed", String(result.headed)],
+      ["no-webgl", String(result.noWebgl)],
+      ["chromium", result.chromium],
     ]),
   );
   return `${lines.join("\n")}\n`;
@@ -479,8 +606,10 @@ async function main() {
     return;
   }
   const { chromium } = loadPlaywright();
-  const browser = await launchChromium(chromium);
+  const browser = await launchChromium(chromium, opts);
   const url = opts.base + opts.routePath;
+  // The route on screen at sample end — what the tty guard and the label describe.
+  const sampledPath = opts.then ?? opts.routePath;
 
   try {
     const browserCdp = await browser.newBrowserCDPSession();
@@ -491,19 +620,24 @@ async function main() {
       reducedMotion: opts.reducedMotion ? "reduce" : "no-preference",
     });
     const page = await ctx.newPage();
+    const webglConsole = attachWebglConsoleCapture(page);
     const cdp = await ctx.newCDPSession(page);
     await cdp.send("Network.enable");
     await cdp.send("Performance.enable");
     const counter = attachSocketCounter(cdp);
 
+    const ttyRoute = isTtyRoute(sampledPath);
     const loadError = await loadRoute(page, url);
     if (loadError) fail(loadError);
-    await page.waitForTimeout(SETTLE_AFTER_LOAD_MS);
+    let xtermMountedAfterMs = null;
+    if (ttyRoute && !opts.then) xtermMountedAfterMs = await waitForXtermMount(page, SETTLE_AFTER_LOAD_MS);
+    else await page.waitForTimeout(SETTLE_AFTER_LOAD_MS);
 
     let thenVia = null;
     if (opts.then) {
       thenVia = await navigateInApp(page, opts.then);
-      await page.waitForTimeout(SETTLE_AFTER_THEN_MS);
+      if (ttyRoute) xtermMountedAfterMs = await waitForXtermMount(page, SETTLE_AFTER_THEN_MS);
+      else await page.waitForTimeout(SETTLE_AFTER_THEN_MS);
     }
     if (opts.inject) {
       await page.evaluate(opts.inject);
@@ -533,15 +667,28 @@ async function main() {
       url,
       secs: round1(elapsedSec),
       reducedMotion: opts.reducedMotion,
+      headed: opts.headed,
+      noWebgl: opts.noWebgl,
+      chromium: browser.version(),
       viewport: opts.viewportRaw,
+      sampledPath,
+      ttyRoute,
+      xtermMountedAfterMs,
       processes: summarizeProcesses(p0, p1, elapsedSec),
       renderer: summarizeRenderer(m0, m1, elapsedSec),
       websockets: summarizeSockets(counter.sockets, elapsedSec),
       profile: summarizeProfile(profile),
       inventory,
+      webglConsole,
+      warnings: [],
     };
+    const ttyWarning = ttyRouteWarning(result);
+    if (ttyWarning) result.warnings.push(ttyWarning);
 
     process.stdout.write(report(result));
+    // After the report so stdout line 1 stays the summary; the run is still a
+    // valid measurement of everything else on the page, hence exit 0.
+    for (const warning of result.warnings) process.stderr.write(`perf-idle-cpu: warning: ${warning}\n`);
     if (opts.jsonPath) {
       const { profile: prof, ...rest } = result;
       const json = { ...rest, profileByScriptMs: prof.byScriptMs, profileSelfTopMs: prof.selfTopMs, profileTotalMs: prof.totalMs, profileIdleMs: prof.idleMs };

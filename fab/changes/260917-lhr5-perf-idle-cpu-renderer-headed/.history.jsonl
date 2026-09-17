@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-17T09:45:38Z"}
+{"args":"Idle CPU follow-ups — Change 5 (perf-idle-cpu-renderer-headed): the instrument reports which xterm renderer the page used and gains --headed. Read fab/plans/sahil/26-09-17-idle-cpu-followups.md in full before writing the intake. Lane: light.","cmd":"fab-new","event":"command","ts":"2026-09-17T09:45:38Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-09-17T09:47:55Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-09-17T09:48:20Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-17T09:55:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-17T09:55:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-17T10:08:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-17T10:14:12Z"}
+{"event":"review","result":"passed","ts":"2026-09-17T10:14:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-17T10:16:04Z"}

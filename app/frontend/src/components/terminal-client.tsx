@@ -21,6 +21,10 @@ import { notifyFirstWrite } from "@/lib/window-transition";
 import { relayMux, type RelayStream } from "@/lib/relay-mux";
 import { shouldRefuseTerminalChord } from "@/lib/keybindings";
 import { createGestureArm, createWheelAccumulator } from "@/lib/zoom-gesture";
+import {
+  installTerminalVisibilityShim,
+  type TerminalVisibilityShim,
+} from "@/lib/terminal-visibility";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { evaluateMediaQuery } from "@/hooks/use-media-query";
 import { COARSE_POINTER_QUERY } from "@/hooks/use-coarse-pointer";
@@ -279,6 +283,16 @@ type TerminalClientProps = {
    * fight over the focused-terminal slot.
    */
   registerFocus?: boolean;
+  /**
+   * When `true`, this terminal's tile is display-hidden (P3
+   * hide-never-unmount): the terminal stays mounted and streaming but must
+   * not render. It is xterm's render-pause signal, delivered through the
+   * visibility shim installed around `open()` (ANDed with `document.hidden`
+   * inside the shim) — `lib/terminal-visibility.ts` explains why xterm's own
+   * IntersectionObserver cannot be used. Boards omit it: a paused board pane
+   * unmounts its TerminalClient outright.
+   */
+  hidden?: boolean;
 };
 
 export function TerminalClient({
@@ -298,6 +312,7 @@ export function TerminalClient({
   scrollback,
   transparent = false,
   registerFocus = true,
+  hidden = false,
 }: TerminalClientProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   // The component's root wrapper div — registered as the focused terminal's
@@ -329,6 +344,12 @@ export function TerminalClient({
   // keybinding refs above.
   const onProgressChangeRef = useRef(onProgressChange);
   onProgressChangeRef.current = onProgressChange;
+  // The init effect installs the visibility shim around open() (mount-only),
+  // so the hidden prop is read through this render-mirrored ref there; changes
+  // after mount flow through the dedicated effect below.
+  const hiddenRef = useRef(hidden);
+  hiddenRef.current = hidden;
+  const visibilityShimRef = useRef<TerminalVisibilityShim | null>(null);
   // Provider-optional: isolated mounts (tests) degrade to no toast. Mirrored
   // into a ref so the init effect's dependency list stays unchanged.
   const toast = useOptionalToast();
@@ -499,7 +520,16 @@ export function TerminalClient({
 
       const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
-      terminal.open(terminalRef.current);
+      // open() runs under the visibility shim so xterm never registers its
+      // page-level IntersectionObserver (lib/terminal-visibility.ts owns the
+      // why); the shim must be restored on every path out of open().
+      const visibilityShim = installTerminalVisibilityShim(!hiddenRef.current);
+      try {
+        terminal.open(terminalRef.current);
+      } finally {
+        visibilityShim.restore();
+      }
+      visibilityShimRef.current = visibilityShim;
       fitAddon.fit();
       xtermRef.current = terminal;
       fitAddonRef.current = fitAddon;
@@ -675,10 +705,21 @@ export function TerminalClient({
       unsetActiveRenderer(windowId);
       xtermRef.current = null;
       fitAddonRef.current = null;
+      visibilityShimRef.current?.dispose();
+      visibilityShimRef.current = null;
       try { terminal?.dispose(); } catch { /* WebGL addon may throw during teardown */ }
       setTerminalReady(false);
     };
   }, [wsRef, focusRef, searchAddonRef, serializeAddonRef, terminalSeamRef]);
+
+  // Tile visibility drives xterm's render pause through the shim installed at
+  // open() (see init): a display-hidden terminal keeps streaming but must not
+  // render. Mount order guarantees the shim exists before this effect can
+  // observe a hidden≠initial transition; before init lands it is a no-op and
+  // the shim's initial state (set from the mount-time prop) already holds.
+  useEffect(() => {
+    visibilityShimRef.current?.setLocallyVisible(!hidden);
+  }, [hidden]);
 
   // Apply terminal-font CHANGES to the live xterm instance. The font size lives
   // in ChromeContext (global, all terminals react), so when the user steps or

@@ -1762,6 +1762,7 @@ export function SurfaceLayout({
               server={server}
               switchReceiptSource={primaryTty}
               clearOnRide={clearOnWindowChange}
+              hidden={hidden}
               wsRef={primaryTty ? wsRef : extraTtyWsRef}
               onSessionNotFound={primaryTty ? onSessionNotFound : undefined}
               focusRef={primaryTty ? focusRef : undefined}

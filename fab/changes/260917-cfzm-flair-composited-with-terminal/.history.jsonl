@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-17T11:02:02Z"}
+{"args":"Idle CPU follow-ups — Change 6 (flair-composited-with-terminal): flair overlays stay composited when a terminal is mounted, no per-frame style recalc on a tty route, every flair's look unchanged. Research-first (R6); depends on change 5 (lhr5). Lane: full.","cmd":"fab-new","event":"command","ts":"2026-09-17T11:02:02Z"}
+{"delta":"+0.0","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-09-17T11:05:02Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-17T11:07:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-17T11:11:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-17T11:57:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-17T12:04:44Z"}
+{"event":"review","result":"passed","ts":"2026-09-17T12:04:44Z"}
+{"cmd":"fab-continue-hydrate","event":"command","ts":"2026-09-17T12:06:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-17T12:10:11Z"}

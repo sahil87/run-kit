@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 14
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-17T09:55:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-17T09:58:34Z"}
     hydrate: {started_at: "2026-09-17T09:58:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-17T10:06:25Z"}
     ship: {started_at: "2026-09-17T10:06:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-17T10:08:16Z"}
-    review-pr: {started_at: "2026-09-17T10:08:16Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-17T10:08:16Z", driver: git-pr, iterations: 1, completed_at: "2026-09-17T16:34:09Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/1019
 change_type_source: explicit
@@ -56,4 +56,4 @@ true_impact:
 summary: 'extends rk desktop install/update/status plus the umbrella rk update desktop leg to Linux: AppImage extracted once into ~/.rk/desktop with a current symlink, digest-only hard gate, SIGTERM quit + detached AppRun relaunch, desktop integration files, Linux-only rk desktop uninstall, the Linux Restart-to-Update menu item via a shared pure updateMenuItems model, and AppImage-only Linux packaging (deb dropped)'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-17T10:08:16Z
+last_updated: 2026-09-17T16:34:09Z

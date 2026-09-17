@@ -204,7 +204,14 @@ func (ins *Installer) AppPath() string {
 // which on Linux needs the user's home via the UserHome seam.
 func (ins *Installer) effectiveInstallDir() (string, error) {
 	if ins.InstallDir != "" {
-		return ins.InstallDir, nil
+		// Absolute so the desktop entry, the PATH symlink, and the running-app
+		// probe all name the same launchable path regardless of the CWD the
+		// user typed a relative --path from.
+		abs, err := filepath.Abs(ins.InstallDir)
+		if err != nil {
+			return "", fmt.Errorf("resolving install directory %q: %w", ins.InstallDir, err)
+		}
+		return abs, nil
 	}
 	if ins.GOOS != "linux" {
 		return DefaultInstallDirFor(ins.GOOS, ""), nil

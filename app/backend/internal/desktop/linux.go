@@ -187,10 +187,16 @@ func (ins *Installer) installLinux(ctx context.Context, rel Release) (InstallRes
 	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
 		return InstallResult{}, fmt.Errorf("clearing stale temp symlink: %w", err)
 	}
+	// A failed activation must leave the previous install exactly as it was:
+	// the promoted tree is unreachable without the flip, and a stray temp
+	// symlink or version dir would confuse the next run's leftover checks.
 	if err := os.Symlink(rel.Version, tmp); err != nil {
+		os.RemoveAll(dest)
 		return InstallResult{}, fmt.Errorf("creating temp symlink: %w", err)
 	}
 	if err := os.Rename(tmp, linuxCurrentPath(root)); err != nil {
+		os.Remove(tmp)
+		os.RemoveAll(dest)
 		return InstallResult{}, fmt.Errorf("flipping the current symlink: %w", err)
 	}
 
@@ -286,7 +292,7 @@ func validateExtractedTree(dir, version string) (string, error) {
 		rel  string
 		exec bool
 	}{
-		{"AppRun", false},
+		{"AppRun", true},
 		{"run-kit-desktop", true},
 		{filepath.Join("resources", "app.asar"), false},
 		{"run-kit-desktop.desktop", false},

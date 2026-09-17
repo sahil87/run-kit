@@ -16,14 +16,15 @@ import (
 // linuxTreeOpts shapes the fake extracted AppImage tree a test wants — the
 // zero value is the complete, valid tree (the v3.20.8 layout).
 type linuxTreeOpts struct {
-	version     string // X-AppImage-Version in the .desktop entry
-	noAsar      bool
-	noDesktop   bool
-	noAppRun    bool
-	badAppRun   bool // AppRun with a missing interpreter — the relaunch fails
-	nonExecELF  bool
-	escapeLink  bool // an absolute symlink pointing outside the tree
-	iconSizeDir string
+	version       string // X-AppImage-Version in the .desktop entry
+	noAsar        bool
+	noDesktop     bool
+	noAppRun      bool
+	badAppRun     bool // AppRun with a missing interpreter — the relaunch fails
+	nonExecAppRun bool // AppRun present but not executable
+	nonExecELF    bool
+	escapeLink    bool // an absolute symlink pointing outside the tree
+	iconSizeDir   string
 }
 
 // writeLinuxTree writes the squashfs-root fixture into dir — the job the real
@@ -48,7 +49,11 @@ func writeLinuxTree(t *testing.T, dir string, o linuxTreeOpts) {
 		if o.badAppRun {
 			appRun = "#!/nonexistent/rk-sh\nexit 0\n"
 		}
-		mk("AppRun", appRun, 0o755)
+		appRunPerm := os.FileMode(0o755)
+		if o.nonExecAppRun {
+			appRunPerm = 0o644
+		}
+		mk("AppRun", appRun, appRunPerm)
 	}
 	elfPerm := os.FileMode(0o755)
 	if o.nonExecELF {
@@ -277,6 +282,7 @@ func TestInstallLinuxInvalidTreeRefused(t *testing.T) {
 		{"missing desktop entry", linuxTreeOpts{version: "3.21.0", noDesktop: true}, "missing run-kit-desktop.desktop"},
 		{"missing AppRun", linuxTreeOpts{version: "3.21.0", noAppRun: true}, "missing AppRun"},
 		{"non-executable ELF", linuxTreeOpts{version: "3.21.0", nonExecELF: true}, "non-executable run-kit-desktop"},
+		{"non-executable AppRun", linuxTreeOpts{version: "3.21.0", nonExecAppRun: true}, "non-executable AppRun"},
 		{"version mismatch", linuxTreeOpts{version: "3.20.7"}, `mounted AppImage reports version "3.20.7", expected "3.21.0"`},
 		{"escaping symlink", linuxTreeOpts{version: "3.21.0", escapeLink: true}, "refusing symlink escaping the install dir"},
 	}
@@ -644,5 +650,60 @@ func TestEffectiveInstallDirLinuxDefault(t *testing.T) {
 	ins.UserHome = func() (string, error) { return "", errors.New("no home") }
 	if _, err := ins.effectiveInstallDir(); err == nil {
 		t.Error("expected a home-resolution error, got nil")
+	}
+}
+
+func TestEffectiveInstallDirRelativePathIsAbsolute(t *testing.T) {
+	ins := New()
+	ins.GOOS = "linux"
+	ins.InstallDir = filepath.Join("rel", "desktop-root")
+	root, err := ins.effectiveInstallDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(root) {
+		t.Fatalf("root = %q, want an absolute path", root)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(cwd, "rel", "desktop-root"); root != want {
+		t.Errorf("root = %q, want %q", root, want)
+	}
+	if got := ins.AppPath(); got != filepath.Join(root, "current") {
+		t.Errorf("AppPath = %q, want %q", got, filepath.Join(root, "current"))
+	}
+}
+
+// A failed activation flip must leave no promoted version dir and no temp
+// symlink behind — the previous install is exactly as it was.
+func TestInstallLinuxFlipFailureLeavesNothingBehind(t *testing.T) {
+	rig := &linuxRig{t: t, tree: linuxTreeOpts{version: "3.21.0"}}
+	ins, root, _ := linuxInstaller(t, rig)
+	// A non-empty DIRECTORY at the current path makes the symlink rename fail.
+	if err := os.MkdirAll(filepath.Join(root, "current", "occupied"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	srv := assetServer(t)
+
+	_, err := ins.Install(context.Background(), linuxRelease(srv, "3.21.0", fakeDMGDigest()))
+	if err == nil || !strings.Contains(err.Error(), "flipping the current symlink") {
+		t.Fatalf("error = %v, want a flip failure", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "3.21.0")); !os.IsNotExist(statErr) {
+		t.Errorf("promoted version dir survived the failed flip (stat err = %v)", statErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(root, "current.tmp")); !os.IsNotExist(statErr) {
+		t.Errorf("temp symlink survived the failed flip (lstat err = %v)", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "current", "occupied")); statErr != nil {
+		t.Errorf("the pre-existing current path was disturbed: %v", statErr)
+	}
+	entries, _ := os.ReadDir(root)
+	for _, e := range entries {
+		if e.Name() != "current" {
+			t.Errorf("root holds unexpected %q after the failed flip", e.Name())
+		}
 	}
 }

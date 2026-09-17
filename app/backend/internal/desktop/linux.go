@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -64,7 +65,9 @@ func linuxProbePattern(root string) (string, bool) {
 	if err != nil || version == "" {
 		return "", false
 	}
-	return filepath.Join(linuxVersionDir(root, version), "run-kit-desktop"), true
+	// pgrep -f takes an ERE; the path is a literal (a user --path may carry
+	// regex metacharacters), so it is quoted.
+	return regexp.QuoteMeta(filepath.Join(linuxVersionDir(root, version), "run-kit-desktop")), true
 }
 
 // appRunningLinux is the linux arm of AppRunning: a best-effort `pgrep -f`
@@ -172,31 +175,40 @@ func (ins *Installer) installLinux(ctx context.Context, rel Release) (InstallRes
 	}
 
 	dest := linuxVersionDir(root, rel.Version)
-	// A leftover dest from a prior interrupted run is proof that run never
-	// flipped current — clear it before the rename.
-	if err := os.RemoveAll(dest); err != nil {
+	// A same-version reinstall (--force) swaps the LIVE tree: set it aside
+	// inside staging (same filesystem, so the rename is atomic) so a failed
+	// activation can put it back, instead of destroying it first. Any other
+	// pre-existing dest is a leftover from a run that never flipped current.
+	previous := ""
+	if installed, _ := installedVersionLinux(root); installed == rel.Version {
+		aside := filepath.Join(staging, "previous")
+		switch err := os.Rename(dest, aside); {
+		case err == nil:
+			previous = aside
+		case errors.Is(err, fs.ErrNotExist):
+			// current dangles at a missing dir — nothing live to preserve.
+		default:
+			return InstallResult{}, fmt.Errorf("setting aside the live version dir %s: %w", dest, err)
+		}
+	} else if err := os.RemoveAll(dest); err != nil {
 		return InstallResult{}, fmt.Errorf("clearing leftover version dir %s: %w", dest, err)
 	}
 	if err := os.Rename(tree, dest); err != nil {
+		restoreLinuxSwap(ins.Progress, dest, previous)
 		return InstallResult{}, fmt.Errorf("promoting extracted tree to %s: %w", dest, err)
 	}
 
-	// Atomic activation: temp symlink + rename over current, so no observer
-	// ever sees a missing or partial current.
-	tmp := linuxCurrentPath(root) + ".tmp"
-	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
-		return InstallResult{}, fmt.Errorf("clearing stale temp symlink: %w", err)
-	}
-	// A failed activation must leave the previous install exactly as it was:
-	// the promoted tree is unreachable without the flip, and a stray temp
-	// symlink or version dir would confuse the next run's leftover checks.
+	// Atomic activation: a temp symlink inside staging (same filesystem),
+	// renamed over current, so no observer ever sees a missing or partial
+	// current — and a failed flip leaves no stray symlink, because staging is
+	// removed on every path.
+	tmp := filepath.Join(staging, currentLinkName)
 	if err := os.Symlink(rel.Version, tmp); err != nil {
-		os.RemoveAll(dest)
+		restoreLinuxSwap(ins.Progress, dest, previous)
 		return InstallResult{}, fmt.Errorf("creating temp symlink: %w", err)
 	}
 	if err := os.Rename(tmp, linuxCurrentPath(root)); err != nil {
-		os.Remove(tmp)
-		os.RemoveAll(dest)
+		restoreLinuxSwap(ins.Progress, dest, previous)
 		return InstallResult{}, fmt.Errorf("flipping the current symlink: %w", err)
 	}
 
@@ -218,6 +230,23 @@ func (ins *Installer) installLinux(ctx context.Context, rel Release) (InstallRes
 	}
 
 	return InstallResult{Version: rel.Version, Path: dest, Restarted: restarted}, nil
+}
+
+// restoreLinuxSwap undoes a promotion whose activation failed, so the
+// install is exactly as it was: the promoted tree is removed and, for a
+// same-version reinstall, the live tree set aside in staging is put back.
+// Its own failures are reported rather than swallowed — a silent stray dir
+// is precisely what the next run's leftover logic would misread.
+func restoreLinuxSwap(progress io.Writer, dest, previous string) {
+	if err := os.RemoveAll(dest); err != nil {
+		fmt.Fprintf(progress, "warning: rolling back %s: %v\n", dest, err)
+	}
+	if previous == "" {
+		return
+	}
+	if err := os.Rename(previous, dest); err != nil {
+		fmt.Fprintf(progress, "warning: restoring the previous %s: %v\n", dest, err)
+	}
 }
 
 // pruneLinuxVersions removes every version dir under root other than keep, so

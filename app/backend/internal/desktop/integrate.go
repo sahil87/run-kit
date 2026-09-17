@@ -114,12 +114,6 @@ func (ins *Installer) Uninstall(ctx context.Context) (UninstallResult, error) {
 	if err != nil {
 		return UninstallResult{}, err
 	}
-	// Absolute root so the symlink-containment check below compares like with
-	// like (a relative --path would otherwise never match an absolute target).
-	root, err = filepath.Abs(root)
-	if err != nil {
-		return UninstallResult{}, err
-	}
 	version, err := installedVersionLinux(root)
 	if err != nil {
 		return UninstallResult{}, fmt.Errorf("checking the installed app: %w", err)

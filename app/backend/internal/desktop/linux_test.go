@@ -1,12 +1,14 @@
 package desktop
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"testing"
@@ -338,7 +340,7 @@ func TestInstallLinuxRunningAppRestarts(t *testing.T) {
 		t.Errorf("signals = %v, want one SIGTERM to pid 4242", rig.signals)
 	}
 	// pgrep probed the OLD version dir's ELF path (pre-flip current target).
-	oldPattern := filepath.Join(old, "run-kit-desktop")
+	oldPattern := regexp.QuoteMeta(filepath.Join(old, "run-kit-desktop"))
 	if len(rig.pgrepArgs) == 0 || rig.pgrepArgs[0][len(rig.pgrepArgs[0])-1] != oldPattern {
 		t.Errorf("pgrep args = %v, want probes against %s", rig.pgrepArgs, oldPattern)
 	}
@@ -511,7 +513,7 @@ func TestAppRunningLinux(t *testing.T) {
 	if !ins.AppRunning(context.Background()) {
 		t.Error("AppRunning = false with a matching pgrep")
 	}
-	want := filepath.Join(linuxVersionDir(root, "3.20.8"), "run-kit-desktop")
+	want := regexp.QuoteMeta(filepath.Join(linuxVersionDir(root, "3.20.8"), "run-kit-desktop"))
 	if got := rig.pgrepArgs[0]; len(got) != 2 || got[0] != "-f" || got[1] != want {
 		t.Errorf("pgrep args = %v, want [-f %s]", got, want)
 	}
@@ -677,11 +679,12 @@ func TestEffectiveInstallDirRelativePathIsAbsolute(t *testing.T) {
 }
 
 // A failed activation flip must leave no promoted version dir and no temp
-// symlink behind — the previous install is exactly as it was.
+// symlink behind — the previous install is exactly as it was. A directory at
+// the current path (rename(2) fails with EISDIR) stands in for every flip
+// failure the CLI can meet (EACCES, ENOSPC): the rollback path is the same.
 func TestInstallLinuxFlipFailureLeavesNothingBehind(t *testing.T) {
 	rig := &linuxRig{t: t, tree: linuxTreeOpts{version: "3.21.0"}}
 	ins, root, _ := linuxInstaller(t, rig)
-	// A non-empty DIRECTORY at the current path makes the symlink rename fail.
 	if err := os.MkdirAll(filepath.Join(root, "current", "occupied"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -704,6 +707,75 @@ func TestInstallLinuxFlipFailureLeavesNothingBehind(t *testing.T) {
 	for _, e := range entries {
 		if e.Name() != "current" {
 			t.Errorf("root holds unexpected %q after the failed flip", e.Name())
+		}
+	}
+}
+
+// A same-version reinstall (--force) never destroys the live tree before the
+// swap can be undone: the tree is set aside, and a failed activation puts it
+// back byte-for-byte.
+func TestRestoreLinuxSwapPutsThePreviousTreeBack(t *testing.T) {
+	root := t.TempDir()
+	dest := filepath.Join(root, "3.21.0")
+	previous := filepath.Join(root, ".staging-x", "previous")
+	for _, d := range []string{dest, previous} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dest, "marker"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(previous, "marker"), []byte("live"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var warnings bytes.Buffer
+	restoreLinuxSwap(&warnings, dest, previous)
+	got, err := os.ReadFile(filepath.Join(dest, "marker"))
+	if err != nil || string(got) != "live" {
+		t.Fatalf("dest marker = %q, %v — want the live tree restored", got, err)
+	}
+	if _, err := os.Stat(previous); !os.IsNotExist(err) {
+		t.Errorf("previous still present after restore (err = %v)", err)
+	}
+	if warnings.Len() != 0 {
+		t.Errorf("unexpected warnings: %s", warnings.String())
+	}
+	// Without a previous tree (a fresh or cross-version install), only the
+	// promoted dir goes.
+	restoreLinuxSwap(&warnings, dest, "")
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Errorf("dest still present after rollback (err = %v)", err)
+	}
+}
+
+// The same-version path is taken only when current resolves to the release
+// being installed: the live tree is moved aside into staging and, on success,
+// replaced by the fresh extraction (staging is then gone).
+func TestInstallLinuxSameVersionForceReplacesLiveTree(t *testing.T) {
+	rig := &linuxRig{t: t, tree: linuxTreeOpts{version: "3.21.0"}}
+	ins, root, _ := linuxInstaller(t, rig)
+	srv := assetServer(t)
+	if _, err := ins.Install(context.Background(), linuxRelease(srv, "3.21.0", fakeDMGDigest())); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(root, "3.21.0", "stale-marker")
+	if err := os.WriteFile(marker, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ins.Install(context.Background(), linuxRelease(srv, "3.21.0", fakeDMGDigest())); err != nil {
+		t.Fatalf("force reinstall: %v", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Errorf("stale marker survived the reinstall (err = %v)", err)
+	}
+	if v, _ := installedVersionLinux(root); v != "3.21.0" {
+		t.Errorf("current -> %q, want 3.21.0", v)
+	}
+	entries, _ := os.ReadDir(root)
+	for _, e := range entries {
+		if e.Name() != "3.21.0" && e.Name() != currentLinkName {
+			t.Errorf("root holds unexpected %q after the reinstall", e.Name())
 		}
 	}
 }

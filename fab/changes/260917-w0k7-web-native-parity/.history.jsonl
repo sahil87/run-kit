@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-17T04:26:22Z"}
+{"args":"The native engine reaches parity with the iframe engine and passes it — real back/forward with a boundary signal, find with match ordinals through the shared find bar, zoom via the renderer, chord reclaim through before-input-event, Escape returns focus, error copy from Chromium's error codes, and a new Web: Inspect page palette entry. Change 4 of 6 in fab/plans/sahil/26-09-16-web-tile-native-browser.md.","cmd":"fab-new","event":"command","ts":"2026-09-17T04:26:22Z"}
+{"delta":"+0.0","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-17T04:29:02Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-17T04:30:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-17T04:31:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-17T04:49:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-17T04:55:45Z"}
+{"event":"review","result":"passed","ts":"2026-09-17T04:55:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-17T05:02:37Z"}

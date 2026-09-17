@@ -7,6 +7,7 @@ import {
   WEB_NATIVE_ENGINE_DEFAULT,
   WEB_NATIVE_ENGINE_PREF_KEY,
 } from "@/lib/web-engine-pref";
+import { WEB_INSPECT_EVENT } from "@/lib/web-url";
 import type { FrameChromeState } from "@/lib/web-frame-engine";
 
 // The chrome's engine boundary is module-mocked: the stub below registers a
@@ -24,11 +25,16 @@ const mockEngine = vi.hoisted(() => {
     forward: vi.fn(),
     find: vi.fn(),
     stopFind: vi.fn(),
+    openDevTools: vi.fn(),
   };
   return {
     listeners: new Set<() => void>(),
     state: null as FrameChromeState | null,
     handle,
+    // The two engine-agnostic props the chrome passes every engine: captured
+    // so the pass-through is assertable.
+    chordTable: undefined as unknown,
+    onZoomStep: undefined as unknown,
   };
 });
 
@@ -41,6 +47,8 @@ vi.mock("@/components/web-frame-iframe", async (importOriginal) => {
     WEB_FRAME_IFRAME_DEFAULT_CAPABILITIES: actual.WEB_FRAME_IFRAME_DEFAULT_CAPABILITIES,
     WebFrameIframe: (props: import("@/lib/web-frame-engine").WebFrameEngineProps) => {
       const [, force] = React.useReducer((x: number) => x + 1, 0);
+      mockEngine.chordTable = props.chordTable;
+      mockEngine.onZoomStep = props.onZoomStep;
       React.useEffect(() => {
         const listener = () => force();
         mockEngine.listeners.add(listener);
@@ -75,7 +83,10 @@ const mockNative = vi.hoisted(() => ({
     forward: vi.fn(),
     find: vi.fn(),
     stopFind: vi.fn(),
+    openDevTools: vi.fn(),
   },
+  chordTable: undefined as unknown,
+  onZoomStep: undefined as unknown,
 }));
 
 vi.mock("@/components/web-frame-native", async (importOriginal) => {
@@ -84,6 +95,8 @@ vi.mock("@/components/web-frame-native", async (importOriginal) => {
   return {
     WEB_FRAME_NATIVE_DEFAULT_CAPABILITIES: actual.WEB_FRAME_NATIVE_DEFAULT_CAPABILITIES,
     WebFrameNative: (props: import("@/lib/web-frame-engine").WebFrameEngineProps) => {
+      mockNative.chordTable = props.chordTable;
+      mockNative.onZoomStep = props.onZoomStep;
       React.useEffect(() => {
         mockNative.mounts.push(props.url);
         props.registerHandle(props.url, mockNative.handle);
@@ -300,6 +313,44 @@ describe("IframeWindow over a stub engine", () => {
     expect(screen.queryByTestId("web-find-bar")).toBeNull();
     expect(mockEngine.handle.stopFind).toHaveBeenCalledTimes(1);
   });
+
+  it("passes the registry-derived chord table and the zoom bucket stepper to every engine", () => {
+    renderChrome({ tabs: ["/proxy/8080/docs", "https://github.com/x"] });
+    // The enumerated kind-"web" reclaim table: the ⌘K ctrl/meta arms and the
+    // always-last Escape focus-return spec.
+    const table = mockEngine.chordTable as readonly { code: string }[];
+    expect(Array.isArray(table)).toBe(true);
+    expect(table.some((s) => s.code === "KeyK")).toBe(true);
+    expect(table[table.length - 1]?.code).toBe("Escape");
+
+    // onZoomStep is the chrome's ladder stepper (the native engine's ctrl-
+    // wheel relay rides it): "in" from the 100% default lands on 110%.
+    const readout = screen.getByLabelText("Reset zoom");
+    expect(readout.textContent).toBe("100%");
+    act(() => {
+      (mockEngine.onZoomStep as (direction: "in" | "out") => void)("in");
+    });
+    expect(readout.textContent).toBe("110%");
+  });
+
+  it("the web-inspect document event reaches the ACTIVE handle's openDevTools", () => {
+    renderChrome({ tabs: ["/proxy/8080/docs"] });
+    act(() => {
+      document.dispatchEvent(new CustomEvent(WEB_INSPECT_EVENT));
+    });
+    expect(mockEngine.handle.openDevTools).toHaveBeenCalledTimes(1);
+  });
+
+  it("the web-inspect document event reaches the native handle when that engine is mounted", () => {
+    localStorage.setItem(WEB_NATIVE_ENGINE_PREF_KEY, "true");
+    mockShell.canShellWeb.mockReturnValue(true);
+    renderChrome({ tabs: ["/proxy/8080/docs"] });
+    act(() => {
+      document.dispatchEvent(new CustomEvent(WEB_INSPECT_EVENT));
+    });
+    expect(mockNative.handle.openDevTools).toHaveBeenCalledTimes(1);
+    expect(mockEngine.handle.openDevTools).not.toHaveBeenCalled();
+  });
 });
 
 /** A sibling control flipping the engine preference through the same
@@ -325,7 +376,7 @@ describe("IframeWindow engine selection", () => {
     expect(screen.queryByTestId("stub-native-engine")).toBeNull();
   });
 
-  it("mounts the native engine on bridge + preference, seeding its capabilities (◀ ▶ hidden, find bar disabled)", () => {
+  it("mounts the native engine on bridge + preference, seeding its full-parity capabilities (◀ ▶ shown, find bar live)", () => {
     localStorage.setItem(WEB_NATIVE_ENGINE_PREF_KEY, "true");
     mockShell.canShellWeb.mockReturnValue(true);
     renderChrome({ tabs: ["/proxy/8080/docs"] });
@@ -333,12 +384,12 @@ describe("IframeWindow engine selection", () => {
     expect(screen.queryByTestId("stub-engine")).toBeNull();
     expect(mockNative.mounts).toEqual(["/proxy/8080/docs"]);
     // The stub reports nothing, so the chrome renders the native pre-report
-    // seed: no history ⇒ the buttons are hidden rather than dead.
-    expect(screen.queryByLabelText("Back")).toBeNull();
-    expect(screen.queryByLabelText("Forward")).toBeNull();
+    // seed — the parity set: history and find are live from the first paint.
+    expect(screen.getByLabelText("Back")).toBeTruthy();
+    expect(screen.getByLabelText("Forward")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Find in page"));
-    expect(screen.getByText("page is cross-origin — find unavailable")).toBeTruthy();
-    expect((screen.getByLabelText("Find query") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByText("page is cross-origin — find unavailable")).toBeNull();
+    expect((screen.getByLabelText("Find query") as HTMLInputElement).disabled).toBe(false);
   });
 
   it("mounts the iframe engine on bridge + preference off", () => {

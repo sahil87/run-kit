@@ -23,7 +23,8 @@
  *     full-strength color the theme-color meta's 35% titlebar blend cannot
  *     carry. Gated and validated exactly like `badge:*` main-side.
  *   - `web`: the web tile's native engine — create/destroy/bounds/visible/
- *     load/reload invokers for the `web:*` channels plus `onEvent` on the
+ *     load/reload plus the parity invokers back/forward/find/stopFind/zoom/
+ *     chords/devtools for the `web:*` channels, and `onEvent` on the
  *     `web:event` relay. Additive: older SPAs never call it; the SPA narrows
  *     the group's presence before use. Privileged main-side for registered-
  *     host views only (isHostsSender + a host view + tabKey membership under
@@ -108,6 +109,19 @@ contextBridge.exposeInMainWorld("runkitShell", {
     load: (tabKey: string, url: string): Promise<unknown> =>
       ipcRenderer.invoke("web:load", { tabKey, url }),
     reload: (tabKey: string): Promise<unknown> => ipcRenderer.invoke("web:reload", { tabKey }),
+    back: (tabKey: string): Promise<unknown> => ipcRenderer.invoke("web:back", { tabKey }),
+    forward: (tabKey: string): Promise<unknown> =>
+      ipcRenderer.invoke("web:forward", { tabKey }),
+    find: (tabKey: string, text: string, forward: boolean, findNext: boolean): Promise<unknown> =>
+      ipcRenderer.invoke("web:find", { tabKey, text, forward, findNext }),
+    stopFind: (tabKey: string): Promise<unknown> =>
+      ipcRenderer.invoke("web:stop-find", { tabKey }),
+    zoom: (tabKey: string, factor: number): Promise<unknown> =>
+      ipcRenderer.invoke("web:zoom", { tabKey, factor }),
+    chords: (tabKey: string, chords: unknown): Promise<unknown> =>
+      ipcRenderer.invoke("web:chords", { tabKey, chords }),
+    devtools: (tabKey: string): Promise<unknown> =>
+      ipcRenderer.invoke("web:devtools", { tabKey }),
     // Returns the unsubscribe — a subscription that cannot be dropped leaks a
     // listener per engine mount, and every relayed event then fires N times.
     onEvent: (handler: (payload: unknown) => void): (() => void) => {

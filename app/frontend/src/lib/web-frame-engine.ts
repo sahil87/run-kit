@@ -19,6 +19,8 @@
  * implementation, where it derives the capability flags it reports.
  */
 
+import type { WebChordSpec } from "@/lib/web-chord-table";
+
 /** Which renderer sits behind the web tile's chrome. */
 export type WebFrameEngineKind = "iframe" | "native";
 
@@ -112,6 +114,16 @@ export interface WebFrameEngineProps {
    *  becoming visible supplies `onInteract` after mount). */
   interactRef: { current: (() => void) | undefined };
   reclaimRef: { current: ((e: KeyboardEvent) => boolean) | undefined };
+  /** Bucket-step callback for zoom gestures the content handles itself (the
+   *  native engine's ctrl-wheel relay) — the chrome steps its bucket and the
+   *  resulting `zoom` prop flows back. Engines with an in-document gesture
+   *  arm ignore it. */
+  onZoomStep?: (direction: "in" | "out") => void;
+  /** The reclaimable chord table enumerated from the keybinding registry (the
+   *  kind-"web" answer to `hasReclaimableMatch` — a rebind re-derives it).
+   *  Only engines whose content's keydowns cannot run the predicate at event
+   *  time (the native engine) consume it; the iframe engine ignores it. */
+  chordTable?: readonly WebChordSpec[];
 }
 
 /** The modifier + key slice a reclaimed chord carries across the engine

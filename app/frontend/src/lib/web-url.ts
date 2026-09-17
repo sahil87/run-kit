@@ -43,6 +43,13 @@ export const WEB_TAB_DRAFT_EVENT = "web-tab:open-draft";
  *  location lives in the component, not at the palette's layer. */
 export const WEB_OPEN_EXTERNAL_EVENT = "web-open-external";
 
+/** The document CustomEvent behind the `Web: Inspect page` palette action:
+ *  the mounted web tile opens DevTools for its ACTIVE tab's engine (the
+ *  native engine's detached window; engines without the capability no-op —
+ *  the palette entry is gated on the native engine upstream). Same
+ *  single-receiver shape as `web-open-external`. */
+export const WEB_INSPECT_EVENT = "web-inspect";
+
 /** Loopback hostnames whose absolute URLs classify as proxied ports. */
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 

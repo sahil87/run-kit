@@ -31,3 +31,21 @@ export function buildWebEngineActions(input: {
     },
   ];
 }
+
+export const WEB_INSPECT_ACTION_ID = "web-inspect";
+
+/**
+ * `Web: Inspect page` — open DevTools on the active web tab (the native
+ * engine's detached-window capability). Palette-only: no chord (the palette
+ * IS the keyboard path) and no header verb. The caller feeds `available` from
+ * the engine selection rule AND web content (`hasWebUrl`) — the entry is
+ * absent on the iframe engine and on an onboarding tile. `onSelect`
+ * dispatches the document event the mounted web tile listens for.
+ */
+export function buildWebInspectActions(input: {
+  available: boolean;
+  onSelect: () => void;
+}): PaletteAction[] {
+  if (!input.available) return [];
+  return [{ id: WEB_INSPECT_ACTION_ID, label: "Web: Inspect page", onSelect: input.onSelect }];
+}

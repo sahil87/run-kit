@@ -15,10 +15,14 @@ import {
   closeShellWindow,
   createShellWebView,
   destroyShellWebView,
+  findShellWebView,
+  goBackShellWebView,
+  goForwardShellWebView,
   isShell,
   listShellServers,
   loadShellWebView,
   onShellWebEvent,
+  openShellWebViewDevTools,
   parseShellWebEvent,
   confirmedRemoveShellHost,
   newShellWindow,
@@ -27,7 +31,10 @@ import {
   renameShellHost,
   setShellHostUrl,
   setShellWebViewBounds,
+  setShellWebViewChords,
   setShellWebViewVisible,
+  setShellWebViewZoom,
+  stopFindShellWebView,
   reorderShellHosts,
   setShellAccent,
   setShellBadge,
@@ -388,9 +395,26 @@ function fullWebBridge(overrides: Record<string, unknown> = {}) {
     visible: vi.fn(() => Promise.resolve({ ok: true })),
     load: vi.fn(() => Promise.resolve({ ok: true })),
     reload: vi.fn(() => Promise.resolve({ ok: true })),
+    back: vi.fn(() => Promise.resolve({ ok: true })),
+    forward: vi.fn(() => Promise.resolve({ ok: true })),
+    find: vi.fn(() => Promise.resolve({ ok: true })),
+    stopFind: vi.fn(() => Promise.resolve({ ok: true })),
+    zoom: vi.fn(() => Promise.resolve({ ok: true })),
+    chords: vi.fn(() => Promise.resolve({ ok: true })),
+    devtools: vi.fn(() => Promise.resolve({ ok: true })),
     onEvent: vi.fn((_handler: (payload: unknown) => void) => vi.fn()),
     ...overrides,
   };
+}
+
+/** The pre-parity seven-member group (create/destroy/bounds/visible/load/
+ *  reload/onEvent) — a shell that predates the parity channels. */
+function legacyWebBridge() {
+  const bridge = fullWebBridge() as Record<string, unknown>;
+  for (const member of ["back", "forward", "find", "stopFind", "zoom", "chords", "devtools"]) {
+    delete bridge[member];
+  }
+  return bridge;
 }
 
 function webBridgeWith(web: unknown): void {
@@ -416,7 +440,12 @@ describe("canShellWeb", () => {
     expect(canShellWeb()).toBe(false);
   });
 
-  it("is true on the full seven-member group", () => {
+  it("is false on a pre-parity group (the seven-member 3d set narrows to null)", () => {
+    webBridgeWith(legacyWebBridge());
+    expect(canShellWeb()).toBe(false);
+  });
+
+  it("is true on the full fourteen-member group", () => {
     webBridgeWith(fullWebBridge());
     expect(canShellWeb()).toBe(true);
   });
@@ -438,6 +467,47 @@ describe("web bridge invokers", () => {
     expect(web.load).toHaveBeenCalledWith("web-1", "https://example.com");
     expect(await reloadShellWebView("web-1")).toBe(true);
     expect(web.reload).toHaveBeenCalledWith("web-1");
+  });
+
+  it("parity invokers forward arguments and resolve true on { ok: true }", async () => {
+    const web = fullWebBridge();
+    webBridgeWith(web);
+    expect(await goBackShellWebView("web-1")).toBe(true);
+    expect(web.back).toHaveBeenCalledWith("web-1");
+    expect(await goForwardShellWebView("web-1")).toBe(true);
+    expect(web.forward).toHaveBeenCalledWith("web-1");
+    expect(await findShellWebView("web-1", "foo", { forward: true, findNext: false })).toBe(true);
+    expect(web.find).toHaveBeenCalledWith("web-1", "foo", true, false);
+    expect(await stopFindShellWebView("web-1")).toBe(true);
+    expect(web.stopFind).toHaveBeenCalledWith("web-1");
+    expect(await setShellWebViewZoom("web-1", 1.25)).toBe(true);
+    expect(web.zoom).toHaveBeenCalledWith("web-1", 1.25);
+    const chords = [{ code: "KeyK", ctrl: true, meta: false, shift: false, alt: false }];
+    expect(await setShellWebViewChords("web-1", chords)).toBe(true);
+    expect(web.chords).toHaveBeenCalledWith("web-1", chords);
+    expect(await openShellWebViewDevTools("web-1")).toBe(true);
+    expect(web.devtools).toHaveBeenCalledWith("web-1");
+  });
+
+  it("parity invokers resolve false outside the shell and on a pre-parity shell", async () => {
+    expect(await goBackShellWebView("web-1")).toBe(false);
+    expect(await findShellWebView("web-1", "x", { forward: true, findNext: false })).toBe(false);
+    expect(await openShellWebViewDevTools("web-1")).toBe(false);
+    webBridgeWith(legacyWebBridge());
+    expect(await goBackShellWebView("web-1")).toBe(false);
+    expect(await goForwardShellWebView("web-1")).toBe(false);
+    expect(await findShellWebView("web-1", "x", { forward: false, findNext: true })).toBe(false);
+    expect(await stopFindShellWebView("web-1")).toBe(false);
+    expect(await setShellWebViewZoom("web-1", 1)).toBe(false);
+    expect(await setShellWebViewChords("web-1", [])).toBe(false);
+    expect(await openShellWebViewDevTools("web-1")).toBe(false);
+  });
+
+  it("parity invokers resolve false on a rejected invoke, never throwing", async () => {
+    webBridgeWith(fullWebBridge({ zoom: () => Promise.reject(new Error("ipc gone")) }));
+    expect(await setShellWebViewZoom("web-9", 1.5)).toBe(false);
+    webBridgeWith(fullWebBridge({ devtools: () => Promise.resolve({ ok: false, error: "Unknown tab" }) }));
+    expect(await openShellWebViewDevTools("web-9")).toBe(false);
   });
 
   it("resolve false outside the shell and on an older shell without the group", async () => {
@@ -492,6 +562,90 @@ describe("parseShellWebEvent", () => {
       kind: "zoom",
       direction: "in",
     });
+  });
+
+  it("parses the find relay with its ordinal fields", () => {
+    expect(
+      parseShellWebEvent({ tabKey: "web-1", kind: "find", active: 2, total: 5, final: true }),
+    ).toEqual({ tabKey: "web-1", kind: "find", active: 2, total: 5, final: true });
+  });
+
+  it("parses the chord relay with its key and modifier fields", () => {
+    expect(
+      parseShellWebEvent({
+        tabKey: "web-1",
+        kind: "chord",
+        key: "k",
+        code: "KeyK",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+      }),
+    ).toEqual({
+      tabKey: "web-1",
+      kind: "chord",
+      key: "k",
+      code: "KeyK",
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+    });
+  });
+
+  it("url carries an optional numeric httpStatus and omits it otherwise", () => {
+    expect(
+      parseShellWebEvent({
+        tabKey: "web-1",
+        kind: "url",
+        url: "https://x/y",
+        canGoBack: false,
+        canGoForward: false,
+        httpStatus: 502,
+      }),
+    ).toEqual({
+      tabKey: "web-1",
+      kind: "url",
+      url: "https://x/y",
+      canGoBack: false,
+      canGoForward: false,
+      httpStatus: 502,
+    });
+    expect(
+      parseShellWebEvent({
+        tabKey: "web-1",
+        kind: "url",
+        url: "https://x/y",
+        canGoBack: false,
+        canGoForward: false,
+      }),
+    ).toEqual({ tabKey: "web-1", kind: "url", url: "https://x/y", canGoBack: false, canGoForward: false });
+  });
+
+  it("drops a wrong-typed httpStatus and malformed find/chord payloads", () => {
+    expect(
+      parseShellWebEvent({
+        tabKey: "web-1",
+        kind: "url",
+        url: "https://x/y",
+        canGoBack: false,
+        canGoForward: false,
+        httpStatus: "502",
+      }),
+    ).toBeNull();
+    expect(
+      parseShellWebEvent({ tabKey: "web-1", kind: "find", active: 1, total: "x", final: true }),
+    ).toBeNull();
+    expect(
+      parseShellWebEvent({ tabKey: "web-1", kind: "find", active: 1, total: 2 }),
+    ).toBeNull();
+    expect(
+      parseShellWebEvent({ tabKey: "web-1", kind: "chord", key: "k", code: "KeyK", ctrlKey: "yes", metaKey: false, shiftKey: false, altKey: false }),
+    ).toBeNull();
+    expect(
+      parseShellWebEvent({ tabKey: "web-1", kind: "chord", key: "k" }),
+    ).toBeNull();
   });
 
   it("returns null for non-objects, a missing/non-string tabKey, and unknown kinds", () => {

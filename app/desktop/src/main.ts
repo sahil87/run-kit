@@ -27,8 +27,16 @@
  * registry (./web-views, electron-free, node:test covered) is the z-order
  * authority: addChildView(host) raises the host above its guests, so the
  * attach seam re-raises the incoming host's guests and the detach seam hides
- * the outgoing host's. The `web:*` IPC surface is gated on a registered-host
- * sender that owns a host view, plus tabKey membership under that sender.
+ * the outgoing host's. The `web:*` IPC surface — create/destroy/bounds/
+ * visible/load/reload plus the parity channels back/forward/find/stop-find/
+ * zoom/chords/devtools — is gated on a registered-host sender that owns a
+ * host view, plus tabKey membership under that sender. Every guest event
+ * relays to the owning host webContents on the single `web:event` channel
+ * (title/favicon/loading/failed/url+httpStatus/focus/find/chord/zoom). Chord
+ * reclaim runs through `before-input-event` matched against the per-guest
+ * SPA-uploaded table (pure matcher in ./chords, electron-free, node:test
+ * covered): a match is preventDefaulted, hops focus to the host webContents,
+ * and relays `chord` for the SPA to re-dispatch.
  *
  * This shell is a VIEWER (Constitution VI): it loads an existing `rk serve`
  * URL and NEVER spawns or supervises the rk daemon on its own initiative.
@@ -151,10 +159,12 @@ import {
   removeWebView,
   removeWindowWebViews,
   setWebViewBounds,
+  setWebViewChords,
   setWebViewVisible,
   WebViewEntry,
   WebViewsState,
 } from "./web-views";
+import { matchChord, parseChordSpecs, ChordSpec } from "./chords";
 import {
   loadWindows,
   saveWindows,
@@ -539,6 +549,12 @@ const GUEST_BACKGROUND = "#0f1117"; // the host view's boot background
 const GUEST_BORDER_RADIUS_PX = 6;
 /** The SPA's per-tab identity is bounded (the strict badge:set posture). */
 const TAB_KEY_MAX_LENGTH = 128;
+/** web:find text bound — the query is renderer-supplied data over IPC. */
+const WEB_FIND_TEXT_MAX_LENGTH = 1024;
+/** web:zoom sanity band — the SPA's zoom ladder is the authority; main only
+ *  rejects nonsense (a negative/NaN/astronomical factor). */
+const WEB_ZOOM_FACTOR_MIN = 0.25;
+const WEB_ZOOM_FACTOR_MAX = 5;
 
 let guestSessionRef: Electron.Session | null = null;
 function guestSession(): Electron.Session {
@@ -1008,15 +1024,51 @@ function wireGuestRelay(contents: WebContents, hostContentsId: number, tabKey: s
     if (!isMainFrame || errorCode === ERR_ABORTED) return;
     relay("failed", { code: errorCode, description, url });
   });
-  const relayUrl = (url: string): void =>
+  const relayUrl = (url: string, httpStatus?: number): void =>
     relay("url", {
       url,
       canGoBack: contents.navigationHistory.canGoBack(),
       canGoForward: contents.navigationHistory.canGoForward(),
+      ...(httpStatus !== undefined ? { httpStatus } : {}),
     });
-  contents.on("did-navigate", (_event, url) => relayUrl(url));
+  // did-navigate carries the commit's HTTP status (the dead-port signal — the
+  // rk reverse proxy answers 502 when nothing listens); did-navigate-in-page
+  // has no response code and omits the field.
+  contents.on("did-navigate", (_event, url, httpResponseCode) => relayUrl(url, httpResponseCode));
   contents.on("did-navigate-in-page", (_event, url) => relayUrl(url));
   contents.on("focus", () => relay("focus"));
+  // Match ordinals for the SPA's find bar — Chromium's activeMatchOrdinal is
+  // 1-based; the 0-based mapping is the engine's.
+  contents.on("found-in-page", (_event, result) =>
+    relay("find", {
+      active: result.activeMatchOrdinal,
+      total: result.matches,
+      final: result.finalUpdate,
+    }),
+  );
+  // Chord reclaim: the guest's keydowns never reach the SPA document, so the
+  // SPA enumerates its reclaim predicate into a per-guest table (web:chords)
+  // and main matches here. A match is preventDefaulted (the page never sees
+  // it), hops OS focus to the host webContents — on EVERY matched chord,
+  // Escape included, so the re-dispatched chord's result (a palette input, a
+  // find bar) is usable — and relays for the SPA to re-dispatch on its
+  // document. The registry-current re-check is the relay()'s identity rule:
+  // a closing guest's late input must not speak for its replacement.
+  contents.on("before-input-event", (event, input) => {
+    const current = findWebViewBySender(webViews, hostContentsId, tabKey);
+    if (!current || current.webContentsId !== contents.id) return;
+    if (!matchChord(input, current.chords)) return;
+    event.preventDefault();
+    webContents.fromId(hostContentsId)?.focus();
+    relay("chord", {
+      key: input.key,
+      code: input.code,
+      ctrlKey: input.control,
+      metaKey: input.meta,
+      shiftKey: input.shift,
+      altKey: input.alt,
+    });
+  });
   // Relayed as a direction, NEVER applied here — the SPA's zoom buckets own
   // the factor and send it back.
   contents.on("zoom-changed", (_event, direction) => relay("zoom", { direction }));
@@ -1923,6 +1975,36 @@ function parseWebVisiblePayload(value: unknown): { tabKey: string; visible: bool
   return { tabKey: value.tabKey, visible: value.visible };
 }
 
+function parseWebFindPayload(
+  value: unknown,
+): { tabKey: string; text: string; forward: boolean; findNext: boolean } | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("tabKey" in value) || !isTabKey(value.tabKey)) return null;
+  if (!("text" in value) || typeof value.text !== "string") return null;
+  if (value.text.length === 0 || value.text.length > WEB_FIND_TEXT_MAX_LENGTH) return null;
+  if (!("forward" in value) || typeof value.forward !== "boolean") return null;
+  if (!("findNext" in value) || typeof value.findNext !== "boolean") return null;
+  return { tabKey: value.tabKey, text: value.text, forward: value.forward, findNext: value.findNext };
+}
+
+function parseWebZoomPayload(value: unknown): { tabKey: string; factor: number } | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("tabKey" in value) || !isTabKey(value.tabKey)) return null;
+  if (!("factor" in value) || typeof value.factor !== "number") return null;
+  if (!Number.isFinite(value.factor)) return null;
+  if (value.factor < WEB_ZOOM_FACTOR_MIN || value.factor > WEB_ZOOM_FACTOR_MAX) return null;
+  return { tabKey: value.tabKey, factor: value.factor };
+}
+
+function parseWebChordsPayload(value: unknown): { tabKey: string; chords: ChordSpec[] } | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("tabKey" in value) || !isTabKey(value.tabKey)) return null;
+  if (!("chords" in value)) return null;
+  const chords = parseChordSpecs(value.chords);
+  if (chords === null) return null;
+  return { tabKey: value.tabKey, chords };
+}
+
 /** A web:* sender must be a registered-host page WITH a host view (the
  *  welcome page passes isHostsSender but owns no guests). */
 function webSenderHost(event: IpcMainInvokeEvent): ViewEntry<WebContentsView> | null {
@@ -2362,6 +2444,101 @@ function registerIpcHandlers(): void {
     const guest = webSenderGuest(event, parsed.tabKey);
     if (!guest) return { ok: false, error: "Unknown tab" };
     guest.handle.webContents.reload();
+    return { ok: true };
+  });
+
+  // web:back / web:forward — real guest history. A call at the boundary is a
+  // no-op that still succeeds (the chrome disables the buttons from the
+  // canGoBack/canGoForward the url relay carries, so reaching here means a
+  // stale render, not an error).
+  ipcMain.handle("web:back", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebTabKeyPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    const history = guest.handle.webContents.navigationHistory;
+    if (history.canGoBack()) history.goBack();
+    return { ok: true };
+  });
+
+  ipcMain.handle("web:forward", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebTabKeyPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    const history = guest.handle.webContents.navigationHistory;
+    if (history.canGoForward()) history.goForward();
+    return { ok: true };
+  });
+
+  // web:find / web:stop-find — Chromium's findInPage behind the shared find
+  // bar; match ordinals arrive on the `found-in-page` relay.
+  ipcMain.handle("web:find", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebFindPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    guest.handle.webContents.findInPage(parsed.text, {
+      forward: parsed.forward,
+      findNext: parsed.findNext,
+    });
+    return { ok: true };
+  });
+
+  ipcMain.handle("web:stop-find", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebTabKeyPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    guest.handle.webContents.stopFindInPage("clearSelection");
+    return { ok: true };
+  });
+
+  // web:zoom — apply the SPA's zoom bucket to the guest renderer. The SPA
+  // re-sends on every navigation: Chromium's per-host zoom store inside the
+  // guest partition persists and leaks between views, so main never stores or
+  // derives a factor — it only applies what it is handed.
+  ipcMain.handle("web:zoom", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebZoomPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    guest.handle.webContents.setZoomFactor(parsed.factor);
+    return { ok: true };
+  });
+
+  // web:chords — record the guest's reclaimable chord table (enumerated
+  // SPA-side from the keybinding registry). Pure record; the
+  // before-input-event matcher in wireGuestRelay reads it per keydown.
+  ipcMain.handle("web:chords", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebChordsPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    webViews = setWebViewChords(webViews, guest.hostContentsId, guest.tabKey, parsed.chords);
+    return { ok: true };
+  });
+
+  ipcMain.handle("web:devtools", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebTabKeyPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    guest.handle.webContents.openDevTools({ mode: "detach" });
     return { ok: true };
   });
 }

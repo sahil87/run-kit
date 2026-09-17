@@ -7,7 +7,8 @@
  * - The guest view is a NATIVE LAYER composited above the SPA's DOM (a
  *   sibling of the host view on the window's `contentView`): nothing the SPA
  *   draws can appear over it, so the engine hides it while a modal-class
- *   overlay is open and keeps the placeholder painted underneath.
+ *   overlay is open, while the chrome's error surface is up (`tileError`), and
+ *   keeps the placeholder painted underneath.
  * - The relay subscription MUST be disposed with the engine — a listener
  *   that outlives its mount re-fires every relayed event once per leak. The
  *   bridge's `onEvent` returns the disposer and this engine's mount-effect
@@ -22,34 +23,58 @@
  * - Coordinates are identity-mapped: the host view fills the window content
  *   area, so `getBoundingClientRect()` viewport coordinates ARE host-view
  *   coordinates; no offset is added.
+ * - Zoom: the SPA's localStorage buckets are the source of truth (Chromium's
+ *   per-host zoom store inside the guest partition persists and leaks across
+ *   views), so the engine re-sends the factor on EVERY `url` relay; the
+ *   guest's own ctrl-wheel gesture arrives as a direction-only relay that
+ *   steps the bucket through `onZoomStep` — main never applies it.
+ * - Chords: a guest's keydowns never reach this document, so the reclaim
+ *   predicate cannot run at event time — the chrome enumerates it into
+ *   `chordTable`, main matches and hops focus, and the engine re-dispatches
+ *   the relayed chord here WITHOUT consulting `reclaimRef` (the table already
+ *   IS the predicate, and Escape is not a registry chord).
  */
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useSyncExternalStore } from "react";
 import {
   createShellWebView,
   destroyShellWebView,
+  findShellWebView,
+  goBackShellWebView,
+  goForwardShellWebView,
   onShellWebEvent,
+  openShellWebViewDevTools,
   reloadShellWebView,
   setShellWebViewBounds,
+  setShellWebViewChords,
   setShellWebViewVisible,
+  setShellWebViewZoom,
+  stopFindShellWebView,
   type ShellWebEvent,
   type ShellWebRect,
 } from "@/lib/shell";
 import { isModalOpen, subscribe } from "@/lib/overlay-presence";
 import { useTileDragging } from "@/lib/tile-drag-context";
 import { toProxySrc } from "@/lib/web-url";
-import type { WebFrameCapabilities, WebFrameEngineProps } from "@/lib/web-frame-engine";
+import {
+  tileErrorForGuestFailure,
+  tileErrorForGuestResponse,
+} from "@/lib/web-native-errors";
+import {
+  redispatchChord,
+  type TileError,
+  type WebFrameCapabilities,
+  type WebFrameEngineProps,
+} from "@/lib/web-frame-engine";
 
-/** The capabilities the native engine reports — what the bridge can do
- *  TODAY, not the plan's parity target: there is no back/forward, find,
- *  zoom, or devtools channel yet, and the chrome renders per capability, so
- *  an honest `false` hides a control instead of shipping a dead one. The
- *  parity change flips these as its channels land. */
+/** The capabilities the native engine reports — the parity set: every chrome
+ *  control works on this engine, and find/devtools pass the iframe engine
+ *  (cross-origin find, a real DevTools window). */
 export const WEB_FRAME_NATIVE_DEFAULT_CAPABILITIES: WebFrameCapabilities = {
-  history: false,
-  find: false,
+  history: true,
+  find: true,
   meta: true,
-  zoomGestures: false,
-  devtools: false,
+  zoomGestures: true,
+  devtools: true,
 };
 
 /** The mid-drag posture knob: `false` ships the spike-verified live-resize
@@ -84,11 +109,14 @@ function toTracked(absolute: string): string {
 export function WebFrameNative({
   url,
   active,
+  zoom,
   onState,
   onLoad,
   registerHandle,
   unregisterHandle,
   interactRef,
+  onZoomStep,
+  chordTable,
 }: WebFrameEngineProps) {
   const placeholderRef = useRef<HTMLDivElement>(null);
   const tabKeyRef = useRef<string | null>(null);
@@ -105,12 +133,18 @@ export function WebFrameNative({
   const [favicon, setFavicon] = useState<string | null>(null);
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
+  const [find, setFind] = useState<{ active: number; total: number } | null>(null);
+  const [tileError, setTileError] = useState<TileError | null>(null);
   // Set by measure(): a zero-size rect (hidden tab, collapsed tile) feeds the
   // visibility rule instead of the bridge.
   const [rectNonZero, setRectNonZero] = useState(false);
 
   const onLoadRef = useRef(onLoad);
   onLoadRef.current = onLoad;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const onZoomStepRef = useRef(onZoomStep);
+  onZoomStepRef.current = onZoomStep;
 
   const lastSentBoundsRef = useRef<ShellWebRect | null>(null);
   const lastSentVisibleRef = useRef<boolean | null>(null);
@@ -162,25 +196,55 @@ export function WebFrameNative({
           setFavicon(event.favicons[0] ?? null);
           break;
         case "loading":
+          // A load start supersedes any stale error surface.
+          if (event.loading) setTileError(null);
           setLoading(event.loading);
-          // The per-completed-load edge the chrome resets its find query on.
-          if (!event.loading) onLoadRef.current(url);
+          if (!event.loading) {
+            // Find state dies with the document it matched in (the iframe
+            // engine's per-load reset); the onLoad edge carries the chrome's
+            // find-query reset.
+            setFind(null);
+            onLoadRef.current(url);
+          }
           break;
-        case "url":
+        case "url": {
           setTrackedLocation(toTracked(event.url));
           setCanGoBack(event.canGoBack);
           setCanGoForward(event.canGoForward);
+          // Re-apply the bucket on every navigation — Chromium's per-host
+          // zoom store in the guest partition would otherwise fight it.
+          void setShellWebViewZoom(tabKey, zoomRef.current);
+          // did-navigate carries the commit's HTTP status; a proxy 502 is a
+          // dead port, anything else clears a stale error.
+          if (event.httpStatus !== undefined) {
+            setTileError(tileErrorForGuestResponse(event.httpStatus, url));
+          }
           break;
+        }
         case "failed":
-          // The TileError mapping is the parity change's; today a failure
-          // only ends the load.
           setLoading(false);
+          setTileError(tileErrorForGuestFailure(event, url));
           break;
         case "focus":
           interactRef.current?.();
           break;
         case "zoom":
-          // The zoom relay becomes a bucket step in the parity change.
+          // ctrl-wheel inside the guest steps the SPA's bucket; the stepped
+          // zoom prop flows back and is re-sent by the zoom effect.
+          onZoomStepRef.current?.(event.direction);
+          break;
+        case "find":
+          // Chromium's activeMatchOrdinal is 1-based; the find bar's
+          // matchIndex is 0-based. total 0 reports 0/0.
+          setFind({ active: Math.max(0, event.active - 1), total: event.total });
+          break;
+        case "chord":
+          // A keydown inside the tile is an interaction (the iframe engine's
+          // onKey reports first), then the chord is re-dispatched onto the
+          // document — the table already decided reclaim, so reclaimRef is
+          // never consulted here.
+          interactRef.current?.();
+          redispatchChord(event);
           break;
       }
     });
@@ -192,6 +256,7 @@ export function WebFrameNative({
     }
     void createShellWebView(tabKey, absoluteUrl);
     const reload = () => {
+      setTileError(null);
       setLoading(true);
       void reloadShellWebView(tabKey);
     };
@@ -199,12 +264,14 @@ export function WebFrameNative({
       kind: "native",
       reload,
       retry: reload,
-      // No bridge channel exists for history/find yet — the chrome hides or
-      // disables those controls per the reported capabilities.
-      back: () => {},
-      forward: () => {},
-      find: () => {},
-      stopFind: () => {},
+      back: () => void goBackShellWebView(tabKey),
+      forward: () => void goForwardShellWebView(tabKey),
+      find: (query, opts) => void findShellWebView(tabKey, query, opts),
+      stopFind: () => {
+        void stopFindShellWebView(tabKey);
+        setFind(null);
+      },
+      openDevTools: () => void openShellWebViewDevTools(tabKey),
     });
     return () => {
       unregisterHandle(url);
@@ -216,6 +283,20 @@ export function WebFrameNative({
       }
     };
   }, [url, tabKey, registerHandle, unregisterHandle, interactRef]);
+
+  // Zoom application: sent after mount (the create above precedes this effect
+  // in declaration order), on every zoom prop change, and on every url relay
+  // (inside the relay handler above).
+  useEffect(() => {
+    void setShellWebViewZoom(tabKey, zoom);
+  }, [tabKey, zoom]);
+
+  // The reclaim table: uploaded after mount and on every identity change (a
+  // rebind re-derives it). Absent prop ⇒ empty table — a guest with no table
+  // forwards nothing.
+  useEffect(() => {
+    void setShellWebViewChords(tabKey, chordTable ?? []);
+  }, [tabKey, chordTable]);
 
   // Bounds triggers — everything funnels through measure() so the dedupe and
   // the zero-rect rule live in exactly one place.
@@ -270,8 +351,11 @@ export function WebFrameNative({
     };
   }, [dragging, measure]);
 
+  // The guest must not paint over the chrome's error surface: while tileError
+  // is set the wrapper stays mounted beside it, so hiding is the only way the
+  // copy is visible (the iframe engine hides its frame the same way).
   const wantVisible =
-    active && !modalOpen && rectNonZero && !(HIDE_WHILE_DRAGGING && dragging);
+    active && !modalOpen && rectNonZero && tileError === null && !(HIDE_WHILE_DRAGGING && dragging);
   useEffect(() => {
     if (lastSentVisibleRef.current === wantVisible) return;
     // Bounds precede the show (the shell also applies parked bounds on show;
@@ -288,12 +372,12 @@ export function WebFrameNative({
       trackedLocation,
       title,
       favicon,
-      tileError: null,
+      tileError,
       canGoBack,
       canGoForward,
-      find: null,
+      find,
     });
-  }, [url, loading, trackedLocation, title, favicon, canGoBack, canGoForward, onState]);
+  }, [url, loading, trackedLocation, title, favicon, tileError, canGoBack, canGoForward, find, onState]);
 
   return (
     <div

@@ -33,6 +33,8 @@ export interface WebViewBounds {
   height: number;
 }
 
+import type { ChordSpec } from "./chords";
+
 export interface WebViewEntry<H> {
   /** The BrowserWindow id this guest's host view is attached to. */
   windowId: number;
@@ -45,6 +47,10 @@ export interface WebViewEntry<H> {
   webContentsId: number;
   /** Opaque view handle (the WebContentsView in main.ts). */
   handle: H;
+  /** The SPA-uploaded reclaimable chord table (`web:chords`) — the guest's
+   *  `before-input-event` matcher in main.ts reads it per keydown. Empty until
+   *  the SPA sends one. */
+  chords: ChordSpec[];
   /** The SPA-requested visibility (`web:visible`). Independent of the host
    *  detach hide, so a re-attach restores exactly what the SPA asked for. */
   visible: boolean;
@@ -112,7 +118,7 @@ export function addWebView<H>(
   return {
     entries: [
       ...state.entries,
-      { ...entry, visible: true, bounds: { x: 0, y: 0, width: 0, height: 0 } },
+      { ...entry, chords: [], visible: true, bounds: { x: 0, y: 0, width: 0, height: 0 } },
     ],
   };
 }
@@ -154,6 +160,27 @@ export function setWebViewBounds<H>(
     entries: state.entries.map((e) =>
       e.hostContentsId === hostContentsId && e.tabKey === tabKey
         ? { ...e, bounds }
+        : e,
+    ),
+  };
+}
+
+/**
+ * Record the SPA-uploaded chord table. Pure record, no side effects — the
+ * `before-input-event` matcher in main.ts reads the registry-current entry per
+ * keydown. Unknown key is a no-op (the `setWebViewBounds` shape).
+ */
+export function setWebViewChords<H>(
+  state: WebViewsState<H>,
+  hostContentsId: number,
+  tabKey: string,
+  chords: ChordSpec[],
+): WebViewsState<H> {
+  if (getWebView(state, hostContentsId, tabKey) === null) return state;
+  return {
+    entries: state.entries.map((e) =>
+      e.hostContentsId === hostContentsId && e.tabKey === tabKey
+        ? { ...e, chords }
         : e,
     ),
   };

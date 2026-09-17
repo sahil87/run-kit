@@ -37,7 +37,7 @@ import { requestQuakeTerminal, findOperatorWindow, resolveQuakeServer } from "@/
 import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
 import { TERMINAL_FIND_OPEN_EVENT } from "@/lib/terminal-find";
 import { EXPORT_EVENT, type ExportAction } from "@/lib/terminal-export";
-import { WEB_ADDRESS_FOCUS_EVENT, WEB_OPEN_EXTERNAL_EVENT } from "@/lib/web-url";
+import { WEB_ADDRESS_FOCUS_EVENT, WEB_INSPECT_EVENT, WEB_OPEN_EXTERNAL_EVENT } from "@/lib/web-url";
 import { WEB_ZOOM_EVENT } from "@/lib/web-zoom";
 import { isMacroActionId, type MacroAction } from "@/lib/macros";
 import { useKeybindings } from "@/hooks/use-keybindings";
@@ -105,9 +105,9 @@ import { buildServerProtectActions } from "@/lib/palette/server-protect";
 import { buildServerAdoptActions } from "@/lib/palette/server-adopt";
 import { buildServerSetColorAction } from "@/lib/palette/server-color";
 import { buildShellServerActions } from "@/lib/palette/shell";
-import { buildWebEngineActions } from "@/lib/palette/web-engine";
+import { buildWebEngineActions, buildWebInspectActions } from "@/lib/palette/web-engine";
 import { canCloseShellWindow, canNewShellWindow, canShellWeb, closeShellWindow, isShell, newShellWindow, switchShellServer } from "@/lib/shell";
-import { WEB_NATIVE_ENGINE_DEFAULT, WEB_NATIVE_ENGINE_PREF_KEY } from "@/lib/web-engine-pref";
+import { WEB_NATIVE_ENGINE_DEFAULT, WEB_NATIVE_ENGINE_PREF_KEY, selectWebEngineKind } from "@/lib/web-engine-pref";
 import { ShellTitlebarStrip } from "@/components/desktop-shell/titlebar-strip";
 import { ShellAccentReporter } from "@/components/desktop-shell/accent-reporter";
 import { ShellBadgeReporter } from "@/components/desktop-shell/badge-reporter";
@@ -4600,6 +4600,23 @@ function AppShell() {
     [nativeEngineEnabled, setNativeEngineEnabled],
   );
 
+  // `Web: Inspect page` (Constitution V — the palette is the keyboard path;
+  // deliberately no chord and no header verb): opens DevTools on the active
+  // web tab through the chrome's `web-inspect` document seam. Present only
+  // when the NATIVE engine is selected (the iframe engine has no devtools
+  // capability) AND the window has web content (the `web-find` content gate —
+  // an onboarding tile has nothing to inspect).
+  const webInspectActions: PaletteAction[] = useMemo(
+    () =>
+      buildWebInspectActions({
+        available:
+          selectWebEngineKind(canShellWeb(), nativeEngineEnabled) === "native" &&
+          hasWebUrl(effectiveWindow),
+        onSelect: () => document.dispatchEvent(new CustomEvent(WEB_INSPECT_EVENT)),
+      }),
+    [nativeEngineEnabled, effectiveWindow],
+  );
+
   // Navigate to a waiting target on the bare terminal route (empty search —
   // the target window resolves its own stored layout; the compose strip is
   // where the user answers the agent). A SAME-SERVER target needs the tmux
@@ -4896,11 +4913,11 @@ function AppShell() {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...guiActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...webEngineActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...cronActions, ...buildDataTableActions(mountedDataTables), ...macroPaletteActions],
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...guiActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...webEngineActions, ...webInspectActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...cronActions, ...buildDataTableActions(mountedDataTables), ...macroPaletteActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, guiActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, webEngineActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, cronActions, mountedDataTables, macroPaletteActions, bindingByAction, bindingHost],
+    [sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, guiActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, webEngineActions, webInspectActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, cronActions, mountedDataTables, macroPaletteActions, bindingByAction, bindingHost],
   );
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders

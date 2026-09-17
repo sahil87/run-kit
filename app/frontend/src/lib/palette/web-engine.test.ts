@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { WEB_NATIVE_ENGINE_ACTION_ID, buildWebEngineActions } from "./web-engine";
+import {
+  WEB_INSPECT_ACTION_ID,
+  WEB_NATIVE_ENGINE_ACTION_ID,
+  buildWebEngineActions,
+  buildWebInspectActions,
+} from "./web-engine";
 
 // buildWebEngineActions backs the shell-gated `Web: Use embedded browser`
 // palette entry wired in app.tsx. Covering the availability gate, both label
@@ -31,5 +36,21 @@ describe("buildWebEngineActions", () => {
     expect(onToggle).toHaveBeenCalledWith(false);
     buildWebEngineActions({ available: true, enabled: false, onToggle })[0].onSelect();
     expect(onToggle).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("buildWebInspectActions", () => {
+  it("yields no entries unless available (native engine + web content)", () => {
+    expect(buildWebInspectActions({ available: false, onSelect: vi.fn() })).toEqual([]);
+  });
+
+  it("yields the Web: Inspect page entry whose onSelect is the dispatch", () => {
+    const onSelect = vi.fn();
+    const actions = buildWebInspectActions({ available: true, onSelect });
+    expect(actions.map((a) => [a.id, a.label])).toEqual([
+      [WEB_INSPECT_ACTION_ID, "Web: Inspect page"],
+    ]);
+    actions[0].onSelect();
+    expect(onSelect).toHaveBeenCalledTimes(1);
   });
 });

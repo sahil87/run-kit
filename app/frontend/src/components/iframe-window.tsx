@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, type ComponentType } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, type ComponentType } from "react";
 import { INPUT_FOCUS } from "@/components/controls";
 import { ApiError } from "@/api/client";
 import { Tip, TipGroup } from "@/components/tip";
@@ -13,6 +13,7 @@ import {
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import {
   WEB_ADDRESS_FOCUS_EVENT,
+  WEB_INSPECT_EVENT,
   WEB_OPEN_EXTERNAL_EVENT,
   WEB_TAB_DRAFT_EVENT,
   classifyAddress,
@@ -43,6 +44,8 @@ import {
   WebFrameNative,
 } from "@/components/web-frame-native";
 import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
+import { useKeybindings } from "@/hooks/use-keybindings";
+import { buildWebChordTable } from "@/lib/web-chord-table";
 import { canShellWeb } from "@/lib/shell";
 import {
   WEB_NATIVE_ENGINE_DEFAULT,
@@ -242,6 +245,14 @@ export function IframeWindow({
   reclaimRef.current = shouldReclaimChord;
   const pageMetaRef = useRef(onPageMeta);
   pageMetaRef.current = onPageMeta;
+
+  // The native engine's chord table: the kind-"web" reclaim predicate
+  // enumerated over the effective registry (a guest's keydowns never reach
+  // this document, so the predicate cannot run at event time there). A rebind
+  // re-derives the table; the iframe engine ignores the prop — its reclaim
+  // runs in-document.
+  const { bindings } = useKeybindings();
+  const chordTable = useMemo(() => buildWebChordTable(bindings), [bindings]);
 
   // ── per-frame state (P3: one chrome, N frames) ──────────────────────────
   // Each engine reports its chrome slice up; the map is keyed by URL (the
@@ -512,6 +523,17 @@ export function IframeWindow({
     document.addEventListener(WEB_OPEN_EXTERNAL_EVENT, openExternal);
     return () => document.removeEventListener(WEB_OPEN_EXTERNAL_EVENT, openExternal);
   }, [trackedLocation, url]);
+
+  // The `web-inspect` seam: the palette's `Web: Inspect page` entry
+  // dispatches one document CustomEvent; the mounted web tile opens DevTools
+  // on the ACTIVE tab's engine (engines without the capability no-op — the
+  // entry itself is gated on the native engine upstream). Single receiver,
+  // same shape as the seams above.
+  useEffect(() => {
+    const inspect = () => frameHandles.current.get(url)?.openDevTools?.();
+    document.addEventListener(WEB_INSPECT_EVENT, inspect);
+    return () => document.removeEventListener(WEB_INSPECT_EVENT, inspect);
+  }, [url]);
 
   // The `web-zoom` seam (R5): the three `Web: Zoom` palette actions dispatch
   // one document CustomEvent (`detail.direction`); the mounted web tile is
@@ -1087,7 +1109,7 @@ export function IframeWindow({
             );
           })}
           {onAddTab && (
-            <Tip label={stripFull ? `web tabs full (${WEB_TAB_FAMILY_CAP})` : undefined}>
+            <Tip label={stripFull ? `web tabs full (${WEB_TAB_FAMILY_CAP})` : undefined} placement="top">
               <button
                 type="button"
                 aria-label="Add web tab from address"
@@ -1109,12 +1131,16 @@ export function IframeWindow({
       {/* URL Bar — one warm-tip cluster (260722-73al). Button order per the
           approved design study: ◀ ▶ ↻ [address] ⌕ ↗ (the `>_` switch-to-
           terminal button was removed, 260819-v6y4 R13 — the top-bar surface
-          toggles own view switching). */}
+          toggles own view switching). Every Tip here (and the strip's above)
+          flips UPWARD (placement="top"): a bottom-placed tip would render
+          where the native engine's guest view is composited over the DOM and
+          be clipped by it — clipping geometry is reserved for overlays that
+          straddle the content rect, and none of these do. */}
       <TipGroup>
       <div className="flex items-center gap-1.5 px-2 h-[35px] border-b border-border bg-bg-primary shrink-0">
         {!onboarding && supports.history && (
           <>
-            <Tip label="Back">
+            <Tip label="Back" placement="top">
               <button
                 onClick={handleBack}
                 disabled={!canGoBack}
@@ -1124,7 +1150,7 @@ export function IframeWindow({
                 <WebBackGlyph />
               </button>
             </Tip>
-            <Tip label="Forward">
+            <Tip label="Forward" placement="top">
               <button
                 onClick={handleForward}
                 disabled={!canGoForward}
@@ -1136,7 +1162,7 @@ export function IframeWindow({
             </Tip>
           </>
         )}
-        <Tip label="Refresh">
+        <Tip label="Refresh" placement="top">
           <button
             onClick={handleRefresh}
             className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
@@ -1183,7 +1209,7 @@ export function IframeWindow({
         )}
         {!onboarding && (
           <>
-            <Tip label="Find in page">
+            <Tip label="Find in page" placement="top">
               <button
                 onClick={() => setFindOpen((o) => !o)}
                 className={`shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card hover:text-text-primary ${findOpen ? "text-accent-green" : "text-text-secondary"}`}
@@ -1198,7 +1224,7 @@ export function IframeWindow({
                 boundary). Text glyphs per the URL-bar vocabulary; the readout
                 doubles as the reset affordance, enabled only when s ≠ 1. */}
             <div className="shrink-0 flex items-center" data-testid="web-zoom-control">
-              <Tip label="Zoom out">
+              <Tip label="Zoom out" placement="top">
                 <button
                   onClick={() => applyZoom("out")}
                   className="w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
@@ -1207,7 +1233,7 @@ export function IframeWindow({
                   −
                 </button>
               </Tip>
-              <Tip label={zoom === 1 ? "Zoom 100%" : "Reset zoom"}>
+              <Tip label={zoom === 1 ? "Zoom 100%" : "Reset zoom"} placement="top">
                 <button
                   onClick={() => applyZoom("reset")}
                   disabled={zoom === 1}
@@ -1217,7 +1243,7 @@ export function IframeWindow({
                   {Math.round(zoom * 100)}%
                 </button>
               </Tip>
-              <Tip label="Zoom in">
+              <Tip label="Zoom in" placement="top">
                 <button
                   onClick={() => applyZoom("in")}
                   className="w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
@@ -1227,7 +1253,7 @@ export function IframeWindow({
                 </button>
               </Tip>
             </div>
-            <Tip label="Open in browser">
+            <Tip label="Open in browser" placement="top">
               <button
                 onClick={handleOpenExternal}
                 className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
@@ -1404,6 +1430,8 @@ export function IframeWindow({
               unregisterHandle={unregisterHandle}
               interactRef={interactRef}
               reclaimRef={reclaimRef}
+              onZoomStep={applyZoom}
+              chordTable={chordTable}
             />
           ))}
         </div>

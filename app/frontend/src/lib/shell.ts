@@ -630,8 +630,21 @@ export async function setShellAccent(hex: string): Promise<boolean> {
   );
 }
 
+/** One reclaimable chord spec uploaded to a guest (`web:chords`) — the
+ *  SPA-enumerated reclaim predicate (lib/web-chord-table.ts); main matches
+ *  `before-input-event` against it with exact modifier equality. */
+export interface ShellWebChord {
+  code: string;
+  ctrl: boolean;
+  meta: boolean;
+  shift: boolean;
+  alt: boolean;
+}
+
 /** The bridge's `web` group — the web tile's native-engine channels. Shipped
- *  whole in one shell release, so all seven members are required together. */
+ *  whole in one shell release, so all fourteen members are required together:
+ *  a bridge missing any of them narrows to null and the chrome falls back to
+ *  the iframe engine rather than mounting controls the shell cannot drive. */
 interface ShellWebBridge {
   create: (tabKey: string, url: string) => Promise<unknown>;
   destroy: (tabKey: string) => Promise<unknown>;
@@ -639,6 +652,13 @@ interface ShellWebBridge {
   visible: (tabKey: string, visible: boolean) => Promise<unknown>;
   load: (tabKey: string, url: string) => Promise<unknown>;
   reload: (tabKey: string) => Promise<unknown>;
+  back: (tabKey: string) => Promise<unknown>;
+  forward: (tabKey: string) => Promise<unknown>;
+  find: (tabKey: string, text: string, forward: boolean, findNext: boolean) => Promise<unknown>;
+  stopFind: (tabKey: string) => Promise<unknown>;
+  zoom: (tabKey: string, factor: number) => Promise<unknown>;
+  chords: (tabKey: string, chords: readonly ShellWebChord[]) => Promise<unknown>;
+  devtools: (tabKey: string) => Promise<unknown>;
   onEvent: (handler: (payload: unknown) => void) => () => void;
 }
 
@@ -657,6 +677,20 @@ function isWebBridge(value: unknown): value is ShellWebBridge {
     typeof value.load === "function" &&
     "reload" in value &&
     typeof value.reload === "function" &&
+    "back" in value &&
+    typeof value.back === "function" &&
+    "forward" in value &&
+    typeof value.forward === "function" &&
+    "find" in value &&
+    typeof value.find === "function" &&
+    "stopFind" in value &&
+    typeof value.stopFind === "function" &&
+    "zoom" in value &&
+    typeof value.zoom === "function" &&
+    "chords" in value &&
+    typeof value.chords === "function" &&
+    "devtools" in value &&
+    typeof value.devtools === "function" &&
     "onEvent" in value &&
     typeof value.onEvent === "function"
   );
@@ -782,6 +816,119 @@ export async function reloadShellWebView(tabKey: string): Promise<boolean> {
   }
 }
 
+/**
+ * Step a guest view's history back. A call at the boundary is a main-side
+ * no-op. Resolves `false` outside the shell, on an older shell, or when the
+ * shell rejects/denies the call. Never throws.
+ */
+export async function goBackShellWebView(tabKey: string): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge) return false;
+  try {
+    return isOkResult(await bridge.back(tabKey));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Step a guest view's history forward. Same never-throw shape as
+ * `goBackShellWebView`.
+ */
+export async function goForwardShellWebView(tabKey: string): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge) return false;
+  try {
+    return isOkResult(await bridge.forward(tabKey));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Start or step a find-in-page search in a guest view; match ordinals arrive
+ * on the `find` relay. Resolves `false` outside the shell, on an older shell,
+ * or when the shell rejects/denies the call. Never throws.
+ */
+export async function findShellWebView(
+  tabKey: string,
+  text: string,
+  opts: { forward: boolean; findNext: boolean },
+): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge) return false;
+  try {
+    return isOkResult(await bridge.find(tabKey, text, opts.forward, opts.findNext));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Stop a guest view's active find and clear its highlights. Same never-throw
+ * shape as `findShellWebView`.
+ */
+export async function stopFindShellWebView(tabKey: string): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge) return false;
+  try {
+    return isOkResult(await bridge.stopFind(tabKey));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Apply the SPA's zoom bucket to a guest view's renderer. The shell applies
+ * what it is handed and stores nothing — Chromium's per-host zoom store in
+ * the guest partition fights the bucket, so the engine re-sends on every
+ * navigation. Resolves `false` outside the shell, on an older shell, or when
+ * the shell rejects/denies the call. Never throws.
+ */
+export async function setShellWebViewZoom(tabKey: string, factor: number): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge) return false;
+  try {
+    return isOkResult(await bridge.zoom(tabKey, factor));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Upload a guest's reclaimable chord table (the SPA-enumerated reclaim
+ * predicate — main matches `before-input-event` against it). Resolves `false`
+ * outside the shell, on an older shell, or when the shell rejects/denies the
+ * call. Never throws.
+ */
+export async function setShellWebViewChords(
+  tabKey: string,
+  chords: readonly ShellWebChord[],
+): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge) return false;
+  try {
+    return isOkResult(await bridge.chords(tabKey, chords));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Open detached DevTools for a guest view. Resolves `false` outside the
+ * shell, on an older shell, or when the shell rejects/denies the call. Never
+ * throws.
+ */
+export async function openShellWebViewDevTools(tabKey: string): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge) return false;
+  try {
+    return isOkResult(await bridge.devtools(tabKey));
+  } catch {
+    return false;
+  }
+}
+
 /** One relayed guest event, demuxed SPA-side by `tabKey`. Mirrors the shell's
  *  `web:event` relay table; a newer shell may relay kinds this SPA does not
  *  know — those parse to null and are dropped. */
@@ -790,9 +937,11 @@ export type ShellWebEvent =
   | { tabKey: string; kind: "favicon"; favicons: string[] }
   | { tabKey: string; kind: "loading"; loading: boolean }
   | { tabKey: string; kind: "failed"; code: number; description: string; url: string }
-  | { tabKey: string; kind: "url"; url: string; canGoBack: boolean; canGoForward: boolean }
+  | { tabKey: string; kind: "url"; url: string; canGoBack: boolean; canGoForward: boolean; httpStatus?: number }
   | { tabKey: string; kind: "focus" }
-  | { tabKey: string; kind: "zoom"; direction: "in" | "out" };
+  | { tabKey: string; kind: "zoom"; direction: "in" | "out" }
+  | { tabKey: string; kind: "find"; active: number; total: number; final: boolean }
+  | { tabKey: string; kind: "chord"; key: string; code: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean };
 
 /** Structural parse of one relay payload; null for anything malformed or an
  *  unknown kind (a newer shell may relay kinds this SPA does not know). */
@@ -825,6 +974,12 @@ export function parseShellWebEvent(payload: unknown): ShellWebEvent | null {
       if (!("url" in payload) || typeof payload.url !== "string") return null;
       if (!("canGoBack" in payload) || typeof payload.canGoBack !== "boolean") return null;
       if (!("canGoForward" in payload) || typeof payload.canGoForward !== "boolean") return null;
+      // httpStatus rides did-navigate only (in-page navigation omits it); a
+      // present-but-wrong-typed field is malformed, like every kind.
+      if ("httpStatus" in payload && payload.httpStatus !== undefined) {
+        if (typeof payload.httpStatus !== "number") return null;
+        return { tabKey, kind: "url", url: payload.url, canGoBack: payload.canGoBack, canGoForward: payload.canGoForward, httpStatus: payload.httpStatus };
+      }
       return { tabKey, kind: "url", url: payload.url, canGoBack: payload.canGoBack, canGoForward: payload.canGoForward };
     case "focus":
       return { tabKey, kind: "focus" };
@@ -832,6 +987,19 @@ export function parseShellWebEvent(payload: unknown): ShellWebEvent | null {
       if (!("direction" in payload)) return null;
       if (payload.direction !== "in" && payload.direction !== "out") return null;
       return { tabKey, kind: "zoom", direction: payload.direction };
+    case "find":
+      if (!("active" in payload) || typeof payload.active !== "number") return null;
+      if (!("total" in payload) || typeof payload.total !== "number") return null;
+      if (!("final" in payload) || typeof payload.final !== "boolean") return null;
+      return { tabKey, kind: "find", active: payload.active, total: payload.total, final: payload.final };
+    case "chord":
+      if (!("key" in payload) || typeof payload.key !== "string") return null;
+      if (!("code" in payload) || typeof payload.code !== "string") return null;
+      if (!("ctrlKey" in payload) || typeof payload.ctrlKey !== "boolean") return null;
+      if (!("metaKey" in payload) || typeof payload.metaKey !== "boolean") return null;
+      if (!("shiftKey" in payload) || typeof payload.shiftKey !== "boolean") return null;
+      if (!("altKey" in payload) || typeof payload.altKey !== "boolean") return null;
+      return { tabKey, kind: "chord", key: payload.key, code: payload.code, ctrlKey: payload.ctrlKey, metaKey: payload.metaKey, shiftKey: payload.shiftKey, altKey: payload.altKey };
     default:
       return null;
   }

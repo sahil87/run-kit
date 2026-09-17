@@ -20,6 +20,7 @@ import {
   removeWebView,
   removeWindowWebViews,
   setWebViewBounds,
+  setWebViewChords,
   setWebViewVisible,
   WebViewsState,
 } from "./web-views";
@@ -334,4 +335,27 @@ test("z-order sequence: create under host-1 → switch away hides it → switch 
     ],
   );
   assert.deepEqual(plan[0]?.bounds, { x: 300, y: 100, width: 600, height: 400 });
+});
+
+// ── chords (the SPA-uploaded per-guest reclaim table) ───────────────────────
+
+test("addWebView seeds an empty chord table", () => {
+  const state = seeded();
+  assert.deepEqual(getWebView(state, 11, "t1")?.chords, []);
+});
+
+test("setWebViewChords records the table; an unknown key is a no-op", () => {
+  let state = seeded();
+  const chords = [
+    { code: "KeyK", ctrl: true, meta: false, shift: false, alt: false },
+    { code: "Escape", ctrl: false, meta: false, shift: false, alt: false },
+  ];
+  state = setWebViewChords(state, 11, "t1", chords);
+  assert.deepEqual(getWebView(state, 11, "t1")?.chords, chords);
+  // The host-b sibling under the same tabKey is untouched.
+  assert.deepEqual(getWebView(state, 12, "t1")?.chords, []);
+
+  const before = state;
+  assert.equal(setWebViewChords(state, 99, "t1", chords), before);
+  assert.equal(setWebViewChords(state, 11, "nope", chords), before);
 });

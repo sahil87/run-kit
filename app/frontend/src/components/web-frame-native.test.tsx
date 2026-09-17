@@ -27,6 +27,15 @@ const bridge = vi.hoisted(() => ({
   visible: vi.fn((_tabKey: string, _visible: boolean) => Promise.resolve({ ok: true })),
   load: vi.fn((_tabKey: string, _url: string) => Promise.resolve({ ok: true })),
   reload: vi.fn((_tabKey: string) => Promise.resolve({ ok: true })),
+  back: vi.fn((_tabKey: string) => Promise.resolve({ ok: true })),
+  forward: vi.fn((_tabKey: string) => Promise.resolve({ ok: true })),
+  find: vi.fn((_tabKey: string, _text: string, _forward: boolean, _findNext: boolean) =>
+    Promise.resolve({ ok: true }),
+  ),
+  stopFind: vi.fn((_tabKey: string) => Promise.resolve({ ok: true })),
+  zoom: vi.fn((_tabKey: string, _factor: number) => Promise.resolve({ ok: true })),
+  chords: vi.fn((_tabKey: string, _chords: unknown) => Promise.resolve({ ok: true })),
+  devtools: vi.fn((_tabKey: string) => Promise.resolve({ ok: true })),
   onEvent: vi.fn((_handler: RelayHandler) => () => {}),
 }));
 
@@ -85,11 +94,17 @@ function renderEngine({
   url = "/present/x/y/index.html",
   active = true,
   dragging = false,
+  zoom = 1,
+  chordTable,
+  onZoomStep,
   onInteract,
 }: {
   url?: string;
   active?: boolean;
   dragging?: boolean;
+  zoom?: number;
+  chordTable?: WebFrameEngineProps["chordTable"];
+  onZoomStep?: (direction: "in" | "out") => void;
   onInteract?: () => void;
 } = {}) {
   const rig: Rig = {
@@ -108,12 +123,17 @@ function renderEngine({
   };
   const registerHandle = (u: string, h: WebFrameEngineHandle) => rig.handles.set(u, h);
   const unregisterHandle = (u: string) => rig.handles.delete(u);
-  const element = (nextActive: boolean, drag: boolean) => (
+  const element = (
+    nextActive: boolean,
+    drag: boolean,
+    nextZoom: number = zoom,
+    nextChordTable: WebFrameEngineProps["chordTable"] = chordTable,
+  ) => (
     <TileDragContext.Provider value={drag}>
       <WebFrameNative
         url={url}
         active={nextActive}
-        zoom={1}
+        zoom={nextZoom}
         wireGestureListeners={() => () => {}}
         onState={onState}
         onLoad={rig.onLoad}
@@ -121,16 +141,36 @@ function renderEngine({
         unregisterHandle={unregisterHandle}
         interactRef={rig.interactRef}
         reclaimRef={rig.reclaimRef}
+        onZoomStep={onZoomStep}
+        chordTable={nextChordTable}
       />
     </TileDragContext.Provider>
   );
   const view = render(element(active, dragging));
   rig.tabKey = screen.getByTestId("web-native-placeholder").dataset.tabKey ?? "";
+  // Rerenders are cumulative: an omitted prop keeps its last value, so a
+  // bare rerender is a true no-op (the identity-change rules are assertable).
+  let curActive = active;
+  let curDragging = dragging;
+  let curZoom = zoom;
+  let curChordTable = chordTable;
   return {
     ...view,
     rig,
-    rerenderEngine: (overrides: { active?: boolean; dragging?: boolean } = {}) =>
-      view.rerender(element(overrides.active ?? active, overrides.dragging ?? dragging)),
+    rerenderEngine: (
+      overrides: {
+        active?: boolean;
+        dragging?: boolean;
+        zoom?: number;
+        chordTable?: WebFrameEngineProps["chordTable"];
+      } = {},
+    ) => {
+      if (overrides.active !== undefined) curActive = overrides.active;
+      if (overrides.dragging !== undefined) curDragging = overrides.dragging;
+      if (overrides.zoom !== undefined) curZoom = overrides.zoom;
+      if ("chordTable" in overrides) curChordTable = overrides.chordTable;
+      view.rerender(element(curActive, curDragging, curZoom, curChordTable));
+    },
   };
 }
 
@@ -282,40 +322,98 @@ describe("WebFrameNative relay events", () => {
     expect(rig.states.get(rig.url)?.favicon).toBeNull();
   });
 
-  it("failed clears loading and leaves tileError null", () => {
-    const { rig } = renderEngine();
+  it("failed clears loading and maps to an unreachable tileError on an external tab", () => {
+    const { rig } = renderEngine({ url: "https://nope.example" });
     expect(rig.states.get(rig.url)?.loading).toBe(true);
-    deliver({ tabKey: rig.tabKey, kind: "failed", code: -105, description: "NAME_NOT_RESOLVED", url: "https://x" });
+    deliver({ tabKey: rig.tabKey, kind: "failed", code: -105, description: "ERR_NAME_NOT_RESOLVED", url: "https://nope.example/" });
     const state = rig.states.get(rig.url);
     expect(state?.loading).toBe(false);
-    expect(state?.tileError).toBeNull();
+    expect(state?.tileError).toEqual({
+      kind: "unreachable",
+      host: "nope.example",
+      reason: "name not resolved",
+    });
   });
 
-  it("focus fires the interact seam; zoom is ignored", () => {
+  it("focus fires the interact seam; a zoom relay steps the bucket via onZoomStep without a state change", () => {
     const onInteract = vi.fn();
-    const { rig } = renderEngine({ onInteract });
+    const onZoomStep = vi.fn();
+    const { rig } = renderEngine({ onInteract, onZoomStep });
     deliver({ tabKey: rig.tabKey, kind: "focus" });
     expect(onInteract).toHaveBeenCalledTimes(1);
     const before = rig.onState.mock.calls.length;
     deliver({ tabKey: rig.tabKey, kind: "zoom", direction: "in" });
+    expect(onZoomStep).toHaveBeenCalledTimes(1);
+    expect(onZoomStep).toHaveBeenCalledWith("in");
     expect(rig.onState.mock.calls.length).toBe(before);
+  });
+
+  it("a chord relay reports interaction first, then re-dispatches a bubbling keydown on the document", () => {
+    const onInteract = vi.fn();
+    const { rig } = renderEngine({ onInteract });
+    const seen: KeyboardEvent[] = [];
+    const listener = (e: Event) => seen.push(e as KeyboardEvent);
+    document.addEventListener("keydown", listener);
+    try {
+      deliver({
+        tabKey: rig.tabKey,
+        kind: "chord",
+        key: "k",
+        code: "KeyK",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+      });
+    } finally {
+      document.removeEventListener("keydown", listener);
+    }
+    expect(onInteract).toHaveBeenCalledTimes(1);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].code).toBe("KeyK");
+    expect(seen[0].ctrlKey).toBe(true);
+    expect(seen[0].bubbles).toBe(true);
+  });
+
+  it("a find relay maps the 1-based ordinal to the 0-based matchIndex", () => {
+    const { rig } = renderEngine();
+    deliver({ tabKey: rig.tabKey, kind: "find", active: 2, total: 5, final: false });
+    expect(rig.states.get(rig.url)?.find).toEqual({ active: 1, total: 5 });
+    // Chromium's 1-based first match (and the 0-match report) never go negative.
+    deliver({ tabKey: rig.tabKey, kind: "find", active: 1, total: 5, final: true });
+    expect(rig.states.get(rig.url)?.find).toEqual({ active: 0, total: 5 });
+    deliver({ tabKey: rig.tabKey, kind: "find", active: 0, total: 0, final: true });
+    expect(rig.states.get(rig.url)?.find).toEqual({ active: 0, total: 0 });
+  });
+
+  it("stopFind and the completed-load edge reset find to null", () => {
+    const { rig } = renderEngine();
+    deliver({ tabKey: rig.tabKey, kind: "find", active: 2, total: 5, final: true });
+    expect(rig.states.get(rig.url)?.find).toEqual({ active: 1, total: 5 });
+    act(() => rig.handles.get(rig.url)?.stopFind());
+    expect(bridge.stopFind).toHaveBeenCalledWith(rig.tabKey);
+    expect(rig.states.get(rig.url)?.find).toBeNull();
+    deliver({ tabKey: rig.tabKey, kind: "find", active: 3, total: 5, final: true });
+    deliver({ tabKey: rig.tabKey, kind: "loading", loading: true });
+    deliver({ tabKey: rig.tabKey, kind: "loading", loading: false });
+    expect(rig.states.get(rig.url)?.find).toBeNull();
   });
 });
 
 describe("WebFrameNative capabilities + handle", () => {
-  it("reports the honest capability set (no history/find/zoom-gesture/devtools channels exist yet)", () => {
+  it("reports the full parity capability set", () => {
     expect(WEB_FRAME_NATIVE_DEFAULT_CAPABILITIES).toEqual({
-      history: false,
-      find: false,
+      history: true,
+      find: true,
       meta: true,
-      zoomGestures: false,
-      devtools: false,
+      zoomGestures: true,
+      devtools: true,
     });
     const { rig } = renderEngine();
     expect(rig.states.get(rig.url)?.supports).toEqual(WEB_FRAME_NATIVE_DEFAULT_CAPABILITIES);
   });
 
-  it("handle reload/retry call the bridge and report loading; back/forward/find/stopFind are no-ops", () => {
+  it("handle reload/retry call the bridge and report loading; back/forward/find/stopFind/openDevTools drive their channels", () => {
     const { rig } = renderEngine();
     const handle = rig.handles.get(rig.url);
     expect(handle?.kind).toBe("native");
@@ -328,19 +426,138 @@ describe("WebFrameNative capabilities + handle", () => {
     act(() => handle?.retry());
     expect(bridge.reload).toHaveBeenCalledTimes(2);
 
-    const counts = () =>
-      [bridge.create, bridge.destroy, bridge.bounds, bridge.visible, bridge.load].map(
-        (fn) => fn.mock.calls.length,
-      );
-    const before = counts();
     act(() => {
       handle?.back();
       handle?.forward();
-      handle?.find("x", { forward: true, findNext: false });
+      handle?.find("foo", { forward: true, findNext: false });
       handle?.stopFind();
+      handle?.openDevTools?.();
     });
-    expect(counts()).toEqual(before);
-    expect(bridge.reload).toHaveBeenCalledTimes(2);
+    expect(bridge.back).toHaveBeenCalledWith(rig.tabKey);
+    expect(bridge.forward).toHaveBeenCalledWith(rig.tabKey);
+    expect(bridge.find).toHaveBeenCalledWith(rig.tabKey, "foo", true, false);
+    expect(bridge.stopFind).toHaveBeenCalledWith(rig.tabKey);
+    expect(bridge.devtools).toHaveBeenCalledWith(rig.tabKey);
+  });
+});
+
+describe("WebFrameNative zoom", () => {
+  it("sends the zoom factor after create and on every zoom prop change", () => {
+    const { rig, rerenderEngine } = renderEngine({ zoom: 1.25 });
+    expect(bridge.zoom).toHaveBeenCalledWith(rig.tabKey, 1.25);
+    expect(bridge.zoom).toHaveBeenCalledTimes(1);
+    rerenderEngine({ zoom: 1.5 });
+    expect(bridge.zoom).toHaveBeenCalledWith(rig.tabKey, 1.5);
+    expect(bridge.zoom).toHaveBeenCalledTimes(2);
+    // An unrelated re-render sends nothing.
+    rerenderEngine();
+    expect(bridge.zoom).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-applies the factor on EVERY url relay (Chromium's per-host store fights the bucket)", () => {
+    const { rig } = renderEngine({ zoom: 1.25 });
+    bridge.zoom.mockClear();
+    deliver({ tabKey: rig.tabKey, kind: "url", url: "https://example.com/a", canGoBack: true, canGoForward: false });
+    deliver({ tabKey: rig.tabKey, kind: "url", url: "https://example.com/b", canGoBack: true, canGoForward: true });
+    expect(bridge.zoom).toHaveBeenCalledTimes(2);
+    expect(bridge.zoom).toHaveBeenLastCalledWith(rig.tabKey, 1.25);
+  });
+});
+
+describe("WebFrameNative chord table", () => {
+  it("uploads the table after create and on every table identity change", () => {
+    const table = [
+      { code: "KeyK", ctrl: true, meta: false, shift: false, alt: false as const },
+      { code: "Escape", ctrl: false, meta: false, shift: false, alt: false as const },
+    ];
+    const { rig, rerenderEngine } = renderEngine({ chordTable: table });
+    expect(bridge.chords).toHaveBeenCalledWith(rig.tabKey, table);
+    expect(bridge.chords).toHaveBeenCalledTimes(1);
+    // A re-render carrying the SAME array identity sends nothing.
+    rerenderEngine();
+    expect(bridge.chords).toHaveBeenCalledTimes(1);
+    const rebound = [...table];
+    rerenderEngine({ chordTable: rebound });
+    expect(bridge.chords).toHaveBeenCalledWith(rig.tabKey, rebound);
+    expect(bridge.chords).toHaveBeenCalledTimes(2);
+  });
+
+  it("uploads an empty table when the prop is absent", () => {
+    renderEngine();
+    expect(bridge.chords).toHaveBeenCalledWith(expect.any(String), []);
+  });
+});
+
+describe("WebFrameNative tileError surface", () => {
+  it("a proxy tab's url relay with httpStatus 502 yields dead-port; a clean navigation clears it", () => {
+    const { rig } = renderEngine({ url: "http://localhost:3000" });
+    deliver({
+      tabKey: rig.tabKey,
+      kind: "url",
+      url: `${window.location.origin}/proxy/3000/`,
+      canGoBack: false,
+      canGoForward: false,
+      httpStatus: 502,
+    });
+    expect(rig.states.get(rig.url)?.tileError).toEqual({ kind: "dead-port", port: 3000 });
+    deliver({
+      tabKey: rig.tabKey,
+      kind: "url",
+      url: `${window.location.origin}/proxy/3000/`,
+      canGoBack: false,
+      canGoForward: false,
+      httpStatus: 200,
+    });
+    expect(rig.states.get(rig.url)?.tileError).toBeNull();
+  });
+
+  it("a load start clears the error and retry reloads through the bridge", () => {
+    const { rig } = renderEngine({ url: "http://localhost:3000" });
+    deliver({
+      tabKey: rig.tabKey,
+      kind: "url",
+      url: `${window.location.origin}/proxy/3000/`,
+      canGoBack: false,
+      canGoForward: false,
+      httpStatus: 502,
+    });
+    expect(rig.states.get(rig.url)?.tileError).toEqual({ kind: "dead-port", port: 3000 });
+    bridge.reload.mockClear();
+    act(() => rig.handles.get(rig.url)?.retry());
+    expect(bridge.reload).toHaveBeenCalledTimes(1);
+    expect(rig.states.get(rig.url)?.tileError).toBeNull();
+    expect(rig.states.get(rig.url)?.loading).toBe(true);
+    // The relay's own load-start edge clears it too (a navigation the chrome
+    // did not initiate).
+    deliver({ tabKey: rig.tabKey, kind: "failed", code: -105, description: "ERR_NAME_NOT_RESOLVED", url: "https://x/" });
+    expect(rig.states.get(rig.url)?.tileError).not.toBeNull();
+    deliver({ tabKey: rig.tabKey, kind: "loading", loading: true });
+    expect(rig.states.get(rig.url)?.tileError).toBeNull();
+  });
+
+  it("the guest hides while tileError is set and re-shows once cleared", () => {
+    const { rig } = renderEngine({ url: "http://localhost:3000" });
+    bridge.visible.mockClear();
+    deliver({
+      tabKey: rig.tabKey,
+      kind: "url",
+      url: `${window.location.origin}/proxy/3000/`,
+      canGoBack: false,
+      canGoForward: false,
+      httpStatus: 502,
+    });
+    expect(bridge.visible).toHaveBeenCalledWith(rig.tabKey, false);
+    deliver({
+      tabKey: rig.tabKey,
+      kind: "url",
+      url: `${window.location.origin}/proxy/3000/`,
+      canGoBack: false,
+      canGoForward: false,
+      httpStatus: 200,
+    });
+    const shows = bridge.visible.mock.calls.filter((c) => c[1] === true);
+    expect(shows.length).toBeGreaterThan(0);
+    expect(shows[shows.length - 1]?.[0]).toBe(rig.tabKey);
   });
 });
 

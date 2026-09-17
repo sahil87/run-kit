@@ -1,5 +1,5 @@
 ---
-description: "Electron viewer shell: one process with many windows, persistent per-window host views and web-tile guest views, hosts.json/windows.json restore, welcome Host Hub, dead-host interstitial recovery, SSH heal, local-daemon lifecycle controls, keyboard-tier menus, runkitShell bridge, titlebar/badge chrome, navigation security, packaging, and CLI-driven updates."
+description: "Electron viewer shell: one process with many windows, persistent per-window host views and web-tile guest views, hosts.json/windows.json restore, welcome Host Hub, dead-host interstitial recovery, SSH heal, local-daemon lifecycle controls, keyboard-tier menus, runkitShell bridge, titlebar/badge chrome, navigation security, packaging, CLI-driven updates, and the Electron e2e lane (just test-desktop-e2e over the worktree's derived rig)."
 type: memory
 ---
 # Desktop Viewer Shell (`app/desktop`)
@@ -14,7 +14,7 @@ The shell is a **viewer** (Constitution VI): it never spawns or supervises the r
 
 ## Package Shape
 
-Self-contained pnpm package (own `package.json` + `pnpm-lock.yaml`; no `pnpm-workspace.yaml` anywhere in the repo — the `app/frontend` precedent). devDependencies are exactly three: `electron` (`^43`), `electron-builder`, `typescript`. Compilation is plain `tsc` — strict, `module: nodenext` (CommonJS emit for main/preload; no `"type": "module"`), ES2022 + DOM libs, `src/` → `dist/`, no bundler; `moduleDetection: "auto"` so the import/export-free shell-page scripts emit as browser-runnable global scripts. Package `main` is `dist/main.js`; the `compile` script copies both `src/welcome/welcome.html` and `src/interstitial/interstitial.html` into their matching `dist/` folders. `pnpm.onlyBuiltDependencies: [electron]` permits the Electron binary postinstall.
+Self-contained pnpm package (own `package.json` + `pnpm-lock.yaml`; no `pnpm-workspace.yaml` anywhere in the repo — the `app/frontend` precedent). devDependencies are exactly four: `electron` (`^43`), `electron-builder`, `typescript`, and `@playwright/test` (`^1.59.1` — the Electron e2e lane's runner, § Web Views → Testing). Compilation is plain `tsc` — strict, `module: nodenext` (CommonJS emit for main/preload; no `"type": "module"`), ES2022 + DOM libs, `src/` → `dist/`, no bundler; `moduleDetection: "auto"` so the import/export-free shell-page scripts emit as browser-runnable global scripts. Package `main` is `dist/main.js`; the `compile` script copies both `src/welcome/welcome.html` and `src/interstitial/interstitial.html` into their matching `dist/` folders. `pnpm.onlyBuiltDependencies: [electron]` permits the Electron binary postinstall.
 
 ```
 app/desktop/
@@ -23,41 +23,46 @@ app/desktop/
 ├── tsconfig.json
 ├── electron-builder.yml
 ├── build/icon.png          # committed 1024px raster (see § Packaging)
-└── src/
-    ├── main.ts             # lifecycle, the multi-window registry (single-instance lock), per-(window, host) WebContentsViews + web-tile guest views, security wiring, IPC (incl. the `web:*` surface), welcome ↔ host-view routing, last-path + window-record capture, local-daemon control, update detection + detached update spawn
-    ├── hosts.ts            # hosts.json store (electron-free, directory-parameterized)
-    ├── hosts.test.ts       # node:test suite over the compiled store
-    ├── views.ts            # per-(window, host) view registry pure logic (electron-free): ViewEntry/ViewsState over an opaque handle keyed (windowId, hostId), lazy add, per-window activate/deactivate, window/host-scoped removal, per-view badge/theme caches, switchPaint, aggregateBadge, nextLoadFailed
-    ├── views.test.ts       # node:test suite over the compiled registry
-    ├── web-views.ts        # web-tile guest registry pure logic (electron-free): WebViewEntry/WebViewsState over an opaque handle keyed (hostContentsId, tabKey), SPA-requested visible + parked-bounds records, scoped removals, attach/detach z-order plans
-    ├── web-views.test.ts   # node:test suite over the compiled guest registry
-    ├── windows.ts          # windows.json window-set store (electron-free, directory-parameterized)
-    ├── windows.test.ts     # node:test suite over the compiled store
-    ├── window-registry.ts  # window decision logic (electron-free): routeLeaf/windowTitle, newWindowTarget, record capture ordering + quit accumulation (captureWindowRecord/windowSetForSave), restoreTargets, hostRemovedFallback, windowListItems
-    ├── window-registry.test.ts # node:test suite over the compiled decision module
-    ├── window-open.ts      # new-window policy (electron-free): isHttpUrl + windowOpenAction
-    ├── window-open.test.ts # node:test suite over the compiled policy
-    ├── local-daemon.ts     # local-daemon pure logic (electron-free): binary/PATH resolution, three-state status + status-JSON parsing, menu model, version/session parsing, invocation-error classification
-    ├── local-daemon.test.ts# node:test suite over the compiled pure logic
-    ├── remote-host.ts      # SSH-remote pure logic (electron-free): `rk remote add`/`connect` stdout parsing + streamed-chatter line splitter
-    ├── remote-host.test.ts # node:test suite over the compiled pure logic
-    ├── update-check.ts     # update-check pure logic (electron-free): `rk desktop status` stdout parsing, availability derivation, the 1h cadence constant + throttle predicate
-    ├── update-check.test.ts# node:test suite over the compiled pure logic
-    ├── strip.ts            # titlebar-strip pure logic (electron-free): STRIP_HEIGHT_PX, BLANK_UNDERLAY_URL, symbolColorFor, fallbackStripCss, shouldInjectFallbackStrip
-    ├── strip.test.ts       # node:test suite over the compiled pure logic
-    ├── badge.ts            # dock/taskbar badge pure logic (electron-free): badgeLabel, overlayDescription, badgeRaster + badgePng (hand-rolled PNG encoder)
-    ├── badge.test.ts       # node:test suite over the compiled pure logic
-    ├── menu.ts             # buildMenu(hosts, focusedHostId, windows, callbacks, daemon, update) — the per-platform keyboard-tier seam + New Window + the mac Window-menu per-window list + Local Daemon submenu + the App-menu Restart-to-Update item
-    ├── preload.ts          # contextBridge: window.runkitShell
-    ├── welcome/
-        ├── welcome.html    # static Host Hub / first-run page — Your Hosts + add-host rungs (CSP: default-src 'none')
-        └── welcome.ts      # renderer script — hosts list + chord, structural bridge narrowing, no imports
-    └── interstitial/
-        ├── interstitial.html # shell-owned dead-host recovery page (same locked-down CSP/token posture)
-        └── interstitial.ts   # one import-free IIFE: local lifecycle states plus remote/URL retry
+├── playwright.config.ts    # the Electron e2e lane's Playwright project — workers 1, no webServer/baseURL; the harness owns the rig
+├── src/
+│   ├── main.ts             # lifecycle, the multi-window registry (single-instance lock), per-(window, host) WebContentsViews + web-tile guest views, security wiring, IPC (incl. the `web:*` surface), welcome ↔ host-view routing, last-path + window-record capture, local-daemon control, update detection + detached update spawn
+│   ├── hosts.ts            # hosts.json store (electron-free, directory-parameterized)
+│   ├── hosts.test.ts       # node:test suite over the compiled store
+│   ├── views.ts            # per-(window, host) view registry pure logic (electron-free): ViewEntry/ViewsState over an opaque handle keyed (windowId, hostId), lazy add, per-window activate/deactivate, window/host-scoped removal, per-view badge/theme caches, switchPaint, aggregateBadge, nextLoadFailed
+│   ├── views.test.ts       # node:test suite over the compiled registry
+│   ├── web-views.ts        # web-tile guest registry pure logic (electron-free): WebViewEntry/WebViewsState over an opaque handle keyed (hostContentsId, tabKey), SPA-requested visible + parked-bounds records, scoped removals, attach/detach z-order plans
+│   ├── web-views.test.ts   # node:test suite over the compiled guest registry
+│   ├── windows.ts          # windows.json window-set store (electron-free, directory-parameterized)
+│   ├── windows.test.ts     # node:test suite over the compiled store
+│   ├── window-registry.ts  # window decision logic (electron-free): routeLeaf/windowTitle, newWindowTarget, record capture ordering + quit accumulation (captureWindowRecord/windowSetForSave), restoreTargets, hostRemovedFallback, windowListItems
+│   ├── window-registry.test.ts # node:test suite over the compiled decision module
+│   ├── window-open.ts      # new-window policy (electron-free): isHttpUrl + windowOpenAction
+│   ├── window-open.test.ts # node:test suite over the compiled policy
+│   ├── local-daemon.ts     # local-daemon pure logic (electron-free): binary/PATH resolution, three-state status + status-JSON parsing, menu model, version/session parsing, invocation-error classification
+│   ├── local-daemon.test.ts# node:test suite over the compiled pure logic
+│   ├── remote-host.ts      # SSH-remote pure logic (electron-free): `rk remote add`/`connect` stdout parsing + streamed-chatter line splitter
+│   ├── remote-host.test.ts # node:test suite over the compiled pure logic
+│   ├── update-check.ts     # update-check pure logic (electron-free): `rk desktop status` stdout parsing, availability derivation, the 1h cadence constant + throttle predicate
+│   ├── update-check.test.ts# node:test suite over the compiled pure logic
+│   ├── strip.ts            # titlebar-strip pure logic (electron-free): STRIP_HEIGHT_PX, BLANK_UNDERLAY_URL, symbolColorFor, fallbackStripCss, shouldInjectFallbackStrip
+│   ├── strip.test.ts       # node:test suite over the compiled pure logic
+│   ├── badge.ts            # dock/taskbar badge pure logic (electron-free): badgeLabel, overlayDescription, badgeRaster + badgePng (hand-rolled PNG encoder)
+│   ├── badge.test.ts       # node:test suite over the compiled pure logic
+│   ├── menu.ts             # buildMenu(hosts, focusedHostId, windows, callbacks, daemon, update) — the per-platform keyboard-tier seam + New Window + the mac Window-menu per-window list + Local Daemon submenu + the App-menu Restart-to-Update item
+│   ├── preload.ts          # contextBridge: window.runkitShell
+│   ├── welcome/
+│   │   ├── welcome.html    # static Host Hub / first-run page — Your Hosts + add-host rungs (CSP: default-src 'none')
+│   │   └── welcome.ts      # renderer script — hosts list + chord, structural bridge narrowing, no imports
+│   └── interstitial/
+│       ├── interstitial.html # shell-owned dead-host recovery page (same locked-down CSP/token posture)
+│       └── interstitial.ts   # one import-free IIFE: local lifecycle states plus remote/URL retry
+└── tests/
+    └── e2e/
+        ├── _shell.ts         # lane fixture — XDG_CONFIG_HOME hosts.json seeding + shell launch, Page/view-tree readers, the node:http guest stub
+        └── web-native.spec.ts # the seven-assertion native-engine smoke set (§ Web Views → Testing)
 ```
 
-Package tests run via `node --test "dist/**/*.test.js"` after compile — the store (hosts + windows), window-open-policy, local-daemon, update-check, strip, badge, view-registry, web-view-registry, window-registry, and remote-host modules are electron-free precisely so Node's built-in runner covers them without adding a test dependency. Compiled test files are excluded from packaging (`files: ["dist/**", "!dist/**/*.test.js"]`).
+Package tests run via `node --test "dist/**/*.test.js"` after compile — the store (hosts + windows), window-open-policy, local-daemon, update-check, strip, badge, view-registry, web-view-registry, window-registry, and remote-host modules are electron-free precisely so Node's built-in runner covers them without adding a test dependency. Compiled test files are excluded from packaging (`files: ["dist/**", "!dist/**/*.test.js"]`). The Electron e2e lane's specs stay out of that compile: `tsconfig.json` keeps `include: ["src"]`, Playwright compiles the spec TypeScript itself, and the `test:e2e` script runs `playwright test` (§ Web Views → Testing).
 
 ## Host-List Store (`src/hosts.ts`)
 
@@ -178,6 +183,8 @@ A web tile's content can render in the shell's own Chromium rather than an ifram
 | `web:devtools` | `{tabKey}` | `openDevTools({ mode: "detach" })` |
 
 The validators sit beside `parseSetUrlPayload` in the same structural-narrowing shape: `isTabKey` (non-empty string, ≤ 128 chars), `parseWebCreatePayload` / `parseWebLoadPayload` (`{tabKey, url}` requiring `isHttpUrl` — a main-initiated `loadURL` bypasses `will-navigate`, so the scheme allowlist is enforced at the validator, not only at the guard), `parseWebBoundsPayload` (four finite numbers, non-negative sizes, `Math.round`ed — CSS px arrive as floats), `parseWebVisiblePayload`, `parseWebTabKeyPayload` (shared by `web:back`/`web:forward`/`web:stop-find`/`web:devtools`), `parseWebFindPayload` (`text` a non-empty string ≤ `WEB_FIND_TEXT_MAX_LENGTH = 1024`, `forward`/`findNext` booleans), `parseWebZoomPayload` (`factor` a finite number within `[WEB_ZOOM_FACTOR_MIN = 0.25, WEB_ZOOM_FACTOR_MAX = 5]` — a sanity band, not the SPA's ladder, which stays the authority), and `parseWebChordsPayload` (via `parseChordSpecs`); the shared resolvers are `webSenderHost` (`isHostsSender` + `findViewByWebContentsId`) and `webSenderGuest` (`findWebViewBySender` under it). The SPA-side consumer engine is `app/frontend/src/components/web-frame-native.tsx` behind the web tile's engine seam ([ui/lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § Web Tile), with tabKeys `web-<n>` (one per engine mount) and the SPA-side parser `parseShellWebEvent` in `lib/shell.ts` narrowing every `web:event` payload before use; the `web` bridge group is additive — the SPA narrows the group's presence before use, so older SPAs never call it. (260916-crb3, q2xk, w0k7)
+
+**Testing** — the desktop Electron e2e lane proves the guest contract end to end: `app/desktop/tests/e2e/web-native.spec.ts`, run by `just test-desktop-e2e` (→ `scripts/test-desktop-e2e.sh` → `scripts/test-e2e.sh` under `RK_E2E_LANE=desktop`) against the worktree's derived e2e rig. Each test launches a fresh shell — `_electron.launch({ args: [".", "--no-sandbox"], cwd: app/desktop, env: { XDG_CONFIG_HOME: <mkdtemp> } })` — over a seeded two-host `hosts.json` (`e2e-a` = `http://localhost:<E2E_PORT>`, `e2e-b` = `http://127.0.0.1:<E2E_PORT>`, `activeId: e2e-a`; with no `windows.json` the cold start opens exactly one window on e2e-a; `RK_DESKTOP_URL` is unused — its sentinel is single-host). The seven assertions: (a) opening a web tab creates exactly one guest whose bounds match the placeholder rect within 1 px; (b) the palette hides the guest and Escape shows it again; (c) the guest's `page-title-updated` reaches the tab strip; (d) Ctrl+K pressed inside the guest opens the palette — driven by `webContents.sendInputEvent` through `electronApp.evaluate` because a CDP-synthesized keypress on the guest Page never reaches `before-input-event`; (e) a host switch hides the guest after switching to e2e-b, and after switching back it is visible AND sits above the e2e-a host child in `contentView.children`; (f) closing the window destroys the guest webContents (a hidden keep-alive `BrowserWindow` prevents `window-all-closed`); (g) a hidden-time `web:bounds` leaves `getVisible() === false` and the live bounds unchanged. Registry claims are read from Electron's own objects (`win.contentView.children`, `View.getVisible()`, `View.getBounds()`, `webContents.getURL()`) — no test seam in `main.ts` — and the guest is classified by its `/proxy/<stubPort>/` URL path (the SPA's `toProxySrc` hop makes the guest URL host-origin) while hosts are classified by origin. Guest content is a spec-owned `node:http` loopback stub — a `page.route` stub cannot serve the `persist:rk-web` partition's requests. Harness, CI job, and fixture contract: [architecture/testing](/run-kit/architecture/testing.md) § Desktop Electron E2E. (260917-m3a9)
 
 ## Dead-Host Interstitial (`src/interstitial/` + `src/main.ts`)
 
@@ -539,8 +546,9 @@ Constitution VIII one-liners in the `justfile`, logic in `scripts/`:
 
 - `just dev-desktop` → `scripts/dev-desktop.sh`: `pnpm install` when `node_modules` is missing, compile, `exec pnpm exec electron .`. `RK_DESKTOP_URL=http://localhost:3000 just dev-desktop` (against a running `just dev`) loads that URL in a sentinel-id view in the first window without touching `hosts.json` (§ Startup Routing & Welcome Flow); a New Window under the sentinel duplicates it as an independent sentinel-scoped view, still never persisted (§ Windows & the Window Registry).
 - `just build-desktop [mac|win|linux]` → `scripts/build-desktop.sh`: takes an **optional explicit target** and otherwise derives it from the host via `uname -s` (`Darwin`→mac, `Linux`→linux, `MINGW*`/`MSYS*`/`CYGWIN*`→win; anything else errors telling the caller to pass a target). The target maps to `--mac`/`--win`/`--linux`; an unknown argument exits non-zero with `usage: build-desktop.sh [mac|win|linux]  (default: host platform)`. The rest is platform-neutral and unchanged: verify `build/icon.png` exists (pointing at `just icons` when missing), `pnpm install --frozen-lockfile`, compile, `electron-builder <flag> --publish never` with the extraMetadata version. Output lands in `app/desktop/release/` (gitignored; the repo's bare `dist` gitignore entry already covers compiled TS output). The justfile recipe stays a one-liner passing args through (`build-desktop *args:`, Constitution VIII).
+- `just test-desktop-e2e` → `scripts/test-desktop-e2e.sh`: self-wraps in `xvfb-run -a` when `DISPLAY` is unset (an explicit `DISPLAY` — CI's own `xvfb-run`, a developer desktop — is respected), installs the desktop deps when `node_modules` is absent, compiles the shell, then delegates to `scripts/test-e2e.sh` with `RK_E2E_LANE=desktop` — the shared harness's Playwright phase redirected at `app/desktop`'s project, on the same derived rig, lock, and cleanup ([architecture/testing](/run-kit/architecture/testing.md) § Desktop Electron E2E). Deliberately its own recipe, not a `just test` phase ([architecture/testing](/run-kit/architecture/testing.md) § Design Decisions → The desktop lane is not a `just test` phase).
 
-Verification split: compile, `tsc --noEmit`, node:test (store, window-open policy, local-daemon pure logic, update-check pure logic, strip pure logic, badge pure logic, view-registry pure logic, web-view-registry pure logic), and vitest (`shell.test.ts`) all run on Linux. Playwright does not cover the Electron shell at all — `isShell()` is false there, so the strip and badge reporter never mount in an e2e run — which is why the pure-module suites plus the compile gates are the automated surface. Hardware-only items, per platform:
+Verification split: compile, `tsc --noEmit`, node:test (store, window-open policy, local-daemon pure logic, update-check pure logic, strip pure logic, badge pure logic, view-registry pure logic, web-view-registry pure logic), and vitest (`shell.test.ts`) all run on Linux. The Electron e2e lane covers the web-tile guest behaviors end to end on Linux — guest bounds over the tile rect, palette hide/show, the title relay, the in-guest ⌘K chord, host-switch z-order, window-close guest teardown, and parked bounds while hidden (§ Web Views → Testing) — and runs in CI's `Desktop (node --test + electron e2e)` job under `xvfb-run -a` as a `ci-gate` hard gate ([architecture/testing](/run-kit/architecture/testing.md) § Desktop Electron E2E). Browser-side Playwright mounts nothing shell-owned (`isShell()` is false there — the strip and badge reporter never mount in a web e2e run). The lane's sibling-layering result is Linux-observed; a macOS manual check of the layering is the remaining representative-platform item. Everything else stays hardware-only, per platform:
 
 - **mac** — the DMG build, Gatekeeper "Open Anyway" walkthrough, xterm ⌘C/⌘V interplay, ⌘-fall-through feel, **⌥⌘1–9 host switching on a non-US layout** — digit accelerators are the flakiest class (Electron resolves accelerators by character, not scancode; AZERTY digits already require Shift, and Option composes characters); no scancode workaround — and the **end-to-end GUI-PATH-trap leg**, which only manifests in a Finder-launched (not terminal-launched) app: both binary resolution and the spawned rk's own `tmux` lookup. The pure halves (`rkCandidatePaths`, `augmentPath`) are unit-covered; what hardware adds is proof that a Finder-launched "Start & connect" actually reaches a live daemon. The **Restart-to-Update round trip** is mac-hardware-only for the same reason: the parser and throttle are unit-covered, but that a detached `rk desktop update` survives the CLI quitting its own parent, and that the relaunched app lands back on the captured `lastPath`, can only be seen on a real install.
 - **Windows** — the SmartScreen "unrecognized app" first-launch walkthrough of the unsigned NSIS installer, and Ctrl+C/Ctrl+V ↔ xterm.js interplay (load-bearing in a terminal product); the digit-accelerator layout caveat applies to Alt+1–9 here too.
@@ -1135,3 +1143,21 @@ The vitest column of the split also covers `palette/shell.test.ts` (the palette-
 **Why**: the `web` group ships whole per shell release; a shell that cannot drive a control must not select the engine that shows it.
 **Rejected**: per-member additive narrowing driving capability flags (more surface, and the chrome would show a half-working engine).
 *Introduced by*: 260917-w0k7-web-native-parity
+
+### The desktop lane reads z-order from Electron, not from a test seam
+**Decision**: Registry claims (z-order, visibility, bounds, ownership) are asserted by reading `win.contentView.children`, `View.getVisible()`, `View.getBounds()` and `webContents.getURL()` through `electronApp.evaluate`; `main.ts` exports nothing for tests.
+**Why**: The registry's whole job is to control Electron's view tree; asserting on the tree itself is the only end-to-end proof, and a hook would test the hook.
+**Rejected**: An env-gated `globalThis.__rkE2e` exposing `webViews`/`views` — a production seam that mirrors the registry it should verify.
+*Introduced by*: 260917-m3a9-desktop-e2e-lane-web-docs
+
+### The lane isolates userData through XDG_CONFIG_HOME
+**Decision**: Each test launches the shell with `XDG_CONFIG_HOME` pointing at a fresh temp dir seeded with a two-host `hosts.json` (`localhost` and `127.0.0.1` on the rig port); `RK_DESKTOP_URL` is not used.
+**Why**: Linux Electron derives `appData` from `XDG_CONFIG_HOME`, so the shell's single-instance lock and stores are hermetic with no production knob; the sentinel is single-host and cannot exercise a host switch.
+**Rejected**: An `RK_DESKTOP_USER_DATA` env override in `main.ts` (a production seam); Chromium's `--user-data-dir` (not honored by Electron's `app.getPath`).
+*Introduced by*: 260917-m3a9-desktop-e2e-lane-web-docs
+
+### The desktop specs import only node-builtin frontend fixtures
+**Decision**: the spec imports `_tmux.ts` and defines `READY_TIMEOUT`/`openPalette` locally.
+**Why**: `_ready.ts` imports `@playwright/test`, and Playwright refuses two physical copies in one process (pnpm installs are distinct copies even at one version).
+**Rejected**: a `link:` devDependency into the frontend's install (dangles wherever the frontend is not installed first and forces an `executablePath` + internal loader workaround).
+*Introduced by*: 260917-m3a9-desktop-e2e-lane-web-docs

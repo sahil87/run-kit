@@ -8,6 +8,10 @@ set -euo pipefail
 # externally-managed carve-out). The run holds the per-worktree lock
 # /tmp/rk-e2e-wt-<uid>-<token>.lock from before the stale-kill until exit, so
 # sibling runs started in the SAME worktree queue instead of colliding.
+#
+# RK_E2E_LANE selects which Playwright project runs against the rig: `web`
+# (default) is app/frontend's suite; `desktop` (via scripts/test-desktop-e2e.sh)
+# is app/desktop's Electron lane — one rig, one lock, one cleanup for both.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/e2e-env.sh"
 RK_CODE_SERVER_PORT="$E2E_CODE_SERVER_PORT"
@@ -28,6 +32,16 @@ E2E_WORKERS="${RK_E2E_WORKERS:-1}"
 # `10#` forces decimal so a leading zero ("08") is neither an arithmetic error
 # nor octal.
 { [[ "$E2E_WORKERS" =~ ^[0-9]+$ ]] && [ $(( 10#$E2E_WORKERS )) -ge 1 ]; } && E2E_WORKERS=$(( 10#$E2E_WORKERS )) || E2E_WORKERS=1
+# The desktop lane (RK_E2E_LANE=desktop, scripts/test-desktop-e2e.sh) is
+# single-rig by construction — one shell over one rig's two-origin host pair —
+# so it always runs one worker against app/desktop's Playwright project. The
+# web lane is unchanged.
+if [ "${RK_E2E_LANE:-web}" = desktop ]; then
+  E2E_WORKERS=1
+  PLAYWRIGHT_DIR="app/desktop"
+else
+  PLAYWRIGHT_DIR="app/frontend"
+fi
 # The rig table wraps inside a 100-triple block (see the rig loop below), so
 # more rigs than triples would alias rig 100 onto rig 0's ports undetected.
 if [ "$E2E_WORKERS" -gt 100 ]; then
@@ -443,7 +457,7 @@ E2E_RIGS+="]"
 # E2E_TMUX_FAMILY stays the worktree-level anchor so global teardown sweeps
 # every rig's sub-family; the other vars describe rig 0.
 run_playwright() {
-  cd app/frontend && RK_PORT=$E2E_PORT E2E_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" E2E_TMUX_FAMILY="$E2E_TMUX_FAMILY" RK_CODE_SERVER_PORT="$RK_CODE_SERVER_PORT" XDG_STATE_HOME="${RIG_STATE[0]}" RK_CONFIG_DIR="$RK_CONFIG_DIR" E2E_RIGS="$E2E_RIGS" RK_E2E_WORKERS="$E2E_WORKERS" without_lock_fd pnpm exec playwright test "$@"
+  cd "$PLAYWRIGHT_DIR" && RK_PORT=$E2E_PORT E2E_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" E2E_TMUX_FAMILY="$E2E_TMUX_FAMILY" RK_CODE_SERVER_PORT="$RK_CODE_SERVER_PORT" XDG_STATE_HOME="${RIG_STATE[0]}" RK_CONFIG_DIR="$RK_CONFIG_DIR" E2E_RIGS="$E2E_RIGS" RK_E2E_WORKERS="$E2E_WORKERS" without_lock_fd pnpm exec playwright test "$@"
 }
 
 # Concurrency throttle (load, not correctness — the derived identity already

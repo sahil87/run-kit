@@ -105,6 +105,10 @@ test-frontend:
 test-e2e *args:
     scripts/test-e2e.sh {{args}}
 
+# Run the desktop shell's Playwright Electron e2e lane against this worktree's derived rig (xvfb-run when headless)
+test-desktop-e2e *args:
+    scripts/test-desktop-e2e.sh {{args}}
+
 # Run ad-hoc Playwright commands (just pw test, just pw test mobile-layout, just pw test --ui)
 # Targets this worktree's derived rig — the same identity `just dev` and
 # `just test-e2e` use here, so the externally-managed dev server is found

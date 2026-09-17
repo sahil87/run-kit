@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-17T05:40:42Z"}
+{"args":"A Playwright Electron lane proves the native engine end to end against the e2e rig, runs in CI, and the specs and memory describe the web tile as two engines behind one chrome. Change 5 of 6 in fab/plans/sahil/26-09-16-web-tile-native-browser.md.","cmd":"fab-new","event":"command","ts":"2026-09-17T05:40:42Z"}
+{"delta":"+0.0","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-09-17T05:45:06Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-17T05:46:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-17T05:48:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-17T06:11:01Z"}
+{"event":"review","result":"failed","ts":"2026-09-17T06:17:01Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-17T06:17:01Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-17T06:21:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-17T06:25:52Z"}
+{"event":"review","result":"passed","ts":"2026-09-17T06:25:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-17T06:32:10Z"}

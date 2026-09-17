@@ -9,7 +9,7 @@ providers:
 source_paths:
     - app/backend/
     - app/code-bridge/
-    - app/desktop/src/
+    - app/desktop/
     - app/frontend/src/
     - app/frontend/tests/
     - scripts/

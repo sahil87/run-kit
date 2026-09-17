@@ -89,7 +89,9 @@ The layout encoding names surface *kinds* (`tty`, `code`, `web`, `gui`,
 `agents`); content rides the substrate's content signal (`@rk_win_url` etc. —
 for `web` a content *selector*, not an availability gate: the `web` surface
 is always tileable like `tty`, and an empty/whitespace `@rk_win_url` renders
-the tile's onboarding content state; window-views.md § The View Registry).
+the tile's onboarding content state while a non-empty one renders the live
+page through the web tile's engine (iframe or native — window-views.md §
+Engines; § The View Registry).
 `gui` has no content selector in v1 — the tile shows the host's screen; a
 per-session display option becomes the selector only if per-session GUIs ever
 land ([`gui.md`](gui.md)). Two `web`
@@ -161,7 +163,7 @@ moves into the layout.
 | The `ViewSwitcher` pill + `View:` chevron-menu rows (R4) | **Dies** — replaced by rail toggles + the ▦ chip. "Which view am I in" stops being a question because views stop being exclusive |
 | `?view=` and `?panel=` params | **Retired** behind the permanent translation shim |
 | Same-folder twin windows | **Collapse** — one window, `web`/`code` tiles in its layout |
-| `@rk_win_url` | **Stays** — the web tile's content selector *and* shared content address (edit it and every viewer sees the new page; empty/whitespace renders the tile's onboarding state). Never was view state |
+| `@rk_win_url` | **Stays** — the web tile's content selector *and* shared content address (edit it and every viewer sees the new page, rendered through the tile's engine — iframe or native; empty/whitespace renders the tile's onboarding state). Never was view state |
 | `@rk_pane_agent_session`, `@rk_pane_agent_state` | **Stay** — capability, status |
 | Synthetic iframe windows for **external URLs** (no owning pane) | **Stay** as the compat shim — the honest residual (window-views § Two Species step 2); a web tile's content needs a substrate signal |
 

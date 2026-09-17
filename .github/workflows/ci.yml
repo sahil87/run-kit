@@ -220,6 +220,107 @@ jobs:
             app/frontend/test-results/
           retention-days: 7
 
+  # The desktop shell's own gates: its node --test suite (not covered by any
+  # other job) and the Electron e2e lane (just test-desktop-e2e — one rig,
+  # xvfb). The launcher passes --no-sandbox because ubuntu-latest restricts
+  # unprivileged user namespaces, which breaks Chromium's SUID-less sandbox;
+  # that flag is test-only and never reaches dev-desktop or packaging.
+  desktop:
+    name: Desktop (node --test + electron e2e)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: app/backend/go.mod
+
+      # pnpm must be installed before setup-node so its `cache: pnpm` can
+      # resolve the store path.
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4
+        with:
+          package_json_file: app/desktop/package.json
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: app/desktop/pnpm-lock.yaml
+
+      - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+
+      - name: Install tmux
+        # apt has no network timeout by default — a stalled mirror connection
+        # (the recurring azure.archive.ubuntu.com flake) hangs this step until
+        # the 360-minute job timeout. Bound the step and give apt explicit
+        # fetch timeouts + retries so a mirror stall fails in minutes and a
+        # re-run recovers.
+        timeout-minutes: 5
+        run: |
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y tmux
+
+      # The air binary only changes when its pinned version does — cache it to
+      # skip the ~17s source build. Bump the key together with the version in
+      # the install step below.
+      - name: Cache air binary
+        id: cache-air
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/go/bin/air
+          key: air-v1.61.7-${{ runner.os }}
+
+      - name: Install air (backend live-reload used by `just dev`)
+        if: steps.cache-air.outputs.cache-hit != 'true'
+        run: |
+          # Pin to the last air release that targets go 1.23 (the repo's
+          # toolchain). @latest pulls a build requiring go >= 1.25, which
+          # silently triggers a toolchain download and drifts from go.mod.
+          go install github.com/air-verse/air@v1.61.7
+
+      - name: Add go bin dir to PATH
+        # Ensure the go install bin dir is on PATH for `just dev` (dev.sh
+        # hard-fails if `air` is missing). setup-go usually adds this, but
+        # make it explicit so the e2e job never silently can't find air.
+        # Unconditional — the cache-hit path needs it too.
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      # Cache the Playwright chromium download. `playwright install` inside
+      # `just setup` skips the download when the browser is already present.
+      # restore-keys lets an unrelated dep bump reuse the previous browsers.
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('app/frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      # The rig the desktop lane drives is the web harness's: Vite + the Go
+      # backend + Chromium come from the same `just setup` the e2e job runs.
+      - name: Set up project (deps, playwright chromium, .env.local)
+        run: just setup
+
+      - name: Install desktop dependencies
+        run: cd app/desktop && pnpm install --frozen-lockfile
+
+      - name: Compile + run desktop unit tests
+        run: cd app/desktop && pnpm run compile && pnpm test
+
+      - name: Run desktop e2e lane
+        run: xvfb-run -a just test-desktop-e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-report-desktop
+          path: |
+            app/desktop/playwright-report/
+            app/desktop/test-results/
+          retention-days: 7
+
   # Single stable-named aggregate gate for branch-protection / rulesets to
   # require. The individual jobs above have names that are fine to require
   # directly EXCEPT the e2e matrix, whose names (`E2E (shard N/4)`) are coupled
@@ -228,7 +329,7 @@ jobs:
   # ruleset from the job topology: changing the shard count needs no ruleset
   # edit, because the matrix's aggregate result still surfaces as `needs.e2e`.
   #
-  # Hard gates = backend + frontend + e2e + code-bridge (all four required). The e2e job had
+  # Hard gates = backend + frontend + e2e + code-bridge + desktop (all five required). The e2e job had
   # its `continue-on-error: true` removed so a failing shard actually fails the
   # job (and thus this gate) — given e2e's known CI flakiness, admin bypass on
   # the main ruleset is the intended escape hatch for overriding a known-flake.
@@ -243,7 +344,7 @@ jobs:
   ci-gate:
     name: CI gate
     runs-on: ubuntu-latest
-    needs: [backend, frontend, e2e, code-bridge]
+    needs: [backend, frontend, e2e, code-bridge, desktop]
     if: ${{ always() }}
     steps:
       - name: Verify required jobs succeeded
@@ -252,10 +353,12 @@ jobs:
           echo "frontend    = ${{ needs.frontend.result }}"
           echo "e2e         = ${{ needs.e2e.result }}"
           echo "code-bridge = ${{ needs.code-bridge.result }}"
+          echo "desktop     = ${{ needs.desktop.result }}"
           if [ "${{ needs.backend.result }}" != "success" ] || \
              [ "${{ needs.frontend.result }}" != "success" ] || \
              [ "${{ needs.e2e.result }}" != "success" ] || \
-             [ "${{ needs.code-bridge.result }}" != "success" ]; then
+             [ "${{ needs.code-bridge.result }}" != "success" ] || \
+             [ "${{ needs.desktop.result }}" != "success" ]; then
             echo "::error::A required CI job did not succeed — blocking merge."
             exit 1
           fi

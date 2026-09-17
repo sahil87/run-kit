@@ -80,7 +80,7 @@ Separate **what runs** from **what you can look at**:
 | View | Available when | Renderer | Status |
 |------|---------------|----------|--------|
 | `tty` | always | xterm.js `TerminalClient` | **[current]** |
-| `web` | always (the lens exists on every window, like `tty`); `@rk_win_url` selects the renderer's CONTENT — empty/whitespace renders the onboarding state (a reduced live URL bar + fill-path instructions), non-empty renders the live iframe — mirroring the `code` row's availability-vs-content split | `IframeWindow` (proxy iframe + URL bar; onboarding content state when `@rk_win_url` is empty) | **[current]** as a lens — change `260714-t97o-web-view-lens`; always-available + onboarding `260821-zqlq-web-tile-always-tileable-onboarding` |
+| `web` | always (the lens exists on every window, like `tty`); `@rk_win_url` selects the renderer's CONTENT — empty/whitespace renders the onboarding state (a reduced live URL bar + fill-path instructions), non-empty renders the live page through the tile's engine (§ Engines) — mirroring the `code` row's availability-vs-content split | `IframeWindow` chrome over an engine: `iframe` (browsers, PWAs, phones) or native `WebContentsView` (the desktop shell) — § Engines | **[current]** as a lens — change `260714-t97o-web-view-lens`; always-available + onboarding `260821-zqlq-web-tile-always-tileable-onboarding` |
 | `chat` | — | — | **[removed]** — shipped per [`agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md), removed by PR #817 (`260904-39bp-remove-chat-lens`); the identity option survives as `@rk_pane_agent_session` ([`agent-state.md`](agent-state.md)) |
 | `code` | the window's code folder is LATCHED, or a git root is derivable from the active pane's cwd — derivation seeds the latch once, at first open, and the terminal never moves it afterwards (right-panel.md § The `code` lens); the code-server endpoint always resolves by convention, so it gates nothing, and reachability governs the renderer's CONTENT (live iframe vs not-running empty state), never availability | `CodeSurface` (lean proxy iframe, no URL bar) | **[current]** — change `260811-k3vp-right-panel-code-lens`, endpoint by convention `260811-a2bo`, folder latched `260813-if5d`; also the right panel's CODE surface (right-panel.md § Surface Registry) |
 | `gui` | `gui.enabled` is on (settings registry bool, default `false` — a user choice, never a probe result; a host with Xvnc installed but the switch off shows no button); like `code`, availability is per-HOST not per-window, so the lens is offered on every tab. Reachability (the GUI socket answers) governs the tile's CONTENT — live canvas vs the enabled-but-not-running empty state — never availability ([`gui.md`](gui.md)) | noVNC canvas (`GuiSurface`, RFB over rk's `/ws/gui/{id}` WebSocket relay) | **[current]** — change `260909-o2sp-gui-surface-tile`; spec [`gui.md`](gui.md); plan [`fab/plans/sahil/26-09-09-gui-surface.md`](../../fab/plans/sahil/26-09-09-gui-surface.md) |
@@ -88,6 +88,24 @@ Separate **what runs** from **what you can look at**:
 The registry is open-ended: a new projection adds a row here, a capability
 signal, and a renderer — it does not add a window type, a name convention, or
 a route.
+
+### Engines [current]
+
+The `web` tile is one chrome (`IframeWindow`) over two interchangeable engines
+behind the `WebFrameEngine` contract: the `iframe` engine (an in-DOM proxied
+`<iframe>` — browsers, PWAs, phones) and the native engine (a `WebContentsView`
+composited over the tile by the desktop shell). The chrome renders per the
+engine's reported `supports.*` capabilities, so a capability gap degrades a
+control rather than the tile. Engine selection is per viewer: the native
+engine when the desktop shell's `web` bridge is present, the `iframe` engine
+otherwise — with a per-viewer opt-out back to `iframe`. The engine contract
+and the layering model are specified by the study
+[`docs/wiki/web-tile-native-browser-studies.html`](../wiki/web-tile-native-browser-studies.html)
+(§3 engine contract, §5 layering); the working notes live in memory —
+[`docs/memory/run-kit/ui/lenses-and-layout.md`](../memory/run-kit/ui/lenses-and-layout.md)
+§ Web Tile and
+[`docs/memory/run-kit/desktop-shell.md`](../memory/run-kit/desktop-shell.md)
+§ Web Views.
 
 ---
 
@@ -104,7 +122,8 @@ Web availability carries no signal at all: the `web` lens is **always
 available** (like `tty`). `@rk_win_url` is its *content selector*, never its
 availability gate — an empty/whitespace value renders the tile's onboarding
 state (whose live address bar is itself the initialization path), a non-empty
-value renders the live iframe. This is the `code` row's model: a stable
+value renders the live page through the tile's engine (§ Engines). This is
+the `code` row's model: a stable
 capability signal gates presence; a fluctuating condition governs content.
 
 ### R2 — Lens choice is shared tab state

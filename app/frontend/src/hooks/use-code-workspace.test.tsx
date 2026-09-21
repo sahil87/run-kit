@@ -159,6 +159,57 @@ describe("useCodeWorkspace — follow rule", () => {
     expect(result.current.followSrc).toBeNull();
   });
 
+  it("a failed follow with degradeToFolder lands the frame on the ?folder= form (one warning)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: WS_PATH, root: "/repo" });
+    const { result } = renderHook(() => useCodeWorkspace("default", "@7", WIN, true, false));
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
+    );
+
+    fetchCodeWorkspace.mockRejectedValue(new Error("boom"));
+    act(() => result.current.followFolder("/other", { degradeToFolder: true }));
+    await waitFor(() =>
+      expect(result.current.followSrc).toEqual({
+        src: codeServerSrc("/other"),
+        nonce: 1,
+        root: "/other",
+      }),
+    );
+    expect(warn).toHaveBeenCalledTimes(1);
+    // The map entry moved too — a future mount generation boots at the follow.
+    expect(result.current.codeSrcFor("@7")).toBeNull(); // no windowsById threaded
+    warn.mockRestore();
+  });
+
+  it("a non-ok follow result with degradeToFolder degrades the same way", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: WS_PATH, root: "/repo" });
+    const { result } = renderHook(() => useCodeWorkspace("default", "@7", WIN, true, false));
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
+    );
+
+    fetchCodeWorkspace.mockResolvedValue({ status: "no-root" });
+    act(() => result.current.followFolder("/other", { degradeToFolder: true }));
+    await waitFor(() => expect(result.current.followSrc?.src).toBe(codeServerSrc("/other")));
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("a non-ok follow result without degradeToFolder leaves the editor in place", async () => {
+    fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: WS_PATH, root: "/repo" });
+    const { result } = renderHook(() => useCodeWorkspace("default", "@7", WIN, true, false));
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
+    );
+
+    fetchCodeWorkspace.mockResolvedValue({ status: "no-root" });
+    act(() => result.current.followFolder("/other"));
+    await waitFor(() => expect(fetchCodeWorkspace).toHaveBeenCalledTimes(2));
+    expect(result.current.followSrc).toBeNull();
+  });
+
   it("followSrc is scoped to its window (a window switch drops it)", async () => {
     fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: WS_PATH, root: "/repo" });
     const { result, rerender } = renderHook(

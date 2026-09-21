@@ -225,6 +225,20 @@ export function RefreshGlyph() {
   );
 }
 
+/** Follow terminal (the code tile header's Follow terminal verb) — a terminal
+ *  prompt whose baseline is a rightward arrow: the editor follows the
+ *  terminal's folder. Placeholder drawing pending a design pass — one-file
+ *  swap. */
+export function FollowTerminalGlyph() {
+  return (
+    <ControlGlyph name="follow-terminal">
+      <path d="m4 7 4 4-4 4" />
+      <path d="M11 19h7" />
+      <path d="m15 16 3 3-3 3" />
+    </ControlGlyph>
+  );
+}
+
 /** Fixed width — the inward/contract fixed-width arrows: the static identity
  *  form the menu row uses (state stays on the trailing ✓). The state-driven
  *  `expanded` outward variant went with the in-bar toggle (260814-6b0j). */

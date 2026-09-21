@@ -52,7 +52,16 @@ import {
  *   (b) The same-origin `load` seam reports where the EDITOR navigated itself
  *   (File > Open Folder → a full workbench navigation to `/code/?folder=…`) via
  *   `onFolderNavigated`, so the latch follows the editor. Derivation seeds the
- *   latch exactly once; thereafter only the editor moves it, never the terminal.
+ *   latch exactly once; thereafter the editor or an explicit user verb moves
+ *   it, never the terminal.
+ * - **Sanctioned parent re-navigations — two mechanisms, four triggers**: a
+ *   live frame is parent-navigated ONLY by (a) the nonce-keyed `followSrc`
+ *   re-navigation — triggered by the editor's own File > Open Folder OR the
+ *   header's Follow terminal verb — and (b) `contentWindow.location.reload()`
+ *   — triggered by the marker-gated first-boot rescue OR the header's Reload
+ *   editor verb (the `reloadNonce` prop). Both keep the frame's URL and tab
+ *   identity; neither writes `src`; nothing else may parent-navigate a live
+ *   frame.
  * - **First-boot rescue**: a never-cached `?workspace=` boot can load zero
  *   folders; the bridge extension reports that failure itself by writing an
  *   empty-boot marker. When the `fetchBridgeStatus` seam is injected, a
@@ -112,6 +121,13 @@ interface CodeSurfaceProps {
    *  exactly once; an already-seen nonce (every ordinary payload tick) never
    *  touches a live frame. Absent ⇒ no override. */
   followSrc?: { src: string; nonce: number } | null;
+  /** User-initiated reload (the header's Reload editor verb): a nonce not seen
+   *  before by THIS instance runs one `contentWindow.location.reload()` —
+   *  the rescue's seam — which keeps the frame's URL and tab identity and
+   *  never writes `src`. The value present at mount is pre-seen (a mount IS a
+   *  fresh boot); an already-seen nonce (every ordinary re-render) is inert.
+   *  Absent ⇒ no reload path. */
+  reloadNonce?: number;
   /** The host's TTL-cached code-server reachability probe result. */
   reachable: boolean;
   /** Keyboard spike: return true when the event matches a run-kit registry
@@ -152,6 +168,7 @@ export function CodeSurface({
   gitRoot,
   workspaceSrc,
   followSrc,
+  reloadNonce,
   reachable,
   shouldReclaimChord,
   onInteract,
@@ -212,6 +229,32 @@ export function CodeSurface({
     srcRef.current.src = followSrc.src;
   }
   const src = srcRef.current.src;
+
+  // The Reload editor verb's seam (the second sanctioned re-navigation
+  // mechanism): an unseen nonce reloads the live frame exactly once via
+  // `contentWindow.location.reload()` — the rescue's try/catch posture, never
+  // a `src` write. The ref pre-sees the MOUNT-TIME value (a mount is a fresh
+  // boot, so nothing pending could apply to it), which is also what keeps a
+  // retained frame that later becomes active — or a frame created after
+  // another window's verb click — from ever replaying a nonce. A nonce
+  // arriving while no iframe is mounted (pending or unreachable) is recorded
+  // as seen and is a no-op: there is no frame to reload, and the next mount
+  // boots fresh anyway. The reload fires no new mount generation (src
+  // untouched): a settled rescue generation ignores the extra `load`, an
+  // unsettled one at most re-arms its existing wait timer, and the
+  // chord-reclaim/folder-report listeners re-attach on that `load` exactly as
+  // they do after the rescue's reload.
+  const reloadNonceRef = useRef(reloadNonce);
+  useEffect(() => {
+    if (reloadNonce === undefined || reloadNonce === reloadNonceRef.current) return;
+    reloadNonceRef.current = reloadNonce;
+    if (!reachable || srcRef.current.src === null) return;
+    try {
+      iframeRef.current?.contentWindow?.location.reload();
+    } catch {
+      /* cross-origin or pre-load frame — skip silently */
+    }
+  }, [reloadNonce, reachable]);
 
   // Chord-reclaim spike: attach a capture-phase keydown listener to the
   // iframe's same-origin contentDocument after every load (each navigation

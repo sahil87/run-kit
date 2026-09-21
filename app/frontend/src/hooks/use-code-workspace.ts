@@ -35,7 +35,11 @@
  *   POSTed the latch), re-derive the workspace and return it as a
  *   nonce-keyed `followSrc`, the one sanctioned parent re-navigation. A
  *   failed follow leaves the editor at its own (working) `?folder=`
- *   navigation.
+ *   navigation — unless the caller passes `{ degradeToFolder: true }` (the
+ *   Follow terminal verb's posture): the verb's frame is still on the OLD
+ *   folder, so a failed re-derivation lands it on the `?folder=` form for
+ *   the NEW root (one console warning), keeping editor and option in
+ *   agreement.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -72,7 +76,12 @@ export interface CodeWorkspace {
    *  another window is active. Null while that window is unresolved. */
   codeSrcFor: (windowId: string) => string | null;
   followSrc: CodeFollowSrc | null;
-  followFolder: (folder: string) => void;
+  /** Re-derive the workspace after the latch moved to `folder` and expose it
+   *  as a nonce-keyed `followSrc`. `degradeToFolder` (the shell-initiated
+   *  Follow terminal verb) lands the frame on the `?folder=` form when the
+   *  GET fails; without it a failed follow leaves the editor at its own
+   *  (working) `?folder=` navigation. */
+  followFolder: (folder: string, opts?: { degradeToFolder?: boolean }) => void;
 }
 
 export function useCodeWorkspace(
@@ -162,12 +171,31 @@ export function useCodeWorkspace(
   }, [liveWindowIds, server]);
 
   const followFolder = useCallback(
-    (folder: string) => {
+    (folder: string, opts?: { degradeToFolder?: boolean }) => {
       if (!windowId) return;
       const key = `${server}:${windowId}`;
+      // The degrade half (the shell-initiated Follow terminal verb): the
+      // verb's frame still sits on the OLD folder, so a failed re-derivation
+      // must still land it on the terminal's folder — else the option moved
+      // and the editor visibly did nothing. The editor-initiated follow
+      // (option unset) keeps leave-in-place: its frame already navigated
+      // itself, so a degrade re-navigation would be a needless reload.
+      const degrade = () => {
+        if (!opts?.degradeToFolder) return;
+        console.warn(
+          "code workspace re-derivation failed; following at the ?folder= fallback",
+        );
+        const src = codeServerSrc(folder);
+        followNonceRef.current += 1;
+        setFollow({ key, src, nonce: followNonceRef.current, root: folder });
+        setResolved((prev) => new Map(prev).set(`${key}:${folder}`, src));
+      };
       fetchCodeWorkspace(server, windowId)
         .then((result) => {
-          if (result.status !== "ok") return;
+          if (result.status !== "ok") {
+            degrade();
+            return;
+          }
           const src = codeServerWorkspaceSrc(result.path);
           followNonceRef.current += 1;
           setFollow({ key, src, nonce: followNonceRef.current, root: folder });
@@ -176,7 +204,9 @@ export function useCodeWorkspace(
           // workspace); the live frame ignores it — only the nonce moves it.
           setResolved((prev) => new Map(prev).set(`${key}:${folder}`, src));
         })
-        .catch(() => {});
+        .catch(() => {
+          degrade();
+        });
     },
     [server, windowId],
   );

@@ -15,6 +15,7 @@ import {
   type SurfaceName,
 } from "@/lib/right-panel";
 import {
+  codeRootFollowTarget,
   codeRootFor,
   codeRootSeed,
 } from "@/lib/code-folder-latch";
@@ -87,6 +88,7 @@ import {
 } from "@/lib/gui-posture";
 import { GUI_SEND_KEY_MIRROR_REFUSAL, sendKeyChord, type KeyChord } from "@/lib/gui-send-key";
 import { buildZenActions } from "@/lib/palette/zen";
+import { buildCodeActions } from "@/lib/palette/code";
 import { resolveZenToggle } from "@/lib/zen-mode";
 import { buildStatusRefreshAction } from "@/lib/palette/status-refresh";
 import { buildPinActions } from "@/lib/palette/pin";
@@ -180,6 +182,7 @@ import { HeadsetIcon } from "@/components/sidebar/icons";
 import { PANE_PANEL_OPEN_STORAGE_KEY, PANE_PANEL_DEFAULT_OPEN } from "@/components/sidebar/status-panel";
 import { canRequestWindowOperatorAction } from "@/components/sidebar/row-flyout-card";
 import { SurfaceLayout } from "@/components/surface-layout";
+import type { CodeTileCommands } from "@/components/surface-layout";
 import { CronList } from "@/components/cron-list";
 import { CronLog } from "@/components/cron-log";
 import { CronStaleBanner } from "@/components/cron-stale-banner";
@@ -1196,7 +1199,7 @@ function AppShell() {
     () => new Set(codeWindowsById.keys()),
     [codeWindowsById],
   );
-  const { codeSrcFor, followSrc, followFolder } = useCodeWorkspace(
+  const { codeSrc, codeSrcFor, followSrc, followFolder } = useCodeWorkspace(
     server,
     windowParam,
     effectiveWindow,
@@ -1227,11 +1230,12 @@ function AppShell() {
   );
 
   // Follow write (spec right-panel.md § The code lens): after the seed, the
-  // editor's OWN navigation (CodeSurface's load-event seam) is the only writer
-  // of `@rk_win_code_root`. The terminal never moves the code root. The editor
-  // already navigated itself to the bare `?folder=` URL, so after latching,
-  // the workspace is re-derived and the frame is landed on the `?workspace=`
-  // URL — the one sanctioned parent re-navigation, nonce-gated in CodeSurface.
+  // writers of `@rk_win_code_root` are the editor's OWN navigation
+  // (CodeSurface's load-event seam) and the explicit Follow terminal verb —
+  // the terminal never moves the code root on its own. The editor already
+  // navigated itself to the bare `?folder=` URL, so after latching, the
+  // workspace is re-derived and the frame is landed on the `?workspace=`
+  // URL — a sanctioned parent re-navigation, nonce-gated in CodeSurface.
   const handleCodeFolderNavigated = useCallback(
     (folder: string): Promise<void> => {
       if (!windowParam || !effectiveWindow || folder === codeRootFor(effectiveWindow)) {
@@ -1244,6 +1248,29 @@ function AppShell() {
           // SurfaceLayout clears its pending follow target on this rejection —
           // a swallowed failure would leave the stale target to be inherited
           // by a later same-folder update.
+          throw err;
+        });
+    },
+    [server, windowParam, effectiveWindow, addToast, followFolder],
+  );
+
+  // The Follow terminal verb's write half: the SAME latch POST + follow as
+  // the editor-initiated path, but with the degrade posture — the verb's
+  // frame still sits on the OLD folder, so a failed workspace re-derivation
+  // lands it on `?folder=<folder>` (one console warning in the hook) instead
+  // of leaving the option moved and the editor visibly unchanged. Drift
+  // (the verb's render gate) means the folder always differs from the
+  // current root, so the no-op guard never fires here — kept for symmetry
+  // with the editor-initiated contract.
+  const handleCodeFollowTerminal = useCallback(
+    (folder: string): Promise<void> => {
+      if (!windowParam || !effectiveWindow || folder === codeRootFor(effectiveWindow)) {
+        return Promise.resolve();
+      }
+      return setWindowOptions(server, windowParam, { "@rk_win_code_root": folder })
+        .then(() => followFolder(folder, { degradeToFolder: true }))
+        .catch((err: Error) => {
+          addToast(err.message || "Failed to set code folder", "error");
           throw err;
         });
     },
@@ -1382,6 +1409,10 @@ function AppShell() {
   // The palette seams into the live RFB (GUI: Paste clipboard / GUI:
   // Reconnect / GUI: Send key…) — GuiSurface fills it while mounted.
   const guiCommandsRef = useRef<GuiSurfaceCommands | null>(null);
+  // The palette seams into the code tile's header verbs (Code: Follow
+  // Terminal / Code: Reload Editor) — SurfaceLayout fills it while the active
+  // window's code tile is open.
+  const codeCommandsRef = useRef<CodeTileCommands | null>(null);
 
   // Send key (spec gui.md § The tile): viewer-side through noVNC's sendKey —
   // no server round trip. The macOS view-only mirror refuses with the
@@ -4203,6 +4234,24 @@ function AppShell() {
             })(),
           })
         : []),
+      // `Code: Follow Terminal` / `Code: Reload Editor` — Constitution V
+      // palette parity for the code tile's header verbs (the
+      // `guiCommandsRef`/`zoomToggleRef` seam pattern): both rows route
+      // through `codeCommandsRef`, which SurfaceLayout fills while the active
+      // window's code tile is open, so a row and its header button run the
+      // same body. Gating mirrors the header: Follow only under drift
+      // (`codeRootFollowTarget`), Reload only with a mounted frame
+      // (reachable + a resolved src). No chords. Offered on both form
+      // factors (mobile renders no tile header).
+      ...(windowParam
+        ? buildCodeActions({
+            codeTileOpen: layout.order.includes("code"),
+            followTarget: codeRootFollowTarget(effectiveWindow),
+            frameMounted: (codeServer?.reachable ?? false) && codeSrc !== null,
+            onFollowTerminal: () => codeCommandsRef.current?.followTerminal(),
+            onReload: () => codeCommandsRef.current?.reload(),
+          })
+        : []),
       {
         id: "toggle-fixed-width",
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
@@ -4334,7 +4383,7 @@ function AppShell() {
           }))
         : []),
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, layout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile, switchTargetDisabled, currentAltScreen, zenOn, toggleZen, server, effectiveWindow, addToast],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, layout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile, switchTargetDisabled, currentAltScreen, zenOn, toggleZen, server, effectiveWindow, addToast, codeServer, codeSrc],
   );
 
   // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,
@@ -5655,9 +5704,13 @@ function AppShell() {
               guiCommandsRef={guiCommandsRef}
               // The header toolbar mirrors this exact palette list by row id.
               guiActions={guiActions}
-              // Follow rule: after the seed, the editor's own navigation is
-              // the ONLY writer of `@rk_win_code_root`.
+              // Follow rule: after the seed, the writers of
+              // `@rk_win_code_root` are the editor's own navigation AND the
+              // explicit Follow terminal verb (the code tile's header) —
+              // never the terminal on its own.
               onCodeFolderNavigated={handleCodeFolderNavigated}
+              onCodeFollowTerminal={handleCodeFollowTerminal}
+              codeCommandsRef={codeCommandsRef}
               // Mount gating (the derivation GET lives in this component's
               // layout-state block): `codeSrcFor` is the per-window lookup
               // over the hook's resolved-src map — a null read for the active

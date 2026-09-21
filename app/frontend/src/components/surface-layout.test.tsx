@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { useEffect } from "react";
 import { render, screen, cleanup, fireEvent, act, within, waitFor } from "@testing-library/react";
 import { SurfaceLayout } from "./surface-layout";
+import type { CodeTileCommands } from "./surface-layout";
 import { ToastProvider } from "@/components/toast";
 import { ratiosStorageKey, type Layout, type SurfaceKind } from "@/lib/surface-layout";
 import type { WindowInfo } from "@/types";
@@ -132,6 +133,8 @@ type LayoutOverrides = {
   onClosePane?: () => void;
   onRatioCommit?: () => void;
   onCodeFolderNavigated?: (folder: string) => void | Promise<void>;
+  onCodeFollowTerminal?: (folder: string) => void | Promise<void>;
+  codeCommandsRef?: { current: CodeTileCommands | null };
   shouldReclaimChord?: (kind: SurfaceKind) => (e: KeyboardEvent) => boolean;
   codeSrcFor?: (windowId: string) => string | null;
   liveWindowIds?: ReadonlySet<string>;
@@ -200,6 +203,8 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       onClosePane={overrides.onClosePane ?? vi.fn()}
       onRatioCommit={overrides.onRatioCommit}
       onCodeFolderNavigated={overrides.onCodeFolderNavigated}
+      onCodeFollowTerminal={overrides.onCodeFollowTerminal}
+      codeCommandsRef={overrides.codeCommandsRef}
       shouldReclaimChord={overrides.shouldReclaimChord}
       codeSrcFor={overrides.codeSrcFor}
       liveWindowIds={overrides.liveWindowIds}
@@ -764,6 +769,167 @@ describe("SurfaceLayout code tile folder (260813-if5d)", () => {
     const props = codeSpy.mock.calls.at(-1)?.[0];
     expect(props?.workspaceSrc).toBeNull();
     expect(props?.followSrc).toBeNull();
+  });
+});
+
+describe("SurfaceLayout code-tile header verbs (Follow terminal / Reload editor)", () => {
+  const CODE_LAYOUT: Layout = { shape: "split-h", order: ["tty", "code"] };
+  const codeSrcForAll = (id: string) => `/code/?workspace=/ws${id}`;
+  const codeTile = () => screen.getByTestId("surface-tile-code");
+  const followVerb = () => within(codeTile()).queryByRole("button", { name: "Follow terminal" });
+  const reloadVerb = () => within(codeTile()).queryByRole("button", { name: "Reload editor" });
+  /** Props of the currently mounted frames since the last mockClear. */
+  const mountedCodeProps = () =>
+    codeSpy.mock.calls.map(([props]) => props as Record<string, unknown>);
+
+  it("Follow terminal renders exactly under drift on the active window's tile", () => {
+    renderLayout({
+      layout: CODE_LAYOUT,
+      window: { gitRoot: "/repo.worktrees/x", codeRoot: "/repo" },
+    });
+    expect(followVerb()).toBeTruthy();
+  });
+
+  it("no Follow verb when the roots agree, when codeRoot is empty (pre-seed), or when gitRoot is empty", () => {
+    const { rerender } = renderLayout({
+      layout: CODE_LAYOUT,
+      window: { gitRoot: "/repo", codeRoot: "/repo" },
+    });
+    expect(followVerb()).toBeNull();
+    rerender(layoutElement({ layout: CODE_LAYOUT, window: { gitRoot: "/repo" } }));
+    expect(followVerb()).toBeNull();
+    rerender(layoutElement({ layout: CODE_LAYOUT, window: { gitRoot: "", codeRoot: "/repo" } }));
+    expect(followVerb()).toBeNull();
+  });
+
+  it("a retained (other-window) frame's hidden wrapper offers no code verbs", () => {
+    const { rerender } = renderLayout({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      window: { gitRoot: "/repo.worktrees/x", codeRoot: "/repo" },
+    });
+    expect(followVerb()).toBeTruthy();
+    expect(reloadVerb()).toBeTruthy();
+
+    // Switch to a drift-free window: @1's frame demotes to the retained
+    // wrapper, which renders no header verbs (slot -1).
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      windowId: "@2",
+      codeSrcFor: codeSrcForAll,
+      window: { gitRoot: "/repo", codeRoot: "/repo" },
+    }));
+    const retained = screen.getByTestId("surface-tile-code-retained");
+    expect(within(retained).queryByRole("button", { name: "Follow terminal" })).toBeNull();
+    expect(within(retained).queryByRole("button", { name: "Reload editor" })).toBeNull();
+    expect(followVerb()).toBeNull(); // @2 has no drift
+  });
+
+  it("Reload editor renders once the active window's frame record exists — absent while pending or unreachable", () => {
+    // Pending: no src resolved, no frame record.
+    const { rerender } = renderLayout({ layout: CODE_LAYOUT });
+    expect(reloadVerb()).toBeNull();
+    // Resolved: the show bookkeeping creates the record — the verb appears.
+    rerender(layoutElement({ layout: CODE_LAYOUT, codeSrcFor: codeSrcForAll }));
+    expect(reloadVerb()).toBeTruthy();
+    // Unreachable: every frame drops with the host — nothing to reload.
+    rerender(layoutElement({ layout: CODE_LAYOUT, codeSrcFor: codeSrcForAll, codeReachable: false }));
+    expect(reloadVerb()).toBeNull();
+  });
+
+  it("clicking Follow terminal runs the shared wrapper: gitRoot to the parent, pending target recorded, guard held until settle", async () => {
+    let settle: () => void = () => {};
+    const onCodeFollowTerminal = vi.fn(() => new Promise<void>((r) => { settle = r; }));
+    const { rerender } = renderLayout({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: () => "/repo",
+      window: { gitRoot: "/other", codeRoot: "/repo" },
+      onCodeFollowTerminal,
+    });
+    const node1 = within(codeTile()).getByTestId("mock-code");
+    fireEvent.click(followVerb()!);
+    expect(onCodeFollowTerminal).toHaveBeenCalledWith("/other");
+    // The payload still reads the old root: the in-flight guard blocks a
+    // second POST/nonce.
+    expect(followVerb()).toBeDisabled();
+
+    // The follow's own latch write lands (payload-first ordering): the
+    // pending target marks it a follow — the frame survives with its baseline
+    // moved in place, and the verb disappears once the roots agree.
+    rerender(layoutElement({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      codeRootForWindow: () => "/other",
+      window: { gitRoot: "/other", codeRoot: "/other" },
+      onCodeFollowTerminal,
+    }));
+    expect(node1.isConnected).toBe(true);
+    expect(within(codeTile()).getByTestId("mock-code")).toBe(node1);
+    expect(followVerb()).toBeNull();
+    await act(async () => {
+      settle();
+    });
+  });
+
+  it("a rejected follow re-enables the verb — the payload never moved and the target cleared", async () => {
+    const onCodeFollowTerminal = vi.fn(() => Promise.reject(new Error("latch failed")));
+    renderLayout({
+      layout: CODE_LAYOUT,
+      window: { gitRoot: "/other", codeRoot: "/repo" },
+      onCodeFollowTerminal,
+    });
+    await act(async () => {
+      fireEvent.click(followVerb()!);
+    });
+    expect(onCodeFollowTerminal).toHaveBeenCalledWith("/other");
+    expect(followVerb()).toBeEnabled();
+  });
+
+  it("clicking Reload editor bumps the reloadNonce of the ACTIVE window's frame only — a frame created later never replays it", () => {
+    const { rerender } = renderLayout({ layout: CODE_LAYOUT, codeSrcFor: codeSrcForAll });
+    fireEvent.click(reloadVerb()!);
+    expect(mountedCodeProps().at(-1)?.reloadNonce).toBe(1);
+
+    // Switch to @2: its frame is created AFTER @1's reload and receives
+    // undefined (the nonce targets @1).
+    codeSpy.mockClear();
+    rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@2", codeSrcFor: codeSrcForAll }));
+    const forSrc = (src: string) =>
+      mountedCodeProps().filter((p) => p.workspaceSrc === src).at(-1);
+    expect(forSrc("/code/?workspace=/ws@2")?.reloadNonce).toBeUndefined();
+
+    // Reload on the now-active @2: only its frame's nonce moves.
+    fireEvent.click(reloadVerb()!);
+    expect(forSrc("/code/?workspace=/ws@2")?.reloadNonce).toBe(2);
+    expect(forSrc("/code/?workspace=/ws@1")?.reloadNonce).toBeUndefined();
+  });
+
+  it("codeCommandsRef runs the same bodies as the header verbs; null when the code tile leaves the layout", async () => {
+    const codeCommandsRef: { current: CodeTileCommands | null } = { current: null };
+    const onCodeFollowTerminal = vi.fn(() => Promise.resolve());
+    const { rerender } = renderLayout({
+      layout: CODE_LAYOUT,
+      codeSrcFor: codeSrcForAll,
+      window: { gitRoot: "/other", codeRoot: "/repo" },
+      onCodeFollowTerminal,
+      codeCommandsRef,
+    });
+    expect(codeCommandsRef.current).not.toBeNull();
+    await act(async () => codeCommandsRef.current?.followTerminal());
+    expect(onCodeFollowTerminal).toHaveBeenCalledWith("/other");
+    codeSpy.mockClear();
+    act(() => codeCommandsRef.current?.reload());
+    expect(mountedCodeProps().at(-1)?.reloadNonce).toBe(1);
+
+    rerender(layoutElement({
+      layout: { shape: "single", order: ["tty"] },
+      window: { gitRoot: "/other", codeRoot: "/repo" },
+      codeSrcFor: codeSrcForAll,
+      onCodeFollowTerminal,
+      codeCommandsRef,
+    }));
+    expect(codeCommandsRef.current).toBeNull();
   });
 });
 

@@ -45,6 +45,18 @@ describe("codeServerWorkspaceSrc", () => {
 });
 
 describe("CodeSurface", () => {
+  /** Stub the frame's contentWindow with a reload spy — jsdom never
+   *  navigates an iframe, so the reload target is injected (the same
+   *  configurable-property pattern as the folder seam's stub). */
+  const stubReload = (el: HTMLElement) => {
+    const reload = vi.fn();
+    Object.defineProperty(el, "contentWindow", {
+      configurable: true,
+      value: { location: { reload, search: "?workspace=x" } },
+    });
+    return reload;
+  };
+
   it("renders the iframe at the workspace src when reachable and resolved", () => {
     const { getByTitle } = render(
       <CodeSurface gitRoot="/repo" workspaceSrc={codeServerSrc("/repo")} reachable={true} />,
@@ -313,6 +325,70 @@ describe("CodeSurface", () => {
     document.removeEventListener("keydown", parentSpy);
   });
 
+  // Reload editor verb (the second sanctioned re-navigation mechanism): an
+  // unseen `reloadNonce` reloads the live frame once via
+  // contentWindow.location.reload() — never a src write; mount-time and
+  // already-seen nonces are inert.
+  describe("reloadNonce (the Reload editor seam)", () => {
+    const WS_SRC = codeServerWorkspaceSrc("/state/@7-3fa1c9.code-workspace");
+
+    it("a fresh nonce reloads the live frame exactly once, src untouched", () => {
+      const { rerender, getByTitle } = render(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} />,
+      );
+      const iframe = getByTitle("Code editor");
+      const reload = stubReload(iframe);
+      rerender(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} reloadNonce={1} />,
+      );
+      expect(reload).toHaveBeenCalledTimes(1);
+      expect(getByTitle("Code editor").getAttribute("src")).toBe(WS_SRC);
+    });
+
+    it("an already-seen nonce re-rendered never reloads again", () => {
+      const { rerender, getByTitle } = render(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} reloadNonce={1} />,
+      );
+      const reload = stubReload(getByTitle("Code editor"));
+      // Ordinary payload ticks re-render with the same nonce — inert.
+      rerender(
+        <CodeSurface gitRoot="/other" workspaceSrc={WS_SRC} reachable={true} reloadNonce={1} />,
+      );
+      expect(reload).not.toHaveBeenCalled();
+      // The NEXT unseen nonce fires.
+      rerender(
+        <CodeSurface gitRoot="/other" workspaceSrc={WS_SRC} reachable={true} reloadNonce={2} />,
+      );
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+
+    it("a nonce present at mount is pre-seen — no reload (a mount IS a fresh boot)", () => {
+      const { getByTitle } = render(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} reloadNonce={3} />,
+      );
+      const reload = stubReload(getByTitle("Code editor"));
+      expect(reload).not.toHaveBeenCalled();
+    });
+
+    it("a nonce arriving while unreachable is recorded and is a silent no-op", () => {
+      const { rerender, queryByTitle, getByTitle } = render(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={false} />,
+      );
+      expect(queryByTitle("Code editor")).toBeNull();
+      expect(() =>
+        rerender(
+          <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={false} reloadNonce={1} />,
+        ),
+      ).not.toThrow();
+      // The nonce is spent: the recovery mount boots fresh and never replays it.
+      rerender(
+        <CodeSurface gitRoot="/repo" workspaceSrc={WS_SRC} reachable={true} reloadNonce={1} />,
+      );
+      const reload = stubReload(getByTitle("Code editor"));
+      expect(reload).not.toHaveBeenCalled();
+    });
+  });
+
   // First-boot rescue: at most three status reads per mount generation
   // (baseline at src adoption, verdict at the wait's expiry, one re-check
   // when neither stamp moved) and at most one reload — and only a newer
@@ -329,17 +405,6 @@ describe("CodeSurface", () => {
       vi.useRealTimers();
     });
 
-    /** Stub the frame's contentWindow with a reload spy — jsdom never
-     *  navigates an iframe, so the rescue's reload target is injected (the
-     *  same configurable-property pattern as the folder seam's stub). */
-    const stubReload = (el: HTMLElement) => {
-      const reload = vi.fn();
-      Object.defineProperty(el, "contentWindow", {
-        configurable: true,
-        value: { location: { reload, search: "?workspace=x" } },
-      });
-      return reload;
-    };
     const ok = (startedAt: string, emptyBootAt = "", installed = true): CodeBridgeResult => ({
       status: "ok",
       installed,

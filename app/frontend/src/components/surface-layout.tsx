@@ -29,7 +29,7 @@ import {
 } from "@/lib/surface-layout";
 import { clampBoundary } from "@/lib/right-panel";
 import { TileDragContext } from "@/lib/tile-drag-context";
-import { codeRootFor } from "@/lib/code-folder-latch";
+import { codeRootFollowTarget, codeRootFor } from "@/lib/code-folder-latch";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import type { CodeFollowSrc } from "@/hooks/use-code-workspace";
 import type { GuiSignal } from "@/contexts/session-context";
@@ -52,8 +52,10 @@ import {
   ClosePaneBoxedGlyph,
   ExportGlyph,
   FindGlyph,
+  FollowTerminalGlyph,
   FullscreenGlyph,
   PromoteGlyph,
+  RefreshGlyph,
   SplitHorizontalGlyph,
   SplitVerticalGlyph,
   SwapGlyph,
@@ -139,7 +141,12 @@ import {
  *   content verbs — Split H · Split V · Close Pane) at ANY arity, including
  *   `single:tty`, and visible while zoomed; a hairline separates it from the
  *   layout-verb cluster when that renders. Its verbs call the parent's
- *   `onSplitPane`/`onClosePane` callbacks.
+ *   `onSplitPane`/`onClosePane` callbacks. The code tile carries the same
+ *   per-kind content-verb structure: Follow terminal (only while the latched
+ *   code root drifts from the live derivation — the verb's presence IS the
+ *   drift indicator) and Reload editor (only while the active window's frame
+ *   is mounted), before the layout-verb cluster; both are palette-registered
+ *   through `codeCommandsRef` (Constitution V).
  * - **Focused tile (260812-wfic R2)**: transient component state — the slot
  *   that last received pointer/keyboard interaction (pointerdown-capture +
  *   focusin seams on the tile wrapper for parent-DOM interaction; the iframe
@@ -223,6 +230,14 @@ interface CodeFrameRecord {
   windowId: string;
   src: string;
   root: string;
+}
+
+/** The code tile's imperative verbs, filled into `codeCommandsRef` while the
+ *  active window's code tile is open (the `guiCommandsRef` precedent) — the
+ *  palette's `Code:` rows run the same bodies as the header verbs. */
+export interface CodeTileCommands {
+  followTerminal: () => void;
+  reload: () => void;
 }
 
 /** One grid entry: a visible slot, an ever-opened-but-closed kind, or a
@@ -321,6 +336,19 @@ interface SurfaceLayoutProps {
    *  returned promise's REJECTION (the latch POST failed) clears the pending
    *  follow target the wrapper records at report time. */
   onCodeFolderNavigated?: (folder: string) => void | Promise<void>;
+  /** Follow-terminal verb's parent half: re-seeds `@rk_win_code_root` from
+   *  the live derivation and re-derives the workspace with the
+   *  `degradeToFolder` posture — the verb's frame still sits on the OLD
+   *  folder, unlike the editor-initiated follow. Rides the same
+   *  `requestCodeFollow` wrapper as `onCodeFolderNavigated`, so the
+   *  pending-follow target is recorded for it by construction; a returned
+   *  promise's rejection clears that target (and re-enables the verb). */
+  onCodeFollowTerminal?: (folder: string) => void | Promise<void>;
+  /** Filled with the code tile's imperative verbs while the active window's
+   *  code tile is open, cleared otherwise and on unmount (the
+   *  `zoomToggleRef` pattern) — the palette's `Code: Follow Terminal` /
+   *  `Code: Reload Editor` rows drive them (Constitution V). */
+  codeCommandsRef?: React.MutableRefObject<CodeTileCommands | null>;
   /** Per-window lookup over the parent's resolved srcs (the hook's map): the
    *  active window's src reads through it (null ⇒ the tile renders its
    *  pending state), so a revisit resolves synchronously. Retained frames
@@ -695,6 +723,8 @@ export function SurfaceLayout({
   guiCommandsRef,
   guiActions = [],
   onCodeFolderNavigated,
+  onCodeFollowTerminal,
+  codeCommandsRef,
   codeSrcFor,
   liveWindowIds,
   codeRootForWindow,
@@ -1015,21 +1045,91 @@ export function SurfaceLayout({
     // record returns `prev` unchanged.
   }, [server, windowId, activeCodeSrc, activeCodeRoot, activeCodeTileOpen, codeReachable, codeFrameCap, codeFrames]);
 
-  // A follow (the editor's own File > Open Folder) is never an eviction. The
-  // frame's load-seam report is recorded as a PENDING follow target
-  // synchronously at report time (see the `onFolderNavigated` wrapper in
-  // renderContent) — BEFORE the parent's latch POST, whose option write wakes
-  // the SSE hub: the payload tick carrying the new codeRoot can land before
-  // the POST response and the re-derivation GET produce the follow nonce, and
-  // the eviction effect must not read the follow's own write as an external
-  // divergence. A divergence TOWARD the pending target IS the follow: the
-  // baseline moves in place and the pending target clears. A failed latch
-  // POST leaves the payload unmoved, so nothing diverges and the frame
-  // survives at its own (working) `?folder=` navigation; the parent's
-  // rejection clears the target through the wrapper's `.catch`.
-  // Keyed by WINDOW ID: overlapping follows (A reports, the viewer switches,
-  // B reports before A's payload tick) must not overwrite each other.
+  // A follow is never an eviction. The pending follow target is recorded
+  // SYNCHRONOUSLY at report time by the shared `requestCodeFollow` wrapper
+  // (both triggers: the editor's File > Open Folder report and the header's
+  // Follow terminal verb) — BEFORE the parent's latch POST, whose option
+  // write wakes the SSE hub: the payload tick carrying the new codeRoot can
+  // land before the POST response and the re-derivation GET produce the
+  // follow nonce, and the eviction effect must not read the follow's own
+  // write as an external divergence. A divergence TOWARD the pending target
+  // IS the follow: the baseline moves in place and the pending target clears.
+  // A failed latch POST leaves the payload unmoved, so nothing diverges and
+  // the frame survives; the wrapper's `.catch` clears the target on the
+  // parent's rejection. Keyed by WINDOW ID: overlapping follows (A reports,
+  // the viewer switches, B reports before A's payload tick) must not
+  // overwrite each other.
   const pendingCodeFollowRef = useRef<Map<string, string>>(new Map());
+
+  // The ONE follow wrapper both follow triggers ride — the editor-initiated
+  // load-seam report (`onCodeFolderNavigated`) and the header's Follow
+  // terminal verb (`onCodeFollowTerminal`): record the pending target
+  // SYNCHRONOUSLY with the report, BEFORE the parent's latch POST (whose
+  // option write wakes the SSE hub — the payload tick can outrun the follow
+  // nonce, and the eviction effect reads this target to tell the follow's own
+  // write from an external root change). A REJECTED parent call clears the
+  // target (the eviction effect's pending arms would otherwise accept a later
+  // same-folder update as the failed follow); a fulfilled one leaves it for
+  // the payload/nonce to consume. The returned promise settles after that
+  // bookkeeping so the verb can hold its in-flight guard until then.
+  const requestCodeFollow = (
+    frameWindowId: string,
+    folder: string,
+    report: ((folder: string) => void | Promise<void>) | undefined,
+  ): Promise<void> => {
+    pendingCodeFollowRef.current.set(frameWindowId, folder);
+    return Promise.resolve(report?.(folder)).catch(() => {
+      if (pendingCodeFollowRef.current.get(frameWindowId) === folder) {
+        pendingCodeFollowRef.current.delete(frameWindowId);
+      }
+    });
+  };
+
+  // Code-tile header verbs (Follow terminal / Reload editor). `codeReload`
+  // targets exactly one frame by window id — the nonce prop reaches only that
+  // frame (every other frame receives undefined). `codeFollowInFlight`
+  // disables the Follow verb from click until the follow promise settles: the
+  // payload still reads the OLD root until the option tick, so an unguarded
+  // second click would re-POST and produce a second nonce/re-navigation.
+  const [codeFollowInFlight, setCodeFollowInFlight] = useState(false);
+  const [codeReload, setCodeReload] = useState<{ windowId: string; nonce: number } | null>(null);
+  // The ACTIVE window's payload record feeds the drift predicate — a retained
+  // (other-window) frame is never offered the verb (its tile renders no
+  // header; slot -1 gates the render below). The verb's presence IS the
+  // drift indicator — no other badge or copy.
+  const codeFollowTarget = codeRootFollowTarget(win);
+  // A frame record exists only once the active window's src resolved and the
+  // iframe mounted — pending or unreachable tiles show no Reload verb (there
+  // is no frame to reload).
+  const codeFrameMounted =
+    codeReachable && codeFrames.some((r) => r.windowId === windowId);
+
+  const followCodeTerminal = () => {
+    if (codeFollowTarget === null || codeFollowInFlight) return;
+    setCodeFollowInFlight(true);
+    void requestCodeFollow(windowId, codeFollowTarget, onCodeFollowTerminal).finally(() => {
+      setCodeFollowInFlight(false);
+    });
+  };
+  const reloadActiveCodeFrame = () => {
+    if (!codeFrameMounted) return;
+    setCodeReload((r) => ({ windowId, nonce: (r?.nonce ?? 0) + 1 }));
+  };
+
+  // Palette command seam (Constitution V): the `Code: Follow Terminal` /
+  // `Code: Reload Editor` rows run the same bodies as the header verbs.
+  // Filled while the active window's code tile is open, null otherwise and on
+  // unmount — the `zoomToggleRef` pattern. Refilled after EVERY render so the
+  // bodies always close over the current drift/in-flight/frame state.
+  useEffect(() => {
+    if (!codeCommandsRef) return;
+    codeCommandsRef.current = activeCodeTileOpen
+      ? { followTerminal: followCodeTerminal, reload: reloadActiveCodeFrame }
+      : null;
+    return () => {
+      codeCommandsRef.current = null;
+    };
+  });
 
   // Eviction reconciliation (payload-driven — no timers): (a) the frame's
   // window left the server's live set (killed/closed); (b) the window's live
@@ -1854,6 +1954,13 @@ export function SurfaceLayout({
             workspaceSrc={frame ? frame.src : null}
             // The follow override only ever targets the active window's frame.
             followSrc={isActiveWindowFrame ? (codeFollowSrc ?? null) : null}
+            // The Reload editor verb's nonce reaches only the frame it
+            // targeted — every other frame receives undefined, and a frame
+            // created later pre-sees the current value at mount (CodeSurface
+            // owns that rule), so nothing ever replays a reload.
+            reloadNonce={
+              frame && frame.windowId === codeReload?.windowId ? codeReload.nonce : undefined
+            }
             // Per-frame rescue fetcher: a retained frame's verdict can fire
             // after its window stopped being active — it reads ITS window's
             // bridge status.
@@ -1880,24 +1987,10 @@ export function SurfaceLayout({
             onProgrammaticFocus={isActiveWindowFrame ? onProgrammaticFocus : undefined}
             onFolderNavigated={
               isActiveWindowFrame
-                ? (folder) => {
-                    // Record the follow target SYNCHRONOUSLY with the
-                    // navigation report — before the parent's latch POST,
-                    // whose option write wakes the SSE hub: the payload tick
-                    // can outrun the follow nonce, and the eviction effect
-                    // reads this target to tell the follow's own write from
-                    // an external root change. A REJECTED latch POST clears
-                    // the target (the eviction effect's pending arms would
-                    // otherwise accept a later same-folder update as the
-                    // failed follow); a fulfilled POST leaves it for the
-                    // payload/nonce to consume.
-                    pendingCodeFollowRef.current.set(frameWindowId, folder);
-                    Promise.resolve(onCodeFolderNavigated?.(folder)).catch(() => {
-                      if (pendingCodeFollowRef.current.get(frameWindowId) === folder) {
-                        pendingCodeFollowRef.current.delete(frameWindowId);
-                      }
-                    });
-                  }
+                ? // The shared follow wrapper records the pending target
+                  // synchronously with the report — the eviction effect's
+                  // read of it decides follow-vs-external-divergence.
+                  (folder) => void requestCodeFollow(frameWindowId, folder, onCodeFolderNavigated)
                 : undefined
             }
           />
@@ -2383,6 +2476,46 @@ export function SurfaceLayout({
                     </button>
                   </Tip>
                 </div>
+                {showVerbs && (
+                  <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-border" />
+                )}
+              </>
+            )}
+            {/* Code-tile content verbs (the gui fullscreen verb's per-kind
+                structure, any arity): Follow terminal renders ONLY while the
+                latched root drifts from the live derivation — its presence IS
+                the drift indicator; Reload editor renders while the active
+                window's frame is mounted. One hairline separates them from
+                the layout-verb cluster when that renders. */}
+            {kind === "code" && slot >= 0 && (codeFollowTarget !== null || codeFrameMounted) && (
+              <>
+                {codeFollowTarget !== null && (
+                  <Tip
+                    label={`Follow terminal — reopen the editor at ${codeFollowTarget.split("/").filter(Boolean).pop() ?? codeFollowTarget}`}
+                  >
+                    <button
+                      type="button"
+                      aria-label="Follow terminal"
+                      disabled={codeFollowInFlight}
+                      onClick={followCodeTerminal}
+                      className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
+                    >
+                      <FollowTerminalGlyph />
+                    </button>
+                  </Tip>
+                )}
+                {codeFrameMounted && (
+                  <Tip label="Reload editor — reboots this tab's workbench">
+                    <button
+                      type="button"
+                      aria-label="Reload editor"
+                      onClick={reloadActiveCodeFrame}
+                      className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
+                    >
+                      <RefreshGlyph />
+                    </button>
+                  </Tip>
+                )}
                 {showVerbs && (
                   <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-border" />
                 )}

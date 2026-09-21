@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 8
@@ -33,25 +33,27 @@ stage_metrics:
     apply: {started_at: "2026-09-21T19:31:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-21T20:07:37Z"}
     review: {started_at: "2026-09-21T20:07:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-21T20:12:06Z"}
     hydrate: {started_at: "2026-09-21T20:12:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-21T20:19:37Z"}
-    ship: {started_at: "2026-09-21T20:19:37Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-21T20:19:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-21T20:21:42Z"}
+    review-pr: {started_at: "2026-09-21T20:21:42Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1026
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1527
+    deleted: 95
+    net: 1432
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1051
+        deleted: 72
+        net: 979
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-21T20:19:37Z"
-    computed_at_stage: hydrate
+        added: 352
+        deleted: 9
+        net: 343
+    computed_at: "2026-09-21T20:21:42Z"
+    computed_at_stage: ship
 summary: 'adds the code tile''s drift-gated Follow terminal + Reload editor header verbs (shared requestCodeFollow wrapper, per-window reloadNonce seam) with Code: palette rows via codeCommandsRef; restates the latch memory as two re-navigation mechanisms x four triggers and drift-is-visible'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-21T20:19:37Z
+last_updated: 2026-09-21T20:21:42Z

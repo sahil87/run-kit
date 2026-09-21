@@ -80,8 +80,10 @@ export interface CodeWorkspace {
    *  as a nonce-keyed `followSrc`. `degradeToFolder` (the shell-initiated
    *  Follow terminal verb) lands the frame on the `?folder=` form when the
    *  GET fails; without it a failed follow leaves the editor at its own
-   *  (working) `?folder=` navigation. */
-  followFolder: (folder: string, opts?: { degradeToFolder?: boolean }) => void;
+   *  (working) `?folder=` navigation. The returned promise settles only when
+   *  the follow (or its degrade) completes — callers holding an in-flight
+   *  guard must await it, or the guard releases before `followSrc` exists. */
+  followFolder: (folder: string, opts?: { degradeToFolder?: boolean }) => Promise<void>;
 }
 
 export function useCodeWorkspace(
@@ -100,6 +102,13 @@ export function useCodeWorkspace(
   const [resolved, setResolved] = useState<ReadonlyMap<string, string>>(new Map());
   const [follow, setFollow] = useState<{ key: string; src: string; nonce: number; root: string } | null>(null);
   const followNonceRef = useRef(0);
+  // The folder-degrade warning fires exactly once per (server, window, root)
+  // across BOTH warn sites — the derivation effect's catch and a
+  // degrade-posture follow's — because the two can overlap on the same key:
+  // the latch POST's option tick arms the effect while the follow's own GET
+  // is still in flight (deduplicatedFetch shares the request, not the
+  // handlers), and either ordering of the two rejections must warn once.
+  const folderWarnedRef = useRef(new Set<string>());
 
   const rootKey =
     windowId && codeTileOpen && win?.codeRoot
@@ -117,10 +126,13 @@ export function useCodeWorkspace(
       })
       .catch((err: unknown) => {
         if (!alive) return;
-        console.warn(
-          "code workspace derivation failed; opening the editor at the ?folder= fallback",
-          err,
-        );
+        if (!folderWarnedRef.current.has(rootKey)) {
+          folderWarnedRef.current.add(rootKey);
+          console.warn(
+            "code workspace derivation failed; opening the editor at the ?folder= fallback",
+            err,
+          );
+        }
         setResolved((prev) => new Map(prev).set(rootKey, codeServerSrc(codeRootFor(win))));
       });
     return () => {
@@ -171,8 +183,8 @@ export function useCodeWorkspace(
   }, [liveWindowIds, server]);
 
   const followFolder = useCallback(
-    (folder: string, opts?: { degradeToFolder?: boolean }) => {
-      if (!windowId) return;
+    (folder: string, opts?: { degradeToFolder?: boolean }): Promise<void> => {
+      if (!windowId) return Promise.resolve();
       const key = `${server}:${windowId}`;
       // The degrade half (the shell-initiated Follow terminal verb): the
       // verb's frame still sits on the OLD folder, so a failed re-derivation
@@ -182,15 +194,21 @@ export function useCodeWorkspace(
       // itself, so a degrade re-navigation would be a needless reload.
       const degrade = () => {
         if (!opts?.degradeToFolder) return;
-        console.warn(
-          "code workspace re-derivation failed; following at the ?folder= fallback",
-        );
+        const entryKey = `${key}:${folder}`;
+        if (!folderWarnedRef.current.has(entryKey)) {
+          folderWarnedRef.current.add(entryKey);
+          console.warn(
+            "code workspace re-derivation failed; following at the ?folder= fallback",
+          );
+        }
         const src = codeServerSrc(folder);
         followNonceRef.current += 1;
         setFollow({ key, src, nonce: followNonceRef.current, root: folder });
-        setResolved((prev) => new Map(prev).set(`${key}:${folder}`, src));
+        setResolved((prev) => new Map(prev).set(entryKey, src));
       };
-      fetchCodeWorkspace(server, windowId)
+      // The chain is returned so the caller's in-flight guard covers the
+      // whole follow, not just the latch POST that precedes it.
+      return fetchCodeWorkspace(server, windowId)
         .then((result) => {
           if (result.status !== "ok") {
             degrade();

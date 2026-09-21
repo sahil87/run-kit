@@ -91,17 +91,20 @@ var codeServerSelfPath = selfpath.LauncherOrStable
 var codeServerInstallSelfPath = selfpath.Stable
 
 // codeServerSeedSettings is the write-once baseline for the rk-owned profile:
-// the first two settings are settings-only (no CLI flags exist — verified
-// code-server 4.112.0 / Code 1.112.0). chat.disableAIFeatures hides the
-// "Build with Agent" chat panel; workbench.startupEditor "none" suppresses
-// the welcome tab in the embedded /code lens; rk.bridge.enabled keeps the
-// rk-code-bridge extension's command socket on in the managed profile (the
-// extension's own default is already true — the seed makes the profile
-// explicit). Seeded ONLY when settings.json is absent — user edits win
-// forever after.
+// the first three settings are settings-only (no CLI flags exist — verified
+// code-server 4.112.0 / Code 1.112.0; the compact key against 4.137.0 / Code
+// 1.137.0). chat.disableAIFeatures hides the "Build with Agent" chat panel;
+// workbench.startupEditor "none" suppresses the welcome tab in the embedded
+// /code lens; workbench.activityBar.compact true is the "Activity Bar Size →
+// Compact" menu choice (narrow icon rail — the lens tile is already narrow);
+// rk.bridge.enabled keeps the rk-code-bridge extension's command socket on in
+// the managed profile (the extension's own default is already true — the
+// seed makes the profile explicit). Seeded ONLY when settings.json is absent
+// — user edits win forever after.
 const codeServerSeedSettings = `{
     "chat.disableAIFeatures": true,
     "workbench.startupEditor": "none",
+    "workbench.activityBar.compact": true,
     "rk.bridge.enabled": true
 }
 `

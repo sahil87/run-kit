@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 47
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-22T05:43:46Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-22T05:57:18Z"}
     hydrate: {started_at: "2026-09-22T05:57:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-22T06:12:28Z"}
     ship: {started_at: "2026-09-22T06:12:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-22T06:14:48Z"}
-    review-pr: {started_at: "2026-09-22T06:14:48Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-22T06:14:48Z", driver: git-pr, iterations: 1, completed_at: "2026-09-22T06:28:07Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/1027
 base_branch: main
@@ -56,4 +56,4 @@ true_impact:
 summary: "Added the review surface and PR-comment listener: the PR-backed diff tile with server-side Chroma tokens, the prstatus thread digest + internal/prreview detail split, six /api/pr/review* routes, the actor-blind \U0001F440 dedupe contract, and the @rk_win_pr_listen tracker"
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-22T06:14:48Z
+last_updated: 2026-09-22T06:28:07Z

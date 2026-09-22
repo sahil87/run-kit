@@ -119,10 +119,19 @@ export interface ReviewDocument {
  * exactly as the listener's own mark does, and un-reacting releases the claim.
  * The frontend mirrors the backend predicate so the toggle's dot and the
  * listener can never disagree about what is outstanding.
+ *
+ * A zero-comment thread — the malformed shape gh can return mid-deletion — is
+ * NOT unhandled: it carries no first comment, so it can neither be claimed nor
+ * described to an agent, and the digest drops it at projection (prstatus
+ * `reviewThreadsFrom`). The detail read keeps it (prreview `projectThread`
+ * projects every node), so the guard has to live here: without it the dot would
+ * count a thread the listener will never dispatch.
  */
 export function isUnhandled(thread: ReviewThread): boolean {
   if (thread.isResolved || thread.isOutdated) return false;
-  return thread.comments[0]?.eyes !== true;
+  const first = thread.comments[0];
+  if (!first) return false;
+  return first.eyes !== true;
 }
 
 /**

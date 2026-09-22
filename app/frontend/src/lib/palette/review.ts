@@ -36,7 +36,7 @@ export interface ReviewPaletteSeams {
 }
 
 /**
- * Build the eight `Review:` actions. Returns an empty array when the surface is
+ * Build the nine `Review:` actions. Returns an empty array when the surface is
  * not mounted (`seams` null) — the tile has to exist for any of these to mean
  * anything, and a palette entry that predictably no-ops is worse than an absent
  * one.

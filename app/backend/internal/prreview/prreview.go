@@ -207,8 +207,11 @@ func NewFetcher() *Fetcher {
 	}
 }
 
-// Snapshot returns the cached document for a PR URL when it is still within
-// the TTL, else nil. Callers treat nil as "fetch".
+// Snapshot returns the cached document for a PR URL — fresh OR stale — and nil
+// only when nothing is cached. Callers treat nil as "fetch"; staleness is
+// theirs to judge, which is what keeps a stale document serveable: Get pairs
+// this with fresh() to decide whether to refresh, and the
+// stale-while-revalidate path hands this document back when a gh pass fails.
 func (f *Fetcher) Snapshot(prURL string) *Review {
 	f.mu.RLock()
 	defer f.mu.RUnlock()

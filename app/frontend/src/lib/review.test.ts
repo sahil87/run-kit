@@ -58,6 +58,10 @@ describe("isUnhandled — actor-blind", () => {
     expect(isUnhandled(thread({ isOutdated: true }))).toBe(false);
   });
 
+  it("refuses a zero-comment thread — no marker target, and the digest drops it too", () => {
+    expect(isUnhandled(thread({ comments: [] }))).toBe(false);
+  });
+
   it("admits a thread the viewer wrote themselves — commenting on your own PR is the primary use case", () => {
     const own = thread({ comments: [{ ...thread().comments[0], author: "me" }] });
     expect(isUnhandled(own)).toBe(true);
@@ -134,6 +138,11 @@ describe("unhandledCount + threadsForFile", () => {
   it("counts only unhandled threads, so the signal goes quiet as work is claimed", () => {
     expect(unhandledCount(doc)).toBe(2);
     expect(unhandledCount(null)).toBe(0);
+  });
+
+  it("leaves the dot quiet for a zero-comment thread the listener would never dispatch", () => {
+    const malformed = { threads: [thread({ id: "T4", comments: [] })] } as ReviewDocument;
+    expect(unhandledCount(malformed)).toBe(0);
   });
 
   it("scopes threads to their file", () => {

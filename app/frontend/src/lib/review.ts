@@ -59,6 +59,9 @@ export interface ReviewFileBody {
   highlighted: boolean;
 }
 
+/** Why a file arrived without `rows`. Both render a Load-diff affordance. */
+export type ReviewCollapsedReason = "large" | "budget";
+
 export interface ReviewFile {
   path: string;
   previousPath?: string;
@@ -67,6 +70,19 @@ export interface ReviewFile {
   deletions: number;
   sha?: string;
   hasPatch: boolean;
+  /**
+   * The file's diff height, always present — a COLLAPSED file's placeholder is
+   * sized from it, so the virtualizer's scrollbar is right before any body
+   * arrives.
+   */
+  rowCount: number;
+  /**
+   * The file's structure, present when the server expanded it eagerly. Free to
+   * produce (the patch is already cached server-side) and deliberately carries
+   * NO spans: colour is a separate, viewport-driven read.
+   */
+  rows?: ReviewRow[];
+  collapsed?: ReviewCollapsedReason;
 }
 
 export interface ReviewComment {

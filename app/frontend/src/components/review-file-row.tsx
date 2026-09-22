@@ -142,7 +142,33 @@ export function ReviewFileRow({
         </span>
       </div>
 
-      {expanded && children}
+      {expanded &&
+        (children ?? (file.collapsed ? <LoadDiffNotice file={file} onLoad={onToggleExpand} /> : null))}
+    </div>
+  );
+}
+
+/**
+ * The body a file shows when the server declined to expand it eagerly.
+ *
+ * GitHub's wording and shape: say why the diff is not on screen, and put one
+ * button next to it. The two reasons differ in whose fault it is — the file is
+ * too big on its own, or the PR ran out of budget before reaching it — and a
+ * reader deserves to know which, because only the first means "this file will
+ * always be slow".
+ */
+function LoadDiffNotice({ file, onLoad }: { file: ReviewFile; onLoad: () => void }) {
+  const reason =
+    file.collapsed === "large"
+      ? "Large diffs are not rendered by default."
+      : "This diff is collapsed because the pull request is large.";
+  return (
+    <div className="flex items-center gap-3 border-t border-border-soft px-3 py-2 text-xs text-text-secondary">
+      <span>{reason}</span>
+      <span className="font-mono">{file.rowCount.toLocaleString()} lines</span>
+      <button type="button" className={controlClass({ variant: "chip" })} onClick={onLoad}>
+        Load diff
+      </button>
     </div>
   );
 }

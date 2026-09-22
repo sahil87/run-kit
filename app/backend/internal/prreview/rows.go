@@ -47,6 +47,36 @@ type FileBody struct {
 // Lexing a hunk body as a standalone fragment is not permitted — it starts the
 // lexer mid-file with the wrong state, which is exactly what the context pads
 // in lexWindow exist to prevent (R5).
+// LineRowsFromPatch turns parsed patch rows into wire rows — the diff's whole
+// STRUCTURE (kinds, both sides' line numbers, hunk headers, the anchor address
+// every comment hangs off) with no token spans.
+//
+// This half costs nothing: the patch is already in the cached Review document,
+// so structure is pure in-memory work. Only spansFor below reaches the network,
+// which is why the list path can ship rows for every file within its budget
+// without a single extra gh subprocess, and colour can arrive afterwards.
+func LineRowsFromPatch(patchRows []PatchRow) []LineRow {
+	rows := make([]LineRow, len(patchRows))
+	for i, row := range patchRows {
+		rows[i] = LineRow{
+			Kind:   row.Kind,
+			Left:   row.Left,
+			Right:  row.Right,
+			At:     row.At,
+			Header: row.Header,
+		}
+		switch row.Kind {
+		case RowAdd, RowCtx:
+			rows[i].Side = SideRight
+			rows[i].L = row.Right
+		case RowDel:
+			rows[i].Side = SideLeft
+			rows[i].L = row.Left
+		}
+	}
+	return rows
+}
+
 func (f *Fetcher) FileRows(ctx context.Context, review *Review, path string) (FileBody, error) {
 	ref, err := ParsePRURL(review.URL)
 	if err != nil {
@@ -60,26 +90,9 @@ func (f *Fetcher) FileRows(ctx context.Context, review *Review, path string) (Fi
 	patchRows := ParsePatch(file.Patch)
 	body := FileBody{
 		Path:    path,
-		Rows:    make([]LineRow, len(patchRows)),
+		Rows:    LineRowsFromPatch(patchRows),
 		HeadSha: review.HeadSha,
 		BaseSha: review.BaseSha,
-	}
-	for i, row := range patchRows {
-		body.Rows[i] = LineRow{
-			Kind:   row.Kind,
-			Left:   row.Left,
-			Right:  row.Right,
-			At:     row.At,
-			Header: row.Header,
-		}
-		switch row.Kind {
-		case RowAdd, RowCtx:
-			body.Rows[i].Side = SideRight
-			body.Rows[i].L = row.Right
-		case RowDel:
-			body.Rows[i].Side = SideLeft
-			body.Rows[i].L = row.Left
-		}
 	}
 
 	for _, run := range collectRuns(patchRows) {

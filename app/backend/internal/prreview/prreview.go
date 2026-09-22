@@ -123,6 +123,19 @@ type FileEntry struct {
 	// shipping the patch text it is not going to use (R4: the list and the
 	// body are separate reads).
 	HasPatch bool `json:"hasPatch"`
+	// RowCount is the file's diff height in rows, always populated — the
+	// client sizes a COLLAPSED file's placeholder from it, so the virtualizer's
+	// scrollbar is right before any body arrives.
+	RowCount int `json:"rowCount"`
+	// Rows is the file's structure, present only when the file is expanded
+	// eagerly (§ Eager Expansion Budget). Never carries spans: colour is a
+	// separate, viewport-driven read.
+	Rows []LineRow `json:"rows,omitempty"`
+	// Collapsed names why a file shipped without Rows — "" when expanded,
+	// CollapsedLarge when the file alone exceeds the per-file cap, or
+	// CollapsedBudget when the PR ran out of eager budget before reaching it.
+	// Either way the client renders a Load-diff affordance.
+	Collapsed string `json:"collapsed,omitempty"`
 }
 
 // Comment is one review comment inside a thread.
@@ -301,6 +314,7 @@ func (f *Fetcher) fetch(ctx context.Context, prURL string) (*Review, error) {
 	if err != nil {
 		return nil, err
 	}
+	applyEagerBudget(files)
 	return &Review{
 		URL:       prURL,
 		Number:    ref.Number,
@@ -314,6 +328,63 @@ func (f *Fetcher) fetch(ctx context.Context, prURL string) (*Review, error) {
 		Threads:   threads,
 		FetchedAt: f.now(),
 	}, nil
+}
+
+// Why a file shipped collapsed. The client renders a Load-diff affordance for
+// both; the distinction is what it says above the button.
+const (
+	CollapsedLarge  = "large"
+	CollapsedBudget = "budget"
+)
+
+// The eager-expansion budget, modelled on GitHub's Files-changed tab.
+//
+// GitHub opens a PR with its files already expanded, and keeps that affordable
+// with two independent caps rather than one: a per-FILE cap, so a single
+// generated lockfile cannot dominate the page, and a whole-DIFF cap, so a
+// 300-file PR does not try to render everything at once. A file over either cap
+// renders collapsed behind "Load diff" and costs nothing until asked for.
+//
+// The caps are on ROWS, not bytes: rows are what the virtualizer sizes, what a
+// comment anchors to, and what tokenization is billed per. Exact GitHub
+// constants are not published; these match its behaviour at the shapes that
+// matter and are the one knob to turn if real PRs say otherwise.
+const (
+	// maxEagerRowsPerFile: a bigger file is collapsed on its own account.
+	maxEagerRowsPerFile = 500
+	// maxEagerRows: once the PR has spent this many rows, the rest collapse.
+	maxEagerRows = 5000
+	// maxEagerFiles: a floor on per-file cost — even tiny files stop expanding
+	// eventually, because thousands of mounted file bodies is its own problem.
+	maxEagerFiles = 75
+)
+
+// applyEagerBudget stamps RowCount on every file and fills Rows for the prefix
+// that fits the budget, in the diff's own order — the order the reader scrolls.
+//
+// This is the whole reason the tile can open expanded without a request storm:
+// the patches are already in memory, so every row here is free, and the files
+// that DON'T fit cost nothing because their rows are simply never built.
+func applyEagerBudget(files []FileEntry) {
+	rows, expanded := 0, 0
+	for i := range files {
+		file := &files[i]
+		if !file.HasPatch {
+			continue
+		}
+		patchRows := ParsePatch(file.Patch)
+		file.RowCount = len(patchRows)
+		switch {
+		case file.RowCount > maxEagerRowsPerFile:
+			file.Collapsed = CollapsedLarge
+		case expanded >= maxEagerFiles || rows+file.RowCount > maxEagerRows:
+			file.Collapsed = CollapsedBudget
+		default:
+			file.Rows = LineRowsFromPatch(patchRows)
+			rows += file.RowCount
+			expanded++
+		}
+	}
 }
 
 // defaultGhExec runs one gh invocation with an explicit argv slice under

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -605,4 +606,108 @@ func TestRepoRelativePathRefusesTraversalAndAbsolutePaths(t *testing.T) {
 			t.Errorf("repoRelativePath(%q) = true, want false", path)
 		}
 	}
+}
+
+// patchWithRows builds a patch whose parsed height is exactly want rows: one
+// hunk header plus want-1 added lines.
+func patchWithRows(want int) string {
+	lines := []string{"@@ -1,0 +1," + strconv.Itoa(want-1) + " @@"}
+	for i := 1; i < want; i++ {
+		lines = append(lines, "+line")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// The tile opens with its files already expanded, which is only affordable
+// because structure is free (the patch is already cached) and because the two
+// caps below keep any one PR from mounting everything at once — GitHub's
+// Files-changed shape.
+func TestEagerBudgetExpandsThePrefixAndCollapsesTheRest(t *testing.T) {
+	t.Run("a file over the per-file cap collapses on its own account", func(t *testing.T) {
+		files := []FileEntry{
+			{Path: "small.go", HasPatch: true, Patch: patchWithRows(10)},
+			{Path: "generated.lock", HasPatch: true, Patch: patchWithRows(maxEagerRowsPerFile + 1)},
+			{Path: "after.go", HasPatch: true, Patch: patchWithRows(10)},
+		}
+		applyEagerBudget(files)
+
+		if files[0].Collapsed != "" || len(files[0].Rows) != 10 {
+			t.Errorf("small.go = %q with %d rows, want expanded", files[0].Collapsed, len(files[0].Rows))
+		}
+		if files[1].Collapsed != CollapsedLarge || files[1].Rows != nil {
+			t.Errorf("generated.lock = %q with %d rows, want CollapsedLarge and no rows",
+				files[1].Collapsed, len(files[1].Rows))
+		}
+		// The big file must not consume the shared budget — the reader still
+		// gets everything after it.
+		if files[2].Collapsed != "" || len(files[2].Rows) != 10 {
+			t.Errorf("after.go = %q, want expanded despite following a huge file", files[2].Collapsed)
+		}
+		// RowCount is stamped even when collapsed: the virtualizer sizes the
+		// placeholder from it.
+		if files[1].RowCount != maxEagerRowsPerFile+1 {
+			t.Errorf("RowCount = %d, want it stamped on a collapsed file", files[1].RowCount)
+		}
+	})
+
+	t.Run("the whole-diff row budget stops expansion", func(t *testing.T) {
+		var files []FileEntry
+		for i := 0; i < 20; i++ {
+			files = append(files, FileEntry{Path: "f.go", HasPatch: true, Patch: patchWithRows(400)})
+		}
+		applyEagerBudget(files)
+
+		rows, expanded := 0, 0
+		for _, f := range files {
+			if f.Collapsed == "" {
+				expanded++
+				rows += f.RowCount
+			} else if f.Collapsed != CollapsedBudget {
+				t.Errorf("collapsed reason = %q, want %q", f.Collapsed, CollapsedBudget)
+			}
+		}
+		if rows > maxEagerRows {
+			t.Errorf("expanded %d rows, over the %d budget", rows, maxEagerRows)
+		}
+		if expanded == 0 || expanded == len(files) {
+			t.Errorf("expanded %d of %d — want a prefix, not all or nothing", expanded, len(files))
+		}
+	})
+
+	t.Run("the file-count cap bounds a PR of tiny files", func(t *testing.T) {
+		var files []FileEntry
+		for i := 0; i < maxEagerFiles+15; i++ {
+			files = append(files, FileEntry{Path: "f.go", HasPatch: true, Patch: patchWithRows(3)})
+		}
+		applyEagerBudget(files)
+
+		expanded := 0
+		for _, f := range files {
+			if f.Collapsed == "" {
+				expanded++
+			}
+		}
+		if expanded != maxEagerFiles {
+			t.Errorf("expanded = %d, want the %d-file cap to bind before the row budget",
+				expanded, maxEagerFiles)
+		}
+	})
+
+	t.Run("a patchless file is left alone", func(t *testing.T) {
+		files := []FileEntry{{Path: "logo.png", HasPatch: false}}
+		applyEagerBudget(files)
+		if files[0].Collapsed != "" || files[0].RowCount != 0 || files[0].Rows != nil {
+			t.Errorf("binary file = %+v, want untouched — it renders a no-diff row", files[0])
+		}
+	})
+
+	t.Run("eager rows carry structure but never spans", func(t *testing.T) {
+		files := []FileEntry{{Path: "a.go", HasPatch: true, Patch: patchWithRows(5)}}
+		applyEagerBudget(files)
+		for _, row := range files[0].Rows {
+			if row.Spans != nil {
+				t.Fatal("eager rows carry spans — colour must stay a separate, viewport-driven read")
+			}
+		}
+	})
 }

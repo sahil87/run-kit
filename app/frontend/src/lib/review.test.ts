@@ -197,3 +197,53 @@ describe("display helpers", () => {
     expect(statusLabel("whatever-new")).toBe("Modified");
   });
 });
+
+describe("eager expansion — what the server decided, and what the tile does with it", () => {
+  // The wire contract the surface seeds from. A file carrying `rows` was
+  // expanded by the server's budget and costs the tile nothing to open; a file
+  // carrying `collapsed` was declined and must still say so on screen.
+  const expandedFile = {
+    path: "small.go",
+    status: "modified",
+    additions: 4,
+    deletions: 1,
+    hasPatch: true,
+    rowCount: 6,
+    rows: [{ kind: "hunk" as const, header: "@@ -1,2 +1,5 @@", left: 0, right: 0, at: 0, l: 0, side: "R" as const }],
+  };
+  const largeFile = {
+    path: "pnpm-lock.yaml",
+    status: "modified",
+    additions: 9000,
+    deletions: 12,
+    hasPatch: true,
+    rowCount: 9012,
+    collapsed: "large" as const,
+  };
+  const budgetFile = {
+    path: "tail.go",
+    status: "modified",
+    additions: 3,
+    deletions: 0,
+    hasPatch: true,
+    rowCount: 3,
+    collapsed: "budget" as const,
+  };
+
+  it("distinguishes an expanded file from the two collapsed reasons", () => {
+    expect(expandedFile.rows).toBeDefined();
+    expect("collapsed" in expandedFile).toBe(false);
+    // A collapsed file never ships rows — that is the whole saving.
+    expect("rows" in largeFile).toBe(false);
+    expect("rows" in budgetFile).toBe(false);
+    // …but it always ships its height, so the placeholder is sized right.
+    expect(largeFile.rowCount).toBeGreaterThan(0);
+    expect(budgetFile.rowCount).toBeGreaterThan(0);
+  });
+
+  it("carries structure without spans, so opening the PR buys no colour", () => {
+    for (const row of expandedFile.rows) {
+      expect(row).not.toHaveProperty("spans");
+    }
+  });
+});

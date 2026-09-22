@@ -92,6 +92,17 @@ const FILE_OVERSCAN = 6;
  *  measurement — geometry stays algebraic and paint never reads layout. */
 const FILE_ROW_HEIGHT = 28;
 
+/**
+ * How many files may be fetching their token spans at once.
+ *
+ * Kept well under a browser's per-origin HTTP/1.1 connection limit on purpose:
+ * the SSE stream and the terminal relay live in the same six slots, so a burst
+ * of colour requests does not just make the tile slow, it can starve the live
+ * state the rest of the app runs on. Each request is also a `gh` blob fetch
+ * server-side, so this doubles as the ceiling on concurrent subprocesses.
+ */
+const SPANS_CONCURRENCY = 3;
+
 export function ReviewSurface({
   server,
   windowId,
@@ -122,13 +133,64 @@ export function ReviewSurface({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // The last digest count this tile acted on — see the revalidation effect.
   const seenDigest = useRef<number | null>(null);
+  // Paths whose spans have been requested. Distinct from `body.highlighted`,
+  // which is legitimately false for a file with no Chroma lexer — keying off
+  // that would re-request those files forever.
+  const spansLoaded = useRef<Set<string>>(new Set());
+  // Colour requests in flight. The cap is the point: expanded files ask for
+  // their spans as they approach the viewport, and without a ceiling a fast
+  // scroll through a large PR would queue one gh blob fetch per file at once.
+  const spansInFlight = useRef(0);
 
-  const load = useCallback(async () => {
+  // `seed` is true only for a fresh identity (mount, or a new PR). A
+  // REVALIDATION must never re-seed: the reader's open/closed set and the
+  // bodies already fetched are their state, not the server's, and wiping them
+  // on an SSE tick would collapse the file someone was mid-comment in.
+  const load = useCallback(async (seed = false) => {
     setLoading(true);
     try {
       const next = await fetchPRReview(server, windowId);
       setDoc(next);
       setError(null);
+      // The PR opens with its files already open, the way GitHub's Files-changed
+      // tab does — and it costs ONE request, because the server shipped the
+      // structure of every file inside its eager budget. Seeding `bodies` here
+      // rather than fetching per file is the whole point: a 40-file PR would
+      // otherwise be 40 requests and 40 gh subprocesses the instant the tile
+      // mounts, which on a plaintext origin starves the 6-slot pool the SSE
+      // stream also lives in.
+      //
+      // Files marked viewed stay shut (GitHub again) — re-reading what you have
+      // already signed off is not the default anyone wants, and every closed
+      // file is colour nobody pays for.
+      if (!seed) return;
+      const seeded: Record<string, ReviewFileBody> = {};
+      const open = new Set<string>();
+      for (const file of next.files) {
+        if (!file.rows) {
+          // No rows means the budget declined this file. It still renders open,
+          // showing the Load-diff notice rather than an empty row — a reader
+          // must be able to see that a diff exists and ask for it.
+          if (file.collapsed && !readViewed(next.url, next.headSha, file.path)) {
+            open.add(file.path);
+          }
+          continue;
+        }
+        seeded[file.path] = {
+          path: file.path,
+          rows: file.rows,
+          headSha: next.headSha,
+          baseSha: next.baseSha,
+          totalLines: 0,
+          highlighted: false,
+          refine: false,
+        };
+        if (!readViewed(next.url, next.headSha, file.path)) open.add(file.path);
+      }
+      setBodies(seeded);
+      setExpanded(open);
+      // Seeded rows carry no spans, so nothing is tokenized yet.
+      spansLoaded.current = new Set();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load the pull request");
     } finally {
@@ -144,7 +206,7 @@ export function ReviewSurface({
     setExpanded(new Set());
     setPending([]);
     seenDigest.current = null;
-    void load();
+    void load(true);
   }, [load, prUrl]);
 
   // The SSE tick's revalidation seam. The digest is polled server-side on the
@@ -222,6 +284,53 @@ export function ReviewSurface({
     },
     [bodies, loadFileBody],
   );
+
+  // Colour on approach.
+  //
+  // Seeded rows arrive with structure but no spans, so an opened PR is fully
+  // readable and entirely monochrome. This effect buys the colour back the only
+  // way that stays cheap: a file asks for its spans when it nears the viewport,
+  // never on mount, and never more than SPANS_CONCURRENCY at a time.
+  //
+  // Reading a PR is top-down, so "near the viewport" fetches almost exactly the
+  // files that get looked at — and a file scrolled past without stopping costs
+  // one request instead of the whole diff costing forty.
+  //
+  // The request is the ordinary rangeless body fetch, so the response REPLACES
+  // the seeded rows with the same structure plus spans, and the existing refine
+  // ladder takes it from there.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root || typeof IntersectionObserver === "undefined" || !doc) return;
+
+    const pump = (path: string) => {
+      if (spansLoaded.current.has(path)) return;
+      if (spansInFlight.current >= SPANS_CONCURRENCY) return;
+      spansLoaded.current.add(path);
+      spansInFlight.current += 1;
+      void loadFileBody(path).finally(() => {
+        spansInFlight.current = Math.max(0, spansInFlight.current - 1);
+      });
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const path = (entry.target as HTMLElement).dataset.reviewPath;
+          if (path && expanded.has(path)) pump(path);
+        }
+      },
+      // One viewport of lead time: colour lands before the row is read, and a
+      // fast scroll still only arms what it passes.
+      { root, rootMargin: "100% 0px" },
+    );
+    for (const element of root.querySelectorAll("[data-review-path]")) {
+      observer.observe(element);
+    }
+    return () => observer.disconnect();
+  }, [doc, expanded, loadFileBody]);
+
 
   const mutate = useCallback(
     async (action: () => Promise<unknown>) => {
@@ -484,6 +593,7 @@ export function ReviewSurface({
                 return (
                   <div
                     key={file.path}
+                    data-review-path={file.path}
                     className={absolute === focused ? "outline outline-1 outline-border" : undefined}
                   >
                     <ReviewFileRow
@@ -510,7 +620,7 @@ export function ReviewSurface({
                           onResolve={resolve}
                           onApplySuggestion={applySuggestion}
                         />
-                      ) : (
+                      ) : file.collapsed ? undefined : (
                         <div className="px-2 py-1 text-xs font-mono text-text-secondary">
                           loading the diff…
                         </div>

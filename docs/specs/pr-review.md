@@ -265,12 +265,65 @@ mounted rows, splitting and wrapping matches **without touching token markup**.
 Rewriting a row's `innerHTML` to add a marker would destroy the tokens the
 backend just computed, and is not permitted.
 
+### R6a — The tile opens expanded, on one request
+
+The PR opens with its files already open, as GitHub's Files-changed tab does.
+That is affordable only because of the split R5/R6 already make: a diff's
+**structure** is free — the patch is in the cached `Review` document, so rows
+cost no network — while its **colour** costs a blob fetch. So:
+
+- The list response carries `rows` (structure, **never** spans) for every file
+  inside the eager budget below, and a `rowCount` for every file whether
+  expanded or not, so a collapsed file's placeholder is still sized correctly.
+- Expanding on open therefore costs **zero** additional requests and **zero**
+  additional `gh` subprocesses. Fetching each body instead would cost one of
+  each per file, at mount, on an origin whose six connection slots also carry
+  the SSE stream everything else depends on.
+- **Files marked viewed open shut.** Per-viewer state already decides this
+  (R7's localStorage key), and a file nobody will read is colour nobody pays for.
+
+**The eager-expansion budget** follows GitHub's two independent caps rather than
+one, because the two failure shapes are different — a single generated lockfile
+dominating the page, and a 300-file PR trying to render everything:
+
+| Cap | Meaning | Collapsed reason |
+|---|---|---|
+| per file | a file whose diff exceeds it collapses on its own account | `large` |
+| whole diff | once the PR has spent the row budget, the rest collapse | `budget` |
+| file count | a floor on per-file cost, so thousands of tiny files still stop | `budget` |
+
+A collapsed file renders **open**, showing why its diff is absent and a
+**Load diff** button — never an empty row. The two reasons are worded
+differently because only `large` means "this file will always be slow".
+The constants live in `internal/prreview` and are the one knob to turn; exact
+GitHub values are not published, and these match its behaviour at the shapes
+that matter.
+
+**Colour arrives on approach, never on mount.** An expanded file requests its
+spans when it nears the viewport, through a queue capped well under the
+connection limit — which doubles as the ceiling on concurrent `gh` blob
+fetches. Reading a PR is top-down, so this fetches almost exactly what gets
+looked at, and a file scrolled past costs one request rather than the whole
+diff costing forty. The response is the ordinary rangeless body, so it replaces
+the seeded rows with the same structure plus spans and the R5 refine ladder
+takes over: **tier 0** plain → **tier 1** windowed → **tier 2** exact.
+
+**Seeding happens on identity only.** A revalidation (the SSE digest tick, or a
+reload after a mutation) MUST NOT re-seed: the open/closed set and the bodies
+already fetched are the reader's state, not the server's, and re-seeding would
+collapse the file someone was mid-comment in.
+
 ### R7 — Virtualize the file list, not the diff body
 
 A single file's diff is bounded by that file, so an expanded file renders as
 plain DOM. What is unbounded in a pull request is the **number of files**, so
-the file list is virtualized and each file's diff is fetched and rendered
-lazily on expand.
+the file list is virtualized.
+
+Virtualization stands down once anything is expanded, because rows then have
+wildly unequal heights and a fixed-height sizer would lie to the scrollbar.
+R6a's budget is what keeps that safe: it bounds how much can be open at once,
+so the un-virtualized case is bounded too. Variable-height virtualization
+would lift the bound and is the obvious follow-up, not a prerequisite.
 
 If the diff body ever does need virtualizing, the recipe is a native-scrolling
 viewport over a spacer sized `totalLines × lineHeight`, with a recycled row

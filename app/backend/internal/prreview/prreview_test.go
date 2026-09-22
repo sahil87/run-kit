@@ -303,6 +303,60 @@ func newRecordingFetcher(t *testing.T, responses map[string]string) (*Fetcher, *
 // The whole point of --input -: a comment body is user-authored prose and must
 // never appear in argv, where it is readable from the process table and one
 // quoting mistake from a shell injection.
+// GitHub's REST side/start_side and its GraphQL DiffSide enum take LEFT/RIGHT,
+// never this package's one-letter wire form. Posting "R" fails the
+// create-comment oneOf with `R is not a member of ["LEFT", "RIGHT"]`, and
+// because the side is what breaks the match, the 422 names every OTHER
+// subschema ("position wasn't supplied", "in_reply_to wasn't supplied",
+// "subject_type wasn't supplied") and never the field at fault.
+func TestWritePathsSpellSidesTheWayGitHubDoes(t *testing.T) {
+	review := &Review{URL: "https://github.com/acme/tool/pull/7", HeadSha: "headsha"}
+
+	for _, tc := range []struct {
+		wire string
+		want string
+	}{
+		{SideRight, "RIGHT"},
+		{SideLeft, "LEFT"},
+		{"", "RIGHT"}, // unset defaults to the post-image, as the composer does
+	} {
+		t.Run("single/"+tc.want, func(t *testing.T) {
+			f, calls := newRecordingFetcher(t, nil)
+			if err := f.AddComment(context.Background(), review, NewComment{
+				Path: "a.go", Line: 12, StartLine: 9, Side: tc.wire, Body: "b", Mode: ModeSingle,
+			}); err != nil {
+				t.Fatalf("AddComment: %v", err)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal([]byte((*calls)[0].stdin), &decoded); err != nil {
+				t.Fatalf("stdin is not JSON: %v", err)
+			}
+			if decoded["side"] != tc.want {
+				t.Errorf("side = %v, want %q", decoded["side"], tc.want)
+			}
+			// The multi-line anchor carries the same vocabulary.
+			if decoded["start_side"] != tc.want {
+				t.Errorf("start_side = %v, want %q", decoded["start_side"], tc.want)
+			}
+		})
+	}
+
+	// addPullRequestReviewThread's $side is DiffSide!, the same enum.
+	t.Run("pending review thread", func(t *testing.T) {
+		f, calls := newRecordingFetcher(t, map[string]string{
+			"graphql": `{"data":{"repository":{"pullRequest":{"id":"PR_1","reviews":{"nodes":[{"id":"REV_1"}]}}}}}`,
+		})
+		if err := f.AddComment(context.Background(), review, NewComment{
+			Path: "a.go", Line: 12, Side: SideLeft, Body: "b", Mode: ModeReview,
+		}); err != nil {
+			t.Fatalf("AddComment(review mode): %v", err)
+		}
+		if !strings.Contains((*calls)[1].stdin, `"LEFT"`) {
+			t.Errorf("thread mutation variables = %s, want side LEFT", (*calls)[1].stdin)
+		}
+	})
+}
+
 func TestWritePathsSendBodiesOnStdinNeverArgv(t *testing.T) {
 	body := "please fix `$(rm -rf /)`\nand also \"quote\" this"
 	review := &Review{URL: "https://github.com/acme/tool/pull/7", HeadSha: "headsha"}
@@ -322,7 +376,7 @@ func TestWritePathsSendBodiesOnStdinNeverArgv(t *testing.T) {
 		if err := json.Unmarshal([]byte((*calls)[0].stdin), &decoded); err != nil {
 			t.Fatalf("stdin is not JSON: %v", err)
 		}
-		if decoded["commit_id"] != "headsha" || decoded["side"] != "R" || decoded["line"] != float64(12) {
+		if decoded["commit_id"] != "headsha" || decoded["side"] != "RIGHT" || decoded["line"] != float64(12) {
 			t.Errorf("stdin document = %v", decoded)
 		}
 	})

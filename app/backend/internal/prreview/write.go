@@ -72,11 +72,11 @@ func (f *Fetcher) AddComment(ctx context.Context, review *Review, in NewComment)
 		"body":      in.Body,
 		"commit_id": review.HeadSha,
 		"line":      in.Line,
-		"side":      sideOrRight(in.Side),
+		"side":      apiSide(in.Side),
 	}
 	if in.StartLine > 0 && in.StartLine < in.Line {
 		body["start_line"] = in.StartLine
-		body["start_side"] = sideOrRight(in.Side)
+		body["start_side"] = apiSide(in.Side)
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -240,7 +240,7 @@ func (f *Fetcher) addPendingComment(ctx context.Context, ref PRRef, in NewCommen
 		"reviewId": reviewID,
 		"path":     in.Path,
 		"line":     in.Line,
-		"side":     sideOrRight(in.Side),
+		"side":     apiSide(in.Side),
 		"body":     in.Body,
 	})
 	return err
@@ -263,9 +263,20 @@ func (f *Fetcher) graphql(ctx context.Context, ref PRRef, query string, variable
 	return f.ghExec(ctx, payload, args...)
 }
 
-func sideOrRight(side string) string {
+// GitHub's REST `side`/`start_side` and its GraphQL `DiffSide` enum both spell
+// the sides out; this package's wire and DOM vocabulary is the one-letter form
+// (SideLeft/SideRight, matching the R264/L120 anchor refs). The two are NOT
+// interchangeable: posting "R" fails the create-comment oneOf with
+// `R is not a member of ["LEFT", "RIGHT"]`, and the error names every other
+// subschema instead of the side, so translate at the API boundary.
+const (
+	apiSideLeft  = "LEFT"
+	apiSideRight = "RIGHT"
+)
+
+func apiSide(side string) string {
 	if side == SideLeft {
-		return SideLeft
+		return apiSideLeft
 	}
-	return SideRight
+	return apiSideRight
 }

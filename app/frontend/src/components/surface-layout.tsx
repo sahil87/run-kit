@@ -5,6 +5,7 @@ import { controlClass } from "@/components/control";
 import { TerminalClient } from "@/components/terminal-client";
 import { FindBar } from "@/components/find-bar";
 import { CodeSurface } from "@/components/code-surface";
+import { ReviewSurface, type ReviewSurfaceCommands } from "@/components/review-surface";
 import { IframeWindow } from "@/components/iframe-window";
 import { StatusDot } from "@/components/status-dot";
 import { DEFAULT_DARK_THEME, type ThemePalette } from "@/themes";
@@ -330,6 +331,12 @@ interface SurfaceLayoutProps {
    *  zen-fallback description patch included) — the gui tile's header fold
    *  mirrors it by row id. */
   guiActions?: GuiPaletteAction[];
+  /** The review tile's imperative verb seams (the palette's `Review:` entries)
+   *  and its unhandled-thread reporter (the surface toggle's dot). Absent on
+   *  mounts that do not offer the surface. */
+  reviewCommandsRef?: { current: ReviewSurfaceCommands | null };
+  onReviewUnhandledChange?: (count: number) => void;
+  onReviewListeningChange?: (listening: boolean) => void;
   /** Follow-the-editor passthrough (260813-if5d R3): handed straight to the code
    *  tile's `CodeSurface`, which reports the folder the EDITOR navigated itself
    *  to. The parent latches it — this component only carries the prop. A
@@ -675,6 +682,14 @@ function tileMeta(kind: SurfaceKind, win: ViewWindow | null, gui?: GuiSignal | n
     const parts = [gui.wm, gui.display].filter((part) => part !== "");
     return parts.length > 0 ? parts.join(" · ") : null;
   }
+  // The review tile's meta is the PR the surface is backed by — the one fact
+  // that says WHICH pull request the tile is showing without opening it.
+  if (kind === "review") {
+    const prUrl = win?.prUrl ?? "";
+    if (!prUrl) return null;
+    const number = prUrl.split("/").pop() ?? "";
+    return number ? `#${number}` : null;
+  }
   const codeRoot = kind === "code" ? codeRootFor(win) : "";
   if (codeRoot) {
     const parts = codeRoot.split("/").filter(Boolean);
@@ -725,6 +740,9 @@ export function SurfaceLayout({
   onCodeFolderNavigated,
   onCodeFollowTerminal,
   codeCommandsRef,
+  reviewCommandsRef,
+  onReviewUnhandledChange,
+  onReviewListeningChange,
   codeSrcFor,
   liveWindowIds,
   codeRootForWindow,
@@ -2021,6 +2039,25 @@ export function SurfaceLayout({
             }
           />
         ) : null;
+      }
+      case "review": {
+        // PR-backed only: availability upstream guarantees a prUrl, so a
+        // missing one renders nothing rather than an empty-state the toggle
+        // should never have offered.
+        const prUrl = win?.prUrl ?? "";
+        if (!prUrl) return null;
+        return (
+          <ReviewSurface
+            server={server}
+            windowId={windowId}
+            prUrl={prUrl}
+            // The SSE tick's revalidation signal (pushed, never polled).
+            digestUnhandled={win?.prReviewUnhandled ?? 0}
+            commandsRef={reviewCommandsRef}
+            onUnhandledChange={onReviewUnhandledChange}
+            onListeningChange={onReviewListeningChange}
+          />
+        );
       }
       case "gui": {
         // The gui tile mirrors the code seam grammar, minus the steal guard

@@ -31,6 +31,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"rk/internal/ghprobe"
 )
 
 // ghTimeout bounds the single batched gh call so a hung gh can never block the
@@ -89,9 +91,13 @@ type ViewerPR struct {
 // so two open PRs can share a number (e.g. repoA#18 and repoB#18) and a
 // number-keyed map would let one silently clobber the other.
 type Collector struct {
-	mu       sync.RWMutex
-	byURL    map[string]PRStatus
-	interval time.Duration
+	mu    sync.RWMutex
+	byURL map[string]PRStatus
+	// threadsByURL is the PR-review thread DIGEST, rebuilt wholesale in the
+	// same critical section as byURL so one snapshot always describes one
+	// batch. See prstatus_threads.go.
+	threadsByURL map[string][]ReviewThread
+	interval     time.Duration
 
 	// refreshMu SERIALIZES whole refresh passes (the interval tick vs an on-demand
 	// RefreshNow), so a pass's byURL swap and its viewer-PR sink call can never
@@ -213,10 +219,11 @@ func (c *Collector) ViewerPRs() []ViewerPR {
 // Call Start to begin the background goroutine.
 func NewCollector(interval time.Duration) *Collector {
 	return &Collector{
-		byURL:     make(map[string]PRStatus),
-		interval:  interval,
-		ghExec:    defaultGhExec,
-		available: ghAvailable,
+		byURL:        make(map[string]PRStatus),
+		threadsByURL: make(map[string][]ReviewThread),
+		interval:     interval,
+		ghExec:       defaultGhExec,
+		available:    ghAvailable,
 	}
 }
 
@@ -325,6 +332,7 @@ func (c *Collector) refresh(ctx context.Context) {
 	// a cache assembled from this state always describes ONE batch.
 	c.mu.Lock()
 	c.byURL = next
+	c.threadsByURL = reviewThreadsFrom(prs)
 	c.viewerPRs = viewer
 	c.login = batch.Login
 	sink := c.onViewerPRs
@@ -371,17 +379,11 @@ func viewerPRsFrom(prs []ghPR) []ViewerPR {
 	return out
 }
 
-// ghAvailable reports whether the gh CLI is installed AND authenticated. Either
-// failing is a silent no-op (matches the `command -v rk` posture).
+// ghAvailable is the collector's default `available` seam — the shared probe
+// under this package's own gh budget (internal/ghprobe is the single source,
+// so prstatus and prreview cannot drift on what "gh is unavailable" means).
 func ghAvailable(ctx context.Context) bool {
-	if _, err := exec.LookPath("gh"); err != nil {
-		return false
-	}
-	authCtx, cancel := context.WithTimeout(ctx, ghTimeout)
-	defer cancel()
-	// `gh auth status` exits non-zero when not logged in.
-	cmd := exec.CommandContext(authCtx, "gh", "auth", "status")
-	return cmd.Run() == nil
+	return ghprobe.Available(ctx, ghTimeout)
 }
 
 // ghQuery is the GraphQL query fetching the user's most-recently-updated PRs
@@ -404,6 +406,14 @@ func ghAvailable(ctx context.Context) bool {
 // tiebreak pickBranchPR applies to gh results. States, ordering, and $limit are
 // deliberately unchanged.
 //
+// `reviewThreads` is the PR-review DIGEST: per thread only what the comment
+// listener's eligibility predicate and the review toggle's unread signal need —
+// id, isResolved, isOutdated, path, line, and the FIRST comment's id, author and
+// 👀 reaction count. It rides this existing call, so the digest costs ZERO
+// additional gh subprocesses. Full comment bodies and patches deliberately do
+// NOT come from here: they would multiply this payload by comment count across
+// a 100-PR window every 90 s, which is why internal/prreview exists.
+//
 // `login` is selected on the same `viewer` node for the DISK CACHE (260809-r4vk):
 // the cache records the login its state was fetched as, and an account switch is
 // detected by comparing it at the next successful fetch — no extra call, since the
@@ -422,6 +432,23 @@ const ghQuery = `query($limit: Int!) {
         headRefName
         headRepository { nameWithOwner }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+        reviewThreads(first: 100) {
+          nodes {
+            id
+            isResolved
+            isOutdated
+            path
+            line
+            comments(first: 1) {
+              nodes {
+                id
+                databaseId
+                author { login }
+                reactions(content: EYES, first: 1) { totalCount }
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -478,6 +505,34 @@ type ghPR struct {
 			} `json:"commit"`
 		} `json:"nodes"`
 	} `json:"commits"`
+	// ReviewThreads is the DIGEST half of the PR-review feature: just enough
+	// per thread for the listener's eligibility predicate and the surface
+	// toggle's unread signal. Full comment bodies live in internal/prreview,
+	// fetched only while a review tile is mounted — see that package's doc for
+	// why the two cadences must not share a package.
+	ReviewThreads struct {
+		Nodes []ghReviewThread `json:"nodes"`
+	} `json:"reviewThreads"`
+}
+
+type ghReviewThread struct {
+	ID         string `json:"id"`
+	IsResolved bool   `json:"isResolved"`
+	IsOutdated bool   `json:"isOutdated"`
+	Path       string `json:"path"`
+	Line       *int   `json:"line"`
+	Comments   struct {
+		Nodes []struct {
+			ID         string `json:"id"`
+			DatabaseID int64  `json:"databaseId"`
+			Author     *struct {
+				Login string `json:"login"`
+			} `json:"author"`
+			Reactions struct {
+				TotalCount int `json:"totalCount"`
+			} `json:"reactions"`
+		} `json:"nodes"`
+	} `json:"comments"`
 }
 
 // rollupState extracts the latest commit's check-rollup state, or "" when the

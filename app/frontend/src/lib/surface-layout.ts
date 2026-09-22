@@ -23,7 +23,14 @@
  * the onboarding state, so the lens always exists).
  */
 
-import { hasCode, hasGui, type GuiHost, type ViewName, type ViewWindow } from "./window-view";
+import {
+  hasCode,
+  hasGui,
+  hasReview,
+  type GuiHost,
+  type ViewName,
+  type ViewWindow,
+} from "./window-view";
 
 /**
  * A tileable surface kind. Identical to the window-view lens registry
@@ -108,6 +115,9 @@ export const SURFACE_LABEL: Record<SurfaceKind, string> = {
   web: "Web",
   code: "Code",
   gui: "GUI",
+  // User-facing "Changes"; the internal kind stays `review` because this repo
+  // already means a fab change by "changes" (spec pr-review.md § R1).
+  review: "Changes",
 };
 
 /** Human labels for the preset shapes — the ▦ chip popover rows, the overflow
@@ -134,6 +144,7 @@ export const SURFACE_GLYPH: Record<SurfaceKind, string> = {
   web: "://",
   code: "{}",
   gui: "[]",
+  review: "+-",
 };
 
 /** The shape a layout collapses to when a tile leaves (3→2→1, R4/R7):
@@ -145,7 +156,7 @@ const COLLAPSE_SHAPE: Record<1 | 2, LayoutShape> = { 1: "single", 2: "split-h" }
  *  `split-h`, 2→3 is `main-left` (the incumbent slot-A tile stays dominant). */
 const GROWTH_SHAPE: Record<2 | 3, LayoutShape> = { 2: "split-h", 3: "main-left" };
 
-const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "code", "gui"];
+const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "code", "gui", "review"];
 
 function isSurfaceKind(value: string): value is SurfaceKind {
   return (SURFACE_KINDS as string[]).includes(value);
@@ -198,7 +209,9 @@ export function serializeLayout(layout: Layout): string {
  * not its presence). `web` is unconditional — the lens always exists;
  * `hasWebUrl` selects its content (onboarding vs live iframe), so the
  * degradation ladder never drops a web tile. `gui` is a per-HOST capability:
- * it lands last, iff the threaded host signal's `enabled` is true.
+ * it lands after web, iff the threaded host signal's `enabled` is true.
+ * `review` lands last (⌘5), iff the window's branch carries a PR — the
+ * surface is PR-backed only, so no PR means no tile at all.
  */
 export function availableTiles(
   win: ViewWindow | null | undefined,
@@ -208,6 +221,7 @@ export function availableTiles(
   if (hasCode(win)) tiles.push("code");
   tiles.push("web");
   if (hasGui(host)) tiles.push("gui");
+  if (hasReview(win)) tiles.push("review");
   return tiles;
 }
 

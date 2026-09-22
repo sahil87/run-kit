@@ -1,5 +1,5 @@
 ---
-description: "The internal/prstatus collector — a periodically refreshed in-memory cache of the current user's PR statuses over gh: the network-isolated three-layer split, branch-derived PR links and gitRoot keying, first-sight registration wake, host-qualified origin identity, the startup seed cache that is never a source of truth, account-switch invalidation, and stateless merged-PR durability."
+description: "The internal/prstatus collector — a periodically refreshed in-memory cache of the current user's PR statuses over gh: the network-isolated three-layer split, branch-derived PR links and gitRoot keying, first-sight registration wake, host-qualified origin identity, the startup seed cache that is never a source of truth, account-switch invalidation, stateless merged-PR durability, and the review-thread digest riding the same batched query for the PR-review listener and unread dot."
 type: memory
 ---
 # run-kit Architecture — PR Status Collector
@@ -62,6 +62,20 @@ Any freshly-derived write (gh result, fresh-index hit, default-branch exclusion)
 Exposed via the process-wide `DefaultBranchRefresher` (Started in `router.go` next to the collector) and the package-level `Register`/`SnapshotBranchPR` façade, `BranchPR` carries `Number`/`URL`/`State`/`UpdatedAt`/`IsDraft` (`State` drives precedence — parsed from the branch query's `state` field, compared case-insensitively, not surfaced further (260706-4h26-durable-merged-pr-register-keys); `IsDraft` is parsed from the same fallback query (260807-n927-branch-channel-draft-flag), seeding `WindowInfo.PrIsDraft` via `enrichWindowPR` — this author-agnostic channel is the ONLY one that sees a draft opened by someone other than the authenticated user, since the collector's `viewer { pullRequests }` query cannot.
 The **viewer head-index** path carries no draft flag, but it only ever resolves viewer-authored PRs, which the URL-keyed collector join then overrides with the authoritative `IsDraft` anyway — so the index path has no draft gap to close).
 See § Branch→PR Derivation
+
+## The Review-Thread Digest
+
+`prstatus_threads.go` is the DIGEST half of the same collector pass — the input to the PR-review comment listener and to the review toggle's unread dot. Full feature contract in [pr-review](/run-kit/pr-review.md).
+
+**It rides the existing batched query.** `ghQuery` selects `reviewThreads(first: 100) { nodes { id isResolved isOutdated path line comments(first: 1) { nodes { id databaseId author { login } reactions(content: EYES, first: 1) { totalCount } } } } }` inside the `pullRequests` node it already fetches, so the digest costs **zero additional `gh` subprocesses**. `refresh` rebuilds `threadsByURL map[string][]ReviewThread` wholesale in the SAME critical section that replaces `byURL`, so one snapshot always describes one batch.
+
+**`ReviewThread` carries only what two consumers need**: `ID`, `IsResolved`, `IsOutdated`, `Path`, `Line`, and the first comment's `FirstCommentID` / `FirstCommentDatabaseID` / `FirstCommentAuthor` / `HasEyes` (the database id is what the REST reactions route takes). Comment BODIES are deliberately absent — those live in `internal/prreview`, fetched on demand only while a review tile is mounted. `reviewThreadsFrom` skips a thread with no comments: it carries no marker target, so it can neither be claimed nor described to an agent.
+
+**`Unhandled(t) ≡ !t.IsResolved ∧ !t.IsOutdated ∧ !t.HasEyes`** is the eligibility predicate, read ACTOR-BLIND — no identity join, so a human's 👀 and the listener's own mean the same thing. `Collector.ReviewThreads(prURL)` returns a copy of the PR's digest; `Collector.UnhandledThreads(prURL)` returns the threads the predicate admits in gh's order (oldest first), so a review dispatches in the order it was written.
+
+**Why the split exists.** The digest and the detail have opposite cost profiles. Pulling full bodies into the batch would multiply its payload by comment count across a 100-PR window every 90 s; serving the listener from the on-demand fetcher would make the listener depend on a tile being open. Each package's doc comment states this, so neither reads as duplication of the other. Both take their gh-availability answer from `internal/ghprobe.Available`, so they cannot drift on what "gh is unavailable" means.
+
+**The SSE join.** `PRStatusSnapshotter` (the hub's injected interface) carries `UnhandledThreads` alongside `Snapshot`, because both are pure in-memory reads of one snapshot taken at the same moment. `sseHub.attachPRStatus` zeroes `WindowInfo.PrReviewUnhandled` on every pass and re-attaches `len(UnhandledThreads(prURL))` for any window carrying a PR URL — whether or not the status map itself holds an entry for it. The hot path stays subprocess-free.
 
 ## Design Decisions
 

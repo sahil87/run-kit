@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME; test-only RK_CONFIG_DIR override); the internal/settings registry and its 18-key inventory behind /api/settings; override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the rk-owned hash-stamped managed tmux.conf + `@rk_srv_managed`-gated reloads; breadcrumb migrations, ~/.rk tenants, cb/ + code/ + gui/ state tenants."
+description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME; test-only RK_CONFIG_DIR override); the internal/settings registry and its 19-key inventory behind /api/settings; override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the rk-owned hash-stamped managed tmux.conf + `@rk_srv_managed`-gated reloads; breadcrumb migrations, ~/.rk tenants, cb/ + code/ + gui/ state tenants."
 ---
 # Configuration
 
@@ -44,7 +44,7 @@ The path segment, worktree badge, and git branch are **read from daemon-stamped 
 
 Serialization stays hand-rolled (line-scanner parse + string-builder serialize — no yaml.v3) and byte-stable: tolerant reads per key (quote-strip, `validate.NormalizeColorValue`, flair-set membership, `strconv.ParseBool`, malformed-entry skip), omit-when-default/empty, nested sections with sorted map keys and quoted values. An untouched settings file round-trips byte-identically.
 
-The 18-key inventory:
+The 19-key inventory:
 
 | key | type | default | category | ui | live | notes |
 |---|---|---|---|---|---|---|
@@ -60,6 +60,7 @@ The 18-key inventory:
 | `riff_presets` | map[string]string | the three built-ins | behavior | no | yes | preset name → skill invocation for `rk riff <name>`; the user tier stores overrides/additions only (nil default — the section omits, so a file without it round-trips byte-identically); the built-ins (`discuss` → `/fab-discuss`, `incognito` → `/fab-incognito`, `blank` → `""` bare agent) live in the `BuiltinRiffPresets` code tier; the merged never-empty view is `RiffPresets`/`LoadRiffPresets` (built-ins first in canonical order, an override keeping `BuiltIn: true`, additions sorted); a name must be a strict identifier (`validate.ValidateIdentifier`) — skipped on parse, 400 on apply; empty value = bare agent (file-only — `mapValue`'s trimmed-empty-unsets contract makes override-to-bare inexpressible over HTTP) (see [rk-riff](/run-kit/rk-riff.md) § Presets) |
 | `auto_name` | bool | `false` | behavior | yes | yes | a settings POST rewires the hub's auto-name tracker live (see [architecture](/run-kit/architecture.md) § SSE Hub) |
 | `cron_ticker` | bool | `true` | behavior | yes | yes | gates the daemon cron ticker per iteration (see [cron](/run-kit/cron.md) § Daemon Ticker Invoker) |
+| `pr_review_listener` | bool | `true` | behavior | yes | yes | gates the PR-review comment listener on every SSE tick — armed tabs (`@rk_win_pr_listen`) have their unhandled review threads dispatched into their own agent. Shaped exactly like `cron_ticker` (tolerant `strconv.ParseBool` read, anything unparseable keeps the default ON — the safe direction for a loop with its own per-window arm switch; the line is omitted at the default so a file without it round-trips byte-identically). The tracker reads it through an injected `enabled func() bool` closing over `settings.Load()`, so a flip takes effect with no daemon restart (see [pr-review](/run-kit/pr-review.md) § Settings, Palette, and Chord) |
 | `easter_eggs` | bool | `true` | behavior | yes | yes | gates the screen-break eggs' AUTOMATIC occasions — read by the frontend on page load and mirrored live in the browser that flips it; the palette's Easter egg entries ignore it (see [screen-break-eggs](/run-kit/ui/screen-break-eggs.md)) (hn6s) |
 | `gui.enabled` | bool | `false` | behavior | yes | yes | the GUI surface switch — flat dotted YAML line, no env form; a settings POST ensures/kills the `rk-gui` session and flips the stream synchronously (see [gui](/run-kit/gui.md)) |
 | `gui.wm` | string | `""` | behavior | yes | no | pins the window manager the GUI supervisor starts; empty picks the first installed ladder rung (icewm-session → openbox → xfwm4 → i3 → kwin_x11 → x-session-manager); a session-starter pin (startlxqt, lxqt-session, startxfce4, xfce4-session, startplasma-x11, startlxde, mate-session, cinnamon-session, x-session-manager) runs under `dbus-run-session`; takes effect on `rk gui restart`; the registry description ends `Run rk gui wm --list for installed and installable desktops.`; settable three ways — the `rk gui wm` CLI verb (aliases `auto`/`icewm`/`lxqt`/`xfce`/`plasma`/`lxde`/`mate`/`cinnamon`, PATH check, `--restart` chaining, `--list`/`--json`), the Settings dialog, or hand-edited YAML; no env form (see [gui](/run-kit/gui.md)) (2jl3) (zsui) (91px) |

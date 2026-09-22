@@ -23,6 +23,7 @@ import (
 	"rk/internal/mcp"
 	"rk/internal/metrics"
 	"rk/internal/ports"
+	"rk/internal/prreview"
 	"rk/internal/prstatus"
 	"rk/internal/riff"
 	"rk/internal/sessions"
@@ -221,9 +222,17 @@ type Server struct {
 	metrics         *metrics.Collector
 	services        *ports.Collector
 	prStatus        *prstatus.Collector
-	updateChecker   *updatecheck.Checker
-	sseHub          *sseHub
-	sseOnce         sync.Once
+	// prReview is the review surface's on-demand detail fetcher and
+	// prReviewRefresh its per-PR forced-refresh choke point. Both are built
+	// lazily on first use (api/pr_review.go): a daemon whose user never opens a
+	// review tile allocates neither.
+	prReview            *prreview.Fetcher
+	prReviewOnce        sync.Once
+	prReviewRefresh     *prReviewRefreshState
+	prReviewRefreshOnce sync.Once
+	updateChecker       *updatecheck.Checker
+	sseHub              *sseHub
+	sseOnce             sync.Once
 	// attachReloaded guards the pre-attach managed-conf reload: at most one
 	// attempt per tmux server (keys are server names) per daemon lifetime.
 	// The entry is released on a managed-check read failure so a transient
@@ -336,6 +345,14 @@ func (s *Server) initSSEHub() {
 		s.sseHub.codeServerPort = s.codeServerPort
 		s.sseHub.getOperatorQueue().deliver = s.operatorQueueDeliver()
 		s.sseHub.setAutoName(s.autoNameEnabled, s.autoNameDeliver())
+		// PR-review comment listener seams. `enabled` is read at every tick so
+		// the pr_review_listener settings key takes effect live, exactly like
+		// cron_ticker.
+		listener := s.sseHub.getPRReviewListener()
+		listener.deliver = s.deliverPRReviewThread
+		listener.unhandled = s.prReviewUnhandled
+		listener.enabled = func() bool { return settings.Load().PrReviewListener }
+		listener.disarm = s.disarmPRReviewListener
 	})
 }
 
@@ -951,6 +968,15 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/tmux/reload-config", s.handleTmuxReloadConfig)
 	r.Post("/api/tmux/init-conf", s.handleTmuxInitConf)
 	r.Post("/api/status/refresh", s.handleStatusRefresh)
+	// The `review` surface (docs/specs/pr-review.md § R4). Reads GET, every
+	// mutation POST (Constitution IX); the file list and the file body are
+	// separate reads so a 200-file PR renders without tokenizing any of them.
+	r.Get("/api/pr/review", s.handlePRReview)
+	r.Get("/api/pr/review/file", s.handlePRReviewFile)
+	r.Post("/api/pr/review/comment", s.handlePRReviewComment)
+	r.Post("/api/pr/review/thread", s.handlePRReviewThread)
+	r.Post("/api/pr/review/listen", s.handlePRReviewListen)
+	r.Post("/api/pr/review/refresh", s.handlePRReviewRefresh)
 	r.Post("/api/update", s.handleUpdate)
 	r.Post("/api/updates/check", s.handleUpdatesCheck)
 	r.Post("/api/restart", s.handleRestart)

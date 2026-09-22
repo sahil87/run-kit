@@ -88,6 +88,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "code-toggle": "Digit2",
       "web-toggle": "Digit3",
       "gui-toggle": "Digit4",
+      "review-toggle": "Digit5",
       "zen-toggle": "Enter",
       "focus-hop": "Backquote",
       "terminal-find": "KeyF",
@@ -324,6 +325,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       ["tty-toggle", "Digit1", "tty"],
       ["web-toggle", "Digit3", "web"],
       ["gui-toggle", "Digit4", "gui"],
+      ["review-toggle", "Digit5", "chg"],
     ] as const) {
       expect(DEFAULT_BINDINGS.find((b) => b.actionId === id)).toMatchObject({
         actionId: id,
@@ -342,6 +344,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       ["code-toggle", "Digit2"],
       ["web-toggle", "Digit3"],
       ["gui-toggle", "Digit4"],
+      ["review-toggle", "Digit5"],
     ] as const) {
       expect(byId(resolved(SHELL_MAC), id)).toMatchObject({
         code,
@@ -364,7 +367,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
     }
     // Mac browser: ⌘1–9 are the browser's tab accelerators (the cmd-tier
     // claims) — all four resolve reserved and stay palette-reachable.
-    for (const id of ["tty-toggle", "code-toggle", "web-toggle", "gui-toggle"]) {
+    for (const id of ["tty-toggle", "code-toggle", "web-toggle", "gui-toggle", "review-toggle"]) {
       expect(byId(resolved(BROWSER_MAC), id)).toMatchObject({
         tier: "cmd",
         enabled: false,
@@ -830,6 +833,7 @@ describe("palette parity invariant", () => {
     "tty-toggle": ["tile-show-tty", "tile-hide-tty", "tile-focus-tty"],
     "web-toggle": ["tile-show-web", "tile-hide-web", "tile-focus-web"],
     "gui-toggle": ["tile-show-gui", "tile-hide-gui", "tile-focus-gui"],
+    "review-toggle": ["tile-show-review", "tile-hide-review", "tile-focus-review"],
     "gui-zoom-in": ["gui-zoom-in"], // GUI: Zoom in
     "gui-zoom-out": ["gui-zoom-out"], // GUI: Zoom out
     "gui-zoom-fit": ["gui-zoom-fit"], // GUI: Zoom to fit

@@ -10,6 +10,7 @@ function seams(): { seams: ReviewPaletteSeams; calls: string[] } {
     calls,
     seams: {
       toggleListen: record("toggleListen"),
+      toggleTree: record("toggleTree"),
       nextFile: record("nextFile"),
       previousFile: record("previousFile"),
       expandFocusedFile: record("expandFocusedFile"),
@@ -28,6 +29,7 @@ describe("buildReviewActions", () => {
     const ids = buildReviewActions(s, false).map((a) => a.id);
     expect(ids).toEqual([
       "review-listen",
+      "review-tree",
       "review-next-file",
       "review-previous-file",
       "review-expand-file",
@@ -54,6 +56,7 @@ describe("buildReviewActions", () => {
     }
     expect(calls).toEqual([
       "toggleListen",
+      "toggleTree",
       "nextFile",
       "previousFile",
       "expandFocusedFile",

@@ -10,12 +10,16 @@ import {
 import { controlClass } from "@/components/control";
 import { ReviewDiff } from "@/components/review-diff";
 import { ReviewFileRow } from "@/components/review-file-row";
+import { ReviewTree } from "@/components/review-tree";
 import { mergeContextRows } from "@/lib/review-rows";
+import { ancestorDirs, buildReviewTree } from "@/lib/review-tree";
 import {
   isUnhandled,
+  readTreeShown,
   readViewed,
   threadsForFile,
   unhandledCount,
+  writeTreeShown,
   writeViewed,
   type PendingReviewComment,
   type ReviewComment,
@@ -71,6 +75,7 @@ export interface ReviewSurfaceProps {
  *  (Constitution V). */
 export interface ReviewSurfaceCommands {
   toggleListen: () => void;
+  toggleTree: () => void;
   nextFile: () => void;
   previousFile: () => void;
   expandFocusedFile: () => void;
@@ -141,6 +146,19 @@ export function ReviewSurface({
   // their spans as they approach the viewport, and without a ceiling a fast
   // scroll through a large PR would queue one gh blob fetch per file at once.
   const spansInFlight = useRef(0);
+  // Tree posture is per-viewer and survives the mount; which directories are
+  // open is per-PR and deliberately does NOT, because a tree that reopens
+  // yesterday's folders on a different PR is noise.
+  const [treeShown, setTreeShown] = useState(readTreeShown);
+  const [openDirs, setOpenDirs] = useState<Set<string>>(() => new Set());
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+
+  const toggleTree = useCallback(() => {
+    setTreeShown((shown) => {
+      writeTreeShown(!shown);
+      return !shown;
+    });
+  }, []);
 
   // `seed` is true only for a fresh identity (mount, or a new PR). A
   // REVALIDATION must never re-seed: the reader's open/closed set and the
@@ -436,6 +454,7 @@ export function ReviewSurface({
     const focusedFile = () => files[Math.min(focused, files.length - 1)];
     commandsRef.current = {
       toggleListen: () => void setListening(!(doc?.listening ?? false)),
+      toggleTree,
       nextFile: () => setFocused((i) => Math.min(i + 1, Math.max(files.length - 1, 0))),
       previousFile: () => setFocused((i) => Math.max(i - 1, 0)),
       expandFocusedFile: () => {
@@ -485,6 +504,7 @@ export function ReviewSurface({
     resolve,
     setListening,
     toggleExpand,
+    toggleTree,
     toggleViewed,
   ]);
 
@@ -499,6 +519,39 @@ export function ReviewSurface({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- viewedTick is the
     // localStorage-write signal; it carries no value of its own.
   }, [doc, viewedTick]);
+
+  const tree = useMemo(() => buildReviewTree(files), [files]);
+  const unhandledByPath = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const thread of doc?.threads ?? []) {
+      if (!isUnhandled(thread)) continue;
+      counts.set(thread.path, (counts.get(thread.path) ?? 0) + 1);
+    }
+    return counts;
+  }, [doc]);
+
+  const toggleDir = useCallback((path: string) => {
+    setOpenDirs((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(path)) next.add(path);
+      return next;
+    });
+  }, []);
+
+  // Selecting in the tree scrolls the diff list to that file and focuses it —
+  // the tree navigates, it never opens or fetches. Expanding here would undo
+  // the reader's own collapse and cost a body they did not ask for.
+  const selectFile = useCallback(
+    (path: string) => {
+      setSelectedPath(path);
+      const index = files.findIndex((file) => file.path === path);
+      if (index >= 0) setFocused(index);
+      const container = scrollRef.current;
+      const row = container?.querySelector(`[data-review-path="${cssEscape(path)}"]`);
+      row?.scrollIntoView({ block: "start" });
+    },
+    [files],
+  );
 
   // Virtualization geometry: a spacer sized totalRows × rowHeight with only the
   // visible band (plus overscan) mounted, translated into place.
@@ -546,6 +599,16 @@ export function ReviewSurface({
           )}
           <button
             type="button"
+            aria-pressed={treeShown}
+            aria-label="Toggle the file tree"
+            title="File tree"
+            onClick={toggleTree}
+            className={controlClass({ variant: "chip", pressed: treeShown })}
+          >
+            🌲
+          </button>
+          <button
+            type="button"
             aria-pressed={doc.listening}
             aria-label="Listen for review comments"
             disabled={busy}
@@ -576,10 +639,30 @@ export function ReviewSurface({
         </div>
       )}
 
+      <div className="flex flex-1 min-h-0">
+        {treeShown && files.length > 0 && (
+          // Fixed width with its own scroller: the tree is a map, so it must not
+          // resize as the diff beside it grows, and `min-w-0` on the diff column
+          // is what stops a long unwrapped code line from pushing it off screen.
+          <div
+            data-testid="review-tree-panel"
+            className="w-56 shrink-0 border-r border-border-soft"
+          >
+            <ReviewTree
+              nodes={tree}
+              openDirs={openDirs}
+              selectedPath={selectedPath}
+              viewedPaths={viewedPaths}
+              unhandledByPath={unhandledByPath}
+              onToggleDir={toggleDir}
+              onSelectFile={selectFile}
+            />
+          </div>
+        )}
       <div
         ref={scrollRef}
         onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
-        className="flex-1 min-h-0 overflow-y-auto"
+        className="flex-1 min-w-0 min-h-0 overflow-y-auto"
       >
         {files.length === 0 ? (
           <SurfaceMessage testId="review-empty">this pull request changes no files</SurfaceMessage>
@@ -632,6 +715,7 @@ export function ReviewSurface({
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

@@ -563,6 +563,45 @@ test.describe("review surface", () => {
     const posted = JSON.parse(recorded.find((r) => r.url.includes("/listen"))!.body);
     expect(posted).toMatchObject({ window: "@1", listening: true });
   });
+
+  /**
+   * Proves: the changed files also render as a directory tree beside the diff,
+   * that the tree navigates without opening or fetching anything, and that the
+   * header toggle beside the listen control hides and restores it.
+   *
+   * Steps:
+   * 1. Open the review tile and assert the tree panel is present by default.
+   * 2. Assert single-child directory runs are collapsed into one row
+   *    (`app` branches, so `backend/api` and `frontend/src` are single rows).
+   * 3. Open a directory and click a file; assert it becomes the selected row.
+   * 4. Click the tree toggle and assert the panel goes away, then returns.
+   */
+  test("the file tree maps the PR and its toggle sits beside listen", async ({ page }) => {
+    await openReview(page, 1);
+
+    const panel = page.getByTestId("review-tree-panel");
+    await expect(panel).toBeVisible();
+
+    // `app` branches into two subtrees, so it keeps its own row; each branch
+    // then compresses to a single row rather than one indent per segment.
+    const dirs = page.getByTestId("review-tree-dir");
+    await expect(dirs.filter({ hasText: "app" }).first()).toBeVisible();
+
+    await dirs.filter({ hasText: "app" }).first().click();
+    await expect(page.getByTestId("review-tree-dir").filter({ hasText: "backend/api" })).toBeVisible();
+
+    await page.getByTestId("review-tree-dir").filter({ hasText: "backend/api" }).click();
+    const leaf = page.getByTestId("review-tree-file").filter({ hasText: "widget.go" }).first();
+    await leaf.click();
+    await expect(leaf).toHaveAttribute("aria-current", "true");
+
+    const toggle = page.getByRole("button", { name: "Toggle the file tree" });
+    await toggle.click();
+    await expect(panel).toHaveCount(0);
+    await toggle.click();
+    await expect(page.getByTestId("review-tree-panel")).toBeVisible();
+  });
+
 });
 
 test.describe("review listener arm state", () => {

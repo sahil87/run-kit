@@ -25,6 +25,7 @@ export type ReviewPaletteAction = {
  *  the palette needs so this module stays free of the component import graph. */
 export interface ReviewPaletteSeams {
   toggleListen: () => void;
+  toggleTree: () => void;
   nextFile: () => void;
   previousFile: () => void;
   expandFocusedFile: () => void;
@@ -36,17 +37,18 @@ export interface ReviewPaletteSeams {
 }
 
 /**
- * Build the nine `Review:` actions. Returns an empty array when the surface is
+ * Build the ten `Review:` actions. Returns an empty array when the surface is
  * not mounted (`seams` null) — the tile has to exist for any of these to mean
  * anything, and a palette entry that predictably no-ops is worse than an absent
  * one.
  *
- * `listening` only selects the toggle's LABEL, so the entry names the
- * destination state rather than the current one.
+ * `listening` and `treeShown` only select their toggle's LABEL, so each entry
+ * names the destination state rather than the current one.
  */
 export function buildReviewActions(
   seams: ReviewPaletteSeams | null,
   listening: boolean,
+  treeShown = true,
 ): ReviewPaletteAction[] {
   if (!seams) return [];
   const rows: [string, string, () => void][] = [
@@ -54,6 +56,11 @@ export function buildReviewActions(
       "review-listen",
       listening ? "Review: Stop listening for comments" : "Review: Listen for comments",
       seams.toggleListen,
+    ],
+    [
+      "review-tree",
+      treeShown ? "Review: Hide file tree" : "Review: Show file tree",
+      seams.toggleTree,
     ],
     ["review-next-file", "Review: Next file", seams.nextFile],
     ["review-previous-file", "Review: Previous file", seams.previousFile],

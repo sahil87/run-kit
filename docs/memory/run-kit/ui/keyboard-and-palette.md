@@ -1,5 +1,5 @@
 ---
-description: "Keyboard shortcuts: tiers, the e.code rule, defaults, restrictions, macros, overrides, claimed keys, the Shortcuts tab; palette mount + action registry — recovery, server lifecycle/color, operator requests, window identity, session sorting, cron clock, web zoom/tabs, Help topics, the GUI: family (toggle, desktop picker, launch/resolution/quality, fullscreen, zoom/pointer/lock/capture, stats, send key, logs, reconnect), the Code: follow/reload rows, the Review: family, Tab: Marker, Tab: Reopen closed, the Easter egg: pair."
+description: "Keyboard shortcuts: tiers, the e.code rule, defaults, restrictions, macros, overrides, claimed keys, the Shortcuts tab; palette mount + action registry — recovery, server lifecycle/color, operator requests, window identity, session sorting, cron clock, web zoom/tabs, Help topics, the GUI: family (toggle, desktop picker, launch/quality, fullscreen, zoom/lock/capture, stats, send key, logs), the Code: follow/reload rows, the Review: family, Tab: Marker, Tab: Reopen closed, the Easter egg: pair."
 type: memory
 ---
 # run-kit UI — Keyboard & Palette

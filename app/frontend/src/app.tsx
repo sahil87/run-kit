@@ -195,6 +195,7 @@ import { focusComposeStrip, openComposeRecall, runComposeToggleChord } from "@/l
 import { tileChordHandler } from "@/lib/tile-chord";
 import type { ReviewSurfaceCommands } from "@/components/review-surface";
 import { buildReviewActions } from "@/lib/palette/review";
+import { readTreeShown } from "@/lib/review";
 import { cycleWindowTarget, sessionJumpTarget } from "@/lib/window-cycle";
 import { registerWindowFocusRestorer } from "@/lib/sidebar-events";
 import {
@@ -4512,7 +4513,7 @@ function AppShell() {
   const reviewActions: PaletteAction[] = useMemo(
     () =>
       layout.order.includes("review") && reviewCommandsRef.current
-        ? buildReviewActions(reviewCommandsRef.current, reviewListening)
+        ? buildReviewActions(reviewCommandsRef.current, reviewListening, readTreeShown())
         : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the ref is
     // populated by the tile's own effect, so the layout/arm pair is what

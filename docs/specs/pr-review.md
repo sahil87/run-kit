@@ -313,6 +313,33 @@ reload after a mutation) MUST NOT re-seed: the open/closed set and the bodies
 already fetched are the reader's state, not the server's, and re-seeding would
 collapse the file someone was mid-comment in.
 
+### R6b — The file tree
+
+The changed files also render as a **directory tree** beside the diff, the shape
+VS Code's Pull Request view uses. A flat list of seventy paths is a wall; the
+same paths as a tree are a map.
+
+- **Navigation only.** Selecting a file scrolls the diff list to it and focuses
+  it. The tree never expands a file, fetches a body, or marks anything — it owns
+  no state the rows do not already own, so the two halves of the tile cannot
+  disagree.
+- **Single-child directory runs collapse into one row** (`app/backend/api`, not
+  three nested rows). A Go repository is mostly such runs, and an indent per
+  segment for a directory that branches nowhere buys only scrolling. A file's
+  ancestors are therefore NOT its path prefixes, which is why revealing a file
+  walks the built tree rather than splitting the string.
+- **No checkbox**, though the reference tree has one: the file rows already
+  carry a viewed checkbox, and two controls for one piece of state, both on
+  screen at once, is worse than the redundancy is useful. Viewed files dim.
+- Status is a second channel — ink on the filename *and* the letter — so a scan
+  separates new files from edits without reading every trailing glyph.
+- The toggle sits beside the listen control and is palette-reachable
+  (Constitution V). Whether the tree shows is a **viewing posture**: per-viewer
+  localStorage, and deliberately not keyed on the PR, because a reader who wants
+  the tree wants it on every PR. Which directories are open is per-PR and does
+  not persist — a tree that reopened yesterday's folders on a different PR is
+  noise.
+
 ### R7 — Virtualize the file list, not the diff body
 
 A single file's diff is bounded by that file, so an expanded file renders as

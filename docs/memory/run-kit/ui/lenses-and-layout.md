@@ -1,5 +1,5 @@
 ---
-description: "The window-view lens model (tty/web/code/gui/review), surface layouts, iframe/code/gui/review renderers. Web chrome + per-tab engine seam, address-bar ladder, draft tabs, FindBar, zoom, help topics; code workspace src map, code-root seed/follow + tile verbs, boot rescue, frame LRU; gui noVNC canvas, geometry resize, zoom/HiDPI, trackpad layer, key bar, toolbar fold, quality/stats; review diff rows, anchoring attrs, file-list virtualization, selection restore; tty progress/export; tile focus/steal seams."
+description: "The window-view lens model (tty/web/code/gui/review), surface layouts, and their renderers. Web chrome + per-tab engine seam, address-bar ladder, draft tabs, FindBar, zoom; code workspace src map, code-root seed/follow + tile verbs, boot rescue, frame LRU; gui noVNC canvas, geometry resize, zoom/HiDPI, key bar, toolbar fold, quality/stats; review diff rows, anchoring attrs, file-list virtualization, selection restore; tty progress/export; tile focus/steal seams."
 type: memory
 ---
 # run-kit UI — Lenses & Surface Layout

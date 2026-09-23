@@ -315,3 +315,28 @@ export function statusLabel(status: string): string {
       return "Modified";
   }
 }
+
+/**
+ * Whether the file tree shows. A viewing posture, not a fact about the PR, so
+ * it is per-viewer localStorage (Constitution IV's layering) and NOT keyed on
+ * the PR: a reader who wants the tree wants it on every PR, not once.
+ */
+const TREE_KEY = "rk-review-tree";
+
+/** Default ON: the tree is the point of having one, and it is one click away. */
+export function readTreeShown(): boolean {
+  try {
+    return localStorage.getItem(TREE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function writeTreeShown(shown: boolean): void {
+  try {
+    localStorage.setItem(TREE_KEY, shown ? "1" : "0");
+  } catch {
+    // Private windows and blocked site data are not errors — the tree simply
+    // forgets its posture between mounts.
+  }
+}

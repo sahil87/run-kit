@@ -509,6 +509,10 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 		"instance_color": stringValueFixture("5", "1+3", SetInstanceColor, GetInstanceColor),
 		"ssh_host":       stringValueFixture("devbox", "user@host", SetSSHHost, GetSSHHost),
 		"instance_name":  stringValueFixture("my-box", "dev mini", SetInstanceName, GetInstanceName),
+		"base_domain": registryValueFixture(
+			`"apps.example.com"`, ptr("apps.example.com"),
+			`"dev-ws-x.tail1.ts.net"`, ptr("dev-ws-x.tail1.ts.net"),
+			(*string)(nil)),
 		"auto_name":      registryValueFixture(`true`, true, `false`, false, false),
 		"cron_ticker":    registryValueFixture(`false`, false, `true`, true, true),
 		"easter_eggs":    registryValueFixture(`false`, false, `true`, true, true),
@@ -1290,5 +1294,21 @@ func TestStampUnreadablePrimaryFallsBackLikeLoad(t *testing.T) {
 	}
 	if strings.Contains(stamp, primary+":") {
 		t.Errorf("Stamp = %q fingerprints the unreadable primary %q", stamp, primary)
+	}
+}
+
+// TestValidateBaseDomain covers the own-origin base_domain shape check: empty is
+// valid (unset), a dotted hostname is accepted, and a bare word / space / scheme
+// is rejected.
+func TestValidateBaseDomain(t *testing.T) {
+	for _, ok := range []string{"", "apps.example.com", "dev-ws-x.tail1.ts.net", "a.b"} {
+		if msg := validateBaseDomain(ok); msg != "" {
+			t.Errorf("validateBaseDomain(%q) = %q, want accepted", ok, msg)
+		}
+	}
+	for _, bad := range []string{"localhost", "no-dot", "has space.com", "http://x.com", "trailing.", ".leading"} {
+		if msg := validateBaseDomain(bad); msg == "" {
+			t.Errorf("validateBaseDomain(%q) = accepted, want rejected", bad)
+		}
 	}
 }

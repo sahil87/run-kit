@@ -36,6 +36,50 @@ Applied in order to all `/api/*` routes:
 1. **CORS** — allow all origins, methods `GET POST OPTIONS`, headers `Accept Authorization Content-Type`, no credentials, 300s max-age
 2. **Request logger** — structured log to stderr
 3. **Panic recovery** — catches panics, returns 500
+4. **Own-origin host routing** — see below
+
+### Own-origin host routing (`rk present --app`)
+
+`rk present --app <:PORT|localhost URL>` serves a running dev app at its **own
+origin root** (not under the `/proxy/{port}/` path prefix), so a full SPA's
+client-side routing and root-absolute assets work unchanged. `--app` is valid
+only for a port / localhost-URL target (a file/dir/external target with `--app`
+is a usage error, exit 2); **without `--app` the output is byte-identical to
+today's `/proxy/{port}/`.**
+
+A middleware short-circuits a request whose `Host` identifies a presented app's
+port to a root reverse proxy for `127.0.0.1:{port}`, rewriting the upstream
+`Host` to the app's own loopback authority (so a Host-allowlisting dev server
+like Vite accepts it) and stripping `X-Frame-Options` / CSP `frame-ancestors`
+(so the dashboard tile can embed it). Two `Host` shapes carry the port:
+
+- **`{port}.{base}`** subdomain — `base` is `localhost` (zero-config over
+  loopback / an SSH tunnel; the browser resolves `*.localhost` to `127.0.0.1`)
+  or a configured `base_domain` (a hosted wildcard-DNS deployment).
+- **`{base_domain}:{port}`** authority — the **tailscale host-URL** form: when
+  the dashboard is reached by a `*.ts.net` MagicDNS name (no wildcard for a
+  subdomain), `tailscale serve --https={port}` publishes the app at that port
+  and preserves it in the forwarded `Host`. Gated on `base_domain` being
+  configured **and equal to the host**, with ports 80/443 excluded — so a bare
+  dashboard host (which carries no explicit app port) is never routed to a
+  loopback app, and the dashboard UI served over the same host URL is safe.
+
+The CLI stores the slot value as `app:{port}{/path}`; the **frontend mints the
+per-viewer src at render time** because the viewer's host is known only in the
+browser. Frontend auto-minting covers two viewer hosts: a `localhost` / `*.localhost`
+host → `{port}.{host}` subdomain, and a `*.ts.net` host → `{host}:{port}` (the
+tailscale port-authority form). Any other host → the `/proxy` fallback.
+
+`base_domain` is a config-registry key (default empty → only `*.localhost`); there
+is **no new environment variable**. The backend host router ALSO routes a
+configured wildcard `{port}.{base_domain}` subdomain, but the dashboard tile does
+not yet auto-mint that form (the frontend carries no `base_domain`), so on a
+hosted wildcard-DNS deployment the own-origin URL is reached by manual navigation,
+not tile-minting — a documented follow-up.
+
+**Documented limits (the tile falls back to `/proxy`, degraded for a full SPA):**
+Safari (does not auto-resolve `*.localhost`), a bare-IP dashboard host, and a
+hosted wildcard-DNS deployment (tile-minting not yet wired — see above).
 
 ---
 

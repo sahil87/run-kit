@@ -54,7 +54,7 @@ import {
 } from "@/lib/shell";
 import { isModalOpen, subscribe } from "@/lib/overlay-presence";
 import { useTileDragging } from "@/lib/tile-drag-context";
-import { toProxySrc } from "@/lib/web-url";
+import { appSrc, classifyAddress, toProxySrc } from "@/lib/web-url";
 import {
   tileErrorForGuestFailure,
   tileErrorForGuestResponse,
@@ -250,7 +250,13 @@ export function WebFrameNative({
     });
     let absoluteUrl: string;
     try {
-      absoluteUrl = new URL(toProxySrc(url), window.location.origin).href;
+      // Own-origin (`app`) tiles mint a per-viewer src; every other kind rides
+      // toProxySrc unchanged.
+      const rawSrc =
+        classifyAddress(url) === "app"
+          ? appSrc(url, window.location.host, window.location.protocol === "https:")
+          : toProxySrc(url);
+      absoluteUrl = new URL(rawSrc, window.location.origin).href;
     } catch {
       absoluteUrl = url;
     }

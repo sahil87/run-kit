@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { checkFrame } from "@/api/client";
-import { classifyAddress, proxyPortOf, toProxySrc } from "@/lib/web-url";
+import { appSrc, classifyAddress, proxyPortOf, toProxySrc } from "@/lib/web-url";
 import {
   applyHighlights,
   clearHighlights,
@@ -338,6 +338,14 @@ export function WebFrameIframe({
   // area; the iframe stays mounted (hidden) so its listeners survive and a
   // Retry needs no remount. Present/relative kinds never probe.
   const addressKind = classifyAddress(url);
+  // Own-origin (`app`) tiles mint a per-viewer src ({port}.{host} subdomain, the
+  // tailscale host-URL form, or a /proxy fallback) — run-kit strips the app's
+  // frame headers, so no frame-check refusal applies (the effect below treats
+  // `app` as the no-op else branch). Every other kind rides toProxySrc unchanged.
+  const frameSrc =
+    addressKind === "app"
+      ? appSrc(url, window.location.host, window.location.protocol === "https:")
+      : toProxySrc(url);
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
@@ -451,7 +459,7 @@ export function WebFrameIframe({
   return (
     <iframe
       ref={iframeRef}
-      src={toProxySrc(url)}
+      src={frameSrc}
       hidden={!active}
       className={`border-0 ${active && tileError ? "hidden" : ""}`}
       style={

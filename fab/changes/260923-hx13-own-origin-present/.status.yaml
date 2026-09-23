@@ -1,0 +1,55 @@
+id: hx13
+name: 260923-hx13-own-origin-present
+created: 2026-09-23T14:13:53Z
+created_by: ashish-kumar-noon
+change_type: feat
+issues: []
+progress:
+    intake: ready
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 13
+    acceptance_completed: 13
+confidence:
+    certain: 8
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 88.3
+        reversibility: 83.3
+        competence: 89.4
+        disambiguation: 86.1
+stage_metrics:
+    intake: {started_at: "2026-09-23T14:13:53Z", driver: fab-new, iterations: 1}
+    apply: {started_at: "2026-09-23T14:24:20Z", iterations: 1, completed_at: "2026-09-23T15:27:23Z"}
+    review: {started_at: "2026-09-23T15:27:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-23T15:38:57Z"}
+    hydrate: {started_at: "2026-09-23T15:38:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-23T15:41:23Z"}
+    ship: {started_at: "2026-09-23T15:41:23Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-23T15:41:23Z"
+    computed_at_stage: hydrate
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-23T15:41:23Z

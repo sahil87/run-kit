@@ -1441,10 +1441,12 @@ export function IframeWindow({
 }
 
 /** Tab-strip kind dot — the tile-header badge hues (green present / yellow
- *  proxy / blue external); the relative kind renders no dot. */
+ *  proxy / blue external / own-origin app rides the proxy hue); the relative
+ *  kind renders no dot. */
 const KIND_DOT_CLASS: Record<AddressKind, string> = {
   present: "bg-accent-green",
   proxy: "bg-signal-yellow",
+  app: "bg-signal-yellow",
   external: "bg-signal-blue",
   relative: "",
 };

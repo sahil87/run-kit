@@ -875,6 +875,10 @@ func (s *Server) buildRouter() chi.Router {
 	}))
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	// Own-origin present (R2/R3): short-circuit a "{port}.{base}" or
+	// "{base_domain}:{port}" Host to a root reverse proxy for that port. A bare
+	// dashboard host is untouched and falls through to the routes below.
+	r.Use(subdomainRoutingMiddleware)
 
 	// API routes
 	r.Get("/api/health", s.handleHealth)

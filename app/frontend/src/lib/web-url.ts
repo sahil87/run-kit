@@ -24,7 +24,7 @@
  * relative.
  */
 
-export type AddressKind = "present" | "proxy" | "external" | "relative";
+export type AddressKind = "present" | "proxy" | "external" | "relative" | "app";
 
 /** The document CustomEvent that focuses the web tile's address bar (R12):
  *  dispatched by the ⌘L chord handler and the `Web: Focus address bar`
@@ -85,6 +85,20 @@ function proxyPathPort(path: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** An own-origin (`rk present --app`) stored address: `app:{port}{/path}`. The
+ *  CLI stores this form so the frontend mints the app's own origin per viewer
+ *  (a `{port}.{host}` subdomain over loopback/tunnel, the `{host}:{port}`
+ *  form over a tailscale host URL, degrading to `/proxy`). */
+const APP_ADDR_RE = /^app:(\d+)(\/[^\s]*)?$/;
+
+/** The [port, path] of an `app:{port}{/path}` address, or null. Path defaults
+ *  to "/" when absent. */
+function appAddrParts(url: string): { port: number; path: string } | null {
+  const m = url.match(APP_ADDR_RE);
+  if (!m) return null;
+  return { port: Number(m[1]), path: m[2] && m[2] !== "" ? m[2] : "/" };
+}
+
 /** The label for a NEW-form directory present (empty path tail): the
  *  trailing-slash directory form serves the root's index.html, so that
  *  basename is the display — the raw hash segment must never surface as a
@@ -141,9 +155,47 @@ export function classifyAddress(url: string): AddressKind {
   if (abs) {
     return loopbackPortOf(abs) !== null ? "proxy" : "external";
   }
+  if (APP_ADDR_RE.test(url)) return "app";
   if (url.startsWith("/present/")) return "present";
   if (proxyPathPort(url) !== null) return "proxy";
   return "relative";
+}
+
+/**
+ * Mint the per-viewer iframe src for an own-origin (`app:{port}{/path}`)
+ * address, keyed on the host the viewer reached the dashboard by:
+ *
+ *  - localhost / *.localhost host → `{scheme}//{port}.{host}{path}` (subdomain,
+ *    zero-config over loopback / an SSH tunnel — the browser resolves
+ *    *.localhost to 127.0.0.1)
+ *  - *.ts.net host → `{scheme}//{hostname}:{port}{path}` (the tailscale host-URL
+ *    port-authority form the host router serves; MagicDNS has no wildcard for a
+ *    subdomain, so the port rides the authority)
+ *  - anything else → `/proxy/{port}{path}` (the universal same-origin fallback;
+ *    degraded for a full SPA, but always reachable)
+ *
+ * Pure and DOM-free (the module contract): `host` is the viewer's
+ * `location.host` and `secure` its `location.protocol === "https:"`.
+ */
+export function mintAppSrc(port: number, path: string, host: string, secure: boolean): string {
+  const norm = path && path.startsWith("/") ? path : `/${path ?? ""}`;
+  const scheme = secure ? "https:" : "http:";
+  const hostname = host.replace(/:\d+$/, "").toLowerCase();
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+    return `${scheme}//${port}.${host}${norm}`;
+  }
+  if (hostname.endsWith(".ts.net")) {
+    return `${scheme}//${hostname}:${port}${norm}`;
+  }
+  return `/proxy/${port}${norm}`;
+}
+
+/** Mint the iframe src for a stored `app:{port}{/path}` address (classifyAddress
+ *  === "app"), or return the input unchanged when it is not an app address. */
+export function appSrc(url: string, host: string, secure: boolean): string {
+  const parts = appAddrParts(url);
+  if (!parts) return url;
+  return mintAppSrc(parts.port, parts.path, host, secure);
 }
 
 /**
@@ -195,6 +247,10 @@ export function displayForm(url: string): string {
       }
       return url;
     }
+    if (kind === "app") {
+      const parts = appAddrParts(url);
+      if (parts) return `localhost:${parts.port}${parts.path}`;
+    }
     if (kind === "external") {
       const abs = parseHttpUrl(url);
       if (abs) return `${abs.host}${abs.pathname}${abs.search}${abs.hash}`;
@@ -235,6 +291,10 @@ export function webTabTitle(url: string): string {
         return `localhost:${port}${rest === "" ? "/" : rest}`;
       }
       return value;
+    }
+    if (kind === "app") {
+      const parts = appAddrParts(value);
+      if (parts) return `localhost:${parts.port}${parts.path}`;
     }
     if (kind === "external") {
       const abs = parseHttpUrl(value);

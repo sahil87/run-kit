@@ -1,0 +1,7 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-23T14:13:53Z"}
+{"args":"own-origin present (--app): serve dev app at its own origin root via *.localhost subdomain + tailscale host-URL port routing; no path-prefix breakage","cmd":"fab-new","event":"command","ts":"2026-09-23T14:13:53Z"}
+{"action":"enter","event":"stage-transition","stage":"apply","ts":"2026-09-23T14:24:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-23T15:27:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-23T15:38:57Z"}
+{"event":"review","result":"passed","ts":"2026-09-23T15:38:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-23T15:41:23Z"}

@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  appSrc,
   classifyAddress,
   displayForm,
   isAllowedUrl,
+  mintAppSrc,
   normalizeAddressInput,
   proxyPortOf,
   routeAddressSubmit,
@@ -10,6 +12,50 @@ import {
   toWebAddTarget,
   webTabTitle,
 } from "./web-url";
+
+describe("own-origin (--app) addresses", () => {
+  it("classifies app:{port}{/path} as the app kind", () => {
+    expect(classifyAddress("app:4295/")).toBe("app");
+    expect(classifyAddress("app:5173/file2/editor")).toBe("app");
+    expect(classifyAddress("app:4295")).toBe("app");
+    // not app: a real path or proxy form
+    expect(classifyAddress("/proxy/4295/")).toBe("proxy");
+    expect(classifyAddress("/app/thing")).toBe("relative");
+  });
+
+  it("displayForm / webTabTitle render app addresses like a loopback port", () => {
+    expect(displayForm("app:4295/file2/editor")).toBe("localhost:4295/file2/editor");
+    expect(webTabTitle("app:5173/")).toBe("localhost:5173/");
+  });
+
+  it("mintAppSrc: localhost/*.localhost → {port}.{host} subdomain", () => {
+    expect(mintAppSrc(4295, "/file2/editor", "localhost:3000", false)).toBe(
+      "http://4295.localhost:3000/file2/editor",
+    );
+    expect(mintAppSrc(4295, "/", "4295.localhost:3000".replace(/^\d+\./, ""), false)).toBe(
+      "http://4295.localhost:3000/",
+    );
+  });
+
+  it("mintAppSrc: *.ts.net → {host}:{port} port-authority (tailscale)", () => {
+    expect(mintAppSrc(4295, "/file2/editor", "dev-ws-x.tail1.ts.net", true)).toBe(
+      "https://dev-ws-x.tail1.ts.net:4295/file2/editor",
+    );
+  });
+
+  it("mintAppSrc: any other host → /proxy fallback", () => {
+    expect(mintAppSrc(4295, "/x", "1.2.3.4:3000", false)).toBe("/proxy/4295/x");
+    expect(mintAppSrc(4295, "/x", "apps.example.com", true)).toBe("/proxy/4295/x");
+  });
+
+  it("appSrc maps a stored app address through mintAppSrc, else passes through", () => {
+    expect(appSrc("app:4295/file2/editor", "localhost:3000", false)).toBe(
+      "http://4295.localhost:3000/file2/editor",
+    );
+    expect(appSrc("app:4295", "localhost:3000", false)).toBe("http://4295.localhost:3000/");
+    expect(appSrc("/proxy/4295/", "localhost:3000", false)).toBe("/proxy/4295/");
+  });
+});
 
 describe("classifyAddress (260819-v6y4 R3)", () => {
   it("classifies the intake's examples", () => {

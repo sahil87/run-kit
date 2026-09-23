@@ -36,6 +36,7 @@ const presentCmdTimeout = 5 * time.Second
 var (
 	presentWindowFlag string
 	presentNotifyFlag string
+	presentAppFlag    bool
 )
 
 var presentCmd = &cobra.Command{
@@ -78,6 +79,8 @@ func init() {
 	presentCmd.Flags().StringVar(&presentNotifyFlag, "notify", "",
 		"Send a Web Push after attaching (optional message; defaults to \"presenting <basename>\")")
 	presentCmd.Flags().Lookup("notify").NoOptDefVal = presentFlagAuto
+	presentCmd.Flags().BoolVar(&presentAppFlag, "app", false,
+		"Serve a port/localhost target at its own origin (a {port}.{host} subdomain, or the tailscale host-URL form; degrades to /proxy) so a full SPA's client-side routing and root-absolute assets work. Valid only for a :PORT or localhost URL target.")
 }
 
 // present*Fn are package-level seams so runPresent can be tested without a
@@ -115,6 +118,17 @@ func runPresent(cmd *cobra.Command, arg string) error {
 	target, err := present.ParseTargetWithOrigins(arg, cwd, []string{resolveOrigin(ctx)})
 	if err != nil {
 		return err
+	}
+
+	// --app is own-origin present: valid only for a port / localhost-URL target
+	// (those are the kinds that resolve to a loopback origin the frontend can
+	// mint). A file/dir/site-relative/external target with --app is a usage error
+	// (exit 2) that writes nothing.
+	if presentAppFlag {
+		if !target.NeedsProbe() { // KindPort || KindLocalURL
+			return usageError(fmt.Errorf("--app requires a :PORT or localhost URL target, not %s", target.Kind))
+		}
+		target.App = true
 	}
 
 	// Best-effort reachability probe for port/local-URL targets only.

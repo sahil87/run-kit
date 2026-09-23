@@ -13,7 +13,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 	infos := Registry()
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
-		"instance_name", "auto_name", "cron_ticker", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry",
+		"instance_name", "base_domain", "auto_name", "cron_ticker", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry",
 		"tmux_conf", "log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
 	}
 	if len(infos) != len(wantKeys) {

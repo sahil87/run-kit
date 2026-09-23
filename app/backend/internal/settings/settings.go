@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -54,6 +55,12 @@ type Settings struct {
 	// Empty means "unset": display surfaces derive the name from os.Hostname()
 	// (via /api/health `hostname`). Scalar, like InstanceColor.
 	InstanceName string
+	// BaseDomain is the wildcard base an own-origin (`rk present --app`) present
+	// mints per-port subdomains under ({port}.{BaseDomain}) when the dashboard is
+	// reached by a real hosted domain, and the own-host the tailscale host-URL
+	// port-authority route ({BaseDomain}:{port}) is gated on. Empty means "unset"
+	// (only *.localhost subdomains + the /proxy fallback). Scalar, like SSHHost.
+	BaseDomain string
 	// server name → color value descriptor ("4" for a single ANSI index,
 	// "1+3" for a two-hue blend). Stored as a string so a blend can round-trip;
 	// reads tolerate a legacy bare integer (normalized on load).
@@ -416,6 +423,15 @@ var registry = []registryEntry{
 		serialize: quotedScalar("instance_name", func(s *Settings) *string { return &s.InstanceName }),
 		read:      emptyableString(func(s *Settings) *string { return &s.InstanceName }),
 		apply:     validatedScalar(func(s *Settings) *string { return &s.InstanceName }, validate.ValidateInstanceName, ""),
+	},
+	{
+		key: "base_domain", kind: "string", def: "",
+		desc:     "Wildcard/own-host base domain for own-origin (`rk present --app`) presents ({port}.{base} subdomains, and the tailscale host-URL {base}:{port} route); empty leaves only *.localhost.",
+		category: "connectivity", ui: true, live: true,
+		parse:     quoteTrimmedScalar(func(s *Settings) *string { return &s.BaseDomain }),
+		serialize: quotedScalar("base_domain", func(s *Settings) *string { return &s.BaseDomain }),
+		read:      emptyableString(func(s *Settings) *string { return &s.BaseDomain }),
+		apply:     validatedScalar(func(s *Settings) *string { return &s.BaseDomain }, validateBaseDomain, ""),
 	},
 	{
 		key: "auto_name", kind: "bool", def: "false",
@@ -1192,6 +1208,30 @@ func GetInstanceName() *string {
 	}
 	return &s.InstanceName
 }
+
+// GetBaseDomain returns the configured own-origin base domain, or "" when unset
+// (the default — only *.localhost subdomains + the /proxy fallback).
+func GetBaseDomain() string {
+	return Load().BaseDomain
+}
+
+// validateBaseDomain admits an empty value (unset) or a dotted hostname
+// (letters, digits, hyphens, dots) — a lenient shape check, not a DNS
+// resolution. It returns "" on success and a one-line message otherwise, the
+// validatedScalar contract.
+func validateBaseDomain(v string) string {
+	if v == "" {
+		return ""
+	}
+	if !baseDomainPattern.MatchString(v) {
+		return "base_domain must be a hostname like apps.example.com"
+	}
+	return ""
+}
+
+// baseDomainPattern is a lenient dotted-hostname matcher (at least one dot;
+// letters/digits/hyphens per label).
+var baseDomainPattern = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$`)
 
 // SetInstanceName sets or clears the stored instance display-name override
 // (nil clears). Mirrors SetInstanceColor (load-then-save).

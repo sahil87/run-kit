@@ -97,6 +97,12 @@ type Target struct {
 	PathQuery string
 	// Verbatim is the original URL, attached unchanged, for KindExternalURL.
 	Verbatim string
+	// App marks an own-origin (`rk present --app`) present: the slot value is
+	// stored as the `app:{port}{path}` form instead of `/proxy/{port}…`, so the
+	// frontend mints the app's own origin per viewer ({port}.{host} subdomain, or
+	// the tailscale host-URL form, degrading to /proxy). Valid for KindPort /
+	// KindLocalURL only; ignored for every other kind.
+	App bool
 }
 
 // ParseTarget resolves one CLI argument to a Target. cwd is the base for
@@ -262,6 +268,9 @@ func (t Target) URL(server, root string, now func() int64) string {
 	case KindDir:
 		return PresentURL("", root, server, now)
 	case KindPort:
+		if t.App {
+			return fmt.Sprintf("app:%d/", t.Port)
+		}
 		return fmt.Sprintf("/proxy/%d/", t.Port)
 	case KindSiteRelative:
 		pq := t.PathQuery
@@ -273,6 +282,9 @@ func (t Target) URL(server, root string, now func() int64) string {
 		pq := t.PathQuery
 		if pq == "" || pq[0] != '/' {
 			pq = "/" + pq
+		}
+		if t.App {
+			return fmt.Sprintf("app:%d%s", t.Port, pq)
 		}
 		return fmt.Sprintf("/proxy/%d%s", t.Port, pq)
 	default: // KindExternalURL

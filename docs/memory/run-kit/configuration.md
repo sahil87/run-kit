@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME; test-only RK_CONFIG_DIR override); the internal/settings registry and its 18-key inventory behind /api/settings; override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the rk-owned hash-stamped managed tmux.conf + `@rk_srv_managed`-gated reloads; breadcrumb migrations, ~/.rk tenants, cb/ + code/ + gui/ state tenants."
+description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME; test-only RK_CONFIG_DIR override); the internal/settings registry and its 19-key inventory behind /api/settings; override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the rk-owned hash-stamped managed tmux.conf + `@rk_srv_managed`-gated reloads; breadcrumb migrations, ~/.rk tenants, cb/ + code/ + gui/ state tenants."
 ---
 # Configuration
 
@@ -54,6 +54,7 @@ The 18-key inventory:
 | `instance_color` | color descriptor | `""` | appearance | yes | yes | tolerant read via `validate.NormalizeColorValue` |
 | `instance_name` | string | `""` | identity | yes | yes | display-name override |
 | `ssh_host` | string | `""` | connectivity | yes | yes | the ONLY ssh-host surface — no env form exists |
+| `base_domain` | string | `""` | connectivity | yes | yes | own-origin (`rk present --app`) base domain — the `{port}.{base}` subdomain and tailscale `{base}:{port}` host-authority routing gate; empty leaves only `*.localhost`; no env form; validated as a dotted hostname (see [api-and-sockets](/run-kit/api-and-sockets.md) § Own-origin host routing) |
 | `server_colors` | map[string]string | `{}` | appearance | yes | yes | mapSection with color normalize |
 | `server_flairs` | map[string]string | `{}` | appearance | yes | yes | mapSection with flair-set membership normalize |
 | `board_order` | []string | `[]` | layout | yes | yes | listSection |

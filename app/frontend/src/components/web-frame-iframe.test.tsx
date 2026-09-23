@@ -126,6 +126,19 @@ describe("WebFrameIframe render + reporting", () => {
     expect(iframe.hasAttribute("hidden")).toBe(false);
   });
 
+  it("mints an own-origin (app:) src per viewer and embeds it without a refusal state", () => {
+    renderEngine({ url: "app:4295/file2/editor" });
+    const iframe = getIframe();
+    // localhost viewer host → {port}.localhost subdomain (mintAppSrc), NOT /proxy.
+    expect(iframe.src).toContain("4295.localhost");
+    expect(iframe.src).toContain("/file2/editor");
+    expect(iframe.src).not.toContain("/proxy/");
+    // app kind skips the cross-origin frame-check, so the tile embeds (not hidden
+    // by a refused error state).
+    expect(iframe.className).not.toContain("hidden");
+    expect(iframe.hasAttribute("hidden")).toBe(false);
+  });
+
   it("an inactive frame renders hidden with the plain style regardless of zoom", () => {
     renderEngine({ url: "http://localhost:8080/docs", active: false, zoom: 1.25 });
     const iframe = getIframe();

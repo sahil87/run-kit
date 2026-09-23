@@ -291,6 +291,28 @@ func TestTargetURL_presentForms(t *testing.T) {
 
 // TestTargetURL_rePresentBumpsOnlyV pins the refresh-verb contract: two
 // invocations of the same file target differ ONLY in the v= value.
+// TestTargetURL_App proves --app (own-origin) stores the `app:{port}{path}` form
+// for port / local-URL targets, and no --app is byte-identical to the /proxy form.
+func TestTargetURL_App(t *testing.T) {
+	pt := Target{Kind: KindPort, Port: 4295}
+	if u := pt.URL("dev", "", fixedNow); u != "/proxy/4295/" {
+		t.Errorf("no --app port URL = %q, want /proxy/4295/", u)
+	}
+	pt.App = true
+	if u := pt.URL("dev", "", fixedNow); u != "app:4295/" {
+		t.Errorf("--app port URL = %q, want app:4295/", u)
+	}
+
+	lt := Target{Kind: KindLocalURL, Port: 5173, PathQuery: "/file2/editor"}
+	if u := lt.URL("dev", "", fixedNow); u != "/proxy/5173/file2/editor" {
+		t.Errorf("no --app local URL = %q, want /proxy/5173/file2/editor", u)
+	}
+	lt.App = true
+	if u := lt.URL("dev", "", fixedNow); u != "app:5173/file2/editor" {
+		t.Errorf("--app local URL = %q, want app:5173/file2/editor", u)
+	}
+}
+
 func TestTargetURL_rePresentBumpsOnlyV(t *testing.T) {
 	tgt := Target{Kind: KindFile, Root: "/x", Name: "a b.html"}
 	first := tgt.URL("dev", "/x", func() int64 { return 100 })

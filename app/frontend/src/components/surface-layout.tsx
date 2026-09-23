@@ -1011,6 +1011,10 @@ export function SurfaceLayout({
   // src has resolved and its code tile is open — a pending tile has no frame
   // and never counts toward the cap.
   const [codeFrames, setCodeFrames] = useState<CodeFrameRecord[]>([]);
+  // Committed-records mirror for effects that decide outside a `setCodeFrames`
+  // updater (the eviction reconciliation) — updaters must stay pure.
+  const codeFramesRef = useRef<CodeFrameRecord[]>(codeFrames);
+  codeFramesRef.current = codeFrames;
   const codeFrameCap = isMobile ? CODE_FRAME_CAP_MOBILE : CODE_FRAME_CAP_DESKTOP;
   const activeCodeSrc = codeSrcFor?.(windowId) ?? null;
   const activeCodeRoot = codeRootFor(win);
@@ -1140,16 +1144,24 @@ export function SurfaceLayout({
   // records first — the active window's record is protected even when its
   // code tile is closed (a closed tile keeps its frame counted, and the
   // show-bookkeeping effect can't bump it to the tail while it is).
+  //
+  // The `setCodeFrames` updater MUST stay pure: React may invoke it more
+  // than once for a single update (StrictMode double-invocation, or the
+  // eager-then-render path). A pending-target deletion inside it made the
+  // second pass see the target already consumed and classify the follow's
+  // own latch write as an external divergence — evicting the live frame the
+  // follow was meant to keep. So the decision reads a SNAPSHOT of the
+  // pending targets, the consumption is applied once in the effect body from
+  // the committed records (`codeFramesRef`), and the updater only maps
+  // `prev` through the same pure decision.
   useEffect(() => {
-    setCodeFrames((prev) => {
-      if (prev.length === 0 || !codeReachable) {
-        // No live frames — every pending target is stale (a follow implies a
-        // mounted frame, hence a record).
-        pendingCodeFollowRef.current.clear();
-        return codeReachable ? prev : [];
-      }
+    const pendingSnapshot = new Map(pendingCodeFollowRef.current);
+    const reconcile = (
+      prev: CodeFrameRecord[],
+    ): { next: CodeFrameRecord[]; changed: boolean; consumed: string[] } => {
       let next = prev;
       let changed = false;
+      const consumed: string[] = [];
       if (liveWindowIds) {
         next = next.filter((r) => liveWindowIds.has(r.windowId));
       }
@@ -1157,21 +1169,19 @@ export function SurfaceLayout({
         const reconciled: CodeFrameRecord[] = [];
         for (const r of next) {
           const current = codeRootForWindow(r.windowId);
+          const pending = pendingSnapshot.get(r.windowId);
           if (current === "" || current === r.root) {
             // A pending target the current root already satisfies IS the
             // follow's own write arriving after the nonce moved the baseline
-            // — consume it here so a later same-folder update can't inherit it.
-            if (current !== "" && pendingCodeFollowRef.current.get(r.windowId) === current) {
-              pendingCodeFollowRef.current.delete(r.windowId);
-            }
+            // — consume it so a later same-folder update can't inherit it.
+            if (current !== "" && pending === current) consumed.push(r.windowId);
             reconciled.push(r);
             continue;
           }
-          const pending = pendingCodeFollowRef.current.get(r.windowId);
           if (pending === current) {
             // The follow's own latch write (payload-first ordering): move the
             // baseline in place, keep the frame, consume the target.
-            pendingCodeFollowRef.current.delete(r.windowId);
+            consumed.push(r.windowId);
             reconciled.push({ ...r, root: current });
             changed = true;
             continue;
@@ -1199,12 +1209,28 @@ export function SurfaceLayout({
         });
         changed = true;
       }
-      // Targets whose record is gone (evicted above) are stale: a later
-      // same-folder update must never inherit one as a follow.
-      for (const id of pendingCodeFollowRef.current.keys()) {
-        if (!next.some((r) => r.windowId === id)) pendingCodeFollowRef.current.delete(id);
-      }
-      return changed || next.length !== prev.length ? next : prev;
+      return { next, changed: changed || next.length !== prev.length, consumed };
+    };
+
+    const committed = codeFramesRef.current;
+    if (committed.length === 0 || !codeReachable) {
+      // No live frames — every pending target is stale (a follow implies a
+      // mounted frame, hence a record).
+      pendingCodeFollowRef.current.clear();
+      if (!codeReachable) setCodeFrames((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
+    // Side effects once, from the committed records; then the pure write.
+    const decided = reconcile(committed);
+    for (const id of decided.consumed) pendingCodeFollowRef.current.delete(id);
+    // Targets whose record is gone (evicted above) are stale: a later
+    // same-folder update must never inherit one as a follow.
+    for (const id of pendingCodeFollowRef.current.keys()) {
+      if (!decided.next.some((r) => r.windowId === id)) pendingCodeFollowRef.current.delete(id);
+    }
+    setCodeFrames((prev) => {
+      const d = reconcile(prev);
+      return d.changed ? d.next : prev;
     });
   }, [codeReachable, liveWindowIds, codeRootForWindow, codeFrameCap, windowId]);
 

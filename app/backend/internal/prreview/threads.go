@@ -12,6 +12,18 @@ import (
 // login on the node the query already selects. The digest counterpart lives in
 // internal/prstatus and carries only what the listener's predicate needs — see
 // this package's doc comment for why the two are separate.
+// GitHub prices a GraphQL query on the `first:` values a query DECLARES, not on
+// the rows it returns — the cost of this one is (threads x comments)/100 + 1
+// whether the PR has five threads or five hundred. At `comments(first: 100)`
+// that was 101 points EVERY time the tile mounted, measured: a page reload cost
+// ~100 points and ~36 reloads exhausted the 5,000/hour budget, which is what
+// took the whole PR-status join down with it.
+//
+// Thread coverage is kept wide and the COMMENT bound is the one that gives:
+// a missing thread is feedback the reader never sees, while a thread past its
+// twentieth comment is one nobody is reading in a side panel. 100 x 20 costs
+// 21 — a 5x cut for a truncation that effectively never fires. The listener is
+// unaffected either way: its 👀 marker rides the FIRST comment.
 const threadsQuery = `query($owner: String!, $repo: String!, $number: Int!) {
   viewer { login }
   repository(owner: $owner, name: $repo) {
@@ -25,7 +37,7 @@ const threadsQuery = `query($owner: String!, $repo: String!, $number: Int!) {
           line
           startLine
           diffSide
-          comments(first: 100) {
+          comments(first: 20) {
             nodes {
               id
               databaseId

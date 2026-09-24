@@ -817,3 +817,29 @@ func TestEagerBudgetShipsReadableRows(t *testing.T) {
 		t.Errorf("eager rows carry %q — an expanded file must not render blank", text)
 	}
 }
+
+// GitHub bills a GraphQL query on the `first:` values it DECLARES, not the rows
+// it returns, so a nested connection's bound is a fixed per-call price:
+// (threads x comments)/100 + 1. At comments(first: 100) this query cost 101
+// points on every tile mount — a page reload spent ~100 and ~36 reloads
+// exhausted the hourly budget, taking the whole PR-status join with it.
+//
+// Measured against the live API while fixing it:
+//
+//	threads:100 comments:100 -> 101    threads:100 comments:20 -> 21
+//	threads:100 comments:10  ->  11    threads: 50 comments:20 -> 11
+func TestThreadsQueryBoundsTheNestedCommentConnection(t *testing.T) {
+	if strings.Contains(threadsQuery, "comments(first: 100)") {
+		t.Error("comments(first: 100) costs 101 points per mount — bound it; " +
+			"the price is declared, not measured, so a small PR pays it too")
+	}
+	if !strings.Contains(threadsQuery, "comments(first: 20)") {
+		t.Error("the comment bound moved; keep it small and say why in the query comment")
+	}
+	// Thread coverage stays wide on purpose: a truncated thread list hides
+	// feedback entirely, where a truncated comment list hides the tail of a
+	// conversation nobody reads in a side panel.
+	if !strings.Contains(threadsQuery, "reviewThreads(first: 100)") {
+		t.Error("thread coverage narrowed — a missing thread is invisible feedback")
+	}
+}

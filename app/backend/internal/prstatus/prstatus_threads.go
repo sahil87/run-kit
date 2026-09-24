@@ -161,15 +161,17 @@ type ghThreadResponse struct {
 func defaultThreadExec(ctx context.Context, ids []string) ([]byte, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, ghTimeout)
 	defer cancel()
-	vars, err := json.Marshal(ids)
-	if err != nil {
-		return nil, err
+	// One `-f ids[]=<id>` per id. gh builds a JSON ARRAY from the repeated
+	// `key[]=` form; passing a marshalled array as a single --raw-field sends it
+	// as a STRING, and GitHub then tries to resolve one node whose global id is
+	// the literal `["PR_...","PR_..."]` — it answers NOT_FOUND with nodes:[null]
+	// and the digest silently returns nothing forever.
+	args := []string{"api", "graphql", "-f", "query=" + threadQuery}
+	for _, id := range ids {
+		args = append(args, "-f", "ids[]="+id)
 	}
-	cmd := exec.CommandContext(queryCtx, "gh", "api", "graphql",
-		"-f", "query="+threadQuery,
-		"--raw-field", "ids="+string(vars),
-		"-F", "threads="+itoa(threadDigestPerPR),
-	)
+	args = append(args, "-F", "threads="+itoa(threadDigestPerPR))
+	cmd := exec.CommandContext(queryCtx, "gh", args...)
 	return cmd.Output()
 }
 

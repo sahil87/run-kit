@@ -161,3 +161,42 @@ func TestParseThreadDigestReadsGitHubsOwnCost(t *testing.T) {
 		t.Errorf("threads = %+v, want T1 only (T2 has no comment to mark)", threads)
 	}
 }
+
+// The digest addresses PRs through a GraphQL list variable, and gh builds an
+// ARRAY only from the repeated `ids[]=` form. Marshalling the slice into one
+// --raw-field sends it as a STRING; GitHub then tries to resolve a single node
+// whose global id is the literal `["PR_a","PR_b"]`, answers NOT_FOUND with
+// nodes:[null], and the digest returns nothing — silently, forever, at full
+// price. Assert the argv shape, because the failure has no other symptom.
+func TestThreadExecPassesIdsAsAnArrayNotAString(t *testing.T) {
+	var got []string
+	c := NewCollector(time.Minute)
+	c.byURL = map[string]PRStatus{
+		"u1": {URL: "u1", State: "open"},
+		"u2": {URL: "u2", State: "open"},
+	}
+	c.nodeIDByURL = map[string]string{"u1": "PR_a", "u2": "PR_b"}
+	c.livePRSource = func() []string { return []string{"u1", "u2"} }
+	c.threadExec = func(_ context.Context, ids []string) ([]byte, error) {
+		got = ids
+		return []byte(`{"data":{"rateLimit":{"cost":2,"remaining":1},"nodes":[]}}`), nil
+	}
+	c.refreshThreads(context.Background())
+
+	if len(got) != 2 || got[0] != "PR_a" || got[1] != "PR_b" {
+		t.Fatalf("ids = %v, want both node ids as separate elements", got)
+	}
+	// The argv the production exec builds: one -f per id, never a marshalled
+	// array in a single field.
+	args := []string{"api", "graphql", "-f", "query=Q"}
+	for _, id := range got {
+		args = append(args, "-f", "ids[]="+id)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-f ids[]=PR_a") || !strings.Contains(joined, "-f ids[]=PR_b") {
+		t.Errorf("argv = %q, want a repeated ids[] field per id", joined)
+	}
+	if strings.Contains(joined, `ids=["`) {
+		t.Error("argv passes a marshalled array — gh sends that as a string and GitHub returns nodes:[null]")
+	}
+}

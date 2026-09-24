@@ -711,3 +711,33 @@ func TestEagerBudgetExpandsThePrefixAndCollapsesTheRest(t *testing.T) {
 		}
 	})
 }
+
+// A gh failure must never reach the tile's banner as a runtime string. The
+// timeout case is the one that bit: exec.CommandContext SIGKILLs on a deadline,
+// the process dies before writing stderr, and Go's "signal: killed" was being
+// rendered verbatim to the reader.
+func TestGhFailuresAreClassifiedNotLeaked(t *testing.T) {
+	t.Run("rate limit is its own sentinel — the remedy is time, not retry", func(t *testing.T) {
+		for _, stderr := range []string{
+			"gh: API rate limit exceeded for user ID 301235013.",
+			"You have exceeded a secondary rate limit",
+			"was submitted too quickly",
+		} {
+			if !isRateLimit(stderr) {
+				t.Errorf("isRateLimit(%q) = false", stderr)
+			}
+		}
+		if isRateLimit("gh: Not Found") {
+			t.Error("isRateLimit matched an unrelated failure")
+		}
+	})
+
+	t.Run("firstLine keeps a banner to one line", func(t *testing.T) {
+		if got := firstLine("boom\nusage: gh api\n  --method"); got != "boom" {
+			t.Errorf("firstLine = %q, want the first line only", got)
+		}
+		if got := firstLine(""); got != "no output" {
+			t.Errorf("firstLine(empty) = %q", got)
+		}
+	})
+}

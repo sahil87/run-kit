@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
@@ -113,8 +114,16 @@ func writePRReviewError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "Window has no pull request")
 	case errors.Is(err, prreview.ErrUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "gh is unavailable")
+	case errors.Is(err, prreview.ErrTimeout):
+		writeError(w, http.StatusGatewayTimeout, "GitHub took too long to respond — try again")
+	case errors.Is(err, prreview.ErrRateLimited):
+		writeError(w, http.StatusTooManyRequests,
+			"GitHub API rate limit exceeded — this resets hourly")
 	default:
-		writeError(w, http.StatusBadGateway, err.Error())
+		// The detail is for the log, NOT the banner: it is a subprocess error,
+		// and the reader can do nothing with "signal: killed" or "exit status 1".
+		slog.Warn("pr review: gh failed", "err", err)
+		writeError(w, http.StatusBadGateway, "Could not reach GitHub")
 	}
 }
 

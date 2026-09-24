@@ -63,6 +63,18 @@ var ErrNoPR = errors.New("window has no pull request")
 // posture prstatus takes.
 var ErrUnavailable = errors.New("gh is unavailable")
 
+// ErrTimeout is returned when a gh call outlived ghTimeout. exec.CommandContext
+// SIGKILLs on a context deadline, and Go stringifies that as "signal: killed" —
+// a message that is true, useless to a reader, and was reaching the tile's error
+// banner verbatim. Classify it here so the surface can say what actually
+// happened.
+var ErrTimeout = errors.New("github timed out")
+
+// ErrRateLimited is returned when gh reports an exhausted API budget. It is
+// worth its own sentinel because the remedy is time, not retry: nothing the
+// reader does will help until the window rolls over.
+var ErrRateLimited = errors.New("github rate limit exceeded")
+
 // PRRef is a pull request's identity parsed out of its canonical URL. The host
 // is carried because a GHE remote resolves through the same gh binary with a
 // --hostname flag.
@@ -387,6 +399,26 @@ func applyEagerBudget(files []FileEntry) {
 	}
 }
 
+// isRateLimit matches gh's own wording for an exhausted budget. Both the
+// primary hourly limit and the secondary abuse limit say "rate limit", and both
+// mean the same thing to a reader: wait.
+func isRateLimit(stderr string) bool {
+	lower := strings.ToLower(stderr)
+	return strings.Contains(lower, "rate limit") || strings.Contains(lower, "was submitted too quickly")
+}
+
+// firstLine keeps an error one line long. gh prints multi-line help after some
+// failures, and none of it belongs in a banner.
+func firstLine(s string) string {
+	if s == "" {
+		return "no output"
+	}
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return s
+}
+
 // defaultGhExec runs one gh invocation with an explicit argv slice under
 // ghTimeout. `stdin`, when non-nil, is the request body — the ONLY channel
 // user-authored prose ever takes (Constitution I).
@@ -402,10 +434,20 @@ func defaultGhExec(ctx context.Context, stdin []byte, args ...string) ([]byte, e
 	out, err := cmd.Output()
 	if err != nil {
 		msg := strings.TrimSpace(stderr.String())
+		// Deadline first: a killed process usually never got to write stderr,
+		// which is exactly how a bare "signal: killed" used to escape to the UI.
+		if callCtx.Err() != nil {
+			return nil, fmt.Errorf("%w after %s: %v", ErrTimeout, ghTimeout, firstLine(msg))
+		}
+		if isRateLimit(msg) {
+			return nil, fmt.Errorf("%w: %s", ErrRateLimited, firstLine(msg))
+		}
 		if msg != "" {
 			return nil, fmt.Errorf("gh: %s", msg)
 		}
-		return nil, err
+		// Still no stderr and no deadline — a signal or a non-zero exit with a
+		// silent gh. Say so in words rather than leaking the runtime's string.
+		return nil, fmt.Errorf("gh exited without output: %v", err)
 	}
 	return out, nil
 }

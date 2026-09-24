@@ -17,8 +17,8 @@
 > entirely — but its two findings still bind: the comment layer is
 > highlighting-neutral, and token colour has to survive the diff tint.
 >
-> Requirement numbering here (R1–R7) is local to this spec and unrelated to
-> `surface-layout.md`'s.
+> Requirement numbering here (R1–R7, with R3a / R6a / R6b inserted as the
+> design learned) is local to this spec and unrelated to `surface-layout.md`'s.
 >
 > Companions: [`surface-layout.md`](surface-layout.md) (the tile model, the
 > surface registry, and its view-state test — this spec adds one kind and
@@ -114,21 +114,73 @@ comment it reads as duplication.
 
 | | Digest | Detail |
 |---|---|---|
-| Lives in | `internal/prstatus` (existing batch) | `internal/prreview` (new) |
-| Cadence | every 90 s, every PR the viewer owns | on demand, only while a tile is mounted |
-| Carries | `id`, `isResolved`, `isOutdated`, `path`, `line`, first comment's `id` + `author.login` + `reactions(content: EYES)` | file list, patches, full thread bodies |
+| Lives in | `internal/prstatus` (its own scoped query) | `internal/prreview` |
+| Cadence | every 3 min, only PRs live windows resolve to | on demand, only while a tile is mounted |
+| Carries | `id`, `isResolved`, `isOutdated`, `path`, `line`, first comment's `id` + `author.login` + `reactions(content: EYES)` | file list, patches, thread bodies |
 | Keyed by | PR URL | `(prURL, headSha)`; the token cache beneath it keys `(blobSha, path)` — R5 |
-| Extra `gh` calls | **none** — rides the existing `viewer.pullRequests` query | one per mount, plus one per blob (shared between context expansion and lexing) |
+| **GraphQL points** | ~2–6 per pass | ~21 per mount |
 
 Pulling full bodies into the batch would multiply the payload by comment count
 across a 100-PR window every 90 s. Serving the listener from the detail
 fetcher would make the listener depend on a tile being open. Hence both.
+
+> The digest rode the viewer-wide `viewer.pullRequests` batch in an earlier
+> draft, on the reasoning that doing so cost **no additional `gh` call**. That
+> was true, and it is the wrong unit — see § GraphQL Cost. It is now a scoped
+> `nodes(ids:)` query over the live set.
 
 `internal/prreview` carries the posture `prstatus` already proves: single-flight
 `refreshMu` held across the whole pass including subprocesses, a separate `mu`
 guarding the map for readers that never spans a subprocess,
 stale-while-revalidate on error, an injectable availability gate, and
 `exec.CommandContext` with explicit argv slices under a 10 s timeout.
+
+### R3a — GraphQL cost is DECLARED, not measured
+
+Every query this surface sends is priced by GitHub on the `first:` values it
+**declares**, not on the rows it returns. A nested connection is therefore a
+fixed per-call price, paid identically by a PR with five threads and one with
+five hundred:
+
+```
+cost ≈ (outer first × inner first) / 100 + 1
+```
+
+Measured against the live API, one PR:
+
+| query | cost |
+|---|---|
+| `reviewThreads(first: 100)` × `comments(first: 100)` | **101** |
+| `reviewThreads(first: 100)` × `comments(first: 20)` | **21** |
+| `reviewThreads(first: 100)` × `comments(first: 10)` | 11 |
+| `reviewThreads(first: 50)` × `comments(first: 20)` | 11 |
+| `reviewThreads(first: 30)` × `comments(first: 10)` | 3 |
+| a query with no nested connection (file list, PR meta, `gh pr list`) | 1 |
+
+**This is the rule that cost an account.** The detail query shipped at
+`comments(first: 100)`, so every tile mount spent 101 points; a page reload
+spent ~106, ~36 reloads exhausted the 5 000/hour budget, and because the same
+budget carries the PR-status join, a review-surface feature took checks, review
+decision and draft state down with it across the whole app.
+
+Three rules follow, and all three are load-bearing:
+
+1. **Never reason about cost in `gh` calls.** "It rides an existing call, so it
+   is free" is true of subprocesses and false of points. Counting subprocesses
+   is what hid this for so long: ~9 calls per reload looked far too cheap to be
+   spending 100 points, because *one* of them declared a 10 000-node product.
+2. **Bound every nested connection, and bound the INNER one first.** A
+   truncated thread *list* hides feedback the reader never learns exists; a
+   thread truncated past its twentieth comment hides the tail of a conversation
+   nobody reads in a side panel. So thread coverage stays wide and comments give.
+3. **Select `rateLimit { cost remaining }` on any polled query** and log it. The
+   regression was invisible until the account died; GitHub's own accounting is
+   one field away and is the only trustworthy source.
+
+On which: **`gh api rate_limit` misreports both buckets.** It read
+`graphql: 0/5000 remaining` while GraphQL was fully exhausted, and `core: 0`
+while the REST header said 355. Only `rateLimit { }` *inside* a GraphQL query,
+and the `X-RateLimit-*` response headers for REST, are truthful.
 
 ### R4 — Every mutation is a POST; every body goes over stdin
 

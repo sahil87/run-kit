@@ -100,10 +100,13 @@ func TestPRReviewListServesFilesThreadsAndViewer(t *testing.T) {
 	if len(body.Threads) != 1 || body.Threads[0].ID != "T1" || len(body.Threads[0].Comments) != 1 {
 		t.Errorf("threads = %+v", body.Threads)
 	}
-	// The list response carries NO file body — a 200-file PR must render its
-	// list without tokenizing anything.
-	if strings.Contains(rec.Body.String(), `"rows"`) {
-		t.Error("the list response carried diff rows; the file body is a separate read")
+	// The list DOES carry structure for the files inside the eager budget — that
+	// is what lets the tile open expanded on one request (§ R6a), and it is free
+	// because the patch is already in the cached document. What it must never
+	// carry is SPANS: tokenizing a 200-file PR at mount is the cost the whole
+	// digest/detail split exists to avoid, and colour is a viewport-driven read.
+	if strings.Contains(rec.Body.String(), `"spans"`) {
+		t.Error("the list response carried token spans; colour is a separate, viewport-driven read")
 	}
 	if body.Listening {
 		t.Error("listening = true; the fixture window is disarmed")

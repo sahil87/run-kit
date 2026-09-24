@@ -37,10 +37,11 @@ var shapeArity = map[string]int{
 // spec'd-but-unshipped surfaces (desktop, agents) are rejected until the
 // frontend ships them, and extending the registry is appending one entry.
 var surfaceKinds = map[string]bool{
-	"tty":  true,
-	"web":  true,
-	"code": true,
-	"gui":  true,
+	"tty":    true,
+	"web":    true,
+	"code":   true,
+	"gui":    true,
+	"review": true,
 }
 
 // Parse validates "<shape>:<a>,<b>[,<c>]" and returns the Layout. Untrusted

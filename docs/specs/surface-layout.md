@@ -23,7 +23,10 @@
 > here), [`right-panel.md`](right-panel.md) (surfaces, companions —
 > P6 and the panel-slot mechanics are superseded here; availability,
 > companions, and P4 carry forward; the rail did NOT survive —
-> `260815-19me` moved its toggles into the top bar), [`agent-state.md`](agent-state.md),
+> `260815-19me` moved its toggles into the top bar),
+> [`pr-review.md`](pr-review.md) (the `review` kind — it owns that surface's
+> availability, rendering and listener; the tile model and the surface registry
+> stay here), [`agent-state.md`](agent-state.md),
 > [`status-pyramid.md`](status-pyramid.md) (untouched — status describes
 > substrates, never tiles).
 
@@ -86,7 +89,8 @@ board).
 ### One tile per surface kind (v1)
 
 The layout encoding names surface *kinds* (`tty`, `code`, `web`, `gui`,
-`agents`); content rides the substrate's content signal (`@rk_win_url` etc. —
+`agents`, `review`); content rides the substrate's content signal (`@rk_win_url`
+etc. —
 for `web` a content *selector*, not an availability gate: the `web` surface
 is always tileable like `tty`, and an empty/whitespace `@rk_win_url` renders
 the tile's onboarding content state while a non-empty one renders the live
@@ -94,7 +98,10 @@ page through the web tile's engine (iframe or native — window-views.md §
 Engines; § The View Registry).
 `gui` has no content selector in v1 — the tile shows the host's screen; a
 per-session display option becomes the selector only if per-session GUIs ever
-land ([`gui.md`](gui.md)). Two `web`
+land ([`gui.md`](gui.md)). `review` is the one kind with a content signal that
+is also its AVAILABILITY gate: it is PR-backed only, so the window's
+branch-derived `prUrl` both selects the pull request and decides whether the
+tile exists at all ([`pr-review.md`](pr-review.md) § R1–R2). Two `web`
 tiles with different pages would push content addresses into per-viewer state,
 crossing R7 — punted.
 

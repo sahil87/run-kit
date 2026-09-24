@@ -152,6 +152,12 @@ const WebActiveOption = "@rk_win_web_active"
 // later change).
 const CodeRootOption = "@rk_win_code_root"
 
+// PrListenOption arms the PR-review comment listener for a window: "1" armed,
+// unset disarmed. Per-window because the unit of work is a branch, and SHARED
+// across viewers because arming is a fact about the work rather than a viewing
+// posture (spec pr-review.md § The Listener → Arm state).
+const PrListenOption = "@rk_win_pr_listen"
+
 // ErrWebTabsFull is returned by WebAdd when the window already carries
 // MaxWebTabs tabs and the URL is new; api maps it to 409.
 var ErrWebTabsFull = errors.New("web tabs full")
@@ -871,12 +877,26 @@ type WindowInfo struct {
 	// the collector only sees the authenticated user's own PRs, so a teammate's
 	// draft reaches the client solely via that seed. Both layers are populated
 	// outside this package.
+	// PrListen is the @rk_win_pr_listen arm for the PR-review comment
+	// listener: true only for the exact value "1" (an unrecognized value fails
+	// CLOSED — the listener delivers work into an agent pane). It rides the
+	// window payload so the SSE tick can advance the listener without a
+	// subprocess, and so every viewer sees the same arm state.
+	PrListen  bool    `json:"prListen,omitempty"`
 	PrURL     *string `json:"prUrl,omitempty"`
 	PrNumber  *int    `json:"prNumber,omitempty"`
 	PrState   string  `json:"prState,omitempty"`
 	PrChecks  string  `json:"prChecks,omitempty"`
 	PrReview  string  `json:"prReview,omitempty"`
 	PrIsDraft bool    `json:"prIsDraft,omitempty"`
+	// PrReviewUnhandled is the count of review threads the listener's
+	// eligibility predicate admits — !resolved ∧ !outdated ∧ !👀 — from the same
+	// collector digest the listener reads. Collector-join-owned like
+	// PrChecks/PrReview (reset then re-attached on a snapshot hit), so the
+	// review toggle's dot means "threads are waiting on a human" for a CLOSED
+	// tile too: without it the dot could only report tile-reported counts and
+	// would sit lit on availability alone.
+	PrReviewUnhandled int `json:"prReviewUnhandled,omitempty"`
 	// PrFetchedAt is when the joined PR status was last fetched by the viewer-wide
 	// collector (prstatus.PRStatus.FetchedAt). Collector-join-owned like
 	// PrChecks/PrReview: set on a URL-keyed snapshot hit, reset to nil on a miss.
@@ -1627,39 +1647,47 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			}
 		}
 
+		// PrListen (idx 23) arms the PR-review comment listener. Only the exact
+		// "1" arms: the listener delivers work into an agent pane, so an
+		// unrecognized value fails CLOSED.
+		var prListen bool
+		if len(parts) >= 24 {
+			prListen = strings.TrimSpace(parts[23]) == "1"
+		}
+
 		// Note is free text ("<epoch>:<text>"), NOT a closed set — no value
 		// validation. Dual-read: the new note is a strict single field (idx
-		// 23 — joining is WRONG for it) and wins when non-empty; the legacy
+		// 24 — joining is WRONG for it) and wins when non-empty; the legacy
 		// note is the format's last column, so its tail is rejoined to survive
 		// tabs inside the text. Tolerant epoch split: a non-numeric prefix
 		// keeps the whole value as text with epoch 0.
 		var note string
 		var noteEpoch int64
 		var rawNote string
-		if len(parts) >= 24 {
-			rawNote = parts[23]
+		if len(parts) >= 25 {
+			rawNote = parts[24]
 		}
-		// Retired @rk_win_url (idx 24) is the dual-read fallback for an empty
+		// Retired @rk_win_url (idx 25) is the dual-read fallback for an empty
 		// slot 1: external writers may still stamp it live, where the
 		// once-per-server sweep cannot see it, so the family surfaces it as web_1
 		// with the active pointer defaulted — the same shape a first WebAdd
 		// produces. Compat until the cleanup change removes the fallback.
-		if len(webTabs) == 0 && len(parts) >= 25 {
-			if legacyURL := strings.TrimSpace(parts[24]); legacyURL != "" {
+		if len(webTabs) == 0 && len(parts) >= 26 {
+			if legacyURL := strings.TrimSpace(parts[25]); legacyURL != "" {
 				webTabs = []string{legacyURL}
 				webActive = 1
 			}
 		}
-		// Retired @rk_win_lens (idx 25): "iframe" was the web default-view hint;
+		// Retired @rk_win_lens (idx 26): "iframe" was the web default-view hint;
 		// with @rk_win_layout unset it reads as the single:web layout the
 		// migration row would write — the same live-stamp dual-read as web_1.
-		if layout == "" && len(parts) >= 26 {
-			if legacyLens := strings.TrimSpace(parts[25]); legacyLens == "iframe" {
+		if layout == "" && len(parts) >= 27 {
+			if legacyLens := strings.TrimSpace(parts[26]); legacyLens == "iframe" {
 				layout = layoutspecSingleWeb
 			}
 		}
-		if rawNote == "" && len(parts) >= 27 {
-			rawNote = strings.Join(parts[26:], listDelim)
+		if rawNote == "" && len(parts) >= 28 {
+			rawNote = strings.Join(parts[27:], listDelim)
 		}
 		if rawNote != "" {
 			note, noteEpoch = parseNoteValue(rawNote)
@@ -1683,6 +1711,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			Role:              role,
 			Flair:             flair,
 			Owner:             owner,
+			PrListen:          prListen,
 			Note:              note,
 			NoteEpoch:         noteEpoch,
 		})
@@ -1763,6 +1792,10 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{"+RoleOption+"}",
 		"#{"+FlairOption+"}",
 		"#{"+OwnerOption+"}",
+		// The PR-review listener arm rides the payload rather than a per-window
+		// option read: the listener advances on the SSE tick, which must stay
+		// subprocess-free.
+		"#{"+PrListenOption+"}",
 		// The new note is a strict single field (write-side validation strips
 		// control chars). legacyWinURLOption is the retired @rk_win_url, dual-read
 		// as a web_1 fallback and legacyWinLensOption the retired @rk_win_lens,

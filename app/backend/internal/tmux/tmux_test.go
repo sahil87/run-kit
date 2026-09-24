@@ -910,9 +910,10 @@ func TestParseWindowsOwner(t *testing.T) {
 	}
 
 	// The tail-last invariant: an owner field present AND a legacy note with
-	// tabs still rejoins intact.
+	// tabs still rejoins intact. The four empties after owner are
+	// @rk_win_pr_listen, @rk_win_note, @rk_win_url and @rk_win_lens.
 	line := windowLineOwner("@0", 0, "a", "/p", fakeNow, 1, "zsh", "operator") +
-		listDelim + "" + listDelim + "" + listDelim + "" + listDelim + "123:two\tpart\tnote"
+		listDelim + "" + listDelim + "" + listDelim + "" + listDelim + "" + listDelim + "123:two\tpart\tnote"
 	got := parseWindows([]string{line}, fakeNow)
 	if len(got) != 1 {
 		t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
@@ -925,8 +926,8 @@ func TestParseWindowsOwner(t *testing.T) {
 	}
 }
 
-// windowLineNote builds a 24-field tab-delimited tmux line whose note rides
-// the NEW @rk_win_note field (idx 23 — a strict single field; every
+// windowLineNote builds a 25-field tab-delimited tmux line whose note rides
+// the NEW @rk_win_note field (idx 24 — a strict single field; every
 // presentation field before it left empty). The legacy-note tail rejoin is
 // exercised by the dual-read test instead.
 func windowLineNote(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, note string) string {
@@ -942,6 +943,7 @@ func windowLineNote(windowID string, index int, name, path string, activityTs in
 		"",   // @rk_win_role
 		"",   // @rk_win_flair
 		"",   // @rk_win_owner
+		"",   // @rk_win_pr_listen
 		note, // @rk_win_note (new, strict single field)
 	}, listDelim)
 }
@@ -982,7 +984,7 @@ func TestParseWindowsNote(t *testing.T) {
 // windowLineNoteDualRead builds a full 26-field line (plus the legacy-note
 // tail) with both halves of the note dual-read pair placed explicitly: the NEW
 // note as a strict single field at idx 23, and the legacy note appended LAST
-// (idx 26+ — tail-rejoined, so tabs in its text survive). Idx 24/25 are the
+// (idx 27+ — tail-rejoined, so tabs in its text survive). Idx 25/26 are the
 // retired @rk_win_url / @rk_win_lens dual-read fallbacks (left empty here).
 func windowLineNoteDualRead(newNote, legacyNote string) string {
 	fields := []string{
@@ -996,6 +998,7 @@ func windowLineNoteDualRead(newNote, legacyNote string) string {
 		"",      // @rk_win_role
 		"",      // @rk_win_flair
 		"",      // @rk_win_owner
+		"",      // @rk_win_pr_listen
 		newNote, // @rk_win_note (new — strict single field)
 		"",      // @rk_win_url (retired dual-read fallback — empty here)
 		"",      // @rk_win_lens (retired dual-read fallback — empty here)
@@ -1056,7 +1059,7 @@ func TestParseWindowsNoteDualRead(t *testing.T) {
 }
 
 // windowLineLegacyURL builds a full 26-field line with the retired @rk_win_url
-// (idx 24) set to legacyURL, the retired @rk_win_lens (idx 25) empty, and the
+// (idx 25) set to legacyURL, the retired @rk_win_lens (idx 26) empty, and the
 // indexed web slots empty.
 func windowLineLegacyURL(legacyURL string) string {
 	fields := []string{
@@ -1070,6 +1073,7 @@ func windowLineLegacyURL(legacyURL string) string {
 		"",        // @rk_win_role
 		"",        // @rk_win_flair
 		"",        // @rk_win_owner
+		"",        // @rk_win_pr_listen
 		"",        // @rk_win_note
 		legacyURL, // @rk_win_url (retired dual-read fallback)
 		"",        // @rk_win_lens (retired dual-read fallback)
@@ -1085,7 +1089,7 @@ func TestParseWindowsLegacyLensFallback(t *testing.T) {
 	withLens := func(layout, lens string) string {
 		parts := strings.Split(windowLineLegacyURL(""), listDelim)
 		parts[8] = layout
-		parts[25] = lens
+		parts[26] = lens
 		return strings.Join(parts, listDelim)
 	}
 	cases := []struct {

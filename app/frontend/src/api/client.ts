@@ -1,4 +1,5 @@
 import type { ProjectSession } from "@/types";
+import type { ReviewDocument, ReviewFileBody, ReviewSide } from "@/lib/review";
 
 export type { ProjectSession };
 
@@ -2005,4 +2006,127 @@ export async function deleteCron(server: string, id: string): Promise<{ ok: bool
   });
   if (!res.ok) await throwOnError(res);
   return res.json();
+}
+
+// ── the `review` surface (docs/specs/pr-review.md § R4) ─────────────────────
+//
+// Reads GET, every mutation POST (Constitution IX). The file LIST and the file
+// BODY are separate reads on purpose: a 200-file PR renders its list without
+// tokenizing any of them.
+
+/** GET /api/pr/review — the tile's mount payload: file list, threads, viewer
+ *  login and the listener arm. Carries no file body. */
+export async function fetchPRReview(
+  server: string,
+  windowId: string,
+  signal?: AbortSignal,
+): Promise<ReviewDocument> {
+  const res = await fetch(
+    withServer(`/api/pr/review?window=${encodeURIComponent(windowId)}`, server),
+    { signal },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/**
+ * GET /api/pr/review/file — one file's rows as per-line token spans.
+ *
+ * Without `start` the response carries the file's PATCH rows (its hunks); with
+ * it, post-image lines `start..start+count-1` as context rows (the `↕ All N
+ * lines` / `↑ 5 lines` expanders), served from the same cached blob the lexer
+ * uses.
+ */
+export async function fetchPRReviewFile(
+  server: string,
+  windowId: string,
+  path: string,
+  range?: { start: number; count: number },
+): Promise<ReviewFileBody> {
+  const params = new URLSearchParams({ window: windowId, path });
+  if (range) {
+    params.set("start", String(range.start));
+    params.set("count", String(range.count));
+  }
+  const res = await fetch(withServer(`/api/pr/review/file?${params.toString()}`, server));
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** A new line-anchored comment, or — with `replyTo` — a reply on an existing
+ *  thread. `mode` is "single" (posts now; the only mode the listener can
+ *  dispatch on) or "review" (appends to the viewer's pending review, invisible
+ *  to gh until submitted). */
+export interface PRReviewCommentRequest {
+  window: string;
+  body: string;
+  replyTo?: number;
+  path?: string;
+  line?: number;
+  startLine?: number;
+  side?: ReviewSide;
+  mode?: "single" | "review";
+}
+
+/** POST /api/pr/review/comment. */
+export async function postPRReviewComment(
+  server: string,
+  request: PRReviewCommentRequest,
+): Promise<{ status: string }> {
+  const res = await fetch(withServer("/api/pr/review/comment", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** POST /api/pr/review/thread — resolve / unresolve. */
+export async function postPRReviewThread(
+  server: string,
+  windowId: string,
+  threadId: string,
+  resolved: boolean,
+): Promise<{ resolved: boolean }> {
+  const res = await fetch(withServer("/api/pr/review/thread", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ window: windowId, threadId, resolved }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** POST /api/pr/review/listen — arm / disarm the comment listener. The arm is
+ *  the `@rk_win_pr_listen` window option, so every viewer sees the flip. */
+export async function postPRReviewListen(
+  server: string,
+  windowId: string,
+  listening: boolean,
+): Promise<{ listening: boolean }> {
+  const res = await fetch(withServer("/api/pr/review/listen", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ window: windowId, listening }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** POST /api/pr/review/refresh — the same tri-state 202 as
+ *  `/api/status/refresh`: the body reports the fate, never completion. */
+export async function postPRReviewRefresh(
+  server: string,
+  windowId: string,
+): Promise<{ status: RefreshStatusOutcome }> {
+  const res = await fetch(
+    withServer(`/api/pr/review/refresh?window=${encodeURIComponent(windowId)}`, server),
+    { method: "POST" },
+  );
+  if (!res.ok) await throwOnError(res);
+  const body = (await res.json().catch(() => ({}))) as { status?: string };
+  const status =
+    body.status === "coalesced" || body.status === "throttled" ? body.status : "started";
+  return { status };
 }

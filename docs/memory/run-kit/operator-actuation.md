@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Operator messaging into the server's operator window over three lanes: direct chat (compose-send allow+probe), templated chat (`chatDelivery` templates — one addressee header + the user's text in a bare fence, busy gate and queue skipped in the shared core), and templated requests (busy ⇒ enqueue 202, drained on idle). Covers the closed template registry, fact derivation with best-effort transcript fill, the server-derived `conversationAvailable` gate, structured 409s, auto-name dispatch, and the `rk operator request` CLI door (`--list`, pre-flight checks, `queued` receipt)."
+description: "Operator messaging into the server's operator window over three lanes: direct chat (compose-send allow+probe), templated chat (`chatDelivery` — one addressee header + the user's text in a bare fence), and templated requests (busy ⇒ enqueue 202, drained on idle). Covers the closed template registry and its agent-directed siblings, fact derivation with transcript fill, the `conversationAvailable` gate, structured 409s, auto-name dispatch, and the `rk operator request` CLI door."
 ---
 # Operator Actuation
 
@@ -140,6 +140,8 @@ undecodable body (400).
 - **WHEN** the handler runs
 - **THEN** it returns `400` with a `writeError` JSON body and performs no
   session fetch and no tmux call.
+
+**The registry is closed to CLIENT-SELECTABLE ids, not to agent-directed payloads.** `operatorTemplates` is the complete set of ids a client may request — every entry is published through `OperatorTemplateList()` / `rk operator request --list`, and its fields (`requiresAgentSessionRef`, `acceptsText`, `serverScoped`, `requiresWaiting`, `acceptsSession`, `chatDelivery`) are all about the operator-request route. A **server-initiated, subject-addressed** payload is a SIBLING of that map rather than a row in it: it carries no registry id, because a row would publish a template no client may request and would force an exclusion flag onto every existing entry. The shipped sibling is `pr-review-thread` (`api/pr_review_listener.go`'s `renderPRReviewThread`, addressed to the subject window's own agent — [pr-review](/run-kit/pr-review.md) § The Listener). What a sibling DOES borrow is this registry's rule — plain string composition, never `text/template`, so a fact cannot silently become a directive — and the `acceptsText` dynamic bare fence for user prose.
 
 ### Requirement: The `rk operator request` verb — the CLI door onto the request lane
 `rk operator request <template> [--window @N] [--text <t>] [--session <s>] [-L

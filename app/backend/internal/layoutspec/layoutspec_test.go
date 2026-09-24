@@ -265,8 +265,34 @@ func TestZeroLayoutReadsAsDefault(t *testing.T) {
 	}
 }
 
+// The review kind is the arity-neutral registry addition: it parses and
+// round-trips like any other surface, and the 3-tile cap still refuses a
+// fourth tile (Constitution IV).
+func TestReviewSurfaceKind(t *testing.T) {
+	l, err := Parse("split-h:tty,review")
+	if err != nil {
+		t.Fatalf("Parse(split-h:tty,review): %v", err)
+	}
+	if got := l.String(); got != "split-h:tty,review" {
+		t.Errorf("round-trip = %q", got)
+	}
+	if !l.Has("review") {
+		t.Error("Has(review) = false")
+	}
+	three, err := Add(l, "code")
+	if err != nil {
+		t.Fatalf("Add(code): %v", err)
+	}
+	if _, err := Add(three, "gui"); !errors.Is(err, ErrLayoutFull) {
+		t.Errorf("Add on 3 tiles: err = %v, want ErrLayoutFull", err)
+	}
+	if _, err := Add(l, "review"); !errors.Is(err, ErrSurfaceRepeat) {
+		t.Errorf("Add(review) twice: err = %v, want ErrSurfaceRepeat", err)
+	}
+}
+
 func TestIsSurface(t *testing.T) {
-	for _, kind := range []string{"tty", "web", "code", "gui"} {
+	for _, kind := range []string{"tty", "web", "code", "gui", "review"} {
 		if !IsSurface(kind) {
 			t.Errorf("IsSurface(%q) = false", kind)
 		}

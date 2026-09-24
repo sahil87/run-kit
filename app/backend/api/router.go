@@ -775,6 +775,24 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 
 	pc.Start(ctx)
 
+	// The thread digest's SCOPE guard (spec pr-review.md § R3): threads are
+	// fetched only for the PRs live windows actually resolve to, never for the
+	// viewer's 100 most recent. Both consumers — the listener's predicate and
+	// the toggle's dot — are per-window questions, so the viewer-wide shape was
+	// paying ~40x for an answer nobody asked. PositiveEntries IS that live set:
+	// the pairs the refresher resolved for observed panes.
+	pc.SetLivePRSource(func() []string {
+		entries := prstatus.DefaultBranchRefresher.PositiveEntries()
+		urls := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			if entry.PR.URL != "" {
+				urls = append(urls, entry.PR.URL)
+			}
+		}
+		return urls
+	})
+	pc.StartThreads(ctx, prstatus.DefaultThreadInterval)
+
 	// Branch→PR refresher: resolves observed (repo, branch) pairs
 	// to their open PR on a background tick so the SSE hot path (which only
 	// registers pairs + joins the snapshot) never spawns gh. Started next to the

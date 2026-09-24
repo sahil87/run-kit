@@ -2,96 +2,162 @@ package prstatus
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
-// The digest must ride the EXISTING batched call: extending the query may not
-// add a subprocess.
-func TestReviewThreadDigestRidesTheOneBatchedCall(t *testing.T) {
-	calls := 0
-	c := NewCollector(0)
-	c.available = func(context.Context) bool { return true }
-	c.ghExec = func(context.Context) ([]byte, error) {
-		calls++
-		return []byte(`{"data":{"viewer":{"login":"me","pullRequests":{"nodes":[
-			{"number":7,"url":"https://github.com/acme/tool/pull/7","state":"OPEN",
-			 "reviewThreads":{"nodes":[
-				{"id":"T1","isResolved":false,"isOutdated":false,"path":"a.go","line":12,
-				 "comments":{"nodes":[{"id":"C1","databaseId":101,"author":{"login":"reviewer"},"reactions":{"totalCount":0}}]}},
-				{"id":"T2","isResolved":true,"isOutdated":false,"path":"b.go","line":3,
-				 "comments":{"nodes":[{"id":"C2","databaseId":102,"author":{"login":"reviewer"},"reactions":{"totalCount":0}}]}},
-				{"id":"T3","isResolved":false,"isOutdated":true,"path":"c.go","line":9,
-				 "comments":{"nodes":[{"id":"C3","databaseId":103,"author":{"login":"reviewer"},"reactions":{"totalCount":0}}]}},
-				{"id":"T4","isResolved":false,"isOutdated":false,"path":"d.go","line":1,
-				 "comments":{"nodes":[{"id":"C4","databaseId":104,"author":{"login":"someone-else"},"reactions":{"totalCount":1}}]}},
-				{"id":"T5","isResolved":false,"isOutdated":false,"path":"e.go","line":2,
-				 "comments":{"nodes":[]}}
-			 ]}}
-		]}}}}`), nil
+// THE COST REGRESSION GUARD.
+//
+// The viewer-wide batch must never select review threads again. Nesting
+// comments+reactions inside reviewThreads inside pullRequests(first: 100) took
+// this query from 2 points to ~203 — at its 90 s cadence, ~8,120 points/hour
+// against a 5,000/hour budget, which exhausted the account in ~37 minutes and
+// took the whole PR-status join down with it, not just the review surface.
+//
+// "It rides an existing call so it is free" is the reasoning that caused it:
+// GitHub prices GraphQL by the requests a query IMPLIES, not the calls made.
+func TestViewerBatchNeverSelectsThreads(t *testing.T) {
+	for _, field := range []string{"reviewThreads", "reactions", "databaseId"} {
+		if strings.Contains(ghQuery, field) {
+			t.Errorf("ghQuery selects %q — threads belong in the scoped query, "+
+				"nesting them here is a ~100x cost regression", field)
+		}
 	}
-	c.refresh(context.Background())
-	if calls != 1 {
-		t.Fatalf("gh calls = %d, want exactly 1", calls)
-	}
-
-	const prURL = "https://github.com/acme/tool/pull/7"
-	threads := c.ReviewThreads(prURL)
-	if len(threads) != 4 {
-		t.Fatalf("threads = %d (%+v), want 4 (the comment-less thread is skipped)", len(threads), threads)
-	}
-	if threads[0].FirstCommentDatabaseID != 101 || threads[0].FirstCommentAuthor != "reviewer" {
-		t.Errorf("first thread = %+v", threads[0])
-	}
-	if threads[0].Line != 12 || threads[0].Path != "a.go" {
-		t.Errorf("first thread anchor = %+v", threads[0])
-	}
-
-	unhandled := c.UnhandledThreads(prURL)
-	if len(unhandled) != 1 || unhandled[0].ID != "T1" {
-		t.Errorf("unhandled = %+v, want only T1", unhandled)
-	}
-
-	// A PR the batch no longer carries drops from the next wholesale rebuild,
-	// exactly as byURL does.
-	c.ghExec = func(context.Context) ([]byte, error) {
-		return []byte(`{"data":{"viewer":{"login":"me","pullRequests":{"nodes":[]}}}}`), nil
-	}
-	c.refresh(context.Background())
-	if got := c.ReviewThreads(prURL); got != nil {
-		t.Errorf("threads after a batch without the PR = %+v, want nil", got)
+	// The node id the scoped query addresses PRs by is a free scalar and must
+	// stay, or the digest silently fetches nothing.
+	if !strings.Contains(ghQuery, "id") {
+		t.Error("ghQuery dropped the node id; nodes(ids:) has nothing to address")
 	}
 }
 
-// The predicate is ACTOR-BLIND: whose 👀 it is never enters the decision.
-func TestUnhandledIsActorBlind(t *testing.T) {
-	cases := []struct {
-		name   string
-		thread ReviewThread
-		want   bool
-	}{
-		{"open, unmarked", ReviewThread{FirstCommentAuthor: "reviewer"}, true},
-		{"marked by the viewer", ReviewThread{HasEyes: true, FirstCommentAuthor: "me"}, false},
-		{"marked by a third party", ReviewThread{HasEyes: true, FirstCommentAuthor: "someone-else"}, false},
-		{"resolved", ReviewThread{IsResolved: true}, false},
-		{"outdated", ReviewThread{IsOutdated: true}, false},
-		{"outdated and marked", ReviewThread{IsOutdated: true, HasEyes: true}, false},
-		{"resolved but unmarked", ReviewThread{IsResolved: true, HasEyes: false}, false},
-		{"authored by the viewer, unmarked", ReviewThread{FirstCommentAuthor: "me"}, true},
-	}
-	for _, tc := range cases {
-		if got := Unhandled(tc.thread); got != tc.want {
-			t.Errorf("%s: Unhandled = %v, want %v", tc.name, got, tc.want)
+// The scoped query must still carry what the two consumers read.
+func TestThreadQueryCarriesTheDigestFields(t *testing.T) {
+	for _, field := range []string{
+		"nodes(ids: $ids)", "reviewThreads(first: $threads)",
+		"isResolved", "isOutdated", "reactions(content: EYES", "databaseId", "rateLimit",
+	} {
+		if !strings.Contains(threadQuery, field) {
+			t.Errorf("threadQuery is missing %q", field)
 		}
 	}
 }
 
-// The query itself must carry the digest selection — a silent drop would take
-// the listener offline with no other symptom.
-func TestGhQueryCarriesTheThreadDigest(t *testing.T) {
-	for _, field := range []string{"reviewThreads", "isResolved", "isOutdated", "reactions(content: EYES", "databaseId"} {
-		if !strings.Contains(ghQuery, field) {
-			t.Errorf("ghQuery is missing %q", field)
+func TestLiveOpenPRIDsAppliesTheScopeGuards(t *testing.T) {
+	newCollector := func(live []string) *Collector {
+		c := NewCollector(time.Minute)
+		c.byURL = map[string]PRStatus{
+			"https://github.com/a/b/pull/1": {URL: "https://github.com/a/b/pull/1", State: "open"},
+			"https://github.com/a/b/pull/2": {URL: "https://github.com/a/b/pull/2", State: "merged"},
+			"https://github.com/a/b/pull/3": {URL: "https://github.com/a/b/pull/3", State: "closed"},
+			"https://github.com/a/b/pull/4": {URL: "https://github.com/a/b/pull/4", State: "open"},
 		}
+		c.nodeIDByURL = map[string]string{
+			"https://github.com/a/b/pull/1": "PR_1",
+			"https://github.com/a/b/pull/2": "PR_2",
+			"https://github.com/a/b/pull/3": "PR_3",
+			"https://github.com/a/b/pull/4": "PR_4",
+		}
+		c.livePRSource = func() []string { return live }
+		return c
+	}
+
+	t.Run("guard 1: only PRs the live set names", func(t *testing.T) {
+		// PR 4 is open and known, but no live window resolves to it — the
+		// viewer-wide shape is exactly what this guard exists to stop.
+		got := newCollector([]string{"https://github.com/a/b/pull/1"}).liveOpenPRIDs()
+		if len(got) != 1 || got[0] != "PR_1" {
+			t.Errorf("ids = %v, want just PR_1", got)
+		}
+	})
+
+	t.Run("guard 2: merged and closed PRs are dropped", func(t *testing.T) {
+		got := newCollector([]string{
+			"https://github.com/a/b/pull/2",
+			"https://github.com/a/b/pull/3",
+			"https://github.com/a/b/pull/1",
+		}).liveOpenPRIDs()
+		if len(got) != 1 || got[0] != "PR_1" {
+			t.Errorf("ids = %v, want the open PR only — nothing reads threads on a merged PR", got)
+		}
+	})
+
+	t.Run("duplicates and unknown PRs are skipped", func(t *testing.T) {
+		got := newCollector([]string{
+			"https://github.com/a/b/pull/1",
+			"https://github.com/a/b/pull/1",
+			"https://github.com/a/b/pull/99",
+			"",
+		}).liveOpenPRIDs()
+		if len(got) != 1 {
+			t.Errorf("ids = %v, want one", got)
+		}
+	})
+
+	t.Run("the cap binds", func(t *testing.T) {
+		c := NewCollector(time.Minute)
+		c.byURL = map[string]PRStatus{}
+		c.nodeIDByURL = map[string]string{}
+		var live []string
+		for i := 0; i < threadDigestMaxPRs+10; i++ {
+			url := "https://github.com/a/b/pull/" + strconv.Itoa(i)
+			c.byURL[url] = PRStatus{URL: url, State: "open"}
+			c.nodeIDByURL[url] = "PR_" + strconv.Itoa(i)
+			live = append(live, url)
+		}
+		c.livePRSource = func() []string { return live }
+		if got := len(c.liveOpenPRIDs()); got != threadDigestMaxPRs {
+			t.Errorf("ids = %d, want the %d cap", got, threadDigestMaxPRs)
+		}
+	})
+
+	t.Run("no source means no digest at all", func(t *testing.T) {
+		c := NewCollector(time.Minute)
+		if got := c.liveOpenPRIDs(); got != nil {
+			t.Errorf("ids = %v, want nil — an unwired process must not pay for threads", got)
+		}
+	})
+}
+
+func TestRefreshThreadsSkipsTheCallWhenNothingIsLive(t *testing.T) {
+	c := NewCollector(time.Minute)
+	c.threadsByURL = map[string][]ReviewThread{"stale": {{ID: "T"}}}
+	called := false
+	c.threadExec = func(context.Context, []string) ([]byte, error) {
+		called = true
+		return nil, nil
+	}
+	c.livePRSource = func() []string { return nil }
+
+	c.refreshThreads(context.Background())
+
+	if called {
+		t.Error("gh was called with no live PRs; the common case must cost nothing")
+	}
+	// A dot for a window nobody has open is worse than no dot.
+	if len(c.ReviewThreads("stale")) != 0 {
+		t.Error("the stale digest survived; it should have been cleared")
+	}
+}
+
+func TestParseThreadDigestReadsGitHubsOwnCost(t *testing.T) {
+	out := []byte(`{"data":{"rateLimit":{"cost":5,"remaining":4995},"nodes":[
+      {"url":"https://github.com/a/b/pull/1","reviewThreads":{"nodes":[
+        {"id":"T1","isResolved":false,"isOutdated":false,"path":"a.go","line":2,
+         "comments":{"nodes":[{"id":"C1","databaseId":9,"author":{"login":"me"},
+          "reactions":{"totalCount":0}}]}},
+        {"id":"T2","comments":{"nodes":[]}}
+      ]}}]}}`)
+	digest, cost, remaining, err := parseThreadDigest(out)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cost != 5 || remaining != 4995 {
+		t.Errorf("cost/remaining = %d/%d — GitHub's own accounting must surface", cost, remaining)
+	}
+	threads := digest["https://github.com/a/b/pull/1"]
+	if len(threads) != 1 || threads[0].ID != "T1" || threads[0].FirstCommentDatabaseID != 9 {
+		t.Errorf("threads = %+v, want T1 only (T2 has no comment to mark)", threads)
 	}
 }

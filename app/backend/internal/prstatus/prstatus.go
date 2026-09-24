@@ -97,7 +97,18 @@ type Collector struct {
 	// same critical section as byURL so one snapshot always describes one
 	// batch. See prstatus_threads.go.
 	threadsByURL map[string][]ReviewThread
-	interval     time.Duration
+	// nodeIDByURL maps a PR URL to its GraphQL node id, rebuilt with byURL. It
+	// is what lets the scoped thread query address PRs via nodes(ids:).
+	nodeIDByURL map[string]string
+	// livePRSource names the PRs worth a thread digest — the per-window scope
+	// guard. Nil means no digest is fetched at all, which is the correct
+	// posture for a process nothing has wired it into.
+	livePRSource func() []string
+	// threadExec / threadMu mirror ghExec / refreshMu for the scoped digest
+	// pass, which is single-flighted independently of the status pass.
+	threadExec func(ctx context.Context, ids []string) ([]byte, error)
+	threadMu   sync.Mutex
+	interval   time.Duration
 
 	// refreshMu SERIALIZES whole refresh passes (the interval tick vs an on-demand
 	// RefreshNow), so a pass's byURL swap and its viewer-PR sink call can never
@@ -149,6 +160,44 @@ type Collector struct {
 	// behavior changes. It runs on the collector's background goroutine, never on
 	// the SSE hot path.
 	onRefreshed func()
+}
+
+// SetLivePRSource installs the per-window scope guard: a callback naming the PR
+// URLs worth a thread digest, normally the PRs live windows resolve to.
+//
+// Nil (the default) means NO digest is fetched. That is deliberate — a process
+// that never wires this in should not be paying for threads nobody reads, which
+// is precisely the bug this seam exists to prevent.
+func (c *Collector) SetLivePRSource(fn func() []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.livePRSource = fn
+}
+
+// RefreshThreadsNow runs one scoped digest pass on demand. Used by the
+// listener's arm path, so arming does not wait out the digest tick.
+func (c *Collector) RefreshThreadsNow(ctx context.Context) { c.refreshThreads(ctx) }
+
+// StartThreads runs the digest on its OWN, slower cadence (guard 3). A comment
+// landing a minute later is fine; a stale check state is not, which is why this
+// is not simply folded into Start's tick.
+func (c *Collector) StartThreads(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = DefaultThreadInterval
+	}
+	go func() {
+		c.refreshThreads(ctx)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				c.refreshThreads(ctx)
+			}
+		}
+	}()
 }
 
 // SetViewerPRSink installs the viewer-PR seed sink invoked after every successful
@@ -221,6 +270,8 @@ func NewCollector(interval time.Duration) *Collector {
 	return &Collector{
 		byURL:        make(map[string]PRStatus),
 		threadsByURL: make(map[string][]ReviewThread),
+		nodeIDByURL:  make(map[string]string),
+		threadExec:   defaultThreadExec,
 		interval:     interval,
 		ghExec:       defaultGhExec,
 		available:    ghAvailable,
@@ -304,6 +355,7 @@ func (c *Collector) refresh(ctx context.Context) {
 	prs := batch.PRs
 
 	next := make(map[string]PRStatus, len(prs))
+	nodeIDs := make(map[string]string, len(prs))
 	now := time.Now()
 	for _, p := range prs {
 		// URL is the map key: a node with an empty URL (malformed/partial gh
@@ -313,6 +365,7 @@ func (c *Collector) refresh(ctx context.Context) {
 		if p.URL == "" {
 			continue
 		}
+		nodeIDs[p.URL] = p.ID
 		next[p.URL] = PRStatus{
 			Number:         p.Number,
 			URL:            p.URL,
@@ -332,7 +385,7 @@ func (c *Collector) refresh(ctx context.Context) {
 	// a cache assembled from this state always describes ONE batch.
 	c.mu.Lock()
 	c.byURL = next
-	c.threadsByURL = reviewThreadsFrom(prs)
+	c.nodeIDByURL = nodeIDs
 	c.viewerPRs = viewer
 	c.login = batch.Login
 	sink := c.onViewerPRs
@@ -406,23 +459,26 @@ func ghAvailable(ctx context.Context) bool {
 // tiebreak pickBranchPR applies to gh results. States, ordering, and $limit are
 // deliberately unchanged.
 //
-// `reviewThreads` is the PR-review DIGEST: per thread only what the comment
-// listener's eligibility predicate and the review toggle's unread signal need —
-// id, isResolved, isOutdated, path, line, and the FIRST comment's id, author and
-// 👀 reaction count. It rides this existing call, so the digest costs ZERO
-// additional gh subprocesses. Full comment bodies and patches deliberately do
-// NOT come from here: they would multiply this payload by comment count across
-// a 100-PR window every 90 s, which is why internal/prreview exists.
+// The PR-review thread DIGEST is deliberately NOT selected here. It used to be,
+// on the reasoning that riding this call costs no extra gh SUBPROCESS — which is
+// true, and irrelevant. GitHub prices GraphQL by the requests a query implies,
+// and nesting comments+reactions inside reviewThreads inside 100 PRs took this
+// query from 2 points to ~203; at the 90 s cadence that is ~8,120 points/hour
+// against a 5,000/hour budget, so it exhausted the account in ~37 minutes and
+// took the whole PR-status join down with it. Threads now have their own scoped
+// query (prstatus_threads.go) over the handful of PRs actually on screen.
 //
 // `login` is selected on the same `viewer` node for the DISK CACHE (260809-r4vk):
 // the cache records the login its state was fetched as, and an account switch is
 // detected by comparing it at the next successful fetch — no extra call, since the
 // query already selects on viewer.
 const ghQuery = `query($limit: Int!) {
+  rateLimit { cost remaining resetAt }
   viewer {
     login
     pullRequests(first: $limit, states: [OPEN, MERGED, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
+        id
         number
         url
         state
@@ -432,23 +488,6 @@ const ghQuery = `query($limit: Int!) {
         headRefName
         headRepository { nameWithOwner }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
-        reviewThreads(first: 100) {
-          nodes {
-            id
-            isResolved
-            isOutdated
-            path
-            line
-            comments(first: 1) {
-              nodes {
-                id
-                databaseId
-                author { login }
-                reactions(content: EYES, first: 1) { totalCount }
-              }
-            }
-          }
-        }
       }
     }
   }
@@ -481,6 +520,11 @@ type ghResponse struct {
 }
 
 type ghPR struct {
+	// ID is the GraphQL node id. It is a free scalar on a node already being
+	// fetched, and it is what lets the scoped thread query address exactly the
+	// PRs that matter via nodes(ids:) — no per-PR repository/owner lookup, and
+	// no string interpolation into a query.
+	ID             string `json:"id"`
 	Number         int    `json:"number"`
 	URL            string `json:"url"`
 	State          string `json:"state"` // OPEN | CLOSED | MERGED
@@ -506,13 +550,6 @@ type ghPR struct {
 		} `json:"nodes"`
 	} `json:"commits"`
 	// ReviewThreads is the DIGEST half of the PR-review feature: just enough
-	// per thread for the listener's eligibility predicate and the surface
-	// toggle's unread signal. Full comment bodies live in internal/prreview,
-	// fetched only while a review tile is mounted — see that package's doc for
-	// why the two cadences must not share a package.
-	ReviewThreads struct {
-		Nodes []ghReviewThread `json:"nodes"`
-	} `json:"reviewThreads"`
 }
 
 type ghReviewThread struct {

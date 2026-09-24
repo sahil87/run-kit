@@ -701,12 +701,26 @@ func TestEagerBudgetExpandsThePrefixAndCollapsesTheRest(t *testing.T) {
 		}
 	})
 
-	t.Run("eager rows carry structure but never spans", func(t *testing.T) {
+	t.Run("eager rows carry TEXT but no colour", func(t *testing.T) {
 		files := []FileEntry{{Path: "a.go", HasPatch: true, Patch: patchWithRows(5)}}
 		applyEagerBudget(files)
 		for _, row := range files[0].Rows {
-			if row.Spans != nil {
-				t.Fatal("eager rows carry spans — colour must stay a separate, viewport-driven read")
+			if row.Kind == RowHunk {
+				continue
+			}
+			// Text is mandatory: a LineRow has no text field, so a row without
+			// spans renders blank — the whole file would be line numbers over
+			// empty rows.
+			if len(row.Spans) == 0 {
+				t.Fatal("eager row has no spans — it would render as a blank line")
+			}
+			// Colour is NOT: it costs a gh blob fetch and stays a separate,
+			// viewport-driven read.
+			for _, span := range row.Spans {
+				if span.Class != "" {
+					t.Fatalf("eager row is coloured (%q) — tokenizing at mount is the "+
+						"cost the digest/detail split exists to avoid", span.Class)
+				}
 			}
 		}
 	})
@@ -740,4 +754,66 @@ func TestGhFailuresAreClassifiedNotLeaked(t *testing.T) {
 			t.Errorf("firstLine(empty) = %q", got)
 		}
 	})
+}
+
+// A LineRow has no text field: content lives only in Spans. So structure built
+// without them renders as line numbers and a +/- gutter over BLANK rows — which
+// is exactly what the eagerly-expanded list path shipped, because
+// applyEagerBudget calls LineRowsFromPatch and nothing filled the text in.
+//
+// "Readable and monochrome" is the whole premise of opening the tile expanded;
+// without this it opens empty.
+func TestEagerRowsCarryTheirText(t *testing.T) {
+	patch := strings.Join([]string{
+		"@@ -1,2 +1,3 @@",
+		" keep me",
+		"-gone",
+		"+added",
+		"+",
+	}, "\n")
+
+	rows := LineRowsFromPatch(ParsePatch(patch))
+	if len(rows) != 5 {
+		t.Fatalf("rows = %d, want 5", len(rows))
+	}
+
+	if rows[0].Kind != RowHunk || rows[0].Spans != nil {
+		t.Errorf("hunk header = %+v, want no spans (it renders from Header)", rows[0])
+	}
+	for i, want := range map[int]string{1: "keep me", 2: "gone", 3: "added"} {
+		if len(rows[i].Spans) != 1 || rows[i].Spans[0].Text != want {
+			t.Errorf("row %d spans = %+v, want one classless span %q", i, rows[i].Spans, want)
+		}
+		if rows[i].Spans[0].Class != "" {
+			t.Errorf("row %d span carries a class %q — tier 0 is plain by definition",
+				i, rows[i].Spans[0].Class)
+		}
+	}
+	// An empty added line needs no span; the renderer draws an empty row.
+	if rows[4].Spans != nil {
+		t.Errorf("empty line spans = %+v, want nil", rows[4].Spans)
+	}
+}
+
+// The budget path is what the tile actually mounts from, so assert the text
+// survives all the way through it.
+func TestEagerBudgetShipsReadableRows(t *testing.T) {
+	files := []FileEntry{{
+		Path: "a.go", HasPatch: true,
+		Patch: "@@ -0,0 +1,2 @@\n+package main\n+// hi",
+	}}
+	applyEagerBudget(files)
+
+	if files[0].Collapsed != "" {
+		t.Fatalf("file collapsed = %q, want expanded", files[0].Collapsed)
+	}
+	var text []string
+	for _, row := range files[0].Rows {
+		for _, span := range row.Spans {
+			text = append(text, span.Text)
+		}
+	}
+	if len(text) != 2 || text[0] != "package main" || text[1] != "// hi" {
+		t.Errorf("eager rows carry %q — an expanded file must not render blank", text)
+	}
 }

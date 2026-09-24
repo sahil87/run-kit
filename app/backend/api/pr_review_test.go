@@ -105,8 +105,15 @@ func TestPRReviewListServesFilesThreadsAndViewer(t *testing.T) {
 	// because the patch is already in the cached document. What it must never
 	// carry is SPANS: tokenizing a 200-file PR at mount is the cost the whole
 	// digest/detail split exists to avoid, and colour is a viewport-driven read.
-	if strings.Contains(rec.Body.String(), `"spans"`) {
-		t.Error("the list response carried token spans; colour is a separate, viewport-driven read")
+	// Plain spans MUST be there — a LineRow has no text field, so rows without
+	// them render as blank lines and the expanded file shows nothing.
+	if !strings.Contains(rec.Body.String(), `"t":`) {
+		t.Error("the list response carries no text; every eager row would render blank")
+	}
+	// Coloured ones must NOT: a class (`"c":`) means the row was tokenized, and
+	// tokenizing at mount is the cost the digest/detail split exists to avoid.
+	if strings.Contains(rec.Body.String(), `"c":`) {
+		t.Error("the list response carried token classes; colour is a separate, viewport-driven read")
 	}
 	if body.Listening {
 		t.Error("listening = true; the fixture window is disarmed")

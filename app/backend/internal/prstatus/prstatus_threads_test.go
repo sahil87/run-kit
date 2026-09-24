@@ -122,6 +122,10 @@ func TestLiveOpenPRIDsAppliesTheScopeGuards(t *testing.T) {
 
 func TestRefreshThreadsSkipsTheCallWhenNothingIsLive(t *testing.T) {
 	c := NewCollector(time.Minute)
+	// CI has no gh, and NewCollector defaults `available` to the real probe —
+	// without this stub refreshThreads returns before doing anything and the
+	// assertions below pass locally while failing on the runner.
+	c.available = func(context.Context) bool { return true }
 	c.threadsByURL = map[string][]ReviewThread{"stale": {{ID: "T"}}}
 	called := false
 	c.threadExec = func(context.Context, []string) ([]byte, error) {
@@ -171,6 +175,7 @@ func TestParseThreadDigestReadsGitHubsOwnCost(t *testing.T) {
 func TestThreadExecPassesIdsAsAnArrayNotAString(t *testing.T) {
 	var got []string
 	c := NewCollector(time.Minute)
+	c.available = func(context.Context) bool { return true } // see above: CI has no gh
 	c.byURL = map[string]PRStatus{
 		"u1": {URL: "u1", State: "open"},
 		"u2": {URL: "u2", State: "open"},

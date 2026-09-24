@@ -45,6 +45,16 @@ import (
 // request goroutine past the API's own cap (Constitution Process Execution).
 const ghTimeout = 10 * time.Second
 
+// fetchBudget bounds ONE cold document fetch end to end.
+//
+// fetch makes three sequential gh calls, each with its own ghTimeout, so the
+// unbounded worst case was 30 s — a request the browser waits out in full
+// before showing anything. Three calls that each take 0.5 s in good weather
+// should not be allowed to become half a minute in bad; failing at 15 s leaves
+// the reader with a retry instead of a hang, and the cached document (when
+// there is one) is served ahead of this anyway.
+const fetchBudget = 15 * time.Second
+
 // reviewTTL is how long a fetched review document is served before a mount
 // re-fetches it. The tile also has an explicit refresh verb and rides the SSE
 // tick, so this is a floor on gh volume, not a freshness promise.
@@ -314,6 +324,11 @@ func (f *Fetcher) fetch(ctx context.Context, prURL string) (*Review, error) {
 	if err != nil {
 		return nil, err
 	}
+	// One budget across all three calls, not one each. A deadline already on
+	// ctx (a shorter request timeout) still wins — WithTimeout only ever
+	// tightens.
+	ctx, cancel := context.WithTimeout(ctx, fetchBudget)
+	defer cancel()
 	meta, err := f.fetchMeta(ctx, ref)
 	if err != nil {
 		return nil, err

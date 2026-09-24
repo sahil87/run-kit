@@ -2019,9 +2019,11 @@ export async function deleteCron(server: string, id: string): Promise<{ ok: bool
 export async function fetchPRReview(
   server: string,
   windowId: string,
+  signal?: AbortSignal,
 ): Promise<ReviewDocument> {
   const res = await fetch(
     withServer(`/api/pr/review?window=${encodeURIComponent(windowId)}`, server),
+    { signal },
   );
   if (!res.ok) await throwOnError(res);
   return res.json();

@@ -164,10 +164,10 @@ export function ReviewSurface({
   // REVALIDATION must never re-seed: the reader's open/closed set and the
   // bodies already fetched are their state, not the server's, and wiping them
   // on an SSE tick would collapse the file someone was mid-comment in.
-  const load = useCallback(async (seed = false) => {
+  const load = useCallback(async (seed = false, signal?: AbortSignal) => {
     setLoading(true);
     try {
-      const next = await fetchPRReview(server, windowId);
+      const next = await fetchPRReview(server, windowId, signal);
       setDoc(next);
       setError(null);
       // The PR opens with its files already open, the way GitHub's Files-changed
@@ -210,9 +210,12 @@ export function ReviewSurface({
       // Seeded rows carry no spans, so nothing is tokenized yet.
       spansLoaded.current = new Set();
     } catch (err) {
+      // An abort is this component's own doing — a remount, or a PR change
+      // superseding the request. It is not a failure and must not paint one.
+      if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
       setError(err instanceof Error ? err.message : "Failed to load the pull request");
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, [server, windowId]);
 
@@ -224,7 +227,15 @@ export function ReviewSurface({
     setExpanded(new Set());
     setPending([]);
     seenDigest.current = null;
-    void load(true);
+    // Aborting on cleanup does two things. In development it makes React's
+    // StrictMode double-invoke cost ONE request rather than two — the discarded
+    // first render's fetch is cancelled instead of racing the second. In
+    // production it closes a real bug: switching windows quickly could let an
+    // older in-flight response land after a newer one and overwrite it, because
+    // nothing tied a response to the identity that asked for it.
+    const controller = new AbortController();
+    void load(true, controller.signal);
+    return () => controller.abort();
   }, [load, prUrl]);
 
   // The SSE tick's revalidation seam. The digest is polled server-side on the

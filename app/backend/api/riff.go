@@ -85,8 +85,8 @@ func deriveRepoRoot(ctx context.Context, ops TmuxOps, server, session string) (s
 // seed — a pane whose #{pane_current_path} came back blank (or an empty Panes
 // slice when list-panes failed non-fatally) must fall through to WorktreePath
 // rather than clobber it with "". Returns "" when no directory can be derived.
-// Pure. Shared by deriveRepoRoot (session-keyed, riff) and resolveForkSource
-// (window-keyed, fork) so the two cannot drift.
+// Pure. Used by deriveRepoRoot (session-keyed, riff). Conversation forks use
+// the resolved agent pane's cwd instead, which may differ from the active pane.
 func windowCwd(win tmux.WindowInfo) string {
 	cwd := win.WorktreePath
 	if len(win.Panes) > 0 {

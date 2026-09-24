@@ -258,8 +258,14 @@ export function ReviewSurface({
   }, [doc]);
 
   const files = doc?.files ?? [];
+  // `silent` marks a fetch the READER did not ask for — the viewport-driven
+  // colour pass. Colour is a progressive enhancement: a file that fails to
+  // tokenize stays perfectly readable in tier-0 structure, so raising a banner
+  // for it is noise. Worse, the banner had no clearing path of its own, so one
+  // transient timeout mid-scroll pinned an error on screen until a full
+  // document reload happened to succeed.
   const loadFileBody = useCallback(
-    async (path: string, range?: { start: number; count: number }) => {
+    async (path: string, range?: { start: number; count: number }, silent = false) => {
       try {
         const body = await fetchPRReviewFile(server, windowId, path, range);
         setBodies((prev) => {
@@ -280,7 +286,11 @@ export function ReviewSurface({
             },
           };
         });
+        // A user-initiated read succeeding clears a stale banner; the silent
+        // pass deliberately does not, so it can neither raise nor hide state.
+        if (!silent) setError(null);
       } catch (err) {
+        if (silent) return;
         setError(err instanceof Error ? err.message : `Failed to load ${path}`);
       }
     },
@@ -326,7 +336,7 @@ export function ReviewSurface({
       if (spansInFlight.current >= SPANS_CONCURRENCY) return;
       spansLoaded.current.add(path);
       spansInFlight.current += 1;
-      void loadFileBody(path).finally(() => {
+      void loadFileBody(path, undefined, true).finally(() => {
         spansInFlight.current = Math.max(0, spansInFlight.current - 1);
       });
     };

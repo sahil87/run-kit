@@ -1,5 +1,6 @@
 import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import { STAGE_PADDING_PX } from "../../src/lib/stage-geometry";
 import { READY_TIMEOUT, openPalette, resolveWindow as resolveWindowRaw } from "./_ready";
 import {
   TMUX_SERVER,
@@ -24,8 +25,13 @@ import { stubProxyPorts } from "./_web-tile";
 // `context.waitForEvent("page")`), the chrome-less render + `<Surface> ·
 // <window>` title, close-to-restore, palette `Tile: Pop Back In`, the tty
 // popout's isolated session surviving the opener's sibling-tab switch, a
-// foreign (`@N/tty`) leaf's popout titled by its HOME window, and the ended
-// "Window closed" state when the surface's window dies.
+// foreign (`@N/tty`) leaf's popout titled by its HOME window, the ended
+// "Window closed" state when the surface's window dies, single-tile pop out
+// (arity-1 header/palette offers, the opener's all-popped placeholder), the
+// top-bar toggle's per-viewer reveal/hide of a popped leaf's placeholder
+// with no layout write (bring back closes the popout), and the popout
+// page's sidebar-free stage (the tile's left edge sits at the stage padding
+// with the sidebar preference open).
 //
 // Shared setup: `beforeAll` creates one dedicated session `e2e-popout-<ts>`
 // (80×24) so this file never collides with other specs (`fullyParallel` off),
@@ -433,5 +439,171 @@ test.describe("Surface popout", () => {
     await expect(
       page.getByTestId("surface-tile-tty").getByLabel("Pop Terminal back in"),
     ).toBeVisible();
+  });
+
+  /**
+   * Proves: Pop out is offered at arity 1 — a single-tile window's header
+   * shows `Pop out Terminal` alone (no Expand/Close cluster) and the palette
+   * lists `Tile: Pop Out Terminal`; popping the only tile opens the popout
+   * window while the opener renders the all-popped placeholder
+   * (`popped-out-placeholder`), the tile staying mounted hidden behind it.
+   *
+   * Steps:
+   * 1. Create window A (no layout stamp — the default single tty tile);
+   *    navigate; the tile renders.
+   * 2. Assert the header's `Pop out Terminal` is present with no
+   *    Expand/Close, open the palette, assert `Tile: Pop Out Terminal` is
+   *    listed, close the palette.
+   * 3. Click `Pop out Terminal`; catch the popup page.
+   * 4. Assert the popup renders `surface-tile-tty` titled
+   *    `Terminal · <A name>`, and the opener shows
+   *    `popped-out-placeholder` ("Terminal is popped out") with the tty tile
+   *    hidden behind it.
+   */
+  test("popping a single-tile window's only tile opens the popout; the opener renders the all-popped placeholder", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(90_000);
+    const aName = `pop-solo-${Date.now()}`;
+    const a = await makeWindow(page, aName);
+    await gotoWindow(page, a);
+    const tile = page.getByTestId("surface-tile-tty");
+    await expect(tile).toBeVisible({ timeout: 10_000 });
+
+    // The arity-1 offers: the header shows Pop out alone (no zoom/close
+    // cluster), and the palette lists the row.
+    await expect(tile.getByLabel("Pop out Terminal")).toBeVisible();
+    await expect(tile.getByLabel("Expand Terminal")).toHaveCount(0);
+    await expect(tile.getByLabel("Close Terminal")).toHaveCount(0);
+    await openPalette(page);
+    await expect(
+      page.getByRole("option", { name: "Tile: Pop Out Terminal" }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    const popup = await popOutTile(page, context, "surface-tile-tty", "Terminal");
+
+    // The popout renders the one tile chrome-less; the opener's layout is
+    // fully popped, so the all-popped placeholder stands in (the tile stays
+    // mounted hidden behind it — its stream survives).
+    await expect(popup.getByTestId("surface-tile-tty")).toBeVisible({ timeout: 15_000 });
+    await expect(popup).toHaveTitle(`Terminal · ${aName}`);
+    const allPopped = page.getByTestId("popped-out-placeholder");
+    await expect(allPopped).toBeVisible();
+    await expect(allPopped).toContainText("Terminal is popped out");
+    await expect(page.getByTestId("surface-tile-tty")).toBeHidden();
+
+    await popup.close();
+  });
+
+  /**
+   * Proves: the top-bar Terminal toggle on a popped tty NEVER writes the
+   * shared layout — it reveals the popped placeholder ("Terminal is popped
+   * out" + bring back / go to window / ✕) in the tile's slot, a second click
+   * hides it again, and the placeholder's bring back closes the popout
+   * window and returns the live tile; `@rk_win_layout` reads `h(tty,web)`
+   * throughout.
+   *
+   * Steps:
+   * 1. Create A (layout `h(tty,web)`); navigate; pop the tty tile out; the
+   *    opener hides it and the Terminal toggle carries the popped marker.
+   * 2. Click the banner's `Terminal tile` toggle — the popped placeholder
+   *    appears in the tty slot; read `@rk_win_layout` straight from tmux:
+   *    still `h(tty,web)` (a direct read, not a poll — proves no write).
+   * 3. Click the toggle again — the placeholder hides; the option still
+   *    reads `h(tty,web)`.
+   * 4. Reveal once more, then click the placeholder's `bring back` — the
+   *    popout window closes and the opener's tty tile reflows back visible.
+   */
+  test("the Terminal toggle on a popped tile reveals/hides its popped placeholder with no layout write; bring back closes the popout", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(90_000);
+    const a = await makeWindow(page, `pop-toggle-${Date.now()}`);
+    stampWebTab(a, DEAD.url);
+    setWindowOption(a, "@rk_win_layout", "h(tty,web)");
+    await gotoWindow(page, a);
+    await expect(page.getByTestId("surface-tile-tty")).toBeVisible({ timeout: 10_000 });
+
+    const popup = await popOutTile(page, context, "surface-tile-tty", "Terminal");
+    await expect(popup.getByTestId("surface-tile-tty")).toBeVisible({ timeout: 15_000 });
+    // The hidden class is display:none — visibility, not a class substring
+    // (`overflow-hidden` would false-match a /hidden/ regex).
+    await expect(page.getByTestId("surface-tile-tty")).toBeHidden();
+
+    const toggle = page
+      .getByRole("banner")
+      .getByRole("button", { name: "Terminal tile", exact: true });
+    // While hidden the toggle carries the popped marker (scoped inside the
+    // button: the top bar's off-screen measurement probe re-renders the
+    // toggle group with the same testids, so a page-wide getByTestId would
+    // match both copies).
+    await expect(toggle.getByTestId("surface-popped-tty")).toBeVisible();
+
+    // Reveal: the popped placeholder stands in the tty slot — and the toggle
+    // wrote NOTHING to the shared layout.
+    await toggle.click();
+    const placeholder = page.getByTestId("surface-placeholder");
+    await expect(placeholder).toBeVisible();
+    await expect(placeholder).toContainText("Terminal is popped out");
+    await expect(placeholder.getByRole("button", { name: "bring back" })).toBeVisible();
+    await expect(placeholder.getByRole("button", { name: "go to window" })).toBeVisible();
+    await expect(placeholder.getByLabel("Close Terminal")).toBeVisible();
+    await expect(page.getByTestId("surface-tile-web")).toBeVisible();
+    expect(windowOption(a, "@rk_win_layout")).toBe("h(tty,web)");
+
+    // Hide: the placeholder leaves, still with no layout write.
+    await toggle.click();
+    await expect(placeholder).toHaveCount(0);
+    expect(windowOption(a, "@rk_win_layout")).toBe("h(tty,web)");
+
+    // Reveal again, then bring back: the popout window closes and the live
+    // terminal reflows back into its slot.
+    await toggle.click();
+    await expect(placeholder).toBeVisible();
+    const closed = popup.waitForEvent("close", { timeout: 15_000 });
+    await placeholder.getByRole("button", { name: "bring back" }).click();
+    await closed;
+    await expect(page.getByTestId("surface-tile-tty")).toBeVisible();
+    await expectWindowLayout(a, "h(tty,web)");
+  });
+
+  /**
+   * Proves: the popout page reserves NO sidebar column even with the sidebar
+   * preference open — no sidebar aside mounts and the tile's left edge sits
+   * at the stage padding (6px from the viewport left), not at sidebar width
+   * + padding.
+   *
+   * Steps:
+   * 1. Create A; register an init script pinning the shared
+   *    `runkit-sidebar-open` preference to "true" (the popout reads it at
+   *    load), then navigate DIRECTLY to A's popout route (`?pop=tty` — the
+   *    posture is URL-driven, no window.open needed).
+   * 2. Assert the popout posture engaged: the chrome-less tty tile renders
+   *    with its `Pop Terminal back in` verb.
+   * 3. Assert no `Sidebar` aside mounts, and the tile's bounding-box left
+   *    edge is ≈ the stage padding (retrying — the first sessions payload
+   *    can briefly re-render a freshly opened popout) — a sidebar column
+   *    would push it past the 220px default width + gap.
+   */
+  test("the popout's tile starts at the stage padding — no sidebar column, even with the sidebar preference open", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    const a = await makeWindow(page, `pop-stage-${Date.now()}`);
+    await page.addInitScript(() => localStorage.setItem("runkit-sidebar-open", "true"));
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(a)}?pop=tty`);
+    const popTile = page.getByTestId("surface-tile-tty");
+    await expect(popTile).toBeVisible({ timeout: 15_000 });
+    await expect(popTile.getByLabel("Pop Terminal back in")).toBeVisible();
+
+    await expect(page.locator('aside[aria-label="Sidebar"]')).toHaveCount(0);
+    await expect(async () => {
+      const tileBox = await popTile.boundingBox();
+      if (!tileBox) throw new Error("the popout's tty tile has no bounding box");
+      expect(Math.abs(tileBox.x - STAGE_PADDING_PX)).toBeLessThanOrEqual(2);
+    }).toPass({ timeout: 10_000 });
   });
 });

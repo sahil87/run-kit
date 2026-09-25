@@ -251,9 +251,9 @@ const windows = new Map<number, BrowserWindow>();
  * `BrowserWindow.id`, dropped on `closed`. A popout is a same-host shell
  * window showing one `?pop=` route; it is never persisted to windows.json,
  * never switches host, and closes when its host is removed. The record's
- * (hostId, route) pair is the dedupe key (a repeat Pop out focuses the live
- * popout), and `openerWindowId` scopes the web-guest move between the opener
- * and the popout (./web-views).
+ * (openerWindowId, hostId, route) triple is the dedupe key (a repeat Pop
+ * out from the same opener focuses the live popout), and `openerWindowId`
+ * scopes the web-guest move between the opener and the popout (./web-views).
  */
 const popouts = new Map<number, PopoutRecord>();
 
@@ -2669,7 +2669,8 @@ function registerIpcHandlers(): void {
   // as a same-host shell window (the window-open policy stays ALL-EXTERNAL;
   // a route remainder resolved against the SENDER host's origin makes a
   // cross-origin target unrepresentable). Dedupe: a live popout of the same
-  // (host, route) is focused (restored when minimized), not duplicated.
+  // (opener, host, route) is focused (restored when minimized), not
+  // duplicated — another opener window gets its OWN popout.
   ipcMain.handle("shell:popout", (event, payload: unknown): PopoutResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     const host = findViewByWebContentsId(views, event.sender.id);
@@ -2685,7 +2686,7 @@ function registerIpcHandlers(): void {
       height: workArea.height,
     });
     if (!parsed) return { ok: false, error: "Invalid request" };
-    const existing = findPopoutWindow(popouts, host.hostId, parsed.route);
+    const existing = findPopoutWindow(popouts, opener.id, host.hostId, parsed.route);
     if (existing !== null) {
       const win = windows.get(existing);
       if (win && !win.isDestroyed()) {

@@ -65,15 +65,15 @@
  *                                 exists. Desktop multi-tile only: the caller
  *                                 passes `leafRects` and `focusedLeafId` only
  *                                 then.
- *  - `Tile: Pop Out <Surface>`   — per open, not-popped, live leaf while the
- *                                 reduced render keeps ≥2 tiles (the caller
- *                                 omits `onPopOut` on mobile and in a desktop
- *                                 shell without the `windows.popout` channel);
- *                                 foreign leaves disambiguate with the
- *                                 home window's name. `Tile: Pop Back In
- *                                 <Surface>` — per popped leaf of this layout.
- *                                 While any leaf is popped, the template rows
- *                                 and cycle entry below gate OFF.
+ *  - `Tile: Pop Out <Surface>`   — per open, not-popped, live leaf at any
+ *                                 rendered arity (the caller omits `onPopOut`
+ *                                 on mobile and in a desktop shell without
+ *                                 the `windows.popout` channel); foreign
+ *                                 leaves disambiguate with the home window's
+ *                                 name. `Tile: Pop Back In <Surface>` — per
+ *                                 popped leaf of this layout. While any leaf
+ *                                 is popped, the template rows and cycle
+ *                                 entry below gate OFF.
  *  - `Layout: <Template>`       — one per `templatesFor(n)` at the current
  *                                 tile count (the ▦ chip rows' palette form);
  *                                 a template whose result lands under the size
@@ -115,6 +115,7 @@ import {
   type TemplateName,
 } from "../surface-layout";
 import { leafAddress, parseLeafAddress, type LayoutLeaf } from "../layout-tree";
+import { popoutToggleTarget } from "../popout";
 
 export type LayoutPaletteAction = {
   id: string;
@@ -151,8 +152,16 @@ export type LayoutPaletteOptions = {
   /** Desktop + multi-tile — zoom is desktop-only (mobile renders slot A). */
   zoomEnabled: boolean;
   /** The single mutation path (persist + URL mirror) — Show/Hide run their
-   *  pure mutation through it. */
+   *  pure mutation through it UNLESS `onToggleSurface` is set (the guarded
+   *  shared toggle owns the decision then). */
   onApply: (next: Layout) => void;
+  /** The shared surface toggle (app.tsx's `togglePanel`): when present, the
+   *  Show/Hide rows DELEGATE to it instead of running their inline
+   *  addSurface/closeSurface + `onApply` — its popped-close-target guard (a
+   *  popped leaf's toggle reveals/hides the popped placeholder, never a
+   *  shared layout write) then covers the palette rows too. The offer gates
+   *  (floor fit, open-bare presence, tile count) are unaffected. */
+  onToggleSurface?: (kind: SurfaceKind) => void;
   /** Toggle the transient slot-A zoom (SurfaceLayout's registered seam). */
   onZoomToggle: () => void;
   /** The `code-toggle` chord's target surface and its effective combo —
@@ -217,6 +226,11 @@ export type LayoutPaletteOptions = {
    *  template resolved on the viewer's reduced render would strand the
    *  popped leaf). Absent/empty ⇒ nothing popped. */
   poppedIds?: string[];
+  /** The revealed subset of `poppedIds` (leaves whose slot renders the popped
+   *  placeholder). A kind whose toggle close target is popped and NOT
+   *  revealed reads as closed, matching the top-bar toggle: it gets a Show
+   *  row (the guarded toggle reveals the placeholder) and no Hide row. */
+  revealedIds?: string[];
   /** The Pop Out rows' seam — per open, not-popped, eligible leaf. Absent ⇒
    *  no Pop Out rows (the desktop shell and mobile/coarse gate at the
    *  caller). */
@@ -240,6 +254,17 @@ export function buildLayoutActions(
   // Show row (the toggle adds the bare slot) and no Hide row (a foreign
   // tile's exit verb is Send Back).
   const openBareKinds = [...new Set(bareLeaves(layout))];
+  // A popped, unrevealed close target is off screen for this viewer: its
+  // Show/Hide rows follow the guarded toggle (reveal), never a layout close.
+  const poppedHidden = (kind: SurfaceKind): boolean => {
+    if (!opts.onToggleSurface) return false;
+    const target = popoutToggleTarget(layout, kind);
+    return (
+      target !== undefined &&
+      (opts.poppedIds ?? []).includes(target) &&
+      !(opts.revealedIds ?? []).includes(target)
+    );
+  };
 
   /** The toggle chord's hint for a chord-target surface's Show/Hide entry. */
   const toggleHint = (kind: SurfaceKind) => {
@@ -260,13 +285,18 @@ export function buildLayoutActions(
   // tree fits the size floor (addSurface's refusal is the gate). The add
   // splits the FOCUSED tile when the caller passes `focusedLeafId`.
   for (const kind of available) {
-    if (openBareKinds.includes(kind)) continue;
-    if (addSurface(layout, kind, gateRects, undefined, gateSizes) === null) continue;
+    const reveal = poppedHidden(kind);
+    if (!reveal && openBareKinds.includes(kind)) continue;
+    if (!reveal && addSurface(layout, kind, gateRects, undefined, gateSizes) === null) continue;
     actions.push({
       id: `tile-show-${kind}`,
       label: `Tile: Show ${SURFACE_LABEL[kind]}`,
       ...toggleHint(kind),
       onSelect: () => {
+        if (opts.onToggleSurface) {
+          opts.onToggleSurface(kind);
+          return;
+        }
         const next = addSurface(
           layout,
           kind,
@@ -309,11 +339,16 @@ export function buildLayoutActions(
   // Hides — one per open bare kind; the last tile never hides.
   if (tileCount > 1) {
     for (const kind of openBareKinds) {
+      if (poppedHidden(kind)) continue;
       actions.push({
         id: `tile-hide-${kind}`,
         label: `Tile: Hide ${SURFACE_LABEL[kind]}`,
         ...toggleHint(kind),
         onSelect: () => {
+          if (opts.onToggleSurface) {
+            opts.onToggleSurface(kind);
+            return;
+          }
           const next = closeSurface(layout, kind);
           if (next) opts.onApply(next);
         },
@@ -433,14 +468,13 @@ export function buildLayoutActions(
 
   // Pop out / Pop back in — the popout verbs (spec surface-layout.md § Verbs
   // → Pop out). `Tile: Pop Out <Surface>` is offered per open, not-popped,
-  // LIVE leaf while the REDUCED render keeps ≥2 tiles (a single remaining
-  // tile gains nothing — the tab's URL is the answer): an away bare kind (its
-  // surface is live in another tab) and a dead-home foreign leaf have nothing
-  // to pop. Foreign leaves disambiguate with the home window's name (the
-  // `Tile: Bring <window> <Surface> here` convention). `Tile: Pop Back In
-  // <Surface>` is offered per popped leaf still in the shared tree.
+  // LIVE leaf at any rendered arity (popping the last tile lands the opener
+  // on the all-popped placeholder): an away bare kind (its surface is live in
+  // another tab) and a dead-home foreign leaf have nothing to pop. Foreign
+  // leaves disambiguate with the home window's name (the `Tile: Bring
+  // <window> <Surface> here` convention). `Tile: Pop Back In <Surface>` is
+  // offered per popped leaf still in the shared tree.
   const poppedSet = new Set((opts.poppedIds ?? []).filter((id) => ids.includes(id)));
-  const renderedArity = tileCount - poppedSet.size;
   const popLabel = (id: string): string | null => {
     const kind = zoomLeafKind(id);
     if (kind === undefined) return null;
@@ -449,7 +483,7 @@ export function buildLayoutActions(
     const homeName = opts.windowNameFor?.(foreign.home);
     return homeName !== undefined ? `${homeName} ${SURFACE_LABEL[kind]}` : null;
   };
-  if (opts.onPopOut && renderedArity > 1) {
+  if (opts.onPopOut) {
     for (const id of ids) {
       if (poppedSet.has(id)) continue;
       const kind = zoomLeafKind(id);

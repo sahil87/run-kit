@@ -5,29 +5,29 @@ import { SURFACE_GLYPH, SURFACE_LABEL, type SurfaceKind } from "@/lib/surface-la
 import type { WindowInfo } from "@/types";
 
 /**
- * The away placeholder (spec docs/specs/surface-layout.md — tiles from other
- * tabs): a bare leaf whose surface is live in ANOTHER tab renders this
- * INSTEAD of mounting the surface (a tty opens no relay stream — the mount is
- * gated on the caller's side, not hidden here). The slot never left the
- * layout, so bring back restores the exact spot. The ✕ dismisses the slot
- * entirely (the remaining tiles fill); it is hidden when the placeholder is
- * the only leaf, since a layout never renders empty — closing there would
- * fall back to this same placeholder. Layout and fill behavior come from the
- * tile wrapper the caller mounts this into (a sole-leaf placeholder fills the
- * tab).
+ * The "surface is live elsewhere" placeholder (spec
+ * docs/specs/surface-layout.md): a bare leaf whose surface is live outside
+ * this slot renders this INSTEAD of mounting the surface (a tty opens no
+ * relay stream — the mount is gated on the caller's side, not hidden here).
+ * The away variant (default) points at the holder tab; the popped variant
+ * points at this viewer's popout window. The slot never left the layout, so
+ * bring back restores the exact spot. What ✕ does is the caller's wiring
+ * (away: closes the slot; popped: hides the placeholder); it is hidden when
+ * the placeholder is the only leaf, since a layout never renders empty —
+ * closing there would fall back to this same placeholder. Layout and fill
+ * behavior come from the tile wrapper the caller mounts this into (a
+ * sole-leaf placeholder fills the tab).
  */
 export function SurfacePlaceholder({
   kind,
-  holderName,
   statusWindow,
   showClose,
   onBringBack,
   onGoTo,
   onClose,
+  ...placement
 }: {
   kind: SurfaceKind;
-  /** The holder tab's display name (its window name, id as fallback). */
-  holderName: string;
   /** The route window's record — the tty status dot reads it exactly as the
    *  sidebar row does. Non-tty kinds carry no dot (the tile-header rule). */
   statusWindow?: WindowInfo | null;
@@ -36,7 +36,14 @@ export function SurfacePlaceholder({
   onBringBack: () => void;
   onGoTo: () => void;
   onClose: () => void;
-}) {
+} & (
+  | {
+      variant?: "away";
+      /** The holder tab's display name (its window name, id as fallback). */
+      holderName: string;
+    }
+  | { variant: "popped" }
+)) {
   const label = SURFACE_LABEL[kind];
   return (
     <div
@@ -59,7 +66,8 @@ export function SurfacePlaceholder({
         {kind === "tty" && statusWindow && <StatusDot win={statusWindow} />}
         <span aria-hidden="true">{SURFACE_GLYPH[kind]}</span>
         <span>
-          <span className="text-text-primary">{label}</span> is in tab {holderName}
+          <span className="text-text-primary">{label}</span>{" "}
+          {placement.variant === "popped" ? "is popped out" : `is in tab ${placement.holderName}`}
         </span>
       </span>
       <span className="flex items-center gap-2">
@@ -75,7 +83,7 @@ export function SurfacePlaceholder({
           onClick={onGoTo}
           className="rounded border border-border px-2 py-0.5 text-text-secondary transition-colors hover:bg-bg-card hover:text-text-primary"
         >
-          go to {holderName}
+          go to {placement.variant === "popped" ? "window" : placement.holderName}
         </button>
       </span>
     </div>

@@ -78,6 +78,43 @@ describe("buildLayoutActions — shows/hides", () => {
     expect(onApply).toHaveBeenCalledWith(SPLIT_H_TTY_CODE);
   });
 
+  it("Show/Hide delegate to the onToggleSurface seam when present (the caller's guarded shared toggle)", () => {
+    const onToggleSurface = vi.fn();
+    const onApply = vi.fn();
+    const shows = build(SINGLE_TTY, { onToggleSurface, onApply });
+    shows.find((a) => a.id === "tile-show-code")!.onSelect();
+    expect(onToggleSurface).toHaveBeenCalledWith("code");
+    expect(onApply).not.toHaveBeenCalled();
+
+    onToggleSurface.mockClear();
+    const hides = build(SPLIT_H_TTY_CODE, { onToggleSurface, onApply });
+    hides.find((a) => a.id === "tile-hide-code")!.onSelect();
+    expect(onToggleSurface).toHaveBeenCalledWith("code");
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it("a popped, unrevealed kind reads as closed: Show (reveal through the toggle), no Hide", () => {
+    const onToggleSurface = vi.fn();
+    const onApply = vi.fn();
+    const actions = build(SPLIT_H_TTY_CODE, { onToggleSurface, onApply, poppedIds: ["tty"] });
+    const ids = actions.map((a) => a.id);
+    expect(ids).not.toContain("tile-hide-tty");
+    expect(ids).toContain("tile-hide-code");
+    actions.find((a) => a.id === "tile-show-tty")!.onSelect();
+    expect(onToggleSurface).toHaveBeenCalledWith("tty");
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it("a popped, revealed kind reads as open: Hide (hides the placeholder), no Show", () => {
+    const ids = build(SPLIT_H_TTY_CODE, {
+      onToggleSurface: vi.fn(),
+      poppedIds: ["tty"],
+      revealedIds: ["tty"],
+    }).map((a) => a.id);
+    expect(ids).toContain("tile-hide-tty");
+    expect(ids).not.toContain("tile-show-tty");
+  });
+
   it("show resolves the split direction from the LIVE leaf rects when passed", () => {
     const onApply = vi.fn();
     // A tall, narrow tty tile splits vertically (nominal-box geometry would
@@ -717,11 +754,11 @@ describe("buildTileSwitchActions — Tile: Switch to <Surface> (mobile)", () => 
 
 // `Tile: Pop Out <Surface>` / `Tile: Pop Back In <Surface>` — the popout
 // verbs (spec surface-layout.md § Verbs → Pop out). Pop Out is offered per
-// open, not-popped, live leaf while the REDUCED render keeps ≥2 tiles, with
-// foreign leaves disambiguated by the home window's name; Pop Back In is
-// offered per popped leaf still in the shared tree. While any leaf is
-// popped, the `Layout: <Template>` rows and the cycle entry gate off (a
-// template resolved on the reduced render would strand the popped leaf).
+// open, not-popped, live leaf at any rendered arity, with foreign leaves
+// disambiguated by the home window's name; Pop Back In is offered per popped
+// leaf still in the shared tree. While any leaf is popped, the
+// `Layout: <Template>` rows and the cycle entry gate off (a template
+// resolved on the reduced render would strand the popped leaf).
 describe("buildLayoutActions — popout verbs", () => {
   const popOpts = {
     onPopOut: vi.fn(),
@@ -729,15 +766,15 @@ describe("buildLayoutActions — popout verbs", () => {
     windowNameFor: (id: string) => (id === "@9" ? "api" : undefined),
   };
 
-  it("offers Pop Out per open leaf at rendered arity > 1", () => {
+  it("offers Pop Out per open leaf", () => {
     const ids = build(SPLIT_H_TTY_CODE, popOpts).map((a) => a.id);
     expect(ids).toContain("tile-pop-out-tty");
     expect(ids).toContain("tile-pop-out-code");
   });
 
-  it("offers NO Pop Out on a single-tile layout", () => {
+  it("offers Pop Out on a single-tile layout", () => {
     const ids = build(SINGLE_TTY, popOpts).map((a) => a.id);
-    expect(ids.some((id) => id.startsWith("tile-pop-out-"))).toBe(false);
+    expect(ids).toContain("tile-pop-out-tty");
   });
 
   it("offers NO Pop Out rows when onPopOut is omitted (the caller's mobile / shell-without-popout-channel gate)", () => {
@@ -777,13 +814,14 @@ describe("buildLayoutActions — popout verbs", () => {
     expect(away).not.toContain("tile-pop-out-web");
   });
 
-  it("drops the LAST Pop Out when every other leaf is popped (rendered arity 1)", () => {
+  it("keeps the last Pop Out when every other leaf is popped (rendered arity 1)", () => {
     const layout: Layout = {
       dir: "h",
       children: [{ leaf: "tty" }, { leaf: "code" }],
     };
     const ids = build(layout, { ...popOpts, poppedIds: ["code"] }).map((a) => a.id);
-    expect(ids.some((id) => id.startsWith("tile-pop-out-"))).toBe(false);
+    expect(ids).toEqual(expect.arrayContaining(["tile-pop-out-tty"]));
+    expect(ids.filter((id) => id.startsWith("tile-pop-out-"))).toEqual(["tile-pop-out-tty"]);
   });
 
   it("offers Pop Back In per popped leaf and fires the seam", () => {

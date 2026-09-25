@@ -109,6 +109,46 @@ function occurrenceIndex(id: string): number {
   return Number.isInteger(n) && n >= 2 ? n : 1;
 }
 
+/**
+ * The surface toggle's close target: the kind's FIRST BARE leaf in the shared
+ * tree (toggleSurface semantics — a foreign leaf is never the close target).
+ * Undefined when the kind has no bare leaf (the toggle grows the layout
+ * instead of closing).
+ */
+export function popoutToggleTarget(
+  tree: LayoutNode,
+  surface: SurfaceKind,
+): string | undefined {
+  return leafIds(tree).find(
+    (id) => parseLeafAddress(id) === null && zoomLeafKind(id) === surface,
+  );
+}
+
+/** The toggle-on-popped decision: flip the close-target leaf's membership in
+ *  the viewer's revealed set. `reveal` puts the popped placeholder on screen,
+ *  `hide` returns to the reflowed render — neither touches the layout. */
+export type PopoutToggleAction = { kind: "reveal" | "hide"; leafId: string };
+
+/**
+ * The popped-toggle guard (spec surface-layout.md § Verbs → Pop out): when
+ * the toggle's close target is in this viewer's popped set, the toggle MUST
+ * NOT write the shared layout — it reveals the leaf's popped placeholder
+ * (not revealed) or hides it again (revealed). `null` is the non-popped
+ * verdict: the caller keeps the ordinary toggleSurface mutation. Callers MUST
+ * treat a non-null action as the whole toggle — running toggleSurface after
+ * one would close a leaf other viewers still see.
+ */
+export function popoutToggleAction(
+  tree: LayoutNode,
+  surface: SurfaceKind,
+  popped: string[],
+  revealed: string[],
+): PopoutToggleAction | null {
+  const leafId = popoutToggleTarget(tree, surface);
+  if (leafId === undefined || !popped.includes(leafId)) return null;
+  return { kind: revealed.includes(leafId) ? "hide" : "reveal", leafId };
+}
+
 /** A validated `?pop=` value: the leaf id as `leafIds()` produces it, its
  *  surface kind, and the window the surface belongs to (the foreign leaf's
  *  home, else the route window). */

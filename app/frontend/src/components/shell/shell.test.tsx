@@ -6,11 +6,12 @@ import { ChromeProvider } from "@/contexts/chrome-context";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { _resetForTests as resetOverlayPresence, count as overlayCount } from "@/lib/overlay-presence";
 
-function renderShell(opts: { open?: boolean; mobile?: boolean; sidebarChildren?: ReactNode } = {}) {
+function renderShell(opts: { open?: boolean; mobile?: boolean; sidebarChildren?: ReactNode; sidebarResizeHandle?: ReactNode } = {}) {
   const {
     open = true,
     mobile = false,
     sidebarChildren = <div data-testid="sidebar">SIDEBAR</div>,
+    sidebarResizeHandle,
   } = opts;
   // ChromeProvider initialises sidebarOpen from localStorage. Seed an EXPLICIT
   // preference for both states: with no stored value the default is
@@ -27,6 +28,7 @@ function renderShell(opts: { open?: boolean; mobile?: boolean; sidebarChildren?:
     <ChromeProvider>
       <Shell
         sidebarChildren={sidebarChildren}
+        sidebarResizeHandle={sidebarResizeHandle}
         bottomBarChildren={<div data-testid="bottombar">BOTTOM</div>}
         statusBarChildren={<div data-testid="statusbar">STATUS</div>}
       >
@@ -122,6 +124,48 @@ describe("Shell", () => {
     // Default sidebar width is 220px (from chrome-context).
     expect(stage().style.gridTemplateColumns).toBe("220px 1fr");
     expect(stage().style.columnGap).toBe(`${STAGE_COLUMN_GAP_PX}px`);
+  });
+
+  describe("no sidebar children (the popout posture)", () => {
+    it("collapses the stage to '0 1fr' with no column gap and mounts no aside or resize handle, even with the open preference", () => {
+      renderShell({
+        open: true,
+        mobile: false,
+        sidebarChildren: null,
+        sidebarResizeHandle: <div data-testid="resize-handle">HANDLE</div>,
+      });
+      expect(stage().style.gridTemplateColumns).toBe("0 1fr");
+      expect(stage().style.columnGap).toBe("0px");
+      expect(screen.queryByRole("complementary", { name: "Sidebar" })).not.toBeInTheDocument();
+      expect(screen.queryByTestId("resize-handle")).not.toBeInTheDocument();
+    });
+
+    it("the sidebar chord leaves runkit-sidebar-open untouched without sidebar children", () => {
+      // jsdom's UA resolves to platform "other", so the registry default for
+      // `sidebar-toggle` is the shifted tier: Shift+Ctrl+KeyB.
+      const pressSidebarChord = () =>
+        fireEvent.keyDown(document.body, { key: "B", code: "KeyB", ctrlKey: true, shiftKey: true });
+
+      renderShell({ open: true, mobile: false, sidebarChildren: null });
+      pressSidebarChord();
+      expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
+
+      // The closed-preference posture is the destructive one: an unguarded
+      // chord would flip the shared preference open from the popout.
+      cleanup();
+      localStorage.clear();
+      renderShell({ open: false, mobile: false, sidebarChildren: null });
+      pressSidebarChord();
+      expect(localStorage.getItem("runkit-sidebar-open")).toBe("false");
+
+      // Control: with sidebar children the same chord writes the preference
+      // (proving the chord matched above and the no-op is the children gate).
+      cleanup();
+      localStorage.clear();
+      renderShell({ open: false, mobile: false });
+      pressSidebarChord();
+      expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
+    });
   });
 
   describe("desktop sidebar aside (Shell-owned, 260719-rwqf)", () => {

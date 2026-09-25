@@ -86,6 +86,11 @@ export type TopBarSlot = {
         canAdd: boolean;
         /** Away predicate: the surface's slot is live in another tab. */
         away?: (surface: SurfaceKind) => boolean;
+        /** Popped predicate: the surface's close-target leaf is popped out
+         *  for this viewer — the button carries a popped marker, and the
+         *  toggle reveals/hides the popped placeholder instead of closing
+         *  the tile. */
+        popped?: (surface: SurfaceKind) => boolean;
       }
     | {
         mode: "switch";

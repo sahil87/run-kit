@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parseLayoutTree } from "./layout-tree";
+import { parseLayoutTree, type LayoutNode } from "./layout-tree";
 import {
   isPopoutMessage,
   parsePopLeaf,
   poppedKey,
   popoutFeatures,
+  popoutToggleAction,
+  popoutToggleTarget,
   popoutUrl,
   popoutWindowName,
   POPOUT_FALLBACK_HEIGHT,
@@ -216,5 +218,80 @@ describe("sweepStale", () => {
       ["code", 1000 + POPOUT_STALE_MS - 10],
     ]);
     expect(sweepStale(["tty", "code"], lastSeen, 1000 + POPOUT_STALE_MS)).toEqual(["code"]);
+  });
+});
+
+// The toggle's close-target selection: the kind's FIRST BARE leaf in reading
+// order — a foreign leaf is never the close target.
+describe("popoutToggleTarget", () => {
+  it("selects the first bare leaf of the kind in reading order", () => {
+    expect(popoutToggleTarget(parseLayoutTree("h(tty,tty)")!, "tty")).toBe("tty");
+    expect(popoutToggleTarget(parseLayoutTree("h(web,tty)")!, "tty")).toBe("tty");
+    expect(popoutToggleTarget(parseLayoutTree("h(tty,web)")!, "web")).toBe("web");
+  });
+
+  it("ignores foreign leaves and absent kinds (undefined ⇒ the toggle grows)", () => {
+    expect(popoutToggleTarget(parseLayoutTree("h(tty,@12/code)")!, "code")).toBeUndefined();
+    expect(popoutToggleTarget(parseLayoutTree("tty")!, "web")).toBeUndefined();
+  });
+});
+
+// The popped-toggle guard's decision table. The null-vs-action contract IS
+// the regression pin: a non-null action is the caller's whole toggle (no
+// layout mutation), while null hands the kind back to the ordinary
+// toggleSurface close/grow — the shape the unguarded path applied to EVERY
+// toggle, popped or not.
+describe("popoutToggleAction", () => {
+  it("reveals a popped, unrevealed close target", () => {
+    const tree = parseLayoutTree("h(tty,web)")!;
+    expect(popoutToggleAction(tree, "tty", ["tty"], [])).toEqual({
+      kind: "reveal",
+      leafId: "tty",
+    });
+  });
+
+  it("hides a popped, revealed close target", () => {
+    const tree = parseLayoutTree("h(tty,web)")!;
+    expect(popoutToggleAction(tree, "tty", ["tty"], ["tty"])).toEqual({
+      kind: "hide",
+      leafId: "tty",
+    });
+  });
+
+  it("returns null for a non-popped close target (the ordinary toggleSurface path)", () => {
+    const tree = parseLayoutTree("h(tty,web)")!;
+    expect(popoutToggleAction(tree, "tty", [], [])).toBeNull();
+    // Another leaf's popped mark never guards this kind's toggle.
+    expect(popoutToggleAction(tree, "tty", ["web"], [])).toBeNull();
+    expect(popoutToggleAction(tree, "tty", ["web"], ["web"])).toBeNull();
+  });
+
+  it("returns null when the kind has no bare leaf — a foreign leaf is never the close target", () => {
+    const tree = parseLayoutTree("h(tty,@12/code)")!;
+    expect(popoutToggleAction(tree, "code", ["@12/code"], [])).toBeNull();
+  });
+
+  it("decides by the FIRST bare leaf: a popped second occurrence stays a normal toggle", () => {
+    const tree = parseLayoutTree("h(tty,tty)")!;
+    // The close target is `tty` — not popped, so the toggle closes it even
+    // though `tty#2` is popped.
+    expect(popoutToggleAction(tree, "tty", ["tty#2"], [])).toBeNull();
+    // Popped first occurrence → reveal `tty`; `tty#2` is never the target.
+    expect(popoutToggleAction(tree, "tty", ["tty", "tty#2"], [])).toEqual({
+      kind: "reveal",
+      leafId: "tty",
+    });
+  });
+
+  it("decides by the FIRST bare leaf under occurrence-indexed ids (web popped, web#2 not)", () => {
+    // Duplicate bare non-tty kinds are grammar-illegal in a stored layout;
+    // the node is hand-built to pin the occurrence-indexed selection rule
+    // itself (leafIds numbers the second `web` as `web#2`).
+    const tree: LayoutNode = { dir: "h", children: [{ leaf: "web" }, { leaf: "web" }] };
+    expect(popoutToggleAction(tree, "web", ["web"], [])).toEqual({
+      kind: "reveal",
+      leafId: "web",
+    });
+    expect(popoutToggleAction(tree, "web", ["web#2"], [])).toBeNull();
   });
 });

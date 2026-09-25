@@ -15,6 +15,7 @@ import {
 import type { WindowInfo } from "@/types";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { makeWindow } from "@/test-utils/fixtures";
+import { COARSE_POINTER_QUERY } from "@/hooks/use-coarse-pointer";
 import { entryKey, useWindowStore } from "@/store/window-store";
 import type { CodeBridgeResult } from "@/api/client";
 import type { GuiSurfaceCommands } from "./gui-surface";
@@ -174,6 +175,10 @@ type LayoutOverrides = {
   onPopBackIn?: () => void;
   popped?: string[];
   onPopOut?: (leafId: string, rect?: Rect) => void;
+  revealedPoppedIds?: string[];
+  onPopIn?: (leafId: string) => void;
+  onFocusPopout?: (leafId: string) => void;
+  onHidePopped?: (leafId: string) => void;
   gui?: Parameters<typeof SurfaceLayout>[0]["gui"];
   guiZoom?: GuiZoom;
   guiPointerMode?: GuiPointerMode;
@@ -256,6 +261,10 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       onPopBackIn={overrides.onPopBackIn}
       popped={overrides.popped}
       onPopOut={overrides.onPopOut}
+      revealedPoppedIds={overrides.revealedPoppedIds}
+      onPopIn={overrides.onPopIn}
+      onFocusPopout={overrides.onFocusPopout}
+      onHidePopped={overrides.onHidePopped}
       gui={overrides.gui}
       guiZoom={overrides.guiZoom}
       guiPointerMode={overrides.guiPointerMode}
@@ -3810,7 +3819,7 @@ describe("SurfaceLayout popout (header Pop out / popout posture / popped-set pos
     return header;
   };
 
-  it("offers Pop out in each tile's content-verb family at rendered arity > 1, firing with the leaf id", () => {
+  it("offers Pop out in each tile's content-verb family, firing with the leaf id", () => {
     const onPopOut = vi.fn();
     renderLayout({ layout: layoutOf("h(tty,code)"), onPopOut });
     const tty = screen.getByTestId("surface-tile-tty");
@@ -3823,13 +3832,30 @@ describe("SurfaceLayout popout (header Pop out / popout posture / popped-set pos
     expect(onPopOut.mock.calls[0][1]).toMatchObject({ w: expect.any(Number), h: expect.any(Number) });
   });
 
-  it("offers no Pop out on a single-tile layout, or when the seam is absent (the caller's mobile / shell-without-popout-channel gate)", () => {
-    const single = renderLayout({ layout: layoutOf("tty"), onPopOut: vi.fn() });
-    expect(screen.queryByLabelText("Pop out Terminal")).toBeNull();
-    single.unmount();
+  it("offers Pop out alone on a single-tile layout (no Expand/Close cluster)", () => {
+    const onPopOut = vi.fn();
+    renderLayout({ layout: layoutOf("tty"), onPopOut });
+    const tty = screen.getByTestId("surface-tile-tty");
+    fireEvent.click(within(tty).getByLabelText("Pop out Terminal"));
+    expect(onPopOut).toHaveBeenCalledWith("tty", expect.objectContaining({ w: expect.any(Number) }));
+    expect(within(tty).queryByLabelText("Expand Terminal")).toBeNull();
+    expect(within(tty).queryByLabelText("Close Terminal")).toBeNull();
+  });
+
+  it("offers no Pop out when the seam is absent (the caller's mobile / shell-without-popout-channel gate)", () => {
     renderLayout({ layout: layoutOf("h(tty,code)") });
     expect(screen.queryByLabelText("Pop out Terminal")).toBeNull();
     expect(screen.queryByLabelText("Pop out Code")).toBeNull();
+  });
+
+  it("offers no Pop out on a coarse pointer or on mobile", () => {
+    stubMatchMedia((query) => query === COARSE_POINTER_QUERY);
+    const coarse = renderLayout({ layout: layoutOf("tty"), onPopOut: vi.fn() });
+    expect(screen.queryByLabelText("Pop out Terminal")).toBeNull();
+    coarse.unmount();
+    stubMatchMedia(() => false);
+    renderLayout({ layout: layoutOf("tty"), isMobile: true, onPopOut: vi.fn() });
+    expect(screen.queryByLabelText("Pop out Terminal")).toBeNull();
   });
 
   it("offers no Pop out on the away placeholder or a dead-home foreign tile", () => {
@@ -3947,5 +3973,84 @@ describe("SurfaceLayout popout (header Pop out / popout posture / popped-set pos
     Object.defineProperty(event, "dataTransfer", { value: dt });
     window.dispatchEvent(event);
     expect(screen.queryByTestId("row-drop-catcher")).toBeNull();
+  });
+
+  it("a revealed popped leaf renders the popped placeholder in its slot — no header, no surface mount, no hidden tile", () => {
+    const onPopIn = vi.fn();
+    const onFocusPopout = vi.fn();
+    const onHidePopped = vi.fn();
+    // The parent hands the tree reduced by popped − revealed: the revealed
+    // `tty` leaf is present, mounted as the placeholder.
+    renderLayout({
+      layout: layoutOf("h(tty,web)"),
+      window: { webTabs: ["http://localhost:8080"], webActive: 1 },
+      popped: ["tty"],
+      revealedPoppedIds: ["tty"],
+      statusWindow: STATUS_WINDOW,
+      onPopIn,
+      onFocusPopout,
+      onHidePopped,
+    });
+    const tile = screen.getByTestId("surface-tile-tty");
+    // The slot is visible (no hidden-tile retention entry for a revealed leaf).
+    expect(tile.classList.contains("hidden")).toBe(false);
+    expect(screen.getAllByTestId("surface-tile-tty")).toHaveLength(1);
+    const placeholder = within(tile).getByTestId("surface-placeholder");
+    expect(placeholder.textContent).toContain("Terminal is popped out");
+    // The tty status dot reads the tile window's record, as the header would.
+    expect(within(placeholder).getByRole("img")).toBeTruthy();
+    // No header (no Pop out / Expand / Close) and no relay stream.
+    expect(within(tile).queryByLabelText("Pop out Terminal")).toBeNull();
+    expect(screen.queryByTestId("mock-terminal")).toBeNull();
+    // The sibling surface mounts live.
+    expect(screen.getByTestId("mock-iframe")).toBeTruthy();
+
+    fireEvent.click(within(placeholder).getByRole("button", { name: "bring back" }));
+    expect(onPopIn).toHaveBeenCalledWith("tty");
+    fireEvent.click(within(placeholder).getByRole("button", { name: "go to window" }));
+    expect(onFocusPopout).toHaveBeenCalledWith("tty");
+    // ✕ at arity > 1: hide only, never a layout close.
+    fireEvent.click(within(placeholder).getByRole("button", { name: "Close Terminal" }));
+    expect(onHidePopped).toHaveBeenCalledWith("tty");
+  });
+
+  it("a sole revealed popped leaf fills the tab with the popped placeholder and hides its ✕", () => {
+    renderLayout({
+      layout: layoutOf("tty"),
+      popped: ["tty"],
+      revealedPoppedIds: ["tty"],
+      onPopIn: vi.fn(),
+      onFocusPopout: vi.fn(),
+      onHidePopped: vi.fn(),
+    });
+    const placeholder = screen.getByTestId("surface-placeholder");
+    expect(placeholder.textContent).toContain("Terminal is popped out");
+    expect(within(placeholder).queryByRole("button", { name: "Close Terminal" })).toBeNull();
+    expect(within(placeholder).getByRole("button", { name: "bring back" })).toBeTruthy();
+    expect(screen.queryByTestId("mock-terminal")).toBeNull();
+  });
+
+  it("a revealed popped code leaf renders the placeholder and mounts no frame", () => {
+    const srcFor = (id: string) => `/code/?workspace=/ws${id}`;
+    const { rerender } = renderLayout({
+      layout: layoutOf("h(tty,code)"),
+      codeSrcFor: srcFor,
+    });
+    expect(screen.getByTestId("mock-code")).toBeTruthy();
+    // Pop code out (evicting the frame), then reveal it: the slot mounts the
+    // placeholder — no frame mount, no show-bookkeeping re-create (the
+    // popout owns the live frame).
+    rerender(
+      layoutElement({
+        layout: layoutOf("h(tty,code)"),
+        popped: ["code"],
+        revealedPoppedIds: ["code"],
+        codeSrcFor: srcFor,
+        onPopIn: vi.fn(),
+      }),
+    );
+    expect(screen.queryByTestId("mock-code")).toBeNull();
+    expect(screen.queryByTestId("surface-tile-code-retained")).toBeNull();
+    expect(screen.getByTestId("surface-placeholder").textContent).toContain("Code is popped out");
   });
 });

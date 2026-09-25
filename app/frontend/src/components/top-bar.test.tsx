@@ -1807,6 +1807,7 @@ describe("TopBar", () => {
       onToggle: (surface: SurfaceKind) => void;
       canAdd: boolean;
       away: (surface: SurfaceKind) => boolean;
+      popped: (surface: SurfaceKind) => boolean;
     }> = {}) => ({
       mode: "toggle" as const,
       available: overrides.available ?? ["tty", "web", "code"],
@@ -1814,6 +1815,7 @@ describe("TopBar", () => {
       onToggle: overrides.onToggle ?? vi.fn(),
       canAdd: overrides.canAdd ?? true,
       ...(overrides.away ? { away: overrides.away } : {}),
+      ...(overrides.popped ? { popped: overrides.popped } : {}),
     });
 
     it("renders no toggle group anywhere when surfaceToggles is absent (board/host/unregistered)", () => {
@@ -1907,6 +1909,27 @@ describe("TopBar", () => {
       const tty = within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" });
       expect(within(tty).getByTestId("surface-away-tty").textContent).toBe("away");
       expect(within(within(menu).getByRole("menuitemcheckbox", { name: "Web tile" })).queryByTestId("surface-away-web")).toBeNull();
+    });
+
+    it("marks popped surfaces (the close-target leaf is popped out for this viewer) on the bar button and the menu row", () => {
+      renderTopBar({
+        surfaceToggles: toggles({
+          open: ["web", "code"],
+          popped: (surface) => surface === "tty",
+        }),
+      });
+      const group = screen.getAllByTestId("surface-toggles")[0];
+      expect(within(group).getByTestId("surface-popped-tty")).toBeTruthy();
+      expect(within(group).queryByTestId("surface-popped-web")).toBeNull();
+      expect(within(group).queryByTestId("surface-popped-code")).toBeNull();
+      // A popped, unrevealed kind is not pressed (open reads revealed-only).
+      expect(within(group).getByLabelText("Terminal tile").getAttribute("aria-pressed")).toBe("false");
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const tty = within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" });
+      expect(within(tty).getByTestId("surface-popped-tty").textContent).toBe("popped");
+      expect(tty.getAttribute("aria-checked")).toBe("false");
+      expect(within(within(menu).getByRole("menuitemcheckbox", { name: "Web tile" })).queryByTestId("surface-popped-web")).toBeNull();
     });
 
     // Corner-dot predicate (260821-zqlq): the web button always renders, so

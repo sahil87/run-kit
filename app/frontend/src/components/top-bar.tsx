@@ -173,6 +173,11 @@ type TopBarProps = {
          *  another tab (the route window's `awayIn`) — the button carries an
          *  away marker. Absent → no markers (legacy). */
         away?: (surface: SurfaceKind) => boolean;
+        /** Per-surface "popped" predicate: the surface's close-target leaf is
+         *  popped out for this viewer — the button carries a popped marker
+         *  (`surface-popped-<surface>`) and the `<Label> — popped out`
+         *  tooltip. Absent → no markers (legacy). */
+        popped?: (surface: SurfaceKind) => boolean;
         /** Per-surface corner-dot predicate (260821-zqlq): the dot means
          *  "has content" for web (`hasWebUrl`); every other surface stays
          *  always-on. Absent → the dot renders unconditionally (legacy). */
@@ -474,8 +479,11 @@ type SurfaceTogglesToggle = Extract<SurfaceToggles, { mode: "toggle" }>;
  * glyphs from `SURFACE_GLYPH`, LIT (`aria-pressed`, accent-green text on a
  * green wash), the corner dot driven by the
  * caller's per-surface `showDot` predicate (web = has-content; others
- * always-on), and an away marker (amber ↩, top-left) when the caller's `away`
- * predicate says the surface's slot is live in another tab:
+ * always-on), and the live-elsewhere markers: an away marker (amber ↩,
+ * top-left) when the caller's `away` predicate says the surface's slot is
+ * live in another tab, a popped marker (amber ↗, bottom-left) when the
+ * caller's `popped` predicate says the surface's close-target leaf is popped
+ * out for this viewer:
  *
  * - TOGGLE (desktop): lit = an open tile; while the caller's floor-derived
  *   `canAdd` is false the unlit buttons render DISABLED with a "No room for
@@ -516,6 +524,8 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
               : (toggles.disabled?.(surface) ?? false));
           const away =
             toggles.mode === "toggle" && (toggles.away?.(surface) ?? false);
+          const popped =
+            toggles.mode === "toggle" && (toggles.popped?.(surface) ?? false);
           const label = SURFACE_LABEL[surface];
           return (
             <Tip
@@ -523,9 +533,11 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
               label={
                 disabled
                   ? "No room for another tile"
-                  : away
-                    ? `${label} — in another tab`
-                    : label
+                  : popped
+                    ? `${label} — popped out`
+                    : away
+                      ? `${label} — in another tab`
+                      : label
               }
             >
               {/* The span wrapper keeps the tooltip alive on the DISABLED button
@@ -557,6 +569,18 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
                       ↩
                     </span>
                   )}
+                  {/* Popped marker: the surface's close-target leaf is popped
+                      out for this viewer (the away marker's bottom-left
+                      sibling corner). */}
+                  {popped && (
+                    <span
+                      aria-hidden="true"
+                      data-testid={`surface-popped-${surface}`}
+                      className="absolute bottom-0 left-0.5 text-[9px] leading-none text-signal-yellow"
+                    >
+                      ↗
+                    </span>
+                  )}
                   {/* Availability/content dot — a collapsed tile may hide
                       content, never state that wants a human. The caller's
                       per-surface predicate decides (web = hasWebUrl, others
@@ -582,9 +606,9 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
  * The group's overflow-menu form (Tiles section): one `menuitemcheckbox` row
  * per shown surface — checked = tile open (the one checked treatment: primary
  * ink + trailing green ✓ on `aria-checked`), leading `SURFACE_GLYPH` glyph (the
- * leading-glyph parity rule), a muted "away" suffix when the caller marks the
- * surface away, floor-disabled like the bar buttons. Clicking a row runs the
- * same shared toggle mutation as the bar group.
+ * leading-glyph parity rule), a muted "away"/"popped" suffix when the caller
+ * marks the surface away/popped, floor-disabled like the bar buttons. Clicking
+ * a row runs the same shared toggle mutation as the bar group.
  */
 function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
   const full = !toggles.canAdd;
@@ -595,6 +619,7 @@ function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
         const isOpen = toggles.open.includes(surface);
         const disabled = !isOpen && full;
         const away = toggles.away?.(surface) ?? false;
+        const popped = toggles.popped?.(surface) ?? false;
         return (
           <button
             key={surface}
@@ -617,6 +642,14 @@ function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
                 className="text-[10px] text-signal-yellow"
               >
                 away
+              </span>
+            )}
+            {popped && (
+              <span
+                data-testid={`surface-popped-${surface}`}
+                className="text-[10px] text-signal-yellow"
+              >
+                popped
               </span>
             )}
             {isOpen && (

@@ -51,6 +51,9 @@ export interface PoppedSet {
   popOut: (leafId: string, rect?: Rect) => void;
   /** Pop a leaf back in: tell the popout to close and clear the mark. */
   popIn: (leafId: string) => void;
+  /** Focus the live popout window without reloading it (the placeholder's
+   *  go to window verb). */
+  focusPopout: (leafId: string) => void;
 }
 
 /** The disabled hook's stable empty set — a fresh `[]` per render would
@@ -219,7 +222,30 @@ export function usePoppedSet(
     [server, windowId, commit],
   );
 
-  return { popped: enabled ? popped : NO_POPPED, popOut, popIn };
+  const focusPopout = useCallback(
+    (leafId: string) => {
+      if (canShellPopout()) {
+        // Main's popout dedupe focuses/restores the existing popout for this
+        // route and returns ok — no new window, no reload.
+        void shellPopout(popoutUrl(server, windowId, leafId));
+        return;
+      }
+      // The empty URL returns the named popout without navigating it; passing
+      // the popout URL would reload an existing window (re-attaching the
+      // terminal, losing web state). A null means the browser blocked it.
+      const w = window.open("", popoutWindowName(server, windowId, leafId));
+      if (w === null) return;
+      // No popout by that name existed: navigate the fresh blank window to
+      // the popout route, re-opening the popout.
+      if (w.location.href === "about:blank") {
+        w.location.href = popoutUrl(server, windowId, leafId);
+      }
+      w.focus();
+    },
+    [server, windowId],
+  );
+
+  return { popped: enabled ? popped : NO_POPPED, popOut, popIn, focusPopout };
 }
 
 export interface PopoutPresence {

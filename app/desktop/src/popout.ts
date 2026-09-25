@@ -112,24 +112,35 @@ export interface PopoutRecord {
   /** The window the popout was opened from (the guest-move source/return). */
   openerWindowId: number;
   hostId: string;
-  /** The validated route the popout shows — the dedupe key with hostId. */
+  /** The validated route the popout shows — the dedupe key with
+   *  openerWindowId and hostId. */
   route: string;
 }
 
 /**
  * The dedupe decision: the live popout window (if any) already showing
- * `(hostId, route)` — a repeat Pop out of the same leaf focuses it instead
- * of opening a second window (the browser path's `popoutWindowName` reuse
- * semantics). Liveness is the caller's check (the registry entry is dropped
- * on `closed`); an id naming a destroyed window is not a match.
+ * `(openerWindowId, hostId, route)` — a repeat Pop out from the SAME opener
+ * focuses it instead of opening a second window (the browser path's
+ * `popoutWindowName` reuse semantics). A different opener window gets its
+ * own popout: the record's opener scopes the guest move and the pop-back-in
+ * return, so a cross-opener hit would strand that window's guest. Liveness
+ * is the caller's check (the registry entry is dropped on `closed`); an id
+ * naming a destroyed window is not a match.
  */
 export function findPopoutWindow(
   registry: ReadonlyMap<number, PopoutRecord>,
+  openerWindowId: number,
   hostId: string,
   route: string,
 ): number | null {
   for (const [windowId, record] of registry) {
-    if (record.hostId === hostId && record.route === route) return windowId;
+    if (
+      record.openerWindowId === openerWindowId &&
+      record.hostId === hostId &&
+      record.route === route
+    ) {
+      return windowId;
+    }
   }
   return null;
 }

@@ -187,6 +187,51 @@ describe("usePoppedSet", () => {
     ).toBe(true);
   });
 
+  it("focusPopout goes through the shell popout channel when the shell carries it", () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue({} as Window);
+    shellMocks.canShellPopout.mockReturnValue(true);
+    shellMocks.shellPopout.mockResolvedValue({ windowId: 3 });
+    const { result } = renderHook(() => usePoppedSet(SERVER, WINDOW, true, TREE));
+    act(() => result.current.focusPopout("code"));
+    expect(shellMocks.shellPopout).toHaveBeenCalledWith("/main/5?pop=code");
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it("focusPopout opens the named popout by empty URL and focuses it, never navigating it", () => {
+    const existing = {
+      location: { href: "http://localhost/main/5?pop=code" },
+      focus: vi.fn(),
+    };
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(existing as unknown as Window);
+    const { result } = renderHook(() => usePoppedSet(SERVER, WINDOW, true, TREE));
+    act(() => result.current.focusPopout("code"));
+    expect(openSpy).toHaveBeenCalledWith("", "rk-pop:main:@5:code");
+    // The URL form would reload the live popout (re-attaching the terminal).
+    expect(openSpy).not.toHaveBeenCalledWith(
+      "/main/5?pop=code",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(existing.location.href).toBe("http://localhost/main/5?pop=code");
+    expect(existing.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("focusPopout navigates an about:blank result to the popout URL (re-opening it)", () => {
+    const blank = { location: { href: "about:blank" }, focus: vi.fn() };
+    vi.spyOn(window, "open").mockReturnValue(blank as unknown as Window);
+    const { result } = renderHook(() => usePoppedSet(SERVER, WINDOW, true, TREE));
+    act(() => result.current.focusPopout("code"));
+    expect(blank.location.href).toBe("/main/5?pop=code");
+    expect(blank.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("focusPopout tolerates a blocked window.open (null)", () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    const { result } = renderHook(() => usePoppedSet(SERVER, WINDOW, true, TREE));
+    act(() => result.current.focusPopout("code"));
+    expect(result.current.popped).toEqual([]);
+  });
+
   it("takes a mark a live popout announces (opened), refreshing last-seen", () => {
     const { result } = renderHook(() => usePoppedSet(SERVER, WINDOW, true, TREE));
     act(() => post({ type: "opened", server: SERVER, window: WINDOW, leaf: "code" }));

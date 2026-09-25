@@ -130,17 +130,27 @@ test("dot segments normalize away and are rejected when they break the shape", (
   assert.equal(parsePopoutPayload({ route: "/a/../b?pop=x" }, HOST, MAX), null);
 });
 
-test("findPopoutWindow matches on (hostId, route) only", () => {
+test("findPopoutWindow matches on (openerWindowId, hostId, route)", () => {
   const registry = new Map<number, PopoutRecord>([
     [7, { openerWindowId: 1, hostId: "e2e-a", route: "/rk-dev/@12?pop=tty" }],
-    [9, { openerWindowId: 1, hostId: "e2e-b", route: "/rk-dev/@12?pop=tty" }],
+    [9, { openerWindowId: 2, hostId: "e2e-b", route: "/rk-dev/@12?pop=tty" }],
   ]);
-  assert.equal(findPopoutWindow(registry, "e2e-a", "/rk-dev/@12?pop=tty"), 7);
+  assert.equal(findPopoutWindow(registry, 1, "e2e-a", "/rk-dev/@12?pop=tty"), 7);
+  assert.equal(findPopoutWindow(registry, 2, "e2e-b", "/rk-dev/@12?pop=tty"), 9);
   // Same route on another host is no match.
-  assert.equal(findPopoutWindow(registry, "e2e-c", "/rk-dev/@12?pop=tty"), null);
+  assert.equal(findPopoutWindow(registry, 1, "e2e-c", "/rk-dev/@12?pop=tty"), null);
   // Same host, different route is no match.
-  assert.equal(findPopoutWindow(registry, "e2e-a", "/rk-dev/@12?pop=web"), null);
-  assert.equal(findPopoutWindow(new Map(), "e2e-a", "/rk-dev/@12?pop=tty"), null);
+  assert.equal(findPopoutWindow(registry, 1, "e2e-a", "/rk-dev/@12?pop=web"), null);
+  assert.equal(findPopoutWindow(new Map(), 1, "e2e-a", "/rk-dev/@12?pop=tty"), null);
+});
+
+test("findPopoutWindow: a different opener on the same host+route is a miss", () => {
+  const registry = new Map<number, PopoutRecord>([
+    [7, { openerWindowId: 1, hostId: "e2e-a", route: "/rk-dev/@12?pop=tty" }],
+  ]);
+  // The same opener hits; a second opener window gets its own popout.
+  assert.equal(findPopoutWindow(registry, 1, "e2e-a", "/rk-dev/@12?pop=tty"), 7);
+  assert.equal(findPopoutWindow(registry, 2, "e2e-a", "/rk-dev/@12?pop=tty"), null);
 });
 
 test("stripPopParam removes pop and keeps the rest", () => {

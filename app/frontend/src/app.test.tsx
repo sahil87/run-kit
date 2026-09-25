@@ -75,6 +75,7 @@ vi.mock("@/components/surface-layout", async () => {
       server: string;
       windowId: string;
       layout?: import("@/lib/layout-tree").LayoutNode;
+      revealedPoppedIds?: string[];
       layoutRectsRef?: { current: (() => Map<string, import("@/lib/layout-tree").Rect>) | null };
       onFocusedKindChange?: (kind: import("@/lib/layout-tree").SurfaceKind) => void;
       onFocusedLeafChange?: (leafId: string) => void;
@@ -113,7 +114,13 @@ vi.mock("@/components/surface-layout", async () => {
           surfaceLayoutSpy.mounts.push("unmount");
         };
       }, []);
-      return <div data-testid="mock-surface-layout" />;
+      return (
+        <div
+          data-testid="mock-surface-layout"
+          data-leaves={layout ? tree.leafIds(layout).join(",") : ""}
+          data-revealed={(props.revealedPoppedIds ?? []).join(",")}
+        />
+      );
     },
   };
 });
@@ -140,6 +147,9 @@ vi.mock("@/contexts/session-context", async (importOriginal) => {
 // (constants, error classes, pure helpers) and stub only the fetchers that
 // fire on this route's mount/navigation: list getters resolve [], the rest
 // resolve a benign `{ ok: true }`.
+const apiSpies = vi.hoisted(() => ({
+  setWindowOptions: vi.fn(),
+}));
 vi.mock("@/api/client", async (importOriginal) => {
   const mod = await importOriginal<typeof import("@/api/client")>();
   const ok = () => Promise.resolve({ ok: true });
@@ -152,7 +162,10 @@ vi.mock("@/api/client", async (importOriginal) => {
     getSessions: () => Promise.resolve([]),
     getDirectories: () => Promise.resolve([]),
     selectWindow: ok,
-    setWindowOptions: ok,
+    setWindowOptions: (...args: unknown[]) => {
+      apiSpies.setWindowOptions(...args);
+      return ok();
+    },
     postSettings: ok,
   };
 });
@@ -1475,6 +1488,15 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
     return null;
   }
 
+  // The registered top-bar slot, mirrored per render — the popped-toggle
+  // wiring test drives `surfaceToggles.onToggle` (AppShell's `togglePanel`
+  // seam) and reads the open/popped derivations without mounting a TopBar.
+  const topBarSlotRef: { current: ReturnType<typeof useTopBarSlot> } = { current: null };
+  function TopBarSlotProbe() {
+    topBarSlotRef.current = useTopBarSlot();
+    return null;
+  }
+
   function TerminalRouteRoot() {
     return (
       <ThemeProvider>
@@ -1486,6 +1508,7 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
                 <FocusedTerminalProvider>
                   <OptimisticProvider>
                     <TopBarSlotProvider>
+                      <TopBarSlotProbe />
                       <FocusedPaneProvider>
                         <ServerDialogsProvider>
                           <PaletteActionsProvider globalActions={[]}>
@@ -1826,6 +1849,67 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
       expect(localStorage.getItem("runkit-sidebar-section-pane")).toBe("true");
       act(() => zenDispatchRef.current?.(false));
       await waitFor(() => expect(screen.queryByTestId("status-bar-window")).toBeNull());
+    });
+  });
+
+  describe("popped-toggle wiring — togglePanel guards the shared layout", () => {
+    // Drives the registered top-bar slot's `onToggle` (AppShell's
+    // `togglePanel`) against a viewer-popped leaf: the guard must flip the
+    // leaf's revealed membership and NEVER write `@rk_win_layout`. The popped
+    // mark is seeded in the viewer key (`rk-layout-popped:srv:@0`) — jsdom has
+    // no BroadcastChannel, so the hook runs storage-only.
+    afterEach(() => {
+      localStorage.clear();
+      apiSpies.setWindowOptions.mockClear();
+    });
+
+    const toggleSlot = () => {
+      const toggles = topBarSlotRef.current?.surfaceToggles;
+      if (!toggles || toggles.mode !== "toggle") {
+        throw new Error("expected the desktop surface-toggle slot");
+      }
+      return toggles;
+    };
+
+    it("toggle on a popped close-target leaf reveals then hides the placeholder — no layout write; a non-popped kind still writes", async () => {
+      localStorage.setItem("rk-layout-popped:srv:@0", JSON.stringify(["tty"]));
+      const router = createRouter({
+        routeTree: testRouteTree,
+        history: createMemoryHistory({ initialEntries: ["/srv/0"] }),
+      });
+      render(<RouterProvider router={router} />);
+      await waitFor(() => screen.getByTestId("mock-surface-layout"));
+      await waitFor(() => toggleSlot());
+
+      // Popped and unrevealed: the kind reads CLOSED in the toggle group, the
+      // rendered tree is reduced (tty absent), and the popped predicate marks it.
+      expect(toggleSlot().open).toEqual(["web"]);
+      expect(toggleSlot().popped?.("tty")).toBe(true);
+      expect(toggleSlot().popped?.("web")).toBe(false);
+      expect(screen.getByTestId("mock-surface-layout").dataset.leaves).toBe("web");
+      apiSpies.setWindowOptions.mockClear();
+
+      // Toggle → reveal: no `@rk_win_layout` write; the leaf returns to the
+      // rendered tree carrying its revealed mark, and the kind reads open.
+      act(() => toggleSlot().onToggle("tty"));
+      expect(apiSpies.setWindowOptions).not.toHaveBeenCalled();
+      expect(screen.getByTestId("mock-surface-layout").dataset.leaves).toBe("tty,web");
+      expect(screen.getByTestId("mock-surface-layout").dataset.revealed).toBe("tty");
+      expect(toggleSlot().open).toEqual(["tty", "web"]);
+
+      // Toggle → hide: still no write, back to the reduced render.
+      act(() => toggleSlot().onToggle("tty"));
+      expect(apiSpies.setWindowOptions).not.toHaveBeenCalled();
+      expect(screen.getByTestId("mock-surface-layout").dataset.leaves).toBe("web");
+      expect(screen.getByTestId("mock-surface-layout").dataset.revealed).toBe("");
+      expect(toggleSlot().open).toEqual(["web"]);
+
+      // A non-popped kind keeps the shared toggle semantics: the close writes
+      // `@rk_win_layout`.
+      act(() => toggleSlot().onToggle("web"));
+      expect(apiSpies.setWindowOptions).toHaveBeenCalledWith("srv", "@0", {
+        "@rk_win_layout": "tty",
+      });
     });
   });
 });

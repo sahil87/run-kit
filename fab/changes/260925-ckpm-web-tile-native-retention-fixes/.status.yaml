@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 11
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-25T10:57:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T11:03:02Z"}
     hydrate: {started_at: "2026-09-25T11:03:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T11:13:50Z"}
     ship: {started_at: "2026-09-25T11:13:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T11:15:17Z"}
-    review-pr: {started_at: "2026-09-25T11:15:17Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-25T11:15:17Z", driver: git-pr, iterations: 1, completed_at: "2026-09-25T11:33:45Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/1040
 change_type_source: explicit
@@ -56,4 +56,4 @@ true_impact:
 summary: 'Web tile fixes: native guest park/adopt retention (LRU-4 parked set, stable SPA-computed identity, chrome-owned destroys), web-tab cap 16 with MaxWebTabs-derived parser offsets, draft tab deactivates every frame behind a blank new-tab panel, click-opened menus register transient and hide the native view (tooltips/hover flyouts excluded)'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-25T11:15:18Z
+last_updated: 2026-09-25T11:33:45Z

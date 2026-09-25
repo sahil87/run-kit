@@ -32,7 +32,7 @@
  * read main-side through the guest webContents' `executeJavaScript`, which
  * reaches the guest while parked or mid-move too.
  */
-import { test, expect, type ElectronApplication, type Page } from "@playwright/test";
+import { test, expect, type ElectronApplication, type Locator, type Page } from "@playwright/test";
 import http from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -141,6 +141,22 @@ function windowTrees(): Promise<WindowTree[]> {
 /** Live shell-window count. */
 function windowCount(): Promise<number> {
   return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+}
+
+/** Clicks a control whose handler closes the window it lives in (the popout's
+ *  Pop back in verb). The shell can destroy the window before Playwright's
+ *  mouse-up dispatch returns, so the click may reject with "Target page,
+ *  context or browser has been closed" although the app behaved correctly.
+ *  That rejection is tolerated only once the page is actually closed; the
+ *  close itself is awaited, so a verb that never closes the window still
+ *  fails here. */
+async function clickClosingControl(page: Page, control: Locator): Promise<void> {
+  await Promise.all([
+    page.waitForEvent("close", { timeout: READY_TIMEOUT }),
+    control.click().catch((err: unknown) => {
+      if (!page.isClosed()) throw err;
+    }),
+  ]);
 }
 
 /** The id of the window whose host view shows a `?pop=<leaf>` route, or
@@ -336,7 +352,8 @@ test.describe("surface popout in the desktop shell", () => {
    *    gate is the tile testid, never the status bar).
    * 5. Assert the opener reflowed: the tty tile hidden (still mounted — the
    *    hidden class is display:none), the web tile visible.
-   * 6. Click the popout's `Pop Terminal back in`; poll the window count back
+   * 6. Click the popout's `Pop Terminal back in` and await the popout page's
+   *    close (clickClosingControl); poll the window count back
    *    to 1 and the opener's tty tile visible again (the `closed` channel
    *    message clears the mark; the 6s stale sweep is the backstop).
    */
@@ -368,7 +385,7 @@ test.describe("surface popout in the desktop shell", () => {
     await expect(hostPage.getByTestId("surface-tile-tty")).toBeHidden();
     await expect(hostPage.getByTestId("surface-tile-web")).toBeVisible();
 
-    await popPage.getByTestId("surface-tile-tty").getByLabel("Pop Terminal back in").click();
+    await clickClosingControl(popPage, popPage.getByTestId("surface-tile-tty").getByLabel("Pop Terminal back in"));
     await expect.poll(windowCount, { timeout: READY_TIMEOUT }).toBe(1);
     await expect(hostPage.getByTestId("surface-tile-tty")).toBeVisible({ timeout: READY_TIMEOUT });
   });
@@ -444,7 +461,8 @@ test.describe("surface popout in the desktop shell", () => {
    *    loads + 1, and no marker). Assert the opener's web tile is hidden —
    *    a popped web leaf unmounts in the opener, so its engine parks the
    *    guest for the popout's adopt.
-   * 4. Click the popout's `Pop Web back in`; poll the window count back to
+   * 4. Click the popout's `Pop Web back in` and await the popout page's
+   *    close (clickClosingControl); poll the window count back to
    *    1 and the opener's web tile visible again (the `closed` channel
    *    message clears the mark; the tile remounts).
    * 5. Poll the guest back onto the OPENER window's view tree, visible, with
@@ -497,7 +515,7 @@ test.describe("surface popout in the desktop shell", () => {
     );
     await expect(hostPage.getByTestId("surface-tile-web")).toBeHidden();
 
-    await popPage.getByTestId("surface-tile-web").getByLabel("Pop Web back in").click();
+    await clickClosingControl(popPage, popPage.getByTestId("surface-tile-web").getByLabel("Pop Web back in"));
     await expect.poll(windowCount, { timeout: READY_TIMEOUT }).toBe(1);
     await expect(hostPage.getByTestId("surface-tile-web")).toBeVisible({ timeout: READY_TIMEOUT });
 

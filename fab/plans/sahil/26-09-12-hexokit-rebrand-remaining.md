@@ -17,7 +17,7 @@ deliberate: the disruptive renames are all in Phase 3, which runs when Sahil
 calls it.
 
 **Status (2026-09-25)**: **announce gate clear** — A1 done (shll v0.1.33),
-A2 merged. A3 (announce) is yours whenever you want it. P2 in progress (fab change `1067`); P1/P3 not started. Phase 3 not started; R0's code sits on a
+A2 merged. A3 (announce) is yours whenever you want it. P1 merged ([run-kit#1050](https://github.com/sahil87/run-kit/pull/1050)); P2 PR open ([run-kit#1049](https://github.com/sahil87/run-kit/pull/1049)); P3 merged ([run-kit#1051](https://github.com/sahil87/run-kit/pull/1051)). Phase 3 not started; R0's code sits on a
 parked draft PR now 120 commits behind main. **Account decision fixed
 (2026-09-25): everything stays under `sahil87`; R2 renames to
 `sahil87/hexokit`** (D15). Port migration folded in (rule P, rows P1/P2 now,

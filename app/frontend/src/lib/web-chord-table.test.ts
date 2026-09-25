@@ -117,4 +117,58 @@ describe("buildWebChordTable over the default registry", () => {
     expect(table.find((s) => s.code === "Equal")).toBeUndefined();
     expect(table.find((s) => s.code === "Minus" && s.ctrl && !s.shift)).toBeUndefined();
   });
+
+  it("released includes the capture toggle's shifted arms — it is web-reclaimable now", () => {
+    const table = buildWebChordTable(bindings);
+    expect(table).toContainEqual({ code: "KeyG", ctrl: true, meta: false, shift: true, alt: false });
+    expect(table).toContainEqual({ code: "KeyG", ctrl: false, meta: true, shift: true, alt: false });
+    expect(table[table.length - 1]?.code).toBe("Escape");
+  });
+});
+
+describe("buildWebChordTable captured mode (the web capture latch)", () => {
+  const bindings = resolveBindings(DEFAULT_BINDINGS, {}, { platform: "other", shell: true });
+
+  it("emits only the toggle binding's two specs — and no Escape", () => {
+    expect(buildWebChordTable(bindings, { captured: true })).toEqual([
+      { code: "KeyG", ctrl: true, meta: false, shift: true, alt: false },
+      { code: "KeyG", ctrl: false, meta: true, shift: true, alt: false },
+    ]);
+  });
+
+  it("a rebound toggle moves the captured table to its rebound specs", () => {
+    const rebound = resolveBindings(
+      DEFAULT_BINDINGS,
+      { "gui-capture-toggle": { code: "KeyU", tier: "cmd" } },
+      { platform: "other", shell: true },
+    );
+    expect(buildWebChordTable(rebound, { captured: true })).toEqual([
+      { code: "KeyU", ctrl: true, meta: false, shift: false, alt: false },
+      { code: "KeyU", ctrl: false, meta: true, shift: false, alt: false },
+    ]);
+  });
+
+  it("a disabled toggle yields an empty table — the button and palette row are the exits", () => {
+    const disabled = resolveBindings(
+      DEFAULT_BINDINGS,
+      { "gui-capture-toggle": null },
+      { platform: "other", shell: true },
+    );
+    expect(buildWebChordTable(disabled, { captured: true })).toEqual([]);
+  });
+
+  it("captured ignores every non-toggle binding, including ungated and webOnly ones", () => {
+    const table = buildWebChordTable(
+      [
+        binding({ actionId: "global", code: "KeyK", tier: "cmd" }),
+        binding({ actionId: "web", code: "KeyF", tier: "cmd", webOnly: true }),
+        binding({ actionId: "toggle", code: "KeyG", tier: "shifted", captureSurface: true }),
+      ],
+      { captured: true },
+    );
+    expect(table).toEqual([
+      { code: "KeyG", ctrl: true, meta: false, shift: true, alt: false },
+      { code: "KeyG", ctrl: false, meta: true, shift: true, alt: false },
+    ]);
+  });
 });

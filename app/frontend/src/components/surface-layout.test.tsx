@@ -182,6 +182,8 @@ type LayoutOverrides = {
   guiActions?: GuiPaletteAction[];
   guiToolbarVisible?: boolean;
   onGuiToolbarVisibleChange?: (visible: boolean) => void;
+  webCapture?: boolean;
+  onWebCaptureChange?: (on: boolean) => void;
 };
 
 /** The minimal WindowInfo the tty header's StatusDot consumes (260812-wfic
@@ -258,6 +260,8 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       guiActions={overrides.guiActions}
       guiToolbarVisible={overrides.guiToolbarVisible}
       onGuiToolbarVisibleChange={overrides.onGuiToolbarVisibleChange}
+      webCapture={overrides.webCapture}
+      onWebCaptureChange={overrides.onWebCaptureChange}
       />
     </ToastProvider>
   );
@@ -433,6 +437,54 @@ describe("SurfaceLayout tree rendering", () => {
       expect(badge.textContent).toBe("external");
       expect(badge.className).toContain("text-signal-blue");
       expect(webTile.textContent).toContain("shll.ai/rk/skill");
+    });
+
+    it("while the web capture latch holds, the header adds the green 'keys → page' chip beside the badge (and reverts on release)", () => {
+      const { unmount } = renderLayout({
+        layout: layoutOf("h(tty,web)"),
+        window: { webTabs: ["https://shll.ai/rk/skill"], webActive: 1 },
+        webCapture: true,
+      });
+      const webTile = screen.getByTestId("surface-tile-web");
+      const chip = within(webTile).getByText("keys → page");
+      expect(chip.className).toContain("bg-accent-green/15");
+      // The badge and the display-form title stay beside the consequence chip.
+      expect(within(webTile).getByTestId("web-kind-badge").textContent).toBe("external");
+      expect(webTile.textContent).toContain("shll.ai/rk/skill");
+      unmount();
+      renderLayout({
+        layout: layoutOf("h(tty,web)"),
+        window: { webTabs: ["https://shll.ai/rk/skill"], webActive: 1 },
+      });
+      expect(
+        within(screen.getByTestId("surface-tile-web")).queryByText("keys → page"),
+      ).toBeNull();
+    });
+
+    it("the onboarding web tile renders no meta chip even while latched", () => {
+      renderLayout({
+        layout: layoutOf("h(tty,web)"),
+        window: { webTabs: [] },
+        webCapture: true,
+      });
+      expect(
+        within(screen.getByTestId("surface-tile-web")).queryByText("keys → page"),
+      ).toBeNull();
+    });
+
+    it("threads the latch and its flip seam into the IframeWindow mount", () => {
+      const onWebCaptureChange = vi.fn();
+      renderLayout({
+        layout: layoutOf("h(tty,web)"),
+        webCapture: true,
+        onWebCaptureChange,
+      });
+      const props = iframeSpy.mock.lastCall?.[0] as {
+        capture?: boolean;
+        onCaptureChange?: (on: boolean) => void;
+      };
+      expect(props.capture).toBe(true);
+      expect(props.onCaptureChange).toBe(onWebCaptureChange);
     });
 
     it("the reported page title replaces the display form via the onPageMeta seam", () => {

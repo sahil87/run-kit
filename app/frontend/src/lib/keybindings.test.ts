@@ -4,6 +4,7 @@ import {
   KEYBINDINGS_STORAGE_KEY,
   applyCapture,
   captureFromEvent,
+  captureToggleHint,
   chordHintFor,
   claimedKeys,
   comboParts,
@@ -2432,9 +2433,9 @@ describe("webOnly — the web-find data flag (260819-ie2i)", () => {
 });
 
 describe("guiOnly — the gui-zoom data flag", () => {
-  it("exactly the three gui-zoom rows and the capture toggle carry the flag in the shipped defaults", () => {
+  it("exactly the three gui-zoom rows carry the flag in the shipped defaults", () => {
     const flagged = DEFAULT_BINDINGS.filter((b) => b.guiOnly).map((b) => b.actionId);
-    expect(flagged).toEqual(["gui-zoom-in", "gui-zoom-out", "gui-zoom-fit", "gui-capture-toggle"]);
+    expect(flagged).toEqual(["gui-zoom-in", "gui-zoom-out", "gui-zoom-fit"]);
   });
 
   it("ships the three rows ctrl-tier on Equal/Minus/Digit0, terminal scope, ignoreInputs — no mac refinement", () => {
@@ -2519,8 +2520,8 @@ describe("guiOnly — the gui-zoom data flag", () => {
   });
 });
 
-describe("gui-capture-toggle — the chord gate's escape hatch", () => {
-  it("ships shifted-tier on KeyG, terminal scope, ignoreInputs, guiOnly", () => {
+describe("gui-capture-toggle — the capture latch's shared release chord", () => {
+  it("ships shifted-tier on KeyG, terminal scope, ignoreInputs, captureSurface", () => {
     expect(DEFAULT_BINDINGS.find((b) => b.actionId === "gui-capture-toggle")).toEqual({
       actionId: "gui-capture-toggle",
       code: "KeyG",
@@ -2528,10 +2529,10 @@ describe("gui-capture-toggle — the chord gate's escape hatch", () => {
       scope: "terminal",
       kind: "builtin",
       label: "Keyboard capture",
-      description: "hand every chord to the guest desktop",
+      description: "hand every chord to the focused tile's app",
       mapLabel: "capture",
       ignoreInputs: true,
-      guiOnly: true,
+      captureSurface: true,
     });
   });
 
@@ -2563,7 +2564,7 @@ describe("gui-capture-toggle — the chord gate's escape hatch", () => {
     }
   });
 
-  it("the release chord reclaims for kind 'gui' only, captured or not", () => {
+  it("the release chord reclaims for kinds 'gui' and 'web' only, captured or not", () => {
     for (const host of ALL_HOSTS) {
       const bindings = resolved(host);
       const e =
@@ -2571,9 +2572,42 @@ describe("gui-capture-toggle — the chord gate's escape hatch", () => {
           ? chord({ code: "KeyG", shiftKey: true, metaKey: true })
           : chord({ code: "KeyG", shiftKey: true, ctrlKey: true });
       expect(hasReclaimableMatch(e, bindings, "gui")).toBe(true);
+      expect(hasReclaimableMatch(e, bindings, "web")).toBe(true);
       expect(hasReclaimableMatch(e, bindings, "code")).toBe(false);
-      expect(hasReclaimableMatch(e, bindings, "web")).toBe(false);
+      expect(hasReclaimableMatch(e, bindings, "tty")).toBe(false);
       expect(hasReclaimableMatch(e, bindings, "gui", true)).toBe(true);
+      expect(hasReclaimableMatch(e, bindings, "web", true)).toBe(true);
+    }
+  });
+
+  it("captured under kind 'web' narrows the reclaim to the toggle — ⌘K, web-find and web-address pass to the page", () => {
+    const mac = resolved(SHELL_MAC);
+    const other = resolved(SHELL_OTHER);
+    expect(hasReclaimableMatch(chord({ code: "KeyK", metaKey: true }), mac, "web", true)).toBe(false);
+    expect(hasReclaimableMatch(chord({ code: "KeyK", ctrlKey: true }), other, "web", true)).toBe(false);
+    expect(hasReclaimableMatch(chord({ code: "KeyF", metaKey: true }), mac, "web", true)).toBe(false);
+    expect(hasReclaimableMatch(chord({ code: "KeyF", ctrlKey: true }), other, "web", true)).toBe(false);
+    expect(hasReclaimableMatch(chord({ code: "KeyL", metaKey: true }), mac, "web", true)).toBe(false);
+    expect(hasReclaimableMatch(chord({ code: "KeyL", ctrlKey: true }), other, "web", true)).toBe(false);
+    expect(
+      hasReclaimableMatch(chord({ code: "KeyG", shiftKey: true, metaKey: true }), mac, "web", true),
+    ).toBe(true);
+    expect(
+      hasReclaimableMatch(chord({ code: "KeyG", shiftKey: true, ctrlKey: true }), other, "web", true),
+    ).toBe(true);
+  });
+
+  it("the terminal seam never refuses the toggle chord — it stays with the pane on every platform", () => {
+    // Regression guard: rule 1 refuses every enabled shifted-tier match, so
+    // without the captureSurface filter ⇧⌘G/⇧Ctrl+G would be swallowed under
+    // terminal focus (no handler exists there).
+    for (const host of ALL_HOSTS) {
+      const bindings = resolved(host);
+      const e =
+        host.platform === "mac"
+          ? chord({ code: "KeyG", shiftKey: true, metaKey: true })
+          : chord({ code: "KeyG", shiftKey: true, ctrlKey: true });
+      expect(shouldRefuseTerminalChord(e, bindings, host.platform)).toBe(false);
     }
   });
 
@@ -2621,6 +2655,26 @@ describe("gui-capture-toggle — the chord gate's escape hatch", () => {
         }
       }
     }
+  });
+});
+
+describe("captureToggleHint — the shared release-chord hint", () => {
+  const byActionOf = (bindings: EffectiveBinding[]) =>
+    new Map(bindings.map((b) => [b.actionId, b]));
+
+  it("renders the effective combo per platform", () => {
+    expect(captureToggleHint(byActionOf(resolved(SHELL_MAC)), "mac")).toBe("⇧⌘G");
+    expect(captureToggleHint(byActionOf(resolved(SHELL_OTHER)), "other")).toBe("Shift+Ctrl+G");
+  });
+
+  it("follows a user rebind", () => {
+    const rebound = resolved(SHELL_OTHER, { "gui-capture-toggle": { code: "KeyU", tier: "shifted" } });
+    expect(captureToggleHint(byActionOf(rebound), "other")).toBe("Shift+Ctrl+U");
+  });
+
+  it("is undefined when the toggle is disabled or unbound — a dead-chord hint would lie", () => {
+    const disabled = resolved(SHELL_OTHER, { "gui-capture-toggle": null });
+    expect(captureToggleHint(byActionOf(disabled), "other")).toBeUndefined();
   });
 });
 

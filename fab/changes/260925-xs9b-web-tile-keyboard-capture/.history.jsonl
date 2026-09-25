@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-25T12:02:03Z"}
+{"args":"Web tile keyboard capture — a latch button on the web tile URL bar that hands rk chords (e.g. Cmd+K) to the embedded page, mirroring the gui keyboard-capture latch","cmd":"fab-new","event":"command","ts":"2026-09-25T12:02:03Z"}
+{"delta":"+3.9","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-09-25T12:03:51Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-25T12:04:33Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-25T12:05:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T12:05:19Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-25T12:06:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T12:18:27Z"}
+{"event":"review","result":"failed","ts":"2026-09-25T12:21:51Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T12:21:51Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T12:26:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-25T12:29:28Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T12:29:28Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-25T12:30:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-25T12:35:57Z"}

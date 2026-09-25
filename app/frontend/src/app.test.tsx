@@ -121,13 +121,18 @@ vi.mock("@/components/surface-layout", async () => {
 // The host-global signal hooks read nested contexts only the real
 // SessionProvider fills (it owns the state socket — never opened in tests).
 // Everything else in the module stays real: the controlled session value
-// arrives through the real StandaloneSessionContextProvider below.
+// arrives through the real StandaloneSessionContextProvider below. `useGui`
+// reads a hoisted mutable (default null — every pre-existing test's posture)
+// so a test can arm the gui tile's availability gate.
+const guiSignalMock = vi.hoisted(() => ({
+  current: null as import("@/contexts/session-context").GuiSignal | null,
+}));
 vi.mock("@/contexts/session-context", async (importOriginal) => {
   const mod = await importOriginal<typeof import("@/contexts/session-context")>();
   return {
     ...mod,
     useCodeServer: () => ({ reachable: false }),
-    useGui: () => null,
+    useGui: () => guiSignalMock.current,
   };
 });
 
@@ -2094,5 +2099,179 @@ describe("absent-server route — the not-found fallback settles", () => {
 
     await awaitText(container, "Server not found");
     expect(await countProbeRendersOver(300)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("gui-capture-toggle chord — the shared release chord dispatches to the focused tile kind's latch", () => {
+  // The SurfaceLayout module mock above reports the LAST layout leaf as the
+  // focused tile kind, so the fixture layout selects the dispatch arm:
+  // `h(tty,web)` → web focus, `h(tty,gui)` → gui focus (the gui leaf survives
+  // degradeLayout only with the host signal armed through guiSignalMock), and
+  // bare `tty` / `h(tty,code)` → the handler-absent arms. The latch writes
+  // land in localStorage (`rk-gui-capture` / `rk-web-capture`) synchronously
+  // inside the chord handler.
+  stubMatchMedia(() => false);
+
+  const GUI_ON: import("@/contexts/session-context").GuiSignal = {
+    id: "gui",
+    enabled: true,
+    backend: "test",
+    reachable: true,
+    display: ":0",
+    width: 1280,
+    height: 800,
+    viewers: 0,
+    wm: "",
+    locked: false,
+    geometry: "",
+  };
+
+  function CaptureRouteRoot({ layout, gitRoot }: { layout: string; gitRoot?: string }) {
+    return (
+      <ThemeProvider>
+        <ToastProvider>
+          <InstanceNameProvider>
+            <ChromeProvider>
+              <ZenProvider>
+                <FocusedTerminalProvider>
+                  <OptimisticProvider>
+                    <TopBarSlotProvider>
+                      <FocusedPaneProvider>
+                        <ServerDialogsProvider>
+                          <PaletteActionsProvider globalActions={[]}>
+                            <GuiOffRequestProvider value={undefined}>
+                              <MetricsProvider value={null}>
+                                <HostMetricsProvider value={null}>
+                                  <StandaloneSessionContextProvider
+                                    value={{
+                                      currentServer: null,
+                                      servers: [{ name: "srv", sessionCount: 1 }] as ServerInfo[],
+                                      serversLoaded: true,
+                                      sessionsByServer: new Map([
+                                        [
+                                          "srv",
+                                          [
+                                            makeSession({
+                                              name: "alpha",
+                                              windows: [
+                                                makeWindow({
+                                                  windowId: "@0",
+                                                  index: 0,
+                                                  isActiveWindow: true,
+                                                  layout,
+                                                  ...(gitRoot ? { gitRoot } : {}),
+                                                }),
+                                              ],
+                                            }),
+                                          ],
+                                        ],
+                                      ]),
+                                      isConnectedByServer: new Map([["srv", true]]),
+                                    }}
+                                  >
+                                    <Outlet />
+                                  </StandaloneSessionContextProvider>
+                                </HostMetricsProvider>
+                              </MetricsProvider>
+                            </GuiOffRequestProvider>
+                          </PaletteActionsProvider>
+                        </ServerDialogsProvider>
+                      </FocusedPaneProvider>
+                    </TopBarSlotProvider>
+                  </OptimisticProvider>
+                </FocusedTerminalProvider>
+              </ZenProvider>
+            </ChromeProvider>
+          </InstanceNameProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    );
+  }
+
+  function renderCaptureRoute(layout: string, opts: { gitRoot?: string } = {}) {
+    const rootRoute = createRootRoute({
+      component: () => <CaptureRouteRoot layout={layout} gitRoot={opts.gitRoot} />,
+    });
+    const serverRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: "/$server",
+      component: ServerShell,
+    });
+    const serverIndexRoute = createRoute({
+      getParentRoute: () => serverRoute,
+      path: "/",
+    });
+    const terminalRoute = createRoute({
+      getParentRoute: () => serverRoute,
+      path: "/$window",
+      validateSearch: validateTerminalSearch,
+      params: {
+        parse: (params) => ({ window: urlSegmentToWindowId(params.window) }),
+        stringify: (params) => ({ window: windowIdToUrlSegment(params.window) }),
+      },
+    });
+    const routeTree = rootRoute.addChildren([
+      serverRoute.addChildren([serverIndexRoute, terminalRoute]),
+    ]);
+    const router = createRouter({
+      routeTree,
+      history: createMemoryHistory({ initialEntries: ["/srv/0"] }),
+    });
+    render(<RouterProvider router={router} />);
+  }
+
+  const pressToggleChord = () =>
+    fireEvent.keyDown(document, { key: "G", code: "KeyG", ctrlKey: true, shiftKey: true });
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    cleanup();
+    guiSignalMock.current = null;
+    localStorage.clear();
+  });
+
+  it("web-tile focus flips ONLY rk-web-capture (and toggles it back off)", async () => {
+    renderCaptureRoute("h(tty,web)");
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+    await act(async () => {});
+
+    pressToggleChord();
+    expect(localStorage.getItem("rk-web-capture")).toBe("1");
+    expect(localStorage.getItem("rk-gui-capture")).toBeNull();
+
+    pressToggleChord();
+    expect(localStorage.getItem("rk-web-capture")).toBeNull();
+    expect(localStorage.getItem("rk-gui-capture")).toBeNull();
+  });
+
+  it("gui-tile focus flips ONLY rk-gui-capture", async () => {
+    guiSignalMock.current = GUI_ON;
+    renderCaptureRoute("h(tty,gui)");
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+    await act(async () => {});
+
+    pressToggleChord();
+    expect(localStorage.getItem("rk-gui-capture")).toBe("1");
+    expect(localStorage.getItem("rk-web-capture")).toBeNull();
+  });
+
+  it("tty focus mounts no handler — the chord falls through with no latch change", async () => {
+    renderCaptureRoute("tty");
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+    await act(async () => {});
+
+    pressToggleChord();
+    expect(localStorage.getItem("rk-gui-capture")).toBeNull();
+    expect(localStorage.getItem("rk-web-capture")).toBeNull();
+  });
+
+  it("code-tile focus mounts no handler — the chord falls through with no latch change", async () => {
+    renderCaptureRoute("h(tty,code)", { gitRoot: "/repo" });
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+    await act(async () => {});
+
+    pressToggleChord();
+    expect(localStorage.getItem("rk-gui-capture")).toBeNull();
+    expect(localStorage.getItem("rk-web-capture")).toBeNull();
   });
 });

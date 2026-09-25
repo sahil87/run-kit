@@ -12,8 +12,12 @@
  * The per-tier expansion mirrors `matchesCombo`'s acceptance exactly:
  * `cmd` accepts Ctrl OR Meta without Shift; `shifted` accepts Shift+Ctrl OR
  * Shift+Meta; `ctrl` accepts Ctrl alone; Alt is rejected in every tier. A
- * plain `{code: "Escape"}` spec is appended last, always — Escape is the
- * focus-return chord and is not a registry binding.
+ * plain `{code: "Escape"}` spec is appended last in the released table —
+ * Escape is the focus-return chord and is not a registry binding. Under the
+ * web tile's keyboard-capture latch (`captured`) the table narrows to the
+ * `captureSurface` toggle binding's specs ALONE and Escape is dropped, so the
+ * guest page's own chords — including its palette's Esc close — pass through
+ * (the iframe engine's in-document narrowing, mirrored shell-side).
  */
 import type { EffectiveBinding } from "@/lib/keybindings";
 
@@ -49,10 +53,17 @@ function combosFor(code: string, tier: EffectiveBinding["tier"]): WebChordSpec[]
 /**
  * The per-guest chord table over the effective registry: every enabled
  * binding that `hasReclaimableMatch` would reclaim under kind `"web"` —
- * ungated and `webOnly` bindings; never `ttyOnly` or `guiOnly` — expanded per
- * tier, deduped by the five-tuple, in registry order, Escape last.
+ * ungated, `webOnly`, and `captureSurface` bindings; never `ttyOnly` or
+ * `guiOnly` — expanded per tier, deduped by the five-tuple, in registry
+ * order, Escape last. With `captured` set (the web tile's capture latch) the
+ * table is ONLY the `captureSurface` binding's effective specs — a disabled
+ * or unbound toggle yields an empty table, leaving the URL-bar button and the
+ * palette row as the exits — and no Escape spec is appended.
  */
-export function buildWebChordTable(bindings: readonly EffectiveBinding[]): WebChordSpec[] {
+export function buildWebChordTable(
+  bindings: readonly EffectiveBinding[],
+  opts?: { captured?: boolean },
+): WebChordSpec[] {
   const seen = new Set<string>();
   const specs: WebChordSpec[] = [];
   const push = (spec: WebChordSpec): void => {
@@ -62,10 +73,16 @@ export function buildWebChordTable(bindings: readonly EffectiveBinding[]): WebCh
     specs.push(spec);
   };
   for (const binding of bindings) {
-    if (!binding.enabled || binding.ttyOnly || binding.guiOnly) continue;
-    if (binding.code === "") continue;
+    if (!binding.enabled || binding.code === "") continue;
+    if (opts?.captured) {
+      if (!binding.captureSurface) continue;
+    } else if (binding.ttyOnly || binding.guiOnly) {
+      continue;
+    }
     for (const spec of combosFor(binding.code, binding.tier)) push(spec);
   }
-  push({ code: "Escape", ctrl: false, meta: false, shift: false, alt: false });
+  if (!opts?.captured) {
+    push({ code: "Escape", ctrl: false, meta: false, shift: false, alt: false });
+  }
   return specs;
 }

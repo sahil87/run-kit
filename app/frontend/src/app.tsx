@@ -49,7 +49,7 @@ import {
   type TemplateName,
 } from "@/lib/surface-layout";
 import { parseLeafAddress, pruneDeadLeaves } from "@/lib/layout-tree";
-import { focusIsEngaged, hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
+import { captureToggleHint, focusIsEngaged, hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { requestQuakeTerminal, findOperatorWindow, resolveQuakeServer } from "@/lib/quake-terminal";
 import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
 import { TERMINAL_FIND_OPEN_EVENT } from "@/lib/terminal-find";
@@ -102,6 +102,7 @@ import {
   type GuiQuality,
   type GuiZoom,
 } from "@/lib/gui-posture";
+import { readWebCapture, writeWebCapture } from "@/lib/web-posture";
 import { GUI_SEND_KEY_MIRROR_REFUSAL, sendKeyChord, type KeyChord } from "@/lib/gui-send-key";
 import { buildZenActions } from "@/lib/palette/zen";
 import { buildCodeActions } from "@/lib/palette/code";
@@ -123,7 +124,7 @@ import { buildServerProtectActions } from "@/lib/palette/server-protect";
 import { buildServerAdoptActions } from "@/lib/palette/server-adopt";
 import { buildServerSetColorAction } from "@/lib/palette/server-color";
 import { buildShellServerActions } from "@/lib/palette/shell";
-import { buildWebEngineActions, buildWebInspectActions } from "@/lib/palette/web-engine";
+import { buildWebCaptureActions, buildWebEngineActions, buildWebInspectActions } from "@/lib/palette/web-engine";
 import { canCloseShellWindow, canNewShellWindow, canShellWeb, closeShellWindow, isShell, newShellWindow, switchShellServer } from "@/lib/shell";
 import { WEB_NATIVE_ENGINE_DEFAULT, WEB_NATIVE_ENGINE_PREF_KEY, selectWebEngineKind } from "@/lib/web-engine-pref";
 import { ShellTitlebarStrip } from "@/components/desktop-shell/titlebar-strip";
@@ -1507,6 +1508,14 @@ function AppShell() {
     setGuiCapture(on);
     writeGuiCapture(on);
   }, []);
+  // The web tile's own latch (`rk-web-capture`) — a separate per-viewer
+  // posture from the gui latch, so latching capture to type into an embedded
+  // page never changes gui tile behavior (and vice versa).
+  const [webCapture, setWebCapture] = useState(() => readWebCapture());
+  const handleWebCaptureChange = useCallback((on: boolean) => {
+    setWebCapture(on);
+    writeWebCapture(on);
+  }, []);
   // The Send key prompt's open state (the palette's `GUI: Send key…` row opens
   // it; the prompt owns parsing/validation).
   const [guiSendKeyOpen, setGuiSendKeyOpen] = useState(false);
@@ -2200,10 +2209,15 @@ function AppShell() {
   // only inside the WEB tile's frame (code-server keeps its own find).
   const reclaimChordForKind = useCallback(
     (kind: SurfaceKind) => (e: KeyboardEvent) =>
-      // The capture latch narrows the GUI reclaim to the release binding
-      // alone; the code/web iframe paths never see the flag.
-      hasReclaimableMatch(e, keybindings.bindings, kind, kind === "gui" && guiCapture),
-    [keybindings.bindings, guiCapture],
+      // The capture latches narrow the reclaim to the release binding alone,
+      // each on its OWN tile kind; the code iframe path never sees the flag.
+      hasReclaimableMatch(
+        e,
+        keybindings.bindings,
+        kind,
+        (kind === "gui" && guiCapture) || (kind === "web" && webCapture),
+      ),
+    [keybindings.bindings, guiCapture, webCapture],
   );
 
   // The docked compose strip is a single global surface (260718-dhdj) rendered
@@ -4917,6 +4931,37 @@ function AppShell() {
     [nativeEngineEnabled, effectiveWindow],
   );
 
+  // `Web: Capture/Release keyboard` — the pointer-reachable entry/exit for
+  // the web capture latch (the URL-bar button's palette twin, Constitution
+  // V). Gated like the button: a non-onboarding web tile open in the layout
+  // (the `web-find` tile + content gates) and a fine pointer. The id is NOT
+  // the shared toggle's registry actionId (palette ids must be unique when
+  // both capture rows render), so the chord hint is hand-set from the
+  // effective `gui-capture-toggle` combo.
+  const webCaptureActions: PaletteAction[] = useMemo(
+    () =>
+      buildWebCaptureActions({
+        available:
+          windowParam !== undefined &&
+          leaves(layout).includes("web") &&
+          hasWebUrl(effectiveWindow) &&
+          !coarsePointer,
+        captured: webCapture,
+        shortcut: captureToggleHint(bindingByAction, bindingHost.platform),
+        onToggle: handleWebCaptureChange,
+      }),
+    [
+      windowParam,
+      layout,
+      effectiveWindow,
+      coarsePointer,
+      webCapture,
+      bindingByAction,
+      bindingHost,
+      handleWebCaptureChange,
+    ],
+  );
+
   // Navigate to a waiting target on the bare terminal route (empty search —
   // the target window resolves its own stored layout; the compose strip is
   // where the user answers the agent). A SAME-SERVER target needs the tmux
@@ -5213,11 +5258,11 @@ function AppShell() {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...guiActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...webEngineActions, ...webInspectActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...cronActions, ...buildDataTableActions(mountedDataTables), ...macroPaletteActions],
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...guiActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...webEngineActions, ...webInspectActions, ...webCaptureActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...cronActions, ...buildDataTableActions(mountedDataTables), ...macroPaletteActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, guiActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, webEngineActions, webInspectActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, cronActions, mountedDataTables, macroPaletteActions, bindingByAction, bindingHost],
+    [sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, guiActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, webEngineActions, webInspectActions, webCaptureActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, cronActions, mountedDataTables, macroPaletteActions, bindingByAction, bindingHost],
   );
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders
@@ -5264,6 +5309,18 @@ function AppShell() {
     // reclaim path already implies a focused gui tile.
     const guiGated = (id: string, run: () => void) =>
       bindingByAction.get(id)?.guiOnly && focusedTileKind !== "gui"
+        ? undefined
+        : run;
+    // captureSurface gate — the shared capture toggle's surface membership: a
+    // `captureSurface` binding's handler is treated as ABSENT unless a
+    // capture-capable tile (gui or web) owns focus, so the chord falls
+    // through untouched under tty/code focus. The gate consults the registry
+    // flag as data, never an actionId list; the body dispatches to the
+    // focused kind's OWN latch.
+    const captureGated = (id: string, run: () => void) =>
+      bindingByAction.get(id)?.captureSurface &&
+      focusedTileKind !== "gui" &&
+      focusedTileKind !== "web"
         ? undefined
         : run;
     // `window-prev`/`window-next` and `session-prev`/`session-next` resolve
@@ -5394,11 +5451,18 @@ function AppShell() {
       "gui-zoom-in": guiGated("gui-zoom-in", () => handleGuiZoomChange(stepGuiZoom(guiZoom, 1))),
       "gui-zoom-out": guiGated("gui-zoom-out", () => handleGuiZoomChange(stepGuiZoom(guiZoom, -1))),
       "gui-zoom-fit": guiGated("gui-zoom-fit", () => handleGuiZoomChange("fit")),
-      // ⌘⇧G/Ctrl+Shift+G keyboard capture — the chord gate's escape hatch.
-      // Present only while the gui tile owns focus (the guiOnly gate); the
-      // narrowed reclaim predicate is what delivers the chord here while
-      // every other chord passes to the guest.
-      "gui-capture-toggle": guiGated("gui-capture-toggle", () => handleGuiCaptureChange(!guiCapture)),
+      // ⌘⇧G/Ctrl+Shift+G keyboard capture — the release chord, shared by both
+      // capture-capable tiles. Present while a gui OR web tile owns focus (the
+      // captureSurface gate); the body flips the focused kind's OWN latch, and
+      // the narrowed reclaim predicate is what delivers the chord here while
+      // every other chord passes to the guest desktop / embedded page.
+      "gui-capture-toggle": captureGated("gui-capture-toggle", () => {
+        if (focusedTileKind === "web") {
+          handleWebCaptureChange(!webCapture);
+        } else {
+          handleGuiCaptureChange(!guiCapture);
+        }
+      }),
       // ⌘1/⌘2/⌘3 tile chords (R4) — see `tileChord` above for the three-state
       // rule, gating, and the recording constraint. A window without the
       // surface (`availableTiles`) mounts no handler and the chord falls
@@ -5444,7 +5508,7 @@ function AppShell() {
       // template ring) gates the chord for free.
       "layout-cycle": fromPalette("layout-cycle"),
     };
-  }, [paletteActions, paletteGlobals, server, windowParam, macros, sessionName, executeMacro, toggleComposeStrip, composeStripEnabled, addToast, isMobile, panelSurfaces, togglePanel, restoreFocus, bindingByAction, focusedTileKind, layout, toggleZen, guiZoom, handleGuiZoomChange, guiCapture, handleGuiCaptureChange]);
+  }, [paletteActions, paletteGlobals, server, windowParam, macros, sessionName, executeMacro, toggleComposeStrip, composeStripEnabled, addToast, isMobile, panelSurfaces, togglePanel, restoreFocus, bindingByAction, focusedTileKind, layout, toggleZen, guiZoom, handleGuiZoomChange, guiCapture, handleGuiCaptureChange, webCapture, handleWebCaptureChange]);
   useKeybindingDispatch(keybindingHandlers);
 
   const displayName = currentWindow?.name ?? windowParam ?? "";
@@ -5972,6 +6036,10 @@ function AppShell() {
               guiToolbarVisible={guiToolbarVisible}
               onGuiToolbarVisibleChange={handleGuiToolbarVisibleChange}
               guiCapture={guiCapture}
+              // The web tile's own capture latch — the URL-bar button, the
+              // header meta swap, and the native engine's chord-table input.
+              webCapture={webCapture}
+              onWebCaptureChange={handleWebCaptureChange}
               guiResizeLocked={guiResizeLocked}
               guiQuality={guiQuality}
               guiStatsVisible={guiStatsVisible}

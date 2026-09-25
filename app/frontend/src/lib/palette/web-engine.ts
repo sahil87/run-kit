@@ -49,3 +49,36 @@ export function buildWebInspectActions(input: {
   if (!input.available) return [];
   return [{ id: WEB_INSPECT_ACTION_ID, label: "Web: Inspect page", onSelect: input.onSelect }];
 }
+
+export const WEB_CAPTURE_ACTION_ID = "web-capture-toggle";
+
+/**
+ * `Web: Capture keyboard` / `Web: Release keyboard` — the pointer-reachable
+ * entry/exit for the web tile's keyboard-capture latch (`rk-web-capture`),
+ * the URL-bar button's palette twin (Constitution V). ONE state-labelled row
+ * (the gui capture row's pattern: the label says what the pick DOES). The id
+ * is NOT the shared toggle chord's registry actionId — palette ids must be
+ * unique when a gui tile and a web tile are both open, and the gui row
+ * already carries `gui-capture-toggle` — so the chord hint is hand-set via
+ * `shortcut` (`withShortcutHints` preserves hand-set hints on actions without
+ * a registered binding). The caller owns the gates: a non-onboarding web
+ * tile open in the layout, and a fine pointer (omitted on coarse, the gui
+ * control's rule).
+ */
+export function buildWebCaptureActions(input: {
+  available: boolean;
+  captured: boolean;
+  shortcut?: string;
+  onToggle: (next: boolean) => void;
+}): PaletteAction[] {
+  if (!input.available) return [];
+  return [
+    {
+      id: WEB_CAPTURE_ACTION_ID,
+      label: input.captured ? "Web: Release keyboard" : "Web: Capture keyboard",
+      description: "hand every chord to the page",
+      ...(input.shortcut ? { shortcut: input.shortcut } : {}),
+      onSelect: () => input.onToggle(!input.captured),
+    },
+  ];
+}

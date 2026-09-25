@@ -6,11 +6,13 @@ import { FindBar } from "@/components/find-bar";
 import {
   FindGlyph,
   InspectGlyph,
+  KeyboardGlyph,
   OpenExternalGlyph,
   RefreshGlyph,
   WebBackGlyph,
   WebForwardGlyph,
 } from "@/components/top-bar-icons";
+import { controlClass } from "@/components/control";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import {
   WEB_ADDRESS_FOCUS_EVENT,
@@ -46,6 +48,7 @@ import {
 } from "@/components/web-frame-native";
 import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { captureToggleHint } from "@/lib/keybindings";
 import { buildWebChordTable } from "@/lib/web-chord-table";
 import { canShellWeb } from "@/lib/shell";
 import {
@@ -117,6 +120,15 @@ interface IframeWindowProps {
    *  its content's title — the `onInteract`/`onFolderNavigated`
    *  callback-seam shape. Absent ⇒ no reporting. */
   onPageMeta?: (meta: { title: string | null }) => void;
+  /** The web tile's keyboard-capture latch (`rk-web-capture`) — while
+   *  latched, every rk chord but the release binding falls through to the
+   *  embedded page on both engines (the iframe engine's reclaim narrows; the
+   *  native engine's chord table carries only the toggle's specs). Drives the
+   *  URL-bar button's pressed state and the chord-table memo. */
+  capture?: boolean;
+  /** The latch's flip seam — the URL-bar button's onClick. Absent ⇒ the
+   *  button is not rendered (the strip-verb rule). */
+  onCaptureChange?: (on: boolean) => void;
 }
 
 /** Trailing debounce for persisting gesture-driven zoom — a pinch emits
@@ -206,6 +218,8 @@ export function IframeWindow({
   onInteract,
   shouldReclaimChord,
   onPageMeta,
+  capture = false,
+  onCaptureChange,
 }: IframeWindowProps) {
   // Engine selection: bridge presence × the per-viewer preference (the pure
   // rule shared with the palette entry). canShellWeb() is read per render —
@@ -261,9 +275,17 @@ export function IframeWindow({
   // enumerated over the effective registry (a guest's keydowns never reach
   // this document, so the predicate cannot run at event time there). A rebind
   // re-derives the table; the iframe engine ignores the prop — its reclaim
-  // runs in-document.
-  const { bindings } = useKeybindings();
-  const chordTable = useMemo(() => buildWebChordTable(bindings), [bindings]);
+  // runs in-document. The capture latch is the table's second input: latched
+  // narrows it to the toggle's specs (and drops Escape), and a latch flip
+  // re-derives and re-uploads through the engine's `web:chords` effect.
+  const { bindings, byAction, host } = useKeybindings();
+  const chordTable = useMemo(
+    () => buildWebChordTable(bindings, { captured: capture }),
+    [bindings, capture],
+  );
+  // The release chord's effective combo for the capture button's Tip — a tip
+  // advertising a dead (disabled/reserved) chord would lie.
+  const captureKbd = captureToggleHint(byAction, host.platform);
 
   // ── per-frame state (P3: one chrome, N frames) ──────────────────────────
   // Each engine reports its chrome slice up; the map is keyed by URL (the
@@ -1308,6 +1330,33 @@ export function IframeWindow({
                   aria-label="Inspect page"
                 >
                   <InspectGlyph />
+                </button>
+              </Tip>
+            )}
+            {/* Keyboard capture (⌨) — the web tile's own full-pass latch, the
+                gui header verb's sibling: while latched every rk chord but the
+                release binding falls through to the embedded page. Renders on
+                BOTH engines (it is not capability-gated like Inspect) and is
+                omitted on coarse pointers (the gui control's rule). The Tip
+                flips UPWARD like every URL-bar tip — a bottom tip would render
+                under the native guest's composited layer. */}
+            {onCaptureChange && !coarsePointer && (
+              <Tip label="Keyboard capture" kbd={captureKbd} placement="top">
+                <button
+                  type="button"
+                  data-testid="web-capture-toggle"
+                  onClick={() => onCaptureChange(!capture)}
+                  aria-label="Keyboard capture"
+                  aria-pressed={capture}
+                  className={controlClass({
+                    variant: "toggle",
+                    base: "shrink-0 w-7 h-7 flex items-center justify-center rounded",
+                    rest: "hover:bg-bg-card text-text-secondary hover:text-text-primary",
+                    ringed: true,
+                    pressed: capture,
+                  })}
+                >
+                  <KeyboardGlyph />
                 </button>
               </Tip>
             )}

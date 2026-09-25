@@ -123,6 +123,15 @@ export type KeyBinding = {
    *  terminal seam never refuses it — plain Ctrl+=/−/0 belong to the pane
    *  under terminal focus on every platform. */
   guiOnly?: boolean;
+  /** The keyboard-capture toggle's surface membership: this chord toggles the
+   *  capture latch of whichever capture-capable tile (gui or web) owns focus.
+   *  The dispatcher handler map treats its handler as absent unless the
+   *  focused tile is gui or web, the reclaim predicate intercepts it for kinds
+   *  `"gui"` and `"web"` (and narrows to it alone while that kind's latch is
+   *  engaged), the native web chord table selects it as the captured-mode
+   *  escape hatch, and the terminal seam never refuses it — the chord stays
+   *  with the pane under terminal focus. */
+  captureSurface?: boolean;
   /** This binding fires ANOTHER action's handler — the named `actionId` — so
    *  one action can answer to a second chord. The dispatcher resolves the
    *  handler through this; nothing is registered under the alias's own id.
@@ -406,13 +415,14 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   { actionId: "gui-zoom-in", code: "Equal", tier: "ctrl", scope: "terminal", kind: "builtin", label: "Zoom GUI in", mapLabel: "gui +", ignoreInputs: true, guiOnly: true },
   { actionId: "gui-zoom-out", code: "Minus", tier: "ctrl", scope: "terminal", kind: "builtin", label: "Zoom GUI out", mapLabel: "gui −", ignoreInputs: true, guiOnly: true },
   { actionId: "gui-zoom-fit", code: "Digit0", tier: "ctrl", scope: "terminal", kind: "builtin", label: "Zoom GUI to fit", mapLabel: "gui fit", ignoreInputs: true, guiOnly: true },
-  // ⌘⇧G/Ctrl+Shift+G keyboard capture (the gui chord gate's escape hatch):
-  // while capture is latched the reclaim predicate narrows to THIS actionId
-  // alone, so every other chord falls through the gui canvas's capture-phase
-  // gate to the guest desktop. `guiOnly` confines the chord to gui-tile focus
-  // (handler presence + the reclaim predicate) and the terminal seam never
-  // refuses it; KeyG is unclaimed in the shifted tier on every host.
-  { actionId: "gui-capture-toggle", code: "KeyG", tier: "shifted", scope: "terminal", kind: "builtin", label: "Keyboard capture", description: "hand every chord to the guest desktop", mapLabel: "capture", ignoreInputs: true, guiOnly: true },
+  // ⌘⇧G/Ctrl+Shift+G keyboard capture — the capture latch's release chord on
+  // both capture-capable tiles: while a gui or web latch is engaged the reclaim
+  // predicate narrows to THIS binding alone, so every other chord falls through
+  // to the guest desktop / embedded page. `captureSurface` confines the chord
+  // to gui- or web-tile focus (handler presence + the reclaim predicate) and
+  // the terminal seam never refuses it; KeyG is unclaimed in the shifted tier
+  // on every host.
+  { actionId: "gui-capture-toggle", code: "KeyG", tier: "shifted", scope: "terminal", kind: "builtin", label: "Keyboard capture", description: "hand every chord to the focused tile's app", mapLabel: "capture", ignoreInputs: true, captureSurface: true },
   { actionId: "board-cycle-next", code: "BracketRight", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus →" },
   { actionId: "board-cycle-prev", code: "BracketLeft", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus ←" },
 ];
@@ -601,18 +611,20 @@ export function findMatches(
  * the code iframe ⌘F stays with code-server's own find. A `guiOnly` match
  * (the Ctrl+=/−/0 zoom chords) is reclaimable only for kind `"gui"` — the
  * gui tile's capture-phase gate then wins over noVNC's canvas handler. A
+ * `captureSurface` match (the keyboard-capture toggle) is reclaimable for
+ * kinds `"gui"` and `"web"` — it is the release chord on both tiles. A
  * chord matching BOTH
  * a gated and an ungated binding is still reclaimed (`.some` semantics) — the
  * ungated match has a global meaning. For `"code"` the result is
  * byte-identical to the pre-kind-aware predicate on every pre-ie2i binding.
  *
- * `captured` is the gui tile's keyboard-capture latch: when set, the
- * predicate narrows to the single `gui-capture-toggle` actionId — every
- * other chord returns `false` and falls through the gui canvas's
- * capture-phase gate to the guest desktop, so the release chord is the only
- * keyboard route back. Callers pass it only for kind `"gui"`; with it unset
- * (the default) the predicate is byte-identical to the pre-capture behavior
- * on every kind.
+ * `captured` is the focused tile's keyboard-capture latch (gui or web): when
+ * set, the predicate narrows to the single `captureSurface` binding — every
+ * other chord returns `false` and falls through the tile's capture-phase gate
+ * to the guest desktop / embedded page, so the release chord is the only
+ * keyboard route back. Callers pass it only for kinds `"gui"` and `"web"`;
+ * with it unset (the default) the predicate is byte-identical to the
+ * pre-capture behavior on every kind.
  */
 export function hasReclaimableMatch(
   e: ChordEvent,
@@ -621,12 +633,13 @@ export function hasReclaimableMatch(
   captured = false,
 ): boolean {
   if (captured) {
-    return findMatches(e, bindings).some((b) => b.actionId === "gui-capture-toggle");
+    return findMatches(e, bindings).some((b) => b.captureSurface === true);
   }
   return findMatches(e, bindings).some((b) => {
     if (b.ttyOnly) return false;
     if (b.webOnly) return kind === "web";
     if (b.guiOnly) return kind === "gui";
+    if (b.captureSurface) return kind === "gui" || kind === "web";
     return true;
   });
 }
@@ -634,9 +647,9 @@ export function hasReclaimableMatch(
 /**
  * Whether the terminal's custom key handler must REFUSE this keydown so it
  * bubbles to the window dispatcher instead of reaching the pane
- * (`terminal-client.tsx`). `guiOnly` matches are filtered out first: their
- * chords belong to the pane under terminal focus, so rule 3 must never fire
- * on them. Three rules:
+ * (`terminal-client.tsx`). `guiOnly` and `captureSurface` matches are
+ * filtered out first: their chords belong to the pane under terminal focus,
+ * so rule 3 must never fire on them. Three rules:
  *
  * 1. Any enabled SHIFTED-tier match, on every platform (260730-g40a): legacy
  *    TTY encoding cannot distinguish Ctrl+Shift+letter from Ctrl+letter, so
@@ -659,14 +672,17 @@ export function hasReclaimableMatch(
  *    resolves there (focus-hop's base tier is shifted), and the rule is
  *    platform-gated to mac. The `guiOnly` filter above is load-bearing here:
  *    the gui-zoom trio is ctrl-tier on every platform, and without the
- *    filter this rule would steal plain Ctrl+=/−/0 from a focused pane.
+ *    filter this rule would steal plain Ctrl+=/−/0 from a focused pane. The
+ *    `captureSurface` half keeps rule 1 off the capture toggle: ⇧⌘G/⇧Ctrl+G
+ *    has no handler under terminal focus, so refusing it would swallow the
+ *    chord instead of delivering it to the pane.
  */
 export function shouldRefuseTerminalChord(
   e: ChordEvent,
   bindings: readonly EffectiveBinding[],
   platform: BindingPlatform,
 ): boolean {
-  const matches = findMatches(e, bindings).filter((b) => !b.guiOnly);
+  const matches = findMatches(e, bindings).filter((b) => !b.guiOnly && !b.captureSurface);
   if (matches.some((b) => b.tier === "shifted")) return true;
   if (platform === "mac" && e.metaKey && matches.some((b) => b.tier === "cmd")) return true;
   return platform === "mac" && e.ctrlKey && !e.metaKey && matches.some((b) => b.tier === "ctrl");
@@ -857,8 +873,11 @@ export function findConflicts(bindings: readonly EffectiveBinding[]): BindingCon
       // have their handlers simultaneously present (each gate renders the
       // handler absent off its surface), so a shared combo between them —
       // the mac ⌘F that terminal-find and web-find both claim — is
-      // coexistence, not a conflict.
-      const gatesDisjoint = (a.ttyOnly && b.webOnly) || (a.webOnly && b.ttyOnly);
+      // coexistence, not a conflict. `captureSurface` (gui or web focus) is
+      // disjoint with `ttyOnly` the same way.
+      const gatesDisjoint =
+        (a.ttyOnly && (b.webOnly || b.captureSurface)) ||
+        ((a.webOnly || a.captureSurface) && b.ttyOnly);
       // An alias and the action it aliases fire the SAME handler, so a shared
       // combo between them is redundancy, not a conflict — there is no
       // ambiguity for the dispatcher to resolve. Stated as an invariant
@@ -1086,6 +1105,24 @@ export function chordHintFor(
     .sort((a, b) => Number(a.aliasOf != null) - Number(b.aliasOf != null))
     .map((b) => formatCombo({ code: b.code, tier: b.tier }, platform));
   return combos.length > 0 ? combos.join(" / ") : undefined;
+}
+
+/**
+ * The effective chord hint for the shared keyboard-capture toggle
+ * (`gui-capture-toggle`) — the one chord two capture surfaces read: the web
+ * tile's URL-bar button Tip and the `Web: Capture/Release keyboard` palette
+ * row's hand-set `shortcut` (its palette id is NOT the registry actionId, so
+ * `withShortcutHints` cannot decorate it). `undefined` when the binding is
+ * disabled or browser-reserved — a hint advertising a dead chord would lie.
+ */
+export function captureToggleHint(
+  byAction: ReadonlyMap<string, EffectiveBinding>,
+  platform: BindingPlatform,
+): string | undefined {
+  const binding = byAction.get("gui-capture-toggle");
+  return binding?.enabled
+    ? formatCombo({ code: binding.code, tier: binding.tier }, platform)
+    : undefined;
 }
 
 // ── palette hints ───────────────────────────────────────────────────────────

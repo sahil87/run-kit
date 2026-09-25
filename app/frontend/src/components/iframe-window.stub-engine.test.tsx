@@ -351,6 +351,72 @@ describe("IframeWindow over a stub engine", () => {
     expect(mockEngine.handle.openDevTools).toHaveBeenCalledTimes(1);
   });
 
+  it("the capture button renders on a non-onboarding tile, reflects the latch with aria-pressed, and flips it through onCaptureChange", () => {
+    const onCaptureChange = vi.fn();
+    renderChrome({ tabs: ["/proxy/8080/docs"], capture: true, onCaptureChange });
+    const button = screen.getByTestId("web-capture-toggle");
+    expect(button.getAttribute("aria-label")).toBe("Keyboard capture");
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(button);
+    expect(onCaptureChange).toHaveBeenCalledWith(false);
+  });
+
+  it("the capture button is hidden on the onboarding tile", () => {
+    renderChrome({ tabs: [], onCaptureChange: vi.fn() });
+    expect(screen.queryByTestId("web-capture-toggle")).toBeNull();
+  });
+
+  it("the capture button is omitted on a coarse pointer", () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockReturnValue({
+        matches: true,
+        media: "(any-pointer: coarse)",
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }),
+    );
+    try {
+      renderChrome({ tabs: ["/proxy/8080/docs"], onCaptureChange: vi.fn() });
+      expect(screen.queryByTestId("web-capture-toggle")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("the capture button renders on the native engine too (not capability-gated like Inspect)", () => {
+    mockShell.canShellWeb.mockReturnValue(true);
+    renderChrome({ tabs: ["/proxy/8080/docs"], onCaptureChange: vi.fn() });
+    expect(screen.getByTestId("stub-native-engine")).toBeTruthy();
+    expect(screen.getByTestId("web-capture-toggle")).toBeTruthy();
+  });
+
+  it("the latch feeds the chord table — captured narrows it to the toggle's specs with no Escape", () => {
+    const { rerender } = renderChrome({ tabs: ["/proxy/8080/docs"], capture: false, onCaptureChange: vi.fn() });
+    let table = mockEngine.chordTable as readonly { code: string }[];
+    expect(table.some((s) => s.code === "KeyK")).toBe(true);
+    expect(table[table.length - 1]?.code).toBe("Escape");
+    rerender(
+      <StandaloneSessionContextProvider
+        value={{
+          sessionsByServer: new Map([["runkit", []]]),
+          sessionOrderByServer: new Map([["runkit", []]]),
+          isConnectedByServer: new Map([["runkit", false]]),
+          metricsByServer: new Map(),
+          currentServer: "runkit",
+          servers: [{ name: "runkit", sessionCount: 0 }],
+          refreshServers: vi.fn(),
+        }}
+      >
+        <IframeWindow tabs={["/proxy/8080/docs"]} capture={true} onCaptureChange={vi.fn()} />
+      </StandaloneSessionContextProvider>,
+    );
+    table = mockEngine.chordTable as readonly { code: string }[];
+    expect(table.map((s) => s.code)).toEqual(["KeyG", "KeyG"]);
+  });
+
   it("a selected draft renders EVERY engine active={false} and shows the blank new-tab panel", () => {
     renderChrome({ tabs: ["/proxy/8080/docs", "https://github.com/x"], active: 1, onAddTab: vi.fn() });
     expect(mockEngine.activeByUrl.get("/proxy/8080/docs")).toBe(true);

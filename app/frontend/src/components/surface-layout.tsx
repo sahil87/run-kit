@@ -525,6 +525,12 @@ interface SurfaceLayoutProps {
    *  set, the gui header's meta chip reads `keys → desktop` and the pinned
    *  block's capture verb latches. */
   guiCapture?: boolean;
+  /** The web tile's own capture latch (`rk-web-capture`, owned by app.tsx) —
+   *  while set, the web header's meta chip reads `keys → page`, the URL bar's
+   *  capture button latches, and the native engine's chord table narrows to
+   *  the release binding's specs. */
+  webCapture?: boolean;
+  onWebCaptureChange?: (on: boolean) => void;
   guiResizeLocked?: boolean;
   guiQuality?: GuiQuality;
   guiStatsVisible?: boolean;
@@ -977,6 +983,8 @@ export function SurfaceLayout({
   guiToolbarVisible = false,
   onGuiToolbarVisibleChange,
   guiCapture = false,
+  webCapture = false,
+  onWebCaptureChange,
   guiResizeLocked = false,
   guiQuality = "balanced",
   guiStatsVisible = false,
@@ -2704,6 +2712,10 @@ export function SurfaceLayout({
             // renderContent site is the ONLY IframeWindow mount path, so every
             // leaf/zoom rendering inherits the wiring with no fork.
             shouldReclaimChord={shouldReclaimChord?.("web")}
+            // The web capture latch: the URL-bar button's pressed state +
+            // flip seam, and the native chord table's captured input.
+            capture={webCapture}
+            onCaptureChange={onWebCaptureChange}
           />
         );
       case "code": {
@@ -2936,11 +2948,19 @@ export function SurfaceLayout({
       kind === "code" && tile.frame !== undefined && !mountedCodeWindowIds.includes(tile.frame.windowId);
     const testId = retainedCode ? "surface-tile-code-retained" : `surface-tile-${kind}${suffix}`;
     const label = SURFACE_LABEL[kind];
-    // The keyboard-capture latch swaps the gui meta chip to its CONSEQUENCE
+    const webUrl = activeWebUrl(tileWin).trim();
+    // The keyboard-capture latches swap the meta chip to its CONSEQUENCE
     // label — words, not hue alone: green wash + ink, no ring (a label, not
-    // a control).
+    // a control). The web latch's mirror applies only off the onboarding
+    // tile (an empty family renders no meta chip today and stays that way).
     const guiCaptured = kind === "gui" && guiCapture;
-    const meta = guiCaptured ? "keys → desktop" : tileMeta(kind, tileWin, gui);
+    const webCaptured = kind === "web" && webCapture && webUrl !== "";
+    const capturedMeta = guiCaptured || webCaptured;
+    const meta = guiCaptured
+      ? "keys → desktop"
+      : webCaptured
+        ? "keys → page"
+        : tileMeta(kind, tileWin, gui);
     // The tile window's progress slot (a foreign tty's chip/line render on
     // its own tile, never the route window's).
     const tileProgress =
@@ -2963,7 +2983,6 @@ export function SurfaceLayout({
     // `://  Web` label — no badge, no page title, no meta chip; the badge
     // derivation is trimmed-keyed so empty input never reaches
     // classifyAddress. All inputs read the TILE window's record.
-    const webUrl = activeWebUrl(tileWin).trim();
     // The code tile's per-window verb predicates (the tile window's own
     // drift/frame state — a foreign code tile reads its home window).
     const tileCodeFollowTarget = kind === "code" ? codeFollowTargetFor(tileWinId) : null;
@@ -3125,9 +3144,20 @@ export function SurfaceLayout({
                   {webBadge.text}
                 </span>
                 <span className="min-w-0 truncate text-text-primary">
-                  {webPageTitles.get(tileWinId) ?? meta}
+                  {webPageTitles.get(tileWinId) ?? (webCaptured ? tileMeta(kind, tileWin, gui) : meta)}
                 </span>
                 {homeChip}
+                {/* While the web capture latch holds, the consequence label
+                    rides BESIDE the badge + title — the same green-wash chip
+                    the non-badge branch swaps its meta into. */}
+                {webCaptured && (
+                  <span
+                    data-no-tile-drag
+                    className="shrink-0 rounded px-1.5 text-[10px] bg-accent-green/15 text-accent-green"
+                  >
+                    {meta}
+                  </span>
+                )}
               </>
             ) : (
               <>
@@ -3137,7 +3167,7 @@ export function SurfaceLayout({
                   <span
                     data-no-tile-drag
                     className={`min-w-0 truncate rounded px-1.5 text-[10px] ${
-                      guiCaptured
+                      capturedMeta
                         ? "bg-accent-green/15 text-accent-green"
                         : "bg-bg-card text-text-secondary"
                     }`}

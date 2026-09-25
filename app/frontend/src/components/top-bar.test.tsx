@@ -1932,6 +1932,45 @@ describe("TopBar", () => {
       expect(within(within(menu).getByRole("menuitemcheckbox", { name: "Web tile" })).queryByTestId("surface-popped-web")).toBeNull();
     });
 
+    it("exempts a popped surface from the full-layout disable — its toggle reveals the placeholder, never an add", () => {
+      const onToggle = vi.fn();
+      renderTopBar({
+        surfaceToggles: toggles({
+          open: ["web"],
+          canAdd: false,
+          popped: (surface) => surface === "tty",
+          onToggle,
+        }),
+      });
+      // Bar form: the popped button stays actionable at the floor; a plain
+      // unlit surface (code) is still disabled.
+      const group = screen.getAllByTestId("surface-toggles")[0];
+      const ttyButton = within(group).getByLabelText("Terminal tile");
+      expect(ttyButton).toHaveProperty("disabled", false);
+      expect(within(group).getByLabelText("Code tile")).toHaveProperty("disabled", true);
+      fireEvent.click(ttyButton);
+      expect(onToggle).toHaveBeenCalledWith("tty");
+      cleanup();
+      onToggle.mockClear();
+
+      // Menu-row form: same exemption.
+      renderTopBar({
+        surfaceToggles: toggles({
+          open: ["web"],
+          canAdd: false,
+          popped: (surface) => surface === "tty",
+          onToggle,
+        }),
+      });
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const tty = within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" });
+      expect(tty).toHaveProperty("disabled", false);
+      expect(within(menu).getByRole("menuitemcheckbox", { name: "Code tile" })).toHaveProperty("disabled", true);
+      fireEvent.click(tty);
+      expect(onToggle).toHaveBeenCalledWith("tty");
+    });
+
     // Corner-dot predicate (260821-zqlq): the web button always renders, so
     // its dot is what signals "has content"; the caller threads one
     // per-surface predicate (web = hasWebUrl, others always-on).

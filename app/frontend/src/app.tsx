@@ -2197,17 +2197,19 @@ function AppShell() {
 
   // Open-then-focus landing flag: when a chord (focus-hop, or a tile chord's
   // hidden arm) opened a CLOSED tile, this per-kind flag makes the effect
-  // below focus it once the tile lands in the layout (SurfaceLayout's
+  // below focus it once the tile lands in the RENDERED tree (SurfaceLayout's
   // focusTileRef closure re-registers with the new tree — child effects run
-  // before this parent one).
+  // before this parent one). The trigger reads the rendered tree, not the
+  // shared layout: a popped leaf's reveal writes no layout — the tile lands
+  // when the reveal re-adds it to the render.
   const focusOnLandingRef = useRef<SurfaceKind | null>(null);
   useEffect(() => {
     const kind = focusOnLandingRef.current;
-    if (kind !== null && leaves(layout).includes(kind)) {
+    if (kind !== null && leaves(renderLayout).includes(kind)) {
       focusOnLandingRef.current = null;
       layoutFocusTileRef.current?.(kind);
     }
-  }, [layout]);
+  }, [renderLayout]);
 
   // Focus restore + steal guard (spec right-panel.md § The code lens): a
   // window switch re-renders the server-keyed tile grid and nothing would
@@ -5690,13 +5692,16 @@ function AppShell() {
       // focus memory (the recording asymmetry — only in-frame `onInteract`
       // records `code`). A closed-but-available code tile opens first
       // (open-then-focus), focused once the layout lands. Same gate as
-      // code-toggle.
+      // code-toggle. Visibility is judged against the RENDERED tree: a
+      // popped, unrevealed code leaf is absent from it (the shared layout
+      // still holds the leaf), so the hop falls to `togglePanel`, whose
+      // popped guard reveals the placeholder instead of writing the layout.
       "focus-hop":
         windowParam && !isMobile && panelSurfaces.includes("code")
           ? () => {
               if (focusedTileKind === "code") {
                 layoutFocusTileRef.current?.("tty");
-              } else if (leaves(layout).includes("code")) {
+              } else if (leaves(renderLayout).includes("code")) {
                 layoutFocusTileRef.current?.("code");
               } else if (togglePanel("code")) {
                 // Flag only an APPLIED open: a full 3-tile layout refuses the
@@ -5712,7 +5717,7 @@ function AppShell() {
       // template ring) gates the chord for free.
       "layout-cycle": fromPalette("layout-cycle"),
     };
-  }, [paletteActions, paletteGlobals, server, windowParam, macros, sessionName, executeMacro, toggleComposeStrip, composeStripEnabled, addToast, isMobile, panelSurfaces, togglePanel, restoreFocus, bindingByAction, focusedTileKind, layout, toggleZen, guiZoom, handleGuiZoomChange, guiCapture, handleGuiCaptureChange]);
+  }, [paletteActions, paletteGlobals, server, windowParam, macros, sessionName, executeMacro, toggleComposeStrip, composeStripEnabled, addToast, isMobile, panelSurfaces, togglePanel, restoreFocus, bindingByAction, focusedTileKind, layout, renderLayout, toggleZen, guiZoom, handleGuiZoomChange, guiCapture, handleGuiCaptureChange]);
   useKeybindingDispatch(keybindingHandlers);
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

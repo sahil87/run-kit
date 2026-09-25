@@ -487,7 +487,9 @@ type SurfaceTogglesToggle = Extract<SurfaceToggles, { mode: "toggle" }>;
  *
  * - TOGGLE (desktop): lit = an open tile; while the caller's floor-derived
  *   `canAdd` is false the unlit buttons render DISABLED with a "No room for
- *   another tile" tooltip (Tip wraps a span so the disabled button still
+ *   another tile" tooltip — except a POPPED surface, whose toggle reveals or
+ *   hides the placeholder (never an add) and so stays actionable at the floor
+ *   (Tip wraps a span so the disabled button still
  *   tips — disabled controls swallow pointer events). Clicking routes through
  *   the caller's shared `togglePanel` mutation semantics (unlit →
  *   `addSurface`, lit → `closeSurface`, closing the last tile is a null no-op
@@ -517,15 +519,18 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
             toggles.mode === "toggle"
               ? toggles.open.includes(surface)
               : toggles.active === surface;
-          const disabled =
-            !pressed &&
-            (toggles.mode === "toggle"
-              ? full
-              : (toggles.disabled?.(surface) ?? false));
           const away =
             toggles.mode === "toggle" && (toggles.away?.(surface) ?? false);
           const popped =
             toggles.mode === "toggle" && (toggles.popped?.(surface) ?? false);
+          // The floor gate exempts a popped surface: its toggle reveals/hides
+          // the placeholder — it never adds a tile or writes the layout.
+          const disabled =
+            !pressed &&
+            !popped &&
+            (toggles.mode === "toggle"
+              ? full
+              : (toggles.disabled?.(surface) ?? false));
           const label = SURFACE_LABEL[surface];
           return (
             <Tip
@@ -607,7 +612,8 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
  * per shown surface — checked = tile open (the one checked treatment: primary
  * ink + trailing green ✓ on `aria-checked`), leading `SURFACE_GLYPH` glyph (the
  * leading-glyph parity rule), a muted "away"/"popped" suffix when the caller
- * marks the surface away/popped, floor-disabled like the bar buttons. Clicking
+ * marks the surface away/popped, floor-disabled like the bar buttons (with
+ * the same popped-surface exemption). Clicking
  * a row runs the same shared toggle mutation as the bar group.
  */
 function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
@@ -617,9 +623,11 @@ function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
     <>
       {shown.map((surface) => {
         const isOpen = toggles.open.includes(surface);
-        const disabled = !isOpen && full;
         const away = toggles.away?.(surface) ?? false;
         const popped = toggles.popped?.(surface) ?? false;
+        // The floor gate exempts a popped surface — its toggle reveals/hides
+        // the placeholder, never an add.
+        const disabled = !isOpen && full && !popped;
         return (
           <button
             key={surface}

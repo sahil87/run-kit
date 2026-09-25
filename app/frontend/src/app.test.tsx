@@ -1543,6 +1543,12 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
                                               index: 1,
                                               layout: "h(tty,web)",
                                             }),
+                                            makeWindow({
+                                              windowId: "@2",
+                                              index: 2,
+                                              codeRoot: "/home/user/code/run-kit",
+                                              layout: "h(tty,code)",
+                                            }),
                                           ],
                                         }),
                                       ],
@@ -1910,6 +1916,56 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
       expect(apiSpies.setWindowOptions).toHaveBeenCalledWith("srv", "@0", {
         "@rk_win_layout": "tty",
       });
+    });
+  });
+
+  describe("focus-hop reveals a popped code tile", () => {
+    // ⌃`/⇧Ctrl+` judges code's visibility against the RENDERED tree: a popped,
+    // unrevealed code leaf is absent from it, so the chord routes through
+    // `togglePanel`'s popped guard (reveal — no layout write) instead of
+    // dead-ending on the focus seam. The chord fires through the real
+    // keybinding dispatch (jsdom resolves the non-mac shifted tier,
+    // ⇧Ctrl+Backquote); window @2 carries the code-capable h(tty,code)
+    // layout, with the code leaf marked popped for this viewer.
+    afterEach(() => {
+      localStorage.clear();
+      apiSpies.setWindowOptions.mockClear();
+    });
+
+    it("focus-hop on a popped, unrevealed code leaf reveals its placeholder — no layout write", async () => {
+      localStorage.setItem("rk-layout-popped:srv:@2", JSON.stringify(["code"]));
+      const router = createRouter({
+        routeTree: testRouteTree,
+        history: createMemoryHistory({ initialEntries: ["/srv/2"] }),
+      });
+      render(<RouterProvider router={router} />);
+      await waitFor(() => screen.getByTestId("mock-surface-layout"));
+
+      // Popped and unrevealed: the rendered tree is reduced (code absent).
+      await waitFor(() =>
+        expect(screen.getByTestId("mock-surface-layout").dataset.leaves).toBe("tty"),
+      );
+      expect(screen.getByTestId("mock-surface-layout").dataset.revealed).toBe("");
+      apiSpies.setWindowOptions.mockClear();
+
+      // The chord reveals the placeholder: code returns to the rendered tree
+      // carrying its revealed mark, and `@rk_win_layout` is never written.
+      act(() => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            code: "Backquote",
+            ctrlKey: true,
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await waitFor(() =>
+        expect(screen.getByTestId("mock-surface-layout").dataset.leaves).toBe("tty,code"),
+      );
+      expect(screen.getByTestId("mock-surface-layout").dataset.revealed).toBe("code");
+      expect(apiSpies.setWindowOptions).not.toHaveBeenCalled();
     });
   });
 });

@@ -314,9 +314,9 @@ func TestTunnelQuietTunnelSurvives(t *testing.T) {
 // The server pings an established tunnel on tunnelPingInterval so front-end
 // idle timeouts do not sever a quiet tunnel.
 func TestTunnelPingKeepalive(t *testing.T) {
-	orig := tunnelPingInterval
-	tunnelPingInterval = 50 * time.Millisecond
-	t.Cleanup(func() { tunnelPingInterval = orig })
+	orig := tunnelPingInterval.get()
+	tunnelPingInterval.set(50 * time.Millisecond)
+	t.Cleanup(func() { tunnelPingInterval.set(orig) })
 
 	upstreamAddr, _, _ := startTunnelEchoUpstream(t)
 	ts := newTunnelTestServer(t)
@@ -376,9 +376,9 @@ func startTunnelSilentUpstream(t *testing.T) (addr string, accepted <-chan net.C
 // the read loop: closing the client still unwinds the handler (the upstream
 // write deadline turns the stall into an error, so teardown runs).
 func TestTunnelBackpressuredUpstreamUnwinds(t *testing.T) {
-	orig := tunnelUpstreamWriteWait
-	tunnelUpstreamWriteWait = 200 * time.Millisecond
-	t.Cleanup(func() { tunnelUpstreamWriteWait = orig })
+	orig := tunnelUpstreamWriteWait.get()
+	tunnelUpstreamWriteWait.set(200 * time.Millisecond)
+	t.Cleanup(func() { tunnelUpstreamWriteWait.set(orig) })
 
 	upstreamAddr, accepted := startTunnelSilentUpstream(t)
 	ts := newTunnelTestServer(t)
@@ -453,9 +453,9 @@ func (l *wrapListener) Accept() (net.Conn, error) {
 // when the read loop and the pump stay parked (closing both conns, not just
 // cancelling the lifecycle context).
 func TestTunnelPingFailureTearsDown(t *testing.T) {
-	orig := tunnelPingInterval
-	tunnelPingInterval = 20 * time.Millisecond
-	t.Cleanup(func() { tunnelPingInterval = orig })
+	orig := tunnelPingInterval.get()
+	tunnelPingInterval.set(20 * time.Millisecond)
+	t.Cleanup(func() { tunnelPingInterval.set(orig) })
 
 	upstreamAddr, _, upstreamClosed := startTunnelEchoUpstream(t)
 

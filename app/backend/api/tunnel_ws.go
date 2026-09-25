@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -54,15 +55,28 @@ const (
 	tunnelReadLimit = 1 << 20 // 1 MiB
 )
 
-// tunnelPingInterval is the ping cadence on an established tunnel. A var so
-// tests can shrink it (the package's test-seam idiom).
-var tunnelPingInterval = 30 * time.Second
+// durationKnob is a test-tunable duration. Atomic because tunnel handler
+// goroutines can outlive the test that tuned them (hijacked connections are
+// not joined by httptest.Server.Close), so a plain var races with the next
+// test's write under -race.
+type durationKnob struct{ ns atomic.Int64 }
+
+func newDurationKnob(d time.Duration) *durationKnob {
+	k := &durationKnob{}
+	k.ns.Store(int64(d))
+	return k
+}
+
+func (k *durationKnob) get() time.Duration  { return time.Duration(k.ns.Load()) }
+func (k *durationKnob) set(d time.Duration) { k.ns.Store(int64(d)) }
+
+// tunnelPingInterval is the ping cadence on an established tunnel.
+var tunnelPingInterval = newDurationKnob(30 * time.Second)
 
 // tunnelUpstreamWriteWait bounds a single WS→upstream write: without a
 // deadline a backpressured destination parks the read loop forever, and the
-// close-driven teardown never runs. A var so tests can shrink it (the
-// tunnelPingInterval test-seam idiom).
-var tunnelUpstreamWriteWait = terminalsWriteWait
+// close-driven teardown never runs.
+var tunnelUpstreamWriteWait = newDurationKnob(terminalsWriteWait)
 
 // tunnelUpgrader is the tunnel's dedicated upgrader — NOT the shared one:
 // the tunnel admits only Origin-less, Sec-Fetch-Site-less clients
@@ -115,7 +129,7 @@ func (s *Server) handleTunnelWS(w http.ResponseWriter, r *http.Request) {
 	pingDone := make(chan struct{})
 	go func() {
 		defer close(pingDone)
-		ticker := time.NewTicker(tunnelPingInterval)
+		ticker := time.NewTicker(tunnelPingInterval.get())
 		defer ticker.Stop()
 		for {
 			select {
@@ -180,7 +194,7 @@ func (s *Server) handleTunnelWS(w http.ResponseWriter, r *http.Request) {
 		if msgType != websocket.BinaryMessage {
 			continue
 		}
-		upstream.SetWriteDeadline(time.Now().Add(tunnelUpstreamWriteWait))
+		upstream.SetWriteDeadline(time.Now().Add(tunnelUpstreamWriteWait.get()))
 		if _, werr := upstream.Write(msg); werr != nil {
 			break
 		}

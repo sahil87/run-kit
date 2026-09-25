@@ -120,6 +120,11 @@ test("a non-object payload is rejected", () => {
   assert.equal(parsePopoutPayload(undefined, HOST, MAX), null);
 });
 
+test("empty path segments are rejected (no silent collapse)", () => {
+  assert.equal(parsePopoutPayload({ route: "/a//b?pop=x" }, HOST, MAX), null);
+  assert.equal(parsePopoutPayload({ route: "/a/b/?pop=x" }, HOST, MAX), null);
+});
+
 test("dot segments normalize away and are rejected when they break the shape", () => {
   // /a/../b?pop=x normalizes to /b — one segment, rejected.
   assert.equal(parsePopoutPayload({ route: "/a/../b?pop=x" }, HOST, MAX), null);

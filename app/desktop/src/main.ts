@@ -471,16 +471,17 @@ function trackActiveId(hostId: string | null): void {
 function titleForWindow(win: BrowserWindow): string {
   const hostId = activeHostForWindow(views, win.id);
   if (hostId === null) return PRODUCT_NAME;
-  if (hostId === DEV_HOST_ID) return devUrl ? (originOf(devUrl) ?? PRODUCT_NAME) : PRODUCT_NAME;
   // A popout window titles from the page's DOCUMENT title (the SPA's popout
   // posture sets `<Surface> · <window name>`), falling back to the ordinary
-  // host — leaf form before the first page-title report.
+  // host — leaf form before the first page-title report. Checked BEFORE the
+  // dev-sentinel special case: a popout of the dev host is still a popout.
   if (popouts.has(win.id)) {
     const entry = getView(views, win.id, hostId);
     const docTitle =
       entry && !entry.handle.webContents.isDestroyed() ? entry.handle.webContents.getTitle() : "";
     if (docTitle !== "") return docTitle;
   }
+  if (hostId === DEV_HOST_ID) return devUrl ? (originOf(devUrl) ?? PRODUCT_NAME) : PRODUCT_NAME;
   const host = loadHosts(userDataDir()).hosts.find((h) => h.id === hostId);
   if (!host) return PRODUCT_NAME;
   return windowTitle(PRODUCT_NAME, host.name, routeForView(win, hostId));

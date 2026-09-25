@@ -79,8 +79,9 @@ export function parsePopoutPayload(
     return null;
   }
   if (url.origin !== hostOrigin) return null;
-  const segments = url.pathname.split("/").filter((s) => s !== "");
-  if (segments.length !== 2) return null;
+  // No empty-segment filter: `/a//b` or `/a/b/` must NOT collapse to `/a/b`.
+  const segments = url.pathname.split("/");
+  if (segments.length !== 3 || segments[1] === "" || segments[2] === "") return null;
   const pop = url.searchParams.get("pop");
   if (pop === null || pop === "") return null;
   return {

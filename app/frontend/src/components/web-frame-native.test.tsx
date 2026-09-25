@@ -11,10 +11,14 @@ import type {
 
 // The shell bridge is installed on window.runkitShell by hand (the preload's
 // job in production): vi.fn() invokers resolve { ok: true }, onEvent captures
-// the relay handler and returns a disposer spy. ResizeObserver and
-// requestAnimationFrame are stubbed controllable — the observer callback is
-// fired manually, frames are pumped manually — and the placeholder's rect is
-// driven through a stubbed getBoundingClientRect.
+// the relay handler and returns a disposer spy. The default bridge lacks the
+// additive `mode` invoker, so the engine reads the host's web mode as
+// `legacy`; mode tests install a bridge carrying their own `mode`. The mount
+// effect awaits that query before creating the guest, so create assertions go
+// through flushMount. ResizeObserver and requestAnimationFrame are stubbed
+// controllable — the observer callback is fired manually, frames are pumped
+// manually — and the placeholder's rect is driven through a stubbed
+// getBoundingClientRect.
 
 type RelayHandler = (payload: unknown) => void;
 
@@ -72,6 +76,22 @@ function deliver(payload: unknown) {
   act(() => {
     relayHandler?.(payload);
   });
+}
+
+/** Flush the mount effect's async mode-query → create chain (the effect
+ *  awaits shellWebMode before creating the guest). A macrotask turn drains
+ *  every pending microtask continuation. */
+async function flushMount() {
+  await act(async () => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+/** Install the shell bridge with an additive `mode` invoker resolving the
+ *  given result (or rejecting when given a function returning a rejected
+ *  promise). */
+function installModeBridge(mode: () => Promise<unknown>) {
+  window.runkitShell = { version: "1.2.3", platform: "linux", web: { ...bridge, mode: vi.fn(mode) } };
 }
 
 interface Rig {
@@ -216,9 +236,10 @@ afterEach(() => {
 });
 
 describe("WebFrameNative lifecycle", () => {
-  it("subscribes before creating, and create receives the host-absolute URL for a relative present address", () => {
+  it("subscribes before creating, and create receives the host-absolute URL for a relative present address", async () => {
     const { rig } = renderEngine({ url: "/present/x/y/index.html" });
     expect(bridge.onEvent).toHaveBeenCalledTimes(1);
+    await flushMount();
     expect(bridge.create).toHaveBeenCalledTimes(1);
     expect(bridge.onEvent.mock.invocationCallOrder[0]).toBeLessThan(
       bridge.create.mock.invocationCallOrder[0],
@@ -229,23 +250,26 @@ describe("WebFrameNative lifecycle", () => {
     );
   });
 
-  it("creates with the host-absolute proxy path for a loopback address", () => {
+  it("creates with the host-absolute proxy path for a loopback address (a mode-less shell reads as legacy)", async () => {
     const { rig } = renderEngine({ url: "http://localhost:8080/docs" });
+    await flushMount();
     expect(bridge.create).toHaveBeenCalledWith(
       rig.tabKey,
       `${window.location.origin}/proxy/8080/docs`,
     );
   });
 
-  it("creates with an external URL unchanged", () => {
+  it("creates with an external URL unchanged", async () => {
     const { rig } = renderEngine({ url: "https://github.com/x" });
+    await flushMount();
     expect(bridge.create).toHaveBeenCalledWith(rig.tabKey, "https://github.com/x");
   });
 
-  it("passes a stored address the URL constructor rejects to create raw, without throwing", () => {
+  it("passes a stored address the URL constructor rejects to create raw, without throwing", async () => {
     // An unclosed IPv6 literal fails `new URL(...)` even against a base; the
     // engine must still mount and hand the shell the raw address.
     const { rig } = renderEngine({ url: "http://[::1" });
+    await flushMount();
     expect(bridge.create).toHaveBeenCalledTimes(1);
     expect(bridge.create).toHaveBeenCalledWith(rig.tabKey, "http://[::1");
   });
@@ -264,6 +288,94 @@ describe("WebFrameNative lifecycle", () => {
     expect(rig.tabKey).toMatch(/^web-\d+$/);
     const placeholder = screen.getByTestId("web-native-placeholder");
     expect(placeholder.dataset.tabKey).toBe(rig.tabKey);
+  });
+});
+
+describe("WebFrameNative host web mode", () => {
+  it("direct mode: a stored /proxy slot loads as the literal loopback URL", async () => {
+    installModeBridge(() => Promise.resolve({ ok: true, mode: "direct" }));
+    const { rig } = renderEngine({ url: "/proxy/6000/" });
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledWith(rig.tabKey, "http://localhost:6000/");
+  });
+
+  it("proxy mode: a stored /proxy slot loads as the literal loopback URL, and a literal loopback URL passes through", async () => {
+    installModeBridge(() => Promise.resolve({ ok: true, mode: "proxy" }));
+    const { rig } = renderEngine({ url: "/proxy/6000/assets/x.js" });
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledWith(rig.tabKey, "http://localhost:6000/assets/x.js");
+
+    cleanup();
+    vi.clearAllMocks();
+    const second = renderEngine({ url: "http://localhost:6000/x" });
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledWith(second.rig.tabKey, "http://localhost:6000/x");
+  });
+
+  it("legacy mode loads byte-identical to today's behavior: the host-absolute /proxy path", async () => {
+    installModeBridge(() => Promise.resolve({ ok: true, mode: "legacy" }));
+    const { rig } = renderEngine({ url: "/proxy/6000/" });
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledWith(
+      rig.tabKey,
+      `${window.location.origin}/proxy/6000/`,
+    );
+
+    cleanup();
+    vi.clearAllMocks();
+    const second = renderEngine({ url: "http://localhost:6000/x" });
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledWith(
+      second.rig.tabKey,
+      `${window.location.origin}/proxy/6000/x`,
+    );
+  });
+
+  it("a denied or malformed mode result reads as legacy", async () => {
+    installModeBridge(() => Promise.resolve({ ok: false, error: "denied" }));
+    const { rig } = renderEngine({ url: "/proxy/6000/" });
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledWith(
+      rig.tabKey,
+      `${window.location.origin}/proxy/6000/`,
+    );
+
+    cleanup();
+    vi.clearAllMocks();
+    installModeBridge(() => Promise.resolve({ ok: true, mode: "turbo" }));
+    const second = renderEngine({ url: "/proxy/6000/" });
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledWith(
+      second.rig.tabKey,
+      `${window.location.origin}/proxy/6000/`,
+    );
+  });
+
+  it("a rejected mode invoke reads as legacy, never throwing", async () => {
+    installModeBridge(() => Promise.reject(new Error("ipc gone")));
+    const { rig } = renderEngine({ url: "/proxy/6000/" });
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledWith(
+      rig.tabKey,
+      `${window.location.origin}/proxy/6000/`,
+    );
+  });
+
+  it("an unmount during the mode await never creates the guest", async () => {
+    let resolveMode: (result: unknown) => void = () => {};
+    installModeBridge(
+      () =>
+        new Promise<unknown>((resolve) => {
+          resolveMode = resolve;
+        }),
+    );
+    const { rig, unmount } = renderEngine({ url: "/proxy/6000/" });
+    unmount();
+    resolveMode({ ok: true, mode: "direct" });
+    await flushMount();
+    expect(bridge.create).not.toHaveBeenCalled();
+    expect(bridge.destroy).toHaveBeenCalledTimes(1);
+    expect(bridge.destroy).toHaveBeenCalledWith(rig.tabKey);
   });
 });
 
@@ -442,8 +554,9 @@ describe("WebFrameNative capabilities + handle", () => {
 });
 
 describe("WebFrameNative zoom", () => {
-  it("sends the zoom factor after create and on every zoom prop change", () => {
+  it("sends the zoom factor after create resolves and on every zoom prop change", async () => {
     const { rig, rerenderEngine } = renderEngine({ zoom: 1.25 });
+    await flushMount();
     expect(bridge.zoom).toHaveBeenCalledWith(rig.tabKey, 1.25);
     expect(bridge.zoom).toHaveBeenCalledTimes(1);
     rerenderEngine({ zoom: 1.5 });
@@ -454,8 +567,9 @@ describe("WebFrameNative zoom", () => {
     expect(bridge.zoom).toHaveBeenCalledTimes(2);
   });
 
-  it("re-applies the factor on EVERY url relay (Chromium's per-host store fights the bucket)", () => {
+  it("re-applies the factor on EVERY url relay (Chromium's per-host store fights the bucket)", async () => {
     const { rig } = renderEngine({ zoom: 1.25 });
+    await flushMount();
     bridge.zoom.mockClear();
     deliver({ tabKey: rig.tabKey, kind: "url", url: "https://example.com/a", canGoBack: true, canGoForward: false });
     deliver({ tabKey: rig.tabKey, kind: "url", url: "https://example.com/b", canGoBack: true, canGoForward: true });
@@ -465,12 +579,13 @@ describe("WebFrameNative zoom", () => {
 });
 
 describe("WebFrameNative chord table", () => {
-  it("uploads the table after create and on every table identity change", () => {
+  it("uploads the table after create resolves and on every table identity change", async () => {
     const table = [
       { code: "KeyK", ctrl: true, meta: false, shift: false, alt: false as const },
       { code: "Escape", ctrl: false, meta: false, shift: false, alt: false as const },
     ];
     const { rig, rerenderEngine } = renderEngine({ chordTable: table });
+    await flushMount();
     expect(bridge.chords).toHaveBeenCalledWith(rig.tabKey, table);
     expect(bridge.chords).toHaveBeenCalledTimes(1);
     // A re-render carrying the SAME array identity sends nothing.
@@ -482,9 +597,78 @@ describe("WebFrameNative chord table", () => {
     expect(bridge.chords).toHaveBeenCalledTimes(2);
   });
 
-  it("uploads an empty table when the prop is absent", () => {
+  it("uploads an empty table when the prop is absent", async () => {
     renderEngine();
+    await flushMount();
     expect(bridge.chords).toHaveBeenCalledWith(expect.any(String), []);
+  });
+});
+
+describe("WebFrameNative post-create ordering", () => {
+  // Main's per-tab channels reject a tabKey whose guest does not exist yet
+  // ("Unknown tab"), so the initial chords/zoom sends are sequenced after the
+  // create resolves; these tests gate create on a manual promise to prove it.
+
+  it("sends the initial chord table and zoom factor only after create resolves", async () => {
+    const table = [{ code: "KeyK", ctrl: true, meta: false, shift: false, alt: false as const }];
+    let resolveCreate: (result: { ok: boolean }) => void = () => {};
+    bridge.create.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: boolean }>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const { rig } = renderEngine({ zoom: 1.25, chordTable: table });
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledTimes(1);
+    expect(bridge.chords).not.toHaveBeenCalled();
+    expect(bridge.zoom).not.toHaveBeenCalled();
+    resolveCreate({ ok: true });
+    await flushMount();
+    expect(bridge.chords).toHaveBeenCalledWith(rig.tabKey, table);
+    expect(bridge.zoom).toHaveBeenCalledWith(rig.tabKey, 1.25);
+  });
+
+  it("a chord-table change landing before create resolves is not lost — the post-create send reads the latest table", async () => {
+    const tableA = [{ code: "KeyA", ctrl: true, meta: false, shift: false, alt: false as const }];
+    const tableB = [{ code: "KeyB", ctrl: true, meta: false, shift: false, alt: false as const }];
+    let resolveCreate: (result: { ok: boolean }) => void = () => {};
+    bridge.create.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: boolean }>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const { rig, rerenderEngine } = renderEngine({ chordTable: tableA });
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledTimes(1);
+    // The rebind re-sends immediately (this one races the pending create);
+    // the post-create send must carry tableB, never the superseded tableA.
+    rerenderEngine({ chordTable: tableB });
+    expect(bridge.chords).toHaveBeenCalledWith(rig.tabKey, tableB);
+    resolveCreate({ ok: true });
+    await flushMount();
+    expect(bridge.chords).not.toHaveBeenCalledWith(rig.tabKey, tableA);
+    expect(bridge.chords).toHaveBeenLastCalledWith(rig.tabKey, tableB);
+  });
+
+  it("an unmount before create resolves sends no chords or zoom", async () => {
+    const table = [{ code: "KeyK", ctrl: true, meta: false, shift: false, alt: false as const }];
+    let resolveCreate: (result: { ok: boolean }) => void = () => {};
+    bridge.create.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: boolean }>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const { unmount } = renderEngine({ zoom: 1.25, chordTable: table });
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledTimes(1);
+    unmount();
+    resolveCreate({ ok: true });
+    await flushMount();
+    expect(bridge.chords).not.toHaveBeenCalled();
+    expect(bridge.zoom).not.toHaveBeenCalled();
   });
 });
 

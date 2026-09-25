@@ -29,7 +29,8 @@
  * attach seam re-raises the incoming host's guests and the detach seam hides
  * the outgoing host's. The `web:*` IPC surface — create/destroy/bounds/
  * visible/load/reload plus the parity channels back/forward/find/stop-find/
- * zoom/chords/devtools — is gated on a registered-host sender that owns a
+ * zoom/chords/devtools and the per-host mode query — is gated on a
+ * registered-host sender that owns a
  * host view, plus tabKey membership under that sender. Every guest event
  * relays to the owning host webContents on the single `web:event` channel
  * (title/favicon/loading/failed/url+httpStatus/focus/find/chord/zoom). Chord
@@ -69,6 +70,7 @@ import {
 } from "electron";
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { connect as netConnect } from "node:net";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
@@ -165,6 +167,13 @@ import {
   WebViewsState,
 } from "./web-views";
 import { matchChord, parseChordSpecs, ChordSpec } from "./chords";
+import {
+  guestPartitionName,
+  proxyRulesFor,
+  setProxyConfigFor,
+  webProxyModeFor,
+  WebProxyMode,
+} from "./web-proxy";
 import {
   loadWindows,
   saveWindows,
@@ -342,6 +351,11 @@ type DaemonActionResult =
 /** `servers:list` envelope — the channel name AND the `servers` key are the SPA contract. */
 type ServersListResult =
   | { ok: true; servers: HostInfo[] }
+  | { ok: false; error: string };
+
+/** `web:mode` envelope — the per-host web-tile load mode for the SPA. */
+type WebModeResult =
+  | { ok: true; mode: WebProxyMode }
   | { ok: false; error: string };
 
 type DaemonStatusResult =
@@ -549,10 +563,12 @@ function hostWebPreferences(): Electron.WebPreferences {
 
 // ─── Web-tile guests (WebContentsView siblings of the host view) ────────────
 
-/** Guests run in a dedicated partition — separate from the default session
- *  the SPA runs in, so external logins persist like a browser profile and
- *  never share a jar with rk. */
-const GUEST_PARTITION = "persist:rk-web";
+/** Guests run in a dedicated PER-HOST partition (`persist:rk-web:<host.id>`)
+ *  — separate from the default session the SPA runs in, so external logins
+ *  persist like a browser profile and never share a jar with rk, and two
+ *  hosts serving the same loopback port never share one with each other.
+ *  The retired shared `persist:rk-web` partition is left on disk untouched:
+ *  per-host jars start fresh, no migration. */
 const GUEST_BACKGROUND = "#0f1117"; // the host view's boot background
 const GUEST_BORDER_RADIUS_PX = 6;
 /** The SPA's per-tab identity is bounded (the strict badge:set posture). */
@@ -563,26 +579,157 @@ const WEB_FIND_TEXT_MAX_LENGTH = 1024;
  *  rejects nonsense (a negative/NaN/astronomical factor). */
 const WEB_ZOOM_FACTOR_MIN = 0.25;
 const WEB_ZOOM_FACTOR_MAX = 5;
+/** The capability probe's bounds — the `/api/health` gate shares
+ *  HEALTH_TIMEOUT_MS; this caps the raw-TCP CONNECT probe. */
+const PROXY_PROBE_TIMEOUT_MS = 5000;
 
-let guestSessionRef: Electron.Session | null = null;
-function guestSession(): Electron.Session {
-  if (guestSessionRef) return guestSessionRef;
-  const s = session.fromPartition(GUEST_PARTITION);
+/** Per-host guest sessions, keyed by partition name. */
+const guestSessions = new Map<string, Electron.Session>();
+function guestSession(host: ViewHost): Electron.Session {
+  const partition = guestPartitionName(host.id);
+  const existing = guestSessions.get(partition);
+  if (existing) return existing;
+  const s = session.fromPartition(partition);
   // Deny-by-default: a guest is an arbitrary page; nothing it asks for
   // (camera, geolocation, notifications, clipboard) is granted.
   s.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
-  guestSessionRef = s;
+  guestSessions.set(partition, s);
   return s;
 }
 
 /** Guest hardening — NO preload: a guest never sees runkitShell. */
-function guestWebPreferences(): Electron.WebPreferences {
+function guestWebPreferences(host: ViewHost): Electron.WebPreferences {
   return {
-    session: guestSession(),
+    session: guestSession(host),
     sandbox: true,
     contextIsolation: true,
     nodeIntegration: false,
   };
+}
+
+/**
+ * The proxy capability probe: a remote host earns `proxy` mode only when its
+ * rk server provably carries the forward proxy. Two gates, both required:
+ *  1. `GET <origin>/api/health` answers 200 with a numeric `forwardProxy`
+ *     field (the daemon's listen port) — absent means an older server, no
+ *     probe attempted.
+ *  2. A live CONNECT through the computed proxy target (`proxyRulesFor`):
+ *     raw-TCP `CONNECT 127.0.0.1:<forwardProxyPort>` must answer
+ *     `HTTP/1.1 200` — the health field alone cannot detect a TLS front end
+ *     that drops CONNECT. The authority is the rk host's own listen port,
+ *     which is listening on every rk host, so one probe shape covers tunnel,
+ *     direct, and raw-port targets.
+ * Any failure — timeout, non-200, unreachable target — is `{ ok: false }`,
+ * never a throw.
+ */
+async function probeForwardProxy(host: ViewHost): Promise<{ ok: boolean; rules: string | null }> {
+  let forwardProxy: number | null = null;
+  try {
+    const res = await net.fetch(`${host.url}/api/health`, {
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    });
+    if (res.ok) {
+      const body: unknown = await res.json();
+      if (
+        typeof body === "object" &&
+        body !== null &&
+        "forwardProxy" in body &&
+        typeof body.forwardProxy === "number" &&
+        Number.isInteger(body.forwardProxy) &&
+        body.forwardProxy > 0
+      ) {
+        forwardProxy = body.forwardProxy;
+      }
+    }
+  } catch {
+    return { ok: false, rules: null };
+  }
+  if (forwardProxy === null) return { ok: false, rules: null };
+  const rules = proxyRulesFor(host.url, forwardProxy);
+  if (rules === null) return { ok: false, rules: null };
+  const target = new URL(rules); // rules are always `http://<host>:<port>`
+  const port = Number(target.port);
+  if (!Number.isInteger(port) || port <= 0) return { ok: false, rules: null };
+  const ok = await connectProbe(target.hostname, port, forwardProxy);
+  return ok ? { ok: true, rules } : { ok: false, rules: null };
+}
+
+/** The raw-TCP CONNECT probe: connect to the proxy target, send the CONNECT
+ *  request line, and require a `200` response head within the deadline. */
+function connectProbe(host: string, port: number, authorityPort: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = netConnect({ host, port });
+    let settled = false;
+    let head = "";
+    const timer = setTimeout(() => finish(false), PROXY_PROBE_TIMEOUT_MS);
+    function finish(ok: boolean): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(ok);
+    }
+    socket.once("connect", () => {
+      socket.write(
+        `CONNECT 127.0.0.1:${authorityPort} HTTP/1.1\r\nHost: 127.0.0.1:${authorityPort}\r\n\r\n`,
+      );
+    });
+    socket.on("data", (chunk: Buffer) => {
+      head += chunk.toString("utf8");
+      const eol = head.indexOf("\r\n");
+      if (eol === -1) return;
+      const line = head.slice(0, eol);
+      finish(line.startsWith("HTTP/1.1 200") || line.startsWith("HTTP/1.0 200"));
+    });
+    socket.once("error", () => finish(false));
+    socket.once("close", () => finish(false));
+  });
+}
+
+/** Per-host proxy state, keyed on hosts.json id and invalidated whenever the
+ *  host's url changes (setHostUrl, SSH heal) — the cache entry carries the
+ *  url it was derived from, so a changed url recomputes lazily on the next
+ *  ensure. `pending` collapses concurrent ensures into one probe+apply. */
+interface HostProxyState {
+  url: string;
+  mode: WebProxyMode;
+}
+const hostProxyStates = new Map<string, HostProxyState>();
+const hostProxyPending = new Map<string, Promise<WebProxyMode>>();
+
+/**
+ * Settle a host's web-proxy mode and APPLY it to the host's guest session
+ * before any guest loads: `session.setProxy` is awaited here, and
+ * `web:create` awaits this before `createWebView`, so no guest ever loads
+ * unproxied. Local hosts (the interstitialKindFor ordering, via
+ * webProxyModeFor) skip the probe entirely — `direct`.
+ */
+async function ensureHostProxy(host: ViewHost): Promise<WebProxyMode> {
+  const cached = hostProxyStates.get(host.id);
+  if (cached && cached.url === host.url) return cached.mode;
+  const pending = hostProxyPending.get(host.id);
+  if (pending) return pending;
+  const query = (async (): Promise<WebProxyMode> => {
+    const localOrigin = await localDaemonOrigin();
+    // An optimistic probe result isolates the locality question: "direct"
+    // here means local, anything else is remote/url and earns the real probe.
+    let mode = webProxyModeFor(host, localOrigin, true);
+    let rules: string | null = null;
+    if (mode !== "direct") {
+      const probe = await probeForwardProxy(host);
+      mode = webProxyModeFor(host, localOrigin, probe.ok);
+      rules = probe.rules;
+    }
+    await guestSession(host).setProxy(setProxyConfigFor(mode, rules));
+    hostProxyStates.set(host.id, { url: host.url, mode });
+    return mode;
+  })();
+  hostProxyPending.set(host.id, query);
+  try {
+    return await query;
+  } finally {
+    hostProxyPending.delete(host.id);
+  }
 }
 
 /** Per-(window, host, tabKey) guest registry — pure logic in ./web-views,
@@ -1088,15 +1235,18 @@ function wireGuestRelay(contents: WebContents, hostContentsId: number, tabKey: s
  * never paints (Electron 43 / Linux). Adding after the host is attached lands
  * the guest above it; the attach seam (hostAttachPlan in attachHostView)
  * re-raises it on every host switch. The URL arrives http(s)-validated by the
- * `web:create` handler (a main-initiated loadURL bypasses will-navigate).
+ * `web:create` handler (a main-initiated loadURL bypasses will-navigate), and
+ * the handler has already awaited `ensureHostProxy(viewHost)` — the guest's
+ * per-host session proxy config is settled before this first loadURL.
  */
 function createWebView(
   win: BrowserWindow,
   host: ViewEntry<WebContentsView>,
+  viewHost: ViewHost,
   tabKey: string,
   url: string,
 ): void {
-  const view = new WebContentsView({ webPreferences: guestWebPreferences() });
+  const view = new WebContentsView({ webPreferences: guestWebPreferences(viewHost) });
   view.setBackgroundColor(GUEST_BACKGROUND);
   view.setBorderRadius(GUEST_BORDER_RADIUS_PX);
   win.contentView.addChildView(view);
@@ -1689,7 +1839,12 @@ async function connectRemoteHost(
   // Dedupe on the remote name — the stable identity for SSH hosts (several
   // entries can share an origin, but one remote is one host).
   const existing = loadHosts(userDataDir()).hosts.find((h) => h.remote === info.name);
-  if (existing) return switchToHost(win, existing.id);
+  if (existing) {
+    // The tunnel origin may differ from the stored url across reconnects —
+    // drop the derived proxy state so it recomputes against the live origin.
+    hostProxyStates.delete(existing.id);
+    return switchToHost(win, existing.id);
+  }
   const addedHost = addHost(userDataDir(), info.name, origin, info.name);
   if (!addedHost.ok) return addedHost;
   return switchToHost(win, addedHost.host.id); // attaches the fresh view + rebuilds the menu
@@ -1753,6 +1908,9 @@ async function ensureRemoteConnected(
       return { ok: false, error };
     }
     markRemoteConnected(name);
+    // A healed tunnel can carry a fresh origin — re-derive the host's proxy
+    // state lazily on the next ensure.
+    hostProxyStates.delete(host.id);
     reloadFailedView(windowId, host);
     return { ok: true };
   } finally {
@@ -2279,6 +2437,8 @@ function registerIpcHandlers(): void {
       return { ok: false, error: "This host's URL is managed by its SSH connection" };
     }
     setHostUrl(userDataDir(), parsed.id, normalized.origin);
+    hostProxyStates.delete(parsed.id); // the proxy mode re-derives lazily on
+    // the next ensure against the NEW origin
     destroyHostViews(parsed.id); // stale views die in EVERY window — the
     // per-window fallback (first remaining host or welcome) keeps any window
     // that displayed this host off a destroyed view
@@ -2358,21 +2518,41 @@ function registerIpcHandlers(): void {
   // validate ("Invalid request"), and the tabKey must belong to THAT sender's
   // host webContents ("Unknown tab") — two windows showing one host are two
   // host webContents, so tabKeys never cross over.
-  ipcMain.handle("web:create", (event, payload: unknown): IpcResult => {
+  ipcMain.handle("web:create", async (event, payload: unknown): Promise<IpcResult> => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     const host = webSenderHost(event);
     if (!host) return { ok: false, error: "No host view" };
     // A host view whose window is gone is no host view at all — same rung.
     const win = windows.get(host.windowId);
     if (!win || win.isDestroyed()) return { ok: false, error: "No host view" };
+    const viewHost = hostForView(host.hostId);
+    if (!viewHost) return { ok: false, error: "No host view" };
     const parsed = parseWebCreatePayload(payload);
     if (!parsed) return { ok: false, error: "Invalid request" };
     // Replace, never stack: the SPA's mount/unmount can race (a StrictMode
     // double-mount), and a stale guest would leak a renderer.
     const existing = findWebViewBySender(webViews, event.sender.id, parsed.tabKey);
     if (existing) destroyWebView(existing);
-    createWebView(win, host, parsed.tabKey, parsed.url);
+    // setProxy is async — settle the host session's proxy config BEFORE the
+    // guest's first loadURL, so no guest ever loads unproxied.
+    await ensureHostProxy(viewHost);
+    createWebView(win, host, viewHost, parsed.tabKey, parsed.url);
     return { ok: true };
+  });
+
+  // web:mode — the SPA's per-host web-mode query (additive: shells predating
+  // the channel lack the invoker, which the SPA reads as `legacy`). No
+  // payload: main resolves the host from the sender view, like every web:*
+  // handler. The answer awaits the host's proxy settle (probe included), so
+  // it is final — the SPA asks before computing the guest's load URL.
+  ipcMain.handle("web:mode", async (event): Promise<WebModeResult> => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    const host = webSenderHost(event);
+    if (!host) return { ok: false, error: "No host view" };
+    const viewHost = hostForView(host.hostId);
+    if (!viewHost) return { ok: false, error: "No host view" };
+    const mode = await ensureHostProxy(viewHost);
+    return { ok: true, mode };
   });
 
   ipcMain.handle("web:destroy", (event, payload: unknown): IpcResult => {

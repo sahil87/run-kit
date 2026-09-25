@@ -48,13 +48,14 @@ import {
   setShellWebViewChords,
   setShellWebViewVisible,
   setShellWebViewZoom,
+  shellWebMode,
   stopFindShellWebView,
   type ShellWebEvent,
   type ShellWebRect,
 } from "@/lib/shell";
 import { isModalOpen, subscribe } from "@/lib/overlay-presence";
 import { useTileDragging } from "@/lib/tile-drag-context";
-import { toProxySrc } from "@/lib/web-url";
+import { toNativeSrc } from "@/lib/web-url";
 import {
   tileErrorForGuestFailure,
   tileErrorForGuestResponse,
@@ -145,6 +146,8 @@ export function WebFrameNative({
   zoomRef.current = zoom;
   const onZoomStepRef = useRef(onZoomStep);
   onZoomStepRef.current = onZoomStep;
+  const chordTableRef = useRef(chordTable);
+  chordTableRef.current = chordTable;
 
   const lastSentBoundsRef = useRef<ShellWebRect | null>(null);
   const lastSentVisibleRef = useRef<boolean | null>(null);
@@ -180,11 +183,14 @@ export function WebFrameNative({
   }, [tabKey]);
 
   // Mount effect (mount-scoped — the chrome re-keys by url, so a url change
-  // is a remount): subscribe FIRST so no early relay is missed, then create
-  // the guest with the host-absolute form of exactly what the iframe engine
-  // would load, then register the command handle. The cleanup tears all
-  // three down.
+  // is a remount): subscribe FIRST so no early relay is missed, then query
+  // the host's web mode and create the guest with the mode-aware load target
+  // (literal loopback URLs in `direct`/`proxy`; today's host-absolute
+  // `/proxy/N` form in `legacy`), then register the command handle. The
+  // cleanup tears all three down and cancels a still-pending create — an
+  // unmount during the mode await must not create a guest.
   useEffect(() => {
+    let cancelled = false;
     const dispose = onShellWebEvent((event: ShellWebEvent) => {
       // Demux before ANY state update: an event for another tab is dropped.
       if (event.tabKey !== tabKey) return;
@@ -248,13 +254,26 @@ export function WebFrameNative({
           break;
       }
     });
-    let absoluteUrl: string;
-    try {
-      absoluteUrl = new URL(toProxySrc(url), window.location.origin).href;
-    } catch {
-      absoluteUrl = url;
-    }
-    void createShellWebView(tabKey, absoluteUrl);
+    void (async () => {
+      const mode = await shellWebMode();
+      if (cancelled) return;
+      let absoluteUrl: string;
+      try {
+        absoluteUrl = new URL(toNativeSrc(url, mode), window.location.origin).href;
+      } catch {
+        absoluteUrl = url;
+      }
+      const created = await createShellWebView(tabKey, absoluteUrl);
+      if (cancelled || !created) return;
+      // Main's per-tab channels gate on the guest existing ("Unknown tab"
+      // before the create lands), so the initial chord table and zoom factor
+      // go out only after the create resolves — a mount-time send is rejected
+      // and these channels never self-heal. The reads take the LATEST values
+      // through the refs so a prop change that landed during the awaits is
+      // not lost (prop changes also re-send immediately from their effects).
+      void setShellWebViewChords(tabKey, chordTableRef.current ?? []);
+      void setShellWebViewZoom(tabKey, zoomRef.current);
+    })();
     const reload = () => {
       setTileError(null);
       setLoading(true);
@@ -274,6 +293,7 @@ export function WebFrameNative({
       openDevTools: () => void openShellWebViewDevTools(tabKey),
     });
     return () => {
+      cancelled = true;
       unregisterHandle(url);
       void destroyShellWebView(tabKey);
       dispose();
@@ -284,17 +304,29 @@ export function WebFrameNative({
     };
   }, [url, tabKey, registerHandle, unregisterHandle, interactRef]);
 
-  // Zoom application: sent after mount (the create above precedes this effect
-  // in declaration order), on every zoom prop change, and on every url relay
+  // Zoom application: the INITIAL factor is sent by the mount effect after
+  // the create resolves (a mount-time send races the guest's existence), so
+  // this effect covers only zoom PROP CHANGES; every url relay also re-sends
   // (inside the relay handler above).
+  const zoomMountedRef = useRef(false);
   useEffect(() => {
+    if (!zoomMountedRef.current) {
+      zoomMountedRef.current = true;
+      return;
+    }
     void setShellWebViewZoom(tabKey, zoom);
   }, [tabKey, zoom]);
 
-  // The reclaim table: uploaded after mount and on every identity change (a
-  // rebind re-derives it). Absent prop ⇒ empty table — a guest with no table
+  // The reclaim table: like zoom, the initial upload is the mount effect's
+  // post-create send, so this effect covers only identity CHANGES (a rebind
+  // re-derives the table). Absent prop ⇒ empty table — a guest with no table
   // forwards nothing.
+  const chordsMountedRef = useRef(false);
   useEffect(() => {
+    if (!chordsMountedRef.current) {
+      chordsMountedRef.current = true;
+      return;
+    }
     void setShellWebViewChords(tabKey, chordTable ?? []);
   }, [tabKey, chordTable]);
 

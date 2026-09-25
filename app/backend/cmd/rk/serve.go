@@ -336,8 +336,12 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 
 		addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 		server := &http.Server{
-			Addr:    addr,
-			Handler: router,
+			Addr: addr,
+			// The forward-proxy wrapper sits AHEAD of the chi router: CONNECT
+			// has an empty path (no chi route could match it) and chi's
+			// middleware (cors/Logger/Recoverer) must not apply to proxy
+			// traffic — the wrapper carries its own recovery and logging.
+			Handler: api.ForwardProxy(router),
 		}
 
 		go func() {

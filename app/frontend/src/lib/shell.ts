@@ -13,6 +13,8 @@
  * sender gating), not here.
  */
 
+import type { WebNativeMode } from "./web-url";
+
 export interface RunkitShell {
   version: string;
   platform: string;
@@ -707,6 +709,48 @@ function webBridge(): ShellWebBridge | null {
 /** True when the shell can host web-tile guests (`runkitShell.web` present). */
 export function canShellWeb(): boolean {
   return webBridge() !== null;
+}
+
+/** A `web` group that also carries the optional `mode` invoker (newer shells). */
+interface ShellWebModeBridge extends ShellWebBridge {
+  mode: () => Promise<unknown>;
+}
+
+/**
+ * The `mode` invoker is additive to the `web` group (shells predating the
+ * native engine's remote-native loading lack it), so it is narrowed separately
+ * from `isWebBridge` — the fourteen-member set stays the engine gate and the
+ * group stays usable without it.
+ */
+function isWebModeBridge(bridge: ShellWebBridge): bridge is ShellWebModeBridge {
+  return "mode" in bridge && typeof Reflect.get(bridge, "mode") === "function";
+}
+
+function isWebModeOk(value: unknown): value is { ok: true; mode: WebNativeMode } {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("ok" in value) || value.ok !== true) return false;
+  if (!("mode" in value)) return false;
+  return value.mode === "direct" || value.mode === "proxy" || value.mode === "legacy";
+}
+
+/**
+ * The host's web-tile load mode (`direct`/`proxy`/`legacy`) as reported by
+ * the shell — the renderer cannot derive it from `window.location.origin`
+ * (an SSH host and the local daemon are both loopback). Resolves `"legacy"`
+ * in a plain browser, on an older shell whose `web` group lacks the `mode`
+ * invoker, on a rejected invoke, and on a malformed/denied result — today's
+ * `toProxySrc` behavior. Never throws.
+ */
+export async function shellWebMode(): Promise<WebNativeMode> {
+  const bridge = webBridge();
+  if (!bridge || !isWebModeBridge(bridge)) return "legacy";
+  let result: unknown;
+  try {
+    result = await bridge.mode();
+  } catch {
+    return "legacy";
+  }
+  return isWebModeOk(result) ? result.mode : "legacy";
 }
 
 export interface ShellWebRect {

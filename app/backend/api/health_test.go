@@ -30,7 +30,7 @@ func TestHealthEndpoint(t *testing.T) {
 		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
 	}
 
-	var body map[string]string
+	var body map[string]any
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestHealthEndpointEmptyHostname(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var body map[string]string
+	var body map[string]any
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestHealthEndpointSSHHost(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -108,7 +108,7 @@ func TestHealthEndpointSSHHost(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -126,7 +126,7 @@ func TestHealthEndpointSSHHost(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -150,7 +150,7 @@ func TestHealthEndpointSSHHost(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -178,7 +178,7 @@ func TestHealthEndpointInstanceName(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -198,7 +198,7 @@ func TestHealthEndpointInstanceName(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -225,7 +225,7 @@ func TestHealthEndpointSSHUser(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -242,12 +242,64 @@ func TestHealthEndpointSSHUser(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
 		if _, present := body["sshUser"]; present {
 			t.Errorf("body.sshUser present (%q), want absent", body["sshUser"])
+		}
+	})
+}
+
+// The forwardProxy field advertises the forward-proxy capability: it is the
+// daemon's listen port (the proxy rides the same port), a JSON number derived
+// from config per request (Constitution II), ALWAYS present on this build —
+// its absence marks an older server.
+func TestHealthEndpointForwardProxy(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	t.Run("carries the RK_PORT listen port as a number", func(t *testing.T) {
+		isolateSettings(t)
+		t.Setenv("RK_PORT", "3001")
+		router := NewTestRouter(logger, nil, nil, "test-host")
+
+		req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		var body map[string]any
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		port, ok := body["forwardProxy"].(float64)
+		if !ok {
+			t.Fatalf("body.forwardProxy = %v (%T), want a JSON number", body["forwardProxy"], body["forwardProxy"])
+		}
+		if port != 3001 {
+			t.Errorf("body.forwardProxy = %v, want 3001", port)
+		}
+	})
+
+	t.Run("always present, defaulting to 3000", func(t *testing.T) {
+		isolateSettings(t)
+		t.Setenv("RK_PORT", "")
+		router := NewTestRouter(logger, nil, nil, "test-host")
+
+		req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		var body map[string]any
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		port, ok := body["forwardProxy"].(float64)
+		if !ok {
+			t.Fatalf("body.forwardProxy absent or non-numeric (%v), want present", body["forwardProxy"])
+		}
+		if port != 3000 {
+			t.Errorf("body.forwardProxy = %v, want 3000 (default)", port)
 		}
 	})
 }

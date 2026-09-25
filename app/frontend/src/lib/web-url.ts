@@ -18,6 +18,9 @@
  *    (http/https absolute, root-relative; the backend remains enforcement).
  * 5. `toProxySrc` — the iframe-src mapping: absolute loopback URLs ride the
  *    same-origin proxy, everything else passes through.
+ * 6. `toNativeSrc` — the native engine's mode-aware load target: in the
+ *    host-reported `direct`/`proxy` modes a stored `/proxy/{port}` slot is
+ *    re-expressed as its literal loopback URL; `legacy` is `toProxySrc`.
  *
  * The STORED `@rk_win_web_<n>` is never rewritten by display work — the
  * display contract (`docs/site/skill/display.md`) keeps relative addresses
@@ -380,4 +383,23 @@ export function toWebAddTarget(url: string): string {
   if (port === null) return url;
   const rest = url.replace(/^\/proxy\/\d+/, "");
   return `http://localhost:${port}${rest === "" ? "/" : rest}`;
+}
+
+/** The native engine's host-reported load mode: `direct` when the host IS
+ *  this machine's daemon, `proxy` when a remote host's forward proxy carries
+ *  the guest session's traffic, `legacy` for anything else (older shell or a
+ *  host whose proxy capability check failed). */
+export type WebNativeMode = "direct" | "proxy" | "legacy";
+
+/**
+ * The native engine's load target for a stored address, per the host's mode.
+ * In `direct`/`proxy` the guest session resolves loopback on the rk host, so
+ * a stored `/proxy/{port}` slot is re-expressed as the literal loopback URL it
+ * rides (the `toWebAddTarget` inverse mapping — the same slot value then still
+ * works in a browser viewer's iframe engine); absolute URLs and every other
+ * address kind pass through unchanged. `legacy` is exactly `toProxySrc`.
+ */
+export function toNativeSrc(url: string, mode: WebNativeMode): string {
+  if (mode === "legacy") return toProxySrc(url);
+  return toWebAddTarget(url);
 }

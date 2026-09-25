@@ -8,7 +8,7 @@
 
 ## Design Principles
 
-1. **POST for all mutations** — every write operation uses POST. Intent communicated by URL path, not HTTP method. Simplifies the client, avoids CORS preflight for non-simple methods. One documented exception: `/mcp` (§ MCP) is bound by the MCP streamable-HTTP transport to `POST` + `GET` + `DELETE` on a single path. The exception is scoped to that route alone and does not extend to `/api/*`.
+1. **POST for all mutations** — every write operation uses POST. Intent communicated by URL path, not HTTP method. Simplifies the client, avoids CORS preflight for non-simple methods. Two documented exceptions: `/mcp` (§ MCP) is bound by the MCP streamable-HTTP transport to `POST` + `GET` + `DELETE` on a single path, and the forward-proxy transport (§ Forward Proxy) accepts `CONNECT` and absolute-form plain-HTTP request targets on the listen port, handled by a wrapper ahead of the router. Both exceptions are transport-scoped and do not extend to `/api/*`.
 2. **GET for all reads** — session listing, directory autocomplete, SSE stream, health check.
 3. **Consistent error shape** — every error returns `{ "error": "<message>" }` with an appropriate HTTP status.
 4. **Validated at the boundary** — all user input validated before reaching tmux; invalid input never touches a subprocess.
@@ -49,8 +49,13 @@ Supervisor health check. No authentication.
 
 **Response** `200`:
 ```json
-{ "status": "ok" }
+{ "status": "ok", "forwardProxy": 3001 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `string` | Always `"ok"` |
+| `forwardProxy` | `number` | The daemon's listen port, advertised so the desktop shell can point per-host guest proxies at it (§ Forward Proxy). Older daemons omit the field; its absence reads as no forward-proxy capability |
 
 ---
 
@@ -560,6 +565,75 @@ visible; it grants nothing to any `/api/*` route.
 
 ---
 
+### Forward Proxy
+
+The daemon doubles as an HTTP forward proxy on its existing listen port, so the
+desktop shell's native web engine can route guest traffic through the rk host
+([`window-views.md`](window-views.md) § Engines). This is a **transport, not a
+route**: proxy-shaped requests are intercepted by a handler wrapper AHEAD of the
+chi router (`CONNECT` has an empty path and would never match a chi route), the
+wrapper adds no route to the route table, and chi's `cors` / `Logger` /
+`Recoverer` middleware does not apply to it — the wrapper carries its own panic
+recovery and `slog` logging.
+
+**Detection:**
+
+| Request shape | Example request line | Detection | Handling |
+|---------------|----------------------|-----------|----------|
+| Authority-form CONNECT | `CONNECT localhost:6000 HTTP/1.1` | `r.Method == http.MethodConnect` | Tunnel |
+| Absolute-form plain HTTP | `GET http://localhost:6000/assets/x.js HTTP/1.1` | Request target is absolute (`r.URL.IsAbs()`) | Forward |
+| Anything else | `GET /api/health HTTP/1.1` | — | The router, unchanged |
+
+Chromium sends `https://` and WebSocket (`ws://`/`wss://`) traffic through an
+HTTP proxy via CONNECT, and plain `http://` via absolute-form requests.
+
+**CONNECT tunnel:**
+- Dials the authority (`host:port`) with a `net.Dialer` timeout (10 s, a named
+  constant) via `DialContext` bound to the request context; hostnames resolve
+  on the rk host (Go's resolver — Docker service names, internal DNS,
+  `*.localhost` all work).
+- Dial failure → `502 Bad Gateway` before hijack. On success → hijack the
+  client connection, write `HTTP/1.1 200 Connection Established`, flush any
+  bytes already buffered in the hijacked `bufio.ReadWriter` to the upstream,
+  then a bidirectional copy (two `io.Copy` goroutines).
+- Cleanup is close-driven: when either direction ends, both connections close
+  (half-close via `CloseWrite` where available, then full close), so neither
+  goroutine nor socket leaks. NO fixed deadline or idle cap — HMR WebSockets
+  and long-polls are long-lived.
+
+**Absolute-form forwarding:**
+- Forwards to the URL's host (resolved on the rk host) with an `http.Transport`
+  whose `Proxy` is nil (never chained through the daemon's own `HTTP_PROXY`
+  env), a 5 s dial timeout, and a 10 s response-header timeout (the `proxy.go`
+  shape).
+- Hop-by-hop and proxy-only headers are stripped: `Proxy-Connection`,
+  `Proxy-Authorization`, `Connection`-listed headers, `Keep-Alive`, `TE`,
+  `Trailer`, `Transfer-Encoding`, non-tunnelled `Upgrade`.
+- NO content rewriting — the response passes through verbatim (the opposite of
+  `/proxy/{port}`'s HTML rewrite). Upstream failure → `502 Bad Gateway`.
+
+**Destination policy: NONE.** The proxy dials any destination — loopback, LAN,
+internet — with no allowlist or blocklist. Rationale: anyone who can reach rk
+already has a shell on the host through the terminal relay (rk has no auth —
+Tailnet-only / SSH-tunnel-only by deployment), so restricting destinations is
+security theater and adds no exposure beyond what rk already grants. Browser
+pages cannot abuse it cross-site: `CONNECT` is a forbidden method for
+`fetch`/XHR and a page cannot emit an absolute-form request line, so no new
+CSRF surface is created.
+
+**Constitution stance** — the second transport-scoped Principle IX exception,
+beside `/mcp`. The proxy spawns no subprocess (net dialing only, Constitution
+I), holds no state beyond live connections (Constitution II), and leaves the
+CORS allowlist at `GET POST OPTIONS`. `/proxy/{port}` and `/code` are
+untouched — they remain for the iframe engine and browser viewers.
+
+**Capability advertisement** — `GET /api/health` carries `forwardProxy` (a JSON
+number, the daemon's listen port); older daemons omit the field (§ Health). The
+desktop shell gates proxy mode on this field plus a live CONNECT probe through
+the actual proxy path.
+
+---
+
 ### SPA Fallback
 
 #### `GET /*` (catch-all, lowest priority)
@@ -652,3 +726,7 @@ visible; it grants nothing to any `/api/*` route.
 | `POST` | `/api/boards/:name/reorder` | `boards.go` | Reorder a pinned window (`{server, windowId, before?, after?}`) |
 | `POST` `GET` `DELETE` | `/mcp` | `mcp.go` | MCP streamable-HTTP transport (Constitution IX exception, see § MCP) |
 | `GET` | `/*` | `spa.go` | SPA static + fallback |
+
+The HTTP forward proxy is a transport wrapper ahead of the router, not a route,
+so it has no row here (§ Forward Proxy): `CONNECT` and absolute-form request
+targets are handled before this table is consulted.

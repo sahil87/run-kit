@@ -39,6 +39,7 @@ import {
   setShellAccent,
   setShellBadge,
   shellInfo,
+  shellWebMode,
   switchShellServer,
 } from "./shell";
 
@@ -529,6 +530,44 @@ describe("web bridge invokers", () => {
     expect(await reloadShellWebView("web-9")).toBe(false);
     webBridgeWith(fullWebBridge({ visible: () => Promise.resolve("shown") }));
     expect(await setShellWebViewVisible("web-1", true)).toBe(false);
+  });
+});
+
+describe("shellWebMode", () => {
+  it("resolves the reported mode on an { ok: true } result", async () => {
+    for (const mode of ["direct", "proxy", "legacy"] as const) {
+      const modeFn = vi.fn(() => Promise.resolve({ ok: true, mode }));
+      webBridgeWith(fullWebBridge({ mode: modeFn }));
+      expect(await shellWebMode()).toBe(mode);
+      expect(modeFn).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("resolves legacy outside the shell and on an older shell without the mode invoker", async () => {
+    expect(await shellWebMode()).toBe("legacy");
+    window.runkitShell = { version: "1.2.3", platform: "darwin" };
+    expect(await shellWebMode()).toBe("legacy");
+    webBridgeWith(fullWebBridge());
+    expect(await shellWebMode()).toBe("legacy");
+  });
+
+  it("resolves legacy on a rejected invoke and on malformed/denied results, never throwing", async () => {
+    webBridgeWith(fullWebBridge({ mode: () => Promise.reject(new Error("ipc gone")) }));
+    expect(await shellWebMode()).toBe("legacy");
+    webBridgeWith(fullWebBridge({ mode: () => Promise.resolve({ ok: false, error: "denied" }) }));
+    expect(await shellWebMode()).toBe("legacy");
+    webBridgeWith(fullWebBridge({ mode: () => Promise.resolve({ ok: true, mode: "turbo" }) }));
+    expect(await shellWebMode()).toBe("legacy");
+    webBridgeWith(fullWebBridge({ mode: () => Promise.resolve({ ok: true }) }));
+    expect(await shellWebMode()).toBe("legacy");
+    webBridgeWith(fullWebBridge({ mode: () => Promise.resolve("direct") }));
+    expect(await shellWebMode()).toBe("legacy");
+  });
+
+  it("a non-function mode member does not poison the group (mode reads as legacy)", async () => {
+    webBridgeWith(fullWebBridge({ mode: "nope" }));
+    expect(canShellWeb()).toBe(true);
+    expect(await shellWebMode()).toBe("legacy");
   });
 });
 

@@ -107,6 +107,28 @@ and the layering model are specified by the study
 [`docs/memory/run-kit/desktop-shell.md`](../memory/run-kit/desktop-shell.md)
 § Web Views.
 
+The native engine's URL loading is per-host, in one of three modes the desktop
+shell reports over the `runkitShell.web` bridge (`web.mode()`, additive — an
+absent invoker reads as `legacy`):
+
+- **`direct`** — the host is this machine's daemon: the engine loads literal
+  URLs (`http://localhost:6000/…`) with no proxy.
+- **`proxy`** — a remote host whose capability probe passed: the engine loads
+  literal URLs, and ALL guest traffic — DNS included — resolves on the rk host
+  through its forward proxy ([`api.md`](api.md) § Forward Proxy). Each host
+  runs in its own `persist:rk-web:<host.id>` session partition configured with
+  `session.setProxy` `{ fixed_servers, proxyBypassRules: "<-loopback>" }`;
+  TLS-fronted (https) host origins proxy via `http://<hostname>:<advertised
+  listen port>`. Accepted cons: all web-tile egress leaves from the remote host
+  (its IP and latency), and the viewer's own localhost, LAN, and VPN are
+  unreachable from the native tile in this mode — the iframe-engine opt-out
+  remains the viewer-local escape hatch.
+- **`legacy`** — the fallback: today's same-origin `/proxy/{port}` path.
+
+Stored `@rk_win_web_<n>` slot values stay in `/proxy/N/…` form; in `direct` and
+`proxy` modes the native engine maps them back to literal loopback URLs at load
+time, so the same tab stays portable to browser viewers' iframe engines.
+
 ---
 
 ## Rules

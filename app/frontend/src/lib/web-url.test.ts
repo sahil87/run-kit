@@ -6,6 +6,7 @@ import {
   normalizeAddressInput,
   proxyPortOf,
   routeAddressSubmit,
+  toNativeSrc,
   toProxySrc,
   toWebAddTarget,
   webTabTitle,
@@ -68,6 +69,9 @@ describe("displayForm (260819-v6y4 R3)", () => {
     expect(displayForm("/proxy/3000")).toBe("localhost:3000/");
     expect(displayForm("http://localhost:8080/docs?x=1")).toBe("localhost:8080/docs?x=1");
     expect(displayForm("http://127.0.0.1:8080/docs")).toBe("localhost:8080/docs");
+    // A literal loopback URL (the native engine's direct/proxy load target)
+    // renders the same localhost form as the /proxy/ plumbing.
+    expect(displayForm("http://localhost:6000/x")).toBe("localhost:6000/x");
   });
 
   it("external: host + path, scheme omitted", () => {
@@ -307,5 +311,53 @@ describe("toWebAddTarget", () => {
       "/present/runKit/3f9a2c8e1b77/report.html?v=1",
     );
     expect(toWebAddTarget("/foo")).toBe("/foo");
+  });
+});
+
+describe("toNativeSrc", () => {
+  // The address-kind matrix runs against all three modes: proxy path, proxy
+  // root, absolute loopback, external, present, and plain relative.
+  it("direct/proxy: a stored /proxy/{port} slot maps to the literal loopback URL", () => {
+    for (const mode of ["direct", "proxy"] as const) {
+      expect(toNativeSrc("/proxy/6000/assets/x.js", mode)).toBe(
+        "http://localhost:6000/assets/x.js",
+      );
+      expect(toNativeSrc("/proxy/6000/docs?x=1", mode)).toBe("http://localhost:6000/docs?x=1");
+      // The root form gains its trailing slash.
+      expect(toNativeSrc("/proxy/6000", mode)).toBe("http://localhost:6000/");
+      expect(toNativeSrc("/proxy/6000/", mode)).toBe("http://localhost:6000/");
+    }
+  });
+
+  it("direct/proxy: every other address kind passes through unchanged", () => {
+    for (const mode of ["direct", "proxy"] as const) {
+      expect(toNativeSrc("http://localhost:6000/x", mode)).toBe("http://localhost:6000/x");
+      expect(toNativeSrc("http://127.0.0.1:6000/x?a=1", mode)).toBe("http://127.0.0.1:6000/x?a=1");
+      expect(toNativeSrc("https://shll.ai/rk/skill", mode)).toBe("https://shll.ai/rk/skill");
+      expect(toNativeSrc("/present/@320/report.html?server=a&v=1", mode)).toBe(
+        "/present/@320/report.html?server=a&v=1",
+      );
+      expect(toNativeSrc("/present/runKit/3f9a2c8e1b77/report.html?v=1", mode)).toBe(
+        "/present/runKit/3f9a2c8e1b77/report.html?v=1",
+      );
+      expect(toNativeSrc("/board/runKit", mode)).toBe("/board/runKit");
+    }
+  });
+
+  it("legacy: exactly toProxySrc for every address kind", () => {
+    const cases = [
+      "/proxy/6000/assets/x.js",
+      "/proxy/6000",
+      "http://localhost:6000/x",
+      "https://shll.ai/rk/skill",
+      "/present/runKit/3f9a2c8e1b77/report.html?v=1",
+      "/board/runKit",
+    ];
+    for (const url of cases) {
+      expect(toNativeSrc(url, "legacy")).toBe(toProxySrc(url));
+    }
+    // The loopback absolute case is the one where legacy differs from the
+    // other modes: it rides the same-origin proxy path.
+    expect(toNativeSrc("http://localhost:6000/x", "legacy")).toBe("/proxy/6000/x");
   });
 });

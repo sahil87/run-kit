@@ -24,8 +24,10 @@
  *     carry. Gated and validated exactly like `badge:*` main-side.
  *   - `web`: the web tile's native engine — create/destroy/bounds/visible/
  *     load/reload plus the parity invokers back/forward/find/stopFind/zoom/
- *     chords/devtools for the `web:*` channels, and `onEvent` on the
- *     `web:event` relay. Additive: older SPAs never call it; the SPA narrows
+ *     chords/devtools for the `web:*` channels, the per-host load-mode query
+ *     `mode` (`web:mode` — additive; the SPA narrows it separately, so older
+ *     shells without it read as `legacy`), and `onEvent` on the `web:event`
+ *     relay. Additive: older SPAs never call it; the SPA narrows
  *     the group's presence before use. Privileged main-side for registered-
  *     host views only (isHostsSender + a host view + tabKey membership under
  *     the sender).
@@ -122,6 +124,10 @@ contextBridge.exposeInMainWorld("runkitShell", {
       ipcRenderer.invoke("web:chords", { tabKey, chords }),
     devtools: (tabKey: string): Promise<unknown> =>
       ipcRenderer.invoke("web:devtools", { tabKey }),
+    // The host's web-tile load mode (`direct`/`proxy`/`legacy`). Additive:
+    // the SPA narrows this invoker's presence separately from the group, so
+    // an older shell without it reads as `legacy` — today's behavior.
+    mode: (): Promise<unknown> => ipcRenderer.invoke("web:mode"),
     // Returns the unsubscribe — a subscription that cannot be dropped leaks a
     // listener per engine mount, and every relayed event then fires N times.
     onEvent: (handler: (payload: unknown) => void): (() => void) => {

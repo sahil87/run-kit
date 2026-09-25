@@ -29,12 +29,14 @@ import {
   getAt,
   insertBeside,
   isLeaf,
+  isSplit,
   leafIds,
   layoutRects,
   normalise,
   pathOf,
   removeNodeAt,
   serializeLayoutTree,
+  sizesOf,
   stripSizes,
   swapLeaves,
   SPLIT_GAP_PX,
@@ -42,7 +44,9 @@ import {
   type LayoutLeaf,
   type LayoutNode,
   type LayoutSizes,
+  type LayoutSplit,
   type Rect,
+  type SplitDir,
 } from "./layout-tree";
 
 /** Movement (px) before a header press becomes a drag; below it the press is
@@ -205,13 +209,32 @@ function leafIndexAtPath(root: LayoutNode, path: number[]): number {
   return index;
 }
 
+/** Rewrite a root split's fractions so the child at `destIndex` holds half
+ *  the axis and the survivors keep their relative shares of the other half.
+ *  Identity when the destination already holds half (the no-merge case). */
+function rootDestHalf(split: LayoutSplit, destIndex: number): LayoutSplit {
+  const fractions = sizesOf(split);
+  const rest = fractions.reduce((a, f, i) => (i === destIndex ? a : a + f), 0);
+  if (rest <= 0) return split;
+  const scale = 0.5 / rest;
+  return {
+    dir: split.dir,
+    children: split.children,
+    sizes: fractions.map((f, i) => (i === destIndex ? 0.5 : f * scale)),
+  };
+}
+
 /**
  * Resolve a drop to its outcome. Center hits swap (sizes stay with
  * POSITIONS). Edge and root hits run the generic edit on the sizes-attached
  * tree: wrap the target (path [] for a layout edge) in a split on the side's
  * axis with a CLONE of the dragged leaf at 50/50 inside the wrap (the wrap
  * takes the target's share), remove the original dragged leaf (its share
- * redistributes to its siblings in proportion), normalise. The result is
+ * redistributes to its siblings in proportion), normalise. A same-axis ROOT
+ * drop merges the wrap into the root split and the removal's renormalization
+ * would inflate the clone, so the root split's fractions are then restored to
+ * the contract: destination 50% of the axis, survivors splitting the rest in
+ * proportion. The result is
  * `noop` when its serialized form equals the input's, `too-small` when any
  * result leaf rect breaks the floor, else `move` with the sizes-stripped
  * canonical tree and the result's pre-order sizes.
@@ -254,9 +277,19 @@ export function resolveDrop(
     if (originalPath === null) return { kind: "cancel" };
     const removed = removeNodeAt(wrapped, originalPath);
     if (removed === null) return { kind: "cancel" };
-    const normed = normalise(removed);
-    const destPath = pathOfNode(normed, clone);
-    if (destPath === null) return { kind: "cancel" };
+    // A same-axis ROOT drop merges the wrap into the root split, so the
+    // removal's renormalization inflates the clone past its half — restore
+    // the contract: the destination keeps 50% of the axis and the surviving
+    // siblings split the rest in proportion.
+    const normedPre = normalise(removed);
+    const destPathPre = pathOfNode(normedPre, clone);
+    if (destPathPre === null) return { kind: "cancel" };
+    const dropDir: SplitDir = hit.side === "left" || hit.side === "right" ? "h" : "v";
+    const normed =
+      hit.kind === "root" && destPathPre.length === 1 && isSplit(normedPre) && normedPre.dir === dropDir
+        ? rootDestHalf(normedPre, destPathPre[0])
+        : normedPre;
+    const destPath = destPathPre;
     resultSizes = extractSizes(normed);
     resultTree = stripSizes(normed);
     // Leaf references survive stripSizes, so the clone's id is its

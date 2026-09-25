@@ -259,6 +259,38 @@ describe("resolveDrop — sizes carried through (study §6)", () => {
     expect(result.sizes[0][1]).toBeCloseTo(0.3, 6);
     expect(result.destId).toBe("tty");
   });
+
+  it("a same-axis root drop keeps the destination at 50% of the axis (the merge's renormalization must not inflate it)", () => {
+    // h(tty,code) at 1/3:2/3, code dropped on the left layout edge: the wrap
+    // merges into the root h and removing the original code renormalizes
+    // 0.5:1/6 → 0.75:0.25 — the destination must be restored to its half.
+    const result = moveOf(
+      resolveDrop(parse("h(tty,code)"), [[1 / 3, 2 / 3]], "code", {
+        kind: "root",
+        side: "left",
+      }, BIG_BOX),
+    );
+    expect(ser(result.tree)).toBe("h(code,tty)");
+    expect(result.sizes[0][0]).toBeCloseTo(0.5, 6);
+    expect(result.sizes[0][1]).toBeCloseTo(0.5, 6);
+    expect(result.destId).toBe("code");
+  });
+
+  it("a same-axis root drop on a 3-leaf row: destination 50%, survivors split the rest in proportion", () => {
+    // code out of the middle of h(tty,code,web) at 0.5:0.3:0.2 to the left
+    // layout edge — tty:web keep their 0.5:0.2 proportion inside the other
+    // half: 5/14 : 2/14.
+    const result = moveOf(
+      resolveDrop(parse("h(tty,code,web)"), [[0.5, 0.3, 0.2]], "code", {
+        kind: "root",
+        side: "left",
+      }, BIG_BOX),
+    );
+    expect(ser(result.tree)).toBe("h(code,tty,web)");
+    expect(result.sizes[0][0]).toBeCloseTo(0.5, 6);
+    expect(result.sizes[0][1]).toBeCloseTo(5 / 14, 6);
+    expect(result.sizes[0][2]).toBeCloseTo(1 / 7, 6);
+  });
 });
 
 describe("resolveDrop — duplicate tty leaves", () => {

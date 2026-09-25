@@ -1838,8 +1838,8 @@ export function SurfaceLayout({
     if (e.button !== 0) return;
     const target = e.target;
     if (!(target instanceof HTMLElement)) return;
-    // Only the header's background arms a drag — buttons, menus, and the meta
-    // chip keep their own press behavior.
+    // Only the header's background arms a drag — buttons, menus, the meta
+    // chip, and the pane segment keep their own press behavior.
     if (target.closest("button, [role='menu'], [data-no-tile-drag]")) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     tileDragRef.current = {
@@ -2857,6 +2857,7 @@ export function SurfaceLayout({
               <>
                 <div
                   data-testid="pane-segment"
+                  data-no-tile-drag
                   className="inline-flex items-center h-[26px] rounded border border-border"
                 >
                   <Tip label="Split pane horizontally">

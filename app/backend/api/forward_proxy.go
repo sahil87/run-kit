@@ -137,21 +137,28 @@ func proxyConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// When either direction ends, half-close the other's write side so it
-	// observes EOF; once both copies exit, close both conns so neither
-	// goroutine nor socket leaks.
+	// observes EOF, then close BOTH conns from the first completed copy — a
+	// peer that keeps its read side open after FIN would otherwise block the
+	// second copy forever, leaking the handler and both sockets. wg.Wait
+	// then only joins goroutines the close already unwound.
 	var wg sync.WaitGroup
+	var closeOnce sync.Once
+	closeBoth := func() {
+		client.Close()
+		upstream.Close()
+	}
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		copyHalfClose(upstream, client)
+		closeOnce.Do(closeBoth)
 	}()
 	go func() {
 		defer wg.Done()
 		copyHalfClose(client, upstream)
+		closeOnce.Do(closeBoth)
 	}()
 	wg.Wait()
-	client.Close()
-	upstream.Close()
 	slog.Debug("forward proxy: CONNECT closed", "target", target)
 }
 

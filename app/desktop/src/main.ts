@@ -610,9 +610,9 @@ function guestWebPreferences(host: ViewHost): Electron.WebPreferences {
 /**
  * The proxy capability probe: a remote host earns `proxy` mode only when its
  * rk server provably carries the forward proxy. Two gates, both required:
- *  1. `GET <origin>/api/health` answers 200 with a numeric `forwardProxy`
- *     field (the daemon's listen port) — absent means an older server, no
- *     probe attempted.
+ *  1. `GET <origin>/api/health` answers HTTP 200 (exactly — the capability
+ *     contract) with a numeric `forwardProxy` field (the daemon's listen
+ *     port) — absent means an older server, no probe attempted.
  *  2. A live CONNECT through the computed proxy target (`proxyRulesFor`):
  *     raw-TCP `CONNECT 127.0.0.1:<forwardProxyPort>` must answer
  *     `HTTP/1.1 200` — the health field alone cannot detect a TLS front end
@@ -628,7 +628,7 @@ async function probeForwardProxy(host: ViewHost): Promise<{ ok: boolean; rules: 
     const res = await net.fetch(`${host.url}/api/health`, {
       signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
     });
-    if (res.ok) {
+    if (res.status === 200) {
       const body: unknown = await res.json();
       if (
         typeof body === "object" &&
@@ -636,7 +636,8 @@ async function probeForwardProxy(host: ViewHost): Promise<{ ok: boolean; rules: 
         "forwardProxy" in body &&
         typeof body.forwardProxy === "number" &&
         Number.isInteger(body.forwardProxy) &&
-        body.forwardProxy > 0
+        body.forwardProxy > 0 &&
+        body.forwardProxy <= 65535
       ) {
         forwardProxy = body.forwardProxy;
       }
@@ -647,8 +648,10 @@ async function probeForwardProxy(host: ViewHost): Promise<{ ok: boolean; rules: 
   if (forwardProxy === null) return { ok: false, rules: null };
   const rules = proxyRulesFor(host.url, forwardProxy);
   if (rules === null) return { ok: false, rules: null };
-  const target = new URL(rules); // rules are always `http://<host>:<port>`
-  const port = Number(target.port);
+  const target = new URL(rules); // rules are always `http://<host>[:<port>]`
+  // An http origin with no explicit port omits it from the rules; that is
+  // port 80, not "no probe".
+  const port = target.port === "" ? 80 : Number(target.port);
   if (!Number.isInteger(port) || port <= 0) return { ok: false, rules: null };
   const ok = await connectProbe(target.hostname, port, forwardProxy);
   return ok ? { ok: true, rules } : { ok: false, rules: null };
@@ -689,13 +692,20 @@ function connectProbe(host: string, port: number, authorityPort: number): Promis
 /** Per-host proxy state, keyed on hosts.json id and invalidated whenever the
  *  host's url changes (setHostUrl, SSH heal) — the cache entry carries the
  *  url it was derived from, so a changed url recomputes lazily on the next
- *  ensure. `pending` collapses concurrent ensures into one probe+apply. */
+ *  ensure. `pending` collapses concurrent ensures into one probe+apply; it is
+ *  keyed by host id AND url, so a probe in flight for an old url is never
+ *  reused for the new one, and a stale completion never overwrites a newer
+ *  cache entry (only the host's current pending query publishes). */
 interface HostProxyState {
   url: string;
   mode: WebProxyMode;
 }
+interface HostProxyPending {
+  url: string;
+  query: Promise<WebProxyMode>;
+}
 const hostProxyStates = new Map<string, HostProxyState>();
-const hostProxyPending = new Map<string, Promise<WebProxyMode>>();
+const hostProxyPending = new Map<string, HostProxyPending>();
 
 /**
  * Settle a host's web-proxy mode and APPLY it to the host's guest session
@@ -708,8 +718,10 @@ async function ensureHostProxy(host: ViewHost): Promise<WebProxyMode> {
   const cached = hostProxyStates.get(host.id);
   if (cached && cached.url === host.url) return cached.mode;
   const pending = hostProxyPending.get(host.id);
-  if (pending) return pending;
-  const query = (async (): Promise<WebProxyMode> => {
+  if (pending && pending.url === host.url) return pending.query;
+  const url = host.url;
+  const entry = { url, query: undefined as unknown as Promise<WebProxyMode> };
+  entry.query = (async (): Promise<WebProxyMode> => {
     const localOrigin = await localDaemonOrigin();
     // An optimistic probe result isolates the locality question: "direct"
     // here means local, anything else is remote/url and earns the real probe.
@@ -721,14 +733,18 @@ async function ensureHostProxy(host: ViewHost): Promise<WebProxyMode> {
       rules = probe.rules;
     }
     await guestSession(host).setProxy(setProxyConfigFor(mode, rules));
-    hostProxyStates.set(host.id, { url: host.url, mode });
+    if (hostProxyPending.get(host.id) === entry) {
+      hostProxyStates.set(host.id, { url, mode });
+    }
     return mode;
   })();
-  hostProxyPending.set(host.id, query);
+  hostProxyPending.set(host.id, entry);
   try {
-    return await query;
+    return await entry.query;
   } finally {
-    hostProxyPending.delete(host.id);
+    if (hostProxyPending.get(host.id) === entry) {
+      hostProxyPending.delete(host.id);
+    }
   }
 }
 
@@ -2536,6 +2552,12 @@ function registerIpcHandlers(): void {
     // setProxy is async — settle the host session's proxy config BEFORE the
     // guest's first loadURL, so no guest ever loads unproxied.
     await ensureHostProxy(viewHost);
+    // The await opened a race window: the window may be gone now, and a
+    // concurrent create for this tab may have landed while we probed — the
+    // replace check above predates the await, so repeat it.
+    if (win.isDestroyed()) return { ok: false, error: "No host view" };
+    const raced = findWebViewBySender(webViews, event.sender.id, parsed.tabKey);
+    if (raced) destroyWebView(raced);
     createWebView(win, host, viewHost, parsed.tabKey, parsed.url);
     return { ok: true };
   });

@@ -224,6 +224,46 @@ func TestForwardProxyConnectCloseDrivenCleanup(t *testing.T) {
 	}, "goroutine count did not settle: before=%d now=%d", before, runtime.NumGoroutine())
 }
 
+// A peer that keeps its read side open after FIN (never writes back, never
+// closes) MUST NOT strand the tunnel: the first completed copy closes both
+// conns, the other copy unwinds, and the handler exits.
+func TestForwardProxyConnectPeerHoldingReadOpen(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	holdOpen := make(chan struct{})
+	t.Cleanup(func() { close(holdOpen) })
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		// Drain until the client's FIN, then hold OUR write side open — the
+		// long-lived tunnel behavior that used to leak the reverse copy.
+		_, _ = io.Copy(io.Discard, conn)
+		<-holdOpen
+	}()
+
+	router := NewTestRouter(forwardProxyLogger(), nil, nil, "test-host")
+	srv := httptest.NewServer(ForwardProxy(router))
+	defer srv.Close()
+
+	before := runtime.NumGoroutine()
+
+	conn, _ := connectTunnel(t, proxyServerAddr(srv), ln.Addr().String())
+	defer conn.Close()
+	if err := conn.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatalf("half-close client: %v", err)
+	}
+
+	testutil.MustWaitUntil(t, 5*time.Second, func() bool {
+		return runtime.NumGoroutine() <= before
+	}, "goroutine count did not settle: before=%d now=%d", before, runtime.NumGoroutine())
+}
+
 func TestForwardProxyAbsoluteForm(t *testing.T) {
 	var gotHeader http.Header
 	var gotBody []byte

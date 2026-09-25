@@ -264,7 +264,14 @@ export function WebFrameNative({
         absoluteUrl = url;
       }
       const created = await createShellWebView(tabKey, absoluteUrl);
-      if (cancelled || !created) return;
+      // Unmounted while the create was in flight: the cleanup's destroy ran
+      // before the guest existed ("Unknown tab"), so destroy the guest the
+      // late create just orphaned instead of leaking a renderer.
+      if (cancelled) {
+        if (created) void destroyShellWebView(tabKey);
+        return;
+      }
+      if (!created) return;
       // Main's per-tab channels gate on the guest existing ("Unknown tab"
       // before the create lands), so the initial chord table and zoom factor
       // go out only after the create resolves — a mount-time send is rejected

@@ -394,18 +394,6 @@ export function promote(tree: Layout, leafId: string): Layout {
   return swapLeaves(tree, leafId, mainId);
 }
 
-/**
- * ⇄ Swap: exchange the leaf with the NEXT leaf in reading order (wrapping at
- * the end back to the first — every tile can always swap). A no-op on
- * single-leaf layouts or an absent leaf.
- */
-export function swapWithNext(tree: Layout, leafId: string): Layout {
-  const ids = leafIds(tree);
-  const idx = ids.indexOf(leafId);
-  if (idx < 0 || ids.length < 2) return tree;
-  return swapLeaves(tree, leafId, ids[(idx + 1) % ids.length]);
-}
-
 /** Directional-swap axis. */
 export type SwapDirection = "left" | "right" | "up" | "down";
 

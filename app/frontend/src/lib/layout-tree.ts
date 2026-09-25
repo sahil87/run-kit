@@ -124,6 +124,49 @@ export function sizesOf(split: LayoutSplit): number[] {
   return Array(children.length).fill(1 / children.length);
 }
 
+/**
+ * Attach explicit sizes to every split from a pre-order `LayoutSizes` (the
+ * stored `rk-layout-sizes:*` shape): well-shaped entries land on their split;
+ * missing or ill-shaped ones fall back to the split's own sizes, then equal
+ * shares. Leaf nodes are shared by reference, so a leaf located BEFORE the
+ * attach stays identical (===) in the result — the drop resolver tracks the
+ * dragged leaf through the wrap/remove pipeline by identity.
+ */
+export function attachSizes(node: LayoutNode, sizes?: LayoutSizes): LayoutNode {
+  let si = 0;
+  const walk = (n: LayoutNode): LayoutNode => {
+    if (isLeaf(n)) return n;
+    const index = si;
+    si++;
+    const children = n.children.map(walk);
+    const override = sizes?.[index];
+    const sized: LayoutSplit = {
+      dir: n.dir,
+      children,
+      sizes:
+        override !== undefined &&
+        override.length === n.children.length &&
+        override.every((f) => Number.isFinite(f) && f > 0)
+          ? [...override]
+          : sizesOf(n),
+    };
+    return sized;
+  };
+  return walk(node);
+}
+
+/** The pre-order per-split fractions of a tree (the `LayoutSizes` shape). */
+export function extractSizes(node: LayoutNode): LayoutSizes {
+  const out: LayoutSizes = [];
+  const walk = (n: LayoutNode): void => {
+    if (isLeaf(n)) return;
+    out.push(sizesOf(n));
+    n.children.forEach(walk);
+  };
+  walk(node);
+  return out;
+}
+
 /** The leaf kinds in reading order (depth-first, left-to-right). */
 export function leaves(node: LayoutNode): SurfaceKind[] {
   if (isLeaf(node)) return [node.leaf];
@@ -317,7 +360,8 @@ export function structureSig(node: LayoutNode): string {
 
 // ── pure tree operations ────────────────────────────────────────────────────
 
-function getAt(node: LayoutNode, path: number[]): LayoutNode {
+/** The node at a child-index path (the root at `[]`). */
+export function getAt(node: LayoutNode, path: number[]): LayoutNode {
   return path.reduce<LayoutNode>((n, i) => (isLeaf(n) ? n : n.children[i]), node);
 }
 
@@ -355,7 +399,8 @@ function hasExplicitSizes(node: LayoutNode): boolean {
   return isSplit(node) && (node.sizes !== undefined || node.children.some(hasExplicitSizes));
 }
 
-function stripSizes(node: LayoutNode): LayoutNode {
+/** Drop every explicit size, returning the equal-shares form. */
+export function stripSizes(node: LayoutNode): LayoutNode {
   if (isLeaf(node)) return node;
   return { dir: node.dir, children: node.children.map(stripSizes) };
 }
@@ -412,6 +457,20 @@ function removeAt(node: LayoutNode, path: number[]): LayoutNode | null {
 }
 
 /**
+ * Remove the leaf at `path`; its siblings absorb its share in proportion to
+ * their sizes. The result is canonical (single-child splits lift). Returns
+ * `null` when nothing remains. The path-addressed half of `removeLeaf` — the
+ * drop resolver holds the dragged leaf's identity across an insertion, where
+ * its derived id is ambiguous.
+ */
+export function removeNodeAt(node: LayoutNode, path: number[]): LayoutNode | null {
+  const out = removeAt(node, path);
+  if (out === null) return null;
+  const normed = normSized(out);
+  return hasExplicitSizes(node) ? normed : stripSizes(normed);
+}
+
+/**
  * Remove a leaf; its siblings absorb its share in proportion to their sizes.
  * The result is canonical (single-child splits lift). Returns `null` when the
  * leaf is absent or nothing remains.
@@ -419,10 +478,7 @@ function removeAt(node: LayoutNode, path: number[]): LayoutNode | null {
 export function removeLeaf(node: LayoutNode, leafId: string): LayoutNode | null {
   const path = pathOf(node, leafId);
   if (path === null) return null;
-  const out = removeAt(node, path);
-  if (out === null) return null;
-  const normed = normSized(out);
-  return hasExplicitSizes(node) ? normed : stripSizes(normed);
+  return removeNodeAt(node, path);
 }
 
 /** The side of a target leaf an insertion (or drop) lands on. */

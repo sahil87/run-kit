@@ -134,24 +134,29 @@ back/forward shows whatever the tab's shared layout holds.
 
 ## Verbs
 
-Every arrangement is reachable in ≤2 actions without
-drag-drop. Verbs live as boxed, rest-visible buttons in each tile's surface
-header and as palette entries; the template-cycle chord is bound directly
-(Constitution V — buttons are the mouse mirror, not the mechanism). *Amended
-at phase-2 ship (`260812-ab5v`): per-verb chords (zoom / promote /
-directional swap / close) shipped palette-reachable rather than direct-bound
-— one cycle chord plus palette rows covers keyboard-first with far less
-chord-surface; direct per-verb bindings remain open to a later phase if
-palette latency proves irritating. Amended at `260812-wfic`: the verb buttons
-shipped as fixed-size boxed buttons visible at rest (the hover-reveal cluster
-was retired).*
+Dragging a tile's header is the mouse path for rearrangement; every drag
+outcome also has a keyboard route, so every arrangement is reachable in ≤2
+actions without drag-drop — a guarantee that rides the **palette** (`Layout:
+Promote <Surface>` + `Tile: Swap <Dir>`; at ≤3 tiles every structure is one
+of the templates and leaf placement within a structure is one promote or
+swap). Zoom/close live as boxed, rest-visible buttons in each tile's surface
+header; every verb also exists as a palette entry; the template-cycle chord
+is bound directly (Constitution V — buttons are the mouse mirror, not the
+mechanism). *Amended at phase-2 ship (`260812-ab5v`): per-verb chords (zoom /
+promote / directional swap / close) shipped palette-reachable rather than
+direct-bound — one cycle chord plus palette rows covers keyboard-first with
+far less chord-surface; direct per-verb bindings remain open to a later phase
+if palette latency proves irritating. Amended at `260812-wfic`: the verb
+buttons shipped as fixed-size boxed buttons visible at rest (the hover-reveal
+cluster was retired).*
 
 | Verb | Effect on the tree |
 |------|--------------------------|
+| **Drag** (header, mouse) | Drag a tile by its header background: dropping on another tile's **center** swaps the two leaves; on its **edge band** (clamp(25 % of the axis, 28, 110) px; corners go to the deepest edge) splits beside it; on the **layout's outer 18 px edge** spans that side at 50 % of the axis. The overlay previews the *result* tree at this viewer's sizes (the dragged tile's destination filled); a drop that rebuilds the same arrangement reads "no change", one that would leave a tile under 150×100 px reads "too small" and is not offered. Escape cancels; a commit is exactly one `@rk_win_layout` write plus the viewer's sizes under the new structure signature. Disabled on coarse pointers, zoomed renders, and single-leaf layouts |
 | **⛶ Zoom** | Tile goes full-center, others hidden (not closed); toggle back. No state change — a transient, like tmux `resize-pane -Z` |
 | **Add** (open-tile toggle) | Split the **last leaf in reading order** along its longer axis (tie → horizontal), the new leaf landing after it — at landscape this reproduces the old 1→2 `split-h`, 2→3 `main-left` growth exactly. Refused at 3 leaves and on a repeated non-`tty` kind |
-| **◧ Promote** | Swap this leaf with slot A (the template's main tile, or the first leaf in reading order for a custom tree) |
-| **⇄ Swap** | Header button: swap with the next leaf in reading order (wrapping). Directional swap (palette `Tile: Swap Left/Right/Up/Down`): swap with the geometric neighbour across that edge — the nearest leaf whose rect overlaps on the perpendicular axis; a no-op without one |
+| **◧ Promote** (palette) | Swap this leaf with slot A (the template's main tile, or the first leaf in reading order for a custom tree) — palette `Layout: Promote <Surface>`; a center drop onto slot A is the drag equivalent |
+| **⇄ Swap** (palette) | Directional swap (palette `Tile: Swap Left/Right/Up/Down`): swap the focused leaf with the geometric neighbour across that edge — the nearest leaf whose rect overlaps on the perpendicular axis; a no-op without one |
 | **▦ Cycle template** | Next template for the current tile count (`row → col → main-left → …` at 3 tiles), rebuilt from the current slot order — one chip on the layout (top-bar right cluster), not per-tile; its popover shows the template mini-glyphs for direct jump (lossy for a custom tree) |
 | **✕ Close** | The leaf drops out (remove + normalise); its neighbours absorb its size and the remaining **structure is kept** — closing one tile of a column leaves a column. The last tile never closes |
 | **Switch-to-tile** (mobile-primary) | Swaps WHICH surface the mobile single slot renders: a target already open in the layout writes only the viewer's zoom key (`rk-layout-zoom:*` — no tmux write); an available-but-not-open target grows the shared layout through the shared `--add` mutation (`addSurface` → `@rk_win_layout` write) plus the zoom key; when growth is impossible (3 tiles without the kind) the button is disabled. Lives in the top-bar switch group (§ Mobile) and the `Tile: Switch to <Surface>` palette entries that supersede `View:` at mobile width |
@@ -162,9 +167,9 @@ clicking a lit one closes its tile. The rail stays the availability +
 attention surface (right-panel P4 unchanged — a collapsed/absent tile may hide
 content, never state that wants a human).
 
-Future drag-drop is **sugar over the same generic tree edits** (drop-on-tile =
-swap, drop-on-edge = insert → normalise, drag-divider = sizes) —
-nothing in the verb model is throwaway.
+Drag-drop is **sugar over the same generic tree edits** (drop-on-tile = swap,
+drop-on-edge = wrap → remove → normalise, drag-divider = sizes) — nothing in
+the verb model is throwaway.
 
 ---
 
@@ -235,7 +240,9 @@ fix, and e2e specs budget tiles against the pool.
 - **IV** — no new routes; `?layout=` *replaces* two params; a canonical tree
   (constrained, templates as generators), not free trees; ≤3 tiles until the
   size floor lands.
-- **V** — every verb is palette + chord reachable; drag is sugar.
+- **V** — every verb is palette + chord reachable; the header drag's outcomes
+  are all palette-reachable too (Promote + directional Swap reach every
+  arrangement in ≤2 actions at ≤3 tiles).
 - **VI** — untouched; tiles are renderers over the same relay/proxy seams.
 
 ---
@@ -261,4 +268,4 @@ Execution detail, per-change scope, and pickup notes live in the plan:
 | 1 | Spec (this file) + plan | Authored in the 2026-08-12 discussion session; lands with phase 2's PR |
 | 2 | **Layout core** | The tile renderer replacing main slot + panel: presets, ladder, verbs, ▦ chip, rail toggles, translation shim |
 | 3 | **Retirement sweep** | `@rk_win_lens` identity → hint, `>_` POST, ViewSwitcher, `View:` rows, snapshot option-set update |
-| 4 | **Boards + extras** | Boards adopt the renderer; `@rk_default_layout`; drag-drop sugar |
+| 4 | **Boards + extras** | Boards adopt the renderer; `@rk_default_layout` (the drag-drop sugar shipped with the header drag) |

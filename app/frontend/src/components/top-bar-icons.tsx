@@ -146,29 +146,6 @@ export function ZoomGlyph() {
   );
 }
 
-/** Promote — square with a left-half divider (lucide panel-left shape): "make
- *  this tile slot A", the ◧ semantics. */
-export function PromoteGlyph() {
-  return (
-    <ControlGlyph name="promote">
-      <rect width="18" height="18" x="3" y="3" rx="2" />
-      <path d="M9 3v18" />
-    </ControlGlyph>
-  );
-}
-
-/** Swap — lucide arrow-left-right, the swap-with-next tile verb. */
-export function SwapGlyph() {
-  return (
-    <ControlGlyph name="swap">
-      <path d="M8 3 4 7l4 4" />
-      <path d="M4 7h16" />
-      <path d="m16 21 4-4-4-4" />
-      <path d="M20 17H4" />
-    </ControlGlyph>
-  );
-}
-
 /** Tile close — bare crossed lines. Deliberately NOT boxed: the boxed
  *  square-x is Close Pane's shape (`ClosePaneBoxedGlyph`), and the two
  *  destructive closes in one header never share a shape (the close-distinction

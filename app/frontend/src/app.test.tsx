@@ -65,18 +65,58 @@ const surfaceLayoutSpy = vi.hoisted(() => ({
   mounts: [] as Array<"mount" | "unmount">,
   props: vi.fn(),
 }));
-vi.mock("@/components/surface-layout", () => ({
-  SurfaceLayout: (props: { server: string; windowId: string }) => {
-    surfaceLayoutSpy.props({ server: props.server, windowId: props.windowId });
-    useEffect(() => {
-      surfaceLayoutSpy.mounts.push("mount");
-      return () => {
-        surfaceLayoutSpy.mounts.push("unmount");
-      };
-    }, []);
-    return <div data-testid="mock-surface-layout" />;
-  },
-}));
+vi.mock("@/components/surface-layout", async () => {
+  const tree = await vi.importActual<typeof import("@/lib/layout-tree")>(
+    "@/lib/layout-tree",
+  );
+  const { useRef: useLatestRef } = await vi.importActual<typeof import("react")>("react");
+  return {
+    SurfaceLayout: (props: {
+      server: string;
+      windowId: string;
+      layout?: import("@/lib/layout-tree").LayoutNode;
+      layoutRectsRef?: { current: (() => Map<string, import("@/lib/layout-tree").Rect>) | null };
+      onFocusedKindChange?: (kind: import("@/lib/layout-tree").SurfaceKind) => void;
+      onFocusedLeafChange?: (leafId: string) => void;
+    }) => {
+      surfaceLayoutSpy.props({ server: props.server, windowId: props.windowId });
+      const { layout, layoutRectsRef, onFocusedKindChange, onFocusedLeafChange, windowId } =
+        props;
+      // The child's per-window seams, simulated: refill the rects getter and
+      // re-report the focused leaf (the LAST leaf, the stand-in for user
+      // interaction) once per window — the real component's
+      // `[server, windowId]` reset effect re-reports the same way.
+      const latest = useLatestRef({ layout, layoutRectsRef, onFocusedKindChange, onFocusedLeafChange });
+      latest.current = { layout, layoutRectsRef, onFocusedKindChange, onFocusedLeafChange };
+      useEffect(() => {
+        const {
+          layout: current,
+          layoutRectsRef: rectsRef,
+          onFocusedKindChange: reportKind,
+          onFocusedLeafChange: reportLeaf,
+        } = latest.current;
+        if (!current) return;
+        if (rectsRef) {
+          rectsRef.current = () => tree.layoutRects(current, tree.NOMINAL_BOX);
+        }
+        const ids = tree.leafIds(current);
+        const kinds = tree.leaves(current);
+        reportKind?.(kinds[kinds.length - 1]);
+        reportLeaf?.(ids[ids.length - 1]);
+        // Once per window AND layout arrival: the parent's report callbacks
+        // change identity per render, so depending on them would loop
+        // (report → re-render → re-report); the latest props ride the ref.
+      }, [windowId, layout]);
+      useEffect(() => {
+        surfaceLayoutSpy.mounts.push("mount");
+        return () => {
+          surfaceLayoutSpy.mounts.push("unmount");
+        };
+      }, []);
+      return <div data-testid="mock-surface-layout" />;
+    },
+  };
+});
 
 // The host-global signal hooks read nested contexts only the real
 // SessionProvider fills (it owns the state socket — never opened in tests).
@@ -1468,8 +1508,13 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
                                               windowId: "@0",
                                               index: 0,
                                               isActiveWindow: true,
+                                              layout: "h(tty,web)",
                                             }),
-                                            makeWindow({ windowId: "@1", index: 1 }),
+                                            makeWindow({
+                                              windowId: "@1",
+                                              index: 1,
+                                              layout: "h(tty,web)",
+                                            }),
                                           ],
                                         }),
                                       ],
@@ -1590,6 +1635,98 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
       }),
     );
     expect(surfaceLayoutSpy.mounts).toEqual(["mount", "unmount", "mount"]);
+  });
+
+  it("the focused-tile mirror survives mount AND a same-server window switch — the palette's directional swap targets the REPORTED leaf", async () => {
+    // The child reports its focused leaf stamped with the window key; the
+    // mirror counts the report only for that window (a clearing effect would
+    // wipe the child's fresh report — parent effects run after child
+    // effects). The stub reports the LAST leaf (web in h(tty,web)); the
+    // slot-A fallback would be tty, whose only swap row is "Tile: Swap Right"
+    // — "Tile: Swap Left" exists only while web's report holds.
+    // The palette mounts in AppLayout (ServerShell's parent layout route), so
+    // this test's tree interposes it — the rest of the harness is unchanged.
+    // AppLayout also reads the instance accent (the wash-wrapper harness's
+    // provider).
+    const noAccent: InstanceAccent = {
+      color: null,
+      isExplicit: false,
+      stripeHex: null,
+      washHex: null,
+      titlebarHex: null,
+      setColor: () => {},
+    };
+    const paletteRootRoute = createRootRoute({
+      component: () => (
+        <InstanceAccentValueProvider value={noAccent}>
+          <TerminalRouteRoot />
+        </InstanceAccentValueProvider>
+      ),
+    });
+    const appLayoutRoute = createRoute({
+      getParentRoute: () => paletteRootRoute,
+      id: "app-layout",
+      component: AppLayout,
+    });
+    const paletteServerRoute = createRoute({
+      getParentRoute: () => appLayoutRoute,
+      path: "/$server",
+      component: ServerShell,
+    });
+    const paletteTerminalRoute = createRoute({
+      getParentRoute: () => paletteServerRoute,
+      path: "/$window",
+      validateSearch: validateTerminalSearch,
+      params: {
+        parse: (params) => ({ window: urlSegmentToWindowId(params.window) }),
+        stringify: (params) => ({ window: windowIdToUrlSegment(params.window) }),
+      },
+    });
+    const paletteRouteTree = paletteRootRoute.addChildren([
+      appLayoutRoute.addChildren([paletteServerRoute.addChildren([paletteTerminalRoute])]),
+    ]);
+    const router = createRouter({
+      routeTree: paletteRouteTree,
+      history: createMemoryHistory({ initialEntries: ["/srv/0"] }),
+    });
+    render(<RouterProvider router={router} />);
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+
+    // The palette is lazy-mounted — press the chord until its input appears
+    // (an early press can precede the listener's mount).
+    const openAppPalette = async () => {
+      await waitFor(
+        () => {
+          if (!screen.queryByPlaceholderText(/^Type a command/)) openPalette();
+          expect(screen.queryByPlaceholderText(/^Type a command/)).toBeTruthy();
+        },
+        { timeout: 5000 },
+      );
+    };
+
+    await openAppPalette();
+    await waitFor(() => screen.getByRole("option", { name: /^Tile: Swap Left/ }));
+    expect(screen.queryByRole("option", { name: /^Tile: Swap Right/ })).toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    // Same-server switch @0 → @1: the child's fresh report for the new
+    // window must hold (its key stamp matches), so the rows still target web.
+    await act(async () => {
+      await router.navigate({
+        to: "/$server/$window",
+        params: { server: "srv", window: "@1" },
+        search: {},
+      });
+    });
+    await waitFor(() =>
+      expect(surfaceLayoutSpy.props).toHaveBeenLastCalledWith({
+        server: "srv",
+        windowId: "@1",
+      }),
+    );
+    await openAppPalette();
+    await waitFor(() => screen.getByRole("option", { name: /^Tile: Swap Left/ }));
+    expect(screen.queryByRole("option", { name: /^Tile: Swap Right/ })).toBeNull();
   });
 
   describe("status bar window cluster yields to an on-screen PANE panel", () => {

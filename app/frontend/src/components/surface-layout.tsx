@@ -22,6 +22,7 @@ import {
   layoutRects,
   readStoredSizes,
   readStoredZoom,
+  serializeLayoutTree,
   structureSig,
   writeStoredSizes,
   writeStoredZoom,
@@ -41,6 +42,14 @@ import {
   type LayoutNode,
   type SplitDir,
 } from "@/lib/layout-tree";
+import {
+  DRAG_THRESHOLD_PX,
+  hitTest,
+  resolveDrop,
+  zoneRegion,
+  type DropHit,
+  type DropResult,
+} from "@/lib/layout-drop";
 import { clampSiblingFraction } from "@/lib/right-panel";
 import { TileDragContext } from "@/lib/tile-drag-context";
 import { codeRootFollowTarget, codeRootFor } from "@/lib/code-folder-latch";
@@ -68,11 +77,9 @@ import {
   FindGlyph,
   FollowTerminalGlyph,
   FullscreenGlyph,
-  PromoteGlyph,
   RefreshGlyph,
   SplitHorizontalGlyph,
   SplitVerticalGlyph,
-  SwapGlyph,
   TileCloseGlyph,
   ZoomGlyph,
 } from "@/components/top-bar-icons";
@@ -151,12 +158,11 @@ import {
  *   kind glyph (`SURFACE_GLYPH`) + surface name + the small meta as an inset
  *   chip (code-root basename for code, the active web tab's host for web) — with
  *   rest-visible boxed verb buttons (24×24, 26×26 coarse; 14px SVG glyphs
- *   from the `top-bar-icons.tsx` register): zoom, promote, swap-with-next,
- *   ✕ close (a hairline rule separates ✕ from the safe verbs; its hover turns
- *   `text-signal-red`). While a tile is zoomed its zoom verb stays
- *   `accent-green` and its promote/swap verbs hide (no-ops there).
- *   Single-leaf layouts render NO layout verbs (promote/swap are meaningless
- *   and closing the last tile is disallowed). The tty header also mounts the
+ *   from the `top-bar-icons.tsx` register): zoom and ✕ close (a hairline rule
+ *   separates ✕ from the safe verbs; its hover turns `text-signal-red`).
+ *   While a tile is zoomed its zoom verb stays `accent-green`.
+ *   Single-leaf layouts render NO layout verbs (closing the last tile is
+ *   disallowed and zooming one tile is meaningless). The tty header also mounts the
  *   shared `StatusDot` (agent state) when the parent passes `statusWindow`.
  *   Tty headers additionally carry a bordered PANE SEGMENT (260813-w1lf
  *   content verbs — Split H · Split V · Close Pane) at ANY arity, including
@@ -168,6 +174,25 @@ import {
  *   the drift indicator) and Reload editor (only while the active window's
  *   frame is mounted), before the layout-verb cluster; both are
  *   palette-registered through `codeCommandsRef` (Constitution V).
+ * - **Header drag — drop to snap**: a primary-button press on a tile header's
+ *   background (never its buttons, pane segment, code verbs, meta chip, or
+ *   menus) arms a drag; past DRAG_THRESHOLD_PX the header captures the
+ *   pointer and the drag snapshots the tree, sizes, layout box, and leaf
+ *   rects. Hit-testing (`lib/layout-drop.ts`) offers the hovered tile's center
+ *   (swap), its edge bands (split beside), and the layout box's outer 18px
+ *   (span a side at 50%); the overlay previews the RESULT tree at the
+ *   viewer's sizes (the dragged destination filled accent-green), marks a
+ *   same-arrangement drop "no change", and refuses a drop that breaks the
+ *   150×100 floor with a red "too small". Release on a `move` commits exactly
+ *   one write: the viewer's sizes under the new structure signature, then
+ *   `onApplyLayout(result.tree)` (the parent's ONE mutation path); focus
+ *   lands on the dragged tile's new position. Escape, release outside/over
+ *   the dragged tile, `pointercancel`, a window switch, and a mid-drag
+ *   `layout` prop change (a stale snapshot) all cancel with no write. The
+ *   drag never arms on a coarse pointer, a zoomed render, or a single-leaf
+ *   layout (and the mobile branch renders one tile). The native web engine
+ *   hides its guest for the drag's duration (the `move` posture — the overlay
+ *   cannot paint over a composited WebContentsView).
  * - **Focused tile (260812-wfic R2)**: transient component state — the LEAF
  *   that last received pointer/keyboard interaction (pointerdown-capture +
  *   focusin seams on the tile wrapper for parent-DOM interaction; the iframe
@@ -227,9 +252,10 @@ import {
  *
  * Presentational by contract (the view-switcher/right-panel precedent): the
  * tree lives in `app.tsx` and arrives as the `layout` prop; verbs call the
- * parent's callbacks (`onPromote`/`onSwap`/`onClose`, addressed by LEAF ID),
- * which run the pure mutations + persistence/URL mirroring. The component owns
- * only transient interaction state: zoom, the in-flight divider drag, and the
+ * parent's callbacks (`onClose` addressed by LEAF ID, `onApplyLayout` handed
+ * the drop's result tree), which run the pure mutations + persistence/URL
+ * mirroring. The component owns
+ * only transient interaction state: zoom, the in-flight drags, and the
  * mount-once bookkeeping.
  */
 
@@ -521,9 +547,12 @@ interface SurfaceLayoutProps {
    *  (R3 write discipline). Verbs address their tile by LEAF ID — duplicate
    *  tty tiles are distinct leaves. A disallowed close (the last leaf) is a
    *  null no-op in the parent's mutation. */
-  onPromote: (leafId: string) => void;
-  onSwap: (leafId: string) => void;
   onClose: (leafId: string) => void;
+  /** The header drag-to-snap commit seam: a released drop whose resolution is
+   *  a `move` calls this ONCE with the result tree (the parent's
+   *  `applyLayout` — the one `@rk_win_layout` write path); the viewer's sizes
+   *  for the new structure signature are already written when it fires. */
+  onApplyLayout: (next: Layout) => void;
   /** Pane-segment callbacks (260813-w1lf content verbs — tty tiles only):
    *  the parent routes these through its `executeSplit`/`executeClosePane`
    *  optimistic actions (the palette split/close path). Both required for
@@ -612,6 +641,23 @@ const PROGRESS_BAR_CLASS = {
   paused: "bg-signal-yellow",
 } as const;
 
+/** The resolution cache key for a hit: one resolver run per ZONE CHANGE, not
+ *  per pointermove (a drag caches its resolution per hit kind + target +
+ *  side). */
+function dropHitKey(hit: DropHit | null): string {
+  if (hit === null) return "none";
+  switch (hit.kind) {
+    case "self":
+      return "self";
+    case "root":
+      return `root:${hit.side}`;
+    case "center":
+      return `center:${hit.targetId}`;
+    case "edge":
+      return `edge:${hit.targetId}:${hit.side}`;
+  }
+}
+
 /** Small header meta (R7): the code root's basename for code, the active web
  *  tab's display form for web (the kind-specific pretty form — never throws,
  *  so a relative `/present/…`/`/proxy/…` address gets header meta too,
@@ -682,9 +728,8 @@ export function SurfaceLayout({
   fetchBridgeStatusFor,
   shouldReclaimChord,
   onProgrammaticFocus,
-  onPromote,
-  onSwap,
   onClose,
+  onApplyLayout,
   onSplitPane,
   onClosePane,
   onRatioChange,
@@ -1740,6 +1785,257 @@ export function SurfaceLayout({
     };
   }, [draggingIntersection]);
 
+  // ── Header drag (drop to snap) ───────────────────────────────────────────
+  // A primary-button press on a tile header's BACKGROUND arms a drag; the
+  // drag starts only past DRAG_THRESHOLD_PX (below it the press stays the
+  // focus click the pointerdown-capture seam already delivered). On start the
+  // header captures the pointer and the drag snapshots the tree, the
+  // effective sizes, the layout box, and the leaf rects — hit-testing and the
+  // resolver run against that snapshot for the drag's duration, with one
+  // resolution cached per zone (keyed by hit kind + target + side). Mid-drag
+  // routing follows the divider drag's hardening: window-level move/up/cancel
+  // gated on the captured pointerId (engines can drop element capture over
+  // iframe content), plus a window CAPTURE keydown for Escape. While the drag
+  // runs the TileDragContext posture is `move` (the native web guest hides so
+  // the overlay can paint over its tile) and tile content goes
+  // pointer-events-none.
+  const [dragArmedLeaf, setDragArmedLeaf] = useState<string | null>(null);
+  const [draggingTile, setDraggingTile] = useState<string | null>(null);
+  // The overlay's render input: the latest hit + resolution plus the drag's
+  // geometry snapshot (container-relative coordinates).
+  const [dropState, setDropState] = useState<{
+    hit: DropHit | null;
+    result: DropResult;
+    rects: Map<string, Rect>;
+    box: Rect;
+  } | null>(null);
+  const tileDragRef = useRef<{
+    leafId: string;
+    pointerId: number;
+    el: HTMLElement;
+    startX: number;
+    startY: number;
+    started: boolean;
+    originX: number;
+    originY: number;
+    box: Rect;
+    rects: Map<string, Rect>;
+    layout: Layout;
+    sizes: LayoutSizes;
+    lastKey: string | null;
+    result: DropResult;
+  } | null>(null);
+  // The snapshot reads the CURRENT tree/sizes at threshold-crossing time via
+  // refs (the window-listener closures belong to the arming render).
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+
+  // A drag can start on any desktop, unzoomed, multi-tile render with a fine
+  // pointer (the mobile branch renders one tile and never arms).
+  const canDragTiles = !isMobile && !coarsePointer && !zoomed && arity > 1;
+
+  const onTileDragPointerDown = (leafId: string) => (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+    // Only the header's background arms a drag — buttons, menus, and the meta
+    // chip keep their own press behavior.
+    if (target.closest("button, [role='menu'], [data-no-tile-drag]")) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    tileDragRef.current = {
+      leafId,
+      pointerId: e.pointerId,
+      el: e.currentTarget,
+      startX: e.clientX,
+      startY: e.clientY,
+      started: false,
+      originX: 0,
+      originY: 0,
+      box: NOMINAL_BOX,
+      rects: new Map(),
+      layout,
+      sizes: [],
+      lastKey: null,
+      result: { kind: "cancel" },
+    };
+    setDragArmedLeaf(leafId);
+  };
+
+  /** Cross the threshold: snapshot the geometry and enter the drag posture.
+   *  False when the container is unmeasured (jsdom) — no geometry to hit-test. */
+  const startTileDrag = (d: NonNullable<typeof tileDragRef.current>): boolean => {
+    const grid = gridRef.current;
+    if (!grid) return false;
+    const rect = grid.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    d.layout = layoutRef.current;
+    d.sizes = sizesRef.current;
+    d.originX = rect.left;
+    d.originY = rect.top;
+    d.box = { x: 0, y: 0, w: rect.width, h: rect.height };
+    d.rects = layoutRects(d.layout, d.box, d.sizes, SPLIT_GAP_PX);
+    d.started = true;
+    setDraggingTile(d.leafId);
+    return true;
+  };
+
+  const onTileDragMove = (e: { clientX: number; clientY: number }) => {
+    const d = tileDragRef.current;
+    if (!d) return;
+    if (!d.started) {
+      if (Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < DRAG_THRESHOLD_PX) return;
+      if (!startTileDrag(d)) return;
+    }
+    const point = { x: e.clientX - d.originX, y: e.clientY - d.originY };
+    const hit = hitTest(d.rects, d.box, point, d.leafId);
+    const key = dropHitKey(hit);
+    if (key === d.lastKey) return;
+    d.lastKey = key;
+    d.result = resolveDrop(d.layout, d.sizes, d.leafId, hit, d.box);
+    setDropState({ hit, result: d.result, rects: d.rects, box: d.box });
+  };
+
+  /** End the drag: commit only when asked AND the cached resolution is a
+   *  `move` (cancel/noop/too-small releases write nothing). Sizes go down
+   *  BEFORE the layout write so the first render under the new structure
+   *  signature reads them; focus lands on the dragged tile's new position. */
+  const endTileDrag = (commit: boolean) => {
+    const d = tileDragRef.current;
+    if (!d) return;
+    tileDragRef.current = null;
+    setDragArmedLeaf(null);
+    // `pointercancel` has already released the capture implicitly — releasing
+    // again throws NotFoundError (the RightPanel endDrag lesson).
+    if (d.el.hasPointerCapture(d.pointerId)) d.el.releasePointerCapture(d.pointerId);
+    if (!d.started) return;
+    const result = d.result;
+    setDraggingTile(null);
+    setDropState(null);
+    if (!commit || result.kind !== "move") return;
+    writeStoredSizes(server, windowId, structureSig(result.tree), result.sizes);
+    onApplyLayout(result.tree);
+    focusLeaf(result.destId);
+  };
+
+  // Latest-closure refs for the window listeners (the divider drag's
+  // pattern): the effect keys on the armed flag only.
+  const tileDragMoveRef = useRef(onTileDragMove);
+  tileDragMoveRef.current = onTileDragMove;
+  const tileDragEndRef = useRef(endTileDrag);
+  tileDragEndRef.current = endTileDrag;
+
+  useEffect(() => {
+    if (dragArmedLeaf === null) return;
+    // Window listeners hear EVERY pointer — gate on the captured pointerId so
+    // a second touch/pen pointer can't steer or end the drag.
+    const move = (e: PointerEvent) => {
+      if (e.pointerId !== tileDragRef.current?.pointerId) return;
+      tileDragMoveRef.current(e);
+    };
+    const up = (e: PointerEvent) => {
+      if (e.pointerId !== tileDragRef.current?.pointerId) return;
+      tileDragEndRef.current(true);
+    };
+    const cancel = (e: PointerEvent) => {
+      if (e.pointerId !== tileDragRef.current?.pointerId) return;
+      tileDragEndRef.current(false);
+    };
+    // Capture phase + stopped propagation: the Escape never reaches the
+    // terminal (or any other keydown consumer).
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || tileDragRef.current?.started !== true) return;
+      e.preventDefault();
+      e.stopPropagation();
+      tileDragEndRef.current(false);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", key, true);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", key, true);
+    };
+  }, [dragArmedLeaf]);
+
+  // A layout change mid-drag (another viewer's write) makes the snapshot
+  // stale — cancel. Compared by SERIALIZED form: the prop's identity turns
+  // over with every SSE tick, and a same-structure tick must not disturb a
+  // live drag (the sizes effect's signature-keyed precedent).
+  useEffect(() => {
+    const d = tileDragRef.current;
+    if (d?.started && serializeLayoutTree(layout) !== serializeLayoutTree(d.layout)) {
+      tileDragEndRef.current(false);
+    }
+  }, [layout]);
+
+  // The result-preview overlay: the drop's OUTCOME drawn in the layout
+  // container's coordinate space (a same-arrangement drop would lie as a
+  // half-tile highlight whenever siblings reshape). `move` draws every leaf
+  // rect of the result tree at the result sizes, the dragged tile's
+  // destination filled accent-green; `noop`/`too-small` highlight the hovered
+  // zone's region; `cancel` draws nothing.
+  const dropOverlay = (() => {
+    if (draggingTile === null || dropState === null || dropState.result.kind === "cancel") {
+      return null;
+    }
+    const { hit, result, rects: snapRects, box: snapBox } = dropState;
+    if (result.kind === "move") {
+      const resultRects = layoutRects(result.tree, snapBox, result.sizes, SPLIT_GAP_PX);
+      const resultIds = leafIds(result.tree);
+      const resultKinds = leaves(result.tree);
+      return (
+        <div
+          data-testid="tile-drop-overlay"
+          className="absolute inset-0 z-30 pointer-events-none"
+        >
+          {resultIds.map((id, i) => {
+            const r = resultRects.get(id);
+            if (!r) return null;
+            const dest = id === result.destId;
+            return (
+              <div
+                key={id}
+                data-testid={dest ? "tile-drop-dest" : undefined}
+                className={`absolute flex items-center justify-center rounded-md border font-mono text-[11px] ${
+                  dest
+                    ? "border-accent-green bg-accent-green/15 text-accent-green"
+                    : "border-border bg-bg-primary/60 text-text-secondary"
+                }`}
+                style={{ left: r.x, top: r.y, width: r.w, height: r.h }}
+              >
+                {SURFACE_GLYPH[resultKinds[i]]} {SURFACE_LABEL[resultKinds[i]]}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+    const region = zoneRegion(hit, snapRects, snapBox);
+    if (!region) return null;
+    const tooSmall = result.kind === "too-small";
+    return (
+      <div
+        data-testid="tile-drop-overlay"
+        className="absolute inset-0 z-30 pointer-events-none"
+      >
+        <div
+          data-testid={tooSmall ? "tile-drop-too-small" : "tile-drop-noop"}
+          className={`absolute flex items-center justify-center rounded-md border font-mono text-[11px] ${
+            tooSmall
+              ? "border-signal-red bg-signal-red/10 text-signal-red"
+              : "border-border bg-bg-inset/60 text-text-secondary"
+          }`}
+          style={{ left: region.x, top: region.y, width: region.w, height: region.h }}
+        >
+          {tooSmall ? "Too small" : "No change"}
+        </div>
+      </div>
+    );
+  })();
+
   // ── Per-window transient-state reset ─────────────────────────────────────
   // The parent keys this component by SERVER (a same-server window switch
   // re-renders the mounted grid with a new `windowId` prop — the tty tile's
@@ -1809,6 +2105,9 @@ export function SurfaceLayout({
     intersectionDragRef.current = null;
     setDraggingIntersection(null);
     setExportMenuPos(null);
+    // An armed or in-flight tile drag belongs to the window it started on —
+    // the normal end path (capture release included), never a commit.
+    tileDragEndRef.current(false);
   }, [server, windowId, layout]);
 
   // ── Web-tab strip verbs (optimistic select/remove/move) ────────────────
@@ -2293,7 +2592,11 @@ export function SurfaceLayout({
               // the dimmed 55% `rk-card-border` (the gap separates, the border
               // defines the card edge) — the focused tile keeps the full
               // accent-green frame (260812-wfic R2, suppressed at arity 1).
-              ` absolute border rounded-md ${isFocused ? "border-accent-green" : "rk-card-border"}`
+              ` absolute border rounded-md ${isFocused ? "border-accent-green" : "rk-card-border"}${
+                // The dragged tile dims for the drag's duration — the overlay
+                // previews where it lands.
+                draggingTile === leafId ? " opacity-50" : ""
+              }`
         }`}
         style={positionStyle}
         onPointerDownCapture={
@@ -2330,9 +2633,19 @@ export function SurfaceLayout({
             rail is 32px tall and the panel below it opens with border-t-[3px],
             so both horizontal rules start 32px below the card top at the same
             chrome-rule weight (top bar, bottom bar, and sidebar panels all use
-            3px rules). */}
+            3px rules). The background is the drag-to-snap grip surface:
+            cursor-grab when a drag can arm, grabbing mid-drag. */}
         {!mobile && (
-          <div className="flex items-center gap-1.5 px-1.5 h-[35px] shrink-0 border-b-[3px] border-border bg-bg-primary font-mono text-[11px] text-text-secondary select-none">
+          <div
+            onPointerDown={canDragTiles ? onTileDragPointerDown(leafId) : undefined}
+            className={`flex items-center gap-1.5 px-1.5 h-[35px] shrink-0 border-b-[3px] border-border bg-bg-primary font-mono text-[11px] text-text-secondary select-none ${
+              draggingTile === leafId
+                ? "cursor-grabbing"
+                : canDragTiles
+                  ? "cursor-grab"
+                  : ""
+            }`}
+          >
             {kind === "tty" && statusWindow && <StatusDot win={statusWindow} />}
             {kind === "tty" && ttyChip && (
               <span
@@ -2365,6 +2678,7 @@ export function SurfaceLayout({
                 <span className="shrink-0 text-text-primary">{label}</span>
                 {meta && (
                   <span
+                    data-no-tile-drag
                     className={`min-w-0 truncate rounded px-1.5 text-[10px] ${
                       guiCaptured
                         ? "bg-accent-green/15 text-accent-green"
@@ -2640,32 +2954,6 @@ export function SurfaceLayout({
                     <ZoomGlyph />
                   </button>
                 </Tip>
-                {/* Promote/swap are no-ops on a zoomed render — hidden while
-                    this tile is zoomed (R5 feedback; ✕ stays). */}
-                {!isZoomed && (
-                  <>
-                    <Tip label={`Promote ${label}`}>
-                      <button
-                        type="button"
-                        aria-label={`Promote ${label}`}
-                        onClick={() => onPromote(leafId)}
-                        className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
-                      >
-                        <PromoteGlyph />
-                      </button>
-                    </Tip>
-                    <Tip label={`Swap ${label}`}>
-                      <button
-                        type="button"
-                        aria-label={`Swap ${label}`}
-                        onClick={() => onSwap(leafId)}
-                        className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
-                      >
-                        <SwapGlyph />
-                      </button>
-                    </Tip>
-                  </>
-                )}
                 {/* A 1px hairline separates the destructive ✕ from the safe
                     verbs; its hover turns signal-red. */}
                 <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-border" />
@@ -2765,9 +3053,9 @@ export function SurfaceLayout({
         )}
         <div
           // Mid-drag the iframe/xterm content must not swallow pointermove
-          // (the drag would stall at the iframe boundary). Applies to both
-          // drag kinds — single-axis divider and the two-axis intersection.
-          className={`flex-1 min-h-0 flex flex-col ${draggingDivider !== null || draggingIntersection !== null ? "pointer-events-none" : ""}`}
+          // (the drag would stall at the iframe boundary). Applies to every
+          // drag posture — divider, intersection, and the tile header drag.
+          className={`flex-1 min-h-0 flex flex-col ${draggingDivider !== null || draggingIntersection !== null || draggingTile !== null ? "pointer-events-none" : ""}`}
         >
           {renderContent(tile, tile.visible && leafId === firstTtyLeafId, hidden)}
           {/* In-tile compose-strip dock (260813-j3jb): desktop only, first
@@ -2806,9 +3094,9 @@ export function SurfaceLayout({
       ...retainedCodeTiles.map((tile) => ({ tile, hidden: true })),
     ];
     return (
-      // The drag flag crosses to the native web engine as a context (the
+      // The drag posture crosses to the native web engine as a context (the
       // mobile branch drags nothing, but the provider stays uniform).
-      <TileDragContext.Provider value={false}>
+      <TileDragContext.Provider value="idle">
         <div
           data-testid="surface-layout"
           className="flex-1 min-h-0 min-w-0 flex flex-col"
@@ -2829,8 +3117,17 @@ export function SurfaceLayout({
   ];
   return (
     // The same expression that drives the tiles' mid-drag pointer-events-none
-    // class also feeds the native web engine's live-resize loop.
-    <TileDragContext.Provider value={draggingDivider !== null || draggingIntersection !== null}>
+    // class also feeds the native web engine's posture (live-resize on
+    // `resize`, hide on `move`).
+    <TileDragContext.Provider
+      value={
+        draggingTile !== null
+          ? "move"
+          : draggingDivider !== null || draggingIntersection !== null
+            ? "resize"
+            : "idle"
+      }
+    >
     <div
       ref={gridRef}
       data-testid="surface-layout"
@@ -2915,6 +3212,9 @@ export function SurfaceLayout({
             }}
           />
         ))}
+      {/* The header drag's result preview — z-30, above tiles and dividers,
+          never a pointer target. */}
+      {dropOverlay}
     </div>
     </TileDragContext.Provider>
   );

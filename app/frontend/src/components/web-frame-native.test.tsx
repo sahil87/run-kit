@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach, type Mock } from "vitest";
 import { act, render, cleanup, screen } from "@testing-library/react";
-import { TileDragContext } from "@/lib/tile-drag-context";
+import { TileDragContext, type TileDragPosture } from "@/lib/tile-drag-context";
 import { _resetForTests, acquire } from "@/lib/overlay-presence";
 import { WebFrameNative, WEB_FRAME_NATIVE_DEFAULT_CAPABILITIES } from "./web-frame-native";
 import type {
@@ -113,7 +113,7 @@ interface Rig {
 function renderEngine({
   url = "/present/x/y/index.html",
   active = true,
-  dragging = false,
+  posture = "idle",
   zoom = 1,
   chordTable,
   onZoomStep,
@@ -121,7 +121,7 @@ function renderEngine({
 }: {
   url?: string;
   active?: boolean;
-  dragging?: boolean;
+  posture?: TileDragPosture;
   zoom?: number;
   chordTable?: WebFrameEngineProps["chordTable"];
   onZoomStep?: (direction: "in" | "out") => void;
@@ -145,7 +145,7 @@ function renderEngine({
   const unregisterHandle = (u: string) => rig.handles.delete(u);
   const element = (
     nextActive: boolean,
-    drag: boolean,
+    drag: TileDragPosture,
     nextZoom: number = zoom,
     nextChordTable: WebFrameEngineProps["chordTable"] = chordTable,
   ) => (
@@ -166,12 +166,12 @@ function renderEngine({
       />
     </TileDragContext.Provider>
   );
-  const view = render(element(active, dragging));
+  const view = render(element(active, posture));
   rig.tabKey = screen.getByTestId("web-native-placeholder").dataset.tabKey ?? "";
   // Rerenders are cumulative: an omitted prop keeps its last value, so a
   // bare rerender is a true no-op (the identity-change rules are assertable).
   let curActive = active;
-  let curDragging = dragging;
+  let curPosture = posture;
   let curZoom = zoom;
   let curChordTable = chordTable;
   return {
@@ -180,16 +180,16 @@ function renderEngine({
     rerenderEngine: (
       overrides: {
         active?: boolean;
-        dragging?: boolean;
+        posture?: TileDragPosture;
         zoom?: number;
         chordTable?: WebFrameEngineProps["chordTable"];
       } = {},
     ) => {
       if (overrides.active !== undefined) curActive = overrides.active;
-      if (overrides.dragging !== undefined) curDragging = overrides.dragging;
+      if (overrides.posture !== undefined) curPosture = overrides.posture;
       if (overrides.zoom !== undefined) curZoom = overrides.zoom;
       if ("chordTable" in overrides) curChordTable = overrides.chordTable;
-      view.rerender(element(curActive, curDragging, curZoom, curChordTable));
+      view.rerender(element(curActive, curPosture, curZoom, curChordTable));
     },
   };
 }
@@ -830,9 +830,9 @@ describe("WebFrameNative visibility", () => {
   });
 });
 
-describe("WebFrameNative live resize while dragging", () => {
-  it("sends deduped bounds on every pumped frame and never hides; the stop edge measures once more", () => {
-    const { rig, rerenderEngine } = renderEngine({ dragging: true });
+describe("WebFrameNative drag postures", () => {
+  it("resize posture: sends deduped bounds on every pumped frame and never hides; the stop edge measures once more", () => {
+    const { rig, rerenderEngine } = renderEngine({ posture: "resize" });
     bridge.bounds.mockClear();
     bridge.visible.mockClear();
     setRect({ x: 0, y: 0, width: 100, height: 100 });
@@ -843,16 +843,36 @@ describe("WebFrameNative live resize while dragging", () => {
     pumpFrames(1);
     expect(bridge.bounds).toHaveBeenCalledTimes(3);
     expect(bridge.bounds.mock.calls.map((c) => c[3])).toEqual([100, 110, 120]);
-    // HIDE_WHILE_DRAGGING ships false: no hide for the drag.
+    // A sash drag keeps the guest visible — live bounds, no hide.
     expect(bridge.visible).not.toHaveBeenCalled();
 
     setRect({ x: 0, y: 0, width: 130, height: 100 });
-    rerenderEngine({ dragging: false });
-    // The true → false edge stops the loop and runs one final measure.
+    rerenderEngine({ posture: "idle" });
+    // The resize → idle edge stops the loop and runs one final measure.
     expect(bridge.bounds).toHaveBeenCalledTimes(4);
     expect(bridge.bounds).toHaveBeenLastCalledWith(rig.tabKey, 0, 0, 130, 100);
     expect(rafQueue.every((cb) => cb.length >= 0)).toBe(true);
     pumpFrames(1);
     expect(bridge.bounds).toHaveBeenCalledTimes(4);
+  });
+
+  it("move posture hides the guest, runs no live-resize loop, and re-shows on the return to idle", () => {
+    const { rig, rerenderEngine } = renderEngine();
+    bridge.bounds.mockClear();
+    bridge.visible.mockClear();
+    rerenderEngine({ posture: "move" });
+    expect(bridge.visible).toHaveBeenLastCalledWith(rig.tabKey, false);
+    // No rAF live-resize loop under move — bounds stay parked.
+    pumpFrames(2);
+    expect(bridge.bounds).not.toHaveBeenCalled();
+
+    // move → idle: the show edge re-measures first, then re-shows.
+    setRect({ x: 0, y: 0, width: 140, height: 100 });
+    rerenderEngine({ posture: "idle" });
+    expect(bridge.bounds).toHaveBeenLastCalledWith(rig.tabKey, 0, 0, 140, 100);
+    expect(bridge.visible).toHaveBeenLastCalledWith(rig.tabKey, true);
+    const lastBoundsOrder = bridge.bounds.mock.invocationCallOrder.at(-1) ?? -1;
+    const showOrder = bridge.visible.mock.invocationCallOrder.at(-1) ?? -1;
+    expect(lastBoundsOrder).toBeLessThan(showOrder);
   });
 });

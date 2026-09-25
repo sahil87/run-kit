@@ -34,7 +34,6 @@ import {
   serializeLayoutTree,
   slotOrder,
   swapDirectional,
-  swapWithNext,
   translateLegacyParams,
   writeStoredZoom,
   type Layout,
@@ -1857,22 +1856,31 @@ function AppShell() {
   // seam (the `zoomToggleRef` pattern). Until the component reports (first
   // render, window switch), slot A is the fallback — never a hardcoded tty
   // guess, so a persisted layout with a non-tty slot A can't briefly enable
-  // the split chords. Resets on a window switch.
-  const [reportedFocusedKind, setReportedFocusedKind] = useState<SurfaceKind | null>(null);
-  const [reportedFocusedLeafId, setReportedFocusedLeafId] = useState<string | null>(null);
-  useEffect(() => {
-    setReportedFocusedKind(null);
-    setReportedFocusedLeafId(null);
-  }, [server, windowParam]);
+  // the split chords. Each report is STAMPED with its window key and counts
+  // only for that window: a window switch invalidates the mirror by key
+  // mismatch (no clearing effect — a child effect's fresh report would land
+  // BEFORE a parent's same-render clearing effect and be wiped).
+  const focusWindowKey = `${server}:${windowParam ?? ""}`;
+  const [reportedFocusedKind, setReportedFocusedKind] = useState<{
+    key: string;
+    kind: SurfaceKind;
+  } | null>(null);
+  const [reportedFocusedLeafId, setReportedFocusedLeafId] = useState<{
+    key: string;
+    leafId: string;
+  } | null>(null);
   const focusedTileKind: SurfaceKind = isMobile
     ? mobileActiveTile
-    : (reportedFocusedKind ?? slotOrder(layout)[0]);
+    : ((reportedFocusedKind?.key === focusWindowKey ? reportedFocusedKind.kind : null) ??
+      slotOrder(layout)[0]);
   // The palette's directional swaps act on the FOCUSED leaf (desktop
   // multi-tile only — mobile renders one tile, nothing to swap with).
   const focusedLeafId =
     !isMobile && leaves(layout).length > 1
-      ? reportedFocusedLeafId !== null && leafIds(layout).includes(reportedFocusedLeafId)
-        ? reportedFocusedLeafId
+      ? reportedFocusedLeafId !== null &&
+        reportedFocusedLeafId.key === focusWindowKey &&
+        leafIds(layout).includes(reportedFocusedLeafId.leafId)
+        ? reportedFocusedLeafId.leafId
         : leafIds(layout)[0]
       : undefined;
   const layoutFocusTileRef = useRef<((kind: SurfaceKind) => void) | null>(null);
@@ -5824,16 +5832,10 @@ function AppShell() {
               // the leaves' real geometry through this getter.
               layoutRectsRef={layoutRectsRef}
               // Tile verbs address their leaf by ID (duplicate tty tiles are
-              // distinct leaves); the mutations return the input tree unchanged
-              // on a no-op, and a disallowed close is null.
-              onPromote={(leafId) => {
-                const next = promote(layout, leafId);
-                if (next !== layout) applyLayout(next);
-              }}
-              onSwap={(leafId) => {
-                const next = swapWithNext(layout, leafId);
-                if (next !== layout) applyLayout(next);
-              }}
+              // distinct leaves); a disallowed close is null. The header
+              // drag-to-snap commit rides the ONE layout mutation path with
+              // the drop's resolved result tree.
+              onApplyLayout={applyLayout}
               onClose={(leafId) => {
                 const next = closeSurface(layout, leafId);
                 if (next) applyLayout(next);
@@ -5856,8 +5858,12 @@ function AppShell() {
               // gate) plus the leaf id (the palette's directional swaps); the
               // palette's `Tile: Focus <Surface>` entries drive focus through
               // the ref seam.
-              onFocusedKindChange={setReportedFocusedKind}
-              onFocusedLeafChange={setReportedFocusedLeafId}
+              onFocusedKindChange={(kind) =>
+                setReportedFocusedKind({ key: focusWindowKey, kind })
+              }
+              onFocusedLeafChange={(leafId) =>
+                setReportedFocusedLeafId({ key: focusWindowKey, leafId })
+              }
               focusTileRef={layoutFocusTileRef}
               // Steal guard (spec right-panel.md § The code lens): the code
               // tile's iframe-element focus events route here — armed guard +

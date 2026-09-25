@@ -6,6 +6,7 @@ import type { CodeTileCommands } from "./surface-layout";
 import { ToastProvider } from "@/components/toast";
 import {
   parseLayoutTree,
+  serializeLayoutTree,
   sizesStorageKey,
   type Layout,
   type Rect,
@@ -68,16 +69,16 @@ vi.mock("@/components/code-surface", () => ({
   },
 }));
 vi.mock("@/components/iframe-window", async () => {
-  // The web tile additionally mirrors the layout's drag flag (the native
-  // engine's live-resize trigger) onto the mock for assertion.
-  const { useTileDragging } = await vi.importActual<
+  // The web tile additionally mirrors the layout's drag posture (the native
+  // engine's live-resize/hide signal) onto the mock for assertion.
+  const { useTileDragPosture } = await vi.importActual<
     typeof import("@/lib/tile-drag-context")
   >("@/lib/tile-drag-context");
   return {
     IframeWindow: (props: Record<string, unknown>) => {
       iframeSpy(props);
       return (
-        <div data-testid="mock-iframe" data-tile-dragging={String(useTileDragging())} />
+        <div data-testid="mock-iframe" data-tile-dragging={useTileDragPosture()} />
       );
     },
   };
@@ -140,9 +141,8 @@ type LayoutOverrides = {
   window?: object | null;
   isMobile?: boolean;
   mobileActiveSlot?: number;
-  onPromote?: (leafId: string) => void;
-  onSwap?: (leafId: string) => void;
   onClose?: (leafId: string) => void;
+  onApplyLayout?: (next: Layout) => void;
   onSplitPane?: (horizontal: boolean) => void;
   onClosePane?: () => void;
   onRatioChange?: (index: number, pct: number) => void;
@@ -213,9 +213,8 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       scrollLocked={false}
       onSessionNotFound={vi.fn()}
       codeReachable={overrides.codeReachable ?? true}
-      onPromote={overrides.onPromote ?? vi.fn()}
-      onSwap={overrides.onSwap ?? vi.fn()}
       onClose={overrides.onClose ?? vi.fn()}
+      onApplyLayout={overrides.onApplyLayout ?? vi.fn()}
       onSplitPane={overrides.onSplitPane ?? vi.fn()}
       onClosePane={overrides.onClosePane ?? vi.fn()}
       onRatioChange={overrides.onRatioChange}
@@ -443,20 +442,12 @@ describe("SurfaceLayout tree rendering", () => {
 });
 
 describe("SurfaceLayout tile verbs", () => {
-  it("verb buttons call the parent's mutation callbacks with the tile kind", () => {
-    const onPromote = vi.fn();
-    const onSwap = vi.fn();
+  it("the header verb cluster is zoom + close only — rearrangement is the header drag and the palette", () => {
     const onClose = vi.fn();
-    renderLayout({
-      layout: layoutOf("h(tty,code)"),
-      onPromote,
-      onSwap,
-      onClose,
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Promote Code" }));
-    expect(onPromote).toHaveBeenCalledWith("code");
-    fireEvent.click(screen.getByRole("button", { name: "Swap Terminal" }));
-    expect(onSwap).toHaveBeenCalledWith("tty");
+    renderLayout({ layout: layoutOf("h(tty,code)"), onClose });
+    expect(screen.getByRole("button", { name: "Expand Code" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Promote Code" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Swap Terminal" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Close Code" }));
     expect(onClose).toHaveBeenCalledWith("code");
   });
@@ -475,9 +466,8 @@ describe("SurfaceLayout tile verbs", () => {
     expect(close.className).not.toContain("group-hover");
     // The destructive verb reddens on hover; the safe verbs brighten.
     expect(close.className).toContain("hover:text-signal-red");
-    const swap = screen.getByRole("button", { name: "Swap Code" });
-    expect(swap.className).toContain("hover:text-text-primary");
-    expect(swap.className).toContain("hover:bg-bg-card");
+    const zoom = screen.getByRole("button", { name: "Expand Code" });
+    expect(zoom.className).toContain("hover:bg-bg-card");
   });
 });
 
@@ -507,14 +497,12 @@ describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
     expect(within(screen.getByTestId("surface-tile-code")).queryByTestId("pane-segment")).toBeNull();
   });
 
-  it("stays visible while the tty tile is zoomed (◧/⇄ hide; ✕/⛶ stay)", () => {
+  it("stays visible while the tty tile is zoomed (✕/⛶ stay)", () => {
     renderLayout({ layout: layoutOf("h(tty,code)") });
     fireEvent.click(screen.getByRole("button", { name: "Expand Terminal" }));
     const ttyTile = screen.getByTestId("surface-tile-tty");
     expect(within(ttyTile).getByTestId("pane-segment")).toBeTruthy();
     expect(within(ttyTile).getByRole("button", { name: "Split pane horizontally" })).toBeTruthy();
-    expect(within(ttyTile).queryByRole("button", { name: "Promote Terminal" })).toBeNull();
-    expect(within(ttyTile).queryByRole("button", { name: "Swap Terminal" })).toBeNull();
     expect(within(ttyTile).getByRole("button", { name: "Close Terminal" })).toBeTruthy();
   });
 
@@ -587,7 +575,7 @@ describe("SurfaceLayout zoom", () => {
     expect(screen.getByTestId("surface-divider-0")).toBeTruthy();
   });
 
-  it("zoomed tile shows the latch well on its zoom verb and hides its promote/swap verbs", () => {
+  it("zoomed tile shows the latch well on its zoom verb; ✕ stays", () => {
     renderLayout({ layout: layoutOf("h(tty,code)") });
     fireEvent.click(screen.getByRole("button", { name: "Expand Code" }));
     const unzoom = screen.getByRole("button", { name: "Restore Code" });
@@ -596,17 +584,12 @@ describe("SurfaceLayout zoom", () => {
     expect(unzoom.className).toContain("rk-latch-well");
     expect(unzoom.className).not.toContain("ring-accent-green");
     expect(unzoom).toHaveAttribute("aria-pressed", "true");
-    // Promote/swap are no-ops on a zoomed render — hidden; ✕ stays.
-    expect(screen.queryByRole("button", { name: "Promote Code" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Swap Code" })).toBeNull();
     expect(screen.getByRole("button", { name: "Close Code" })).toBeTruthy();
-    // Restore returns the default glyph color and the hidden verbs.
+    // Restore returns the default glyph color.
     fireEvent.click(unzoom);
     const zoom = screen.getByRole("button", { name: "Expand Code" });
     expect(zoom.className).not.toContain("text-accent-green");
     expect(zoom).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "Promote Code" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Swap Code" })).toBeTruthy();
   });
 });
 
@@ -1658,9 +1641,8 @@ describe("SurfaceLayout duplicate tty tiles", () => {
         scrollLocked={false}
         onSessionNotFound={vi.fn()}
         codeReachable
-        onPromote={vi.fn()}
-        onSwap={vi.fn()}
         onClose={vi.fn()}
+        onApplyLayout={vi.fn()}
       />,
       </ToastProvider>,
     );
@@ -1752,9 +1734,8 @@ describe("SurfaceLayout hide-never-unmount (P3)", () => {
         scrollLocked={false}
         onSessionNotFound={vi.fn()}
         codeReachable
-        onPromote={vi.fn()}
-        onSwap={vi.fn()}
         onClose={vi.fn()}
+        onApplyLayout={vi.fn()}
       />,
       </ToastProvider>,
     );
@@ -1774,9 +1755,8 @@ describe("SurfaceLayout hide-never-unmount (P3)", () => {
         scrollLocked={false}
         onSessionNotFound={vi.fn()}
         codeReachable
-        onPromote={vi.fn()}
-        onSwap={vi.fn()}
         onClose={vi.fn()}
+        onApplyLayout={vi.fn()}
       />,
       </ToastProvider>,
     );
@@ -2849,19 +2829,19 @@ describe("SurfaceLayout gui tile", () => {
   });
 });
 
-describe("SurfaceLayout TileDragContext (the native web engine's live-resize signal)", () => {
-  it("a divider drag flips the web tile's context flag false → true → false", () => {
+describe("SurfaceLayout TileDragContext (the native web engine's drag-posture signal)", () => {
+  it("a divider drag moves the web tile's posture idle → resize → idle", () => {
     renderLayout({ layout: layoutOf("h(tty,web)") });
     const tile = () => screen.getByTestId("mock-iframe");
-    expect(tile().dataset.tileDragging).toBe("false");
+    expect(tile().dataset.tileDragging).toBe("idle");
     const divider = screen.getByTestId("surface-divider-0");
     fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500 });
-    expect(tile().dataset.tileDragging).toBe("true");
+    expect(tile().dataset.tileDragging).toBe("resize");
     fireEvent.pointerUp(divider, { pointerId: 1 });
-    expect(tile().dataset.tileDragging).toBe("false");
+    expect(tile().dataset.tileDragging).toBe("idle");
   });
 
-  it("the intersection drag flips the flag the same way", () => {
+  it("the intersection drag publishes resize the same way", () => {
     renderLayout({ layout: layoutOf("h(tty,v(code,web))") });
     // jsdom's rects are all zeros — mock the grid's box so the two-axis drag
     // math has a measured container.
@@ -2877,11 +2857,263 @@ describe("SurfaceLayout TileDragContext (the native web engine's live-resize sig
       toJSON: () => ({}),
     } as DOMRect);
     const tile = () => screen.getByTestId("mock-iframe");
-    expect(tile().dataset.tileDragging).toBe("false");
+    expect(tile().dataset.tileDragging).toBe("idle");
     const zone = screen.getByTestId("surface-divider-intersection");
     fireEvent.pointerDown(zone, { pointerId: 1, clientX: 400, clientY: 800 });
-    expect(tile().dataset.tileDragging).toBe("true");
+    expect(tile().dataset.tileDragging).toBe("resize");
     fireEvent.pointerUp(zone, { pointerId: 1 });
-    expect(tile().dataset.tileDragging).toBe("false");
+    expect(tile().dataset.tileDragging).toBe("idle");
+  });
+});
+
+describe("SurfaceLayout header drag (drop to snap)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    // The coarse-pointer test re-stubs matchMedia; restore the fine default.
+    stubMatchMedia(() => false);
+  });
+
+  // The desktop tile's first child is its 35px header (the drag grip
+  // surface). jsdom has no layout — measureGrid supplies the container box.
+  const headerOf = (tile: HTMLElement): HTMLElement => {
+    const header = tile.firstElementChild;
+    if (!(header instanceof HTMLElement)) throw new Error("tile has no header element");
+    return header;
+  };
+
+  /** Press + drag + release on a tile's header, via the window-level mid-drag
+   *  routing (moves bubble to the window listeners). */
+  function dragHeader(
+    tile: HTMLElement,
+    from: { x: number; y: number },
+    moves: { x: number; y: number }[],
+    opts: { release?: boolean } = {},
+  ) {
+    fireEvent.pointerDown(headerOf(tile), {
+      button: 0,
+      pointerId: 1,
+      clientX: from.x,
+      clientY: from.y,
+    });
+    for (const m of moves) {
+      fireEvent.pointerMove(headerOf(tile), { pointerId: 1, clientX: m.x, clientY: m.y });
+    }
+    if (opts.release !== false) {
+      fireEvent.pointerUp(headerOf(tile), { pointerId: 1, clientX: moves[moves.length - 1]?.x, clientY: moves[moves.length - 1]?.y });
+    }
+  }
+
+  it("a below-threshold header press focuses the tile and never starts a drag", () => {
+    measureGrid(1200, 800);
+    const onApplyLayout = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,code)"), onApplyLayout });
+    const codeTile = screen.getByTestId("surface-tile-code");
+    // Focus follows the press (the pointerdown-capture seam)…
+    dragHeader(codeTile, { x: 700, y: 15 }, [{ x: 702, y: 16 }]);
+    expect(codeTile.className).toContain("border-accent-green");
+    // …and nothing else: no overlay, no write.
+    expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
+    expect(onApplyLayout).not.toHaveBeenCalled();
+  });
+
+  it("past the threshold the overlay previews the result tree; release commits one apply + one sizes write under the new signature", () => {
+    measureGrid(1200, 800);
+    const onApplyLayout = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,code)"), onApplyLayout });
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    // tty's center is ~(300, 400); code's center is ~(900, 400).
+    dragHeader(ttyTile, { x: 100, y: 15 }, [{ x: 300, y: 100 }, { x: 900, y: 400 }], {
+      release: false,
+    });
+    // Mid-drag: the overlay draws the swapped result, the dragged tile dims,
+    // and the destination rect carries the dragged tile's label.
+    const overlay = screen.getByTestId("tile-drop-overlay");
+    expect(overlay).toBeTruthy();
+    expect(screen.getByTestId("tile-drop-dest").textContent).toContain("Terminal");
+    expect(ttyTile.className).toContain("opacity-50");
+    expect(onApplyLayout).not.toHaveBeenCalled();
+    expect(localStorage.getItem(sizesStorageKey("srv", "@1", "h(0,1)"))).toBeNull();
+
+    fireEvent.pointerUp(headerOf(ttyTile), { pointerId: 1, clientX: 900, clientY: 400 });
+    // Commit: exactly one apply with the result tree; the viewer's sizes were
+    // written FIRST, under the result's structure signature.
+    expect(onApplyLayout).toHaveBeenCalledTimes(1);
+    expect(serializeLayoutTree(onApplyLayout.mock.calls[0][0])).toBe("h(code,tty)");
+    expect(
+      JSON.parse(localStorage.getItem(sizesStorageKey("srv", "@1", "h(0,1)")) ?? "null"),
+    ).toEqual([[0.5, 0.5]]);
+    expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
+    // Focus moved to the dragged tile at its new position.
+    expect(ttyTile.className).toContain("border-accent-green");
+  });
+
+  it("a header drag publishes the move posture to the web tile's context", () => {
+    measureGrid(1200, 800);
+    renderLayout({ layout: layoutOf("h(tty,web)") });
+    const frame = () => screen.getByTestId("mock-iframe");
+    expect(frame().dataset.tileDragging).toBe("idle");
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    dragHeader(ttyTile, { x: 100, y: 15 }, [{ x: 900, y: 400 }], { release: false });
+    expect(frame().dataset.tileDragging).toBe("move");
+    fireEvent.pointerUp(headerOf(ttyTile), { pointerId: 1, clientX: 900, clientY: 400 });
+    expect(frame().dataset.tileDragging).toBe("idle");
+  });
+
+  it("Escape cancels: the overlay disappears and nothing is written", () => {
+    measureGrid(1200, 800);
+    const onApplyLayout = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,code)"), onApplyLayout });
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    dragHeader(ttyTile, { x: 100, y: 15 }, [{ x: 900, y: 400 }], { release: false });
+    expect(screen.getByTestId("tile-drop-overlay")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
+    expect(ttyTile.className).not.toContain("opacity-50");
+    fireEvent.pointerUp(headerOf(ttyTile), { pointerId: 1, clientX: 900, clientY: 400 });
+    expect(onApplyLayout).not.toHaveBeenCalled();
+    expect(localStorage.getItem(sizesStorageKey("srv", "@1", "h(0,1)"))).toBeNull();
+  });
+
+  it("release outside the layout or over the dragged tile itself cancels", () => {
+    measureGrid(1200, 800);
+    const onApplyLayout = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,code)"), onApplyLayout });
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    // Outside the box.
+    dragHeader(ttyTile, { x: 100, y: 15 }, [{ x: -50, y: 400 }]);
+    expect(onApplyLayout).not.toHaveBeenCalled();
+    // Over the dragged tile's own rect.
+    dragHeader(ttyTile, { x: 100, y: 15 }, [{ x: 300, y: 100 }, { x: 200, y: 400 }]);
+    expect(onApplyLayout).not.toHaveBeenCalled();
+    expect(localStorage.getItem(sizesStorageKey("srv", "@1", "h(0,1)"))).toBeNull();
+  });
+
+  it("a noop drop (the same arrangement back) shows the neutral region and writes nothing", () => {
+    measureGrid(1200, 800);
+    const onApplyLayout = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,code)"), onApplyLayout });
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    // code's LEFT edge band: merging tty beside code's left rebuilds h(tty,code).
+    dragHeader(ttyTile, { x: 100, y: 15 }, [{ x: 300, y: 100 }, { x: 610, y: 400 }], {
+      release: false,
+    });
+    expect(screen.getByTestId("tile-drop-noop")).toBeTruthy();
+    fireEvent.pointerUp(headerOf(ttyTile), { pointerId: 1, clientX: 610, clientY: 400 });
+    expect(onApplyLayout).not.toHaveBeenCalled();
+    expect(localStorage.getItem(sizesStorageKey("srv", "@1", "h(0,1)"))).toBeNull();
+  });
+
+  it("a mid-drag layout prop change (another viewer's write) cancels the drag", () => {
+    measureGrid(1200, 800);
+    const onApplyLayout = vi.fn();
+    const { rerender } = renderLayout({ layout: layoutOf("h(tty,code)"), onApplyLayout });
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    dragHeader(ttyTile, { x: 100, y: 15 }, [{ x: 900, y: 400 }], { release: false });
+    expect(screen.getByTestId("tile-drop-overlay")).toBeTruthy();
+    rerender(layoutElement({ layout: layoutOf("h(code,tty)"), onApplyLayout }));
+    expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 900, clientY: 400 });
+    expect(onApplyLayout).not.toHaveBeenCalled();
+  });
+
+  it("no drag arms on a coarse pointer, while zoomed, or on a single-leaf layout", () => {
+    measureGrid(1200, 800);
+    const onApplyLayout = vi.fn();
+    // Coarse pointer.
+    stubMatchMedia((query) => query.includes("coarse"));
+    renderLayout({ layout: layoutOf("h(tty,code)"), onApplyLayout });
+    dragHeader(screen.getByTestId("surface-tile-tty"), { x: 100, y: 15 }, [{ x: 900, y: 400 }]);
+    expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
+    expect(onApplyLayout).not.toHaveBeenCalled();
+    cleanup();
+    // Zoomed.
+    stubMatchMedia(() => false);
+    renderLayout({ layout: layoutOf("h(tty,code)"), onApplyLayout });
+    fireEvent.click(screen.getByRole("button", { name: "Expand Code" }));
+    dragHeader(screen.getByTestId("surface-tile-code"), { x: 100, y: 15 }, [{ x: 900, y: 400 }]);
+    expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
+    expect(onApplyLayout).not.toHaveBeenCalled();
+    cleanup();
+    // Single leaf.
+    renderLayout({ layout: layoutOf("tty"), onApplyLayout });
+    dragHeader(screen.getByTestId("surface-tile-tty"), { x: 100, y: 15 }, [{ x: 900, y: 400 }]);
+    expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
+    expect(onApplyLayout).not.toHaveBeenCalled();
+  });
+
+  it("a press on a header BUTTON never arms a drag", () => {
+    measureGrid(1200, 800);
+    const onApplyLayout = vi.fn();
+    const onClose = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,code)"), onApplyLayout, onClose });
+    const closeButton = screen.getByRole("button", { name: "Close Code" });
+    fireEvent.pointerDown(closeButton, { button: 0, pointerId: 1, clientX: 700, clientY: 15 });
+    fireEvent.pointerMove(closeButton, { pointerId: 1, clientX: 300, clientY: 400 });
+    fireEvent.pointerUp(closeButton, { pointerId: 1 });
+    expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
+    expect(onApplyLayout).not.toHaveBeenCalled();
+  });
+
+  it("pointercancel mid-drag cancels: no commit, overlay gone, posture back to idle", () => {
+    measureGrid(1200, 800);
+    const onApplyLayout = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,web)"), onApplyLayout });
+    const frame = () => screen.getByTestId("mock-iframe");
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    dragHeader(ttyTile, { x: 100, y: 15 }, [{ x: 900, y: 400 }], { release: false });
+    expect(screen.getByTestId("tile-drop-overlay")).toBeTruthy();
+    expect(frame().dataset.tileDragging).toBe("move");
+    fireEvent.pointerCancel(window, { pointerId: 1 });
+    expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
+    expect(frame().dataset.tileDragging).toBe("idle");
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 900, clientY: 400 });
+    expect(onApplyLayout).not.toHaveBeenCalled();
+    expect(localStorage.getItem(sizesStorageKey("srv", "@1", "h(0,1)"))).toBeNull();
+  });
+
+  it("unmount mid-drag cancels cleanly: the release after unmount writes nothing", () => {
+    measureGrid(1200, 800);
+    const onApplyLayout = vi.fn();
+    const { unmount } = renderLayout({ layout: layoutOf("h(tty,code)"), onApplyLayout });
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    dragHeader(ttyTile, { x: 100, y: 15 }, [{ x: 900, y: 400 }], { release: false });
+    expect(screen.getByTestId("tile-drop-overlay")).toBeTruthy();
+    unmount();
+    // Listeners went down with the component — a late pointerup is inert.
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 900, clientY: 400 });
+    expect(onApplyLayout).not.toHaveBeenCalled();
+    expect(localStorage.getItem(sizesStorageKey("srv", "@1", "h(0,1)"))).toBeNull();
+  });
+
+  it("a window switch mid-drag cancels the drag (the in-flight gesture belongs to the window it started on)", () => {
+    measureGrid(1200, 800);
+    const onApplyLayout = vi.fn();
+    const { rerender } = renderLayout({ layout: layoutOf("h(tty,code)"), onApplyLayout });
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    dragHeader(ttyTile, { x: 100, y: 15 }, [{ x: 900, y: 400 }], { release: false });
+    expect(screen.getByTestId("tile-drop-overlay")).toBeTruthy();
+    rerender(layoutElement({ layout: layoutOf("h(tty,code)"), windowId: "@2", onApplyLayout }));
+    expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 900, clientY: 400 });
+    expect(onApplyLayout).not.toHaveBeenCalled();
+    expect(localStorage.getItem(sizesStorageKey("srv", "@1", "h(0,1)"))).toBeNull();
+    expect(localStorage.getItem(sizesStorageKey("srv", "@2", "h(0,1)"))).toBeNull();
+  });
+
+  it("release on a too-small result writes nothing (the drop was never offered)", () => {
+    // A 400×180 box: a bottom span would leave ~87px rows — under the floor.
+    measureGrid(400, 180);
+    const onApplyLayout = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,web)"), onApplyLayout });
+    const frame = () => screen.getByTestId("mock-iframe");
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    dragHeader(ttyTile, { x: 100, y: 15 }, [{ x: 200, y: 174 }], { release: false });
+    expect(screen.getByTestId("tile-drop-too-small")).toBeTruthy();
+    expect(frame().dataset.tileDragging).toBe("move");
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 200, clientY: 174 });
+    expect(onApplyLayout).not.toHaveBeenCalled();
+    expect(localStorage.getItem(sizesStorageKey("srv", "@1", "v(0,1)"))).toBeNull();
+    expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
+    expect(frame().dataset.tileDragging).toBe("idle");
   });
 });

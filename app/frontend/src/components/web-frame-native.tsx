@@ -14,9 +14,11 @@
  *   bridge's `onEvent` returns the disposer and this engine's mount-effect
  *   cleanup calls it; events are demuxed by `tabKey` before any state
  *   update.
- * - Mid-drag rule is LIVE RESIZE: while a layout drag runs, bounds go out on
- *   every animation frame and the guest is never hidden (`HIDE_WHILE_DRAGGING`
- *   stays `false`; the hide exists only as a named option).
+ * - Mid-drag rule depends on the drag posture: a sash/intersection drag
+ *   (`resize`) live-resizes — bounds go out on every animation frame and the
+ *   guest is never hidden; a tile header drag (`move`) HIDES the guest for
+ *   the drag's duration, because the drop overlay previews the result tree
+ *   and the composited guest would paint over it.
  * - Bounds are sent whether or not the guest is visible — the shell parks
  *   them while hidden and applies them on show, so the engine never
  *   withholds a rect.
@@ -54,7 +56,7 @@ import {
   type ShellWebRect,
 } from "@/lib/shell";
 import { isModalOpen, subscribe } from "@/lib/overlay-presence";
-import { useTileDragging } from "@/lib/tile-drag-context";
+import { useTileDragPosture } from "@/lib/tile-drag-context";
 import { toNativeSrc } from "@/lib/web-url";
 import {
   tileErrorForGuestFailure,
@@ -77,11 +79,6 @@ export const WEB_FRAME_NATIVE_DEFAULT_CAPABILITIES: WebFrameCapabilities = {
   zoomGestures: true,
   devtools: true,
 };
-
-/** The mid-drag posture knob: `false` ships the spike-verified live-resize
- *  rule (bounds every frame, no hide); `true` would hide the guest for the
- *  drag instead. */
-const HIDE_WHILE_DRAGGING = false;
 
 // Unique under the host webContents (one SPA renderer, one counter), within
 // the shell's 128-char tabKey bound, and fresh per engine mount so a
@@ -369,13 +366,13 @@ export function WebFrameNative({
   // overlays never hide it.
   const modalOpen = useSyncExternalStore(subscribe, isModalOpen, () => false);
 
-  // Live resize while dragging (HIDE_WHILE_DRAGGING = false): a rAF loop
-  // sends deduped bounds every frame for the drag's duration; the true →
-  // false edge stops the loop and measures once more. The guest is never
-  // hidden for a drag at the shipped setting.
-  const dragging = useTileDragging();
+  // Live resize while a SASH drag runs (posture `resize`): a rAF loop sends
+  // deduped bounds every frame for the drag's duration; the resize → idle
+  // edge stops the loop and measures once more. A tile MOVE drag instead
+  // hides the guest (below) — the drop overlay must paint over its tile.
+  const posture = useTileDragPosture();
   useEffect(() => {
-    if (!dragging) return;
+    if (posture !== "resize") return;
     const tick = () => {
       measure();
       rafRef.current = requestAnimationFrame(tick);
@@ -388,13 +385,16 @@ export function WebFrameNative({
       }
       measure();
     };
-  }, [dragging, measure]);
+  }, [posture, measure]);
 
   // The guest must not paint over the chrome's error surface: while tileError
   // is set the wrapper stays mounted beside it, so hiding is the only way the
-  // copy is visible (the iframe engine hides its frame the same way).
+  // copy is visible (the iframe engine hides its frame the same way). A tile
+  // move drag hides too — the drop overlay previews the result tree and the
+  // composited guest would paint over it; the show effect re-measures on the
+  // move → idle edge before re-showing.
   const wantVisible =
-    active && !modalOpen && rectNonZero && tileError === null && !(HIDE_WHILE_DRAGGING && dragging);
+    active && !modalOpen && rectNonZero && tileError === null && posture !== "move";
   useEffect(() => {
     if (lastSentVisibleRef.current === wantVisible) return;
     // Bounds precede the show (the shell also applies parked bounds on show;

@@ -49,9 +49,8 @@ describe("integration: SurfaceLayout + real IframeWindow", () => {
         scrollLocked={false}
         onSessionNotFound={vi.fn()}
         codeReachable
-        onPromote={vi.fn()}
-        onSwap={vi.fn()}
         onClose={vi.fn()}
+        onApplyLayout={vi.fn()}
       />
       </ToastProvider>
       </StandaloneSessionContextProvider>,

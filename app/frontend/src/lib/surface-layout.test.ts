@@ -16,7 +16,6 @@ import {
   sizesStorageKey,
   structureSig,
   swapDirectional,
-  swapWithNext,
   translateLegacyParams,
   writeStoredSizes,
   writeStoredZoom,
@@ -395,14 +394,6 @@ describe("mutations beyond the fixture table", () => {
       ["web", { x: 0, y: 503, w: 1000, h: 497 }],
     ]);
     expect(ser(swapDirectional(tree, "web", "up", rects))).toBe("v(web,tty)");
-  });
-
-  it("swapWithNext exchanges with the next leaf in reading order, wrapping", () => {
-    const tree = parse("h(tty,v(code,web))");
-    expect(ser(swapWithNext(tree, "tty"))).toBe("h(code,v(tty,web))");
-    expect(ser(swapWithNext(tree, "web"))).toBe("h(web,v(code,tty))");
-    expect(swapWithNext(parse("tty"), "tty")).toEqual(parse("tty"));
-    expect(swapWithNext(tree, "gui")).toEqual(tree);
   });
 
   it("promote is a no-op for an absent leaf", () => {

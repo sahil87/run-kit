@@ -135,6 +135,14 @@ const layoutspecSingleWeb = "web"
 // parsers), so raising the cap stays a one-line change.
 const MaxWebTabs = 16
 
+// legacyWebTabSlots is the URL-slot count of the pre-16 fixed formats (the
+// ListWindows and layoutWindowFormat layouts before the 8→16 cap raise). A
+// capture line shorter than the current format's full length came from the
+// 8-slot era and parses with offsets derived from this count — sparse legacy
+// lines read tolerantly either way, but a fully-populated legacy line's root
+// block otherwise misreads as extra URL slots and its trailing fields shift.
+const legacyWebTabSlots = 8
+
 // WebTabOption returns "@rk_win_web_<n>" (1 ≤ n ≤ MaxWebTabs); panics outside
 // the range — callers validate first, the bound is a programming contract, not
 // user input.
@@ -1605,6 +1613,9 @@ const (
 	listWindowsLegacyURLField  = listWindowsWebActiveField + 7
 	listWindowsLegacyLensField = listWindowsWebActiveField + 8
 	listWindowsLegacyNoteField = listWindowsWebActiveField + 9
+	// listWindowsFullFields is the field count of a complete current-format
+	// line; a shorter line is a pre-16-slot capture (see legacyWebTabSlots).
+	listWindowsFullFields = listWindowsLegacyNoteField + 1
 )
 
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
@@ -1618,7 +1629,9 @@ const (
 // then the retired @rk_win_url (dual-read web_1 fallback), the retired
 // @rk_win_lens (dual-read web-leaf layout fallback), then the legacy note
 // LAST. Lines with fewer than 8 fields are skipped; fields 8+ are optional
-// (empty string if absent). The web-tab slots read dense (walk
+// (empty string if absent). A line shorter than a full current-format line
+// (listWindowsFullFields) is a pre-16-slot capture and parses with the
+// 8-slot-era offsets (legacyWebTabSlots). The web-tab slots read dense (walk
 // 1..MaxWebTabs, stop at the first empty) and web_active degrades
 // (non-numeric/out-of-range clamps per clampWebActive, never an error). The
 // note is dual-read: the new field wins when non-empty, else the legacy note,
@@ -1661,31 +1674,48 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		}
 		// The web slots are positional: a shorter line carries only its leading
 		// slots — walk what is present (denseWebTabs stops at the first empty).
+		// A line shorter than a full current-format line is a pre-16-slot
+		// capture: parse it with the 8-slot-era offsets (legacyWebTabSlots) so
+		// its trailing fields land where that format put them.
+		slots := MaxWebTabs
+		if len(parts) < listWindowsFullFields {
+			slots = legacyWebTabSlots
+		}
+		webActiveField := listWindowsFixedPrefix + slots
+		codeRootField := webActiveField + 1
+		markerField := webActiveField + 2
+		roleField := webActiveField + 3
+		flairField := webActiveField + 4
+		ownerField := webActiveField + 5
+		noteField := webActiveField + 6
+		legacyURLField := webActiveField + 7
+		legacyLensField := webActiveField + 8
+		legacyNoteField := webActiveField + 9
 		if len(parts) > listWindowsFixedPrefix {
-			end := min(listWindowsWebActiveField, len(parts))
+			end := min(webActiveField, len(parts))
 			webTabs = denseWebTabs(parts[listWindowsFixedPrefix:end])
 		}
 		var activeRaw string
-		if len(parts) > listWindowsWebActiveField {
-			activeRaw = parts[listWindowsWebActiveField]
+		if len(parts) > webActiveField {
+			activeRaw = parts[webActiveField]
 		}
 		webActive = clampWebActive(activeRaw, len(webTabs))
-		if len(parts) > listWindowsCodeRootField {
-			codeRoot = strings.TrimSpace(parts[listWindowsCodeRootField])
+		if len(parts) > codeRootField {
+			codeRoot = strings.TrimSpace(parts[codeRootField])
 		}
 
 		// Marker is a closed-set `<mode>[:<stage>]` token. Legacy flat tokens
 		// normalize forward on read; anything unknown drops to the unset state.
 		var marker string
-		if len(parts) > listWindowsMarkerField {
-			marker = NormalizeMarker(strings.TrimSpace(parts[listWindowsMarkerField]))
+		if len(parts) > markerField {
+			marker = NormalizeMarker(strings.TrimSpace(parts[markerField]))
 		}
 
 		// Role is a closed-set token ("operator"); drop any value outside the
 		// set (including "") to the empty unset state. Same idiom as Marker.
 		var role string
-		if len(parts) > listWindowsRoleField {
-			if r := strings.TrimSpace(parts[listWindowsRoleField]); validate.RoleValues[r] {
+		if len(parts) > roleField {
+			if r := strings.TrimSpace(parts[roleField]); validate.RoleValues[r] {
 				role = r
 			}
 		}
@@ -1694,8 +1724,8 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		// value outside the set (including "") to the empty unset state. Same
 		// idiom as Marker.
 		var flair string
-		if len(parts) > listWindowsFlairField {
-			if f := strings.TrimSpace(parts[listWindowsFlairField]); validate.FlairValues[f] {
+		if len(parts) > flairField {
+			if f := strings.TrimSpace(parts[flairField]); validate.FlairValues[f] {
 				flair = f
 			}
 		}
@@ -1703,8 +1733,8 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		// Owner is a closed-set token ("operator"); unknown non-empty tokens
 		// drop to the empty unset state. Same idiom as Marker.
 		var owner string
-		if len(parts) > listWindowsOwnerField {
-			if o := strings.TrimSpace(parts[listWindowsOwnerField]); validate.OwnerValues[o] {
+		if len(parts) > ownerField {
+			if o := strings.TrimSpace(parts[ownerField]); validate.OwnerValues[o] {
 				owner = o
 			}
 		}
@@ -1718,16 +1748,16 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		var note string
 		var noteEpoch int64
 		var rawNote string
-		if len(parts) > listWindowsNoteField {
-			rawNote = parts[listWindowsNoteField]
+		if len(parts) > noteField {
+			rawNote = parts[noteField]
 		}
 		// Retired @rk_win_url is the dual-read fallback for an empty slot 1:
 		// external writers may still stamp it live, where the once-per-server
 		// sweep cannot see it, so the family surfaces it as web_1 with the
 		// active pointer defaulted — the same shape a first WebAdd produces.
 		// Compat until the cleanup change removes the fallback.
-		if len(webTabs) == 0 && len(parts) > listWindowsLegacyURLField {
-			if legacyURL := strings.TrimSpace(parts[listWindowsLegacyURLField]); legacyURL != "" {
+		if len(webTabs) == 0 && len(parts) > legacyURLField {
+			if legacyURL := strings.TrimSpace(parts[legacyURLField]); legacyURL != "" {
 				webTabs = []string{legacyURL}
 				webActive = 1
 			}
@@ -1735,13 +1765,13 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		// Retired @rk_win_lens: "iframe" was the web default-view hint; with
 		// @rk_win_layout unset it reads as the web-leaf layout the migration row
 		// would write — the same live-stamp dual-read as web_1.
-		if layout == "" && len(parts) > listWindowsLegacyLensField {
-			if legacyLens := strings.TrimSpace(parts[listWindowsLegacyLensField]); legacyLens == "iframe" {
+		if layout == "" && len(parts) > legacyLensField {
+			if legacyLens := strings.TrimSpace(parts[legacyLensField]); legacyLens == "iframe" {
 				layout = layoutspecSingleWeb
 			}
 		}
-		if rawNote == "" && len(parts) > listWindowsLegacyNoteField {
-			rawNote = strings.Join(parts[listWindowsLegacyNoteField:], listDelim)
+		if rawNote == "" && len(parts) > legacyNoteField {
+			rawNote = strings.Join(parts[legacyNoteField:], listDelim)
 		}
 		if rawNote != "" {
 			note, noteEpoch = parseNoteValue(rawNote)

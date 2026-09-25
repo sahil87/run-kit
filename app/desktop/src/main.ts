@@ -575,9 +575,11 @@ const GUEST_BACKGROUND = "#0f1117"; // the host view's boot background
 const GUEST_BORDER_RADIUS_PX = 6;
 /** The SPA's per-tab identity is bounded (the strict badge:set posture). */
 const TAB_KEY_MAX_LENGTH = 128;
-/** The retention identity embeds a slot URL — bounded like the tabKey but
- *  with URL-length headroom. */
-const WEB_IDENTITY_MAX_LENGTH = 1024;
+/** The retention identity embeds a slot URL, which the web-tab URL contract
+ *  leaves unbounded — so this is a payload-sanity ceiling with headroom past
+ *  practical URL lengths, never a contract bound: an over-long identity
+ *  degrades to identity-less (no parking) instead of failing web:create. */
+const WEB_IDENTITY_MAX_LENGTH = 8192;
 /** web:find text bound — the query is renderer-supplied data over IPC. */
 const WEB_FIND_TEXT_MAX_LENGTH = 1024;
 /** web:zoom sanity band — the SPA's zoom ladder is the authority; main only
@@ -2225,10 +2227,10 @@ function isTabKey(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= TAB_KEY_MAX_LENGTH;
 }
 
-/** The retention identity: an opaque non-empty bounded string (it embeds a
- *  slot URL, so it gets more headroom than a tabKey). */
+/** The retention identity's structural shape: a non-empty string. The length
+ *  ceiling is enforced by the caller as a degrade, not a rejection. */
 function isWebIdentity(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= WEB_IDENTITY_MAX_LENGTH;
+  return typeof value === "string" && value.length > 0;
 }
 
 function parseWebTabKeyPayload(value: unknown): { tabKey: string } | null {
@@ -2246,11 +2248,14 @@ function parseWebCreatePayload(
   // enforced HERE — a guest must never be pointed at a non-http(s) URL.
   if (!("url" in value) || typeof value.url !== "string" || !isHttpUrl(value.url)) return null;
   // The retention identity is OPTIONAL: an SPA predating park/adopt never
-  // sends one and simply never parks. A present-but-invalid one is rejected.
+  // sends one and simply never parks. A present-but-non-string one is
+  // rejected; an over-long one degrades to identity-less — the guest still
+  // mounts and simply never parks (the slot-URL contract imposes no length
+  // bound, so the identity ceiling must never cost a mount).
   let identity: string | null = null;
   if ("identity" in value && value.identity !== undefined) {
     if (!isWebIdentity(value.identity)) return null;
-    identity = value.identity;
+    identity = value.identity.length <= WEB_IDENTITY_MAX_LENGTH ? value.identity : null;
   }
   return { tabKey: value.tabKey, url: value.url, identity };
 }

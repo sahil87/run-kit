@@ -253,6 +253,9 @@ const (
 	layoutWindowOwnerField      = layoutWindowWebActiveField + 5
 	layoutWindowNoteField       = layoutWindowWebActiveField + 6
 	layoutWindowLegacyNoteField = layoutWindowWebActiveField + 7
+	// layoutWindowFullFields is the field count of a complete current-format
+	// line; a shorter line is a pre-16-slot capture (see legacyWebTabSlots).
+	layoutWindowFullFields = layoutWindowLegacyNoteField + 1
 )
 
 // parseLayoutWindows parses layoutWindowFormat lines, skipping hidden-session
@@ -292,52 +295,63 @@ func parseLayoutWindows(lines []string) []LayoutWindow {
 		if len(parts) >= layoutWindowFixedPrefix {
 			win.RkLayout = strings.TrimSpace(parts[layoutWindowFixedPrefix-1])
 		}
+		// A line shorter than a full current-format line is a pre-16-slot
+		// capture: parse it with the 8-slot-era offsets (legacyWebTabSlots) so
+		// its root block and trailing fields land where that format put them —
+		// sparse legacy lines read tolerantly either way, but a fully-populated
+		// legacy line's roots otherwise misread as extra URL slots.
+		slots := MaxWebTabs
+		if len(parts) < layoutWindowFullFields {
+			slots = legacyWebTabSlots
+		}
+		rootsField := layoutWindowFixedPrefix + slots
+		webActiveField := layoutWindowFixedPrefix + 2*slots
 		// The URL slots are dense @rk_win_web_<n> fields (a shorter line
 		// carries only its leading slots); their parallel roots follow the URL
 		// slots ("" where the slot has no root).
 		if len(parts) > layoutWindowFixedPrefix {
-			end := min(layoutWindowRootsField, len(parts))
+			end := min(rootsField, len(parts))
 			win.WebTabs = denseWebTabs(parts[layoutWindowFixedPrefix:end])
 		}
-		if len(parts) >= layoutWindowWebActiveField {
+		if len(parts) >= webActiveField {
 			for i := range win.WebTabs {
-				win.WebRoots = append(win.WebRoots, strings.TrimSpace(parts[layoutWindowRootsField+i]))
+				win.WebRoots = append(win.WebRoots, strings.TrimSpace(parts[rootsField+i]))
 			}
 		}
 		var activeRaw string
-		if len(parts) > layoutWindowWebActiveField {
-			activeRaw = parts[layoutWindowWebActiveField]
+		if len(parts) > webActiveField {
+			activeRaw = parts[webActiveField]
 		}
 		win.WebActive = clampWebActive(activeRaw, len(win.WebTabs))
-		if len(parts) > layoutWindowCodeRootField {
-			win.CodeRoot = strings.TrimSpace(parts[layoutWindowCodeRootField])
+		if len(parts) > webActiveField+1 {
+			win.CodeRoot = strings.TrimSpace(parts[webActiveField+1])
 		}
 		// @rk_win_marker is optional — absent on older captures.
-		if len(parts) > layoutWindowMarkerField {
-			win.Marker = NormalizeMarker(strings.TrimSpace(parts[layoutWindowMarkerField]))
+		if len(parts) > webActiveField+2 {
+			win.Marker = NormalizeMarker(strings.TrimSpace(parts[webActiveField+2]))
 		}
 		// @rk_win_role is optional — absent on older captures.
-		if len(parts) > layoutWindowRoleField {
-			win.Role = strings.TrimSpace(parts[layoutWindowRoleField])
+		if len(parts) > webActiveField+3 {
+			win.Role = strings.TrimSpace(parts[webActiveField+3])
 		}
 		// @rk_win_flair is optional — absent on older captures.
-		if len(parts) > layoutWindowFlairField {
-			win.Flair = strings.TrimSpace(parts[layoutWindowFlairField])
+		if len(parts) > webActiveField+4 {
+			win.Flair = strings.TrimSpace(parts[webActiveField+4])
 		}
 		// @rk_win_owner is optional — absent on older captures.
-		if len(parts) > layoutWindowOwnerField {
-			win.Owner = strings.TrimSpace(parts[layoutWindowOwnerField])
+		if len(parts) > webActiveField+5 {
+			win.Owner = strings.TrimSpace(parts[webActiveField+5])
 		}
 		// @rk_win_note is optional — absent on older captures. A strict single
 		// field (write-side validation strips control chars).
-		if len(parts) > layoutWindowNoteField {
-			win.Note = parts[layoutWindowNoteField]
+		if len(parts) > webActiveField+6 {
+			win.Note = parts[webActiveField+6]
 		}
 		// The legacy note is optional and LAST: free text, so its tail is
 		// rejoined to survive tabs inside the value. It fills in only when the
 		// new note field came back empty (dual-read; mirrors parseWindows).
-		if win.Note == "" && len(parts) > layoutWindowLegacyNoteField {
-			win.Note = strings.Join(parts[layoutWindowLegacyNoteField:], listDelim)
+		if win.Note == "" && len(parts) > webActiveField+7 {
+			win.Note = strings.Join(parts[webActiveField+7:], listDelim)
 		}
 		out = append(out, win)
 	}

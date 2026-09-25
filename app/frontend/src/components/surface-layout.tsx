@@ -788,6 +788,8 @@ function WebTileContent({
   onInteract,
   onPageTitle,
   shouldReclaimChord,
+  capture,
+  onCaptureChange,
 }: {
   server: string;
   /** The tile window's owning session (the override entry's session half). */
@@ -800,6 +802,10 @@ function WebTileContent({
   onInteract?: () => void;
   onPageTitle: (title: string | null) => void;
   shouldReclaimChord?: (e: KeyboardEvent) => boolean;
+  /** The web keyboard-capture latch (`rk-web-capture`): the URL-bar button's
+   *  pressed state + flip seam, and the native chord table's captured input. */
+  capture?: boolean;
+  onCaptureChange?: (on: boolean) => void;
 }) {
   const { addToast } = useToast();
   const webOverride = useWindowStore(
@@ -952,6 +958,8 @@ function WebTileContent({
       // window.
       onPageMeta={(m) => onPageTitle(m.title)}
       shouldReclaimChord={shouldReclaimChord}
+      capture={capture}
+      onCaptureChange={onCaptureChange}
     />
   ) : null;
 }

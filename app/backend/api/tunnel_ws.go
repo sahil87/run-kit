@@ -29,8 +29,10 @@ import (
 // (no goroutine or socket outlives the handler). There is no idle cap and no
 // read deadline on an established tunnel — HMR WebSockets and long-polls are
 // long-lived; WebSocket has no half-close, so an upstream FIN ends the
-// tunnel. Periodic ping frames keep front-end idle timeouts (nginx 60 s
-// default, Cloudflare ~100 s) from severing a byte-quiet tunnel.
+// tunnel. Writes on both directions carry a deadline (the terminalsWriteWait
+// posture) so a backpressured peer cannot park the close-driven teardown.
+// Periodic ping frames keep front-end idle timeouts (nginx 60 s default,
+// Cloudflare ~100 s) from severing a byte-quiet tunnel.
 //
 // There is NO destination policy (anyone who can reach rk already has a
 // shell through the terminal relay, so a policy is security theater), no
@@ -55,6 +57,12 @@ const (
 // tunnelPingInterval is the ping cadence on an established tunnel. A var so
 // tests can shrink it (the package's test-seam idiom).
 var tunnelPingInterval = 30 * time.Second
+
+// tunnelUpstreamWriteWait bounds a single WS→upstream write: without a
+// deadline a backpressured destination parks the read loop forever, and the
+// close-driven teardown never runs. A var so tests can shrink it (the
+// tunnelPingInterval test-seam idiom).
+var tunnelUpstreamWriteWait = terminalsWriteWait
 
 // tunnelUpgrader is the tunnel's dedicated upgrader — NOT the shared one:
 // the tunnel admits only Origin-less, Sec-Fetch-Site-less clients
@@ -101,8 +109,9 @@ func (s *Server) handleTunnelWS(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// Ping keepalive: WriteControl is documented concurrency-safe with the
-	// pump writer. A failed ping means the socket is gone — cancel so the
-	// read loop and pump unwind.
+	// pump writer. A failed ping means the socket is gone — Close unblocks
+	// the read loop (gorilla documents Close as safe alongside all methods),
+	// and closing upstream unblocks the pump's Read; cancel joins both.
 	pingDone := make(chan struct{})
 	go func() {
 		defer close(pingDone)
@@ -114,6 +123,8 @@ func (s *Server) handleTunnelWS(w http.ResponseWriter, r *http.Request) {
 				return
 			case <-ticker.C:
 				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(terminalsWriteWait)); err != nil {
+					conn.Close()
+					upstream.Close()
 					cancel()
 					return
 				}
@@ -155,8 +166,11 @@ func (s *Server) handleTunnelWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Read loop: WS → upstream. Text frames are ignored (forward-compat).
-	// Bound each inbound frame (memory-DoS). On exit, close BOTH conns and
-	// wait for the pump and ping goroutines so neither outlives the handler.
+	// Bound each inbound frame (memory-DoS). Upstream writes carry a write
+	// deadline so a backpressured destination cannot park the read loop
+	// forever — without it a client close would never be read and teardown
+	// would never run. On exit, close BOTH conns and wait for the pump and
+	// ping goroutines so neither outlives the handler.
 	conn.SetReadLimit(tunnelReadLimit)
 	for {
 		msgType, msg, rerr := conn.ReadMessage()
@@ -166,6 +180,7 @@ func (s *Server) handleTunnelWS(w http.ResponseWriter, r *http.Request) {
 		if msgType != websocket.BinaryMessage {
 			continue
 		}
+		upstream.SetWriteDeadline(time.Now().Add(tunnelUpstreamWriteWait))
 		if _, werr := upstream.Write(msg); werr != nil {
 			break
 		}

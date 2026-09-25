@@ -73,6 +73,9 @@ func wsOriginHostMatches(origin *url.URL, target string) bool {
 	if err != nil {
 		tHost = target
 	}
+	// url.URL.Hostname() strips IPv6 brackets; a bare target host keeps them
+	// (SplitHostPort needs a port to parse "[::1]").
+	tHost = strings.TrimPrefix(strings.TrimSuffix(tHost, "]"), "[")
 	if !strings.EqualFold(oHost, tHost) {
 		return false
 	}

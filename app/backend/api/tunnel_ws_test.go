@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -347,4 +348,162 @@ func TestTunnelPingKeepalive(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no ping within 2s on a quiet tunnel")
 	}
+}
+
+// startTunnelSilentUpstream starts a raw-TCP server that accepts ONE
+// connection and never reads or writes, delivering the accepted conn on
+// accepted. The upstream's receive buffer fills quickly, so the tunnel's
+// WS→upstream writes eventually stall (the backpressure scenario).
+func startTunnelSilentUpstream(t *testing.T) (addr string, accepted <-chan net.Conn) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	acceptedCh := make(chan net.Conn, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		acceptedCh <- conn
+	}()
+	t.Cleanup(func() { ln.Close() })
+	return ln.Addr().String(), acceptedCh
+}
+
+// A WS→upstream write stalled on a backpressured destination MUST NOT park
+// the read loop: closing the client still unwinds the handler (the upstream
+// write deadline turns the stall into an error, so teardown runs).
+func TestTunnelBackpressuredUpstreamUnwinds(t *testing.T) {
+	orig := tunnelUpstreamWriteWait
+	tunnelUpstreamWriteWait = 200 * time.Millisecond
+	t.Cleanup(func() { tunnelUpstreamWriteWait = orig })
+
+	upstreamAddr, accepted := startTunnelSilentUpstream(t)
+	ts := newTunnelTestServer(t)
+
+	before := runtime.NumGoroutine()
+
+	conn := dialTunnel(t, ts, upstreamAddr, nil)
+	upstreamConn := <-accepted
+	defer upstreamConn.Close()
+
+	// Fill the upstream socket's buffers; the writer stalls once no
+	// destination buffer remains (two identical samples = parked in Write).
+	var written atomic.Int64
+	writeErr := make(chan error, 1)
+	go func() {
+		chunk := make([]byte, 64<<10)
+		for {
+			conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+			if err := conn.WriteMessage(websocket.BinaryMessage, chunk); err != nil {
+				writeErr <- err
+				return
+			}
+			written.Add(1)
+		}
+	}()
+	testutil.MustWaitUntil(t, 10*time.Second, func() bool {
+		prev := written.Load()
+		time.Sleep(300 * time.Millisecond)
+		return prev > 0 && written.Load() == prev
+	}, "writer never stalled: upstream buffers did not fill")
+
+	// The client goes away while the server-side read loop is stalled in
+	// upstream.Write; only the write deadline lets the handler run teardown.
+	conn.Close()
+	<-writeErr
+
+	testutil.MustWaitUntil(t, 5*time.Second, func() bool {
+		return runtime.NumGoroutine() <= before
+	}, "goroutine count did not settle: before=%d now=%d", before, runtime.NumGoroutine())
+}
+
+// failWriteConn errors every Write once armed while reads pass through — a
+// silently dead socket: the read loop's ReadMessage stays parked, but the
+// next ping write fails.
+type failWriteConn struct {
+	net.Conn
+	armed atomic.Bool
+}
+
+func (c *failWriteConn) Write(p []byte) (int, error) {
+	if c.armed.Load() {
+		return 0, errors.New("tunnel test: write failed")
+	}
+	return c.Conn.Write(p)
+}
+
+// wrapListener delivers each accepted conn through wrap.
+type wrapListener struct {
+	net.Listener
+	wrap func(net.Conn) net.Conn
+}
+
+func (l *wrapListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return l.wrap(conn), nil
+}
+
+// A failed ping means the WebSocket is dead: the handler MUST return even
+// when the read loop and the pump stay parked (closing both conns, not just
+// cancelling the lifecycle context).
+func TestTunnelPingFailureTearsDown(t *testing.T) {
+	orig := tunnelPingInterval
+	tunnelPingInterval = 20 * time.Millisecond
+	t.Cleanup(func() { tunnelPingInterval = orig })
+
+	upstreamAddr, _, upstreamClosed := startTunnelEchoUpstream(t)
+
+	// Serve the real router on our own listener so the server-side conn can
+	// be armed to fail writes after the handshake.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	serverConns := make(chan *failWriteConn, 1)
+	srv := &http.Server{Handler: NewTestRouter(tunnelTestLogger(), nil, nil, "test-host")}
+	go srv.Serve(&wrapListener{ln, func(conn net.Conn) net.Conn {
+		wrapped := &failWriteConn{Conn: conn}
+		serverConns <- wrapped
+		return wrapped
+	}})
+	t.Cleanup(func() { srv.Close() })
+
+	before := runtime.NumGoroutine()
+
+	wsURL := "ws://" + ln.Addr().String() + "/ws/tunnel?target=" + url.QueryEscape(upstreamAddr)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial /ws/tunnel: %v (status %v)", err, respStatus(resp))
+	}
+	t.Cleanup(func() { conn.Close() })
+	var serverConn *failWriteConn
+	select {
+	case serverConn = <-serverConns:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server never accepted the tunnel conn")
+	}
+	writeEcho(t, conn, []byte("before-arm"))
+
+	// The socket dies silently: reads stay parked, writes fail. The next
+	// ping errors and must close BOTH conns so the read loop and the pump
+	// (blocked in upstream.Read on the byte-quiet echo conn) join.
+	serverConn.armed.Store(true)
+
+	testutil.MustWaitUntil(t, 5*time.Second, func() bool {
+		select {
+		case <-upstreamClosed:
+			return true
+		default:
+			return false
+		}
+	}, "upstream conn did not close after the ping failure")
+	testutil.MustWaitUntil(t, 5*time.Second, func() bool {
+		return runtime.NumGoroutine() <= before
+	}, "goroutine count did not settle: before=%d now=%d", before, runtime.NumGoroutine())
 }

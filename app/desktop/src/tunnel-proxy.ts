@@ -42,6 +42,13 @@ export const TUNNEL_SEND_LOW_WATER_BYTES = 256 * 1024;
 /** `bufferedAmount` has no change event; drain is polled. */
 const TUNNEL_DRAIN_POLL_MS = 10;
 
+/** Receive-side flow control: the WHATWG WebSocket API cannot pause frame
+ *  delivery (no receive-side counterpart to `bufferedAmount`), so frames the
+ *  readable side backpressures queue in memory, and the tunnel is destroyed
+ *  once the queue would exceed this bound — the only hard memory cap
+ *  available against a stalled client. */
+export const TUNNEL_RECV_HIGH_WATER_BYTES = 4 * 1024 * 1024;
+
 const MIN_PORT = 1;
 const MAX_PORT = 65535;
 /** Absolute-form requests without an explicit port are plain http. */
@@ -192,9 +199,9 @@ export function deriveForwardRequest(
  * the `connect` event, both of which this class surfaces net.Socket-style.
  *
  * Bytes written before open are buffered and flushed on open; incoming
- * binary frames are pushed verbatim (text frames ignored, forward-compat).
- * The WebSocket has no half-close, matching the server contract: either side
- * ending ends the tunnel.
+ * binary frames flow through a bounded receive queue (text frames ignored,
+ * forward-compat). The WebSocket has no half-close, matching the server
+ * contract: either side ending ends the tunnel.
  */
 export class TunnelSocket extends Duplex {
   /** net.Socket surface the http.Agent checks before flushing a request. */
@@ -206,6 +213,11 @@ export class TunnelSocket extends Duplex {
   private pendingWrites: Buffer[] = [];
   private drainWaiters: ((error?: Error | null) => void)[] = [];
   private drainTimer: ReturnType<typeof setInterval> | null = null;
+  private recvQueue: Buffer[] = [];
+  private recvQueuedBytes = 0;
+  private recvPaused = false;
+  private recvEnded = false;
+  private recvEofPushed = false;
   private readonly openPromise: Promise<void>;
   private resolveOpen!: () => void;
   private rejectOpen!: (error: Error) => void;
@@ -268,7 +280,8 @@ export class TunnelSocket extends Duplex {
   }
 
   override _read(_size: number): void {
-    // Push-driven: incoming WebSocket messages push() themselves.
+    this.recvPaused = false;
+    this.pumpReceived();
   }
 
   override _write(
@@ -324,6 +337,8 @@ export class TunnelSocket extends Duplex {
     const waiters = this.drainWaiters;
     this.drainWaiters = [];
     for (const waiter of waiters) waiter(destroyError);
+    this.recvQueue = [];
+    this.recvQueuedBytes = 0;
     const ws = this.ws;
     this.ws = null;
     if (ws !== null) {
@@ -353,12 +368,40 @@ export class TunnelSocket extends Duplex {
   }
 
   private onWsMessage(event: MessageEvent): void {
+    if (this.destroyed || this.recvEnded) return;
     const data: unknown = event.data;
     if (typeof data === "string") return; // text frames ignored (forward-compat)
+    let buf: Buffer;
     if (data instanceof ArrayBuffer) {
-      this.push(Buffer.from(data));
+      buf = Buffer.from(data);
     } else if (ArrayBuffer.isView(data)) {
-      this.push(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+      buf = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+    } else {
+      return;
+    }
+    // Undici keeps delivering frames while a stalled consumer holds the
+    // readable backpressured; past the bound the tunnel dies rather than
+    // accumulating unbounded data in the main process.
+    if (this.recvQueuedBytes + buf.length > TUNNEL_RECV_HIGH_WATER_BYTES) {
+      this.destroy(new Error("tunnel receive buffer exceeded the high-water mark"));
+      return;
+    }
+    this.recvQueue.push(buf);
+    this.recvQueuedBytes += buf.length;
+    this.pumpReceived();
+  }
+
+  private pumpReceived(): void {
+    while (!this.recvPaused) {
+      const buf = this.recvQueue.shift();
+      if (buf === undefined) break;
+      this.recvQueuedBytes -= buf.length;
+      if (!this.push(buf)) this.recvPaused = true;
+    }
+    // EOF rides behind every queued frame, never ahead of one.
+    if (this.recvEnded && !this.recvEofPushed && this.recvQueue.length === 0) {
+      this.recvEofPushed = true;
+      this.push(null);
     }
   }
 
@@ -370,7 +413,8 @@ export class TunnelSocket extends Duplex {
       this.rejectOpen(new Error("tunnel WebSocket handshake failed"));
     }
     this.connecting = false;
-    this.push(null);
+    this.recvEnded = true;
+    this.pumpReceived();
     if (!this.writableEnded) this.end();
   }
 
@@ -427,6 +471,55 @@ export interface LocalProxy {
   close(): Promise<void>;
 }
 
+/** The tunnel surface the CONNECT wiring needs — TunnelSocket satisfies it
+ *  structurally; tests substitute a controllable Duplex. */
+export type ConnectTunnel = Duplex & { waitOpen(): Promise<void> };
+
+/**
+ * Wire one CONNECT client socket to its tunnel: `200 Connection
+ * Established` on open / `502 Bad Gateway` on handshake failure
+ * (dial-before-upgrade makes the handshake the dial), then pipe both ways.
+ * Bytes Chromium pipelined behind the CONNECT head ride first.
+ *
+ * Pre-open tunnel error/close MUST NOT destroy the client socket: undici
+ * emits the WebSocket error before close and the waitOpen() rejection owns
+ * the handshake failure — destroying the socket from a tunnel event can
+ * reset the client before the 502 lands. Only an established tunnel's death
+ * ends the client connection.
+ */
+export function handleConnectTunnel(socket: Duplex, tunnel: ConnectTunnel, head: Buffer): void {
+  socket.once("error", () => {
+    // A dead client needs no answer.
+  });
+  let tunnelOpen = false;
+  tunnel.on("error", () => {
+    if (tunnelOpen) socket.destroy();
+  });
+  tunnel.on("close", () => {
+    if (tunnelOpen && !socket.destroyed) socket.destroy();
+  });
+  socket.on("close", () => tunnel.destroy());
+  tunnel.waitOpen().then(
+    () => {
+      if (socket.destroyed) {
+        tunnel.destroy();
+        return;
+      }
+      tunnelOpen = true;
+      socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      if (head.length > 0) tunnel.write(head);
+      socket.pipe(tunnel);
+      tunnel.pipe(socket);
+    },
+    () => {
+      tunnel.destroy();
+      if (!socket.destroyed) {
+        socket.end("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
+      }
+    },
+  );
+}
+
 /**
  * Start a loopback HTTP proxy for one host. The `'connect'` event handles
  * Chromium's CONNECT (authority-form): open a tunnel WebSocket for
@@ -450,6 +543,9 @@ export async function createLocalProxy(hostOrigin: string): Promise<LocalProxy> 
   }
 
   const agents = new Map<string, Agent>();
+  // Upgraded CONNECT sockets are invisible to closeAllConnections() —
+  // close() destroys this set directly.
+  const connectSockets = new Set<Duplex>();
 
   const server = createServer();
 
@@ -462,32 +558,12 @@ export async function createLocalProxy(hostOrigin: string): Promise<LocalProxy> 
       socket.end("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
       return;
     }
-    const tunnel = new TunnelSocket(
-      tunnelWsUrl(hostOrigin, formatAuthority(target.host, target.port)),
-    );
-    tunnel.on("error", () => socket.destroy());
-    tunnel.on("close", () => {
-      if (!socket.destroyed) socket.destroy();
-    });
-    socket.on("close", () => tunnel.destroy());
-    tunnel.waitOpen().then(
-      () => {
-        if (socket.destroyed) {
-          tunnel.destroy();
-          return;
-        }
-        socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-        // Bytes Chromium pipelined behind the CONNECT head ride first.
-        if (head.length > 0) tunnel.write(head);
-        socket.pipe(tunnel);
-        tunnel.pipe(socket);
-      },
-      () => {
-        tunnel.destroy();
-        if (!socket.destroyed) {
-          socket.end("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
-        }
-      },
+    connectSockets.add(socket);
+    socket.once("close", () => connectSockets.delete(socket));
+    handleConnectTunnel(
+      socket,
+      new TunnelSocket(tunnelWsUrl(hostOrigin, formatAuthority(target.host, target.port))),
+      head,
     );
   });
 
@@ -556,6 +632,10 @@ export async function createLocalProxy(hostOrigin: string): Promise<LocalProxy> 
       closed = true;
       for (const agent of agents.values()) agent.destroy();
       agents.clear();
+      // Upgraded CONNECT sockets survive closeAllConnections(); an active
+      // tunnel would otherwise hold server.close()'s callback forever.
+      for (const socket of connectSockets) socket.destroy();
+      connectSockets.clear();
       return new Promise<void>((resolve) => {
         server.close(() => resolve());
         // Keep-alive client sockets would otherwise hold the port open.

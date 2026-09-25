@@ -168,9 +168,7 @@ import {
 import { matchChord, parseChordSpecs, ChordSpec } from "./chords";
 import {
   guestPartitionName,
-  proxyRulesFor,
-  setProxyConfigFor,
-  webProxyModeFor,
+  settleHostProxy,
   WebProxyMode,
 } from "./web-proxy";
 import { createLocalProxy, LocalProxy, tunnelWsUrl } from "./tunnel-proxy";
@@ -702,8 +700,9 @@ function tunnelProbeRoundTrip(origin: string, tunnelPort: number): Promise<boole
  *  url it was derived from, so a changed url recomputes lazily on the next
  *  ensure. `pending` collapses concurrent ensures into one probe+apply; it is
  *  keyed by host id AND url, so a probe in flight for an old url is never
- *  reused for the new one, and a stale completion never overwrites a newer
- *  cache entry (only the host's current pending query publishes). */
+ *  reused for the new one, and a stale query neither runs side effects nor
+ *  publishes — listener creation, the setProxy apply, and the cache write
+ *  are all gated on the pending entry's identity (settleHostProxy). */
 interface HostProxyState {
   url: string;
   mode: WebProxyMode;
@@ -731,24 +730,14 @@ async function ensureHostProxy(host: ViewHost): Promise<WebProxyMode> {
   const entry = { url, query: undefined as unknown as Promise<WebProxyMode> };
   entry.query = (async (): Promise<WebProxyMode> => {
     const localOrigin = await localDaemonOrigin();
-    // An optimistic probe result isolates the locality question: "direct"
-    // here means local, anything else is remote/url and earns the real probe.
-    let mode = webProxyModeFor(host, localOrigin, true);
-    if (mode !== "direct") {
-      mode = webProxyModeFor(host, localOrigin, await probeTunnel(host));
-    }
-    let rules: string | null = null;
-    if (mode === "proxy") {
-      const listener = await ensureHostProxyListener(host);
-      if (listener === null) {
-        // No listener, no proxy — degrade, never a broken tile.
-        mode = "legacy";
-      } else {
-        rules = proxyRulesFor(listener.port);
-      }
-    }
-    await guestSession(host).setProxy(setProxyConfigFor(mode, rules));
-    if (hostProxyPending.get(host.id) === entry) {
+    const isCurrent = () => hostProxyPending.get(host.id) === entry;
+    const mode = await settleHostProxy(host, localOrigin, {
+      probeTunnel: () => probeTunnel(host),
+      ensureListener: () => ensureHostProxyListener(host),
+      setProxy: (config) => guestSession(host).setProxy(config),
+      isCurrent,
+    });
+    if (isCurrent()) {
       hostProxyStates.set(host.id, { url, mode });
     }
     return mode;

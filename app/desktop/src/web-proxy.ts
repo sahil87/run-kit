@@ -7,8 +7,10 @@
  * parts — `session.fromPartition`, the capability probe (health `tunnel`
  * field gate + a WebSocket round-trip through `/ws/tunnel`), the per-host
  * loopback proxy listener (`tunnel-proxy.ts`), and the awaited
- * `session.setProxy` apply — live in `main.ts`; the sibling
- * `web-proxy.test.ts` covers every derivation arm under plain `node --test`.
+ * `session.setProxy` apply — live in `main.ts` behind the injected
+ * `HostProxySettleEffects`; the sibling `web-proxy.test.ts` covers every
+ * derivation arm and the settle flow's staleness gating under plain
+ * `node --test`.
  *
  * Modes:
  * - `direct` — the host IS this machine's daemon: no proxy, the native
@@ -90,4 +92,54 @@ export function setProxyConfigFor(
     return { mode: "fixed_servers", proxyRules: rules, proxyBypassRules: "<-loopback>" };
   }
   return { mode: "direct" };
+}
+
+/** The impure halves of a host-mode settle, injected by main.ts so the flow
+ *  stays electron-free and unit-testable. */
+export interface HostProxySettleEffects {
+  /** The capability probe against the URL captured at settle start. */
+  probeTunnel(): Promise<boolean>;
+  /** The host's loopback proxy listener (null = degrade to legacy). */
+  ensureListener(): Promise<{ port: number } | null>;
+  /** The awaited guest-session setProxy apply. */
+  setProxy(config: ReturnType<typeof setProxyConfigFor>): Promise<void>;
+  /** Whether this settle still owns the host's pending slot — false once the
+   *  host's URL changed mid-settle and a newer query replaced it. Monotonic:
+   *  a replaced entry is never reinstated. */
+  isCurrent(): boolean;
+}
+
+/**
+ * The probe → listener → setProxy settle flow (main.ts runs it as the
+ * host's pending query). Side effects are current-gated: a settle whose
+ * pending entry was replaced mid-flight (the host's URL changed) MUST NOT
+ * create a listener for the superseded origin or setProxy the shared guest
+ * session — new guests would route through the old front end. The returned
+ * mode is the derivation either way; only the apply is gated.
+ */
+export async function settleHostProxy(
+  host: { url: string; remote?: string },
+  localOrigin: string | null,
+  effects: HostProxySettleEffects,
+): Promise<WebProxyMode> {
+  // An optimistic probe result isolates the locality question: "direct"
+  // here means local, anything else is remote/url and earns the real probe.
+  let mode = webProxyModeFor(host, localOrigin, true);
+  if (mode !== "direct") {
+    mode = webProxyModeFor(host, localOrigin, await effects.probeTunnel());
+  }
+  let rules: string | null = null;
+  if (mode === "proxy" && effects.isCurrent()) {
+    const listener = await effects.ensureListener();
+    if (listener === null) {
+      // No listener, no proxy — degrade, never a broken tile.
+      mode = "legacy";
+    } else {
+      rules = proxyRulesFor(listener.port);
+    }
+  }
+  if (effects.isCurrent()) {
+    await effects.setProxy(setProxyConfigFor(mode, rules));
+  }
+  return mode;
 }

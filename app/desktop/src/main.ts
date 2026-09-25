@@ -70,7 +70,6 @@ import {
 } from "electron";
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { connect as netConnect } from "node:net";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
@@ -174,6 +173,7 @@ import {
   webProxyModeFor,
   WebProxyMode,
 } from "./web-proxy";
+import { createLocalProxy, LocalProxy, tunnelWsUrl } from "./tunnel-proxy";
 import {
   loadWindows,
   saveWindows,
@@ -580,7 +580,7 @@ const WEB_FIND_TEXT_MAX_LENGTH = 1024;
 const WEB_ZOOM_FACTOR_MIN = 0.25;
 const WEB_ZOOM_FACTOR_MAX = 5;
 /** The capability probe's bounds — the `/api/health` gate shares
- *  HEALTH_TIMEOUT_MS; this caps the raw-TCP CONNECT probe. */
+ *  HEALTH_TIMEOUT_MS; this caps the tunnel WebSocket round-trip. */
 const PROXY_PROBE_TIMEOUT_MS = 5000;
 
 /** Per-host guest sessions, keyed by partition name. */
@@ -608,22 +608,22 @@ function guestWebPreferences(host: ViewHost): Electron.WebPreferences {
 }
 
 /**
- * The proxy capability probe: a remote host earns `proxy` mode only when its
- * rk server provably carries the forward proxy. Two gates, both required:
+ * The proxy capability probe: a remote host earns `proxy` mode only when the
+ * tunnel path provably works end to end. Two gates, both required:
  *  1. `GET <origin>/api/health` answers HTTP 200 (exactly — the capability
- *     contract) with a numeric `forwardProxy` field (the daemon's listen
- *     port) — absent means an older server, no probe attempted.
- *  2. A live CONNECT through the computed proxy target (`proxyRulesFor`):
- *     raw-TCP `CONNECT 127.0.0.1:<forwardProxyPort>` must answer
- *     `HTTP/1.1 200` — the health field alone cannot detect a TLS front end
- *     that drops CONNECT. The authority is the rk host's own listen port,
- *     which is listening on every rk host, so one probe shape covers tunnel,
- *     direct, and raw-port targets.
- * Any failure — timeout, non-200, unreachable target — is `{ ok: false }`,
- * never a throw.
+ *     contract) with a numeric `tunnel` field (the daemon's listen port) —
+ *     absent means an older server, no probe attempted.
+ *  2. A WebSocket round-trip through `<ws-origin>/ws/tunnel?target=
+ *     127.0.0.1:<port>` (the rk host's own listen port — listening on every
+ *     rk host): send `GET /api/health` and require an `HTTP/1.1 200` status
+ *     line. This proves the whole path — the front end passes the upgrade,
+ *     rk accepts the Origin-less client, the dial works, and bytes flow
+ *     both ways.
+ * Any failure — timeout, handshake refused, non-200 — is false, never a
+ * throw.
  */
-async function probeForwardProxy(host: ViewHost): Promise<{ ok: boolean; rules: string | null }> {
-  let forwardProxy: number | null = null;
+async function probeTunnel(host: ViewHost): Promise<boolean> {
+  let tunnelPort: number | null = null;
   try {
     const res = await net.fetch(`${host.url}/api/health`, {
       signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
@@ -633,35 +633,35 @@ async function probeForwardProxy(host: ViewHost): Promise<{ ok: boolean; rules: 
       if (
         typeof body === "object" &&
         body !== null &&
-        "forwardProxy" in body &&
-        typeof body.forwardProxy === "number" &&
-        Number.isInteger(body.forwardProxy) &&
-        body.forwardProxy > 0 &&
-        body.forwardProxy <= 65535
+        "tunnel" in body &&
+        typeof body.tunnel === "number" &&
+        Number.isInteger(body.tunnel) &&
+        body.tunnel >= 1 &&
+        body.tunnel <= 65535
       ) {
-        forwardProxy = body.forwardProxy;
+        tunnelPort = body.tunnel;
       }
     }
   } catch {
-    return { ok: false, rules: null };
+    return false;
   }
-  if (forwardProxy === null) return { ok: false, rules: null };
-  const rules = proxyRulesFor(host.url, forwardProxy);
-  if (rules === null) return { ok: false, rules: null };
-  const target = new URL(rules); // rules are always `http://<host>[:<port>]`
-  // An http origin with no explicit port omits it from the rules; that is
-  // port 80, not "no probe".
-  const port = target.port === "" ? 80 : Number(target.port);
-  if (!Number.isInteger(port) || port <= 0) return { ok: false, rules: null };
-  const ok = await connectProbe(target.hostname, port, forwardProxy);
-  return ok ? { ok: true, rules } : { ok: false, rules: null };
+  if (tunnelPort === null) return false;
+  return tunnelProbeRoundTrip(host.url, tunnelPort);
 }
 
-/** The raw-TCP CONNECT probe: connect to the proxy target, send the CONNECT
- *  request line, and require a `200` response head within the deadline. */
-function connectProbe(host: string, port: number, authorityPort: number): Promise<boolean> {
+/** The round-trip half of the probe: one binary frame carrying the HTTP
+ *  request (the server relays binary verbatim and ignores text), answered
+ *  by an `HTTP/1.1 200` status line within the deadline. */
+function tunnelProbeRoundTrip(origin: string, tunnelPort: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = netConnect({ host, port });
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(tunnelWsUrl(origin, `127.0.0.1:${tunnelPort}`));
+    } catch {
+      resolve(false);
+      return;
+    }
+    ws.binaryType = "arraybuffer";
     let settled = false;
     let head = "";
     const timer = setTimeout(() => finish(false), PROXY_PROBE_TIMEOUT_MS);
@@ -669,23 +669,31 @@ function connectProbe(host: string, port: number, authorityPort: number): Promis
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      socket.destroy();
+      try {
+        ws.close();
+      } catch {
+        // Closing an already-dead probe socket.
+      }
       resolve(ok);
     }
-    socket.once("connect", () => {
-      socket.write(
-        `CONNECT 127.0.0.1:${authorityPort} HTTP/1.1\r\nHost: 127.0.0.1:${authorityPort}\r\n\r\n`,
+    ws.addEventListener("open", () => {
+      ws.send(
+        new TextEncoder().encode(
+          `GET /api/health HTTP/1.1\r\nHost: 127.0.0.1:${tunnelPort}\r\nConnection: close\r\n\r\n`,
+        ),
       );
     });
-    socket.on("data", (chunk: Buffer) => {
-      head += chunk.toString("utf8");
+    ws.addEventListener("message", (event) => {
+      const data: unknown = event.data;
+      if (typeof data === "string") head += data;
+      else if (data instanceof ArrayBuffer) head += Buffer.from(data).toString("utf8");
+      else return;
       const eol = head.indexOf("\r\n");
       if (eol === -1) return;
-      const line = head.slice(0, eol);
-      finish(line.startsWith("HTTP/1.1 200") || line.startsWith("HTTP/1.0 200"));
+      finish(head.slice(0, eol).startsWith("HTTP/1.1 200"));
     });
-    socket.once("error", () => finish(false));
-    socket.once("close", () => finish(false));
+    ws.addEventListener("error", () => finish(false));
+    ws.addEventListener("close", () => finish(false));
   });
 }
 
@@ -726,11 +734,18 @@ async function ensureHostProxy(host: ViewHost): Promise<WebProxyMode> {
     // An optimistic probe result isolates the locality question: "direct"
     // here means local, anything else is remote/url and earns the real probe.
     let mode = webProxyModeFor(host, localOrigin, true);
-    let rules: string | null = null;
     if (mode !== "direct") {
-      const probe = await probeForwardProxy(host);
-      mode = webProxyModeFor(host, localOrigin, probe.ok);
-      rules = probe.rules;
+      mode = webProxyModeFor(host, localOrigin, await probeTunnel(host));
+    }
+    let rules: string | null = null;
+    if (mode === "proxy") {
+      const listener = await ensureHostProxyListener(host);
+      if (listener === null) {
+        // No listener, no proxy — degrade, never a broken tile.
+        mode = "legacy";
+      } else {
+        rules = proxyRulesFor(listener.port);
+      }
     }
     await guestSession(host).setProxy(setProxyConfigFor(mode, rules));
     if (hostProxyPending.get(host.id) === entry) {
@@ -746,6 +761,36 @@ async function ensureHostProxy(host: ViewHost): Promise<WebProxyMode> {
       hostProxyPending.delete(host.id);
     }
   }
+}
+
+/** Per-host loopback proxy listeners (createLocalProxy in tunnel-proxy.ts),
+ *  keyed on hosts.json id; the url the listener was created for rides along
+ *  so a changed url never reuses a listener pointed at the old origin. */
+const hostProxyListeners = new Map<string, { url: string; listener: LocalProxy }>();
+
+/** Start the host's loopback listener, or reuse the live one while the
+ *  host's url is unchanged. A creation failure is null — the caller
+ *  degrades the host to `legacy`. */
+async function ensureHostProxyListener(host: ViewHost): Promise<LocalProxy | null> {
+  const existing = hostProxyListeners.get(host.id);
+  if (existing && existing.url === host.url) return existing.listener;
+  closeHostProxyListener(host.id);
+  try {
+    const listener = await createLocalProxy(host.url);
+    hostProxyListeners.set(host.id, { url: host.url, listener });
+    return listener;
+  } catch {
+    return null;
+  }
+}
+
+/** Best-effort listener teardown: a close failure strands nothing the next
+ *  ensure cannot replace. */
+function closeHostProxyListener(hostId: string): void {
+  const existing = hostProxyListeners.get(hostId);
+  if (!existing) return;
+  hostProxyListeners.delete(hostId);
+  void existing.listener.close().catch(() => {});
 }
 
 /** Per-(window, host, tabKey) guest registry — pure logic in ./web-views,
@@ -1428,6 +1473,7 @@ function removeHostEverywhere(id: string): void {
   const entry = list.hosts.find((h) => h.id === id);
   if (!entry) return;
   removeHost(userDataDir(), id);
+  closeHostProxyListener(id); // the loopback listener dies with its host entry
   destroyHostViews(id); // the views die with their host entry — in every window
   rebuildMenu();
 }
@@ -1859,6 +1905,7 @@ async function connectRemoteHost(
     // The tunnel origin may differ from the stored url across reconnects —
     // drop the derived proxy state so it recomputes against the live origin.
     hostProxyStates.delete(existing.id);
+    closeHostProxyListener(existing.id);
     return switchToHost(win, existing.id);
   }
   const addedHost = addHost(userDataDir(), info.name, origin, info.name);
@@ -1927,6 +1974,7 @@ async function ensureRemoteConnected(
     // A healed tunnel can carry a fresh origin — re-derive the host's proxy
     // state lazily on the next ensure.
     hostProxyStates.delete(host.id);
+    closeHostProxyListener(host.id);
     reloadFailedView(windowId, host);
     return { ok: true };
   } finally {
@@ -2455,6 +2503,7 @@ function registerIpcHandlers(): void {
     setHostUrl(userDataDir(), parsed.id, normalized.origin);
     hostProxyStates.delete(parsed.id); // the proxy mode re-derives lazily on
     // the next ensure against the NEW origin
+    closeHostProxyListener(parsed.id);
     destroyHostViews(parsed.id); // stale views die in EVERY window — the
     // per-window fallback (first remaining host or welcome) keeps any window
     // that displayed this host off a destroyed view
@@ -2992,6 +3041,7 @@ app.on("before-quit", () => {
   // The next per-window 'close' handlers keep their records (the whole set
   // restores next launch) instead of dropping them one by one.
   quitting = true;
+  for (const hostId of [...hostProxyListeners.keys()]) closeHostProxyListener(hostId);
 });
 
 app.on("window-all-closed", () => {

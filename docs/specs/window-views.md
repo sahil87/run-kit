@@ -115,13 +115,17 @@ absent invoker reads as `legacy`):
   URLs (`http://localhost:6000/…`) with no proxy.
 - **`proxy`** — a remote host whose capability probe passed: the engine loads
   literal URLs, and ALL guest traffic — DNS included — resolves on the rk host
-  through its forward proxy ([`api.md`](api.md) § Forward Proxy). Each host
-  runs in its own `persist:rk-web:<host.id>` session partition configured with
-  `session.setProxy` `{ fixed_servers, proxyBypassRules: "<-loopback>" }`;
-  TLS-fronted (https) host origins proxy via `http://<hostname>:<advertised
-  listen port>` only on a tailnet (`*.ts.net` or `100.64.0.0/10`, where the
-  hop is WireGuard-encrypted); any other https origin stays `legacy` rather
-  than downgrading TLS to plaintext. Accepted cons: all web-tile egress leaves from the remote host
+  through a WebSocket tunnel ([`api.md`](api.md) § Tunnel). Each host
+  runs in its own `persist:rk-web:<host.id>` session partition whose
+  `session.setProxy` `{ fixed_servers, proxyBypassRules: "<-loopback>" }`
+  points at a desktop-local loopback proxy (`http://127.0.0.1:<ephemeral>`,
+  one listener per host); the local proxy terminates Chromium's proxy protocol
+  and rides each connection over a WebSocket to the host's `/ws/tunnel`, which
+  dials `host:port` from the rk host and pipes bytes. Because only WebSocket
+  upgrades need to traverse the path, remote-native mode works behind ANY
+  front end that passes WebSockets (Tailscale Serve, nginx, Cloudflare Tunnel
+  — origin-form reverse proxies that reject CONNECT) with no raw-port or
+  tailnet special case. Accepted cons: all web-tile egress leaves from the remote host
   (its IP and latency), and the viewer's own localhost, LAN, and VPN are
   unreachable from the native tile in this mode — the iframe-engine opt-out
   remains the viewer-local escape hatch.

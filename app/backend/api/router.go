@@ -1057,6 +1057,10 @@ func (s *Server) buildRouter() chi.Router {
 	// frames only; the backend never listens on TCP itself). See api/gui_ws.go.
 	r.Get("/ws/gui/{id}", s.handleGuiWS)
 
+	// Web-tile tunnel — dials target TCP from this host and pipes bytes over
+	// the socket (Origin-less clients only). See api/tunnel_ws.go.
+	r.Get("/ws/tunnel", s.handleTunnelWS)
+
 	// MCP streamable-HTTP transport — POST (client→server), GET (SSE stream),
 	// DELETE (session end) on ONE path, the single recorded Constitution IX
 	// exception (docs/specs/api.md § MCP). chi's Handle matches every method;

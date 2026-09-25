@@ -31,10 +31,9 @@ Justfile recipes MUST be one-liners that delegate to `scripts/`. Logic, loops, a
 ### IX. Uniform HTTP Verb
 All mutating API endpoints MUST use `POST`. `PUT`, `PATCH`, and `DELETE` SHALL NOT be used — read operations are `GET`, everything else is `POST`. Fewer verb shapes means fewer ways for a client call to be wrong, and the operation's intent belongs in the URL path and request body, not the HTTP method. The CORS `AllowedMethods` allowlist MUST be `[GET, POST, OPTIONS]`. Endpoint semantics that would conventionally map to other verbs (e.g. partial updates) are expressed via the path and a documented body contract (e.g. partial-merge: present keys set, `null` unsets).
 
-Two documented exceptions.
+One documented exception:
 
-1. **The MCP streamable-HTTP transport** binds `/mcp` — and only `/mcp` — to `POST` + `GET` + `DELETE` on a single path because the protocol mandates all three (`docs/specs/mcp.md` § Transports, `docs/specs/api.md` § MCP). The exception is transport-scoped, grants nothing to `/api/*`, and leaves the CORS allowlist at `[GET, POST, OPTIONS]`.
-2. **The HTTP forward-proxy transport.** The daemon accepts HTTP forward-proxy traffic on its listen port — `CONNECT host:port` (authority-form, used for https and WebSocket tunnels) and absolute-form plain-HTTP requests (`GET http://host:port/path`) — because the HTTP proxy protocol mandates those request shapes (`docs/specs/api.md` § Forward Proxy). Proxy-shaped requests are handled by a transport wrapper ahead of the router; the exception is transport-scoped, grants nothing to `/api/*`, adds no route, and leaves the CORS allowlist at `[GET, POST, OPTIONS]`. The proxy dials with `net.Dialer` timeouts and never spawns a subprocess (Principle I), and holds no state beyond live connections (Principle II).
+**The MCP streamable-HTTP transport** binds `/mcp` — and only `/mcp` — to `POST` + `GET` + `DELETE` on a single path because the protocol mandates all three (`docs/specs/mcp.md` § Transports, `docs/specs/api.md` § MCP). The exception is transport-scoped, grants nothing to `/api/*`, and leaves the CORS allowlist at `[GET, POST, OPTIONS]`.
 
 ### X. Hooks Carry Only the Underivable
 Agent-harness hooks (lifecycle telemetry pushed by hook commands into tmux or the filesystem) SHALL carry only state that cannot be derived from tmux, the filesystem, or git at request time — ephemeral in-flight facts such as busy/waiting lifecycle and the pending question text, which exist nowhere on disk. Anything derivable from a pane's cwd, git, `gh`, or fab artifacts (PR links, branches, worktrees, change identity, diff stats) MUST be derived server-side per Principle II — never pushed by an agent. When a fact is available both ways, derivation wins.
@@ -58,4 +57,4 @@ This tool is part of the shll toolkit and MUST conform to the toolkit's publishe
 
 ## Governance
 
-**Version**: 1.13.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-09-25
+**Version**: 1.14.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-09-25

@@ -8,7 +8,7 @@
 
 ## Design Principles
 
-1. **POST for all mutations** — every write operation uses POST. Intent communicated by URL path, not HTTP method. Simplifies the client, avoids CORS preflight for non-simple methods. Two documented exceptions: `/mcp` (§ MCP) is bound by the MCP streamable-HTTP transport to `POST` + `GET` + `DELETE` on a single path, and the forward-proxy transport (§ Forward Proxy) accepts `CONNECT` and absolute-form plain-HTTP request targets on the listen port, handled by a wrapper ahead of the router. Both exceptions are transport-scoped and do not extend to `/api/*`.
+1. **POST for all mutations** — every write operation uses POST. Intent communicated by URL path, not HTTP method. Simplifies the client, avoids CORS preflight for non-simple methods. One documented exception: `/mcp` (§ MCP) is bound by the MCP streamable-HTTP transport to `POST` + `GET` + `DELETE` on a single path. The exception is transport-scoped and does not extend to `/api/*`.
 2. **GET for all reads** — session listing, directory autocomplete, SSE stream, health check.
 3. **Consistent error shape** — every error returns `{ "error": "<message>" }` with an appropriate HTTP status.
 4. **Validated at the boundary** — all user input validated before reaching tmux; invalid input never touches a subprocess.
@@ -49,13 +49,13 @@ Supervisor health check. No authentication.
 
 **Response** `200`:
 ```json
-{ "status": "ok", "forwardProxy": 3001 }
+{ "status": "ok", "tunnel": 3001 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `status` | `string` | Always `"ok"` |
-| `forwardProxy` | `number` | The daemon's listen port, advertised so the desktop shell can point per-host guest proxies at it (§ Forward Proxy). Older daemons omit the field; its absence reads as no forward-proxy capability |
+| `tunnel` | `number` | The daemon's listen port, advertised so the desktop shell can self-test the tunnel against the host's own listen port (§ Tunnel). Older daemons omit the field; its absence reads as no tunnel capability |
 
 ---
 
@@ -589,72 +589,114 @@ visible; it grants nothing to any `/api/*` route.
 
 ---
 
-### Forward Proxy
+### Tunnel
 
-The daemon doubles as an HTTP forward proxy on its existing listen port, so the
-desktop shell's native web engine can route guest traffic through the rk host
-([`window-views.md`](window-views.md) § Engines). This is a **transport, not a
-route**: proxy-shaped requests are intercepted by a handler wrapper AHEAD of the
-chi router (`CONNECT` has an empty path and would never match a chi route), the
-wrapper adds no route to the route table, and chi's `cors` / `Logger` /
-`Recoverer` middleware does not apply to it — the wrapper carries its own panic
-recovery and `slog` logging.
+The daemon carries byte tunnels over a WebSocket so the desktop shell's native
+web engine can route guest traffic through the rk host
+([`window-views.md`](window-views.md) § Engines) behind ANY front end that
+passes WebSocket upgrades. The endpoint lives under `/ws/*` beside the other
+sockets: every front end rk works behind already passes WebSockets there (the
+terminal relay and state socket depend on it), the Vite dev proxy upgrades
+only `/ws`, and path-scoped WebSocket front-end configs (`location /ws/ { … }`)
+already match.
 
-**Detection:**
+#### `GET /ws/tunnel?target=<host>:<port>` (Upgrade: websocket)
 
-| Request shape | Example request line | Detection | Handling |
-|---------------|----------------------|-----------|----------|
-| Authority-form CONNECT | `CONNECT localhost:6000 HTTP/1.1` | `r.Method == http.MethodConnect` | Tunnel |
-| Absolute-form plain HTTP | `GET http://localhost:6000/assets/x.js HTTP/1.1` | Request target is absolute (`r.URL.IsAbs()`) | Forward |
-| Anything else | `GET /api/health HTTP/1.1` | — | The router, unchanged |
+An ordinary `GET` upgrade — no Principle IX exception. Handled by
+`tunnel_ws.go` with its own dedicated upgrader. Every rejection happens BEFORE
+the upgrade, as a plain HTTP error in the `{ "error": "..." }` shape, in this
+order:
 
-Chromium sends `https://` and WebSocket (`ws://`/`wss://`) traffic through an
-HTTP proxy via CONNECT, and plain `http://` via absolute-form requests.
+| Step | Check | Failure |
+|------|-------|---------|
+| 1 | Origin policy (§ WebSocket Origin policy below): the request carries NO `Origin` and NO `Sec-Fetch-Site` header | `403` |
+| 2 | `target` parses via `net.SplitHostPort`, non-empty host, numeric port 1–65535 | `400` |
+| 3 | Dial `target` with a `net.Dialer` timeout (10 s, a named constant) via `DialContext` on the request context; hostnames resolve on the rk host (Go's resolver — Docker service names, internal DNS, `*.localhost` all work) | `502` |
+| 4 | Upgrade via the dedicated tunnel upgrader | gorilla's own handshake error |
 
-**CONNECT tunnel:**
-- Dials the authority (`host:port`) with a `net.Dialer` timeout (10 s, a named
-  constant) via `DialContext` bound to the request context; hostnames resolve
-  on the rk host (Go's resolver — Docker service names, internal DNS,
-  `*.localhost` all work).
-- Dial failure → `502 Bad Gateway` before hijack. On success → hijack the
-  client connection, write `HTTP/1.1 200 Connection Established`, flush any
-  bytes already buffered in the hijacked `bufio.ReadWriter` to the upstream,
-  then a bidirectional copy (two `io.Copy` goroutines).
-- Cleanup is close-driven: when either direction ends, both connections close
-  (half-close via `CloseWrite` where available, then full close), so neither
-  goroutine nor socket leaks. NO fixed deadline or idle cap — HMR WebSockets
-  and long-polls are long-lived.
+**Dial before upgrade** — a completed handshake signals "connected", so the
+desktop maps handshake open/failure directly onto Chromium's `200 Connection
+Established` / `502 Bad Gateway` with no in-band signalling.
 
-**Absolute-form forwarding:**
-- Forwards to the URL's host (resolved on the rk host) with an `http.Transport`
-  whose `Proxy` is nil (never chained through the daemon's own `HTTP_PROXY`
-  env), a 5 s dial timeout, and a 10 s response-header timeout (the `proxy.go`
-  shape).
-- Hop-by-hop and proxy-only headers are stripped: `Proxy-Connection`,
-  `Proxy-Authorization`, `Connection`-listed headers, `Keep-Alive`, `TE`,
-  `Trailer`, `Transfer-Encoding`, non-tunnelled `Upgrade`.
-- NO content rewriting — the response passes through verbatim (the opposite of
-  `/proxy/{port}`'s HTML rewrite). Upstream failure → `502 Bad Gateway`.
+**Byte pipe** — modeled on the `gui_ws.go` WS↔TCP relay:
+- Binary frames both ways. A TCP→WS pump goroutine is the ONLY WebSocket
+  writer, reading 64 KiB chunks and writing each as one binary message;
+  upstream EOF sends a normal close frame, then teardown.
+- WS→TCP: binary messages are written verbatim to the TCP conn; text frames
+  are ignored (forward-compat). A 1 MiB `SetReadLimit` bounds one inbound
+  message (memory-DoS, the `guiReadLimit` rationale).
+- Cleanup is close-driven and leak-free: either side ending closes BOTH the
+  TCP conn and the WebSocket, and the handler waits for the pump goroutine —
+  no goroutine or socket outlives the handler. NO idle cap and no fixed
+  deadline on an established tunnel — HMR WebSockets and long-polls are
+  long-lived. WebSocket has no half-close, so an upstream FIN ends the
+  tunnel.
 
-**Destination policy: NONE.** The proxy dials any destination — loopback, LAN,
-internet — with no allowlist or blocklist. Rationale: anyone who can reach rk
-already has a shell on the host through the terminal relay (rk has no auth —
-Tailnet-only / SSH-tunnel-only by deployment), so restricting destinations is
-security theater and adds no exposure beyond what rk already grants. Browser
-pages cannot abuse it cross-site: `CONNECT` is a forbidden method for
-`fetch`/XHR and a page cannot emit an absolute-form request line, so no new
-CSRF surface is created.
+**Ping keepalive** — the server sends a WS ping control frame every 30 s (a
+named constant) on an established tunnel, so front-end idle timeouts (nginx
+`proxy_read_timeout` 60 s default, Cloudflare ~100 s) do not sever an idle HMR
+socket inside the tunnel. `WriteControl` is safe concurrently with the pump
+writer; the Node/undici client answers pings automatically.
 
-**Constitution stance** — the second transport-scoped Principle IX exception,
-beside `/mcp`. The proxy spawns no subprocess (net dialing only, Constitution
-I), holds no state beyond live connections (Constitution II), and leaves the
-CORS allowlist at `GET POST OPTIONS`. `/proxy/{port}` and `/code` are
-untouched — they remain for the iframe engine and browser viewers.
+**Destination policy: NONE.** The tunnel dials any destination — loopback,
+LAN, internet — with no allowlist or blocklist. Rationale: anyone who can
+reach rk already has a shell on the host through the terminal relay (rk has
+no auth — Tailnet-only / SSH-tunnel-only by deployment), so restricting
+destinations is security theater and adds no exposure beyond what rk already
+grants. Browser pages cannot reach it at all (§ WebSocket Origin policy).
 
-**Capability advertisement** — `GET /api/health` carries `forwardProxy` (a JSON
-number, the daemon's listen port); older daemons omit the field (§ Health). The
-desktop shell gates proxy mode on this field plus a live CONNECT probe through
-the actual proxy path.
+**Constitution stance** — no exception needed: a WebSocket upgrade is an
+ordinary `GET`. The tunnel spawns no subprocess (net dialing only,
+Constitution I) and holds no state beyond live connections (Constitution II).
+`/proxy/{port}` and `/code` are untouched — they remain for the iframe
+engine and browser viewers.
+
+**Capability advertisement** — `GET /api/health` carries `tunnel` (a JSON
+number, the daemon's listen port); older daemons omit the field (§ Health).
+The desktop shell gates proxy mode on this field plus a live tunnel
+round-trip to the host's own listen port.
+
+#### WebSocket Origin policy
+
+Browsers do not apply CORS to WebSockets, so each upgrader enforces its own
+Origin policy. All rejections answer `403`.
+
+**Tunnel upgrader** (`/ws/tunnel`) — the strictest acceptable policy: accept
+ONLY requests carrying NO `Origin` header AND NO `Sec-Fetch-Site` header. The
+tunnel's sole client is the Electron main process (a non-browser client);
+every browser WebSocket carries an unsuppressable `Origin`, so this rejects
+all browser pages — cross-site, same-site, and DNS-rebinding alike. rk's own
+origin is rejected too (the SPA never opens the tunnel). The no-Origin rule
+makes the tunnel immune to DNS rebinding.
+
+**Shared upgrader** (`/ws/state`, `/ws/terminals`, `/ws/gui/{id}`) —
+Fetch-Metadata-first same-origin policy:
+
+| Step | Condition | Verdict |
+|------|-----------|---------|
+| 1 | `Sec-Fetch-Site: same-origin` | allow |
+| 2 | `Sec-Fetch-Site` present with any other value (`cross-site`, `same-site`, …) | reject |
+| 3 | `Sec-Fetch-Site` absent, `Origin` absent | allow (non-browser clients: Go/Node tooling, tests) |
+| 4 | `Origin` host[:port] equals (case-insensitive, default ports 80/443 normalized) the first `X-Forwarded-Host` value when present, else the request's `Host` | allow |
+| 5 | Anything else, including a malformed `Origin` | reject |
+
+Scheme is not compared — a TLS front end terminates TLS, so `Origin:
+https://…` meets a plain-http hop. The browser computes `Sec-Fetch-Site`
+against the URL IT connected to, so a Host-rewriting front end (nginx
+default, Tailscale Serve, load balancers) cannot break the SPA's own
+sockets. Trusting `X-Forwarded-Host` is safe here: the browser `WebSocket`
+API cannot set custom request headers, and a non-browser client can simply
+omit `Origin`.
+
+**Known limitations:**
+- **DNS rebinding** is not stopped by the shared upgrader's Host-match rule
+  (under rebinding both `Origin` and `Host` carry the attacker's name). The
+  tunnel is immune via its no-Origin rule; the MCP transport's bind-derived
+  allowlist is the precedent if the shared sockets ever need one.
+- **CORS stays allow-all** (`AllowedOrigins: ["*"]`), so cross-site pages
+  can still call `/api/*`. The WebSocket tightening is defense-in-depth for
+  the socket surface, not a closure of the cross-site hole; CORS tightening
+  is a follow-up.
 
 ---
 
@@ -737,6 +779,7 @@ the actual proxy path.
 | `POST` | `/api/update` | `update.go` | One-click toolkit upgrade (scoped/force) |
 | `POST` | `/api/updates/check` | `update.go` | On-demand update check (inline checker pass, synchronous verdict) |
 | `WS` | `/ws/terminals` | `terminals_ws.go` | Terminals mux (all pane relays, one socket/tab) |
+| `WS` | `/ws/tunnel` | `tunnel_ws.go` | Byte tunnel to `host:port` for the desktop web tile (§ Tunnel) |
 | `POST` | `/api/windows/:windowId/send` | `send.go` | Compose-strip send into a window's pane (the injection engine's HTTP door) |
 | `POST` | `/api/windows/:windowId/operator-request` | `operator.go` | Window-scoped operator request (closed template registry; busy ⇒ 202 queued) |
 | `POST` | `/api/operator-request` | `operator.go` | Server-scoped operator request (same registry) |
@@ -750,7 +793,3 @@ the actual proxy path.
 | `POST` | `/api/boards/:name/reorder` | `boards.go` | Reorder a pinned window (`{server, windowId, before?, after?}`) |
 | `POST` `GET` `DELETE` | `/mcp` | `mcp.go` | MCP streamable-HTTP transport (Constitution IX exception, see § MCP) |
 | `GET` | `/*` | `spa.go` | SPA static + fallback |
-
-The HTTP forward proxy is a transport wrapper ahead of the router, not a route,
-so it has no row here (§ Forward Proxy): `CONNECT` and absolute-form request
-targets are handled before this table is consulted.

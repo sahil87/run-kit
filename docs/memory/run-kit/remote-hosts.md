@@ -74,7 +74,7 @@ The command is passed as **argv elements** — tmux ≥3.4 executes a multi-argu
 
 Placing tunnels on the **rk-daemon** socket makes them invisible to the dashboard's user-session enumeration and independent of the daemon's own lifecycle: `rk daemon stop` kills only `=rk-daemon`, never a tunnel. The explicit `rk daemon restart --full` whole-server kill is the exception, and it reconnects the previously-up tunnels itself.
 
-The same `-L` forward also carries the desktop shell's web-tile proxy traffic: the remote rk listen port doubles as an HTTP forward proxy ([api-and-sockets](/run-kit/api-and-sockets.md) § Forward Proxy), and the shell's `proxy` web mode targets the viewer-side tunnel origin `http://127.0.0.1:<lp>` ([desktop-shell](/run-kit/desktop-shell.md) § Web Views → Per-host proxy modes) — no new forward and no second exposed port.
+The same `-L` forward also carries the desktop shell's web-tile tunnel WebSockets: the shell's `proxy` web mode terminates Chromium's proxy protocol at a desktop-local loopback listener and tunnels each connection to the remote rk's `GET /ws/tunnel` endpoint through the viewer-side tunnel origin `http://127.0.0.1:<lp>` ([api-and-sockets](/run-kit/api-and-sockets.md) § Tunnel, [desktop-shell](/run-kit/desktop-shell.md) § Web Views → Per-host proxy modes) — no new forward and no second exposed port.
 
 #### Scenario: A dead tunnel reads as down and heals via connect
 - **GIVEN** a connected remote whose window is killed externally

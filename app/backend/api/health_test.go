@@ -252,11 +252,12 @@ func TestHealthEndpointSSHUser(t *testing.T) {
 	})
 }
 
-// The forwardProxy field advertises the forward-proxy capability: it is the
-// daemon's listen port (the proxy rides the same port), a JSON number derived
-// from config per request (Constitution II), ALWAYS present on this build —
-// its absence marks an older server.
-func TestHealthEndpointForwardProxy(t *testing.T) {
+// The tunnel field advertises the WebSocket tunnel endpoint's capability: it
+// is the daemon's listen port (the desktop's probe targets the tunnel at this
+// host's own listen port), a JSON number derived from config per request
+// (Constitution II), ALWAYS present on this build — its absence marks an
+// older server.
+func TestHealthEndpointTunnel(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	t.Run("carries the RK_PORT listen port as a number", func(t *testing.T) {
@@ -272,12 +273,15 @@ func TestHealthEndpointForwardProxy(t *testing.T) {
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
-		port, ok := body["forwardProxy"].(float64)
+		port, ok := body["tunnel"].(float64)
 		if !ok {
-			t.Fatalf("body.forwardProxy = %v (%T), want a JSON number", body["forwardProxy"], body["forwardProxy"])
+			t.Fatalf("body.tunnel = %v (%T), want a JSON number", body["tunnel"], body["tunnel"])
 		}
 		if port != 3001 {
-			t.Errorf("body.forwardProxy = %v, want 3001", port)
+			t.Errorf("body.tunnel = %v, want 3001", port)
+		}
+		if _, present := body["forwardProxy"]; present {
+			t.Errorf("body.forwardProxy present (%v), want absent", body["forwardProxy"])
 		}
 	})
 
@@ -294,12 +298,15 @@ func TestHealthEndpointForwardProxy(t *testing.T) {
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
-		port, ok := body["forwardProxy"].(float64)
+		port, ok := body["tunnel"].(float64)
 		if !ok {
-			t.Fatalf("body.forwardProxy absent or non-numeric (%v), want present", body["forwardProxy"])
+			t.Fatalf("body.tunnel absent or non-numeric (%v), want present", body["tunnel"])
 		}
 		if port != 3000 {
-			t.Errorf("body.forwardProxy = %v, want 3000 (default)", port)
+			t.Errorf("body.tunnel = %v, want 3000 (default)", port)
+		}
+		if _, present := body["forwardProxy"]; present {
+			t.Errorf("body.forwardProxy present (%v), want absent", body["forwardProxy"])
 		}
 	})
 }

@@ -4,19 +4,21 @@
  * config mapping.
  *
  * Deliberately electron-free (the `web-views.ts` precedent): the impure
- * parts — `session.fromPartition`, the capability probe (`net.fetch` health
- * gate + raw-TCP CONNECT), and the awaited `session.setProxy` apply — live
- * in `main.ts`; the sibling `web-proxy.test.ts` covers every derivation arm
- * under plain `node --test`.
+ * parts — `session.fromPartition`, the capability probe (health `tunnel`
+ * field gate + a WebSocket round-trip through `/ws/tunnel`), the per-host
+ * loopback proxy listener (`tunnel-proxy.ts`), and the awaited
+ * `session.setProxy` apply — live in `main.ts`; the sibling
+ * `web-proxy.test.ts` covers every derivation arm under plain `node --test`.
  *
  * Modes:
  * - `direct` — the host IS this machine's daemon: no proxy, the native
  *   engine loads literal URLs (`http://localhost:6000/…`).
  * - `proxy`  — a remote host whose capability probe passed: the host's guest
- *   session rides that host's rk forward proxy, so every guest URL resolves
- *   on the rk host.
+ *   session points at the host's loopback proxy listener in this process,
+ *   whose connections ride a WebSocket tunnel to the host's rk server, so
+ *   every guest URL resolves on the rk host.
  * - `legacy` — a remote host whose probe failed (an older rk server, or a
- *   TLS front end that drops CONNECT): today's `/proxy/{port}` behavior.
+ *   front end that refuses the tunnel upgrade): the `/proxy/{port}` path.
  */
 
 export type WebProxyMode = "direct" | "proxy" | "legacy";
@@ -64,43 +66,15 @@ export function webProxyModeFor(
 }
 
 /**
- * A MagicDNS name (`*.ts.net`) or an address in Tailscale's CGNAT range
- * `100.64.0.0/10` — the hosts whose traffic rides an encrypted tailnet hop.
+ * The `proxyRules` target for a host in `proxy` mode: the host's loopback
+ * proxy listener in this main process (`createLocalProxy` in
+ * `tunnel-proxy.ts`). Every guest connection terminates there and rides a
+ * WebSocket tunnel to the host's rk server, so the host origin needs no
+ * say in the rules — an `https:` origin included (`wss://` traverses the
+ * TLS front end).
  */
-export function isTailnetHostname(hostname: string): boolean {
-  const name = hostname.toLowerCase().replace(/\.$/, "");
-  if (name.endsWith(".ts.net")) return true;
-  const octets = name.split(".");
-  if (octets.length !== 4 || !octets.every((o) => /^\d{1,3}$/.test(o))) return false;
-  const [a, b] = octets.map(Number);
-  return a === 100 && b >= 64 && b <= 127 && octets.every((o) => Number(o) <= 255);
-}
-
-/**
- * The `proxyRules` target for a host in `proxy` mode, or null when no proxy
- * target exists (the caller derives `legacy` instead):
- * - `http:` origin (incl. an SSH host's viewer-side tunnel origin, which the
- *   existing `-L` forward carries to the remote rk port) ⇒ the origin's own
- *   host:port.
- * - `https:` origin ON A TAILNET (a TLS front end such as Tailscale Serve
- *   drops CONNECT) ⇒ the rk server's RAW listen port, advertised on
- *   `/api/health`, over plain http. Only a tailnet makes that hop safe — it is
- *   WireGuard-encrypted — so any other `https:` origin has no target: dropping
- *   its TLS to plaintext across an arbitrary network is never acceptable.
- */
-export function proxyRulesFor(hostUrl: string, advertisedPort: number | null): string | null {
-  let url: URL;
-  try {
-    url = new URL(hostUrl);
-  } catch {
-    return null;
-  }
-  if (url.protocol === "http:") return `http://${url.host}`;
-  if (url.protocol === "https:") {
-    if (advertisedPort === null || !isTailnetHostname(url.hostname)) return null;
-    return `http://${url.hostname}:${advertisedPort}`;
-  }
-  return null;
+export function proxyRulesFor(localPort: number): string {
+  return `http://127.0.0.1:${localPort}`;
 }
 
 /** The argument for the guest session's `setProxy`. `fixed_servers` carries

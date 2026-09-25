@@ -6,7 +6,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   guestPartitionName,
-  isTailnetHostname,
   proxyRulesFor,
   setProxyConfigFor,
   webProxyModeFor,
@@ -64,45 +63,10 @@ test("a non-loopback host is probe-gated", () => {
 
 // ── proxyRulesFor ───────────────────────────────────────────────────────────
 
-test("proxyRulesFor an http origin targets the origin itself", () => {
-  assert.equal(proxyRulesFor("http://127.0.0.1:3100", 3000), "http://127.0.0.1:3100");
-  assert.equal(proxyRulesFor("http://100.101.2.3:3000", null), "http://100.101.2.3:3000");
-});
-
-test("proxyRulesFor a tailnet https origin targets the advertised raw port", () => {
-  assert.equal(
-    proxyRulesFor("https://dev.example.ts.net", 3001),
-    "http://dev.example.ts.net:3001",
-  );
-  assert.equal(proxyRulesFor("https://100.101.2.3", 3001), "http://100.101.2.3:3001");
-});
-
-test("proxyRulesFor a non-tailnet https origin has no target (never downgrades TLS)", () => {
-  assert.equal(proxyRulesFor("https://rk.example.com", 3001), null);
-  assert.equal(proxyRulesFor("https://10.0.0.5", 3001), null);
-  assert.equal(proxyRulesFor("https://ts.net.example.com", 3001), null);
-});
-
-test("isTailnetHostname accepts MagicDNS names and the 100.64.0.0/10 range only", () => {
-  assert.equal(isTailnetHostname("dev.example.ts.net"), true);
-  assert.equal(isTailnetHostname("DEV.Example.TS.NET."), true);
-  assert.equal(isTailnetHostname("100.64.0.1"), true);
-  assert.equal(isTailnetHostname("100.127.255.255"), true);
-  assert.equal(isTailnetHostname("100.63.255.255"), false);
-  assert.equal(isTailnetHostname("100.128.0.1"), false);
-  assert.equal(isTailnetHostname("100.100.300.1"), false);
-  assert.equal(isTailnetHostname("192.168.1.10"), false);
-  assert.equal(isTailnetHostname("example.com"), false);
-  assert.equal(isTailnetHostname("ts.net.example.com"), false);
-});
-
-test("proxyRulesFor an https origin with no advertised port has no target", () => {
-  assert.equal(proxyRulesFor("https://dev.example.ts.net", null), null);
-});
-
-test("proxyRulesFor rejects unparseable and non-http(s) urls", () => {
-  assert.equal(proxyRulesFor("not a url", 3001), null);
-  assert.equal(proxyRulesFor("ftp://host:21", 3001), null);
+test("proxyRulesFor targets the host's loopback proxy listener", () => {
+  assert.equal(proxyRulesFor(40123), "http://127.0.0.1:40123");
+  assert.equal(proxyRulesFor(1), "http://127.0.0.1:1");
+  assert.equal(proxyRulesFor(65535), "http://127.0.0.1:65535");
 });
 
 // ── setProxyConfigFor ───────────────────────────────────────────────────────

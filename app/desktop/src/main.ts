@@ -62,6 +62,7 @@ import {
   nativeImage,
   nativeTheme,
   net,
+  screen,
   session,
   shell,
   webContents,
@@ -157,7 +158,9 @@ import {
   hostAttachPlan,
   hostDetachPlan,
   isGuestContents,
+  moveWebViewToWindow,
   parkWebView,
+  parkWindowWebViewsInto,
   removeHostWebViews,
   removeHostWebViewsEverywhere,
   removeWebView,
@@ -170,6 +173,12 @@ import {
   WebViewsState,
 } from "./web-views";
 import { findChord, parseChordSpecs, ChordSpec } from "./chords";
+import {
+  findPopoutWindow,
+  parsePopoutPayload,
+  PopoutRecord,
+  stripPopParam,
+} from "./popout";
 import {
   guestPartitionName,
   settleHostProxy,
@@ -236,6 +245,17 @@ const devUrl =
  * restore-order + menu-list order). Keyed on `BrowserWindow.id`.
  */
 const windows = new Map<number, BrowserWindow>();
+
+/**
+ * Popout windows (the SPA's Pop out verb over `shell:popout`) — keyed on
+ * `BrowserWindow.id`, dropped on `closed`. A popout is a same-host shell
+ * window showing one `?pop=` route; it is never persisted to windows.json,
+ * never switches host, and closes when its host is removed. The record's
+ * (hostId, route) pair is the dedupe key (a repeat Pop out focuses the live
+ * popout), and `openerWindowId` scopes the web-guest move between the opener
+ * and the popout (./web-views).
+ */
+const popouts = new Map<number, PopoutRecord>();
 
 /** Set by `before-quit` — a `close` during quit ACCUMULATES the window's
  *  record into `quitCaptures` (the whole set restores next launch); a user
@@ -360,6 +380,12 @@ type WebModeResult =
   | { ok: true; mode: WebProxyMode }
   | { ok: false; error: string };
 
+/** `shell:popout` envelope — the new popout window's id is the guest-move
+ *  target the popout's own `web:create` adoption keys on. */
+type PopoutResult =
+  | { ok: true; windowId: number }
+  | { ok: false; error: string };
+
 type DaemonStatusResult =
   | { ok: true; status: DaemonStatus }
   | { ok: false; error: string };
@@ -446,6 +472,15 @@ function titleForWindow(win: BrowserWindow): string {
   const hostId = activeHostForWindow(views, win.id);
   if (hostId === null) return PRODUCT_NAME;
   if (hostId === DEV_HOST_ID) return devUrl ? (originOf(devUrl) ?? PRODUCT_NAME) : PRODUCT_NAME;
+  // A popout window titles from the page's DOCUMENT title (the SPA's popout
+  // posture sets `<Surface> · <window name>`), falling back to the ordinary
+  // host — leaf form before the first page-title report.
+  if (popouts.has(win.id)) {
+    const entry = getView(views, win.id, hostId);
+    const docTitle =
+      entry && !entry.handle.webContents.isDestroyed() ? entry.handle.webContents.getTitle() : "";
+    if (docTitle !== "") return docTitle;
+  }
   const host = loadHosts(userDataDir()).hosts.find((h) => h.id === hostId);
   if (!host) return PRODUCT_NAME;
   return windowTitle(PRODUCT_NAME, host.name, routeForView(win, hostId));
@@ -1031,6 +1066,12 @@ function createHostView(win: BrowserWindow, hostId: string): WebContentsView {
   contents.on("did-navigate-in-page", () => {
     if (!win.isDestroyed()) setWindowTitle(win);
   });
+  // A popout window titles from the page's document title (titleForWindow's
+  // popout branch); the SPA's popout posture keeps it at `<Surface> ·
+  // <window name>` — recompute on every page-title update.
+  contents.on("page-title-updated", () => {
+    if (popouts.has(windowId) && !win.isDestroyed()) setWindowTitle(win);
+  });
   // Cache the page's theme-color per view; repaint the overlay only when this
   // view is attached in ITS window (a background report must not tint the
   // window — the switch seam re-applies the incoming view's cached color).
@@ -1159,6 +1200,15 @@ function attachHostView(
  * entry dies with the views.
  */
 function destroyHostViews(hostId: string): void {
+  // A removed host's popout windows CLOSE — a popout is pinned to its host
+  // and never degrades to welcome or another host. (Their guests die with
+  // them below via the window teardown; the opener-side return move finds no
+  // surviving host attachment and destroys as usual.)
+  for (const [windowId, record] of popouts) {
+    if (record.hostId !== hostId) continue;
+    const win = windows.get(windowId);
+    if (win && !win.isDestroyed()) win.close();
+  }
   // The host's guests die first, in EVERY window, before the host views close.
   const { state: afterGuests, removed: guests } = removeHostWebViewsEverywhere(webViews, hostId);
   webViews = afterGuests;
@@ -1440,6 +1490,10 @@ function destroyWebView(entry: WebViewEntry<WebContentsView>): void {
  * position).
  */
 function switchToHost(win: BrowserWindow, id: string): IpcResult {
+  // A popout is pinned to the host its route belongs to — host-switch paths
+  // (the menu radio on a focused popout, `servers:switch` from a popout's
+  // renderer) are refused, never re-home it.
+  if (popouts.has(win.id)) return { ok: false, error: "Popout window" };
   const list = loadHosts(userDataDir());
   const entry = list.hosts.find((h) => h.id === id);
   if (!entry) return { ok: false, error: "Unknown host" };
@@ -2610,6 +2664,46 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
 
+  // shell:popout — the SPA's Pop out verb: open the validated `?pop=` route
+  // as a same-host shell window (the window-open policy stays ALL-EXTERNAL;
+  // a route remainder resolved against the SENDER host's origin makes a
+  // cross-origin target unrepresentable). Dedupe: a live popout of the same
+  // (host, route) is focused (restored when minimized), not duplicated.
+  ipcMain.handle("shell:popout", (event, payload: unknown): PopoutResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    const host = findViewByWebContentsId(views, event.sender.id);
+    if (!host) return { ok: false, error: "No host view" };
+    const opener = windows.get(host.windowId);
+    const viewHost = hostForView(host.hostId);
+    if (!opener || opener.isDestroyed() || !viewHost) {
+      return { ok: false, error: "No host view" };
+    }
+    const workArea = screen.getPrimaryDisplay().workAreaSize;
+    const parsed = parsePopoutPayload(payload, viewHost.url, {
+      width: workArea.width,
+      height: workArea.height,
+    });
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const existing = findPopoutWindow(popouts, host.hostId, parsed.route);
+    if (existing !== null) {
+      const win = windows.get(existing);
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore();
+        win.focus();
+        return { ok: true, windowId: existing };
+      }
+      popouts.delete(existing); // a stale record outliving its window
+    }
+    const win = createWindow({ width: parsed.width, height: parsed.height });
+    popouts.set(win.id, {
+      openerWindowId: opener.id,
+      hostId: host.hostId,
+      route: parsed.route,
+    });
+    attachHostView(win, viewHost, parsed.route);
+    return { ok: true, windowId: win.id };
+  });
+
   // shell:close-window — the Close Window bridge channel (the SPA's ⇧⌘W
   // binding is the consumer). Gated exactly like `shell:new-window`; closes
   // the SENDER's window — not the focused one (a chord handled in a
@@ -2706,6 +2800,50 @@ function registerIpcHandlers(): void {
         webViews = state;
         adoptWebView(win, adopted);
         return { ok: true };
+      }
+      // Popout cross-window adoption: this window is a registered popout of
+      // THIS host — the popped-out web tile's guest lives in the OPENER
+      // window's scope (parked by the opener's unmount, or still mounted when
+      // this create outran the park). Move it into this window's parked scope
+      // and adopt it through the ordinary path — the guest keeps its
+      // webContents id and page state, and never paints in the opener again
+      // (the opener's attach/detach plans no longer list it). A non-popout
+      // window, another host's popout, or a popout of another opener simply
+      // never matches — the plain create path (a fresh guest) is the answer.
+      const popout = popouts.get(win.id);
+      if (popout !== undefined && popout.hostId === host.hostId) {
+        const { state: afterMove, moved, evicted } = moveWebViewToWindow(
+          webViews,
+          popout.openerWindowId,
+          win.id,
+          host.hostId,
+          parsed.identity,
+        );
+        if (moved !== null) {
+          webViews = afterMove;
+          const openerWin = windows.get(popout.openerWindowId);
+          if (openerWin && !openerWin.isDestroyed()) {
+            try {
+              openerWin.contentView.removeChildView(moved.handle);
+            } catch {
+              // Already off the opener's tree (its detach raced the move).
+            }
+          }
+          for (const stale of evicted) destroyWebView(stale);
+          const { state: afterAdopt, adopted: movedAdopted } = adoptParkedWebView(
+            webViews,
+            win.id,
+            host.hostId,
+            parsed.identity,
+            event.sender.id,
+            parsed.tabKey,
+          );
+          if (movedAdopted) {
+            webViews = afterAdopt;
+            adoptWebView(win, movedAdopted);
+            return { ok: true };
+          }
+        }
       }
     }
     // setProxy is async — settle the host session's proxy config BEFORE the
@@ -2944,10 +3082,12 @@ function registerIpcHandlers(): void {
 
 /**
  * One window's contribution to windows.json — null for a window that must
- * NOT be persisted (a dev-sentinel window). The record carries the window's
- * active host (null = welcome), its current route, and its normal bounds.
+ * NOT be persisted: a dev-sentinel window, or a popout window (a popout is a
+ * viewer-posture window of the moment; relaunch restores the ordinary window
+ * set only, on both the quit and close-one-window paths).
  */
 function windowRecord(win: BrowserWindow): WindowRecord | null {
+  if (popouts.has(win.id)) return null;
   const hostId = activeHostForWindow(views, win.id);
   if (hostId === DEV_HOST_ID) return null;
   const route = hostId === null ? "" : routeForView(win, hostId);
@@ -3012,8 +3152,13 @@ function createWindow(bounds: WindowBounds | null): BrowserWindow {
   // quit keep theirs — the last save holds the whole set); a user closing
   // one of N windows drops only that window's record.
   win.on("close", () => {
-    for (const entry of views.entries.filter((e) => e.windowId === windowId)) {
-      captureLastPathForView(entry.hostId, entry.handle.webContents);
+    // A popout window's views are NOT captured: its route carries `?pop=`,
+    // which must never persist as the host's lastPath (popouts are a
+    // viewer-posture window; the opener's own windows own capture).
+    if (!popouts.has(windowId)) {
+      for (const entry of views.entries.filter((e) => e.windowId === windowId)) {
+        captureLastPathForView(entry.hostId, entry.handle.webContents);
+      }
     }
     if (quitting) {
       // Views are still alive here (teardown happens at 'closed'), so the
@@ -3022,6 +3167,36 @@ function createWindow(bounds: WindowBounds | null): BrowserWindow {
       quitCaptures = captureWindowRecord(quitCaptures, windowId, windowRecord(win));
       saveWindowSet(quitCaptures);
     } else {
+      // Pop back in: a closing popout's guests return to the OPENER window's
+      // parked set when the opener is alive and still attached to that host —
+      // the opener's remounting web tile adopts them, no reload. On quit, or
+      // with the opener gone or switched to another host, the guests are
+      // destroyed with the window as usual. Moved handles leave the closing
+      // window's contentView while it is still alive (a child of a destroyed
+      // window cannot be re-shown elsewhere).
+      const popout = popouts.get(windowId);
+      if (popout !== undefined) {
+        const opener = windows.get(popout.openerWindowId);
+        const openerHostId =
+          opener && !opener.isDestroyed() ? activeHostForWindow(views, opener.id) : null;
+        if (opener && !opener.isDestroyed() && openerHostId !== null) {
+          const { state, moved, evicted } = parkWindowWebViewsInto(
+            webViews,
+            windowId,
+            opener.id,
+            openerHostId,
+          );
+          webViews = state;
+          for (const entry of moved) {
+            try {
+              win.contentView.removeChildView(entry.handle);
+            } catch {
+              // Already off the tree (a detach raced the close).
+            }
+          }
+          for (const stale of evicted) destroyWebView(stale);
+        }
+      }
       destroyWindowViews(windowId);
       // Fresh captures of the OTHER live windows — the closing window is
       // excluded up front (its views are already torn down, so capturing it
@@ -3039,6 +3214,7 @@ function createWindow(bounds: WindowBounds | null): BrowserWindow {
   });
   win.on("closed", () => {
     windows.delete(windowId);
+    popouts.delete(windowId);
     destroyWindowViews(windowId); // idempotent — 'close' already ran it
     repaintBadge(); // the displayed set lost this window's host
     rebuildMenu(); // the mac Window-menu list
@@ -3086,11 +3262,19 @@ function restoreOrOpenInitial(): void {
 function openDuplicateWindow(sourceWin: BrowserWindow | null): void {
   const sourceHostId =
     sourceWin && !sourceWin.isDestroyed() ? activeHostForWindow(views, sourceWin.id) : null;
+  // A popout source duplicates as an ORDINARY window — the same host at the
+  // same route minus the `pop` param (the new window is no popout).
+  const isPopoutSource = sourceWin !== null && popouts.has(sourceWin.id);
   const source =
     sourceWin && !sourceWin.isDestroyed()
       ? {
           hostId: sourceHostId,
-          route: sourceHostId !== null ? routeForView(sourceWin, sourceHostId) : "",
+          route:
+            sourceHostId !== null
+              ? isPopoutSource
+                ? stripPopParam(routeForView(sourceWin, sourceHostId))
+                : routeForView(sourceWin, sourceHostId)
+              : "",
         }
       : { hostId: null, route: "" };
   const target = newWindowTarget(source);

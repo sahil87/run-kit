@@ -9,6 +9,25 @@ import {
   type PopoutMessage,
 } from "@/lib/popout";
 
+// Shell-bridge seam (lib/shell): the hooks read the popout and close
+// invokers through it. The default posture is a plain browser (both gates
+// false), keeping the window.open/window.close paths under test.
+const shellMocks = vi.hoisted(() => ({
+  canShellPopout: vi.fn(() => false),
+  shellPopout: vi.fn((_route: string, _rect?: { w: number; h: number }) =>
+    Promise.resolve(null as { windowId: number } | null),
+  ),
+  canCloseShellWindow: vi.fn(() => false),
+  closeShellWindow: vi.fn(() => Promise.resolve(true)),
+}));
+vi.mock("@/lib/shell", () => shellMocks);
+
+// Toast seam: capture popOut's failure toasts without a provider.
+const addToast = vi.hoisted(() => vi.fn());
+vi.mock("@/components/toast", () => ({
+  useOptionalToast: () => ({ addToast }),
+}));
+
 // An in-memory BroadcastChannel stand-in: one shared bus per channel name,
 // message delivery to every OTHER open channel object (the real API excludes
 // the sender), `close()` unsubscribing. Enough for the opener/popout
@@ -71,6 +90,11 @@ beforeEach(() => {
   // jsdom's window.close() destroys the document — the popout's pop-in path
   // calls it, so stub it file-wide.
   vi.spyOn(window, "close").mockImplementation(() => {});
+  shellMocks.canShellPopout.mockReturnValue(false);
+  shellMocks.shellPopout.mockReset().mockResolvedValue(null);
+  shellMocks.canCloseShellWindow.mockReturnValue(false);
+  shellMocks.closeShellWindow.mockClear();
+  addToast.mockClear();
 });
 
 afterEach(() => {
@@ -107,6 +131,45 @@ describe("usePoppedSet", () => {
     act(() => result.current.popOut("code"));
     expect(result.current.popped).toEqual([]);
     expect(readStoredMarks()).toEqual([]);
+  });
+
+  it("popOut prefers the shell popout channel over window.open when the shell carries it", async () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue({} as Window);
+    shellMocks.canShellPopout.mockReturnValue(true);
+    shellMocks.shellPopout.mockResolvedValue({ windowId: 3 });
+    const { result } = renderHook(() => usePoppedSet(SERVER, WINDOW, true, TREE));
+    act(() => result.current.popOut("code", { x: 0, y: 0, w: 640, h: 480 }));
+    expect(result.current.popped).toEqual(["code"]);
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(shellMocks.shellPopout).toHaveBeenCalledWith("/main/5?pop=code", {
+      x: 0,
+      y: 0,
+      w: 640,
+      h: 480,
+    });
+    // A successful open leaves the optimistic mark in place.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.popped).toEqual(["code"]);
+    expect(addToast).not.toHaveBeenCalled();
+  });
+
+  it("rolls the mark back and toasts when the shell popout resolves null", async () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue({} as Window);
+    shellMocks.canShellPopout.mockReturnValue(true);
+    shellMocks.shellPopout.mockResolvedValue(null);
+    const { result } = renderHook(() => usePoppedSet(SERVER, WINDOW, true, TREE));
+    act(() => result.current.popOut("code"));
+    // The mark is optimistic: it applies before the async invoker resolves.
+    expect(result.current.popped).toEqual(["code"]);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.popped).toEqual([]);
+    expect(readStoredMarks()).toEqual([]);
+    expect(addToast).toHaveBeenCalledWith("Pop-out failed", "error");
+    expect(openSpy).not.toHaveBeenCalled();
   });
 
   it("popIn clears the mark and posts pop-in on the channel", () => {
@@ -227,6 +290,48 @@ describe("usePopoutPresence", () => {
     expect(closeSpy).not.toHaveBeenCalled();
     act(() => postRaw({ type: "pop-in", server: SERVER, window: WINDOW, leaf: "code" }));
     expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("pop-in closes through the shell's close invoker after posting closed", () => {
+    const closeSpy = window.close as unknown as ReturnType<typeof vi.fn>;
+    shellMocks.canCloseShellWindow.mockReturnValue(true);
+    const spy = vi.spyOn(FakeBroadcastChannel.prototype, "postMessage");
+    renderHook(() => usePopoutPresence(SERVER, WINDOW, "code", true));
+    spy.mockClear();
+    act(() => postRaw({ type: "pop-in", server: SERVER, window: WINDOW, leaf: "code" }));
+    expect(spy.mock.calls.map(([m]) => (m as PopoutMessage).type)).toEqual(["closed"]);
+    expect(shellMocks.closeShellWindow).toHaveBeenCalledTimes(1);
+    // The sign-off lands before the close request.
+    expect(spy.mock.invocationCallOrder[0]).toBeLessThan(
+      shellMocks.closeShellWindow.mock.invocationCallOrder[0],
+    );
+    expect(closeSpy).not.toHaveBeenCalled();
+  });
+
+  it("closeSelf posts closed before closing through the shell's close invoker", () => {
+    const closeSpy = window.close as unknown as ReturnType<typeof vi.fn>;
+    shellMocks.canCloseShellWindow.mockReturnValue(true);
+    const spy = vi.spyOn(FakeBroadcastChannel.prototype, "postMessage");
+    const { result } = renderHook(() => usePopoutPresence(SERVER, WINDOW, "code", true));
+    spy.mockClear();
+    act(() => result.current.closeSelf());
+    expect(spy.mock.calls.map(([m]) => (m as PopoutMessage).type)).toEqual(["closed"]);
+    expect(shellMocks.closeShellWindow).toHaveBeenCalledTimes(1);
+    expect(spy.mock.invocationCallOrder[0]).toBeLessThan(
+      shellMocks.closeShellWindow.mock.invocationCallOrder[0],
+    );
+    expect(closeSpy).not.toHaveBeenCalled();
+  });
+
+  it("closeSelf falls back to window.close when the shell lacks the close invoker", () => {
+    const closeSpy = window.close as unknown as ReturnType<typeof vi.fn>;
+    const spy = vi.spyOn(FakeBroadcastChannel.prototype, "postMessage");
+    const { result } = renderHook(() => usePopoutPresence(SERVER, WINDOW, "code", true));
+    spy.mockClear();
+    act(() => result.current.closeSelf());
+    expect(spy.mock.calls.map(([m]) => (m as PopoutMessage).type)).toEqual(["closed"]);
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+    expect(shellMocks.closeShellWindow).not.toHaveBeenCalled();
   });
 
   it("posts closed on pagehide", () => {

@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useOptionalToast } from "@/components/toast";
 import {
+  canCloseShellWindow,
+  canShellPopout,
+  closeShellWindow,
+  shellPopout,
+} from "@/lib/shell";
+import {
   isPopoutMessage,
   POPOUT_CHANNEL,
   POPOUT_HEARTBEAT_MS,
@@ -39,8 +45,9 @@ function openChannel(): BroadcastChannel | null {
 export interface PoppedSet {
   /** This viewer's popped leaf ids for the window (storage-backed). */
   popped: string[];
-  /** Pop a tile out: optimistic mark, then `window.open`; a blocked popup
-   *  (null return) rolls the mark back and toasts. */
+  /** Pop a tile out: optimistic mark, then open the popout (the shell's
+   *  `windows.popout` invoker when the shell carries it, else `window.open`);
+   *  a failed open rolls the mark back and toasts. */
   popOut: (leafId: string, rect?: Rect) => void;
   /** Pop a leaf back in: tell the popout to close and clear the mark. */
   popIn: (leafId: string) => void;
@@ -166,13 +173,28 @@ export function usePoppedSet(
 
   const popOut = useCallback(
     (leafId: string, rect?: Rect) => {
-      // Optimistic mark BEFORE window.open: the render hides the tile in the
-      // same gesture, and a blocked popup (null) rolls the mark back.
+      // Optimistic mark BEFORE opening the popout: the render hides the tile
+      // in the same gesture, and a failed open rolls the mark back.
       const marked = poppedRef.current.includes(leafId)
         ? poppedRef.current
         : [...poppedRef.current, leafId];
       commit(marked);
       lastSeenRef.current.set(leafId, Date.now());
+      if (canShellPopout()) {
+        // A shell-hosted popout window shares this opener's origin and
+        // session, so the marks/liveness wiring works unchanged — unlike the
+        // shell's window.open policy, which sends everything to the system
+        // browser. The invoker is async: the rollback lands when it resolves
+        // null, and only while the mark is still this call's (a pop-in or a
+        // stale sweep that already cleared it skips the toast).
+        void shellPopout(popoutUrl(server, windowId, leafId), rect).then((result) => {
+          if (result !== null || !poppedRef.current.includes(leafId)) return;
+          commit(poppedRef.current.filter((id) => id !== leafId));
+          lastSeenRef.current.delete(leafId);
+          toast?.addToast("Pop-out failed", "error");
+        });
+        return;
+      }
       const openedWindow = window.open(
         popoutUrl(server, windowId, leafId),
         popoutWindowName(server, windowId, leafId),
@@ -201,10 +223,20 @@ export function usePoppedSet(
 }
 
 export interface PopoutPresence {
-  /** The header's Pop back in verb: announce the close and close the window
-   *  (legal for a script-opened window); the opener clears its mark on the
-   *  `closed` message — equivalent to closing the window by any other means. */
+  /** The header's Pop back in verb: announce the close and close the window;
+   *  the opener clears its mark on the `closed` message — equivalent to
+   *  closing the window by any other means. */
   closeSelf: () => void;
+}
+
+/** Close the popout's own window: `window.close()` is a no-op for a shell
+ *  host view, so a shell carrying the `close` invoker closes through it. */
+function closeThisWindow(): void {
+  if (canCloseShellWindow()) {
+    void closeShellWindow();
+  } else {
+    window.close();
+  }
 }
 
 /**
@@ -247,7 +279,7 @@ export function usePopoutPresence(
         announce();
       } else if (msg.type === "pop-in" && msg.leaf === leafId) {
         signOff();
-        window.close();
+        closeThisWindow();
       }
     };
     channel?.addEventListener("message", onMessage);
@@ -264,7 +296,7 @@ export function usePopoutPresence(
   const closeSelf = useCallback(() => {
     const msg: PopoutMessage = { type: "closed", server, window: windowId, leaf: leafId };
     channelRef.current?.postMessage(msg);
-    window.close();
+    closeThisWindow();
   }, [server, windowId, leafId]);
 
   return { closeSelf };

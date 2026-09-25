@@ -740,7 +740,7 @@ describe("buildLayoutActions — popout verbs", () => {
     expect(ids.some((id) => id.startsWith("tile-pop-out-"))).toBe(false);
   });
 
-  it("offers NO Pop Out rows when onPopOut is omitted (desktop shell, mobile)", () => {
+  it("offers NO Pop Out rows when onPopOut is omitted (the caller's mobile / shell-without-popout-channel gate)", () => {
     const ids = build(SPLIT_H_TTY_CODE, { onPopIn: vi.fn() }).map((a) => a.id);
     expect(ids.some((id) => id.startsWith("tile-pop-out-"))).toBe(false);
   });

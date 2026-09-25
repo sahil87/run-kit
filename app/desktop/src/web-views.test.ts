@@ -17,8 +17,10 @@ import {
   hostAttachPlan,
   hostDetachPlan,
   isGuestContents,
+  moveWebViewToWindow,
   PARKED_WEB_VIEW_CAP,
   parkWebView,
+  parkWindowWebViewsInto,
   removeHostWebViews,
   removeHostWebViewsEverywhere,
   removeWebView,
@@ -658,4 +660,172 @@ test("isGuestContents covers parked guests; the attach/detach plans do not", () 
   // A parked view must never paint: neither plan lists it.
   assert.deepEqual(hostDetachPlan(state, WIN1, "host-a"), []);
   assert.deepEqual(hostAttachPlan(state, WIN1, "host-a"), []);
+});
+
+// ── window-scope moves (the popout guest move) ───────────────────────────────
+
+test("moveWebViewToWindow moves a PARKED entry into the target window's parked set", () => {
+  let state = seededIdentified("id-1", "t1", 101);
+  state = setWebViewBounds(state, 11, "t1", { x: 10, y: 20, width: 300, height: 200 });
+  state = parkWebView(state, 11, "t1").state;
+
+  const { state: next, moved, evicted } = moveWebViewToWindow(state, WIN1, WIN2, "host-a", "id-1");
+  assert.ok(moved);
+  assert.equal(moved.windowId, WIN2);
+  assert.equal(moved.webContentsId, 101);
+  assert.deepEqual(moved.bounds, { x: 10, y: 20, width: 300, height: 200 });
+  assert.deepEqual(evicted, []);
+  assert.equal(next.parked.length, 1);
+  assert.equal(next.parked[0]?.windowId, WIN2);
+  // The target window's ordinary adopt path now matches.
+  const { adopted } = adoptParkedWebView(next, WIN2, "host-a", "id-1", 22, "t9");
+  assert.equal(adopted?.webContentsId, 101);
+  // The source window's plans no longer know the guest.
+  assert.deepEqual(hostAttachPlan(next, WIN1, "host-a"), []);
+  assert.deepEqual(hostDetachPlan(next, WIN1, "host-a"), []);
+});
+
+test("moveWebViewToWindow moves a still-MOUNTED entry (the create outran the park)", () => {
+  const state = seededIdentified("id-1", "t1", 101);
+  const { state: next, moved } = moveWebViewToWindow(state, WIN1, WIN2, "host-a", "id-1");
+  assert.ok(moved);
+  // Off the opener's mounted set, parked under the target window.
+  assert.equal(next.entries.length, 0);
+  assert.equal(next.parked.length, 1);
+  assert.equal(next.parked[0]?.windowId, WIN2);
+  assert.equal(getWebView(next, 11, "t1"), null);
+  // The opener's late web:park finds nothing under its key.
+  assert.deepEqual(parkWebView(next, 11, "t1"), { state: next, parked: null, evicted: [] });
+});
+
+test("moveWebViewToWindow rejects a wrong host, window, or identity (no-op null)", () => {
+  let state = seededIdentified("id-1", "t1", 101);
+  state = parkWebView(state, 11, "t1").state;
+  for (const [from, to, hostId, identity] of [
+    [WIN1, WIN2, "host-b", "id-1"], // another host's guest never moves
+    [WIN2, WIN1, "host-a", "id-1"], // not parked under the source window
+    [WIN1, WIN2, "host-a", "id-other"], // identity mismatch
+  ] as const) {
+    const { state: next, moved, evicted } = moveWebViewToWindow(state, from, to, hostId, identity);
+    assert.equal(moved, null);
+    assert.deepEqual(evicted, []);
+    assert.equal(next, state);
+  }
+});
+
+test("a move over the cap evicts the least-recently-parked OTHER entries, never the moved one", () => {
+  let state = emptyWebViews<string>();
+  // Fill the target window's parked set to the cap.
+  for (let n = 0; n < PARKED_WEB_VIEW_CAP; n++) {
+    state = addWebView(state, {
+      windowId: WIN2,
+      hostId: "host-a",
+      hostContentsId: 21,
+      tabKey: `t${n}`,
+      webContentsId: 200 + n,
+      handle: `guest-t${n}`,
+      identity: `id-t${n}`,
+    });
+    state = parkWebView(state, 21, `t${n}`).state;
+  }
+  state = addWebView(state, {
+    windowId: WIN1,
+    hostId: "host-a",
+    hostContentsId: 11,
+    tabKey: "pop",
+    webContentsId: 101,
+    handle: "guest-pop",
+    identity: "id-pop",
+  });
+  const { state: next, moved, evicted } = moveWebViewToWindow(state, WIN1, WIN2, "host-a", "id-pop");
+  assert.equal(moved?.webContentsId, 101);
+  assert.equal(next.parked.length, PARKED_WEB_VIEW_CAP);
+  // The LRU victim is the oldest OTHER parked entry; the moved one stays.
+  assert.deepEqual(evicted.map((e) => e.webContentsId), [200]);
+  assert.ok(next.parked.some((p) => p.webContentsId === 101));
+});
+
+test("a move onto an already-parked key evicts the stale target entry", () => {
+  let state = seededIdentified("id-1", "t1", 101);
+  state = parkWebView(state, 11, "t1").state;
+  // A stale entry already parked under the TARGET scope's same key.
+  state = addWebView(state, {
+    windowId: WIN2,
+    hostId: "host-a",
+    hostContentsId: 21,
+    tabKey: "old",
+    webContentsId: 201,
+    handle: "guest-old",
+    identity: "id-1",
+  });
+  state = parkWebView(state, 21, "old").state;
+  const { state: next, moved, evicted } = moveWebViewToWindow(state, WIN1, WIN2, "host-a", "id-1");
+  assert.equal(moved?.webContentsId, 101);
+  assert.deepEqual(evicted.map((e) => e.webContentsId), [201]);
+  assert.equal(next.parked.length, 1);
+  assert.equal(next.parked[0]?.webContentsId, 101);
+});
+
+test("parkWindowWebViewsInto moves a closing window's mounted + parked guests of one host", () => {
+  let state = emptyWebViews<string>();
+  // The popout window (WIN2): one mounted guest of host-a, one parked of
+  // host-a, one mounted identity-less, one mounted guest of ANOTHER host.
+  state = addWebView(state, {
+    windowId: WIN2,
+    hostId: "host-a",
+    hostContentsId: 21,
+    tabKey: "m1",
+    webContentsId: 201,
+    handle: "guest-201",
+    identity: "id-a1",
+  });
+  state = addWebView(state, {
+    windowId: WIN2,
+    hostId: "host-a",
+    hostContentsId: 21,
+    tabKey: "p1",
+    webContentsId: 202,
+    handle: "guest-202",
+    identity: "id-a2",
+  });
+  state = parkWebView(state, 21, "p1").state;
+  state = addWebView(state, {
+    windowId: WIN2,
+    hostId: "host-a",
+    hostContentsId: 21,
+    tabKey: "noid",
+    webContentsId: 203,
+    handle: "guest-203",
+  });
+  state = addWebView(state, {
+    windowId: WIN2,
+    hostId: "host-b",
+    hostContentsId: 22,
+    tabKey: "b1",
+    webContentsId: 204,
+    handle: "guest-204",
+    identity: "id-b1",
+  });
+  const { state: next, moved, evicted } = parkWindowWebViewsInto(state, WIN2, WIN1, "host-a");
+  assert.deepEqual(moved.map((e) => e.webContentsId), [201, 202]);
+  assert.deepEqual(evicted, []);
+  assert.ok(moved.every((e) => e.windowId === WIN1));
+  assert.equal(next.entries.length, 2); // the identity-less + the other host's stay
+  assert.deepEqual(
+    next.entries.map((e) => e.webContentsId),
+    [203, 204],
+  );
+  assert.equal(next.parked.length, 2);
+  // The opener's ordinary adopt path matches a returned guest.
+  const { adopted } = adoptParkedWebView(next, WIN1, "host-a", "id-a1", 11, "t1");
+  assert.equal(adopted?.webContentsId, 201);
+});
+
+test("parkWindowWebViewsInto with nothing eligible is a no-op", () => {
+  const state = seededIdentified("id-1", "t1", 101);
+  assert.deepEqual(parkWindowWebViewsInto(state, WIN2, WIN1, "host-a"), {
+    state,
+    moved: [],
+    evicted: [],
+  });
 });

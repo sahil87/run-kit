@@ -17,7 +17,10 @@
  *     origins + welcome) main-side; payloads are validated in main.
  *   - `windows`: `newWindow()`/`close()` invokers for `shell:new-window`
  *     (duplicates the sender's window) and `shell:close-window` (closes the
- *     sender's window). Gated like `servers:*`.
+ *     sender's window), plus `popout({route, width?, height?})` for
+ *     `shell:popout` (opens the `?pop=` route as a same-host shell window —
+ *     the SPA's Pop out verb; additive, so older shells narrow to no-Pop-out
+ *     via `canShellPopout`). Gated like `servers:*`.
  *   - `accent`: the SPA's raw instance-accent report (`accent:set`, a strict
  *     hex string) persisted per host for the switcher's edge bars — the
  *     full-strength color the theme-color meta's 35% titlebar blend cannot
@@ -101,6 +104,11 @@ contextBridge.exposeInMainWorld("runkitShell", {
     // binding; NOT the focused-window seam the menu's Close Window rides).
     // Gated exactly like `shell:new-window`.
     close: (): Promise<unknown> => ipcRenderer.invoke("shell:close-window"),
+    // shell:popout — opens a validated `?pop=` route as a same-host shell
+    // window and resolves its window id. Gated exactly like
+    // `shell:new-window`; the payload shape is validated main-side.
+    popout: (payload: { route: string; width?: number; height?: number }): Promise<unknown> =>
+      ipcRenderer.invoke("shell:popout", payload),
   },
   accent: {
     set: (hex: string): Promise<unknown> => ipcRenderer.invoke("accent:set", hex),

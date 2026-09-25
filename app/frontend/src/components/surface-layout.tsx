@@ -103,6 +103,7 @@ import {
   type TtyProgress,
 } from "@/lib/tty-progress";
 import { classifyAddress, displayForm, proxyPortOf, toWebAddTarget } from "@/lib/web-url";
+import { canShellPopout } from "@/lib/shell";
 import type { WindowInfo } from "@/types";
 import type { Terminal } from "@xterm/xterm";
 import type { SerializeAddon } from "@xterm/addon-serialize";
@@ -662,8 +663,8 @@ interface SurfaceLayoutProps {
    *  evicted (one extension host, not two — the popout boots its own). */
   popped?: string[];
   /** The header's Pop out verb (content-verb family, before the layout
-   *  cluster). Absent ⇒ not offered (the caller gates the desktop shell,
-   *  mobile, and coarse pointers). */
+   *  cluster). Absent ⇒ not offered (the caller gates mobile, coarse
+   *  pointers, and a desktop shell without the `windows.popout` channel). */
   onPopOut?: (leafId: string, rect?: Rect) => void;
   /** Send a held surface back to its home window (the parent's `sendHome` —
    *  `POST /api/layout/return`): the placeholder's bring back passes
@@ -3007,10 +3008,21 @@ export function SurfaceLayout({
     .filter((id) => !layoutLeafIds.includes(id))
     // A popped code leaf renders NO hidden tile: its retained frame is
     // evicted (the popout boots its own extension host), so there is nothing
-    // to keep mounted. Popped tty/web/gui leaves keep the
-    // hide-never-unmount posture (the hidden gui tile's RFB disconnects via
-    // its visibility gate).
-    .filter((id) => !(poppedSet.has(id) && leafIdParts(id).kind === "code"))
+    // to keep mounted. A popped web leaf under a shell with the popout
+    // channel unmounts the same way: its native guest PARKS on unmount and
+    // the popout window adopts the live guest — a mounted-hidden tile would
+    // keep the guest's tabKey binding and block the move, and its hide
+    // would stale the guest's visibility record. Other popped leaves keep
+    // the hide-never-unmount posture (the hidden gui tile's RFB disconnects
+    // via its visibility gate).
+    .filter(
+      (id) =>
+        !(
+          poppedSet.has(id) &&
+          (leafIdParts(id).kind === "code" ||
+            (leafIdParts(id).kind === "web" && canShellPopout()))
+        ),
+    )
     .map((leafId) => ({
       kind: leafIdParts(leafId).kind,
       leafId,
@@ -3134,10 +3146,11 @@ export function SurfaceLayout({
     // tab's own URL is the answer), on fine pointers, and for LIVE tiles only
     // — the away placeholder renders no header at all (the mount gate above),
     // and a foreign tile whose home window died has nothing to pop (the
-    // read-time prune drops it on the next payload). The desktop shell gates
-    // upstream (the caller omits onPopOut): the shell routes window.open to
-    // the system browser, which shares neither localStorage nor the
-    // BroadcastChannel with the opener.
+    // read-time prune drops it on the next payload). A shell without the
+    // `windows.popout` channel gates upstream (the caller omits onPopOut):
+    // the shell's window.open policy sends everything to the system browser,
+    // which shares neither localStorage nor the BroadcastChannel with the
+    // opener.
     const canPopOutTile =
       !popoutTile &&
       showVerbs &&

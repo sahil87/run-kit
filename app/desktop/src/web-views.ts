@@ -37,6 +37,14 @@
  * never paint, including across a host re-attach — but INCLUDED in every
  * scoped removal and in `isGuestContents` (a parked guest still browses
  * under the guest scheme allowlist).
+ *
+ * Window-scope moves: a popped-out web tile's guest moves between WINDOW
+ * scopes by (hostId, identity) — `moveWebViewToWindow` (one guest, into the
+ * popout window's parked set, where the popout's own web:create adopts it)
+ * and `parkWindowWebViewsInto` (all of a closing popout window's guests of
+ * one host, back into the opener's parked set). Both land entries parked and
+ * never evict an entry the move itself carries past the cap until nothing
+ * else remains.
  */
 
 export interface WebViewBounds {
@@ -368,6 +376,139 @@ export function adoptParkedWebView<H>(
       parked: state.parked.filter((p) => p !== match),
     },
     adopted,
+  };
+}
+
+/**
+ * Append entries to a parked list as most-recently-parked: a stale parked
+ * entry under an incoming (windowId, hostId, identity) key is evicted first
+ * (the parkWebView rule), then LRU overflow past PARKED_WEB_VIEW_CAP. Entries
+ * appended by THIS call are evicted LAST — a window-scope move must not
+ * evict the guest it is moving — and only evict each other once nothing else
+ * remains over the cap.
+ */
+function appendParked<H>(
+  parked: ParkedWebViewEntry<H>[],
+  incoming: ParkedWebViewEntry<H>[],
+): { parked: ParkedWebViewEntry<H>[]; evicted: ParkedWebViewEntry<H>[] } {
+  const evicted: ParkedWebViewEntry<H>[] = [];
+  let next = parked.filter((p) => {
+    const stale = incoming.some(
+      (m) => m.windowId === p.windowId && m.hostId === p.hostId && m.identity === p.identity,
+    );
+    if (stale) evicted.push(p);
+    return !stale;
+  });
+  next = [...next, ...incoming];
+  const incomingIds = new Set(incoming.map((e) => e.webContentsId));
+  while (next.length > PARKED_WEB_VIEW_CAP) {
+    const idx = next.findIndex((p) => !incomingIds.has(p.webContentsId));
+    const victim = idx === -1 ? next[0] : next[idx];
+    if (victim === undefined) break; // unreachable — length guard above
+    evicted.push(victim);
+    next = next.filter((p) => p !== victim);
+  }
+  return { parked: next, evicted };
+}
+
+/**
+ * Move ONE guest between window scopes by (hostId, identity) — the popout
+ * move: a popped-out web tile's guest leaves the opener window's scope for
+ * the popout window's, where the popout's own `web:create` (carrying the same
+ * SPA identity string) adopts it through the ordinary parked path. The entry
+ * — PARKED under the source window, or still MOUNTED there when the popout's
+ * create outruns the opener's unmount park — lands in the TARGET window's
+ * parked set, keeping every record (bounds, chords, zoomFactor, visible,
+ * identity). The caller detaches the handle from the source window's
+ * contentView and destroys the `evicted` entries. No match is a null no-op
+ * (the caller takes the plain create path — the reload fallback).
+ */
+export function moveWebViewToWindow<H>(
+  state: WebViewsState<H>,
+  fromWindowId: number,
+  toWindowId: number,
+  hostId: string,
+  identity: string,
+): {
+  state: WebViewsState<H>;
+  moved: ParkedWebViewEntry<H> | null;
+  evicted: ParkedWebViewEntry<H>[];
+} {
+  const parkedMatch = state.parked.find(
+    (p) => p.windowId === fromWindowId && p.hostId === hostId && p.identity === identity,
+  );
+  const mountedMatch = state.entries.find(
+    (e) => e.windowId === fromWindowId && e.hostId === hostId && e.identity === identity,
+  );
+  const source = parkedMatch ?? mountedMatch ?? null;
+  if (source === null || source.identity === null) {
+    return { state, moved: null, evicted: [] };
+  }
+  const moved: ParkedWebViewEntry<H> = {
+    ...source,
+    windowId: toWindowId,
+    identity: source.identity,
+  };
+  const { parked, evicted } = appendParked(
+    state.parked.filter((p) => p !== parkedMatch),
+    [moved],
+  );
+  return {
+    state: {
+      entries:
+        parkedMatch === undefined && mountedMatch !== undefined
+          ? state.entries.filter((e) => e !== mountedMatch)
+          : state.entries,
+      parked,
+    },
+    moved,
+    evicted,
+  };
+}
+
+/**
+ * Move ALL of one closing window's guests of ONE host into another window's
+ * parked set — pop back in: a popout window's guests return to the opener
+ * (alive and still attached to that host — the caller's gate), whose
+ * remounting web tile adopts them through the ordinary parked path. Mounted
+ * and parked entries move; an identity-less mounted entry CANNOT park and
+ * stays behind (the caller destroys it with the window). The caller destroys
+ * the `evicted` entries.
+ */
+export function parkWindowWebViewsInto<H>(
+  state: WebViewsState<H>,
+  fromWindowId: number,
+  toWindowId: number,
+  hostId: string,
+): {
+  state: WebViewsState<H>;
+  moved: ParkedWebViewEntry<H>[];
+  evicted: ParkedWebViewEntry<H>[];
+} {
+  const moved: ParkedWebViewEntry<H>[] = [];
+  for (const e of state.entries) {
+    if (e.windowId === fromWindowId && e.hostId === hostId && e.identity !== null) {
+      moved.push({ ...e, windowId: toWindowId, identity: e.identity });
+    }
+  }
+  for (const p of state.parked) {
+    if (p.windowId === fromWindowId && p.hostId === hostId) {
+      moved.push({ ...p, windowId: toWindowId });
+    }
+  }
+  if (moved.length === 0) return { state, moved: [], evicted: [] };
+  const movedIds = new Set(moved.map((m) => m.webContentsId));
+  const { parked, evicted } = appendParked(
+    state.parked.filter((p) => !movedIds.has(p.webContentsId)),
+    moved,
+  );
+  return {
+    state: {
+      entries: state.entries.filter((e) => !movedIds.has(e.webContentsId)),
+      parked,
+    },
+    moved,
+    evicted,
   };
 }
 

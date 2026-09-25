@@ -12,6 +12,7 @@ import {
   canRenameShellHost,
   canSetShellHostUrl,
   canReorderShellHosts,
+  canShellPopout,
   canShellWeb,
   closeShellWindow,
   createShellWebView,
@@ -41,6 +42,7 @@ import {
   setShellAccent,
   setShellBadge,
   shellInfo,
+  shellPopout,
   shellWebMode,
   switchShellServer,
 } from "./shell";
@@ -350,6 +352,122 @@ describe("optional shell bridge invokers", () => {
   it("addDirect rejects malformed acknowledgements without throwing", async () => {
     bridgeWith({ ...baseServersBridge, addDirect: () => Promise.resolve("added") });
     expect((await addShellHostDirect("", "http://b:3000")).ok).toBe(false);
+  });
+});
+
+// The windows.popout invoker rides the same additive pattern as close: a
+// shell predating the channel narrows false and the wrapper resolves null,
+// so an older shell's popout gate falls back to hiding the Pop out verb.
+// The result is structural: only `{ ok: true, windowId: <finite number> }`
+// resolves the id — everything else is null, and the wrapper never throws.
+
+function windowsBridgeWith(windows: unknown): void {
+  window.runkitShell = { version: "1.2.3", platform: "darwin", windows };
+}
+
+const baseWindowsBridge = {
+  newWindow: () => Promise.resolve({ ok: true }),
+};
+
+describe("canShellPopout", () => {
+  it("is false in a plain browser and on a shell without the windows group", () => {
+    expect(canShellPopout()).toBe(false);
+    window.runkitShell = { version: "1.2.3", platform: "darwin" };
+    expect(canShellPopout()).toBe(false);
+  });
+
+  it("is false on a windows group without popout (older shell)", () => {
+    windowsBridgeWith(baseWindowsBridge);
+    expect(canShellPopout()).toBe(false);
+  });
+
+  it("is false when the popout member is not a function", () => {
+    windowsBridgeWith({ ...baseWindowsBridge, popout: "nope" });
+    expect(canShellPopout()).toBe(false);
+  });
+
+  it("is true when the windows group carries a popout invoker", () => {
+    windowsBridgeWith({ ...baseWindowsBridge, popout: () => Promise.resolve({ ok: true, windowId: 2 }) });
+    expect(canShellPopout()).toBe(true);
+  });
+});
+
+describe("shellPopout", () => {
+  const ROUTE = "/rk-dev/@12?pop=web";
+
+  it("resolves null in a plain browser (bridge absent)", async () => {
+    expect(await shellPopout(ROUTE)).toBeNull();
+  });
+
+  it("resolves null on a windows group without popout (older shell)", async () => {
+    windowsBridgeWith(baseWindowsBridge);
+    expect(await shellPopout(ROUTE)).toBeNull();
+  });
+
+  it("resolves null when the popout member is not a function", async () => {
+    windowsBridgeWith({ ...baseWindowsBridge, popout: 42 });
+    expect(await shellPopout(ROUTE)).toBeNull();
+  });
+
+  it("resolves null when the invoke rejects", async () => {
+    windowsBridgeWith({ ...baseWindowsBridge, popout: () => Promise.reject(new Error("ipc gone")) });
+    expect(await shellPopout(ROUTE)).toBeNull();
+  });
+
+  it("resolves null on a denied result ({ ok: false })", async () => {
+    windowsBridgeWith({
+      ...baseWindowsBridge,
+      popout: () => Promise.resolve({ ok: false, error: "Not allowed" }),
+    });
+    expect(await shellPopout(ROUTE)).toBeNull();
+  });
+
+  it("resolves null on malformed results (missing or wrong-typed windowId)", async () => {
+    for (const malformed of [
+      { ok: true },
+      { ok: true, windowId: "2" },
+      { ok: true, windowId: Number.POSITIVE_INFINITY },
+      { windowId: 2 },
+      "opened",
+    ]) {
+      windowsBridgeWith({ ...baseWindowsBridge, popout: () => Promise.resolve(malformed) });
+      expect(await shellPopout(ROUTE)).toBeNull();
+    }
+  });
+
+  it("resolves the window id on a well-formed result", async () => {
+    windowsBridgeWith({
+      ...baseWindowsBridge,
+      popout: () => Promise.resolve({ ok: true, windowId: 7 }),
+    });
+    expect(await shellPopout(ROUTE)).toEqual({ windowId: 7 });
+  });
+
+  it("maps a positive rect to rounded width/height payload keys", async () => {
+    let seen: unknown = null;
+    windowsBridgeWith({
+      ...baseWindowsBridge,
+      popout: (payload: unknown) => {
+        seen = payload;
+        return Promise.resolve({ ok: true, windowId: 7 });
+      },
+    });
+    expect(await shellPopout(ROUTE, { w: 640.4, h: 480.6 })).toEqual({ windowId: 7 });
+    expect(seen).toEqual({ route: ROUTE, width: 640, height: 481 });
+  });
+
+  it("omits width/height when the rect is absent or non-positive", async () => {
+    const seen: unknown[] = [];
+    windowsBridgeWith({
+      ...baseWindowsBridge,
+      popout: (payload: unknown) => {
+        seen.push(payload);
+        return Promise.resolve({ ok: true, windowId: 7 });
+      },
+    });
+    await shellPopout(ROUTE);
+    await shellPopout(ROUTE, { w: 0, h: 480 });
+    expect(seen).toEqual([{ route: ROUTE }, { route: ROUTE }]);
   });
 });
 

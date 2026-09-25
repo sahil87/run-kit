@@ -3823,7 +3823,7 @@ describe("SurfaceLayout popout (header Pop out / popout posture / popped-set pos
     expect(onPopOut.mock.calls[0][1]).toMatchObject({ w: expect.any(Number), h: expect.any(Number) });
   });
 
-  it("offers no Pop out on a single-tile layout, or when the seam is absent (shell/mobile gating)", () => {
+  it("offers no Pop out on a single-tile layout, or when the seam is absent (the caller's mobile / shell-without-popout-channel gate)", () => {
     const single = renderLayout({ layout: layoutOf("tty"), onPopOut: vi.fn() });
     expect(screen.queryByLabelText("Pop out Terminal")).toBeNull();
     single.unmount();

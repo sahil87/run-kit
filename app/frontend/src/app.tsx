@@ -128,7 +128,7 @@ import { buildServerAdoptActions } from "@/lib/palette/server-adopt";
 import { buildServerSetColorAction } from "@/lib/palette/server-color";
 import { buildShellServerActions } from "@/lib/palette/shell";
 import { buildWebEngineActions, buildWebInspectActions } from "@/lib/palette/web-engine";
-import { canCloseShellWindow, canNewShellWindow, canShellWeb, closeShellWindow, isShell, newShellWindow, switchShellServer } from "@/lib/shell";
+import { canCloseShellWindow, canNewShellWindow, canShellPopout, canShellWeb, closeShellWindow, isShell, newShellWindow, switchShellServer } from "@/lib/shell";
 import { WEB_NATIVE_ENGINE_DEFAULT, WEB_NATIVE_ENGINE_PREF_KEY, selectWebEngineKind } from "@/lib/web-engine-pref";
 import { ShellTitlebarStrip } from "@/components/desktop-shell/titlebar-strip";
 import { ShellAccentReporter } from "@/components/desktop-shell/accent-reporter";
@@ -4608,15 +4608,17 @@ function AppShell() {
             // `Tile: Pop Out <Surface>` / `Tile: Pop Back In <Surface>` — the
             // popout verbs (Constitution V parity for the tile header's Pop
             // out button). Pop Out rides the same body as the header verb (no
-            // measured rect here → the popup's fallback size); the desktop
-            // shell and mobile gate at the caller (the shell's window.open
-            // goes to the system browser, which shares neither localStorage
-            // nor the BroadcastChannel with the opener). Every mutation above
-            // keeps computing from the FULL shared tree while tiles are
+            // measured rect here → the popup's fallback size); mobile and a
+            // shell without the `windows.popout` channel gate at the caller
+            // (the shell's window.open policy sends everything to the system
+            // browser, which shares neither localStorage nor the
+            // BroadcastChannel with the opener — the channel keeps the marks
+            // and liveness on the same origin and session). Every mutation
+            // above keeps computing from the FULL shared tree while tiles are
             // popped — only this viewer's render is reduced.
             poppedIds: popped,
             onPopOut:
-              !isMobile && !isShell()
+              !isMobile && (!isShell() || canShellPopout())
                 ? (leafId: string) => popOut(leafId, layoutRectsRef.current?.().get(leafId))
                 : undefined,
             onPopIn: popIn,
@@ -6205,14 +6207,15 @@ function AppShell() {
               // clears its mark on the `closed` channel message). Opener
               // posture: this viewer's popped set (hidden tiles, disarmed
               // header drag, evicted popped code frames) and the header's
-              // Pop out verb (absent in the desktop shell and on mobile —
-              // the shell's window.open goes to the system browser, which
-              // shares neither localStorage nor the channel).
+              // Pop out verb (absent on mobile and in a shell without the
+              // `windows.popout` channel — the shell's window.open policy
+              // sends everything to the system browser, which shares neither
+              // localStorage nor the channel with the opener).
               popoutLeafId={popoutPosture && popLeaf !== null ? popLeaf.leafId : undefined}
               onPopBackIn={popoutPosture ? popoutPresence.closeSelf : undefined}
               popped={popped.length > 0 ? popped : undefined}
               onPopOut={
-                !isMobile && !isShell()
+                !isMobile && (!isShell() || canShellPopout())
                   ? (leafId, rect) => popOut(leafId, rect)
                   : undefined
               }

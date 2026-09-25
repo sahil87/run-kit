@@ -483,6 +483,13 @@ interface ShellWindowsCloseBridge extends ShellWindowsBridge {
   close: () => Promise<unknown>;
 }
 
+/** A `windows` group that also carries the optional `popout` invoker
+ *  (shells predating the shell-hosted popout windows expose only
+ *  newWindow/close). */
+interface ShellWindowsPopoutBridge extends ShellWindowsBridge {
+  popout: (payload: { route: string; width?: number; height?: number }) => Promise<unknown>;
+}
+
 function isWindowsBridge(value: unknown): value is ShellWindowsBridge {
   if (typeof value !== "object" || value === null) return false;
   if (!("newWindow" in value)) return false;
@@ -491,6 +498,25 @@ function isWindowsBridge(value: unknown): value is ShellWindowsBridge {
 
 function isWindowsCloseBridge(bridge: ShellWindowsBridge): bridge is ShellWindowsCloseBridge {
   return "close" in bridge && typeof Reflect.get(bridge, "close") === "function";
+}
+
+/**
+ * The `popout` invoker is additive to the `windows` group (shells predating
+ * the shell-hosted popout windows expose only newWindow/close), so it is
+ * narrowed separately from `isWindowsBridge` — the group stays usable without
+ * it.
+ */
+function isWindowsPopoutBridge(
+  bridge: ShellWindowsBridge,
+): bridge is ShellWindowsPopoutBridge {
+  return "popout" in bridge && typeof Reflect.get(bridge, "popout") === "function";
+}
+
+function isPopoutOk(value: unknown): value is { ok: true; windowId: number } {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("ok" in value) || value.ok !== true) return false;
+  if (!("windowId" in value)) return false;
+  return typeof value.windowId === "number" && Number.isFinite(value.windowId);
 }
 
 /** The `windows` group when the bridge carries one — absent on older shells. */
@@ -510,6 +536,13 @@ export function canNewShellWindow(): boolean {
 export function canCloseShellWindow(): boolean {
   const bridge = windowsBridge();
   return bridge !== null && isWindowsCloseBridge(bridge);
+}
+
+/** True when the shell can open a shell-hosted popout window
+ *  (`windows.popout` present). */
+export function canShellPopout(): boolean {
+  const bridge = windowsBridge();
+  return bridge !== null && isWindowsPopoutBridge(bridge);
 }
 
 /**
@@ -552,6 +585,37 @@ export async function closeShellWindow(): Promise<boolean> {
   return (
     typeof result === "object" && result !== null && "ok" in result && result.ok === true
   );
+}
+
+/**
+ * Ask the shell to open a shell-hosted popout window for `route` (a
+ * pathname+search remainder like `/rk-dev/@12?pop=web`). `rect` sizes the
+ * window: positive `w`/`h` are rounded into the payload's `width`/`height`;
+ * absent or non-positive, the keys are omitted and the shell applies its
+ * 1200×800 fallback. Resolves the shell's window id on success, `null` in a
+ * plain browser, on an older shell whose `windows` group lacks the `popout`
+ * invoker, on a rejected invoke, on `{ ok: false }`, and on any result that
+ * is not structurally `{ ok: true, windowId: <finite number> }`. Never
+ * throws.
+ */
+export async function shellPopout(
+  route: string,
+  rect?: { w: number; h: number },
+): Promise<{ windowId: number } | null> {
+  const bridge = windowsBridge();
+  if (!bridge || !isWindowsPopoutBridge(bridge)) return null;
+  const payload: { route: string; width?: number; height?: number } = { route };
+  if (rect !== undefined && rect.w > 0 && rect.h > 0) {
+    payload.width = Math.round(rect.w);
+    payload.height = Math.round(rect.h);
+  }
+  let result: unknown;
+  try {
+    result = await bridge.popout(payload);
+  } catch {
+    return null;
+  }
+  return isPopoutOk(result) ? { windowId: result.windowId } : null;
 }
 
 /** The bridge's `badge` group — thin IPC invoker resolving unknown shapes. */

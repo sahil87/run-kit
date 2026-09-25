@@ -67,8 +67,9 @@
  *                                 then.
  *  - `Tile: Pop Out <Surface>`   — per open, not-popped, live leaf while the
  *                                 reduced render keeps ≥2 tiles (the caller
- *                                 omits `onPopOut` in the desktop shell and on
- *                                 mobile); foreign leaves disambiguate with the
+ *                                 omits `onPopOut` on mobile and in a desktop
+ *                                 shell without the `windows.popout` channel);
+ *                                 foreign leaves disambiguate with the
  *                                 home window's name. `Tile: Pop Back In
  *                                 <Surface>` — per popped leaf of this layout.
  *                                 While any leaf is popped, the template rows

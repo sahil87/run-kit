@@ -135,6 +135,16 @@ describe("usePoppedSet", () => {
     expect(result.current.popped).toEqual(["code"]);
   });
 
+  it("ignores an announced mark whose leaf is no longer in the tree", () => {
+    // Another viewer removed the tile: the popout keeps announcing, but
+    // adopting its mark would hide a tile later re-added under the same id.
+    const { result } = renderHook(() => usePoppedSet(SERVER, WINDOW, true, TREE));
+    act(() => post({ type: "opened", server: SERVER, window: WINDOW, leaf: "web" }));
+    act(() => post({ type: "alive", server: SERVER, window: WINDOW, leaf: "web" }));
+    expect(result.current.popped).toEqual([]);
+    expect(readStoredMarks()).toEqual([]);
+  });
+
   it("clears the mark when the popout posts closed", () => {
     localStorage.setItem(poppedKey(SERVER, WINDOW), JSON.stringify(["code"]));
     const { result } = renderHook(() => usePoppedSet(SERVER, WINDOW, true, TREE));

@@ -86,14 +86,27 @@ export function reducePopped(
   popped: string[],
 ): { tree: LayoutNode | null; present: string[] } {
   let out: LayoutNode | null = tree;
-  const present: string[] = [];
-  for (const id of popped) {
+  const present = new Set<string>();
+  // Highest occurrence first: removing `tty` renumbers `tty#2` down to `tty`
+  // (duplicate ids derive from the CURRENT tree), so a pending `tty#2`
+  // removal must land before the `tty` one it would otherwise survive.
+  const ordered = [...popped].sort((a, b) => occurrenceIndex(b) - occurrenceIndex(a));
+  for (const id of ordered) {
     if (out === null) break;
     if (!leafIds(out).includes(id)) continue;
-    present.push(id);
+    present.add(id);
     out = removeLeaf(out, id);
   }
-  return { tree: out, present };
+  return { tree: out, present: popped.filter((id) => present.has(id)) };
+}
+
+/** The occurrence a duplicate-suffixed id names (`tty#2` → 2); bare and
+ *  foreign ids are occurrence 1. */
+function occurrenceIndex(id: string): number {
+  const hash = id.indexOf("#");
+  if (hash < 0) return 1;
+  const n = Number(id.slice(hash + 1));
+  return Number.isInteger(n) && n >= 2 ? n : 1;
 }
 
 /** A validated `?pop=` value: the leaf id as `leafIds()` produces it, its
@@ -128,9 +141,11 @@ export function parsePopLeaf(raw: string, routeWindow: string): PopLeaf | null {
   if (kind === undefined) return null;
   const hash = raw.indexOf("#");
   if (hash >= 0) {
-    const n = Number(raw.slice(hash + 1));
-    // Only bare tty tiles repeat; the occurrence suffix is 2-based.
-    if (kind !== "tty" || !Number.isInteger(n) || n < 2) return null;
+    const suffix = raw.slice(hash + 1);
+    // Only bare tty tiles repeat; the occurrence suffix is 2-based and
+    // canonical decimal, as leafIds() emits it — `tty#02`, `tty#2.0`,
+    // `tty#2e0` are malformed, not aliases Number() would normalize.
+    if (kind !== "tty" || !/^[1-9]\d*$/.test(suffix) || Number(suffix) < 2) return null;
   }
   return { leafId: raw, kind, windowId: routeWindow };
 }

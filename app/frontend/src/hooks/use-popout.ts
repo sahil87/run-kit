@@ -78,6 +78,13 @@ export function usePoppedSet(
   // latest-closure pattern — effects key on identity, not values).
   const poppedRef = useRef(popped);
   poppedRef.current = popped;
+  // Render-mirrored full-tree ids for the channel handler: an announced mark
+  // is adopted only while its leaf is still in the shared tree — a pruned
+  // leaf's popout keeps announcing, and re-adopting its mark would hide a
+  // tile later re-added under the same id (the tree-key effect does not
+  // rerun for a storage update).
+  const treeIdsRef = useRef(treeLeafIds);
+  treeIdsRef.current = treeLeafIds;
   // The effect-owned channel, shared with popIn so its `pop-in` post never
   // races a `close()` (a post on a closing channel can drop).
   const channelRef = useRef<BroadcastChannel | null>(null);
@@ -111,7 +118,7 @@ export function usePoppedSet(
         case "opened":
         case "alive": {
           lastSeenRef.current.set(msg.leaf, Date.now());
-          if (!poppedRef.current.includes(msg.leaf)) {
+          if (!poppedRef.current.includes(msg.leaf) && treeIdsRef.current.includes(msg.leaf)) {
             // A sibling opener tab of this profile popped it — take the mark.
             commit([...poppedRef.current, msg.leaf]);
           }

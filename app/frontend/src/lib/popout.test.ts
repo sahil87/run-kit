@@ -66,6 +66,15 @@ describe("reducePopped", () => {
     expect(present).toEqual(["tty#2"]);
   });
 
+  it("removes both duplicate bare tty occurrences in reading order", () => {
+    // Removing `tty` first renumbers `tty#2` down to `tty` — the reduction
+    // must take the higher occurrence first regardless of input order.
+    const tree = parseLayoutTree("h(tty,tty)");
+    const { tree: out, present } = reducePopped(tree!, ["tty", "tty#2"]);
+    expect(out).toBeNull();
+    expect(present).toEqual(["tty", "tty#2"]);
+  });
+
   it("removes a foreign leaf by its address", () => {
     const tree = parseLayoutTree("h(tty,@12/tty)");
     const { tree: out, present } = reducePopped(tree!, ["@12/tty"]);
@@ -129,6 +138,17 @@ describe("parsePopLeaf", () => {
     expect(parsePopLeaf("web#2", "@5")).toBeNull();
     expect(parsePopLeaf("tty#1", "@5")).toBeNull();
     expect(parsePopLeaf("@x/tty", "@5")).toBeNull();
+  });
+
+  it("rejects non-canonical occurrence suffixes leafIds() never emits", () => {
+    expect(parsePopLeaf("tty#02", "@5")).toBeNull();
+    expect(parsePopLeaf("tty#2.0", "@5")).toBeNull();
+    expect(parsePopLeaf("tty#2e0", "@5")).toBeNull();
+    expect(parsePopLeaf("tty#10", "@5")).toEqual({
+      leafId: "tty#10",
+      kind: "tty",
+      windowId: "@5",
+    });
   });
 });
 

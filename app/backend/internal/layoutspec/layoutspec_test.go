@@ -55,6 +55,48 @@ func readFixtures(t *testing.T) fixtureFile {
 	return f
 }
 
+// grammarFixtures mirrors app/frontend/src/lib/layout-grammar.fixtures.json:
+// the leaf-grammar accept/reject corpus. accept = Parse succeeds AND
+// ValidateFor passes with owner ("" = no owner supplied); expect is the
+// serialized form of an accepted parse. The Vitest suite reads the same file.
+type grammarFixtures struct {
+	Grammar []struct {
+		Input  string `json:"input"`
+		Accept bool   `json:"accept"`
+		Owner  string `json:"owner"`
+		Expect string `json:"expect"`
+	} `json:"grammar"`
+}
+
+func readGrammarFixtures(t *testing.T) grammarFixtures {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "frontend", "src", "lib", "layout-grammar.fixtures.json"))
+	if err != nil {
+		t.Fatalf("read shared grammar corpus: %v", err)
+	}
+	var f grammarFixtures
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatalf("decode shared grammar corpus: %v", err)
+	}
+	return f
+}
+
+func TestGrammarCorpus(t *testing.T) {
+	for _, tc := range readGrammarFixtures(t).Grammar {
+		n, err := Parse(tc.Input)
+		ok := err == nil && ValidateFor(n, tc.Owner) == nil
+		if ok != tc.Accept {
+			t.Errorf("grammar %q (owner %q): accept = %v, want %v (parse err: %v)", tc.Input, tc.Owner, ok, tc.Accept, err)
+			continue
+		}
+		if tc.Accept && err == nil {
+			if got := n.String(); got != tc.Expect {
+				t.Errorf("grammar %q.String() = %q, want %q", tc.Input, got, tc.Expect)
+			}
+		}
+	}
+}
+
 func TestFixtureParseTable(t *testing.T) {
 	for _, tc := range readFixtures(t).Parse {
 		n, err := Parse(tc.Input)
@@ -128,6 +170,10 @@ func TestParseTreeGrammarRoundTrips(t *testing.T) {
 		"h(tty,v(code,web))", "h(v(code,web),tty)",
 		"v(tty,h(code,web))", "v(h(code,web),tty)",
 		"h(tty,tty)", "h(tty,v(tty,tty))",
+		"@12/tty", "@3/web",
+		"h(tty,v(@12/tty,web))", "h(web,@12/web)",
+		"h(tty,web,code,gui)",
+		"v(h(tty,code,web),h(@3/tty,@4/tty,@5/code))",
 	} {
 		if got := mustParse(t, raw).String(); got != raw {
 			t.Errorf("Parse(%q).String() = %q, want byte-identical round-trip", raw, got)
@@ -161,14 +207,13 @@ func TestParseRejections(t *testing.T) {
 		"h(h(tty,web),code)", // same-direction nesting
 		"v(v(tty,web))",      // single-child split, nested
 		"h(tty)",             // single-child split
-		// the tile cap
-		"h(tty,web,code,gui)",
-		// repeated non-tty kind
+		// repeated non-tty bare kind
 		"h(web,web)", "main-left:tty,code,code", "split-h:code,code",
 		// whitespace, truncation, trailing input
 		"h( tty,web)", "h(tty,web", "h(tty,web)x", "",
-		// legacy arity / unknown shape / unknown surface
+		// legacy arity / unknown shape / unknown surface / foreign legacy leaf
 		"single:tty,web", "row:tty,web", "grid:tty,code", "single:desktop",
+		"split-h:tty,@3/tty",
 		// not a layout at all
 		"foo", "main-bottom:tty,code,web",
 	} {
@@ -182,12 +227,36 @@ func TestParseRejections(t *testing.T) {
 // (attacker-controlled) value is rejected by length instead of exhausting the
 // stack.
 func TestParseRejectsOverLengthInput(t *testing.T) {
-	deep := strings.Repeat("h(", 200) + "tty" + strings.Repeat(")", 200)
+	deep := strings.Repeat("h(", 300) + "tty" + strings.Repeat(")", 300)
 	if len(deep) <= MaxLayoutLen {
 		t.Fatalf("test input is %d bytes, want > MaxLayoutLen (%d)", len(deep), MaxLayoutLen)
 	}
 	if n, err := Parse(deep); err == nil {
 		t.Errorf("Parse(%d-byte deep tree) = %q, want rejection by the input cap", len(deep), n.String())
+	}
+	// A 513-byte input is rejected by length alone, never reaching the parser.
+	atCap := strings.Repeat("h(", 169) + "tty" + strings.Repeat(")", 169)
+	if len(atCap) > MaxLayoutLen {
+		t.Fatalf("test input is %d bytes, want ≤ MaxLayoutLen (%d)", len(atCap), MaxLayoutLen)
+	}
+	over := atCap + strings.Repeat(")", MaxLayoutLen+1-len(atCap))
+	if len(over) != MaxLayoutLen+1 {
+		t.Fatalf("test input is %d bytes, want exactly %d", len(over), MaxLayoutLen+1)
+	}
+	if n, err := Parse(over); err == nil {
+		t.Errorf("Parse(%d-byte input) = %q, want rejection by the input cap", len(over), n.String())
+	}
+}
+
+// No tile-count cap remains: a canonical 6-leaf tree parses.
+func TestParseSixLeafTree(t *testing.T) {
+	raw := "v(h(tty,code,web),h(@3/tty,@4/tty,@5/code))"
+	n := mustParse(t, raw)
+	if got := n.String(); got != raw {
+		t.Errorf("Parse(%q).String() = %q, want round-trip", raw, got)
+	}
+	if err := ValidateFor(n, "@9"); err != nil {
+		t.Errorf("ValidateFor(%q, @9): %v", raw, err)
 	}
 }
 
@@ -198,6 +267,83 @@ func TestParseDuplicateTtyLegal(t *testing.T) {
 	}
 	if got := n.LeafIDs(); !reflect.DeepEqual(got, []string{"tty", "tty#2"}) {
 		t.Errorf("LeafIDs(h(tty,tty)) = %v, want [tty tty#2]", got)
+	}
+}
+
+// The owner rule is the write-path half of validation: Parse has no owner, so
+// a self-naming foreign leaf parses and only ValidateFor rejects it.
+func TestValidateForOwnerRules(t *testing.T) {
+	table := []struct {
+		raw   string
+		owner string
+		want  bool
+	}{
+		{"h(tty,@7/tty)", "@7", false}, // a foreign leaf naming the owner
+		{"h(tty,@7/tty)", "@9", true},  // …but only for that owner
+		{"h(tty,tty,@12/tty)", "@7", true},
+		{"h(tty,@7/tty)", "", true},    // no owner supplied: rule skipped
+		{"h(web,@12/web)", "@9", true}, // bare kind + foreign same kind coexist
+	}
+	for _, tc := range table {
+		n := mustParse(t, tc.raw)
+		if err := ValidateFor(n, tc.owner); (err == nil) != tc.want {
+			t.Errorf("ValidateFor(%q, %q): err = %v, want valid = %v", tc.raw, tc.owner, err, tc.want)
+		}
+	}
+}
+
+func TestLeafIDAddresses(t *testing.T) {
+	n := mustParse(t, "h(tty,@12/tty)")
+	if got := n.LeafIDs(); !reflect.DeepEqual(got, []string{"tty", "@12/tty"}) {
+		t.Errorf("LeafIDs(h(tty,@12/tty)) = %v, want [tty @12/tty]", got)
+	}
+	// Duplicate bare kinds number among the bare leaves only.
+	n = mustParse(t, "h(tty,tty,@3/tty,@4/tty)")
+	if got := n.LeafIDs(); !reflect.DeepEqual(got, []string{"tty", "tty#2", "@3/tty", "@4/tty"}) {
+		t.Errorf("LeafIDs = %v, want [tty tty#2 @3/tty @4/tty]", got)
+	}
+}
+
+func TestRemoveOrTTYAddressIDs(t *testing.T) {
+	out, ok := RemoveOrTTY(mustParse(t, "h(tty,@12/tty)"), "@12/tty")
+	if !ok || out.String() != "tty" {
+		t.Errorf("RemoveOrTTY(h(tty,@12/tty), @12/tty) = %q, %v, want tty", out, ok)
+	}
+	if n, ok := RemoveOrTTY(mustParse(t, "h(tty,@12/tty)"), "@99/tty"); ok || n.String() != "h(tty,@12/tty)" {
+		t.Errorf("RemoveOrTTY of an absent address = %q, %v, want unchanged, false", n, ok)
+	}
+	// Removing the last leaf drains the tree: the bare-tty fallback (a layout
+	// never renders empty).
+	out, ok = RemoveOrTTY(mustParse(t, "@12/tty"), "@12/tty")
+	if !ok || out.String() != "tty" {
+		t.Errorf("RemoveOrTTY draining the tree = %q, %v, want tty", out, ok)
+	}
+	if n, ok := RemoveOrTTY(mustParse(t, "h(tty,web)"), "code"); ok || n.String() != "h(tty,web)" {
+		t.Errorf("RemoveOrTTY of an absent leaf = %q, %v, want unchanged, false", n, ok)
+	}
+}
+
+func TestParseLeafAddress(t *testing.T) {
+	home, kind, ok := ParseLeafAddress("@12/tty")
+	if !ok || home != "@12" || kind != "tty" {
+		t.Errorf("ParseLeafAddress(@12/tty) = %q, %q, %v", home, kind, ok)
+	}
+	for _, raw := range []string{"tty", "@12", "@x/tty", "@/tty", "@12/foo", "@12/tty/2", ""} {
+		if home, kind, ok := ParseLeafAddress(raw); ok {
+			t.Errorf("ParseLeafAddress(%q) = %q, %q, true, want false", raw, home, kind)
+		}
+	}
+	// gui parses as an address — its rejection lives in validation.
+	if _, _, ok := ParseLeafAddress("@7/gui"); !ok {
+		t.Errorf("ParseLeafAddress(@7/gui) = false, want true")
+	}
+}
+
+// A swap moves a foreign leaf whole — its home follows it to the new slot.
+func TestSwapKeepsForeignHome(t *testing.T) {
+	got := Promote(mustParse(t, "h(tty,@12/code)"), "@12/code")
+	if got.String() != "h(@12/code,tty)" {
+		t.Errorf("Promote(h(tty,@12/code), @12/code) = %q, want h(@12/code,tty)", got)
 	}
 }
 
@@ -270,9 +416,6 @@ func TestTemplatesFor(t *testing.T) {
 // ── verb sentinels (fixture table covers the happy paths) ──────────────────
 
 func TestAddSentinels(t *testing.T) {
-	if _, err := Add(mustParse(t, "h(tty,web,code)"), "tty"); !errors.Is(err, ErrLayoutFull) {
-		t.Errorf("Add on a full layout: err = %v, want ErrLayoutFull", err)
-	}
 	if _, err := Add(mustParse(t, "h(tty,web)"), "web"); !errors.Is(err, ErrSurfaceRepeat) {
 		t.Errorf("Add a repeated non-tty: err = %v, want ErrSurfaceRepeat", err)
 	}
@@ -282,6 +425,42 @@ func TestAddSentinels(t *testing.T) {
 	// A duplicate tty is legal (the muxed relay supports N clients per pane).
 	if got, err := Add(mustParse(t, "tty"), "tty"); err != nil || got.String() != "h(tty,tty)" {
 		t.Errorf("Add(tty, tty) = %q, %v, want h(tty,tty)", got, err)
+	}
+	// No tile cap: a fourth tile splits the last leaf on its longer axis.
+	if got, err := Add(mustParse(t, "h(tty,web,code)"), "gui"); err != nil || got.String() != "h(tty,web,v(code,gui))" {
+		t.Errorf("Add(h(tty,web,code), gui) = %q, %v, want h(tty,web,v(code,gui))", got, err)
+	}
+}
+
+// The repeat rule counts only BARE leaves: a tree holding @12/web but no bare
+// web accepts adding web (h(web,@12/web) is a legal tree).
+func TestAddRepeatCountsBareLeavesOnly(t *testing.T) {
+	cases := []struct {
+		name    string
+		tree    string
+		kind    string
+		want    string
+		wantErr error
+	}{
+		{"foreign web only, add bare web", "h(tty,@12/web)", "web", "h(tty,v(@12/web,web))", nil},
+		{"foreign web sole leaf, add bare web", "@12/web", "web", "h(@12/web,web)", nil},
+		{"bare web present, add web", "h(tty,web)", "web", "", ErrSurfaceRepeat},
+		{"bare tty duplicate stays legal", "tty", "tty", "h(tty,tty)", nil},
+		{"foreign tty only, add bare tty", "@12/tty", "tty", "h(@12/tty,tty)", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Add(mustParse(t, tc.tree), tc.kind)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("Add(%q, %q): err = %v, want %v", tc.tree, tc.kind, err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || got.String() != tc.want {
+				t.Errorf("Add(%q, %q) = %q, %v, want %q", tc.tree, tc.kind, got, err, tc.want)
+			}
+		})
 	}
 }
 
@@ -321,15 +500,6 @@ func TestPromoteNoOps(t *testing.T) {
 	}
 	if got := Promote(n, "tty"); got.String() != n.String() {
 		t.Errorf("Promote of slot A = %q, want unchanged", got)
-	}
-}
-
-func TestReplaceLast(t *testing.T) {
-	if got := ReplaceLast(mustParse(t, "h(tty,v(code,gui))"), "web"); got.String() != "h(tty,v(code,web))" {
-		t.Errorf("ReplaceLast = %q, want h(tty,v(code,web))", got)
-	}
-	if got := ReplaceLast(mustParse(t, "tty"), "web"); got.String() != "web" {
-		t.Errorf("ReplaceLast on a single leaf = %q, want web", got)
 	}
 }
 

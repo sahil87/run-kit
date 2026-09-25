@@ -26,6 +26,7 @@ import {
   structureSig,
   writeStoredSizes,
   writeStoredZoom,
+  zoomLeafKind,
   NOMINAL_BOX,
   SPLIT_GAP_PX,
   type Layout,
@@ -36,9 +37,11 @@ import {
 import {
   isLeaf,
   layoutDividers,
+  parseLeafAddress,
   sizesOf,
   templateSizes,
   type DividerLine,
+  type LayoutLeaf,
   type LayoutNode,
   type SplitDir,
 } from "@/lib/layout-tree";
@@ -50,6 +53,8 @@ import {
   type DropHit,
   type DropResult,
 } from "@/lib/layout-drop";
+import { WINDOW_DRAG_MIME } from "@/components/sidebar/boards-section";
+import { SurfacePlaceholder } from "@/components/surface-placeholder";
 import { clampSiblingFraction } from "@/lib/right-panel";
 import { TileDragContext } from "@/lib/tile-drag-context";
 import { codeRootFollowTarget, codeRootFor } from "@/lib/code-folder-latch";
@@ -79,6 +84,7 @@ import {
   FollowTerminalGlyph,
   FullscreenGlyph,
   RefreshGlyph,
+  SendHomeGlyph,
   SplitHorizontalGlyph,
   SplitVerticalGlyph,
   TileCloseGlyph,
@@ -129,10 +135,15 @@ import {
  * SurfaceLayout — the tile renderer for the terminal route's center (spec
  * docs/specs/surface-layout.md § The Model, § Verbs). Replaces the legacy
  * exclusive-lens render branch AND the right-panel surface slot: the resolved
- * layout — a canonical split TREE (`lib/layout-tree.ts`) — renders as 1–3
- * TILES, each mounting an EXISTING renderer unchanged — `TerminalClient`
+ * layout — a canonical split TREE (`lib/layout-tree.ts`) — renders as 1–N
+ * TILES (offers gated by the per-viewport size floor), each mounting an
+ * EXISTING renderer unchanged — `TerminalClient`
  * (tty), `IframeWindow` (web), `CodeSurface` (code), `GuiSurface` (gui —
  * lazy-loaded: noVNC's ~150 KB core is paid only by tabs that open the tile).
+ * A tile may also point at ANOTHER tab's surface (a foreign leaf, `@N/<kind>`
+ * — see the duplicate/foreign bullet below), and a bare leaf whose surface is
+ * live in another tab renders the AWAY PLACEHOLDER instead of mounting the
+ * surface.
  *
  * - **Flat rect-positioned leaves**: every leaf of the tree renders as an
  *   absolutely positioned tile in ONE flat sibling list keyed by leaf id,
@@ -209,10 +220,11 @@ import {
  *   settable by kind through the `focusTileRef` seam (the `zoomToggleRef`
  *   pattern — the palette's `Tile: Focus <Surface>`, first leaf of the kind).
  * - **Zoom (R6)**: one tile full-center, the others hidden at display level.
- *   Per-viewer state, persisted as the zoomed surface KIND under
+ *   Per-viewer state, persisted as the zoomed LEAF ID under
  *   `rk-layout-zoom:{server}:{@N}` (the mobile switch group reads the same
- *   key; desktop resolves the kind to its first leaf); the toggle renders only
- *   when arity > 1.
+ *   key; its kind writes double as a unique bare leaf's id, and an exact id
+ *   that left the tree resolves to its kind's first leaf); the toggle renders
+ *   only when arity > 1.
  * - **Hide-never-unmount (P3)**: a leaf opened earlier this route visit stays
  *   mounted (`hidden` class) when closed or zoomed away, so iframe /
  *   terminal state survives. The "ever opened" bookkeeping is keyed by leaf
@@ -245,11 +257,34 @@ import {
  *   meets a perpendicular divider, a `surface-divider-intersection` zone
  *   lights BOTH sashes on hover and drags BOTH fraction pairs at once (each
  *   clamped on its own axis), persisted on release.
- * - **Duplicate tty**: the muxed relay supports N clients per pane, so two
- *   tty tiles are legal (`tty`, `tty#2` by reading-order occurrence). Only the
- *   FIRST tty leaf in reading order receives the shared `wsRef`/`focusRef`
- *   (and registers as the shell's focused terminal); duplicates mount extra
- *   TerminalClients without those refs.
+ * - **Duplicate and foreign tty tiles**: the muxed relay supports N clients
+ *   per pane, so two bare tty tiles are legal (`tty`, `tty#2` by
+ *   reading-order occurrence), and a foreign leaf (`@12/tty`) tiles ANOTHER
+ *   window's terminal — its relay stream opens with the home window id and
+ *   `isolate: true` (the `_rk-iso-*` attach, never fighting the home tab).
+ *   Only the FIRST BARE tty leaf in reading order receives the shared
+ *   `wsRef`/`focusRef` holder (a foreign tty never takes it); every tty tile
+ *   mounts its own stream bucket, and the FOCUSED tty tile — bare or foreign
+ *   — registers as the shell's focused terminal with its own
+ *   server/session/window/wsRef, so the compose strip, bottom bar, and focus
+ *   memory follow the tile the user is in.
+ * - **Away placeholder**: a BARE leaf whose kind is named by the route
+ *   window's server-derived `awayIn` (a live holder exists) renders
+ *   `SurfacePlaceholder` INSTEAD of the surface — the mount is gated, so an
+ *   away tty opens no relay stream. The placeholder carries bring back (the
+ *   parent's `onSendHome` with from = the holder), go to the holder
+ *   (`onGoToWindow`), the tty status dot, and ✕ (hidden when it is the only
+ *   leaf — a layout never renders empty). A foreign tile's header identifies
+ *   its home tab (name chip) and carries a ↩ verb (`onSendHome` with from =
+ *   the route window), disabled while the home window is dead.
+ * - **Sidebar row-drag borrow**: a window-row HTML5 drag (WINDOW_DRAG_MIME)
+ *   in flight arms a drop-catcher overlay above all tiles — window-level
+ *   dragstart/dragend listeners (the payload is readable at dragstart), the
+ *   header drag's mid-drag seam, and the external-leaf mode of
+ *   `hitTest`/`resolveDrop`. Edge zones insert `@<dragged>/tty` and commit
+ *   through `onBorrowDrop` (the parent's borrow helper); the center zone and
+ *   the refused drops (route window's own row, address already in the layout,
+ *   cross-server) preview "no change" and write nothing.
  *
  * Presentational by contract (the view-switcher/right-panel precedent): the
  * tree lives in `app.tsx` and arrives as the `layout` prop; verbs call the
@@ -293,15 +328,35 @@ export interface CodeTileCommands {
   reload: () => void;
 }
 
-/** Split a leaf id into kind + occurrence: the kind itself for a unique kind,
- *  `tty`, `tty#2`, … by reading-order occurrence for duplicate tty leaves. */
-function leafIdParts(leafId: string): { kind: SurfaceKind; occ: number } {
+/** Split a leaf id into kind + occurrence (+ home for a foreign leaf): an
+ *  address id (`@12/tty`) yields the address's kind and home; a bare id is
+ *  the kind itself for a unique kind, `tty`, `tty#2`, … by reading-order
+ *  occurrence for duplicate tty leaves. */
+function leafIdParts(leafId: string): { kind: SurfaceKind; occ: number; home?: string } {
+  const foreign = parseLeafAddress(leafId);
+  if (foreign !== null) return { kind: foreign.kind, occ: 0, home: foreign.home };
+  const kind = zoomLeafKind(leafId) ?? "tty";
   const hash = leafId.indexOf("#");
-  const raw = hash < 0 ? leafId : leafId.slice(0, hash);
-  const kind: SurfaceKind =
-    raw === "tty" || raw === "web" || raw === "code" || raw === "gui" ? raw : "tty";
   const n = hash < 0 ? 1 : Number(leafId.slice(hash + 1));
   return { kind, occ: Number.isFinite(n) && n >= 1 ? n - 1 : 0 };
+}
+
+/** The window a tile's surface belongs to (the tile's OWN window): a foreign
+ *  leaf's home window, the route window for a bare leaf. Every per-tile
+ *  read/write — relay stream, focus registration, progress slot, web tabs,
+ *  code root — targets this window, never implicitly the route's. */
+function tileWindowIdOf(leafId: string, routeWindowId: string): string {
+  return leafIdParts(leafId).home ?? routeWindowId;
+}
+
+/** Resolve a stored zoom leaf id to a live leaf: the exact id when the leaf
+ *  survives, else the kind's first leaf in reading order (a shared restructure
+ *  moves the zoom with its surface), else null (the zoom clears). */
+function resolveZoomLeaf(layout: LayoutNode, stored: string): string | null {
+  const ids = leafIds(layout);
+  if (ids.includes(stored)) return stored;
+  const i = leaves(layout).indexOf(leafIdParts(stored).kind);
+  return i >= 0 ? ids[i] : null;
 }
 
 /** One tile entry: a visible leaf, an ever-opened-but-closed leaf id, or a
@@ -420,6 +475,15 @@ interface SurfaceLayoutProps {
    *  code root) narrow from it; an unavailable kind renders an empty tile body
    *  (degradation should already have dropped it). */
   window: ViewWindow | null;
+  /** The route server's windows by id (payload-derived) — a FOREIGN leaf's
+   *  tile resolves its home window's record from this map (name, status dot,
+   *  code root, web tabs); a home absent from the map is dead. */
+  windowsById?: ReadonlyMap<string, WindowInfo>;
+  /** The owning session name per window id on the route server
+   *  (payload-derived) — a foreign tile's TerminalClient connects under its
+   *  HOME session and registers focus with it. Absent ⇒ foreign tiles fall
+   *  back to the route session name. */
+  sessionNameByWindowId?: ReadonlyMap<string, string>;
   /** Below `isMobileViewport()` only ONE leaf renders (R13) — no dividers, no
    *  verb chrome. `mobileActiveSlot` picks WHICH leaf (its index in reading
    *  order): the top-bar switch group swaps the shown surface via the
@@ -554,12 +618,27 @@ interface SurfaceLayoutProps {
    *  `applyLayout` — the one `@rk_win_layout` write path); the viewer's sizes
    *  for the new structure signature are already written when it fires. */
   onApplyLayout: (next: Layout) => void;
+  /** Send a held surface back to its home window (the parent's `sendHome` —
+   *  `POST /api/layout/return`): the placeholder's bring back passes
+   *  from = the HOLDER, the foreign tile header's ↩ passes from = the ROUTE
+   *  window. `leafAddr` is the leaf's address (`@3/tty`). Absent ⇒ those
+   *  verbs render disabled. */
+  onSendHome?: (from: string, leafAddr: string) => void;
+  /** Navigate to another tab's route — the placeholder's "go to <holder>". */
+  onGoToWindow?: (windowId: string) => void;
+  /** The sidebar row-drag borrow's commit seam (the parent's `borrowInto`):
+   *  a drop whose resolution is a `move` calls this ONCE with the new leaf's
+   *  address and the result tree; the viewer's sizes for the new structure
+   *  signature are already written when it fires. */
+  onBorrowDrop?: (leafAddr: string, tree: Layout) => void;
   /** Pane-segment callbacks (260813-w1lf content verbs — tty tiles only):
    *  the parent routes these through its `executeSplit`/`executeClosePane`
    *  optimistic actions (the palette split/close path). Both required for
-   *  the segment to render. */
-  onSplitPane?: (horizontal: boolean) => void;
-  onClosePane?: () => void;
+   *  the segment to render. The second argument is the TILE's own window id
+   *  (a foreign tty tile's home) — pane verbs act on the tile's window, never
+   *  implicitly the route's. */
+  onSplitPane?: (horizontal: boolean, tileWindowId: string) => void;
+  onClosePane?: (tileWindowId: string) => void;
   /** Optional divider observers — fired during a drag (per move, with the
    *  divider's index in `layoutDividers` order and the FIRST sibling's
    *  percentage of its pair) and on release (commit). The component owns
@@ -683,6 +762,194 @@ function tileMeta(kind: SurfaceKind, win: ViewWindow | null, gui?: GuiSignal | n
   return null;
 }
 
+/** The web tile's content mount — one instance per web TILE, keyed by the
+ *  tile's own window: a foreign `@N/web` tile reads and writes its HOME
+ *  window's tab family (`@rk_win_web_<n>` options, the optimistic
+ *  `webOverride` keyed `entryKey(server, home)`), never the route window's.
+ *
+ *  Select/remove/move ride the window store's per-entry `webOverride` (the
+ *  pendingName/killed precedent): the optimistic write repaints the strip
+ *  immediately while the POST is in flight; the SSE tick is authoritative and
+ *  the reconcile effect drops the override once the payload matches. A
+ *  rejection reverts the override and toasts. Add is NOT optimistic — the
+ *  slot index is server-assigned. */
+function WebTileContent({
+  server,
+  sessionName,
+  windowId,
+  win,
+  visible,
+  onInteract,
+  onPageTitle,
+  shouldReclaimChord,
+}: {
+  server: string;
+  /** The tile window's owning session (the override entry's session half). */
+  sessionName: string;
+  /** The tile's OWN window id — the home window for a foreign web leaf. */
+  windowId: string;
+  /** The tile window's payload record; null renders nothing. */
+  win: ViewWindow | null;
+  visible: boolean;
+  onInteract?: () => void;
+  onPageTitle: (title: string | null) => void;
+  shouldReclaimChord?: (e: KeyboardEvent) => boolean;
+}) {
+  const { addToast } = useToast();
+  const webOverride = useWindowStore(
+    (s) => s.entries.get(entryKey(server, windowId))?.webOverride,
+  );
+  const setWebOverride = useWindowStore((s) => s.setWebOverride);
+  const clearWebOverride = useWindowStore((s) => s.clearWebOverride);
+  // Ref writes are synchronous, so two gestures in the same render compound
+  // against the first optimistic family instead of both reading the same SSE
+  // payload. The POST queue preserves that ordering at the tmux writer and
+  // invalidates dependent moves when an earlier request fails.
+  const webOverrideRef = useRef(webOverride);
+  webOverrideRef.current = webOverride;
+  const webMoveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  const applyWebOverride = (override: WebTabOverride) => {
+    webOverrideRef.current = { ...webOverrideRef.current, ...override };
+    setWebOverride(server, sessionName, windowId, override);
+  };
+  const revertWebOverride = () => {
+    webOverrideRef.current = undefined;
+    clearWebOverride(server, sessionName, windowId);
+  };
+
+  const { execute: selectWebTabOptimistic } = useOptimisticAction<[number]>({
+    action: (n) => selectWebTab(server, windowId, n),
+    onOptimistic: (n) => applyWebOverride({ webActive: n }),
+    onAlwaysRollback: revertWebOverride,
+    onError: (err) => addToast(err.message || "Failed to select web tab", "error"),
+  });
+
+  const { execute: removeWebTabOptimistic } = useOptimisticAction<[number]>({
+    action: (n) => removeWebTab(server, windowId, n),
+    onOptimistic: (n) => {
+      // Compound on any in-flight override so back-to-back strip clicks
+      // shift the family the user is looking at, not the stale payload.
+      const tabs = webOverrideRef.current?.webTabs ?? win?.webTabs ?? [];
+      const active = webOverrideRef.current?.webActive ?? win?.webActive ?? 0;
+      applyWebOverride(webFamilyAfterRemove(tabs, active, n));
+    },
+    onAlwaysRollback: revertWebOverride,
+    onError: (err) => addToast(err.message || "Failed to close web tab", "error"),
+  });
+
+  const { execute: moveWebTabOptimistic } = useOptimisticAction<[number, number]>({
+    action: (n, to) => {
+      const predecessor = webMoveQueueRef.current;
+      const queued = predecessor.then(async (chainAlive) => {
+        if (!chainAlive) return false;
+        try {
+          await moveWebTab(server, windowId, n, to);
+          return true;
+        } catch (err) {
+          // Already-enqueued moves retain their failed predecessor and cancel
+          // silently. A later gesture starts a fresh chain after rollback.
+          webMoveQueueRef.current = Promise.resolve(true);
+          throw err;
+        }
+      });
+      webMoveQueueRef.current = queued.catch(() => false);
+      return queued.then(() => undefined);
+    },
+    onOptimistic: (n, to) => {
+      // Compound on any in-flight override so back-to-back reorder drop the
+      // family the user sees, not the stale payload (the remove precedent).
+      const tabs = webOverrideRef.current?.webTabs ?? win?.webTabs ?? [];
+      const active = webOverrideRef.current?.webActive ?? win?.webActive ?? 0;
+      applyWebOverride(webFamilyAfterMove(tabs, active, n, to));
+    },
+    onAlwaysRollback: revertWebOverride,
+    onError: (err) => addToast(err.message || "Failed to move web tab", "error"),
+  });
+
+  // Reconcile: the options write wakes the SSE hub, so the confirming tick
+  // lands within ~1–2s; once the payload matches, the override has nothing
+  // left to say.
+  useEffect(() => {
+    if (!webOverride || !win) return;
+    const payloadTabs = win.webTabs ?? [];
+    const tabsSettled =
+      webOverride.webTabs === undefined ||
+      (webOverride.webTabs.length === payloadTabs.length &&
+        webOverride.webTabs.every((url, i) => url === payloadTabs[i]));
+    const activeSettled =
+      webOverride.webActive === undefined ||
+      webOverride.webActive === (win.webActive ?? 0);
+    if (tabsSettled && activeSettled) clearWebOverride(server, sessionName, windowId);
+  }, [webOverride, win, server, sessionName, windowId, clearWebOverride]);
+
+  // Unmount/window-switch cleanup: drop any in-flight override for the window
+  // left behind, and start the move queue fresh — a failed or still-pending
+  // move chain must not cancel the window's next reorder or strand its
+  // optimistic override.
+  useEffect(
+    () => () => {
+      clearWebOverride(server, sessionName, windowId);
+      webMoveQueueRef.current = Promise.resolve(true);
+    },
+    [server, sessionName, windowId, clearWebOverride],
+  );
+
+  // Web availability is unconditional (260821-zqlq): an empty active web tab
+  // renders IframeWindow's onboarding content branch, so the tile mounts
+  // regardless — the `win` guard narrows for the props.
+  return win ? (
+    <IframeWindow
+      tabs={webOverride?.webTabs ?? win.webTabs ?? []}
+      active={webOverride?.webActive ?? win.webActive}
+      // The tile's tmux identity — scopes the native engine's guest retention
+      // (park/adopt) and the chrome-owned destroy rule. A foreign tile passes
+      // its HOME window, so the surface keeps one guest wherever it is shown.
+      server={server}
+      windowId={windowId}
+      // Address-bar write seam: the ACTIVE web slot's option write
+      // (n = webActive, slot 1 while the pointer is unset) — the component
+      // stays payload-shape agnostic. The active pointer is read through the
+      // same optimistic override the strip renders, so a submit during an
+      // in-flight select/remove targets the tab the user is looking at, not
+      // the stale payload slot.
+      onWriteUrl={(url) => {
+        const active = webOverride?.webActive ?? win.webActive;
+        const n = active !== undefined && active >= 1 ? active : 1;
+        return setWindowOptions(server, windowId, { [`@rk_win_web_${n}`]: url });
+      }}
+      // Strip verbs: select/remove are optimistic (the webOverride block
+      // above); add is NOT optimistic — the slot index is server-assigned,
+      // the SSE tick repaints the family. The component types the verbs as
+      // promise-returning (the `+` flow chains onSelectTab after onAddTab
+      // resolves); the optimistic executors are fire-and-forget, so the
+      // wrappers resolve at once. The add route resolves targets like
+      // `rk present`, so the component's relative /proxy/ draft is
+      // re-expressed as the absolute loopback URL (toWebAddTarget) the
+      // backend parses.
+      onSelectTab={(n) => {
+        selectWebTabOptimistic(n);
+        return Promise.resolve();
+      }}
+      onCloseTab={(n) => {
+        removeWebTabOptimistic(n);
+        return Promise.resolve();
+      }}
+      onAddTab={(target) => addWebTab(server, windowId, toWebAddTarget(target))}
+      onMoveTab={(n, to) => {
+        moveWebTabOptimistic(n, to);
+        return Promise.resolve();
+      }}
+      onInteract={visible ? onInteract : undefined}
+      // Page-title seam (260819-v6y4 R10): the header render is the parent's,
+      // but only the mounted iframe can read the same-origin
+      // contentDocument.title — reported up on each load, keyed by the tile's
+      // window.
+      onPageMeta={(m) => onPageTitle(m.title)}
+      shouldReclaimChord={shouldReclaimChord}
+    />
+  ) : null;
+}
+
 export function SurfaceLayout({
   layout,
   server,
@@ -690,6 +957,8 @@ export function SurfaceLayout({
   clearOnWindowChange = false,
   sessionName,
   window: win,
+  windowsById,
+  sessionNameByWindowId,
   isMobile,
   mobileActiveSlot,
   wsRef,
@@ -731,6 +1000,9 @@ export function SurfaceLayout({
   onProgrammaticFocus,
   onClose,
   onApplyLayout,
+  onSendHome,
+  onGoToWindow,
+  onBorrowDrop,
   onSplitPane,
   onClosePane,
   onRatioChange,
@@ -761,10 +1033,40 @@ export function SurfaceLayout({
   // viewer never drives SetDesktopSize).
   const coarsePointer = useCoarsePointer();
 
-  // Dummy ws bucket for DUPLICATE tty tiles — TerminalClient types `wsRef` as
-  // required, but only the first tty leaf owns the shared refs (the shell's
-  // bottom bar / compose strip read them).
-  const extraTtyWsRef = useRef<WebSocket | null>(null);
+  // The payload record a tile reads: the route window for a bare leaf, the
+  // home window's map entry for a foreign leaf. A foreign home absent from
+  // the map is dead — dead leaves are pruned before render, so a null here is
+  // only the transient between a kill and the next payload.
+  const windowRecordFor = (id: string): ViewWindow | null =>
+    id === windowId ? win : (windowsById?.get(id) ?? null);
+  // A foreign tty tile's session: its home window's owning session (the relay
+  // stream's connection identity and the focus registration's session half).
+  const tileSessionFor = (id: string): string =>
+    id === windowId ? sessionName : (sessionNameByWindowId?.get(id) ?? "");
+
+  // The away derivation (server-computed `awayIn` on the route window's
+  // record): a BARE leaf whose kind names a LIVE holder renders the
+  // placeholder instead of mounting the surface. A holder absent from the
+  // window map is dead — the surface is back, so the leaf renders live.
+  const awayHolderFor = (kind: SurfaceKind): string | undefined => {
+    const holder = windowsById?.get(windowId)?.awayIn?.[kind];
+    return holder !== undefined && (windowsById?.has(holder) ?? false) ? holder : undefined;
+  };
+
+  // Per-leaf ws buckets for NON-PRIMARY tty tiles — TerminalClient types
+  // `wsRef` as required and fills it with its stream's adapter; the focused
+  // tty tile (bare or foreign) registers with its own bucket so the shell's
+  // bottom bar / compose strip reach the focused tile's stream. Only the
+  // first bare tty leaf owns the shared refs.
+  const ttyWsRefsRef = useRef(new Map<string, React.MutableRefObject<WebSocket | null>>());
+  const ttyWsRefFor = (leafId: string): React.MutableRefObject<WebSocket | null> => {
+    let bucket = ttyWsRefsRef.current.get(leafId);
+    if (!bucket) {
+      bucket = { current: null };
+      ttyWsRefsRef.current.set(leafId, bucket);
+    }
+    return bucket;
+  };
 
   // ── tty find state ───────────────────────────────────────────────────────
   // The tile layer drives the scaffold's passive SearchAddon through the
@@ -1020,38 +1322,84 @@ export function SurfaceLayout({
   const codeFramesRef = useRef<CodeFrameRecord[]>(codeFrames);
   codeFramesRef.current = codeFrames;
   const codeFrameCap = isMobile ? CODE_FRAME_CAP_MOBILE : CODE_FRAME_CAP_DESKTOP;
-  const activeCodeSrc = codeSrcFor?.(windowId) ?? null;
-  const activeCodeRoot = codeRootFor(win);
-  const activeCodeTileOpen = layoutKinds.includes("code");
+  // The visible code leaves' tile windows in reading order: the bare `code`
+  // leaf resolves to the route window, a foreign `@N/code` leaf to its home.
+  // Frame records key on these — a borrowed code tile reuses its home
+  // window's retained frame when one exists.
+  const codeTileWindowIds = layoutLeafIds
+    .filter((id) => leafIdParts(id).kind === "code")
+    .map((id) => tileWindowIdOf(id, windowId));
+  const codeTileWindowsKey = codeTileWindowIds.join(",");
+  const activeCodeTileOpen = codeTileWindowIds.length > 0;
+  // A frame record's lookup by its window.
+  const frameForWindow = (id: string) => codeFrames.find((r) => r.windowId === id);
+  // The hidden-tile leaf set: ever-opened ids, plus a forced `code` slot when
+  // the ROUTE window has a frame record but no code leaf in the set — the
+  // per-window reset re-seeds `everOpened` from the new window's layout, so
+  // returning to a window whose code tile is CLOSED would otherwise drop the
+  // tile here while `retainedCodeTiles` filters the record out as claimed —
+  // unmounting (killing) a frame the close-tile rule says stays retained and
+  // counted.
+  const hiddenLeafIds: string[] =
+    frameForWindow(windowId) && !everOpened.includes("code")
+      ? [...everOpened, "code"]
+      : everOpened;
+  // Code windows with a tile mounted this route visit (visible or hidden):
+  // their frame records are claimed by those tiles — never by the retained
+  // list — and are protected from cap eviction.
+  const mountedCodeWindowIds = [
+    ...new Set(
+      [...layoutLeafIds, ...hiddenLeafIds]
+        .filter((id) => leafIdParts(id).kind === "code")
+        .map((id) => tileWindowIdOf(id, windowId)),
+    ),
+  ];
+  const mountedCodeWindowsKey = mountedCodeWindowIds.join(",");
 
-  // Show bookkeeping: the active window's record is created on first resolve
-  // and bumped to most-recently-shown on every show; overflow evicts the
-  // least-recently-shown record (the list head — the active window's record
-  // is last here, so it is never this eviction's victim). A retained frame
-  // never bumps itself: it cannot become visible without being the active
-  // window. Gated on reachability — an unreachable host holds no frames (the
-  // eviction effect below drops them on the true→false flip).
+  // Show bookkeeping: each visible code tile's record is created on first
+  // resolve and bumped to most-recently-shown on every show; overflow evicts
+  // least-recently-shown NON-VISIBLE records first (an on-screen frame is
+  // never the victim). A retained frame never bumps itself: it cannot become
+  // visible without a tile claiming its window. Gated on reachability — an
+  // unreachable host holds no frames (the eviction effect below drops them on
+  // the true→false flip).
   useEffect(() => {
-    if (!codeReachable || !activeCodeTileOpen || activeCodeSrc === null) return;
-    if (activeCodeRoot === "") return;
+    if (!codeReachable) return;
     setCodeFrames((prev) => {
-      const at = prev.findIndex((r) => r.windowId === windowId);
       let next = prev;
-      if (at < 0) {
-        next = [...prev, { windowId, src: activeCodeSrc, root: activeCodeRoot }];
-      } else if (at === prev.length - 1) {
-        return prev; // already most-recently-shown
-      } else {
-        next = [...prev.slice(0, at), ...prev.slice(at + 1), prev[at]];
+      let changed = false;
+      for (const id of codeTileWindowIds) {
+        const src = codeSrcFor?.(id) ?? null;
+        if (src === null) continue;
+        const root = codeRootFor(windowRecordFor(id));
+        if (root === "") continue;
+        const at = next.findIndex((r) => r.windowId === id);
+        if (at >= 0 && at === next.length - 1) continue; // already most-recently-shown
+        next =
+          at < 0
+            ? [...next, { windowId: id, src, root }]
+            : [...next.slice(0, at), ...next.slice(at + 1), next[at]];
+        changed = true;
       }
-      if (next.length > codeFrameCap) next = next.slice(next.length - codeFrameCap);
+      if (!changed) return prev;
+      if (next.length > codeFrameCap) {
+        let excess = next.length - codeFrameCap;
+        next = next.filter((r) => {
+          if (excess > 0 && !codeTileWindowIds.includes(r.windowId)) {
+            excess -= 1;
+            return false;
+          }
+          return true;
+        });
+      }
       return next;
     });
     // `codeFrames` is a dep so an eviction (or a follow's in-place baseline
-    // move) re-runs the check: a dropped active record is re-created at the
-    // CURRENT src on the next render. Idempotent — a present, most-recent
-    // record returns `prev` unchanged.
-  }, [server, windowId, activeCodeSrc, activeCodeRoot, activeCodeTileOpen, codeReachable, codeFrameCap, codeFrames]);
+    // move) re-runs the check: a dropped visible record is re-created at the
+    // CURRENT src on the next render. Idempotent — present, most-recent
+    // records return `prev` unchanged.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [server, codeTileWindowsKey, codeSrcFor, codeReachable, codeFrameCap, codeFrames, windowsById, win, windowId]);
 
   // A follow is never an eviction. The pending follow target is recorded
   // SYNCHRONOUSLY at report time by the shared `requestCodeFollow` wrapper
@@ -1101,39 +1449,48 @@ export function SurfaceLayout({
   // second click would re-POST and produce a second nonce/re-navigation.
   const [codeFollowInFlight, setCodeFollowInFlight] = useState(false);
   const [codeReload, setCodeReload] = useState<{ windowId: string; nonce: number } | null>(null);
-  // The ACTIVE window's payload record feeds the drift predicate — a retained
-  // (other-window) frame is never offered the verb (its tile renders no
-  // header; `visible` gates the render below). The verb's presence IS the
-  // drift indicator — no other badge or copy.
-  const codeFollowTarget = codeRootFollowTarget(win);
-  // A frame record exists only once the active window's src resolved and the
+  // The Follow drift predicate reads the TILE window's payload record (a
+  // foreign code tile drifts against its home window's derivation) — a
+  // retained frame is never offered the verb (its tile renders no header;
+  // `visible` gates the render below). The verb's presence IS the drift
+  // indicator — no other badge or copy.
+  const codeFollowTargetFor = (tileWindowId: string): string | null =>
+    codeRootFollowTarget(windowRecordFor(tileWindowId));
+  // A frame record exists only once the tile window's src resolved and the
   // iframe mounted — pending or unreachable tiles show no Reload verb (there
   // is no frame to reload).
-  const codeFrameMounted =
-    codeReachable && codeFrames.some((r) => r.windowId === windowId);
+  const codeFrameMountedFor = (tileWindowId: string): boolean =>
+    codeReachable && codeFrames.some((r) => r.windowId === tileWindowId);
 
-  const followCodeTerminal = () => {
-    if (codeFollowTarget === null || codeFollowInFlight) return;
+  const followCodeTerminal = (tileWindowId: string) => {
+    const target = codeFollowTargetFor(tileWindowId);
+    if (target === null || codeFollowInFlight) return;
     setCodeFollowInFlight(true);
-    void requestCodeFollow(windowId, codeFollowTarget, onCodeFollowTerminal).finally(() => {
+    void requestCodeFollow(tileWindowId, target, onCodeFollowTerminal).finally(() => {
       setCodeFollowInFlight(false);
     });
   };
-  const reloadActiveCodeFrame = () => {
-    if (!codeFrameMounted) return;
-    setCodeReload((r) => ({ windowId, nonce: (r?.nonce ?? 0) + 1 }));
+  const reloadCodeFrame = (tileWindowId: string) => {
+    if (!codeFrameMountedFor(tileWindowId)) return;
+    setCodeReload((r) => ({ windowId: tileWindowId, nonce: (r?.nonce ?? 0) + 1 }));
   };
 
   // Palette command seam (Constitution V): the `Code: Follow Terminal` /
-  // `Code: Reload Editor` rows run the same bodies as the header verbs.
-  // Filled while the active window's code tile is open, null otherwise and on
-  // unmount — the `zoomToggleRef` pattern. Refilled after EVERY render so the
-  // bodies always close over the current drift/in-flight/frame state.
+  // `Code: Reload Editor` rows run the same bodies as the header verbs — the
+  // FIRST visible code tile's, matching the parent's code-root write target.
+  // Filled while a code tile is open, null otherwise and on unmount — the
+  // `zoomToggleRef` pattern. Refilled after EVERY render so the bodies always
+  // close over the current drift/in-flight/frame state.
   useEffect(() => {
     if (!codeCommandsRef) return;
-    codeCommandsRef.current = activeCodeTileOpen
-      ? { followTerminal: followCodeTerminal, reload: reloadActiveCodeFrame }
-      : null;
+    const firstCodeWindow = codeTileWindowIds[0];
+    codeCommandsRef.current =
+      activeCodeTileOpen && firstCodeWindow !== undefined
+        ? {
+            followTerminal: () => followCodeTerminal(firstCodeWindow),
+            reload: () => reloadCodeFrame(firstCodeWindow),
+          }
+        : null;
     return () => {
       codeCommandsRef.current = null;
     };
@@ -1144,10 +1501,11 @@ export function SurfaceLayout({
   // code root diverged from the record's baseline by anything OTHER than a
   // follow (a transient empty read never evicts); (c) reachability flipped
   // true→false — every frame is dead with the host; plus a runtime cap
-  // decrease (an isMobile flip) evicts down immediately, oldest NON-ACTIVE
-  // records first — the active window's record is protected even when its
-  // code tile is closed (a closed tile keeps its frame counted, and the
-  // show-bookkeeping effect can't bump it to the tail while it is).
+  // decrease (an isMobile flip) evicts down immediately, oldest records NOT
+  // claimed by a visible code tile first — a visible tile's record is
+  // protected even when its code tile is closed (a closed tile keeps its
+  // frame counted, and the show-bookkeeping effect can't bump it to the tail
+  // while it is).
   //
   // The `setCodeFrames` updater MUST stay pure: React may invoke it more
   // than once for a single update (StrictMode double-invocation, or the
@@ -1205,7 +1563,7 @@ export function SurfaceLayout({
       if (next.length > codeFrameCap) {
         let excess = next.length - codeFrameCap;
         next = next.filter((r) => {
-          if (excess > 0 && r.windowId !== windowId) {
+          if (excess > 0 && !mountedCodeWindowIds.includes(r.windowId)) {
             excess -= 1;
             return false;
           }
@@ -1236,7 +1594,8 @@ export function SurfaceLayout({
       const d = reconcile(prev);
       return d.changed ? d.next : prev;
     });
-  }, [codeReachable, liveWindowIds, codeRootForWindow, codeFrameCap, windowId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codeReachable, liveWindowIds, codeRootForWindow, codeFrameCap, mountedCodeWindowsKey]);
 
   // The nonce half of the follow: when the parent's re-derivation GET lands
   // before the payload tick, the baseline moves here instead (the eviction
@@ -1252,35 +1611,33 @@ export function SurfaceLayout({
     if (!codeFollowSrc || codeFollowSrc.nonce === codeFollowNonceRef.current) return;
     codeFollowNonceRef.current = codeFollowSrc.nonce;
     const followRoot = codeFollowSrc.root;
+    const followWindowId = codeFollowSrc.windowId;
     setCodeFrames((prev) =>
-      prev.some((r) => r.windowId === windowId && r.root !== followRoot)
-        ? prev.map((r) => (r.windowId === windowId ? { ...r, root: followRoot } : r))
+      prev.some((r) => r.windowId === followWindowId && r.root !== followRoot)
+        ? prev.map((r) => (r.windowId === followWindowId ? { ...r, root: followRoot } : r))
         : prev,
     );
-  }, [codeFollowSrc, windowId]);
+  }, [codeFollowSrc]);
 
   // ⏶ Zoom: one leaf fills the layout area; the shared layout tree is
-  // untouched. Per-viewer and PERSISTED as the zoomed surface KIND under
+  // untouched. Per-viewer and PERSISTED as the zoomed LEAF ID under
   // `rk-layout-zoom:{server}:{@N}` — the same key the mobile switch group
-  // reads. The KIND is the identity (`zoomedKindRef`); the rendered leaf
-  // resolves it to the kind's FIRST leaf in reading order, so a shared
-  // restructure (promote/swap from any viewer) moves the zoom with its
-  // surface. Duplicate tty leaves resolve to the first. Cleared (state AND
-  // key) when the layout can no longer host the zoom: a close collapsed the
-  // arity, or the zoomed kind left the tree.
+  // reads (its kind writes double as a unique bare leaf's id). The leaf id is
+  // the identity: a foreign leaf's address survives any restructure, and a
+  // bare id (`code`, `tty#2`) falls back to the kind's FIRST leaf in reading
+  // order when its exact leaf left the tree, so a shared restructure
+  // (promote/swap from any viewer) moves the zoom with its surface. Cleared
+  // (state AND key) when the layout can no longer host the zoom: a close
+  // collapsed the arity, or the zoomed kind left the tree.
   const [zoomedLeafId, setZoomedLeafId] = useState<string | null>(() => {
-    const kind = readStoredZoom(server, windowId);
-    if (!kind) return null;
-    const i = leaves(layout).indexOf(kind);
-    return i >= 0 ? leafIds(layout)[i] : null;
+    const stored = readStoredZoom(server, windowId);
+    return stored ? resolveZoomLeaf(layout, stored) : null;
   });
   const zoomedKindRef = useRef<SurfaceKind | null>(
-    zoomedLeafId !== null
-      ? (leaves(layout)[leafIds(layout).indexOf(zoomedLeafId)] ?? null)
-      : null,
+    zoomedLeafId !== null ? leafIdParts(zoomedLeafId).kind : null,
   );
   // Every zoom flip writes the key through this one seam (the zoomed leaf's
-  // kind; `null` on unzoom). Flip initiators only: mount with no zoom writes
+  // id; `null` on unzoom). Flip initiators only: mount with no zoom writes
   // nothing, so the mobile switch group's writes to the same key are never
   // clobbered by a steady-state unzoomed desktop render.
   const zoomedLeafIdRef = useRef(zoomedLeafId);
@@ -1288,11 +1645,10 @@ export function SurfaceLayout({
   const flipZoom = useCallback(
     (leafId: string | null) => {
       setZoomedLeafId(leafId);
-      const kind = leafId !== null ? leaves(layout)[leafIds(layout).indexOf(leafId)] : undefined;
-      zoomedKindRef.current = kind ?? null;
-      writeStoredZoom(server, windowId, kind ?? null);
+      zoomedKindRef.current = leafId !== null ? leafIdParts(leafId).kind : null;
+      writeStoredZoom(server, windowId, leafId);
     },
-    [layout, server, windowId],
+    [server, windowId],
   );
   // The window the zoom STATE belongs to. On a windowId change this effect
   // runs (flipZoom's identity changes) BEFORE the per-window reset effect
@@ -1305,15 +1661,22 @@ export function SurfaceLayout({
   useEffect(() => {
     if (zoomOwnerRef.current !== `${server}:${windowId}`) return;
     if (zoomedLeafId === null) return;
-    const kind = zoomedKindRef.current;
-    const i = kind === null ? -1 : layoutKinds.indexOf(kind);
-    if (layoutKinds.length <= 1 || i < 0) {
+    if (layoutKinds.length <= 1) {
       flipZoom(null);
       return;
     }
-    // A restructure moved the zoomed kind: follow it to the kind's first leaf
-    // (the key already holds the kind, so no write).
-    if (layoutLeafIds[i] !== zoomedLeafId) setZoomedLeafId(layoutLeafIds[i]);
+    // The exact leaf survives any restructure — nothing to do.
+    if (layoutLeafIds.includes(zoomedLeafId)) return;
+    // Its exact leaf left the tree: follow the zoom to the kind's first leaf
+    // (the key already holds an id of that kind, so no write), or clear when
+    // the kind itself is gone.
+    const kind = zoomedKindRef.current;
+    const i = kind === null ? -1 : layoutKinds.indexOf(kind);
+    if (i < 0) {
+      flipZoom(null);
+      return;
+    }
+    setZoomedLeafId(layoutLeafIds[i]);
   }, [zoomedLeafId, layout, flipZoom, server, windowId]);
   const zoomed = zoomedLeafId !== null;
 
@@ -1326,32 +1689,41 @@ export function SurfaceLayout({
 
   // Web tile page title (260819-v6y4 R10): reported by IframeWindow's
   // onPageMeta on each same-origin frame load; null (cross-origin, pre-load,
-  // or empty) falls the header back to the address's display form. Per-window:
-  // the reset effect clears it on a window switch.
-  const [webPageTitle, setWebPageTitle] = useState<string | null>(null);
+  // or empty) falls the header back to the address's display form. Keyed by
+  // the tile's OWN window (a foreign web tile's title never headlines the
+  // route window's tile); the reset effect clears the map on a window switch.
+  const [webPageTitles, setWebPageTitles] = useState<ReadonlyMap<string, string | null>>(
+    () => new Map(),
+  );
   // The gui tile's element-fullscreen state, reported up from GuiSurface
   // (the fullscreen verb targets the TILE): latches the header's ⤢ and
   // suppresses the gui tile's layout verbs while it lasts.
   const [guiTileFullscreen, setGuiTileFullscreen] = useState(false);
   // Tty task progress (260819-1vxq): OSC 9;4 events lifted from the
-  // scaffold's `onProgressChange` seam into ONE per-window slot — every tty
-  // tile shows the same window, so one slot serves all of them (the
-  // webPageTitle precedent), and duplicate-tile firings fold idempotently.
+  // scaffold's `onProgressChange` seam into ONE slot PER TILE WINDOW — tiles
+  // of the same window (duplicate bare ttys) share its slot and their firings
+  // fold idempotently, while a foreign tty's progress renders on its own tile
+  // and never touches the route window's slot.
   // Events reduce immediately (retention semantics need event order) but
   // commit at most once per animation frame, so bursty emitters cannot
   // re-render storm the grid. Per-viewer ephemeral by design: component
   // state only, reset to idle by the per-window reset effect on a window
   // switch — a stale value with no updates is left as-is (the emitter owns
   // lifecycle via state 0).
-  const [ttyProgress, setTtyProgress] = useState<TtyProgress>(IDLE_PROGRESS);
-  const ttyProgressRef = useRef<TtyProgress>(IDLE_PROGRESS);
+  const [ttyProgressByWindow, setTtyProgressByWindow] = useState<ReadonlyMap<string, TtyProgress>>(
+    () => new Map(),
+  );
+  const ttyProgressRef = useRef(new Map<string, TtyProgress>());
   const ttyProgressRafRef = useRef<number | null>(null);
-  const handleTtyProgress = useCallback((state: number, value: number) => {
-    ttyProgressRef.current = reduceProgress(ttyProgressRef.current, state, value);
+  const handleTtyProgress = useCallback((tileWindowId: string, state: number, value: number) => {
+    ttyProgressRef.current.set(
+      tileWindowId,
+      reduceProgress(ttyProgressRef.current.get(tileWindowId) ?? IDLE_PROGRESS, state, value),
+    );
     if (ttyProgressRafRef.current !== null) return;
     ttyProgressRafRef.current = requestAnimationFrame(() => {
       ttyProgressRafRef.current = null;
-      setTtyProgress(ttyProgressRef.current);
+      setTtyProgressByWindow(new Map(ttyProgressRef.current));
     });
   }, []);
   useEffect(
@@ -1362,11 +1734,6 @@ export function SurfaceLayout({
     },
     [],
   );
-  // The header chip renders only for the value-carrying states (1/2/4) —
-  // indeterminate sweeps with no percentage, idle removes it.
-  const ttyChip = isValuedProgress(ttyProgress)
-    ? { value: ttyProgress.value, cls: PROGRESS_CHIP_CLASS[ttyProgress.kind] }
-    : null;
 
   // Focused tile (260812-wfic R2) — transient, like zoom: the LEAF that last
   // received pointer/keyboard interaction. Default: the first leaf in reading
@@ -1975,17 +2342,161 @@ export function SurfaceLayout({
     }
   }, [layout]);
 
+  // ── Sidebar row-drag borrow (drop-catcher) ──────────────────────────────
+  // A window-row HTML5 drag (WINDOW_DRAG_MIME — the sidebar's payload is
+  // `{server, session, index, windowId, name}` under application/json) arms a
+  // transparent catcher overlay above every tile, reusing the header drag's
+  // mid-drag seam (tiles pointer-events-none, the native web guest hidden via
+  // the TileDragContext `move` posture) and its snapshot discipline: the
+  // tree, sizes, layout box and leaf rects are frozen at dragstart, and
+  // dragover hit-tests against them with the EXTERNAL-leaf mode of
+  // `hitTest`/`resolveDrop` (the dragged tab's `@<windowId>/tty`). The payload
+  // is readable at dragstart (sealed only during dragover), so the catcher
+  // parses it there. Refused drops preview "no change": the dragged window IS
+  // the route window, its `@N/tty` is already in the layout, or the drag's
+  // server differs from the route's. The drop writes through `onBorrowDrop`
+  // (the parent's borrow helper: plain apply when unheld, the borrow endpoint
+  // when held). The sidebar's own consumers (reorder, move-to-session, board
+  // pin) are untouched — this only listens.
+  const [rowDragActive, setRowDragActive] = useState(false);
+  const [rowDropState, setRowDropState] = useState<{
+    hit: DropHit | null;
+    result: DropResult;
+    rects: Map<string, Rect>;
+    box: Rect;
+  } | null>(null);
+  const rowDragRef = useRef<{
+    leaf: LayoutLeaf;
+    addr: string;
+    refused: boolean;
+    originX: number;
+    originY: number;
+    box: Rect;
+    rects: Map<string, Rect>;
+    layout: Layout;
+    sizes: LayoutSizes;
+    lastKey: string | null;
+    result: DropResult;
+  } | null>(null);
+
+  const endRowDrag = () => {
+    rowDragRef.current = null;
+    setRowDragActive(false);
+    setRowDropState(null);
+  };
+  const rowDragEndRef = useRef(endRowDrag);
+  rowDragEndRef.current = endRowDrag;
+
+  useEffect(() => {
+    const onDragStart = (e: DragEvent) => {
+      const dt = e.dataTransfer;
+      if (dt === null || !Array.from(dt.types).includes(WINDOW_DRAG_MIME)) return;
+      const raw = dt.getData("application/json");
+      let serverField: string | null = null;
+      let windowField: string | null = null;
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (typeof parsed === "object" && parsed !== null) {
+          if ("server" in parsed && typeof parsed.server === "string") {
+            serverField = parsed.server;
+          }
+          if ("windowId" in parsed && typeof parsed.windowId === "string") {
+            windowField = parsed.windowId;
+          }
+        }
+      } catch {
+        return; // a foreign JSON payload is not a window row
+      }
+      if (windowField === null) return;
+      const grid = gridRef.current;
+      if (!grid) return;
+      const rect = grid.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return; // unmeasured (jsdom)
+      const tree = layoutRef.current;
+      const addr = `${windowField}/tty`;
+      rowDragRef.current = {
+        leaf: { leaf: "tty", home: windowField },
+        addr,
+        refused:
+          serverField !== server ||
+          windowField === windowId ||
+          leafIds(tree).includes(addr),
+        originX: rect.left,
+        originY: rect.top,
+        box: { x: 0, y: 0, w: rect.width, h: rect.height },
+        rects: layoutRects(tree, { x: 0, y: 0, w: rect.width, h: rect.height }, sizesRef.current, SPLIT_GAP_PX),
+        layout: tree,
+        sizes: sizesRef.current,
+        lastKey: null,
+        result: { kind: "cancel" },
+      };
+      setRowDragActive(true);
+    };
+    const onDragEnd = () => rowDragEndRef.current();
+    window.addEventListener("dragstart", onDragStart);
+    window.addEventListener("dragend", onDragEnd);
+    return () => {
+      window.removeEventListener("dragstart", onDragStart);
+      window.removeEventListener("dragend", onDragEnd);
+    };
+  }, [server, windowId]);
+
+  // The row-drag snapshot goes stale on a mid-drag layout change, exactly
+  // like the header drag — cancel with no write.
+  useEffect(() => {
+    const d = rowDragRef.current;
+    if (d !== null && serializeLayoutTree(layout) !== serializeLayoutTree(d.layout)) {
+      rowDragEndRef.current();
+    }
+  }, [layout]);
+
+  const onRowDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    const d = rowDragRef.current;
+    if (!d) return;
+    e.preventDefault(); // the catcher accepts the drop — a refused one no-ops
+    const point = { x: e.clientX - d.originX, y: e.clientY - d.originY };
+    const hit = hitTest(d.rects, d.box, point, d.leaf);
+    const result: DropResult = d.refused
+      ? hit === null
+        ? { kind: "cancel" }
+        : { kind: "noop" }
+      : resolveDrop(d.layout, d.sizes, d.leaf, hit, d.box);
+    d.result = result;
+    e.dataTransfer.dropEffect = result.kind === "move" ? "copy" : "none";
+    const key = `${d.refused}:${dropHitKey(hit)}`;
+    if (key === d.lastKey) return;
+    d.lastKey = key;
+    setRowDropState({ hit, result, rects: d.rects, box: d.box });
+  };
+
+  const onRowDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    const d = rowDragRef.current;
+    if (!d) return;
+    e.preventDefault();
+    const result = d.result;
+    const addr = d.addr;
+    endRowDrag();
+    if (result.kind !== "move") return;
+    // Sizes go down BEFORE the layout write so the first render under the
+    // new structure signature reads them (the header drag's commit order).
+    writeStoredSizes(server, windowId, structureSig(result.tree), result.sizes);
+    onBorrowDrop?.(addr, result.tree);
+    focusLeaf(result.destId);
+  };
+
   // The result-preview overlay: the drop's OUTCOME drawn in the layout
   // container's coordinate space (a same-arrangement drop would lie as a
   // half-tile highlight whenever siblings reshape). `move` draws every leaf
   // rect of the result tree at the result sizes, the dragged tile's
   // destination filled accent-green; `noop`/`too-small` highlight the hovered
-  // zone's region; `cancel` draws nothing.
+  // zone's region; `cancel` draws nothing. One renderer serves both drag
+  // species — the tile header drag's state and the sidebar row-drag's.
   const dropOverlay = (() => {
-    if (draggingTile === null || dropState === null || dropState.result.kind === "cancel") {
+    const state = draggingTile !== null ? dropState : rowDropState;
+    if (state === null || state.result.kind === "cancel") {
       return null;
     }
-    const { hit, result, rects: snapRects, box: snapBox } = dropState;
+    const { hit, result, rects: snapRects, box: snapBox } = state;
     if (result.kind === "move") {
       const resultRects = layoutRects(result.tree, snapBox, result.sizes, SPLIT_GAP_PX);
       const resultIds = leafIds(result.tree);
@@ -2061,11 +2572,11 @@ export function SurfaceLayout({
 
     // Zoom: re-derived from the new window's stored key — the same derivation
     // as the useState initializer, WITHOUT writing the key back (it already
-    // holds this kind; the old window keeps its own zoom).
-    const storedKind = readStoredZoom(server, windowId);
-    const i = storedKind ? leaves(layout).indexOf(storedKind) : -1;
-    setZoomedLeafId(i >= 0 ? leafIds(layout)[i] : null);
-    zoomedKindRef.current = i >= 0 && storedKind ? storedKind : null;
+    // holds this leaf id; the old window keeps its own zoom).
+    const storedZoom = readStoredZoom(server, windowId);
+    const zoomLeaf = storedZoom ? resolveZoomLeaf(layout, storedZoom) : null;
+    setZoomedLeafId(zoomLeaf);
+    zoomedKindRef.current = zoomLeaf !== null ? leafIdParts(zoomLeaf).kind : null;
     // Hand the zoom state over to this window — the reconciliation effect
     // above stays inert until this runs.
     zoomOwnerRef.current = key;
@@ -2077,18 +2588,18 @@ export function SurfaceLayout({
     lastReportedFocusRef.current = null;
     focusLeaf(leafIds(layout)[0]);
 
-    // Web page title (reported up from the iframe on each load): the old
-    // window's title must not headline the new window's web tile.
-    setWebPageTitle(null);
+    // Web page titles (reported up from the iframes on each load): the old
+    // window's titles must not headline the new window's web tiles.
+    setWebPageTitles(new Map());
 
-    // Tty progress: idle, and cancel a pending rAF commit so a stale value
-    // can't land after the reset.
+    // Tty progress: every slot idle, and cancel a pending rAF commit so a
+    // stale value can't land after the reset.
     if (ttyProgressRafRef.current !== null) {
       cancelAnimationFrame(ttyProgressRafRef.current);
       ttyProgressRafRef.current = null;
     }
-    ttyProgressRef.current = IDLE_PROGRESS;
-    setTtyProgress(IDLE_PROGRESS);
+    ttyProgressRef.current.clear();
+    setTtyProgressByWindow(new Map());
 
     // Find state: closed and cleared. The SearchAddon instance persists with
     // the terminal across the ride, so the old window's decorations must be
@@ -2114,222 +2625,98 @@ export function SurfaceLayout({
     tileDragEndRef.current(false);
   }, [server, windowId, layout]);
 
-  // ── Web-tab strip verbs (optimistic select/remove/move) ────────────────
-  // Select/remove/move ride the window store's per-entry `webOverride` (the
-  // pendingName/killed precedent): the optimistic write repaints the strip
-  // immediately while the POST is in flight; the SSE tick is authoritative
-  // and the reconcile effect drops the override once the payload matches. A
-  // rejection reverts the override and toasts. Add is NOT optimistic — the
-  // slot index is server-assigned.
-  const webOverride = useWindowStore(
-    (s) => s.entries.get(entryKey(server, windowId))?.webOverride,
-  );
-  const setWebOverride = useWindowStore((s) => s.setWebOverride);
-  const clearWebOverride = useWindowStore((s) => s.clearWebOverride);
-  // Ref writes are synchronous, so two gestures in the same render compound
-  // against the first optimistic family instead of both reading the same SSE
-  // payload. The POST queue preserves that ordering at the tmux writer and
-  // invalidates dependent moves when an earlier request fails.
-  const webOverrideRef = useRef(webOverride);
-  webOverrideRef.current = webOverride;
-  const webMoveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
-  const applyWebOverride = (override: WebTabOverride) => {
-    webOverrideRef.current = { ...webOverrideRef.current, ...override };
-    setWebOverride(server, sessionName, windowId, override);
-  };
-  const revertWebOverride = () => {
-    webOverrideRef.current = undefined;
-    clearWebOverride(server, sessionName, windowId);
-  };
-
-  const { execute: selectWebTabOptimistic } = useOptimisticAction<[number]>({
-    action: (n) => selectWebTab(server, windowId, n),
-    onOptimistic: (n) => applyWebOverride({ webActive: n }),
-    onAlwaysRollback: revertWebOverride,
-    onError: (err) => addToast(err.message || "Failed to select web tab", "error"),
-  });
-
-  const { execute: removeWebTabOptimistic } = useOptimisticAction<[number]>({
-    action: (n) => removeWebTab(server, windowId, n),
-    onOptimistic: (n) => {
-      // Compound on any in-flight override so back-to-back strip clicks
-      // shift the family the user is looking at, not the stale payload.
-      const tabs = webOverrideRef.current?.webTabs ?? win?.webTabs ?? [];
-      const active = webOverrideRef.current?.webActive ?? win?.webActive ?? 0;
-      applyWebOverride(webFamilyAfterRemove(tabs, active, n));
-    },
-    onAlwaysRollback: revertWebOverride,
-    onError: (err) => addToast(err.message || "Failed to close web tab", "error"),
-  });
-
-  const { execute: moveWebTabOptimistic } = useOptimisticAction<[number, number]>({
-    action: (n, to) => {
-      const predecessor = webMoveQueueRef.current;
-      const queued = predecessor.then(async (chainAlive) => {
-        if (!chainAlive) return false;
-        try {
-          await moveWebTab(server, windowId, n, to);
-          return true;
-        } catch (err) {
-          // Already-enqueued moves retain their failed predecessor and cancel
-          // silently. A later gesture starts a fresh chain after rollback.
-          webMoveQueueRef.current = Promise.resolve(true);
-          throw err;
-        }
-      });
-      webMoveQueueRef.current = queued.catch(() => false);
-      return queued.then(() => undefined);
-    },
-    onOptimistic: (n, to) => {
-      // Compound on any in-flight override so back-to-back reorder drop the
-      // family the user sees, not the stale payload (the remove precedent).
-      const tabs = webOverrideRef.current?.webTabs ?? win?.webTabs ?? [];
-      const active = webOverrideRef.current?.webActive ?? win?.webActive ?? 0;
-      applyWebOverride(webFamilyAfterMove(tabs, active, n, to));
-    },
-    onAlwaysRollback: revertWebOverride,
-    onError: (err) => addToast(err.message || "Failed to move web tab", "error"),
-  });
-
-  // Reconcile: the options write wakes the SSE hub, so the confirming tick
-  // lands within ~1–2s; once the payload matches, the override has nothing
-  // left to say.
-  useEffect(() => {
-    if (!webOverride || !win) return;
-    const payloadTabs = win.webTabs ?? [];
-    const tabsSettled =
-      webOverride.webTabs === undefined ||
-      (webOverride.webTabs.length === payloadTabs.length &&
-        webOverride.webTabs.every((url, i) => url === payloadTabs[i]));
-    const activeSettled =
-      webOverride.webActive === undefined ||
-      webOverride.webActive === (win.webActive ?? 0);
-    if (tabsSettled && activeSettled) clearWebOverride(server, sessionName, windowId);
-  }, [webOverride, win, server, sessionName, windowId, clearWebOverride]);
-
-  // A window switch re-runs this effect's cleanup (the deps change — the
-  // component is keyed by server, not remounted): drop any in-flight override
-  // for the window left behind, and start the move queue fresh — a failed or
-  // still-pending move chain from the old window must not cancel the new
-  // window's first reorder or strand its optimistic override.
-  useEffect(
-    () => () => {
-      clearWebOverride(server, sessionName, windowId);
-      webMoveQueueRef.current = Promise.resolve(true);
-    },
-    [server, sessionName, windowId, clearWebOverride],
-  );
-
   /** A tile's renderer, unchanged from the legacy lens/panel mounts. The
    *  iframe tiles (code, web) also wire the focus seam (260812-wfic R2):
    *  in-frame pointerdowns/keydowns stay in the frame's document and moving
    *  focus into a frame fires NO focusin in the parent, so each iframe
    *  surface reports its own interaction via `onInteract` (contentDocument
    *  listeners same-origin; `IframeWindow` adds a window-blur fallback for
-   *  cross-origin content). A code tile carrying a frame RECORD binds that
-   *  record's window (never the active one). */
+   *  cross-origin content). Every per-tile read/write targets the tile's OWN
+   *  window (`tileWindowIdOf` — a foreign leaf's home): the tty tile's relay
+   *  stream, focus registration and progress slot; the web tile's tab family;
+   *  the code tile's root and frame record. */
   const renderContent = (
     tile: TileModel,
-    primaryTty: boolean,
     hidden: boolean,
   ) => {
     const { kind, leafId, visible } = tile;
+    const tileWinId = tileWindowIdOf(leafId, windowId);
+    const foreign = leafIdParts(leafId).home !== undefined;
     switch (kind) {
-      case "tty":
+      case "tty": {
+        const primaryTty = visible && leafId === firstBareTtyLeafId;
+        // The FOCUSED tty tile (bare or foreign) registers as the shell's
+        // focused terminal with its own server/session/window/wsRef bucket, so
+        // the compose strip's send target, the bottom bar's keys, and focus
+        // memory follow it. While a non-tty tile is focused the primary bare
+        // tty holds the slot (the pre-cross-tab behavior — the strip keeps a
+        // target); a foreign tty never takes the shared wsRef/focusRef holder.
+        const registersFocus =
+          visible && (focusedKind === "tty" ? leafId === focusedId : primaryTty);
         return (
           <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
             <TerminalClient
-              sessionName={sessionName}
-              windowId={windowId}
+              sessionName={tileSessionFor(tileWinId)}
+              windowId={tileWinId}
               server={server}
+              // A foreign tile's stream opens isolated (its home window's
+              // `_rk-iso-*` session) so it never fights the home tab's own
+              // attach; bare streams omit the flag. Fixed per mount — a tile
+              // retargeting remounts (the leaf's home is in its React key).
+              isolate={foreign}
               switchReceiptSource={primaryTty}
               clearOnRide={clearOnWindowChange}
               hidden={hidden}
-              wsRef={primaryTty ? wsRef : extraTtyWsRef}
+              wsRef={primaryTty ? wsRef : ttyWsRefFor(leafId)}
               onSessionNotFound={primaryTty ? onSessionNotFound : undefined}
               focusRef={primaryTty ? focusRef : undefined}
               searchAddonRef={primaryTty ? searchAddonRef : undefined}
               serializeAddonRef={primaryTty ? serializeAddonRef : undefined}
               terminalRef={primaryTty ? ttyTerminalRef : undefined}
               scrollLocked={scrollLocked}
-              // Only the primary tty registers as the shell's focused
-              // terminal — duplicates must not fight over the slot (the
-              // board-pane rule).
-              registerFocus={primaryTty}
-              // Every tty mount feeds the shared progress slot (260819-1vxq):
-              // duplicates parse the same stream, so their firings fold
-              // idempotently, and the signal survives a hidden primary.
-              onProgressChange={handleTtyProgress}
+              registerFocus={registersFocus}
+              // Every tty mount feeds its TILE WINDOW's progress slot:
+              // duplicates of one window fold idempotently into it, and a
+              // foreign tty's progress renders on its own tile.
+              onProgressChange={(state, value) => handleTtyProgress(tileWinId, state, value)}
             />
           </div>
         );
+      }
       case "web":
-        // Web availability is unconditional (260821-zqlq): an empty active
-        // web tab renders IframeWindow's onboarding content branch, so the
-        // tile mounts regardless — the `win` guard narrows for the props.
-        return win ? (
-          <IframeWindow
-            tabs={webOverride?.webTabs ?? win.webTabs ?? []}
-            active={webOverride?.webActive ?? win.webActive}
-            // The tile's tmux identity — scopes the native engine's guest
-            // retention (park/adopt) and the chrome-owned destroy rule.
+        return (
+          <WebTileContent
             server={server}
-            windowId={windowId}
-            // Address-bar write seam: the ACTIVE web slot's option write
-            // (n = webActive, slot 1 while the pointer is unset) — the
-            // component stays payload-shape agnostic. The active pointer is
-            // read through the same optimistic override the strip renders,
-            // so a submit during an in-flight select/remove targets the tab
-            // the user is looking at, not the stale payload slot.
-            onWriteUrl={(url) => {
-              const active = webOverride?.webActive ?? win.webActive;
-              const n = active !== undefined && active >= 1 ? active : 1;
-              return setWindowOptions(server, windowId, { [`@rk_win_web_${n}`]: url });
-            }}
-            // Strip verbs: select/remove are optimistic (the webOverride
-            // block above); add is NOT optimistic — the slot index is
-            // server-assigned, the SSE tick repaints the family. The
-            // component types the verbs as promise-returning (the `+` flow
-            // chains onSelectTab after onAddTab resolves); the optimistic
-            // executors are fire-and-forget, so the wrappers resolve at once.
-            // The add route resolves targets like `rk present`, so the
-            // component's relative /proxy/ draft is re-expressed as the
-            // absolute loopback URL (toWebAddTarget) the backend parses.
-            onSelectTab={(n) => {
-              selectWebTabOptimistic(n);
-              return Promise.resolve();
-            }}
-            onCloseTab={(n) => {
-              removeWebTabOptimistic(n);
-              return Promise.resolve();
-            }}
-            onAddTab={(target) => addWebTab(server, windowId, toWebAddTarget(target))}
-            onMoveTab={(n, to) => {
-              moveWebTabOptimistic(n, to);
-              return Promise.resolve();
-            }}
-            onInteract={visible ? () => focusLeaf(leafId) : undefined}
-            // Page-title seam (260819-v6y4 R10): the header render is this
-            // component's, but only the mounted iframe can read the
-            // same-origin contentDocument.title — reported up on each load.
-            // At most one web tile per layout, so one state slot serves.
-            onPageMeta={(m) => setWebPageTitle(m.title)}
+            sessionName={tileSessionFor(tileWinId)}
+            windowId={tileWinId}
+            win={windowRecordFor(tileWinId)}
+            visible={visible}
+            onInteract={() => focusLeaf(leafId)}
+            onPageTitle={(title) =>
+              setWebPageTitles((prev) => {
+                if (prev.get(tileWinId) === title) return prev;
+                const next = new Map(prev);
+                next.set(tileWinId, title);
+                return next;
+              })
+            }
             // Web-kind reclaim predicate (260819-ie2i R3): the single
-            // renderContent site is the ONLY IframeWindow mount, so every
+            // renderContent site is the ONLY IframeWindow mount path, so every
             // leaf/zoom rendering inherits the wiring with no fork.
             shouldReclaimChord={shouldReclaimChord?.("web")}
           />
-        ) : null;
+        );
       case "code": {
         const frame = tile.frame;
-        const frameWindowId = frame?.windowId ?? windowId;
-        const isActiveWindowFrame = frameWindowId === windowId;
+        const frameWindowId = frame?.windowId ?? tileWinId;
+        const isTileWindowFrame = frameWindowId === tileWinId;
         // The code root (`codeRootFor`): the shared `@rk_win_code_root` when
         // set, the derived gitRoot pre-seed — a pane switch can neither null
         // this tile nor retarget the editor; the live derivation only ever
         // seeds it (the parent's seed effect, on first code-tile render). A
-        // retained frame keeps ITS window's baseline root.
-        const codeRoot = frame ? frame.root : activeCodeRoot;
+        // retained frame keeps ITS window's baseline root. A foreign code
+        // tile reads its HOME window's record.
+        const codeRoot = frame ? frame.root : codeRootFor(windowRecordFor(tileWinId));
         return codeRoot ? (
           <CodeSurface
             gitRoot={codeRoot}
@@ -2338,8 +2725,13 @@ export function SurfaceLayout({
             // record exists the tile pends (null), exactly the pre-retention
             // pending state.
             workspaceSrc={frame ? frame.src : null}
-            // The follow override only ever targets the active window's frame.
-            followSrc={isActiveWindowFrame ? (codeFollowSrc ?? null) : null}
+            // The follow override only ever targets the frame of the window
+            // the follow was issued for (carried on the payload).
+            followSrc={
+              isTileWindowFrame && codeFollowSrc && codeFollowSrc.windowId === frameWindowId
+                ? codeFollowSrc
+                : null
+            }
             // The Reload editor verb's nonce reaches only the frame it
             // targeted — every other frame receives undefined, and a frame
             // created later pre-sees the current value at mount (CodeSurface
@@ -2366,13 +2758,13 @@ export function SurfaceLayout({
                   }
                 : undefined
             }
-            // A retained (other-window) frame is display-hidden and can
+            // A retained (other-tile-window) frame is display-hidden and can
             // neither receive focus nor navigate — its focus/follow seams
-            // stay unbound so nothing can ever record against the ACTIVE
+            // stay unbound so nothing can ever record against the ROUTE
             // window's focus-memory key from a hidden frame.
-            onProgrammaticFocus={isActiveWindowFrame ? onProgrammaticFocus : undefined}
+            onProgrammaticFocus={isTileWindowFrame ? onProgrammaticFocus : undefined}
             onFolderNavigated={
-              isActiveWindowFrame
+              isTileWindowFrame
                 ? // The shared follow wrapper records the pending target
                   // synchronously with the report — the eviction effect's
                   // read of it decides follow-vs-external-divergence.
@@ -2445,23 +2837,24 @@ export function SurfaceLayout({
   };
 
   // Tile models: every VISIBLE leaf plus every ever-opened leaf id that is
-  // currently closed (hidden), plus every RETAINED code frame (a record
-  // belonging to a non-active window). The React key is stable per leaf id
-  // across the visible↔hidden transition — THAT is what makes
-  // hide-never-unmount survive React reconciliation. The tty tile's key is
-  // additionally WINDOW-INDEPENDENT: it must survive a same-server window
-  // switch (the grid is keyed by server) so the terminal's same-session ride
-  // keeps its xterm instance and stream. The code tile is likewise
-  // window-independent, keyed by its frame record (`code:<windowId>:<src>` —
-  // the src is fixed at creation; the window id rides along because the
-  // `?folder=` degrade form is folder-keyed, so src alone is not unique): a
-  // same-server switch re-renders the mounted frame instead of
-  // unmounting it (an iframe unmount is a page unload — code-server kills the
-  // workbench). A code tile with no record yet (src pending) keys as
-  // `code:pending` — no iframe exists to lose on the pending→resolved
-  // remount. web/gui tiles keep `windowId` in their key (per-url iframes,
-  // the gui RFB session — content identity changes with the window).
-  const activeCodeFrame = codeFrames.find((r) => r.windowId === windowId);
+  // currently closed (hidden), plus every RETAINED code frame (a record no
+  // mounted code tile claims). The React key is stable per leaf id across the
+  // visible↔hidden transition — THAT is what makes hide-never-unmount survive
+  // React reconciliation. A bare tty tile's key is additionally
+  // WINDOW-INDEPENDENT: it must survive a same-server window switch (the grid
+  // is keyed by server) so the terminal's same-session ride keeps its xterm
+  // instance and stream; a FOREIGN tty tile's key carries its home window — a
+  // retargeted leaf remounts (its isolated stream's window is fixed at
+  // mount). The code tile is likewise window-independent, keyed by its frame
+  // record (`code:<windowId>:<src>` — the src is fixed at creation; the
+  // window id rides along because the `?folder=` degrade form is
+  // folder-keyed, so src alone is not unique): a same-server switch re-renders
+  // the mounted frame instead of unmounting it (an iframe unmount is a page
+  // unload — code-server kills the workbench). A code tile with no record yet
+  // (src pending) keys as `code:pending:<window>` — no iframe exists to lose
+  // on the pending→resolved remount. web/gui tiles keep their TILE window in
+  // the key (per-url iframes, the gui RFB session — content identity changes
+  // with the tile's window).
   const visibleTiles: TileModel[] = layoutLeafIds.map((leafId, i) => {
     const kind = layoutKinds[i];
     return {
@@ -2469,21 +2862,19 @@ export function SurfaceLayout({
       leafId,
       occ: leafIdParts(leafId).occ,
       visible: true,
-      frame: kind === "code" ? activeCodeFrame : undefined,
+      frame: kind === "code" ? frameForWindow(tileWindowIdOf(leafId, windowId)) : undefined,
     };
   });
-  const firstTtyIndex = layoutKinds.indexOf("tty");
-  const firstTtyLeafId = firstTtyIndex >= 0 ? layoutLeafIds[firstTtyIndex] : null;
-  // The active window's frame record forces a `code` hidden tile even when
-  // `everOpened` omits it: the per-window reset re-seeds that set from the
-  // new window's layout, so returning to a window whose code tile is CLOSED
-  // would otherwise drop the tile here while `retainedCodeTiles` below
-  // filters the record out as active — unmounting (killing) a frame the
-  // close-tile rule says stays retained and counted.
-  const hiddenLeafIds: string[] =
-    activeCodeFrame && !everOpened.includes("code")
-      ? [...everOpened, "code"]
-      : everOpened;
+  const ttyLeafIds = layoutLeafIds.filter((id) => leafIdParts(id).kind === "tty");
+  // The primary tty — the shared wsRef/focusRef/find/export seams' holder — is
+  // the first BARE tty leaf; a foreign tty opens its own isolated stream and
+  // never takes the holder.
+  const firstBareTtyLeafId =
+    ttyLeafIds.find((id) => leafIdParts(id).home === undefined) ?? null;
+  // The in-tile compose dock's host: the first bare tty when one exists, else
+  // the first tty leaf — a layout of only foreign tty tiles still docks the
+  // strip in-tile (its send target follows the focused terminal).
+  const dockTtyLeafId = firstBareTtyLeafId ?? ttyLeafIds[0] ?? null;
   const hiddenTiles: TileModel[] = hiddenLeafIds
     .filter((id) => !layoutLeafIds.includes(id))
     .map((leafId) => ({
@@ -2491,14 +2882,17 @@ export function SurfaceLayout({
       leafId,
       occ: leafIdParts(leafId).occ,
       visible: false,
-      frame: leafId === "code" ? activeCodeFrame : undefined,
+      frame:
+        leafIdParts(leafId).kind === "code"
+          ? frameForWindow(tileWindowIdOf(leafId, windowId))
+          : undefined,
     }));
   // Retained frames render as display-hidden tiles through the same flat
   // list — closing the code tile in a window keeps its frame retained (it
   // keeps counting toward the cap), and a switch away demotes the visible
   // tile to here WITHOUT a key change.
   const retainedCodeTiles: TileModel[] = codeFrames
-    .filter((r) => r.windowId !== windowId)
+    .filter((r) => !mountedCodeWindowIds.includes(r.windowId))
     .map((record) => ({ kind: "code", leafId: "code", occ: 0, visible: false, frame: record }));
 
   const renderTile = (
@@ -2507,18 +2901,59 @@ export function SurfaceLayout({
     mobile: boolean,
   ) => {
     const { kind, leafId, occ } = tile;
-    const suffix = occ > 0 ? `-${occ + 1}` : "";
-    // A retained (other-window) code frame must NOT share the active tile's
-    // testid — `surface-tile-code` stays unique for locators; the retained
-    // wrapper disambiguates by `data-window-id`.
-    const retainedCode = kind === "code" && tile.frame !== undefined && tile.frame.windowId !== windowId;
+    const leafHome = leafIdParts(leafId).home;
+    const tileWinId = tileWindowIdOf(leafId, windowId);
+    const tileWin = windowRecordFor(tileWinId);
+    // A bare leaf whose surface is live in another tab renders the away
+    // placeholder INSTEAD of the surface — the mount itself is gated here, so
+    // an away tty opens no relay stream.
+    const awayHolderId =
+      tile.visible && leafHome === undefined ? awayHolderFor(kind) : undefined;
+    // The foreign tile's home tab: its record (dead when absent from the map)
+    // and display name — the header identifies the home by it.
+    const homeWindow = leafHome !== undefined ? (windowsById?.get(leafHome) ?? null) : null;
+    const homeName = leafHome === undefined ? "" : (homeWindow?.name ?? leafHome);
+    // The home-tab identification chip (R14): a foreign tile's header names
+    // the tab its surface belongs to.
+    const homeChip =
+      leafHome === undefined ? null : (
+        <span
+          data-no-tile-drag
+          data-testid="tile-home"
+          className="shrink-0 truncate rounded px-1.5 text-[10px] bg-bg-card text-text-secondary"
+        >
+          {homeName}
+        </span>
+      );
+    // Locator/testid suffix: a foreign leaf carries its home (`-@3`); a
+    // duplicate bare tty its occurrence (`-2`). Never both — foreign
+    // addresses are unique per layout.
+    const suffix = leafHome !== undefined ? `-${leafHome}` : occ > 0 ? `-${occ + 1}` : "";
+    // A retained (unclaimed-window) code frame must NOT share a mounted
+    // tile's testid — `surface-tile-code` stays unique for locators; the
+    // retained wrapper disambiguates by `data-window-id`.
+    const retainedCode =
+      kind === "code" && tile.frame !== undefined && !mountedCodeWindowIds.includes(tile.frame.windowId);
     const testId = retainedCode ? "surface-tile-code-retained" : `surface-tile-${kind}${suffix}`;
     const label = SURFACE_LABEL[kind];
     // The keyboard-capture latch swaps the gui meta chip to its CONSEQUENCE
     // label — words, not hue alone: green wash + ink, no ring (a label, not
     // a control).
     const guiCaptured = kind === "gui" && guiCapture;
-    const meta = guiCaptured ? "keys → desktop" : tileMeta(kind, win, gui);
+    const meta = guiCaptured ? "keys → desktop" : tileMeta(kind, tileWin, gui);
+    // The tile window's progress slot (a foreign tty's chip/line render on
+    // its own tile, never the route window's).
+    const tileProgress =
+      kind === "tty" ? (ttyProgressByWindow.get(tileWinId) ?? IDLE_PROGRESS) : IDLE_PROGRESS;
+    // The header chip renders only for the value-carrying states (1/2/4) —
+    // indeterminate sweeps with no percentage, idle removes it.
+    const ttyChip = isValuedProgress(tileProgress)
+      ? { value: tileProgress.value, cls: PROGRESS_CHIP_CLASS[tileProgress.kind] }
+      : null;
+    // The tty header's status dot reads the TILE window's record (a foreign
+    // tty shows its home window's status).
+    const tileStatusWindow: WindowInfo | null =
+      kind !== "tty" ? null : tileWinId === windowId ? (statusWindow ?? null) : (windowsById?.get(tileWinId) ?? null);
     // Web tile header (260819-v6y4 R10): a kind badge (hues per the approved
     // design study — green=present, amber=proxied port, blue=external) plus
     // the page title reported up from the iframe, falling back to the
@@ -2527,8 +2962,12 @@ export function SurfaceLayout({
     // (empty/whitespace active web tab, 260821-zqlq) renders the plain
     // `://  Web` label — no badge, no page title, no meta chip; the badge
     // derivation is trimmed-keyed so empty input never reaches
-    // classifyAddress.
-    const webUrl = activeWebUrl(win).trim();
+    // classifyAddress. All inputs read the TILE window's record.
+    const webUrl = activeWebUrl(tileWin).trim();
+    // The code tile's per-window verb predicates (the tile window's own
+    // drift/frame state — a foreign code tile reads its home window).
+    const tileCodeFollowTarget = kind === "code" ? codeFollowTargetFor(tileWinId) : null;
+    const tileCodeFrameMounted = kind === "code" && codeFrameMountedFor(tileWinId);
     const webBadge: { text: string; cls: string } | null = (() => {
       if (kind !== "web" || webUrl === "") return null;
       const kindOf = classifyAddress(webUrl);
@@ -2576,14 +3015,22 @@ export function SurfaceLayout({
       <div
         key={
           kind === "tty"
-            ? `${kind}${suffix}`
+            ? // A bare tty's key is window-independent (the same-session ride
+              // survives a window switch); a foreign tty's carries its home —
+              // a retargeted leaf remounts, since the isolated stream's
+              // window is fixed at mount.
+              leafHome !== undefined
+              ? `tty:${leafHome}`
+              : `${kind}${suffix}`
             : kind === "code"
               ? // The frame's window id is in the key: `?workspace=` srcs are
                 // tab-keyed but the `?folder=` degrade form is FOLDER-keyed —
                 // two windows rooted at the same folder whose derivations both
-                // degrade would otherwise produce identical keys.
-                `code${suffix}:${tile.frame ? `${tile.frame.windowId}:${tile.frame.src}` : "pending"}`
-              : `${kind}${suffix}:${windowId}`
+                // degrade would otherwise produce identical keys. No leaf
+                // suffix: one frame per window, so a borrowed code tile keeps
+                // the home window's retained frame mounted (no remount).
+                `code:${tile.frame ? `${tile.frame.windowId}:${tile.frame.src}` : `pending:${tileWinId}`}`
+              : `${kind}${suffix}:${tileWinId}`
         }
         data-testid={testId}
         {...(retainedCode ? { "data-window-id": tile.frame?.windowId } : {})}
@@ -2643,7 +3090,7 @@ export function SurfaceLayout({
             chrome-rule weight (top bar, bottom bar, and sidebar panels all use
             3px rules). The background is the drag-to-snap grip surface:
             cursor-grab when a drag can arm, grabbing mid-drag. */}
-        {!mobile && (
+        {!mobile && awayHolderId === undefined && (
           <div
             onPointerDown={canDragTiles ? onTileDragPointerDown(leafId) : undefined}
             className={`flex items-center gap-1.5 px-1.5 h-[35px] shrink-0 border-b-[3px] border-border bg-bg-primary font-mono text-[11px] text-text-secondary select-none ${
@@ -2654,7 +3101,7 @@ export function SurfaceLayout({
                   : ""
             }`}
           >
-            {kind === "tty" && statusWindow && <StatusDot win={statusWindow} />}
+            {kind === "tty" && tileStatusWindow && <StatusDot win={tileStatusWindow} />}
             {kind === "tty" && ttyChip && (
               <span
                 data-testid="progress-chip"
@@ -2678,12 +3125,14 @@ export function SurfaceLayout({
                   {webBadge.text}
                 </span>
                 <span className="min-w-0 truncate text-text-primary">
-                  {webPageTitle ?? meta}
+                  {webPageTitles.get(tileWinId) ?? meta}
                 </span>
+                {homeChip}
               </>
             ) : (
               <>
                 <span className="shrink-0 text-text-primary">{label}</span>
+                {homeChip}
                 {meta && (
                   <span
                     data-no-tile-drag
@@ -2751,7 +3200,7 @@ export function SurfaceLayout({
                 vocabulary: aria-pressed + accent-green while open). Primary
                 tty leaf only — duplicate tty tiles and other kinds render no
                 find affordance (the wsRef/focusRef primary-only precedent). */}
-            {kind === "tty" && leafId === firstTtyLeafId && (
+            {kind === "tty" && leafId === firstBareTtyLeafId && (
               <Tip label="Find in terminal">
                 <button
                   type="button"
@@ -2770,7 +3219,7 @@ export function SurfaceLayout({
                 </button>
               </Tip>
             )}
-            {kind === "tty" && tile.visible && leafId === firstTtyLeafId && (
+            {kind === "tty" && tile.visible && leafId === firstBareTtyLeafId && (
               <>
                 <Tip label="Export terminal output">
                   <button
@@ -2872,7 +3321,7 @@ export function SurfaceLayout({
                     <button
                       type="button"
                       aria-label="Split pane horizontally"
-                      onClick={() => onSplitPane(true)}
+                      onClick={() => onSplitPane(true, tileWinId)}
                       className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
                     >
                       <SplitHorizontalGlyph />
@@ -2882,7 +3331,7 @@ export function SurfaceLayout({
                     <button
                       type="button"
                       aria-label="Split pane vertically"
-                      onClick={() => onSplitPane(false)}
+                      onClick={() => onSplitPane(false, tileWinId)}
                       className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
                     >
                       <SplitVerticalGlyph />
@@ -2892,7 +3341,7 @@ export function SurfaceLayout({
                     <button
                       type="button"
                       aria-label="Close pane"
-                      onClick={() => onClosePane()}
+                      onClick={() => onClosePane(tileWinId)}
                       className={`${VERB_BUTTON_CLASS} hover:text-signal-red`}
                     >
                       <ClosePaneBoxedGlyph />
@@ -2906,33 +3355,34 @@ export function SurfaceLayout({
             )}
             {/* Code-tile content verbs (the gui fullscreen verb's per-kind
                 structure, any arity): Follow terminal renders ONLY while the
-                latched root drifts from the live derivation — its presence IS
-                the drift indicator; Reload editor renders while the active
-                window's frame is mounted. One hairline separates them from
-                the layout-verb cluster when that renders. */}
-            {kind === "code" && tile.visible && (codeFollowTarget !== null || codeFrameMounted) && (
+                latched root drifts from the tile window's live derivation —
+                its presence IS the drift indicator; Reload editor renders
+                while the tile window's frame is mounted. One hairline
+                separates them from the layout-verb cluster when that
+                renders. */}
+            {kind === "code" && tile.visible && (tileCodeFollowTarget !== null || tileCodeFrameMounted) && (
               <>
-                {codeFollowTarget !== null && (
+                {tileCodeFollowTarget !== null && (
                   <Tip
-                    label={`Follow terminal — reopen the editor at ${codeFollowTarget.split("/").filter(Boolean).pop() ?? codeFollowTarget}`}
+                    label={`Follow terminal — reopen the editor at ${tileCodeFollowTarget.split("/").filter(Boolean).pop() ?? tileCodeFollowTarget}`}
                   >
                     <button
                       type="button"
                       aria-label="Follow terminal"
                       disabled={codeFollowInFlight}
-                      onClick={followCodeTerminal}
+                      onClick={() => followCodeTerminal(tileWinId)}
                       className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
                     >
                       <FollowTerminalGlyph />
                     </button>
                   </Tip>
                 )}
-                {codeFrameMounted && (
+                {tileCodeFrameMounted && (
                   <Tip label="Reload editor — reboots this tab's workbench">
                     <button
                       type="button"
                       aria-label="Reload editor"
-                      onClick={reloadActiveCodeFrame}
+                      onClick={() => reloadCodeFrame(tileWinId)}
                       className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
                     >
                       <RefreshGlyph />
@@ -2946,6 +3396,23 @@ export function SurfaceLayout({
             )}
             {showVerbs && (
               <>
+                {/* ↩ send home (R14): FOREIGN leaves only, whose home ≠ the
+                    route window (a self-address is grammar-invalid, guarded
+                    anyway); disabled while the home window is dead — the
+                    transient between a kill and the read-time prune. */}
+                {leafHome !== undefined && leafHome !== windowId && (
+                  <Tip label={`Send ${label} back to ${homeName}`}>
+                    <button
+                      type="button"
+                      aria-label={`Send ${label} back to ${homeName}`}
+                      disabled={homeWindow === null || !onSendHome}
+                      onClick={() => onSendHome?.(windowId, leafId)}
+                      className={`${VERB_BUTTON_CLASS} hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent`}
+                    >
+                      <SendHomeGlyph />
+                    </button>
+                  </Tip>
+                )}
                 <Tip label={isZoomed ? `Restore ${label}` : `Expand ${label}`}>
                   <button
                     type="button"
@@ -2984,7 +3451,7 @@ export function SurfaceLayout({
             tile's below-URL-row pattern), shared FindBar with terminal-native
             Aa / .* toggles and the client-buffer scope note once a search has
             run. Primary tty leaf only. */}
-        {kind === "tty" && leafId === firstTtyLeafId && findOpen && (
+        {kind === "tty" && awayHolderId === undefined && leafId === firstBareTtyLeafId && findOpen && (
           <FindBar
             query={findQuery}
             matchIndex={
@@ -3037,8 +3504,8 @@ export function SurfaceLayout({
         {/* Progress line (260819-1vxq R2): a zero-height wrapper whose
             absolute 2px bar OVERLAYS the content's top edge — an in-flow
             strip would resize the terminal container and fire fit → PTY
-            resize churn on every task start/stop. */}
-        {kind === "tty" && ttyProgress.kind !== "idle" && (
+            resize churn on every task start/stop. The tile window's slot. */}
+        {kind === "tty" && awayHolderId === undefined && tileProgress.kind !== "idle" && (
           <div
             className="rk-tty-progress"
             data-testid="progress-line"
@@ -3047,31 +3514,44 @@ export function SurfaceLayout({
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={
-              ttyProgress.kind === "indeterminate" ? undefined : ttyProgress.value
+              tileProgress.kind === "indeterminate" ? undefined : tileProgress.value
             }
           >
-            {ttyProgress.kind === "indeterminate" ? (
+            {tileProgress.kind === "indeterminate" ? (
               <span className="rk-tty-progress-bar rk-tty-progress-indeterminate" />
             ) : (
               <span
-                className={`rk-tty-progress-bar ${PROGRESS_BAR_CLASS[ttyProgress.kind]}`}
-                style={{ width: `${ttyProgress.value}%` }}
+                className={`rk-tty-progress-bar ${PROGRESS_BAR_CLASS[tileProgress.kind]}`}
+                style={{ width: `${tileProgress.value}%` }}
               />
             )}
           </div>
         )}
+        {awayHolderId !== undefined ? (
+          <SurfacePlaceholder
+            kind={kind}
+            holderName={windowsById?.get(awayHolderId)?.name ?? awayHolderId}
+            statusWindow={statusWindow ?? null}
+            showClose={arity > 1}
+            onBringBack={() => onSendHome?.(awayHolderId, `${windowId}/${kind}`)}
+            onGoTo={() => onGoToWindow?.(awayHolderId)}
+            onClose={() => onClose(leafId)}
+          />
+        ) : (
         <div
           // Mid-drag the iframe/xterm content must not swallow pointermove
           // (the drag would stall at the iframe boundary). Applies to every
-          // drag posture — divider, intersection, and the tile header drag.
-          className={`flex-1 min-h-0 flex flex-col ${draggingDivider !== null || draggingIntersection !== null || draggingTile !== null ? "pointer-events-none" : ""}`}
+          // drag posture — divider, intersection, tile header drag, and the
+          // sidebar row-drag (its drop-catcher overlay sits above all tiles).
+          className={`flex-1 min-h-0 flex flex-col ${draggingDivider !== null || draggingIntersection !== null || draggingTile !== null || rowDragActive ? "pointer-events-none" : ""}`}
         >
-          {renderContent(tile, tile.visible && leafId === firstTtyLeafId, hidden)}
-          {/* In-tile compose-strip dock (260813-j3jb): desktop only, first
-              tty leaf only — the strip sits below the terminal body, inside
-              the tile frame. */}
-          {!mobile && leafId === firstTtyLeafId ? ttyDockContent : null}
+          {renderContent(tile, hidden)}
+          {/* In-tile compose-strip dock (260813-j3jb): desktop only, in the
+              dock tty tile (the first BARE tty, else the first tty leaf) —
+              the strip sits below the terminal body, inside the tile frame. */}
+          {!mobile && leafId === dockTtyLeafId ? ttyDockContent : null}
         </div>
+        )}
       </div>
     );
   };
@@ -3130,7 +3610,7 @@ export function SurfaceLayout({
     // `resize`, hide on `move`).
     <TileDragContext.Provider
       value={
-        draggingTile !== null
+        draggingTile !== null || rowDragActive
           ? "move"
           : draggingDivider !== null || draggingIntersection !== null
             ? "resize"
@@ -3221,9 +3701,20 @@ export function SurfaceLayout({
             }}
           />
         ))}
-      {/* The header drag's result preview — z-30, above tiles and dividers,
-          never a pointer target. */}
+      {/* The header/row drag's result preview — z-30, above tiles and
+          dividers, never a pointer target. */}
       {dropOverlay}
+      {/* The sidebar row-drag's drop catcher — z-40, above the preview (which
+          is pointer-events-none), the ONLY drop target while a window-row
+          drag is in flight over the tiles. */}
+      {rowDragActive && (
+        <div
+          data-testid="row-drop-catcher"
+          className="absolute inset-0 z-40"
+          onDragOver={onRowDragOver}
+          onDrop={onRowDrop}
+        />
+      )}
     </div>
     </TileDragContext.Provider>
   );

@@ -956,6 +956,12 @@ type WindowInfo struct {
 	// tolerant: the raw value rides through unvalidated (validation is
 	// write-side; consumers parse).
 	Layout string `json:"layout,omitempty"`
+	// AwayIn maps a surface kind to the id of the window currently holding it
+	// as a foreign leaf ("@12/tty" in that window's layout) — the home window's
+	// view of a borrow, derived across ALL of the server's windows in
+	// FetchSessions via DeriveAwayIn (nothing stored, Constitution II). Absent
+	// kinds are not away. Dead homes and self-naming leaves never appear.
+	AwayIn map[string]string `json:"awayIn,omitempty"`
 	// WebTabs is the dense @rk_win_web_<n> family: slots 1..MaxWebTabs walked in
 	// order, stopping at the first empty (a hand-written gap degrades to the
 	// prefix — the write paths never produce gaps). Index 0 is tmux slot 1.
@@ -2958,6 +2964,39 @@ func SetWindowOptions(ctx context.Context, windowID, server string, ops []Window
 	}
 	args := appendOptionOps(nil, windowID, ops)
 	_, err := tmuxExecServer(ctx, server, args...)
+	return err
+}
+
+// WindowLayoutWrite is one window's new @rk_win_layout value, consumed by
+// SetWindowLayouts. Ordering is the caller's: pairs apply in slice order
+// within the one chained invocation.
+type WindowLayoutWrite struct {
+	WindowID string
+	Layout   string
+}
+
+// buildSetWindowLayoutsArgv composes the `set-option -w -t <id> @rk_win_layout
+// <value>` ops for several windows into one \;-chained argv via the shared
+// appendOptionOps chaining primitive (the SetWindowOptions pattern, one target
+// per pair). Pure.
+func buildSetWindowLayoutsArgv(pairs []WindowLayoutWrite) []string {
+	var args []string
+	for _, p := range pairs {
+		value := p.Layout
+		args = appendOptionOps(args, p.WindowID, []WindowOptionOp{{Key: LayoutOption, Value: &value}})
+	}
+	return args
+}
+
+// SetWindowLayouts writes several windows' @rk_win_layout values as a single
+// \;-chained tmux invocation — the borrow/return contract: no viewer observes
+// a half-moved surface (a leaf live in two tabs or none) between the two
+// writes. A no-op (empty pairs) issues no tmux call.
+func SetWindowLayouts(ctx context.Context, server string, pairs []WindowLayoutWrite) error {
+	if len(pairs) == 0 {
+		return nil
+	}
+	_, err := tmuxExecServer(ctx, server, buildSetWindowLayoutsArgv(pairs)...)
 	return err
 }
 

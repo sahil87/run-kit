@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -737,6 +738,29 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "a web tab removal (null) cannot be combined with other web-tab writes in one request")
 		return
 	}
+
+	// Live-in-one-place check (a layout write introducing a foreign leaf
+	// already held by another window): only a layout value carrying a foreign
+	// leaf can conflict, so the server window fetch is gated on that.
+	if value, ok := options[optKeyLayout]; ok && value != nil && *value != "" {
+		if tree, err := layoutspec.Parse(*value); err == nil && tree.HasForeign() {
+			windows, err := s.fetchServerWindows(ctx, server)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if err := tmux.CheckLiveInOnePlace(tree, windowID, windows); err != nil {
+				var held *tmux.LeafHeldError
+				if errors.As(err, &held) {
+					writeError(w, http.StatusConflict, err.Error())
+					return
+				}
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+	}
+
 	ops, removeSlots, roleSet, roleClear := buildWindowOptionOps(options, armActive)
 
 	if len(ops) == 0 && len(removeSlots) == 0 {

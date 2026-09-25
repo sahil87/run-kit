@@ -98,6 +98,10 @@ type TmuxOps interface {
 	SetWindowOption(ctx context.Context, windowID, server, option, value string) error
 	UnsetWindowOption(ctx context.Context, windowID, server, option string) error
 	SetWindowOptions(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error
+	// SetWindowLayouts writes several windows' @rk_win_layout in ONE
+	// \;-chained invocation — the borrow/return two-tab write (pairs apply in
+	// slice order; the holder's removal comes first).
+	SetWindowLayouts(ctx context.Context, server string, pairs []tmux.WindowLayoutWrite) error
 	// ClearWindowRoleExceptOnServer is the server-scoped @rk_win_role radio clear:
 	// it unsets the role option on every window of the server except
 	// keepWindowID (see tmux.ClearWindowRoleExcept) and returns the cleared
@@ -541,6 +545,9 @@ func (p *prodTmuxOps) UnsetWindowOption(ctx context.Context, windowID, server, o
 func (p *prodTmuxOps) SetWindowOptions(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
 	return tmux.SetWindowOptions(ctx, windowID, server, ops)
 }
+func (p *prodTmuxOps) SetWindowLayouts(ctx context.Context, server string, pairs []tmux.WindowLayoutWrite) error {
+	return tmux.SetWindowLayouts(ctx, server, pairs)
+}
 func (p *prodTmuxOps) ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) ([]string, error) {
 	return tmux.ClearWindowRoleExceptOnServer(ctx, server, keepWindowID)
 }
@@ -920,6 +927,11 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/{windowId}/move-to-session", s.handleWindowMoveToSession)
 	r.Post("/api/windows/{windowId}/rename", s.handleWindowRename)
 	r.Post("/api/windows/{windowId}/options", s.handleWindowOptions)
+	// Cross-tab layout verbs — a surface is live in one tab; moving it is a
+	// server-recomputed two-window write chained in one tmux invocation. See
+	// api/layout_borrow.go.
+	r.Post("/api/layout/borrow", s.handleLayoutBorrow)
+	r.Post("/api/layout/return", s.handleLayoutReturn)
 	// Web-tab verbs (POST only, §IX) — see api/windows_web.go.
 	r.Post("/api/windows/{windowId}/web", s.handleWindowWebAdd)
 	r.Post("/api/windows/{windowId}/web/{n}/remove", s.handleWindowWebRemove)

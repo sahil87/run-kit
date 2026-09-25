@@ -27,6 +27,7 @@ import {
   templateSizes,
   attachSizes,
   extractSizes,
+  type LayoutLeaf,
   type LayoutNode,
   type LayoutSizes,
   type Rect,
@@ -308,6 +309,135 @@ describe("resolveDrop — duplicate tty leaves", () => {
   });
 });
 
+// The external-leaf mode: `resolveDrop`'s third parameter is the dragged
+// leaf's ID for an internal drag (a leaf already in the tree) or the full
+// `LayoutLeaf` for a leaf NOT yet in the tree (a sidebar-row borrow); hitTest
+// accepts the same union. Only edge zones insert — center is a noop.
+describe("resolveDrop — external leaf (not yet in the tree)", () => {
+  const foreign: LayoutLeaf = { leaf: "tty", home: "@3" };
+
+  it("the R10 example: tree tty, @3/tty on the tty tile's right edge → h(tty,@3/tty)", () => {
+    const result = moveOf(
+      resolveDrop(parse("tty"), undefined, foreign, {
+        kind: "edge",
+        targetId: "tty",
+        side: "right",
+      }, BIG_BOX),
+    );
+    expect(ser(result.tree)).toBe("h(tty,@3/tty)");
+    expect(result.sizes[0][0]).toBeCloseTo(0.5, 6);
+    expect(result.sizes[0][1]).toBeCloseTo(0.5, 6);
+    expect(result.destId).toBe("@3/tty");
+  });
+
+  it("a center hit is a noop — only edge zones insert", () => {
+    expect(
+      resolveDrop(parse("h(tty,code)"), undefined, foreign, {
+        kind: "center",
+        targetId: "code",
+      }, BIG_BOX).kind,
+    ).toBe("noop");
+  });
+
+  it("a layout-edge hit spans the side, the new leaf taking 50% of the axis", () => {
+    const result = moveOf(
+      resolveDrop(parse("h(tty,code)"), undefined, foreign, { kind: "root", side: "left" }, BIG_BOX),
+    );
+    expect(ser(result.tree)).toBe("h(@3/tty,tty,code)");
+    // The same-axis merge leaves the new leaf at half; no removal follows, so
+    // the survivors split the rest in proportion.
+    expect(result.sizes[0][0]).toBeCloseTo(0.5, 6);
+    expect(result.sizes[0][1]).toBeCloseTo(0.25, 6);
+    expect(result.sizes[0][2]).toBeCloseTo(0.25, 6);
+    expect(result.destId).toBe("@3/tty");
+  });
+
+  it("sizes ride along: the wrap takes the target's share at 50/50", () => {
+    const result = moveOf(
+      resolveDrop(parse("h(tty,code)"), [[0.7, 0.3]], foreign, {
+        kind: "edge",
+        targetId: "code",
+        side: "bottom",
+      }, BIG_BOX),
+    );
+    expect(ser(result.tree)).toBe("h(tty,v(code,@3/tty))");
+    expect(result.sizes[0][0]).toBeCloseTo(0.7, 6);
+    expect(result.sizes[0][1]).toBeCloseTo(0.3, 6);
+    expect(result.sizes[1][0]).toBeCloseTo(0.5, 6);
+    expect(result.sizes[1][1]).toBeCloseTo(0.5, 6);
+  });
+
+  it("too-small when the result breaks the floor in this viewer's box", () => {
+    const small: Rect = { x: 0, y: 0, w: 400, h: 180 };
+    expect(
+      resolveDrop(parse("h(tty,code)"), undefined, foreign, {
+        kind: "edge",
+        targetId: "code",
+        side: "right",
+      }, small).kind,
+    ).toBe("too-small");
+    expect(
+      resolveDrop(parse("h(tty,code)"), undefined, foreign, {
+        kind: "edge",
+        targetId: "code",
+        side: "right",
+      }, BIG_BOX).kind,
+    ).toBe("move");
+  });
+
+  it("cancel on a null or self hit and on an unknown target id", () => {
+    const tree = parse("tty");
+    expect(resolveDrop(tree, undefined, foreign, null, BIG_BOX).kind).toBe("cancel");
+    expect(resolveDrop(tree, undefined, foreign, { kind: "self" }, BIG_BOX).kind).toBe("cancel");
+    expect(
+      resolveDrop(tree, undefined, foreign, {
+        kind: "edge",
+        targetId: "@9/tty",
+        side: "right",
+      }, BIG_BOX).kind,
+    ).toBe("cancel");
+  });
+
+  it("a bare external leaf inserts too, taking the kind id at its new position", () => {
+    const result = moveOf(
+      resolveDrop(parse("web"), undefined, { leaf: "tty" }, {
+        kind: "edge",
+        targetId: "web",
+        side: "right",
+      }, BIG_BOX),
+    );
+    expect(ser(result.tree)).toBe("h(web,tty)");
+    expect(result.destId).toBe("tty");
+  });
+
+  it("hitTest accepts the external leaf — its address is no rect key, so no self hit", () => {
+    const box: Rect = { x: 0, y: 0, w: 1200, h: 800 };
+    const rects = new Map<string, Rect>([
+      ["tty", { x: 0, y: 0, w: 597, h: 800 }],
+      ["code", { x: 603, y: 0, w: 597, h: 800 }],
+    ]);
+    expect(hitTest(rects, box, { x: 300, y: 400 }, foreign)).toEqual({
+      kind: "center",
+      targetId: "tty",
+    });
+    expect(hitTest(rects, box, { x: 300, y: 400 }, "@3/tty")).toEqual({
+      kind: "center",
+      targetId: "tty",
+    });
+  });
+
+  it("an internal drag of a foreign leaf keeps its home (the clone carries the whole leaf)", () => {
+    const result = moveOf(
+      resolveDrop(parse("h(tty,@3/tty)"), undefined, "@3/tty", {
+        kind: "root",
+        side: "bottom",
+      }, BIG_BOX),
+    );
+    expect(ser(result.tree)).toBe("v(tty,@3/tty)");
+    expect(result.destId).toBe("@3/tty");
+  });
+});
+
 describe("zoneRegion", () => {
   const box: Rect = { x: 0, y: 0, w: 1200, h: 800 };
   const rects = new Map<string, Rect>([
@@ -454,7 +584,7 @@ describe("resolveDrop — exhaustive invariants for N ≤ 4", () => {
               }
               if (result.kind === "noop") continue; // no write — nothing to check
               if (result.kind === "too-small") continue; // never offered
-              expect(isCanonicalTree(result.tree, 4)).toBe(true);
+              expect(isCanonicalTree(result.tree)).toBe(true);
               expect(result.tree).not.toBe(tree);
               expect(sortedKinds(result.tree)).toEqual(sortedKinds(tree));
               expect(leafIds(result.tree)).toHaveLength(n);

@@ -51,6 +51,8 @@ import {
   addWebTab,
   removeWebTab,
   selectWebTab,
+  borrowLayout,
+  returnLayout,
   triggerUpdate,
   triggerForceUpdate,
   triggerRestart,
@@ -642,6 +644,67 @@ describe("web tab verb wrappers", () => {
     await expect(addWebTab("s", "@5", "/proxy/3009/")).rejects.toThrow(
       "web tabs full (16)",
     );
+  });
+});
+
+describe("layout borrow/return verbs", () => {
+  it("borrowLayout POSTs {to, leaf, tree} to /api/layout/borrow with server query", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    let capturedBody: Record<string, string> = {};
+    mswServer.use(
+      http.post("/api/layout/borrow", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedMethod = request.method;
+        capturedBody = (await request.json()) as Record<string, string>;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const result = await borrowLayout("s", {
+      to: "@9",
+      leaf: "@3/tty",
+      tree: "h(tty,@3/tty)",
+    });
+    expect(result.ok).toBe(true);
+    expect(capturedMethod).toBe("POST");
+    expect(capturedUrl).toMatch(/\/api\/layout\/borrow\?server=s$/);
+    expect(capturedBody).toEqual({ to: "@9", leaf: "@3/tty", tree: "h(tty,@3/tty)" });
+  });
+
+  it("returnLayout POSTs {from, leaf} to /api/layout/return with server query", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    let capturedBody: Record<string, string> = {};
+    mswServer.use(
+      http.post("/api/layout/return", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedMethod = request.method;
+        capturedBody = (await request.json()) as Record<string, string>;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const result = await returnLayout("s", { from: "@7", leaf: "@3/tty" });
+    expect(result.ok).toBe(true);
+    expect(capturedMethod).toBe("POST");
+    expect(capturedUrl).toMatch(/\/api\/layout\/return\?server=s$/);
+    expect(capturedBody).toEqual({ from: "@7", leaf: "@3/tty" });
+  });
+
+  it("a 409 rejects as an ApiError carrying the status and the server's message", async () => {
+    mswServer.use(
+      http.post("/api/layout/return", () =>
+        HttpResponse.json({ error: "leaf not held by window" }, { status: 409 }),
+      ),
+    );
+    try {
+      await returnLayout("s", { from: "@7", leaf: "@3/tty" });
+      expect.fail("returnLayout should reject");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      if (!(err instanceof ApiError)) return;
+      expect(err.message).toBe("leaf not held by window");
+      expect(err.status).toBe(409);
+    }
   });
 });
 

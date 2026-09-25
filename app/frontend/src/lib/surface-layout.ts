@@ -1,7 +1,8 @@
 /**
  * Pure helpers for the surface-layout model (spec docs/specs/surface-layout.md).
  *
- * The terminal route's center is a LAYOUT MANAGER: one to three tiles, each
+ * The terminal route's center is a LAYOUT MANAGER: one or more tiles (offers
+ * gated by a per-viewport size floor, never a tile count), each
  * rendering a surface (a (substrate, lens) pair), arranged as a canonical
  * split TREE (`lib/layout-tree.ts`) with per-viewer divider SIZES. The tree
  * is shared tab state: it rides the `@rk_win_layout` window option in the
@@ -24,13 +25,17 @@
  */
 
 import {
+  bareLeaves,
   insertBeside,
+  isForeignLeaf,
   isLeaf,
+  leafAddress,
   leafIds,
   leaves,
   layoutRects,
   normalise,
   parseLayoutTree,
+  parseLeafAddress,
   pathOf,
   removeLeaf,
   serializeLayoutTree,
@@ -39,20 +44,23 @@ import {
   swapLeaves,
   templateOf,
   templatesFor,
-  MAX_TILES,
   NOMINAL_BOX,
+  SPLIT_GAP_PX,
   TEMPLATES,
   type DropSide,
+  type LayoutLeaf,
   type LayoutNode,
   type LayoutSizes,
   type Rect,
   type SurfaceKind,
   type TemplateName,
 } from "./layout-tree";
+import { MIN_TILE_H, MIN_TILE_W } from "./layout-drop";
 import { hasCode, hasGui, type GuiHost, type ViewWindow } from "./window-view";
 
 export type { LayoutNode, LayoutSizes, Rect, SurfaceKind, TemplateName };
 export {
+  bareLeaves,
   isLeaf,
   leafIds,
   leaves,
@@ -66,7 +74,6 @@ export {
   templatesFor,
   TEMPLATE_LABEL,
   TEMPLATES,
-  MAX_TILES,
   NOMINAL_BOX,
   SPLIT_GAP_PX,
 } from "./layout-tree";
@@ -221,47 +228,68 @@ export function legacyTranslationDecision(input: {
 //    untouched) ─────────────────────────────────────────────────────────────
 
 /**
- * Value-bearing per-window zoom localStorage key. Stores a surface KIND, not
- * a leaf id: desktop zoom resolves it to the kind's first leaf in the layout,
- * and the mobile switch group addresses surfaces by kind. Absence means
- * "no zoom".
+ * Value-bearing per-window zoom localStorage key. Stores the zoomed LEAF ID:
+ * a bare unique kind (`tty`, `web`, …), a duplicate-tty occurrence id
+ * (`tty#2`), or a foreign leaf's address (`@12/tty`). Bare kinds double as
+ * their first leaf's id, so the mobile switch group's kind writes stay valid
+ * under this shape. Absence means "no zoom".
  */
 export function zoomStorageKey(server: string, windowId: string): string {
   return `rk-layout-zoom:${server}:${windowId}`;
 }
 
+/** The surface kind a leaf id names: the id itself for a bare unique kind,
+ *  the address's kind for a foreign leaf (`@12/tty`), the base kind for a
+ *  duplicate occurrence id (`tty#2`). Undefined for a non-leaf-id string. */
+export function zoomLeafKind(id: string): SurfaceKind | undefined {
+  const foreign = parseLeafAddress(id);
+  if (foreign !== null) return foreign.kind;
+  const hash = id.indexOf("#");
+  const raw = hash < 0 ? id : id.slice(0, hash);
+  return isSurfaceKind(raw) ? raw : undefined;
+}
+
+/** A stored zoom value is a well-formed leaf id (untrusted-localStorage
+ *  discipline: validate on read). */
+function isZoomLeafId(value: string): boolean {
+  if (zoomLeafKind(value) === undefined) return false;
+  const hash = value.indexOf("#");
+  if (hash < 0) return true;
+  const n = Number(value.slice(hash + 1));
+  return Number.isInteger(n) && n >= 2;
+}
+
 /**
- * Read the persisted zoomed surface kind for a window. Returns `undefined`
- * when absent, when the stored value is not a surface kind (untrusted-
- * localStorage discipline: validate on read), or when localStorage is
+ * Read the persisted zoomed leaf id for a window. Returns `undefined` when
+ * absent, when the stored value is not a leaf id, or when localStorage is
  * unavailable (SSR/jsdom/quota) — the try/catch-noop pattern.
  */
 export function readStoredZoom(
   server: string,
   windowId: string,
-): SurfaceKind | undefined {
+): string | undefined {
   try {
     const raw = localStorage.getItem(zoomStorageKey(server, windowId));
-    return raw !== null && isSurfaceKind(raw) ? raw : undefined;
+    return raw !== null && isZoomLeafId(raw) ? raw : undefined;
   } catch {
     return undefined;
   }
 }
 
 /**
- * Persist the zoomed surface kind; `null` clears the key (unzoom). Best-effort
+ * Persist the zoomed leaf id; `null` clears the key (unzoom). Best-effort
  * (try/catch-noop); callers invoke on user-initiated zoom flips only.
  */
 export function writeStoredZoom(
   server: string,
   windowId: string,
-  kind: SurfaceKind | null,
+  leafId: string | null,
 ): void {
   try {
-    if (kind === null) {
+    if (leafId === null) {
       localStorage.removeItem(zoomStorageKey(server, windowId));
     } else {
-      localStorage.setItem(zoomStorageKey(server, windowId), kind);
+      localStorage.setItem(zoomStorageKey(server, windowId), leafId);
     }
   } catch {
     /* noop — best-effort persistence */
@@ -346,28 +374,102 @@ export function writeStoredSizes(
 // ── mutations (verbs) ───────────────────────────────────────────────────────
 
 /**
- * Rail toggle open: split the LAST leaf in reading order along its longer
- * axis (ties → horizontal), the new leaf landing after it (right or bottom).
- * Uses the leaf's real rect when the caller passes rects (desktop) and the
- * nominal box otherwise (mobile, the CLI). Returns `null` when the add is
- * disallowed: the layout is already at MAX_TILES, or a non-tty kind would
- * repeat.
+ * The per-viewport size floor as an offer gate: true when every leaf of
+ * `tree` lays out at ≥ MIN_TILE_W × MIN_TILE_H in `box` (`sizes` the
+ * pre-order fraction override, as in `layoutRects`). Gates OFFERS only —
+ * addSurface, `Layout: <Template>` rows, the surface toggle — a stored tree
+ * under the floor still renders as-is.
+ */
+export function fitsFloor(
+  tree: Layout,
+  sizes: LayoutSizes | undefined,
+  box: Rect,
+): boolean {
+  for (const rect of layoutRects(tree, box, sizes).values()) {
+    if (rect.w < MIN_TILE_W || rect.h < MIN_TILE_H) return false;
+  }
+  return true;
+}
+
+/** The bounding box of a measured rect set — the box the floor is checked
+ *  against when the caller passes live leaf rects. */
+export function boundingBox(rects: Map<string, Rect>): Rect | null {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const r of rects.values()) {
+    x0 = Math.min(x0, r.x);
+    y0 = Math.min(y0, r.y);
+    x1 = Math.max(x1, r.x + r.w);
+    y1 = Math.max(y1, r.y + r.h);
+  }
+  return x1 >= x0 && y1 >= y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
+}
+
+/**
+ * Rail toggle open: split the FOCUSED tile along its longer axis (ties →
+ * horizontal), the new leaf landing after it (right or bottom); when that
+ * result breaks the size floor in the caller's box, try the remaining tiles
+ * largest-first, and refuse (`null`) only when no split fits the floor.
+ * `focusedId` absent ⇒ the last leaf in reading order. Uses the caller's
+ * measured rects when given (desktop — the floor is checked against their
+ * bounding box) and the nominal box otherwise (mobile, the CLI). The added
+ * leaf is a kind or a full `LayoutLeaf` (a foreign `{leaf, home}` tiles
+ * another window's surface). Also refused: a repeated bare non-tty kind, and
+ * a foreign address already in the tree.
+ *
+ * `sizes` (the viewer's stored divider fractions for the CURRENT structure)
+ * switches the floor check off the default fractions: a candidate is checked
+ * against rects estimated from the current ones — the split tile halves on
+ * the split axis, every other tile keeps its rect.
  */
 export function addSurface(
   tree: Layout,
-  kind: SurfaceKind,
+  added: SurfaceKind | LayoutLeaf,
   rects?: Map<string, Rect>,
+  focusedId?: string,
+  sizes?: LayoutSizes,
 ): Layout | null {
-  const kinds = leaves(tree);
-  if (kinds.length >= MAX_TILES) return null;
-  if (kind !== "tty" && kinds.includes(kind)) return null;
+  const newLeaf: LayoutLeaf = typeof added === "string" ? { leaf: added } : added;
   const ids = leafIds(tree);
-  const lastId = ids[ids.length - 1];
-  const path = pathOf(tree, lastId);
-  if (path === null) return null;
-  const rect = rects?.get(lastId) ?? layoutRects(tree, NOMINAL_BOX).get(lastId) ?? NOMINAL_BOX;
-  const side: DropSide = rect.w >= rect.h ? "right" : "bottom";
-  return insertBeside(tree, path, side, { leaf: kind });
+  if (isForeignLeaf(newLeaf)) {
+    if (ids.includes(leafAddress(newLeaf))) return null;
+  } else if (newLeaf.leaf !== "tty" && bareLeaves(tree).includes(newLeaf.leaf)) {
+    return null;
+  }
+  const resolved = rects ?? layoutRects(tree, NOMINAL_BOX, sizes);
+  const box = (rects !== undefined ? boundingBox(rects) : null) ?? NOMINAL_BOX;
+  const area = (id: string): number => {
+    const r = resolved.get(id);
+    return r === undefined ? 0 : r.w * r.h;
+  };
+  const focused =
+    focusedId !== undefined && ids.includes(focusedId) ? focusedId : ids[ids.length - 1];
+  const candidates = [
+    focused,
+    ...[...ids].sort((a, b) => area(b) - area(a)).filter((id) => id !== focused),
+  ];
+  const fits = (r: Rect): boolean => r.w >= MIN_TILE_W && r.h >= MIN_TILE_H;
+  for (const id of candidates) {
+    const path = pathOf(tree, id);
+    const rect = resolved.get(id);
+    if (path === null || rect === undefined) continue;
+    const side: DropSide = rect.w >= rect.h ? "right" : "bottom";
+    const next = insertBeside(tree, path, side, newLeaf);
+    if (sizes === undefined) {
+      if (fitsFloor(next, undefined, box)) return next;
+      continue;
+    }
+    const halfLen = ((side === "right" ? rect.w : rect.h) - SPLIT_GAP_PX) / 2;
+    const kept: Rect = side === "right" ? { ...rect, w: halfLen } : { ...rect, h: halfLen };
+    const grown: Rect =
+      side === "right"
+        ? { x: rect.x + rect.w - halfLen, y: rect.y, w: halfLen, h: rect.h }
+        : { x: rect.x, y: rect.y + rect.h - halfLen, w: rect.w, h: halfLen };
+    if ([...resolved.values()].every(fits) && fits(kept) && fits(grown)) return next;
+  }
+  return null;
 }
 
 /**
@@ -378,6 +480,36 @@ export function addSurface(
  */
 export function closeSurface(tree: Layout, leafId: string): Layout | null {
   return removeLeaf(tree, leafId);
+}
+
+/**
+ * Open-tile toggle (the top-bar group, the tile chords, the palette Show/Hide
+ * rows): a kind with a BARE leaf closes its first bare leaf — a foreign leaf
+ * of the kind is never the toggle's close target — and a kind open only as
+ * foreign leaves (or absent) grows by the add rule. Returns `null` on a
+ * refused mutation (closing the last tile, no split fitting the floor).
+ */
+export function toggleSurface(
+  tree: Layout,
+  surface: SurfaceKind,
+  rects?: Map<string, Rect>,
+  focusedId?: string,
+  sizes?: LayoutSizes,
+): Layout | null {
+  const bareId = leafIds(tree).find(
+    (id) => parseLeafAddress(id) === null && zoomLeafKind(id) === surface,
+  );
+  return bareId !== undefined
+    ? closeSurface(tree, bareId)
+    : addSurface(tree, surface, rects, focusedId, sizes);
+}
+
+/** The toggle group's open state: the BARE kinds in slot order — a kind
+ *  present only as foreign leaves reads as not open (the away marker is the
+ *  separate signal for a slot live in another tab). */
+export function openTileKinds(tree: Layout): SurfaceKind[] {
+  const bare = bareLeaves(tree);
+  return slotOrder(tree).filter((kind) => bare.includes(kind));
 }
 
 /**

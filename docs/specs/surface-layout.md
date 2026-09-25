@@ -1,7 +1,8 @@
 # Surface Layout — The Center Is a Layout of Surfaces
 
-> The terminal route's center becomes a **layout manager**: one to three tiles,
-> each rendering a **surface** (a (substrate, lens) pair per
+> The terminal route's center becomes a **layout manager**: one or more tiles
+> (bounded by a per-viewport size floor, not a fixed cap), each rendering a
+> **surface** (a (substrate, lens) pair per
 > [`right-panel.md`](right-panel.md)), arranged as a **canonical split tree**
 > with per-viewer **sizes**. This spec is **[current]** —
 > shipped by `260812-ab5v-surface-layout-core` and follow-ons (toggles
@@ -54,8 +55,9 @@ A **layout** is fully determined by two values:
 | **tree** | the canonical split tree of surface leaves (below) | shared tab state (`@rk_win_layout`) |
 | **sizes** | divider positions (per-split fractions) | per-viewer, localStorage only (like panel width today) |
 
-Tiles render surfaces of the **route window** (or its companions, once the
-`agents` surface lands). The tty is itself a surface — `(current window,
+Tiles render surfaces of the **route window** or of another tab on the same
+server (a foreign `@N/<surface>` leaf — § Tiles from other tabs; the
+`agents` surface joins once it lands). The tty is itself a surface — `(current window,
 tty)`, always available — so "the terminal" holds no privileged slot; it is
 simply the default single-tile layout.
 
@@ -66,10 +68,11 @@ direction (`h` = children left→right, `v` = top→bottom) with ≥2 children, 
 a child split never has its parent's direction — so every arrangement has
 exactly one encoding. The serialized grammar (in `@rk_win_layout`) is
 `node = leaf | dir "(" node "," node {"," node} ")"` with no whitespace, e.g.
-`h(tty,v(code,web))`. The tree is still constrained, never free: 1–3 leaves
-in this phase (the cap holds until the 150×100px size floor lands), non-`tty`
-kinds never repeat, and anything non-canonical fails the parse (the renderer
-falls back to the bare `tty` leaf without rewriting the option).
+`h(tty,v(code,web))`. The tree is still constrained, never free: bare
+non-`tty` kinds never repeat, leaf count is bounded by the 150×100 px
+per-tile size floor (the floor gates offers — add, drop, template — never a
+stored tree), and anything non-canonical fails the parse (the renderer falls
+back to the bare `tty` leaf without rewriting the option).
 
 The named arrangements survive as **templates** — generators that build a
 tree for any N from a slot order (main fraction 0.58), not as the model. The
@@ -93,14 +96,20 @@ the tree form.
 ```
 
 Slot A is the **main** slot in `main-*` templates. Four tiles and beyond are
-out of scope for now (Constitution IV — a fourth surface is the signal the
-user wanted a board); the tree model itself is N-generic so the cap can lift
-when the size floor lands.
+permitted when the size floor allows — the floor, not a tile count, is the
+constraint (Constitution IV). A board remains the answer when the goal is
+many tabs at once (§ Boards convergence).
 
-### One tile per surface kind (v1)
+### Tiles from other tabs
 
-The layout encoding names surface *kinds* (`tty`, `code`, `web`, `gui`,
-`agents`); content rides the substrate's content signal (`@rk_win_url` etc. —
+A leaf names either a bare surface *kind* of this tab (`tty`, `code`, `web`,
+`gui`, `agents`) or a **foreign address** `@N/<surface>` — another tab's
+surface on the same server. Server/session qualifiers (`-L`, `=session:`) are
+not permitted, the `/<n>` web-tab suffix is grammar-only (it parses;
+validation rejects it), foreign `gui` is never permitted (one desktop per
+host), and a repeated foreign address, a repeated non-`tty` bare kind, or a
+foreign address naming the layout's own tab fails validation. Content rides
+the substrate's content signal (`@rk_win_url` etc. —
 for `web` a content *selector*, not an availability gate: the `web` surface
 is always tileable like `tty`, and an empty/whitespace `@rk_win_url` renders
 the tile's onboarding content state while a non-empty one renders the live
@@ -108,9 +117,22 @@ page through the web tile's engine (iframe or native — window-views.md §
 Engines; § The View Registry).
 `gui` has no content selector in v1 — the tile shows the host's screen; a
 per-session display option becomes the selector only if per-session GUIs ever
-land ([`gui.md`](gui.md)). Two `web`
-tiles with different pages would push content addresses into per-viewer state,
-crossing R7 — punted.
+land ([`gui.md`](gui.md)). Two `web` tiles of one tab with different pages
+would push content addresses into per-viewer state, crossing R7 — punted.
+
+A surface is **live in exactly one place**. Borrowing moves it: drag another
+tab's sidebar row onto a tile edge (or palette `Tile: Bring <window>
+<Surface> here`) to insert `@N/<surface>` in this tab's layout, and the
+surface unmounts at home. While it is away, the home slot renders a
+**placeholder** — "in tab `<B>`" message, **bring back**, **go to `<B>`**,
+the surface's status dot, and **✕** (which dismisses the slot; the top-bar
+toggle re-adds it, placeholder again while away). A borrow of a surface
+another tab already holds moves it through `POST /api/layout/borrow`, which
+writes both tabs in one chained tmux invocation; a plain layout write naming
+an already-held foreign leaf is rejected. Away state is **derived
+server-side** as `WindowInfo.awayIn` (surface kind → holder window id) from
+every tab's stored layout — nothing is stored. A foreign leaf whose home
+window no longer exists is pruned at read time.
 
 ---
 
@@ -135,12 +157,13 @@ back/forward shows whatever the tab's shared layout holds.
 ## Verbs
 
 Dragging a tile's header is the mouse path for rearrangement; every drag
-outcome also has a keyboard route, so every arrangement is reachable in ≤2
-actions without drag-drop — a guarantee that rides the **palette** (`Layout:
-Promote <Surface>` + `Tile: Swap <Dir>`; at ≤3 tiles every structure is one
-of the templates and leaf placement within a structure is one promote or
-swap). Zoom/close live as boxed, rest-visible buttons in each tile's surface
-header; every verb also exists as a palette entry; the template-cycle chord
+outcome also has a keyboard route, so every arrangement is reachable without
+drag-drop — a guarantee that rides the **palette** (`Layout: Promote
+<Surface>` + `Tile: Swap <Dir>` for placement, the generic add/close verbs
+for growth and pruning). Growth is bounded by the size floor, not a template
+list: beyond three tiles, off-template trees are ordinary states, reached by
+drag and by the same generic verbs. Zoom, ↩ (foreign tiles), and close live as boxed, rest-visible buttons in
+each tile's surface header; every verb also exists as a palette entry; the template-cycle chord
 is bound directly (Constitution V — buttons are the mouse mirror, not the
 mechanism). *Amended at phase-2 ship (`260812-ab5v`): per-verb chords (zoom /
 promote / directional swap / close) shipped palette-reachable rather than
@@ -154,12 +177,14 @@ cluster was retired).*
 |------|--------------------------|
 | **Drag** (header, mouse) | Drag a tile by its header background: dropping on another tile's **center** swaps the two leaves; on its **edge band** (clamp(25 % of the axis, 28, 110) px; corners go to the deepest edge) splits beside it; on the **layout's outer 18 px edge** spans that side at 50 % of the axis. The overlay previews the *result* tree at this viewer's sizes (the dragged tile's destination filled); a drop that rebuilds the same arrangement reads "no change", one that would leave a tile under 150×100 px reads "too small" and is not offered. Escape cancels; a commit is exactly one `@rk_win_layout` write plus the viewer's sizes under the new structure signature. Disabled on coarse pointers, zoomed renders, and single-leaf layouts |
 | **⛶ Zoom** | Tile goes full-center, others hidden (not closed); toggle back. No state change — a transient, like tmux `resize-pane -Z` |
-| **Add** (open-tile toggle) | Split the **last leaf in reading order** along its longer axis (tie → horizontal), the new leaf landing after it — at landscape this reproduces the old 1→2 `split-h`, 2→3 `main-left` growth exactly. Refused at 3 leaves and on a repeated non-`tty` kind |
+| **Add** (open-tile toggle) | Split the **focused tile** along its longer axis (tie → horizontal), the new leaf landing after it — at landscape this reproduces the old 1→2 `split-h`, 2→3 `main-left` growth exactly; if the result breaks the 150×100 px per-tile size floor in this viewer's measured box, split the largest tile instead, and refuse only when no split fits (callers without measured rects use the nominal box). Refused on a repeated non-`tty` kind |
 | **◧ Promote** (palette) | Swap this leaf with slot A (the template's main tile, or the first leaf in reading order for a custom tree) — palette `Layout: Promote <Surface>`; a center drop onto slot A is the drag equivalent |
 | **⇄ Swap** (palette) | Directional swap (palette `Tile: Swap Left/Right/Up/Down`): swap the focused leaf with the geometric neighbour across that edge — the nearest leaf whose rect overlaps on the perpendicular axis; a no-op without one |
 | **▦ Cycle template** | Next template for the current tile count (`row → col → main-left → …` at 3 tiles), rebuilt from the current slot order — one chip on the layout (top-bar right cluster), not per-tile; its popover shows the template mini-glyphs for direct jump (lossy for a custom tree) |
 | **✕ Close** | The leaf drops out (remove + normalise); its neighbours absorb its size and the remaining **structure is kept** — closing one tile of a column leaves a column. The last tile never closes |
-| **Switch-to-tile** (mobile-primary) | Swaps WHICH surface the mobile single slot renders: a target already open in the layout writes only the viewer's zoom key (`rk-layout-zoom:*` — no tmux write); an available-but-not-open target grows the shared layout through the shared `--add` mutation (`addSurface` → `@rk_win_layout` write) plus the zoom key; when growth is impossible (3 tiles without the kind) the button is disabled. Lives in the top-bar switch group (§ Mobile) and the `Tile: Switch to <Surface>` palette entries that supersede `View:` at mobile width |
+| **↩ Send home** | Foreign tiles only: the leaf drops out of this layout (remove + normalise, bare-`tty` fallback if it empties) and returns to its home tab, re-adding the home slot by the generic add rule when it was dismissed — one server-recomputed write through `POST /api/layout/return`. Disabled when the home window is dead; palette `Tile: Send Back to <home window>` |
+| **Bring back** (placeholder) | The return started from the home tab's placeholder — the same send-home effect as ↩ |
+| **Switch-to-tile** (mobile-primary) | Swaps WHICH surface the mobile single slot renders: a target already open in the layout writes only the viewer's zoom key (`rk-layout-zoom:*` — no tmux write); an available-but-not-open target grows the shared layout through the shared `--add` mutation (`addSurface` → `@rk_win_layout` write) plus the zoom key; when growth is impossible (no split fits the size floor) the button is disabled. Lives in the top-bar switch group (§ Mobile) and the `Tile: Switch to <Surface>` palette entries that supersede `View:` at mobile width |
 
 **Rail semantics change**: rail buttons become **open-tile toggles** — lit for
 every open tile; clicking an unlit icon adds that surface to the next slot,
@@ -210,7 +235,7 @@ The buttons run the **switch-to-tile** verb (§ Verbs): an already-open target
 writes only the viewer's zoom key (no tmux write); an available-but-not-open
 target grows the shared layout via the shared `--add` mutation (`addSurface` →
 `@rk_win_layout` write) plus the zoom key, and renders disabled when growth is
-impossible (arity 3 without the kind). The palette mirrors the group with
+impossible (no split fits the size floor under the nominal box). The palette mirrors the group with
 `Tile: Switch to <Surface>` entries
 (Constitution V), which supersede the `View:` lens entries at mobile width.
 
@@ -238,23 +263,25 @@ fix, and e2e specs budget tiles against the pool.
   addresses, and rollups stay derived. Layout is client state (URL +
   localStorage); shared named layouts ride settings.yaml with boards (phase 4).
 - **IV** — no new routes; `?layout=` *replaces* two params; a canonical tree
-  (constrained, templates as generators), not free trees; ≤3 tiles until the
-  size floor lands.
+  (constrained, templates as generators), not free trees; a per-viewer
+  150×100 px size floor gates growth, not a tile cap.
 - **V** — every verb is palette + chord reachable; the header drag's outcomes
-  are all palette-reachable too (Promote + directional Swap reach every
-  arrangement in ≤2 actions at ≤3 tiles).
+  are all palette-reachable too (Promote + directional Swap cover placement at
+  any tile count; past three tiles the size floor bounds growth, and
+  off-template trees stay reachable via the generic verbs).
 - **VI** — untouched; tiles are renderers over the same relay/proxy seams.
 
 ---
 
 ## Boards convergence (phase 4, noted so nobody designs against it)
 
-A board becomes a **saved, named layout** whose tiles are (window, view)
-pairs — the window-views § Boards generalization landing on the same
-renderer. Terminal-route layouts are per-viewer and anonymous; board layouts
-are shared and named (settings.yaml, like `board_order`). "Save this layout as
-a board" is the bridge verb. A creation-time `@rk_default_layout` hint (for
-`rk riff` spawn shapes) is deferred to the same phase.
+A board is a **saved, named layout** whose tiles all point at other tabs —
+every leaf a foreign `@N/<surface>` address landing on the same renderer (the
+window-views § Boards generalization). Terminal-route layouts are anonymous;
+board layouts are shared and named (settings.yaml, like `board_order`). "Save
+this layout as a board" is the bridge verb. A creation-time
+`@rk_default_layout` hint (for `rk riff` spawn shapes) is deferred to the same
+phase.
 
 ---
 

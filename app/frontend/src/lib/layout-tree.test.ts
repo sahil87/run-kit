@@ -2,13 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   insertBeside,
   isCanonicalTree,
+  isForeignLeaf,
   layoutDividers,
   layoutRects,
+  leafAddress,
   leafIds,
   leaves,
   normalise,
+  parseLeafAddress,
   parseLayoutTree,
   pathOf,
+  pruneDeadLeaves,
   removeLeaf,
   serializeLayoutTree,
   slotOrder,
@@ -18,12 +22,13 @@ import {
   templatesFor,
   TEMPLATES,
   MAX_LAYOUT_LEN,
-  MAX_TILES,
+  type LayoutLeaf,
   type LayoutNode,
   type SplitDir,
   type SurfaceKind,
 } from "./layout-tree";
 import fixtures from "./layout-tree.fixtures.json";
+import grammarFixtures from "./layout-grammar.fixtures.json";
 
 // ── enumeration of every canonical placement (the study's 4 / 36 / 528) ────
 
@@ -95,6 +100,28 @@ describe("shared fixture table (layout-tree.fixtures.json)", () => {
   }
 });
 
+// ── shared grammar corpus (also read by the Go layoutspec tests) ────────────
+
+interface GrammarCase {
+  input: string;
+  accept: boolean;
+  owner?: string;
+  expect?: string;
+}
+
+describe("shared grammar corpus (layout-grammar.fixtures.json)", () => {
+  const cases: GrammarCase[] = grammarFixtures.grammar;
+  for (const c of cases) {
+    const ownerNote = c.owner !== undefined ? ` for owner ${c.owner}` : "";
+    it(`${JSON.stringify(c.input)} → ${c.accept ? "accept" : "reject"}${ownerNote}`, () => {
+      const parsed = parseLayoutTree(c.input);
+      const ok = parsed !== null && isCanonicalTree(parsed, c.owner);
+      expect(ok).toBe(c.accept);
+      if (c.accept && parsed !== null) expect(serializeLayoutTree(parsed)).toBe(c.expect);
+    });
+  }
+});
+
 // ── grammar and canonical form ──────────────────────────────────────────────
 
 describe("parseLayoutTree", () => {
@@ -105,7 +132,7 @@ describe("parseLayoutTree", () => {
     });
   });
 
-  it("round-trips every canonical tree with ≤ MAX_TILES leaves", () => {
+  it("round-trips every canonical tree with ≤ 3 leaves", () => {
     for (const n of [1, 2, 3]) {
       for (const t of allPlacements(n)) {
         expect(parseLayoutTree(serializeLayoutTree(t))).toEqual(t);
@@ -123,12 +150,138 @@ describe("parseLayoutTree", () => {
     expect(deep.length).toBeGreaterThan(MAX_LAYOUT_LEN);
     expect(parseLayoutTree(deep)).toBeNull();
   });
+
+  it("rejects a 513-byte input before parsing", () => {
+    const wide = `h(tty,${"@1/tty,".repeat(85)}tty)`;
+    expect(wide.length).toBeGreaterThan(MAX_LAYOUT_LEN);
+    expect(parseLayoutTree(wide)).toBeNull();
+  });
+
+  it("parses a foreign leaf into home + kind", () => {
+    expect(parseLayoutTree("h(tty,v(@12/tty,web))")).toEqual({
+      dir: "h",
+      children: [
+        { leaf: "tty" },
+        { dir: "v", children: [{ leaf: "tty", home: "@12" }, { leaf: "web" }] },
+      ],
+    });
+  });
+
+  it("serializes a foreign leaf back to its address (round-trip identity)", () => {
+    const raw = "h(tty,v(@12/tty,web))";
+    expect(serializeLayoutTree(parseLayoutTree(raw)!)).toBe(raw);
+  });
+
+  it("accepts a 6-leaf tree (no leaf-count cap)", () => {
+    const six = "v(h(tty,code,web),h(@3/tty,@4/tty,@5/code))";
+    const parsed = parseLayoutTree(six);
+    expect(parsed).not.toBeNull();
+    expect(serializeLayoutTree(parsed!)).toBe(six);
+  });
 });
 
 describe("leafIds", () => {
   it("uses the kind for unique kinds and occurrence suffixes for duplicates", () => {
     expect(leafIds(parseLayoutTree("h(tty,v(code,web))")!)).toEqual(["tty", "code", "web"]);
     expect(leafIds(parseLayoutTree("h(tty,tty)")!)).toEqual(["tty", "tty#2"]);
+  });
+
+  it("uses the address string for foreign leaves", () => {
+    expect(leafIds(parseLayoutTree("h(tty,@12/tty)")!)).toEqual(["tty", "@12/tty"]);
+    expect(leafIds(parseLayoutTree("h(tty,tty,@12/tty)")!)).toEqual(["tty", "tty#2", "@12/tty"]);
+    expect(leafIds(parseLayoutTree("h(web,@12/web)")!)).toEqual(["web", "@12/web"]);
+  });
+});
+
+describe("address ids through the tree helpers", () => {
+  it("pathOf and removeLeaf work on address ids", () => {
+    const tree = parseLayoutTree("h(tty,@12/tty)")!;
+    expect(pathOf(tree, "@12/tty")).toEqual([1]);
+    expect(serializeLayoutTree(removeLeaf(tree, "@12/tty")!)).toBe("tty");
+    expect(removeLeaf(tree, "@99/tty")).toBeNull();
+  });
+
+  it("swapLeaves carries a foreign leaf's home to the new position", () => {
+    const tree = parseLayoutTree("h(tty,@12/web)")!;
+    expect(serializeLayoutTree(swapLeaves(tree, "tty", "@12/web"))).toBe("h(@12/web,tty)");
+    expect(swapLeaves(tree, "tty", "@99/web")).toBe(tree);
+  });
+
+  it("insertBeside accepts a foreign leaf and targets an address id", () => {
+    const tree = parseLayoutTree("h(tty,tty,@12/tty)")!;
+    const out = insertBeside(tree, pathOf(tree, "@12/tty")!, "right", {
+      leaf: "code",
+      home: "@9",
+    });
+    expect(serializeLayoutTree(out)).toBe("h(tty,tty,@12/tty,@9/code)");
+    expect(isCanonicalTree(out)).toBe(true);
+  });
+
+  it("structureSig is address-agnostic (structure only)", () => {
+    expect(structureSig(parseLayoutTree("h(tty,v(@12/tty,web))")!)).toBe("h(0,v(1,2))");
+  });
+});
+
+describe("leaf address helpers", () => {
+  it("isForeignLeaf and leafAddress reflect home", () => {
+    const bare: LayoutLeaf = { leaf: "tty" };
+    const foreign: LayoutLeaf = { leaf: "tty", home: "@12" };
+    expect(isForeignLeaf(bare)).toBe(false);
+    expect(isForeignLeaf(foreign)).toBe(true);
+    expect(leafAddress(bare)).toBe("tty");
+    expect(leafAddress(foreign)).toBe("@12/tty");
+  });
+
+  it("parseLeafAddress parses @N/kind and rejects other forms", () => {
+    expect(parseLeafAddress("@12/tty")).toEqual({ home: "@12", kind: "tty" });
+    expect(parseLeafAddress("@3/web")).toEqual({ home: "@3", kind: "web" });
+    expect(parseLeafAddress("@7/gui")).toEqual({ home: "@7", kind: "gui" });
+    expect(parseLeafAddress("tty")).toBeNull();
+    expect(parseLeafAddress("@12/tty/2")).toBeNull();
+    expect(parseLeafAddress("@x/tty")).toBeNull();
+    expect(parseLeafAddress("@12")).toBeNull();
+    expect(parseLeafAddress("12/tty")).toBeNull();
+    expect(parseLeafAddress("@12/foo")).toBeNull();
+  });
+});
+
+describe("isCanonicalTree owner rules", () => {
+  it("rejects a foreign leaf naming the owner only when the owner matches", () => {
+    const tree = parseLayoutTree("h(tty,@7/tty)")!;
+    expect(isCanonicalTree(tree)).toBe(true);
+    expect(isCanonicalTree(tree, "@8")).toBe(true);
+    expect(isCanonicalTree(tree, "@7")).toBe(false);
+  });
+
+  it("lets a bare kind and a foreign leaf of the same kind coexist", () => {
+    expect(isCanonicalTree(parseLayoutTree("h(web,@12/web)")!)).toBe(true);
+  });
+});
+
+describe("pruneDeadLeaves", () => {
+  it("removes foreign leaves whose home is dead and normalises", () => {
+    const tree = parseLayoutTree("h(tty,v(@3/tty,web))")!;
+    expect(serializeLayoutTree(pruneDeadLeaves(tree, ["@9"]))).toBe("h(tty,web)");
+  });
+
+  it("prunes only the dead addresses", () => {
+    const tree = parseLayoutTree("h(tty,@3/tty,@4/tty)")!;
+    expect(serializeLayoutTree(pruneDeadLeaves(tree, new Set(["@4"])))).toBe("h(tty,@4/tty)");
+  });
+
+  it("returns the identical tree when nothing is dead", () => {
+    const tree = parseLayoutTree("h(tty,@3/tty)")!;
+    expect(pruneDeadLeaves(tree, ["@3"])).toBe(tree);
+  });
+
+  it("falls back to a bare tty leaf when the tree empties", () => {
+    expect(pruneDeadLeaves(parseLayoutTree("@3/tty")!, [])).toEqual({ leaf: "tty" });
+    expect(pruneDeadLeaves(parseLayoutTree("h(@3/tty,@4/tty)")!, [])).toEqual({ leaf: "tty" });
+  });
+
+  it("keeps bare leaves regardless of the live set", () => {
+    const tree = parseLayoutTree("h(tty,web)")!;
+    expect(pruneDeadLeaves(tree, [])).toBe(tree);
   });
 });
 
@@ -155,7 +308,7 @@ describe("exhaustive invariants (4 / 36 / 528 placements)", () => {
           for (const b of ids) {
             if (a === b) continue;
             const once = swapLeaves(t, a, b);
-            expect(isCanonicalTree(once, n)).toBe(true);
+            expect(isCanonicalTree(once)).toBe(true);
             expect(sortedKinds(once)).toEqual(sortedKinds(t));
             expect(swapLeaves(once, a, b)).toEqual(t);
           }
@@ -170,7 +323,7 @@ describe("exhaustive invariants (4 / 36 / 528 placements)", () => {
         for (const id of leafIds(t)) {
           const out = removeLeaf(t, id);
           expect(out).not.toBeNull();
-          expect(isCanonicalTree(out!, n)).toBe(true);
+          expect(isCanonicalTree(out!)).toBe(true);
           expect(leaves(out!)).toHaveLength(n - 1);
         }
       }
@@ -185,7 +338,7 @@ describe("exhaustive invariants (4 / 36 / 528 placements)", () => {
         for (const id of leafIds(t)) {
           for (const side of ["left", "right", "top", "bottom"] as const) {
             const out = insertBeside(t, pathOf(t, id)!, side, { leaf: "tty" });
-            expect(isCanonicalTree(out, n + 1)).toBe(true);
+            expect(isCanonicalTree(out)).toBe(true);
             expect(leaves(out)).toHaveLength(n + 1);
           }
         }

@@ -125,6 +125,10 @@ Rules:
 - Surfaces are addressed by *kind*, not by tile position. Position is a
   property of the layout (`@rk_win_layout`), so "slot A" is a layout
   question, never an address.
+- A **layout tile** uses this grammar: a bare kind names this tab's surface,
+  `@N/<kind>` another tab's (surface-layout.md § Tiles from other tabs).
+  Layout leaves are same-server only — no `-L`/`=session:` qualifiers — and
+  the `/<n>` suffix is grammar-only: it parses, and validation rejects it.
 - Web tabs are **indexed, not named** — fewer round trips on the command line
   (`rk tab web rm 2`, not `rk tab web rm --name docs`). Titles are derived
   from the page and are display-only.
@@ -185,10 +189,14 @@ Starting point: the scope-naming plan's target map (22 options → 21 after
 ## Layout in tmux **[current]**
 
 `@rk_win_layout` carries the layout as a **canonical split tree**: a leaf is a
-surface kind (`tty`, `code`, `web`, `gui`), a split is `h(children…)` (left→
-right) or `v(children…)` (top→bottom) with ≥2 children, and directions
-alternate by depth — one encoding per arrangement, 1–3 leaves, non-`tty`
-kinds never repeat (surface-layout.md § The canonical tree). Writers always
+surface kind (`tty`, `code`, `web`, `gui`) or a foreign address `@N/<kind>`
+naming another tab's surface on the same server, a split is `h(children…)`
+(left→right) or `v(children…)` (top→bottom) with ≥2 children, and directions
+alternate by depth — one encoding per arrangement, bare non-`tty` kinds never
+repeat, and leaf count is bounded by the per-viewer size floor rather than a
+fixed cap (surface-layout.md § The canonical tree). A foreign leaf whose home
+window no longer exists is pruned at read time, with the bare-`tty` fallback
+when the tree empties. Writers always
 emit the tree form; the retired `<shape>:<order>` preset strings
 (`split-h:tty,web` → `h(tty,web)`, `main-left:tty,code,web` →
 `h(tty,v(code,web))`, …) parse into their trees **permanently**, so
@@ -204,7 +212,10 @@ What moves into tmux, what does not:
 
 Every existing verb (Add, Promote, Swap, Cycle template, Close, rail toggles)
 becomes a **write to `@rk_win_layout`** through `POST /api/windows/{id}/options`,
-exactly like color and note today. The frontend holds no layout state of its
+exactly like color and note today; borrow and send-home are the two-tab
+variants through `POST /api/layout/borrow` and `POST /api/layout/return`,
+which recompute the other tab's tree server-side and write both in one
+chained tmux invocation. The frontend holds no layout state of its
 own; it renders the option and repaints on the SSE/`/ws/state` option tick.
 The row-color safety-poll latency lesson applies: the POST handler must wake
 the hub so a viewer's own click repaints immediately.
@@ -375,6 +386,11 @@ agent that could yank every viewer's route would make the dashboard
 unusable with two people or two agents. The nudge channel is push
 notification + sidebar attention (right-panel P4: hidden must never mean
 invisible-when-stuck).
+
+Clicking a sidebar row is plain navigation to the tab's route, with no
+special-casing: when one of the tab's surfaces is borrowed into another tab,
+the layout renders that surface's placeholder on arrival (surface-layout.md §
+Tiles from other tabs).
 
 Opt-in **follow mode** — a viewer toggles "follow session X" and their route
 tracks the session's tmux active window (`select-window` from a pane then

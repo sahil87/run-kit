@@ -82,6 +82,10 @@ export type TopBarSlot = {
         available: SurfaceKind[];
         open: SurfaceKind[];
         onToggle: (surface: SurfaceKind) => void;
+        /** The size-floor add gate — false disables the unlit buttons. */
+        canAdd: boolean;
+        /** Away predicate: the surface's slot is live in another tab. */
+        away?: (surface: SurfaceKind) => boolean;
       }
     | {
         mode: "switch";

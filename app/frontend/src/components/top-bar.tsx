@@ -165,6 +165,14 @@ type TopBarProps = {
         available: SurfaceKind[];
         open: SurfaceKind[];
         onToggle: (surface: SurfaceKind) => void;
+        /** The size-floor add gate (replaces the retired 3-tile count cap):
+         *  false ⇒ no further split fits the floor and the unlit buttons
+         *  render disabled instead of no-oping silently. */
+        canAdd: boolean;
+        /** Per-surface "away" predicate: the surface's slot is live in
+         *  another tab (the route window's `awayIn`) — the button carries an
+         *  away marker. Absent → no markers (legacy). */
+        away?: (surface: SurfaceKind) => boolean;
         /** Per-surface corner-dot predicate (260821-zqlq): the dot means
          *  "has content" for web (`hasWebUrl`); every other surface stays
          *  always-on. Absent → the dot renders unconditionally (legacy). */
@@ -176,9 +184,8 @@ type TopBarProps = {
         active: SurfaceKind;
         onSwitch: (surface: SurfaceKind) => void;
         /** Per-surface disabled predicate (switch mode): a not-open surface
-         *  whose growth the shared layout cannot host (3 tiles already)
-         *  renders disabled instead of no-oping silently — the toggle mode's
-         *  full-layout affordance. */
+         *  whose growth breaks the size floor renders disabled instead of
+         *  no-oping silently — the toggle mode's canAdd affordance. */
         disabled?: (surface: SurfaceKind) => boolean;
         /** Same contract as the toggle-mode `showDot`. */
         showDot?: (surface: SurfaceKind) => boolean;
@@ -462,29 +469,30 @@ type SurfaceTogglesToggle = Extract<SurfaceToggles, { mode: "toggle" }>;
  * glyphs from `SURFACE_GLYPH`, LIT (`aria-pressed`, accent-green text on a
  * green wash), the corner dot driven by the
  * caller's per-surface `showDot` predicate (web = has-content; others
- * always-on):
+ * always-on), and an away marker (amber ↩, top-left) when the caller's `away`
+ * predicate says the surface's slot is live in another tab:
  *
- * - TOGGLE (desktop): lit = an open tile; at 3 open tiles the unlit buttons
- *   render DISABLED with a "Close a tile first" tooltip (Tip wraps a span so
- *   the disabled button still tips — disabled controls swallow pointer
- *   events). Clicking routes through the caller's shared `togglePanel`
- *   mutation semantics (unlit → `addSurface` 1→2 `split-h` / 2→3 `main-left`,
- *   lit → `closeSurface`, closing the last tile is a null no-op there).
+ * - TOGGLE (desktop): lit = an open tile; while the caller's floor-derived
+ *   `canAdd` is false the unlit buttons render DISABLED with a "No room for
+ *   another tile" tooltip (Tip wraps a span so the disabled button still
+ *   tips — disabled controls swallow pointer events). Clicking routes through
+ *   the caller's shared `togglePanel` mutation semantics (unlit →
+ *   `addSurface`, lit → `closeSurface`, closing the last tile is a null no-op
+ *   there).
  * - SWITCH (mobile): RADIO semantics — lit = the VISIBLE tile (exactly one);
  *   tapping an unlit button runs the caller's switch-to-tile verb, tapping the
- *   lit one is a no-op. The disabled-at-3 state does not apply (switching
- *   never adds a fourth tile).
+ *   lit one is a no-op. The floor-disabled state rides the caller's
+ *   per-surface `disabled` predicate.
  *
  * Buttons are flush segments inside the group's neutral border. Non-first
  * segments carry a neutral divider, only the outer corners round, and the
  * wash-only latch changes no border geometry when state flips.
  */
 function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
-  // Max 3 tiles (Constitution IV): at 3, further adds are disallowed — the
-  // unlit buttons render disabled instead of no-oping silently. Toggle mode
-  // checks the open-tile count; switch mode asks the caller's per-surface
-  // predicate (a not-open target whose growth is disallowed disables).
-  const full = toggles.mode === "toggle" && toggles.open.length >= 3;
+  // The add gate is the per-viewport size floor (the caller's `canAdd`), no
+  // longer a tile count. Toggle mode reads the shared flag; switch mode asks
+  // the caller's per-surface predicate.
+  const full = toggles.mode === "toggle" && !toggles.canAdd;
   const shown = toggles.available;
   return (
     <span data-testid="surface-toggles" className="flex items-center gap-1.5">
@@ -501,9 +509,20 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
             (toggles.mode === "toggle"
               ? full
               : (toggles.disabled?.(surface) ?? false));
+          const away =
+            toggles.mode === "toggle" && (toggles.away?.(surface) ?? false);
           const label = SURFACE_LABEL[surface];
           return (
-            <Tip key={surface} label={disabled ? "Close a tile first" : label}>
+            <Tip
+              key={surface}
+              label={
+                disabled
+                  ? "No room for another tile"
+                  : away
+                    ? `${label} — in another tab`
+                    : label
+              }
+            >
               {/* The span wrapper keeps the tooltip alive on the DISABLED button
                   (disabled controls swallow the pointer events Tip listens for). */}
               <span className="inline-flex">
@@ -522,6 +541,17 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
                   className={`rk-glint relative w-[26px] flex items-center justify-center text-[11px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green disabled:opacity-40 disabled:cursor-not-allowed ${index > 0 ? "border-l border-border" : ""} ${index === 0 ? "rounded-l-[3px]" : ""} ${index === shown.length - 1 ? "rounded-r-[3px]" : ""} ${controlClass({ variant: "segment", flush: true, pressed, rest: "text-text-secondary hover:text-text-primary" })}`}
                 >
                   <span aria-hidden="true">{SURFACE_GLYPH[surface]}</span>
+                  {/* Away marker: the surface's slot is live in another tab.
+                      The corner dot's top-right stays the content channel. */}
+                  {away && (
+                    <span
+                      aria-hidden="true"
+                      data-testid={`surface-away-${surface}`}
+                      className="absolute top-0 left-0.5 text-[9px] leading-none text-signal-yellow"
+                    >
+                      ↩
+                    </span>
+                  )}
                   {/* Availability/content dot — a collapsed tile may hide
                       content, never state that wants a human. The caller's
                       per-surface predicate decides (web = hasWebUrl, others
@@ -547,17 +577,19 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
  * The group's overflow-menu form (Tiles section): one `menuitemcheckbox` row
  * per shown surface — checked = tile open (the one checked treatment: primary
  * ink + trailing green ✓ on `aria-checked`), leading `SURFACE_GLYPH` glyph (the
- * leading-glyph parity rule), disabled-at-3 like the bar buttons. Clicking a
- * row runs the same shared toggle mutation as the bar group.
+ * leading-glyph parity rule), a muted "away" suffix when the caller marks the
+ * surface away, floor-disabled like the bar buttons. Clicking a row runs the
+ * same shared toggle mutation as the bar group.
  */
 function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
-  const full = toggles.open.length >= 3;
+  const full = !toggles.canAdd;
   const shown = toggles.available;
   return (
     <>
       {shown.map((surface) => {
         const isOpen = toggles.open.includes(surface);
         const disabled = !isOpen && full;
+        const away = toggles.away?.(surface) ?? false;
         return (
           <button
             key={surface}
@@ -574,6 +606,14 @@ function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
               {SURFACE_GLYPH[surface]}
             </span>
             <span className="flex-1">{`${SURFACE_LABEL[surface]} tile`}</span>
+            {away && (
+              <span
+                data-testid={`surface-away-${surface}`}
+                className="text-[10px] text-signal-yellow"
+              >
+                away
+              </span>
+            )}
             {isOpen && (
               <span aria-hidden="true" className={MENU_ROW_CHECK_MARK}>
                 ✓

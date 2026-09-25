@@ -264,7 +264,8 @@ test.describe("Surface layout — ladder, verbs, history, sizes, mobile", () => 
   /**
    * Proves: the top-bar `surface-toggles` group's open-tile toggles grow the
    * layout (1→2 `h(tty,web)`, 2→3 `h(tty,v(web,code))` — the add splits the
-   * last leaf along its longer axis) and every tile-level verb mutates the
+   * FOCUSED tile along its longer axis, so the test steers focus with a tile
+   * header click before each add) and every tile-level verb mutates the
    * tree exactly as specified, each outcome POSTed to the shared
    * `@rk_win_layout` option in the tree form. Rearrangement runs through the
    * palette (`Layout: Promote Code`, `Tile: Swap Up` on the focused tile) and
@@ -286,7 +287,8 @@ test.describe("Surface layout — ladder, verbs, history, sizes, mobile", () => 
    * 2. Click the `Web tile` top-bar toggle; assert the option reads
    *    `h(tty,web)`, the web tile visible, and the button lit
    *    (`aria-pressed`).
-   * 3. Click the `Code tile` top-bar toggle; assert the option reads
+   * 3. Click the web tile's header (focus — the add splits the FOCUSED tile),
+   *    then the `Code tile` top-bar toggle; assert the option reads
    *    `h(tty,v(web,code))` and the code tile visible.
    * 4. Intersection: assert the `surface-divider-intersection` zone is
    *    visible; hover divider 0 mid-seam (`y: 100`, far from the junction)
@@ -314,11 +316,13 @@ test.describe("Surface layout — ladder, verbs, history, sizes, mobile", () => 
    *    `h(code,tty)` (the nested split lifts), the web tile hidden, the
    *    code tile and terminal still visible, and the web top-bar toggle
    *    unlit.
-   * 9. Close-a-column: re-add web via the toggle (`h(code,v(tty,web))`);
+   * 9. Close-a-column: re-focus the tty tile, re-add web via the toggle
+   *    (`h(code,v(tty,web))` — the focused tty splits);
    *    apply the Column template from the palette (`Layout: Column` →
    *    `v(code,tty,web)`); close the middle tile (Terminal); assert the
    *    option reads `v(code,web)` — a column stays a column.
-   * 10. Header drag (same mount): re-add tty (`v(code,h(web,tty))`); drag the
+   * 10. Header drag (same mount): re-focus the web tile, re-add tty
+   *    (`v(code,h(web,tty))` — the focused web row splits horizontally); drag the
    *    tty header onto the code tile's CENTER — assert the overlay renders
    *    with a `tile-drop-dest`, release, and the option reads
    *    `v(tty,h(web,code))` (a center drop swaps); drag the tty header onto
@@ -339,8 +343,10 @@ test.describe("Surface layout — ladder, verbs, history, sizes, mobile", () => 
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
 
     // The top-bar surface toggles grow the layout: 1→2 h(tty,web), then 2→3
-    // h(tty,v(web,code)) — the add splits the LAST leaf (web, taller than
-    // wide at half width) along its longer axis.
+    // h(tty,v(web,code)) — the add splits the FOCUSED tile along its longer
+    // axis, so before adding code the test focuses the web tile (header
+    // click; the focus seam is pointerdown capture). Unsteered, slot A (tty)
+    // is focused and the add would land h(v(tty,code),web).
     const webToggle = surfaceToggle(page, "Web");
     const codeToggle = surfaceToggle(page, "Code");
     await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
@@ -351,6 +357,7 @@ test.describe("Surface layout — ladder, verbs, history, sizes, mobile", () => 
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
     await expect(webToggle).toHaveAttribute("aria-pressed", "true");
 
+    await tile(page, "web").click({ position: { x: 6, y: 15 } });
     await codeToggle.click();
     await expectWindowLayout(id, "h(tty,v(web,code))");
     await expect(tile(page, "code")).toBeVisible({ timeout: 10_000 });
@@ -471,9 +478,12 @@ test.describe("Surface layout — ladder, verbs, history, sizes, mobile", () => 
 
     // — Close-a-column, on the SAME mount: rebuild a column and close its
     // middle tile — the remaining structure is kept (v(code,web), not a
-    // horizontal split). Re-adding web splits the last leaf (tty — taller
-    // than wide at half width) vertically: h(code,v(tty,web)); the Column
+    // horizontal split). The add splits the FOCUSED tile: the ✕ click above
+    // focused web and its close reset focus to slot A (code), so re-focus
+    // tty (taller than wide at half width — splits vertically) before the
+    // re-add: h(code,v(tty,web)); the Column
     // template then rebuilds v(code,tty,web) from the slot order.
+    await tile(page, "tty").click({ position: { x: 6, y: 15 } });
     await webToggle.click();
     await expectWindowLayout(id, "h(code,v(tty,web))");
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
@@ -489,9 +499,11 @@ test.describe("Surface layout — ladder, verbs, history, sizes, mobile", () => 
     await expect(tile(page, "web")).toBeVisible();
 
     // — Header drag (drop to snap), still on the SAME 3-tile mount: re-add
-    // tty (the last leaf, web, is a full-width bottom row — wider than tall,
-    // so the add splits it horizontally): v(code,h(web,tty)).
+    // tty. The add splits the FOCUSED tile — the Terminal close above reset
+    // focus to slot A (code), so focus web first (the full-width bottom row —
+    // wider than tall, so the add splits it horizontally): v(code,h(web,tty)).
     const ttyToggle = surfaceToggle(page, "Terminal");
+    await tile(page, "web").click({ position: { x: 6, y: 15 } });
     await ttyToggle.click();
     await expectWindowLayout(id, "v(code,h(web,tty))");
     await expect(tile(page, "tty")).toBeVisible({ timeout: 10_000 });

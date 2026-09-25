@@ -1805,11 +1805,15 @@ describe("TopBar", () => {
       available: SurfaceKind[];
       open: SurfaceKind[];
       onToggle: (surface: SurfaceKind) => void;
+      canAdd: boolean;
+      away: (surface: SurfaceKind) => boolean;
     }> = {}) => ({
       mode: "toggle" as const,
       available: overrides.available ?? ["tty", "web", "code"],
       open: overrides.open ?? ["tty"],
       onToggle: overrides.onToggle ?? vi.fn(),
+      canAdd: overrides.canAdd ?? true,
+      ...(overrides.away ? { away: overrides.away } : {}),
     });
 
     it("renders no toggle group anywhere when surfaceToggles is absent (board/host/unregistered)", () => {
@@ -1868,20 +1872,41 @@ describe("TopBar", () => {
       expect(onToggle).toHaveBeenCalledWith("web");
     });
 
-    it("at 3 open tiles the remaining unlit rows render DISABLED; a lit row stays enabled", () => {
+    it("the disable follows the floor-derived canAdd, not the open-tile count", () => {
       const onToggle = vi.fn();
-      // Three open tiles with a fourth surface unlit needs a duplicate tty
-      // tile (legal — the muxed relay supports N clients per pane).
-      renderTopBar({ surfaceToggles: toggles({ available: ["tty", "web", "code"], open: ["tty", "tty", "code"], onToggle }) });
+      // canAdd false with a single open tile: the floor, not a count, gates.
+      renderTopBar({ surfaceToggles: toggles({ open: ["tty"], canAdd: false, onToggle }) });
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
       const web = within(menu).getByRole("menuitemcheckbox", { name: "Web tile" });
       expect(web).toHaveProperty("disabled", true);
-      // A lit row stays enabled at 3 tiles (closing is always allowed).
-      expect(within(menu).getByRole("menuitemcheckbox", { name: "Code tile" })).toHaveProperty("disabled", false);
+      // A lit row stays enabled (closing is always allowed).
+      expect(within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" })).toHaveProperty("disabled", false);
       // A disabled row never fires the toggle.
       fireEvent.click(web);
       expect(onToggle).not.toHaveBeenCalled();
+      cleanup();
+
+      // Three open tiles with canAdd still true: adds stay enabled.
+      renderTopBar({ surfaceToggles: toggles({ open: ["tty", "tty", "code"], canAdd: true }) });
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu2 = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu2).getByRole("menuitemcheckbox", { name: "Web tile" })).toHaveProperty("disabled", false);
+    });
+
+    it("marks away surfaces (the slot is live in another tab) on the bar button and the menu row", () => {
+      renderTopBar({
+        surfaceToggles: toggles({ away: (surface) => surface === "tty" }),
+      });
+      const group = screen.getAllByTestId("surface-toggles")[0];
+      expect(within(group).getByTestId("surface-away-tty")).toBeTruthy();
+      expect(within(group).queryByTestId("surface-away-web")).toBeNull();
+      expect(within(group).queryByTestId("surface-away-code")).toBeNull();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const tty = within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" });
+      expect(within(tty).getByTestId("surface-away-tty").textContent).toBe("away");
+      expect(within(within(menu).getByRole("menuitemcheckbox", { name: "Web tile" })).queryByTestId("surface-away-web")).toBeNull();
     });
 
     // Corner-dot predicate (260821-zqlq): the web button always renders, so
@@ -2049,7 +2074,7 @@ describe("TopBar", () => {
       cleanup();
       // Desktop toggle mode: no block either.
       renderTopBar({
-        surfaceToggles: { mode: "toggle", available: ["tty", "gui"], open: ["tty", "gui"], onToggle: vi.fn() },
+        surfaceToggles: { mode: "toggle", available: ["tty", "gui"], open: ["tty", "gui"], onToggle: vi.fn(), canAdd: true },
         guiToolbar: guiToolbar(),
       });
       expect(screen.queryByTestId("gui-toolbar-overflow")).toBeNull();

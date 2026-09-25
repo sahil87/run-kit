@@ -228,6 +228,17 @@ export function FollowTerminalGlyph() {
   );
 }
 
+/** Send home — lucide undo-2 (the curving return arrow), a foreign tile's ↩
+ *  verb: the borrowed surface returns to its home tab. */
+export function SendHomeGlyph() {
+  return (
+    <ControlGlyph name="send-home">
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+    </ControlGlyph>
+  );
+}
+
 /** Fixed width — the inward/contract fixed-width arrows: the static identity
  *  form the menu row uses (state stays on the trailing ✓). The state-driven
  *  `expanded` outward variant went with the in-bar toggle (260814-6b0j). */

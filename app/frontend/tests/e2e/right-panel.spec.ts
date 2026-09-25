@@ -6,6 +6,7 @@ import {
   createSession,
   killSession,
   newWindow,
+  setWindowOption,
   stampWebTab,
   windowOption,
 } from "./_tmux";
@@ -26,8 +27,9 @@ import { stubProxyPorts } from "./_web-tile";
 // Tip-wrapped button per available surface, tty first, "<Label> tile" aria
 // names, SURFACE_GLYPH glyphs (`>_`/`://`/`{}`), aria-pressed = tile open
 // (toggle mode) / tile visible (switch mode), a corner availability dot on
-// every button, disabled-at-3 with the "Close a tile first" tip (toggle mode
-// only). The
+// every button, floor-disabled unlit buttons with the "No room for another
+// tile" tip when no split fits the 150×100 px size floor (toggle mode only —
+// there is no tile-count cap). The
 // rail-collapse chrome (the "Toggle panel" top-bar chip, the
 // `runkit-rail-open` preference, the `Panel: Toggle rail` palette action) is
 // gone — its tests are deleted with it, not migrated.
@@ -307,27 +309,31 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
   /**
    * Proves: the add/close arity walk through the top-bar group — 1→2 growth
    * is `h(tty,web)`, 2→3 growth is `h(tty,v(web,code))` (the new tile splits
-   * the LAST leaf in reading order along its longer axis — at desktop
-   * landscape the web tile, code landing bottom-right: the legacy main-left
+   * the FOCUSED tile along its longer axis — the test focuses the web tile,
+   * taller than wide at half width in desktop landscape, so code lands below
+   * it: the legacy main-left
    * arrangement, stored as a tree), and a lit click closes 3→2 back to
-   * `h(tty,web)` (remove + normalise, structure kept). One of the file's two
-   * 3-tile flows (with disabled-at-3); they
-   * run serially in fresh browser contexts, so the h1 6-slot pool budget is
-   * per-page and never contended.
+   * `h(tty,web)` (remove + normalise, structure kept). The file's heaviest
+   * mounts are this flow and the size-floor disable test's nine-row all-tty
+   * tree (all-tty stays on the one muxed terminals socket); they run serially
+   * in fresh browser contexts, so the h1 6-slot pool budget is per-page and
+   * never contended.
    *
    * Steps:
    * 1. Create a web-capable (and repo-cwd, so code-capable) window; navigate;
    *    wait for both the `Web tile` and `Code tile` toggles.
    * 2. Click `Web tile`; assert the option reads `h(tty,web)`, the
    *    visible web tile, and the lit toggle.
-   * 3. Click `Code tile`; assert the option reads `h(tty,v(web,code))`,
+   * 3. Click the web tile's header (focus — the add splits the FOCUSED tile),
+   *    then click `Code tile`; assert the option reads `h(tty,v(web,code))`,
    *    the visible code tile, and the lit toggle.
    * 4. Click `Code tile` again; assert the option reads `h(tty,web)`,
    *    the hidden code tile, and the unlit toggle.
    */
   test("toggles grow the layout 1→2 h(tty,web) then 2→3 h(tty,v(web,code)); a lit click closes back down (R10/R7)", async ({ page }) => {
     test.setTimeout(30_000);
-    // One of the file's two 3-tile flows (with the disabled-at-3 test) — they
+    // The file's other heavy mount is the size-floor disable test's nine-row
+    // all-tty tree (all-tty stays on the one muxed terminals socket) — they
     // run serially in fresh browser contexts, so the h1 6-slot pool budget
     // (surface-layout.spec.ts's Performance note) is per-page and never
     // contended.
@@ -339,14 +345,17 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(codeToggle).toBeVisible({ timeout: READY_TIMEOUT });
 
-    // 1→2 appends web beside tty; 2→3 splits the LAST leaf in reading order
-    // along its longer axis (code lands below web — the main-left
-    // arrangement) — the rail's click semantics carried into the top bar.
+    // 1→2 appends web beside tty; 2→3 splits the FOCUSED tile along its
+    // longer axis — so focus the web tile first (header click; the focus seam
+    // is pointerdown capture), letting code land below it (the main-left
+    // arrangement). Unsteered, slot A (tty) is focused and the add would land
+    // h(v(tty,code),web).
     await webToggle.click();
     await expectWindowLayout(id, "h(tty,web)");
     await expect(webTile(page)).toBeVisible({ timeout: 10_000 });
     await expect(webToggle).toHaveAttribute("aria-pressed", "true");
 
+    await webTile(page).click({ position: { x: 6, y: 15 } });
     await codeToggle.click();
     await expectWindowLayout(id, "h(tty,v(web,code))");
     await expect(codeTile(page)).toBeVisible({ timeout: 10_000 });
@@ -361,48 +370,47 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
   });
 
   /**
-   * Proves: the max-3-tiles gate (Constitution IV) — at 3 open tiles the
+   * Proves: the size-floor gate (there is no tile-count cap) — with the
+   * layout stamped to nine tty ROWS, splitting any tile would push the
+   * resulting rows under the 100px height floor in this viewport, so the
    * UNLIT toggles render disabled instead of no-oping silently, and the
-   * disabled button still tips "Close a tile first" (the Tip wraps a span so
-   * the tooltip survives the disabled control's swallowed pointer events).
-   * Three open tiles with an unlit shown toggle needs a fourth slot, which a
-   * DUPLICATE tty tile supplies (the muxed relay supports N clients per pane):
-   * `h(tty,v(code,tty))` — arrived via the legacy `?layout=main-left:tty,code,tty`
-   * deep link (legacy presets parse permanently) — leaves the Web toggle unlit
-   * at 3 open tiles.
-   * Closing one tile re-enables the unlit toggle.
+   * disabled button still tips "No room for another tile" (the Tip wraps a
+   * span so the tooltip survives the disabled control's swallowed pointer
+   * events). The gate is floor-derived, not a count: closing rows (the lit
+   * Terminal toggle removes one leaf per click) shrinks the tree until a
+   * split fits the floor again, re-enabling the unlit toggle.
    *
    * Steps:
-   * 1. Create a window; navigate with `?layout=main-left:tty,code,tty` (legacy
-   *    preset — parses permanently); assert
-   *    the terminal and that the option reads the translated tree
-   *    `h(tty,v(code,tty))`
-   *    (duplicate tty tiles are legal — nothing degraded).
-   * 2. Assert `Terminal tile` and `Code tile` are lit while `Web tile` is
-   *    unlit and disabled.
+   * 1. Create a window; stamp `@rk_win_layout` to `v(...)` with nine bare
+   *    tty rows via tmux (repeated bare tty is legal); navigate; assert the
+   *    terminal and the option value.
+   * 2. Assert `Terminal tile` is lit while `Web tile` is unlit and disabled.
    * 3. Hover the Web toggle's PARENT SPAN; assert a role="tooltip" element
-   *    reads "Close a tile first" (expect's retry absorbs the open delay);
-   *    move the mouse away.
-   * 4. Click the lit `Code tile` toggle; assert the option reads
-   *    `h(tty,tty)` and the Web toggle enabled again.
+   *    reads "No room for another tile" (expect's retry absorbs the open
+   *    delay); move the mouse away.
+   * 4. Click the lit `Terminal tile` toggle once; assert eight rows and the
+   *    Web toggle still disabled (a 9th row still breaks the floor).
+   * 5. Click it twice more; assert the option reads six rows and the Web
+   *    toggle enabled again (a split of any row fits the floor).
    */
-  test("at 3 open tiles the unlit toggle is disabled and tips 'Close a tile first'", async ({ page }) => {
-    test.setTimeout(30_000);
-    const name = `rp-full-${Date.now()}`;
+  test("the unlit toggle is disabled only when no split fits the size floor, tipping 'No room for another tile'", async ({ page }) => {
+    test.setTimeout(40_000);
+    const name = `rp-floor-${Date.now()}`;
     newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
+    // Nine tty rows: at this 1440×800 viewport each row is ~75px tall, so
+    // any add (a row split keeps the row's height) lands under the 100px
+    // floor and every candidate is refused. Repeated bare tty is legal.
+    const rows = (n: number) => `v(${Array.from({ length: n }, () => "tty").join(",")})`;
+    setWindowOption(id, "@rk_win_layout", rows(9));
 
-    await gotoWindow(page, id, "?layout=main-left:tty,code,tty");
+    await gotoWindow(page, id);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    // Duplicate tty tiles are legal (the muxed relay supports N clients per
-    // pane), so the carried legacy preset parses intact and lands in the
-    // shared option in its TREE form (writers always emit the tree).
-    await expectWindowLayout(id, "h(tty,v(code,tty))");
+    await expectWindowLayout(id, rows(9));
 
     const webToggle = toggleButton(page, "Web");
     await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(toggleButton(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
-    await expect(toggleButton(page, "Code")).toHaveAttribute("aria-pressed", "true");
     await expect(webToggle).toHaveAttribute("aria-pressed", "false");
     await expect(webToggle).toBeDisabled();
 
@@ -410,12 +418,19 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     // controls swallow the pointer events Tip listens for) — hover the
     // button's parent span; expect's retry absorbs the open delay.
     await webToggle.locator("xpath=..").hover();
-    await expect(page.getByRole("tooltip")).toContainText("Close a tile first");
+    await expect(page.getByRole("tooltip")).toContainText("No room for another tile");
     await page.mouse.move(0, 0);
 
-    // Closing a tile (the lit code toggle) re-enables the unlit one.
-    await toggleButton(page, "Code").click();
-    await expectWindowLayout(id, "h(tty,tty)");
+    // The gate follows the floor, not the count: at eight rows a 9th still
+    // breaks the floor; at six rows a split fits and the toggle re-enables.
+    const ttyToggle = toggleButton(page, "Terminal");
+    await ttyToggle.click();
+    await expectWindowLayout(id, rows(8));
+    await expect(webToggle).toBeDisabled();
+    await ttyToggle.click();
+    await expectWindowLayout(id, rows(7));
+    await ttyToggle.click();
+    await expectWindowLayout(id, rows(6));
     await expect(webToggle).toBeEnabled();
   });
 

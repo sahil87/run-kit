@@ -604,6 +604,48 @@ func TestTabLayoutUnparseableStoredValueReplaced(t *testing.T) {
 	}
 }
 
+// A set introducing a foreign leaf another window already holds is refused
+// (exit 1, naming the holder); a self-naming leaf is a usage error. The
+// holder check enumerates the server's windows for real — the test server
+// carries the boot window plus two created ones.
+func TestTabLayoutSetLiveInOnePlace(t *testing.T) {
+	env := withTabTestServer(t)
+	tabTmuxDo(t, env.server, "new-window", "-t", "boot", "-n", "holder")
+	tabTmuxDo(t, env.server, "new-window", "-t", "boot", "-n", "taker")
+	holderID := tabTmuxOut(t, env.server, "display-message", "-pt", "boot:holder", "#{window_id}")
+	takerID := tabTmuxOut(t, env.server, "display-message", "-pt", "boot:taker", "#{window_id}")
+
+	// The holder window holds the boot window's tty as a foreign leaf.
+	tabTmuxDo(t, env.server, "set-option", "-w", "-t", holderID, tmux.LayoutOption, "h(tty,"+env.bootID+"/tty)")
+
+	// The same leaf written to the taker is a conflict, and nothing is stored.
+	_, _, err := runTabCmd(t, "layout", takerID, "h(tty,"+env.bootID+"/tty)")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("held-leaf set: err = %v (code %d), want exit 1", err, exitCode(err))
+	}
+	if !strings.Contains(err.Error(), holderID) || !strings.Contains(err.Error(), env.bootID+"/tty") {
+		t.Errorf("err = %q, want it naming the holder %s and the leaf %s/tty", err, holderID, env.bootID)
+	}
+	if got := tabWindowOption(t, env.server, takerID, tmux.LayoutOption); got != "" {
+		t.Errorf("taker @rk_win_layout = %q after a refused write, want unset", got)
+	}
+
+	// The holder rewriting its own holding passes.
+	if _, _, err := runTabCmd(t, "layout", holderID, "h(tty,"+env.bootID+"/tty)"); err != nil {
+		t.Errorf("holder rewriting its own holding: %v", err)
+	}
+
+	// An unheld foreign leaf passes.
+	if _, _, err := runTabCmd(t, "layout", takerID, "h(tty,"+holderID+"/tty)"); err != nil {
+		t.Errorf("unheld-leaf set: %v", err)
+	}
+
+	// A leaf naming the layout's own window is a usage error.
+	if _, _, err := runTabCmd(t, "layout", takerID, "h(tty,"+takerID+"/tty)"); err == nil || exitCode(err) != exitUsage {
+		t.Errorf("self-leaf set: err = %v (code %d), want exit 2", err, exitCode(err))
+	}
+}
+
 // ── rk tab web add ──────────────────────────────────────────────────────────
 
 func TestTabWebAddPrintsAddressAndShowGrowsLayout(t *testing.T) {
@@ -673,7 +715,7 @@ func TestTabWebAddFullExitsOne(t *testing.T) {
 // --show on a full layout without web replaces the LAST leaf in reading order
 // with web in place (slot A untouched); a full layout that already holds web
 // is left alone.
-func TestTabWebAddShowReplacesLastLeafOnFullLayout(t *testing.T) {
+func TestTabWebAddShowAddsTile(t *testing.T) {
 	env := withTabTestServer(t)
 	port := tabTestListener(t)
 	tabTmuxDo(t, env.server, "set-option", "-w", "-t", env.bootID, tmux.LayoutOption, "h(tty,v(code,gui))")
@@ -685,8 +727,9 @@ func TestTabWebAddShowReplacesLastLeafOnFullLayout(t *testing.T) {
 	if stdout != env.bootID+"/web/1\n" {
 		t.Errorf("stdout = %q", stdout)
 	}
-	if got := tabWindowOption(t, env.server, env.bootID, tmux.LayoutOption); got != "h(tty,v(code,web))" {
-		t.Errorf("@rk_win_layout = %q, want h(tty,v(code,web)) (last leaf replaced)", got)
+	// No tile cap: the last leaf splits on its longer axis for the web tile.
+	if got := tabWindowOption(t, env.server, env.bootID, tmux.LayoutOption); got != "h(tty,v(code,h(gui,web)))" {
+		t.Errorf("@rk_win_layout = %q, want h(tty,v(code,h(gui,web)))", got)
 	}
 
 	// web already in the layout: the second add leaves it untouched.

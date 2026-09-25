@@ -7,7 +7,9 @@ import {
   cycleTemplate,
   degradeLayout,
   effectiveLayout,
+  fitsFloor,
   legacyTranslationDecision,
+  openTileKinds,
   parseLayoutTree,
   promote,
   readStoredSizes,
@@ -16,10 +18,13 @@ import {
   sizesStorageKey,
   structureSig,
   swapDirectional,
+  templatesFor,
+  toggleSurface,
   translateLegacyParams,
   writeStoredSizes,
   writeStoredZoom,
   zoomStorageKey,
+  NOMINAL_BOX,
   type Layout,
   type SurfaceKind,
   type SwapDirection,
@@ -428,5 +433,128 @@ describe("mutations beyond the fixture table", () => {
   it("template-built layouts serialize to the tree form (sizes never persist)", () => {
     const t = TEMPLATES["main-left"](["tty", "code", "web"]);
     expect(serializeLayoutTree(t)).toBe("h(tty,v(code,web))");
+  });
+});
+
+describe("addSurface — the size floor replaces the tile cap (R16)", () => {
+  it("a fourth and fifth tile are permitted when the floor allows (byte cap, not tile cap, bounds size)", () => {
+    const four = addSurface(parse("h(tty,v(web,code))"), "gui");
+    expect(ser(four)).toBe("h(tty,v(web,h(code,gui)))");
+    const five = four !== null ? addSurface(four, "tty") : null;
+    expect(ser(five)).toBe("h(tty,v(web,h(code,v(gui,tty))))");
+  });
+
+  it("refuses only when no split fits the floor in the measured box", () => {
+    const two = parse("h(tty,web)");
+    const cramped = new Map([
+      ["tty", { x: 0, y: 0, w: 150, h: 100 }],
+      ["web", { x: 156, y: 0, w: 150, h: 100 }],
+    ]);
+    expect(addSurface(two, "code", cramped)).toBeNull();
+    // One px of slack on each axis is enough.
+    const fitting = new Map([
+      ["tty", { x: 0, y: 0, w: 306, h: 100 }],
+      ["web", { x: 312, y: 0, w: 306, h: 100 }],
+    ]);
+    expect(addSurface(two, "code", fitting)).not.toBeNull();
+  });
+
+  it("splits the focused tile on its longer axis, falling back to the largest tile", () => {
+    // 306×300 box: the focused web tile's longer-axis (horizontal) split
+    // leaves 72px columns — under the floor — so the add lands on tty, the
+    // largest tile.
+    const three = parse("h(tty,v(code,web))");
+    const rects = new Map([
+      ["tty", { x: 0, y: 0, w: 150, h: 300 }],
+      ["code", { x: 156, y: 0, w: 150, h: 147 }],
+      ["web", { x: 156, y: 153, w: 150, h: 147 }],
+    ]);
+    expect(ser(addSurface(three, "gui", rects))).toBe("h(v(tty,gui),v(code,web))");
+    // An explicit focused tile that fits splits itself, not the last leaf.
+    const two = parse("h(tty,web)");
+    const tall = new Map([
+      ["tty", { x: 0, y: 0, w: 600, h: 1000 }],
+      ["web", { x: 606, y: 0, w: 600, h: 1000 }],
+    ]);
+    expect(ser(addSurface(two, "code", tall, "tty"))).toBe("h(v(tty,code),web)");
+  });
+
+  it("threads stored sizes into the floor check — the split tile halves from its stored share, not default fractions", () => {
+    // Stored [0.81,0.19]×[0.7,0.3] in the nominal box: the focused (last)
+    // web tile is 303×298 — halving its width lands at 148px, under the
+    // floor — so the add splits tty instead (default fractions would split
+    // web).
+    const three = parse("h(tty,v(code,web))");
+    expect(
+      ser(addSurface(three, "gui", undefined, undefined, [[0.81, 0.19], [0.7, 0.3]])),
+    ).toBe("h(tty,gui,v(code,web))");
+    // Stored 9/91 on a row: the 143px tty tile can neither split (its half
+    // ≈ 69px) nor survive a split of web — refused, though default fractions
+    // fit.
+    const two = parse("h(tty,web)");
+    expect(addSurface(two, "code", undefined, undefined, [[0.09, 0.91]])).toBeNull();
+  });
+
+  it("accepts a foreign leaf and refuses a repeated address; a bare kind and a foreign leaf of it coexist", () => {
+    expect(ser(addSurface(parse("tty"), { leaf: "tty", home: "@3" }))).toBe("h(tty,@3/tty)");
+    expect(addSurface(parse("h(tty,@3/tty)"), { leaf: "tty", home: "@3" })).toBeNull();
+    expect(ser(addSurface(parse("h(tty,web)"), { leaf: "web", home: "@3" }))).toBe(
+      "h(tty,v(web,@3/web))",
+    );
+  });
+
+  it("accepts a bare kind when the tree holds only a FOREIGN leaf of it; a repeated bare non-tty kind stays refused", () => {
+    expect(ser(addSurface(parse("h(tty,@3/web)"), "web"))).toBe("h(tty,v(@3/web,web))");
+    expect(addSurface(parse("h(tty,web,@3/web)"), "web")).toBeNull();
+    // Bare tty dups keep their rule.
+    expect(ser(addSurface(parse("h(tty,@3/tty)"), "tty"))).toBe("h(tty,v(@3/tty,tty))");
+  });
+});
+
+describe("toggleSurface / openTileKinds — the open-tile toggle counts bare leaves only", () => {
+  it("a kind present only as a foreign leaf reads as not open", () => {
+    expect(openTileKinds(parse("h(tty,@3/web)"))).toEqual(["tty"]);
+    expect(openTileKinds(parse("h(tty,web)"))).toEqual(["tty", "web"]);
+    expect(openTileKinds(parse("h(tty,web,@3/code)"))).toEqual(["tty", "web"]);
+  });
+
+  it("toggling ON a foreign-only kind adds the bare slot", () => {
+    expect(ser(toggleSurface(parse("h(tty,@3/web)"), "web"))).toBe("h(tty,v(@3/web,web))");
+  });
+
+  it("toggling OFF closes the BARE leaf, never the foreign one — even when the foreign leaf comes first in reading order", () => {
+    expect(ser(toggleSurface(parse("h(tty,web,@3/web)"), "web"))).toBe("h(tty,@3/web)");
+    expect(ser(toggleSurface(parse("h(@3/web,web)"), "web"))).toBe("@3/web");
+  });
+
+  it("toggling OFF the last tile is a refused no-op", () => {
+    expect(toggleSurface(parse("tty"), "tty")).toBeNull();
+  });
+});
+
+describe("fitsFloor — the offer gate (R16)", () => {
+  it("a leaf is offered iff it lays out at ≥ MIN_TILE_W × MIN_TILE_H in the box", () => {
+    const one = parse("tty");
+    expect(fitsFloor(one, undefined, { x: 0, y: 0, w: 150, h: 100 })).toBe(true);
+    expect(fitsFloor(one, undefined, { x: 0, y: 0, w: 149, h: 100 })).toBe(false);
+    expect(fitsFloor(one, undefined, { x: 0, y: 0, w: 150, h: 99 })).toBe(false);
+  });
+
+  it("gates Layout: <Template> offers — a template result under the floor is not offered", () => {
+    const tree = parse("h(tty,v(code,web))");
+    const fitting = (box: { x: number; y: number; w: number; h: number }) =>
+      templatesFor(3).filter((name) => {
+        const next = applyTemplate(tree, name);
+        return next !== null && fitsFloor(next, undefined, box);
+      });
+    // 400×250: row leaves 129px columns and col leaves 79px rows; the main-*
+    // templates fit.
+    expect(fitting({ x: 0, y: 0, w: 400, h: 250 })).toEqual([
+      "main-left",
+      "main-right",
+      "main-top",
+      "main-bottom",
+    ]);
+    expect(fitting(NOMINAL_BOX)).toEqual(templatesFor(3));
   });
 });

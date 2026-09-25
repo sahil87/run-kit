@@ -833,6 +833,57 @@ export async function setWindowOptions(
   return res.json();
 }
 
+// --- Cross-tab layout verbs (borrow/return a surface leaf between windows) ---
+
+/** Body for POST /api/layout/borrow. `to` is the window adopting the leaf,
+ *  `leaf` the address being moved (`@A/<kind>`), `tree` the adopting window's
+ *  new layout tree (already containing the leaf — the server validates it and
+ *  chains the current holder's tree-minus-leaf write with it). */
+export type LayoutBorrowBody = {
+  to: string;
+  leaf: string;
+  tree: string;
+};
+
+/** Body for POST /api/layout/return. `from` is the window currently holding
+ *  the leaf; the server recomputes both trees from current tmux state, so the
+ *  client sends no tree. A leaf not present in `from` is a 409. */
+export type LayoutReturnBody = {
+  from: string;
+  leaf: string;
+};
+
+/** Move a surface leaf into window `to`, unholding it from its current holder
+ *  in one chained server-side write. Non-2xx (400 invalid ids/tree, 409
+ *  conflicts) rejects via the shared throwOnError path. */
+export async function borrowLayout(
+  server: string,
+  body: LayoutBorrowBody,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(withServer("/api/layout/borrow", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Send a held surface leaf back to its home window. Non-2xx (409 leaf not
+ *  held by `from`) rejects via the shared throwOnError path. */
+export async function returnLayout(
+  server: string,
+  body: LayoutReturnBody,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(withServer("/api/layout/return", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 /**
  * Append a web tab to the window's tab family via
  * POST /api/windows/{windowId}/web (201). `target` is the stored address

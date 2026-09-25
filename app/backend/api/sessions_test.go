@@ -174,9 +174,14 @@ type mockTmuxOps struct {
 	setWindowOptionsCalled   bool
 	setWindowOptionsWindowID string
 	setWindowOptionsOps      []tmux.WindowOptionOp
-	clearWindowRoleCalled    bool
-	clearWindowRoleKeepID    string
-	clearWindowRoleResult    []string
+	// setWindowLayoutsPairs records every chained multi-window layout write
+	// (the borrow/return handlers) in call order.
+	setWindowLayoutsCalled bool
+	setWindowLayoutsPairs  []tmux.WindowLayoutWrite
+	setWindowLayoutsErr    error
+	clearWindowRoleCalled  bool
+	clearWindowRoleKeepID  string
+	clearWindowRoleResult  []string
 
 	moveInOperatorCalled   bool
 	moveInOperatorWindowID string
@@ -565,6 +570,11 @@ func (m *mockTmuxOps) SetWindowOptions(ctx context.Context, windowID, server str
 	m.setWindowOptionsWindowID = windowID
 	m.setWindowOptionsOps = ops
 	return m.err
+}
+func (m *mockTmuxOps) SetWindowLayouts(ctx context.Context, server string, pairs []tmux.WindowLayoutWrite) error {
+	m.setWindowLayoutsCalled = true
+	m.setWindowLayoutsPairs = pairs
+	return m.setWindowLayoutsErr
 }
 func (m *mockTmuxOps) ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) ([]string, error) {
 	m.clearWindowRoleCalled = true

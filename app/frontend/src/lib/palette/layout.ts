@@ -6,15 +6,40 @@
  * mounting the shell — mirroring `lib/palette/view.ts` (`buildViewActions`).
  *
  * Entries, per current layout state:
- *  - `Tile: Show <Surface>`     — per AVAILABLE, not-open surface; omitted at
- *                                 MAX_TILES tiles (the rail's disabled buttons
- *                                 are the mouse mirror). "Show" is the honest
+ *  - `Tile: Show <Surface>`     — per AVAILABLE surface not open as a bare
+ *                                 leaf (a kind present only as a foreign tile
+ *                                 still gets its row — the add lands the bare
+ *                                 slot); omitted when
+ *                                 no split of the current tree fits the size
+ *                                 floor (the rail's disabled buttons are the
+ *                                 mouse mirror). "Show" is the honest
  *                                 verb: the entry reveals a renderer, it does
- *                                 not rearrange the layout. The split direction
- *                                 resolves against the LIVE leaf rects when the
- *                                 caller passes them (desktop), the nominal box
- *                                 otherwise.
- *  - `Tile: Hide <Surface>`     — per open kind; omitted on a single-tile
+ *                                 not rearrange the layout. The split lands on
+ *                                 the FOCUSED tile when the caller passes
+ *                                 `focusedLeafId`; its direction resolves
+ *                                 against the LIVE leaf rects when the caller
+ *                                 passes them (desktop), the nominal box
+ *                                 otherwise; the floor check estimates from the
+ *                                 stored sizes when `layoutSizes` is threaded.
+ *  - `Tile: Bring <window> <Surface> here` — per OTHER window on the route
+ *                                 server × each of its lendable surfaces
+ *                                 (never `gui`) not already in this layout,
+ *                                 gated by the same floor as Show (the generic
+ *                                 add rule inserts the foreign leaf). The write
+ *                                 rides the caller's `onBring` seam (a plain
+ *                                 apply or a borrow, by held state).
+ *  - `Tile: Send Back to <home window>` — for the focused FOREIGN tile only;
+ *                                 disabled when the home window is dead. The
+ *                                 write rides the caller's `onSendBack` seam
+ *                                 (the return endpoint recomputes both trees).
+ *  - `Tile: Bring Back <Surface>` — the HOME tab's half of the return verb
+ *                                 (the placeholder's bring back, palette
+ *                                 form): one row per bare leaf whose kind is
+ *                                 away (`awayIn[kind]` naming a LIVE holder).
+ *                                 The write rides the caller's `onBringBack`
+ *                                 seam with the holder window and the leaf
+ *                                 address `@<this window>/<kind>`.
+ *  - `Tile: Hide <Surface>`     — per open bare kind; omitted on a single-tile
  *                                 layout (the last tile never hides).
  *  - `Layout: Expand` / `Layout: Restore` — the transient focused-tile zoom
  *                                 toggle (desktop multi-tile only). Exactly one
@@ -38,7 +63,9 @@
  *                                 passes `leafRects` and `focusedLeafId` only
  *                                 then.
  *  - `Layout: <Template>`       — one per `templatesFor(n)` at the current
- *                                 tile count (the ▦ chip rows' palette form).
+ *                                 tile count (the ▦ chip rows' palette form);
+ *                                 a template whose result lands under the size
+ *                                 floor is not offered.
  *  - `Layout: Cycle Template`   — the ⌘; chord's palette body; its id
  *                                 `layout-cycle` IS the registry actionId, so
  *                                 `withShortcutHints` decorates it with the
@@ -54,20 +81,26 @@
 
 import {
   addSurface,
+  applyTemplate,
+  bareLeaves,
+  boundingBox,
   closeSurface,
+  fitsFloor,
   swapDirectional,
   leaves,
   slotOrder,
   templatesFor,
-  MAX_TILES,
+  NOMINAL_BOX,
   SURFACE_LABEL,
   TEMPLATE_LABEL,
   type Layout,
+  type LayoutSizes,
   type Rect,
   type SurfaceKind,
   type SwapDirection,
   type TemplateName,
 } from "../surface-layout";
+import { leafAddress, parseLeafAddress, type LayoutLeaf } from "../layout-tree";
 
 export type LayoutPaletteAction = {
   id: string;
@@ -86,6 +119,16 @@ const SWAP_DIRECTION_LABEL: Record<SwapDirection, string> = {
   right: "Right",
   up: "Up",
   down: "Down",
+};
+
+/** A `Tile: Bring … here` candidate: another window on the route server and
+ *  the surfaces it can lend. The caller excludes the route window itself and
+ *  computes availability per window; `gui` is never lendable (one desktop per
+ *  host) and is skipped here even when listed. */
+export type BringWindow = {
+  id: string;
+  name: string;
+  surfaces: SurfaceKind[];
 };
 
 export type LayoutPaletteOptions = {
@@ -122,13 +165,38 @@ export type LayoutPaletteOptions = {
   onPromoteLeaf: (leafId: string) => void;
   /** Directional swap of the focused leaf with its geometric neighbour. */
   onSwapDirection: (direction: SwapDirection) => void;
-  /** The focused tile's leaf id — the directional swaps' origin. Absent ⇒
-   *  no directional rows. */
+  /** The focused tile's leaf id — the directional swaps' origin AND the tile
+   *  a Show/Bring add splits. Absent ⇒ no directional rows and adds split
+   *  the last leaf in reading order. */
   focusedLeafId: string | undefined;
   /** Live leaf rects from the desktop render seam — the directional swaps'
    *  geometry AND the Show entries' split direction. Absent ⇒ mobile ⇒ the
    *  nominal box decides and no directional rows render. */
   leafRects: (() => Map<string, Rect>) | undefined;
+  /** The viewer's stored divider fractions for the current structure — the
+   *  Show/Bring floor check estimates candidate rects from them (the split
+   *  tile halves) instead of default fractions. Absent ⇒ default fractions. */
+  layoutSizes?: () => LayoutSizes | undefined;
+  /** The route server's OTHER windows and their lendable surfaces — the
+   *  `Tile: Bring … here` candidates. Absent ⇒ no Bring rows. */
+  bringWindows?: BringWindow[];
+  /** The Bring rows' write seam (app.tsx's borrowInto): called with the
+   *  leaf's address (`@N/<kind>`) and the grown tree. */
+  onBring?: (leafAddress: string, tree: Layout) => void;
+  /** The Send Back row's write seam (app.tsx's sendHome → returnLayout);
+   *  absent ⇒ no Send Back row. */
+  onSendBack?: (leafAddress: string) => void;
+  /** Resolve a window id to its display name; undefined ⇒ the window is
+   *  dead (the Send Back row renders disabled). */
+  windowNameFor?: (windowId: string) => string | undefined;
+  /** The route window's away map (kind → holder window id) and its own id —
+   *  the Bring Back rows' inputs. Absent ⇒ no Bring Back rows. */
+  awayIn?: Partial<Record<SurfaceKind, string>>;
+  routeWindowId?: string;
+  /** The Bring Back rows' write seam (app.tsx's sendHome → returnLayout —
+   *  the same return the placeholder's bring back runs): called with the
+   *  holder window and the leaf address `@<routeWindowId>/<kind>`. */
+  onBringBack?: (holderWindowId: string, leafAddress: string) => void;
 };
 
 export function buildLayoutActions(
@@ -140,6 +208,10 @@ export function buildLayoutActions(
   const kinds = leaves(layout);
   const tileCount = kinds.length;
   const openKinds = [...new Set(kinds)];
+  // Bare-only presence: a kind open solely as foreign leaves still gets its
+  // Show row (the toggle adds the bare slot) and no Hide row (a foreign
+  // tile's exit verb is Send Back).
+  const openBareKinds = [...new Set(bareLeaves(layout))];
 
   /** The toggle chord's hint for a chord-target surface's Show/Hide entry. */
   const toggleHint = (kind: SurfaceKind) => {
@@ -150,25 +222,65 @@ export function buildLayoutActions(
     return hint ? { shortcut: hint } : {};
   };
 
-  // Shows — available AND not open AND room to grow (MAX_TILES cap).
-  if (tileCount < MAX_TILES) {
-    for (const kind of available) {
-      if (openKinds.includes(kind)) continue;
-      actions.push({
-        id: `tile-show-${kind}`,
-        label: `Tile: Show ${SURFACE_LABEL[kind]}`,
-        ...toggleHint(kind),
-        onSelect: () => {
-          const next = addSurface(layout, kind, opts.leafRects?.());
-          if (next) opts.onApply(next);
-        },
-      });
+  // The offer box: the live rects' bounding box on desktop, the nominal box
+  // otherwise — the same box addSurface checks the floor against.
+  const gateRects = opts.leafRects?.();
+  const gateSizes = opts.layoutSizes?.();
+  const offerBox = (gateRects !== undefined ? boundingBox(gateRects) : null) ?? NOMINAL_BOX;
+
+  // Shows — available AND not open as a bare leaf AND a split of the current
+  // tree fits the size floor (addSurface's refusal is the gate). The add
+  // splits the FOCUSED tile when the caller passes `focusedLeafId`.
+  for (const kind of available) {
+    if (openBareKinds.includes(kind)) continue;
+    if (addSurface(layout, kind, gateRects, undefined, gateSizes) === null) continue;
+    actions.push({
+      id: `tile-show-${kind}`,
+      label: `Tile: Show ${SURFACE_LABEL[kind]}`,
+      ...toggleHint(kind),
+      onSelect: () => {
+        const next = addSurface(
+          layout,
+          kind,
+          opts.leafRects?.(),
+          opts.focusedLeafId,
+          opts.layoutSizes?.(),
+        );
+        if (next) opts.onApply(next);
+      },
+    });
+  }
+
+  // Bring — another window's surface as a foreign leaf, inserted by the
+  // generic add rule. addSurface's refusal covers both gates: an address
+  // already in the tree and a split that breaks the floor.
+  if (opts.bringWindows && opts.onBring) {
+    for (const win of opts.bringWindows) {
+      for (const kind of win.surfaces) {
+        if (kind === "gui") continue;
+        const candidate: LayoutLeaf = { leaf: kind, home: win.id };
+        if (addSurface(layout, candidate, gateRects, undefined, gateSizes) === null) continue;
+        actions.push({
+          id: `tile-bring-${win.id}-${kind}`,
+          label: `Tile: Bring ${win.name} ${SURFACE_LABEL[kind]} here`,
+          onSelect: () => {
+            const next = addSurface(
+              layout,
+              candidate,
+              opts.leafRects?.(),
+              opts.focusedLeafId,
+              opts.layoutSizes?.(),
+            );
+            if (next) opts.onBring?.(leafAddress(candidate), next);
+          },
+        });
+      }
     }
   }
 
-  // Hides — one per open kind; the last tile never hides.
+  // Hides — one per open bare kind; the last tile never hides.
   if (tileCount > 1) {
-    for (const kind of openKinds) {
+    for (const kind of openBareKinds) {
       actions.push({
         id: `tile-hide-${kind}`,
         label: `Tile: Hide ${SURFACE_LABEL[kind]}`,
@@ -205,6 +317,42 @@ export function buildLayoutActions(
     }
   }
 
+  // Send Back — offered when the FOCUSED tile is a foreign leaf (its id is
+  // its address). A dead home window renders the row DISABLED, not absent:
+  // the read-time prune drops the leaf on the next payload anyway, and a
+  // row that vanishes mid-session reads as a glitch.
+  const sendBackLeafId = opts.focusedLeafId;
+  const sendBackAddress =
+    sendBackLeafId !== undefined ? parseLeafAddress(sendBackLeafId) : null;
+  if (sendBackAddress !== null && sendBackLeafId !== undefined && opts.onSendBack) {
+    const homeName = opts.windowNameFor?.(sendBackAddress.home);
+    actions.push({
+      id: "tile-send-back",
+      label: `Tile: Send Back to ${homeName ?? sendBackAddress.home}`,
+      disabled: homeName === undefined,
+      onSelect: () => opts.onSendBack?.(sendBackLeafId),
+    });
+  }
+
+  // Bring Back — one row per BARE leaf whose kind is away (the placeholder's
+  // bring back, palette form). A dead holder yields no row: the server prunes
+  // the away entry on the next payload, and the placeholder is the dead
+  // holder's affordance meanwhile.
+  const awayIn = opts.awayIn;
+  const routeWindowId = opts.routeWindowId;
+  if (awayIn !== undefined && routeWindowId !== undefined && opts.onBringBack) {
+    for (const kind of openBareKinds) {
+      const holder = awayIn[kind];
+      if (holder === undefined) continue;
+      if (opts.windowNameFor?.(holder) === undefined) continue;
+      actions.push({
+        id: `tile-bring-back-${kind}`,
+        label: `Tile: Bring Back ${SURFACE_LABEL[kind]}`,
+        onSelect: () => opts.onBringBack?.(holder, `${routeWindowId}/${kind}`),
+      });
+    }
+  }
+
   // Promote — per open kind except slot A (promoting the main tile is a
   // no-op, so its entry is omitted). The kind IS its first leaf's id.
   if (tileCount > 1) {
@@ -237,9 +385,11 @@ export function buildLayoutActions(
   }
 
   // Template jumps — one per structurally distinct template at the current
-  // tile count.
+  // tile count whose result fits the size floor in the offer box.
   const templates = templatesFor(tileCount);
   for (const name of templates) {
+    const next = applyTemplate(layout, name);
+    if (next === null || !fitsFloor(next, undefined, offerBox)) continue;
     actions.push({
       id: `layout-template-${name}`,
       label: `Layout: ${TEMPLATE_LABEL[name]}`,

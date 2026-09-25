@@ -143,6 +143,9 @@ type LayoutOverrides = {
   mobileActiveSlot?: number;
   onClose?: (leafId: string) => void;
   onApplyLayout?: (next: Layout) => void;
+  onSendHome?: (from: string, leafAddr: string) => void;
+  onGoToWindow?: (windowId: string) => void;
+  onBorrowDrop?: (leafAddr: string, tree: Layout) => void;
   onSplitPane?: (horizontal: boolean) => void;
   onClosePane?: () => void;
   onRatioChange?: (index: number, pct: number) => void;
@@ -157,13 +160,15 @@ type LayoutOverrides = {
   liveWindowIds?: ReadonlySet<string>;
   codeRootForWindow?: (windowId: string) => string;
   fetchBridgeStatusFor?: Parameters<typeof SurfaceLayout>[0]["fetchBridgeStatusFor"];
-  codeFollowSrc?: { src: string; nonce: number; root: string } | null;
+  codeFollowSrc?: { src: string; nonce: number; root: string; windowId: string } | null;
   codeReachable?: boolean;
   zoomToggleRef?: { current: (() => void) | null };
   onZoomChange?: (zoomed: boolean) => void;
   onFocusedKindChange?: (kind: SurfaceKind) => void;
   focusTileRef?: { current: ((kind: SurfaceKind) => void) | null };
   statusWindow?: WindowInfo | null;
+  windowsById?: ReadonlyMap<string, WindowInfo>;
+  sessionNameByWindowId?: ReadonlyMap<string, string>;
   ttyDockContent?: React.ReactNode;
   gui?: Parameters<typeof SurfaceLayout>[0]["gui"];
   guiZoom?: GuiZoom;
@@ -215,6 +220,9 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       codeReachable={overrides.codeReachable ?? true}
       onClose={overrides.onClose ?? vi.fn()}
       onApplyLayout={overrides.onApplyLayout ?? vi.fn()}
+      onSendHome={overrides.onSendHome}
+      onGoToWindow={overrides.onGoToWindow}
+      onBorrowDrop={overrides.onBorrowDrop}
       onSplitPane={overrides.onSplitPane ?? vi.fn()}
       onClosePane={overrides.onClosePane ?? vi.fn()}
       onRatioChange={overrides.onRatioChange}
@@ -235,6 +243,8 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       onFocusedLeafChange={overrides.onFocusedLeafChange}
       focusTileRef={overrides.focusTileRef}
       statusWindow={overrides.statusWindow}
+      windowsById={overrides.windowsById}
+      sessionNameByWindowId={overrides.sessionNameByWindowId}
       ttyDockContent={overrides.ttyDockContent}
       gui={overrides.gui}
       guiZoom={overrides.guiZoom}
@@ -513,16 +523,16 @@ describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
     expect(within(screen.getByTestId("surface-tile-tty-2")).getByTestId("pane-segment")).toBeTruthy();
   });
 
-  it("clicks fire the parent's pane callbacks", () => {
+  it("clicks fire the parent's pane callbacks with the tile's window id", () => {
     const onSplitPane = vi.fn();
     const onClosePane = vi.fn();
     renderLayout({ onSplitPane, onClosePane });
     fireEvent.click(screen.getByRole("button", { name: "Split pane horizontally" }));
-    expect(onSplitPane).toHaveBeenCalledWith(true);
+    expect(onSplitPane).toHaveBeenCalledWith(true, "@1");
     fireEvent.click(screen.getByRole("button", { name: "Split pane vertically" }));
-    expect(onSplitPane).toHaveBeenCalledWith(false);
+    expect(onSplitPane).toHaveBeenCalledWith(false, "@1");
     fireEvent.click(screen.getByRole("button", { name: "Close pane" }));
-    expect(onClosePane).toHaveBeenCalledTimes(1);
+    expect(onClosePane).toHaveBeenCalledWith("@1");
   });
 
   it("Close Pane renders the boxed ⊠ glyph (not the bare ✕) with a red hover; splits use the standard verb hover", () => {
@@ -808,7 +818,7 @@ describe("SurfaceLayout code tile folder (260813-if5d)", () => {
   it("carries the workspace src and follow override down to the code tile", () => {
     // Mount gating + the follow rule are parent-orchestrated (app.tsx); the
     // layout layer only carries the props — a null lookup ⇒ the tile pends.
-    const followSrc = { src: "/code/?workspace=%2Fstate%2F%407-bbbbbb.code-workspace", nonce: 2, root: "/other" };
+    const followSrc = { src: "/code/?workspace=%2Fstate%2F%407-bbbbbb.code-workspace", nonce: 2, root: "/other", windowId: "@1" };
     renderLayout({
       layout: layoutOf("h(tty,code)"),
       codeSrcFor: () => "/code/?workspace=%2Fstate%2F%407-3fa1c9.code-workspace",
@@ -1176,13 +1186,14 @@ describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
       layout: CODE_LAYOUT,
       codeSrcFor: codeSrcForAll,
       codeRootForWindow: () => "/other",
-      codeFollowSrc: { src: srcFor("@1"), nonce: 1, root: "/other" },
+      codeFollowSrc: { src: srcFor("@1"), nonce: 1, root: "/other", windowId: "@1" },
     }));
     expect(visibleCodeNode()).toBe(node1);
     expect(codeSpy.mock.calls.at(-1)?.[0]?.followSrc).toEqual({
       src: srcFor("@1"),
       nonce: 1,
       root: "/other",
+      windowId: "@1",
     });
   });
 
@@ -1204,7 +1215,7 @@ describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
       layout: CODE_LAYOUT,
       codeSrcFor: codeSrcForAll,
       codeRootForWindow: () => current,
-      codeFollowSrc: { src: srcFor("@1"), nonce: 1, root: "/other" },
+      codeFollowSrc: { src: srcFor("@1"), nonce: 1, root: "/other", windowId: "@1" },
     }));
     expect(visibleCodeNode()).toBe(node1);
 
@@ -1215,7 +1226,7 @@ describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
       layout: CODE_LAYOUT,
       codeSrcFor: codeSrcForAll,
       codeRootForWindow: () => current,
-      codeFollowSrc: { src: srcFor("@1"), nonce: 1, root: "/other" },
+      codeFollowSrc: { src: srcFor("@1"), nonce: 1, root: "/other", windowId: "@1" },
     }));
     expect(visibleCodeNode()).toBe(node1);
 
@@ -1226,7 +1237,7 @@ describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
       layout: CODE_LAYOUT,
       codeSrcFor: codeSrcForAll,
       codeRootForWindow: () => current,
-      codeFollowSrc: { src: srcFor("@1"), nonce: 1, root: "/other" },
+      codeFollowSrc: { src: srcFor("@1"), nonce: 1, root: "/other", windowId: "@1" },
     }));
     expect(visibleCodeNode()).toBe(node1);
   });
@@ -3115,5 +3126,611 @@ describe("SurfaceLayout header drag (drop to snap)", () => {
     expect(localStorage.getItem(sizesStorageKey("srv", "@1", "v(0,1)"))).toBeNull();
     expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
     expect(frame().dataset.tileDragging).toBe("idle");
+  });
+});
+
+describe("SurfaceLayout cross-tab tiles (foreign leaves)", () => {
+  const HOME = makeWindow({
+    windowId: "@3",
+    name: "api",
+    worktreePath: "/home/user/api",
+    gitRoot: "/home/user/api",
+    webTabs: ["http://localhost:3000"],
+    webActive: 1,
+  });
+  const foreignMaps = {
+    windowsById: new Map([["@3", HOME]]) as ReadonlyMap<string, WindowInfo>,
+    sessionNameByWindowId: new Map([["@3", "home-sess"]]) as ReadonlyMap<string, string>,
+  };
+  /** Latest TerminalClient props for mounts of the given window id. */
+  const terminalPropsFor = (id: string) =>
+    terminalSpy.mock.calls
+      .map(([p]) => p as Record<string, unknown>)
+      .filter((p) => p.windowId === id)
+      .at(-1);
+
+  it("a foreign tty tile opens its relay stream on the home window, isolated, with its own ws bucket", () => {
+    const wsRef: { current: WebSocket | null } = { current: null };
+    render(
+      <ToastProvider>
+        <SurfaceLayout
+          layout={layoutOf("h(tty,@3/tty)")}
+          server="srv"
+          windowId="@1"
+          sessionName="sess"
+          window={FULL_WINDOW}
+          isMobile={false}
+          wsRef={wsRef}
+          focusRef={{ current: null }}
+          scrollLocked={false}
+          onSessionNotFound={vi.fn()}
+          codeReachable
+          onClose={vi.fn()}
+          onApplyLayout={vi.fn()}
+          windowsById={foreignMaps.windowsById}
+          sessionNameByWindowId={foreignMaps.sessionNameByWindowId}
+        />
+      </ToastProvider>,
+    );
+    expect(screen.getByTestId("surface-tile-tty")).toBeTruthy();
+    expect(screen.getByTestId("surface-tile-tty-@3")).toBeTruthy();
+    const bare = terminalPropsFor("@1");
+    const foreign = terminalPropsFor("@3");
+    expect(bare?.isolate).toBe(false);
+    expect(bare?.sessionName).toBe("sess");
+    expect(bare?.wsRef).toBe(wsRef);
+    expect(foreign?.isolate).toBe(true);
+    expect(foreign?.sessionName).toBe("home-sess");
+    expect(foreign?.wsRef).not.toBe(wsRef);
+    // The shared-ref seams stay with the bare primary: no focusRef, no
+    // switch-receipt, no not-found redirect on the foreign mount.
+    expect(foreign?.focusRef).toBeUndefined();
+    expect(foreign?.switchReceiptSource).toBe(false);
+    expect(foreign?.onSessionNotFound).toBeUndefined();
+  });
+
+  it("the focused tty tile registers focus; a foreign tile registers with its own window/session/bucket", () => {
+    renderLayout({ layout: layoutOf("h(tty,@3/tty,web)"), ...foreignMaps });
+    // Default focus is the first leaf — the bare primary registers.
+    expect(terminalPropsFor("@1")?.registerFocus).toBe(true);
+    expect(terminalPropsFor("@3")?.registerFocus).toBe(false);
+
+    // Focus the foreign tile: registration flips to it.
+    fireEvent.pointerDown(screen.getByTestId("surface-tile-tty-@3"));
+    expect(terminalPropsFor("@3")?.registerFocus).toBe(true);
+    expect(terminalPropsFor("@1")?.registerFocus).toBe(false);
+
+    // Focus a non-tty tile: the primary bare tty holds the slot again.
+    fireEvent.pointerDown(screen.getByTestId("surface-tile-web"));
+    expect(terminalPropsFor("@1")?.registerFocus).toBe(true);
+    expect(terminalPropsFor("@3")?.registerFocus).toBe(false);
+  });
+
+  it("the primary tty is the first BARE tty even when a foreign tty leads reading order", () => {
+    const dock = <div data-testid="tty-dock">dock</div>;
+    renderLayout({ layout: layoutOf("h(@3/tty,tty)"), ttyDockContent: dock, ...foreignMaps });
+    const bareTile = screen.getByTestId("surface-tile-tty");
+    const foreignTile = screen.getByTestId("surface-tile-tty-@3");
+    // Find/export affordances and the dock live on the bare primary.
+    expect(within(bareTile).getByRole("button", { name: "Find in terminal" })).toBeTruthy();
+    expect(within(foreignTile).queryByRole("button", { name: "Find in terminal" })).toBeNull();
+    expect(within(bareTile).getByTestId("tty-dock")).toBeTruthy();
+    expect(within(foreignTile).queryByTestId("tty-dock")).toBeNull();
+    // The foreign tile's header names its home window's status dot record.
+    expect(terminalPropsFor("@3")?.focusRef).toBeUndefined();
+  });
+
+  it("a layout of only a foreign tty still mounts, registers focus, and hosts the dock", () => {
+    const dock = <div data-testid="tty-dock">dock</div>;
+    renderLayout({ layout: layoutOf("@3/tty"), ttyDockContent: dock, ...foreignMaps });
+    const foreignTile = screen.getByTestId("surface-tile-tty-@3");
+    const props = terminalPropsFor("@3");
+    expect(props?.isolate).toBe(true);
+    expect(props?.registerFocus).toBe(true);
+    // No bare tty exists — the strip docks in the foreign tile.
+    expect(within(foreignTile).getByTestId("tty-dock")).toBeTruthy();
+    expect(props?.wsRef).toBeDefined();
+  });
+
+  it("pane verbs target the TILE's window: the foreign tile splits/closes @3", () => {
+    const onSplitPane = vi.fn();
+    const onClosePane = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,@3/tty)"), onSplitPane, onClosePane, ...foreignMaps });
+    const foreignTile = screen.getByTestId("surface-tile-tty-@3");
+    fireEvent.click(within(foreignTile).getByRole("button", { name: "Split pane horizontally" }));
+    expect(onSplitPane).toHaveBeenCalledWith(true, "@3");
+    fireEvent.click(within(foreignTile).getByRole("button", { name: "Close pane" }));
+    expect(onClosePane).toHaveBeenCalledWith("@3");
+    const bareTile = screen.getByTestId("surface-tile-tty");
+    fireEvent.click(within(bareTile).getByRole("button", { name: "Split pane vertically" }));
+    expect(onSplitPane).toHaveBeenCalledWith(false, "@1");
+  });
+
+  it("zoom persists the foreign leaf's address id and restores it", () => {
+    renderLayout({ layout: layoutOf("h(tty,@3/tty)"), ...foreignMaps });
+    const foreignTile = screen.getByTestId("surface-tile-tty-@3");
+    fireEvent.click(within(foreignTile).getByRole("button", { name: "Expand Terminal" }));
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBe("@3/tty");
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(true);
+    expect(foreignTile.classList.contains("hidden")).toBe(false);
+    fireEvent.click(within(foreignTile).getByRole("button", { name: "Restore Terminal" }));
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBeNull();
+  });
+
+  it("a stored foreign zoom id resolves on mount; a dead kind clears", () => {
+    localStorage.setItem("rk-layout-zoom:srv:@1", "@3/tty");
+    renderLayout({ layout: layoutOf("h(tty,@3/tty)"), ...foreignMaps });
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(true);
+    expect(screen.getByTestId("surface-tile-tty-@3").classList.contains("hidden")).toBe(false);
+  });
+
+  describe("per-window progress slots", () => {
+    // Deterministic rAF (the progress describe's pattern): progress commits
+    // coalesce to one frame.
+    let rafCallbacks: Map<number, FrameRequestCallback>;
+    let nextRafId: number;
+    const realRaf = window.requestAnimationFrame;
+    const realCaf = window.cancelAnimationFrame;
+
+    beforeEach(() => {
+      rafCallbacks = new Map();
+      nextRafId = 1;
+      window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        const id = nextRafId++;
+        rafCallbacks.set(id, cb);
+        return id;
+      }) as typeof window.requestAnimationFrame;
+      window.cancelAnimationFrame = ((id: number) => {
+        rafCallbacks.delete(id);
+      }) as typeof window.cancelAnimationFrame;
+    });
+
+    afterEach(() => {
+      window.requestAnimationFrame = realRaf;
+      window.cancelAnimationFrame = realCaf;
+    });
+
+    function fireProgressFor(id: string, state: number, value: number) {
+      const props = terminalPropsFor(id) as {
+        onProgressChange?: (state: number, value: number) => void;
+      };
+      expect(props.onProgressChange).toBeTypeOf("function");
+      act(() => {
+        props.onProgressChange!(state, value);
+        for (const cb of [...rafCallbacks.values()]) cb(0);
+        rafCallbacks.clear();
+      });
+    }
+
+    it("a foreign tty's chip/line render on its own tile, never the route window's slot", () => {
+      renderLayout({ layout: layoutOf("h(tty,@3/tty)"), ...foreignMaps });
+      const bareTile = screen.getByTestId("surface-tile-tty");
+      const foreignTile = screen.getByTestId("surface-tile-tty-@3");
+
+      fireProgressFor("@3", 1, 42);
+      expect(within(foreignTile).getByTestId("progress-line")).toBeTruthy();
+      expect(within(foreignTile).getByTestId("progress-chip").textContent).toBe("42%");
+      expect(within(bareTile).queryByTestId("progress-line")).toBeNull();
+      expect(within(bareTile).queryByTestId("progress-chip")).toBeNull();
+
+      fireProgressFor("@1", 1, 7);
+      expect(within(bareTile).getByTestId("progress-chip").textContent).toBe("7%");
+      // The foreign slot is untouched by the route window's event.
+      expect(within(foreignTile).getByTestId("progress-chip").textContent).toBe("42%");
+    });
+  });
+
+  describe("foreign web tile (home window state)", () => {
+    type IframeProps = {
+      tabs?: string[];
+      active?: number;
+      onWriteUrl?: (url: string) => Promise<unknown>;
+      onSelectTab?: (n: number) => Promise<unknown>;
+      onAddTab?: (target: string) => Promise<{ index: number; existed: boolean }>;
+    };
+    const lastIframeProps = () => iframeSpy.mock.lastCall?.[0] as IframeProps;
+    const seedHomeEntry = () => {
+      useWindowStore.getState().setWindowsForSession("srv", "home-sess", [HOME]);
+    };
+    const storedHomeOverride = () =>
+      useWindowStore.getState().entries.get(entryKey("srv", "@3"))?.webOverride;
+
+    it("reads the home window's tab family and writes its options", async () => {
+      renderLayout({ layout: layoutOf("h(tty,@3/web)"), ...foreignMaps });
+      expect(screen.getByTestId("surface-tile-web-@3")).toBeTruthy();
+      const props = lastIframeProps();
+      expect(props.tabs).toEqual(["http://localhost:3000"]);
+      expect(props.active).toBe(1);
+      await act(async () => {
+        await props.onWriteUrl?.("http://localhost:4000/");
+      });
+      expect(apiSpy.setWindowOptions).toHaveBeenCalledWith("srv", "@3", {
+        "@rk_win_web_1": "http://localhost:4000/",
+      });
+      await act(async () => {
+        await props.onAddTab?.("http://localhost:5000");
+      });
+      expect(apiSpy.addWebTab).toHaveBeenCalledWith("srv", "@3", "http://localhost:5000");
+    });
+
+    it("select keys the optimistic override by the home window", async () => {
+      seedHomeEntry();
+      apiSpy.selectWebTab.mockReturnValue(new Promise(() => {}));
+      renderLayout({
+        layout: layoutOf("h(tty,@3/web)"),
+        ...foreignMaps,
+        windowsById: new Map([
+          ["@3", { ...HOME, webTabs: ["/a", "/b"], webActive: 1 }],
+        ]),
+      });
+      await act(async () => {
+        await lastIframeProps().onSelectTab?.(2);
+      });
+      expect(apiSpy.selectWebTab).toHaveBeenCalledWith("srv", "@3", 2);
+      expect(storedHomeOverride()).toEqual({ webActive: 2 });
+      expect(lastIframeProps().active).toBe(2);
+      // The route window's entry carries nothing.
+      expect(
+        useWindowStore.getState().entries.get(entryKey("srv", "@1"))?.webOverride,
+      ).toBeUndefined();
+    });
+  });
+
+  describe("foreign code tile (home window state)", () => {
+    const codeSrcForHome = (id: string) => (id === "@3" ? "/code/?workspace=/ws@3" : null);
+
+    it("resolves root and frame from the home window's record", () => {
+      renderLayout({
+        layout: layoutOf("h(tty,@3/code)"),
+        codeSrcFor: codeSrcForHome,
+        ...foreignMaps,
+      });
+      const tile = screen.getByTestId("surface-tile-code-@3");
+      // The header meta names the HOME window's code root basename.
+      expect(tile.textContent).toContain("api");
+      const props = codeSpy.mock.calls.at(-1)?.[0];
+      expect(props?.gitRoot).toBe("/home/user/api");
+      expect(props?.workspaceSrc).toBe("/code/?workspace=/ws@3");
+    });
+
+    it("the Follow verb reads the home window's drift and reports through the shared wrapper", async () => {
+      const onCodeFollowTerminal = vi.fn(() => Promise.resolve());
+      renderLayout({
+        layout: layoutOf("h(tty,@3/code)"),
+        codeSrcFor: codeSrcForHome,
+        codeRootForWindow: () => "/home/user/api",
+        windowsById: new Map([
+          ["@3", { ...HOME, codeRoot: "/latched/root", gitRoot: "/home/user/api" }],
+        ]),
+        sessionNameByWindowId: foreignMaps.sessionNameByWindowId,
+        onCodeFollowTerminal,
+      });
+      const tile = screen.getByTestId("surface-tile-code-@3");
+      const verb = within(tile).getByRole("button", { name: "Follow terminal" });
+      await act(async () => {
+        fireEvent.click(verb);
+      });
+      expect(onCodeFollowTerminal).toHaveBeenCalledWith("/home/user/api");
+    });
+
+    it("the borrowed code tile reuses the home window's retained frame across a route switch", () => {
+      const codeSrcForAll = (id: string) => `/code/?workspace=/ws${id}`;
+      const { rerender } = renderLayout({
+        layout: layoutOf("h(tty,code)"),
+        codeSrcFor: codeSrcForAll,
+        liveWindowIds: new Set(["@1", "@3"]),
+        ...foreignMaps,
+      });
+      const node1 = screen.getByTestId("mock-code");
+      // Switch to a route whose layout borrows @3's code surface — wait, @3's
+      // frame never existed; first build @3's frame by visiting @3's own tab.
+      rerender(
+        layoutElement({
+          layout: layoutOf("h(tty,code)"),
+          windowId: "@3",
+          codeSrcFor: codeSrcForAll,
+          liveWindowIds: new Set(["@1", "@3"]),
+          ...foreignMaps,
+        }),
+      );
+      const node3 = within(screen.getByTestId("surface-tile-code")).getByTestId("mock-code");
+      // Now borrow @3's code into @1: the visible tile is the SAME frame node.
+      rerender(
+        layoutElement({
+          layout: layoutOf("h(tty,@3/code)"),
+          windowId: "@1",
+          codeSrcFor: codeSrcForAll,
+          liveWindowIds: new Set(["@1", "@3"]),
+          ...foreignMaps,
+        }),
+      );
+      const borrowed = within(screen.getByTestId("surface-tile-code-@3")).getByTestId("mock-code");
+      expect(borrowed).toBe(node3);
+      expect(node1.isConnected).toBe(true);
+    });
+  });
+});
+
+describe("SurfaceLayout away placeholder (home slot of a borrowed surface)", () => {
+  const HOLDER = makeWindow({ windowId: "@3", name: "api" });
+  const ROUTE = makeWindow({
+    windowId: "@1",
+    name: "editor",
+    agentState: "active",
+    awayIn: { tty: "@3" },
+  });
+  const awayMaps = {
+    windowsById: new Map([
+      ["@1", ROUTE],
+      ["@3", HOLDER],
+    ]) as ReadonlyMap<string, WindowInfo>,
+    sessionNameByWindowId: new Map([["@3", "home-sess"]]) as ReadonlyMap<string, string>,
+  };
+
+  it("an away bare leaf renders the placeholder with message, verbs, and the status dot — and mounts NO terminal", () => {
+    const onSendHome = vi.fn();
+    const onGoToWindow = vi.fn();
+    const onClose = vi.fn();
+    renderLayout({
+      layout: layoutOf("h(tty,web)"),
+      statusWindow: ROUTE,
+      onSendHome,
+      onGoToWindow,
+      onClose,
+      ...awayMaps,
+    });
+    const tile = screen.getByTestId("surface-tile-tty");
+    const placeholder = within(tile).getByTestId("surface-placeholder");
+    expect(placeholder.textContent).toContain("Terminal is in tab api");
+    // The tty status dot reads the route window's record, as the sidebar row
+    // shows it.
+    expect(within(placeholder).getByRole("img")).toBeTruthy();
+    // The surface is not mounted — no relay stream for the away tty.
+    expect(screen.queryByTestId("mock-terminal")).toBeNull();
+    expect(screen.getByTestId("mock-iframe")).toBeTruthy();
+
+    fireEvent.click(within(placeholder).getByRole("button", { name: "bring back" }));
+    expect(onSendHome).toHaveBeenCalledWith("@3", "@1/tty");
+    fireEvent.click(within(placeholder).getByRole("button", { name: "go to api" }));
+    expect(onGoToWindow).toHaveBeenCalledWith("@3");
+    fireEvent.click(within(placeholder).getByRole("button", { name: "Close Terminal" }));
+    expect(onClose).toHaveBeenCalledWith("tty");
+  });
+
+  it("a sole-leaf placeholder fills the tab and hides its ✕", () => {
+    renderLayout({ layout: layoutOf("tty"), statusWindow: ROUTE, ...awayMaps });
+    const placeholder = screen.getByTestId("surface-placeholder");
+    expect(placeholder.textContent).toContain("Terminal is in tab api");
+    expect(within(placeholder).queryByRole("button", { name: "Close Terminal" })).toBeNull();
+    expect(within(placeholder).getByRole("button", { name: "bring back" })).toBeTruthy();
+    expect(screen.queryByTestId("mock-terminal")).toBeNull();
+  });
+
+  it("mobile renders the placeholder when the shown slot is away", () => {
+    renderLayout({
+      layout: layoutOf("h(tty,web)"),
+      isMobile: true,
+      mobileActiveSlot: 0,
+      statusWindow: ROUTE,
+      ...awayMaps,
+    });
+    expect(screen.getByTestId("surface-placeholder").textContent).toContain(
+      "Terminal is in tab api",
+    );
+    expect(screen.queryByTestId("mock-terminal")).toBeNull();
+  });
+
+  it("a dead holder renders the surface live again (awayIn is stale)", () => {
+    renderLayout({
+      layout: layoutOf("h(tty,web)"),
+      windowsById: new Map([["@1", ROUTE]]),
+    });
+    expect(screen.queryByTestId("surface-placeholder")).toBeNull();
+    expect(screen.getByTestId("mock-terminal")).toBeTruthy();
+  });
+});
+
+describe("SurfaceLayout ↩ send-home header button (foreign tiles)", () => {
+  const HOME = makeWindow({ windowId: "@3", name: "api" });
+  const maps = {
+    windowsById: new Map([["@3", HOME]]) as ReadonlyMap<string, WindowInfo>,
+    sessionNameByWindowId: new Map([["@3", "home-sess"]]) as ReadonlyMap<string, string>,
+  };
+
+  it("shows ↩ only on a foreign tile, names the home tab, and sends the leaf home from the route window", () => {
+    const onSendHome = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,@3/tty)"), onSendHome, ...maps });
+    const foreignTile = screen.getByTestId("surface-tile-tty-@3");
+    // The header identifies the home tab.
+    expect(within(foreignTile).getByTestId("tile-home").textContent).toBe("api");
+    const verb = within(foreignTile).getByRole("button", { name: "Send Terminal back to api" });
+    expect(verb).toHaveProperty("disabled", false);
+    fireEvent.click(verb);
+    expect(onSendHome).toHaveBeenCalledWith("@1", "@3/tty");
+    // Bare leaves carry no ↩ and no home chip.
+    const bareTile = screen.getByTestId("surface-tile-tty");
+    expect(within(bareTile).queryByRole("button", { name: /Send .* back to/ })).toBeNull();
+    expect(within(bareTile).queryByTestId("tile-home")).toBeNull();
+  });
+
+  it("disables ↩ while the home window is dead (not in the window map)", () => {
+    renderLayout({
+      layout: layoutOf("h(tty,@3/tty)"),
+      onSendHome: vi.fn(),
+      windowsById: new Map(),
+    });
+    const foreignTile = screen.getByTestId("surface-tile-tty-@3");
+    expect(
+      within(foreignTile).getByRole("button", { name: "Send Terminal back to @3" }),
+    ).toHaveProperty("disabled", true);
+  });
+});
+
+describe("SurfaceLayout sidebar row-drag borrow (drop-catcher)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    stubMatchMedia(() => false);
+  });
+
+  const WINDOW_DRAG_MIME = "application/x-window-drag";
+
+  /** A minimal mutable dataTransfer bag (the boards-section test's shape). */
+  function makeDataTransfer() {
+    const store = new Map<string, string>();
+    const types: string[] = [];
+    return {
+      setData: (type: string, data: string) => {
+        store.set(type, data);
+        if (!types.includes(type)) types.push(type);
+      },
+      getData: (type: string) => store.get(type) ?? "",
+      get types() {
+        return types;
+      },
+      dropEffect: "none",
+      effectAllowed: "copyMove",
+    };
+  }
+
+  function makeRowDrag(overrides: Partial<{
+    server: string;
+    session: string;
+    index: number;
+    windowId: string;
+    name: string;
+  }> = {}) {
+    const dt = makeDataTransfer();
+    const payload = {
+      server: "srv",
+      session: "sess",
+      index: 1,
+      windowId: "@3",
+      name: "api",
+      ...overrides,
+    };
+    dt.setData("application/json", JSON.stringify(payload));
+    dt.setData(WINDOW_DRAG_MIME, payload.windowId);
+    return dt;
+  }
+
+  /** jsdom has no DragEvent constructor — a plain bubbling Event with the
+   *  dataTransfer/coordinates defined reaches both the native window
+   *  listeners (dragstart/dragend) and React's root-registered dragover/drop. */
+  function fireDrag(target: Element | Window, type: string, dt: object, x = 0, y = 0) {
+    const ev = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, "dataTransfer", { value: dt });
+    Object.defineProperty(ev, "clientX", { value: x });
+    Object.defineProperty(ev, "clientY", { value: y });
+    act(() => {
+      target.dispatchEvent(ev);
+    });
+  }
+
+  const startRowDrag = (dt: object) => fireDrag(document.body, "dragstart", dt);
+
+  it("a window-row drag arms the catcher with the mid-drag seam; a tile-edge drop borrows @3/tty", () => {
+    measureGrid(1200, 800);
+    const onBorrowDrop = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,web)"), onBorrowDrop });
+    expect(screen.queryByTestId("row-drop-catcher")).toBeNull();
+
+    startRowDrag(makeRowDrag());
+    const catcher = screen.getByTestId("row-drop-catcher");
+    // The mid-drag seam: the native web engine's posture flips to move.
+    expect(screen.getByTestId("mock-iframe").dataset.tileDragging).toBe("move");
+    expect(onBorrowDrop).not.toHaveBeenCalled();
+
+    // The tty tile is the left half (0..597); its right-edge band is a split
+    // zone — the overlay previews the result tree with the borrowed tile.
+    fireDrag(catcher, "dragover", makeRowDrag(), 590, 400);
+    expect(screen.getByTestId("tile-drop-overlay")).toBeTruthy();
+    expect(screen.getByTestId("tile-drop-dest").textContent).toContain("Terminal");
+
+    fireDrag(catcher, "drop", makeRowDrag(), 590, 400);
+    expect(onBorrowDrop).toHaveBeenCalledTimes(1);
+    const [addr, tree] = onBorrowDrop.mock.calls[0] as [string, Layout];
+    expect(addr).toBe("@3/tty");
+    expect(serializeLayoutTree(tree)).toBe("h(tty,@3/tty,web)");
+    // Sizes went down under the result's structure signature, and the
+    // catcher/preview are gone after the drop.
+    expect(
+      localStorage.getItem(sizesStorageKey("srv", "@1", "h(0,1,2)")),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("row-drop-catcher")).toBeNull();
+    expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
+    expect(screen.getByTestId("mock-iframe").dataset.tileDragging).toBe("idle");
+  });
+
+  it("dragend without a drop disarms the catcher and writes nothing", () => {
+    measureGrid(1200, 800);
+    const onBorrowDrop = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,web)"), onBorrowDrop });
+    startRowDrag(makeRowDrag());
+    expect(screen.getByTestId("row-drop-catcher")).toBeTruthy();
+    fireDrag(window, "dragend", makeRowDrag());
+    expect(screen.queryByTestId("row-drop-catcher")).toBeNull();
+    expect(onBorrowDrop).not.toHaveBeenCalled();
+  });
+
+  it("a center-zone hover previews 'no change' and the drop writes nothing", () => {
+    measureGrid(1200, 800);
+    const onBorrowDrop = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,web)"), onBorrowDrop });
+    const dt = makeRowDrag();
+    startRowDrag(dt);
+    const catcher = screen.getByTestId("row-drop-catcher");
+    // (300, 400) is the tty tile's center — a no-op zone for external leaves.
+    fireDrag(catcher, "dragover", dt, 300, 400);
+    expect(screen.getByTestId("tile-drop-noop").textContent).toBe("No change");
+    fireDrag(catcher, "drop", dt, 300, 400);
+    expect(onBorrowDrop).not.toHaveBeenCalled();
+  });
+
+  it("refused drops preview 'no change': the route window's own row, an address already in the layout, a cross-server drag", () => {
+    measureGrid(1200, 800);
+    const onBorrowDrop = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,web)"), onBorrowDrop });
+
+    // The route window's own row.
+    let dt = makeRowDrag({ windowId: "@1", name: "editor" });
+    startRowDrag(dt);
+    fireDrag(screen.getByTestId("row-drop-catcher"), "dragover", dt, 590, 400);
+    expect(screen.getByTestId("tile-drop-noop").textContent).toBe("No change");
+    fireDrag(screen.getByTestId("row-drop-catcher"), "drop", dt, 590, 400);
+    expect(onBorrowDrop).not.toHaveBeenCalled();
+
+    // A cross-server row.
+    dt = makeRowDrag({ server: "other" });
+    startRowDrag(dt);
+    fireDrag(screen.getByTestId("row-drop-catcher"), "dragover", dt, 590, 400);
+    expect(screen.getByTestId("tile-drop-noop").textContent).toBe("No change");
+    fireDrag(window, "dragend", dt);
+    expect(onBorrowDrop).not.toHaveBeenCalled();
+  });
+
+  it("refuses a row whose @N/tty is already in the layout", () => {
+    measureGrid(1200, 800);
+    const onBorrowDrop = vi.fn();
+    renderLayout({
+      layout: layoutOf("h(tty,@3/tty)"),
+      onBorrowDrop,
+      windowsById: new Map([["@3", makeWindow({ windowId: "@3", name: "api" })]]),
+      sessionNameByWindowId: new Map([["@3", "home-sess"]]),
+    });
+    const dt = makeRowDrag();
+    startRowDrag(dt);
+    fireDrag(screen.getByTestId("row-drop-catcher"), "dragover", dt, 590, 400);
+    expect(screen.getByTestId("tile-drop-noop").textContent).toBe("No change");
+    fireDrag(screen.getByTestId("row-drop-catcher"), "drop", dt, 590, 400);
+    expect(onBorrowDrop).not.toHaveBeenCalled();
+  });
+
+  it("ignores drags that are not window rows (no catcher)", () => {
+    measureGrid(1200, 800);
+    renderLayout({ layout: layoutOf("h(tty,web)") });
+    const dt = makeDataTransfer();
+    dt.setData("application/json", JSON.stringify({ server: "srv", windowId: "@3" }));
+    startRowDrag(dt);
+    expect(screen.queryByTestId("row-drop-catcher")).toBeNull();
   });
 });

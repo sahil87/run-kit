@@ -150,6 +150,8 @@ Every tmux invocation goes through `internal/tmux` on the explicit server socket
 
 Split-order fidelity has a stated limit: `select-layout` maps panes to layout cells **positionally**, so a window whose original panes were created in a different split order can see panes occupy different cells than they originally did. Each pane's cwd and former command stay with the pane, not the cell.
 
+A stored `@rk_win_layout` is reapplied **verbatim** and does not run the live-in-one-place check — a surface borrowed into another tab at snapshot time restores as borrowed even when the holder's state has since drifted. Accepted limitation of a user-initiated restore of past state ([ui/lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § Surface Layout → Tiles from other tabs).
+
 #### Scenario: No process is ever relaunched
 - **GIVEN** a tombstoned snapshot whose panes recorded long-running commands
 - **WHEN** `rk mux snapshot restore <server>` runs

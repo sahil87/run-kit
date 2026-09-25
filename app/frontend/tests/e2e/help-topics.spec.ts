@@ -11,8 +11,11 @@
  * menu path, `help-palette-<ts>` for the palette path — each needs a window
  * whose layout starts at the bare `tty` default (the option unset) with no
  * web tabs — and `help-full-<ts>`
- * for the full-layout fallback, whose `@rk_win_layout` the test seeds to
- * three tty tiles before navigating); `afterAll` kills the session. `beforeEach` route-stubs `https://shll.ai/**` with a
+ * for the cannot-grow fallback, whose `@rk_win_layout` the test seeds to
+ * nine tty ROWS before navigating — at the default desktop viewport every
+ * row is under the 100px height floor once split, so no add fits and the
+ * layout refuses to grow (the size floor, not a tile count, gates adds));
+ * `afterAll` kills the session. `beforeEach` route-stubs `https://shll.ai/**` with a
  * static 200 page so the web tile's iframe never reaches the network (the
  * specs assert the stored tab and the layout, never remote content) and
  * replaces `window.open` with a recorder on `window.__openedUrls` so the
@@ -31,7 +34,11 @@ const TEST_SESSION = `e2e-help-${STAMP}`;
 const MENU_WINDOW = `help-menu-${STAMP}`;
 const PALETTE_WINDOW = `help-palette-${STAMP}`;
 const FULL_WINDOW = `help-full-${STAMP}`;
-const FULL_LAYOUT = "h(tty,v(tty,tty))";
+// Nine bare tty rows: at the default 1280×720 viewport each row is ~70px
+// tall, so splitting any tile (a row split keeps its height) lands under the
+// 100px floor and every add is refused — the cannot-grow state the fallback
+// test needs. Repeated bare tty is legal.
+const FULL_LAYOUT = `v(${Array.from({ length: 9 }, () => "tty").join(",")})`;
 
 const CRON_URL = "https://shll.ai/run-kit/cron-schedule-kinds/";
 const BOARDS_URL = "https://shll.ai/run-kit/boards/";
@@ -208,7 +215,8 @@ test.describe("Help topics", () => {
   });
 
   /**
-   * Proves: on a terminal route whose layout already holds three tiles and no
+   * Proves: on a terminal route whose layout cannot grow (every tile split
+   * breaks the size floor — nine tty rows at this viewport) and which has no
    * web surface, opening a topic still stores it as a web tab but performs
    * NO layout write and opens the page in a browser tab instead — and that
    * browser tab opens synchronously from the click, before the add request
@@ -216,17 +224,18 @@ test.describe("Help topics", () => {
    * blockers swallow it).
    *
    * Steps:
-   * 1. Seed the full window's `@rk_win_layout` to `h(tty,v(tty,tty))` — the
-   *    tree form of the legacy main-left seed (duplicate tty tiles are legal)
-   *    — and navigate to it; assert no web tab.
+   * 1. Seed the full window's `@rk_win_layout` to the nine-row all-tty tree
+   *    (no split fits the 150×100 px floor in this viewport, so adding a web
+   *    tile is refused — the floor gates adds, not a tile count) and navigate
+   *    to it; assert no web tab.
    * 2. Hold the `POST /api/windows/{id}/web` add request open.
    * 3. Open the menu, expand `Help topics`, click `Cron schedule kinds`;
    *    assert `window.open` recorded the topic URL while the add request is
    *    still pending.
    * 4. Release the request; poll tmux: `@rk_win_web_1` equals the topic URL
-   *    and `@rk_win_layout` is unchanged at the three-tile value.
+   *    and `@rk_win_layout` is unchanged at the seeded value.
    */
-  test("full three-tile layout keeps the tab, skips the layout write, and opens a browser tab synchronously", async ({ page }) => {
+  test("a layout that cannot grow keeps the tab, skips the layout write, and opens a browser tab synchronously", async ({ page }) => {
     const id = await resolveWindow(page, FULL_WINDOW);
     setWindowOption(id, "@rk_win_layout", FULL_LAYOUT);
     expect(windowOption(id, "@rk_win_web_1")).toBe("");

@@ -13,6 +13,9 @@
  * removing first can collapse the target's parent), remove the dragged leaf,
  * normalise — covering center swaps, tile-edge splits, and layout-edge spans
  * (a root drop wraps at path [], so the dragged tile takes 50 % of that axis).
+ * An EXTERNAL leaf — one not yet in the tree, passed as a full `LayoutLeaf`
+ * instead of an id — runs the insert half only (wrap with the new leaf,
+ * normalise) and treats the center zone as a no-op.
  *
  * Sizes ride along: the resolver runs on the tree with the viewer's effective
  * sizes attached (`attachSizes`), so a drop carries fractions through the
@@ -30,6 +33,7 @@ import {
   insertBeside,
   isLeaf,
   isSplit,
+  leafAddress,
   leafIds,
   layoutRects,
   normalise,
@@ -138,13 +142,17 @@ export type DropHit =
  * leaf rects: null outside the box or in a gutter; a `root` hit in a
  * layout-edge band (winning over tile bands); `self` over the dragged tile's
  * own rect; otherwise the center/edge zone of the tile under the point.
+ * `dragged` is the dragged leaf's id, or the full `LayoutLeaf` for an
+ * external leaf not yet in the tree — its address is no rect key, so an
+ * external drag never hits `self`.
  */
 export function hitTest(
   rects: Map<string, Rect>,
   box: Rect,
   point: DropPoint,
-  draggedId: string,
+  dragged: string | LayoutLeaf,
 ): DropHit | null {
+  const draggedId = typeof dragged === "string" ? dragged : leafAddress(dragged);
   if (point.x < box.x || point.x > box.x + box.w || point.y < box.y || point.y > box.y + box.h) {
     return null;
   }
@@ -225,8 +233,13 @@ function rootDestHalf(split: LayoutSplit, destIndex: number): LayoutSplit {
 }
 
 /**
- * Resolve a drop to its outcome. Center hits swap (sizes stay with
- * POSITIONS). Edge and root hits run the generic edit on the sizes-attached
+ * Resolve a drop to its outcome. `dragged` is the dragged leaf's id for an
+ * internal drag (a leaf already in the tree — behaviour unchanged), or the
+ * full `LayoutLeaf` for an EXTERNAL leaf not yet in the tree (a sidebar-row
+ * borrow): center hits are `noop` there, and edge/root hits run the generic
+ * edit's insert half with no removal. Internal center hits swap (sizes stay
+ * with POSITIONS). Edge and root hits run the generic edit on the
+ * sizes-attached
  * tree: wrap the target (path [] for a layout edge) in a split on the side's
  * axis with a CLONE of the dragged leaf at 50/50 inside the wrap (the wrap
  * takes the target's share), remove the original dragged leaf (its share
@@ -242,11 +255,13 @@ function rootDestHalf(split: LayoutSplit, destIndex: number): LayoutSplit {
 export function resolveDrop(
   tree: LayoutNode,
   sizes: LayoutSizes | undefined,
-  draggedId: string,
+  dragged: string | LayoutLeaf,
   hit: DropHit | null,
   box: Rect,
 ): DropResult {
   if (hit === null || hit.kind === "self") return { kind: "cancel" };
+  if (typeof dragged !== "string") return resolveExternalDrop(tree, sizes, dragged, hit, box);
+  const draggedId = dragged;
   const ids = leafIds(tree);
   if (!ids.includes(draggedId)) return { kind: "cancel" };
 
@@ -270,8 +285,9 @@ export function resolveDrop(
     if (!isLeaf(draggedNode)) return { kind: "cancel" };
     // Insert MUST precede remove: removing first breaks when the removal
     // collapses the target's parent. The clone IS the placeholder — tracked
-    // by identity, so no sentinel value ever escapes the resolver.
-    const clone: LayoutLeaf = { leaf: draggedNode.leaf };
+    // by identity, so no sentinel value ever escapes the resolver — and it
+    // carries the whole leaf (a foreign leaf keeps its home).
+    const clone: LayoutLeaf = { ...draggedNode };
     const wrapped = insertBeside(sized, targetPath, hit.side, clone);
     const originalPath = pathOfNode(wrapped, draggedNode);
     if (originalPath === null) return { kind: "cancel" };
@@ -298,6 +314,41 @@ export function resolveDrop(
   }
 
   if (serializeLayoutTree(resultTree) === serializeLayoutTree(tree)) return { kind: "noop" };
+  const resultRects = layoutRects(resultTree, box, resultSizes, SPLIT_GAP_PX);
+  for (const rect of resultRects.values()) {
+    if (rect.w < MIN_TILE_W || rect.h < MIN_TILE_H) return { kind: "too-small" };
+  }
+  return { kind: "move", tree: resultTree, sizes: resultSizes, destId };
+}
+
+/**
+ * The external-leaf half of `resolveDrop`: `leaf` is NOT in the tree, so the
+ * edit is the generic one's insert half — wrap the target (path [] for a
+ * layout edge) with the new leaf at 50/50 and normalise. With no removal
+ * following, a same-axis root merge already leaves the new leaf at half the
+ * axis (survivors split the rest in proportion), so no fraction restore is
+ * needed. The inserted object rides insertBeside/stripSizes by reference, so
+ * its result id is its reading-order index. Center is a `noop` by contract
+ * (only edge zones insert); the floor rule is the internal path's. An
+ * already-present address is the caller's refusal, not the resolver's.
+ */
+function resolveExternalDrop(
+  tree: LayoutNode,
+  sizes: LayoutSizes | undefined,
+  leaf: LayoutLeaf,
+  hit: Exclude<DropHit, { kind: "self" }>,
+  box: Rect,
+): DropResult {
+  if (hit.kind === "center") return { kind: "noop" };
+  const sized = attachSizes(tree, sizes);
+  const targetPath = hit.kind === "root" ? [] : pathOf(sized, hit.targetId);
+  if (targetPath === null) return { kind: "cancel" };
+  const inserted = insertBeside(sized, targetPath, hit.side, leaf);
+  const resultSizes = extractSizes(inserted);
+  const resultTree = stripSizes(inserted);
+  const destPath = pathOfNode(inserted, leaf);
+  if (destPath === null) return { kind: "cancel" };
+  const destId = leafIds(resultTree)[leafIndexAtPath(inserted, destPath)];
   const resultRects = layoutRects(resultTree, box, resultSizes, SPLIT_GAP_PX);
   for (const rect of resultRects.values()) {
     if (rect.w < MIN_TILE_W || rect.h < MIN_TILE_H) return { kind: "too-small" };

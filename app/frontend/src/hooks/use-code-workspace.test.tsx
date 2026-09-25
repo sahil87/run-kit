@@ -138,6 +138,7 @@ describe("useCodeWorkspace — follow rule", () => {
         src: codeServerWorkspaceSrc(newPath),
         nonce: 1,
         root: "/other",
+        windowId: "@7",
       }),
     );
     // A second navigation bumps the nonce — each follow is a fresh license.
@@ -174,6 +175,7 @@ describe("useCodeWorkspace — follow rule", () => {
         src: codeServerSrc("/other"),
         nonce: 1,
         root: "/other",
+        windowId: "@7",
       }),
     );
     expect(warn).toHaveBeenCalledTimes(1);

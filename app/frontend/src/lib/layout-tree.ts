@@ -3,11 +3,13 @@
  * docs/specs/surface-layout.md § The Model).
  *
  * The terminal route's center layout is a CANONICAL SPLIT TREE stored in the
- * `@rk_win_layout` window option: a leaf is a surface kind, a split is a
- * direction (`h` = children left→right, `v` = top→bottom) with ≥2 children,
- * and a child split never has its parent's direction (one encoding per
- * arrangement). The legacy `<shape>:<a>,<b>[,<c>]` preset strings parse into
- * their trees permanently; writers ALWAYS emit the tree form.
+ * `@rk_win_layout` window option: a leaf is a surface kind — bare (`tty`,
+ * `web`, `code`, `gui`) for this window's own surfaces, or a foreign address
+ * `@<N>/<kind>` tiling another window's surface on the same server — a split
+ * is a direction (`h` = children left→right, `v` = top→bottom) with ≥2
+ * children, and a child split never has its parent's direction (one encoding
+ * per arrangement). The legacy `<shape>:<a>,<b>[,<c>]` preset strings parse
+ * into their trees permanently; writers ALWAYS emit the tree form.
  *
  * Trees carry no sizes in their serialized form — divider positions are
  * per-viewer localStorage keyed by structure signature, and template trees
@@ -34,6 +36,17 @@ export type SplitDir = "h" | "v";
 
 export interface LayoutLeaf {
   leaf: SurfaceKind;
+  /**
+   * The owning window of a foreign tile, e.g. `"@12"` — absent for the
+   * layout's own surfaces. Serialized as the `@12/<kind>` address.
+   */
+  home?: string;
+  /**
+   * The `/<n>` surface instance. Grammar-only: the tokenizer recognises the
+   * suffix so the grammar stays forward-compatible, and canonical validation
+   * rejects any leaf carrying one (v1 tiles one instance per surface).
+   */
+  n?: number;
 }
 
 export interface LayoutSplit {
@@ -73,18 +86,16 @@ export const TEMPLATE_MAIN_FRACTION = 0.58;
 /** Fallback geometry for callers with no measured rects (mobile, the CLI). */
 export const NOMINAL_BOX: Rect = { x: 0, y: 0, w: 1600, h: 1000 };
 
-/** Tile-count cap; the size floor that replaces it is a later change. */
-export const MAX_TILES = 3;
-
 /**
  * Input byte cap enforced BEFORE parsing: `parseTreeGrammar`'s recursion
  * depth is bounded by `raw.length / 2` (each level consumes ≥2 chars), so the
  * cap keeps a hostile or hand-written deep tree from overflowing the call
- * stack — the parse degrades to `null` (the tty fallback) instead. A
- * canonical tree over the four surface kinds is ≤ 17 chars; legacy presets
- * stay under 30.
+ * stack — the parse degrades to `null` (the tty fallback) instead. Sized for
+ * foreign address leaves (`@12/tty` runs 7–11 chars): an all-bare tree over
+ * the four surface kinds is ≤ 17 chars and legacy presets stay under 30, but
+ * cross-tab trees run longer.
  */
-export const MAX_LAYOUT_LEN = 128;
+export const MAX_LAYOUT_LEN = 512;
 
 const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "code", "gui"];
 
@@ -98,6 +109,30 @@ export function isLeaf(node: LayoutNode): node is LayoutLeaf {
 
 export function isSplit(node: LayoutNode): node is LayoutSplit {
   return !isLeaf(node);
+}
+
+/** A foreign leaf tiles another window's surface; a bare leaf (`home`
+ *  absent) tiles the layout's own window. */
+export function isForeignLeaf(leaf: LayoutLeaf): leaf is LayoutLeaf & { home: string } {
+  return leaf.home !== undefined;
+}
+
+/** The leaf's address string: `@12/tty` for a foreign leaf, the bare kind
+ *  otherwise. */
+export function leafAddress(leaf: LayoutLeaf): string {
+  return leaf.home !== undefined ? `${leaf.home}/${leaf.leaf}` : leaf.leaf;
+}
+
+/**
+ * Parse a foreign-leaf address (`@12/tty`) into its home window and kind.
+ * Returns null for bare kinds, malformed addresses, unknown kinds, and
+ * `/<n>`-suffixed forms — the grammar-level half of the leaf rules; the
+ * foreign-`gui` rejection lives in validation, not here.
+ */
+export function parseLeafAddress(raw: string): { home: string; kind: SurfaceKind } | null {
+  const m = /^@([0-9]+)\/([a-z]+)$/.exec(raw);
+  if (m === null || !isSurfaceKind(m[2])) return null;
+  return { home: `@${m[1]}`, kind: m[2] };
 }
 
 function leaf(kind: SurfaceKind): LayoutLeaf {
@@ -173,21 +208,39 @@ export function leaves(node: LayoutNode): SurfaceKind[] {
   return node.children.flatMap(leaves);
 }
 
+/** The leaf nodes in reading order (depth-first, left-to-right). */
+function leafNodes(node: LayoutNode): LayoutLeaf[] {
+  if (isLeaf(node)) return [node];
+  return node.children.flatMap(leafNodes);
+}
+
+/** The BARE leaves' kinds in reading order — foreign leaves (`@N/<kind>`)
+ *  don't count: a bare kind and a foreign leaf of it coexist. */
+export function bareLeaves(node: LayoutNode): SurfaceKind[] {
+  return leafNodes(node)
+    .filter((l) => !isForeignLeaf(l))
+    .map((l) => l.leaf);
+}
+
 /**
- * Stable per-leaf ids in reading order: the kind itself for a unique kind;
- * duplicate kinds (only `tty` can repeat) are `tty`, `tty#2`, … by
- * occurrence.
+ * Stable per-leaf ids in reading order: a foreign leaf's id is its address
+ * string (`@12/tty`); a bare leaf's id is the kind itself for a unique bare
+ * kind, with duplicate bare kinds (only `tty` can repeat) numbered `tty`,
+ * `tty#2`, … by occurrence among the bare leaves.
  */
 export function leafIds(node: LayoutNode): string[] {
-  const kinds = leaves(node);
-  const totals = new Map<SurfaceKind, number>();
-  for (const k of kinds) totals.set(k, (totals.get(k) ?? 0) + 1);
+  const list = leafNodes(node);
+  const bareTotals = new Map<SurfaceKind, number>();
+  for (const l of list) {
+    if (!isForeignLeaf(l)) bareTotals.set(l.leaf, (bareTotals.get(l.leaf) ?? 0) + 1);
+  }
   const seen = new Map<SurfaceKind, number>();
-  return kinds.map((k) => {
-    if (totals.get(k) === 1) return k;
-    const n = (seen.get(k) ?? 0) + 1;
-    seen.set(k, n);
-    return n === 1 ? k : `${k}#${n}`;
+  return list.map((l) => {
+    if (isForeignLeaf(l)) return leafAddress(l);
+    if (bareTotals.get(l.leaf) === 1) return l.leaf;
+    const n = (seen.get(l.leaf) ?? 0) + 1;
+    seen.set(l.leaf, n);
+    return n === 1 ? l.leaf : `${l.leaf}#${n}`;
   });
 }
 
@@ -195,20 +248,34 @@ export function leafIds(node: LayoutNode): string[] {
 
 /**
  * Canonical-form validation: ≥2 children per split, no child split with its
- * parent's direction, 1..maxLeaves leaves, no repeated non-tty kind, and any
- * explicit sizes matching their split's child count.
+ * parent's direction, and any explicit sizes matching their split's child
+ * count. Leaf rules: no repeated bare non-tty kind (duplicate bare `tty`
+ * tiles are legal — muxed relay); a bare kind and a foreign leaf of the same
+ * kind MAY coexist. Foreign-leaf rules: no foreign `gui` (one desktop per
+ * host), no repeated address, no `/<n>` suffix on any leaf (grammar-only in
+ * v1), and — only when `owner` names the window holding the layout — no
+ * foreign leaf naming the owning window. There is no leaf-count cap: tree
+ * size is bounded by MAX_LAYOUT_LEN before parsing and by the per-viewport
+ * size floor at offer time.
  */
-export function isCanonicalTree(
-  node: LayoutNode,
-  maxLeaves: number = MAX_TILES,
-): boolean {
-  const kinds = leaves(node);
-  if (kinds.length < 1 || kinds.length > maxLeaves) return false;
-  const seen = new Set<SurfaceKind>();
-  for (const k of kinds) {
-    if (k === "tty") continue; // duplicate tty tiles are legal (muxed relay)
-    if (seen.has(k)) return false;
-    seen.add(k);
+export function isCanonicalTree(node: LayoutNode, owner?: string): boolean {
+  const list = leafNodes(node);
+  if (list.length === 0) return false;
+  const bareSeen = new Set<SurfaceKind>();
+  const addresses = new Set<string>();
+  for (const l of list) {
+    if (l.n !== undefined) return false;
+    if (isForeignLeaf(l)) {
+      if (l.leaf === "gui") return false;
+      if (owner !== undefined && l.home === owner) return false;
+      const address = leafAddress(l);
+      if (addresses.has(address)) return false;
+      addresses.add(address);
+      continue;
+    }
+    if (l.leaf === "tty") continue; // duplicate bare tty tiles are legal (muxed relay)
+    if (bareSeen.has(l.leaf)) return false;
+    bareSeen.add(l.leaf);
   }
   const walk = (n: LayoutNode, parentDir: SplitDir | null): boolean => {
     if (isLeaf(n)) return true;
@@ -222,6 +289,14 @@ export function isCanonicalTree(
 
 function parseTreeGrammar(raw: string): LayoutNode | null {
   let i = 0;
+  const readDigits = (): string | null => {
+    let j = i;
+    while (j < raw.length && raw[j] >= "0" && raw[j] <= "9") j++;
+    if (j === i) return null;
+    const digits = raw.slice(i, j);
+    i = j;
+    return digits;
+  };
   const parseNode = (): LayoutNode | null => {
     const ch = raw[i];
     if (ch === "h" || ch === "v") {
@@ -245,13 +320,35 @@ function parseTreeGrammar(raw: string): LayoutNode | null {
       return { dir, children };
     }
     // No surface kind is a prefix of another, and a leaf must be followed by
-    // a delimiter or the end of input.
+    // a delimiter or the end of input. A foreign leaf opens with
+    // `@<digits>/`; the optional `/<n>` suffix tokenizes on both forms and is
+    // rejected by canonical validation (grammar-only in v1). `-L <srv>` and
+    // `=<session>:` qualifiers carry characters this grammar has no token
+    // for, so they fail here.
+    let home: string | undefined;
+    if (ch === "@") {
+      i++;
+      const digits = readDigits();
+      if (digits === null || raw[i] !== "/") return null;
+      home = `@${digits}`;
+      i++;
+    }
     for (const kind of SURFACE_KINDS) {
       if (!raw.startsWith(kind, i)) continue;
       const next = raw[i + kind.length];
-      if (next !== undefined && next !== "," && next !== ")") return null;
+      if (next !== undefined && next !== "," && next !== ")" && next !== "/") return null;
       i += kind.length;
-      return { leaf: kind };
+      const out: LayoutLeaf = { leaf: kind };
+      if (home !== undefined) out.home = home;
+      if (raw[i] === "/") {
+        i++;
+        const digits = readDigits();
+        if (digits === null) return null;
+        const after = raw[i];
+        if (after !== undefined && after !== "," && after !== ")") return null;
+        out.n = Number(digits);
+      }
+      return out;
     }
     return null;
   };
@@ -323,9 +420,12 @@ function parseLegacy(raw: string): LayoutNode | null {
 /**
  * Parse a stored `@rk_win_layout` value: the tree grammar, or the legacy
  * `<shape>:<a>,<b>[,<c>]` preset grammar (accepted permanently, converted
- * losslessly per the table). Returns `null` for anything malformed — unknown
- * kind, whitespace, a non-canonical tree, more than MAX_TILES leaves, or a
- * repeated non-tty kind. The input is NEVER normalised into validity.
+ * losslessly per the table — bare kinds only). Returns `null` for anything
+ * malformed — unknown kind, whitespace, a non-canonical tree, a `/<n>`
+ * suffix, a repeated foreign address, or a repeated bare non-tty kind. The
+ * input is NEVER normalised into validity. The self-window rule (a foreign
+ * leaf naming the owning window) needs the owner, which parse-time callers
+ * do not have — write paths enforce it via `isCanonicalTree(node, owner)`.
  */
 export function parseLayoutTree(raw: string | null | undefined): LayoutNode | null {
   if (!raw || /\s/.test(raw) || raw.length > MAX_LAYOUT_LEN) return null;
@@ -333,10 +433,14 @@ export function parseLayoutTree(raw: string | null | undefined): LayoutNode | nu
   return node !== null && isCanonicalTree(node) ? node : null;
 }
 
-/** Serialize to the tree form. Writers always emit this form — there is no
- *  preset-string fallback. */
+/** Serialize to the tree form: a foreign leaf emits its `@<home>/<kind>`
+ *  address. Writers always emit this form — there is no preset-string
+ *  fallback. */
 export function serializeLayoutTree(node: LayoutNode): string {
-  if (isLeaf(node)) return node.leaf;
+  if (isLeaf(node)) {
+    const address = leafAddress(node);
+    return node.n !== undefined ? `${address}/${node.n}` : address;
+  }
   return `${node.dir}(${node.children.map(serializeLayoutTree).join(",")})`;
 }
 
@@ -481,6 +585,28 @@ export function removeLeaf(node: LayoutNode, leafId: string): LayoutNode | null 
   return removeNodeAt(node, path);
 }
 
+/**
+ * Drop every foreign leaf whose home window is not in the live set (a killed
+ * window's surfaces never render). The result is canonical; when every leaf
+ * is pruned the tree falls back to a bare `tty` — a layout never renders
+ * empty. A tree with no dead leaves is returned unchanged (identity).
+ */
+export function pruneDeadLeaves(
+  node: LayoutNode,
+  liveWindowIds: Iterable<string>,
+): LayoutNode {
+  const live = new Set(liveWindowIds);
+  let out = node;
+  for (;;) {
+    const list = leafNodes(out);
+    const index = list.findIndex((l) => l.home !== undefined && !live.has(l.home));
+    if (index === -1) return out;
+    const pruned = removeLeaf(out, leafIds(out)[index]);
+    if (pruned === null) return { leaf: "tty" };
+    out = pruned;
+  }
+}
+
 /** The side of a target leaf an insertion (or drop) lands on. */
 export type DropSide = "left" | "right" | "top" | "bottom";
 
@@ -520,24 +646,25 @@ export function insertBeside(
 }
 
 /**
- * Exchange two leaves by id; sizes stay with their positions. An involution,
- * and a no-op when either id is absent.
+ * Exchange two leaves by id; sizes stay with their positions. Leaf identity
+ * moves whole — a foreign leaf carries its home to the new position. An
+ * involution, and a no-op when either id is absent.
  */
 export function swapLeaves(node: LayoutNode, a: string, b: string): LayoutNode {
   if (a === b) return node;
   const ids = leafIds(node);
-  const kinds = leaves(node);
-  const kindById = new Map<string, SurfaceKind>();
-  ids.forEach((id, i) => kindById.set(id, kinds[i]));
-  const ka = kindById.get(a);
-  const kb = kindById.get(b);
-  if (ka === undefined || kb === undefined) return node;
+  const list = leafNodes(node);
+  const leafById = new Map<string, LayoutLeaf>();
+  ids.forEach((id, i) => leafById.set(id, list[i]));
+  const la = leafById.get(a);
+  const lb = leafById.get(b);
+  if (la === undefined || lb === undefined) return node;
   let li = 0;
   const walk = (n: LayoutNode): LayoutNode => {
     if (isLeaf(n)) {
       const id = ids[li];
       li++;
-      return id === a ? { leaf: kb } : id === b ? { leaf: ka } : n;
+      return id === a ? { ...lb } : id === b ? { ...la } : n;
     }
     const out: LayoutSplit = { dir: n.dir, children: n.children.map(walk) };
     if (n.sizes !== undefined) out.sizes = n.sizes;

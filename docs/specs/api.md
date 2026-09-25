@@ -781,6 +781,8 @@ omit `Origin`.
 | `WS` | `/ws/terminals` | `terminals_ws.go` | Terminals mux (all pane relays, one socket/tab) |
 | `WS` | `/ws/tunnel` | `tunnel_ws.go` | Byte tunnel to `host:port` for the desktop web tile (§ Tunnel) |
 | `POST` | `/api/windows/:windowId/send` | `send.go` | Compose-strip send into a window's pane (the injection engine's HTTP door) |
+| `POST` | `/api/layout/borrow` | `layout_borrow.go` | Move a surface leaf into a tab (`{to, leaf, tree}`); the current holder's tree-minus-leaf and the target's tree write in one chained tmux invocation |
+| `POST` | `/api/layout/return` | `layout_borrow.go` | Send a held surface leaf home (`{from, leaf}`); the server recomputes both trees from live tmux state and re-adds a dismissed home slot |
 | `POST` | `/api/windows/:windowId/operator-request` | `operator.go` | Window-scoped operator request (closed template registry; busy ⇒ 202 queued) |
 | `POST` | `/api/operator-request` | `operator.go` | Server-scoped operator request (same registry) |
 | `POST` | `/api/operator/start` | `operator_start.go` | Start the server operator (execs `rk operator -L <server> --json`; answers on the receipt line) |

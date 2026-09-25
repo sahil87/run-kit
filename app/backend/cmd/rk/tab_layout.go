@@ -119,6 +119,23 @@ func runTabLayout(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return usageError(err)
 		}
+		// Live-in-one-place check: a set introducing a foreign leaf another
+		// window already holds is refused (borrow moves a held surface; a
+		// plain write never steals it). Only a foreign leaf can conflict, so
+		// the server-wide window enumeration is gated on that.
+		if parsed.HasForeign() {
+			windows, werr := tabServerWindows(ctx, server)
+			if werr != nil {
+				return werr
+			}
+			if cerr := tmux.CheckLiveInOnePlace(parsed, windowID, windows); cerr != nil {
+				var held *tmux.LeafHeldError
+				if errors.As(cerr, &held) {
+					return cerr
+				}
+				return usageError(cerr)
+			}
+		}
 		v := parsed.String()
 		if err := tabSetWindowOptionsFn(ctx, windowID, server, []tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &v}}); err != nil {
 			return err
@@ -175,6 +192,25 @@ func runTabLayout(cmd *cobra.Command, args []string) error {
 	tabLayoutReport(sink, windowID, v)
 	tabWakeFn(ctx, server)
 	return nil
+}
+
+// tabServerWindows enumerates every window on the server across all sessions
+// — the holder-lookup input for the live-in-one-place check. @N is unique per
+// server, so a foreign leaf may name a window in any session.
+func tabServerWindows(ctx context.Context, server string) ([]tmux.WindowInfo, error) {
+	infos, err := tmux.ListSessions(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	var out []tmux.WindowInfo
+	for _, si := range infos {
+		windows, err := tmux.ListWindows(ctx, si.Name, server)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, windows...)
+	}
+	return out, nil
 }
 
 // tabLayoutReport prints the verb's one result line, or the --json receipt

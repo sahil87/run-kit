@@ -2832,6 +2832,55 @@ func TestLinkWindowToSession_linksAndPreservesID(t *testing.T) {
 	}
 }
 
+// TestBuildSetWindowLayoutsArgv pins the chained argv shape: one
+// `set-option -w -t <id> @rk_win_layout <value>` op per pair, ";"-chained in
+// slice order.
+func TestBuildSetWindowLayoutsArgv(t *testing.T) {
+	got := buildSetWindowLayoutsArgv([]WindowLayoutWrite{
+		{WindowID: "@7", Layout: "web"},
+		{WindowID: "@9", Layout: "h(tty,@3/tty)"},
+	})
+	want := []string{
+		"set-option", "-w", "-t", "@7", "@rk_win_layout", "web",
+		";",
+		"set-option", "-w", "-t", "@9", "@rk_win_layout", "h(tty,@3/tty)",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("argv = %v, want %v", got, want)
+	}
+}
+
+// TestSetWindowLayouts_chainedTwoWindows verifies one invocation lands both
+// windows' @rk_win_layout values, against a real (isolated) tmux server.
+func TestSetWindowLayouts_chainedTwoWindows(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	setupCtx, setupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if out, err := exec.CommandContext(setupCtx, "tmux", "-L", server, "new-window", "-t", "boot", "-n", "second").CombinedOutput(); err != nil {
+		setupCancel()
+		t.Fatalf("new-window second: %v\n%s", err, string(out))
+	}
+	setupCancel()
+	first := windowID(t, server, "boot:0")
+	second := windowID(t, server, "boot:second")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pairs := []WindowLayoutWrite{
+		{WindowID: first, Layout: "web"},
+		{WindowID: second, Layout: "h(tty,web)"},
+	}
+	if err := SetWindowLayouts(ctx, server, pairs); err != nil {
+		t.Fatalf("SetWindowLayouts: %v", err)
+	}
+
+	if v, ok := windowOption(t, server, first, "@rk_win_layout"); !ok || v != "web" {
+		t.Errorf("first @rk_win_layout = %q (set=%v), want \"web\"", v, ok)
+	}
+	if v, ok := windowOption(t, server, second, "@rk_win_layout"); !ok || v != "h(tty,web)" {
+		t.Errorf("second @rk_win_layout = %q (set=%v), want \"h(tty,web)\"", v, ok)
+	}
+}
+
 // withSessionOrderTmux starts an isolated tmux server for session-order
 // integration tests, runs fn, and cleans up. Skips the test if tmux is
 // unavailable. Returns the server name fn should pass to tmux helpers.

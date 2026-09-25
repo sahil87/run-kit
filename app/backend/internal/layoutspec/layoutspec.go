@@ -4,8 +4,9 @@
 // "h(tty,v(code,web))" — and the legacy "<shape>:<surface,…>" preset strings
 // parse permanently into their trees. The /options validator and the CLI
 // share this one package so they cannot drift from the frontend's parser, and
-// a shared JSON fixture table (app/frontend/src/lib/layout-tree.fixtures.json,
-// read by layoutspec_test.go) pins identical inputs → outputs on both sides.
+// shared JSON fixture tables (layout-tree.fixtures.json and
+// layout-grammar.fixtures.json under app/frontend/src/lib/, read by
+// layoutspec_test.go) pin identical inputs → outputs on both sides.
 // The package is pure — no tmux, no I/O. Unlike the frontend, Go trees carry
 // no sizes: divider positions are per-viewer frontend state.
 package layoutspec
@@ -21,25 +22,30 @@ import (
 // Node is one node of the canonical split tree: a leaf (Kind set — a surface
 // kind) or a split (Dir "h" = children left→right, "v" = top→bottom, with ≥2
 // Children, and a child split never of its parent's direction, so each
-// arrangement has exactly one encoding). A tree holds 1–3 leaves; non-tty
-// kinds never repeat (duplicate tty tiles are legal — the muxed relay
-// supports N clients per pane).
+// arrangement has exactly one encoding). A bare leaf tiles the layout's own
+// window; Home set ("@12") marks a foreign leaf tiling another window's
+// surface on the same server, serialized as the "@12/<kind>" address. N holds
+// the optional "/<n>" instance suffix as raw digits — the tokenizer
+// recognises it so the grammar stays forward-compatible, and canonical
+// validation rejects any leaf carrying one (v1 tiles one instance per
+// surface). Non-tty bare kinds never repeat; duplicate bare tty tiles are
+// legal (the muxed relay supports N clients per pane). There is no leaf-count
+// cap: tree size is bounded by MaxLayoutLen before parsing.
 type Node struct {
 	Kind     string
+	Home     string
+	N        string
 	Dir      string
 	Children []Node
 }
 
-// MaxTiles is the tile-count cap (the size floor that replaces it is a later
-// change).
-const MaxTiles = 3
-
 // MaxLayoutLen bounds the input byte length BEFORE parsing: parseNode's
 // recursion depth is bounded by len(raw)/2 (each level consumes ≥2 bytes), so
-// the cap keeps a hostile @rk_win_layout value from exhausting the stack. A
-// canonical tree over the four surface kinds is ≤ 17 bytes; legacy presets
-// stay under 30.
-const MaxLayoutLen = 128
+// the cap keeps a hostile @rk_win_layout value from exhausting the stack. An
+// all-bare canonical tree over the four surface kinds is ≤ 17 bytes and
+// legacy presets stay under 30, but foreign address leaves run 7–11 bytes
+// each, so cross-tab trees need the headroom.
+const MaxLayoutLen = 512
 
 // splitGapPX mirrors the frontend's SPLIT_GAP_PX gutter: the nominal geometry
 // Add resolves the split direction from is computed with it, so the Go and TS
@@ -70,6 +76,54 @@ func (n Node) IsLeaf() bool {
 	return n.Kind != ""
 }
 
+// IsForeign reports whether the leaf tiles another window's surface; a bare
+// leaf (Home empty) tiles the layout's own window.
+func (n Node) IsForeign() bool {
+	return n.IsLeaf() && n.Home != ""
+}
+
+// HasForeign reports whether any leaf of the tree is a foreign leaf.
+func (n Node) HasForeign() bool {
+	for _, l := range n.leafNodes() {
+		if l.IsForeign() {
+			return true
+		}
+	}
+	return false
+}
+
+// Address returns the leaf's identity string: the "@12/tty" address for a
+// foreign leaf, the bare kind otherwise.
+func (n Node) Address() string {
+	if n.Home == "" {
+		return n.Kind
+	}
+	return n.Home + "/" + n.Kind
+}
+
+// ParseLeafAddress splits a foreign-leaf address ("@12/tty") into its home
+// window and kind. ok=false for bare kinds, malformed addresses, unknown
+// kinds, and "/<n>"-suffixed forms — the grammar-level half of the leaf
+// rules; the foreign-gui rejection lives in validation, not here.
+func ParseLeafAddress(raw string) (home, kind string, ok bool) {
+	if !strings.HasPrefix(raw, "@") {
+		return "", "", false
+	}
+	digits, rest, found := strings.Cut(raw[1:], "/")
+	if !found || digits == "" {
+		return "", "", false
+	}
+	for _, r := range digits {
+		if !unicode.IsDigit(r) {
+			return "", "", false
+		}
+	}
+	if !IsSurface(rest) {
+		return "", "", false
+	}
+	return "@" + digits, rest, true
+}
+
 func leaf(kind string) Node {
 	return Node{Kind: kind}
 }
@@ -95,33 +149,54 @@ func (n Node) Leaves() []string {
 	return out
 }
 
-// LeafIDs returns the stable per-leaf ids in reading order: the kind itself
-// for a unique kind; duplicate kinds (only tty can repeat) are "tty",
-// "tty#2", … by occurrence.
+// leafNodes returns the leaf nodes in reading order (depth-first,
+// left-to-right).
+func (n Node) leafNodes() []Node {
+	if n.IsLeaf() {
+		return []Node{n}
+	}
+	var out []Node
+	for _, c := range n.Children {
+		out = append(out, c.leafNodes()...)
+	}
+	return out
+}
+
+// LeafIDs returns the stable per-leaf ids in reading order: a foreign leaf's
+// id is its address string ("@12/tty"); a bare leaf's id is the kind itself
+// for a unique bare kind, with duplicate bare kinds (only tty can repeat)
+// numbered "tty", "tty#2", … by occurrence among the bare leaves.
 func (n Node) LeafIDs() []string {
-	kinds := n.Leaves()
-	totals := map[string]int{}
-	for _, k := range kinds {
-		totals[k]++
+	list := n.leafNodes()
+	bareTotals := map[string]int{}
+	for _, l := range list {
+		if l.Home == "" {
+			bareTotals[l.Kind]++
+		}
 	}
 	seen := map[string]int{}
-	out := make([]string, len(kinds))
-	for i, k := range kinds {
-		if totals[k] == 1 {
-			out[i] = k
+	out := make([]string, len(list))
+	for i, l := range list {
+		if l.Home != "" {
+			out[i] = l.Address()
 			continue
 		}
-		seen[k]++
-		if seen[k] == 1 {
-			out[i] = k
+		if bareTotals[l.Kind] == 1 {
+			out[i] = l.Kind
+			continue
+		}
+		seen[l.Kind]++
+		if seen[l.Kind] == 1 {
+			out[i] = l.Kind
 		} else {
-			out[i] = k + "#" + strconv.Itoa(seen[k])
+			out[i] = l.Kind + "#" + strconv.Itoa(seen[l.Kind])
 		}
 	}
 	return out
 }
 
-// Has reports whether the layout's leaves contain the surface.
+// Has reports whether the layout's leaves contain the surface. A foreign
+// leaf counts by kind — Has does not distinguish bare from foreign.
 func (n Node) Has(surface string) bool {
 	for _, k := range n.Leaves() {
 		if k == surface {
@@ -131,11 +206,27 @@ func (n Node) Has(surface string) bool {
 	return false
 }
 
+// HasBare reports whether the layout holds a BARE leaf of the surface. A
+// foreign leaf of the same kind does not count: a bare kind and a foreign
+// leaf of that kind may coexist in one tree.
+func (n Node) HasBare(surface string) bool {
+	for _, l := range n.leafNodes() {
+		if l.Home == "" && l.Kind == surface {
+			return true
+		}
+	}
+	return false
+}
+
 // String serializes the tree to its grammar form — the only form writers
-// emit (a legacy preset string Parse accepts rewrites to this on write).
+// emit (a legacy preset string Parse accepts rewrites to this on write). A
+// foreign leaf emits its "@<home>/<kind>" address.
 func (n Node) String() string {
 	if n.IsLeaf() {
-		return n.Kind
+		if n.N != "" {
+			return n.Address() + "/" + n.N
+		}
+		return n.Address()
 	}
 	parts := make([]string, len(n.Children))
 	for i, c := range n.Children {
@@ -148,11 +239,14 @@ func (n Node) String() string {
 
 // Parse validates a stored @rk_win_layout value: the tree grammar, or the
 // legacy "<shape>:<a>,<b>[,<c>]" preset grammar (accepted permanently,
-// converted losslessly per the spec table). Untrusted strings (tmux option
-// values, API bodies) are validated HERE so callers may pass raw values.
-// Anything malformed — unknown kind, whitespace, a non-canonical tree, more
-// than MaxTiles leaves, a repeated non-tty surface, a legacy arity mismatch —
-// is an error. The input is NEVER normalised into validity.
+// converted losslessly per the spec table — bare kinds only). Untrusted
+// strings (tmux option values, API bodies) are validated HERE so callers may
+// pass raw values. Anything malformed — unknown kind, whitespace, a
+// non-canonical tree, a "/<n>" suffix, a repeated foreign address, a foreign
+// gui, a repeated non-tty bare surface, a legacy arity mismatch — is an
+// error. The input is NEVER normalised into validity. The self-window rule (a
+// foreign leaf naming the owning window) needs the owner, which parse-time
+// callers do not have — write paths enforce it via ValidateFor.
 func Parse(raw string) (Node, error) {
 	if raw == "" || strings.IndexFunc(raw, unicode.IsSpace) >= 0 {
 		return Node{}, fmt.Errorf("layout %q: empty or contains whitespace", raw)
@@ -172,47 +266,73 @@ func Parse(raw string) (Node, error) {
 	if err != nil {
 		return Node{}, err
 	}
-	if !isCanonicalTree(n) {
-		return Node{}, fmt.Errorf("layout %q: not a canonical tree (1–%d leaves, ≥2 children per split, alternating directions, no repeated non-tty surface)", raw, MaxTiles)
+	if err := validate(n, ""); err != nil {
+		return Node{}, fmt.Errorf("layout %q: %v", raw, err)
 	}
 	return n, nil
 }
 
-// isCanonicalTree applies the canonical-form validation: ≥2 children per
-// split, no child split with its parent's direction, 1..MaxTiles leaves, and
-// no repeated non-tty kind.
-func isCanonicalTree(n Node) bool {
-	kinds := n.Leaves()
-	if len(kinds) < 1 || len(kinds) > MaxTiles {
-		return false
+// ValidateFor applies canonical-tree validation for the window holding the
+// layout: ≥2 children per split, no child split with its parent's direction,
+// no repeated bare non-tty kind (duplicate bare tty tiles are legal), a bare
+// kind and a foreign leaf of the same kind MAY coexist. Foreign-leaf rules:
+// no foreign gui (one desktop per host), no repeated address, no "/<n>"
+// suffix on any leaf (grammar-only in v1), and — only when owner names the
+// owning window — no foreign leaf naming the owner. There is no leaf-count
+// cap: tree size is bounded by MaxLayoutLen before parsing.
+func ValidateFor(n Node, owner string) error {
+	return validate(n, owner)
+}
+
+func validate(n Node, owner string) error {
+	leaves := n.leafNodes()
+	if len(leaves) == 0 {
+		return errors.New("no leaves")
 	}
-	seen := map[string]bool{}
-	for _, k := range kinds {
-		if k == "tty" {
-			continue // duplicate tty tiles are legal (muxed relay)
+	bareSeen := map[string]bool{}
+	addresses := map[string]bool{}
+	for _, l := range leaves {
+		if l.N != "" {
+			return fmt.Errorf("surface instance suffix /%s is grammar-only (v1)", l.N)
 		}
-		if seen[k] {
-			return false
+		if l.Home != "" {
+			if l.Kind == "gui" {
+				return fmt.Errorf("foreign gui %q: one desktop per host", l.Address())
+			}
+			if owner != "" && l.Home == owner {
+				return fmt.Errorf("foreign leaf %q names the layout's own window", l.Address())
+			}
+			if addresses[l.Address()] {
+				return fmt.Errorf("repeated foreign address %q", l.Address())
+			}
+			addresses[l.Address()] = true
+			continue
 		}
-		seen[k] = true
+		if l.Kind == "tty" {
+			continue // duplicate bare tty tiles are legal (muxed relay)
+		}
+		if bareSeen[l.Kind] {
+			return fmt.Errorf("repeated surface %q", l.Kind)
+		}
+		bareSeen[l.Kind] = true
 	}
-	var walk func(n Node, parentDir string) bool
-	walk = func(n Node, parentDir string) bool {
+	var walk func(n Node, parentDir string) error
+	walk = func(n Node, parentDir string) error {
 		if n.IsLeaf() {
-			return true
+			return nil
 		}
 		if len(n.Children) < 2 {
-			return false
+			return errors.New("a split takes ≥2 children")
 		}
 		if parentDir != "" && n.Dir == parentDir {
-			return false
+			return fmt.Errorf("a %q split nests inside its parent direction", n.Dir)
 		}
 		for _, c := range n.Children {
-			if !walk(c, n.Dir) {
-				return false
+			if err := walk(c, n.Dir); err != nil {
+				return err
 			}
 		}
-		return true
+		return nil
 	}
 	return walk(n, "")
 }
@@ -266,16 +386,52 @@ func (p *treeParser) parseNode() (Node, error) {
 		return Node{Dir: dir, Children: children}, nil
 	}
 	// No surface kind is a prefix of another, and a leaf must be followed by a
-	// delimiter or the end of input.
+	// delimiter or the end of input. A foreign leaf opens with "@<digits>/";
+	// the optional "/<n>" suffix tokenizes on both forms and is rejected by
+	// canonical validation (grammar-only in v1). "-L <srv>" and "=<session>:"
+	// qualifiers carry characters this grammar has no token for, so they fail
+	// here.
+	var home string
+	if p.raw[p.i] == '@' {
+		p.i++
+		start := p.i
+		for p.i < len(p.raw) && p.raw[p.i] >= '0' && p.raw[p.i] <= '9' {
+			p.i++
+		}
+		if p.i == start {
+			return Node{}, fmt.Errorf("@ at byte %d not followed by window digits", start-1)
+		}
+		home = p.raw[start-1 : p.i]
+		if p.i >= len(p.raw) || p.raw[p.i] != '/' {
+			return Node{}, fmt.Errorf("foreign address %q not followed by /<kind>", home)
+		}
+		p.i++
+	}
 	for _, kind := range surfaceKindList {
 		if !strings.HasPrefix(p.raw[p.i:], kind) {
 			continue
 		}
-		if next := p.i + len(kind); next < len(p.raw) && p.raw[next] != ',' && p.raw[next] != ')' {
+		next := p.i + len(kind)
+		if next < len(p.raw) && p.raw[next] != ',' && p.raw[next] != ')' && p.raw[next] != '/' {
 			return Node{}, fmt.Errorf("surface %q not followed by a delimiter", kind)
 		}
 		p.i += len(kind)
-		return leaf(kind), nil
+		out := Node{Kind: kind, Home: home}
+		if p.i < len(p.raw) && p.raw[p.i] == '/' {
+			p.i++
+			start := p.i
+			for p.i < len(p.raw) && p.raw[p.i] >= '0' && p.raw[p.i] <= '9' {
+				p.i++
+			}
+			if p.i == start {
+				return Node{}, fmt.Errorf("/ after %q not followed by instance digits", kind)
+			}
+			out.N = p.raw[start:p.i]
+			if p.i < len(p.raw) && p.raw[p.i] != ',' && p.raw[p.i] != ')' {
+				return Node{}, fmt.Errorf("surface instance %q/%s not followed by a delimiter", kind, out.N)
+			}
+		}
+		return out, nil
 	}
 	return Node{}, fmt.Errorf("unknown surface at byte %d", p.i)
 }
@@ -338,8 +494,6 @@ func parseLegacy(raw string) (Node, error) {
 // return null. The CLI maps these to exit codes; the /options validator never
 // calls the verbs.
 var (
-	// ErrLayoutFull: Add on a 3-tile layout (the tile cap).
-	ErrLayoutFull = errors.New("layout already holds 3 tiles")
 	// ErrLayoutLastTile: Close on a single-tile layout.
 	ErrLayoutLastTile = errors.New("the last tile never closes")
 	// ErrSurfaceAbsent: Close/Promote on a surface the layout does not hold.
@@ -399,29 +553,25 @@ func lastPath(n Node) []int {
 	return path
 }
 
-// pathOf returns the child-index path of a leaf id.
+// pathOf returns the child-index path of a leaf id (empty at the root leaf).
 func pathOf(n Node, leafID string) ([]int, bool) {
 	ids := n.LeafIDs()
 	li := 0
-	var walk func(n Node, path []int) []int
-	walk = func(n Node, path []int) []int {
+	var walk func(n Node, path []int) ([]int, bool)
+	walk = func(n Node, path []int) ([]int, bool) {
 		if n.IsLeaf() {
-			found := path
-			if ids[li] != leafID {
-				found = nil
-			}
+			ok := ids[li] == leafID
 			li++
-			return found
+			return path, ok
 		}
 		for i, c := range n.Children {
-			if found := walk(c, append(path, i)); found != nil {
-				return found
+			if p, ok := walk(c, append(path, i)); ok {
+				return p, true
 			}
 		}
-		return nil
+		return nil, false
 	}
-	found := walk(n, nil)
-	return found, found != nil
+	return walk(n, nil)
 }
 
 // replaceAt rebuilds the tree with the node at path substituted.
@@ -469,24 +619,22 @@ func contains(ss []string, s string) bool {
 	return indexOf(ss, s) >= 0
 }
 
-// swapLeaves exchanges two leaves by id. An involution, and a no-op when
-// either id is absent.
+// swapLeaves exchanges two leaves by id. Leaf identity moves whole — a
+// foreign leaf carries its home to the new position. An involution, and a
+// no-op when either id is absent.
 func swapLeaves(n Node, a, b string) Node {
 	if a == b {
 		return n
 	}
 	ids := n.LeafIDs()
-	kinds := n.Leaves()
-	ka, kb := "", ""
+	list := n.leafNodes()
+	byID := make(map[string]Node, len(ids))
 	for i, id := range ids {
-		switch id {
-		case a:
-			ka = kinds[i]
-		case b:
-			kb = kinds[i]
-		}
+		byID[id] = list[i]
 	}
-	if ka == "" || kb == "" {
+	la, aok := byID[a]
+	lb, bok := byID[b]
+	if !aok || !bok {
 		return n
 	}
 	li := 0
@@ -497,9 +645,9 @@ func swapLeaves(n Node, a, b string) Node {
 			li++
 			switch id {
 			case a:
-				return leaf(kb)
+				return lb
 			case b:
-				return leaf(ka)
+				return la
 			}
 			return n
 		}
@@ -687,18 +835,17 @@ func lastLeafRect(n Node) rect {
 
 // Add splits the LAST leaf in reading order along its longer axis (ties →
 // horizontal), the new leaf landing after it (right or bottom), on the
-// nominal 1600×1000 box (the CLI has no measured rects). ErrLayoutFull at
-// MaxTiles leaves; ErrSurfaceRepeat when a non-tty surface is already open
-// (duplicate tty tiles are legal); ErrUnknownSurface outside the registry.
+// nominal 1600×1000 box (the CLI has no measured rects). There is no tile
+// cap — the size floor gates surface-add offers on the frontend.
+// ErrSurfaceRepeat when a non-tty surface is already open as a BARE leaf
+// (duplicate tty tiles are legal; a foreign leaf of the same kind does not
+// block the add); ErrUnknownSurface outside the registry.
 func Add(n Node, kind string) (Node, error) {
 	n = normalize(n)
 	if !IsSurface(kind) {
 		return Node{}, fmt.Errorf("%w: %q", ErrUnknownSurface, kind)
 	}
-	if len(n.Leaves()) >= MaxTiles {
-		return Node{}, ErrLayoutFull
-	}
-	if kind != "tty" && n.Has(kind) {
+	if kind != "tty" && n.HasBare(kind) {
 		return Node{}, fmt.Errorf("%w: %q", ErrSurfaceRepeat, kind)
 	}
 	r := lastLeafRect(n)
@@ -731,6 +878,25 @@ func Close(n Node, leafID string) (Node, error) {
 	return normalise(out), nil
 }
 
+// RemoveOrTTY drops a leaf by id (the kind for a unique bare kind, the address
+// for a foreign leaf) and normalises, with the empty-tree fallback: a removal
+// that drains the tree yields the bare tty leaf — a layout never renders
+// empty. ok=false only when the leaf is absent — unlike Close there is no
+// last-tile sentinel, so the borrow/return paths can fall back instead of
+// failing.
+func RemoveOrTTY(n Node, leafID string) (Node, bool) {
+	n = normalize(n)
+	path, ok := pathOf(n, leafID)
+	if !ok {
+		return n, false
+	}
+	out, ok := removeAt(n, path)
+	if !ok {
+		return Default(), true
+	}
+	return normalise(out), true
+}
+
 // Promote swaps the leaf (by leaf id) with slot A — the template's main tile
 // (SlotOrder[0]), or the first leaf in reading order for a custom tree. A
 // no-op when the leaf is absent or already slot A.
@@ -746,14 +912,6 @@ func Promote(n Node, leafID string) Node {
 		return n
 	}
 	return swapLeaves(n, leafID, mainID)
-}
-
-// ReplaceLast replaces the last leaf in reading order with kind in place —
-// webAddShow's full-layout fallback: the last tile (the least valuable; slot
-// A stays dominant) yields rather than failing the show.
-func ReplaceLast(n Node, kind string) Node {
-	n = normalize(n)
-	return replaceAt(n, lastPath(n), leaf(kind))
 }
 
 // Cycle returns the next entry of TemplatesFor(tile count) after the current

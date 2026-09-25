@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { buildLayoutActions, buildTileSwitchActions } from "./layout";
+import { buildLayoutActions, buildTileSwitchActions, type BringWindow } from "./layout";
 import { leaves, type Layout, type Rect, type SurfaceKind } from "../surface-layout";
 
 /**
@@ -91,10 +91,48 @@ describe("buildLayoutActions — shows/hides", () => {
     });
   });
 
-  it("at 3 tiles no Show entries are offered (max — the rail disables instead)", () => {
-    const actions = ids(MAIN_LEFT);
+  it("show splits the FOCUSED tile when focusedLeafId is passed", () => {
+    const onApply = vi.fn();
+    // h(tty,code) with focus on tty: the 797×1000 tty tile splits on its
+    // longer (vertical) axis — not the last leaf (code), which the default
+    // would split.
+    const actions = build(SPLIT_H_TTY_CODE, { onApply, focusedLeafId: "tty" });
+    actions.find((a) => a.id === "tile-show-web")!.onSelect();
+    expect(onApply).toHaveBeenCalledWith({
+      dir: "h",
+      children: [
+        { dir: "v", children: [{ leaf: "tty" }, { leaf: "web" }] },
+        { leaf: "code" },
+      ],
+    });
+  });
+
+  it("the Show gate checks the floor against the threaded stored sizes", () => {
+    // Stored 9/91 in the nominal box: the 143px tty tile can neither split
+    // nor survive a split of code — no Show rows, though default fractions
+    // would fit.
+    const actions = build(SPLIT_H_TTY_CODE, {
+      layoutSizes: () => [
+        [0.09, 0.91],
+      ],
+    }).map((a) => a.id);
     expect(actions.some((id) => id.startsWith("tile-show-"))).toBe(false);
-    expect(actions).toContain("tile-hide-web");
+  });
+
+  it("at 3 tiles a Show is still offered when a split fits the floor (no tile cap)", () => {
+    const actions = ids(MAIN_LEFT, ["tty", "web", "code", "gui"]);
+    expect(actions).toContain("tile-show-gui");
+  });
+
+  it("Show entries are omitted when no split fits the size floor", () => {
+    // A 200×150 box: splitting either 100×150 tile lands under 150×100 on
+    // both axes, so growth is refused and the rows drop out.
+    const tiny = new Map<string, Rect>([
+      ["tty", { x: 0, y: 0, w: 100, h: 150 }],
+      ["code", { x: 106, y: 0, w: 100, h: 150 }],
+    ]);
+    const actions = build(SPLIT_H_TTY_CODE, { leafRects: () => tiny }).map((a) => a.id);
+    expect(actions.some((id) => id.startsWith("tile-show-"))).toBe(false);
   });
 
   it("hide runs closeSurface through onApply (3→2 keeps the h structure)", () => {
@@ -116,6 +154,31 @@ describe("buildLayoutActions — shows/hides", () => {
     const actions = ids(SINGLE_TTY, ["tty", "web"]);
     expect(actions).toContain("tile-show-web");
     expect(actions).not.toContain("tile-show-code");
+  });
+
+  it("a kind open only as a FOREIGN tile keeps its Show row and gets no Hide row", () => {
+    // h(tty,@3/web): the bare web slot is not open — Show Web adds it; the
+    // foreign tile's exit verb is Send Back, not Hide.
+    const foreignWeb: Layout = {
+      dir: "h",
+      children: [{ leaf: "tty" }, { leaf: "web", home: "@3" }],
+    };
+    const actions = ids(foreignWeb);
+    expect(actions).toContain("tile-show-web");
+    expect(actions).not.toContain("tile-hide-web");
+    expect(actions).toContain("tile-hide-tty");
+    // The Show row's select lands the bare slot beside the foreign leaf.
+    const onApply = vi.fn();
+    build(foreignWeb, { onApply })
+      .find((a) => a.id === "tile-show-web")!
+      .onSelect();
+    expect(onApply).toHaveBeenCalledWith({
+      dir: "h",
+      children: [
+        { leaf: "tty" },
+        { dir: "v", children: [{ leaf: "web", home: "@3" }, { leaf: "web" }] },
+      ],
+    });
   });
 
   it("Show/Hide labels carry the Tile: prefix; arrangement verbs keep Layout:", () => {
@@ -287,6 +350,17 @@ describe("buildLayoutActions — templates", () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
+  it("a template whose result lands under the size floor is not offered", () => {
+    // A 300×150 box: every 3-tile template lands some tile under 150×100.
+    const tiny = new Map<string, Rect>([
+      ["tty", { x: 0, y: 0, w: 150, h: 150 }],
+      ["code", { x: 156, y: 0, w: 150, h: 72 }],
+      ["web", { x: 156, y: 78, w: 150, h: 72 }],
+    ]);
+    const actions = build(MAIN_LEFT, { leafRects: () => tiny }).map((a) => a.id);
+    expect(actions.some((id) => id.startsWith("layout-template-"))).toBe(false);
+  });
+
   it("a single tile offers no template rows and no cycle", () => {
     const actions = ids(SINGLE_TTY);
     expect(actions.some((id) => id.startsWith("layout-template-"))).toBe(false);
@@ -365,6 +439,208 @@ describe("buildLayoutActions — Tile: Focus <Surface>", () => {
     expect(actions).toContain("tile-focus-tty");
     expect(actions).toContain("tile-focus-web");
     expect(actions).not.toContain("tile-focus-code");
+  });
+});
+
+describe("buildLayoutActions — Tile: Bring <window> <Surface> here", () => {
+  const BRING_WINDOWS: BringWindow[] = [
+    { id: "@3", name: "api", surfaces: ["tty", "code", "web"] },
+    { id: "@5", name: "docs", surfaces: ["tty", "web"] },
+  ];
+
+  it("lists one row per other window × lendable surface, named by window + surface label", () => {
+    const actions = build(SINGLE_TTY, { bringWindows: BRING_WINDOWS, onBring: vi.fn() });
+    const ids = actions.map((a) => a.id);
+    for (const kind of ["tty", "code", "web"]) {
+      expect(ids).toContain(`tile-bring-@3-${kind}`);
+    }
+    expect(ids).toContain("tile-bring-@5-tty");
+    expect(ids).toContain("tile-bring-@5-web");
+    expect(ids).not.toContain("tile-bring-@5-code");
+    expect(actions.find((a) => a.id === "tile-bring-@3-tty")?.label).toBe(
+      "Tile: Bring api Terminal here",
+    );
+  });
+
+  it("never offers gui, even when the window lists it", () => {
+    const actions = build(SINGLE_TTY, {
+      bringWindows: [{ id: "@3", name: "api", surfaces: ["tty", "gui"] }],
+      onBring: vi.fn(),
+    }).map((a) => a.id);
+    expect(actions).toContain("tile-bring-@3-tty");
+    expect(actions).not.toContain("tile-bring-@3-gui");
+  });
+
+  it("omits surfaces already in this layout (a bare kind and a foreign leaf of it coexist)", () => {
+    // h(tty,@3/tty): @3's tty is present, its web is not.
+    const borrowed: Layout = {
+      dir: "h",
+      children: [{ leaf: "tty" }, { leaf: "tty", home: "@3" }],
+    };
+    const actions = build(borrowed, {
+      bringWindows: [{ id: "@3", name: "api", surfaces: ["tty", "web"] }],
+      onBring: vi.fn(),
+    }).map((a) => a.id);
+    expect(actions).not.toContain("tile-bring-@3-tty");
+    expect(actions).toContain("tile-bring-@3-web");
+  });
+
+  it("omits Bring rows when no split fits the size floor", () => {
+    const tiny = new Map<string, Rect>([["tty", { x: 0, y: 0, w: 100, h: 150 }]]);
+    const actions = build(SINGLE_TTY, {
+      bringWindows: BRING_WINDOWS,
+      onBring: vi.fn(),
+      leafRects: () => tiny,
+    }).map((a) => a.id);
+    expect(actions.some((id) => id.startsWith("tile-bring-"))).toBe(false);
+  });
+
+  it("offers no Bring rows without bringWindows or onBring", () => {
+    expect(
+      build(SINGLE_TTY, { onBring: vi.fn() }).some((a) => a.id.startsWith("tile-bring-")),
+    ).toBe(false);
+    expect(
+      build(SINGLE_TTY, { bringWindows: BRING_WINDOWS }).some((a) =>
+        a.id.startsWith("tile-bring-"),
+      ),
+    ).toBe(false);
+  });
+
+  it("a Bring row inserts the foreign leaf by the generic add rule and fires onBring", () => {
+    const onBring = vi.fn();
+    const onApply = vi.fn();
+    const actions = build(SINGLE_TTY, { bringWindows: BRING_WINDOWS, onBring, onApply });
+    actions.find((a) => a.id === "tile-bring-@3-tty")!.onSelect();
+    expect(onBring).toHaveBeenCalledWith("@3/tty", {
+      dir: "h",
+      children: [{ leaf: "tty" }, { leaf: "tty", home: "@3" }],
+    });
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it("a Bring row splits the FOCUSED tile when focusedLeafId is passed", () => {
+    const onBring = vi.fn();
+    const actions = build(SPLIT_H_TTY_CODE, {
+      bringWindows: [{ id: "@3", name: "api", surfaces: ["web"] }],
+      onBring,
+      focusedLeafId: "tty",
+    });
+    actions.find((a) => a.id === "tile-bring-@3-web")!.onSelect();
+    expect(onBring).toHaveBeenCalledWith("@3/web", {
+      dir: "h",
+      children: [
+        { dir: "v", children: [{ leaf: "tty" }, { leaf: "web", home: "@3" }] },
+        { leaf: "code" },
+      ],
+    });
+  });
+});
+
+describe("buildLayoutActions — Tile: Send Back to <home window>", () => {
+  const BORROWED: Layout = {
+    dir: "h",
+    children: [{ leaf: "tty" }, { leaf: "tty", home: "@3" }],
+  };
+  const sendBackOpts = {
+    focusedLeafId: "@3/tty",
+    onSendBack: vi.fn(),
+    windowNameFor: (id: string) => (id === "@3" ? "api" : undefined),
+  };
+
+  it("offered for a focused foreign tile, labelled with the home window's name", () => {
+    const actions = build(BORROWED, sendBackOpts);
+    const row = actions.find((a) => a.id === "tile-send-back")!;
+    expect(row.label).toBe("Tile: Send Back to api");
+    expect(row.disabled).toBe(false);
+  });
+
+  it("fires onSendBack with the focused leaf's address", () => {
+    const onSendBack = vi.fn();
+    const actions = build(BORROWED, { ...sendBackOpts, onSendBack });
+    actions.find((a) => a.id === "tile-send-back")!.onSelect();
+    expect(onSendBack).toHaveBeenCalledWith("@3/tty");
+  });
+
+  it("hidden when the focused tile is bare, unfocused, or onSendBack is absent", () => {
+    expect(
+      build(BORROWED, { ...sendBackOpts, focusedLeafId: "tty" }).some(
+        (a) => a.id === "tile-send-back",
+      ),
+    ).toBe(false);
+    expect(
+      build(BORROWED, { ...sendBackOpts, focusedLeafId: undefined }).some(
+        (a) => a.id === "tile-send-back",
+      ),
+    ).toBe(false);
+    const { onSendBack: _omitted, ...noHandler } = sendBackOpts;
+    expect(build(BORROWED, noHandler).some((a) => a.id === "tile-send-back")).toBe(false);
+  });
+
+  it("a dead home window renders the row disabled, labelled by address", () => {
+    const actions = build(BORROWED, { ...sendBackOpts, windowNameFor: () => undefined });
+    const row = actions.find((a) => a.id === "tile-send-back")!;
+    expect(row.disabled).toBe(true);
+    expect(row.label).toBe("Tile: Send Back to @3");
+  });
+});
+
+describe("buildLayoutActions — Tile: Bring Back <Surface>", () => {
+  // The home tab: h(tty,code) with tty held by @3 and code by @5.
+  const bringBackOpts = {
+    awayIn: { tty: "@3", code: "@5" },
+    routeWindowId: "@1",
+    onBringBack: vi.fn(),
+    windowNameFor: (id: string) => (id === "@3" ? "api" : id === "@5" ? "docs" : undefined),
+  };
+
+  it("offers one row per away bare-leaf kind, labelled by surface", () => {
+    const ids = build(SPLIT_H_TTY_CODE, bringBackOpts).map((a) => a.id);
+    expect(ids).toContain("tile-bring-back-tty");
+    expect(ids).toContain("tile-bring-back-code");
+    const row = build(SPLIT_H_TTY_CODE, bringBackOpts).find(
+      (a) => a.id === "tile-bring-back-tty",
+    )!;
+    expect(row.label).toBe("Tile: Bring Back Terminal");
+    expect(row.disabled).toBeUndefined();
+  });
+
+  it("fires onBringBack with the holder window and the home leaf address", () => {
+    const onBringBack = vi.fn();
+    const actions = build(SPLIT_H_TTY_CODE, { ...bringBackOpts, onBringBack });
+    actions.find((a) => a.id === "tile-bring-back-tty")!.onSelect();
+    expect(onBringBack).toHaveBeenCalledWith("@3", "@1/tty");
+  });
+
+  it("absent when awayIn is empty or the route id / write seam is missing", () => {
+    const none = (overrides: Partial<Parameters<typeof build>[1]>) =>
+      build(SPLIT_H_TTY_CODE, overrides).some((a) => a.id.startsWith("tile-bring-back-"));
+    expect(none({ ...bringBackOpts, awayIn: {} })).toBe(false);
+    expect(none({ ...bringBackOpts, awayIn: undefined })).toBe(false);
+    const { onBringBack: _omitted, ...noHandler } = bringBackOpts;
+    expect(none(noHandler)).toBe(false);
+    expect(none({ ...bringBackOpts, routeWindowId: undefined })).toBe(false);
+  });
+
+  it("not offered for a kind present only as a foreign leaf", () => {
+    // h(tty,@9/web) with web away at @3: web has no bare leaf here.
+    const layout: Layout = {
+      dir: "h",
+      children: [{ leaf: "tty" }, { leaf: "web", home: "@9" }],
+    };
+    const ids = build(layout, {
+      ...bringBackOpts,
+      awayIn: { web: "@3" },
+      windowNameFor: () => "api",
+    }).map((a) => a.id);
+    expect(ids).not.toContain("tile-bring-back-web");
+  });
+
+  it("not offered when the holder window is dead", () => {
+    const ids = build(SPLIT_H_TTY_CODE, {
+      ...bringBackOpts,
+      windowNameFor: () => undefined,
+    }).map((a) => a.id);
+    expect(ids.some((id) => id.startsWith("tile-bring-back-"))).toBe(false);
   });
 });
 

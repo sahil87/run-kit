@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/sessions"
 	"rk/internal/snapshot"
 	"rk/internal/tmux"
 	"rk/internal/validate"
@@ -623,6 +624,92 @@ func TestWindowOptionsRkLensKeepsExistingLayout(t *testing.T) {
 	}
 	if ops.setWindowOptionsCalled {
 		t.Errorf("_lens=iframe with an existing _layout must be a no-op, but ops ran: %v", ops.setWindowOptionsOps)
+	}
+}
+
+// --- Live-in-one-place check on @rk_win_layout writes ---
+//
+// A layout write introducing a foreign leaf already held by a third window is
+// a 409 naming the holder; a write re-using the writer's OWN holding, or an
+// unheld leaf, passes. The server window set rides the session fetcher seam.
+
+func postOptionsWithWindows(t *testing.T, ops *mockTmuxOps, windows []tmux.WindowInfo, windowID, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	fetcher := &mockSessionFetcher{result: []sessions.ProjectSession{{Name: "s", Windows: windows}}}
+	router := newTestRouter(fetcher, ops)
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/"+windowID+"/options", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func heldLayoutWindows() []tmux.WindowInfo {
+	return []tmux.WindowInfo{
+		{WindowID: "@3", Layout: "tty"},
+		{WindowID: "@7", Layout: "h(tty,@3/tty)"},
+		{WindowID: "@9", Layout: "tty"},
+	}
+}
+
+func TestWindowOptionsLayoutHeldByThirdWindow409(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptionsWithWindows(t, ops, heldLayoutWindows(), "@9", `{"options":{"@rk_win_layout":"h(tty,@3/tty)"}}`)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if !strings.Contains(result["error"], "@7") || !strings.Contains(result["error"], "@3/tty") {
+		t.Errorf("error = %q, want it naming the leaf @3/tty and its holder @7", result["error"])
+	}
+	if !strings.Contains(result["error"], "borrow") {
+		t.Errorf("error = %q, want it directing the caller to borrow", result["error"])
+	}
+	if ops.setWindowOptionsCalled {
+		t.Error("a refused layout write must not reach tmux")
+	}
+}
+
+func TestWindowOptionsLayoutSelfHeldPasses(t *testing.T) {
+	ops := &mockTmuxOps{}
+	// @7 already holds @3/tty; rewriting a layout that keeps its own holding
+	// is not a conflict.
+	rec := postOptionsWithWindows(t, ops, heldLayoutWindows(), "@7", `{"options":{"@rk_win_layout":"h(tty,@3/tty)"}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !ops.setWindowOptionsCalled {
+		t.Error("a self-held rewrite must reach tmux")
+	}
+}
+
+func TestWindowOptionsLayoutUnheldLeafPasses(t *testing.T) {
+	ops := &mockTmuxOps{}
+	// @3's web surface is held by nobody — @9 may take it.
+	rec := postOptionsWithWindows(t, ops, heldLayoutWindows(), "@9", `{"options":{"@rk_win_layout":"h(tty,@3/web)"}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !ops.setWindowOptionsCalled {
+		t.Error("an unheld foreign-leaf write must reach tmux")
+	}
+}
+
+func TestWindowOptionsLayoutSelfWindowLeaf400(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptionsWithWindows(t, ops, heldLayoutWindows(), "@9", `{"options":{"@rk_win_layout":"h(tty,@9/tty)"}}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if ops.setWindowOptionsCalled {
+		t.Error("a self-naming leaf must not reach tmux")
 	}
 }
 
@@ -1713,7 +1800,7 @@ func TestWindowOptionsWebSlotAcceptsSiteRelativeURL(t *testing.T) {
 func TestWindowOptionsLayoutValidation(t *testing.T) {
 	invalid := []string{
 		"grid:tty", "single:tty,web", "split-h:web,web", "row:tty,code,chat,web", "single:desktop",
-		"h(h(tty,web),code)", "h(tty)", "h(tty,web,code,gui)", "h(tty, web)",
+		"h(h(tty,web),code)", "h(tty)", "h(tty, web)",
 	}
 	for _, v := range invalid {
 		ops := &mockTmuxOps{}
@@ -1725,7 +1812,7 @@ func TestWindowOptionsLayoutValidation(t *testing.T) {
 			t.Errorf("layout %q: SetWindowOptions must NOT be called", v)
 		}
 	}
-	for _, v := range []string{"single:web", "main-left:tty,code,web", "row:tty,tty,web", "h(tty,v(code,web))", "h(tty,tty)"} {
+	for _, v := range []string{"single:web", "main-left:tty,code,web", "row:tty,tty,web", "h(tty,v(code,web))", "h(tty,tty)", "h(tty,web,code,gui)"} {
 		ops := &mockTmuxOps{}
 		rec := postOptions(t, ops, "@0", fmt.Sprintf(`{"options":{"@rk_win_layout":%q}}`, v))
 		if rec.Code != http.StatusOK {

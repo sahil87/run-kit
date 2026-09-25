@@ -64,14 +64,29 @@ export function webProxyModeFor(
 }
 
 /**
+ * A MagicDNS name (`*.ts.net`) or an address in Tailscale's CGNAT range
+ * `100.64.0.0/10` — the hosts whose traffic rides an encrypted tailnet hop.
+ */
+export function isTailnetHostname(hostname: string): boolean {
+  const name = hostname.toLowerCase().replace(/\.$/, "");
+  if (name.endsWith(".ts.net")) return true;
+  const octets = name.split(".");
+  if (octets.length !== 4 || !octets.every((o) => /^\d{1,3}$/.test(o))) return false;
+  const [a, b] = octets.map(Number);
+  return a === 100 && b >= 64 && b <= 127 && octets.every((o) => Number(o) <= 255);
+}
+
+/**
  * The `proxyRules` target for a host in `proxy` mode, or null when no proxy
  * target exists (the caller derives `legacy` instead):
  * - `http:` origin (incl. an SSH host's viewer-side tunnel origin, which the
  *   existing `-L` forward carries to the remote rk port) ⇒ the origin's own
  *   host:port.
- * - `https:` origin (a TLS-fronted host whose front end drops CONNECT) ⇒ the
- *   rk server's RAW listen port, advertised on `/api/health`; with no
- *   advertised port there is no reachable proxy target.
+ * - `https:` origin ON A TAILNET (a TLS front end such as Tailscale Serve
+ *   drops CONNECT) ⇒ the rk server's RAW listen port, advertised on
+ *   `/api/health`, over plain http. Only a tailnet makes that hop safe — it is
+ *   WireGuard-encrypted — so any other `https:` origin has no target: dropping
+ *   its TLS to plaintext across an arbitrary network is never acceptable.
  */
 export function proxyRulesFor(hostUrl: string, advertisedPort: number | null): string | null {
   let url: URL;
@@ -82,7 +97,8 @@ export function proxyRulesFor(hostUrl: string, advertisedPort: number | null): s
   }
   if (url.protocol === "http:") return `http://${url.host}`;
   if (url.protocol === "https:") {
-    return advertisedPort === null ? null : `http://${url.hostname}:${advertisedPort}`;
+    if (advertisedPort === null || !isTailnetHostname(url.hostname)) return null;
+    return `http://${url.hostname}:${advertisedPort}`;
   }
   return null;
 }

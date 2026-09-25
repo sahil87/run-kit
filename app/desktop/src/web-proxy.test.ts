@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   guestPartitionName,
+  isTailnetHostname,
   proxyRulesFor,
   setProxyConfigFor,
   webProxyModeFor,
@@ -68,11 +69,31 @@ test("proxyRulesFor an http origin targets the origin itself", () => {
   assert.equal(proxyRulesFor("http://100.101.2.3:3000", null), "http://100.101.2.3:3000");
 });
 
-test("proxyRulesFor an https origin targets the advertised raw port", () => {
+test("proxyRulesFor a tailnet https origin targets the advertised raw port", () => {
   assert.equal(
     proxyRulesFor("https://dev.example.ts.net", 3001),
     "http://dev.example.ts.net:3001",
   );
+  assert.equal(proxyRulesFor("https://100.101.2.3", 3001), "http://100.101.2.3:3001");
+});
+
+test("proxyRulesFor a non-tailnet https origin has no target (never downgrades TLS)", () => {
+  assert.equal(proxyRulesFor("https://rk.example.com", 3001), null);
+  assert.equal(proxyRulesFor("https://10.0.0.5", 3001), null);
+  assert.equal(proxyRulesFor("https://ts.net.example.com", 3001), null);
+});
+
+test("isTailnetHostname accepts MagicDNS names and the 100.64.0.0/10 range only", () => {
+  assert.equal(isTailnetHostname("dev.example.ts.net"), true);
+  assert.equal(isTailnetHostname("DEV.Example.TS.NET."), true);
+  assert.equal(isTailnetHostname("100.64.0.1"), true);
+  assert.equal(isTailnetHostname("100.127.255.255"), true);
+  assert.equal(isTailnetHostname("100.63.255.255"), false);
+  assert.equal(isTailnetHostname("100.128.0.1"), false);
+  assert.equal(isTailnetHostname("100.100.300.1"), false);
+  assert.equal(isTailnetHostname("192.168.1.10"), false);
+  assert.equal(isTailnetHostname("example.com"), false);
+  assert.equal(isTailnetHostname("ts.net.example.com"), false);
 });
 
 test("proxyRulesFor an https origin with no advertised port has no target", () => {

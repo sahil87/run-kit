@@ -119,7 +119,9 @@ absent invoker reads as `legacy`):
   runs in its own `persist:rk-web:<host.id>` session partition configured with
   `session.setProxy` `{ fixed_servers, proxyBypassRules: "<-loopback>" }`;
   TLS-fronted (https) host origins proxy via `http://<hostname>:<advertised
-  listen port>`. Accepted cons: all web-tile egress leaves from the remote host
+  listen port>` only on a tailnet (`*.ts.net` or `100.64.0.0/10`, where the
+  hop is WireGuard-encrypted); any other https origin stays `legacy` rather
+  than downgrading TLS to plaintext. Accepted cons: all web-tile egress leaves from the remote host
   (its IP and latency), and the viewer's own localhost, LAN, and VPN are
   unreachable from the native tile in this mode — the iframe-engine opt-out
   remains the viewer-local escape hatch.

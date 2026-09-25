@@ -34,6 +34,13 @@ type Node struct {
 // change).
 const MaxTiles = 3
 
+// MaxLayoutLen bounds the input byte length BEFORE parsing: parseNode's
+// recursion depth is bounded by len(raw)/2 (each level consumes ≥2 bytes), so
+// the cap keeps a hostile @rk_win_layout value from exhausting the stack. A
+// canonical tree over the four surface kinds is ≤ 17 bytes; legacy presets
+// stay under 30.
+const MaxLayoutLen = 128
+
 // splitGapPX mirrors the frontend's SPLIT_GAP_PX gutter: the nominal geometry
 // Add resolves the split direction from is computed with it, so the Go and TS
 // verbs pick the same axis.
@@ -149,6 +156,9 @@ func (n Node) String() string {
 func Parse(raw string) (Node, error) {
 	if raw == "" || strings.IndexFunc(raw, unicode.IsSpace) >= 0 {
 		return Node{}, fmt.Errorf("layout %q: empty or contains whitespace", raw)
+	}
+	if len(raw) > MaxLayoutLen {
+		return Node{}, fmt.Errorf("layout exceeds the %d-byte input cap (%d bytes)", MaxLayoutLen, len(raw))
 	}
 	var (
 		n   Node
@@ -506,7 +516,7 @@ func swapLeaves(n Node, a, b string) Node {
 
 // templateNames is the registry order — it drives TemplateOf matching,
 // TemplatesFor, and the Cycle walk.
-var templateNames = []string{"row", "col", "main-left", "main-right", "main-top", "main-bottom", "grid"}
+var templateNames = []string{"row", "col", "main-left", "main-right", "main-top", "main-bottom"}
 
 // indexKinds are distinct stand-in kinds for structure comparisons and slot
 // mapping (there are exactly four kinds, and template matching runs at N ≤ 4).
@@ -544,20 +554,6 @@ func buildTemplate(name string, slots []string) Node {
 			return splitNode("v", leaves...)
 		}
 		return splitNode("v", splitNode("h", leaves[1:]...), leaves[0])
-	case "grid":
-		cols := 1
-		for cols*cols < len(leaves) {
-			cols++
-		}
-		var rows []Node
-		for i := 0; i < len(leaves); i += cols {
-			end := i + cols
-			if end > len(leaves) {
-				end = len(leaves)
-			}
-			rows = append(rows, splitNode("h", leaves[i:end]...))
-		}
-		return splitNode("v", rows...)
 	}
 	return Node{}
 }

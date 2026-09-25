@@ -10,7 +10,10 @@
  *                                 MAX_TILES tiles (the rail's disabled buttons
  *                                 are the mouse mirror). "Show" is the honest
  *                                 verb: the entry reveals a renderer, it does
- *                                 not rearrange the layout.
+ *                                 not rearrange the layout. The split direction
+ *                                 resolves against the LIVE leaf rects when the
+ *                                 caller passes them (desktop), the nominal box
+ *                                 otherwise.
  *  - `Tile: Hide <Surface>`     — per open kind; omitted on a single-tile
  *                                 layout (the last tile never hides).
  *  - `Layout: Expand` / `Layout: Restore` — the transient focused-tile zoom
@@ -122,8 +125,9 @@ export type LayoutPaletteOptions = {
   /** The focused tile's leaf id — the directional swaps' origin. Absent ⇒
    *  no directional rows. */
   focusedLeafId: string | undefined;
-  /** Live leaf rects from the desktop render seam. Absent ⇒ mobile ⇒ no
-   *  directional rows. */
+  /** Live leaf rects from the desktop render seam — the directional swaps'
+   *  geometry AND the Show entries' split direction. Absent ⇒ mobile ⇒ the
+   *  nominal box decides and no directional rows render. */
   leafRects: (() => Map<string, Rect>) | undefined;
 };
 
@@ -155,7 +159,7 @@ export function buildLayoutActions(
         label: `Tile: Show ${SURFACE_LABEL[kind]}`,
         ...toggleHint(kind),
         onSelect: () => {
-          const next = addSurface(layout, kind);
+          const next = addSurface(layout, kind, opts.leafRects?.());
           if (next) opts.onApply(next);
         },
       });

@@ -17,6 +17,7 @@ import {
   templateOf,
   templatesFor,
   TEMPLATES,
+  MAX_LAYOUT_LEN,
   MAX_TILES,
   type LayoutNode,
   type SplitDir,
@@ -115,6 +116,12 @@ describe("parseLayoutTree", () => {
   it("does not attach sizes to parsed trees", () => {
     const t = parseLayoutTree("h(tty,v(code,web))");
     expect(t && !("sizes" in t)).toBe(true);
+  });
+
+  it("rejects over-length input before recursing (the depth cap)", () => {
+    const deep = "h(".repeat(200) + "tty" + ")".repeat(200);
+    expect(deep.length).toBeGreaterThan(MAX_LAYOUT_LEN);
+    expect(parseLayoutTree(deep)).toBeNull();
   });
 });
 

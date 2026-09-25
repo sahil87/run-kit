@@ -184,8 +184,8 @@ func TestTabNewPrintsIDAndWritesLayoutAtCreation(t *testing.T) {
 	if !strings.HasPrefix(id, "@") {
 		t.Fatalf("stdout = %q, want @N", stdout)
 	}
-	if got := tabWindowOption(t, env.server, id, tmux.LayoutOption); got != "split-h:tty,web" {
-		t.Errorf("@rk_win_layout = %q, want split-h:tty,web (legacy stored verbatim)", got)
+	if got := tabWindowOption(t, env.server, id, tmux.LayoutOption); got != "h(tty,web)" {
+		t.Errorf("@rk_win_layout = %q, want h(tty,web) (legacy canonicalized to the tree form)", got)
 	}
 	if got := tabTmuxOut(t, env.server, "display-message", "-pt", id, "#{window_name}"); got != "newtab" {
 		t.Errorf("window name = %q, want newtab", got)

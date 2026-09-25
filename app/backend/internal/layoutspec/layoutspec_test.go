@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -174,6 +175,19 @@ func TestParseRejections(t *testing.T) {
 		if n, err := Parse(raw); err == nil {
 			t.Errorf("Parse(%q) = %q, want rejection", raw, n)
 		}
+	}
+}
+
+// The input cap fires before the recursive descent, so a deeply nested
+// (attacker-controlled) value is rejected by length instead of exhausting the
+// stack.
+func TestParseRejectsOverLengthInput(t *testing.T) {
+	deep := strings.Repeat("h(", 200) + "tty" + strings.Repeat(")", 200)
+	if len(deep) <= MaxLayoutLen {
+		t.Fatalf("test input is %d bytes, want > MaxLayoutLen (%d)", len(deep), MaxLayoutLen)
+	}
+	if n, err := Parse(deep); err == nil {
+		t.Errorf("Parse(%d-byte deep tree) = %q, want rejection by the input cap", len(deep), n.String())
 	}
 }
 

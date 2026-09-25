@@ -76,6 +76,16 @@ export const NOMINAL_BOX: Rect = { x: 0, y: 0, w: 1600, h: 1000 };
 /** Tile-count cap; the size floor that replaces it is a later change. */
 export const MAX_TILES = 3;
 
+/**
+ * Input byte cap enforced BEFORE parsing: `parseTreeGrammar`'s recursion
+ * depth is bounded by `raw.length / 2` (each level consumes ≥2 chars), so the
+ * cap keeps a hostile or hand-written deep tree from overflowing the call
+ * stack — the parse degrades to `null` (the tty fallback) instead. A
+ * canonical tree over the four surface kinds is ≤ 17 chars; legacy presets
+ * stay under 30.
+ */
+export const MAX_LAYOUT_LEN = 128;
+
 const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "code", "gui"];
 
 function isSurfaceKind(value: string): value is SurfaceKind {
@@ -275,7 +285,7 @@ function parseLegacy(raw: string): LayoutNode | null {
  * repeated non-tty kind. The input is NEVER normalised into validity.
  */
 export function parseLayoutTree(raw: string | null | undefined): LayoutNode | null {
-  if (!raw || /\s/.test(raw)) return null;
+  if (!raw || /\s/.test(raw) || raw.length > MAX_LAYOUT_LEN) return null;
   const node = raw.includes(":") ? parseLegacy(raw) : parseTreeGrammar(raw);
   return node !== null && isCanonicalTree(node) ? node : null;
 }
@@ -488,8 +498,7 @@ export type TemplateName =
   | "main-left"
   | "main-right"
   | "main-top"
-  | "main-bottom"
-  | "grid";
+  | "main-bottom";
 
 /** Registry order — drives `templateOf` matching, `templatesFor`, the ▦ chip
  *  popover, and the cycle chord. */
@@ -500,7 +509,6 @@ export const TEMPLATE_NAMES: TemplateName[] = [
   "main-right",
   "main-top",
   "main-bottom",
-  "grid",
 ];
 
 /** Human labels for the templates — the ▦ chip rows, the overflow menu's
@@ -512,7 +520,6 @@ export const TEMPLATE_LABEL: Record<TemplateName, string> = {
   "main-right": "Main Right",
   "main-top": "Main Top",
   "main-bottom": "Main Bottom",
-  grid: "Grid",
 };
 
 /**
@@ -555,14 +562,6 @@ export const TEMPLATES: Record<TemplateName, (slots: SurfaceKind[]) => LayoutNod
           [splitNode("h", slots.slice(1).map(leaf)), leaf(slots[0])],
           [1 - TEMPLATE_MAIN_FRACTION, TEMPLATE_MAIN_FRACTION],
         ),
-  grid: (slots) => {
-    const cols = Math.ceil(Math.sqrt(slots.length));
-    const rows: LayoutNode[] = [];
-    for (let i = 0; i < slots.length; i += cols) {
-      rows.push(splitNode("h", slots.slice(i, Math.min(slots.length, i + cols)).map(leaf)));
-    }
-    return splitNode("v", rows);
-  },
 };
 
 /** Distinct stand-in kinds for structure comparisons and slot mapping (there

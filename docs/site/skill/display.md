@@ -60,7 +60,7 @@ rk tab web ls                    # the strip: index, '*' on active, url (--json 
 rk tab web select 2              # switch the tile to tab 2 (also @N/web/2 on another tab)
 rk tab web rm 2                  # drop tab 2; slots above shift down
 rk tab layout                    # print the effective layout (unset ⇒ tty)
-rk tab layout h(tty,web)         # set it (tree form; a legacy split-h:tty,web string still parses); --add/--rm/--promote/--cycle mutate through the verbs
+rk tab layout 'h(tty,web)'       # set it (tree form; a legacy split-h:tty,web string still parses); --add/--rm/--promote/--cycle mutate through the verbs
 ```
 
 Address another tab with a leading `@N` (`rk tab web ls @5`); `-L <server>` names a foreign server (then `@N` is mandatory). Depth: `rk tab --help`.

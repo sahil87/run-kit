@@ -351,10 +351,13 @@ func runTabNew(cmd *cobra.Command, args []string) error {
 
 	var ops []tmux.WindowOptionOp
 	if tabNewLayoutFlag != "" {
-		if _, err := layoutspec.Parse(tabNewLayoutFlag); err != nil {
+		parsed, err := layoutspec.Parse(tabNewLayoutFlag)
+		if err != nil {
 			return usageError(fmt.Errorf("--layout: %w", err))
 		}
-		v := tabNewLayoutFlag
+		// Writers emit the tree form only: a legacy preset string is stored
+		// canonicalized (the rk tab layout rule), never verbatim.
+		v := parsed.String()
 		ops = append(ops, tmux.WindowOptionOp{Key: tmux.LayoutOption, Value: &v})
 	}
 

@@ -78,6 +78,19 @@ describe("buildLayoutActions — shows/hides", () => {
     expect(onApply).toHaveBeenCalledWith(SPLIT_H_TTY_CODE);
   });
 
+  it("show resolves the split direction from the LIVE leaf rects when passed", () => {
+    const onApply = vi.fn();
+    // A tall, narrow tty tile splits vertically (nominal-box geometry would
+    // split it horizontally).
+    const tall = new Map<string, Rect>([["tty", { x: 0, y: 0, w: 200, h: 1000 }]]);
+    const actions = build(SINGLE_TTY, { onApply, leafRects: () => tall });
+    actions.find((a) => a.id === "tile-show-web")!.onSelect();
+    expect(onApply).toHaveBeenCalledWith({
+      dir: "v",
+      children: [{ leaf: "tty" }, { leaf: "web" }],
+    });
+  });
+
   it("at 3 tiles no Show entries are offered (max — the rail disables instead)", () => {
     const actions = ids(MAIN_LEFT);
     expect(actions.some((id) => id.startsWith("tile-show-"))).toBe(false);

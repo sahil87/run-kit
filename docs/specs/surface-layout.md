@@ -143,14 +143,17 @@ see [`ui-state.md`](ui-state.md) § Layout in tmux for the encoding, the
 degradation rule, and deep-link handling. Unset renders the bare `tty` leaf;
 the URL is always the bare route.
 
-Two values stay per-viewer localStorage, as reading postures: divider sizes
-(`rk-layout-sizes:{server}:{@N}:{structure-sig}` — one fraction array per
-split, keyed by structure so a swap keeps sizes with positions; the retired
-`rk-layout-ratios:*` keys are ignored, not migrated) and tile zoom
-(`rk-layout-zoom:*`). There is no present auto-open carve-out: showing a
-surface is an ordinary `@rk_win_layout` write every viewer renders. History
-entries are bare routes — layout changes never touch the URL, and
-back/forward shows whatever the tab's shared layout holds.
+Three values stay per-viewer localStorage, as reading postures: divider
+sizes (`rk-layout-sizes:{server}:{@N}:{structure-sig}` — one fraction array
+per split, keyed by structure so a swap keeps sizes with positions; the
+retired `rk-layout-ratios:*` keys are ignored, not migrated), tile zoom
+(`rk-layout-zoom:*`), and the popped set
+(`rk-layout-popped:{server}:{@N}` — a JSON array of leaf ids this viewer has
+popped out; the opener renders the tree reduced by those ids, and the shared
+`@rk_win_layout` is never written by pop-out or pop-in). There is no present
+auto-open carve-out: showing a surface is an ordinary `@rk_win_layout` write
+every viewer renders. History entries are bare routes — layout changes never
+touch the URL, and back/forward shows whatever the tab's shared layout holds.
 
 ---
 
@@ -184,6 +187,8 @@ cluster was retired).*
 | **✕ Close** | The leaf drops out (remove + normalise); its neighbours absorb its size and the remaining **structure is kept** — closing one tile of a column leaves a column. The last tile never closes |
 | **↩ Send home** | Foreign tiles only: the leaf drops out of this layout (remove + normalise, bare-`tty` fallback if it empties) and returns to its home tab, re-adding the home slot by the generic add rule when it was dismissed — one server-recomputed write through `POST /api/layout/return`. Disabled when the home window is dead; palette `Tile: Send Back to <home window>` |
 | **Bring back** (placeholder) | The return started from the home tab's placeholder — the same send-home effect as ↩ |
+| **Pop out** | The tile opens in its own browser window (the terminal route with `?pop=<leaf-id>`, chrome-less); the opener hides the leaf for this viewer only (`rk-layout-popped:*`) and reflows — no `@rk_win_layout` write, other viewers unaffected. A popped-out terminal attaches an isolated `_rk-iso-*` session, so it never fights the home tab's current window; a popped code tile evicts the opener's retained frame (one extension host, not two). Offered only above one rendered tile, on fine pointers, outside the desktop shell, and for live tiles (never the away placeholder or a dead-home foreign tile). Header button + palette `Tile: Pop Out <Surface>` (foreign leaves disambiguate with the home window's name). While any leaf is popped, header drag, the row-drag borrow, and the ▦ template cycle are disabled for this viewer (a drop or template resolved on the reduced render would drop the popped leaf from the shared layout); palette verbs address leaves by id and keep operating on the full tree. When every leaf is popped the opener renders a popped-out placeholder (a layout never renders empty) |
+| **Pop back in** | The popout closes (its `closed` message or window close clears the mark) and the tile reflows back. Runs from the popout's own header verb, the opener's palette (`Tile: Pop Back In <Surface>`), or the popped-out placeholder's button — closing the popout window by any means is equivalent. A mark whose popout stops heartbeating (6s) is swept and the tile returns |
 | **Switch-to-tile** (mobile-primary) | Swaps WHICH surface the mobile single slot renders: a target already open in the layout writes only the viewer's zoom key (`rk-layout-zoom:*` — no tmux write); an available-but-not-open target grows the shared layout through the shared `--add` mutation (`addSurface` → `@rk_win_layout` write) plus the zoom key; when growth is impossible (no split fits the size floor) the button is disabled. Lives in the top-bar switch group (§ Mobile) and the `Tile: Switch to <Surface>` palette entries that supersede `View:` at mobile width |
 
 **Rail semantics change**: rail buttons become **open-tile toggles** — lit for
@@ -261,10 +266,14 @@ fix, and e2e specs budget tiles against the pool.
 
 - **II / X** — nothing new is stored server-side; availability, content
   addresses, and rollups stay derived. Layout is client state (URL +
-  localStorage); shared named layouts ride settings.yaml with boards (phase 4).
+  localStorage); shared named layouts ride settings.yaml with boards (phase
+  4). The popped set is per-viewer localStorage — a viewer posture, never a
+  shared `@rk_win_layout` write; popout liveness is derived from the
+  BroadcastChannel heartbeat, not stored.
 - **IV** — no new routes; `?layout=` *replaces* two params; a canonical tree
   (constrained, templates as generators), not free trees; a per-viewer
-  150×100 px size floor gates growth, not a tile cap.
+  150×100 px size floor gates growth, not a tile cap. The popout is a viewer
+  param (`?pop=`) on the existing terminal route, not a route.
 - **V** — every verb is palette + chord reachable; the header drag's outcomes
   are all palette-reachable too (Promote + directional Swap cover placement at
   any tile count; past three tiles the size floor bounds growth, and

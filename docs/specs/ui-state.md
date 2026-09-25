@@ -392,6 +392,18 @@ special-casing: when one of the tab's surfaces is borrowed into another tab,
 the layout renders that surface's placeholder on arrival (surface-layout.md §
 Tiles from other tabs).
 
+**Popout is a per-viewer posture, never tab state.** Popping a tile out
+writes only the viewer's localStorage (`rk-layout-popped:{server}:{@N}`); the
+opener renders the layout reduced by the popped leaf ids, and other viewers
+and agents reading `@rk_win_layout` are unaffected. The popout window itself
+is the terminal route carrying `?pop=<leaf-id>` — the one live terminal-route
+search param beside `from`/`tab` (never translated away at route entry) —
+rendering that one surface chrome-less, keyed to its window for life (it
+never follows the opener's navigation, never aligns tmux, and renders an
+ended "Window closed" state when the surface's window dies). Opener and
+popout coordinate over a same-origin `BroadcastChannel` (opened/alive/closed/
+pop-in/ping; a silent popout's mark is swept after 6s).
+
 Opt-in **follow mode** — a viewer toggles "follow session X" and their route
 tracks the session's tmux active window (`select-window` from a pane then
 navigates the follower) — is the natural v2 and needs no new option: it

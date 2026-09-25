@@ -65,6 +65,14 @@
  *                                 exists. Desktop multi-tile only: the caller
  *                                 passes `leafRects` and `focusedLeafId` only
  *                                 then.
+ *  - `Tile: Pop Out <Surface>`   — per open, not-popped, live leaf while the
+ *                                 reduced render keeps ≥2 tiles (the caller
+ *                                 omits `onPopOut` in the desktop shell and on
+ *                                 mobile); foreign leaves disambiguate with the
+ *                                 home window's name. `Tile: Pop Back In
+ *                                 <Surface>` — per popped leaf of this layout.
+ *                                 While any leaf is popped, the template rows
+ *                                 and cycle entry below gate OFF.
  *  - `Layout: <Template>`       — one per `templatesFor(n)` at the current
  *                                 tile count (the ▦ chip rows' palette form);
  *                                 a template whose result lands under the size
@@ -202,6 +210,19 @@ export type LayoutPaletteOptions = {
    *  the same return the placeholder's bring back runs): called with the
    *  holder window and the leaf address `@<routeWindowId>/<kind>`. */
   onBringBack?: (holderWindowId: string, leafAddress: string) => void;
+  /** The viewer's popped leaf ids (spec surface-layout.md § Verbs → Pop
+   *  out): one `Tile: Pop Back In <Surface>` row per popped leaf, and the
+   *  `Layout: <Template>` / cycle rows gate OFF while any leaf is popped (a
+   *  template resolved on the viewer's reduced render would strand the
+   *  popped leaf). Absent/empty ⇒ nothing popped. */
+  poppedIds?: string[];
+  /** The Pop Out rows' seam — per open, not-popped, eligible leaf. Absent ⇒
+   *  no Pop Out rows (the desktop shell and mobile/coarse gate at the
+   *  caller). */
+  onPopOut?: (leafId: string) => void;
+  /** The Pop Back In rows' seam — tells the popout to close and clears the
+   *  viewer's mark. Absent ⇒ no Pop Back In rows. */
+  onPopIn?: (leafId: string) => void;
 };
 
 export function buildLayoutActions(
@@ -212,6 +233,7 @@ export function buildLayoutActions(
   const actions: LayoutPaletteAction[] = [];
   const kinds = leaves(layout);
   const tileCount = kinds.length;
+  const ids = leafIds(layout);
   const openKinds = [...new Set(kinds)];
   // Bare-only presence: a kind open solely as foreign leaves still gets its
   // Show row (the toggle adds the bare slot) and no Hide row (a foreign
@@ -365,7 +387,6 @@ export function buildLayoutActions(
   // dedupe to their first leaf (the kind IS that leaf's id — duplicate tty
   // tiles share one row); a foreign entry is labelled by its address.
   if (tileCount > 1) {
-    const ids = leafIds(layout);
     // Slot A's id derives exactly as promote() derives it — the slot-order
     // kind's first leaf in reading order.
     const slotAId = ids[leaves(layout).indexOf(slotOrder(layout)[0])];
@@ -409,9 +430,59 @@ export function buildLayoutActions(
     }
   }
 
+  // Pop out / Pop back in — the popout verbs (spec surface-layout.md § Verbs
+  // → Pop out). `Tile: Pop Out <Surface>` is offered per open, not-popped,
+  // LIVE leaf while the REDUCED render keeps ≥2 tiles (a single remaining
+  // tile gains nothing — the tab's URL is the answer): an away bare kind (its
+  // surface is live in another tab) and a dead-home foreign leaf have nothing
+  // to pop. Foreign leaves disambiguate with the home window's name (the
+  // `Tile: Bring <window> <Surface> here` convention). `Tile: Pop Back In
+  // <Surface>` is offered per popped leaf still in the shared tree.
+  const poppedSet = new Set((opts.poppedIds ?? []).filter((id) => ids.includes(id)));
+  const renderedArity = tileCount - poppedSet.size;
+  const popLabel = (id: string): string | null => {
+    const kind = zoomLeafKind(id);
+    if (kind === undefined) return null;
+    const foreign = parseLeafAddress(id);
+    if (foreign === null) return SURFACE_LABEL[kind];
+    const homeName = opts.windowNameFor?.(foreign.home);
+    return homeName !== undefined ? `${homeName} ${SURFACE_LABEL[kind]}` : null;
+  };
+  if (opts.onPopOut && renderedArity > 1) {
+    for (const id of ids) {
+      if (poppedSet.has(id)) continue;
+      const kind = zoomLeafKind(id);
+      if (kind === undefined) continue;
+      if (parseLeafAddress(id) === null && opts.awayIn?.[kind] !== undefined) continue;
+      const label = popLabel(id);
+      if (label === null) continue; // a dead home window's tile has nothing to pop
+      actions.push({
+        id: `tile-pop-out-${id}`,
+        label: `Tile: Pop Out ${label}`,
+        onSelect: () => opts.onPopOut?.(id),
+      });
+    }
+  }
+  if (opts.onPopIn) {
+    for (const id of opts.poppedIds ?? []) {
+      if (!poppedSet.has(id)) continue;
+      const label = popLabel(id);
+      if (label === null) continue;
+      actions.push({
+        id: `tile-pop-in-${id}`,
+        label: `Tile: Pop Back In ${label}`,
+        onSelect: () => opts.onPopIn?.(id),
+      });
+    }
+  }
+
   // Template jumps — one per structurally distinct template at the current
-  // tile count whose result fits the size floor in the offer box.
-  const templates = templatesFor(tileCount);
+  // tile count whose result fits the size floor in the offer box. Gated OFF
+  // while this viewer has a leaf popped (with the ▦ chip and the cycle
+  // chord): a template rebuilds from the slot order, and resolving one over
+  // the reduced render would drop the popped leaf from the shared layout for
+  // every viewer.
+  const templates = poppedSet.size === 0 ? templatesFor(tileCount) : [];
   for (const name of templates) {
     const next = applyTemplate(layout, name);
     if (next === null || !fitsFloor(next, undefined, offerBox)) continue;

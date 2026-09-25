@@ -58,6 +58,10 @@ type LayoutChipProps = {
   /** Apply a template by name (the caller runs applyTemplate → applyLayout —
    *  persist + option write). */
   onApply: (template: TemplateName) => void;
+  /** Disabled while this viewer has a tile popped out — a template rebuilds
+   *  from the reduced render's slot order and would strand the popped leaf.
+   *  The chip stays visible (state stays readable) but inert. */
+  disabled?: boolean;
 };
 
 /** The current-state row for a tree no template matches (`custom`) or a
@@ -92,10 +96,15 @@ function CurrentStateRow({
   );
 }
 
-export function LayoutChip({ layout, onApply }: LayoutChipProps) {
+export function LayoutChip({ layout, onApply, disabled = false }: LayoutChipProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // A disabled chip never opens; a disable arriving mid-popover closes it.
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
 
   // Menus register `transient` (overlay-presence): while open, a native guest
   // composited above the DOM hides so the menu never paints underneath it.
@@ -149,16 +158,22 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
     <div ref={containerRef} className="relative inline-flex items-center">
       {/* Tip suppressed while the popover is open (trigger convention — the
           tip must not paint over the first rows). */}
-      <Tip label={open ? undefined : "Layout"} kbd={open ? undefined : cycleChord}>
+      <Tip
+        label={
+          open ? undefined : disabled ? "Layout — unavailable while a tile is popped out" : "Layout"
+        }
+        kbd={open || disabled ? undefined : cycleChord}
+      >
         <button
           ref={buttonRef}
           type="button"
           data-testid="layout-chip"
           onClick={() => setOpen((v) => !v)}
+          disabled={disabled}
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label="Layout"
-          className={controlClass({ variant: "icon", open })}
+          className={controlClass({ variant: "icon", open, disabled })}
         >
           <LayoutGlyph />
         </button>
@@ -214,7 +229,7 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
  * Clicking jumps directly (the menu's role-keyed click handler closes the
  * panel on a `menuitemradio` activation).
  */
-export function LayoutMenuRows({ layout, onApply }: LayoutChipProps) {
+export function LayoutMenuRows({ layout, onApply, disabled = false }: LayoutChipProps) {
   const match = templateOf(layout);
   const templates = templatesFor(leaves(layout).length);
   return (
@@ -231,9 +246,10 @@ export function LayoutMenuRows({ layout, onApply }: LayoutChipProps) {
             role="menuitemradio"
             tabIndex={-1}
             aria-checked={current}
+            disabled={disabled}
             data-testid={`layout-template-${name}`}
             onClick={() => onApply(name)}
-            className={controlClass({ variant: "menu-row", pressed: current })}
+            className={controlClass({ variant: "menu-row", pressed: current, disabled })}
           >
             <LayoutTreeGlyph name={name} tree={TEMPLATES[name](leaves(layout))} />
             {`Layout: ${TEMPLATE_LABEL[name]}`}

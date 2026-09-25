@@ -714,3 +714,98 @@ describe("buildTileSwitchActions — Tile: Switch to <Surface> (mobile)", () => 
     expect(actions.map((a) => a.id)).toEqual(["tile-switch-tty", "tile-switch-code"]);
   });
 });
+
+// `Tile: Pop Out <Surface>` / `Tile: Pop Back In <Surface>` — the popout
+// verbs (spec surface-layout.md § Verbs → Pop out). Pop Out is offered per
+// open, not-popped, live leaf while the REDUCED render keeps ≥2 tiles, with
+// foreign leaves disambiguated by the home window's name; Pop Back In is
+// offered per popped leaf still in the shared tree. While any leaf is
+// popped, the `Layout: <Template>` rows and the cycle entry gate off (a
+// template resolved on the reduced render would strand the popped leaf).
+describe("buildLayoutActions — popout verbs", () => {
+  const popOpts = {
+    onPopOut: vi.fn(),
+    onPopIn: vi.fn(),
+    windowNameFor: (id: string) => (id === "@9" ? "api" : undefined),
+  };
+
+  it("offers Pop Out per open leaf at rendered arity > 1", () => {
+    const ids = build(SPLIT_H_TTY_CODE, popOpts).map((a) => a.id);
+    expect(ids).toContain("tile-pop-out-tty");
+    expect(ids).toContain("tile-pop-out-code");
+  });
+
+  it("offers NO Pop Out on a single-tile layout", () => {
+    const ids = build(SINGLE_TTY, popOpts).map((a) => a.id);
+    expect(ids.some((id) => id.startsWith("tile-pop-out-"))).toBe(false);
+  });
+
+  it("offers NO Pop Out rows when onPopOut is omitted (desktop shell, mobile)", () => {
+    const ids = build(SPLIT_H_TTY_CODE, { onPopIn: vi.fn() }).map((a) => a.id);
+    expect(ids.some((id) => id.startsWith("tile-pop-out-"))).toBe(false);
+  });
+
+  it("Pop Out fires the seam with the leaf id", () => {
+    const onPopOut = vi.fn();
+    const actions = build(SPLIT_H_TTY_CODE, { ...popOpts, onPopOut });
+    actions.find((a) => a.id === "tile-pop-out-code")!.onSelect();
+    expect(onPopOut).toHaveBeenCalledWith("code");
+  });
+
+  it("labels a foreign leaf with its home window's name and omits a dead-home one", () => {
+    const layout: Layout = {
+      dir: "h",
+      children: [{ leaf: "tty" }, { leaf: "tty", home: "@9" }, { leaf: "web", home: "@12" }],
+    };
+    const actions = build(layout, popOpts);
+    const foreign = actions.find((a) => a.id === "tile-pop-out-@9/tty");
+    expect(foreign?.label).toBe("Tile: Pop Out api Terminal");
+    expect(actions.some((a) => a.id === "tile-pop-out-@12/web")).toBe(false);
+  });
+
+  it("omits Pop Out for a popped leaf and for an away bare kind", () => {
+    const layout: Layout = {
+      dir: "h",
+      children: [{ leaf: "tty" }, { leaf: "code" }, { leaf: "web" }],
+    };
+    const popped = build(layout, { ...popOpts, poppedIds: ["code"] }).map((a) => a.id);
+    expect(popped).not.toContain("tile-pop-out-code");
+    expect(popped).toContain("tile-pop-out-tty");
+    const away = build(layout, { ...popOpts, awayIn: { web: "@3" }, routeWindowId: "@1" }).map(
+      (a) => a.id,
+    );
+    expect(away).not.toContain("tile-pop-out-web");
+  });
+
+  it("drops the LAST Pop Out when every other leaf is popped (rendered arity 1)", () => {
+    const layout: Layout = {
+      dir: "h",
+      children: [{ leaf: "tty" }, { leaf: "code" }],
+    };
+    const ids = build(layout, { ...popOpts, poppedIds: ["code"] }).map((a) => a.id);
+    expect(ids.some((id) => id.startsWith("tile-pop-out-"))).toBe(false);
+  });
+
+  it("offers Pop Back In per popped leaf and fires the seam", () => {
+    const onPopIn = vi.fn();
+    const actions = build(SPLIT_H_TTY_CODE, { ...popOpts, onPopIn, poppedIds: ["code"] });
+    const entry = actions.find((a) => a.id === "tile-pop-in-code")!;
+    expect(entry.label).toBe("Tile: Pop Back In Code");
+    entry.onSelect();
+    expect(onPopIn).toHaveBeenCalledWith("code");
+  });
+
+  it("omits Pop Back In for a popped id that left the shared tree", () => {
+    const ids = build(SPLIT_H_TTY_CODE, { ...popOpts, poppedIds: ["web"] }).map((a) => a.id);
+    expect(ids.some((id) => id.startsWith("tile-pop-in-"))).toBe(false);
+  });
+
+  it("gates the template rows and the cycle entry off while a leaf is popped", () => {
+    const plain = build(MAIN_LEFT).map((a) => a.id);
+    expect(plain.some((id) => id.startsWith("layout-template-"))).toBe(true);
+    expect(plain).toContain("layout-cycle");
+    const popped = build(MAIN_LEFT, { ...popOpts, poppedIds: ["web"] }).map((a) => a.id);
+    expect(popped.some((id) => id.startsWith("layout-template-"))).toBe(false);
+    expect(popped).not.toContain("layout-cycle");
+  });
+});

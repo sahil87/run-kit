@@ -240,6 +240,11 @@ type TopBarProps = {
    *  rows. */
   layout?: Layout;
   onApplyLayout?: (next: Layout) => void;
+  /** While true (this viewer has a tile popped out) the ▦ template cycle
+   *  renders disabled — chip, chord, and menu rows (spec surface-layout.md §
+   *  Verbs → Pop out: a template resolved on the reduced render would drop
+   *  the popped leaf from the shared layout). */
+  layoutTemplatesDisabled?: boolean;
 };
 
 function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
@@ -651,6 +656,7 @@ export function TopBar({
   onToggleAutofit,
   layout,
   onApplyLayout,
+  layoutTemplatesDisabled = false,
 }: TopBarProps) {
   // The ▦ chip emits a template NAME; the jump rebuilds the template's tree
   // from the current slot order and rides the one mutation path (R16/R3).
@@ -983,11 +989,11 @@ export function TopBar({
       hidden: !(mode === "terminal" && currentWindow && layout && onApplyLayout),
       barRender: () =>
         layout && onApplyLayout ? (
-          <LayoutChip layout={layout} onApply={applyLayoutTemplate} />
+          <LayoutChip layout={layout} onApply={applyLayoutTemplate} disabled={layoutTemplatesDisabled} />
         ) : null,
       menuRender: () =>
         layout && onApplyLayout ? (
-          <LayoutMenuRows layout={layout} onApply={applyLayoutTemplate} />
+          <LayoutMenuRows layout={layout} onApply={applyLayoutTemplate} disabled={layoutTemplatesDisabled} />
         ) : null,
     },
     // Fixed-width toggle — MENU-ONLY as of 260731-oiho: a sticky per-device

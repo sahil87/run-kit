@@ -239,6 +239,20 @@ export function SendHomeGlyph() {
   );
 }
 
+/** Pop out — a box with an arrow leaving its top-right corner ("the tile
+ *  leaves the layout into its own window"), the tile header's Pop out verb.
+ *  Distinct from OpenExternalGlyph's bare diagonal arrow: the box anchors the
+ *  source tile. */
+export function PopOutGlyph() {
+  return (
+    <ControlGlyph name="pop-out">
+      <path d="M15 3h6v6" />
+      <path d="m21 3-9 9" />
+      <path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6" />
+    </ControlGlyph>
+  );
+}
+
 /** Fixed width — the inward/contract fixed-width arrows: the static identity
  *  form the menu row uses (state stays on the trailing ✓). The state-driven
  *  `expanded` outward variant went with the in-bar toggle (260814-6b0j). */

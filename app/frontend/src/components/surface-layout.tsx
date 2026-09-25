@@ -83,6 +83,7 @@ import {
   FindGlyph,
   FollowTerminalGlyph,
   FullscreenGlyph,
+  PopOutGlyph,
   RefreshGlyph,
   SendHomeGlyph,
   SplitHorizontalGlyph,
@@ -277,6 +278,18 @@ import {
  *   leaf — a layout never renders empty). A foreign tile's header identifies
  *   its home tab (name chip) and carries a ↩ verb (`onSendHome` with from =
  *   the route window), disabled while the home window is dead.
+ * - **Popout (per viewer)**: a tile can pop out into its own browser window —
+ *   the opener's parent hands the REDUCED tree plus this viewer's popped leaf
+ *   ids (`popped`), which disarm the header drag (a drop resolved on the
+ *   reduced tree would drop the popped leaf from the SHARED layout), unzoom a
+ *   popped zoomed leaf, and evict a popped code leaf's retained frame (the
+ *   popout boots its own extension host). The header's Pop out verb sits in
+ *   the content-verb family ahead of the layout-verb cluster. The popout
+ *   window itself mounts this component with `popoutLeafId` on a one-leaf
+ *   tree: chrome-less, the layout-verb cluster replaced by a single Pop back
+ *   in verb, and a tty tile's relay stream opening with `isolate: true` (the
+ *   `_rk-iso-*` attach — the popout keeps its window while the opener's
+ *   session switches windows).
  * - **Sidebar row-drag borrow**: a window-row HTML5 drag (WINDOW_DRAG_MIME)
  *   in flight arms a drop-catcher overlay above all tiles — window-level
  *   dragstart/dragend listeners (the payload is readable at dragstart), the
@@ -618,6 +631,26 @@ interface SurfaceLayoutProps {
    *  `applyLayout` — the one `@rk_win_layout` write path); the viewer's sizes
    *  for the new structure signature are already written when it fires. */
   onApplyLayout: (next: Layout) => void;
+  /** Popout posture (spec surface-layout.md § Verbs → Pop out): this render
+   *  IS the popout window — a one-leaf tree, chrome-less. The tile header
+   *  replaces the layout-verb cluster (zoom/↩/✕) with a single Pop back in
+   *  verb, and a tty tile's relay stream opens with `isolate: true`. */
+  popoutLeafId?: string;
+  /** The popout header's Pop back in verb — the parent's close seam (the
+   *  popout posts `closed` and closes its window). */
+  onPopBackIn?: () => void;
+  /** Opener posture: this viewer's popped leaf ids for the window. A popped
+   *  leaf is absent from the RENDERED tree (the parent reduced it), so here
+   *  the set governs what the reduction hides: header drag stays disarmed
+   *  while any leaf is popped (a drop resolved on the reduced tree would drop
+   *  the popped leaf from the SHARED layout for every viewer), a popped
+   *  zoomed leaf renders unzoomed, and a popped code leaf's retained frame is
+   *  evicted (one extension host, not two — the popout boots its own). */
+  popped?: string[];
+  /** The header's Pop out verb (content-verb family, before the layout
+   *  cluster). Absent ⇒ not offered (the caller gates the desktop shell,
+   *  mobile, and coarse pointers). */
+  onPopOut?: (leafId: string, rect?: Rect) => void;
   /** Send a held surface back to its home window (the parent's `sendHome` —
    *  `POST /api/layout/return`): the placeholder's bring back passes
    *  from = the HOLDER, the foreign tile header's ↩ passes from = the ROUTE
@@ -1000,6 +1033,10 @@ export function SurfaceLayout({
   onProgrammaticFocus,
   onClose,
   onApplyLayout,
+  popoutLeafId,
+  onPopBackIn,
+  popped,
+  onPopOut,
   onSendHome,
   onGoToWindow,
   onBorrowDrop,
@@ -1022,6 +1059,26 @@ export function SurfaceLayout({
   const layoutKinds = leaves(layout);
   const layoutSig = structureSig(layout);
   const arity = layoutLeafIds.length;
+  // The popout/opener postures (spec surface-layout.md § Verbs → Pop out /
+  // Pop back in). `popoutLeafId` set ⇒ this render IS the popout window — a
+  // one-leaf tree, chrome-less; the header trades the layout-verb cluster for
+  // a single Pop back in verb. `popped` ⇒ the opener's per-viewer popped set:
+  // the parent renders the REDUCED tree, and here the set disarms the header
+  // drag (a drop resolved on the reduced tree would drop the popped leaf from
+  // the SHARED layout for every viewer), unzooms a popped zoomed leaf, and
+  // evicts a popped code leaf's retained frame (the popout boots its own
+  // extension host — one, not two).
+  const popoutTile = popoutLeafId !== undefined;
+  const poppedIdsKey = (popped ?? []).join("\n");
+  const poppedSet = useMemo(
+    () => new Set(popped ?? []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [poppedIdsKey],
+  );
+  // Render-mirrored for the row-drag's dragstart listener (the effect keys on
+  // server/window, not the set — the latest-closure pattern).
+  const poppedSetRef = useRef(poppedSet);
+  poppedSetRef.current = poppedSet;
   // The focus-memory key for this window (spec right-panel.md § The code
   // lens): the recording seams below write the user's focus choice under it,
   // and the steal guard consults it. This component is keyed by server and
@@ -1619,6 +1676,26 @@ export function SurfaceLayout({
     );
   }, [codeFollowSrc]);
 
+  // A popped code leaf evicts the opener's retained frame for its window
+  // (spec surface-layout.md § Verbs → Pop out): the popout boots its own
+  // extension host, so a kept hidden frame would double the ~250–320 MB cost
+  // the LRU exists to bound. The show-bookkeeping effect never re-creates the
+  // record while the leaf is popped — the REDUCED render tree holds no code
+  // leaf claiming that window — and popping back in re-mounts fresh (a
+  // workbench boot is the accepted cost of the return).
+  const poppedCodeWindowsKey = [...poppedSet]
+    .filter((id) => leafIdParts(id).kind === "code")
+    .map((id) => tileWindowIdOf(id, windowId))
+    .join("\n");
+  useEffect(() => {
+    if (poppedCodeWindowsKey === "") return;
+    const evict = new Set(poppedCodeWindowsKey.split("\n"));
+    setCodeFrames((prev) => {
+      const next = prev.filter((r) => !evict.has(r.windowId));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [poppedCodeWindowsKey]);
+
   // ⏶ Zoom: one leaf fills the layout area; the shared layout tree is
   // untouched. Per-viewer and PERSISTED as the zoomed LEAF ID under
   // `rk-layout-zoom:{server}:{@N}` — the same key the mobile switch group
@@ -1678,6 +1755,12 @@ export function SurfaceLayout({
     }
     setZoomedLeafId(layoutLeafIds[i]);
   }, [zoomedLeafId, layout, flipZoom, server, windowId]);
+  // A popped zoomed leaf renders unzoomed: the reduced tree no longer holds
+  // its tile, so the zoom would pin a hidden tile full-center. Clearing goes
+  // through flipZoom so the persisted key clears too.
+  useEffect(() => {
+    if (zoomedLeafId !== null && poppedSet.has(zoomedLeafId)) flipZoom(null);
+  }, [zoomedLeafId, poppedSet, flipZoom]);
   const zoomed = zoomedLeafId !== null;
 
   // Zoom flip reporting for the palette seam (T012/R11): the `Layout: Expand`/
@@ -2202,8 +2285,12 @@ export function SurfaceLayout({
   layoutRef.current = layout;
 
   // A drag can start on any desktop, unzoomed, multi-tile render with a fine
-  // pointer (the mobile branch renders one tile and never arms).
-  const canDragTiles = !isMobile && !coarsePointer && !zoomed && arity > 1;
+  // pointer (the mobile branch renders one tile and never arms) — and only
+  // while this viewer has nothing popped: the resolver would run on the
+  // reduced tree and the commit would drop the popped leaf from the shared
+  // layout for every viewer.
+  const canDragTiles =
+    !isMobile && !coarsePointer && !zoomed && arity > 1 && poppedSet.size === 0;
 
   const onTileDragPointerDown = (leafId: string) => (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -2391,6 +2478,12 @@ export function SurfaceLayout({
     const onDragStart = (e: DragEvent) => {
       const dt = e.dataTransfer;
       if (dt === null || !Array.from(dt.types).includes(WINDOW_DRAG_MIME)) return;
+      // While this viewer has a leaf popped the drop would resolve on the
+      // REDUCED tree and the commit would drop the popped leaf from the
+      // shared layout — the borrow drag stays disarmed (the header drag's
+      // rule). The palette's `Tile: Bring … here` remains available — it
+      // computes from the full tree.
+      if (poppedSetRef.current.size > 0) return;
       const raw = dt.getData("application/json");
       let serverField: string | null = null;
       let windowField: string | null = null;
@@ -2661,9 +2754,12 @@ export function SurfaceLayout({
               server={server}
               // A foreign tile's stream opens isolated (its home window's
               // `_rk-iso-*` session) so it never fights the home tab's own
-              // attach; bare streams omit the flag. Fixed per mount — a tile
-              // retargeting remounts (the leaf's home is in its React key).
-              isolate={foreign}
+              // attach; bare streams omit the flag. A POPOUT's stream
+              // isolates too (popoutTile): the popout keeps its window while
+              // the opener's session switches windows. Fixed per mount — a
+              // tile retargeting remounts (the leaf's home is in its React
+              // key).
+              isolate={foreign || popoutTile}
               switchReceiptSource={primaryTty}
               clearOnRide={clearOnWindowChange}
               hidden={hidden}
@@ -2877,6 +2973,12 @@ export function SurfaceLayout({
   const dockTtyLeafId = firstBareTtyLeafId ?? ttyLeafIds[0] ?? null;
   const hiddenTiles: TileModel[] = hiddenLeafIds
     .filter((id) => !layoutLeafIds.includes(id))
+    // A popped code leaf renders NO hidden tile: its retained frame is
+    // evicted (the popout boots its own extension host), so there is nothing
+    // to keep mounted. Popped tty/web/gui leaves keep the
+    // hide-never-unmount posture (the hidden gui tile's RFB disconnects via
+    // its visibility gate).
+    .filter((id) => !(poppedSet.has(id) && leafIdParts(id).kind === "code"))
     .map((leafId) => ({
       kind: leafIdParts(leafId).kind,
       leafId,
@@ -2990,6 +3092,22 @@ export function SurfaceLayout({
     // The fullscreened gui tile suppresses its layout verbs (the zoomed-tile
     // precedent) — ⤢ latched green is the exit.
     const showVerbs = !mobile && arity > 1 && tile.visible && !(kind === "gui" && guiTileFullscreen);
+    // Pop out (spec surface-layout.md § Verbs → Pop out): a content-verb
+    // family member rendered ahead of the layout-verb cluster. Eligible on
+    // the reduced RENDER's arity (a single remaining tile gains nothing — the
+    // tab's own URL is the answer), on fine pointers, and for LIVE tiles only
+    // — the away placeholder renders no header at all (the mount gate above),
+    // and a foreign tile whose home window died has nothing to pop (the
+    // read-time prune drops it on the next payload). The desktop shell gates
+    // upstream (the caller omits onPopOut): the shell routes window.open to
+    // the system browser, which shares neither localStorage nor the
+    // BroadcastChannel with the opener.
+    const canPopOutTile =
+      !popoutTile &&
+      showVerbs &&
+      !coarsePointer &&
+      onPopOut !== undefined &&
+      !(leafHome !== undefined && homeWindow === null);
     // Focused-tile highlight (260812-wfic R2): accent-green border + kind
     // glyph, suppressed at arity 1 (no verbs, no highlight — the tmux
     // active-pane metaphor). Focus assignment: the wrapper's pointerdown
@@ -3394,8 +3512,27 @@ export function SurfaceLayout({
                 )}
               </>
             )}
-            {showVerbs && (
+            {showVerbs && !popoutTile && (
               <>
+                {/* Pop out (content-verb family, ahead of the layout-verb
+                    cluster): hands the leaf id + the tile's rendered rect to
+                    the parent's popOut (the popup's size); the mark lands
+                    optimistically before window.open returns. */}
+                {canPopOutTile && (
+                  <>
+                    <Tip label={`Pop out ${label}`}>
+                      <button
+                        type="button"
+                        aria-label={`Pop out ${label}`}
+                        onClick={() => onPopOut?.(leafId, rects.get(leafId))}
+                        className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
+                      >
+                        <PopOutGlyph />
+                      </button>
+                    </Tip>
+                    <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-border" />
+                  </>
+                )}
                 {/* ↩ send home (R14): FOREIGN leaves only, whose home ≠ the
                     route window (a self-address is grammar-invalid, guarded
                     anyway); disabled while the home window is dead — the
@@ -3444,6 +3581,23 @@ export function SurfaceLayout({
                   </button>
                 </Tip>
               </>
+            )}
+            {/* The popout window's one layout verb: Pop back in replaces the
+                whole layout-verb cluster (zoom/↩/✕/Pop out) — the popout
+                renders one tile, so the layout verbs are meaningless here.
+                The content-verb families (pane segment, code verbs, find)
+                keep rendering. */}
+            {popoutTile && (
+              <Tip label={`Pop ${label} back in`}>
+                <button
+                  type="button"
+                  aria-label={`Pop ${label} back in`}
+                  onClick={() => onPopBackIn?.()}
+                  className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
+                >
+                  <SendHomeGlyph />
+                </button>
+              </Tip>
             )}
           </div>
         )}
@@ -3578,7 +3732,10 @@ export function SurfaceLayout({
         ? mobileActiveSlot
         : 0;
     const allTiles = [
-      ...visibleTiles.map((tile, i) => ({ tile, hidden: i !== mobileSlot })),
+      ...visibleTiles.map((tile, i) => ({
+        tile,
+        hidden: i !== mobileSlot || poppedSet.has(tile.leafId),
+      })),
       ...hiddenTiles.map((tile) => ({ tile, hidden: true })),
       ...retainedCodeTiles.map((tile) => ({ tile, hidden: true })),
     ];
@@ -3599,7 +3756,10 @@ export function SurfaceLayout({
   const allTiles = [
     ...visibleTiles.map((tile) => ({
       tile,
-      hidden: zoomed && tile.leafId !== zoomedLeafId,
+      // A popped leaf never renders live: the parent usually hands the
+      // REDUCED tree (the leaf is absent), but the all-popped placeholder
+      // render passes the full tree and hides every tile through this flag.
+      hidden: (zoomed && tile.leafId !== zoomedLeafId) || poppedSet.has(tile.leafId),
     })),
     ...hiddenTiles.map((tile) => ({ tile, hidden: true })),
     ...retainedCodeTiles.map((tile) => ({ tile, hidden: true })),

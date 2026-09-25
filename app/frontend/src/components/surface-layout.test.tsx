@@ -170,6 +170,10 @@ type LayoutOverrides = {
   windowsById?: ReadonlyMap<string, WindowInfo>;
   sessionNameByWindowId?: ReadonlyMap<string, string>;
   ttyDockContent?: React.ReactNode;
+  popoutLeafId?: string;
+  onPopBackIn?: () => void;
+  popped?: string[];
+  onPopOut?: (leafId: string, rect?: Rect) => void;
   gui?: Parameters<typeof SurfaceLayout>[0]["gui"];
   guiZoom?: GuiZoom;
   guiPointerMode?: GuiPointerMode;
@@ -246,6 +250,10 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       windowsById={overrides.windowsById}
       sessionNameByWindowId={overrides.sessionNameByWindowId}
       ttyDockContent={overrides.ttyDockContent}
+      popoutLeafId={overrides.popoutLeafId}
+      onPopBackIn={overrides.onPopBackIn}
+      popped={overrides.popped}
+      onPopOut={overrides.onPopOut}
       gui={overrides.gui}
       guiZoom={overrides.guiZoom}
       guiPointerMode={overrides.guiPointerMode}
@@ -3731,6 +3739,159 @@ describe("SurfaceLayout sidebar row-drag borrow (drop-catcher)", () => {
     const dt = makeDataTransfer();
     dt.setData("application/json", JSON.stringify({ server: "srv", windowId: "@3" }));
     startRowDrag(dt);
+    expect(screen.queryByTestId("row-drop-catcher")).toBeNull();
+  });
+});
+
+describe("SurfaceLayout popout (header Pop out / popout posture / popped-set posture)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    stubMatchMedia(() => false);
+    localStorage.clear();
+  });
+
+  const headerOf = (tile: HTMLElement): HTMLElement => {
+    const header = tile.firstElementChild;
+    if (!(header instanceof HTMLElement)) throw new Error("tile has no header element");
+    return header;
+  };
+
+  it("offers Pop out in each tile's content-verb family at rendered arity > 1, firing with the leaf id", () => {
+    const onPopOut = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,code)"), onPopOut });
+    const tty = screen.getByTestId("surface-tile-tty");
+    const code = screen.getByTestId("surface-tile-code");
+    fireEvent.click(within(tty).getByLabelText("Pop out Terminal"));
+    fireEvent.click(within(code).getByLabelText("Pop out Code"));
+    expect(onPopOut.mock.calls.map(([id]) => id)).toEqual(["tty", "code"]);
+    // The tile's rendered rect rides along for the popup size (the nominal
+    // box under jsdom).
+    expect(onPopOut.mock.calls[0][1]).toMatchObject({ w: expect.any(Number), h: expect.any(Number) });
+  });
+
+  it("offers no Pop out on a single-tile layout, or when the seam is absent (shell/mobile gating)", () => {
+    const single = renderLayout({ layout: layoutOf("tty"), onPopOut: vi.fn() });
+    expect(screen.queryByLabelText("Pop out Terminal")).toBeNull();
+    single.unmount();
+    renderLayout({ layout: layoutOf("h(tty,code)") });
+    expect(screen.queryByLabelText("Pop out Terminal")).toBeNull();
+    expect(screen.queryByLabelText("Pop out Code")).toBeNull();
+  });
+
+  it("offers no Pop out on the away placeholder or a dead-home foreign tile", () => {
+    // tty away at @3 → its bare leaf renders the placeholder (no header); the
+    // @12/tty home is absent from the window map (dead) → its header carries
+    // no Pop out.
+    renderLayout({
+      layout: layoutOf("h(tty,@12/tty,web)"),
+      window: { webTabs: ["http://localhost:8080"], webActive: 1, awayIn: { tty: "@3" } },
+      windowsById: new Map([
+        ["@1", makeWindow({ windowId: "@1", name: "win", awayIn: { tty: "@3" } })],
+        ["@3", makeWindow({ windowId: "@3", name: "holder" })],
+      ]),
+      onPopOut: vi.fn(),
+    });
+    expect(screen.queryByLabelText("Pop out Terminal")).toBeNull();
+    expect(screen.getByTestId("surface-placeholder")).toBeTruthy();
+    expect(screen.getByLabelText("Pop out Web")).toBeTruthy();
+    const foreignTile = screen.getByTestId("surface-tile-tty-@12");
+    expect(within(foreignTile).queryByLabelText("Pop out Terminal")).toBeNull();
+  });
+
+  it("the popout posture renders the tile with Pop back in and no layout-verb cluster", () => {
+    const onPopBackIn = vi.fn();
+    renderLayout({
+      layout: layoutOf("code"),
+      popoutLeafId: "code",
+      onPopBackIn,
+      codeSrcFor: (id) => `/code/?workspace=/ws${id}`,
+    });
+    const tile = screen.getByTestId("surface-tile-code");
+    fireEvent.click(within(tile).getByLabelText("Pop Code back in"));
+    expect(onPopBackIn).toHaveBeenCalledTimes(1);
+    expect(within(tile).queryByLabelText("Expand Code")).toBeNull();
+    expect(within(tile).queryByLabelText("Close Code")).toBeNull();
+    expect(within(tile).queryByLabelText("Pop out Code")).toBeNull();
+  });
+
+  it("the popout posture isolates the tty tile's relay stream and keeps the pane segment", () => {
+    terminalSpy.mockClear();
+    renderLayout({ layout: layoutOf("tty"), popoutLeafId: "tty", onPopBackIn: vi.fn() });
+    expect(terminalSpy).toHaveBeenCalled();
+    expect(terminalSpy.mock.calls[0][0].isolate).toBe(true);
+    // Content verbs survive the popout posture (the layout cluster is what
+    // gets replaced).
+    expect(screen.getByLabelText("Split pane horizontally")).toBeTruthy();
+    expect(screen.getByLabelText("Pop Terminal back in")).toBeTruthy();
+    expect(screen.queryByLabelText("Close Terminal")).toBeNull();
+  });
+
+  it("a bare (home-tab) tty tile outside the popout posture never isolates", () => {
+    terminalSpy.mockClear();
+    renderLayout({ layout: layoutOf("h(tty,code)") });
+    expect(terminalSpy.mock.calls[0][0].isolate).toBe(false);
+  });
+
+  it("the header drag never arms while a leaf is popped", () => {
+    measureGrid(1200, 800);
+    const onApplyLayout = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,code)"), popped: ["code"], onApplyLayout });
+    const ttyTile = screen.getByTestId("surface-tile-tty");
+    const header = headerOf(ttyTile);
+    expect(header.className).not.toContain("cursor-grab");
+    fireEvent.pointerDown(header, { button: 0, pointerId: 1, clientX: 100, clientY: 15 });
+    fireEvent.pointerMove(header, { pointerId: 1, clientX: 900, clientY: 400 });
+    fireEvent.pointerUp(header, { pointerId: 1, clientX: 900, clientY: 400 });
+    expect(screen.queryByTestId("tile-drop-overlay")).toBeNull();
+    expect(onApplyLayout).not.toHaveBeenCalled();
+  });
+
+  it("a popped leaf renders hidden when the tree still contains it (the all-popped placeholder render)", () => {
+    renderLayout({ layout: layoutOf("h(tty,code)"), popped: ["tty", "code"] });
+    expect(screen.getByTestId("surface-tile-tty").className).toContain("hidden");
+    expect(screen.getByTestId("surface-tile-code").className).toContain("hidden");
+  });
+
+  it("a popped zoomed leaf clears the zoom (state and stored key)", () => {
+    localStorage.setItem("rk-layout-zoom:srv:@1", "tty");
+    const onZoomChange = vi.fn();
+    // h(tty,tty) with the FIRST tty zoomed; popping `tty` reduces the render
+    // to the remaining tty tile (whose id is again `tty` — only the
+    // popped-set rule, not the leaf-left-tree rule, can clear this zoom).
+    const { rerender } = renderLayout({ layout: layoutOf("h(tty,tty)"), onZoomChange });
+    onZoomChange.mockClear();
+    rerender(layoutElement({ layout: layoutOf("tty"), popped: ["tty"], onZoomChange }));
+    expect(onZoomChange).toHaveBeenCalledWith(false);
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBeNull();
+  });
+
+  it("a popped code leaf evicts the opener's retained frame", () => {
+    const srcFor = (id: string) => `/code/?workspace=/ws${id}`;
+    const { rerender } = renderLayout({
+      layout: layoutOf("h(tty,code)"),
+      codeSrcFor: srcFor,
+    });
+    expect(screen.getByTestId("mock-code")).toBeTruthy();
+    rerender(
+      layoutElement({ layout: layoutOf("tty"), popped: ["code"], codeSrcFor: srcFor }),
+    );
+    expect(screen.queryByTestId("mock-code")).toBeNull();
+  });
+
+  it("the borrow row-drag stays disarmed while a leaf is popped", () => {
+    measureGrid(1200, 800);
+    renderLayout({ layout: layoutOf("h(tty,code)"), popped: ["code"] });
+    const dt = {
+      types: ["application/x-window-drag"],
+      getData: (type: string) =>
+        type === "application/json"
+          ? JSON.stringify({ server: "srv", session: "sess", index: 1, windowId: "@3", name: "api" })
+          : "",
+      setData: () => {},
+    };
+    const event = new Event("dragstart", { bubbles: true });
+    Object.defineProperty(event, "dataTransfer", { value: dt });
+    window.dispatchEvent(event);
     expect(screen.queryByTestId("row-drop-catcher")).toBeNull();
   });
 });

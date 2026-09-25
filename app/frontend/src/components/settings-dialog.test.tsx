@@ -576,8 +576,10 @@ describe("SettingsDialog", () => {
       ]);
       renderDialog();
       const toggle = screen.getByRole("switch", { name: "Easter eggs" });
-      await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
-      expect(screen.getByText(EGG_DESC)).toBeInTheDocument();
+      // The toggle reads ON before the fetch resolves (default-on), so only the
+      // registry-sourced description proves the entries have landed.
+      expect(await screen.findByText(EGG_DESC)).toBeInTheDocument();
+      expect(toggle).toHaveAttribute("aria-checked", "true");
 
       fireEvent.click(toggle);
       await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ easter_eggs: false }));

@@ -221,6 +221,14 @@ type Server struct {
 	// broadcasts the host-level {"reachable"} signal. Never leaves the server
 	// — the frontend embeds via the stable /code/ route.
 	codeServerPort int
+	// listenPort is the RESOLVED daemon listen port (code default <
+	// config.yaml `port` < RK_PORT), seeded from the same startup
+	// config.Load() as codeServerPort. handleHealth advertises it as the
+	// `tunnel` capability signal. Startup-fixed on purpose: the listener is
+	// bound at startup, so a mid-run config.yaml edit must not move the
+	// advertised port away from it (the change takes effect on the next
+	// daemon restart — the registry key's `live: false` contract).
+	listenPort int
 	// autoNameEnabled arms the auto-name-on-idle trigger (the `auto_name` key
 	// in the settings store, default off — the trigger injects prompts into
 	// the operator on its own, so it is strictly opt-in). Seeded from
@@ -803,6 +811,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 		hostname:        hostname,
 		sshUser:         sshUser,
 		codeServerPort:  cfg.ResolvedCodeServerPort(), // 0 = degenerate config (probe off)
+		listenPort:      cfg.Port,
 		autoNameEnabled: settings.Load().AutoName,
 		metrics:         mc,
 		services:        svc,
@@ -833,7 +842,18 @@ func NewTestRouter(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, hostname
 		tmux:     ops,
 		hostname: hostname,
 	}
+	seedTestPorts(s)
 	return s.buildRouter()
+}
+
+// seedTestPorts seeds the startup-resolved ports the way NewRouterAndServer
+// does, so test routers resolve them exactly once at construction — a later
+// env/config change inside the test must not move /code/ or `tunnel`, just
+// like a mid-run edit cannot move them in production.
+func seedTestPorts(s *Server) {
+	cfg := config.Load()
+	s.listenPort = cfg.Port
+	s.codeServerPort = cfg.ResolvedCodeServerPort()
 }
 
 // NewTestRouterAndServer is NewTestRouter plus the *Server, so tests can
@@ -845,6 +865,7 @@ func NewTestRouterAndServer(logger *slog.Logger, sf SessionFetcher, ops TmuxOps,
 		tmux:     ops,
 		hostname: hostname,
 	}
+	seedTestPorts(s)
 	return s.buildRouter(), s
 }
 
@@ -859,6 +880,7 @@ func NewTestRouterWithRiff(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, 
 		riff:     engine,
 		hostname: hostname,
 	}
+	seedTestPorts(s)
 	return s.buildRouter()
 }
 
@@ -872,6 +894,7 @@ func NewTestRouterWithWt(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, wt
 		wt:       wtOps,
 		hostname: hostname,
 	}
+	seedTestPorts(s)
 	return s.buildRouter()
 }
 

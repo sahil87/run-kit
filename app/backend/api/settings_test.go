@@ -69,7 +69,7 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 
 	entries := getSettingsList(t, router)
 	wantKeys := []string{
-		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
+		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host", "port",
 		"instance_name", "auto_name", "cron_ticker", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry",
 		"tmux_conf",
 		"log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
@@ -99,6 +99,9 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	}
 	if got := byKey["ssh_host"].Value; got != nil {
 		t.Errorf("ssh_host.value = %v, want null", got)
+	}
+	if e := byKey["port"]; e.Kind != "port" || e.Default != "3000" || e.UI != false || e.Live != false || e.Value != nil {
+		t.Errorf("port entry = %+v, want kind=port default=3000 ui=false live=false value=null", e)
 	}
 	if got, ok := byKey["server_colors"].Value.(map[string]any); !ok || len(got) != 0 {
 		t.Errorf("server_colors.value = %v, want {}", byKey["server_colors"].Value)

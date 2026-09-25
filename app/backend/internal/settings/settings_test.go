@@ -5,8 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+
+	"rk/internal/portpolicy"
 )
 
 func TestDefault(t *testing.T) {
@@ -25,6 +28,9 @@ func TestDefault(t *testing.T) {
 	}
 	if s.LogLevel != "info" {
 		t.Errorf("Default().LogLevel = %q, want %q", s.LogLevel, "info")
+	}
+	if s.Port != 0 {
+		t.Errorf("Default().Port = %d, want 0 (unset)", s.Port)
 	}
 }
 
@@ -508,6 +514,7 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 		"theme_light":    registryValueFixture(`"solarized-light"`, ptr("solarized-light"), `"paper"`, ptr("paper"), ptr("default-light")),
 		"instance_color": stringValueFixture("5", "1+3", SetInstanceColor, GetInstanceColor),
 		"ssh_host":       stringValueFixture("devbox", "user@host", SetSSHHost, GetSSHHost),
+		"port":           registryValueFixture(`4000`, 4000, `3000`, 3000, nil),
 		"instance_name":  stringValueFixture("my-box", "dev mini", SetInstanceName, GetInstanceName),
 		"auto_name":      registryValueFixture(`true`, true, `false`, false, false),
 		"cron_ticker":    registryValueFixture(`false`, false, `true`, true, true),
@@ -1290,5 +1297,137 @@ func TestStampUnreadablePrimaryFallsBackLikeLoad(t *testing.T) {
 	}
 	if strings.Contains(stamp, primary+":") {
 		t.Errorf("Stamp = %q fingerprints the unreadable primary %q", stamp, primary)
+	}
+}
+
+// TestPortParse pins the port key's tolerant read: valid ports (bare or
+// quoted) set Port; anything else — out of range, non-numeric, empty — leaves
+// it unset (0) and never errors.
+func TestPortParse(t *testing.T) {
+	cases := []struct {
+		line string
+		want int
+	}{
+		{"port: 4000", 4000},
+		{"port: \"4000\"", 4000},
+		{"port:   4000  ", 4000},
+		{"port: 1", 1},
+		{"port: 65535", 65535},
+		{"port: 0", 0},
+		{"port: -1", 0},
+		{"port: 65536", 0},
+		{"port: 70000", 0},
+		{"port: abc", 0},
+		{"port: \"abc\"", 0},
+		{"port: \"\"", 0},
+		{"port:", 0},
+	}
+	for _, c := range cases {
+		if s := parse(c.line + "\n"); s.Port != c.want {
+			t.Errorf("parse(%q): Port = %d, want %d", c.line, s.Port, c.want)
+		}
+	}
+}
+
+// TestPortSerialize pins serialize-when-set: an explicitly set port emits a
+// line even when it equals the code default (the key is a pin — a whole-file
+// Save must not drop it); unset emits nothing, so an untouched file
+// round-trips byte-identically.
+func TestPortSerialize(t *testing.T) {
+	if got := serialize(Default()); strings.Contains(got, "port:") {
+		t.Errorf("serialize(Default()) = %q, want no port line", got)
+	}
+	for _, p := range []int{portpolicy.DaemonDefault, 4000} {
+		s := Default()
+		s.Port = p
+		want := "port: " + strconv.Itoa(p) + "\n"
+		if got := serialize(s); !strings.Contains(got, want) {
+			t.Errorf("serialize(Port=%d) = %q, want it to contain %q", p, got, want)
+		}
+	}
+}
+
+// TestPortPinSurvivesSaveLoad proves the pin contract end to end: `port: 3000`
+// (equal to the default) survives a Load → Save rewrite, and re-loads as 3000.
+func TestPortPinSurvivesSaveLoad(t *testing.T) {
+	t.Setenv(ConfigDirEnv, t.TempDir())
+
+	s := Default()
+	s.Port = portpolicy.DaemonDefault
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if got := Load(); got.Port != portpolicy.DaemonDefault {
+		t.Fatalf("Load().Port = %d, want %d", got.Port, portpolicy.DaemonDefault)
+	}
+	if err := Save(Load()); err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+	p, err := configPath()
+	if err != nil {
+		t.Fatalf("configPath: %v", err)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), "port: "+strconv.Itoa(portpolicy.DaemonDefault)+"\n") {
+		t.Errorf("saved file = %q, want it to keep the port: %d pin", data, portpolicy.DaemonDefault)
+	}
+}
+
+// TestPortReadValue pins the GET shape: null when unset, the JSON number when
+// set.
+func TestPortReadValue(t *testing.T) {
+	s := Default()
+	got, ok := ReadValue(&s, "port")
+	if !ok {
+		t.Fatal("ReadValue(port): ok = false, want true")
+	}
+	if got != nil {
+		t.Errorf("ReadValue(port) unset = %#v, want nil (JSON null)", got)
+	}
+
+	s.Port = 4000
+	got, _ = ReadValue(&s, "port")
+	if got != 4000 {
+		t.Errorf("ReadValue(port) set = %#v, want 4000", got)
+	}
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if string(data) != "4000" {
+		t.Errorf("marshaled port = %s, want 4000 (a JSON number)", data)
+	}
+}
+
+// TestPortApplyValue pins the strict write: JSON integers in range set, null
+// unsets; strings, out-of-range, fractional, and bool values are rejected
+// without mutation.
+func TestPortApplyValue(t *testing.T) {
+	s := Default()
+	if err := ApplyValue(&s, "port", json.RawMessage(`4000`)); err != nil {
+		t.Fatalf("apply port 4000: %v", err)
+	}
+	if s.Port != 4000 {
+		t.Errorf("Port = %d, want 4000", s.Port)
+	}
+	if err := ApplyValue(&s, "port", json.RawMessage(`null`)); err != nil {
+		t.Fatalf("apply port null: %v", err)
+	}
+	if s.Port != 0 {
+		t.Errorf("Port after null = %d, want 0 (unset)", s.Port)
+	}
+
+	for _, patch := range []string{`0`, `70000`, `"4000"`, `4000.5`, `true`} {
+		s := Default()
+		s.Port = 4000
+		if err := ApplyValue(&s, "port", json.RawMessage(patch)); err == nil {
+			t.Errorf("ApplyValue(port, %s) succeeded, want error", patch)
+		}
+		if s.Port != 4000 {
+			t.Errorf("ApplyValue(port, %s) mutated Port to %d, want unchanged 4000", patch, s.Port)
+		}
 	}
 }

@@ -104,7 +104,7 @@ See the [riff guide](docs/site/workflows.md) for the full reference.
 
 ## `rk serve` — the HTTP server
 
-Start the HTTP server in the foreground. Configurable via `RK_HOST` (default `127.0.0.1`) and `RK_PORT` (default `3000`).
+Start the HTTP server in the foreground. Configurable via `RK_HOST` (default `127.0.0.1`) and `RK_PORT` (default `3000`). The port also has a durable home: set `port: 4000` in `~/.config/run-kit/config.yaml` and run `rk daemon restart` — `RK_PORT` still wins when set (precedence: default 3000 < config.yaml < `RK_PORT`).
 
 ```bash
 rk serve                                # foreground on 127.0.0.1:3000

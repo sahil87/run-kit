@@ -3,8 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
+
+	"rk/internal/settings"
 )
 
 // NOTE (tmux safety): these tests never start, attach to, or kill any tmux
@@ -43,6 +47,8 @@ func TestResolveOrigin(t *testing.T) {
 		name string
 		// env
 		rkHost, rkPort string
+		// config.yaml content (empty = no file); isolated via RK_CONFIG_DIR
+		configContent string
 		// pane state
 		tmuxEnv     string
 		optionValue string
@@ -129,12 +135,38 @@ func TestResolveOrigin(t *testing.T) {
 			want:       "http://127.0.0.1:3000",
 			wantPrefix: nil,
 		},
+		{
+			// A config.yaml port is not explicit env: it must not jump rung 1,
+			// and the covering server's stamp stays above it.
+			name:          "config.yaml port never jumps the option",
+			configContent: "port: 4000\n",
+			tmuxEnv:       originTestSocket + ",1234,0",
+			optionValue:   "http://127.0.0.1:3001\n",
+			want:          "http://127.0.0.1:3001",
+			wantPrefix:    []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
+		},
+		{
+			name:          "config.yaml port flows into the fallback",
+			configContent: "port: 4000\n",
+			tmuxEnv:       "",
+			want:          "http://127.0.0.1:4000",
+			wantPrefix:    nil,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("RK_HOST", tc.rkHost)
 			t.Setenv("RK_PORT", tc.rkPort)
+			// Isolate the settings root so the developer's real config.yaml
+			// (and its port key) never leaks into config.Load.
+			configDir := t.TempDir()
+			if tc.configContent != "" {
+				if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(tc.configContent), 0o644); err != nil {
+					t.Fatalf("writing config.yaml: %v", err)
+				}
+			}
+			t.Setenv(settings.ConfigDirEnv, configDir)
 			calls := stubOriginSeams(t, tc.tmuxEnv, tc.optionValue, tc.optionErr)
 
 			got := resolveOrigin(context.Background())

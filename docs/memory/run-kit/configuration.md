@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit config: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME; test-only RK_CONFIG_DIR override); the internal/settings registry's 18-key inventory behind /api/settings; override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the ports.env port policy behind rk ports + warn-only collision surfaces; the rk-owned managed tmux.conf + @rk_srv_managed-gated reloads; breadcrumb migrations, ~/.rk + state tenants."
+description: "run-kit config: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME; test-only RK_CONFIG_DIR override); the internal/settings registry's 19-key inventory behind /api/settings; override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the ports.env port policy behind rk ports + warn-only collision surfaces; the rk-owned managed tmux.conf + @rk_srv_managed-gated reloads; breadcrumb migrations, ~/.rk + state tenants."
 ---
 # Configuration
 
@@ -42,9 +42,9 @@ The path segment, worktree badge, and git branch are **read from daemon-stamped 
 
 `internal/settings` defines one registry — a `[]registryEntry` table — that is the single source of truth for every settings key and drives both `parse()` and `serialize()`. Each entry carries **key, kind (type), default, description, category, `ui` flag, `live` flag**; enum kinds additionally carry **`options`** — the entry's legal values in display order (`theme`: `system`/`dark`/`light`; `log_level`: `info`/`debug`), display metadata for generated controls (the apply hook keeps owning enforcement), nil on non-enum kinds. Scalar entries carry parse/serialize hooks, nested entries (maps, lists) carry a section built by `mapSection`/`listSection`. Slice order IS serialization order: scalar keys first, then nested sections. Adding a key is one registry entry — no new scanner branches.
 
-Serialization stays hand-rolled (line-scanner parse + string-builder serialize — no yaml.v3) and byte-stable: tolerant reads per key (quote-strip, `validate.NormalizeColorValue`, flair-set membership, `strconv.ParseBool`, malformed-entry skip), omit-when-default/empty, nested sections with sorted map keys and quoted values. An untouched settings file round-trips byte-identically.
+Serialization stays hand-rolled (line-scanner parse + string-builder serialize — no yaml.v3) and byte-stable: tolerant reads per key (quote-strip, `validate.NormalizeColorValue`, flair-set membership, `strconv.ParseBool`, malformed-entry skip), omit-when-default/empty (the `port` pin excepted — it serializes whenever set, including at the default; § Design Decisions → Serialize-when-set for the port pin), nested sections with sorted map keys and quoted values. An untouched settings file round-trips byte-identically.
 
-The 18-key inventory:
+The 19-key inventory:
 
 | key | type | default | category | ui | live | notes |
 |---|---|---|---|---|---|---|
@@ -54,6 +54,7 @@ The 18-key inventory:
 | `instance_color` | color descriptor | `""` | appearance | yes | yes | tolerant read via `validate.NormalizeColorValue` |
 | `instance_name` | string | `""` | identity | yes | yes | display-name override |
 | `ssh_host` | string | `""` | connectivity | yes | yes | the ONLY ssh-host surface — no env form exists |
+| `port` | port | `3000` | connectivity | no | no | the daemon listen port pin — the one deployment binding with a config.yaml home; 0 = unset; tolerant parse (quote-strip + `strconv.Atoi`, kept only when 1–65535, never errors); serialize-when-set INCLUDING a value equal to the default (a `port: 3000` pin survives whole-file `Save` rewrites and any later default flip — § Design Decisions → Serialize-when-set for the port pin); read as a JSON number (`null` when unset); strict JSON-integer apply in 1–65535, `null` unsets; `RK_PORT` wins over it when set to a valid port; applies on the next daemon restart; the default text derives from `portpolicy.DaemonDefault` (the `ports.env` port policy), the same source `internal/config`'s defaults read (v1r0) |
 | `server_colors` | map[string]string | `{}` | appearance | yes | yes | mapSection with color normalize |
 | `server_flairs` | map[string]string | `{}` | appearance | yes | yes | mapSection with flair-set membership normalize |
 | `board_order` | []string | `[]` | layout | yes | yes | listSection |
@@ -67,18 +68,18 @@ The 18-key inventory:
 | `tmux_conf` | path string | `""` | advanced | yes | no | user owns the file; rk performs no ensure/refresh/doctor on it |
 | `log_level` | enum (`info`/`debug`) | `info` | advanced | yes | no | read at serve startup |
 
-`live: false` keys (`tmux_conf`, `log_level`) are restart-bound (read once at tmux/serve startup); `live: true` keys apply on next read — `auto_name`'s one read-once consumer (the hub's tracker) is re-applied live by the settings POST. The exported accessor surface (`Load`, `Save`, `Stamp` — a path+mtime+size change fingerprint of the file `Load` would read (legacy fallback mirrored, `RK_CONFIG_DIR` honoured), the stat gate re-parse-on-change consumers such as the hub's `guiTick` use, `Default`, `Get/SetServerColor`, `Get/SetServerFlair`, `Get/SetInstanceColor`, `Get/SetSSHHost`, `Get/SetInstanceName`, `Get/SetBoardOrder`) sits over the registry, plus the riff-preset surface: the `BuiltinRiffPresets` code-tier table, the `RiffDiscussSkill` constant (the one source of the `/fab-discuss` literal, aliased by `riff.DefaultRiffSkill`), and the merged-view accessors `RiffPresets(Settings)`, `LoadRiffPresets()`, and the `RiffPresetMap` projection. (li54)
+`live: false` keys (`port`, `tmux_conf`, `log_level`) are restart-bound (read once at tmux/serve startup); `live: true` keys apply on next read — `auto_name`'s one read-once consumer (the hub's tracker) is re-applied live by the settings POST. The exported accessor surface (`Load`, `Save`, `Stamp` — a path+mtime+size change fingerprint of the file `Load` would read (legacy fallback mirrored, `RK_CONFIG_DIR` honoured), the stat gate re-parse-on-change consumers such as the hub's `guiTick` use, `Default`, `Get/SetServerColor`, `Get/SetServerFlair`, `Get/SetInstanceColor`, `Get/SetSSHHost`, `Get/SetInstanceName`, `Get/SetBoardOrder`) sits over the registry, plus the riff-preset surface: the `BuiltinRiffPresets` code-tier table, the `RiffDiscussSkill` constant (the one source of the `/fab-discuss` literal, aliased by `riff.DefaultRiffSkill`), and the merged-view accessors `RiffPresets(Settings)`, `LoadRiffPresets()`, and the `RiffPresetMap` projection. (li54)
 
 ## Settings HTTP API
 
 The entire settings HTTP surface is one registry-driven endpoint pair in `api/settings.go` (see [architecture](/run-kit/architecture.md) § REST API for the endpoint rows). The registry exports its metadata read-side (`KeyInfo` + `Registry()`, registry slice order) plus generic per-key JSON value read/apply hooks (`ReadValue`/`ApplyValue`) — value normalization and value-shape validation live with the registry entry, reusing `internal/validate`; board-order **name** validity (`tmux.ValidBoardName`) and duplicate rejection stay in the API handler (`internal/tmux` imports `internal/settings`, so settings calling into tmux would be an import cycle).
 
-- **`GET /api/settings`** → `{"settings": [{key, kind, default, description, category, ui, live, options?, value}]}` — one object per registry entry, in registry order, snake_case registry key names verbatim, values in natural JSON types: `null` for unset string scalars, maps as objects (possibly `{}`), `board_order` as an array (possibly `[]`), `auto_name` as a bool. `options` is present only on enum kinds (`theme`, `log_level`) and omitted otherwise.
+- **`GET /api/settings`** → `{"settings": [{key, kind, default, description, category, ui, live, options?, value}]}` — one object per registry entry, in registry order, snake_case registry key names verbatim, values in natural JSON types: `null` for unset string scalars, maps as objects (possibly `{}`), `board_order` as an array (possibly `[]`), `auto_name` as a bool, `port` as a JSON number (`null` when unset — the registry `default` text tells the client what unset means). `options` is present only on enum kinds (`theme`, `log_level`) and omitted otherwise.
 - **`POST /api/settings`** — a flat JSON object of registry keys, partial merge per Constitution §IX: present keys set, absent keys untouched, `null` unsets (resets to the registry default). String scalars are trimmed, trimmed-to-empty treated as `null` (except `theme`/`theme_dark`/`theme_light`, whose defaults are non-empty — a trimmed-to-empty non-null value is a 400). Map keys merge **per entry** (an entry `null` unsets that entry, other entries untouched; a top-level `null` clears the whole map); `board_order` replaces wholesale (top-level `null` ≡ `[]`). The whole body is validated before a single `Load → apply-all → Save` — an unknown key, malformed body, or any per-key validation failure is a 400 with nothing persisted. Success is `200 {"status": "ok"}` with three keyed side effects: a successful body containing `board_order` broadcasts the server-global `board-order` SSE event (see architecture § SSE Hub); one containing `auto_name` (set or `null`-unset) re-applies the post-merge value to the running hub's auto-name tracker through the hub's apply seam (`sseHub.setAutoName` — see [architecture](/run-kit/architecture.md) § SSE Hub), so the live key takes effect without a daemon restart; and one containing `gui.enabled` (set or `null`-unset) drives the GUI supervisor — `true` calls `daemon.EnsureGUI()` best-effort (a failure logs a warning and the response stays 200; the stream's `reachable:false` + `reason` is the user-visible outcome), `false` calls `daemon.KillGUISession()` — then both flip the hub synchronously via `sseHub.setGUIEnabled(v)` so `event: gui` reflects the new value within one state event (see [gui](/run-kit/gui.md)). A body containing `gui.geometry` gets one more side effect (zuci): after the save, a fixed `WxH` value on an enabled, reachable display is applied live via xrandr — best-effort, so a failure logs a warning (`gui.geometry: live resize failed (the setting is saved; rk gui restart applies it)`) and the response stays 200; `auto` needs no action (the stream's `geometry` flips the tiles' resize behavior — see [gui](/run-kit/gui.md) § The `gui.geometry` key). No other key has a side effect. (f1ot) (5r41) (fkh1)
 
 ## Override Order & Env Inventory
 
-Override order: **code default < config.yaml < env < CLI flag**. Env forms exist ONLY for deployment-bootstrap keys: `RK_PORT`, `RK_HOST`, `RK_CODE_SERVER_PORT` (`.env` committed, `.env.local` for overrides — the bootstrap vehicle). The only other env reads are three **undocumented per-process escapes** that win over their config.yaml keys but are never user-facing: `RK_TMUX_CONF` (over `tmux_conf`), `LOG_LEVEL` (over `log_level` — the dev rig depends on it via `justfile`/`scripts/dev.sh`), and `RK_CONFIG_DIR` (relocates the whole config root — § Config Root). Preference keys have no env form. `rk doctor` flags a set-but-ignored `RK_SSH_HOST` (no reader remains; the hint points at the `ssh_host` key). (li54)
+Override order: **code default < config.yaml < env < CLI flag**. Env forms exist ONLY for deployment-bootstrap keys: `RK_PORT`, `RK_HOST`, `RK_CODE_SERVER_PORT` (`.env` committed, `.env.local` for overrides — the bootstrap vehicle). The daemon port is the one bootstrap binding that is also a config.yaml key: its rungs are code default (`portpolicy.DaemonDefault` = 3000) < config.yaml `port` < `RK_PORT` (an invalid `RK_PORT` — non-numeric or out of range — is ignored, so the lower rung applies; no port CLI flag exists, so the generic top rung stays unoccupied for it). `RK_HOST` and `RK_CODE_SERVER_PORT` stay env-only; `RK_CODE_SERVER_PORT`'s fallback stays the resolved port + 2 (a config.yaml `port: 4000` yields code-server on 4002). The only other env reads are three **undocumented per-process escapes** that win over their config.yaml keys but are never user-facing: `RK_TMUX_CONF` (over `tmux_conf`), `LOG_LEVEL` (over `log_level` — the dev rig depends on it via `justfile`/`scripts/dev.sh`), and `RK_CONFIG_DIR` (relocates the whole config root — § Config Root). Preference keys have no env form. `rk doctor` flags a set-but-ignored `RK_SSH_HOST` (no reader remains; the hint points at the `ssh_host` key). (li54) (v1r0)
 
 ## Port Policy
 
@@ -94,7 +95,7 @@ The reserved/default port values live in one committed data file, `app/backend/i
 | Per-entity (server/session/window/pane) | `@rk_*` tmux options |
 | Per-viewer / device | localStorage |
 | Per-editor-profile (the managed code-server profile) | code-server's own `settings.json` — e.g. `rk.bridge.enabled` (the code bridge's off switch, seeded `true` by the daemon's write-once `codeServerSeedSettings`; it lives in the editor profile, NOT `config.yaml`, and has no env form — see [code-bridge](/run-kit/code-bridge.md)) |
-| Deployment binding | env (`RK_PORT`, `RK_HOST`, `RK_CODE_SERVER_PORT`) |
+| Deployment binding | env (`RK_PORT`, `RK_HOST`, `RK_CODE_SERVER_PORT`); the port ALSO has a config home — config.yaml `port` sits one rung below `RK_PORT` (v1r0) |
 | State (snapshots, caches — droppable only) | `$XDG_STATE_HOME/run-kit/` — incl. the `code/` derived-workspace tenant beside `cb/`: one per-tab `.code-workspace` file per (server, tab, code root) carrying `rk.tab`/`rk.server` into the code-bridge extension host (dir `0700`, files `0600`, derived-not-stored — a deleted file is simply regenerated, never read as truth; no GC — see [code-bridge](/run-kit/code-bridge.md)); and the `gui/` tenant holding the GUI supervisor's `host.sock` RFB socket (dir `0700`, socket `0600` — see [gui](/run-kit/gui.md)) |
 
 ## Migrations & Breadcrumbs
@@ -134,7 +135,7 @@ Every settings key SHALL be one registry entry carrying key/type/default/descrip
 - **THEN** the response is 400 and the stored `theme` is unchanged
 
 ### Requirement: Byte-stable serialization
-An existing settings file with values unchanged SHALL round-trip byte-identically through load + save (omit-when-default, scalar order, quoted values, sorted map keys).
+An existing settings file with values unchanged SHALL round-trip byte-identically through load + save (omit-when-default — `port` excepted, which serializes whenever explicitly set — scalar order, quoted values, sorted map keys).
 
 ### Requirement: Env restricted to bootstrap keys
 Env forms SHALL exist only for `RK_PORT`, `RK_HOST`, `RK_CODE_SERVER_PORT`; a preference key (e.g. `ssh_host`) SHALL resolve from code default and config.yaml only.
@@ -291,3 +292,16 @@ See [backend-packages](/run-kit/architecture/backend-packages.md) § `internal/s
 **Why**: disruption-free — a working daemon may already sit inside the tunnel block; dev/e2e rigs live on rig-block ports by design, so warning there would fire on every dev loop with advice that does not apply, and keying the exemption on the un-ldflagged build needs no new env marker (constitution IV / no new env names).
 **Rejected**: refusing in `serve` (breaks working installs); a split refuse-new/warn-legacy posture (asymmetric for little gain); an env-var exemption marker (new env surface).
 *Introduced by*: 260925-40fa-machine-ports-policy
+
+### Serialize-when-set for the port pin
+**Decision**: `port` serializes whenever explicitly set, even when equal to the code default; 0 = unset is omitted.
+**Why**: the key exists to pin an install (the hexokit-rebrand migration writes `port: 3000` into existing installs ahead of the default flip). `Save` rewrites the whole file, so omit-at-default would drop the pin on any settings save and silently move the install when the default later flips.
+**Rejected**: the omit-at-default convention the other scalars use — it cannot tell "pinned at 3000" apart from "unset".
+*Introduced by*: 260925-v1r0-port-config-key
+
+### Default daemon port is single-sourced from the port policy
+
+**Decision**: the code default is `portpolicy.DaemonDefault` (from `ports.env`); `internal/config`'s defaults and the `port` registry entry's default text (`strconv.Itoa(portpolicy.DaemonDefault)`) both read it.
+**Why**: the port policy is the one source of truth for reserved and default ports, so the settings registry must not carry a second literal that could drift when the default later flips. `internal/portpolicy` imports only the standard library, so both `config` and `settings` can depend on it without a cycle (`config` already imports `settings` for the middle rung).
+**Rejected**: a `settings.DefaultPort` constant (a second home for the same value beside `ports.env`); duplicating the literal in `config` and `settings` (magic-number anti-pattern).
+*Introduced by*: 260925-v1r0-port-config-key

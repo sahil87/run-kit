@@ -31,7 +31,7 @@ Task runner: `just` (see `justfile`). Frontend deps managed by pnpm (in `app/fro
 - **Router**: chi/v5
 - **WebSocket**: gorilla/websocket — terminal relay to tmux panes via creack/pty
 - **SSE**: custom handler for real-time session state
-- **Config**: environment variables (`RK_PORT`, `RK_HOST`) loaded via `.env` / `.env.local`
+- **Config**: environment variables (`RK_PORT`, `RK_HOST`) loaded via `.env` / `.env.local`; the daemon port also has a durable `port` key in `~/.config/run-kit/config.yaml` (the `internal/settings` registry), below `RK_PORT` in precedence
 - **Structure**: `cmd/rk/` (entrypoint), `api/` (HTTP handlers), `internal/` (config, fab, sessions, tmux, validate)
 - **Testing**: `go test ./...`
 - **Build**: `go build -o ../../bin/rk ./cmd/rk`

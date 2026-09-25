@@ -12,7 +12,7 @@ import (
 func TestRegistry_orderAndMetadata(t *testing.T) {
 	infos := Registry()
 	wantKeys := []string{
-		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
+		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host", "port",
 		"instance_name", "auto_name", "cron_ticker", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry",
 		"tmux_conf", "log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
 	}
@@ -43,6 +43,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 		{"gui.enabled", "bool", "false", "behavior", true, true, nil},
 		{"gui.wm", "string", "", "behavior", true, false, nil},
 		{"gui.geometry", "string", "1920x1080", "behavior", true, true, nil},
+		{"port", "port", "3000", "connectivity", false, false, nil},
 		{"log_level", "enum", "info", "advanced", true, false, []string{"info", "debug"}},
 		{"server_colors", "map", "{}", "appearance", true, true, nil},
 		{"server_flairs", "map", "{}", "appearance", true, true, nil},
@@ -95,6 +96,7 @@ func TestReadValue_defaultSettings(t *testing.T) {
 		{"theme_light", ptr("default-light")},
 		{"instance_color", (*string)(nil)},
 		{"ssh_host", (*string)(nil)},
+		{"port", nil},
 		{"instance_name", (*string)(nil)},
 		{"auto_name", false},
 		{"cron_ticker", true},

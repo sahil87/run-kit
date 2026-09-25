@@ -254,9 +254,9 @@ func TestHealthEndpointSSHUser(t *testing.T) {
 
 // The tunnel field advertises the WebSocket tunnel endpoint's capability: it
 // is the daemon's listen port (the desktop's probe targets the tunnel at this
-// host's own listen port), a JSON number derived from config per request
-// (Constitution II), ALWAYS present on this build — its absence marks an
-// older server.
+// host's own listen port), a JSON number seeded at startup so it always
+// matches the bound listener, ALWAYS present on this build — its absence
+// marks an older server.
 func TestHealthEndpointTunnel(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 

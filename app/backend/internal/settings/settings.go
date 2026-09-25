@@ -4,9 +4,12 @@
 //
 // Override order: code default < config.yaml < env < CLI flag. Env forms
 // exist ONLY for deployment-bootstrap keys (RK_PORT, RK_HOST,
-// RK_CODE_SERVER_PORT); the only other env reads are the undocumented
-// per-process escapes RK_TMUX_CONF, LOG_LEVEL, and RK_CONFIG_DIR (below),
-// which win over their config.yaml keys but are never user-facing.
+// RK_CODE_SERVER_PORT); the daemon port is the one bootstrap binding that is
+// also a config.yaml key here (the `port` entry — RK_PORT still wins over
+// it). RK_HOST and RK_CODE_SERVER_PORT stay env-only. The only other env
+// reads are the undocumented per-process escapes RK_TMUX_CONF, LOG_LEVEL, and
+// RK_CONFIG_DIR (below), which win over their config.yaml keys but are never
+// user-facing.
 //
 // The config root is fixed at $HOME/.config/run-kit — never
 // $XDG_CONFIG_HOME, never os.UserConfigDir: rk runs as daemon + CLI +
@@ -29,6 +32,7 @@ import (
 	"strings"
 
 	"rk/internal/gui"
+	"rk/internal/portpolicy"
 	"rk/internal/validate"
 )
 
@@ -50,6 +54,12 @@ type Settings struct {
 	// Empty means "unset": /api/health then omits sshHost (this key is the
 	// only ssh-host surface — no env form exists). Scalar, like InstanceColor.
 	SSHHost string
+	// Port is the daemon listen port pinned in config.yaml. 0 means "unset":
+	// the effective port falls back to the code default (portpolicy.DaemonDefault).
+	// RK_PORT, when set to a valid port, wins over this key. Read at serve
+	// startup (and by every CLI that resolves the origin), so a change applies
+	// on the next daemon restart.
+	Port int
 	// InstanceName is the display-name override for this run-kit instance.
 	// Empty means "unset": display surfaces derive the name from os.Hostname()
 	// (via /api/health `hostname`). Scalar, like InstanceColor.
@@ -131,6 +141,13 @@ func Default() Settings {
 // set means the value is the config root verbatim. Test harnesses only —
 // never a user-facing deployment key.
 const ConfigDirEnv = "RK_CONFIG_DIR"
+
+// minPort/maxPort bound the valid TCP port range accepted by the port key's
+// parse and apply hooks.
+const (
+	minPort = 1
+	maxPort = 65535
+)
 
 // Dir returns the config root: the fixed $HOME/.config/run-kit/, unless the
 // test-only RK_CONFIG_DIR override is set (see ConfigDirEnv and the package
@@ -407,6 +424,53 @@ var registry = []registryEntry{
 		serialize: quotedScalar("ssh_host", func(s *Settings) *string { return &s.SSHHost }),
 		read:      emptyableString(func(s *Settings) *string { return &s.SSHHost }),
 		apply:     validatedScalar(func(s *Settings) *string { return &s.SSHHost }, validate.ValidateSSHHost, ""),
+	},
+	{
+		key: "port", kind: "port", def: strconv.Itoa(portpolicy.DaemonDefault),
+		desc:     "Daemon listen port. RK_PORT wins when set. Takes effect on the next daemon restart (rk daemon restart); re-point Tailscale Serve / bookmarks after a move.",
+		category: "connectivity", ui: false, live: false,
+		// Tolerant read: quote-stripped, trimmed, kept only when a valid port;
+		// anything else stays unset and never errors.
+		parse: func(s *Settings, value string) {
+			if n, err := strconv.Atoi(strings.TrimSpace(strings.Trim(value, "\""))); err == nil && n >= minPort && n <= maxPort {
+				s.Port = n
+			}
+		},
+		// Serialize-when-set, INCLUDING a value equal to the default: the key
+		// is a pin, and Save rewrites the whole file — omit-at-default would
+		// silently drop a `port: 3000` pin on any settings save. Port == 0
+		// (unset) emits nothing, so an untouched file round-trips
+		// byte-identically.
+		serialize: func(s *Settings) string {
+			if s.Port != 0 {
+				return "port: " + strconv.Itoa(s.Port) + "\n"
+			}
+			return ""
+		},
+		// Natural JSON shape: the number when set, null when unset.
+		read: func(s *Settings) any {
+			if s.Port != 0 {
+				return s.Port
+			}
+			return nil
+		},
+		// Strict write: JSON integers in range only (no numeric strings) —
+		// the registry's strict-write/tolerant-read posture.
+		apply: func(s *Settings, raw json.RawMessage) error {
+			if jsonNull(raw) {
+				s.Port = 0
+				return nil
+			}
+			var n int
+			if err := json.Unmarshal(raw, &n); err != nil {
+				return fmt.Errorf("port must be an integer %d-%d or null: %w", minPort, maxPort, err)
+			}
+			if n < minPort || n > maxPort {
+				return fmt.Errorf("port must be an integer %d-%d, got %d", minPort, maxPort, n)
+			}
+			s.Port = n
+			return nil
+		},
 	},
 	{
 		key: "instance_name", kind: "string", def: "",

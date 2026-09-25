@@ -5,6 +5,20 @@ import (
 	"strconv"
 
 	"rk/internal/portpolicy"
+	"rk/internal/settings"
+)
+
+// Deployment-binding env var names — the ONLY keys with env forms
+// (Constitution IV). Named constants so the daemon's `-e` pass and every
+// reader share one spelling.
+const (
+	// PortEnvVar wins over the config.yaml `port` key when set to a valid port.
+	PortEnvVar = "RK_PORT"
+	// HostEnvVar overrides the default bind host when set non-empty.
+	HostEnvVar = "RK_HOST"
+	// CodeServerPortEnvVar is the optional code-server port override; unset or
+	// invalid falls back to the resolved port + 2 convention.
+	CodeServerPortEnvVar = "RK_CODE_SERVER_PORT"
 )
 
 // Config holds server configuration.
@@ -48,22 +62,29 @@ func validPort(p int) bool {
 	return p >= 1 && p <= 65535
 }
 
-// Load reads configuration from the RK_PORT, RK_HOST, and
-// RK_CODE_SERVER_PORT env vars, falling back to defaults.
+// Load resolves configuration: code default < config.yaml < env. The port's
+// middle rung is the settings registry's `port` key (0 = unset); a valid
+// RK_PORT wins over it, an invalid one (non-numeric or out of range) is
+// ignored so the lower rung applies. RK_HOST and RK_CODE_SERVER_PORT stay
+// env-only.
 func Load() Config {
 	cfg := defaults
 
-	if portStr := os.Getenv("RK_PORT"); portStr != "" {
+	if p := settings.Load().Port; validPort(p) {
+		cfg.Port = p
+	}
+
+	if portStr := os.Getenv(PortEnvVar); portStr != "" {
 		if p, err := strconv.Atoi(portStr); err == nil && validPort(p) {
 			cfg.Port = p
 		}
 	}
 
-	if host := os.Getenv("RK_HOST"); host != "" {
+	if host := os.Getenv(HostEnvVar); host != "" {
 		cfg.Host = host
 	}
 
-	if csPortStr := os.Getenv("RK_CODE_SERVER_PORT"); csPortStr != "" {
+	if csPortStr := os.Getenv(CodeServerPortEnvVar); csPortStr != "" {
 		if p, err := strconv.Atoi(csPortStr); err == nil && validPort(p) {
 			cfg.CodeServerPort = p
 		}

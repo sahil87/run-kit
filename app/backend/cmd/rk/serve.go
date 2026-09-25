@@ -186,6 +186,9 @@ Environment variables:
   RK_HOST      Host to bind (default "127.0.0.1")
   RK_PORT      Port to bind (default 3000)
 
+Port resolution (lowest to highest): default 3000 < 'port:' in
+~/.config/run-kit/config.yaml < RK_PORT.
+
 Examples:
   run-kit serve                              # foreground on 127.0.0.1:3000
   RK_HOST=0.0.0.0 RK_PORT=8080 run-kit serve # bind all interfaces, port 8080

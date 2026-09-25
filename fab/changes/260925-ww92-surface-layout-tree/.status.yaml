@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 17
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-25T04:07:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T04:13:12Z"}
     hydrate: {started_at: "2026-09-25T04:13:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T04:32:55Z"}
     ship: {started_at: "2026-09-25T04:32:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T04:35:50Z"}
-    review-pr: {started_at: "2026-09-25T04:35:50Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-25T04:35:50Z", driver: git-pr, iterations: 1, completed_at: "2026-09-25T04:55:34Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/1035
 base_branch: main
@@ -56,4 +56,4 @@ true_impact:
 summary: layout became a canonical split tree in @rk_win_layout (h(tty,v(code,web))) — legacy presets parse permanently, templates generate trees, generic add/close/promote/swap verbs, sizes keyed by structure signature, Go layoutspec ports the model
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-25T04:35:50Z
+last_updated: 2026-09-25T04:55:34Z

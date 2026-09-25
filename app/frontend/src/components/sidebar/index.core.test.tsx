@@ -628,6 +628,19 @@ describe("Sidebar", () => {
       expect(screen.queryByLabelText(renameCase.label)).not.toBeInTheDocument();
     });
 
+    it.each(renameCases)("suspends row drag while editing a $kind", (renameCase) => {
+      renderSidebar();
+      renameCase.start();
+      const input = screen.getByLabelText(renameCase.label);
+      const row = input.closest("[draggable]");
+      // A pointer drag in the input must select text, not drag the row.
+      expect(row?.getAttribute("draggable")).toBe("false");
+
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(screen.queryByLabelText(renameCase.label)).not.toBeInTheDocument();
+      expect(row?.getAttribute("draggable")).toBe("true");
+    });
+
     it("live-converts unsafe session-name characters", () => {
       renderSidebar();
       fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));

@@ -922,7 +922,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
    * Proves: the palette is a fully functional lens switcher at a WIDE width
    * — the distinguishing case (the bar has room, yet the menu holds no
    * `View:` rows): running the palette's `View: Web` action switches the
-   * lens (the selection becomes a `single:web` layout through the shared
+   * lens (the selection becomes a single-tile `web` layout through the shared
    * mutation path, POSTed to the window's `@rk_win_layout` option — the URL
    * stays bare).
    *
@@ -930,7 +930,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
    * 1. Navigate to the web-capable window; set 1440×800; gate on the
    *    renamable heading.
    * 2. Open the palette (`openPalette`); fill `View: Web`; click the `View: Web` option.
-   * 3. Assert the window's `@rk_win_layout` option reads `single:web` and
+   * 3. Assert the window's `@rk_win_layout` option reads `web` (the tree form) and
    *    the proxied iframe (`title="Proxied content"`) renders.
    */
   test("a palette `View:` action switches the lens — even at a wide width", async ({
@@ -944,7 +944,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     await expect(heading).toBeVisible({ timeout: 10_000 });
 
     // The command palette's `View: Web` action switches the lens: the selection
-    // becomes a `single:web` layout POSTed to the shared option (the URL never
+    // becomes a single-tile `web` layout POSTed to the shared option (the URL never
     // carries it).
     const paletteInput = await openPalette(page);
     await paletteInput.fill("View: Web");
@@ -953,7 +953,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     await webOption.click();
     await expect
       .poll(() => windowOption(viewWindowId, "@rk_win_layout"), { timeout: 10_000 })
-      .toBe("single:web");
+      .toBe("web");
     expect(new URL(page.url()).search).toBe("");
     await expect(page.getByTitle("Proxied content")).toBeVisible({ timeout: 10_000 });
   });

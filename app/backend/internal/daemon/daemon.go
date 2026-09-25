@@ -411,7 +411,13 @@ func startSession(exe string) error {
 	defer cancel()
 
 	cfg := config.Load()
-	syncServerDeploymentEnv(ctx)
+	// The sync gets its own bounded context: it is best-effort and must never
+	// consume the session-creation deadline below (a probe or set-environment
+	// call spending the shared budget would make new-session run with an
+	// expired context and fail the start).
+	syncCtx, syncCancel := context.WithTimeout(context.Background(), cmdTimeout)
+	syncServerDeploymentEnv(syncCtx)
+	syncCancel()
 
 	args := []string{"new-session"}
 	if logPath, ok := resolveDaemonLogPath(); ok {

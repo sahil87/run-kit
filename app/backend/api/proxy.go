@@ -68,11 +68,12 @@ func newPrefixProxy(port int, stripPrefix string, pathFor func(matchedPort int) 
 
 // cachedPrefixProxy returns a cached ReverseProxy for the given route prefix
 // and target port, creating one on demand if absent. The port is part of the
-// key because /code's prefix is FIXED while its target resolves per request:
-// keying on the prefix alone would pin whichever port resolved first for the
-// rest of the process, misrouting every later request (and making package
-// tests order-dependent). For /proxy/{port} the port is already in the prefix,
-// so it only makes the key's contract explicit.
+// key because /code's prefix is FIXED while its target port is seeded once at
+// startup: keying on the prefix alone would pin whichever port a process (or
+// an earlier package test) seeded first for the rest of the process,
+// misrouting every later request (and making package tests order-dependent).
+// For /proxy/{port} the port is already in the prefix, so it only makes the
+// key's contract explicit.
 func cachedPrefixProxy(port int, stripPrefix string, pathFor func(matchedPort int) string) *httputil.ReverseProxy {
 	key := fmt.Sprintf("%s|%d", stripPrefix, port)
 	if cached, ok := proxyCache.Load(key); ok {

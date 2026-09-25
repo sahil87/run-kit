@@ -268,7 +268,7 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		// whole boot sequence counts toward uptime.
 		started := time.Now().Unix()
 
-		router, apiServer := api.NewRouterAndServer(ctx, logger)
+		router, apiServer := api.NewRouterAndServer(ctx, logger, cfg)
 
 		// Expose the running version to clients over SSE (server-global
 		// `event: version`, replayed on connect) and wire the periodic update

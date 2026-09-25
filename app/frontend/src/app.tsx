@@ -4756,8 +4756,8 @@ function AppShell() {
     [nativeEngineEnabled, setNativeEngineEnabled],
   );
 
-  // `Web: Inspect page` (Constitution V — the palette is the keyboard path;
-  // deliberately no chord and no header verb): opens DevTools on the active
+  // `Web: Inspect page` (Constitution V — the palette is the keyboard path
+  // for the URL bar's Inspect button; deliberately no chord): opens DevTools on the active
   // web tab through the chrome's `web-inspect` document seam. Present only
   // when the NATIVE engine is selected (the iframe engine has no devtools
   // capability) AND the window has web content (the `web-find` content gate —

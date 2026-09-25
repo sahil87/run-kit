@@ -5,6 +5,7 @@ import { Tip, TipGroup } from "@/components/tip";
 import { FindBar } from "@/components/find-bar";
 import {
   FindGlyph,
+  InspectGlyph,
   OpenExternalGlyph,
   RefreshGlyph,
   WebBackGlyph,
@@ -528,12 +529,15 @@ export function IframeWindow({
   // dispatches one document CustomEvent; the mounted web tile opens DevTools
   // on the ACTIVE tab's engine (engines without the capability no-op — the
   // entry itself is gated on the native engine upstream). Single receiver,
-  // same shape as the seams above.
-  useEffect(() => {
-    const inspect = () => frameHandles.current.get(url)?.openDevTools?.();
-    document.addEventListener(WEB_INSPECT_EVENT, inspect);
-    return () => document.removeEventListener(WEB_INSPECT_EVENT, inspect);
+  // same shape as the seams above. The URL bar's Inspect button calls the
+  // same handler directly.
+  const handleInspect = useCallback(() => {
+    frameHandles.current.get(url)?.openDevTools?.();
   }, [url]);
+  useEffect(() => {
+    document.addEventListener(WEB_INSPECT_EVENT, handleInspect);
+    return () => document.removeEventListener(WEB_INSPECT_EVENT, handleInspect);
+  }, [handleInspect]);
 
   // The `web-zoom` seam (R5): the three `Web: Zoom` palette actions dispatch
   // one document CustomEvent (`detail.direction`); the mounted web tile is
@@ -1129,7 +1133,8 @@ export function IframeWindow({
       </TipGroup>
 
       {/* URL Bar — one warm-tip cluster (260722-73al). Button order per the
-          approved design study: ◀ ▶ ↻ [address] ⌕ ↗ (the `>_` switch-to-
+          approved design study: ◀ ▶ ↻ [address] ⌕ − % + <> ↗ (`<>` Inspect
+          renders only on an engine reporting `supports.devtools`; the `>_` switch-to-
           terminal button was removed, 260819-v6y4 R13 — the top-bar surface
           toggles own view switching). Every Tip here (and the strip's above)
           flips UPWARD (placement="top"): a bottom-placed tip would render
@@ -1253,6 +1258,17 @@ export function IframeWindow({
                 </button>
               </Tip>
             </div>
+            {supports.devtools && (
+              <Tip label="Inspect page" placement="top">
+                <button
+                  onClick={handleInspect}
+                  className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
+                  aria-label="Inspect page"
+                >
+                  <InspectGlyph />
+                </button>
+              </Tip>
+            )}
             <Tip label="Open in browser" placement="top">
               <button
                 onClick={handleOpenExternal}

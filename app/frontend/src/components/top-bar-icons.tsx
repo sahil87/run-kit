@@ -191,6 +191,18 @@ export function OpenExternalGlyph() {
   );
 }
 
+/** Inspect — lucide code-xml ("<>/", the page's source), the web tile URL
+ *  bar's Inspect page button. */
+export function InspectGlyph() {
+  return (
+    <ControlGlyph name="inspect">
+      <path d="m18 16 4-4-4-4" />
+      <path d="m6 8-4 4 4 4" />
+      <path d="m14.5 4-5 16" />
+    </ControlGlyph>
+  );
+}
+
 /** Refresh — lucide rotate-cw (circular arrow with a top-right arrowhead),
  *  the in-bar RefreshButton glyph. */
 export function RefreshGlyph() {

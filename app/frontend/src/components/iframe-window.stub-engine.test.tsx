@@ -341,6 +341,26 @@ describe("IframeWindow over a stub engine", () => {
     expect(mockEngine.handle.openDevTools).toHaveBeenCalledTimes(1);
   });
 
+  it("the Inspect page button renders only on a devtools-capable report and drives the handle's openDevTools", () => {
+    renderChrome({ tabs: ["/proxy/8080/docs"] });
+    expect(screen.queryByLabelText("Inspect page")).toBeNull();
+
+    pushState(chromeState({ supports: { ...ALL_SUPPORT, devtools: true } }));
+    const button = screen.getByLabelText("Inspect page");
+    expect(button.querySelector('svg[data-icon="inspect"]')).toBeTruthy();
+    fireEvent.click(button);
+    expect(mockEngine.handle.openDevTools).toHaveBeenCalledTimes(1);
+  });
+
+  it("the native engine's capability seed shows the Inspect page button, routed to the native handle", () => {
+    localStorage.setItem(WEB_NATIVE_ENGINE_PREF_KEY, "true");
+    mockShell.canShellWeb.mockReturnValue(true);
+    renderChrome({ tabs: ["/proxy/8080/docs"] });
+    fireEvent.click(screen.getByLabelText("Inspect page"));
+    expect(mockNative.handle.openDevTools).toHaveBeenCalledTimes(1);
+    expect(mockEngine.handle.openDevTools).not.toHaveBeenCalled();
+  });
+
   it("the web-inspect document event reaches the native handle when that engine is mounted", () => {
     localStorage.setItem(WEB_NATIVE_ENGINE_PREF_KEY, "true");
     mockShell.canShellWeb.mockReturnValue(true);

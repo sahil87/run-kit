@@ -9,7 +9,7 @@ import { ThemeProvider } from "@/contexts/theme-context";
 import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import type { ProjectSession, WindowInfo } from "@/types";
-import type { SurfaceKind } from "@/lib/surface-layout";
+import type { Layout, SurfaceKind } from "@/lib/surface-layout";
 import { buildGuiActions, type GuiPaletteInput } from "@/lib/palette/gui";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { setQuakeMachineState } from "@/lib/quake-terminal";
@@ -2387,14 +2387,15 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
 });
 
 /**
- * ▦ Layout chip (260812-ab5v-surface-layout-core R9) — the terminal-route L1
- * registry entry fed by AppShell's `layout`/`onApplyLayout` slot props. In
- * jsdom the fit candidates render only in the aria-hidden measurement probe
+ * ▦ Layout chip — the terminal-route L1 registry entry fed by AppShell's
+ * `layout`/`onApplyLayout` slot props (templates, not presets: the popover
+ * lists `templatesFor(n)` and a pick rides `applyTemplate` → `onApplyLayout`).
+ * In jsdom the fit candidates render only in the aria-hidden measurement probe
  * (zero widths → everything overflows), so the chip button is located by
  * `getByLabelText("Layout")` and its popover by attribute — the established
  * SplitControl direction-menu test pattern.
  */
-describe("TopBar layout chip (260812-ab5v R9)", () => {
+describe("TopBar layout chip", () => {
   beforeEach(() => {
     stubMatchMedia((query) => !query.includes("pointer: coarse"));
   });
@@ -2403,16 +2404,21 @@ describe("TopBar layout chip (260812-ab5v R9)", () => {
     cleanup();
   });
 
-  const splitLayout = { shape: "split-h", order: ["tty", "code"] } as const;
-  const mainLeftLayout = { shape: "main-left", order: ["tty", "code", "web"] } as const;
+  const splitLayout: Layout = { dir: "h", children: [{ leaf: "tty" }, { leaf: "code" }] };
+  const mainLeftLayout: Layout = {
+    dir: "h",
+    children: [{ leaf: "tty" }, { dir: "v", children: [{ leaf: "code" }, { leaf: "web" }] }],
+  };
+  /** `col` applied to the split layout's slot order. */
+  const colSplitLayout: Layout = { dir: "v", children: [{ leaf: "tty" }, { leaf: "code" }] };
 
-  /** The chip's shape popover — by attribute (jsdom keeps the control inside
+  /** The chip's template popover — by attribute (jsdom keeps the control inside
    *  the aria-hidden probe, which role queries exclude). */
   const layoutMenu = () =>
-    document.querySelector<HTMLElement>('[role="menu"][aria-label="Layout presets"]');
+    document.querySelector<HTMLElement>('[role="menu"][aria-label="Layout templates"]');
 
   it("renders the chip on a terminal window route when layout props register; hidden without them", () => {
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout: vi.fn() });
+    renderTopBar({ layout: splitLayout, onApplyLayout: vi.fn() });
     expect(screen.getByLabelText("Layout")).toBeInTheDocument();
     expect(screen.getByLabelText("Layout")).toHaveAttribute("data-testid", "layout-chip");
 
@@ -2421,51 +2427,61 @@ describe("TopBar layout chip (260812-ab5v R9)", () => {
     expect(screen.queryByLabelText("Layout")).not.toBeInTheDocument();
   });
 
-  it("popover lists exactly the CURRENT arity's presets, current shape marked", () => {
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout: vi.fn() });
+  it("popover lists exactly the CURRENT tile count's templates, current template marked", () => {
+    renderTopBar({ layout: splitLayout, onApplyLayout: vi.fn() });
     act(() => fireEvent.click(screen.getByLabelText("Layout")));
     const menu = layoutMenu();
     expect(menu).not.toBeNull();
-    const rows = Array.from(menu!.querySelectorAll("[data-testid^='layout-shape-']"));
-    // Arity 2 → the two splits only (never single / the 3-tile presets).
+    const rows = Array.from(menu!.querySelectorAll("[data-testid^='layout-template-']"));
+    // Two tiles → Row and Column only (never the 3-tile templates).
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
-      "layout-shape-split-h",
-      "layout-shape-split-v",
+      "layout-template-row",
+      "layout-template-col",
     ]);
-    // Current shape marked (menuitemradio aria-checked + the trailing ✓).
+    // Current template marked (menuitemradio aria-checked + the trailing ✓).
     expect(rows[0].getAttribute("aria-checked")).toBe("true");
     expect(rows[0].textContent).toContain("✓");
     expect(rows[1].getAttribute("aria-checked")).toBe("false");
   });
 
-  it("a 3-tile layout lists the five 3-tile presets", () => {
-    renderTopBar({ layout: { ...mainLeftLayout, order: [...mainLeftLayout.order] }, onApplyLayout: vi.fn() });
+  it("a 3-tile layout lists the six 3-tile templates", () => {
+    renderTopBar({ layout: mainLeftLayout, onApplyLayout: vi.fn() });
     act(() => fireEvent.click(screen.getByLabelText("Layout")));
-    const rows = Array.from(layoutMenu()!.querySelectorAll("[data-testid^='layout-shape-']"));
+    const rows = Array.from(layoutMenu()!.querySelectorAll("[data-testid^='layout-template-']"));
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
-      "layout-shape-row",
-      "layout-shape-col",
-      "layout-shape-main-left",
-      "layout-shape-main-right",
-      "layout-shape-main-top",
+      "layout-template-row",
+      "layout-template-col",
+      "layout-template-main-left",
+      "layout-template-main-right",
+      "layout-template-main-top",
+      "layout-template-main-bottom",
     ]);
     expect(rows[2].getAttribute("aria-checked")).toBe("true");
   });
 
-  it("clicking a glyph jumps DIRECTLY via setShape → onApplyLayout, and closes the popover", () => {
+  it("clicking a glyph jumps DIRECTLY via applyTemplate → onApplyLayout, and closes the popover", () => {
     const onApplyLayout = vi.fn();
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout });
+    renderTopBar({ layout: splitLayout, onApplyLayout });
     act(() => fireEvent.click(screen.getByLabelText("Layout")));
     act(() =>
-      fireEvent.click(layoutMenu()!.querySelector("[data-testid='layout-shape-split-v']")!),
+      fireEvent.click(layoutMenu()!.querySelector("[data-testid='layout-template-col']")!),
     );
-    // Shape jump keeps the order; arity never changes.
-    expect(onApplyLayout).toHaveBeenCalledWith({ shape: "split-v", order: ["tty", "code"] });
+    // A template jump keeps the slot order; the tile count never changes.
+    expect(onApplyLayout).toHaveBeenCalledWith(colSplitLayout);
     expect(layoutMenu()).toBeNull();
   });
 
+  it("a one-tile layout renders its marked `single` state row (no templates exist at one tile)", () => {
+    renderTopBar({ layout: { leaf: "tty" }, onApplyLayout: vi.fn() });
+    act(() => fireEvent.click(screen.getByLabelText("Layout")));
+    const rows = Array.from(layoutMenu()!.querySelectorAll("[data-testid^='layout-template-']"));
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["layout-template-single"]);
+    expect(rows[0].getAttribute("aria-checked")).toBe("true");
+    expect(rows[0].textContent).toContain("Single");
+  });
+
   it("Escape closes the popover and refocuses the chip", () => {
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout: vi.fn() });
+    renderTopBar({ layout: splitLayout, onApplyLayout: vi.fn() });
     const chip = screen.getByLabelText("Layout");
     act(() => fireEvent.click(chip));
     expect(layoutMenu()).not.toBeNull();
@@ -2476,15 +2492,15 @@ describe("TopBar layout chip (260812-ab5v R9)", () => {
 
   it("the overflow (chevron) menu carries the chip's `Layout: …` radio rows", () => {
     const onApplyLayout = vi.fn();
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout });
+    renderTopBar({ layout: splitLayout, onApplyLayout });
     act(() => fireEvent.click(screen.getByLabelText("More controls")));
     const menu = screen.getByRole("menu", { name: "More controls" });
-    const current = within(menu).getByRole("menuitemradio", { name: "Layout: Split Horizontal" });
-    const other = within(menu).getByRole("menuitemradio", { name: "Layout: Split Vertical" });
+    const current = within(menu).getByRole("menuitemradio", { name: "Layout: Row" });
+    const other = within(menu).getByRole("menuitemradio", { name: "Layout: Column" });
     expect(current.getAttribute("aria-checked")).toBe("true");
     expect(other.getAttribute("aria-checked")).toBe("false");
     act(() => fireEvent.click(other));
-    expect(onApplyLayout).toHaveBeenCalledWith({ shape: "split-v", order: ["tty", "code"] });
+    expect(onApplyLayout).toHaveBeenCalledWith(colSplitLayout);
   });
 
   it("the chip is terminal-mode only (no chip on the server route)", () => {
@@ -2494,7 +2510,7 @@ describe("TopBar layout chip (260812-ab5v R9)", () => {
       windowName: "",
       currentSession: null,
       currentWindow: null,
-      layout: { shape: "single", order: ["tty"] },
+      layout: { leaf: "tty" },
       onApplyLayout: vi.fn(),
     });
     expect(screen.queryByLabelText("Layout")).not.toBeInTheDocument();

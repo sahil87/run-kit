@@ -748,7 +748,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
     }
   });
 
-  it("ships layout-cycle on ⌘; (260812-ab5v R9/R11) — the ▦ chip's same-arity shape cycle", () => {
+  it("ships layout-cycle on ⌘; (260812-ab5v R9/R11) — the ▦ chip's template cycle", () => {
     expect(byId(resolved(), "layout-cycle")).toMatchObject({
       code: "Semicolon",
       tier: "cmd",
@@ -839,7 +839,7 @@ describe("palette parity invariant", () => {
     "web-find": ["web-find"], // Web: Find in page (260819-ie2i)
     "terminal-find": ["terminal-find"], // Terminal: Find
     "web-address": ["web-address"], // Web: Focus address bar (260819-v6y4)
-    "layout-cycle": ["layout-cycle"], // Layout: Cycle Shape
+    "layout-cycle": ["layout-cycle"], // Layout: Cycle Template
     "board-cycle-next": ["board-cycle-next"], // Board: pane cycle →
     "board-cycle-prev": ["board-cycle-prev"], // Board: pane cycle ←
   };

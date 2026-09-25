@@ -85,7 +85,7 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 	// atomic at creation. The body keeps the retired rkType/rkUrl field NAMES
 	// this release (the client's createWindow arm is renamed by the frontend
 	// layout change); "iframe" is the only accepted value — it maps onto
-	// layout=single:web + the first web slot + the active pointer.
+	// layout=web + the first web slot + the active pointer.
 	if body.RkType != "" {
 		if body.RkType != "iframe" {
 			writeError(w, http.StatusBadRequest, "Unsupported rkType: "+body.RkType)
@@ -108,7 +108,7 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, errMsg)
 			return
 		}
-		layout := "single:web"
+		layout := "web"
 		rkURL := body.RkUrl
 		active := "1"
 		ops := []tmux.WindowOptionOp{
@@ -439,7 +439,7 @@ func webTabIndex(key string) (int, bool) {
 //   - @rk_win_url: null → null on the ACTIVE slot (routed through WebRemove at
 //     execution); on an empty family the retired write was an unset of an
 //     unset option — a no-op.
-//   - @rk_win_lens: "iframe" → @rk_win_layout = single:web, only when the
+//   - @rk_win_lens: "iframe" → @rk_win_layout = web, only when the
 //     window has no layout yet and the batch doesn't set one explicitly; any
 //     other value (or null) has no family representation — a no-op.
 //
@@ -469,7 +469,7 @@ func translateLegacyOptionKeys(options map[string]*string, fam tmux.WebTabFamily
 			if _, explicit := options[optKeyLayout]; explicit {
 				continue
 			}
-			layout := "single:web"
+			layout := "web"
 			out[optKeyLayout] = &layout
 		default:
 			out[key] = value
@@ -522,7 +522,9 @@ func validateWindowOption(key string, value *string, fam tmux.WebTabFamily, appe
 			return errMsg
 		}
 	case optKeyLayout:
-		// The layout grammar (internal/layoutspec); empty unsets.
+		// The layout grammar (internal/layoutspec): the tree form
+		// (h(tty,v(code,web))) or a legacy preset string — the value is
+		// stored verbatim, never canonicalised. Empty unsets.
 		if *value != "" {
 			if _, err := layoutspec.Parse(*value); err != nil {
 				return err.Error()
@@ -605,7 +607,7 @@ func buildWindowOptionOps(options map[string]*string, armActive bool) (ops []tmu
 		}
 		op := tmux.WindowOptionOp{Key: key, Value: value}
 		// An empty string means unset for @rk_win_layout (revert to the
-		// single:tty render), @rk_win_marker, @rk_win_role, @rk_win_flair,
+		// bare-tty render), @rk_win_marker, @rk_win_role, @rk_win_flair,
 		// @rk_win_owner, @rk_win_note, and @rk_win_code_root — the same
 		// "empty clears" contract the retired @rk_win_lens carried.
 		if value != nil && *value == "" {

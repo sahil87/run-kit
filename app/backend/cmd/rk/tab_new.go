@@ -103,7 +103,7 @@ func init() {
 	tabNewCmd.Flags().StringVar(&tabNewNameFlag, "name", "",
 		"Window name (default: tmux's own)")
 	tabNewCmd.Flags().StringVar(&tabNewLayoutFlag, "layout", "",
-		"Layout the window is born with, e.g. split-h:tty,web (validated before creation)")
+		"Layout the window is born with, e.g. h(tty,web) (tree grammar; a legacy split-h:tty,web string still parses; validated before creation)")
 	tabNewCmd.Flags().BoolVar(&tabNewJSONFlag, "json", false,
 		"Print {session, session_rung, window_id, pane_id} as JSON inside the {\"ok\",\"result\"} envelope instead of the bare @N")
 	tabNewCmd.Flags().BoolVar(&tabNewReadyFlag, "ready", false,

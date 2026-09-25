@@ -198,7 +198,7 @@ Both modes include SPA fallback (serve `index.html` for non-matching paths), API
 *Introduced by*: 260416-6b0h-iframe-proxy-windows
 
 ### The layout option is a default-view HINT, not identity
-**Decision**: under the window-view lens model (`docs/specs/window-views.md` R1/R5, `ui/lenses-and-layout.md` § Window Views (Lens Model)), "which view am I in" is per-viewer client state (the surface layout: `?layout=` + `rk-layout:` localStorage, § Surface Layout), NOT the window's identity. `@rk_win_layout` (a `single:web` / web-containing layout) seeds `defaultView` only ("default view = web" when the web-tab family is also non-empty — the ladder's hint rung); the frontend never reads it as a render gate and never mutates it on a view switch. The web-tab family is global substrate state (the shared content addresses, edited via the web lens's URL bar).
+**Decision**: under the window-view lens model (`docs/specs/window-views.md` R1/R5, `ui/lenses-and-layout.md` § Window Views (Lens Model)), "which view am I in" is per-viewer client state (the surface layout: `?layout=` + `rk-layout:` localStorage, § Surface Layout), NOT the window's identity. `@rk_win_layout` (a `web` / web-containing layout) seeds `defaultView` only ("default view = web" when the web-tab family is also non-empty — the ladder's hint rung); the frontend never reads it as a render gate and never mutates it on a view switch. The web-tab family is global substrate state (the shared content addresses, edited via the web lens's URL bar).
 *Introduced by*: 260714-t97o-web-view-lens
 
 ### Web-tab family density holds on every write path

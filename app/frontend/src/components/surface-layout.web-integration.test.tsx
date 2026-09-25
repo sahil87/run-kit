@@ -38,7 +38,7 @@ describe("integration: SurfaceLayout + real IframeWindow", () => {
       >
       <ToastProvider>
       <SurfaceLayout
-        layout={{ shape: "split-h", order: ["tty", "web"] }}
+        layout={{ dir: "h", children: [{ leaf: "tty" }, { leaf: "web" }] }}
         server="srv"
         windowId="@1"
         sessionName="sess"

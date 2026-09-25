@@ -1079,7 +1079,7 @@ func windowLineLegacyURL(legacyURL string) string {
 }
 
 // TestParseWindowsLegacyLensFallback pins the @rk_win_lens dual-read: with
-// @rk_win_layout unset, a live-stamped "iframe" reads as the single:web layout;
+// @rk_win_layout unset, a live-stamped "iframe" reads as the web-leaf layout;
 // any other lens value is ignored, and a present @rk_win_layout always wins.
 func TestParseWindowsLegacyLensFallback(t *testing.T) {
 	withLens := func(layout, lens string) string {
@@ -1091,7 +1091,7 @@ func TestParseWindowsLegacyLensFallback(t *testing.T) {
 	cases := []struct {
 		name, layout, lens, want string
 	}{
-		{"iframe with layout unset reads single:web", "", "iframe", "single:web"},
+		{"iframe with layout unset reads the web leaf", "", "iframe", "web"},
 		{"other lens value ignored", "", "terminal", ""},
 		{"explicit layout wins over lens", "row:tty,code,web", "iframe", "row:tty,code,web"},
 	}

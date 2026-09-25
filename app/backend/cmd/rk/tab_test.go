@@ -185,7 +185,7 @@ func TestTabNewPrintsIDAndWritesLayoutAtCreation(t *testing.T) {
 		t.Fatalf("stdout = %q, want @N", stdout)
 	}
 	if got := tabWindowOption(t, env.server, id, tmux.LayoutOption); got != "split-h:tty,web" {
-		t.Errorf("@rk_win_layout = %q, want split-h:tty,web", got)
+		t.Errorf("@rk_win_layout = %q, want split-h:tty,web (legacy stored verbatim)", got)
 	}
 	if got := tabTmuxOut(t, env.server, "display-message", "-pt", id, "#{window_name}"); got != "newtab" {
 		t.Errorf("window name = %q, want newtab", got)
@@ -193,6 +193,16 @@ func TestTabNewPrintsIDAndWritesLayoutAtCreation(t *testing.T) {
 	// The default session is the caller's own (boot — TMUX_PANE is set).
 	if got := tabTmuxOut(t, env.server, "display-message", "-pt", id, "#{session_name}"); got != "boot" {
 		t.Errorf("session = %q, want boot", got)
+	}
+
+	// The tree grammar validates and stores verbatim too.
+	stdout, _, err = runTabCmd(t, "new", "--layout", "h(tty,v(code,web))")
+	if err != nil {
+		t.Fatalf("tab new --layout tree: %v", err)
+	}
+	id = strings.TrimSpace(stdout)
+	if got := tabWindowOption(t, env.server, id, tmux.LayoutOption); got != "h(tty,v(code,web))" {
+		t.Errorf("@rk_win_layout = %q, want h(tty,v(code,web))", got)
 	}
 }
 
@@ -466,15 +476,25 @@ func TestTabNewReadyTimeoutReachesSeam(t *testing.T) {
 func TestTabLayoutSetAndReadForm(t *testing.T) {
 	env := withTabTestServer(t)
 
+	// A legacy preset string parses and is stored + printed in the tree form.
 	stdout, _, err := runTabCmd(t, "layout", env.bootID, "main-left:tty,code,web")
 	if err != nil {
 		t.Fatalf("layout set: %v", err)
 	}
-	if stdout != "main-left:tty,code,web\n" {
+	if stdout != "h(tty,v(code,web))\n" {
 		t.Errorf("stdout = %q", stdout)
 	}
-	if got := tabWindowOption(t, env.server, env.bootID, tmux.LayoutOption); got != "main-left:tty,code,web" {
+	if got := tabWindowOption(t, env.server, env.bootID, tmux.LayoutOption); got != "h(tty,v(code,web))" {
 		t.Errorf("@rk_win_layout = %q", got)
+	}
+
+	// A tree value sets verbatim.
+	stdout, _, err = runTabCmd(t, "layout", env.bootID, "v(tty,h(code,web))")
+	if err != nil {
+		t.Fatalf("layout set tree: %v", err)
+	}
+	if stdout != "v(tty,h(code,web))\n" {
+		t.Errorf("stdout = %q", stdout)
 	}
 
 	// Read-only form prints the value and writes nothing.
@@ -482,7 +502,7 @@ func TestTabLayoutSetAndReadForm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("layout read: %v", err)
 	}
-	if stdout != "main-left:tty,code,web\n" {
+	if stdout != "v(tty,h(code,web))\n" {
 		t.Errorf("read stdout = %q", stdout)
 	}
 
@@ -490,20 +510,20 @@ func TestTabLayoutSetAndReadForm(t *testing.T) {
 	if _, _, err := runTabCmd(t, "layout", env.bootID, "bogus"); err == nil || exitCode(err) != exitUsage {
 		t.Errorf("malformed: err = %v (code %d), want exit 2", err, exitCode(err))
 	}
-	if got := tabWindowOption(t, env.server, env.bootID, tmux.LayoutOption); got != "main-left:tty,code,web" {
+	if got := tabWindowOption(t, env.server, env.bootID, tmux.LayoutOption); got != "v(tty,h(code,web))" {
 		t.Errorf("@rk_win_layout = %q after a failed set", got)
 	}
 }
 
-func TestTabLayoutUnsetReadsAsSingleTty(t *testing.T) {
+func TestTabLayoutUnsetReadsAsTty(t *testing.T) {
 	env := withTabTestServer(t)
 
 	stdout, _, err := runTabCmd(t, "layout", env.bootID)
 	if err != nil {
 		t.Fatalf("layout read: %v", err)
 	}
-	if stdout != "single:tty\n" {
-		t.Errorf("stdout = %q, want single:tty", stdout)
+	if stdout != "tty\n" {
+		t.Errorf("stdout = %q, want tty", stdout)
 	}
 	if got := tabWindowOption(t, env.server, env.bootID, tmux.LayoutOption); got != "" {
 		t.Errorf("@rk_win_layout = %q, want untouched (unset)", got)
@@ -514,31 +534,33 @@ func TestTabLayoutMutationsRoundTrip(t *testing.T) {
 	env := withTabTestServer(t)
 	id := env.bootID
 
-	// Unset + --add web reads as single:tty and grows through the table.
+	// Unset + --add web reads as tty and grows through the tree verbs.
 	stdout, _, err := runTabCmd(t, "layout", id, "--add", "web")
 	if err != nil {
 		t.Fatalf("--add web: %v", err)
 	}
-	if stdout != "split-h:tty,web\n" {
-		t.Errorf("stdout = %q, want split-h:tty,web", stdout)
+	if stdout != "h(tty,web)\n" {
+		t.Errorf("stdout = %q, want h(tty,web)", stdout)
 	}
-	if got := tabWindowOption(t, env.server, id, tmux.LayoutOption); got != "split-h:tty,web" {
+	if got := tabWindowOption(t, env.server, id, tmux.LayoutOption); got != "h(tty,web)" {
 		t.Errorf("@rk_win_layout = %q", got)
 	}
 
-	if stdout, _, err = runTabCmd(t, "layout", id, "--add", "code"); err != nil || stdout != "main-left:tty,web,code\n" {
-		t.Errorf("--add code: stdout = %q, err = %v, want main-left:tty,web,code", stdout, err)
+	// The last leaf (web) is taller than wide on the nominal box → splits
+	// vertically.
+	if stdout, _, err = runTabCmd(t, "layout", id, "--add", "code"); err != nil || stdout != "h(tty,v(web,code))\n" {
+		t.Errorf("--add code: stdout = %q, err = %v, want h(tty,v(web,code))", stdout, err)
 	}
 	if _, _, err = runTabCmd(t, "layout", id, "--add", "chat"); err == nil || exitCode(err) != exitUsage {
 		t.Errorf("--add chat (unknown surface): err = %v (code %d), want exit 2", err, exitCode(err))
 	}
-	if stdout, _, err = runTabCmd(t, "layout", id, "--rm", "code"); err != nil || stdout != "split-h:tty,web\n" {
-		t.Errorf("--rm code: stdout = %q, err = %v, want split-h:tty,web", stdout, err)
+	if stdout, _, err = runTabCmd(t, "layout", id, "--rm", "code"); err != nil || stdout != "h(tty,web)\n" {
+		t.Errorf("--rm code: stdout = %q, err = %v, want h(tty,web)", stdout, err)
 	}
 	if _, _, err = runTabCmd(t, "layout", id, "--rm", "web"); err != nil {
 		t.Fatalf("--rm web: %v", err)
 	}
-	// single:tty refuses to close its last tile.
+	// The bare tty leaf refuses to close its last tile.
 	if _, _, err = runTabCmd(t, "layout", id, "--rm", "tty"); err == nil || exitCode(err) != 1 {
 		t.Errorf("--rm tty on single: err = %v (code %d), want exit 1", err, exitCode(err))
 	}
@@ -551,11 +573,11 @@ func TestTabLayoutMutationsRoundTrip(t *testing.T) {
 	if _, _, err = runTabCmd(t, "layout", id, "main-left:tty,web,code"); err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	if stdout, _, err = runTabCmd(t, "layout", id, "--promote", "code"); err != nil || stdout != "main-left:code,tty,web\n" {
-		t.Errorf("--promote code: stdout = %q, err = %v, want main-left:code,tty,web", stdout, err)
+	if stdout, _, err = runTabCmd(t, "layout", id, "--promote", "code"); err != nil || stdout != "h(code,v(web,tty))\n" {
+		t.Errorf("--promote code: stdout = %q, err = %v, want h(code,v(web,tty))", stdout, err)
 	}
-	if stdout, _, err = runTabCmd(t, "layout", id, "--cycle"); err != nil || stdout != "main-right:code,tty,web\n" {
-		t.Errorf("--cycle: stdout = %q, err = %v, want main-right:code,tty,web", stdout, err)
+	if stdout, _, err = runTabCmd(t, "layout", id, "--cycle"); err != nil || stdout != "h(v(web,tty),code)\n" {
+		t.Errorf("--cycle: stdout = %q, err = %v, want h(v(web,tty),code)", stdout, err)
 	}
 	// --promote of an unknown surface is user input — usage error.
 	if _, _, err = runTabCmd(t, "layout", id, "--promote", "chat"); err == nil || exitCode(err) != exitUsage {
@@ -571,13 +593,13 @@ func TestTabLayoutUnparseableStoredValueReplaced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("--add web over garbage: %v", err)
 	}
-	if stdout != "split-h:tty,web\n" {
-		t.Errorf("stdout = %q, want split-h:tty,web", stdout)
+	if stdout != "h(tty,web)\n" {
+		t.Errorf("stdout = %q, want h(tty,web)", stdout)
 	}
 	if !strings.Contains(stderr, "bogus") {
 		t.Errorf("stderr = %q, want a note naming the replaced value", stderr)
 	}
-	if got := tabWindowOption(t, env.server, env.bootID, tmux.LayoutOption); got != "split-h:tty,web" {
+	if got := tabWindowOption(t, env.server, env.bootID, tmux.LayoutOption); got != "h(tty,web)" {
 		t.Errorf("@rk_win_layout = %q", got)
 	}
 }
@@ -605,8 +627,8 @@ func TestTabWebAddPrintsAddressAndShowGrowsLayout(t *testing.T) {
 	if got := tabWindowOption(t, env.server, env.bootID, tmux.WebActiveOption); got != "1" {
 		t.Errorf("@rk_win_web_active = %q, want 1", got)
 	}
-	if got := tabWindowOption(t, env.server, env.bootID, tmux.LayoutOption); got != "split-h:tty,web" {
-		t.Errorf("@rk_win_layout = %q, want split-h:tty,web", got)
+	if got := tabWindowOption(t, env.server, env.bootID, tmux.LayoutOption); got != "h(tty,web)" {
+		t.Errorf("@rk_win_layout = %q, want h(tty,web)", got)
 	}
 }
 
@@ -648,10 +670,13 @@ func TestTabWebAddFullExitsOne(t *testing.T) {
 	}
 }
 
-func TestTabWebAddShowReplacesLastSlotOnFullLayout(t *testing.T) {
+// --show on a full layout without web replaces the LAST leaf in reading order
+// with web in place (slot A untouched); a full layout that already holds web
+// is left alone.
+func TestTabWebAddShowReplacesLastLeafOnFullLayout(t *testing.T) {
 	env := withTabTestServer(t)
 	port := tabTestListener(t)
-	tabTmuxDo(t, env.server, "set-option", "-w", "-t", env.bootID, tmux.LayoutOption, "main-left:tty,code,web")
+	tabTmuxDo(t, env.server, "set-option", "-w", "-t", env.bootID, tmux.LayoutOption, "h(tty,v(code,gui))")
 
 	stdout, _, err := runTabCmd(t, "web", "add", env.bootID, fmt.Sprintf(":%d", port), "--show")
 	if err != nil {
@@ -660,8 +685,17 @@ func TestTabWebAddShowReplacesLastSlotOnFullLayout(t *testing.T) {
 	if stdout != env.bootID+"/web/1\n" {
 		t.Errorf("stdout = %q", stdout)
 	}
+	if got := tabWindowOption(t, env.server, env.bootID, tmux.LayoutOption); got != "h(tty,v(code,web))" {
+		t.Errorf("@rk_win_layout = %q, want h(tty,v(code,web)) (last leaf replaced)", got)
+	}
+
+	// web already in the layout: the second add leaves it untouched.
+	tabTmuxDo(t, env.server, "set-option", "-w", "-t", env.bootID, tmux.LayoutOption, "main-left:tty,code,web")
+	if _, _, err := runTabCmd(t, "web", "add", env.bootID, fmt.Sprintf(":%d", port), "--show"); err != nil {
+		t.Fatalf("web re-add --show: %v", err)
+	}
 	if got := tabWindowOption(t, env.server, env.bootID, tmux.LayoutOption); got != "main-left:tty,code,web" {
-		t.Errorf("@rk_win_layout = %q, want main-left:tty,code,web (slot A untouched)", got)
+		t.Errorf("@rk_win_layout = %q, want main-left:tty,code,web (verbatim, untouched)", got)
 	}
 }
 
@@ -1021,7 +1055,7 @@ func TestTabLayoutJSONReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("layout set: %v", err)
 	}
-	want := map[string]any{"window": env.bootID, "layout": "split-h:tty,web"}
+	want := map[string]any{"window": env.bootID, "layout": "h(tty,web)"}
 	assertEnvelopeResult(t, stdout, want)
 
 	stdout, _, err = runTabCmd(t, "layout", env.bootID, "--json")
@@ -1034,7 +1068,7 @@ func TestTabLayoutJSONReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("layout --add: %v", err)
 	}
-	assertEnvelopeResult(t, stdout, map[string]any{"window": env.bootID, "layout": "main-left:tty,web,code"})
+	assertEnvelopeResult(t, stdout, map[string]any{"window": env.bootID, "layout": "h(tty,v(web,code))"})
 
 	// A usage failure under --json is the usage envelope with exit 2.
 	stdout, _, err = runTabCmd(t, "layout", env.bootID, "bogus", "--json")

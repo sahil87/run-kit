@@ -3,13 +3,15 @@ import { Tip } from "@/components/tip";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
 import {
-  setShape,
-  shapesForArity,
-  SHAPE_ARITY,
-  SHAPE_LABEL,
+  leaves,
+  templateOf,
+  templatesFor,
+  TEMPLATES,
+  TEMPLATE_LABEL,
   type Layout,
+  type TemplateName,
 } from "@/lib/surface-layout";
-import { LayoutGlyph, LayoutShapeGlyph } from "@/components/top-bar-icons";
+import { LayoutGlyph, LayoutTreeGlyph } from "@/components/top-bar-icons";
 import { controlClass } from "@/components/control";
 import {
   MENU_ROW_CHECK_MARK,
@@ -17,39 +19,77 @@ import {
 } from "@/components/controls";
 
 /**
- * ▦ Layout chip (260812-ab5v-surface-layout-core; spec
- * docs/specs/surface-layout.md § Verbs — "▦ Cycle shape … one chip on the
- * layout (top-bar right cluster)"). Terminal-route L1 tier only.
+ * ▦ Layout chip (spec docs/specs/surface-layout.md § Verbs — the one chip on
+ * the layout, top-bar right cluster). Terminal-route L1 tier only.
  *
  * - **In-bar (`LayoutChip`)**: a fixed-square token button whose click opens a
- *   popover of the preset-shape glyphs valid for the CURRENT tile count
- *   (`shapesForArity(SHAPE_ARITY[layout.shape])` — a shape never changes the
- *   tile count; adds/closes do that). The current shape is marked (trailing ✓
- *   + `aria-checked`, the macOS menu pattern); clicking a glyph jumps DIRECTLY
- *   via `setShape` → the caller's `onApply` (app.tsx's `applyLayout` — the
- *   single user-mutation path, R3 write discipline). The popover follows the
- *   `SplitControl` direction-menu pattern (outside-mousedown closes, Escape
- *   closes + refocuses the trigger, `role="menu"` + `menuitemradio` rows).
+ *   popover listing `templatesFor(n)` for the CURRENT tile count n (a template
+ *   jump never changes the tile count; adds/closes do that). Each row carries
+ *   a mini tree glyph rendered from the template's tree plus its
+ *   `TEMPLATE_LABEL`; the current template is marked (trailing ✓ +
+ *   `aria-checked`, the macOS menu pattern). Clicking a row hands the TEMPLATE
+ *   NAME to the caller's `onApply` (top-bar runs `applyTemplate` →
+ *   `applyLayout` — the single user-mutation path, R3 write discipline). The
+ *   popover follows the `SplitControl` direction-menu pattern
+ *   (outside-mousedown closes, Escape closes + refocuses the trigger,
+ *   `role="menu"` + `menuitemradio` rows).
+ * - **Current state**: a tree matching no template reads `custom` (lowercase)
+ *   as a disabled marked row above the template rows; a one-tile tree (no
+ *   templates exist at n = 1) renders its `single` state the same way, so the
+ *   popover is never empty.
  * - **Overflow (`LayoutMenuRows`)**: the chip's chevron-menu form — one
- *   `Layout: …` `menuitemradio` row per arity-valid shape (the
+ *   `Layout: …` `menuitemradio` row per template (the
  *   `ViewSwitcherMenuRows` precedent: `MENU_ROW_*` composition, checked row
  *   primary-ink + trailing ✓, `tabIndex={-1}` roving focus).
  *
- * The same-arity CYCLE chord is the registry's `layout-cycle` binding (⌘;) —
+ * The template CYCLE chord is the registry's `layout-cycle` binding (⌘;) —
  * the chip's tip advertises its effective combo (registry-derived, omitted
  * when unbound/disabled; the SplitControl tip pattern), and the palette's
- * `Layout: Cycle Shape` entry is its Constitution V parity.
+ * `Layout: Cycle Template` entry is its Constitution V parity.
  *
  * Presentational by contract: the layout arrives resolved from app.tsx; the
  * chip owns only its popover-open state.
  */
 
 type LayoutChipProps = {
-  /** The RESOLVED layout (app.tsx ran the ladder + degradation). */
+  /** The RESOLVED layout (app.tsx ran the parse + degradation). */
   layout: Layout;
-  /** The single mutation path (app.tsx `applyLayout`): persist + URL mirror. */
-  onApply: (next: Layout) => void;
+  /** Apply a template by name (the caller runs applyTemplate → applyLayout —
+   *  persist + option write). */
+  onApply: (template: TemplateName) => void;
 };
+
+/** The current-state row for a tree no template matches (`custom`) or a
+ *  one-tile tree (`single`): marked, never applicable. */
+function CurrentStateRow({
+  layout,
+  name,
+  menuPrefix,
+  tabbable,
+}: {
+  layout: Layout;
+  name: "single" | "custom";
+  menuPrefix: boolean;
+  tabbable: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={true}
+      disabled
+      tabIndex={tabbable ? undefined : -1}
+      data-testid={`layout-template-${name}`}
+      className={controlClass({ variant: "menu-row", pressed: true })}
+    >
+      <LayoutTreeGlyph name={name} tree={layout} />
+      {`${menuPrefix ? "Layout: " : ""}${name === "single" ? "Single" : name}`}
+      <span aria-hidden="true" className={MENU_ROW_CHECK_MARK}>
+        ✓
+      </span>
+    </button>
+  );
+}
 
 export function LayoutChip({ layout, onApply }: LayoutChipProps) {
   const [open, setOpen] = useState(false);
@@ -89,14 +129,15 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
     ? formatCombo({ code: cycleBinding.code, tier: cycleBinding.tier }, host.platform)
     : undefined;
 
-  // The popover lists exactly the shapes valid for the CURRENT tile count
-  // (R9) — arity is fixed per shape, so a jump can never strand a tile.
-  const shapes = shapesForArity(SHAPE_ARITY[layout.shape]);
+  // The popover lists exactly the templates for the CURRENT tile count (R16) —
+  // a jump rebuilds the template's tree from the slot order, so it can never
+  // strand a tile.
+  const match = templateOf(layout);
+  const templates = templatesFor(leaves(layout).length);
 
-  const jump = (shape: (typeof shapes)[number]) => {
+  const jump = (name: TemplateName) => {
     setOpen(false);
-    const next = setShape(layout, shape);
-    if (next) onApply(next);
+    onApply(name);
   };
 
   return (
@@ -120,26 +161,29 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
       {open && (
         <div
           role="menu"
-          aria-label="Layout presets"
+          aria-label="Layout templates"
           // The SplitControl direction-menu sizing: shrink-wraps to its rows
-          // (`w-max`) with the 170px floor guarding the single-shape case.
+          // (`w-max`) with the 170px floor guarding the single-tile case.
           className={`absolute top-full right-0 mt-1 w-max min-w-[170px] ${POPOVER_SHELL}`}
         >
-          {shapes.map((shape) => {
-            const current = shape === layout.shape;
+          {(match.name === "single" || match.name === "custom") && (
+            <CurrentStateRow layout={layout} name={match.name} menuPrefix={false} tabbable />
+          )}
+          {templates.map((name) => {
+            const current = name === match.name;
             return (
               <button
-                key={shape}
+                key={name}
                 type="button"
                 role="menuitemradio"
                 aria-checked={current}
-                data-testid={`layout-shape-${shape}`}
-                onClick={() => jump(shape)}
+                data-testid={`layout-template-${name}`}
+                onClick={() => jump(name)}
                 className={controlClass({ variant: "menu-row", pressed: current })}
               >
-                <LayoutShapeGlyph shape={shape} />
-                {SHAPE_LABEL[shape]}
-                {/* Current-shape marker: trailing ✓ (the macOS menu pattern —
+                <LayoutTreeGlyph name={name} tree={TEMPLATES[name](leaves(layout))} />
+                {TEMPLATE_LABEL[name]}
+                {/* Current-template marker: trailing ✓ (the macOS menu pattern —
                     the row's glyph is identity, the ✓ is the state marker). */}
                 {current && (
                   <span aria-hidden="true" className={MENU_ROW_CHECK_MARK}>
@@ -157,8 +201,8 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
 
 /**
  * The chip's chevron-menu rows (260715-h1ck overflow representation): one
- * `Layout: …` `menuitemradio` row per arity-valid shape — the
- * `ViewSwitcherMenuRows` precedent (the menu-row composition — rest/checked
+ * `Layout: …` `menuitemradio` row per template at the current tile count —
+ * the `ViewSwitcherMenuRows` precedent (the menu-row composition — rest/checked
  * swap via the Control primitive,
  * checked row primary-ink + trailing ✓, `tabIndex={-1}` for the menu's roving
  * focus).
@@ -166,27 +210,28 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
  * panel on a `menuitemradio` activation).
  */
 export function LayoutMenuRows({ layout, onApply }: LayoutChipProps) {
-  const shapes = shapesForArity(SHAPE_ARITY[layout.shape]);
+  const match = templateOf(layout);
+  const templates = templatesFor(leaves(layout).length);
   return (
     <>
-      {shapes.map((shape) => {
-        const current = shape === layout.shape;
+      {(match.name === "single" || match.name === "custom") && (
+        <CurrentStateRow layout={layout} name={match.name} menuPrefix tabbable={false} />
+      )}
+      {templates.map((name) => {
+        const current = name === match.name;
         return (
           <button
-            key={shape}
+            key={name}
             type="button"
             role="menuitemradio"
             tabIndex={-1}
             aria-checked={current}
-            data-testid={`layout-shape-${shape}`}
-            onClick={() => {
-              const next = setShape(layout, shape);
-              if (next) onApply(next);
-            }}
+            data-testid={`layout-template-${name}`}
+            onClick={() => onApply(name)}
             className={controlClass({ variant: "menu-row", pressed: current })}
           >
-            <LayoutShapeGlyph shape={shape} />
-            {`Layout: ${SHAPE_LABEL[shape]}`}
+            <LayoutTreeGlyph name={name} tree={TEMPLATES[name](leaves(layout))} />
+            {`Layout: ${TEMPLATE_LABEL[name]}`}
             {current && (
               <span aria-hidden="true" className={MENU_ROW_CHECK_MARK}>
                 ✓

@@ -71,7 +71,7 @@ export type TopBarSlot = {
   onToggleAutofit?: () => void;
   /** Terminal-mode surface-toggle group data: the tile surfaces the current
    *  window offers (`tty` first) plus a mode discriminant — TOGGLE (desktop:
-   *  the OPEN tiles (the resolved layout's `order`) and the shared toggle
+   *  the OPEN tiles (the resolved layout's leaves) and the shared toggle
    *  mutation (unlit → `addSurface`, lit → `closeSurface`)) or SWITCH (mobile:
    *  the VISIBLE tile and the switch-to-tile verb). Registered by `AppShell`
    *  on terminal routes (switch mode additionally gated on ≥2 shown surfaces);

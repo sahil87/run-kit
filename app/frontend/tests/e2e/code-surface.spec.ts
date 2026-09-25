@@ -22,8 +22,8 @@ import { stubProxyPorts } from "./_web-tile";
  * the view registry through the palette's `View: Code` action and the
  * tileable code surface (`Code tile` top-bar toggle —
  * the right rail is REMOVED, its toggles moved into the top bar's
- * `surface-toggles` group; `?panel=code` → `split-h:tty,code` via the same
- * translation), with availability =
+ * `surface-toggles` group; `?panel=code` → the tree form `h(tty,code)` via
+ * the same translation), with availability =
  * gitRoot derived (the port resolves by convention — `RK_CODE_SERVER_PORT`
  * preset, else `RK_PORT+2` — and no longer gates), and code-server
  * reachability governing only the surface CONTENT (live iframe vs the
@@ -401,8 +401,9 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
 
   /**
    * Proves: the retired `?panel=code` deep link translates inbound (a bare
-   * panel value maps against the tty default slot A → `split-h:tty,code`,
-   * written to `@rk_win_layout` once, params dropped from the URL); the tile's
+   * panel value maps against the tty default slot A → the tree form
+   * `h(tty,code)`, written to `@rk_win_layout` once, params dropped from the
+   * URL); the tile's
    * renderer iframes the derived RELATIVE `/code/?workspace=<path>` URL (never
    * an absolute origin; the port never appears) with the sandbox set (incl.
    * `allow-downloads`); and the workspace file behind that path exists on disk
@@ -413,7 +414,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
    * Steps:
    * 1. Create a repo-cwd window; navigate with `?panel=code`.
    * 2. Assert the `surface-tile-code` tile and the `Code editor` iframe are
-   *    visible, the option reads `split-h:tty,code`, and the URL is bare.
+   *    visible, the option reads `h(tty,code)`, and the URL is bare.
    * 3. GET the window's code-workspace; assert the iframe `src` attribute is
    *    exactly `/code/?workspace=<url-encoded path>`, the GET's `root` is the
    *    git root, and the sandbox contains `allow-downloads`.
@@ -428,12 +429,13 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await gotoWindow(page, id, "?panel=code");
 
     // The retired ?panel= param translates inbound (bare panel value →
-    // split-h:tty,code, one option write). The code TILE renders its iframe
+    // h(tty,code), one option write in the tree form). The code TILE renders
+    // its iframe
     // (stub reachable) at the fully DERIVED relative src on the STABLE /code/
     // route — never an absolute origin, and the port never
     // appears (it's a server-side implementation detail).
     await expect(codeTile(page)).toBeVisible({ timeout: 10_000 });
-    await expectWindowLayout(id, "split-h:tty,code");
+    await expectWindowLayout(id, "h(tty,code)");
     await expect.poll(() => new URL(page.url()).search, { timeout: 10_000 }).toBe("");
     const iframe = codeIframe(page);
     await expect(iframe).toBeVisible({ timeout: READY_TIMEOUT });
@@ -500,7 +502,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await expect(codeToggle(page)).toBeVisible();
 
     // Open web, then code — tiles are ADDITIVE now (R10 growth): both
-    // iframes render simultaneously (main-left:tty,web,code).
+    // iframes render simultaneously (a 3-tile tree).
     await webToggle(page).click();
     const webIframe = page.getByTitle("Proxied content");
     await expect(webIframe).toBeVisible({ timeout: 10_000 });

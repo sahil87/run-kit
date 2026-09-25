@@ -82,9 +82,9 @@ the others. `rk tab …` never means "the tty".
 
 | Class | Lives in | Agent-writable? | Examples |
 |---|---|---|---|
-| **Tab state** — what the tab shows | tmux window options `@rk_win_*` | **yes** | layout shape+order, web tab set + active, code folder, note, color, marker |
+| **Tab state** — what the tab shows | tmux window options `@rk_win_*` | **yes** | layout tree, web tab set + active, code folder, note, color, marker |
 | **Substrate facts** — derived from processes | pane/window options written by hooks or derived by the daemon | by hooks | agent state, chat identity, git root, ports |
-| **Viewer preferences** — how this device renders | browser storage or component-local state | no | theme, terminal font size, sidebar width/open, keybindings, macros, compose drafts, web-tab drafts, web zoom, **tile zoom / mobile single-tile choice**, divider ratios |
+| **Viewer preferences** — how this device renders | browser storage or component-local state | no | theme, terminal font size, sidebar width/open, keybindings, macros, compose drafts, web-tab drafts, web zoom, **tile zoom / mobile single-tile choice**, divider sizes |
 | **Navigation** — which tab this viewer is on | the URL route | *by intent only* (§ Viewer Behaviour) | `/$server/@N` |
 
 Today's leak is class 1 living in class 3: `rk-layout:*`, `runkit-window-view:*`,
@@ -153,14 +153,14 @@ Starting point: the scope-naming plan's target map (22 options → 21 after
 | `@rk_win_marker` / `@rk_win_flair` | marker/flair tokens | UI, agents | plan |
 | `@rk_win_note` | `<epoch>:<text>` | agents, operator | plan |
 | `@rk_win_role` | `operator` … | `rk role` | plan |
-| **`@rk_win_layout`** | `<shape>:<surface>[,<surface>…]` e.g. `main-left:tty,code,web` | UI verbs, `rk tab layout`, agents | **new** — replaces `rk-layout:*` localStorage, `?layout=`, `?view=`, `?panel=` |
+| **`@rk_win_layout`** | canonical split tree, e.g. `h(tty,v(code,web))`; the legacy `<shape>:<surface>[,<surface>…]` preset strings parse permanently | UI verbs, `rk tab layout`, agents | **new** — replaces `rk-layout:*` localStorage, `?layout=`, `?view=`, `?panel=` |
 | **`@rk_win_web_<n>`** | URL (relative `/proxy/…`, `/present/{server}/{roothash}/…`, or absolute) | `rk tab web add`, UI address bar, `rk present` (sugar) | **new** — indexed set, `n ≥ 1`, dense (rm renumbers); present URLs are content-keyed (server + 12-hex sha256 of the root), the legacy `/present/{windowId}/{n}/…` slot form rides one release |
 | **`@rk_win_web_<n>_root`** | absolute dir | `rk tab web add <file|dir>` | **new** — replaces `@rk_win_present_root`, now per web tab |
 | **`@rk_win_web_active`** | `n` | UI tab strip, `rk tab web select` | **new** |
 | **`@rk_win_code_root`** | absolute folder | first code-surface open (seed), code-server folder navigation, `rk tab code set` | **new** — replaces the `runkit-code-folder:*` localStorage latch |
 | `@rk_win_url` | — | — | **retired** → `@rk_win_web_1` (migration row) |
 | `@rk_win_present_root` | — | — | **retired** → `@rk_win_web_1_root` |
-| `@rk_win_lens` (ex `@rk_type`) | — | — | **retired** — the "default view hint" (R5) is subsumed by `@rk_win_layout`; `rk present --window` writes `@rk_win_layout=single:web` instead |
+| `@rk_win_lens` (ex `@rk_type`) | — | — | **retired** — the "default view hint" (R5) is subsumed by `@rk_win_layout`; `rk present --window` writes `@rk_win_layout=web` instead |
 
 ### Pane (`@rk_pane_*`) — unchanged
 
@@ -175,39 +175,42 @@ Starting point: the scope-naming plan's target map (22 options → 21 after
   `tmux set-option -w` and readable with one `#{@…}` format.
 - Every `@rk_win_*` row joins the **snapshot round-trip set** (`internal/snapshot`
   capture + restore); indexed families are captured by enumeration.
-- Invalid values degrade, never error: an unknown shape or unavailable surface
-  in `@rk_win_layout` degrades tile-by-tile toward `single:tty` at render
-  time (the R2 fallback spirit) — the option is left as written so the author
-  can see their mistake with `show-options`.
+- Invalid values degrade, never error: an unknown kind, a non-canonical tree,
+  or an unavailable surface in `@rk_win_layout` degrades leaf-by-leaf toward
+  the bare `tty` leaf at render time (the R2 fallback spirit) — the option is
+  left as written so the author can see their mistake with `show-options`.
 
 ---
 
 ## Layout in tmux **[current]**
 
-`@rk_win_layout` carries exactly what `?layout=` carried: **shape** (one of
-the surface-layout presets — `single`, `split-h`, `split-v`, `row`, `col`,
-`main-left`, `main-right`, `main-top`) and **order** (surfaces filling slots,
-first = slot A). The preset set is unchanged and deliberately not a free
-tree (surface-layout.md § Shape presets).
+`@rk_win_layout` carries the layout as a **canonical split tree**: a leaf is a
+surface kind (`tty`, `code`, `web`, `gui`), a split is `h(children…)` (left→
+right) or `v(children…)` (top→bottom) with ≥2 children, and directions
+alternate by depth — one encoding per arrangement, 1–3 leaves, non-`tty`
+kinds never repeat (surface-layout.md § The canonical tree). Writers always
+emit the tree form; the retired `<shape>:<order>` preset strings
+(`split-h:tty,web` → `h(tty,web)`, `main-left:tty,code,web` →
+`h(tty,v(code,web))`, …) parse into their trees **permanently**, so
+hand-written and pre-upgrade values keep rendering identically.
 
 What moves into tmux, what does not:
 
 | Layout value | Home | Why |
 |---|---|---|
-| shape | `@rk_win_layout` | agent-controllable, viewport-independent |
-| order | `@rk_win_layout` | same |
-| **zoom** (full-center one tile) | **per-viewer, localStorage** (`rk-layout-zoom:{server}:{@N}`) | decided 2026-08-28: zoom is a *reading posture*, like ratios — a phone zooming `web` must not zoom the desktop. An agent wanting one surface writes `single:<surface>` to the layout instead |
-| **ratios** (divider positions) | **per-viewer, localStorage** (`rk-layout-ratios:*` stays) | viewport-dependent — a 40/60 split means different things at 1440px and 390px; tmux itself re-flows pane sizes per client width |
+| tree (structure + which leaf is which surface) | `@rk_win_layout` | agent-controllable, viewport-independent |
+| **zoom** (full-center one tile) | **per-viewer, localStorage** (`rk-layout-zoom:{server}:{@N}`) | decided 2026-08-28: zoom is a *reading posture*, like sizes — a phone zooming `web` must not zoom the desktop. An agent wanting one surface writes the bare leaf (`web`) as the layout instead |
+| **sizes** (divider positions) | **per-viewer, localStorage** (`rk-layout-sizes:{server}:{@N}:{structure-sig}` — one fraction array per split, in pre-order, keyed by structure signature so a swap keeps sizes with positions; the retired `rk-layout-ratios:*` keys are ignored, not migrated) | viewport-dependent — a 40/60 split means different things at 1440px and 390px; tmux itself re-flows pane sizes per client width |
 
-Every existing verb (Promote, Swap, Cycle shape, Close, rail toggles) becomes
-a **write to `@rk_win_layout`** through `POST /api/windows/{id}/options`,
+Every existing verb (Add, Promote, Swap, Cycle template, Close, rail toggles)
+becomes a **write to `@rk_win_layout`** through `POST /api/windows/{id}/options`,
 exactly like color and note today. The frontend holds no layout state of its
 own; it renders the option and repaints on the SSE/`/ws/state` option tick.
 The row-color safety-poll latency lesson applies: the POST handler must wake
 the hub so a viewer's own click repaints immediately.
 
-**Default.** Unset `@rk_win_layout` renders `single:tty`. The bare URL is the
-deep link to the tab; there is nothing else to encode.
+**Default.** Unset `@rk_win_layout` renders the bare `tty` leaf. The bare URL
+is the deep link to the tab; there is nothing else to encode.
 
 **Mobile degradation rule.** A coarse-pointer/narrow viewer renders **one
 tile**: the viewer's local zoom if set, else slot A of the shared layout.
@@ -311,11 +314,11 @@ step live on unchanged in `internal/present`; the verb becomes sugar:
 
 ```
 rk present <target>               ≡  rk tab web add <target> --show
-rk present --window[=name] <t>    ≡  rk tab new [--name] && rk tab web add <t> --layout single:web
+rk present --window[=name] <t>    ≡  rk tab new [--name] && rk tab web add <t> --layout web
 ```
 
 `--show` = ensure `web` is in `@rk_win_layout` (grow through the ordinary
-growth shapes) and set `_active` to the new index. The L3 "transient
+add verb) and set `_active` to the new index. The L3 "transient
 auto-open carve-out" dies — auto-open is now just the layout write every
 viewer renders.
 
@@ -393,7 +396,7 @@ rk tab new [--session =S] [--cwd DIR] [--name N] [--layout L]      → prints @N
            # --json prints {session, session_rung, window_id, pane_id[, ready]} instead;
            # CMD after -- is argv (rk-quoted, one literal word per token) with
            # the `; exec "${SHELL:-/bin/sh}"` fallback unless --no-shell-fallback
-rk tab layout [@N] <shape>:<surface,…> [--json]                   # set
+rk tab layout [@N] <tree|legacy-shape:surface,…> [--json]            # set (prints the tree form)
 rk tab layout [@N] --add <surface> | --rm <surface> | --promote <surface> | --cycle [--json]
 rk tab web add    [@N] <target> [--show] [--json]                  → prints @N/web/<n>
 rk tab web rm     [@N/web/<n>] [--json]
@@ -455,9 +458,9 @@ through it later.
 
 | Stays |
 |---|
-| `rk-layout-ratios:*` (viewport-dependent) + the new per-viewer zoom key |
+| per-viewer layout sizes (`rk-layout-sizes:*`, keyed by structure signature; the retired `rk-layout-ratios:*` keys are ignored) + the per-viewer zoom key |
 | every viewer preference key (theme, fonts, sidebar, keybindings, macros, drafts, web zoom) |
-| the preset shape set, the verb table, the rail-as-toggle semantics |
+| the template set, the verb table, the rail-as-toggle semantics |
 | window-views R1 (availability derived), R3 (tty always reachable), R4 (one switcher), R6 (dot = current lens health) |
 
 ---
@@ -468,7 +471,7 @@ Rides the scope-naming plan's `MigrateLegacyOptions` table (managed-conf
 apply path, once per server per daemon lifetime, idempotent):
 
 - `@rk_win_url` → `@rk_win_web_1`; `@rk_win_present_root` → `@rk_win_web_1_root`; set `_active=1` when `_web_1` exists.
-- `@rk_win_lens=iframe` → `@rk_win_layout=single:web` (only when `_layout` unset), then unset `_lens`.
+- `@rk_win_lens=iframe` → `@rk_win_layout=web` (only when `_layout` unset), then unset `_lens`.
 - localStorage → tmux is **client-side, one-shot, on route entry**: if the tab has no `@rk_win_layout` and this browser holds `rk-layout:{server}:{@N}`, POST it once, then delete the key. Same for the code-folder latch. Last browser to arrive wins on a never-visited tab — acceptable; it is the viewer's own last layout either way.
 - Snapshot restore: the new rows enter the explicit option list; window ids remap as today.
 

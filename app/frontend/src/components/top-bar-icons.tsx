@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { LayoutShape } from "@/lib/surface-layout";
+import { layoutRects, type LayoutNode } from "@/lib/surface-layout";
 
 /**
  * Shared top-bar control glyphs (260801-3q1z) — one definition per mirrored
@@ -335,50 +335,34 @@ export function ExternalGlyph() {
 }
 
 /**
- * Per-shape preset glyphs (260812-ab5v R9) — the ▦ chip popover's rows and the
- * overflow menu's `Layout: …` rows, one miniaturized arrangement pictogram per
- * preset (spec § Shape presets ASCII, reduced to strokes): dividers split the
- * frame the way the shape splits the center — `split-h` one vertical divider,
- * `row` two, the `main-*` shapes an off-center A boundary plus the B/C divider
- * on A's far side. `single` is the bare frame.
+ * Mini tree glyph (the ▦ chip popover's rows and the overflow menu's
+ * `Layout: …` rows): the layout tree drawn as a tiny rect diagram — one
+ * bordered rect per leaf, positioned from `layoutRects` at the template's own
+ * default sizes (absent override ⇒ the tree's carried sizes, then equal
+ * shares), so the `main-*` templates keep their off-center main split. One
+ * renderer serves every template, plus the chip's single/custom current-state
+ * row (the live tree drawn as-is). `name` keys the kebab-case `data-icon`
+ * test seam (`layout-row`, `layout-main-left`, …).
  */
-export function LayoutShapeGlyph({ shape }: { shape: LayoutShape }) {
+const TREE_GLYPH_BOX = { x: 0, y: 0, w: 14, h: 14 };
+const TREE_GLYPH_GAP_PX = 1;
+
+export function LayoutTreeGlyph({ name, tree }: { name: string; tree: LayoutNode }) {
+  const rects = [...layoutRects(tree, TREE_GLYPH_BOX, undefined, TREE_GLYPH_GAP_PX).values()];
   return (
-    <ControlGlyph name={`layout-${shape}`} viewBox="0 0 14 14" strokeWidth={1.5}>
-      <rect x="1" y="2.5" width="12" height="9" rx="1" />
-      {shape === "split-h" && <line x1="7" y1="2.5" x2="7" y2="11.5" />}
-      {shape === "split-v" && <line x1="1" y1="7" x2="13" y2="7" />}
-      {shape === "row" && (
-        <>
-          <line x1="5" y1="2.5" x2="5" y2="11.5" />
-          <line x1="9" y1="2.5" x2="9" y2="11.5" />
-        </>
-      )}
-      {shape === "col" && (
-        <>
-          <line x1="1" y1="5.5" x2="13" y2="5.5" />
-          <line x1="1" y1="8.5" x2="13" y2="8.5" />
-        </>
-      )}
-      {shape === "main-left" && (
-        <>
-          <line x1="8.5" y1="2.5" x2="8.5" y2="11.5" />
-          <line x1="8.5" y1="7" x2="13" y2="7" />
-        </>
-      )}
-      {shape === "main-right" && (
-        <>
-          <line x1="5.5" y1="2.5" x2="5.5" y2="11.5" />
-          <line x1="1" y1="7" x2="5.5" y2="7" />
-        </>
-      )}
-      {shape === "main-top" && (
-        <>
-          <line x1="1" y1="5.5" x2="13" y2="5.5" />
-          <line x1="7" y1="5.5" x2="7" y2="11.5" />
-        </>
-      )}
-    </ControlGlyph>
+    <span
+      data-icon={`layout-${name}`}
+      aria-hidden="true"
+      className="relative inline-block w-[14px] h-[14px] shrink-0"
+    >
+      {rects.map((r) => (
+        <span
+          key={`${r.x}:${r.y}`}
+          className="absolute rounded-[1px] border border-current"
+          style={{ left: r.x, top: r.y, width: r.w, height: r.h }}
+        />
+      ))}
+    </span>
   );
 }
 

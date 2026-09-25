@@ -2,8 +2,8 @@
 
 > The terminal route's center becomes a **layout manager**: one to three tiles,
 > each rendering a **surface** (a (substrate, lens) pair per
-> [`right-panel.md`](right-panel.md)), arranged by a **preset shape** with a
-> **surface order** and per-viewer **ratios**. This spec is **[current]** —
+> [`right-panel.md`](right-panel.md)), arranged as a **canonical split tree**
+> with per-viewer **sizes**. This spec is **[current]** —
 > shipped by `260812-ab5v-surface-layout-core` and follow-ons (toggles
 > relocated to the top bar: `260815-19me`; mobile switch group: `260816-ox16`;
 > option-driven shared layout state `@rk_win_layout`: `260828-iip5` — see
@@ -47,41 +47,55 @@
 
 ## The Model
 
-A **layout** is fully determined by three values:
+A **layout** is fully determined by two values:
 
 | Value | What | Ownership |
 |-------|------|-----------|
-| **shape** | one of the preset arrangements below | per-viewer choice |
-| **order** | the surfaces occupying the shape's slots, first = slot A | per-viewer choice |
-| **ratios** | divider positions | per-viewer, localStorage only (like panel width today) |
+| **tree** | the canonical split tree of surface leaves (below) | shared tab state (`@rk_win_layout`) |
+| **sizes** | divider positions (per-split fractions) | per-viewer, localStorage only (like panel width today) |
 
 Tiles render surfaces of the **route window** (or its companions, once the
 `agents` surface lands). The tty is itself a surface — `(current window,
 tty)`, always available — so "the terminal" holds no privileged slot; it is
 simply the default single-tile layout.
 
-### Shape presets (not trees)
+### The canonical tree (templates as generators)
 
-Layouts use an enumerated preset set — deliberately **not** a free split tree.
-Presets are cyclable, URL-encodable, and cover real 2–4-tile needs; free trees
-are where dock UIs get fiddly and layouts become unrecoverable. (tmux has
-both; everyone lives in the presets.)
+A layout is a **canonical split tree**: a leaf is a surface kind, a split is a
+direction (`h` = children left→right, `v` = top→bottom) with ≥2 children, and
+a child split never has its parent's direction — so every arrangement has
+exactly one encoding. The serialized grammar (in `@rk_win_layout`) is
+`node = leaf | dir "(" node "," node {"," node} ")"` with no whitespace, e.g.
+`h(tty,v(code,web))`. The tree is still constrained, never free: 1–3 leaves
+in this phase (the cap holds until the 150×100px size floor lands), non-`tty`
+kinds never repeat, and anything non-canonical fails the parse (the renderer
+falls back to the bare `tty` leaf without rewriting the option).
+
+The named arrangements survive as **templates** — generators that build a
+tree for any N from a slot order (main fraction 0.58), not as the model. The
+legacy `<shape>:<a>,<b>[,<c>]` preset strings parse into their trees
+permanently and losslessly (`split-h:a,b` → `h(a,b)`, `main-left:a,b,c` →
+`h(a,v(b,c))`, `main-right:a,b,c` → `h(v(b,c),a)`, `main-top:a,b,c` →
+`v(a,h(b,c))`, `row` → flat `h`, `col` → flat `v`, `single:X` → `X`);
+`main-bottom` (`v(h(b,c),a)`) exists only as a template. Every writer emits
+the tree form.
 
 ```
  1 tile   2 tiles                3 tiles
-┌──────┐ ┌───┬───┐ ┌───────┐   row        col        main-left   main-right  main-top
-│  A   │ │ A │ B │ │   A   │ ┌──┬──┬──┐ ┌────────┐ ┌─────┬───┐ ┌───┬─────┐ ┌─────────┐
-│      │ │   │   │ ├───────┤ │ A│ B│ C│ │   A    │ │     │ B │ │ B │     │ │    A    │
-└──────┘ └───┴───┘ │   B   │ │  │  │  │ ├────────┤ │  A  ├───┤ ├───┤  A  │ ├────┬────┤
-          split-h  └───────┘ │  │  │  │ │   B    │ │     ├───┤ ├───┤     │ │ B  │ C  │
-                    split-v  └──┴──┴──┘ ├────────┤ │     │ C │ │ C │     │ │    │    │
+┌──────┐ ┌───┬───┐ ┌───────┐   row        col        main-left   main-right  main-top   main-bottom
+│  A   │ │ A │ B │ │   A   │ ┌──┬──┬──┐ ┌────────┐ ┌─────┬───┐ ┌───┬─────┐ ┌─────────┐ ┌────┬────┐
+│      │ │   │   │ ├───────┤ │ A│ B│ C│ │   A    │ │     │ B │ │ B │     │ │    A    │ │ B  │ C  │
+└──────┘ └───┴───┘ │   B   │ │  │  │  │ ├────────┤ │  A  ├───┤ ├───┤  A  │ ├────┬────┤ ├────┴────┤
+          (row)    └───────┘ │  │  │  │ │   B    │ │     ├───┤ ├───┤     │ │ B  │ C  │ │    A    │
+                   (col)     └──┴──┴──┘ ├────────┤ │     │ C │ │ C │     │ │    │    │ └─────────┘
                                         │   C    │ └─────┴───┘ └───┴─────┘ └────┴────┘
                                         └────────┘
 ```
 
-Slot A is the **main** slot in `main-*` shapes. Four tiles and beyond are out
-of scope (Constitution IV — a fourth surface is the signal the user wanted a
-board).
+Slot A is the **main** slot in `main-*` templates. Four tiles and beyond are
+out of scope for now (Constitution IV — a fourth surface is the signal the
+user wanted a board); the tree model itself is N-generic so the cap can lift
+when the size floor lands.
 
 ### One tile per surface kind (v1)
 
@@ -102,24 +116,27 @@ crossing R7 — punted.
 
 ## State
 
-Shape and order are shared tab state in the `@rk_win_layout` window option —
+The tree is shared tab state in the `@rk_win_layout` window option —
 see [`ui-state.md`](ui-state.md) § Layout in tmux for the encoding, the
-degradation rule, and deep-link handling. Unset renders `single:tty`; the URL
-is always the bare route.
+degradation rule, and deep-link handling. Unset renders the bare `tty` leaf;
+the URL is always the bare route.
 
-Two values stay per-viewer localStorage, as reading postures: divider ratios
-(`rk-layout-ratios:*`) and tile zoom (`rk-layout-zoom:*`). There is no present
-auto-open carve-out: showing a surface is an ordinary `@rk_win_layout` write
-every viewer renders. History entries are bare routes — layout changes never
-touch the URL, and back/forward shows whatever the tab's shared layout holds.
+Two values stay per-viewer localStorage, as reading postures: divider sizes
+(`rk-layout-sizes:{server}:{@N}:{structure-sig}` — one fraction array per
+split, keyed by structure so a swap keeps sizes with positions; the retired
+`rk-layout-ratios:*` keys are ignored, not migrated) and tile zoom
+(`rk-layout-zoom:*`). There is no present auto-open carve-out: showing a
+surface is an ordinary `@rk_win_layout` write every viewer renders. History
+entries are bare routes — layout changes never touch the URL, and
+back/forward shows whatever the tab's shared layout holds.
 
 ---
 
 ## Verbs
 
-Every arrangement of (shape × order) is reachable in ≤2 actions without
+Every arrangement is reachable in ≤2 actions without
 drag-drop. Verbs live as boxed, rest-visible buttons in each tile's surface
-header and as palette entries; the shape-cycle chord is bound directly
+header and as palette entries; the template-cycle chord is bound directly
 (Constitution V — buttons are the mouse mirror, not the mechanism). *Amended
 at phase-2 ship (`260812-ab5v`): per-verb chords (zoom / promote /
 directional swap / close) shipped palette-reachable rather than direct-bound
@@ -129,14 +146,15 @@ palette latency proves irritating. Amended at `260812-wfic`: the verb buttons
 shipped as fixed-size boxed buttons visible at rest (the hover-reveal cluster
 was retired).*
 
-| Verb | Effect on (shape, order) |
+| Verb | Effect on the tree |
 |------|--------------------------|
 | **⛶ Zoom** | Tile goes full-center, others hidden (not closed); toggle back. No state change — a transient, like tmux `resize-pane -Z` |
-| **◧ Promote** | Move this surface to slot A; order permutes, shape unchanged |
-| **⇄ Swap** | Swap with neighbor (directional chords: swap-left/right/up/down); order permutes |
-| **▦ Cycle shape** | Next preset, same order — one chip on the layout (top-bar right cluster), not per-tile; its popover shows the preset glyphs for direct jump |
-| **✕ Close** | Surface leaves; layout collapses to the smaller shape |
-| **Switch-to-tile** (mobile-primary) | Swaps WHICH surface the mobile single slot renders: a target already open in the layout writes only the viewer's zoom key (`rk-layout-zoom:*` — no tmux write); an available-but-not-open target grows the shared layout through the shared `--add` mutation (`addSurface` → `@rk_win_layout` write) plus the zoom key; when growth is impossible (arity 3 without the kind) the button is disabled. Lives in the top-bar switch group (§ Mobile) and the `Tile: Switch to <Surface>` palette entries that supersede `View:` at mobile width |
+| **Add** (open-tile toggle) | Split the **last leaf in reading order** along its longer axis (tie → horizontal), the new leaf landing after it — at landscape this reproduces the old 1→2 `split-h`, 2→3 `main-left` growth exactly. Refused at 3 leaves and on a repeated non-`tty` kind |
+| **◧ Promote** | Swap this leaf with slot A (the template's main tile, or the first leaf in reading order for a custom tree) |
+| **⇄ Swap** | Header button: swap with the next leaf in reading order (wrapping). Directional swap (palette `Tile: Swap Left/Right/Up/Down`): swap with the geometric neighbour across that edge — the nearest leaf whose rect overlaps on the perpendicular axis; a no-op without one |
+| **▦ Cycle template** | Next template for the current tile count (`row → col → main-left → …` at 3 tiles), rebuilt from the current slot order — one chip on the layout (top-bar right cluster), not per-tile; its popover shows the template mini-glyphs for direct jump (lossy for a custom tree) |
+| **✕ Close** | The leaf drops out (remove + normalise); its neighbours absorb its size and the remaining **structure is kept** — closing one tile of a column leaves a column. The last tile never closes |
+| **Switch-to-tile** (mobile-primary) | Swaps WHICH surface the mobile single slot renders: a target already open in the layout writes only the viewer's zoom key (`rk-layout-zoom:*` — no tmux write); an available-but-not-open target grows the shared layout through the shared `--add` mutation (`addSurface` → `@rk_win_layout` write) plus the zoom key; when growth is impossible (3 tiles without the kind) the button is disabled. Lives in the top-bar switch group (§ Mobile) and the `Tile: Switch to <Surface>` palette entries that supersede `View:` at mobile width |
 
 **Rail semantics change**: rail buttons become **open-tile toggles** — lit for
 every open tile; clicking an unlit icon adds that surface to the next slot,
@@ -144,8 +162,8 @@ clicking a lit one closes its tile. The rail stays the availability +
 attention surface (right-panel P4 unchanged — a collapsed/absent tile may hide
 content, never state that wants a human).
 
-Future drag-drop is **sugar over the same three mutations** (drop-on-tile =
-swap, drop-on-edge = shape change + slot insert, drag-divider = ratios) — 
+Future drag-drop is **sugar over the same generic tree edits** (drop-on-tile =
+swap, drop-on-edge = insert → normalise, drag-divider = sizes) —
 nothing in the verb model is throwaway.
 
 ---
@@ -214,8 +232,9 @@ fix, and e2e specs budget tiles against the pool.
 - **II / X** — nothing new is stored server-side; availability, content
   addresses, and rollups stay derived. Layout is client state (URL +
   localStorage); shared named layouts ride settings.yaml with boards (phase 4).
-- **IV** — no new routes; `?layout=` *replaces* two params; presets, not free
-  trees; ≤3 tiles.
+- **IV** — no new routes; `?layout=` *replaces* two params; a canonical tree
+  (constrained, templates as generators), not free trees; ≤3 tiles until the
+  size floor lands.
 - **V** — every verb is palette + chord reachable; drag is sugar.
 - **VI** — untouched; tiles are renderers over the same relay/proxy seams.
 

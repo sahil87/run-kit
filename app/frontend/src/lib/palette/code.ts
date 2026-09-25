@@ -28,7 +28,7 @@ export type CodePaletteAction = {
 
 export type CodePaletteOptions = {
   /** The resolved layout includes the code tile (the caller reads
-   *  `layout.order.includes("code")`). */
+   *  `leaves(layout).includes("code")`). */
   codeTileOpen: boolean;
   /** `codeRootFollowTarget(effectiveWindow)` — the drift target (derived
    *  `gitRoot`), or null when the roots agree or either is empty. */

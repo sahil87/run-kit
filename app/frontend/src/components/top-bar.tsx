@@ -56,8 +56,8 @@ import { GuiToolbarMobileOverflow } from "@/components/gui-toolbar";
 import { deriveCrumbsCollapsed } from "@/lib/crumb-collapse";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
-import type { Layout, SurfaceKind } from "@/lib/surface-layout";
-import { SURFACE_GLYPH, SURFACE_LABEL } from "@/lib/surface-layout";
+import type { Layout, SurfaceKind, TemplateName } from "@/lib/surface-layout";
+import { applyTemplate, SURFACE_GLYPH, SURFACE_LABEL } from "@/lib/surface-layout";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -227,8 +227,8 @@ type TopBarProps = {
   onToggleAutofit?: () => void;
   /** Surface-layout machinery (260812-ab5v R9), registered by AppShell on the
    *  terminal route via the slot context: the RESOLVED layout + the shared
-   *  user-mutation path (`applyLayout`). Feed the L1 ▦ Layout chip (preset
-   *  popover, current shape marked, direct jump). Absent → no chip, no menu
+   *  user-mutation path (`applyLayout`). Feed the L1 ▦ Layout chip (template
+   *  popover, current template marked, direct jump). Absent → no chip, no menu
    *  rows. */
   layout?: Layout;
   onApplyLayout?: (next: Layout) => void;
@@ -611,6 +611,16 @@ export function TopBar({
   layout,
   onApplyLayout,
 }: TopBarProps) {
+  // The ▦ chip emits a template NAME; the jump rebuilds the template's tree
+  // from the current slot order and rides the one mutation path (R16/R3).
+  const applyLayoutTemplate = useCallback(
+    (name: TemplateName) => {
+      if (!layout || !onApplyLayout) return;
+      const next = applyTemplate(layout, name);
+      if (next) onApplyLayout(next);
+    },
+    [layout, onApplyLayout],
+  );
   // `showChip` tells us whether the UpdateChip WOULD render in the bar (a
   // qualifying, undismissed, non-dev update). When it does but the chip's
   // registry entry is overflowed into the menu, the version row becomes the
@@ -919,12 +929,12 @@ export function TopBar({
         ) : null,
     },
     // ▦ Layout chip (260812-ab5v R9) — terminal-only, L1 tier: click opens a
-    // popover of the preset-shape glyphs valid for the CURRENT tile count
-    // (current marked, direct jump via `setShape` → `onApplyLayout`); the
-    // same-arity cycle chord is the registry's `layout-cycle` binding with
-    // palette parity (`Layout: Cycle Shape`). Overflowed, its rows are one
-    // `Layout: …` radio row per arity-valid shape (LayoutMenuRows). Hidden
-    // until AppShell registers the layout slot (or off the window route).
+    // popover of the template glyphs for the CURRENT tile count (current
+    // marked, direct jump via `applyTemplate` → `onApplyLayout`); the template
+    // cycle chord is the registry's `layout-cycle` binding with palette parity
+    // (`Layout: Cycle Template`). Overflowed, its rows are one `Layout: …`
+    // radio row per template (LayoutMenuRows). Hidden until AppShell registers
+    // the layout slot (or off the window route).
     {
       id: "layout",
       modes: ["terminal"],
@@ -932,11 +942,11 @@ export function TopBar({
       hidden: !(mode === "terminal" && currentWindow && layout && onApplyLayout),
       barRender: () =>
         layout && onApplyLayout ? (
-          <LayoutChip layout={layout} onApply={onApplyLayout} />
+          <LayoutChip layout={layout} onApply={applyLayoutTemplate} />
         ) : null,
       menuRender: () =>
         layout && onApplyLayout ? (
-          <LayoutMenuRows layout={layout} onApply={onApplyLayout} />
+          <LayoutMenuRows layout={layout} onApply={applyLayoutTemplate} />
         ) : null,
     },
     // Fixed-width toggle — MENU-ONLY as of 260731-oiho: a sticky per-device

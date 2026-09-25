@@ -117,13 +117,15 @@ const RoleOption = "@rk_win_role"
 // dropped. Empty/absent = no note (degrade-to-absent everywhere).
 const NoteOption = "@rk_win_note"
 
-// LayoutOption carries the tab's surface layout: "<shape>:<surface>[,<surface>…]",
-// e.g. "main-left:tty,code,web". Unset renders single:tty.
+// LayoutOption carries the tab's surface layout: a canonical split tree,
+// e.g. "h(tty,v(code,web))" (legacy "<shape>:<surface>[,<surface>…]" preset
+// strings still parse). Unset renders the bare tty leaf.
 const LayoutOption = "@rk_win_layout"
 
 // layoutspecSingleWeb is the @rk_win_layout value a retired @rk_win_lens=iframe
-// reads as (and the value MigrateLegacyOptions writes for it).
-const layoutspecSingleWeb = "single:web"
+// reads as (and the value MigrateLegacyOptions writes for it) — the tree form
+// of the lone-web-tile layout.
+const layoutspecSingleWeb = "web"
 
 // MaxWebTabs bounds the indexed @rk_win_web_<n> family: ListWindows reads
 // options through one fixed tmux format string, which cannot enumerate a
@@ -891,9 +893,10 @@ type WindowInfo struct {
 	// line; a manual refresh visibly resets it.
 	PrFetchedAt *time.Time `json:"prFetchedAt,omitempty"`
 	// Layout is the tab's surface layout, sourced from the LayoutOption window
-	// user option ("<shape>:<surface>[,<surface>…]"). "" (unset) renders
-	// single:tty. Read-side is tolerant: the raw value rides through unvalidated
-	// (validation is write-side; consumers parse).
+	// user option (a split tree, e.g. "h(tty,v(code,web))"; legacy preset
+	// strings still parse). "" (unset) renders the bare tty leaf. Read-side is
+	// tolerant: the raw value rides through unvalidated (validation is
+	// write-side; consumers parse).
 	Layout string `json:"layout,omitempty"`
 	// WebTabs is the dense @rk_win_web_<n> family: slots 1..MaxWebTabs walked in
 	// order, stopping at the first empty (a hand-written gap degrades to the
@@ -1541,7 +1544,7 @@ func clampWebActive(raw string, tabs int) int {
 // @rk_win_web_1 .. @rk_win_web_8, @rk_win_web_active, @rk_win_code_root,
 // @rk_win_marker, @rk_win_role, @rk_win_flair, @rk_win_owner, then
 // @rk_win_note as a STRICT SINGLE FIELD, then the retired @rk_win_url
-// (dual-read web_1 fallback), the retired @rk_win_lens (dual-read single:web
+// (dual-read web_1 fallback), the retired @rk_win_lens (dual-read web-leaf
 // layout fallback), then the legacy note LAST. Lines with fewer than 8 fields
 // are skipped; fields 8+ are optional (empty string if absent). The web-tab
 // slots read dense (walk 1..8, stop at the first empty) and web_active
@@ -1658,7 +1661,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			}
 		}
 		// Retired @rk_win_lens (idx 25): "iframe" was the web default-view hint;
-		// with @rk_win_layout unset it reads as the single:web layout the
+		// with @rk_win_layout unset it reads as the web-leaf layout the
 		// migration row would write — the same live-stamp dual-read as web_1.
 		if layout == "" && len(parts) >= 26 {
 			if legacyLens := strings.TrimSpace(parts[25]); legacyLens == "iframe" {
@@ -1773,7 +1776,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		// The new note is a strict single field (write-side validation strips
 		// control chars). legacyWinURLOption is the retired @rk_win_url, dual-read
 		// as a web_1 fallback and legacyWinLensOption the retired @rk_win_lens,
-		// dual-read as a single:web layout fallback (both are stamped live by
+		// dual-read as a web-leaf layout fallback (both are stamped live by
 		// external writers mid-session — the once-per-server sweep cannot see
 		// them). The legacy note is free text in a tab-delimited format — it MUST
 		// stay the last field so parseWindows can rejoin the tail (tabs inside the

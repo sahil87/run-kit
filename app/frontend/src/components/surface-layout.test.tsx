@@ -4,7 +4,13 @@ import { render, screen, cleanup, fireEvent, act, within, waitFor } from "@testi
 import { SurfaceLayout } from "./surface-layout";
 import type { CodeTileCommands } from "./surface-layout";
 import { ToastProvider } from "@/components/toast";
-import { ratiosStorageKey, type Layout, type SurfaceKind } from "@/lib/surface-layout";
+import {
+  parseLayoutTree,
+  sizesStorageKey,
+  type Layout,
+  type Rect,
+  type SurfaceKind,
+} from "@/lib/surface-layout";
 import type { WindowInfo } from "@/types";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { makeWindow } from "@/test-utils/fixtures";
@@ -119,6 +125,14 @@ const FULL_WINDOW = {
   gitRoot: "/repo",
 };
 
+/** Build a layout tree from its string form (tree grammar or legacy preset) —
+ *  throws on a malformed fixture start, so a typo fails loud. */
+function layoutOf(raw: string): Layout {
+  const tree = parseLayoutTree(raw);
+  if (!tree) throw new Error(`fixture layout ${JSON.stringify(raw)} does not parse`);
+  return tree;
+}
+
 type LayoutOverrides = {
   layout?: Layout;
   server?: string;
@@ -126,12 +140,15 @@ type LayoutOverrides = {
   window?: object | null;
   isMobile?: boolean;
   mobileActiveSlot?: number;
-  onPromote?: (surface: SurfaceKind) => void;
-  onSwap?: (surface: SurfaceKind) => void;
-  onClose?: (surface: SurfaceKind) => void;
+  onPromote?: (leafId: string) => void;
+  onSwap?: (leafId: string) => void;
+  onClose?: (leafId: string) => void;
   onSplitPane?: (horizontal: boolean) => void;
   onClosePane?: () => void;
+  onRatioChange?: (index: number, pct: number) => void;
   onRatioCommit?: () => void;
+  layoutRectsRef?: { current: (() => Map<string, Rect>) | null };
+  onFocusedLeafChange?: (leafId: string) => void;
   onCodeFolderNavigated?: (folder: string) => void | Promise<void>;
   onCodeFollowTerminal?: (folder: string) => void | Promise<void>;
   codeCommandsRef?: { current: CodeTileCommands | null };
@@ -184,7 +201,7 @@ function layoutElement(overrides: LayoutOverrides = {}) {
     // render contract (the production shell always mounts it).
     <ToastProvider>
       <SurfaceLayout
-      layout={overrides.layout ?? { shape: "single", order: ["tty"] }}
+      layout={overrides.layout ?? layoutOf("tty")}
       server={overrides.server ?? "srv"}
       windowId={overrides.windowId ?? "@1"}
       sessionName="sess"
@@ -201,7 +218,9 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       onClose={overrides.onClose ?? vi.fn()}
       onSplitPane={overrides.onSplitPane ?? vi.fn()}
       onClosePane={overrides.onClosePane ?? vi.fn()}
+      onRatioChange={overrides.onRatioChange}
       onRatioCommit={overrides.onRatioCommit}
+      layoutRectsRef={overrides.layoutRectsRef}
       onCodeFolderNavigated={overrides.onCodeFolderNavigated}
       onCodeFollowTerminal={overrides.onCodeFollowTerminal}
       codeCommandsRef={overrides.codeCommandsRef}
@@ -214,6 +233,7 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       zoomToggleRef={overrides.zoomToggleRef}
       onZoomChange={overrides.onZoomChange}
       onFocusedKindChange={overrides.onFocusedKindChange}
+      onFocusedLeafChange={overrides.onFocusedLeafChange}
       focusTileRef={overrides.focusTileRef}
       statusWindow={overrides.statusWindow}
       ttyDockContent={overrides.ttyDockContent}
@@ -238,6 +258,29 @@ function renderLayout(overrides: LayoutOverrides = {}) {
   return render(layoutElement(overrides));
 }
 
+/** Measure the layout container at w×h: the mount-time measure reads
+ *  getBoundingClientRect ONCE (the stub ResizeObserver never fires), so the
+ *  spy must be installed BEFORE render; every other element keeps jsdom's
+ *  zero rect. Pair with `vi.restoreAllMocks()` in the describe's afterEach —
+ *  the prototype-level spy must not leak into other suites. */
+function measureGrid(w: number, h: number) {
+  const gridRect = {
+    left: 0, top: 0, width: w, height: h, right: w, bottom: h, x: 0, y: 0,
+    toJSON: () => ({}),
+  } as DOMRect;
+  const zero = {
+    left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0,
+    toJSON: () => ({}),
+  } as DOMRect;
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: Element,
+  ) {
+    return this instanceof HTMLElement && this.dataset.testid === "surface-layout"
+      ? gridRect
+      : zero;
+  });
+}
+
 beforeEach(() => {
   localStorage.clear();
   terminalSpy.mockClear();
@@ -258,13 +301,13 @@ afterEach(() => {
   localStorage.clear();
 });
 
-describe("SurfaceLayout shape rendering", () => {
-  it("single renders one tile, no dividers, and NO verb buttons", () => {
+describe("SurfaceLayout tree rendering", () => {
+  it("a bare leaf renders one tile, no dividers, and NO verb buttons", () => {
     renderLayout();
     expect(screen.getByTestId("surface-layout")).toBeTruthy();
     expect(screen.getByTestId("surface-tile-tty")).toBeTruthy();
     expect(screen.queryByTestId("surface-divider-0")).toBeNull();
-    // single renders no ⛶/◧/⇄/✕ (zoom is arity>1-only; closing the last
+    // A bare leaf renders no ⛶/◧/⇄/✕ (zoom is arity>1-only; closing the last
     // tile is disallowed).
     expect(screen.queryByRole("button", { name: "Expand Terminal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Promote Terminal" })).toBeNull();
@@ -272,8 +315,8 @@ describe("SurfaceLayout shape rendering", () => {
     expect(screen.queryByRole("button", { name: "Close Terminal" })).toBeNull();
   });
 
-  it("split-h renders two tiles and one divider", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+  it("an h split renders two tiles and one divider", () => {
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     expect(screen.getByTestId("surface-tile-tty")).toBeTruthy();
     expect(screen.getByTestId("surface-tile-code")).toBeTruthy();
     expect(screen.getByTestId("surface-divider-0")).toBeTruthy();
@@ -282,8 +325,8 @@ describe("SurfaceLayout shape rendering", () => {
     expect(screen.getByTestId("mock-code")).toBeTruthy();
   });
 
-  it("split-v renders two tiles and one divider", () => {
-    renderLayout({ layout: { shape: "split-v", order: ["tty", "web"] } });
+  it("a v split renders two tiles and one divider", () => {
+    renderLayout({ layout: layoutOf("v(tty,web)") });
     expect(screen.getByTestId("surface-tile-tty")).toBeTruthy();
     expect(screen.getByTestId("surface-tile-web")).toBeTruthy();
     expect(screen.getByTestId("surface-divider-0")).toBeTruthy();
@@ -291,10 +334,17 @@ describe("SurfaceLayout shape rendering", () => {
     expect(screen.getByTestId("mock-iframe")).toBeTruthy();
   });
 
-  it("every 3-tile shape renders three tiles and two dividers", () => {
-    for (const shape of ["row", "col", "main-left", "main-right", "main-top"] as const) {
+  it("every 3-leaf template structure renders three tiles and two dividers", () => {
+    for (const raw of [
+      "h(tty,code,web)",
+      "v(tty,code,web)",
+      "h(tty,v(code,web))",
+      "h(v(code,web),tty)",
+      "v(tty,h(code,web))",
+      "v(h(code,web),tty)",
+    ]) {
       cleanup();
-      renderLayout({ layout: { shape, order: ["tty", "code", "web"] } });
+      renderLayout({ layout: layoutOf(raw) });
       expect(screen.getByTestId("surface-tile-tty")).toBeTruthy();
       expect(screen.getByTestId("surface-tile-code")).toBeTruthy();
       expect(screen.getByTestId("surface-tile-web")).toBeTruthy();
@@ -305,11 +355,33 @@ describe("SurfaceLayout shape rendering", () => {
   });
 
   it("renders tile meta: git-root basename for code, web-url host for web", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["code", "web"] } });
+    renderLayout({ layout: layoutOf("h(code,web)") });
     const codeTile = screen.getByTestId("surface-tile-code");
     expect(codeTile.textContent).toContain("repo");
     const webTile = screen.getByTestId("surface-tile-web");
     expect(webTile.textContent).toContain("localhost:8080");
+  });
+
+  it("lays tiles out as ONE flat list of absolutely positioned leaves placed from their rects", () => {
+    // jsdom never measures the container (zero rects, stub ResizeObserver), so
+    // the tiles render the NOMINAL_BOX proportions as percentage styles —
+    // h(tty,web) at equal shares over 1600×1000 with the 6px gutter: each
+    // leaf is (1600-6)/2 = 797 wide → 49.8125%; web starts at 803 → 50.1875%.
+    renderLayout({ layout: layoutOf("h(tty,web)") });
+    const grid = screen.getByTestId("surface-layout");
+    const tty = screen.getByTestId("surface-tile-tty");
+    const web = screen.getByTestId("surface-tile-web");
+    // Flat: every tile is a DIRECT child of the one container (no nested
+    // split wrappers), absolutely positioned.
+    for (const tile of [tty, web]) {
+      expect(tile.parentElement).toBe(grid);
+      expect(tile.className).toContain("absolute");
+    }
+    expect(parseFloat(tty.style.left)).toBeCloseTo(0, 5);
+    expect(parseFloat(tty.style.width)).toBeCloseTo(49.8125, 3);
+    expect(parseFloat(tty.style.height)).toBeCloseTo(100, 5);
+    expect(parseFloat(web.style.left)).toBeCloseTo(50.1875, 3);
+    expect(parseFloat(web.style.width)).toBeCloseTo(49.8125, 3);
   });
 
   // Web tile header (260819-v6y4 R10): kind badge (design-study hues) + the
@@ -319,7 +391,7 @@ describe("SurfaceLayout shape rendering", () => {
   describe("web tile header badge + title (260819-v6y4 R10)", () => {
     it("a presented file gets the green present badge and the basename display form", () => {
       renderLayout({
-        layout: { shape: "split-h", order: ["tty", "web"] },
+        layout: layoutOf("h(tty,web)"),
         window: { webTabs: ["/present/@320/tmux-version-floor.html?server=runKit&v=1"], webActive: 1 },
       });
       const webTile = screen.getByTestId("surface-tile-web");
@@ -332,7 +404,7 @@ describe("SurfaceLayout shape rendering", () => {
 
     it("a proxied port gets the amber :{port} proxy badge (relative URL — the old new URL throw)", () => {
       renderLayout({
-        layout: { shape: "split-h", order: ["tty", "web"] },
+        layout: layoutOf("h(tty,web)"),
         window: { webTabs: ["/proxy/3000/board/runKit"], webActive: 1 },
       });
       const webTile = screen.getByTestId("surface-tile-web");
@@ -344,7 +416,7 @@ describe("SurfaceLayout shape rendering", () => {
 
     it("an external URL gets the blue external badge", () => {
       renderLayout({
-        layout: { shape: "split-h", order: ["tty", "web"] },
+        layout: layoutOf("h(tty,web)"),
         window: { webTabs: ["https://shll.ai/rk/skill"], webActive: 1 },
       });
       const webTile = screen.getByTestId("surface-tile-web");
@@ -355,7 +427,7 @@ describe("SurfaceLayout shape rendering", () => {
     });
 
     it("the reported page title replaces the display form via the onPageMeta seam", () => {
-      renderLayout({ layout: { shape: "split-h", order: ["tty", "web"] } });
+      renderLayout({ layout: layoutOf("h(tty,web)") });
       const props = iframeSpy.mock.lastCall?.[0] as {
         onPageMeta?: (meta: { title: string | null }) => void;
       };
@@ -376,7 +448,7 @@ describe("SurfaceLayout tile verbs", () => {
     const onSwap = vi.fn();
     const onClose = vi.fn();
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       onPromote,
       onSwap,
       onClose,
@@ -390,7 +462,7 @@ describe("SurfaceLayout tile verbs", () => {
   });
 
   it("verb buttons are boxed and visible at rest at full opacity", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     const close = screen.getByRole("button", { name: "Close Code" });
     // Full-opacity 24×24 boxed buttons (26×26 coarse) — no rest-state alpha
     // dim (the retired 65% dim failed WCAG SC 1.4.11 over bg-card), and the
@@ -411,7 +483,7 @@ describe("SurfaceLayout tile verbs", () => {
 
 describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
   it("tty at arity 1 renders the bordered pane segment and zero layout verbs", () => {
-    renderLayout({ layout: { shape: "single", order: ["tty"] } });
+    renderLayout({ layout: layoutOf("tty") });
     const ttyTile = screen.getByTestId("surface-tile-tty");
     const segment = within(ttyTile).getByTestId("pane-segment");
     expect(segment.className).toContain("border");
@@ -427,16 +499,16 @@ describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
   });
 
   it("renders only on tty tiles — code/web headers carry no segment", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["code", "web"] } });
+    renderLayout({ layout: layoutOf("h(code,web)") });
     expect(screen.queryByTestId("pane-segment")).toBeNull();
     cleanup();
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     expect(screen.getAllByTestId("pane-segment")).toHaveLength(1);
     expect(within(screen.getByTestId("surface-tile-code")).queryByTestId("pane-segment")).toBeNull();
   });
 
   it("stays visible while the tty tile is zoomed (◧/⇄ hide; ✕/⛶ stay)", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     fireEvent.click(screen.getByRole("button", { name: "Expand Terminal" }));
     const ttyTile = screen.getByTestId("surface-tile-tty");
     expect(within(ttyTile).getByTestId("pane-segment")).toBeTruthy();
@@ -447,7 +519,7 @@ describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
   });
 
   it("both duplicate tty tiles carry the segment", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "tty"] } });
+    renderLayout({ layout: layoutOf("h(tty,tty)") });
     expect(screen.getAllByTestId("pane-segment")).toHaveLength(2);
     expect(within(screen.getByTestId("surface-tile-tty")).getByTestId("pane-segment")).toBeTruthy();
     expect(within(screen.getByTestId("surface-tile-tty-2")).getByTestId("pane-segment")).toBeTruthy();
@@ -466,7 +538,7 @@ describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
   });
 
   it("Close Pane renders the boxed ⊠ glyph (not the bare ✕) with a red hover; splits use the standard verb hover", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     const close = screen.getByRole("button", { name: "Close pane" });
     expect(close.querySelector('[data-icon="close-pane-boxed"]')).toBeTruthy();
     expect(close.querySelector('[data-icon="close-pane"]')).toBeNull();
@@ -483,25 +555,25 @@ describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
 
 describe("SurfaceLayout zoom", () => {
   it("a shared reorder moves the zoom with its surface KIND, never the slot index", () => {
-    const { rerender } = renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    const { rerender } = renderLayout({ layout: layoutOf("h(tty,code)") });
     fireEvent.click(screen.getByRole("button", { name: "Expand Code" }));
     expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(true);
     expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBe("code");
     // Another viewer promotes code: slot 0 is now code, slot 1 is tty. The
     // zoom must follow code (still zoomed, tty still hidden) rather than stay
     // on slot 1 and zoom the terminal.
-    rerender(layoutElement({ layout: { shape: "split-h", order: ["code", "tty"] } }));
+    rerender(layoutElement({ layout: layoutOf("h(code,tty)") }));
     expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(true);
     expect(screen.getByTestId("surface-tile-code").classList.contains("hidden")).toBe(false);
     expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBe("code");
     // The zoomed kind leaving the layout clears the zoom and the key.
-    rerender(layoutElement({ layout: { shape: "split-h", order: ["tty", "web"] } }));
+    rerender(layoutElement({ layout: layoutOf("h(tty,web)") }));
     expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(false);
     expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBeNull();
   });
 
   it("zoom hides the other tiles at display level WITHOUT unmounting", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     fireEvent.click(screen.getByRole("button", { name: "Expand Code" }));
     const ttyTile = screen.getByTestId("surface-tile-tty");
     expect(ttyTile.classList.contains("hidden")).toBe(true);
@@ -516,7 +588,7 @@ describe("SurfaceLayout zoom", () => {
   });
 
   it("zoomed tile shows the latch well on its zoom verb and hides its promote/swap verbs", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     fireEvent.click(screen.getByRole("button", { name: "Expand Code" }));
     const unzoom = screen.getByRole("button", { name: "Restore Code" });
     expect(unzoom.querySelector('[data-icon="zoom"]')).toBeTruthy();
@@ -539,7 +611,7 @@ describe("SurfaceLayout zoom", () => {
 });
 
 describe("SurfaceLayout per-window reset (server-keyed grid, windowId prop change)", () => {
-  const SPLIT: Layout = { shape: "split-h", order: ["tty", "web"] };
+  const SPLIT: Layout = layoutOf("h(tty,web)");
 
   it("resets the zoom from the NEW window's stored key — and never writes the old window's key", () => {
     // @1 zoomed on web; @2 has no stored zoom.
@@ -573,7 +645,7 @@ describe("SurfaceLayout per-window reset (server-keyed grid, windowId prop chang
 
     localStorage.setItem("rk-layout-zoom:srv:@2", "code");
     rerender(
-      layoutElement({ layout: { shape: "split-h", order: ["tty", "code"] }, windowId: "@2" }),
+      layoutElement({ layout: layoutOf("h(tty,code)"), windowId: "@2" }),
     );
     expect(localStorage.getItem("rk-layout-zoom:srv:@2")).toBe("code");
     expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(true);
@@ -610,14 +682,14 @@ describe("SurfaceLayout per-window reset (server-keyed grid, windowId prop chang
     const { rerender } = renderLayout({ layout: SPLIT });
     // Close the web tile on @1: the parent collapses the layout, but
     // hide-never-unmount keeps the iframe mounted-hidden.
-    rerender(layoutElement({ layout: { shape: "single", order: ["tty"] } }));
+    rerender(layoutElement({ layout: layoutOf("tty") }));
     expect(screen.getByTestId("mock-iframe")).toBeTruthy();
     expect(screen.getByTestId("surface-tile-web").classList.contains("hidden")).toBe(true);
 
     // A window switch re-seeds everOpened from @2's layout: the stale web
     // tile unmounts.
     rerender(
-      layoutElement({ layout: { shape: "single", order: ["tty"] }, windowId: "@2" }),
+      layoutElement({ layout: layoutOf("tty"), windowId: "@2" }),
     );
     expect(screen.queryByTestId("mock-iframe")).toBeNull();
   });
@@ -672,7 +744,7 @@ describe("SurfaceLayout per-window reset (server-keyed grid, windowId prop chang
   });
 
   it("keeps the tty tile's and the code frame's DOM nodes across the switch; the web tile's node remounts", () => {
-    const LAYOUT: Layout = { shape: "row", order: ["tty", "code", "web"] };
+    const LAYOUT: Layout = layoutOf("h(tty,code,web)");
     const codeSrcFor = (id: string) => `/code/?workspace=/ws${id}`;
     const { rerender } = renderLayout({ layout: LAYOUT, codeSrcFor });
     const ttyNode = screen.getByTestId("mock-terminal");
@@ -721,7 +793,7 @@ describe("SurfaceLayout code tile folder (260813-if5d)", () => {
     // The parent hands down the LATCHED folder as `gitRoot`; the tile can no
     // longer see the live derivation, so a pane switch cannot reach these.
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       window: { gitRoot: "/home/user/latched" },
     });
     expect(screen.getByTestId("mock-code")).toBeTruthy();
@@ -732,7 +804,7 @@ describe("SurfaceLayout code tile folder (260813-if5d)", () => {
   it("renders no code body (and no meta) when the window carries no folder", () => {
     // Never latched AND nothing derivable — exactly the pre-latch behavior.
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       window: { gitRoot: "" },
     });
     expect(screen.queryByTestId("mock-code")).toBeNull();
@@ -741,7 +813,7 @@ describe("SurfaceLayout code tile folder (260813-if5d)", () => {
   it("passes onCodeFolderNavigated straight through to the code tile", () => {
     const onCodeFolderNavigated = vi.fn();
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       onCodeFolderNavigated,
     });
     const reported = codeSpy.mock.calls.at(-1)?.[0]?.onFolderNavigated;
@@ -755,7 +827,7 @@ describe("SurfaceLayout code tile folder (260813-if5d)", () => {
     // layout layer only carries the props — a null lookup ⇒ the tile pends.
     const followSrc = { src: "/code/?workspace=%2Fstate%2F%407-bbbbbb.code-workspace", nonce: 2, root: "/other" };
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       codeSrcFor: () => "/code/?workspace=%2Fstate%2F%407-3fa1c9.code-workspace",
       codeFollowSrc: followSrc,
     });
@@ -765,7 +837,7 @@ describe("SurfaceLayout code tile folder (260813-if5d)", () => {
   });
 
   it("hands the code tile a null workspace src when the parent passes none (pending)", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     const props = codeSpy.mock.calls.at(-1)?.[0];
     expect(props?.workspaceSrc).toBeNull();
     expect(props?.followSrc).toBeNull();
@@ -773,7 +845,7 @@ describe("SurfaceLayout code tile folder (260813-if5d)", () => {
 });
 
 describe("SurfaceLayout code-tile header verbs (Follow terminal / Reload editor)", () => {
-  const CODE_LAYOUT: Layout = { shape: "split-h", order: ["tty", "code"] };
+  const CODE_LAYOUT: Layout = layoutOf("h(tty,code)");
   const codeSrcForAll = (id: string) => `/code/?workspace=/ws${id}`;
   const codeTile = () => screen.getByTestId("surface-tile-code");
   const followVerb = () => within(codeTile()).queryByRole("button", { name: "Follow terminal" });
@@ -923,7 +995,7 @@ describe("SurfaceLayout code-tile header verbs (Follow terminal / Reload editor)
     expect(mountedCodeProps().at(-1)?.reloadNonce).toBe(1);
 
     rerender(layoutElement({
-      layout: { shape: "single", order: ["tty"] },
+      layout: layoutOf("tty"),
       window: { gitRoot: "/other", codeRoot: "/repo" },
       codeSrcFor: codeSrcForAll,
       onCodeFollowTerminal,
@@ -934,7 +1006,7 @@ describe("SurfaceLayout code-tile header verbs (Follow terminal / Reload editor)
 });
 
 describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
-  const CODE_LAYOUT: Layout = { shape: "split-h", order: ["tty", "code"] };
+  const CODE_LAYOUT: Layout = layoutOf("h(tty,code)");
   // Every window resolves immediately, to a src that embeds its id.
   const srcFor = (id: string) => `/code/?workspace=/ws${id}`;
   const codeSrcForAll = (id: string) => srcFor(id);
@@ -979,7 +1051,7 @@ describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
     const node1 = visibleCodeNode();
     // @2 never creates a frame (no code tile in its layout): @1's survives.
     rerender(layoutElement({
-      layout: { shape: "single", order: ["tty"] },
+      layout: layoutOf("tty"),
       isMobile: true,
       windowId: "@2",
       codeSrcFor: codeSrcForAll,
@@ -1250,11 +1322,11 @@ describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
     // Close @1's tile, switch away and back: the per-window reset reseeds
     // everOpened from @1's layout (no `code`), but the record must still
     // render as a hidden tile — the close-tile rule keeps it retained.
-    rerender(layoutElement({ layout: { shape: "single", order: ["tty"] }, codeSrcFor: codeSrcForAll }));
+    rerender(layoutElement({ layout: layoutOf("tty"), codeSrcFor: codeSrcForAll }));
     expect(node1.isConnected).toBe(true);
     rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@2", codeSrcFor: codeSrcForAll }));
     expect(codeNodes()).toHaveLength(2);
-    rerender(layoutElement({ layout: { shape: "single", order: ["tty"] }, codeSrcFor: codeSrcForAll }));
+    rerender(layoutElement({ layout: layoutOf("tty"), codeSrcFor: codeSrcForAll }));
     expect(node1.isConnected).toBe(true);
     expect(codeNodes()).toHaveLength(2);
   });
@@ -1263,7 +1335,7 @@ describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
     const { rerender } = renderLayout({ layout: CODE_LAYOUT, codeSrcFor: codeSrcForAll });
     const node1 = visibleCodeNode();
     // Close @1's tile, then fill the desktop cap from other windows.
-    rerender(layoutElement({ layout: { shape: "single", order: ["tty"] }, codeSrcFor: codeSrcForAll }));
+    rerender(layoutElement({ layout: layoutOf("tty"), codeSrcFor: codeSrcForAll }));
     expect(node1.isConnected).toBe(true);
     rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@2", codeSrcFor: codeSrcForAll }));
     rerender(layoutElement({ layout: CODE_LAYOUT, windowId: "@3", codeSrcFor: codeSrcForAll }));
@@ -1278,7 +1350,7 @@ describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
     // creation src, through the active window's hidden-tile slot.
     codeSpy.mockClear();
     rerender(layoutElement({
-      layout: { shape: "single", order: ["tty"] },
+      layout: layoutOf("tty"),
       isMobile: true,
       mobileActiveSlot: 0,
       codeSrcFor: codeSrcForAll,
@@ -1293,7 +1365,7 @@ describe("SurfaceLayout code-frame retention (cross-window LRU)", () => {
     const node1 = visibleCodeNode();
     // Close the tile (the parent collapses the layout): the frame stays
     // mounted-hidden, the identical node.
-    rerender(layoutElement({ layout: { shape: "single", order: ["tty"] }, codeSrcFor: codeSrcForAll }));
+    rerender(layoutElement({ layout: layoutOf("tty"), codeSrcFor: codeSrcForAll }));
     expect(node1.isConnected).toBe(true);
     expect(codeNodes()).toHaveLength(1);
 
@@ -1370,7 +1442,7 @@ describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
   it("defaults to slot A: accent border + glyph there, and the callback reports its kind", () => {
     const onFocusedKindChange = vi.fn();
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       onFocusedKindChange,
     });
     expect(screen.getByTestId("surface-tile-tty").className).toContain("border-accent-green");
@@ -1384,7 +1456,7 @@ describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
   it("pointerdown in a tile moves the accent border and reports the kind", () => {
     const onFocusedKindChange = vi.fn();
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       onFocusedKindChange,
     });
     fireEvent.pointerDown(screen.getByTestId("surface-tile-code"));
@@ -1396,13 +1468,13 @@ describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
   });
 
   it("focusin on a tile (e.g. the code iframe gaining focus) moves the focus", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     fireEvent.focusIn(screen.getByTestId("surface-tile-code"));
     expect(screen.getByTestId("surface-tile-code").className).toContain("border-accent-green");
   });
 
   it("the code tile's onInteract seam (editor keydown/pointerdown) moves the focus", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     const onInteract = codeSpy.mock.calls.at(-1)?.[0]?.onInteract;
     expect(typeof onInteract).toBe("function");
     act(() => onInteract());
@@ -1412,7 +1484,7 @@ describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
   it("the web tile's onInteract seam (in-iframe click/keydown) moves the focus", () => {
     const onFocusedKindChange = vi.fn();
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
       onFocusedKindChange,
     });
     const onInteract = iframeSpy.mock.calls.at(-1)?.[0]?.onInteract;
@@ -1424,12 +1496,12 @@ describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
 
   it("closing the focused tile falls back to slot A (no stale highlight)", () => {
     const { rerender } = renderLayout({
-      layout: { shape: "main-left", order: ["tty", "code", "web"] },
+      layout: layoutOf("h(tty,v(code,web))"),
     });
     fireEvent.pointerDown(screen.getByTestId("surface-tile-web"));
     expect(screen.getByTestId("surface-tile-web").className).toContain("border-accent-green");
     // The parent applies the close: web leaves, the layout collapses 3→2.
-    rerender(layoutElement({ layout: { shape: "split-h", order: ["tty", "code"] } }));
+    rerender(layoutElement({ layout: layoutOf("h(tty,code)") }));
     expect(screen.getByTestId("surface-tile-tty").className).toContain("border-accent-green");
     expect(screen.getByTestId("surface-tile-code").className).not.toContain(
       "border-accent-green",
@@ -1438,7 +1510,7 @@ describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
 
   it("arity 1 suppresses the highlight but still reports the kind (single:tty reads tty-focused)", () => {
     const onFocusedKindChange = vi.fn();
-    renderLayout({ layout: { shape: "single", order: ["tty"] }, onFocusedKindChange });
+    renderLayout({ layout: layoutOf("tty"), onFocusedKindChange });
     expect(screen.getByTestId("surface-tile-tty").className).not.toContain(
       "border-accent-green",
     );
@@ -1449,7 +1521,7 @@ describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
     const focusTileRef: { current: ((kind: SurfaceKind) => void) | null } = { current: null };
     const onFocusedKindChange = vi.fn();
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       focusTileRef,
       onFocusedKindChange,
     });
@@ -1465,7 +1537,7 @@ describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
 
 describe("SurfaceLayout header chrome (260812-wfic R3)", () => {
   it("renders the kind glyph, a 35px header on the tile surface, and the meta as a card chip", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["code", "web"] } });
+    renderLayout({ layout: layoutOf("h(code,web)") });
     const codeTile = screen.getByTestId("surface-tile-code");
     const header = codeTile.firstElementChild!;
     expect(header.className).toContain("h-[35px]");
@@ -1488,7 +1560,7 @@ describe("SurfaceLayout header chrome (260812-wfic R3)", () => {
 describe("SurfaceLayout tty header status dot (260812-wfic R6)", () => {
   it("renders the StatusDot in tty headers only, and only when statusWindow is set", () => {
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       statusWindow: STATUS_WINDOW,
     });
     expect(
@@ -1501,7 +1573,7 @@ describe("SurfaceLayout tty header status dot (260812-wfic R6)", () => {
 
   it("a null statusWindow renders no dot", () => {
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       statusWindow: null,
     });
     expect(
@@ -1518,17 +1590,40 @@ describe("SurfaceLayout close/reopen identity (P3)", () => {
     // moves between them, discarding iframe/terminal state (caught by the
     // right-panel e2e element-identity assertion).
     const { rerender } = renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
     });
     const before = screen.getByTestId("mock-iframe");
     // Close the web tile (the parent re-renders with the collapsed layout).
-    rerender(layoutElement({ layout: { shape: "single", order: ["tty"] } }));
+    rerender(layoutElement({ layout: layoutOf("tty") }));
     expect(screen.getByTestId("surface-tile-web").classList.contains("hidden")).toBe(true);
     expect(screen.getByTestId("mock-iframe")).toBe(before);
     // Reopen — still the identical element.
-    rerender(layoutElement({ layout: { shape: "split-h", order: ["tty", "web"] } }));
+    rerender(layoutElement({ layout: layoutOf("h(tty,web)") }));
     expect(screen.getByTestId("surface-tile-web").classList.contains("hidden")).toBe(false);
     expect(screen.getByTestId("mock-iframe")).toBe(before);
+  });
+
+  it("a RESTRUCTURE (add/close) keeps a surviving tile's DOM node — no re-parent, no reload (A-020)", () => {
+    // The flat-render contract's whole point: a nested split DOM would
+    // re-parent the web iframe when the tree restructures around it, reloading
+    // its content. Keyed by leaf id in ONE flat list, the node survives.
+    const { rerender } = renderLayout({ layout: layoutOf("h(tty,web)") });
+    const webNode = screen.getByTestId("mock-iframe");
+    const ttyNode = screen.getByTestId("mock-terminal");
+
+    // Add code: h(tty,web) → h(tty,v(web,code)) — the web leaf moves from a
+    // root child to a nested child, but its tile must be the SAME DOM node.
+    rerender(layoutElement({ layout: layoutOf("h(tty,v(web,code))") }));
+    expect(screen.getByTestId("mock-code")).toBeTruthy();
+    expect(screen.getByTestId("mock-iframe")).toBe(webNode);
+    expect(screen.getByTestId("mock-terminal")).toBe(ttyNode);
+
+    // Close code again: the structure reverts; still the same nodes (the
+    // closed code tile stays mounted-hidden — hide-never-unmount).
+    rerender(layoutElement({ layout: layoutOf("h(tty,web)") }));
+    expect(screen.getByTestId("surface-tile-code").classList.contains("hidden")).toBe(true);
+    expect(screen.getByTestId("mock-iframe")).toBe(webNode);
+    expect(screen.getByTestId("mock-terminal")).toBe(ttyNode);
   });
 });
 
@@ -1537,7 +1632,7 @@ describe("SurfaceLayout degradation + availability guards", () => {
     // The ladder's degradation should have dropped `code` already; the
     // component is the second line of defense.
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       window: { webTabs: ["http://localhost:8080"], webActive: 1 }, // no gitRoot
     });
     expect(screen.getByTestId("surface-tile-code")).toBeTruthy();
@@ -1552,7 +1647,7 @@ describe("SurfaceLayout duplicate tty tiles", () => {
     render(
       <ToastProvider>
       <SurfaceLayout
-        layout={{ shape: "split-h", order: ["tty", "tty"] }}
+        layout={layoutOf("h(tty,tty)")}
         server="srv"
         windowId="@1"
         sessionName="sess"
@@ -1596,7 +1691,7 @@ describe("SurfaceLayout tty dock slot (260813-j3jb)", () => {
 
   it("renders ttyDockContent inside the tty tile, after the terminal body", () => {
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
       ttyDockContent: dock,
     });
     const tile = screen.getByTestId("surface-tile-tty");
@@ -1615,7 +1710,7 @@ describe("SurfaceLayout tty dock slot (260813-j3jb)", () => {
 
   it("duplicate tty tiles: only the FIRST hosts the dock", () => {
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "tty"] },
+      layout: layoutOf("h(tty,tty)"),
       ttyDockContent: dock,
     });
     expect(
@@ -1627,13 +1722,13 @@ describe("SurfaceLayout tty dock slot (260813-j3jb)", () => {
   });
 
   it("renders nothing extra when ttyDockContent is absent", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "web"] } });
+    renderLayout({ layout: layoutOf("h(tty,web)") });
     expect(screen.queryByTestId("tty-dock")).toBeNull();
   });
 
   it("mobile never renders the dock (tile chrome is off there)", () => {
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
       isMobile: true,
       ttyDockContent: dock,
     });
@@ -1646,7 +1741,7 @@ describe("SurfaceLayout hide-never-unmount (P3)", () => {
     const { rerender } = render(
       <ToastProvider>
       <SurfaceLayout
-        layout={{ shape: "split-h", order: ["tty", "web"] }}
+        layout={layoutOf("h(tty,web)")}
         server="srv"
         windowId="@1"
         sessionName="sess"
@@ -1668,7 +1763,7 @@ describe("SurfaceLayout hide-never-unmount (P3)", () => {
     rerender(
       <ToastProvider>
       <SurfaceLayout
-        layout={{ shape: "single", order: ["tty"] }}
+        layout={layoutOf("tty")}
         server="srv"
         windowId="@1"
         sessionName="sess"
@@ -1692,41 +1787,113 @@ describe("SurfaceLayout hide-never-unmount (P3)", () => {
   });
 });
 
-describe("SurfaceLayout dividers (R5)", () => {
-  it("persists ratios per (window, shape) on drag RELEASE only", () => {
+describe("SurfaceLayout dividers (R15: signature-keyed sizes, release-only writes)", () => {
+  it("persists sizes per (window, structure signature) on drag RELEASE only", () => {
     const onRatioCommit = vi.fn();
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       onRatioCommit,
     });
     const divider = screen.getByTestId("surface-divider-0");
+    const key = sizesStorageKey("srv", "@1", "h(0,1)");
     // jsdom's getBoundingClientRect is all zeros, so the move no-ops on the
-    // unmeasured container; the release still commits the (default) ratios.
+    // unmeasured container; the release still commits the resolved (equal)
+    // fractions — one fraction array per split, pre-order.
     fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500 });
     fireEvent.pointerMove(divider, { pointerId: 1, clientX: 300 });
-    expect(localStorage.getItem(ratiosStorageKey("srv", "@1", "split-h"))).toBeNull();
+    expect(localStorage.getItem(key)).toBeNull();
     expect(onRatioCommit).not.toHaveBeenCalled();
     fireEvent.pointerUp(divider, { pointerId: 1 });
     expect(onRatioCommit).toHaveBeenCalledTimes(1);
-    expect(
-      JSON.parse(localStorage.getItem(ratiosStorageKey("srv", "@1", "split-h")) ?? "null"),
-    ).toEqual([50]);
+    expect(JSON.parse(localStorage.getItem(key) ?? "null")).toEqual([[0.5, 0.5]]);
   });
 
-  it("restores a persisted ratio for the (window, shape)", () => {
-    localStorage.setItem(ratiosStorageKey("srv", "@1", "split-h"), JSON.stringify([70]));
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+  it("restores persisted sizes for the (window, signature) — the first sibling's % of the pair", () => {
+    localStorage.setItem(sizesStorageKey("srv", "@1", "h(0,1)"), JSON.stringify([[0.7, 0.3]]));
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     expect(
       screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow"),
     ).toBe("70");
   });
+
+  it("sizes key on STRUCTURE, not on which leaf sits where — a swap keeps them", () => {
+    // h(tty,code) and h(code,tty) share the signature h(0,1): the positions
+    // keep their sizes across a shared swap (R13).
+    localStorage.setItem(sizesStorageKey("srv", "@1", "h(0,1)"), JSON.stringify([[0.7, 0.3]]));
+    const { rerender } = renderLayout({ layout: layoutOf("h(tty,code)") });
+    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("70");
+    rerender(layoutElement({ layout: layoutOf("h(code,tty)") }));
+    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("70");
+  });
+});
+
+describe("SurfaceLayout divider drag (R15: only the two siblings' fractions move)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("a divider drag changes only its two siblings' fractions and persists under the sig key on release", () => {
+    measureGrid(1200, 1200);
+    const onRatioCommit = vi.fn();
+    renderLayout({ layout: layoutOf("h(tty,v(code,web))"), onRatioCommit });
+    const key = sizesStorageKey("srv", "@1", "h(0,v(1,2))");
+    // main-left template defaults: outer [0.58, 0.42], inner v [0.5, 0.5].
+    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("58");
+    expect(screen.getByTestId("surface-divider-1").getAttribute("aria-valuenow")).toBe("50");
+
+    const divider = screen.getByTestId("surface-divider-0");
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 695 });
+    // The pair spans 1194px (1200 − the 6px gutter): x=480 → 40.2% for tty.
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 480 });
+    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("40");
+    // The OTHER split's fractions are untouched (the pair's sum stays 1).
+    expect(screen.getByTestId("surface-divider-1").getAttribute("aria-valuenow")).toBe("50");
+    // Nothing persists mid-drag.
+    expect(localStorage.getItem(key)).toBeNull();
+    expect(onRatioCommit).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(divider, { pointerId: 1 });
+    expect(onRatioCommit).toHaveBeenCalledTimes(1);
+    const stored = JSON.parse(localStorage.getItem(key) ?? "null") as number[][];
+    expect(stored).toHaveLength(2);
+    expect(stored[0][0]).toBeCloseTo(480 / 1194, 4);
+    expect(stored[0][1]).toBeCloseTo(1 - 480 / 1194, 4);
+    expect(stored[1]).toEqual([0.5, 0.5]);
+
+    // The 280px floor clamps both sides on the divider's own axis:
+    // 280/1194 = 23.45%.
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 480 });
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 0 });
+    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("23");
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 1200 });
+    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("77");
+    fireEvent.pointerUp(divider, { pointerId: 1 });
+  });
+
+  it("the layoutRectsRef seam reports the live leaf rects (the add/directional-swap geometry)", () => {
+    measureGrid(1200, 1200);
+    const layoutRectsRef: { current: (() => Map<string, Rect>) | null } = { current: null };
+    renderLayout({ layout: layoutOf("h(tty,v(code,web))"), layoutRectsRef });
+    expect(layoutRectsRef.current).not.toBeNull();
+    const rects = layoutRectsRef.current!();
+    // h(tty,v(code,web)) at 1200×1200, outer [0.58, 0.42]: tty spans the
+    // left column full height; code/web stack in the right column.
+    expect(rects.get("tty")).toEqual({ x: 0, y: 0, w: 692.52, h: 1200 });
+    expect(rects.get("code")?.y).toBe(0);
+    expect(rects.get("web")?.y).toBeCloseTo(597 + 6, 5);
+    expect(rects.get("code")?.x).toBeCloseTo(698.52, 5);
+  });
 });
 
 describe("SurfaceLayout gap-seam tile chrome (260814-011r R1/R5; inset cede 260814-ldbs R8)", () => {
-  it("the desktop grid keeps the 6px gutter but cedes the ground inset + ground to the Shell stage", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+  it("the desktop grid is a flat relative container — the 6px gutter lives inside the leaf rects, and the ground inset + ground stay ceded to the Shell stage", () => {
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     const grid = screen.getByTestId("surface-layout");
-    expect(grid.className).toContain("gap-[6px]");
+    // Flat rect-positioned leaves: the container is `relative`, and the gap
+    // between sibling rects (SPLIT_GAP_PX) does the separating — no flex/grid
+    // gap utility.
+    expect(grid.className).toContain("relative");
+    expect(grid.className.split(" ")).not.toContain("gap-[6px]");
     // 260814-ldbs: the stage owns the 6px ground inset + the bg-bg-inset
     // ground now — the tile grid carries NEITHER (no double inset). Token
     // match: `gap-[6px]` would false-positive a naive `p-[6px]` substring.
@@ -1735,15 +1902,16 @@ describe("SurfaceLayout gap-seam tile chrome (260814-011r R1/R5; inset cede 2608
     expect(grid.className).not.toContain("gap-[3px]");
   });
 
-  it("the gutter applies at EVERY arity, including single (the stage supplies the inset)", () => {
-    renderLayout({ layout: { shape: "single", order: ["tty"] } });
+  it("the flat container applies at EVERY arity, including a bare leaf (the stage supplies the inset)", () => {
+    renderLayout({ layout: layoutOf("tty") });
     const grid = screen.getByTestId("surface-layout");
-    expect(grid.className).toContain("gap-[6px]");
+    expect(grid.className).toContain("relative");
     expect(grid.className.split(" ")).not.toContain("p-[6px]");
+    expect(grid.className.split(" ")).not.toContain("gap-[6px]");
   });
 
   it("desktop tiles are 6px-radius cards with the dimmed rest border; the focused tile keeps full accent-green", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     const ttyTile = screen.getByTestId("surface-tile-tty"); // focused (slot A default)
     const codeTile = screen.getByTestId("surface-tile-code");
     for (const tile of [ttyTile, codeTile]) {
@@ -1757,7 +1925,7 @@ describe("SurfaceLayout gap-seam tile chrome (260814-011r R1/R5; inset cede 2608
 
   it("the mobile branch stays chrome-free (R5): flex-1 only, no gutter/inset/radius/border", () => {
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       isMobile: true,
     });
     const grid = screen.getByTestId("surface-layout");
@@ -1772,7 +1940,7 @@ describe("SurfaceLayout gap-seam tile chrome (260814-011r R1/R5; inset cede 2608
 
 describe("SurfaceLayout divider sash + grips (260814-011r R2)", () => {
   it("each divider carries the axis-aware sash pill and 3 pointer-events-none grip dots on a 14px hit zone", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     const divider = screen.getByTestId("surface-divider-0");
     expect(divider.className).toContain("rk-divider");
     expect(divider.className).toContain("w-3.5"); // 14px hit zone (was w-1.5)
@@ -1789,7 +1957,7 @@ describe("SurfaceLayout divider sash + grips (260814-011r R2)", () => {
   });
 
   it("a y-axis divider orients the pill and dots horizontally", () => {
-    renderLayout({ layout: { shape: "split-v", order: ["tty", "web"] } });
+    renderLayout({ layout: layoutOf("v(tty,web)") });
     const divider = screen.getByTestId("surface-divider-0");
     expect(divider.className).toContain("h-3.5");
     expect(divider.className).toContain("cursor-row-resize");
@@ -1798,7 +1966,7 @@ describe("SurfaceLayout divider sash + grips (260814-011r R2)", () => {
   });
 
   it("dragging lights the sash immediately (rk-sash-lit, zero delay); release unlights", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     const divider = screen.getByTestId("surface-divider-0");
     fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500 });
     expect(divider.className).toContain("rk-sash-lit");
@@ -1807,120 +1975,9 @@ describe("SurfaceLayout divider sash + grips (260814-011r R2)", () => {
   });
 });
 
-describe("SurfaceLayout intersection zone (260814-011r R3)", () => {
-  /** jsdom's rects are all zeros — mock the grid's box so the two-axis drag
-   *  math has a measured container. 1200×1200 keeps the 280px floor at
-   *  23.33…%, clear of the default boundaries. */
-  function mockGridRect() {
-    const grid = screen.getByTestId("surface-layout");
-    vi.spyOn(grid, "getBoundingClientRect").mockReturnValue({
-      left: 0,
-      top: 0,
-      width: 1200,
-      height: 1200,
-      right: 1200,
-      bottom: 1200,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    } as DOMRect);
-  }
-
-  it("renders only in the main-* shapes (never single/split-*/row/col)", () => {
-    for (const shape of ["main-left", "main-right", "main-top"] as const) {
-      cleanup();
-      renderLayout({ layout: { shape, order: ["tty", "code", "web"] } });
-      expect(screen.getByTestId("surface-divider-intersection")).toBeTruthy();
-    }
-    const noJunction: [Layout["shape"], SurfaceKind[]][] = [
-      ["single", ["tty"]],
-      ["split-h", ["tty", "code"]],
-      ["split-v", ["tty", "code"]],
-      ["row", ["tty", "code", "web"]],
-      ["col", ["tty", "code", "web"]],
-    ];
-    for (const [shape, order] of noJunction) {
-      cleanup();
-      renderLayout({ layout: { shape, order } });
-      expect(screen.queryByTestId("surface-divider-intersection")).toBeNull();
-    }
-  });
-
-  it("never renders while zoomed or on mobile", () => {
-    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
-    fireEvent.click(screen.getByRole("button", { name: "Expand Terminal" }));
-    expect(screen.queryByTestId("surface-divider-intersection")).toBeNull();
-    cleanup();
-    renderLayout({
-      layout: { shape: "main-left", order: ["tty", "code", "web"] },
-      isMobile: true,
-    });
-    expect(screen.queryByTestId("surface-divider-intersection")).toBeNull();
-  });
-
-  it("sits centered on the junction of the two dividers, z-ordered above them, with cursor: move", () => {
-    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
-    const zone = screen.getByTestId("surface-divider-intersection");
-    // main-left defaults [100/3, 200/3]: the junction is (r0%, r1%).
-    expect(zone.style.left).toBe(`${100 / 3}%`);
-    expect(zone.style.top).toBe(`${200 / 3}%`);
-    expect(zone.className).toContain("z-20"); // above the z-10 dividers
-    expect(zone.className).toContain("-translate-x-1/2");
-    expect(zone.className).toContain("-translate-y-1/2");
-    expect(zone.className).toContain("w-5"); // the ~20px hit zone
-    expect(zone.className).toContain("h-5");
-    expect(zone.className).toContain("cursor-move");
-    expect(zone.style.touchAction).toBe("none");
-  });
-
-  it("hovering the zone lights BOTH sashes (150ms-delayed hot state); leaving unlights them", () => {
-    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
-    const zone = screen.getByTestId("surface-divider-intersection");
-    // React synthesizes pointerenter/leave from native pointerover/out.
-    fireEvent.pointerOver(zone);
-    expect(screen.getByTestId("surface-divider-0").className).toContain("rk-sash-hot");
-    expect(screen.getByTestId("surface-divider-1").className).toContain("rk-sash-hot");
-    expect(screen.getByTestId("surface-divider-0").className).not.toContain("rk-sash-lit");
-    fireEvent.pointerOut(zone, { relatedTarget: document.body });
-    expect(screen.getByTestId("surface-divider-0").className).not.toContain("rk-sash-hot");
-    expect(screen.getByTestId("surface-divider-1").className).not.toContain("rk-sash-hot");
-  });
-
-  it("a diagonal drag moves BOTH ratios and persists both on RELEASE only (main-left: x→r0, y→r1)", () => {
-    const onRatioCommit = vi.fn();
-    renderLayout({
-      layout: { shape: "main-left", order: ["tty", "code", "web"] },
-      onRatioCommit,
-    });
-    mockGridRect();
-    const zone = screen.getByTestId("surface-divider-intersection");
-    const key = ratiosStorageKey("srv", "@1", "main-left");
-    fireEvent.pointerDown(zone, { pointerId: 1, clientX: 400, clientY: 800 });
-    // Both sashes light the moment the drag starts (zero delay).
-    expect(screen.getByTestId("surface-divider-0").className).toContain("rk-sash-lit");
-    expect(screen.getByTestId("surface-divider-1").className).toContain("rk-sash-lit");
-    // (480, 720) on a 1200² grid → r0 = 40, r1 = 60 (both inside their clamps).
-    fireEvent.pointerMove(zone, { pointerId: 1, clientX: 480, clientY: 720 });
-    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("40");
-    expect(screen.getByTestId("surface-divider-1").getAttribute("aria-valuenow")).toBe("60");
-    // Mid-drag: nothing persisted, no commit callback.
-    expect(localStorage.getItem(key)).toBeNull();
-    expect(onRatioCommit).not.toHaveBeenCalled();
-    fireEvent.pointerUp(zone, { pointerId: 1 });
-    expect(onRatioCommit).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(localStorage.getItem(key) ?? "null")).toEqual([40, 60]);
-  });
-
-  it("clamps each axis independently at the 280px floor", () => {
-    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
-    mockGridRect();
-    const zone = screen.getByTestId("surface-divider-intersection");
-    fireEvent.pointerDown(zone, { pointerId: 1, clientX: 400, clientY: 800 });
-    // Drag to the extremes: x → the 23.33% floor, y → the 76.67% ceiling.
-    fireEvent.pointerMove(zone, { pointerId: 1, clientX: 0, clientY: 1200 });
-    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("23");
-    expect(screen.getByTestId("surface-divider-1").getAttribute("aria-valuenow")).toBe("77");
-    fireEvent.pointerUp(zone, { pointerId: 1 });
+describe("SurfaceLayout intersection zone (260814-011r R3, generalised to every divider junction)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   /** The 20px zone: jsdom needs it measured for the release-point hit test. */
@@ -1938,9 +1995,116 @@ describe("SurfaceLayout intersection zone (260814-011r R3)", () => {
     } as DOMRect);
   }
 
+  it("renders wherever a divider's end meets a perpendicular divider (the nested-split trees, never the flat ones)", () => {
+    // The four nested 3-leaf structures (the main-* templates) each have one
+    // junction; the flat trees (single leaf, 2-leaf splits, row, col) have
+    // none.
+    for (const raw of [
+      "h(tty,v(code,web))",
+      "h(v(code,web),tty)",
+      "v(tty,h(code,web))",
+      "v(h(code,web),tty)",
+    ]) {
+      cleanup();
+      renderLayout({ layout: layoutOf(raw) });
+      expect(screen.getByTestId("surface-divider-intersection")).toBeTruthy();
+    }
+    for (const raw of ["tty", "h(tty,code)", "v(tty,code)", "h(tty,code,web)", "v(tty,code,web)"]) {
+      cleanup();
+      renderLayout({ layout: layoutOf(raw) });
+      expect(screen.queryByTestId("surface-divider-intersection")).toBeNull();
+    }
+  });
+
+  it("never renders while zoomed or on mobile", () => {
+    renderLayout({ layout: layoutOf("h(tty,v(code,web))") });
+    fireEvent.click(screen.getByRole("button", { name: "Expand Terminal" }));
+    expect(screen.queryByTestId("surface-divider-intersection")).toBeNull();
+    cleanup();
+    renderLayout({
+      layout: layoutOf("h(tty,v(code,web))"),
+      isMobile: true,
+    });
+    expect(screen.queryByTestId("surface-divider-intersection")).toBeNull();
+  });
+
+  it("sits centered on the junction of the two dividers, z-ordered above them, with cursor: move", () => {
+    // Unmeasured (jsdom): the junction renders at its NOMINAL_BOX proportion.
+    // main-left template defaults [0.58, 0.42] × [0.5, 0.5] over 1600×1000
+    // with the 6px gutter: the vertical sash centers at 0.58×1594+3 = 927.52
+    // (57.97%), the horizontal one at 0.5×994+3 = 500 (50%).
+    renderLayout({ layout: layoutOf("h(tty,v(code,web))") });
+    const zone = screen.getByTestId("surface-divider-intersection");
+    expect(parseFloat(zone.style.left)).toBeCloseTo(57.97, 2);
+    expect(parseFloat(zone.style.top)).toBeCloseTo(50, 5);
+    expect(zone.className).toContain("z-20"); // above the z-10 dividers
+    expect(zone.className).toContain("-translate-x-1/2");
+    expect(zone.className).toContain("-translate-y-1/2");
+    expect(zone.className).toContain("w-5"); // the ~20px hit zone
+    expect(zone.className).toContain("h-5");
+    expect(zone.className).toContain("cursor-move");
+    expect(zone.style.touchAction).toBe("none");
+  });
+
+  it("hovering the zone lights BOTH sashes (150ms-delayed hot state); leaving unlights them", () => {
+    renderLayout({ layout: layoutOf("h(tty,v(code,web))") });
+    const zone = screen.getByTestId("surface-divider-intersection");
+    // React synthesizes pointerenter/leave from native pointerover/out.
+    fireEvent.pointerOver(zone);
+    expect(screen.getByTestId("surface-divider-0").className).toContain("rk-sash-hot");
+    expect(screen.getByTestId("surface-divider-1").className).toContain("rk-sash-hot");
+    expect(screen.getByTestId("surface-divider-0").className).not.toContain("rk-sash-lit");
+    fireEvent.pointerOut(zone, { relatedTarget: document.body });
+    expect(screen.getByTestId("surface-divider-0").className).not.toContain("rk-sash-hot");
+    expect(screen.getByTestId("surface-divider-1").className).not.toContain("rk-sash-hot");
+  });
+
+  it("a diagonal drag moves BOTH fraction pairs and persists both on RELEASE only (main-left: x → the h pair, y → the v pair)", () => {
+    measureGrid(1200, 1200);
+    const onRatioCommit = vi.fn();
+    renderLayout({
+      layout: layoutOf("h(tty,v(code,web))"),
+      onRatioCommit,
+    });
+    const zone = screen.getByTestId("surface-divider-intersection");
+    const key = sizesStorageKey("srv", "@1", "h(0,v(1,2))");
+    fireEvent.pointerDown(zone, { pointerId: 1, clientX: 400, clientY: 800 });
+    // Both sashes light the moment the drag starts (zero delay).
+    expect(screen.getByTestId("surface-divider-0").className).toContain("rk-sash-lit");
+    expect(screen.getByTestId("surface-divider-1").className).toContain("rk-sash-lit");
+    // (480, 720) over the 1194px pairs (1200 − the 6px gutter) → 40.2% / 60.3%
+    // (both inside their clamps).
+    fireEvent.pointerMove(zone, { pointerId: 1, clientX: 480, clientY: 720 });
+    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("40");
+    expect(screen.getByTestId("surface-divider-1").getAttribute("aria-valuenow")).toBe("60");
+    // Mid-drag: nothing persisted, no commit callback.
+    expect(localStorage.getItem(key)).toBeNull();
+    expect(onRatioCommit).not.toHaveBeenCalled();
+    fireEvent.pointerUp(zone, { pointerId: 1 });
+    expect(onRatioCommit).toHaveBeenCalledTimes(1);
+    const stored = JSON.parse(localStorage.getItem(key) ?? "null") as number[][];
+    expect(stored).toHaveLength(2);
+    expect(stored[0][0]).toBeCloseTo(480 / 1194, 4);
+    expect(stored[0][1]).toBeCloseTo(1 - 480 / 1194, 4);
+    expect(stored[1][0]).toBeCloseTo(720 / 1194, 4);
+    expect(stored[1][1]).toBeCloseTo(1 - 720 / 1194, 4);
+  });
+
+  it("clamps each axis independently at the 280px floor", () => {
+    measureGrid(1200, 1200);
+    renderLayout({ layout: layoutOf("h(tty,v(code,web))") });
+    const zone = screen.getByTestId("surface-divider-intersection");
+    fireEvent.pointerDown(zone, { pointerId: 1, clientX: 400, clientY: 800 });
+    // Drag to the extremes: x → the 280/1194 = 23.45% floor, y → the 76.55%
+    // ceiling.
+    fireEvent.pointerMove(zone, { pointerId: 1, clientX: 0, clientY: 1200 });
+    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("23");
+    expect(screen.getByTestId("surface-divider-1").getAttribute("aria-valuenow")).toBe("77");
+    fireEvent.pointerUp(zone, { pointerId: 1 });
+  });
+
   it("a drag released OFF the junction unlights both sashes (capture eats pointerleave)", () => {
-    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
-    mockGridRect();
+    renderLayout({ layout: layoutOf("h(tty,v(code,web))") });
     const zone = screen.getByTestId("surface-divider-intersection");
     mockZoneRect(zone, 390, 790);
     fireEvent.pointerOver(zone);
@@ -1956,8 +2120,7 @@ describe("SurfaceLayout intersection zone (260814-011r R3)", () => {
   });
 
   it("a drag released ON the junction keeps both sashes hot", () => {
-    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
-    mockGridRect();
+    renderLayout({ layout: layoutOf("h(tty,v(code,web))") });
     const zone = screen.getByTestId("surface-divider-intersection");
     mockZoneRect(zone, 390, 790);
     fireEvent.pointerOver(zone);
@@ -1970,40 +2133,40 @@ describe("SurfaceLayout intersection zone (260814-011r R3)", () => {
   });
 
   it("a mid-drag pointercancel releases cleanly without stranding drag state", () => {
-    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
-    mockGridRect();
+    renderLayout({ layout: layoutOf("h(tty,v(code,web))") });
     const zone = screen.getByTestId("surface-divider-intersection");
     fireEvent.pointerDown(zone, { pointerId: 1, clientX: 400, clientY: 800 });
     fireEvent.pointerCancel(zone, { pointerId: 1 });
-    // The cancel ran the end path: sashes unlit, and a stray move is a no-op.
+    // The cancel ran the end path: sashes unlit, and a stray move is a no-op
+    // (aria-valuenow keeps the 58% template default — nothing moved).
     expect(screen.getByTestId("surface-divider-0").className).not.toContain("rk-sash-lit");
     fireEvent.pointerMove(zone, { pointerId: 1, clientX: 480, clientY: 720 });
-    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("33");
+    expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("58");
   });
 
-  it("main-top maps y → ratio 0 and x → ratio 1", () => {
-    renderLayout({ layout: { shape: "main-top", order: ["tty", "code", "web"] } });
-    mockGridRect();
+  it("main-top maps the y axis to the outer v pair and the x axis to the inner h pair", () => {
+    measureGrid(1200, 1200);
+    renderLayout({ layout: layoutOf("v(tty,h(code,web))") });
     const zone = screen.getByTestId("surface-divider-intersection");
-    // main-top junction: (r1%, r0%).
-    expect(zone.style.left).toBe(`${200 / 3}%`);
-    expect(zone.style.top).toBe(`${100 / 3}%`);
     fireEvent.pointerDown(zone, { pointerId: 1, clientX: 800, clientY: 400 });
     fireEvent.pointerMove(zone, { pointerId: 1, clientX: 720, clientY: 480 });
-    // y → r0 = 40 (within [23.33, 43.33]); x → r1 = 60 (within [56.67, 76.67]).
+    // Over the 1194px pairs: y → 40.2% for the outer v pair's first sibling,
+    // x → 60.3% for the inner h pair's first.
     expect(screen.getByTestId("surface-divider-0").getAttribute("aria-valuenow")).toBe("40");
     expect(screen.getByTestId("surface-divider-1").getAttribute("aria-valuenow")).toBe("60");
     fireEvent.pointerUp(zone, { pointerId: 1 });
-    expect(
-      JSON.parse(localStorage.getItem(ratiosStorageKey("srv", "@1", "main-top")) ?? "null"),
-    ).toEqual([40, 60]);
+    const stored = JSON.parse(
+      localStorage.getItem(sizesStorageKey("srv", "@1", "v(0,h(1,2))")) ?? "null",
+    ) as number[][];
+    expect(stored[0][0]).toBeCloseTo(480 / 1194, 4);
+    expect(stored[1][0]).toBeCloseTo(720 / 1194, 4);
   });
 });
 
 describe("SurfaceLayout mobile (R13 seam)", () => {
   it("renders only slot A full-width — no dividers, no verb chrome", () => {
     renderLayout({
-      layout: { shape: "main-left", order: ["tty", "code", "web"] },
+      layout: layoutOf("h(tty,v(code,web))"),
       isMobile: true,
     });
     const ttyTile = screen.getByTestId("surface-tile-tty");
@@ -2018,7 +2181,7 @@ describe("SurfaceLayout mobile (R13 seam)", () => {
 
   it("mobileActiveSlot swaps the shown surface WITHOUT touching the layout (T014)", () => {
     renderLayout({
-      layout: { shape: "main-left", order: ["tty", "code", "web"] },
+      layout: layoutOf("h(tty,v(code,web))"),
       isMobile: true,
       mobileActiveSlot: 1,
     });
@@ -2030,7 +2193,7 @@ describe("SurfaceLayout mobile (R13 seam)", () => {
 
   it("an out-of-range mobileActiveSlot falls back to slot A", () => {
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       isMobile: true,
       mobileActiveSlot: 9,
     });
@@ -2044,7 +2207,7 @@ describe("SurfaceLayout zoom palette seam (T012/R11)", () => {
     const zoomToggleRef: { current: (() => void) | null } = { current: null };
     const onZoomChange = vi.fn();
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       zoomToggleRef,
       onZoomChange,
     });
@@ -2064,7 +2227,7 @@ describe("SurfaceLayout zoom palette seam (T012/R11)", () => {
   it("zooms slot A when no interaction moved the focus (the default focused slot)", () => {
     const zoomToggleRef: { current: (() => void) | null } = { current: null };
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "code"] },
+      layout: layoutOf("h(tty,code)"),
       zoomToggleRef,
     });
     act(() => zoomToggleRef.current!());
@@ -2179,7 +2342,7 @@ describe("SurfaceLayout tty progress (260819-1vxq)", () => {
   });
 
   it("renders progress on tty tiles only, and every tty tile shares the slot", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    renderLayout({ layout: layoutOf("h(tty,code)") });
     fireProgress(1, 30);
     const ttyTile = screen.getByTestId("surface-tile-tty");
     const codeTile = screen.getByTestId("surface-tile-code");
@@ -2198,7 +2361,7 @@ describe("SurfaceLayout tty progress (260819-1vxq)", () => {
 
 describe("SurfaceLayout export menu (260819-shqo)", () => {
   it("renders the ⇩ button on the tty header, opening the two-section menu", () => {
-    renderLayout({ layout: { shape: "single", order: ["tty"] }, statusWindow: STATUS_WINDOW });
+    renderLayout({ layout: layoutOf("tty"), statusWindow: STATUS_WINDOW });
 
     const button = screen.getByRole("button", { name: "Export terminal output" });
     fireEvent.click(button);
@@ -2216,7 +2379,7 @@ describe("SurfaceLayout export menu (260819-shqo)", () => {
   });
 
   it("closes on Escape and on outside click", () => {
-    renderLayout({ layout: { shape: "single", order: ["tty"] }, statusWindow: STATUS_WINDOW });
+    renderLayout({ layout: layoutOf("tty"), statusWindow: STATUS_WINDOW });
     fireEvent.click(screen.getByRole("button", { name: "Export terminal output" }));
     expect(screen.getByTestId("export-menu")).toBeTruthy();
 
@@ -2231,7 +2394,7 @@ describe("SurfaceLayout export menu (260819-shqo)", () => {
 
   it("disables the history row with the alt-screen hint when the window is altScreen (260820-4le0)", () => {
     renderLayout({
-      layout: { shape: "single", order: ["tty"] },
+      layout: layoutOf("tty"),
       statusWindow: { ...STATUS_WINDOW, altScreen: true },
     });
 
@@ -2257,7 +2420,7 @@ describe("SurfaceLayout export menu (260819-shqo)", () => {
   });
 
   it("does not render on non-tty tiles", () => {
-    renderLayout({ layout: { shape: "single", order: ["web"] } });
+    renderLayout({ layout: layoutOf("web") });
     expect(screen.queryByRole("button", { name: "Export terminal output" })).toBeNull();
   });
 });
@@ -2287,7 +2450,7 @@ describe("SurfaceLayout web-tab strip wiring", () => {
 
   it("passes the tab family through and onWriteUrl writes the active slot's option", async () => {
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
       window: { webTabs: TWO_TABS, webActive: 2 },
     });
     const props = lastIframeProps();
@@ -2303,7 +2466,7 @@ describe("SurfaceLayout web-tab strip wiring", () => {
 
   it("onWriteUrl falls back to slot 1 while the active pointer is unset", async () => {
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
       window: { webTabs: TWO_TABS },
     });
     await act(async () => {
@@ -2323,7 +2486,7 @@ describe("SurfaceLayout web-tab strip wiring", () => {
       }),
     );
     const { rerender } = renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
       window: { webTabs: TWO_TABS, webActive: 1 },
     });
 
@@ -2342,7 +2505,7 @@ describe("SurfaceLayout web-tab strip wiring", () => {
     });
     rerender(
       layoutElement({
-        layout: { shape: "split-h", order: ["tty", "web"] },
+        layout: layoutOf("h(tty,web)"),
         window: { webTabs: TWO_TABS, webActive: 2 },
       }),
     );
@@ -2354,7 +2517,7 @@ describe("SurfaceLayout web-tab strip wiring", () => {
     seedWindowEntry();
     apiSpy.removeWebTab.mockReturnValue(new Promise(() => {}));
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
       window: { webTabs: ["/a", "/b", "/c"], webActive: 3 },
     });
 
@@ -2380,7 +2543,7 @@ describe("SurfaceLayout web-tab strip wiring", () => {
         resolveSecond = resolve;
       }));
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
       window: { webTabs: ["/a", "/b", "/c"], webActive: 1 },
     });
 
@@ -2413,7 +2576,7 @@ describe("SurfaceLayout web-tab strip wiring", () => {
     seedWindowEntry();
     apiSpy.moveWebTab.mockRejectedValue(new Error("move failed"));
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
       window: { webTabs: ["/a", "/b", "/c"], webActive: 1 },
     });
 
@@ -2436,7 +2599,7 @@ describe("SurfaceLayout web-tab strip wiring", () => {
       }))
       .mockResolvedValue({ ok: true });
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
       window: { webTabs: ["/a", "/b", "/c"], webActive: 1 },
     });
 
@@ -2478,7 +2641,7 @@ describe("SurfaceLayout web-tab strip wiring", () => {
     seedWindowEntry();
     apiSpy.selectWebTab.mockRejectedValue(new Error("no such tab"));
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
       window: { webTabs: TWO_TABS, webActive: 1 },
     });
 
@@ -2494,7 +2657,7 @@ describe("SurfaceLayout web-tab strip wiring", () => {
     seedWindowEntry();
     apiSpy.removeWebTab.mockRejectedValue(new Error("web tabs busy"));
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
       window: { webTabs: ["/a", "/b", "/c"], webActive: 3 },
     });
 
@@ -2511,7 +2674,7 @@ describe("SurfaceLayout web-tab strip wiring", () => {
     seedWindowEntry();
     apiSpy.addWebTab.mockResolvedValue({ index: 3, existed: false, url: "/proxy/3003/" });
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "web"] },
+      layout: layoutOf("h(tty,web)"),
       window: { webTabs: TWO_TABS, webActive: 1 },
     });
 
@@ -2544,7 +2707,7 @@ describe("SurfaceLayout gui tile", () => {
 
   it("renders the lazy GuiSurface with glyph [] + label GUI and the seam props", async () => {
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "gui"] },
+      layout: layoutOf("h(tty,gui)"),
       gui: GUI_ON,
       guiZoom: 150,
       guiPointerMode: "trackpad",
@@ -2574,7 +2737,7 @@ describe("SurfaceLayout gui tile", () => {
   });
 
   it("renders nothing for the gui kind when the signal has not arrived", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "gui"] }, gui: null });
+    renderLayout({ layout: layoutOf("h(tty,gui)"), gui: null });
     expect(screen.getByTestId("surface-tile-gui")).toBeTruthy();
     expect(screen.queryByTestId("mock-gui")).toBeNull();
   });
@@ -2582,7 +2745,7 @@ describe("SurfaceLayout gui tile", () => {
   it("zooming the tty tile away keeps the gui tile mounted with visible=false", async () => {
     const zoomToggleRef: { current: (() => void) | null } = { current: null };
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "gui"] },
+      layout: layoutOf("h(tty,gui)"),
       gui: GUI_ON,
       zoomToggleRef,
     });
@@ -2598,7 +2761,7 @@ describe("SurfaceLayout gui tile", () => {
   it("onInteract focuses the slot and records gui in focus memory", async () => {
     const onFocusedKindChange = vi.fn();
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "gui"] },
+      layout: layoutOf("h(tty,gui)"),
       gui: GUI_ON,
       onFocusedKindChange,
     });
@@ -2612,7 +2775,7 @@ describe("SurfaceLayout gui tile", () => {
   it("the header spring carries the measured fold cluster and the ⤢ rail verb fires gui-fullscreen by id", async () => {
     const onFullscreen = vi.fn();
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "gui"] },
+      layout: layoutOf("h(tty,gui)"),
       gui: GUI_ON,
       guiActions: [
         { id: "gui-fullscreen", label: "GUI: Fullscreen", onSelect: onFullscreen },
@@ -2637,7 +2800,7 @@ describe("SurfaceLayout gui tile", () => {
 
   it("fullscreen latches ⤢ and suppresses the layout verbs; the exit report restores them", async () => {
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "gui"] },
+      layout: layoutOf("h(tty,gui)"),
       gui: GUI_ON,
       guiActions: [{ id: "gui-fullscreen", label: "GUI: Fullscreen", onSelect: vi.fn() }],
     });
@@ -2657,7 +2820,7 @@ describe("SurfaceLayout gui tile", () => {
   });
 
   it("the gui header carries a `wm · display` meta chip", async () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "gui"] }, gui: GUI_ON });
+    renderLayout({ layout: layoutOf("h(tty,gui)"), gui: GUI_ON });
     expect(await screen.findByTestId("mock-gui")).toBeTruthy();
     const tile = screen.getByTestId("surface-tile-gui");
     expect(within(tile).getByText("icewm-session · :10")).toBeTruthy();
@@ -2665,7 +2828,7 @@ describe("SurfaceLayout gui tile", () => {
 
   it("the meta chip degrades to the display alone in the bare-WM state, and vanishes with both empty", async () => {
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "gui"] },
+      layout: layoutOf("h(tty,gui)"),
       gui: { ...GUI_ON, wm: "" },
     });
     expect(await screen.findByTestId("mock-gui")).toBeTruthy();
@@ -2675,7 +2838,7 @@ describe("SurfaceLayout gui tile", () => {
     cleanup();
 
     renderLayout({
-      layout: { shape: "split-h", order: ["tty", "gui"] },
+      layout: layoutOf("h(tty,gui)"),
       gui: { ...GUI_ON, wm: "", display: "" },
     });
     expect(await screen.findByTestId("mock-gui")).toBeTruthy();
@@ -2688,7 +2851,7 @@ describe("SurfaceLayout gui tile", () => {
 
 describe("SurfaceLayout TileDragContext (the native web engine's live-resize signal)", () => {
   it("a divider drag flips the web tile's context flag false → true → false", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "web"] } });
+    renderLayout({ layout: layoutOf("h(tty,web)") });
     const tile = () => screen.getByTestId("mock-iframe");
     expect(tile().dataset.tileDragging).toBe("false");
     const divider = screen.getByTestId("surface-divider-0");
@@ -2699,7 +2862,7 @@ describe("SurfaceLayout TileDragContext (the native web engine's live-resize sig
   });
 
   it("the intersection drag flips the flag the same way", () => {
-    renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
+    renderLayout({ layout: layoutOf("h(tty,v(code,web))") });
     // jsdom's rects are all zeros — mock the grid's box so the two-axis drag
     // math has a measured container.
     vi.spyOn(screen.getByTestId("surface-layout"), "getBoundingClientRect").mockReturnValue({

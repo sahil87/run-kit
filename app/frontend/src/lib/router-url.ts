@@ -35,7 +35,7 @@ export function urlSegmentToWindowId(segment: string): string {
 // values are DROPPED here (treated as absent), never errored, so a
 // stale/garbage deep link degrades to the default layout rather than a route
 // error. `layout` passes through as a raw string — validation lives in
-// `lib/surface-layout.ts`'s `parseLayout` (this module is a deliberately
+// `lib/surface-layout.ts`'s `parseLayoutTree` (this module is a deliberately
 // dependency-free leaf, so the parse helpers can't be imported here).
 // `from` is live state: the quake terminal's mobile navigation stamps the
 // origin window id here so the operator window's route can attach it as the

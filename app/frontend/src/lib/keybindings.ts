@@ -360,15 +360,16 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // nothing. Keyless on mac (`macCode: ""`, the create-session idiom) — ⌘K
   // already bubbles there via the seam's mac cmd-tier rule.
   { actionId: "command-palette-alt", aliasOf: "command-palette", code: "KeyK", macCode: "", tier: "shifted", scope: "global", kind: "builtin", label: "Command palette (alternate)", ignoreInputs: true },
-  // ⌘; layout-shape cycle (260812-ab5v-surface-layout-core R9/R11): the ▦
-  // chip's chord — the NEXT same-arity preset, order kept (tmux `next-layout`
-  // muscle memory). It joins the legacy `⌘<punctuation>` family beside ⌘K
+  // ⌘; layout-template cycle (260812-ab5v-surface-layout-core R9/R11): the ▦
+  // chip's chord — the NEXT template at the current tile count, slot order kept
+  // (tmux `next-layout` muscle memory). It joins the legacy `⌘<punctuation>`
+  // family beside ⌘K
   // and ⌘[/⌘]: Semicolon is free in every claimed set and ⌘; is not
   // browser-reserved on either platform (⌘, is the browser's Preferences
   // claim; ⌘/ is the cheatsheet). Terminal scope like its siblings — the
-  // palette body (`Layout: Cycle Shape`) exists only on window routes, so
+  // palette body (`Layout: Cycle Template`) exists only on window routes, so
   // elsewhere the chord falls through untouched.
-  { actionId: "layout-cycle", code: "Semicolon", tier: "cmd", scope: "terminal", kind: "builtin", label: "Cycle layout shape", description: "next same-arity preset, order kept", mapLabel: "layout" },
+  { actionId: "layout-cycle", code: "Semicolon", tier: "cmd", scope: "terminal", kind: "builtin", label: "Cycle layout template", description: "next template at this tile count", mapLabel: "layout" },
   // ⌘F/Ctrl+F web-tile find-in-page (260819-ie2i) — the cmd tier yields the
   // browser's own find chord on every platform, reclaimed only while the web
   // tile owns focus (the `webOnly` gate: handler absent elsewhere, so the

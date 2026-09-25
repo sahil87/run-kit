@@ -291,10 +291,10 @@ func webAddShow(ctx context.Context, windowID, server string, target present.Tar
 	if !layout.Has("web") {
 		next, nerr := layoutspec.Add(layout, "web")
 		if errors.Is(nerr, layoutspec.ErrLayoutFull) {
-			// --show on a full layout yields the last slot (the least
-			// valuable tile; slot A stays dominant) rather than failing.
-			next = layoutspec.Layout{Shape: layout.Shape, Order: append([]string(nil), layout.Order...)}
-			next.Order[len(next.Order)-1] = "web"
+			// --show on a full layout replaces the LAST leaf in reading order
+			// with web in place (the least valuable tile; slot A stays
+			// dominant) rather than failing.
+			next = layoutspec.ReplaceLast(layout, "web")
 		} else if nerr != nil {
 			return 0, "", fmt.Errorf("show web on window %s: %w", windowID, nerr)
 		}

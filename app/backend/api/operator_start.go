@@ -84,11 +84,19 @@ type operatorStartBody struct {
 // window") — the pre-change shape.
 func parseOperatorStartBody(w http.ResponseWriter, r *http.Request) (operatorStartBody, bool) {
 	var body operatorStartBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&body); err != nil {
 		if errors.Is(err, io.EOF) {
 			return body, true
 		}
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return body, false
+	}
+	// One value is the whole contract: trailing garbage or a second
+	// concatenated value is malformed JSON (400), not a tolerated suffix.
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: unexpected data after the JSON value")
 		return body, false
 	}
 	if body.Window != "" {
@@ -172,7 +180,10 @@ func (s *Server) handleOperatorStart(w http.ResponseWriter, r *http.Request) {
 
 	argv := []string{selfPath, "operator", "-L", server, "--json"}
 	if body.Window != "" {
-		if dir, ok := operatorStartDir(r.Context(), sess, body.Window); ok {
+		// The derivation outlives the request like the exec below it
+		// (runOperatorStartExec detaches): a client disconnect must not
+		// silently degrade the main-root collapse to the verbatim pane cwd.
+		if dir, ok := operatorStartDir(context.WithoutCancel(r.Context()), sess, body.Window); ok {
 			argv = []string{selfPath, "operator", "-L", server, "--dir", dir, "--json"}
 		}
 	}

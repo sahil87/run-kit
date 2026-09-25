@@ -3797,7 +3797,9 @@ func GetOperatorRoot(ctx context.Context, server string) (string, error) {
 		}
 		return "", fmt.Errorf("read %s: %w", OperatorRootOption, err)
 	}
-	return strings.TrimSpace(out), nil
+	// Strip only tmux's line terminator — the value is a directory path, so
+	// leading/trailing whitespace in it is significant and kept verbatim.
+	return strings.TrimSuffix(out, "\n"), nil
 }
 
 // SetOperatorRoot writes this server's last operator launch directory to the

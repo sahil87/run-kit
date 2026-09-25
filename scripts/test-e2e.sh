@@ -399,8 +399,8 @@ else
   (cd "$REPO_ROOT/app/backend" && go build -o "$E2E_STATE_HOME/rk" ./cmd/rk)
   for (( i=0; i<E2E_WORKERS; i++ )); do
     _p="${RIG_PORT[$i]}"; _f="${RIG_FAMILY[$i]}"; _s="${RIG_STATE[$i]}"
-    spawn_group "cd $REPO_ROOT/app/backend && RK_PORT=$(( _p + 1 )) RK_HOST=0.0.0.0 LOG_LEVEL=debug RK_SERVER_ALLOWLIST=$_f E2E_TMUX_FAMILY=$_f RK_CODE_SERVER_PORT=${RIG_CODE_PORT[$i]} XDG_STATE_HOME=$_s XDG_DATA_HOME=$_s/data RK_CONFIG_DIR=$_s/config exec $E2E_STATE_HOME/rk"
-    spawn_group "cd $REPO_ROOT/app/frontend && RK_PORT=$_p RK_HOST=0.0.0.0 VITE_CACHE_DIR=$_s/vite exec pnpm dev --port $_p"
+    spawn_group "cd $REPO_ROOT/app/backend && RK_PORT=$(( _p + 1 )) RK_HOST=127.0.0.1 LOG_LEVEL=debug RK_SERVER_ALLOWLIST=$_f E2E_TMUX_FAMILY=$_f RK_CODE_SERVER_PORT=${RIG_CODE_PORT[$i]} XDG_STATE_HOME=$_s XDG_DATA_HOME=$_s/data RK_CONFIG_DIR=$_s/config exec $E2E_STATE_HOME/rk"
+    spawn_group "cd $REPO_ROOT/app/frontend && RK_PORT=$_p RK_HOST=127.0.0.1 VITE_CACHE_DIR=$_s/vite exec pnpm dev --port $_p"
   done
 fi
 

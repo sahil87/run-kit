@@ -124,6 +124,79 @@ func TestEnsureIsoSession_ConcurrentEnsuresShareOneSession(t *testing.T) {
 	}
 }
 
+// A loser observing the winner's placeholder-only session (between the
+// winner's new-session and link-window) must NOT return it as ready — it waits
+// for the target window to link, then shares the completed session.
+func TestEnsureIsoSession_WaitsForConcurrentLink(t *testing.T) {
+	server := withBoardTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	wid := createHomeWindow(t, server, "home", "agent")
+	iso, _ := IsoSessionName(wid)
+
+	// Simulate the winner mid-ensure: the session exists, placeholder only.
+	if _, err := tmuxExecServer(ctx, server, "new-session", "-d", "-s", iso, "-c", ServerBirthDir()); err != nil {
+		t.Fatalf("create placeholder-only iso: %v", err)
+	}
+	placeholder := windowsInSession(t, server, iso)
+	if len(placeholder) != 1 {
+		t.Fatalf("placeholder-only iso windows = %v, want exactly one", placeholder)
+	}
+
+	// The winner completes shortly after the loser's probe: link the window
+	// in, kill the placeholder.
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		if err := LinkWindowToSession(wid, iso, server); err != nil {
+			return
+		}
+		gctx, gcancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer gcancel()
+		_, _ = tmuxExecServer(gctx, server, "kill-window", "-t", placeholder[0])
+	}()
+
+	got, err := EnsureIsoSession(ctx, server, wid)
+	if err != nil {
+		t.Fatalf("EnsureIsoSession against an in-flight concurrent ensure: %v", err)
+	}
+	if got != iso {
+		t.Errorf("EnsureIsoSession = %q, want %q", got, iso)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		isoWindows := windowsInSession(t, server, iso)
+		if len(isoWindows) == 1 && isoWindows[0] == wid {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("iso session windows = %v, want [%s] (single window, no placeholder)", isoWindows, wid)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// A placeholder-only iso whose winner died mid-ensure (the window never links)
+// must fail closed within the caller's ctx — never be handed to the relay as
+// ready.
+func TestEnsureIsoSession_StrandedPlaceholderFailsClosed(t *testing.T) {
+	server := withBoardTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	wid := createHomeWindow(t, server, "home", "agent")
+	iso, _ := IsoSessionName(wid)
+	if _, err := tmuxExecServer(ctx, server, "new-session", "-d", "-s", iso, "-c", ServerBirthDir()); err != nil {
+		t.Fatalf("create placeholder-only iso: %v", err)
+	}
+
+	ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer ensureCancel()
+	if _, err := EnsureIsoSession(ensureCtx, server, wid); err == nil {
+		t.Error("EnsureIsoSession succeeded against a never-linked placeholder-only iso session — want a fail-closed error")
+	}
+}
+
 // The race-tolerance string match keys on tmux's "duplicate session" stderr —
 // pin that phrasing against the live tmux so a version that words it
 // differently fails loudly here instead of silently losing race tolerance.

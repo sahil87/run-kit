@@ -710,6 +710,9 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 	}
 	resolveCancel()
 	if !stillLive() {
+		if iso {
+			tc.rollbackIsoAttach(server, session)
+		}
 		failClosed(closeNormal, "closed")
 		return
 	}
@@ -722,6 +725,9 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 	// active), but scoping keeps the code path uniform.
 	if err := tc.s.tmux.SelectWindowInSession(session, op.WindowID, server); err != nil {
 		slog.Error("terminals: select-window failed", "err", err, "session", session, "windowID", op.WindowID)
+		if iso {
+			tc.rollbackIsoAttach(server, session)
+		}
 		failClosed(closeWindowNotFound, "Window not found")
 		return
 	}
@@ -833,14 +839,16 @@ func attachArgv(server, session string, iso bool) []string {
 	return args
 }
 
-// rollbackIsoAttach kills a just-ensured iso session after its PTY attach
-// failed — the attach argv never ran, so destroy-unattached was never set and
-// the session would otherwise leak. The kill is conditional on ZERO attached
-// clients: another isolated viewer may share the session, and it must never be
-// killed out from under a live stream. The kill is rooted in
-// context.Background() — the failing stream's deadlines must not no-op the
-// teardown (Pin's rollback pattern). A probe or kill failure only logs: the
-// next ensure for the window reuses the stranded session.
+// rollbackIsoAttach kills a just-ensured iso session when the attach path
+// fails before the attach argv runs — destroy-unattached was never chained, so
+// the session would otherwise leak. Every pre-attach exit after a successful
+// ensure (stream closed mid-attach, select-window failure, PTY start failure)
+// routes here. The kill is conditional on ZERO attached clients: another
+// isolated viewer may share the session, and it must never be killed out from
+// under a live stream. The kill is rooted in context.Background() — the
+// failing stream's deadlines must not no-op the teardown (Pin's rollback
+// pattern). A probe or kill failure only logs: the next ensure for the window
+// reuses the stranded session.
 func (tc *terminalsConn) rollbackIsoAttach(server, isoSession string) {
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), resolveTimeout)
 	clients, err := tc.s.tmux.SessionClientCount(probeCtx, server, isoSession)

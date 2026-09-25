@@ -1098,6 +1098,25 @@ func TestAttachStream_IsolateEnsureFailureMissingWindow(t *testing.T) {
 	}
 }
 
+// A pre-attach failure after a SUCCESSFUL ensure (select-window here) must
+// roll the ensured iso session back — the attach argv never ran, so
+// destroy-unattached was never chained and the client-less session would leak.
+func TestAttachStream_IsolateSelectFailureRollsBackIso(t *testing.T) {
+	iso, _ := tmux.IsoSessionName("@42")
+	ops := &mockTmuxOps{selectWindowInSessionErr: errors.New("window gone")}
+	tc := isoMockConn(ops)
+	defer close(tc.done)
+
+	driveAttachStream(t, tc, 1, "@42", true)
+
+	if f := awaitControlClosed(t, tc, 1); f.Code != closeWindowNotFound {
+		t.Errorf("closed code = %d, want %d (select-window failure maps to 4004)", f.Code, closeWindowNotFound)
+	}
+	if called, name := ops.KillSessionWasCalled(); !called || name != iso {
+		t.Errorf("rollback kill = (%v, %q), want (true, %q) — a pre-attach failure must not leak the ensured iso session", called, name, iso)
+	}
+}
+
 func TestAttachStream_IsolateEnsureFailureAttachClass(t *testing.T) {
 	ops := &mockTmuxOps{ensureIsoSessionErr: errors.New("create iso session: boom")}
 	tc := isoMockConn(ops)

@@ -83,6 +83,7 @@ type mockTmuxOps struct {
 	selectWindowInSessionCalled   bool
 	selectWindowInSessionSession  string
 	selectWindowInSessionWindowID string
+	selectWindowInSessionErr      error
 
 	listWindowsResult []tmux.WindowInfo
 	listWindowsErr    error
@@ -470,6 +471,9 @@ func (m *mockTmuxOps) SelectWindowInSession(session, windowID, server string) er
 	m.selectWindowInSessionCalled = true
 	m.selectWindowInSessionSession = session
 	m.selectWindowInSessionWindowID = windowID
+	if m.selectWindowInSessionErr != nil {
+		return m.selectWindowInSessionErr
+	}
 	return m.err
 }
 func (m *mockTmuxOps) KillActivePane(windowID, server string) error {

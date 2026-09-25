@@ -23,6 +23,7 @@ import (
 	"rk/internal/fabconfig"
 	"rk/internal/gui"
 	"rk/internal/mcp"
+	"rk/internal/portpolicy"
 	"rk/internal/settings"
 	"rk/internal/tmux"
 
@@ -191,7 +192,39 @@ func runDoctorChecks() doctorReport {
 		}
 	}
 
+	// Ports — the effective daemon port against the reserved blocks
+	// (portpolicy). Always OK-shaped (the code-server/ephemeral posture): a
+	// collision is advisory only — warn, never refuse, never a verdict flipper.
+	report.Checks = append(report.Checks, portsDoctorCheck(config.Load()))
+
 	return report
+}
+
+// portsDoctorCheck reports the effective daemon port and the reserved port
+// blocks (portpolicy). Always OK-shaped, never a verdict flipper: a collision
+// leads the note with a warning naming the block(s) and the RK_PORT remedy —
+// a working daemon may already sit inside a block, so the row stays advisory.
+// Collisions come from reservedCollisions, the same read serve and `rk ports`
+// use (dev builds exempt the rig block). Pure over the resolved config for
+// table testing.
+func portsDoctorCheck(cfg config.Config) doctorCheck {
+	check := doctorCheck{Name: "ports", OK: true}
+	daemonFrag := fmt.Sprintf("daemon :%d", cfg.Port)
+	if cfg.Port == portpolicy.DaemonDefault {
+		daemonFrag += " (default)"
+	}
+	reserved := "reserved: " + portpolicy.Summary()
+	if blocks := reservedCollisions(cfg); len(blocks) > 0 {
+		names := make([]string, len(blocks))
+		for i, b := range blocks {
+			names[i] = b.String()
+		}
+		check.Note = fmt.Sprintf("WARNING: daemon port inside reserved block(s) %s — set RK_PORT outside; %s; %s",
+			strings.Join(names, ", "), daemonFrag, reserved)
+		return check
+	}
+	check.Note = fmt.Sprintf("%s; %s", daemonFrag, reserved)
+	return check
 }
 
 // localeForced / daemonGlobalEnv are the seams for the locale row — tests

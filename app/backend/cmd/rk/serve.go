@@ -63,6 +63,18 @@ func resolveBrewInstalled() bool {
 	return selfpath.IsBrewInstalled(selfPath)
 }
 
+// warnReservedPorts warns when the daemon port or its resolved code-server
+// port lands inside a reserved block (reservedCollisions — dev builds exempt
+// the rig block, where worktree dev/e2e rigs live by design). Warn-only,
+// never refuse: a working daemon may already sit inside a block, so startup
+// proceeds.
+func warnReservedPorts(cfg config.Config) {
+	for _, b := range reservedCollisions(cfg) {
+		slog.Warn("daemon port inside a reserved block — set RK_PORT outside it",
+			"port", cfg.Port, "block", b.Name, "start", b.Start, "end", b.End)
+	}
+}
+
 // Serve-time launcher re-point seams (the codeServerSelfPath package-var
 // style): tests substitute fakes so no test touches real symlinks in $HOME.
 var (
@@ -225,6 +237,11 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		}
 		logger := setupSlog(logLevel)
 		slog.SetDefault(logger)
+
+		// After slog.SetDefault so the warning rides the configured logger
+		// (incl. the RK_DAEMON_LOG tee): daemon-start stderr is invisible on
+		// the desktop "Start & connect" and `rk update` restart paths.
+		warnReservedPorts(cfg)
 
 		// Below-floor tmux warning, after slog.SetDefault so it rides the
 		// configured logger (incl. the RK_DAEMON_LOG tee): the daemon-start

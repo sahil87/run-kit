@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME; test-only RK_CONFIG_DIR override); the internal/settings registry and its 18-key inventory behind /api/settings; override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the rk-owned hash-stamped managed tmux.conf + `@rk_srv_managed`-gated reloads; breadcrumb migrations, ~/.rk tenants, cb/ + code/ + gui/ state tenants."
+description: "run-kit config: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME; test-only RK_CONFIG_DIR override); the internal/settings registry's 18-key inventory behind /api/settings; override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the ports.env port policy behind rk ports + warn-only collision surfaces; the rk-owned managed tmux.conf + @rk_srv_managed-gated reloads; breadcrumb migrations, ~/.rk + state tenants."
 ---
 # Configuration
 
@@ -79,6 +79,12 @@ The entire settings HTTP surface is one registry-driven endpoint pair in `api/se
 ## Override Order & Env Inventory
 
 Override order: **code default < config.yaml < env < CLI flag**. Env forms exist ONLY for deployment-bootstrap keys: `RK_PORT`, `RK_HOST`, `RK_CODE_SERVER_PORT` (`.env` committed, `.env.local` for overrides — the bootstrap vehicle). The only other env reads are three **undocumented per-process escapes** that win over their config.yaml keys but are never user-facing: `RK_TMUX_CONF` (over `tmux_conf`), `LOG_LEVEL` (over `log_level` — the dev rig depends on it via `justfile`/`scripts/dev.sh`), and `RK_CONFIG_DIR` (relocates the whole config root — § Config Root). Preference keys have no env form. `rk doctor` flags a set-but-ignored `RK_SSH_HOST` (no reader remains; the hint points at the `ssh_host` key). (li54)
+
+## Port Policy
+
+The reserved/default port values live in one committed data file, `app/backend/internal/portpolicy/ports.env` — bash-sourceable `PORTPOLICY_*=integer` lines with `#` comments. The keys are shell variables in a sourced file, never exported env vars and never `RK_`-prefixed, so they are not an env-var surface and add nothing to the env inventory above. `internal/portpolicy` embeds the file via `//go:embed` and parses it once at package init (a missing/malformed key panics — a programmer error in the committed file); `scripts/e2e-env.sh` and `scripts/test-e2e.sh` source it; the Playwright `_harness.ts` helper parses it. The values: daemon default 3000 (dev backend +1, code-server +2 by convention), the e2e rig block 21000–21299 (100 triples), the `rk remote` SSH-tunnel block 3100–3199 (persisted in remotes.yaml — only a later change may move it), and the Playwright fail-closed sentinel 21999. `internal/config`'s default port and `internal/remote`'s tunnel range both read from the policy; `rk ports` (and `rk ports --json`) is the user-facing view of it.
+
+**Reserved-block collisions warn, never refuse.** The daemon footprint (the effective port plus its resolved code-server port, `port+2` by convention or the explicit `RK_CODE_SERVER_PORT`) is checked against the reserved blocks (rig, tunnel, and the sentinel as a one-port block) by `portpolicy.Collisions`, surfaced through the one shared `cmd/rk` helper `reservedCollisions(cfg)` so the three surfaces never disagree: `rk serve` logs one `slog.Warn` per collision at startup and starts anyway; the doctor `ports` row is always OK-shaped with the collision leading its note (never a verdict flipper); `rk ports` reports them and always exits 0. A dev build (`version == "dev"` — `just dev`/air and the e2e rig's un-ldflagged builds) exempts only the rig block, where worktree dev servers and e2e rigs live by design; tunnel and sentinel hits warn on every build. `portpolicy.Summary()` is the single reserved-block formatter shared by the `rk ports` output and the doctor note. See [backend-packages](/run-kit/architecture/backend-packages.md) § `internal/portpolicy` and [cli](/run-kit/architecture/cli.md) § `ports`.
 
 ## Boundaries
 
@@ -273,3 +279,15 @@ See [backend-packages](/run-kit/architecture/backend-packages.md) § `internal/s
 **Decision**: `~/.config/run-kit/config.yaml` via the `internal/settings/` package + the `GET/POST /api/settings` endpoint pair. localStorage kept as a synchronous cache for instant reads before the API responds on page load. Simple `key: value` text parsing (not yaml.v3). Settings are global (not per-server, no `?server=` param).
 **Why**: survives browser cache clears, works across devices accessing the same server. The text parser started with one field and avoids re-adding a heavyweight dependency.
 *Introduced by*: 260323-7wys-ansi-palette-theme-rework
+
+### The port policy is one embedded data file, not a verb its consumers call
+**Decision**: `ports.env` is committed, embedded by Go (`//go:embed`), sourced by bash, and parsed by the Playwright helper; `rk ports [--json]` is the user-facing view, not the scripts' read path.
+**Why**: `e2e-env.sh` is sourced by `dev.sh`/`pw.sh`/`test-e2e.sh` before any binary is built, and the `rk` on PATH is the brew install (no `ports` verb until a release ships) — a verb-based read would need a `go run` compile per `just dev` or break on version skew. One bash-sourceable `KEY=integer` file is the only shape all three consumers (bash pre-build, Go, TS) read without a build step or new dependency.
+**Rejected**: scripts calling `rk ports --json` (compile cost, version skew); Go constants plus generated shell/TS copies with a drift test (more moving parts than one shared file).
+*Introduced by*: 260925-40fa-machine-ports-policy
+
+### Reserved-block collisions warn, never refuse
+**Decision**: a daemon port inside a reserved block produces an `slog.Warn` at `rk serve` start, an OK-shaped doctor note, and an `rk ports` report — nothing refuses to start. Dev builds (`version == "dev"`) exempt only the rig block; tunnel and sentinel hits warn on every build, and all three surfaces read through the one `reservedCollisions` helper.
+**Why**: disruption-free — a working daemon may already sit inside the tunnel block; dev/e2e rigs live on rig-block ports by design, so warning there would fire on every dev loop with advice that does not apply, and keying the exemption on the un-ldflagged build needs no new env marker (constitution IV / no new env names).
+**Rejected**: refusing in `serve` (breaks working installs); a split refuse-new/warn-legacy posture (asymmetric for little gain); an env-var exemption marker (new env surface).
+*Introduced by*: 260925-40fa-machine-ports-policy

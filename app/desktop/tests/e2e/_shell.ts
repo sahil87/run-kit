@@ -34,12 +34,15 @@ import { _electron, type ElectronApplication, type Page } from "@playwright/test
 import http from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { harnessPort } from "../../../frontend/tests/e2e/_harness";
 
 /** The rig's Vite port, set only by the harness (scripts/test-e2e.sh). Never
- *  read the ambient RK_PORT: direnv exports it into every shell, so 3333 is
- *  the fail-closed connect-to-nothing fallback for a bare `playwright test`
- *  (the frontend config's convention). */
-export const E2E_PORT = Number(process.env.E2E_PORT ?? "3333");
+ *  reads the ambient RK_PORT: direnv exports it into every shell, so a bare
+ *  `playwright test` resolves the policy's fail-closed sentinel instead (the
+ *  frontend config's convention — see the frontend's _harness.ts). The
+ *  desktop lane is single-rig (workers: 1, no per-worker rewrite), so a
+ *  module-level capture here is safe. */
+export const E2E_PORT = harnessPort();
 
 /** The shell's appData directory name — package.json `name`. */
 const APP_DATA_DIR = "run-kit-desktop";

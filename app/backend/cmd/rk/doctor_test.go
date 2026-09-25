@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"rk/internal/codeserver"
+	"rk/internal/config"
 	"rk/internal/gui"
 	"rk/internal/settings"
 	"rk/internal/tmux"
@@ -2268,6 +2269,94 @@ func TestRiffPresetsBlockRowGating(t *testing.T) {
 			t.Errorf("row = %+v, want OK with the advisory note", c)
 		}
 	})
+}
+
+// TestPortsDoctorCheck table-tests the pure ports row builder: every shape
+// stays OK (advisory only), with the default listing note and the collision
+// note leading with the warning.
+func TestPortsDoctorCheck(t *testing.T) {
+	cases := []struct {
+		name     string
+		version  string
+		cfg      config.Config
+		wantNote string
+	}{
+		{
+			name:     "default port",
+			cfg:      config.Config{Port: 3000},
+			wantNote: "daemon :3000 (default); reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+		},
+		{
+			name: "tunnel collision",
+			cfg:  config.Config{Port: 3150},
+			wantNote: "WARNING: daemon port inside reserved block(s) tunnel 3100–3199 — set RK_PORT outside; " +
+				"daemon :3150; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+		},
+		{
+			name:    "rig collision via code-server straddle, released build",
+			version: "1.2.3",
+			cfg:     config.Config{Port: 21297},
+			wantNote: "WARNING: daemon port inside reserved block(s) rig 21000–21299 — set RK_PORT outside; " +
+				"daemon :21297; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+		},
+		{
+			name:     "rig port, dev build — rig block exempt",
+			cfg:      config.Config{Port: 21297},
+			wantNote: "daemon :21297; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.version != "" {
+				orig := version
+				version = tc.version
+				t.Cleanup(func() { version = orig })
+			}
+			check := portsDoctorCheck(tc.cfg)
+			if check.Name != "ports" {
+				t.Errorf("name = %q, want ports", check.Name)
+			}
+			if !check.OK {
+				t.Errorf("OK = false; the ports row must never fail (note %q)", check.Note)
+			}
+			if check.Note != tc.wantNote {
+				t.Errorf("note = %q, want %q", check.Note, tc.wantNote)
+			}
+			// Worst-check-wins: appending the row can never flip the verdict.
+			report := doctorReport{OK: true}
+			report.Checks = append(report.Checks, check)
+			if !report.OK {
+				t.Error("ports row flipped report.OK")
+			}
+		})
+	}
+}
+
+// TestPortsRowNeverFlipsVerdict proves the advisory ports row cannot change
+// the overall report verdict (the riff-presets never-flips pattern): the same
+// machine with and without a colliding RK_PORT yields the same report.OK.
+func TestPortsRowNeverFlipsVerdict(t *testing.T) {
+	t.Setenv("RK_PORT", "")
+	without := runDoctorChecks().OK
+
+	t.Setenv("RK_PORT", "3150")
+	with := runDoctorChecks()
+	if with.OK != without {
+		t.Errorf("report.OK flipped with a colliding RK_PORT: %v → %v", without, with.OK)
+	}
+	for _, c := range with.Checks {
+		if c.Name != "ports" {
+			continue
+		}
+		if !c.OK {
+			t.Errorf("ports row not OK on collision: %+v", c)
+		}
+		if !strings.HasPrefix(c.Note, "WARNING:") || !strings.Contains(c.Note, "tunnel") {
+			t.Errorf("collision note must lead with the warning naming the block, got %q", c.Note)
+		}
+		return
+	}
+	t.Error("ports row absent from the report")
 }
 
 // TestRiffPresetsBlockRowNeverFlipsVerdict proves the advisory row cannot change

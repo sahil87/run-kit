@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"strconv"
+
+	"rk/internal/portpolicy"
 )
 
 // Config holds server configuration.
@@ -37,7 +39,7 @@ func (c Config) ResolvedCodeServerPort() int {
 }
 
 var defaults = Config{
-	Port: 3000,
+	Port: portpolicy.DaemonDefault,
 	Host: "127.0.0.1",
 }
 

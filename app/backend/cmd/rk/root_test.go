@@ -32,6 +32,7 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 		"daemon":    false,
 		"desktop":   false,
 		"url":       false,
+		"ports":     false,
 		"skill":     false,
 		"init-conf": false,
 		"agent":     false,

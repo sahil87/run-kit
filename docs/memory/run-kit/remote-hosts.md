@@ -52,7 +52,7 @@ remotes:
 `Find(nameOrTarget)` resolves a reference name-first then by verbatim target; `Remove(name)` returns the pruned file plus whether anything was dropped.
 
 ### Requirement: Local ports come from 3100–3199 and never move
-`AssignPort` MUST pick the **lowest** port in `[PortRangeStart, PortRangeEnd]` = 3100–3199 that no `remotes.yaml` entry holds and no live listener occupies (live set from `ports.ListeningNow` at the cmd boundary). An explicit `--local-port` MUST fall inside the range and pass the same two collision checks. Once assigned the port is **immutable** — no code path reassigns it, because the stable origin is what keeps per-origin browser state (theme accent, terminal font) and the desktop shell's persistent view identity alive across launches.
+`AssignPort` MUST pick the **lowest** port in `[PortRangeStart, PortRangeEnd]` = 3100–3199 — the range is sourced from the port policy (`internal/remote/ports.go`'s `PortRangeStart`/`PortRangeEnd` are package vars aliasing `portpolicy.Tunnel`, values unchanged; only a later change may move them) — that no `remotes.yaml` entry holds and no live listener occupies (live set from `ports.ListeningNow` at the cmd boundary). An explicit `--local-port` MUST fall inside the range and pass the same two collision checks. Once assigned the port is **immutable** — no code path reassigns it, because the stable origin is what keeps per-origin browser state (theme accent, terminal font) and the desktop shell's persistent view identity alive across launches.
 
 #### Scenario: Auto-assignment skips both store entries and live listeners
 - **GIVEN** entries on 3100 and 3101 and a live listener on 3102
@@ -170,7 +170,7 @@ Every verb routes output through the shared `outputSink` (`newSink(cmd)`). Stdou
 
 ### The local port is assigned once and never moves
 **Decision**: A port from 3100–3199 is chosen at add-time against both the store and live listeners, then fixed for the remote's lifetime; a squatter at connect time is an error, not a reassignment.
-**Why**: The local origin is an **identity** — per-origin browser state (theme accent, terminal font, localStorage) and the desktop shell's persistent per-host view all key on it, so a moving port silently resets the host's whole experience. The reserved range also clears the dev/e2e ports (3000/3020/3333).
+**Why**: The local origin is an **identity** — per-origin browser state (theme accent, terminal font, localStorage) and the desktop shell's persistent per-host view all key on it, so a moving port silently resets the host's whole experience. The reserved range is owned by the port policy (`internal/portpolicy/ports.env` — the `rk remote add --local-port` help text derives its stated range from it) and stays clear of the dev ports and the machine-only rig block.
 **Rejected**: Ephemeral ports per connect (new identity every session) and silent reassignment on collision (same effect, hidden).
 *Introduced by*: 260801-35gv-ssh-remote-hosts
 

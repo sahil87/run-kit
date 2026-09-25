@@ -60,6 +60,7 @@ func init() {
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(desktopCmd)
 	rootCmd.AddCommand(urlCmd)
+	rootCmd.AddCommand(portsCmd)
 	rootCmd.AddCommand(skillCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(notifyCmd)

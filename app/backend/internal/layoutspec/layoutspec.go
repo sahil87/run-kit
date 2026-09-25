@@ -128,6 +128,20 @@ func leaf(kind string) Node {
 	return Node{Kind: kind}
 }
 
+// leafFromID builds a leaf from a leaf id (LeafIDs form): a foreign address
+// ("@12/tty") keeps its home; a bare id is the kind, a duplicate-occurrence
+// suffix ("tty#2") dropped — occurrences of one kind build identical leaves.
+func leafFromID(id string) Node {
+	if home, kind, ok := ParseLeafAddress(id); ok {
+		return Node{Kind: kind, Home: home}
+	}
+	kind := id
+	if i := strings.IndexByte(kind, '#'); i >= 0 {
+		kind = kind[:i]
+	}
+	return leaf(kind)
+}
+
 // splitNode builds a split; a single-child split lifts to the child
 // (canonical form).
 func splitNode(dir string, children ...Node) Node {
@@ -671,11 +685,13 @@ var templateNames = []string{"row", "col", "main-left", "main-right", "main-top"
 var indexKinds = []string{"tty", "web", "code", "gui"}
 
 // buildTemplate builds a template's tree for any N from a slot order; slot 0
-// is the template's main tile.
+// is the template's main tile. Slots are LEAF IDS (TemplateOf's output form):
+// a foreign address rebuilds a foreign leaf, so a template verb round-trips
+// "@N/<kind>" tiles without losing their home-window identity.
 func buildTemplate(name string, slots []string) Node {
 	leaves := make([]Node, len(slots))
-	for i, k := range slots {
-		leaves[i] = leaf(k)
+	for i, id := range slots {
+		leaves[i] = leafFromID(id)
 	}
 	switch name {
 	case "row":
@@ -733,11 +749,13 @@ func structureSig(n Node) string {
 }
 
 // TemplateOf reports which template a tree is (structure match, kinds
-// ignored) and its leaves in that template's slot order: the first template
+// ignored) and its LEAF IDS in that template's slot order: the first template
 // in registry order whose structure matches, "single" at one leaf, "custom"
-// otherwise. The slots are reading order for "single" and "custom".
+// otherwise. The slots are reading order for "single" and "custom". A foreign
+// leaf's slot is its address, so SetTemplate/Cycle rebuilds carry the tile's
+// home-window identity.
 func TemplateOf(n Node) (name string, slots []string) {
-	real := n.Leaves()
+	real := n.LeafIDs()
 	count := len(real)
 	if count == 1 {
 		return "single", real
@@ -761,7 +779,7 @@ func TemplateOf(n Node) (name string, slots []string) {
 	return "custom", real
 }
 
-// SlotOrder returns the tree's leaves in template slot order — slot A is the
+// SlotOrder returns the tree's LEAF IDS in template slot order — slot A is the
 // template's main tile; reading order for a custom tree.
 func SlotOrder(n Node) []string {
 	_, slots := TemplateOf(n)
@@ -906,8 +924,7 @@ func Promote(n Node, leafID string) Node {
 	if !contains(ids, leafID) {
 		return n
 	}
-	main := SlotOrder(n)[0]
-	mainID := ids[indexOf(n.Leaves(), main)]
+	mainID := SlotOrder(n)[0]
 	if mainID == leafID {
 		return n
 	}

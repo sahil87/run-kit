@@ -137,6 +137,7 @@ func TestLayoutBorrowValidation(t *testing.T) {
 		{"tree misses the leaf", `{"to":"@9","leaf":"@3/tty","tree":"h(tty,web)"}`, http.StatusBadRequest},
 		{"self-naming leaf in tree", `{"to":"@9","leaf":"@9/tty","tree":"h(tty,@9/tty)"}`, http.StatusBadRequest},
 		{"unknown target window", `{"to":"@99","leaf":"@3/tty","tree":"h(tty,@3/tty)"}`, http.StatusNotFound},
+		{"unknown leaf home window", `{"to":"@9","leaf":"@99/tty","tree":"h(tty,@99/tty)"}`, http.StatusNotFound},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

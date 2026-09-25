@@ -250,6 +250,52 @@ describe("buildLayoutActions — promote", () => {
     expect(onPromoteLeaf).toHaveBeenCalledWith("code");
     expect(onApply).not.toHaveBeenCalled();
   });
+
+  it("a kind present only as a FOREIGN tile promotes by its address id", () => {
+    // h(tty,@3/web): the row must pass the real leaf id — the bare kind
+    // "web" is not a leaf of this tree and would no-op inside promote().
+    const foreignWeb: Layout = {
+      dir: "h",
+      children: [{ leaf: "tty" }, { leaf: "web", home: "@3" }],
+    };
+    const onPromoteLeaf = vi.fn();
+    const actions = build(foreignWeb, { onPromoteLeaf });
+    const row = actions.find((a) => a.id === "layout-promote-@3/web")!;
+    expect(row.label).toBe("Layout: Promote Web (@3/web)");
+    row.onSelect();
+    expect(onPromoteLeaf).toHaveBeenCalledWith("@3/web");
+  });
+
+  it("bare and foreign tiles of one kind get separate Promote rows", () => {
+    // h(tty,v(web,@9/web)): slot A is tty; the bare web and the foreign
+    // @9/web each get a row firing their own leaf id.
+    const mixed: Layout = {
+      dir: "h",
+      children: [
+        { leaf: "tty" },
+        { dir: "v", children: [{ leaf: "web" }, { leaf: "web", home: "@9" }] },
+      ],
+    };
+    const onPromoteLeaf = vi.fn();
+    const actions = build(mixed, { onPromoteLeaf });
+    const ids = actions.map((a) => a.id);
+    expect(ids).toContain("layout-promote-web");
+    expect(ids).toContain("layout-promote-@9/web");
+    actions.find((a) => a.id === "layout-promote-web")!.onSelect();
+    actions.find((a) => a.id === "layout-promote-@9/web")!.onSelect();
+    expect(onPromoteLeaf).toHaveBeenNthCalledWith(1, "web");
+    expect(onPromoteLeaf).toHaveBeenNthCalledWith(2, "@9/web");
+  });
+
+  it("a foreign tile in slot A gets no Promote row (promoting it is a no-op)", () => {
+    const foreignMain: Layout = {
+      dir: "h",
+      children: [{ leaf: "code", home: "@3" }, { leaf: "tty" }],
+    };
+    const ids = build(foreignMain).map((a) => a.id);
+    expect(ids).not.toContain("layout-promote-@3/code");
+    expect(ids).toContain("layout-promote-tty");
+  });
 });
 
 describe("buildLayoutActions — directional swaps", () => {

@@ -144,6 +144,14 @@ describe("degradeLayout", () => {
     expect(ser(degradeLayout(tree, plain, null))).toBe("tty");
     expect(degradeLayout(tree, plain, { enabled: true })).toEqual(tree);
   });
+
+  it("never degrades a FOREIGN leaf by the route window's capabilities", () => {
+    // Borrowing @3/code into a code-less window keeps the tile — the home
+    // window's record carries the capability; dead homes are pruned elsewhere.
+    expect(ser(degradeLayout(parse("h(tty,@3/code)"), plain))).toBe("h(tty,@3/code)");
+    const foreignOnly = parse("@3/code");
+    expect(degradeLayout(foreignOnly, plain)).toEqual(foreignOnly);
+  });
 });
 
 describe("effectiveLayout", () => {
@@ -182,6 +190,12 @@ describe("effectiveLayout", () => {
 
   it("falls back to tty when nothing in the layout is available", () => {
     expect(effectiveLayout({ layout: "single:code" })).toEqual({ leaf: "tty" });
+  });
+
+  it("keeps a foreign leaf the route window could not host itself", () => {
+    // A borrowed @3/code tile on a code-less window renders — capability
+    // degradation is a BARE-leaf ladder.
+    expect(ser(effectiveLayout({ layout: "h(tty,@3/code)" }))).toBe("h(tty,@3/code)");
   });
 
   it("falls back to tty for a malformed or non-canonical layout string", () => {

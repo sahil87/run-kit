@@ -142,7 +142,10 @@ export function availableTiles(
  * caller falls through to the ladder's next rung). `tty` and `web` never
  * degrade; `gui` degrades with the threaded host signal's `enabled` — off ⇒
  * the gui tile drops out of the rendered layout while `@rk_win_layout` keeps
- * its value, with no write on either transition.
+ * its value, with no write on either transition. A FOREIGN leaf (`@N/<kind>`)
+ * is never degraded by the ROUTE window's capabilities — it tiles its home
+ * window's surface, whose record carries the capability; dead homes are
+ * `pruneDeadLeaves`' job, not this ladder's.
  */
 export function degradeLayout(
   tree: Layout,
@@ -152,10 +155,14 @@ export function degradeLayout(
   const available = availableTiles(win, host);
   let out: LayoutNode | null = tree;
   for (;;) {
-    const kinds = leaves(out);
-    const idx = kinds.findIndex((k) => !available.includes(k));
+    const ids = leafIds(out);
+    const idx = ids.findIndex((id) => {
+      if (parseLeafAddress(id) !== null) return false;
+      const kind = zoomLeafKind(id);
+      return kind === undefined || !available.includes(kind);
+    });
     if (idx < 0) return out;
-    out = removeLeaf(out, leafIds(out)[idx]);
+    out = removeLeaf(out, ids[idx]);
     if (out === null) return null;
   }
 }

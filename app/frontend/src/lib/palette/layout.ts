@@ -54,9 +54,12 @@
  *                                 caller passes `onFocus` only then). Duplicate
  *                                 kinds (two tty tiles) yield one entry — the
  *                                 seam focuses the first leaf of the kind.
- *  - `Layout: Promote <Surface>` — per open kind except slot A (promoting
+ *  - `Layout: Promote <Surface>` — per open leaf except slot A (promoting
  *                                 the template's main tile is a no-op, so its
- *                                 entry is omitted).
+ *                                 entry is omitted). Bare kinds dedupe to one
+ *                                 row (the kind is the first leaf's id); a
+ *                                 foreign tile gets its own row labelled by
+ *                                 its `@N/<kind>` address.
  *  - `Tile: Swap Left|Right|Up|Down` — for the FOCUSED tile, one row per
  *                                 direction in which a geometric neighbour
  *                                 exists. Desktop multi-tile only: the caller
@@ -87,9 +90,11 @@ import {
   closeSurface,
   fitsFloor,
   swapDirectional,
+  leafIds,
   leaves,
   slotOrder,
   templatesFor,
+  zoomLeafKind,
   NOMINAL_BOX,
   SURFACE_LABEL,
   TEMPLATE_LABEL,
@@ -353,16 +358,36 @@ export function buildLayoutActions(
     }
   }
 
-  // Promote — per open kind except slot A (promoting the main tile is a
-  // no-op, so its entry is omitted). The kind IS its first leaf's id.
+  // Promote — one entry per promotable LEAF ID except slot A (promoting the
+  // main tile is a no-op, so its entry is omitted). Candidates are leaf ids,
+  // not kinds, because promote() resolves by id: a kind present only as a
+  // foreign tile would otherwise register a guaranteed no-op row. Bare kinds
+  // dedupe to their first leaf (the kind IS that leaf's id — duplicate tty
+  // tiles share one row); a foreign entry is labelled by its address.
   if (tileCount > 1) {
-    const slotA = slotOrder(layout)[0];
-    for (const kind of openKinds) {
-      if (kind === slotA) continue;
+    const ids = leafIds(layout);
+    // Slot A's id derives exactly as promote() derives it — the slot-order
+    // kind's first leaf in reading order.
+    const slotAId = ids[leaves(layout).indexOf(slotOrder(layout)[0])];
+    const seenBare = new Set<SurfaceKind>();
+    for (const id of ids) {
+      if (id === slotAId) continue;
+      const kind = zoomLeafKind(id);
+      if (kind === undefined) continue;
+      if (parseLeafAddress(id) === null) {
+        if (seenBare.has(kind)) continue;
+        seenBare.add(kind);
+        actions.push({
+          id: `layout-promote-${kind}`,
+          label: `Layout: Promote ${SURFACE_LABEL[kind]}`,
+          onSelect: () => opts.onPromoteLeaf(id),
+        });
+        continue;
+      }
       actions.push({
-        id: `layout-promote-${kind}`,
-        label: `Layout: Promote ${SURFACE_LABEL[kind]}`,
-        onSelect: () => opts.onPromoteLeaf(kind),
+        id: `layout-promote-${id}`,
+        label: `Layout: Promote ${SURFACE_LABEL[kind]} (${id})`,
+        onSelect: () => opts.onPromoteLeaf(id),
       });
     }
   }

@@ -251,6 +251,13 @@ type Server struct {
 	// SSE version slot.
 	version string
 
+	// layoutWriteMu serializes the borrow/return endpoints' read-modify-write
+	// (api/layout_borrow.go): holder lookup and the live-in-one-place check
+	// run from one fetched window snapshot, so a concurrent request must not
+	// interleave between fetchServerWindows and SetWindowLayouts and commit
+	// from a stale read.
+	layoutWriteMu sync.Mutex
+
 	// Manual status-refresh (POST /api/status/refresh) — the single frequency
 	// choke point for forced refreshes of BOTH PR pollers.
 	//

@@ -2951,9 +2951,10 @@ func appendOptionOps(args []string, target string, ops []WindowOptionOp) []strin
 }
 
 // SetWindowOptions applies a batch of window-option set/unset operations to the
-// window identified by windowID as a single \;-chained tmux invocation. Chaining
-// makes the whole merge atomic — the SSE poll never observes a half-applied
-// state — and reuses the same pattern CreateWindowWithOptions uses. A non-nil
+// window identified by windowID as a single \;-chained tmux invocation. The
+// chain is ordered, not atomic — ops apply in slice order, but a reader polling
+// mid-chain can observe a half-applied state — and reuses the same pattern
+// CreateWindowWithOptions uses. A non-nil
 // op.Value sets via `set-option -w -t <windowID> <key> <value>`; a nil Value
 // unsets via `set-option -w -u -t <windowID> <key>`. All arguments are passed as
 // an argv slice — no shell strings (constitution §I). A no-op (empty ops) issues
@@ -2989,9 +2990,13 @@ func buildSetWindowLayoutsArgv(pairs []WindowLayoutWrite) []string {
 }
 
 // SetWindowLayouts writes several windows' @rk_win_layout values as a single
-// \;-chained tmux invocation — the borrow/return contract: no viewer observes
-// a half-moved surface (a leaf live in two tabs or none) between the two
-// writes. A no-op (empty pairs) issues no tmux call.
+// \;-chained tmux invocation — the borrow/return write contract. The chain is
+// ordered, not atomic: pairs apply in slice order (the caller puts the
+// holder's removal first, so the leaf is never added to the target while the
+// holder still shows it), and the api endpoints serialize the requests behind
+// a per-server lock (layoutWriteMu in api/layout_borrow.go), but a reader
+// polling between the chained writes can transiently observe the intermediate
+// state. A no-op (empty pairs) issues no tmux call.
 func SetWindowLayouts(ctx context.Context, server string, pairs []WindowLayoutWrite) error {
 	if len(pairs) == 0 {
 		return nil

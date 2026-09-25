@@ -2,10 +2,13 @@ package api
 
 // Cross-tab layout verbs (docs/specs/surface-layout.md): a surface is live in
 // exactly one tab, so moving it between tabs is a server-recomputed two-window
-// write through one \;-chained tmux invocation (tmux.SetWindowLayouts) — no
-// viewer observes the leaf live in two tabs or none. Both endpoints validate
-// every body field BEFORE any tmux call (Constitution I) and map failures to
-// 400 (bad body / invalid tree), 404 (unknown window), 409 (state conflict).
+// write through one \;-chained tmux invocation (tmux.SetWindowLayouts). The
+// chain is ordered — the holder's removal lands before the target's write —
+// and the read-modify-write behind it is serialized by layoutWriteMu, but it
+// is NOT atomic: a reader polling mid-chain can transiently observe the leaf
+// in neither tab. Both endpoints validate every body field BEFORE any tmux
+// call (Constitution I) and map failures to 400 (bad body / invalid tree),
+// 404 (unknown window), 409 (state conflict).
 
 import (
 	"context"
@@ -110,6 +113,11 @@ func (s *Server) handleLayoutBorrow(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// The fetch-validate-write below commits from one snapshot; the lock keeps
+	// a concurrent borrow/return from deciding on it and overwriting the move.
+	s.layoutWriteMu.Lock()
+	defer s.layoutWriteMu.Unlock()
+
 	windows, err := s.fetchServerWindows(ctx, server)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -117,6 +125,13 @@ func (s *Server) handleLayoutBorrow(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := windowByID(windows, body.To); !ok {
 		writeError(w, http.StatusNotFound, "unknown window: "+body.To)
+		return
+	}
+	// The leaf's home window must exist — otherwise the write stores a leaf
+	// the next read prunes and reports success for a move that never renders.
+	home, _, _ := layoutspec.ParseLeafAddress(body.Leaf)
+	if _, ok := windowByID(windows, home); !ok {
+		writeError(w, http.StatusNotFound, "unknown window: "+home)
 		return
 	}
 
@@ -193,6 +208,10 @@ func (s *Server) handleLayoutReturn(w http.ResponseWriter, r *http.Request) {
 	server := serverFromRequest(r)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	// Same read-modify-write serialization as the borrow endpoint.
+	s.layoutWriteMu.Lock()
+	defer s.layoutWriteMu.Unlock()
 
 	windows, err := s.fetchServerWindows(ctx, server)
 	if err != nil {

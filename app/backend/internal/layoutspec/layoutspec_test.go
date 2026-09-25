@@ -398,6 +398,36 @@ func TestTemplateOf(t *testing.T) {
 	if name, _ := TemplateOf(mustParse(t, "tty")); name != "single" {
 		t.Errorf("TemplateOf(tty) = %q, want single", name)
 	}
+	// Slots are leaf ids: a foreign leaf's slot is its address, so template
+	// verbs keep the tile's home-window identity.
+	name, slots = TemplateOf(mustParse(t, "h(tty,@12/code)"))
+	if name != "row" || !reflect.DeepEqual(slots, []string{"tty", "@12/code"}) {
+		t.Errorf("TemplateOf(h(tty,@12/code)) = %q %v, want row [tty @12/code]", name, slots)
+	}
+}
+
+// SetTemplate/Cycle round-trip a foreign leaf whole — the rebuilt tree keeps
+// the "@N/<kind>" address in its slot instead of degrading it to a bare kind.
+func TestTemplateVerbsKeepForeignIdentity(t *testing.T) {
+	if got, err := SetTemplate(mustParse(t, "h(tty,@12/code)"), "col"); err != nil || got.String() != "v(tty,@12/code)" {
+		t.Errorf("SetTemplate(h(tty,@12/code), col) = %q, %v, want v(tty,@12/code)", got, err)
+	}
+	if got := Cycle(mustParse(t, "h(tty,@12/code)")); got.String() != "v(tty,@12/code)" {
+		t.Errorf("Cycle(h(tty,@12/code)) = %q, want v(tty,@12/code)", got)
+	}
+	if got := Cycle(mustParse(t, "v(@3/web,tty)")); got.String() != "h(@3/web,tty)" {
+		t.Errorf("Cycle(v(@3/web,tty)) = %q, want h(@3/web,tty)", got)
+	}
+}
+
+// Slot A's id comes straight from the slot order: a foreign slot A swaps with
+// a bare leaf of the same kind (a kind lookup would find the bare leaf and
+// no-op).
+func TestPromoteForeignSlotA(t *testing.T) {
+	got := Promote(mustParse(t, "h(@12/web,web)"), "web")
+	if got.String() != "h(web,@12/web)" {
+		t.Errorf("Promote(h(@12/web,web), web) = %q, want h(web,@12/web)", got)
+	}
 }
 
 func TestTemplatesFor(t *testing.T) {

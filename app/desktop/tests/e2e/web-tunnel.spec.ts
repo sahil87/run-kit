@@ -8,7 +8,8 @@
  * Shared setup: `beforeAll` creates the rig tmux session and starts three
  * spec-owned loopback servers; `afterAll` closes them and kills the session.
  *
- *  1. The REVERSE PROXY (`http.createServer` on 127.0.0.1:0), the front end
+ *  1. The REVERSE PROXY (`http.createServer` on `<LAN IPv4>:0` — the box's
+ *     first non-internal IPv4 address, see below), the front end
  *     under test: (a) origin-form requests are forwarded to the rig's serving
  *     origin (`127.0.0.1:<E2E_PORT>` — what the seeded hosts point at) and
  *     the response relayed verbatim; (b) `upgrade` events dial the rig origin
@@ -34,11 +35,11 @@
  * `e2e-tun`, whose url is the reverse proxy's origin and which carries NO
  * `remote` field, so the SSH heal/interstitial flow never engages; `afterEach`
  * closes the app and removes the temp dir even on mid-test failure. Why
- * e2e-tun still derives the probe-gated remote path: the rig's local origin
- * is the lane daemon's own (`rk url` under the harness env resolves
- * `http://127.0.0.1:<E2E_PORT>` — e2e-a's origin, web mode `direct`), so
- * e2e-tun's origin differs from it and, with the local origin known, the
- * loopback fallback does not apply; the capability probe (the health
+ * e2e-tun still derives the probe-gated remote path: its origin is a
+ * NON-loopback address (the LAN IPv4), so the local-host arms never match
+ * whether or not `rk url` answers — it does not on CI, where no `rk` is on
+ * PATH and a loopback origin would fall back to `direct`. The spec is skipped
+ * on a box with no non-internal IPv4. The capability probe (the health
  * `tunnel` field, then a `/ws/tunnel` round-trip) succeeds THROUGH the
  * reverse proxy, settling the host to `proxy`. Window ids resolve tmux-side
  * (`listWindows`), not through the backend snapshot — the desktop Playwright
@@ -50,7 +51,7 @@ import { test, expect, type ElectronApplication, type Page } from "@playwright/t
 import http from "node:http";
 import net from "node:net";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   TMUX_SERVER,
@@ -80,6 +81,19 @@ const TEST_SESSION = `e2e-desktop-tunnel-${Date.now()}`;
 const STUB_A_MARKER = "tunnel rig-side stub A";
 const STUB_B_PAYLOAD = "tunnel rig-side stub B data";
 
+/** The box's first non-internal IPv4 address — the reverse proxy's bind
+ *  host, so e2e-tun's origin is non-loopback (remote by construction). */
+function lanIPv4(): string | undefined {
+  for (const addrs of Object.values(networkInterfaces())) {
+    for (const a of addrs ?? []) {
+      if (a.family === "IPv4" && !a.internal) return a.address;
+    }
+  }
+  return undefined;
+}
+
+const LAN_HOST = lanIPv4();
+
 /** The shell's appData directory name — package.json `name` (the _shell.ts
  *  seeding mechanism). */
 const APP_DATA_DIR = "run-kit-desktop";
@@ -96,7 +110,7 @@ interface ReverseProxy {
 
 /** The origin-form reverse proxy: forward origin-form requests to the rig,
  *  pipe WebSocket upgrades through raw, 404 CONNECT and absolute-form. */
-function startReverseProxy(): Promise<ReverseProxy> {
+function startReverseProxy(bindHost: string): Promise<ReverseProxy> {
   const upgrades: string[] = [];
   const server = http.createServer((req, res) => {
     const target = req.url ?? "";
@@ -145,14 +159,14 @@ function startReverseProxy(): Promise<ReverseProxy> {
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(0, bindHost, () => {
       const addr = server.address();
       if (addr === null || typeof addr === "string") {
         server.close();
         reject(new Error("reverse proxy bind returned no port"));
         return;
       }
-      resolve({ server, port: addr.port, origin: `http://127.0.0.1:${addr.port}`, upgrades });
+      resolve({ server, port: addr.port, origin: `http://${bindHost}:${addr.port}`, upgrades });
     });
   });
 }
@@ -236,10 +250,10 @@ function seedHostsWithTunnel(configHome: string, tunnelOrigin: string): void {
 
 /** One raw `CONNECT` attempt against the reverse proxy, resolved with the
  *  response bytes read before the first CRLF (the status line). */
-function rawConnectStatusLine(port: number): Promise<string> {
+function rawConnectStatusLine(host: string, port: number): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = "";
-    const socket = net.connect(port, "127.0.0.1", () => {
+    const socket = net.connect(port, host, () => {
       socket.write("CONNECT example.invalid:443 HTTP/1.1\r\nHost: example.invalid:443\r\n\r\n");
     });
     socket.setTimeout(5_000, () => {
@@ -261,10 +275,10 @@ function rawConnectStatusLine(port: number): Promise<string> {
 /** One absolute-form request against the reverse proxy — Node writes the
  *  `path` verbatim as the request target, so an absolute URL arrives in
  *  exactly the shape a forward proxy would see. */
-function absoluteFormStatus(port: number): Promise<number | undefined> {
+function absoluteFormStatus(host: string, port: number): Promise<number | undefined> {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { host: "127.0.0.1", port, method: "GET", path: "http://127.0.0.1:9/absolute-form" },
+      { host, port, method: "GET", path: "http://127.0.0.1:9/absolute-form" },
       (res) => {
         res.resume();
         res.on("end", () => resolve(res.statusCode));
@@ -286,15 +300,19 @@ let reverseProxy: ReverseProxy;
 let stubA: { server: http.Server; port: number; url: string };
 let stubB: { server: http.Server; port: number };
 
+test.skip(LAN_HOST === undefined, "no non-internal IPv4 address to bind the reverse proxy on");
+
 test.beforeAll(async () => {
+  if (LAN_HOST === undefined) return;
   createSession(TEST_SESSION);
-  reverseProxy = await startReverseProxy();
+  reverseProxy = await startReverseProxy(LAN_HOST);
   // B first: A's page embeds B's port in the fetch URL.
   stubB = await startStubB();
   stubA = await startStubA(stubB.port);
 });
 
 test.afterAll(async () => {
+  if (LAN_HOST === undefined) return;
   killSession(TEST_SESSION);
   await closeServer(reverseProxy.server);
   await closeServer(stubA.server);
@@ -316,10 +334,10 @@ test.afterAll(async () => {
  *    work through the proxy.
  */
 test("the reverse proxy refuses CONNECT and absolute-form but forwards origin-form", async () => {
-  const connectLine = await rawConnectStatusLine(reverseProxy.port);
+  const connectLine = await rawConnectStatusLine(LAN_HOST ?? "", reverseProxy.port);
   expect(connectLine, "CONNECT gets a 404 status line").toBe("HTTP/1.1 404 Not Found");
 
-  const absoluteStatus = await absoluteFormStatus(reverseProxy.port);
+  const absoluteStatus = await absoluteFormStatus(LAN_HOST ?? "", reverseProxy.port);
   expect(absoluteStatus, "an absolute-form request target gets 404").toBe(404);
 
   const health = await fetch(`${reverseProxy.origin}/api/health`);

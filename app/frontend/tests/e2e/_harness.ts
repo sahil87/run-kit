@@ -27,10 +27,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** This file's own absolute path (see the module header for why not
- *  `import.meta`/`__filename`). */
+ *  `import.meta`/`__filename`). The CJS path alternatives exclude only `)`
+ *  (the stack-frame delimiter), never whitespace — a checkout under a
+ *  directory with spaces must still match; the trailing `:line:column`
+ *  strips via greedy backtracking. The ESM `file://` alternative stays
+ *  whitespace-free because URLs arrive percent-encoded. */
 function selfFile(): string {
   const match = (new Error().stack ?? "").match(
-    /\(?(file:\/\/[^)\s]+|[A-Za-z]:[\\/][^)\s]+|\/[^)\s]+):\d+:\d+/,
+    /\(?(file:\/\/[^)\s]+|[A-Za-z]:[\\/][^)]+|\/[^)]+):\d+:\d+/,
   );
   if (!match) throw new Error("could not locate _harness.ts from its own stack frame");
   return match[1].startsWith("file://") ? fileURLToPath(match[1]) : match[1];

@@ -31,21 +31,29 @@ func TestWarnReservedPorts(t *testing.T) {
 		cfg       config.Config
 		wantWarns int
 		want      []string
+		notWant   []string
 	}{
 		{name: "default port stays silent", cfg: config.Config{Port: 3000}},
 		{name: "dev build on a rig port stays silent", cfg: config.Config{Port: 21000}},
 		{name: "released build on a rig port warns", version: "1.2.3", cfg: config.Config{Port: 21000}, wantWarns: 1,
-			want: []string{"port=21000", "block=rig", "start=21000", "end=21299", "RK_PORT"}},
+			want: []string{"daemon :21000", "block=rig", "start=21000", "end=21299", "RK_PORT"}},
 		{name: "dev build on a tunnel port warns", cfg: config.Config{Port: 3150}, wantWarns: 1,
-			want: []string{"port=3150", "block=tunnel", "start=3100", "end=3199", "RK_PORT"}},
+			want: []string{"daemon :3150", "code-server :3152", "block=tunnel", "start=3100", "end=3199", "RK_PORT"}},
 		{name: "dev build on the sentinel warns", cfg: config.Config{Port: 21999}, wantWarns: 1,
-			want: []string{"port=21999", "block=sentinel", "start=21999", "end=21999"}},
-		{name: "code-server straddles into tunnel", cfg: config.Config{Port: 3098, CodeServerPort: 3100}, wantWarns: 1,
-			want: []string{"port=3098", "block=tunnel"}},
+			want: []string{"daemon :21999", "block=sentinel", "start=21999", "end=21999"}},
+		{name: "code-server straddles into tunnel via explicit override", cfg: config.Config{Port: 3098, CodeServerPort: 3100}, wantWarns: 1,
+			want: []string{"code-server :3100", "block=tunnel", "RK_CODE_SERVER_PORT"},
+			notWant: []string{"daemon :3098"}},
+		{name: "code-server straddles into tunnel via the +2 convention", cfg: config.Config{Port: 3098}, wantWarns: 1,
+			want: []string{"code-server :3100", "block=tunnel", "RK_PORT"},
+			notWant: []string{"daemon :3098", "RK_CODE_SERVER_PORT"}},
+		{name: "code-server-only collision never names the daemon port", cfg: config.Config{Port: 3000, CodeServerPort: 3100}, wantWarns: 1,
+			want: []string{"code-server :3100", "block=tunnel", "RK_CODE_SERVER_PORT"},
+			notWant: []string{"daemon :3000"}},
 		{name: "released build: one warning per non-rig block", version: "1.2.3", cfg: config.Config{Port: 21000, CodeServerPort: 3100}, wantWarns: 2,
-			want: []string{"block=rig", "block=tunnel"}},
+			want: []string{"block=rig", "daemon :21000", "block=tunnel", "code-server :3100"}},
 		{name: "dev build: rig dropped, tunnel still warns", cfg: config.Config{Port: 21000, CodeServerPort: 3100}, wantWarns: 1,
-			want: []string{"block=tunnel"}},
+			want: []string{"block=tunnel", "code-server :3100"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -63,6 +71,11 @@ func TestWarnReservedPorts(t *testing.T) {
 			for _, want := range tc.want {
 				if !strings.Contains(out, want) {
 					t.Errorf("output missing %q (got %q)", want, out)
+				}
+			}
+			for _, notWant := range tc.notWant {
+				if strings.Contains(out, notWant) {
+					t.Errorf("output must not contain %q (got %q)", notWant, out)
 				}
 			}
 		})

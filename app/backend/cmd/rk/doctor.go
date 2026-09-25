@@ -202,11 +202,13 @@ func runDoctorChecks() doctorReport {
 
 // portsDoctorCheck reports the effective daemon port and the reserved port
 // blocks (portpolicy). Always OK-shaped, never a verdict flipper: a collision
-// leads the note with a warning naming the block(s) and the RK_PORT remedy —
-// a working daemon may already sit inside a block, so the row stays advisory.
-// Collisions come from reservedCollisions, the same read serve and `rk ports`
-// use (dev builds exempt the rig block). Pure over the resolved config for
-// table testing.
+// leads the note with a warning naming the block(s), the actual colliding
+// footprint port(s), and the remedy env var(s), followed by the full resolved
+// footprint — a code-server-only collision is never attributed to the daemon
+// port. A working daemon may already sit inside a block, so the row stays
+// advisory. Collisions come from reservedCollisions, the same read serve and
+// `rk ports` use (dev builds exempt the rig block). Pure over the resolved
+// config for table testing.
 func portsDoctorCheck(cfg config.Config) doctorCheck {
 	check := doctorCheck{Name: "ports", OK: true}
 	daemonFrag := fmt.Sprintf("daemon :%d", cfg.Port)
@@ -215,12 +217,25 @@ func portsDoctorCheck(cfg config.Config) doctorCheck {
 	}
 	reserved := "reserved: " + portpolicy.Summary()
 	if blocks := reservedCollisions(cfg); len(blocks) > 0 {
-		names := make([]string, len(blocks))
+		details := make([]string, len(blocks))
+		seen := map[string]bool{}
+		var envVars []string
 		for i, b := range blocks {
-			names[i] = b.String()
+			ports, envs := footprintSummary(blockFootprintHits(cfg, b))
+			details[i] = b.String() + ": " + ports
+			for _, e := range envs {
+				if !seen[e] {
+					seen[e] = true
+					envVars = append(envVars, e)
+				}
+			}
 		}
-		check.Note = fmt.Sprintf("WARNING: daemon port inside reserved block(s) %s — set RK_PORT outside; %s; %s",
-			strings.Join(names, ", "), daemonFrag, reserved)
+		footprint := daemonFrag
+		if cs := cfg.ResolvedCodeServerPort(); cs != 0 {
+			footprint += fmt.Sprintf("; code-server :%d", cs)
+		}
+		check.Note = fmt.Sprintf("WARNING: port inside reserved block(s) %s — set %s outside; %s; %s",
+			strings.Join(details, "; "), strings.Join(envVars, " / "), footprint, reserved)
 		return check
 	}
 	check.Note = fmt.Sprintf("%s; %s", daemonFrag, reserved)

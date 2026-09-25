@@ -2289,15 +2289,21 @@ func TestPortsDoctorCheck(t *testing.T) {
 		{
 			name: "tunnel collision",
 			cfg:  config.Config{Port: 3150},
-			wantNote: "WARNING: daemon port inside reserved block(s) tunnel 3100–3199 — set RK_PORT outside; " +
-				"daemon :3150; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+			wantNote: "WARNING: port inside reserved block(s) tunnel 3100–3199: daemon :3150, code-server :3152 — set RK_PORT outside; " +
+				"daemon :3150; code-server :3152; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
 		},
 		{
 			name:    "rig collision via code-server straddle, released build",
 			version: "1.2.3",
 			cfg:     config.Config{Port: 21297},
-			wantNote: "WARNING: daemon port inside reserved block(s) rig 21000–21299 — set RK_PORT outside; " +
-				"daemon :21297; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+			wantNote: "WARNING: port inside reserved block(s) rig 21000–21299: daemon :21297, code-server :21299 — set RK_PORT outside; " +
+				"daemon :21297; code-server :21299; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+		},
+		{
+			name: "code-server-only collision via explicit override",
+			cfg:  config.Config{Port: 3000, CodeServerPort: 3100},
+			wantNote: "WARNING: port inside reserved block(s) tunnel 3100–3199: code-server :3100 — set RK_CODE_SERVER_PORT outside; " +
+				"daemon :3000 (default); code-server :3100; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
 		},
 		{
 			name:     "rig port, dev build — rig block exempt",

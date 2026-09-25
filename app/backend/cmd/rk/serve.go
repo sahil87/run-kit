@@ -67,11 +67,13 @@ func resolveBrewInstalled() bool {
 // port lands inside a reserved block (reservedCollisions — dev builds exempt
 // the rig block, where worktree dev/e2e rigs live by design). Warn-only,
 // never refuse: a working daemon may already sit inside a block, so startup
-// proceeds.
+// proceeds. Each warning names the actual colliding footprint port(s) —
+// never the non-colliding sibling — and the env var(s) that move them.
 func warnReservedPorts(cfg config.Config) {
 	for _, b := range reservedCollisions(cfg) {
-		slog.Warn("daemon port inside a reserved block — set RK_PORT outside it",
-			"port", cfg.Port, "block", b.Name, "start", b.Start, "end", b.End)
+		ports, envVars := footprintSummary(blockFootprintHits(cfg, b))
+		slog.Warn(fmt.Sprintf("port inside a reserved block — set %s outside it", strings.Join(envVars, " / ")),
+			"ports", ports, "block", b.Name, "start", b.Start, "end", b.End)
 	}
 }
 

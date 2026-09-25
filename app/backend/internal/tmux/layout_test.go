@@ -27,9 +27,10 @@ func TestParseLayoutSessions(t *testing.T) {
 			},
 		},
 		{
-			name: "pin-sessions and control anchor filtered",
+			name: "pin/iso sessions and control anchor filtered",
 			lines: []string{
 				"_rk-pin-42\t1750000000\t",
+				"_rk-iso-9\t1750000000\t",
 				"_rk-ctl\t1750000001\t",
 				"real\t1750000002\t1+3",
 			},
@@ -187,9 +188,10 @@ func TestParseLayoutWindows(t *testing.T) {
 			},
 		},
 		{
-			name: "pin-session link rows skipped, home row kept once",
+			name: "pin/iso link rows skipped, home row kept once",
 			lines: []string{
 				"_rk-pin-7\t@7\t0\tpinned\t1\tllll,1x1,0,0,7\t\t\t\t",
+				"_rk-iso-7\t@7\t0\tpinned\t1\tllll,1x1,0,0,7\t\t\t\t",
 				"home\t@7\t3\tpinned\t0\tllll,1x1,0,0,7\t\t\t\t",
 				"home\t@7\t3\tpinned\t0\tllll,1x1,0,0,7\t\t\t\t", // duplicate id
 			},

@@ -406,19 +406,35 @@ PTY output, client→server keystrokes). JSON text frames for control:
 
 | Direction | Frame |
 |-----------|-------|
-| Client → Server | `{"op":"open","id":7,"server":"<tmux server>","windowId":"@42","cols":120,"rows":32}` |
+| Client → Server | `{"op":"open","id":7,"server":"<tmux server>","windowId":"@42","cols":120,"rows":32,"isolate":true}` |
 | Client → Server | `{"op":"resize","id":7,"cols":100,"rows":40}` |
 | Client → Server | `{"op":"close","id":7}` |
 | Server → Client | `{"op":"opened","id":7}` |
 | Server → Client | `{"op":"closed","id":7,"code":4004\|4001\|1000,"reason":"..."}` |
 
+`open`'s `isolate` field is optional (default `false`, absent decodes false).
+When `true`, the stream attaches through the window's own single-window
+`_rk-iso-<windowDigits>` session — created on demand with the window LINKED in
+(it stays a member of its home session) — giving the stream an active-window
+pointer independent of home's, so a borrowed or popped-out tile never fights the
+home tab over the window. **Session pick order: pin → iso → home.** A pinned
+window's `_rk-pin-*` session wins regardless of `isolate` (a pin already
+isolates; no iso session is created for it); otherwise `isolate: true` ensures
+and attaches the iso session; otherwise the home session is resolved as before.
+The iso attach chains `destroy-unattached on` onto the attach invocation itself
+(setting it at creation would destroy the never-attached session immediately),
+so tmux reaps the iso session when its last client leaves — stream close, socket
+teardown, or daemon crash — with no rk bookkeeping. An ensure failure is a
+per-stream `closed` (4004 when the window is missing, 4001 otherwise); if the
+PTY attach fails after a successful ensure, the relay kills the iso session only
+when it has zero attached clients (another isolated viewer may share it).
+
 **Per-stream lifecycle** (each `open` reproduces the former `handleRelay`
 per-connection semantics, per stream):
 1. Validate `windowId` (shared `validate.ValidateWindowID`) — a bad id yields a
    per-stream `closed` 4004, never a socket teardown.
-2. `ResolveWindowSession` (5s) → session-scoped `SelectWindowInSession` (the
-   move-based model: each window lives in exactly one session — home or
-   `_rk-pin-*` — and select+attach must agree).
+2. Session pick per the pin → iso → home order above → session-scoped
+   `SelectWindowInSession` (select+attach must agree on the session).
 3. `forceTERM` (`TERM=xterm-256color`), best-effort `tmux.ReloadConfig`, then
    `pty.StartWithSize` at the open op's initial `cols`/`rows` (no
    wait-for-first-resize dance).
@@ -435,8 +451,10 @@ queue pauses that stream's PTY reader (backpressure), never dropping bytes.
 
 **Per-stream `closed` codes** (the socket itself stays open for stream-level
 failures):
-- `4004` — window not found (resolve/select failed) or malformed window id
-- `4001` — failed to attach to the tmux session (`pty.StartWithSize`)
+- `4004` — window not found (resolve/select failed, or an isolated open's
+  ensure found no window) or malformed window id
+- `4001` — failed to attach to the tmux session (`pty.StartWithSize`) or an
+  isolated open's ensure failed for another reason
 - `1000` — graceful close (client `close` op or PTY EOF)
 
 ---

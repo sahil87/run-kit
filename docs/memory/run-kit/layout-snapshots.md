@@ -41,10 +41,10 @@ Capture assembles from the `internal/tmux` layout reads plus `GetSessionOrder`/`
 **Reads** (tab-delimited `-F` formats + pure `parseLayout*` helpers, same shape as `parseSessions`):
 
 - `ListLayoutSessions` — `#{session_name}`, `#{session_created}`, `#{@rk_ses_color}`.
-- `ListLayoutWindows` — `list-windows -a`, keyed to the non-pin owning session, **deduplicated by window id** (a board-pinned window is linked into both its home session and its `_rk-pin-*` pin-session, so `-a` surfaces it once per link; the first non-hidden occurrence wins).
+- `ListLayoutWindows` — `list-windows -a`, keyed to the non-hidden owning session, **deduplicated by window id** (a pinned or isolated window is linked into both its home session and its `_rk-pin-*`/`_rk-iso-*` session, so `-a` surfaces it once per link; the first non-hidden occurrence wins).
 - `ListLayoutPanes` — `list-panes -a` grouped into a `windowID → panes` map, deduped by pane id.
 
-`isLayoutHiddenSession` excludes board pin-sessions (`PinSessionPrefix`) and the `_rk-ctl` control anchor — pinned windows persist via home-session membership and the anchor is daemon-recreated. `_rk-operator` is deliberately NOT excluded: the operator window is MOVED into it (single membership, unlike the linked pin-sessions — see [tmux-sessions](/run-kit/tmux-sessions.md) § Operator Session), so excluding it would drop the operator window from the capture entirely. Unlike `ListSessions`, these helpers deliberately do NOT map a dead-server error to an empty result.
+`isLayoutHiddenSession` excludes the hidden link-target sessions (`IsHiddenLinkSession` — board pin-sessions `_rk-pin-*` and isolated relay sessions `_rk-iso-*`) and the `_rk-ctl` control anchor — pinned/isolated windows persist via home-session membership and the anchor is daemon-recreated. `_rk-operator` is deliberately NOT excluded: the operator window is MOVED into it (single membership, unlike the linked pin/iso sessions — see [tmux-sessions](/run-kit/tmux-sessions.md) § Operator Session), so excluding it would drop the operator window from the capture entirely. Unlike `ListSessions`, these helpers deliberately do NOT map a dead-server error to an empty result.
 
 The `_rk-operator` + `@rk_win_role` round trip is load-bearing: capture takes `_rk-operator` as a regular session (windows nested under it, each carrying `role` from `@rk_win_role`), and restore recreates the session with its windows and re-applies `@rk_win_role` per window (§ Restore semantics) — so a snapshot taken with a promoted operator restores to hidden+pinned state (the restored `_rk-operator` satisfies the FetchSessions content rule), never a visible stray session with an orphaned role. Pinned by the live-tmux integration test `TestOperatorPromotionRoundTripLiveTmux` (`internal/snapshot/integration_test.go`).
 
@@ -230,8 +230,8 @@ The other api-side touchpoint is the write-path annotation: `api.Server.SetServe
 *Introduced by*: 260805-htmy-daemon-layout-snapshots-restore
 
 ### Board membership is not restored
-**Decision**: Pin-sessions (`_rk-pin-*`) and the `_rk-ctl` anchor are excluded from capture, so board pins are not recreated by restore.
-**Why**: Pinned windows come back through their home sessions (the capture keys each window to its non-pin owner), board membership is re-derivable UI state, and the anchor is tmuxctl-owned and auto-recreated on the next dial.
+**Decision**: The hidden link-target sessions (`_rk-pin-*` pin-sessions, `_rk-iso-*` isolated relay sessions) and the `_rk-ctl` anchor are excluded from capture, so board pins and iso attach targets are not recreated by restore.
+**Why**: Pinned/isolated windows come back through their home sessions (the capture keys each window to its non-hidden owner), board membership is re-derivable UI state, iso sessions are ephemeral by design (they reap themselves via `destroy-unattached` and are re-created on demand by the next isolated open), and the anchor is tmuxctl-owned and auto-recreated on the next dial.
 **Rejected**: Capturing and replaying pin-session links (restores derived UI state at the cost of a link-recreation ordering problem on a fresh server). See [tmux-sessions](/run-kit/tmux-sessions.md) § Pin Sessions.
 *Introduced by*: 260805-htmy-daemon-layout-snapshots-restore
 

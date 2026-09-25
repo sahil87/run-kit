@@ -131,16 +131,17 @@ var layoutPaneFormat = strings.Join([]string{
 }, listDelim)
 
 // isLayoutHiddenSession reports whether a session name is one of run-kit's
-// non-user-facing sessions excluded from layout snapshots: board pin-sessions
-// (their windows persist via home-session membership) and the tmuxctl control
-// anchor (recreated automatically by the daemon).
+// non-user-facing sessions excluded from layout snapshots: hidden link-target
+// sessions (board pin-sessions and isolated relay sessions — their windows
+// persist via home-session membership) and the tmuxctl control anchor
+// (recreated automatically by the daemon).
 func isLayoutHiddenSession(name string) bool {
-	return strings.HasPrefix(name, PinSessionPrefix) || name == ControlAnchorSessionName
+	return IsHiddenLinkSession(name) || name == ControlAnchorSessionName
 }
 
 // ListLayoutSessions returns every user-facing session on the server with its
-// creation time and raw color option. Pin-sessions and the control anchor are
-// excluded. A dead/unreachable server returns an error (never an empty list).
+// creation time and raw color option. Pin-sessions, iso-sessions and the
+// control anchor are excluded. A dead/unreachable server returns an error (never an empty list).
 func ListLayoutSessions(ctx context.Context, server string) ([]LayoutSession, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
@@ -178,11 +179,12 @@ func parseLayoutSessions(lines []string) []LayoutSession {
 	return out
 }
 
-// ListLayoutWindows returns every window on the server keyed to its non-pin
-// owning session, deduplicated by window id. A board-pinned window is linked
-// into both its home session and its `_rk-pin-*` pin-session, so `list-windows
-// -a` surfaces it once per link; pin/anchor rows are skipped and the first
-// remaining occurrence wins. A dead/unreachable server returns an error.
+// ListLayoutWindows returns every window on the server keyed to its non-hidden
+// owning session, deduplicated by window id. A pinned or isolated window is
+// linked into both its home session and its `_rk-pin-*`/`_rk-iso-*` session, so
+// `list-windows -a` surfaces it once per link; hidden-session rows are skipped
+// and the first remaining occurrence wins. A dead/unreachable server returns an
+// error.
 func ListLayoutWindows(ctx context.Context, server string) ([]LayoutWindow, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()

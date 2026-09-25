@@ -207,7 +207,9 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		// directly to the real session), and board pin-sessions (`_rk-pin-*`) are
 		// PERSISTENT across rk restarts (Constitution VI — tmux survives the
 		// server). A persisted pin is valid state, not an orphan, so there is
-		// nothing to reap.
+		// nothing to reap. Isolated relay sessions (`_rk-iso-*`) reap themselves
+		// via destroy-unattached; one left client-less by a daemon death between
+		// ensure and attach is reused by the next isolated open of its window.
 
 		// Log level: the LOG_LEVEL env is an undocumented per-process escape
 		// that wins when set (the dev rig depends on it); otherwise the

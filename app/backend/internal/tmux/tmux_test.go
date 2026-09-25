@@ -237,6 +237,15 @@ func TestParseSessions(t *testing.T) {
 			want: []SessionInfo{{Name: "agent"}, {Name: "dev"}},
 		},
 		{
+			name: "filters _rk-iso-* isolated relay sessions from user-facing list",
+			lines: []string{
+				sessionLine("agent", "0", "agent"),
+				sessionLine("_rk-iso-42", "0", "_rk-iso-42"),
+				sessionLine("dev", "0", "dev"),
+			},
+			want: []SessionInfo{{Name: "agent"}, {Name: "dev"}},
+		},
+		{
 			name: "_rk-pin-* exclusion still allows group leaders to be kept",
 			lines: []string{
 				sessionLineGrouped("devshell", "1", "devshell", 2),
@@ -3235,9 +3244,13 @@ func TestListSessions_filtersPinSessions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// A `_rk-pin-*` session must be filtered out of the user-facing list.
+	// `_rk-pin-*` and `_rk-iso-*` sessions must be filtered out of the
+	// user-facing list.
 	if _, err := tmuxExecServer(ctx, server, "new-session", "-d", "-s", PinSessionPrefix+"42"); err != nil {
 		t.Fatalf("create pin session: %v", err)
+	}
+	if _, err := tmuxExecServer(ctx, server, "new-session", "-d", "-s", IsoSessionPrefix+"43"); err != nil {
+		t.Fatalf("create iso session: %v", err)
 	}
 
 	got, err := ListSessions(ctx, server)
@@ -3245,8 +3258,8 @@ func TestListSessions_filtersPinSessions(t *testing.T) {
 		t.Fatalf("ListSessions: %v", err)
 	}
 	for _, s := range got {
-		if strings.HasPrefix(s.Name, PinSessionPrefix) {
-			t.Errorf("ListSessions returned pin-session %q — should be filtered", s.Name)
+		if IsHiddenLinkSession(s.Name) {
+			t.Errorf("ListSessions returned hidden link-target session %q — should be filtered", s.Name)
 		}
 	}
 	foundReal := false

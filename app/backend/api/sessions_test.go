@@ -101,6 +101,18 @@ type mockTmuxOps struct {
 	resolveWindowSessionErr    error
 	resolveWindowSessionID     string
 
+	// Relay isolation: the ensure call record plus canned results, and the
+	// client-count probe result the attach-failure rollback reads. isoMu guards
+	// the ensure fields — the relay's attachStream writes them off the test
+	// goroutine (socket-driven opens).
+	isoMu                    sync.Mutex
+	ensureIsoSessionCalled   bool
+	ensureIsoSessionWindowID string
+	ensureIsoSessionResult   string
+	ensureIsoSessionErr      error
+	sessionClientCountResult int
+	sessionClientCountErr    error
+
 	activeWindowIDResult  string
 	activeWindowIDErr     error
 	activeWindowIDServer  string
@@ -400,6 +412,33 @@ func (m *mockTmuxOps) ResolveWindowSession(ctx context.Context, server, windowID
 		return "", m.resolveWindowSessionErr
 	}
 	return m.resolveWindowSessionResult, nil
+}
+func (m *mockTmuxOps) EnsureIsoSession(ctx context.Context, server, windowID string) (string, error) {
+	m.isoMu.Lock()
+	m.ensureIsoSessionCalled = true
+	m.ensureIsoSessionWindowID = windowID
+	result, err := m.ensureIsoSessionResult, m.ensureIsoSessionErr
+	m.isoMu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	if result != "" {
+		return result, nil
+	}
+	name, _ := tmux.IsoSessionName(windowID)
+	return name, nil
+}
+
+// EnsureIsoSessionWasCalled returns the recorded ensure state under isoMu (the
+// relay's attachStream writes it off the test goroutine — the KillSessionWasCalled
+// pattern).
+func (m *mockTmuxOps) EnsureIsoSessionWasCalled() (bool, string) {
+	m.isoMu.Lock()
+	defer m.isoMu.Unlock()
+	return m.ensureIsoSessionCalled, m.ensureIsoSessionWindowID
+}
+func (m *mockTmuxOps) SessionClientCount(ctx context.Context, server, session string) (int, error) {
+	return m.sessionClientCountResult, m.sessionClientCountErr
 }
 func (m *mockTmuxOps) ActiveWindowID(ctx context.Context, server, session string) (string, error) {
 	m.activeWindowIDServer = server

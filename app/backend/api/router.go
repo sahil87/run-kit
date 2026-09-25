@@ -70,6 +70,13 @@ type TmuxOps interface {
 	SelectWindowInSession(session, windowID, server string) error
 	ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error)
 	ResolveWindowSession(ctx context.Context, server, windowID string) (string, error)
+	// EnsureIsoSession returns (creating on demand) the window's single-window
+	// isolated relay session `_rk-iso-<id>` for an `open` op with isolate:true
+	// (see tmux.EnsureIsoSession); SessionClientCount backs the attach-failure
+	// rollback, which kills a freshly ensured iso session only when no other
+	// isolated viewer is attached to it.
+	EnsureIsoSession(ctx context.Context, server, windowID string) (string, error)
+	SessionClientCount(ctx context.Context, server, session string) (int, error)
 	// ActiveWindowID reads the session's post-select active window id (@N);
 	// handleWindowSelect composes its response body from it, falling back to
 	// the requested id when the read fails.
@@ -473,6 +480,12 @@ func (p *prodTmuxOps) ListWindows(ctx context.Context, session, server string) (
 }
 func (p *prodTmuxOps) ResolveWindowSession(ctx context.Context, server, windowID string) (string, error) {
 	return tmux.ResolveWindowSession(ctx, server, windowID)
+}
+func (p *prodTmuxOps) EnsureIsoSession(ctx context.Context, server, windowID string) (string, error) {
+	return tmux.EnsureIsoSession(ctx, server, windowID)
+}
+func (p *prodTmuxOps) SessionClientCount(ctx context.Context, server, session string) (int, error) {
+	return tmux.SessionClientCount(ctx, server, session)
 }
 func (p *prodTmuxOps) ActiveWindowID(ctx context.Context, server, session string) (string, error) {
 	return tmux.ActiveWindowID(ctx, server, session)

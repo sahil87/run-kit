@@ -469,6 +469,17 @@ const (
 	// sharing an `@rk_ses_pin_board` value, not a session itself. Pin-sessions are
 	// persistent across rk restarts (Constitution VI); there is no startup sweep.
 	PinSessionPrefix = "_rk-pin-"
+	// IsoSessionPrefix is the reserved name prefix for run-kit's single-window
+	// isolated relay sessions: `_rk-iso-<windowDigits>` (the window's `@N` id
+	// with the `@` stripped, since tmux session names disallow `@`). An
+	// `open` op with `isolate: true` attaches through the window's iso session
+	// (created on demand, the window LINKED in — it stays a member of its home
+	// session too) so the stream gets an independent active-window pointer
+	// without touching home's. Sessions matching this prefix are filtered out
+	// of user-facing session lists exactly like pin-sessions. Lifecycle is
+	// tmux-side: the attach argv chains `destroy-unattached on`, so tmux reaps
+	// the session when its last client leaves.
+	IsoSessionPrefix = "_rk-iso-"
 	// ControlAnchorSessionName is the literal name of the hidden anchor session
 	// created by the tmuxctl package on tmux servers that have zero user
 	// sessions (a `tmux -CC attach` requires an attached session). It is
@@ -509,6 +520,42 @@ func WindowIDFromPinSession(name string) (string, bool) {
 		return "", false
 	}
 	return id, true
+}
+
+// IsoSessionName derives the single-window isolated relay session name for a
+// window id by stripping the leading `@` (tmux session names disallow `@`):
+// `@42` → `_rk-iso-42`. Returns ("", false) for an invalid window id. The
+// mapping is pure and reversible (see WindowIDFromIsoSession), so membership
+// needs no name→id lookup table.
+func IsoSessionName(windowID string) (string, bool) {
+	if !ValidWindowID(windowID) {
+		return "", false
+	}
+	return IsoSessionPrefix + windowID[1:], true
+}
+
+// WindowIDFromIsoSession is the inverse of IsoSessionName: `_rk-iso-42` → `@42`.
+// Returns ("", false) when name lacks the prefix or the recovered id is not a
+// valid `@<digits>` window id.
+func WindowIDFromIsoSession(name string) (string, bool) {
+	if !strings.HasPrefix(name, IsoSessionPrefix) {
+		return "", false
+	}
+	id := "@" + strings.TrimPrefix(name, IsoSessionPrefix)
+	if !ValidWindowID(id) {
+		return "", false
+	}
+	return id, true
+}
+
+// IsHiddenLinkSession reports whether name is one of run-kit's single-window
+// link-target sessions (a board pin-session or an isolated relay session) —
+// rk-internal attach targets that are never user-facing session owners. Every
+// site that treats pin-sessions as "not a user-facing owner" (session lists,
+// layout snapshots, home-session resolution) keys on this one predicate so the
+// two kinds can never drift apart.
+func IsHiddenLinkSession(name string) bool {
+	return strings.HasPrefix(name, PinSessionPrefix) || strings.HasPrefix(name, IsoSessionPrefix)
 }
 
 // AgentStateOption is the tmux PANE-scoped user option that carries the generic
@@ -1075,17 +1122,19 @@ func parseSessions(lines []string) []SessionInfo {
 		if len(parts) < 2 {
 			continue
 		}
-		// Filter run-kit's single-window board pin-sessions from every
-		// user-facing session list. A pinned window is LINKED into its
-		// `_rk-pin-*` session (it stays a member of its home session too, so it
+		// Filter run-kit's single-window hidden link-target sessions (board
+		// pin-sessions and isolated relay sessions) from every user-facing
+		// session list. A pinned/isolated window is LINKED into its hidden
+		// session (it stays a member of its home session too, so it
 		// still appears in the sidebar natively via its home membership); the
-		// pin-session ITSELF is never a user-facing SESSIONS entry (it is
-		// rendered only as a BOARDS pane). This is the single chokepoint — every
+		// link-target session ITSELF is never a user-facing SESSIONS entry (a
+		// pin-session is rendered only as a BOARDS pane; an iso session is a
+		// relay attach target). This is the single chokepoint — every
 		// consumer (REST, SSE, board derivation, server-aggregate) flows
 		// through ListSessions/parseSessions, so a single early-skip here
-		// guarantees no pin-session leaks into the SESSIONS UI while the pinned
-		// window is still shown under its home session.
-		if strings.HasPrefix(parts[0], PinSessionPrefix) {
+		// guarantees no link-target session leaks into the SESSIONS UI while
+		// the window is still shown under its home session.
+		if IsHiddenLinkSession(parts[0]) {
 			continue
 		}
 		// Filter the tmuxctl control-mode anchor session — owned by the
@@ -1189,8 +1238,8 @@ func ListPinSessionNames(ctx context.Context, server string) ([]string, error) {
 }
 
 // ListSessions returns sessions from the specified tmux server,
-// filtering out session-group copies and run-kit's board pin-sessions
-// (PinSessionPrefix). Returns nil if no server is running.
+// filtering out session-group copies and run-kit's hidden link-target
+// sessions (pin/iso — see IsHiddenLinkSession). Returns nil if no server is running.
 // sessionListFormat is the 9-field list-sessions format string consumed by
 // parseSessions AND buildSessionFacts (session_facts.go) — shared so the two
 // enumerations can never read differently-shaped lines: name, grouped, group,
@@ -2224,16 +2273,17 @@ func KillSessionCtx(ctx context.Context, server, session string) error {
 	return err
 }
 
-// ResolveWindowSession returns the window's HOME (non-pin) session on the given
-// server. A board-pinned window is a member of TWO sessions at once — its home
-// session AND its single-window `_rk-pin-*` pin-session (Pin uses link-window,
-// not move-window) — so a naive `display-message -t <windowID> -p
-// "#{session_name}"` may report EITHER link (tmux's pick across links is
-// order-unspecified). When the naive result is a pin-session name, this
-// re-resolves deterministically to the non-pin owner by enumerating
-// `list-windows -a` and choosing the session for @N that is not a `_rk-pin-*`
-// name. A window whose ONLY link is its pin-session (its home session died while
-// pinned, or a legacy move-based pin) legitimately resolves to the pin-session.
+// ResolveWindowSession returns the window's HOME (non-pin, non-iso) session on
+// the given server. A pinned or isolated window is a member of TWO sessions at
+// once — its home session AND its single-window `_rk-pin-*`/`_rk-iso-*` session
+// (both Pin and EnsureIsoSession use link-window, not move-window) — so a naive
+// `display-message -t <windowID> -p "#{session_name}"` may report EITHER link
+// (tmux's pick across links is order-unspecified). When the naive result is a
+// hidden link-target name, this re-resolves deterministically to the non-hidden
+// owner by enumerating `list-windows -a` and choosing the session for @N that
+// is not a `_rk-pin-*`/`_rk-iso-*` name. A window whose ONLY link is its
+// pin/iso session (its home session died while pinned/isolated, or a legacy
+// move-based pin) legitimately resolves to that link-target session.
 // The relay layers its own pin-session-first attach preference ABOVE this (see
 // api/terminals_ws.go); this function's job is to name the home session for
 // callers that need it (the REST /select handler, ProjectRoot).
@@ -2260,10 +2310,10 @@ func ResolveWindowSession(ctx context.Context, server, windowID string) (string,
 	if session == "" {
 		return "", fmt.Errorf("window %q not found", windowID)
 	}
-	// Dual membership: if tmux named the pin-session, re-resolve to the home
-	// (non-pin) session. A window whose only link is its pin-session keeps the
-	// pin-session (home is gone).
-	if strings.HasPrefix(session, PinSessionPrefix) {
+	// Dual membership: if tmux named a hidden link-target session (pin or
+	// iso), re-resolve to the home (non-pin, non-iso) session. A window whose
+	// only link is its pin/iso session keeps it (home is gone).
+	if IsHiddenLinkSession(session) {
 		if home, ok, herr := resolveHomeSession(ctx, server, windowID); herr != nil {
 			return "", herr
 		} else if ok {
@@ -2274,10 +2324,10 @@ func ResolveWindowSession(ctx context.Context, server, windowID string) (string,
 }
 
 // resolveHomeSession enumerates every session the window identified by windowID
-// is linked into (via `list-windows -a`) and returns the first non-pin
-// (non-`_rk-pin-*`) session. ok is false when the window is linked ONLY into
-// pin-session(s) — i.e. it has no live home session — in which case the caller
-// keeps the pin-session as the resolved owner. Read-only.
+// is linked into (via `list-windows -a`) and returns the first non-hidden
+// (non-pin, non-iso) session. ok is false when the window is linked ONLY into
+// hidden link-target sessions — i.e. it has no live home session — in which
+// case the caller keeps the pin/iso session as the resolved owner. Read-only.
 func resolveHomeSession(ctx context.Context, server, windowID string) (string, bool, error) {
 	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a", "-F", "#{session_name}\t#{window_id}")
 	if err != nil {
@@ -2293,7 +2343,7 @@ func resolveHomeSession(ctx context.Context, server, windowID string) (string, b
 		if wid != windowID {
 			continue
 		}
-		if strings.HasPrefix(name, PinSessionPrefix) {
+		if IsHiddenLinkSession(name) {
 			continue
 		}
 		return name, true, nil

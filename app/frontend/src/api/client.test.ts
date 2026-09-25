@@ -537,6 +537,18 @@ describe("startOperator", () => {
     expect(bodies).toEqual([{}]);
   });
 
+  it("posts the viewed window in the body when given", async () => {
+    const bodies: unknown[] = [];
+    mswServer.use(
+      http.post("/api/operator/start", async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({ windowId: "@7", server: "default" }, { status: 202 });
+      }),
+    );
+    await expect(startOperator("default", "@1")).resolves.toEqual({ windowId: "@7", server: "default" });
+    expect(bodies).toEqual([{ window: "@1" }]);
+  });
+
   it("surfaces a 409 operator_exists as an ApiError carrying code and windowId", async () => {
     mswServer.use(
       http.post("/api/operator/start", () =>

@@ -2851,6 +2851,46 @@ func TestServerOrigin(t *testing.T) {
 	})
 }
 
+func TestOperatorRoot(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	deadServer := testSocketName("unit-dead")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for _, tc := range []struct {
+		name   string
+		server string
+	}{
+		{name: "unset returns empty", server: server},
+		{name: "no server returns empty", server: deadServer},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := GetOperatorRoot(ctx, tc.server)
+			if err != nil {
+				t.Fatalf("GetOperatorRoot: %v", err)
+			}
+			if got != "" {
+				t.Errorf("got %q, want empty", got)
+			}
+		})
+	}
+
+	t.Run("set and overwrite round trip", func(t *testing.T) {
+		for _, want := range []string{"/home/u/proj", "/home/u/other repo"} {
+			if err := SetOperatorRoot(ctx, server, want); err != nil {
+				t.Fatalf("SetOperatorRoot(%q): %v", want, err)
+			}
+			got, err := GetOperatorRoot(ctx, server)
+			if err != nil {
+				t.Fatalf("GetOperatorRoot: %v", err)
+			}
+			if got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+		}
+	})
+}
+
 func TestEphemeralServerFlag(t *testing.T) {
 	server := withSessionOrderTmux(t)
 	deadServer := testSocketName("unit-dead")

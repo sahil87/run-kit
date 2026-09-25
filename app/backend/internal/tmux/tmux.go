@@ -31,6 +31,13 @@ const SessionOrderOption = "@rk_srv_session_order"
 // own rank — no cross-server merge rule is needed. Mirrors SessionOrderOption.
 const ServerRankOption = "@rk_srv_rank"
 
+// OperatorRootOption is the tmux server-scoped user option that stores the
+// directory of this server's last operator launch. `rk operator` stamps it on
+// every successful create and reads it back on a `-L <server>` launch without
+// `--dir` (the cron respawn argv), so a respawn lands where the operator last
+// started. Its lifetime is the server's — the same as the operator window's.
+const OperatorRootOption = "@rk_srv_operator_root"
+
 // OriginOption is the tmux server-scoped user option that stores the full
 // origin string (e.g. "http://127.0.0.1:3001") of the run-kit deployment
 // covering this tmux server. The covering daemon stamps it on every supervisor
@@ -3763,6 +3770,43 @@ func SetServerOrigin(ctx context.Context, server, origin string) error {
 	defer cancel()
 
 	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", OriginOption, origin)
+	return err
+}
+
+// GetOperatorRoot reads this server's last operator launch directory from the
+// server-scoped user option @rk_srv_operator_root.
+//
+// Returns ("", nil) when the option is unset. "Unset" is detected by tmux's
+// stderr ("invalid option"/"unknown option") OR by the dead/absent socket
+// cases (IsServerGone) — all normal first-use states (fresh server, no
+// operator ever launched) that must NOT bubble as errors, exactly mirroring
+// GetServerOrigin's taxonomy. Other subprocess failures propagate as wrapped
+// errors. The stored value is returned verbatim — validation for use as a
+// launch directory (absolute, exists, is a directory) is the caller's job.
+func GetOperatorRoot(ctx context.Context, server string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	out, err := tmuxExecRawServer(ctx, server, "show-option", "-sv", OperatorRootOption)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid option") ||
+			strings.Contains(errMsg, "unknown option") ||
+			IsServerGone(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read %s: %w", OperatorRootOption, err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// SetOperatorRoot writes this server's last operator launch directory to the
+// server-scoped user option @rk_srv_operator_root. Mirrors SetServerOrigin.
+func SetOperatorRoot(ctx context.Context, server, dir string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", OperatorRootOption, dir)
 	return err
 }
 

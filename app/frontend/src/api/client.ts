@@ -523,18 +523,20 @@ export async function sendServerOperatorRequest(
 /**
  * Start the server's operator via POST /api/operator/start — the daemon
  * execs its own binary as `rk operator -L <server> --json` and answers once
- * the receipt line parses. A 409 with code `operator_exists` (an operator
- * appeared between the UI's pre-check and the launch) rejects as an ApiError
- * carrying `code` and `windowId` so callers can treat it as success and
- * navigate to the reported window.
+ * the receipt line parses. The optional `windowId` names the window the user
+ * is viewing; the daemon derives its pane cwd server-side and passes it as
+ * `--dir`, so the operator starts where the user is. A 409 with code
+ * `operator_exists` (an operator appeared between the UI's pre-check and the
+ * launch) rejects as an ApiError carrying `code` and `windowId` so callers
+ * can treat it as success and navigate to the reported window.
  */
 export type OperatorStartResult = { windowId: string; server: string };
 
-export async function startOperator(server: string): Promise<OperatorStartResult> {
+export async function startOperator(server: string, windowId?: string): Promise<OperatorStartResult> {
   const res = await fetch(withServer("/api/operator/start", server), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: "{}",
+    body: JSON.stringify(windowId ? { window: windowId } : {}),
   });
   if (!res.ok) await throwOnError(res);
   return res.json();

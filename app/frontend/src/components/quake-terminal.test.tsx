@@ -395,7 +395,7 @@ describe("QuakeTerminal", () => {
 
     fireEvent.click(button);
     expect(mockStartOperator).toHaveBeenCalledTimes(1);
-    expect(mockStartOperator).toHaveBeenCalledWith("srv1");
+    expect(mockStartOperator).toHaveBeenCalledWith("srv1", undefined);
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("aria-busy", "true");
     expect(button).toHaveTextContent("starting…");
@@ -421,6 +421,19 @@ describe("QuakeTerminal", () => {
     await screen.findByTestId("embedded-terminal");
     expect(screen.queryByTestId("quake-terminal-empty")).toBeNull();
     expect(screen.queryByTestId("quake-terminal-start-operator")).toBeNull();
+  });
+
+  it("Start operator on a same-server terminal route sends the viewed window", async () => {
+    mockStartOperator.mockResolvedValue({ windowId: "@9", server: "srv1" });
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
+    renderQuake({
+      sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({ windowId: "@1" })] }]]]),
+    });
+    openDrawer();
+
+    fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+
+    await waitFor(() => expect(mockStartOperator).toHaveBeenCalledWith("srv1", "@1"));
   });
 
   it("treats a 409 operator_exists as success — no error line, button stays pending", async () => {
@@ -485,7 +498,7 @@ describe("QuakeTerminal", () => {
     openDrawer();
 
     fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
-    expect(mockStartOperator).toHaveBeenCalledWith("a");
+    expect(mockStartOperator).toHaveBeenCalledWith("a", undefined);
     expect(screen.getByTestId("quake-terminal-start-operator")).toHaveTextContent("starting…");
 
     const picker = screen.getByRole("combobox", { name: "Operator server" });
@@ -628,7 +641,7 @@ describe("QuakeTerminal", () => {
     fireEvent.change(picker, { target: { value: "b" } });
     fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
     expect(mockStartOperator).toHaveBeenCalledTimes(2);
-    expect(mockStartOperator).toHaveBeenLastCalledWith("b");
+    expect(mockStartOperator).toHaveBeenLastCalledWith("b", undefined);
     expect(screen.getByTestId("quake-terminal-start-operator")).toBeDisabled();
 
     fireEvent.change(picker, { target: { value: "a" } });

@@ -277,17 +277,23 @@ Send a message into a window's resolved pane — the compose strip's single deli
 
 #### `POST /api/operator/start`
 
-Start the server's operator — the UI door (the quake terminal's Start operator button, the `Operator: Start operator` palette entry) onto the same launch the cron daemon's respawn path runs: the daemon execs its OWN binary (the `resolveSelfPathFn` seam — never a PATH-resolved `rk`) as `rk operator -L <server> --json`, which owns creation, role-stamping, singleton probing, agent resolution, and kickoff delivery. Server scope rides the `?server=` query (`serverFromRequest`); the body is ignored (`{}` by convention).
+Start the server's operator — the UI door (the quake terminal's Start operator button, the `Operator: Start operator` palette entry) onto the same launch the cron daemon's respawn path runs: the daemon execs its OWN binary (the `resolveSelfPathFn` seam — never a PATH-resolved `rk`) as `rk operator -L <server> --json`, which owns creation, role-stamping, singleton probing, agent resolution, and kickoff delivery. Server scope rides the `?server=` query (`serverFromRequest`).
+
+**Request body** (optional): `{ "window": "@7" }` — the id of the window the user is viewing (the Terminal route's window, sent only when its server is the one being started). `{}` or an empty body means "no viewed window". The body carries ONLY the window identity — never a filesystem path.
 
 **Behavior:**
 - One `FetchSessions` pre-check: an existing `role === "operator"` window short-circuits with `409 operator_exists` (the UI hides its Start affordances when an operator exists; this is the race backstop).
+- With a `window` in the body, the daemon looks it up in the already-fetched sessions slice (no second fetch), takes its active-pane cwd (`worktreePath`, from `#{pane_current_path}`), collapses it to the main checkout via `gitinfo.MainWorktreeRoot` (a linked worktree maps to `<repo>`; a non-repo cwd is used verbatim — deterministic, it is where the user is), and appends `--dir <derived>` to the argv: `[rk, operator, -L, server, --dir, <derived>, --json]`. The derived directory must pass an absolute/exists/is-dir pre-check before exec.
+- A well-formed `window` that is not on the server (closed between the click and the request), an empty pane cwd, or a derived directory failing the pre-check degrades to the no-window argv — never a failed start.
+- With no `window`, the argv is unchanged and the CLI's own rule decides: the server's last recorded operator launch directory (`@rk_srv_operator_root`, stamped by `rk operator` on every successful create), else the home directory.
 - The exec runs under a process context DETACHED from the request (90s — the bound the cron respawn uses for the identical launch), so a client disconnect never kills the launch.
 - The handler answers as soon as the CLI's `--json` receipt line (`{"ok":true,"result":{"window","server","created"}}`) parses off stdout (30s bound): `rk operator` prints the receipt right after creating and role-stamping the window, before its best-effort kickoff delivery, so waiting for exit would make the button feel hung. The process finishes its kickoff after the response; a non-zero exit is logged, not surfaced.
 - On a created receipt the SSE hub is woken for the server so the new window paints in one tick.
-- Constitution I: argv slice, bounded contexts; `server` is validated by `serverFromRequest`. Constitution IX: a mutation ⇒ POST.
+- Constitution I: argv slice, bounded contexts; `server` is validated by `serverFromRequest`, and the only client-supplied field is a `validate.ValidateWindowID`-checked window id. Constitution IX: a mutation ⇒ POST.
 
 **Responses:**
 - `202` `{ "windowId": "@7", "server": "default" }` — the receipt's `created: true`
+- `400` `{ "error": "…" }` — malformed JSON body, or a `window` value that is not a well-formed window id
 - `409` `{ "error": "operator already present", "code": "operator_exists", "windowId": "@7" }` — the pre-check found an operator, or the receipt reported `created: false` (a race the pre-check missed); the UI treats it as success
 - `502` `{ "error": "<first non-empty stderr line>" }` — non-zero exit before a receipt (e.g. the CLI's `fab` precondition failure)
 - `504` `{ "error": "operator start timed out" }` — no receipt within the 30s bound; the process is killed

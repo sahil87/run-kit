@@ -451,8 +451,11 @@ describe("useGlobalPaletteActions — operator page entries", () => {
     { name: "_rk-operator", hidden: true, windows: [win({ windowId: "@9", name: "operator", role: "operator" })] },
   ];
 
-  function renderWithSessions(sessionsByServer: Map<string, ProjectSession[]>) {
-    mockMatches = [{ params: { server: "srv1" } }];
+  function renderWithSessions(
+    sessionsByServer: Map<string, ProjectSession[]>,
+    matches?: Array<{ params: Record<string, string> }>,
+  ) {
+    mockMatches = matches ?? [{ params: { server: "srv1" } }];
     render(
       <ToastProvider>
         <ChromeProvider>
@@ -508,7 +511,16 @@ describe("useGlobalPaletteActions — operator page entries", () => {
         params: { server: "srv1", window: "@7" },
       }),
     );
-    expect(mockStartOperator).toHaveBeenCalledWith("srv1");
+    expect(mockStartOperator).toHaveBeenCalledWith("srv1", undefined);
+  });
+
+  it("Start operator on a same-server terminal route posts the viewed window", async () => {
+    mockStartOperator.mockResolvedValue({ windowId: "@7", server: "srv1" });
+    renderWithSessions(new Map([["srv1", NO_OPERATOR]]), [{ params: { server: "srv1", window: "@1" } }]);
+
+    act(() => captured.find((a) => a.id === "operator-start")?.onSelect());
+
+    await waitFor(() => expect(mockStartOperator).toHaveBeenCalledWith("srv1", "@1"));
   });
 
   it("lists Operator: Open as tab only while the machine is open with a resolved target, after the pin entry", () => {

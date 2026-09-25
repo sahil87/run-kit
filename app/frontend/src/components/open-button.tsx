@@ -15,6 +15,7 @@ import {
 } from "@/lib/open-in-app";
 import { Tip } from "@/components/tip";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useOccludes } from "@/hooks/use-occludes";
 import { formatCombo } from "@/lib/keybindings";
 
 /**
@@ -79,6 +80,10 @@ export function OpenButton({
       document.removeEventListener("keydown", handleKey, { capture: true });
     };
   }, [open]);
+
+  // Menus register `transient` (overlay-presence): while open, a native guest
+  // composited above the DOM hides so the menu never paints underneath it.
+  useOccludes("transient", open);
 
   if (targets.length === 0) return null;
 

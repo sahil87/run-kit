@@ -129,8 +129,11 @@ const layoutspecSingleWeb = "web"
 
 // MaxWebTabs bounds the indexed @rk_win_web_<n> family: ListWindows reads
 // options through one fixed tmux format string, which cannot enumerate a
-// family, so the URL slots are spelled out 1..MaxWebTabs.
-const MaxWebTabs = 8
+// family, so the URL slots are spelled out 1..MaxWebTabs. Every positional
+// field offset after the slots derives from this constant (the
+// listWindows*Field / layoutWindow*Field constants beside the two fixed-format
+// parsers), so raising the cap stays a one-line change.
+const MaxWebTabs = 16
 
 // WebTabOption returns "@rk_win_web_<n>" (1 ≤ n ≤ MaxWebTabs); panics outside
 // the range — callers validate first, the bound is a programming contract, not
@@ -1585,23 +1588,43 @@ func clampWebActive(raw string, tabs int) int {
 	return n
 }
 
+// Positional field indices (0-based) of the ListWindows format string,
+// derived from MaxWebTabs so a cap raise stays a one-line change. The format
+// builder (ListWindows) spells the same order: listWindowsFixedPrefix fixed
+// fields, the MaxWebTabs URL slots, then the trailing fields below, with the
+// legacy note always LAST (its free-text tail is rejoined by parseWindows).
+const (
+	listWindowsFixedPrefix     = 9
+	listWindowsWebActiveField  = listWindowsFixedPrefix + MaxWebTabs
+	listWindowsCodeRootField   = listWindowsWebActiveField + 1
+	listWindowsMarkerField     = listWindowsWebActiveField + 2
+	listWindowsRoleField       = listWindowsWebActiveField + 3
+	listWindowsFlairField      = listWindowsWebActiveField + 4
+	listWindowsOwnerField      = listWindowsWebActiveField + 5
+	listWindowsNoteField       = listWindowsWebActiveField + 6
+	listWindowsLegacyURLField  = listWindowsWebActiveField + 7
+	listWindowsLegacyLensField = listWindowsWebActiveField + 8
+	listWindowsLegacyNoteField = listWindowsWebActiveField + 9
+)
+
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
 // nowUnix is the current Unix timestamp for activity threshold computation.
-// Lines have 25 tab-delimited fields plus the legacy-note tail: window_id,
-// window_index, window_name, pane_current_path, window_activity,
-// window_active, pane_current_command, @rk_win_color, @rk_win_layout,
-// @rk_win_web_1 .. @rk_win_web_8, @rk_win_web_active, @rk_win_code_root,
-// @rk_win_marker, @rk_win_role, @rk_win_flair, @rk_win_owner, then
-// @rk_win_note as a STRICT SINGLE FIELD, then the retired @rk_win_url
-// (dual-read web_1 fallback), the retired @rk_win_lens (dual-read web-leaf
-// layout fallback), then the legacy note LAST. Lines with fewer than 8 fields
-// are skipped; fields 8+ are optional (empty string if absent). The web-tab
-// slots read dense (walk 1..8, stop at the first empty) and web_active
-// degrades (non-numeric/out-of-range clamps per clampWebActive, never an
-// error). The note is dual-read: the new field wins when non-empty, else the
-// legacy note, whose free-text tail is rejoined (tabs inside it would
-// otherwise shift sibling columns); the new note rides one field because
-// write-side validation strips control chars.
+// Lines carry listWindowsFixedPrefix + MaxWebTabs + 9 tab-delimited fields
+// plus the legacy-note tail: window_id, window_index, window_name,
+// pane_current_path, window_activity, window_active, pane_current_command,
+// @rk_win_color, @rk_win_layout, @rk_win_web_1 .. @rk_win_web_<MaxWebTabs>,
+// @rk_win_web_active, @rk_win_code_root, @rk_win_marker, @rk_win_role,
+// @rk_win_flair, @rk_win_owner, then @rk_win_note as a STRICT SINGLE FIELD,
+// then the retired @rk_win_url (dual-read web_1 fallback), the retired
+// @rk_win_lens (dual-read web-leaf layout fallback), then the legacy note
+// LAST. Lines with fewer than 8 fields are skipped; fields 8+ are optional
+// (empty string if absent). The web-tab slots read dense (walk
+// 1..MaxWebTabs, stop at the first empty) and web_active degrades
+// (non-numeric/out-of-range clamps per clampWebActive, never an error). The
+// note is dual-read: the new field wins when non-empty, else the legacy note,
+// whose free-text tail is rejoined (tabs inside it would otherwise shift
+// sibling columns); the new note rides one field because write-side
+// validation strips control chars.
 // Exported for testing.
 func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	var windows []WindowInfo
@@ -1633,36 +1656,36 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		var webTabs []string
 		var webActive int
 		var codeRoot string
-		if len(parts) >= 9 {
-			layout = strings.TrimSpace(parts[8])
+		if len(parts) >= listWindowsFixedPrefix {
+			layout = strings.TrimSpace(parts[listWindowsFixedPrefix-1])
 		}
 		// The web slots are positional: a shorter line carries only its leading
 		// slots — walk what is present (denseWebTabs stops at the first empty).
-		if len(parts) > 9 {
-			end := min(17, len(parts))
-			webTabs = denseWebTabs(parts[9:end])
+		if len(parts) > listWindowsFixedPrefix {
+			end := min(listWindowsWebActiveField, len(parts))
+			webTabs = denseWebTabs(parts[listWindowsFixedPrefix:end])
 		}
 		var activeRaw string
-		if len(parts) >= 18 {
-			activeRaw = parts[17]
+		if len(parts) > listWindowsWebActiveField {
+			activeRaw = parts[listWindowsWebActiveField]
 		}
 		webActive = clampWebActive(activeRaw, len(webTabs))
-		if len(parts) >= 19 {
-			codeRoot = strings.TrimSpace(parts[18])
+		if len(parts) > listWindowsCodeRootField {
+			codeRoot = strings.TrimSpace(parts[listWindowsCodeRootField])
 		}
 
 		// Marker is a closed-set `<mode>[:<stage>]` token. Legacy flat tokens
 		// normalize forward on read; anything unknown drops to the unset state.
 		var marker string
-		if len(parts) >= 20 {
-			marker = NormalizeMarker(strings.TrimSpace(parts[19]))
+		if len(parts) > listWindowsMarkerField {
+			marker = NormalizeMarker(strings.TrimSpace(parts[listWindowsMarkerField]))
 		}
 
 		// Role is a closed-set token ("operator"); drop any value outside the
 		// set (including "") to the empty unset state. Same idiom as Marker.
 		var role string
-		if len(parts) >= 21 {
-			if r := strings.TrimSpace(parts[20]); validate.RoleValues[r] {
+		if len(parts) > listWindowsRoleField {
+			if r := strings.TrimSpace(parts[listWindowsRoleField]); validate.RoleValues[r] {
 				role = r
 			}
 		}
@@ -1671,8 +1694,8 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		// value outside the set (including "") to the empty unset state. Same
 		// idiom as Marker.
 		var flair string
-		if len(parts) >= 22 {
-			if f := strings.TrimSpace(parts[21]); validate.FlairValues[f] {
+		if len(parts) > listWindowsFlairField {
+			if f := strings.TrimSpace(parts[listWindowsFlairField]); validate.FlairValues[f] {
 				flair = f
 			}
 		}
@@ -1680,45 +1703,45 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		// Owner is a closed-set token ("operator"); unknown non-empty tokens
 		// drop to the empty unset state. Same idiom as Marker.
 		var owner string
-		if len(parts) >= 23 {
-			if o := strings.TrimSpace(parts[22]); validate.OwnerValues[o] {
+		if len(parts) > listWindowsOwnerField {
+			if o := strings.TrimSpace(parts[listWindowsOwnerField]); validate.OwnerValues[o] {
 				owner = o
 			}
 		}
 
 		// Note is free text ("<epoch>:<text>"), NOT a closed set — no value
-		// validation. Dual-read: the new note is a strict single field (idx
-		// 23 — joining is WRONG for it) and wins when non-empty; the legacy
-		// note is the format's last column, so its tail is rejoined to survive
-		// tabs inside the text. Tolerant epoch split: a non-numeric prefix
-		// keeps the whole value as text with epoch 0.
+		// validation. Dual-read: the new note is a strict single field (joining
+		// is WRONG for it) and wins when non-empty; the legacy note is the
+		// format's last column, so its tail is rejoined to survive tabs inside
+		// the text. Tolerant epoch split: a non-numeric prefix keeps the whole
+		// value as text with epoch 0.
 		var note string
 		var noteEpoch int64
 		var rawNote string
-		if len(parts) >= 24 {
-			rawNote = parts[23]
+		if len(parts) > listWindowsNoteField {
+			rawNote = parts[listWindowsNoteField]
 		}
-		// Retired @rk_win_url (idx 24) is the dual-read fallback for an empty
-		// slot 1: external writers may still stamp it live, where the
-		// once-per-server sweep cannot see it, so the family surfaces it as web_1
-		// with the active pointer defaulted — the same shape a first WebAdd
-		// produces. Compat until the cleanup change removes the fallback.
-		if len(webTabs) == 0 && len(parts) >= 25 {
-			if legacyURL := strings.TrimSpace(parts[24]); legacyURL != "" {
+		// Retired @rk_win_url is the dual-read fallback for an empty slot 1:
+		// external writers may still stamp it live, where the once-per-server
+		// sweep cannot see it, so the family surfaces it as web_1 with the
+		// active pointer defaulted — the same shape a first WebAdd produces.
+		// Compat until the cleanup change removes the fallback.
+		if len(webTabs) == 0 && len(parts) > listWindowsLegacyURLField {
+			if legacyURL := strings.TrimSpace(parts[listWindowsLegacyURLField]); legacyURL != "" {
 				webTabs = []string{legacyURL}
 				webActive = 1
 			}
 		}
-		// Retired @rk_win_lens (idx 25): "iframe" was the web default-view hint;
-		// with @rk_win_layout unset it reads as the web-leaf layout the
-		// migration row would write — the same live-stamp dual-read as web_1.
-		if layout == "" && len(parts) >= 26 {
-			if legacyLens := strings.TrimSpace(parts[25]); legacyLens == "iframe" {
+		// Retired @rk_win_lens: "iframe" was the web default-view hint; with
+		// @rk_win_layout unset it reads as the web-leaf layout the migration row
+		// would write — the same live-stamp dual-read as web_1.
+		if layout == "" && len(parts) > listWindowsLegacyLensField {
+			if legacyLens := strings.TrimSpace(parts[listWindowsLegacyLensField]); legacyLens == "iframe" {
 				layout = layoutspecSingleWeb
 			}
 		}
-		if rawNote == "" && len(parts) >= 27 {
-			rawNote = strings.Join(parts[26:], listDelim)
+		if rawNote == "" && len(parts) > listWindowsLegacyNoteField {
+			rawNote = strings.Join(parts[listWindowsLegacyNoteField:], listDelim)
 		}
 		if rawNote != "" {
 			note, noteEpoch = parseNoteValue(rawNote)

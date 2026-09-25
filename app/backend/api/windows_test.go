@@ -1673,10 +1673,11 @@ func TestWindowOptionsNoteUnset(t *testing.T) {
 
 // --- Indexed web-tab family tests (@rk_win_web_<n> / _active / _layout / _code_root) ---
 
-// Out-of-range and malformed indexed keys are NOT allowlisted: @rk_win_web_9,
-// the slot-0 form, and the _root twin all 400 with zero tmux calls.
+// Out-of-range and malformed indexed keys are NOT allowlisted: the slot above
+// MaxWebTabs, the slot-0 form, and the _root twin all 400 with zero tmux
+// calls.
 func TestWindowOptionsWebSlotOutOfRangeRejected(t *testing.T) {
-	for _, key := range []string{"@rk_win_web_9", "@rk_win_web_0", "@rk_win_web_1_root"} {
+	for _, key := range []string{fmt.Sprintf("@rk_win_web_%d", tmux.MaxWebTabs+1), "@rk_win_web_0", "@rk_win_web_1_root"} {
 		ops := &mockTmuxOps{}
 		rec := postOptions(t, ops, "@0", fmt.Sprintf(`{"options":{%q:"/proxy/1/"}}`, key))
 		if rec.Code != http.StatusBadRequest {

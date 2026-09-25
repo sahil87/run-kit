@@ -6,14 +6,23 @@
  *
  * - The guest view is a NATIVE LAYER composited above the SPA's DOM (a
  *   sibling of the host view on the window's `contentView`): nothing the SPA
- *   draws can appear over it, so the engine hides it while a modal-class
- *   overlay is open, while the chrome's error surface is up (`tileError`), and
+ *   draws can appear over it, so the engine hides it while an occluding
+ *   overlay is open (modal-class surfaces and click-opened menus/popovers),
+ *   while the chrome's error surface is up (`tileError`), and
  *   keeps the placeholder painted underneath.
  * - The relay subscription MUST be disposed with the engine — a listener
  *   that outlives its mount re-fires every relayed event once per leak. The
  *   bridge's `onEvent` returns the disposer and this engine's mount-effect
  *   cleanup calls it; events are demuxed by `tabKey` before any state
  *   update.
+ * - Retention: unmount PARKS the guest (hidden, renderer alive) keyed by the
+ *   stable identity sent at create — a same-identity remount ADOPTS it (the
+ *   shell re-reports title/favicon/url/loading through the normal relay, so
+ *   no SPA-side adopt path exists beyond subscribing before create). Only
+ *   the chrome knows when a tab DIES (close, URL-slot rewrite), so the
+ *   registered handle's `destroy` verb destroys immediately AND suppresses
+ *   the cleanup's park; an older shell without `web.park` destroys on
+ *   unmount exactly as before retention.
  * - Mid-drag rule depends on the drag posture: a sash/intersection drag
  *   (`resize`) live-resizes — bounds go out on every animation frame and the
  *   guest is never hidden; a tile header drag (`move`) HIDES the guest for
@@ -38,6 +47,7 @@
  */
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useSyncExternalStore } from "react";
 import {
+  canParkShellWebView,
   createShellWebView,
   destroyShellWebView,
   findShellWebView,
@@ -45,6 +55,7 @@ import {
   goForwardShellWebView,
   onShellWebEvent,
   openShellWebViewDevTools,
+  parkShellWebView,
   reloadShellWebView,
   setShellWebViewBounds,
   setShellWebViewChords,
@@ -55,7 +66,7 @@ import {
   type ShellWebEvent,
   type ShellWebRect,
 } from "@/lib/shell";
-import { isModalOpen, subscribe } from "@/lib/overlay-presence";
+import { isOccludingOpen, subscribe } from "@/lib/overlay-presence";
 import { useTileDragPosture } from "@/lib/tile-drag-context";
 import { toNativeSrc } from "@/lib/web-url";
 import {
@@ -115,6 +126,7 @@ export function WebFrameNative({
   interactRef,
   onZoomStep,
   chordTable,
+  retentionScope,
 }: WebFrameEngineProps) {
   const placeholderRef = useRef<HTMLDivElement>(null);
   const tabKeyRef = useRef<string | null>(null);
@@ -122,6 +134,18 @@ export function WebFrameNative({
     tabKeyRef.current = `web-${++mountSeq}`;
   }
   const tabKey = tabKeyRef.current;
+
+  // The stable retention identity: names "this web tab as shown in this
+  // desktop window" — the desktop window + host are prefixed main-side (from
+  // the sender's host view), so the SPA side is the tmux server + tmux window
+  // id + the SLOT url, NUL-joined (the faviconFailureKey separator — none of
+  // the three fields can carry a NUL). The slot prop, never the tracked
+  // location: a guest's in-page navigation must not change its identity. No
+  // scope ⇒ no identity ⇒ the guest can never park (main destroys
+  // identity-less entries).
+  const identity = retentionScope
+    ? `${retentionScope.server}\u0000${retentionScope.windowId}\u0000${url}`
+    : undefined;
 
   // The create issues a load, so the engine reports loading until the relay
   // says otherwise.
@@ -180,7 +204,8 @@ export function WebFrameNative({
   }, [tabKey]);
 
   // Mount effect (mount-scoped — the chrome re-keys by url, so a url change
-  // is a remount): subscribe FIRST so no early relay is missed, then query
+  // is a remount): subscribe FIRST so no early relay is missed (an adopt's
+  // state replay lands immediately after the create resolves), then query
   // the host's web mode and create the guest with the mode-aware load target
   // (literal loopback URLs in `direct`/`proxy`; today's host-absolute
   // `/proxy/N` form in `legacy`), then register the command handle. The
@@ -188,6 +213,9 @@ export function WebFrameNative({
   // unmount during the mode await must not create a guest.
   useEffect(() => {
     let cancelled = false;
+    // Set when the chrome destroys this tab through the handle (tab close /
+    // URL-slot rewrite): the cleanup must NOT park a tab that is gone.
+    let chromeDestroyed = false;
     const dispose = onShellWebEvent((event: ShellWebEvent) => {
       // Demux before ANY state update: an event for another tab is dropped.
       if (event.tabKey !== tabKey) return;
@@ -260,10 +288,12 @@ export function WebFrameNative({
       } catch {
         absoluteUrl = url;
       }
-      const created = await createShellWebView(tabKey, absoluteUrl);
-      // Unmounted while the create was in flight: the cleanup's destroy ran
+      const created = await createShellWebView(tabKey, absoluteUrl, identity);
+      // Unmounted while the create was in flight: the cleanup's park ran
       // before the guest existed ("Unknown tab"), so destroy the guest the
-      // late create just orphaned instead of leaking a renderer.
+      // late create just orphaned instead of leaking a renderer (destroy,
+      // not park: the unmount may have been a chrome-issued tab death — a
+      // tab that is gone must not land in the parked set).
       if (cancelled) {
         if (created) void destroyShellWebView(tabKey);
         return;
@@ -295,18 +325,30 @@ export function WebFrameNative({
         setFind(null);
       },
       openDevTools: () => void openShellWebViewDevTools(tabKey),
+      destroy: () => {
+        chromeDestroyed = true;
+        void destroyShellWebView(tabKey);
+      },
     });
     return () => {
       cancelled = true;
       unregisterHandle(url);
-      void destroyShellWebView(tabKey);
+      // Unmount PARKS (the tile went away; a same-identity remount adopts);
+      // only a chrome-issued destroy — a tab that is GONE — skips it, its
+      // destroy already on the wire. An older shell without park keeps the
+      // pre-retention behavior (destroy), as does an identity-less guest
+      // main-side.
+      if (!chromeDestroyed) {
+        if (canParkShellWebView()) void parkShellWebView(tabKey);
+        else void destroyShellWebView(tabKey);
+      }
       dispose();
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
-  }, [url, tabKey, registerHandle, unregisterHandle, interactRef]);
+  }, [url, tabKey, identity, registerHandle, unregisterHandle, interactRef]);
 
   // Zoom application: the INITIAL factor is sent by the mount effect after
   // the create resolves (a mount-time send races the guest's existence), so
@@ -361,10 +403,10 @@ export function WebFrameNative({
     if (active) measure();
   }, [active, measure]);
 
-  // Hide while a MODAL-class overlay is open (the guest is composited above
-  // the DOM — a palette or dialog would render underneath it); transient
-  // overlays never hide it.
-  const modalOpen = useSyncExternalStore(subscribe, isModalOpen, () => false);
+  // Hide while an occluding overlay is open (the guest is composited above
+  // the DOM — a palette, dialog, or click-opened menu would render underneath
+  // it). Tooltips and hover flyouts register nothing and never hide it.
+  const overlayOpen = useSyncExternalStore(subscribe, isOccludingOpen, () => false);
 
   // Live resize while a SASH drag runs (posture `resize`): a rAF loop sends
   // deduped bounds every frame for the drag's duration; the resize → idle
@@ -394,7 +436,7 @@ export function WebFrameNative({
   // composited guest would paint over it; the show effect re-measures on the
   // move → idle edge before re-showing.
   const wantVisible =
-    active && !modalOpen && rectNonZero && tileError === null && posture !== "move";
+    active && !overlayOpen && rectNonZero && tileError === null && posture !== "move";
   useEffect(() => {
     if (lastSentVisibleRef.current === wantVisible) return;
     // Bounds precede the show (the shell also applies parked bounds on show;

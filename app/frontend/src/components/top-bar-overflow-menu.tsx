@@ -23,6 +23,7 @@ import { requestQuakeTerminal } from "@/lib/quake-terminal";
 import { HELP_TOPICS, openHelpTopic } from "@/lib/help-topics";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useOccludes } from "@/hooks/use-occludes";
 import { formatCombo } from "@/lib/keybindings";
 import { controlClass } from "./control";
 import {
@@ -297,6 +298,9 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
   const { runUpdateCheck, checking } = useUpdateCheck();
 
   const [open, setOpen] = useState(false);
+  // Menus register `transient` (overlay-presence): while open, a native guest
+  // composited above the DOM hides so the menu never paints underneath it.
+  useOccludes("transient", open);
   // True once the version row currently holds keyboard focus — drives its roving
   // tabIndex (it is the only always-present focusable, so it owns the initial
   // tab stop until arrow-nav moves focus into an overflowed row).

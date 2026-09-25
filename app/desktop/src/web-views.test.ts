@@ -9,12 +9,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   addWebView,
+  adoptParkedWebView,
   emptyWebViews,
+  findWebViewByContents,
   findWebViewBySender,
   getWebView,
   hostAttachPlan,
   hostDetachPlan,
   isGuestContents,
+  PARKED_WEB_VIEW_CAP,
+  parkWebView,
   removeHostWebViews,
   removeHostWebViewsEverywhere,
   removeWebView,
@@ -22,6 +26,7 @@ import {
   setWebViewBounds,
   setWebViewChords,
   setWebViewVisible,
+  setWebViewZoomFactor,
   WebViewsState,
 } from "./web-views";
 
@@ -358,4 +363,299 @@ test("setWebViewChords records the table; an unknown key is a no-op", () => {
   const before = state;
   assert.equal(setWebViewChords(state, 99, "t1", chords), before);
   assert.equal(setWebViewChords(state, 11, "nope", chords), before);
+});
+
+// ── zoom factor record ──────────────────────────────────────────────────────
+
+test("addWebView seeds zoomFactor 1; setWebViewZoomFactor records it and no-ops on an unknown key", () => {
+  let state = seeded();
+  assert.equal(getWebView(state, 11, "t1")?.zoomFactor, 1);
+  state = setWebViewZoomFactor(state, 11, "t1", 1.5);
+  assert.equal(getWebView(state, 11, "t1")?.zoomFactor, 1.5);
+  assert.equal(getWebView(state, 12, "t1")?.zoomFactor, 1); // sibling untouched
+  assert.equal(setWebViewZoomFactor(state, 99, "t1", 2), state);
+});
+
+// ── park / adopt / LRU (the retention set) ──────────────────────────────────
+
+/** A mounted entry WITH a retention identity under (WIN1, host-a, contents 11). */
+function seededIdentified(identity = "id-1", tabKey = "t1", webContentsId = 101): WebViewsState<string> {
+  let state = emptyWebViews<string>();
+  state = addWebView(state, {
+    windowId: WIN1,
+    hostId: "host-a",
+    hostContentsId: 11,
+    tabKey,
+    webContentsId,
+    handle: `guest-${tabKey}`,
+    identity,
+  });
+  return state;
+}
+
+test("parkWebView moves the entry to the parked set; an unknown key or an identity-less entry is a no-op", () => {
+  let state = seededIdentified();
+  state = setWebViewBounds(state, 11, "t1", { x: 10, y: 20, width: 300, height: 200 });
+  state = setWebViewZoomFactor(state, 11, "t1", 1.25);
+  const { state: parkedState, parked, evicted } = parkWebView(state, 11, "t1");
+  assert.ok(parked);
+  assert.equal(parked.identity, "id-1");
+  assert.equal(parked.tabKey, "t1");
+  assert.deepEqual(evicted, []);
+  assert.equal(getWebView(parkedState, 11, "t1"), null);
+  assert.equal(parkedState.entries.length, 0);
+  assert.equal(parkedState.parked.length, 1);
+  // The retained record survives whole — bounds, zoom, visible flag included.
+  assert.deepEqual(parkedState.parked[0]?.bounds, { x: 10, y: 20, width: 300, height: 200 });
+  assert.equal(parkedState.parked[0]?.zoomFactor, 1.25);
+  assert.equal(parkedState.parked[0]?.visible, true);
+
+  assert.deepEqual(parkWebView(state, 99, "t1"), { state, parked: null, evicted: [] });
+  // No identity → cannot park (the caller takes the destroy path).
+  assert.deepEqual(parkWebView(seeded(), 11, "t1"), {
+    state: seeded(),
+    parked: null,
+    evicted: [],
+  });
+});
+
+test("adoptParkedWebView rebinds an identity match to the new tabKey/hostContentsId", () => {
+  let state = seededIdentified();
+  state = setWebViewBounds(state, 11, "t1", { x: 10, y: 20, width: 300, height: 200 });
+  state = setWebViewChords(state, 11, "t1", [
+    { code: "KeyK", ctrl: true, meta: false, shift: false, alt: false },
+  ]);
+  state = setWebViewZoomFactor(state, 11, "t1", 0.8);
+  state = setWebViewVisible(state, 11, "t1", false);
+  state = parkWebView(state, 11, "t1").state;
+
+  const { state: adoptedState, adopted } = adoptParkedWebView(
+    state,
+    WIN1,
+    "host-a",
+    "id-1",
+    33, // a new host webContents
+    "t2", // a fresh per-mount tabKey
+  );
+  assert.ok(adopted);
+  assert.equal(adopted.tabKey, "t2");
+  assert.equal(adopted.hostContentsId, 33);
+  assert.equal(adopted.webContentsId, 101); // the same guest, never recreated
+  assert.equal(adopted.identity, "id-1"); // kept — a later re-park needs it
+  assert.deepEqual(adopted.bounds, { x: 10, y: 20, width: 300, height: 200 });
+  assert.equal(adopted.chords.length, 1);
+  assert.equal(adopted.zoomFactor, 0.8);
+  assert.equal(adopted.visible, false); // the SPA-requested flag survives parking
+  assert.equal(adoptedState.parked.length, 0);
+  assert.ok(getWebView(adoptedState, 33, "t2"));
+  assert.equal(getWebView(adoptedState, 11, "t1"), null);
+  // findWebViewByContents resolves the adopted entry by its stable guest id.
+  assert.equal(findWebViewByContents(adoptedState, 101)?.tabKey, "t2");
+});
+
+test("adoptParkedWebView on no match is a no-op returning null", () => {
+  const state = parkWebView(seededIdentified(), 11, "t1").state;
+  for (const [windowId, hostId, identity] of [
+    [WIN1, "host-a", "id-other"], // identity mismatch
+    [WIN2, "host-a", "id-1"], // the same identity in ANOTHER window
+    [WIN1, "host-b", "id-1"], // the same identity under ANOTHER host
+  ] as const) {
+    const { state: next, adopted } = adoptParkedWebView(state, windowId, hostId, identity, 11, "t2");
+    assert.equal(adopted, null);
+    assert.equal(next, state);
+  }
+});
+
+test("the parked set is scoped per (window, host): the same identity parks once per scope", () => {
+  let state = emptyWebViews<string>();
+  for (const [windowId, hostId, hostContentsId, webContentsId] of [
+    [WIN1, "host-a", 11, 101],
+    [WIN2, "host-a", 21, 201],
+  ] as const) {
+    state = addWebView(state, {
+      windowId,
+      hostId,
+      hostContentsId,
+      tabKey: "t1",
+      webContentsId,
+      handle: `guest-${webContentsId}`,
+      identity: "id-shared",
+    });
+    state = parkWebView(state, hostContentsId, "t1").state;
+  }
+  assert.equal(state.parked.length, 2); // no cross-scope collision
+  // Adopting in WIN2 leaves the WIN1 parked entry alone.
+  const { state: next, adopted } = adoptParkedWebView(state, WIN2, "host-a", "id-shared", 22, "t9");
+  assert.equal(adopted?.webContentsId, 201);
+  assert.equal(next.parked.length, 1);
+  assert.equal(next.parked[0]?.webContentsId, 101);
+});
+
+test("parking a second entry under an already-parked key evicts (replaces) the stale one", () => {
+  let state = seededIdentified("id-1", "t1", 101);
+  state = parkWebView(state, 11, "t1").state;
+  // A second guest with the SAME identity mounted alongside (never adopted
+  // because the first was still parked when it created) then parks too.
+  state = addWebView(state, {
+    windowId: WIN1,
+    hostId: "host-a",
+    hostContentsId: 11,
+    tabKey: "t2",
+    webContentsId: 102,
+    handle: "guest-t2",
+    identity: "id-1",
+  });
+  const { state: next, parked, evicted } = parkWebView(state, 11, "t2");
+  assert.equal(parked?.webContentsId, 102);
+  assert.deepEqual(
+    evicted.map((e) => e.webContentsId),
+    [101],
+  );
+  assert.equal(next.parked.length, 1);
+  assert.equal(next.parked[0]?.webContentsId, 102);
+});
+
+test("LRU: parking past PARKED_WEB_VIEW_CAP evicts the least-recently-parked; mounted views never count", () => {
+  assert.equal(PARKED_WEB_VIEW_CAP, 4);
+  let state = emptyWebViews<string>();
+  // Four MOUNTED entries parked one by one, plus one mounted entry that never
+  // parks — it must not count toward the cap.
+  state = addWebView(state, {
+    windowId: WIN1,
+    hostId: "host-a",
+    hostContentsId: 11,
+    tabKey: "mounted",
+    webContentsId: 900,
+    handle: "guest-mounted",
+    identity: "id-mounted",
+  });
+  for (let n = 1; n <= PARKED_WEB_VIEW_CAP; n += 1) {
+    state = addWebView(state, {
+      windowId: WIN1,
+      hostId: "host-a",
+      hostContentsId: 11,
+      tabKey: `t${n}`,
+      webContentsId: n,
+      handle: `guest-${n}`,
+      identity: `id-${n}`,
+    });
+    const result = parkWebView(state, 11, `t${n}`);
+    assert.deepEqual(result.evicted, []); // at or under the cap — no eviction
+    state = result.state;
+  }
+  assert.equal(state.parked.length, PARKED_WEB_VIEW_CAP);
+  // The fifth park evicts the least-recently-parked (id-1).
+  state = addWebView(state, {
+    windowId: WIN1,
+    hostId: "host-a",
+    hostContentsId: 11,
+    tabKey: "t5",
+    webContentsId: 5,
+    handle: "guest-5",
+    identity: "id-5",
+  });
+  const { state: capped, evicted } = parkWebView(state, 11, "t5");
+  assert.deepEqual(
+    evicted.map((e) => e.identity),
+    ["id-1"],
+  );
+  assert.deepEqual(
+    capped.parked.map((e) => e.identity),
+    ["id-2", "id-3", "id-4", "id-5"],
+  );
+  assert.ok(getWebView(capped, 11, "mounted")); // the mounted entry is untouched
+});
+
+test("LRU: an adopt + re-park makes the entry the most-recently-parked", () => {
+  let state = emptyWebViews<string>();
+  for (let n = 1; n <= PARKED_WEB_VIEW_CAP; n += 1) {
+    state = addWebView(state, {
+      windowId: WIN1,
+      hostId: "host-a",
+      hostContentsId: 11,
+      tabKey: `t${n}`,
+      webContentsId: n,
+      handle: `guest-${n}`,
+      identity: `id-${n}`,
+    });
+    state = parkWebView(state, 11, `t${n}`).state;
+  }
+  // Adopt id-1 (the LRU head) and re-park it under a new tabKey — it moves to
+  // the recency tail, so id-2 is now the eviction victim.
+  state = adoptParkedWebView(state, WIN1, "host-a", "id-1", 11, "t1b").state;
+  state = parkWebView(state, 11, "t1b").state;
+  state = addWebView(state, {
+    windowId: WIN1,
+    hostId: "host-a",
+    hostContentsId: 11,
+    tabKey: "t5",
+    webContentsId: 5,
+    handle: "guest-5",
+    identity: "id-5",
+  });
+  const { evicted } = parkWebView(state, 11, "t5");
+  assert.deepEqual(
+    evicted.map((e) => e.identity),
+    ["id-2"],
+  );
+});
+
+test("scoped removals return parked entries alongside mounted ones", () => {
+  let state = seededIdentified("id-1", "t1", 101);
+  state = parkWebView(state, 11, "t1").state; // parked under contents 11
+  state = addWebView(state, {
+    windowId: WIN1,
+    hostId: "host-a",
+    hostContentsId: 11,
+    tabKey: "t2",
+    webContentsId: 102,
+    handle: "guest-102",
+    identity: "id-2",
+  });
+  // The host-SPA reload seam: one host webContents loses both.
+  const byHost = removeHostWebViews(state, 11);
+  assert.deepEqual(
+    byHost.removed.map((e) => e.webContentsId),
+    [102, 101],
+  );
+  assert.equal(byHost.state.entries.length, 0);
+  assert.equal(byHost.state.parked.length, 0);
+
+  // The window-close seam.
+  let winState = seededIdentified("id-1", "t1", 101);
+  winState = parkWebView(winState, 11, "t1").state;
+  const byWindow = removeWindowWebViews(winState, WIN1);
+  assert.deepEqual(
+    byWindow.removed.map((e) => e.webContentsId),
+    [101],
+  );
+  assert.equal(byWindow.state.parked.length, 0);
+
+  // The host-removal seam spans windows, parked entries included.
+  let everywhere = emptyWebViews<string>();
+  everywhere = addWebView(everywhere, {
+    windowId: WIN2,
+    hostId: "host-a",
+    hostContentsId: 21,
+    tabKey: "t1",
+    webContentsId: 201,
+    handle: "guest-201",
+    identity: "id-1",
+  });
+  everywhere = parkWebView(everywhere, 21, "t1").state;
+  const byHostEverywhere = removeHostWebViewsEverywhere(everywhere, "host-a");
+  assert.deepEqual(
+    byHostEverywhere.removed.map((e) => e.webContentsId),
+    [201],
+  );
+  assert.equal(byHostEverywhere.state.parked.length, 0);
+});
+
+test("isGuestContents covers parked guests; the attach/detach plans do not", () => {
+  let state = seededIdentified();
+  state = parkWebView(state, 11, "t1").state;
+  assert.equal(isGuestContents(state, 101), true); // still browses as a guest
+  // A parked view must never paint: neither plan lists it.
+  assert.deepEqual(hostDetachPlan(state, WIN1, "host-a"), []);
+  assert.deepEqual(hostAttachPlan(state, WIN1, "host-a"), []);
 });

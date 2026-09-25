@@ -397,7 +397,8 @@ func (s *Server) handleWindowMoveToSession(w http.ResponseWriter, r *http.Reques
 // reach `tmux set-option` — any other client-supplied key is rejected with 400
 // (constitution §I — closed key set bounds the injection/abuse surface, and a
 // closed set is what makes per-key validation possible). The indexed
-// @rk_win_web_<n> slots are matched by webTabIndex rather than eight consts.
+// @rk_win_web_<n> slots are matched by webTabIndex rather than one const per
+// slot.
 // optKeyLegacyURL/optKeyLegacyLens are the retired web option names, accepted
 // for one release and translated onto the web-tab family (see
 // translateLegacyOptionKeys).
@@ -417,9 +418,9 @@ const (
 )
 
 // webTabIndex matches the indexed @rk_win_web_<n> allowlist keys, returning the
-// 1-based slot. Out-of-range slots (@rk_win_web_9), the _root twins, and the
-// _active pointer do NOT match — the pointer has its own const and everything
-// else falls to the unknown-key 400.
+// 1-based slot. Slots above tmux.MaxWebTabs, the _root twins, and the _active
+// pointer do NOT match — the pointer has its own const and everything else
+// falls to the unknown-key 400.
 func webTabIndex(key string) (int, bool) {
 	const prefix = "@rk_win_web_"
 	if !strings.HasPrefix(key, prefix) {

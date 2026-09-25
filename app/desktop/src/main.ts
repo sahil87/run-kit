@@ -150,11 +150,14 @@ import {
 } from "./views";
 import {
   addWebView,
+  adoptParkedWebView,
   emptyWebViews,
+  findWebViewByContents,
   findWebViewBySender,
   hostAttachPlan,
   hostDetachPlan,
   isGuestContents,
+  parkWebView,
   removeHostWebViews,
   removeHostWebViewsEverywhere,
   removeWebView,
@@ -162,6 +165,7 @@ import {
   setWebViewBounds,
   setWebViewChords,
   setWebViewVisible,
+  setWebViewZoomFactor,
   WebViewEntry,
   WebViewsState,
 } from "./web-views";
@@ -571,6 +575,9 @@ const GUEST_BACKGROUND = "#0f1117"; // the host view's boot background
 const GUEST_BORDER_RADIUS_PX = 6;
 /** The SPA's per-tab identity is bounded (the strict badge:set posture). */
 const TAB_KEY_MAX_LENGTH = 128;
+/** The retention identity embeds a slot URL — bounded like the tabKey but
+ *  with URL-length headroom. */
+const WEB_IDENTITY_MAX_LENGTH = 1024;
 /** web:find text bound — the query is renderer-supplied data over IPC. */
 const WEB_FIND_TEXT_MAX_LENGTH = 1024;
 /** web:zoom sanity band — the SPA's zoom ladder is the authority; main only
@@ -1006,8 +1013,9 @@ function createHostView(win: BrowserWindow, hostId: string): WebContentsView {
     fallbackCssKey = null;
     // A host-page navigation discards the SPA renderer that owned this
     // webContents' tabKeys (a reload, the interstitial commit) — its guests
-    // die with it; the fresh SPA re-creates what it mounts. The initial load
-    // fires this with zero guests (a no-op).
+    // die with it, parked ones included (the frames that would adopt them are
+    // gone); the fresh SPA re-creates what it mounts. The initial load fires
+    // this with zero guests (a no-op).
     const { state: afterGuests, removed: guests } = removeHostWebViews(webViews, contents.id);
     webViews = afterGuests;
     for (const guest of guests) destroyWebView(guest);
@@ -1200,27 +1208,53 @@ function destroyWindowViews(windowId: number): void {
 }
 
 /**
+ * Last relayed chrome state per guest webContents id, re-reported to the new
+ * frame on adoption: a parked guest emits no relay events (it is off the
+ * mounted set), so its title/favicon would otherwise be lost to a remounting
+ * frame until the next page event. Keyed by the guest's own webContents id —
+ * stable across park/adopt.
+ */
+const guestChrome = new Map<number, { title: string; favicons: string[] }>();
+
+function recordGuestChrome(
+  webContentsId: number,
+  patch: { title?: string; favicons?: string[] },
+): void {
+  const prev = guestChrome.get(webContentsId) ?? { title: "", favicons: [] };
+  guestChrome.set(webContentsId, { ...prev, ...patch });
+}
+
+/**
  * Relay one guest event to the OWNING host webContents on the single
  * `web:event` channel, demuxed SPA-side by `tabKey`. Skipped silently when
  * the host webContents is gone (a destroyed host's late guest event relays
  * nowhere).
  */
-function wireGuestRelay(contents: WebContents, hostContentsId: number, tabKey: string): void {
+function wireGuestRelay(contents: WebContents): void {
   const relay = (kind: string, extra: Record<string, unknown> = {}): void => {
-    // Only the registry's CURRENT guest for this (host, tabKey) may speak for
-    // it. Teardown unregisters before `webContents.close()`, and a closing
-    // renderer still emits did-stop-loading / did-fail-load / navigation
-    // events — with no identity check a replacement guest created under the
-    // same tabKey (web:create's replace-on-collision) would receive the dead
-    // guest's late events as its own.
-    const current = findWebViewBySender(webViews, hostContentsId, tabKey);
-    if (!current || current.webContentsId !== contents.id) return;
-    const host = webContents.fromId(hostContentsId);
+    // Only the registry's CURRENT entry for this guest may speak. Teardown
+    // unregisters before `webContents.close()`, and a closing renderer still
+    // emits did-stop-loading / did-fail-load / navigation events — with no
+    // identity check a replacement guest created under the same tabKey
+    // (web:create's replace-on-collision) would receive the dead guest's late
+    // events as its own. The lookup keys on the guest's own webContents id —
+    // stable across park/adopt — so an adopted guest relays under its NEW
+    // tabKey to its NEW host webContents, and a parked guest (off the mounted
+    // set) relays nothing.
+    const current = findWebViewByContents(webViews, contents.id);
+    if (!current) return;
+    const host = webContents.fromId(current.hostContentsId);
     if (!host || host.isDestroyed()) return;
-    host.send("web:event", { tabKey, kind, ...extra });
+    host.send("web:event", { tabKey: current.tabKey, kind, ...extra });
   };
-  contents.on("page-title-updated", (_event, title) => relay("title", { title }));
-  contents.on("page-favicon-updated", (_event, favicons) => relay("favicon", { favicons }));
+  contents.on("page-title-updated", (_event, title) => {
+    recordGuestChrome(contents.id, { title });
+    relay("title", { title });
+  });
+  contents.on("page-favicon-updated", (_event, favicons) => {
+    recordGuestChrome(contents.id, { favicons });
+    relay("favicon", { favicons });
+  });
   contents.on("did-start-loading", () => relay("loading", { loading: true }));
   contents.on("did-stop-loading", () => relay("loading", { loading: false }));
   // Subframe and superseded-navigation (ERR_ABORTED) failures are not relayed
@@ -1260,11 +1294,11 @@ function wireGuestRelay(contents: WebContents, hostContentsId: number, tabKey: s
   // document. The registry-current re-check is the relay()'s identity rule:
   // a closing guest's late input must not speak for its replacement.
   contents.on("before-input-event", (event, input) => {
-    const current = findWebViewBySender(webViews, hostContentsId, tabKey);
-    if (!current || current.webContentsId !== contents.id) return;
+    const current = findWebViewByContents(webViews, contents.id);
+    if (!current) return;
     if (!matchChord(input, current.chords)) return;
     event.preventDefault();
-    webContents.fromId(hostContentsId)?.focus();
+    webContents.fromId(current.hostContentsId)?.focus();
     relay("chord", {
       key: input.key,
       code: input.code,
@@ -1295,6 +1329,7 @@ function createWebView(
   viewHost: ViewHost,
   tabKey: string,
   url: string,
+  identity: string | null,
 ): void {
   const view = new WebContentsView({ webPreferences: guestWebPreferences(viewHost) });
   view.setBackgroundColor(GUEST_BACKGROUND);
@@ -1311,9 +1346,47 @@ function createWebView(
     tabKey,
     handle: view,
     webContentsId: view.webContents.id,
+    identity,
   });
-  wireGuestRelay(view.webContents, host.webContentsId, tabKey);
+  wireGuestRelay(view.webContents);
   void view.webContents.loadURL(url);
+}
+
+/**
+ * Adopt a parked guest for a remounting frame (the registry rebind already
+ * happened in the `web:create` handler): re-raise it above the host view
+ * (re-adding an existing child raises it), restore the recorded bounds +
+ * SPA-requested visibility under the painting gate, re-apply the recorded
+ * zoom factor, and re-report the current chrome state — title, favicon,
+ * url with history flags, loading — to the NEW frame over the same
+ * `web:event` shapes wireGuestRelay relays, so the chrome is right without
+ * waiting for a navigation event. The chord table needs no re-send: it lives
+ * on the registry entry the before-input-event matcher reads.
+ */
+function adoptWebView(win: BrowserWindow, entry: WebViewEntry<WebContentsView>): void {
+  win.contentView.addChildView(entry.handle);
+  if (entry.visible && isGuestHostAttached(entry)) {
+    entry.handle.setBounds(entry.bounds);
+    entry.handle.setVisible(true);
+  } else {
+    entry.handle.setVisible(false);
+  }
+  const contents = entry.handle.webContents;
+  contents.setZoomFactor(entry.zoomFactor);
+  const host = webContents.fromId(entry.hostContentsId);
+  if (!host || host.isDestroyed()) return;
+  const send = (kind: string, extra: Record<string, unknown>): void => {
+    host.send("web:event", { tabKey: entry.tabKey, kind, ...extra });
+  };
+  const chrome = guestChrome.get(entry.webContentsId);
+  send("title", { title: chrome?.title ?? contents.getTitle() });
+  send("favicon", { favicons: chrome?.favicons ?? [] });
+  send("url", {
+    url: contents.getURL(),
+    canGoBack: contents.navigationHistory.canGoBack(),
+    canGoForward: contents.navigationHistory.canGoForward(),
+  });
+  send("loading", { loading: contents.isLoading() });
 }
 
 /** The guest's owning host is the one attached in its window. Painting a
@@ -1327,12 +1400,16 @@ function isGuestHostAttached(entry: WebViewEntry<WebContentsView>): boolean {
 /**
  * Destroy one guest: unregister, detach from its window when the window is
  * alive (tolerating a view already off the tree), and close its webContents
- * (never twice). Callers: `web:destroy`, the host webContents `did-navigate`
- * seam in createHostView, destroyHostViews, destroyWindowViews.
+ * (never twice). Callers: `web:destroy`, `web:park`'s identity-less fallback
+ * and LRU evictees, the host webContents `did-navigate` seam in
+ * createHostView, destroyHostViews, destroyWindowViews. The scoped-removal
+ * callers pass already-unregistered entries (parked ones included) — the
+ * removeWebView re-removal is a no-op for them.
  */
 function destroyWebView(entry: WebViewEntry<WebContentsView>): void {
   const { state } = removeWebView(webViews, entry.hostContentsId, entry.tabKey);
   webViews = state;
+  guestChrome.delete(entry.webContentsId);
   const win = windows.get(entry.windowId);
   if (win && !win.isDestroyed()) {
     try {
@@ -2148,24 +2225,41 @@ function isTabKey(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= TAB_KEY_MAX_LENGTH;
 }
 
+/** The retention identity: an opaque non-empty bounded string (it embeds a
+ *  slot URL, so it gets more headroom than a tabKey). */
+function isWebIdentity(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= WEB_IDENTITY_MAX_LENGTH;
+}
+
 function parseWebTabKeyPayload(value: unknown): { tabKey: string } | null {
   if (typeof value !== "object" || value === null) return null;
   if (!("tabKey" in value) || !isTabKey(value.tabKey)) return null;
   return { tabKey: value.tabKey };
 }
 
-function parseWebCreatePayload(value: unknown): { tabKey: string; url: string } | null {
+function parseWebCreatePayload(
+  value: unknown,
+): { tabKey: string; url: string; identity: string | null } | null {
   if (typeof value !== "object" || value === null) return null;
   if (!("tabKey" in value) || !isTabKey(value.tabKey)) return null;
   // Main-initiated loadURL bypasses will-navigate, so the scheme allowlist is
   // enforced HERE — a guest must never be pointed at a non-http(s) URL.
   if (!("url" in value) || typeof value.url !== "string" || !isHttpUrl(value.url)) return null;
-  return { tabKey: value.tabKey, url: value.url };
+  // The retention identity is OPTIONAL: an SPA predating park/adopt never
+  // sends one and simply never parks. A present-but-invalid one is rejected.
+  let identity: string | null = null;
+  if ("identity" in value && value.identity !== undefined) {
+    if (!isWebIdentity(value.identity)) return null;
+    identity = value.identity;
+  }
+  return { tabKey: value.tabKey, url: value.url, identity };
 }
 
-/** web:load carries the same {tabKey, url} shape (and http(s) rule) as web:create. */
+/** web:load carries the {tabKey, url} shape (and http(s) rule) of web:create. */
 function parseWebLoadPayload(value: unknown): { tabKey: string; url: string } | null {
-  return parseWebCreatePayload(value);
+  const parsed = parseWebCreatePayload(value);
+  if (parsed === null) return null;
+  return { tabKey: parsed.tabKey, url: parsed.url };
 }
 
 function parseWebBoundsPayload(
@@ -2587,6 +2681,26 @@ function registerIpcHandlers(): void {
     // double-mount), and a stale guest would leak a renderer.
     const existing = findWebViewBySender(webViews, event.sender.id, parsed.tabKey);
     if (existing) destroyWebView(existing);
+    // Adopt before create: an identity match in the parked set — scoped to
+    // THIS (window, host), derived from the sender's host view — re-binds the
+    // retained guest instead of booting a new renderer. No ensureHostProxy
+    // await: the guest's per-host session proxy settled at its original
+    // create and parked guests die with any host re-point.
+    if (parsed.identity !== null) {
+      const { state, adopted } = adoptParkedWebView(
+        webViews,
+        win.id,
+        host.hostId,
+        parsed.identity,
+        event.sender.id,
+        parsed.tabKey,
+      );
+      if (adopted) {
+        webViews = state;
+        adoptWebView(win, adopted);
+        return { ok: true };
+      }
+    }
     // setProxy is async — settle the host session's proxy config BEFORE the
     // guest's first loadURL, so no guest ever loads unproxied.
     await ensureHostProxy(viewHost);
@@ -2596,7 +2710,7 @@ function registerIpcHandlers(): void {
     if (win.isDestroyed()) return { ok: false, error: "No host view" };
     const raced = findWebViewBySender(webViews, event.sender.id, parsed.tabKey);
     if (raced) destroyWebView(raced);
-    createWebView(win, host, viewHost, parsed.tabKey, parsed.url);
+    createWebView(win, host, viewHost, parsed.tabKey, parsed.url, parsed.identity);
     return { ok: true };
   });
 
@@ -2623,6 +2737,31 @@ function registerIpcHandlers(): void {
     const guest = webSenderGuest(event, parsed.tabKey);
     if (!guest) return { ok: false, error: "Unknown tab" };
     destroyWebView(guest);
+    return { ok: true };
+  });
+
+  // web:park — the tile-unmount retention path: hide the guest (it must never
+  // paint again until adopted — the attach/detach plans skip parked entries)
+  // and move it to the parked set keyed by its retention identity, where a
+  // later web:create with the same identity adopts it. Parking past
+  // PARKED_WEB_VIEW_CAP evicts (destroys) the least-recently-parked guest; a
+  // stale parked entry under the same key is destroyed too. An identity-less
+  // entry cannot park — it takes the pre-park destroy path instead.
+  ipcMain.handle("web:park", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebTabKeyPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    const { state, parked, evicted } = parkWebView(webViews, guest.hostContentsId, guest.tabKey);
+    if (parked === null) {
+      destroyWebView(guest); // no retention identity — the pre-park behavior
+      return { ok: true };
+    }
+    webViews = state;
+    parked.handle.setVisible(false);
+    for (const stale of evicted) destroyWebView(stale);
     return { ok: true };
   });
 
@@ -2751,10 +2890,11 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
 
-  // web:zoom — apply the SPA's zoom bucket to the guest renderer. The SPA
-  // re-sends on every navigation: Chromium's per-host zoom store inside the
-  // guest partition persists and leaks between views, so main never stores or
-  // derives a factor — it only applies what it is handed.
+  // web:zoom — apply the SPA's zoom bucket to the guest renderer and record
+  // it on the entry, so adoption re-applies it after a park. The SPA re-sends
+  // on every navigation: Chromium's per-host zoom store inside the guest
+  // partition persists and leaks between views, so the factor is never
+  // derived main-side — only applied and recorded.
   ipcMain.handle("web:zoom", (event, payload: unknown): IpcResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     if (!webSenderHost(event)) return { ok: false, error: "No host view" };
@@ -2762,6 +2902,7 @@ function registerIpcHandlers(): void {
     if (!parsed) return { ok: false, error: "Invalid request" };
     const guest = webSenderGuest(event, parsed.tabKey);
     if (!guest) return { ok: false, error: "Unknown tab" };
+    webViews = setWebViewZoomFactor(webViews, guest.hostContentsId, guest.tabKey, parsed.factor);
     guest.handle.webContents.setZoomFactor(parsed.factor);
     return { ok: true };
   });

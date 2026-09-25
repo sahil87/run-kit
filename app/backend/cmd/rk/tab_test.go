@@ -665,8 +665,8 @@ func TestTabWebAddFullExitsOne(t *testing.T) {
 	if !strings.Contains(err.Error(), "full") {
 		t.Errorf("err = %v, want a full message", err)
 	}
-	if got := tabWindowOption(t, env.server, env.bootID, tmux.WebTabOption(tmux.MaxWebTabs)); got != "/proxy/8/" {
-		t.Errorf("family changed on a full add: web_8 = %q", got)
+	if got := tabWindowOption(t, env.server, env.bootID, tmux.WebTabOption(tmux.MaxWebTabs)); got != fmt.Sprintf("/proxy/%d/", tmux.MaxWebTabs) {
+		t.Errorf("family changed on a full add: %s = %q", tmux.WebTabOption(tmux.MaxWebTabs), got)
 	}
 }
 

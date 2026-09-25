@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Tip } from "@/components/tip";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useOccludes } from "@/hooks/use-occludes";
 import { formatCombo } from "@/lib/keybindings";
 import {
   leaves,
@@ -95,6 +96,10 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Menus register `transient` (overlay-presence): while open, a native guest
+  // composited above the DOM hides so the menu never paints underneath it.
+  useOccludes("transient", open);
 
   // Outside-mousedown + Escape close (the SplitControl popover pattern);
   // Escape refocuses the trigger.

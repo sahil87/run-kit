@@ -79,20 +79,27 @@ func windowLineLayout(windowID string, index int, name, path string, activityTs 
 		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@rk_win_color*/, listDelim, layout, listDelim, web1)
 }
 
-// windowLineMarker builds a 20-field tab-delimited tmux line including the
-// trailing @rk_win_marker field (@rk_win_color/@rk_win_layout, the web slots,
+// emptyWebSlotFields pads a window-line fixture with MaxWebTabs empty
+// @rk_win_web_<n> slots — the positional padding between @rk_win_layout and
+// @rk_win_web_active in the ListWindows format.
+func emptyWebSlotFields() []string { return make([]string, MaxWebTabs) }
+
+// windowLineMarker builds a tab-delimited tmux line including the trailing
+// @rk_win_marker field (@rk_win_color/@rk_win_layout, the web slots,
 // @rk_win_web_active and @rk_win_code_root left empty).
 func windowLineMarker(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, marker string) string {
-	return strings.Join([]string{
+	fields := []string{
 		windowID, strconv.Itoa(index), name, path, strconv.FormatInt(activityTs, 10),
 		strconv.Itoa(active), paneCmd,
-		"",                             // @rk_win_color
-		"",                             // @rk_win_layout
-		"", "", "", "", "", "", "", "", // @rk_win_web_1 .. @rk_win_web_8
+		"", // @rk_win_color
+		"", // @rk_win_layout
+	}
+	fields = append(fields, emptyWebSlotFields()...)
+	return strings.Join(append(fields,
 		"",     // @rk_win_web_active
 		"",     // @rk_win_code_root
 		marker, // @rk_win_marker
-	}, listDelim)
+	), listDelim)
 }
 
 func TestParseSessions(t *testing.T) {
@@ -578,8 +585,9 @@ func TestParseWindowsWebFamily(t *testing.T) {
 }
 
 // windowLineWeb builds a full tab-delimited tmux line with every web-family
-// field placed explicitly: layout at idx 8, the web slots at idx 9..16 (unset
-// slots left empty), web_active at idx 17, code_root at idx 18.
+// field placed explicitly: layout as the last fixed-prefix field, the
+// MaxWebTabs web slots after it (unset slots left empty), then web_active and
+// code_root.
 func windowLineWeb(layout, webActive, codeRoot string, tabs ...string) string {
 	fields := []string{"@0", "0", "a", "/p", "1700000000", "1", "zsh", "", layout}
 	var slots [MaxWebTabs]string
@@ -781,21 +789,23 @@ func TestNormalizeMarker(t *testing.T) {
 	}
 }
 
-// windowLineRole builds a 21-field tab-delimited tmux line including the
-// trailing @rk_win_role field (@rk_win_color/@rk_win_layout, the web slots,
+// windowLineRole builds a tab-delimited tmux line including the trailing
+// @rk_win_role field (@rk_win_color/@rk_win_layout, the web slots,
 // @rk_win_web_active/@rk_win_code_root and @rk_win_marker left empty).
 func windowLineRole(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, role string) string {
-	return strings.Join([]string{
+	fields := []string{
 		windowID, strconv.Itoa(index), name, path, strconv.FormatInt(activityTs, 10),
 		strconv.Itoa(active), paneCmd,
-		"",                             // @rk_win_color
-		"",                             // @rk_win_layout
-		"", "", "", "", "", "", "", "", // @rk_win_web_1 .. @rk_win_web_8
+		"", // @rk_win_color
+		"", // @rk_win_layout
+	}
+	fields = append(fields, emptyWebSlotFields()...)
+	return strings.Join(append(fields,
 		"",   // @rk_win_web_active
 		"",   // @rk_win_code_root
 		"",   // @rk_win_marker
 		role, // @rk_win_role
-	}, listDelim)
+	), listDelim)
 }
 
 func TestParseWindowsRole(t *testing.T) {
@@ -809,7 +819,7 @@ func TestParseWindowsRole(t *testing.T) {
 		{"operator role", windowLineRole("@0", 0, "a", "/p", fakeNow, 1, "zsh", "operator"), "operator"},
 		{"empty role", windowLineRole("@0", 0, "a", "/p", fakeNow, 1, "zsh", ""), ""},
 		{"unknown role dropped to empty", windowLineRole("@0", 0, "a", "/p", fakeNow, 1, "zsh", "manager"), ""},
-		{"20-field line (no role field) has empty role", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "solid"), ""},
+		{"line without a role field has empty role", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "solid"), ""},
 	}
 
 	for _, tt := range tests {
@@ -825,23 +835,25 @@ func TestParseWindowsRole(t *testing.T) {
 	}
 }
 
-// windowLineFlair builds a 22-field tab-delimited tmux line including the
-// trailing @rk_win_flair field (@rk_win_color/@rk_win_layout, the web slots,
+// windowLineFlair builds a tab-delimited tmux line including the trailing
+// @rk_win_flair field (@rk_win_color/@rk_win_layout, the web slots,
 // @rk_win_web_active/@rk_win_code_root/@rk_win_marker/@rk_win_role left
 // empty).
 func windowLineFlair(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, flair string) string {
-	return strings.Join([]string{
+	fields := []string{
 		windowID, strconv.Itoa(index), name, path, strconv.FormatInt(activityTs, 10),
 		strconv.Itoa(active), paneCmd,
-		"",                             // @rk_win_color
-		"",                             // @rk_win_layout
-		"", "", "", "", "", "", "", "", // @rk_win_web_1 .. @rk_win_web_8
+		"", // @rk_win_color
+		"", // @rk_win_layout
+	}
+	fields = append(fields, emptyWebSlotFields()...)
+	return strings.Join(append(fields,
 		"",    // @rk_win_web_active
 		"",    // @rk_win_code_root
 		"",    // @rk_win_marker
 		"",    // @rk_win_role
 		flair, // @rk_win_flair
-	}, listDelim)
+	), listDelim)
 }
 
 func TestParseWindowsFlair(t *testing.T) {
@@ -857,7 +869,7 @@ func TestParseWindowsFlair(t *testing.T) {
 		{"onepiece flair", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", "onepiece"), "onepiece"},
 		{"empty flair", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", ""), ""},
 		{"unknown flair dropped to empty", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", "pikachu"), ""},
-		{"21-field line (no flair field) has empty flair", windowLineRole("@0", 0, "a", "/p", fakeNow, 1, "zsh", "operator"), ""},
+		{"line without a flair field has empty flair", windowLineRole("@0", 0, "a", "/p", fakeNow, 1, "zsh", "operator"), ""},
 	}
 
 	for _, tt := range tests {
@@ -873,23 +885,24 @@ func TestParseWindowsFlair(t *testing.T) {
 	}
 }
 
-// windowLineOwner builds a 23-field tab-delimited tmux line including the
-// trailing @rk_win_owner field (every presentation field before it left
-// empty).
+// windowLineOwner builds a tab-delimited tmux line including the trailing
+// @rk_win_owner field (every presentation field before it left empty).
 func windowLineOwner(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, owner string) string {
-	return strings.Join([]string{
+	fields := []string{
 		windowID, strconv.Itoa(index), name, path, strconv.FormatInt(activityTs, 10),
 		strconv.Itoa(active), paneCmd,
-		"",                             // @rk_win_color
-		"",                             // @rk_win_layout
-		"", "", "", "", "", "", "", "", // @rk_win_web_1 .. @rk_win_web_8
+		"", // @rk_win_color
+		"", // @rk_win_layout
+	}
+	fields = append(fields, emptyWebSlotFields()...)
+	return strings.Join(append(fields,
 		"",    // @rk_win_web_active
 		"",    // @rk_win_code_root
 		"",    // @rk_win_marker
 		"",    // @rk_win_role
 		"",    // @rk_win_flair
 		owner, // @rk_win_owner
-	}, listDelim)
+	), listDelim)
 }
 
 func TestParseWindowsOwner(t *testing.T) {
@@ -903,7 +916,7 @@ func TestParseWindowsOwner(t *testing.T) {
 		{"operator owner", windowLineOwner("@0", 0, "a", "/p", fakeNow, 1, "zsh", "operator"), "operator"},
 		{"empty owner", windowLineOwner("@0", 0, "a", "/p", fakeNow, 1, "zsh", ""), ""},
 		{"unknown owner dropped to empty", windowLineOwner("@0", 0, "a", "/p", fakeNow, 1, "zsh", "bogus"), ""},
-		{"22-field line (no owner field) has empty owner", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", "nyan"), ""},
+		{"line without an owner field has empty owner", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", "nyan"), ""},
 	}
 
 	for _, tt := range tests {
@@ -934,17 +947,19 @@ func TestParseWindowsOwner(t *testing.T) {
 	}
 }
 
-// windowLineNote builds a 24-field tab-delimited tmux line whose note rides
-// the NEW @rk_win_note field (idx 23 — a strict single field; every
-// presentation field before it left empty). The legacy-note tail rejoin is
-// exercised by the dual-read test instead.
+// windowLineNote builds a tab-delimited tmux line whose note rides the NEW
+// @rk_win_note field (a strict single field; every presentation field before
+// it left empty). The legacy-note tail rejoin is exercised by the dual-read
+// test instead.
 func windowLineNote(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, note string) string {
-	return strings.Join([]string{
+	fields := []string{
 		windowID, strconv.Itoa(index), name, path, strconv.FormatInt(activityTs, 10),
 		strconv.Itoa(active), paneCmd,
-		"",                             // @rk_win_color
-		"",                             // @rk_win_layout
-		"", "", "", "", "", "", "", "", // @rk_win_web_1 .. @rk_win_web_8
+		"", // @rk_win_color
+		"", // @rk_win_layout
+	}
+	fields = append(fields, emptyWebSlotFields()...)
+	return strings.Join(append(fields,
 		"",   // @rk_win_web_active
 		"",   // @rk_win_code_root
 		"",   // @rk_win_marker
@@ -952,7 +967,7 @@ func windowLineNote(windowID string, index int, name, path string, activityTs in
 		"",   // @rk_win_flair
 		"",   // @rk_win_owner
 		note, // @rk_win_note (new, strict single field)
-	}, listDelim)
+	), listDelim)
 }
 
 func TestParseWindowsNote(t *testing.T) {
@@ -969,7 +984,7 @@ func TestParseWindowsNote(t *testing.T) {
 		{"non-numeric prefix keeps whole value", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", "abc:def"), "abc:def", 0},
 		{"colon inside text survives SplitN-2", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", "1756036800:waiting on review: PR #42"), "waiting on review: PR #42", 1756036800},
 		{"empty note field", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", ""), "", 0},
-		{"22-field line (no note field) has empty note", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", "nyan"), "", 0},
+		{"line without a note field has empty note", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", "nyan"), "", 0},
 	}
 
 	for _, tt := range tests {
@@ -988,17 +1003,19 @@ func TestParseWindowsNote(t *testing.T) {
 	}
 }
 
-// windowLineNoteDualRead builds a full 26-field line (plus the legacy-note
-// tail) with both halves of the note dual-read pair placed explicitly: the NEW
-// note as a strict single field at idx 23, and the legacy note appended LAST
-// (idx 26+ — tail-rejoined, so tabs in its text survive). Idx 24/25 are the
-// retired @rk_win_url / @rk_win_lens dual-read fallbacks (left empty here).
+// windowLineNoteDualRead builds a full line (through the legacy-note tail)
+// with both halves of the note dual-read pair placed explicitly: the NEW note
+// as a strict single field, and the legacy note appended LAST (tail-rejoined,
+// so tabs in its text survive). The fields between them are the retired
+// @rk_win_url / @rk_win_lens dual-read fallbacks (left empty here).
 func windowLineNoteDualRead(newNote, legacyNote string) string {
 	fields := []string{
 		"@0", "0", "a", "/p", "1700000000", "1", "zsh",
-		"",                             // @rk_win_color
-		"",                             // @rk_win_layout
-		"", "", "", "", "", "", "", "", // @rk_win_web_1 .. @rk_win_web_8
+		"", // @rk_win_color
+		"", // @rk_win_layout
+	}
+	fields = append(fields, emptyWebSlotFields()...)
+	fields = append(fields,
 		"",      // @rk_win_web_active
 		"",      // @rk_win_code_root
 		"",      // @rk_win_marker
@@ -1008,7 +1025,7 @@ func windowLineNoteDualRead(newNote, legacyNote string) string {
 		newNote, // @rk_win_note (new — strict single field)
 		"",      // @rk_win_url (retired dual-read fallback — empty here)
 		"",      // @rk_win_lens (retired dual-read fallback — empty here)
-	}
+	)
 	return strings.Join(fields, listDelim) + listDelim + legacyNote
 }
 
@@ -1064,15 +1081,17 @@ func TestParseWindowsNoteDualRead(t *testing.T) {
 	}
 }
 
-// windowLineLegacyURL builds a full 26-field line with the retired @rk_win_url
-// (idx 24) set to legacyURL, the retired @rk_win_lens (idx 25) empty, and the
-// indexed web slots empty.
+// windowLineLegacyURL builds a full line with the retired @rk_win_url set to
+// legacyURL, the retired @rk_win_lens and legacy note empty, and the indexed
+// web slots empty.
 func windowLineLegacyURL(legacyURL string) string {
 	fields := []string{
 		"@0", "0", "a", "/p", "1700000000", "1", "zsh",
-		"",                             // @rk_win_color
-		"",                             // @rk_win_layout
-		"", "", "", "", "", "", "", "", // @rk_win_web_1 .. @rk_win_web_8
+		"", // @rk_win_color
+		"", // @rk_win_layout
+	}
+	fields = append(fields, emptyWebSlotFields()...)
+	fields = append(fields,
 		"",        // @rk_win_web_active
 		"",        // @rk_win_code_root
 		"",        // @rk_win_marker
@@ -1083,7 +1102,7 @@ func windowLineLegacyURL(legacyURL string) string {
 		legacyURL, // @rk_win_url (retired dual-read fallback)
 		"",        // @rk_win_lens (retired dual-read fallback)
 		"",        // legacy note (last)
-	}
+	)
 	return strings.Join(fields, listDelim)
 }
 
@@ -1093,8 +1112,8 @@ func windowLineLegacyURL(legacyURL string) string {
 func TestParseWindowsLegacyLensFallback(t *testing.T) {
 	withLens := func(layout, lens string) string {
 		parts := strings.Split(windowLineLegacyURL(""), listDelim)
-		parts[8] = layout
-		parts[25] = lens
+		parts[listWindowsFixedPrefix-1] = layout
+		parts[listWindowsLegacyLensField] = lens
 		return strings.Join(parts, listDelim)
 	}
 	cases := []struct {
@@ -1136,9 +1155,9 @@ func TestParseWindowsLegacyURLFallback(t *testing.T) {
 	})
 	t.Run("web_1 wins over @rk_win_url", func(t *testing.T) {
 		line := windowLineLegacyURL("http://legacy/")
-		// Stamp web_1 (idx 9) so the indexed family takes precedence.
+		// Stamp web_1 so the indexed family takes precedence.
 		parts := strings.Split(line, listDelim)
-		parts[9] = "http://indexed/"
+		parts[listWindowsFixedPrefix] = "http://indexed/"
 		got := parseWindows([]string{strings.Join(parts, listDelim)}, 1700000000)
 		if len(got) != 1 {
 			t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
@@ -1147,6 +1166,115 @@ func TestParseWindowsLegacyURLFallback(t *testing.T) {
 			t.Errorf("WebTabs = %v, want [\"http://indexed/\"] (web_1 wins)", got[0].WebTabs)
 		}
 	})
+}
+
+// windowLineFull builds a fully-populated ListWindows-format line: the given
+// web slots (up to MaxWebTabs, the rest empty) and every trailing field placed
+// explicitly — the parse-side mirror of the format builder, so a field-offset
+// drift lands here.
+func windowLineFull(webActive, codeRoot, marker, role, flair, owner, note, legacyURL, legacyLens, legacyNote string, tabs []string) string {
+	fields := []string{"@0", "0", "a", "/p", "1700000000", "1", "zsh", "4", "row:tty,web"}
+	var slots [MaxWebTabs]string
+	copy(slots[:], tabs)
+	for _, s := range slots {
+		fields = append(fields, s)
+	}
+	fields = append(fields, webActive, codeRoot, marker, role, flair, owner, note, legacyURL, legacyLens)
+	return strings.Join(fields, listDelim) + listDelim + legacyNote
+}
+
+// TestParseWindowsFullWebFamily pins the post-slot field offsets: a line with
+// every URL slot populated and a distinct value in every trailing field must
+// land each field in its own struct member.
+func TestParseWindowsFullWebFamily(t *testing.T) {
+	tabs := make([]string, MaxWebTabs)
+	for i := range tabs {
+		tabs[i] = "/proxy/" + strconv.Itoa(4000+i) + "/"
+	}
+	line := windowLineFull("9", "/work/repo", "manual:2", "operator", "nyan", "operator",
+		"1700000001:full line", "", "", "", tabs)
+
+	got := parseWindows([]string{line}, 1700000000)
+	if len(got) != 1 {
+		t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
+	}
+	w := got[0]
+	if !reflect.DeepEqual(w.WebTabs, tabs) {
+		t.Errorf("WebTabs = %v, want %v", w.WebTabs, tabs)
+	}
+	if w.WebActive != 9 {
+		t.Errorf("WebActive = %d, want 9", w.WebActive)
+	}
+	if w.Color == nil || *w.Color != "4" {
+		t.Errorf("Color = %v, want \"4\"", w.Color)
+	}
+	if w.Layout != "row:tty,web" {
+		t.Errorf("Layout = %q, want row:tty,web", w.Layout)
+	}
+	if w.CodeRoot != "/work/repo" {
+		t.Errorf("CodeRoot = %q, want /work/repo", w.CodeRoot)
+	}
+	if w.Marker != "manual:2" {
+		t.Errorf("Marker = %q, want manual:2", w.Marker)
+	}
+	if w.Role != "operator" {
+		t.Errorf("Role = %q, want operator", w.Role)
+	}
+	if w.Flair != "nyan" {
+		t.Errorf("Flair = %q, want nyan", w.Flair)
+	}
+	if w.Owner != "operator" {
+		t.Errorf("Owner = %q, want operator", w.Owner)
+	}
+	if w.Note != "full line" || w.NoteEpoch != 1700000001 {
+		t.Errorf("Note = %q (epoch %d), want \"full line\" (1700000001)", w.Note, w.NoteEpoch)
+	}
+
+	// The legacy note fills in only when the new note field is empty, its
+	// free-text tail rejoined across embedded tabs.
+	legacy := windowLineFull("1", "", "", "", "", "", "", "", "", "123:two\tpart\tnote", tabs[:1])
+	got = parseWindows([]string{legacy}, 1700000000)
+	if len(got) != 1 {
+		t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
+	}
+	if got[0].Note != "two\tpart\tnote" || got[0].NoteEpoch != 123 {
+		t.Errorf("Note = %q (epoch %d), want the rejoined legacy tail (123)", got[0].Note, got[0].NoteEpoch)
+	}
+}
+
+// TestParseWindowsShortLineTolerance: a capture line from the pre-16-slot
+// format (8 URL slots, trailing fields at the old offsets) parses without
+// error — the slots it carries survive and the fields the shorter line never
+// carried read empty.
+func TestParseWindowsShortLineTolerance(t *testing.T) {
+	fields := []string{
+		"@0", "0", "a", "/p", "1700000000", "1", "zsh",
+		"4",                                                  // @rk_win_color
+		"row:tty",                                            // @rk_win_layout
+		"/proxy/3000/", "https://x/", "", "", "", "", "", "", // the 8-slot-era URL slots
+		"", "", "", "", "", "", "", "", "", "", // the 8-slot-era trailing fields
+	}
+	got := parseWindows([]string{strings.Join(fields, listDelim)}, 1700000000)
+	if len(got) != 1 {
+		t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
+	}
+	w := got[0]
+	if !reflect.DeepEqual(w.WebTabs, []string{"/proxy/3000/", "https://x/"}) {
+		t.Errorf("WebTabs = %v, want the two populated slots", w.WebTabs)
+	}
+	if w.WebActive != 1 {
+		t.Errorf("WebActive = %d, want 1 (absent active clamps with tabs present)", w.WebActive)
+	}
+	if w.CodeRoot != "" || w.Marker != "" || w.Role != "" || w.Flair != "" || w.Owner != "" || w.Note != "" {
+		t.Errorf("trailing fields = %q/%q/%q/%q/%q/%q, want all empty on a short line",
+			w.CodeRoot, w.Marker, w.Role, w.Flair, w.Owner, w.Note)
+	}
+	if w.Color == nil || *w.Color != "4" {
+		t.Errorf("Color = %v, want \"4\"", w.Color)
+	}
+	if w.Layout != "row:tty" {
+		t.Errorf("Layout = %q, want row:tty", w.Layout)
+	}
 }
 
 // sessionLineFlair builds a 7-field tab-delimited tmux line including the

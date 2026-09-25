@@ -229,6 +229,59 @@ are both substrate state — shared tmux window options, POSTed, visible to
 every viewer and agent. Only render postures stay local to the viewer: tile
 zoom (`rk-layout-zoom:*`), divider ratios (`rk-layout-ratios:*`), and focus.
 
+### R8 — The native engine retains guests across tile unmounts
+
+When the web tile unmounts — window/route switch, layout change dropping the
+tile, host switch within the desktop window — the native engine's guest is
+**parked, not destroyed**: the desktop shell hides it (`setVisible(false)`,
+off the visible z-stack per the existing detach discipline) and holds it in
+the Electron main process under a **stable retention identity** — the desktop
+window, the host, the tmux server, the tmux window id (`@N`), and the web-tab
+slot URL. The guest renderer keeps running: page state, JS state, and
+WebSocket connections survive. A guest's own in-page navigation (tracked
+location drifting from the slot URL) never changes the identity.
+
+A frame mounting with an identity matching a parked guest **adopts** it
+instead of creating a new one: re-bind it to the new frame, re-show it,
+re-apply bounds, re-send the chord table and zoom factor, and re-report the
+current title / favicon / tracked URL / loading state so the chrome shows the
+right values without waiting for a navigation event.
+
+At most **4** parked views (a named constant, not a setting — Constitution
+IV); parking a fifth evicts (destroys) the least-recently-parked one, and
+mounted views never count toward the cap. A guest is destroyed immediately —
+never parked — when its tab is closed or removed from the window's web-tab
+family, its URL slot changes, its host is removed, its desktop window closes,
+its host's SPA reloads, or it is LRU-evicted. A killed tmux window's parked
+guests receive no signal and simply age out through the LRU cap.
+Existing hide rules (overlay hiding per R10, `tileError`, drag-hide, host
+detach/attach) apply unchanged to an adopted view; parked views of a detached
+host stay hidden when that host re-attaches — only mounted views re-show.
+
+Retention is **native-engine only**: the iframe engine is unchanged —
+retaining iframes across tile unmounts would need the code tile's
+DOM-retention machinery, which a hidden `WebContentsView` never needs.
+
+### R9 — A selected draft tab shows no frame
+
+While a draft ("+") tab is selected, **no frame is active**: every engine
+hides its frame (the native guest hides; iframe frames hide — per P3, never
+unmount), and the content area renders a minimal blank new-tab panel in the
+empty-tile onboarding visual language instead of the previous page.
+Re-selecting a real tab (click, keyboard, or submitting a URL that lands in
+an existing slot) re-activates its frame **without a reload**; submitting the
+draft materializes a tab and activates the new frame.
+
+### R10 — Click-opened menus hide the native view
+
+The native guest is composited above the SPA's DOM, so any overlay that can
+overlap a tile must hide it. Click-opened menus, dropdowns, popovers, and
+context menus register with the overlay-presence registry under the
+**`transient`** kind, and the native view hides while a modal **or** transient
+overlay is open — the modal rule extended to one more kind. Tooltips and
+hover-opened flyout cards are **excluded**: hiding on hover would flicker the
+page.
+
 ---
 
 ## Two Species (and the residual case)

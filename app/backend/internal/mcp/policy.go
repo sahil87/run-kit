@@ -9,7 +9,11 @@
 // name collides with it.
 package mcp
 
-import "time"
+import (
+	"time"
+
+	"rk/internal/tmux"
+)
 
 // ToolTimeoutCap bounds every tool call's subprocess (docs/specs/mcp.md
 // § Timeout contract: desktop MCP clients time out well under a minute). A row
@@ -557,12 +561,12 @@ var Table = []Row{
 			serverArg,
 			{Name: "window", Type: ArgString, Required: true, Pattern: `^@\d+$`,
 				Description: "The tab to address, by window id (@N)"},
-			{Name: "slot", Type: ArgInteger, Minimum: intPtr(1), Maximum: intPtr(8),
-				Description: "The web-tab slot (1-8); required for rm/select/mv"},
+			{Name: "slot", Type: ArgInteger, Minimum: intPtr(1), Maximum: intPtr(tmux.MaxWebTabs),
+				Description: "The web-tab slot; required for rm/select/mv"},
 			{Positional: 2, Format: "{window}[/web/{slot}]"},
 			{Name: "target", Positional: 3, Type: ArgString,
 				Description: "add's target: a URL, :port, file, or directory"},
-			{Name: "to", Positional: 4, Type: ArgInteger, Minimum: intPtr(1), Maximum: intPtr(8),
+			{Name: "to", Positional: 4, Type: ArgInteger, Minimum: intPtr(1), Maximum: intPtr(tmux.MaxWebTabs),
 				Description: "mv's destination slot"},
 			{Name: "show", Flag: "--show", Type: ArgBoolean,
 				Description: "add only: ensure the web surface is in the layout and select the tab"},

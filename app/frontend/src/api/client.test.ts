@@ -636,11 +636,11 @@ describe("web tab verb wrappers", () => {
   it("a 409 rejects with the server's error text verbatim (family cap)", async () => {
     mswServer.use(
       http.post("/api/windows/:windowId/web", () =>
-        HttpResponse.json({ error: "web tabs full (8)" }, { status: 409 }),
+        HttpResponse.json({ error: "web tabs full (16)" }, { status: 409 }),
       ),
     );
     await expect(addWebTab("s", "@5", "/proxy/3009/")).rejects.toThrow(
-      "web tabs full (8)",
+      "web tabs full (16)",
     );
   });
 });

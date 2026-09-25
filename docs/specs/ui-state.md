@@ -244,12 +244,12 @@ surfaces per tab" because:
    addressable by a board tile for free.
 
 State: `@rk_win_web_<n>` (URL), `@rk_win_web_<n>_root` (present root, file/dir
-kinds only), `@rk_win_web_active`. **`n ≤ 8`** — the daemon reads window
+kinds only), `@rk_win_web_active`. **`n ≤ 16`** — the daemon reads window
 options through `ListWindows`' fixed tmux format string (one call per server
 per tick) and a format string cannot enumerate a family, so the URL slots are
-spelled out `#{@rk_win_web_1}`…`#{@rk_win_web_8}`; roots stay out of the tick
+spelled out `#{@rk_win_web_1}`…`#{@rk_win_web_16}`; roots stay out of the tick
 (the `/present/{server}/{roothash}/*` handler reads the server's declared
-roots at request time — one `list-windows -a` call over the eight
+roots at request time — one `list-windows -a` call over the sixteen
 `_<n>_root` slots, sha256-prefix-matched — and the LEGACY
 `/present/{windowId}/{n}/*` arm still reads `_<n>_root` directly with the
 slot-1 `@rk_win_present_root` dual-read, one release). `web add` on a full
@@ -265,7 +265,7 @@ composes the `(server, roothash, path)` form — the tmux server name, a
 12-hex sha256 prefix of the ABSOLUTE root directory, and the file's basename
 (directory targets carry an empty path and serve the root's `index.html`):
 `/present/{server}/{roothash}/{path}`. Resolution is derivation-only per
-request (one `list-windows -a` over the 8 declared roots, unique
+request (one `list-windows -a` over the 16 declared roots, unique
 prefix-match against the URL's 8–64 hex segment, zero or more than one →
 404); the declaration check is the anti-scanning property — an undeclared
 root 404s with no file touched. The stored `@rk_win_web_<n>` value adopts

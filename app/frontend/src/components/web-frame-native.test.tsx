@@ -23,7 +23,8 @@ import type {
 type RelayHandler = (payload: unknown) => void;
 
 const bridge = vi.hoisted(() => ({
-  create: vi.fn((_tabKey: string, _url: string) => Promise.resolve({ ok: true })),
+  create: vi.fn((_tabKey: string, _url: string, _identity?: string) =>
+    Promise.resolve({ ok: true })),
   destroy: vi.fn((_tabKey: string) => Promise.resolve({ ok: true })),
   bounds: vi.fn((_tabKey: string, _x: number, _y: number, _w: number, _h: number) =>
     Promise.resolve({ ok: true }),
@@ -42,6 +43,12 @@ const bridge = vi.hoisted(() => ({
   devtools: vi.fn((_tabKey: string) => Promise.resolve({ ok: true })),
   onEvent: vi.fn((_handler: RelayHandler) => () => {}),
 }));
+
+// The additive `park` invoker (guest retention) — NOT on the default bridge,
+// so the default install reads as an older shell whose unmount path is
+// destroy; retention tests opt in through installParkBridge (the mode
+// precedent).
+const parkFn = vi.hoisted(() => vi.fn((_tabKey: string) => Promise.resolve({ ok: true })));
 
 let relayHandler: RelayHandler | null = null;
 let relayDisposer: Mock<() => void>;
@@ -94,6 +101,12 @@ function installModeBridge(mode: () => Promise<unknown>) {
   window.runkitShell = { version: "1.2.3", platform: "linux", web: { ...bridge, mode: vi.fn(mode) } };
 }
 
+/** Install the shell bridge with the additive `park` invoker — a shell new
+ *  enough to retain guests across tile unmounts. */
+function installParkBridge() {
+  window.runkitShell = { version: "1.2.3", platform: "linux", web: { ...bridge, park: parkFn } };
+}
+
 interface Rig {
   url: string;
   tabKey: string;
@@ -118,6 +131,7 @@ function renderEngine({
   chordTable,
   onZoomStep,
   onInteract,
+  retentionScope,
 }: {
   url?: string;
   active?: boolean;
@@ -126,6 +140,7 @@ function renderEngine({
   chordTable?: WebFrameEngineProps["chordTable"];
   onZoomStep?: (direction: "in" | "out") => void;
   onInteract?: () => void;
+  retentionScope?: WebFrameEngineProps["retentionScope"];
 } = {}) {
   const rig: Rig = {
     url,
@@ -163,6 +178,7 @@ function renderEngine({
         reclaimRef={rig.reclaimRef}
         onZoomStep={onZoomStep}
         chordTable={nextChordTable}
+        retentionScope={retentionScope}
       />
     </TileDragContext.Provider>
   );
@@ -247,6 +263,7 @@ describe("WebFrameNative lifecycle", () => {
     expect(bridge.create).toHaveBeenCalledWith(
       rig.tabKey,
       `${window.location.origin}/present/x/y/index.html`,
+      undefined,
     );
   });
 
@@ -256,13 +273,14 @@ describe("WebFrameNative lifecycle", () => {
     expect(bridge.create).toHaveBeenCalledWith(
       rig.tabKey,
       `${window.location.origin}/proxy/8080/docs`,
+      undefined,
     );
   });
 
   it("creates with an external URL unchanged", async () => {
     const { rig } = renderEngine({ url: "https://github.com/x" });
     await flushMount();
-    expect(bridge.create).toHaveBeenCalledWith(rig.tabKey, "https://github.com/x");
+    expect(bridge.create).toHaveBeenCalledWith(rig.tabKey, "https://github.com/x", undefined);
   });
 
   it("passes a stored address the URL constructor rejects to create raw, without throwing", async () => {
@@ -271,7 +289,7 @@ describe("WebFrameNative lifecycle", () => {
     const { rig } = renderEngine({ url: "http://[::1" });
     await flushMount();
     expect(bridge.create).toHaveBeenCalledTimes(1);
-    expect(bridge.create).toHaveBeenCalledWith(rig.tabKey, "http://[::1");
+    expect(bridge.create).toHaveBeenCalledWith(rig.tabKey, "http://[::1", undefined);
   });
 
   it("unmount destroys the guest and disposes the subscription exactly once", () => {
@@ -291,25 +309,144 @@ describe("WebFrameNative lifecycle", () => {
   });
 });
 
+describe("WebFrameNative retention", () => {
+  const scope = { server: "runkit", windowId: "@3" };
+  const NUL = String.fromCharCode(0);
+  const identityFor = (url: string) => [scope.server, scope.windowId, url].join(NUL);
+  const createIdentityFor = (tabKey: string) =>
+    bridge.create.mock.calls.find((call) => call[0] === tabKey)?.[2];
+
+  it("sends the NUL-joined server + window id + slot url as the create identity", async () => {
+    installParkBridge();
+    const { rig } = renderEngine({ url: "/present/x/y/index.html", retentionScope: scope });
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledWith(
+      rig.tabKey,
+      `${window.location.origin}/present/x/y/index.html`,
+      identityFor("/present/x/y/index.html"),
+    );
+  });
+
+  it("creates with an undefined identity when no retention scope is given (the guest can never park)", async () => {
+    installParkBridge();
+    const { rig } = renderEngine();
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledWith(rig.tabKey, expect.any(String), undefined);
+  });
+
+  it("a remount with the same scope and slot url sends the identical identity, and in-page navigation never changes it", async () => {
+    installParkBridge();
+    const first = renderEngine({ url: "http://localhost:6000/app", retentionScope: scope });
+    await flushMount();
+    // The guest navigates in-page — the tracked location drifts, the slot
+    // url (and with it the identity) does not.
+    deliver({
+      tabKey: first.rig.tabKey,
+      kind: "url",
+      url: "http://localhost:6000/deep/link",
+      canGoBack: true,
+      canGoForward: false,
+    });
+    first.unmount();
+    const second = renderEngine({ url: "http://localhost:6000/app", retentionScope: scope });
+    await flushMount();
+    const expected = identityFor("http://localhost:6000/app");
+    expect(createIdentityFor(first.rig.tabKey)).toBe(expected);
+    expect(createIdentityFor(second.rig.tabKey)).toBe(expected);
+  });
+
+  it("a different window id or slot url yields a different identity", async () => {
+    installParkBridge();
+    const a = renderEngine({ url: "/proxy/6000/", retentionScope: scope });
+    await flushMount();
+    a.unmount();
+    const b = renderEngine({
+      url: "/proxy/6000/",
+      retentionScope: { server: "runkit", windowId: "@4" },
+    });
+    await flushMount();
+    expect(createIdentityFor(b.rig.tabKey)).not.toBe(createIdentityFor(a.rig.tabKey));
+  });
+
+  it("unmount parks the guest (never destroys) when the bridge supports park", async () => {
+    installParkBridge();
+    const { rig, unmount } = renderEngine({ retentionScope: scope });
+    await flushMount();
+    unmount();
+    expect(parkFn).toHaveBeenCalledTimes(1);
+    expect(parkFn).toHaveBeenCalledWith(rig.tabKey);
+    expect(bridge.destroy).not.toHaveBeenCalled();
+    expect(relayDisposer).toHaveBeenCalledTimes(1);
+    expect(rig.handles.has(rig.url)).toBe(false);
+  });
+
+  it("unmount destroys when the bridge lacks the park invoker (an older shell — the pre-retention path)", () => {
+    const { rig, unmount } = renderEngine({ retentionScope: scope });
+    unmount();
+    expect(bridge.destroy).toHaveBeenCalledTimes(1);
+    expect(bridge.destroy).toHaveBeenCalledWith(rig.tabKey);
+    expect(parkFn).not.toHaveBeenCalled();
+  });
+
+  it("the handle's destroy verb destroys immediately and suppresses the unmount park (a tab that is gone is never retained)", async () => {
+    installParkBridge();
+    const { rig, unmount } = renderEngine({ retentionScope: scope });
+    await flushMount();
+    act(() => rig.handles.get(rig.url)?.destroy?.());
+    expect(bridge.destroy).toHaveBeenCalledTimes(1);
+    expect(bridge.destroy).toHaveBeenCalledWith(rig.tabKey);
+    unmount();
+    expect(parkFn).not.toHaveBeenCalled();
+    expect(bridge.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("the adopt replay — title/favicon/url/loading right after create — maps onto the new mount's state through the normal relay", async () => {
+    installParkBridge();
+    const { rig } = renderEngine({ url: "http://localhost:6000/app", retentionScope: scope });
+    await flushMount();
+    // Main re-reports the adopted guest's chrome state immediately after the
+    // adopt, demuxed by the NEW tabKey; the subscription preceded the create,
+    // so no replayed event is missed.
+    deliver({ tabKey: rig.tabKey, kind: "title", title: "Adopted App" });
+    deliver({ tabKey: rig.tabKey, kind: "favicon", favicons: ["https://a/f.ico"] });
+    deliver({
+      tabKey: rig.tabKey,
+      kind: "url",
+      url: "http://localhost:6000/app/current",
+      canGoBack: true,
+      canGoForward: false,
+    });
+    deliver({ tabKey: rig.tabKey, kind: "loading", loading: false });
+    const state = rig.states.get(rig.url);
+    expect(state?.title).toBe("Adopted App");
+    expect(state?.favicon).toBe("https://a/f.ico");
+    expect(state?.trackedLocation).toBe("http://localhost:6000/app/current");
+    expect(state?.canGoBack).toBe(true);
+    expect(state?.canGoForward).toBe(false);
+    expect(state?.loading).toBe(false);
+    expect(rig.onLoad).toHaveBeenCalledWith(rig.url);
+  });
+});
+
 describe("WebFrameNative host web mode", () => {
   it("direct mode: a stored /proxy slot loads as the literal loopback URL", async () => {
     installModeBridge(() => Promise.resolve({ ok: true, mode: "direct" }));
     const { rig } = renderEngine({ url: "/proxy/6000/" });
     await flushMount();
-    expect(bridge.create).toHaveBeenCalledWith(rig.tabKey, "http://localhost:6000/");
+    expect(bridge.create).toHaveBeenCalledWith(rig.tabKey, "http://localhost:6000/", undefined);
   });
 
   it("proxy mode: a stored /proxy slot loads as the literal loopback URL, and a literal loopback URL passes through", async () => {
     installModeBridge(() => Promise.resolve({ ok: true, mode: "proxy" }));
     const { rig } = renderEngine({ url: "/proxy/6000/assets/x.js" });
     await flushMount();
-    expect(bridge.create).toHaveBeenCalledWith(rig.tabKey, "http://localhost:6000/assets/x.js");
+    expect(bridge.create).toHaveBeenCalledWith(rig.tabKey, "http://localhost:6000/assets/x.js", undefined);
 
     cleanup();
     vi.clearAllMocks();
     const second = renderEngine({ url: "http://localhost:6000/x" });
     await flushMount();
-    expect(bridge.create).toHaveBeenCalledWith(second.rig.tabKey, "http://localhost:6000/x");
+    expect(bridge.create).toHaveBeenCalledWith(second.rig.tabKey, "http://localhost:6000/x", undefined);
   });
 
   it("legacy mode loads byte-identical to today's behavior: the host-absolute /proxy path", async () => {
@@ -319,6 +456,7 @@ describe("WebFrameNative host web mode", () => {
     expect(bridge.create).toHaveBeenCalledWith(
       rig.tabKey,
       `${window.location.origin}/proxy/6000/`,
+      undefined,
     );
 
     cleanup();
@@ -328,6 +466,7 @@ describe("WebFrameNative host web mode", () => {
     expect(bridge.create).toHaveBeenCalledWith(
       second.rig.tabKey,
       `${window.location.origin}/proxy/6000/x`,
+      undefined,
     );
   });
 
@@ -338,6 +477,7 @@ describe("WebFrameNative host web mode", () => {
     expect(bridge.create).toHaveBeenCalledWith(
       rig.tabKey,
       `${window.location.origin}/proxy/6000/`,
+      undefined,
     );
 
     cleanup();
@@ -348,6 +488,7 @@ describe("WebFrameNative host web mode", () => {
     expect(bridge.create).toHaveBeenCalledWith(
       second.rig.tabKey,
       `${window.location.origin}/proxy/6000/`,
+      undefined,
     );
   });
 
@@ -358,6 +499,7 @@ describe("WebFrameNative host web mode", () => {
     expect(bridge.create).toHaveBeenCalledWith(
       rig.tabKey,
       `${window.location.origin}/proxy/6000/`,
+      undefined,
     );
   });
 
@@ -801,16 +943,17 @@ describe("WebFrameNative bounds", () => {
     expect(lastBoundsOrder).toBeLessThan(showOrder);
   });
 
-  it("a transient overlay never hides the guest", () => {
+  it("a transient overlay (a click-opened menu) hides the guest and releasing restores it", () => {
     const { rig } = renderEngine();
     bridge.visible.mockClear();
     let release: () => void = () => {};
     act(() => {
       release = acquire("transient");
     });
-    expect(bridge.visible).not.toHaveBeenCalled();
+    expect(bridge.visible).toHaveBeenCalledWith(rig.tabKey, false);
+    bridge.visible.mockClear();
     act(() => release());
-    expect(bridge.visible).not.toHaveBeenCalled();
+    expect(bridge.visible).toHaveBeenCalledWith(rig.tabKey, true);
   });
 });
 

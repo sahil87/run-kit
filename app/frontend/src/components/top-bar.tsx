@@ -55,6 +55,7 @@ import type { GuiQuality } from "@/lib/gui-posture";
 import { GuiToolbarMobileOverflow } from "@/components/gui-toolbar";
 import { deriveCrumbsCollapsed } from "@/lib/crumb-collapse";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useOccludes } from "@/hooks/use-occludes";
 import { formatCombo } from "@/lib/keybindings";
 import type { Layout, SurfaceKind, TemplateName } from "@/lib/surface-layout";
 import { applyTemplate, SURFACE_GLYPH, SURFACE_LABEL } from "@/lib/surface-layout";
@@ -2517,6 +2518,10 @@ function SplitControl({
   const containerRef = useRef<HTMLDivElement>(null);
   const chevronRef = useRef<HTMLButtonElement>(null);
   const { addToast } = useToast();
+
+  // Menus register `transient` (overlay-presence): while open, a native guest
+  // composited above the DOM hides so the menu never paints underneath it.
+  useOccludes("transient", open);
 
   const { execute, isPending } = useOptimisticAction<[boolean]>({
     action: (horizontal) => splitWindow(server, windowId, horizontal, cwd),

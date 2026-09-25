@@ -7,6 +7,7 @@ import {
   canCloseShellWindow,
   canConfirmedRemoveShellHost,
   canNewShellWindow,
+  canParkShellWebView,
   canRemoveShellHost,
   canRenameShellHost,
   canSetShellHostUrl,
@@ -23,6 +24,7 @@ import {
   loadShellWebView,
   onShellWebEvent,
   openShellWebViewDevTools,
+  parkShellWebView,
   parseShellWebEvent,
   confirmedRemoveShellHost,
   newShellWindow,
@@ -384,9 +386,11 @@ describe("listShellServers optional fields", () => {
   });
 });
 
-// The web group backs the web tile's native engine: all seven members shipped
-// together in one shell release, so presence is all-or-nothing; the invokers
-// degrade to false and the subscription to a no-op disposer everywhere else.
+// The web group backs the web tile's native engine: the fourteen core
+// members shipped together in one shell release, so their presence is
+// all-or-nothing (the `mode` and `park` invokers are additive, narrowed
+// separately); the invokers degrade to false and the subscription to a
+// no-op disposer everywhere else.
 
 function fullWebBridge(overrides: Record<string, unknown> = {}) {
   return {
@@ -457,7 +461,7 @@ describe("web bridge invokers", () => {
     const web = fullWebBridge();
     webBridgeWith(web);
     expect(await createShellWebView("web-1", "https://github.com")).toBe(true);
-    expect(web.create).toHaveBeenCalledWith("web-1", "https://github.com");
+    expect(web.create).toHaveBeenCalledWith("web-1", "https://github.com", undefined);
     expect(await destroyShellWebView("web-1")).toBe(true);
     expect(web.destroy).toHaveBeenCalledWith("web-1");
     expect(await setShellWebViewBounds("web-1", { x: 10, y: 20, width: 300, height: 200 })).toBe(true);
@@ -530,6 +534,38 @@ describe("web bridge invokers", () => {
     expect(await reloadShellWebView("web-9")).toBe(false);
     webBridgeWith(fullWebBridge({ visible: () => Promise.resolve("shown") }));
     expect(await setShellWebViewVisible("web-1", true)).toBe(false);
+  });
+});
+
+describe("parkShellWebView", () => {
+  it("is unavailable outside the shell and on a shell whose web group lacks the additive park invoker", async () => {
+    expect(canParkShellWebView()).toBe(false);
+    expect(await parkShellWebView("web-1")).toBe(false);
+    webBridgeWith(fullWebBridge());
+    expect(canParkShellWebView()).toBe(false);
+    expect(await parkShellWebView("web-1")).toBe(false);
+  });
+
+  it("narrows a non-function park member out (the group stays usable, park reads absent)", async () => {
+    webBridgeWith(fullWebBridge({ park: "nope" }));
+    expect(canShellWeb()).toBe(true);
+    expect(canParkShellWebView()).toBe(false);
+    expect(await parkShellWebView("web-1")).toBe(false);
+  });
+
+  it("forwards the tabKey and resolves true on { ok: true } when park is present", async () => {
+    const park = vi.fn(() => Promise.resolve({ ok: true }));
+    webBridgeWith(fullWebBridge({ park }));
+    expect(canParkShellWebView()).toBe(true);
+    expect(await parkShellWebView("web-1")).toBe(true);
+    expect(park).toHaveBeenCalledWith("web-1");
+  });
+
+  it("resolves false on a rejected invoke and a non-{ok:true} result, never throwing", async () => {
+    webBridgeWith(fullWebBridge({ park: () => Promise.reject(new Error("ipc gone")) }));
+    expect(await parkShellWebView("web-1")).toBe(false);
+    webBridgeWith(fullWebBridge({ park: () => Promise.resolve({ ok: false, error: "Unknown tab" }) }));
+    expect(await parkShellWebView("web-1")).toBe(false);
   });
 });
 

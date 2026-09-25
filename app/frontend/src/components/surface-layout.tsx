@@ -54,6 +54,7 @@ import { clampSiblingFraction } from "@/lib/right-panel";
 import { TileDragContext } from "@/lib/tile-drag-context";
 import { codeRootFollowTarget, codeRootFor } from "@/lib/code-folder-latch";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import { useOccludes } from "@/hooks/use-occludes";
 import type { CodeFollowSrc } from "@/hooks/use-code-workspace";
 import type { GuiSignal } from "@/contexts/session-context";
 import type { GuiPointerMode, GuiQuality, GuiZoom } from "@/lib/gui-posture";
@@ -868,6 +869,9 @@ export function SurfaceLayout({
   const [exportMenuPos, setExportMenuPos] = useState<{ top: number; right: number } | null>(null);
   const exportButtonRef = useRef<HTMLButtonElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  // Menus register `transient` (overlay-presence): while open, a native guest
+  // composited above the DOM hides so the menu never paints underneath it.
+  useOccludes("transient", exportMenuPos !== null);
 
   const runExport = useCallback(
     async (action: ExportAction) => {
@@ -2267,6 +2271,10 @@ export function SurfaceLayout({
           <IframeWindow
             tabs={webOverride?.webTabs ?? win.webTabs ?? []}
             active={webOverride?.webActive ?? win.webActive}
+            // The tile's tmux identity — scopes the native engine's guest
+            // retention (park/adopt) and the chrome-owned destroy rule.
+            server={server}
+            windowId={windowId}
             // Address-bar write seam: the ACTIVE web slot's option write
             // (n = webActive, slot 1 while the pointer is unset) — the
             // component stays payload-shape agnostic. The active pointer is

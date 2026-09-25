@@ -79,7 +79,7 @@ A service on port 8080 is available at `/proxy/8080/`. The **relative** form wor
 
 ### Tmux user options
 
-- `@rk_win_web_<n>` — the window's web-tab family (n = 1..8, dense): the attached web content the web tile shows; `@rk_win_web_active` is the 1-based tab the tile renders.
+- `@rk_win_web_<n>` — the window's web-tab family (n = 1..16, dense): the attached web content the web tile shows; `@rk_win_web_active` is the 1-based tab the tile renders.
 - `@rk_win_web_<n>_root` — the absolute serve root for a file/dir target held in slot n, resolved by the content-keyed `/present/<server>/<roothash>/...` route (the legacy `/present/<windowId>/<n>/...` form keeps serving for one release); set by `rk present` for file/dir targets. The URL survives slot renumbering and window kill while any window on the server still declares the root.
 - `@rk_win_layout` — the surface layout tree (e.g. `web`, `h(tty,web)`; legacy `<shape>:<surface,...>` strings still parse); empty renders the default terminal. `rk present --window` sets `web` on the new window; `rk present` on your own window adds `web` to the layout when absent (`--show` semantics).
 

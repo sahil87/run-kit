@@ -50,7 +50,7 @@ The layout SHALL be a canonical split tree `node = leaf | split`, `leaf = tty | 
 - **AND** at N = 3 the set of structures reachable equals the five 3-tile presets plus `main-bottom`
 
 #### R5: Templates replace presets
-`TEMPLATES` SHALL define `row`, `col`, `main-left`, `main-right`, `main-top`, `main-bottom`, `grid`, each building a tree for any N from a slot order (study `TEMPLATES`, main fraction 0.58). `templateOf(tree)` SHALL return `{name, slots}`: `single` at N = 1, the first template in registry order whose structure matches, otherwise `custom` with slots in reading order. `templatesFor(n)` SHALL list the structurally distinct templates at N in registry order: `[]` for 1, `[row, col]` for 2, `[row, col, main-left, main-right, main-top, main-bottom]` for 3.
+`TEMPLATES` SHALL define `row`, `col`, `main-left`, `main-right`, `main-top`, `main-bottom`, each building a tree for any N from a slot order (study `TEMPLATES`, main fraction 0.58). `templateOf(tree)` SHALL return `{name, slots}`: `single` at N = 1, the first template in registry order whose structure matches, otherwise `custom` with slots in reading order. `templatesFor(n)` SHALL list the structurally distinct templates at N in registry order: `[]` for 1, `[row, col]` for 2, `[row, col, main-left, main-right, main-top, main-bottom]` for 3. *(PR review: the study's `grid` template was dropped. At N ≤ 3 it is structurally `main-bottom`, so it returns when the cap lifts.)*
 
 - **GIVEN** the tree `v(h(code,web),tty)`
 - **WHEN** `templateOf` runs
@@ -137,7 +137,7 @@ A divider SHALL render between each adjacent sibling pair of every split, in the
 ### Chrome: ▦ chip, palette, chord
 
 #### R16: ▦ chip lists templates and reads custom
-The ▦ chip popover SHALL list `templatesFor(n)` with mini glyphs rendered from each template tree, mark the current one (✓ + `aria-checked`), and apply the choice via `applyTemplate` → `applyLayout`. The chip SHALL read `custom` when `templateOf` returns `custom`. Its overflow-menu form is one `Layout: <Template>` `menuitemradio` per template. Labels: `Row`, `Column`, `Main Left`, `Main Right`, `Main Top`, `Main Bottom`, `Grid`.
+The ▦ chip popover SHALL list `templatesFor(n)` with mini glyphs rendered from each template tree, mark the current one (✓ + `aria-checked`), and apply the choice via `applyTemplate` → `applyLayout`. The chip SHALL read `custom` when `templateOf` returns `custom`. Its overflow-menu form is one `Layout: <Template>` `menuitemradio` per template. Labels: `Row`, `Column`, `Main Left`, `Main Right`, `Main Top`, `Main Bottom`.
 
 - **GIVEN** a 2-tile layout
 - **WHEN** the chip opens
@@ -185,7 +185,7 @@ The ▦ chip popover SHALL list `templatesFor(n)` with mini glyphs rendered from
 ### Design Decisions
 
 #### The layout is a canonical tree; presets are templates
-**Decision**: `@rk_win_layout` stores a canonical split tree (≥2 children per split, alternating directions). The seven templates (`row`, `col`, `main-left|right|top|bottom`, `grid`) generate trees from slot order, and legacy preset strings parse into their trees permanently.
+**Decision**: `@rk_win_layout` stores a canonical split tree (≥2 children per split, alternating directions). The six templates (`row`, `col`, `main-left|right|top|bottom`) generate trees from slot order, and legacy preset strings parse into their trees permanently.
 **Why**: arrangements grow 2/6/22/90/394 for N = 2…6, so presets cannot model N > 3, and the generic drop edit (change 2) needs a tree. Canonical form gives exactly one encoding per arrangement.
 **Rejected**: extending the preset list (correct only to N = 3); an unconstrained tree (unary nodes, stored sizes, many encodings per arrangement).
 *Introduced by*: 260925-ww92-surface-layout-tree

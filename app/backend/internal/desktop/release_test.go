@@ -266,6 +266,33 @@ const releaseJSONLinux = `{
   ]
 }`
 
+func TestResolveReleaseLinuxLegacyPrefixFallback(t *testing.T) {
+	// A release published under the pre-rename artifactName still resolves on
+	// linux — the prefix fallback is shared across both package formats.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{
+		  "tag_name": "v3.12.2",
+		  "assets": [
+		    {"name": "run-kit-desktop-3.12.2-x86_64.AppImage",
+		     "browser_download_url": "https://example.invalid/legacy-x86_64.AppImage",
+		     "digest": "sha256:ddeeff"}
+		  ]
+		}`))
+	}))
+	defer srv.Close()
+
+	ins := newTestInstaller(t, srv)
+	ins.GOOS = "linux"
+	ins.Arch = "amd64"
+	rel, err := ins.ResolveRelease(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ResolveRelease: %v", err)
+	}
+	if rel.AssetName != "run-kit-desktop-3.12.2-x86_64.AppImage" {
+		t.Errorf("asset = %q, want the legacy-prefixed run-kit-desktop AppImage", rel.AssetName)
+	}
+}
+
 func TestResolveReleaseLinuxSelectsAppImage(t *testing.T) {
 	cases := []struct{ goarch, wantAsset, wantDigest string }{
 		{"amd64", "hexokit-desktop-3.13.0-x86_64.AppImage", "ddeeff"},

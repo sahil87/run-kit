@@ -258,8 +258,8 @@ The Linux AppImage flow (added on `main` after the original diff) SHALL follow D
 - [x] A-025 No unnecessary duplication: legacy-name handling reuses the existing `AppPath`/`InstalledVersion` seams rather than duplicating plist parsing
 - [x] A-026 Tests alongside: every behavior change (root name, completion, desktop constants, carry-forward) has a co-located test update or addition
 - [x] A-027 No comment narration: new comments state constraints (why appId is kept, why copy-not-move, why the legacy prefix stays one release), never change IDs or "renamed X→Y" history
-- [ ] A-029 R15: Linux desktop entry writes `Name=HexoKit` / `StartupWMClass=HexoKit`; uninstall strings name HexoKit; AppImage resolution prefers `hexokit-desktop-` with legacy fallback; AppImage-internal names unchanged
-- [ ] A-030 R15: legacy-bundle helpers (`legacyAppPath`, install's legacy removal) resolve the root via `effectiveInstallDir` — an empty `InstallDir` never resolves against the CWD
+- [x] A-029 R15: Linux desktop entry writes `Name=HexoKit` / `StartupWMClass=HexoKit`; uninstall strings name HexoKit; AppImage resolution prefers `hexokit-desktop-` with legacy fallback; AppImage-internal names unchanged
+- [x] A-030 R15: legacy-bundle helpers (`legacyAppPath`, install's legacy removal) resolve the root via `effectiveInstallDir` — an empty `InstallDir` never resolves against the CWD
 - [x] A-028 Go subprocess safety: any new `exec` in restart/install uses `exec.CommandContext` with a timeout via the existing `ins.Run` seam
 
 ## Notes

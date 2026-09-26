@@ -38,9 +38,9 @@ app/desktop/
 │   ├── tunnel-proxy.test.ts# node:test suite over the compiled tunnel proxy logic
 │   ├── windows.ts          # windows.json window-set store (electron-free, directory-parameterized)
 │   ├── windows.test.ts     # node:test suite over the compiled store
-│   
-    ├── user-data-migration.ts # legacy-userData carry-forward (electron-free, directory-parameterized): one-release copy of hosts.json/windows.json from the pre-rename sibling userData dir
-    ├── user-data-migration.test.ts # node:test suite over the compiled module├── window-registry.ts  # window decision logic (electron-free): routeLeaf/windowTitle, newWindowTarget, record capture ordering + quit accumulation (captureWindowRecord/windowSetForSave), restoreTargets, hostRemovedFallback, windowListItems
+│   ├── user-data-migration.ts # legacy-userData carry-forward (electron-free, directory-parameterized): one-release copy of hosts.json/windows.json from the pre-rename sibling userData dir
+│   ├── user-data-migration.test.ts # node:test suite over the compiled module
+│   ├── window-registry.ts  # window decision logic (electron-free): routeLeaf/windowTitle, newWindowTarget, record capture ordering + quit accumulation (captureWindowRecord/windowSetForSave), restoreTargets, hostRemovedFallback, windowListItems
 │   ├── window-registry.test.ts # node:test suite over the compiled decision module
 │   ├── window-open.ts      # new-window policy (electron-free): isHttpUrl + windowOpenAction
 │   ├── window-open.test.ts # node:test suite over the compiled policy

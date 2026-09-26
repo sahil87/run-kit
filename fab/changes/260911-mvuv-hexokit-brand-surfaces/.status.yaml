@@ -9,13 +9,13 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: done
-    review-pr: done
+    ship: active
+    review-pr: pending
 plan:
     generated: true
-    task_count: 13
-    acceptance_count: 28
-    acceptance_completed: 28
+    task_count: 15
+    acceptance_count: 30
+    acceptance_completed: 30
 confidence:
     certain: 6
     confident: 11
@@ -31,27 +31,27 @@ confidence:
 stage_metrics:
     intake: {started_at: "2026-09-11T17:48:52Z", driver: fab-new, iterations: 1, completed_at: "2026-09-11T17:55:59Z"}
     apply: {started_at: "2026-09-11T17:55:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:13:52Z"}
-    review: {started_at: "2026-09-11T18:13:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:20:16Z"}
-    hydrate: {started_at: "2026-09-11T18:20:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:28:05Z"}
-    ship: {started_at: "2026-09-11T18:28:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:31:13Z"}
-    review-pr: {started_at: "2026-09-11T18:31:13Z", driver: git-pr, iterations: 1, completed_at: "2026-09-11T18:50:56Z"}
+    review: {started_at: "2026-09-26T11:49:49Z", driver: fab-continue, iterations: 2, completed_at: "2026-09-26T11:54:03Z"}
+    hydrate: {started_at: "2026-09-26T11:54:03Z", driver: fab-continue, iterations: 2, completed_at: "2026-09-26T11:57:03Z"}
+    ship: {started_at: "2026-09-26T11:57:03Z", driver: fab-continue, iterations: 2}
+    review-pr: {iterations: 1}
 prs:
     - https://github.com/sahil87/run-kit/pull/950
 change_type_source: explicit
 true_impact:
-    added: 1406
-    deleted: 386
-    net: 1020
+    added: 1510
+    deleted: 255
+    net: 1255
     excluding:
-        added: 635
-        deleted: 229
-        net: 406
+        added: 850
+        deleted: 230
+        net: 620
     tests:
-        added: 358
-        deleted: 71
-        net: 287
-    computed_at: "2026-09-11T18:31:13Z"
-    computed_at_stage: ship
-summary: flips brand surfaces to HexoKit — README head + hexokit.com install bootstrap, cobra root name hexokit (version/help-dump/shell-completion follow; run-kit+rk stay installed invocation names), desktop productName HexoKit with legacy Run Kit.app detection and userData carry-forward
+        added: 510
+        deleted: 97
+        net: 413
+    computed_at: "2026-09-26T11:57:03Z"
+    computed_at_stage: hydrate
+summary: HexoKit app identity — cobra root name hexokit (version/help-dump follow; shell completion registers hexokit/rk/xk/run-kit), desktop productName HexoKit with legacy Run Kit.app + run-kit-desktop- fallbacks across macOS and the Linux AppImage arm, userData carry-forward, config.yaml project name
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-11T18:50:56Z
+last_updated: 2026-09-26T11:57:26Z

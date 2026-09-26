@@ -18,13 +18,13 @@ const linuxDesktopEntryName = "run-kit-desktop.desktop"
 // the install root may contain spaces.
 func linuxDesktopEntry(appRun string) string {
 	return "[Desktop Entry]\n" +
-		"Name=Run Kit\n" +
-		"Comment=run-kit desktop viewer shell — loads an existing rk serve URL (client only, never spawns or supervises the daemon)\n" +
+		"Name=HexoKit\n" +
+		"Comment=HexoKit desktop viewer shell — loads an existing rk serve URL (client only, never spawns or supervises the daemon)\n" +
 		"Exec=\"" + appRun + "\" %U\n" +
 		"Terminal=false\n" +
 		"Type=Application\n" +
 		"Icon=run-kit-desktop\n" +
-		"StartupWMClass=Run Kit\n" +
+		"StartupWMClass=HexoKit\n" +
 		"Categories=Development;\n"
 }
 
@@ -119,10 +119,10 @@ func (ins *Installer) Uninstall(ctx context.Context) (UninstallResult, error) {
 		return UninstallResult{}, fmt.Errorf("checking the installed app: %w", err)
 	}
 	if version == "" {
-		return UninstallResult{}, fmt.Errorf("Run Kit is not installed at %s", linuxCurrentPath(root))
+		return UninstallResult{}, fmt.Errorf("HexoKit is not installed at %s", linuxCurrentPath(root))
 	}
 	if ins.AppRunning(ctx) {
-		return UninstallResult{}, fmt.Errorf("Run Kit is running — quit it, then re-run this command")
+		return UninstallResult{}, fmt.Errorf("HexoKit is running — quit it, then re-run this command")
 	}
 
 	entries, err := os.ReadDir(root)

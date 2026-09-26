@@ -97,7 +97,7 @@ func (ins *Installer) appRunningLinux(ctx context.Context, root string) bool {
 //     Extraction needs no FUSE, so libfuse2 is not a runtime dependency of
 //     the installed app.
 //  4. Validate the extracted tree (validateExtractedTree) — the Linux
-//     analogue of the darwin "bundle is named Run Kit.app" check.
+//     analogue of the darwin "bundle is named HexoKit.app" check.
 //  5. Swap boundary: probe the running state against the pre-flip current
 //     target; when live, SIGTERM the main process and wait (bounded) for
 //     exit — aborting without swapping when the bound expires.
@@ -314,7 +314,7 @@ func startDetached(argv []string) error {
 
 // validateExtractedTree checks the extracted squashfs-root before the install
 // target is touched — the Linux analogue of the darwin "mounted bundle is
-// named Run Kit.app" check. It returns the hicolor icon size directory found
+// named HexoKit.app" check. It returns the hicolor icon size directory found
 // in the tree (e.g. "1024x1024") for the integration icon copy.
 func validateExtractedTree(dir, version string) (string, error) {
 	for _, req := range []struct {

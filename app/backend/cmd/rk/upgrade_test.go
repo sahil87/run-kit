@@ -545,7 +545,7 @@ func TestUpdate_Umbrella_NonBrewContinuesToDesktopLeg(t *testing.T) {
 	if !strings.Contains(stdout.String(), "was not installed via Homebrew") {
 		t.Errorf("stdout = %q, want the not-brew guidance (still data)", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "Updated Run Kit v3.12.2 -> v3.13.0") {
+	if !strings.Contains(stdout.String(), "Updated HexoKit v3.12.2 -> v3.13.0") {
 		t.Errorf("stdout = %q, want the desktop leg to have run and updated", stdout.String())
 	}
 	if assetHits != 1 {
@@ -578,7 +578,7 @@ func TestUpdate_Umbrella_NoAppSilentSkip(t *testing.T) {
 	if got := strings.Count(stdout.String(), "Already up to date"); got != 1 {
 		t.Errorf("want exactly the CLI leg's up-to-date line, got %d in %q", got, stdout.String())
 	}
-	if strings.Contains(stdout.String(), "Run Kit") {
+	if strings.Contains(stdout.String(), "HexoKit") {
 		t.Errorf("stdout = %q, want no desktop-leg output on the silent skip", stdout.String())
 	}
 	if assetHits != 0 {
@@ -645,7 +645,7 @@ func TestUpdate_Umbrella_CLIFailureStillRunsDesktopLeg(t *testing.T) {
 	if strings.Contains(err.Error(), "desktop update:") {
 		t.Errorf("error = %q, must not blame the (successful) desktop leg", err.Error())
 	}
-	if !strings.Contains(stdout.String(), "Updated Run Kit v3.12.2 -> v3.13.0") {
+	if !strings.Contains(stdout.String(), "Updated HexoKit v3.12.2 -> v3.13.0") {
 		t.Errorf("stdout = %q, want the desktop leg to have run despite the CLI failure", stdout.String())
 	}
 }
@@ -785,8 +785,8 @@ func TestUpdate_Umbrella_QuietKeepsBothLegsData(t *testing.T) {
 	}
 	for _, want := range []string{
 		"was not installed via Homebrew",
-		"Updated Run Kit v3.12.2 -> v3.13.0",
-		"Run Kit was running — restarted on the new version.",
+		"Updated HexoKit v3.12.2 -> v3.13.0",
+		"HexoKit was running — restarted on the new version.",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("--quiet must keep the data line %q on stdout, got: %q", want, stdout.String())
@@ -976,7 +976,7 @@ func TestUpdate_Umbrella_LinuxDesktopLegUpdates(t *testing.T) {
 	if err := updateCmd.RunE(updateCmd, nil); err != nil {
 		t.Fatalf("updateCmd.RunE returned error: %v", err)
 	}
-	want := "Updated Run Kit v3.20.9 -> v3.21.0 (" + filepath.Join(root, "3.21.0") + ")"
+	want := "Updated HexoKit v3.20.9 -> v3.21.0 (" + filepath.Join(root, "3.21.0") + ")"
 	if !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout = %q, want %q", stdout.String(), want)
 	}
@@ -1008,7 +1008,7 @@ func TestUpdate_Umbrella_LinuxDesktopLegSilentSkip(t *testing.T) {
 	if err := updateCmd.RunE(updateCmd, nil); err != nil {
 		t.Fatalf("updateCmd.RunE returned error: %v", err)
 	}
-	if strings.Contains(stdout.String(), "Run Kit") {
+	if strings.Contains(stdout.String(), "HexoKit") {
 		t.Errorf("stdout = %q, want no desktop-leg output on the silent skip", stdout.String())
 	}
 	if assetHits != 0 {

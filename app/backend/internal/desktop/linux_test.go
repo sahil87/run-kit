@@ -67,7 +67,7 @@ func writeLinuxTree(t *testing.T, dir string, o linuxTreeOpts) {
 	}
 	if !o.noDesktop {
 		mk("run-kit-desktop.desktop",
-			"[Desktop Entry]\nName=Run Kit\nExec=AppRun --no-sandbox %U\nX-AppImage-Version="+o.version+"\n", 0o644)
+			"[Desktop Entry]\nName=HexoKit\nExec=AppRun --no-sandbox %U\nX-AppImage-Version="+o.version+"\n", 0o644)
 	}
 	iconRel := filepath.Join("usr", "share", "icons", "hicolor", o.iconSizeDir, "apps", "run-kit-desktop.png")
 	mk(iconRel, "fake-png", 0o644)
@@ -162,7 +162,7 @@ func linuxInstaller(t *testing.T, rig *linuxRig) (ins *Installer, root, home str
 func linuxRelease(srv *httptest.Server, version, digest string) Release {
 	return Release{
 		Version:   version,
-		AssetName: fmt.Sprintf("run-kit-desktop-%s-x86_64.AppImage", version),
+		AssetName: fmt.Sprintf("hexokit-desktop-%s-x86_64.AppImage", version),
 		AssetURL:  srv.URL + "/dl/app",
 		Digest:    digest,
 	}
@@ -212,12 +212,12 @@ func TestInstallLinuxHappyPath(t *testing.T) {
 		t.Fatalf("launcher entry: %v", err)
 	}
 	for _, want := range []string{
-		"Name=Run Kit\n",
+		"Name=HexoKit\n",
 		"Exec=\"" + filepath.Join(root, "current", "AppRun") + "\" %U\n",
 		"Terminal=false\n",
 		"Type=Application\n",
 		"Icon=run-kit-desktop\n",
-		"StartupWMClass=Run Kit\n",
+		"StartupWMClass=HexoKit\n",
 		"Categories=Development;\n",
 	} {
 		if !strings.Contains(string(entry), want) {
@@ -561,7 +561,7 @@ func TestUninstallLinuxNotInstalled(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := ins.Uninstall(context.Background())
-	want := "Run Kit is not installed at " + linuxCurrentPath(root)
+	want := "HexoKit is not installed at " + linuxCurrentPath(root)
 	if err == nil || err.Error() != want {
 		t.Errorf("error = %v, want %q", err, want)
 	}
@@ -577,7 +577,7 @@ func TestUninstallLinuxRunningRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := ins.Uninstall(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "Run Kit is running — quit it") {
+	if err == nil || !strings.Contains(err.Error(), "HexoKit is running — quit it") {
 		t.Fatalf("error = %v, want the running refusal", err)
 	}
 	if _, statErr := os.Stat(linuxVersionDir(root, "3.20.8")); statErr != nil {

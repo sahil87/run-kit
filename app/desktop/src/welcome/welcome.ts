@@ -841,7 +841,7 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
   const bridge = getWelcomeBridge();
   if (!bridge) {
     els.errorEl.textContent =
-      "Shell bridge unavailable — this page only works inside the Run Kit desktop app";
+      "Shell bridge unavailable — this page only works inside the HexoKit desktop app";
     els.errorEl.hidden = false;
     els.connectButton.disabled = true;
     return;

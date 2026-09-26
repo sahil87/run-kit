@@ -174,7 +174,7 @@ independent legs:
                via --skip-brew-update), brew upgrade, then a daemon restart so
                the server picks up the new binary. A non-brew install prints
                manual-update guidance instead and moves on.
-  Desktop leg  (macOS, Linux) When the Run Kit desktop app is installed at
+  Desktop leg  (macOS, Linux) When the HexoKit desktop app is installed at
                the platform's default install root (/Applications on macOS,
                ~/.rk/desktop on Linux): update it to the latest release,
                auto-restarting a running app (staged download, graceful quit,
@@ -344,7 +344,7 @@ func runUpdateCodeServerLeg(cmd *cobra.Command, sink outputSink) {
 	}
 }
 
-// runUpdateDesktopLeg updates the Run Kit desktop app when one is installed
+// runUpdateDesktopLeg updates the HexoKit desktop app when one is installed
 // at the platform's default install root (/Applications on macOS,
 // ~/.rk/desktop on Linux) — the umbrella's "whichever is installed" desktop
 // half. macOS/Linux only (desktopGOOS); another platform and a missing app

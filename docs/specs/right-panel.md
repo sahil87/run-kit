@@ -149,7 +149,7 @@ the shared switcher; the panel is merely its natural home.
   across restarts, or users silently get a blank workspace that reads as data
   loss. The dedicated `/code/` route (`260811-a2bo`) makes the pathname a
   constant — immune to port changes by construction.
-- **Topology**: one code-server instance per host, **run-kit-managed**
+- **Topology**: one code-server instance per host, **rk-managed**
   (`260811-a2bo`): the daemon starts it as a sibling tmux session
   (`rk-code-server`) on the rk-daemon socket, bound to the convention port
   (`RK_PORT+2`; a preset `RK_CODE_SERVER_PORT` overrides — e.g. an externally

@@ -41,6 +41,20 @@ func (ins *Installer) installedBundlePath() string {
 	return newPath
 }
 
+// CurrentBundleInstalled reports whether the current-name bundle
+// (HexoKit.app) is present. The install/update no-op short-circuits key on
+// it: InstalledVersion alone falls back to the legacy pre-rename bundle, so a
+// same-version legacy-only install would otherwise read as complete and never
+// migrate. Linux has no legacy bundle concept — its versioned layout was
+// never keyed on the product name — so it reports true.
+func (ins *Installer) CurrentBundleInstalled() bool {
+	if ins.GOOS == "linux" {
+		return true
+	}
+	_, err := os.Stat(filepath.Join(ins.AppPath(), "Contents", "Info.plist"))
+	return err == nil
+}
+
 // installedAppName is the installed application's name as osascript
 // addresses it and messages show it — derived from the installed bundle path
 // on darwin so the quit target can never drift from the bundle the installer

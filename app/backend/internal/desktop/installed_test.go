@@ -258,3 +258,29 @@ func TestAppRunning(t *testing.T) {
 		t.Error("AppRunning = true with a failing pgrep, want false")
 	}
 }
+
+func TestCurrentBundleInstalled(t *testing.T) {
+	// Legacy-only: the current-name bundle is absent even though a pre-rename
+	// install exists — the version no-op short-circuits must not treat this as
+	// complete.
+	dir := t.TempDir()
+	writeFakeBundleNamed(t, dir, legacyAppBundleName)
+
+	ins := New()
+	ins.GOOS = "darwin"
+	ins.InstallDir = dir
+	if ins.CurrentBundleInstalled() {
+		t.Error("CurrentBundleInstalled = true with only the legacy bundle, want false")
+	}
+
+	writeFakeBundle(t, dir)
+	if !ins.CurrentBundleInstalled() {
+		t.Error("CurrentBundleInstalled = false with HexoKit.app present, want true")
+	}
+
+	// Linux never had a name-keyed bundle — no legacy-only state exists.
+	ins.GOOS = "linux"
+	if !ins.CurrentBundleInstalled() {
+		t.Error("CurrentBundleInstalled = false on linux, want true")
+	}
+}

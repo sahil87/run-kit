@@ -234,7 +234,9 @@ func runDesktopInstall(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if !force && installed == rel.Version {
+	if !force && installed == rel.Version && ins.CurrentBundleInstalled() {
+		// A legacy-only install at the same version is NOT a no-op: fall
+		// through so Install lands HexoKit.app and removes the old bundle.
 		// Outcome line — data: silence would misreport the no-op.
 		sink.Dataf("HexoKit v%s is already installed (%s). Use --force to reinstall.\n", installed, ins.AppPath())
 		return nil
@@ -284,7 +286,9 @@ func desktopUpdateToLatest(ctx context.Context, ins *desktop.Installer, sink out
 	if err != nil {
 		return err
 	}
-	if !force && !updatecheck.AnyIncrease(installed, rel.Version) {
+	if !force && !updatecheck.AnyIncrease(installed, rel.Version) && ins.CurrentBundleInstalled() {
+		// A legacy-only install at the latest version still migrates: fall
+		// through so Install lands HexoKit.app and removes the old bundle.
 		// Outcome line — data (mirrors `rk update`'s already-up-to-date shape).
 		sink.Dataf("Already up to date (v%s).\n", installed)
 		return nil

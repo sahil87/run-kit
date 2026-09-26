@@ -162,6 +162,19 @@ func writeDesktopBundle(t *testing.T, dir string) {
 	}
 }
 
+// writeDesktopLegacyBundle creates <dir>/Run Kit.app/Contents/Info.plist — a
+// pre-rename install with no current-name bundle beside it.
+func writeDesktopLegacyBundle(t *testing.T, dir string) {
+	t.Helper()
+	contents := filepath.Join(dir, "Run Kit.app", "Contents")
+	if err := os.MkdirAll(contents, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(contents, "Info.plist"), []byte("fake"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDesktopRegisteredWithChildrenAndFlags(t *testing.T) {
 	var found *cobra.Command
 	for _, c := range rootCmd.Commands() {
@@ -351,6 +364,34 @@ func TestDesktopInstallForceReinstalls(t *testing.T) {
 	}
 }
 
+func TestDesktopInstallLegacyOnlySameVersionMigrates(t *testing.T) {
+	// Only the pre-rename Run Kit.app exists, at the same version as the
+	// release: the version equality must NOT short-circuit — the install runs
+	// so HexoKit.app lands and the legacy bundle is removed.
+	var assetHits int
+	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
+	withDesktopStub(t, srv, desktopFakeRunner(t, "3.13.0", false))
+	dir := t.TempDir()
+	writeDesktopLegacyBundle(t, dir)
+
+	stdout, _, err := execDesktop(t, "desktop", "install", "--path", dir)
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if !strings.Contains(stdout, "Installed HexoKit v3.13.0") {
+		t.Errorf("stdout = %q, want an installed outcome line (no already-installed short-circuit)", stdout)
+	}
+	if assetHits != 1 {
+		t.Errorf("asset downloads = %d, want 1", assetHits)
+	}
+	if _, err := os.Stat(filepath.Join(dir, desktop.AppBundleName)); err != nil {
+		t.Errorf("HexoKit.app missing after migration install: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Run Kit.app")); !os.IsNotExist(err) {
+		t.Errorf("legacy Run Kit.app still present after migration install (err = %v)", err)
+	}
+}
+
 func TestDesktopUpdateNotInstalled(t *testing.T) {
 	var assetHits int
 	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
@@ -385,6 +426,34 @@ func TestDesktopUpdateAlreadyUpToDate(t *testing.T) {
 	}
 	if assetHits != 0 {
 		t.Errorf("asset downloaded %d times despite up-to-date", assetHits)
+	}
+}
+
+func TestDesktopUpdateLegacyOnlySameVersionMigrates(t *testing.T) {
+	// Only the pre-rename Run Kit.app exists, at the latest version: the
+	// up-to-date check must NOT short-circuit — the update runs so HexoKit.app
+	// lands and the legacy bundle is removed.
+	var assetHits int
+	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
+	withDesktopStub(t, srv, desktopFakeRunner(t, "3.13.0", false))
+	dir := t.TempDir()
+	writeDesktopLegacyBundle(t, dir)
+
+	stdout, _, err := execDesktop(t, "desktop", "update", "--path", dir)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if strings.Contains(stdout, "Already up to date") {
+		t.Errorf("stdout = %q, want no up-to-date short-circuit for a legacy-only install", stdout)
+	}
+	if assetHits != 1 {
+		t.Errorf("asset downloads = %d, want 1", assetHits)
+	}
+	if _, err := os.Stat(filepath.Join(dir, desktop.AppBundleName)); err != nil {
+		t.Errorf("HexoKit.app missing after migration update: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Run Kit.app")); !os.IsNotExist(err) {
+		t.Errorf("legacy Run Kit.app still present after migration update (err = %v)", err)
 	}
 }
 

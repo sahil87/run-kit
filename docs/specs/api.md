@@ -463,7 +463,7 @@ failures):
 
 Toolkit update surface. The daemon's periodic checker delegates the check to
 one exec of `shll check-updates --json` (per-tool verdicts consumed
-from its JSON; run-kit's own row re-compared locally against the running
+from its JSON; HexoKit's own row re-compared locally against the running
 ldflags version).
 
 #### `POST /api/updates/check`
@@ -567,7 +567,7 @@ code of our own.
 **Stance:**
 - **Tailnet-only, no auth of its own** — the same posture as every other daemon
   route; never exposed publicly. Its clients are MCP clients already on the tailnet
-  (Claude Code and kin); the Claude Desktop app reaches run-kit over stdio via
+  (Claude Code and kin); the Claude Desktop app reaches HexoKit over stdio via
   `ssh <box> rk mcp`, not this route.
 - **Origin validation** — when a request carries an `Origin` header, the handler
   rejects it unless the origin's scheme, host, and port match an allowlist derived

@@ -12,8 +12,9 @@ page; `/install` and `/versions.json` are byte copies, verified). The product
 README, docs, specs, and every companion README already say HexoKit. R0
 renamed the app identity itself: the command is `hexokit` (with `xk`/`rk`
 completions) and the desktop app is "HexoKit". The on-disk homes are done
-(C4). Still on the old name: the daemon port default (C5, in progress) and
-the GitHub repo `sahil87/run-kit` (R2) / formula (R1).
+(C4). The daemon port default (C5) and R1(a)/(b) (formula/release) are done.
+Still on the old name: the GitHub repo `sahil87/run-kit` (R2) and R1(c)/(d)
+(shll roster + hexokit-site, awaiting Sahil's OK).
 
 **Status (2026-09-26)**: **everything before Phase 3 is done except the
 announce.** A1 (shll v0.1.33) and A2 done; P1, P2, P3 merged and shipped in

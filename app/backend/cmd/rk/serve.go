@@ -92,7 +92,7 @@ var (
 // repointLauncher re-points the rk-owned launcher symlink at the running
 // daemon's resolved binary, so hooks keep execing a live rk through the
 // post-upgrade window between Homebrew's keg cleanup and the daemon restart
-// `rk update` performs (a manual `brew upgrade run-kit` re-points at the next
+// `rk update` performs (a manual `brew upgrade hexokit` re-points at the next
 // daemon start). Daemon start is the only trigger — no timer, no watcher (the
 // tmux.EnsureConfig posture). Brew-daemons only: a dev-worktree or e2e-rig
 // `rk serve` must never re-point the machine's hooks at a throwaway build.

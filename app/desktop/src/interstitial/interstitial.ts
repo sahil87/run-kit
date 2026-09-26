@@ -160,7 +160,7 @@
       if (!status.installed) {
         els.headline.textContent = "run-kit is not installed";
         els.detail.textContent = "Install it on this machine, then retry.";
-        els.hint.textContent = "brew install sahil87/tap/run-kit";
+        els.hint.textContent = "brew install sahil87/tap/hexokit";
         els.hint.hidden = false;
         return;
       }

@@ -57,7 +57,7 @@ run-kit update
 
 > **Upgrading from an earlier HexoKit?** Older installs had the agent-hook *logic* inlined in `~/.claude/settings.json`. Run `run-kit agent setup` once more to swap in the new delegating wrapper, then restart your agent sessions. Future hook fixes ship in the binary and track `run-kit update` with no re-setup.
 
-> **Coming from the old `rk` formula?** run-kit was originally published as `sahil87/tap/rk`. If brew warns that `sahil87/tap/rk was renamed to sahil87/tap/run-kit`, you have a keg installed under the old name — remove it with a benign `brew uninstall sahil87/tap/rk` (your config and the `rk` command alias are unaffected), then `brew install sahil87/tap/run-kit` if `run-kit` is no longer on your `PATH`.
+> **Coming from an older formula name?** HexoKit was published as `sahil87/tap/rk`, then `sahil87/tap/run-kit`, and is now `sahil87/tap/hexokit`; the tap's rename map carries `brew upgrade` across both renames. If brew warns that `sahil87/tap/rk` or `sahil87/tap/run-kit` `was renamed to` a newer name, you have a keg installed under the old name — remove it with a benign `brew uninstall` of that old name (your config and the `rk` command are unaffected), then `brew install sahil87/tap/hexokit` if `rk` is no longer on your `PATH`.
 
 ## Desktop app
 

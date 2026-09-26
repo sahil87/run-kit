@@ -287,7 +287,7 @@ Five normative states, driven entirely by `daemon:status` (§ Local Daemon Contr
 | **stopped** | grey (`--text-secondary`) | `stopped` | `` rk v{X} installed · runs `rk daemon start` `` | single accent **Start & connect** |
 | **wedged** | amber (`--signal-yellow`) | `not responding · v{X}` | `run-kit is running but isn't answering on {origin}` | single accent **Restart run-kit** |
 | **starting… / restarting…** | amber (`--signal-yellow`) | action progress | `waiting for {host}:{port} to answer` | both disabled |
-| **not installed** | — | *(status row hidden)* | section collapses to `brew install sahil87/tap/run-kit` | none |
+| **not installed** | — | *(status row hidden)* | section collapses to `brew install sahil87/tap/hexokit` | none |
 
 **"Start & connect" is deliberately ONE button** — the intent behind starting a daemon is always to get in, so a separate start-then-connect pair would be two clicks for one intention. The running-state Connect is the same button in its other label; both invoke `daemon:start`, while the wedged action invokes `daemon:restart`; Start and Restart both finish with the main-side connect tail. An unparseable version omits the `· v{X}` fragment rather than erroring (it is cosmetic), and a missing session count degrades the running detail to the bare `{host}:{port}`.
 

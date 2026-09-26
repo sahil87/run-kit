@@ -14,7 +14,7 @@ What makes it so good right now is what tends to run in those panes: **AI coding
 curl -fsSL https://hexokit.com/install | sh
 ```
 
-Installs the entire HexoKit toolkit via Homebrew, handling tap trust automatically. HexoKit relies on its sibling tools (`wt` for the riff worktree flow), so the full-toolkit install is the supported path. The formula also installs `rk` as a fully interchangeable short alias of `run-kit` — every command here works with either.
+Installs the entire HexoKit toolkit via Homebrew, handling tap trust automatically. HexoKit relies on its sibling tools (`wt` for the riff worktree flow), so the full-toolkit install is the supported path. The formula installs the `hexokit` command with `rk` as its fully interchangeable short name (`xk` and `run-kit` are aliases too) — every command here works with any of them.
 
 Requires **tmux ≥ 3.4** (checked at runtime; `rk doctor` reports your version). See the [install & access guide](docs/site/install.md) for prerequisites, upgrades, and troubleshooting.
 

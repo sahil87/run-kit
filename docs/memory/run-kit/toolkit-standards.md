@@ -1284,7 +1284,7 @@ only says a bounded caller "should also consider" it, and the generous bound +
 `SIGTERM` already satisfies the SHOULD (trivially addable later if wanted).
 
 #### Scenario: A mid-transaction stall terminates gracefully, never mid-swap
-- **GIVEN** a `brew upgrade sahil87/tap/run-kit` that stalls past its bound on an
+- **GIVEN** a `brew upgrade sahil87/tap/hexokit` that stalls past its bound on an
   un-timed `api.github.com` call
 - **WHEN** the (30-minute) context finally expires
 - **THEN** brew receives a trappable `SIGTERM` (not `SIGKILL`) and a 30s grace
@@ -1385,7 +1385,7 @@ behavior/pointer/history, not install instructions — outside Policy B's reach.
   `run-kit desktop install` and its manual fallback is a GitHub Releases download,
   never a brew formula (260730-pl4v-rk-desktop-install)
 - **AND** the Policy-A binary hint in `app/backend/cmd/rk/upgrade.go` still prints
-  `brew install sahil87/tap/run-kit` on a non-brew install — conformant binary
+  `brew install sahil87/tap/hexokit` on a non-brew install — conformant binary
   output (Policy A mandates the hint there; Policy B binds docs only)
 
 ### install-composition — Policy A (binary half) PASS
@@ -1395,7 +1395,7 @@ folder's `conformance-report.md`, lifted into the PR body per the
 report-lives-in-PR-body convention. All three checklist items of the standard's
 "Verifying conformance" section hold:
 
-- **Formula**: `sahil87/tap/run-kit` declares zero `depends_on` of any class
+- **Formula**: `sahil87/tap/hexokit` declares zero `depends_on` of any class
   (`brew info --json=v2` + tap source). The formula's only `depends_on` text is
   a comment explaining two deliberate non-declarations — code-server (rk manages
   its own digest-verified install; brew's formula is deprecated/pinned) and tmux
@@ -1414,7 +1414,7 @@ report-lives-in-PR-body convention. All three checklist items of the standard's
   crash-capable sibling path exists**; the standard's failure mode (one tool's
   absence crashing another) occurs nowhere.
 - **Hints**: the non-brew self-install hint (`cmd/rk/upgrade.go`,
-  `brew install sahil87/tap/run-kit`; HTTP twin in `api/update.go`'s 409 body)
+  `brew install sahil87/tap/hexokit`; HTTP twin in `api/update.go`'s 409 body)
   is live-verified conformant. Two hint strings fall short of the standard's
   actionable shape (`<tool> is not installed. Install it: brew install
   sahil87/tap/<tool>`) and are deferred as backlog `[gq7f]`: riff's wt-absent
@@ -1428,7 +1428,7 @@ report-lives-in-PR-body convention. All three checklist items of the standard's
   `run-kit riff: wt not found on PATH (required companion tool — see
   https://github.com/sahil87/wt)` (hint-shape alignment deferred to `[gq7f]`)
 - **AND GIVEN** a non-Homebrew `bin/rk`, `rk update` prints the manual-update
-  guidance ending `brew install sahil87/tap/run-kit` and exits 0 (a leg skip,
+  guidance ending `brew install sahil87/tap/hexokit` and exits 0 (a leg skip,
   not a failure)
 
 ## Design Decisions

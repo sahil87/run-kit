@@ -1570,7 +1570,7 @@ every Environment value is derivable by the agent directly (`$TMUX_PANE`, `tmux
 display-message`, env-backed config), so the command was pure duplication once the
 topic page existed. The one derivation that earns a stable command seam is the
 server URL → **`rk url`** (a resolver over explicit `RK_HOST`/`RK_PORT` env →
-the pane server's `@rk_srv_origin` tmux option → the `127.0.0.1:3000` default, so
+the pane server's `@rk_srv_origin` tmux option → the `127.0.0.1:6123` default, so
 it stays accurate on non-default deployments where panes carry no `RK_*` env;
 ecosystem precedent
 `gh browse --no-browser` / `docker port` / `minikube service --url`), which also

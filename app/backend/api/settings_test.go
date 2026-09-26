@@ -8,11 +8,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"rk/internal/daemon"
+	"rk/internal/portpolicy"
 	"rk/internal/settings"
 )
 
@@ -100,8 +102,9 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	if got := byKey["ssh_host"].Value; got != nil {
 		t.Errorf("ssh_host.value = %v, want null", got)
 	}
-	if e := byKey["port"]; e.Kind != "port" || e.Default != "3000" || e.UI != false || e.Live != false || e.Value != nil {
-		t.Errorf("port entry = %+v, want kind=port default=3000 ui=false live=false value=null", e)
+	portDefault := strconv.Itoa(portpolicy.DaemonDefault)
+	if e := byKey["port"]; e.Kind != "port" || e.Default != portDefault || e.UI != false || e.Live != false || e.Value != nil {
+		t.Errorf("port entry = %+v, want kind=port default=%s ui=false live=false value=null", e, portDefault)
 	}
 	if got, ok := byKey["server_colors"].Value.(map[string]any); !ok || len(got) != 0 {
 		t.Errorf("server_colors.value = %v, want {}", byKey["server_colors"].Value)

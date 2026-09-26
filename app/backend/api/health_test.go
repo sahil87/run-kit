@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"rk/internal/portpolicy"
 	"rk/internal/settings"
 )
 
@@ -285,7 +286,7 @@ func TestHealthEndpointTunnel(t *testing.T) {
 		}
 	})
 
-	t.Run("always present, defaulting to 3000", func(t *testing.T) {
+	t.Run("always present, defaulting to the policy default", func(t *testing.T) {
 		isolateSettings(t)
 		t.Setenv("RK_PORT", "")
 		router := NewTestRouter(logger, nil, nil, "test-host")
@@ -302,8 +303,8 @@ func TestHealthEndpointTunnel(t *testing.T) {
 		if !ok {
 			t.Fatalf("body.tunnel absent or non-numeric (%v), want present", body["tunnel"])
 		}
-		if port != 3000 {
-			t.Errorf("body.tunnel = %v, want 3000 (default)", port)
+		if port != float64(portpolicy.DaemonDefault) {
+			t.Errorf("body.tunnel = %v, want %d (policy default)", port, portpolicy.DaemonDefault)
 		}
 		if _, present := body["forwardProxy"]; present {
 			t.Errorf("body.forwardProxy present (%v), want absent", body["forwardProxy"])

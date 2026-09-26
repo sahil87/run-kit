@@ -23,7 +23,7 @@ The override order is `code default < config.yaml < env < CLI flag`. Env forms e
 
 | Setting | Default | Override order |
 |---------|---------|----------------|
-| Port | `3000` | defaults → config.yaml `port` → env `RK_PORT` |
+| Port | `6123` | defaults → config.yaml `port` → env `RK_PORT` |
 | Host | `127.0.0.1` | defaults → env `RK_HOST` |
 | Code-server port | resolved daemon port + 2 | defaults → env `RK_CODE_SERVER_PORT` |
 

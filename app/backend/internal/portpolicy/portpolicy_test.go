@@ -3,11 +3,14 @@ package portpolicy
 import "testing"
 
 func TestCommittedValues(t *testing.T) {
-	if DaemonDefault != 3000 {
-		t.Errorf("DaemonDefault = %d, want 3000", DaemonDefault)
+	if DaemonDefault != 6123 {
+		t.Errorf("DaemonDefault = %d, want 6123", DaemonDefault)
 	}
 	if DaemonLegacy != 3000 {
 		t.Errorf("DaemonLegacy = %d, want 3000", DaemonLegacy)
+	}
+	if DaemonDefault == DaemonLegacy {
+		t.Errorf("DaemonDefault and DaemonLegacy both %d — pin mechanism requires distinct values", DaemonDefault)
 	}
 	if Rig != (Block{Name: "rig", Start: 21000, End: 21299}) {
 		t.Errorf("Rig = %+v, want {rig 21000 21299}", Rig)

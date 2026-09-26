@@ -6,8 +6,11 @@ package settings
 import (
 	"encoding/json"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+
+	"rk/internal/portpolicy"
 )
 
 func TestRegistry_orderAndMetadata(t *testing.T) {
@@ -44,7 +47,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 		{"gui.enabled", "bool", "false", "behavior", true, true, nil},
 		{"gui.wm", "string", "", "behavior", true, false, nil},
 		{"gui.geometry", "string", "1920x1080", "behavior", true, true, nil},
-		{"port", "port", "3000", "connectivity", false, false, nil},
+		{"port", "port", strconv.Itoa(portpolicy.DaemonDefault), "connectivity", false, false, nil},
 		{"log_level", "enum", "info", "advanced", true, false, []string{"info", "debug"}},
 		{"server_colors", "map", "{}", "appearance", true, true, nil},
 		{"server_flairs", "map", "{}", "appearance", true, true, nil},

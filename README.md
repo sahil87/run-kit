@@ -23,8 +23,8 @@ Requires **tmux ≥ 3.4** (checked at runtime; `rk doctor` reports your version)
 Three commands from install to a guided tour:
 
 ```bash
-rk daemon start                 # start the dashboard daemon on :3000
-open http://localhost:3000      # open the dashboard (xdg-open on Linux)
+rk daemon start                 # start the dashboard daemon on :6123
+open http://localhost:6123      # open the dashboard (xdg-open on Linux)
 
 # in a tmux session (tmux new -s work if you aren't in one):
 rk tutorial                     # guided first run — an agent walks you through the product, act by act
@@ -89,7 +89,7 @@ One invocation gives you a git worktree, a tmux window inside it, and one or mor
 
 - **Pane array**: `--skill` and `--cmd` are repeatable; each occurrence adds one pane, in argv order.
 - **Layouts**: `--layout` picks `auto` (default), `tiled`, `even-*`, or `main-*`.
-- **Presets**: built-ins `discuss`, `incognito`, `blank` ship in the binary; add or override skills under `riff_presets` in `~/.config/run-kit/config.yaml`; invoke as `rk riff <name>`.
+- **Presets**: built-ins `discuss`, `incognito`, `blank` ship in the binary; add or override skills under `riff_presets` in `~/.config/hexokit/config.yaml`; invoke as `rk riff <name>`.
 - **Parallel**: `-N <N>` spawns N workspaces; failures roll back before exiting.
 - **wt passthrough**: flags after `--` go to `wt create` verbatim (e.g. `--base`, `--worktree-name`).
 
@@ -104,10 +104,10 @@ See the [riff guide](docs/site/workflows.md) for the full reference.
 
 ## `rk serve` — the HTTP server
 
-Start the HTTP server in the foreground. Configurable via `RK_HOST` (default `127.0.0.1`) and `RK_PORT` (default `3000`). The port also has a durable home: set `port: 4000` in `~/.config/run-kit/config.yaml` and run `rk daemon restart` — `RK_PORT` still wins when set (precedence: default 3000 < config.yaml < `RK_PORT`).
+Start the HTTP server in the foreground. Configurable via `RK_HOST` (default `127.0.0.1`) and `RK_PORT` (default `6123`). The port also has a durable home: set `port: 4000` in `~/.config/hexokit/config.yaml` and run `rk daemon restart` — `RK_PORT` still wins when set (precedence: default 6123 < config.yaml < `RK_PORT`).
 
 ```bash
-rk serve                                # foreground on 127.0.0.1:3000
+rk serve                                # foreground on 127.0.0.1:6123
 RK_HOST=0.0.0.0 RK_PORT=8080 rk serve   # bind all interfaces, port 8080
 ```
 
@@ -162,7 +162,7 @@ Some browser features (clipboard, secure context) require HTTPS. Accessing HexoK
 
 1. Enable HTTPS at [DNS > HTTPS Certificates](https://login.tailscale.com/admin/dns).
 2. Run `sudo tailscale set --operator=$USER` (one-time — lets `tailscale serve` run without sudo).
-3. Run `tailscale serve --bg http://localhost:3000`.
+3. Run `tailscale serve --bg http://localhost:6123`.
 4. Open `https://<machine>.<tailnet>.ts.net` on your phone or another laptop.
 
 For a stable custom hostname or public access via Funnel, see the [Tailscale guide](docs/site/install.md#tailscale-https).

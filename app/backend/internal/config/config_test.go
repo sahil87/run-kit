@@ -205,7 +205,17 @@ func TestResolvedCodeServerPort(t *testing.T) {
 		}
 	})
 
-	t.Run("convention default is RK_PORT+2", func(t *testing.T) {
+	t.Run("fresh install convention is the policy default +2", func(t *testing.T) {
+		isolateConfigRoot(t, "")
+		t.Setenv(PortEnvVar, "")
+		t.Setenv(CodeServerPortEnvVar, "")
+
+		if cfg := Load(); cfg.ResolvedCodeServerPort() != portpolicy.DaemonDefault+2 {
+			t.Errorf("ResolvedCodeServerPort = %d, want %d (policy default +2)", cfg.ResolvedCodeServerPort(), portpolicy.DaemonDefault+2)
+		}
+	})
+
+	t.Run("pinned RK_PORT=3000 keeps code-server at 3002", func(t *testing.T) {
 		isolateConfigRoot(t, "")
 		t.Setenv(PortEnvVar, "3000")
 		t.Setenv(CodeServerPortEnvVar, "")
@@ -357,16 +367,12 @@ func TestDaemonDefaultPortVirtualPin(t *testing.T) {
 		}
 	})
 
-	// The C5 flip simulation: with DaemonDefault moved off the legacy port,
-	// the legacy home must STILL resolve the legacy port and a fresh home the
-	// new default. portpolicy's embedded values are plain package vars, so the
-	// test swaps them directly.
-	t.Run("post-C5 default keeps legacy homes pinned", func(t *testing.T) {
-		origDefault := portpolicy.DaemonDefault
-		portpolicy.DaemonDefault = 6123
-		t.Cleanup(func() { portpolicy.DaemonDefault = origDefault })
-		if portpolicy.DaemonLegacy == 6123 {
-			t.Skip("DaemonLegacy == simulated default; nothing to distinguish")
+	// The flip is in force: DaemonDefault (6123) moved off DaemonLegacy
+	// (3000), so these cases exercise the real embedded policy values — a
+	// regression in ports.env fails them.
+	t.Run("real values keep legacy homes pinned", func(t *testing.T) {
+		if portpolicy.DaemonDefault == portpolicy.DaemonLegacy {
+			t.Fatal("DaemonDefault == DaemonLegacy: the flip is not in force")
 		}
 
 		t.Run("legacy home", func(t *testing.T) {
@@ -390,8 +396,8 @@ func TestDaemonDefaultPortVirtualPin(t *testing.T) {
 		t.Run("fresh home", func(t *testing.T) {
 			isolateHomes(t)
 
-			if cfg := Load(); cfg.Port != 6123 {
-				t.Errorf("port = %d, want simulated DaemonDefault 6123", cfg.Port)
+			if cfg := Load(); cfg.Port != portpolicy.DaemonDefault {
+				t.Errorf("port = %d, want portpolicy.DaemonDefault %d", cfg.Port, portpolicy.DaemonDefault)
 			}
 		})
 	})

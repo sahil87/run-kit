@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"rk/internal/config"
+	"rk/internal/portpolicy"
 )
 
 // captureSlog swaps the default slog logger for one writing to a buffer and
@@ -33,7 +34,7 @@ func TestWarnReservedPorts(t *testing.T) {
 		want      []string
 		notWant   []string
 	}{
-		{name: "default port stays silent", cfg: config.Config{Port: 3000}},
+		{name: "default port stays silent", cfg: config.Config{Port: portpolicy.DaemonDefault}},
 		{name: "dev build on a rig port stays silent", cfg: config.Config{Port: 21000}},
 		{name: "released build on a rig port warns", version: "1.2.3", cfg: config.Config{Port: 21000}, wantWarns: 1,
 			want: []string{"daemon :21000", "block=rig", "start=21000", "end=21299", "RK_PORT"}},

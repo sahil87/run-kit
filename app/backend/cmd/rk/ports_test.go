@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"testing"
+
+	"rk/internal/portpolicy"
+	"rk/internal/settings"
 )
 
 // runPorts drives `rk ports` through the real cobra Execute() seam (the
@@ -41,21 +44,24 @@ func TestPortsCommandRegistered(t *testing.T) {
 }
 
 // TestPortsJSONDefault pins the stable envelope shape with no env override:
-// one {"ok":true,"result":…} document, effective port 3000, and collisions as
-// an empty array (never null).
+// one {"ok":true,"result":…} document, effective port equal to the policy
+// default, and collisions as an empty array (never null). The config root is
+// isolated so the developer's real config.yaml (and its port key) and any
+// legacy-home virtual pin cannot leak into the resolution.
 func TestPortsJSONDefault(t *testing.T) {
 	t.Setenv("RK_PORT", "")
 	t.Setenv("RK_CODE_SERVER_PORT", "")
+	t.Setenv(settings.ConfigDirEnv, t.TempDir())
 
 	stdout, stderr := runPorts(t, "--json")
 
 	want := map[string]any{
 		"daemon": map[string]any{
-			"default_port":               float64(3000),
-			"default_dev_backend_port":   float64(3001),
-			"default_code_server_port":   float64(3002),
-			"effective_port":             float64(3000),
-			"effective_code_server_port": float64(3002),
+			"default_port":               float64(portpolicy.DaemonDefault),
+			"default_dev_backend_port":   float64(portpolicy.DaemonDefault + 1),
+			"default_code_server_port":   float64(portpolicy.DaemonDefault + 2),
+			"effective_port":             float64(portpolicy.DaemonDefault),
+			"effective_code_server_port": float64(portpolicy.DaemonDefault + 2),
 		},
 		"blocks": []any{
 			map[string]any{"name": "rig", "start": float64(21000), "end": float64(21299)},
@@ -95,9 +101,9 @@ func TestPortsCollisionJSON(t *testing.T) {
 
 	want := map[string]any{
 		"daemon": map[string]any{
-			"default_port":               float64(3000),
-			"default_dev_backend_port":   float64(3001),
-			"default_code_server_port":   float64(3002),
+			"default_port":               float64(portpolicy.DaemonDefault),
+			"default_dev_backend_port":   float64(portpolicy.DaemonDefault + 1),
+			"default_code_server_port":   float64(portpolicy.DaemonDefault + 2),
 			"effective_port":             float64(3150),
 			"effective_code_server_port": float64(3152),
 		},

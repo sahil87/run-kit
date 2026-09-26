@@ -24,6 +24,7 @@ import (
 	"rk/internal/daemon"
 	"rk/internal/homemigrate"
 	"rk/internal/mcp"
+	"rk/internal/portpolicy"
 	"rk/internal/selfpath"
 	"rk/internal/settings"
 	"rk/internal/snapshot"
@@ -218,21 +219,21 @@ func migrateHomesUnlessDev() {
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the HTTP server (foreground)",
-	Long: `Start the HTTP server in the foreground.
+	Long: fmt.Sprintf(`Start the HTTP server in the foreground.
 
 Environment variables:
   RK_HOST      Host to bind (default "127.0.0.1")
-  RK_PORT      Port to bind (default 3000)
+  RK_PORT      Port to bind (default %[1]d)
 
-Port resolution (lowest to highest): default 3000 < 'port:' in
+Port resolution (lowest to highest): default %[1]d < 'port:' in
 ~/.config/hexokit/config.yaml < RK_PORT.
 
 Examples:
-  run-kit serve                              # foreground on 127.0.0.1:3000
+  run-kit serve                              # foreground on 127.0.0.1:%[1]d
   RK_HOST=0.0.0.0 RK_PORT=8080 run-kit serve # bind all interfaces, port 8080
 
 To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest of the
-'run-kit daemon' subcommand tree).`,
+'run-kit daemon' subcommand tree).`, portpolicy.DaemonDefault),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		migrateHomesUnlessDev()
 		cfg := config.Load()

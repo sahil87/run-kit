@@ -48,7 +48,7 @@
  * is no auto-start and no auto-update anywhere; the tmux/server layer stays
  * independent of this process, and the CLI (not the shell) is the updater.
  *
- * Dev override: `RK_DESKTOP_URL=http://localhost:3000 just dev-desktop`
+ * Dev override: `RK_DESKTOP_URL=http://localhost:6123 just dev-desktop`
  * loads that URL directly without persisting it to hosts.json (or
  * windows.json — sentinel windows are never persisted).
  */

@@ -14,14 +14,16 @@ This installs HexoKit (plus the shll meta-CLI) via Homebrew, handling tap trust 
 
 ```bash
 shll setup agent                # optional, once per machine: agent busy/waiting/idle in the dashboard
-run-kit daemon start            # start the dashboard daemon on :3000
-open http://localhost:3000      # open the dashboard in your browser
+run-kit daemon start            # start the dashboard daemon on :6123
+open http://localhost:6123      # open the dashboard in your browser
 
 # in a tmux session (tmux new -s work if you aren't in one):
 run-kit riff                    # spawn an agent workspace (--skill /name picks the slash-command)
 ```
 
-The daemon listens on port **3000** by default. To move it durably, set `port: 4000` in `~/.config/hexokit/config.yaml` and run `run-kit daemon restart` — `RK_PORT` still wins when set (precedence: default 3000 < config.yaml < `RK_PORT`). Re-point any Tailscale Serve mapping or bookmarks after a move.
+The daemon listens on port **6123** by default. To move it durably, set `port: 4000` in `~/.config/hexokit/config.yaml` and run `run-kit daemon restart` — `RK_PORT` still wins when set (precedence: default 6123 < config.yaml < `RK_PORT`). Re-point any Tailscale Serve mapping or bookmarks after a move.
+
+> **Upgrading from before the HexoKit rename?** Your install keeps its pinned port — the one-time home migration wrote `port: 3000` into `~/.config/hexokit/config.yaml`, so nothing you pointed at it breaks. `rk doctor` shows a `port pin` row while you're pinned, with the steps to move to 6123 whenever you choose.
 
 On macOS and Linux, the [desktop app](#desktop-app) is an alternative front door: `run-kit desktop install`, then open the app — its welcome page starts the daemon for you (one **Start & connect** click) and can also connect to HexoKit on other machines over SSH or a URL, so the `daemon start` and `open` steps above collapse into opening the app.
 
@@ -127,7 +129,7 @@ HexoKit binds to `127.0.0.1` by default. Some browser features (e.g., copy to cl
 > **Web Push & secure contexts**: the `run-kit notify` command pushes OS-level
 > notifications to subscribed browsers (opt in via the `Cmd+K` palette →
 > **Notifications: Enable push**). Web Push requires a secure context — **HTTPS
-> or `localhost`**. Reaching HexoKit on `localhost:3000` directly, or over the
+> or `localhost`**. Reaching HexoKit on `localhost:6123` directly, or over the
 > Tailscale HTTPS endpoint below, both qualify; plain HTTP to a remote host does
 > not, and the browser will silently refuse to register the service worker.
 
@@ -144,7 +146,7 @@ sudo tailscale set --operator=$USER
 ### Quickstart
 
 ```sh
-tailscale serve --bg http://localhost:3000
+tailscale serve --bg http://localhost:6123
 ```
 
 HexoKit is now available at:
@@ -179,7 +181,7 @@ Services need a tagged node. Do these in order:
 4. **Serve:**
 
    ```sh
-   tailscale serve --bg --service=svc:runner1 http://localhost:3000
+   tailscale serve --bg --service=svc:runner1 http://localhost:6123
    ```
 
 5. **Approve the service.** Open the [Services](https://login.tailscale.com/admin/services) page, find the pending `svc:runner1` advertisement under **Service hosts**, and click **Approve**. The service is inactive until you do.
@@ -203,7 +205,7 @@ HexoKit is now at `https://runner1.<tailnet>.ts.net`.
 To expose HexoKit to the public internet (not just your tailnet):
 
 ```sh
-tailscale funnel --bg http://localhost:3000
+tailscale funnel --bg http://localhost:6123
 ```
 
 > **Warning:** Funnel makes your terminal relay publicly accessible. Only use this if you understand the security implications.

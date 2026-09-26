@@ -18,6 +18,7 @@ import (
 	"rk/internal/codeserver"
 	"rk/internal/config"
 	"rk/internal/gui"
+	"rk/internal/portpolicy"
 	"rk/internal/settings"
 	"rk/internal/tmux"
 )
@@ -2283,8 +2284,8 @@ func TestPortsDoctorCheck(t *testing.T) {
 	}{
 		{
 			name:     "default port",
-			cfg:      config.Config{Port: 3000},
-			wantNote: "daemon :3000 (default); reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+			cfg:      config.Config{Port: portpolicy.DaemonDefault},
+			wantNote: fmt.Sprintf("daemon :%d (default); reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999", portpolicy.DaemonDefault),
 		},
 		{
 			name: "tunnel collision",
@@ -2301,9 +2302,9 @@ func TestPortsDoctorCheck(t *testing.T) {
 		},
 		{
 			name: "code-server-only collision via explicit override",
-			cfg:  config.Config{Port: 3000, CodeServerPort: 3100},
-			wantNote: "WARNING: port inside reserved block(s) tunnel 3100–3199: code-server :3100 — set RK_CODE_SERVER_PORT outside; " +
-				"daemon :3000 (default); code-server :3100; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+			cfg:  config.Config{Port: portpolicy.DaemonDefault, CodeServerPort: 3100},
+			wantNote: fmt.Sprintf("WARNING: port inside reserved block(s) tunnel 3100–3199: code-server :3100 — set RK_CODE_SERVER_PORT outside; "+
+				"daemon :%d (default); code-server :3100; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999", portpolicy.DaemonDefault),
 		},
 		{
 			name:     "rig port, dev build — rig block exempt",
@@ -2430,6 +2431,71 @@ func TestPortPinCheck(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPortPinRowRealPolicyValues runs the full report builder against the
+// embedded policy values (not injected constants): a config pinned at
+// DaemonLegacy shows the advisory `port pin` row naming the real default, a
+// config at the default or under an RK_PORT override shows none, and the
+// verdict never flips.
+func TestPortPinRowRealPolicyValues(t *testing.T) {
+	if portpolicy.DaemonDefault == portpolicy.DaemonLegacy {
+		t.Skip("DaemonDefault == DaemonLegacy: the pin row is dormant by design")
+	}
+
+	hasPinRow := func(report doctorReport) (doctorCheck, bool) {
+		for _, c := range report.Checks {
+			if c.Name == "port pin" {
+				return c, true
+			}
+		}
+		return doctorCheck{}, false
+	}
+	writePinnedConfig := func(t *testing.T, port int) {
+		t.Helper()
+		cfgDir := t.TempDir()
+		content := fmt.Sprintf("port: %d\n", port)
+		if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(settings.ConfigDirEnv, cfgDir)
+	}
+
+	t.Run("pinned at the legacy port: row present, verdict unaffected", func(t *testing.T) {
+		writePinnedConfig(t, portpolicy.DaemonLegacy)
+		t.Setenv("RK_PORT", "")
+		report := runDoctorChecks()
+		row, found := hasPinRow(report)
+		if !found {
+			t.Fatal("port pin row absent for a config pinned at the legacy port")
+		}
+		if !row.OK {
+			t.Errorf("row = %+v, want OK-shaped (advisory)", row)
+		}
+		defFrag := fmt.Sprintf(":%d", portpolicy.DaemonDefault)
+		if !strings.Contains(row.Note, defFrag) || !strings.Contains(row.Note, "rk daemon restart") {
+			t.Errorf("note %q must name :%d and the move recipe", row.Note, portpolicy.DaemonDefault)
+		}
+		if !report.OK {
+			t.Error("the advisory pin row must never flip the report verdict")
+		}
+	})
+
+	t.Run("already on the default: no row", func(t *testing.T) {
+		writePinnedConfig(t, portpolicy.DaemonDefault)
+		t.Setenv("RK_PORT", "")
+		if row, found := hasPinRow(runDoctorChecks()); found {
+			t.Errorf("port pin row present for an install on the default: %+v", row)
+		}
+	})
+
+	t.Run("RK_PORT override: no row", func(t *testing.T) {
+		writePinnedConfig(t, portpolicy.DaemonLegacy)
+		t.Setenv("RK_PORT", strconv.Itoa(portpolicy.DaemonLegacy))
+		if row, found := hasPinRow(runDoctorChecks()); found {
+			t.Errorf("port pin row present under an RK_PORT override: %+v", row)
+		}
+	})
 }
 
 // TestRKPortOverride pins the valid-port rule behind the pin row's env gate:

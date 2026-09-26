@@ -13,7 +13,7 @@
 # so it is stable regardless of where the sourcing command runs.
 #
 # The ambient RK_PORT is deliberately NOT an override input: direnv exports
-# RK_PORT=3000 into every shell on this box, so consulting it would mean the
+# RK_PORT into every shell on this box, so consulting it would mean the
 # derivation never applies. Overrides are dedicated: RK_E2E_PORT (port-triple
 # base), preset E2E_TMUX_SERVER / E2E_TMUX_FAMILY (socket family), and preset
 # RK_CODE_SERVER_PORT (read as an override but NEVER assigned here — the

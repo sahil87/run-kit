@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 
+	"rk/internal/portpolicy"
 	"rk/internal/settings"
 )
 
@@ -43,6 +45,7 @@ func stubOriginSeams(t *testing.T, tmuxEnv, optionValue string, optionErr error)
 }
 
 func TestResolveOrigin(t *testing.T) {
+	defaultOrigin := fmt.Sprintf("http://127.0.0.1:%d", portpolicy.DaemonDefault)
 	cases := []struct {
 		name string
 		// env
@@ -70,7 +73,7 @@ func TestResolveOrigin(t *testing.T) {
 			rkHost:      "10.0.0.1",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionValue: "http://127.0.0.1:3001\n",
-			want:        "http://10.0.0.1:3000",
+			want:        fmt.Sprintf("http://10.0.0.1:%d", portpolicy.DaemonDefault),
 			wantPrefix:  nil,
 		},
 		{
@@ -91,48 +94,48 @@ func TestResolveOrigin(t *testing.T) {
 			name:        "unset option falls through to default",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionErr:   errors.New("exit status 1: invalid option"),
-			want:        "http://127.0.0.1:3000",
+			want:        defaultOrigin,
 			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
 		},
 		{
 			name:        "empty option falls through to default",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionValue: "\n",
-			want:        "http://127.0.0.1:3000",
+			want:        defaultOrigin,
 			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
 		},
 		{
 			name:        "malformed option falls through to default",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionValue: "not a url\n",
-			want:        "http://127.0.0.1:3000",
+			want:        defaultOrigin,
 			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
 		},
 		{
 			name:        "hostile scheme rejected",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionValue: "javascript:alert(1)\n",
-			want:        "http://127.0.0.1:3000",
+			want:        defaultOrigin,
 			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
 		},
 		{
 			name:        "empty host rejected",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionValue: "http://\n",
-			want:        "http://127.0.0.1:3000",
+			want:        defaultOrigin,
 			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
 		},
 		{
 			name:        "path/query/fragment rejected (not an origin)",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionValue: "http://127.0.0.1:3001/\n",
-			want:        "http://127.0.0.1:3000",
+			want:        defaultOrigin,
 			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
 		},
 		{
 			name:       "no $TMUX falls through with zero subprocess calls",
 			tmuxEnv:    "",
-			want:       "http://127.0.0.1:3000",
+			want:       defaultOrigin,
 			wantPrefix: nil,
 		},
 		{

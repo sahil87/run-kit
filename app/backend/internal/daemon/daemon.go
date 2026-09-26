@@ -202,7 +202,7 @@ func guardPortAvailable() error {
 	return fmt.Errorf(
 		"something is already serving on %s:%d, but not under the rk-daemon tmux session "+
 			"(likely a foreground `rk serve`, or another process holding the port). "+
-			"Stop it first, or set a different port (port: in ~/.config/run-kit/config.yaml, or RK_PORT).",
+			"Stop it first, or set a different port (port: in ~/.config/hexokit/config.yaml, or RK_PORT).",
 		probeHost(cfg.Host), cfg.Port,
 	)
 }

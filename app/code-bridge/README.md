@@ -4,7 +4,7 @@ VS Code extension that lets the run-kit CLI (`rk code exec`) run palette command
 editor's extension host from a same-user shell.
 
 On activation it opens a Unix socket at
-`$XDG_STATE_HOME/run-kit/cb/<hostId>.sock` (default `~/.local/state/run-kit/cb/`), writes a host
+`$XDG_STATE_HOME/hexokit/cb/<hostId>.sock` (default `~/.local/state/hexokit/cb/`), writes a host
 record to `cb/hosts/<hostId>.json`, and serves newline-delimited JSON requests: one request per
 connection, one response, then the connection closes.
 

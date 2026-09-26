@@ -6,6 +6,7 @@ package settings
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -287,6 +288,41 @@ func TestApplyValue_unknownKey(t *testing.T) {
 	s := Default()
 	if err := ApplyValue(&s, "bogus_key", json.RawMessage(`1`)); err == nil {
 		t.Fatal("ApplyValue(bogus_key) succeeded, want error")
+	}
+}
+
+// TestApplyValue_portClearsPinNote pins the pin-comment contract: any
+// successful registry write to port — set or null — clears PortPinNote (a
+// user-chosen port is no longer the migration pin); a rejected write keeps it.
+func TestApplyValue_portClearsPinNote(t *testing.T) {
+	s := parse(PortPinComment + "\nport: 3000\n")
+	if !s.PortPinNote {
+		t.Fatal("precondition: parse did not set PortPinNote")
+	}
+	if err := ApplyValue(&s, "port", json.RawMessage(`6123`)); err != nil {
+		t.Fatalf("apply port 6123: %v", err)
+	}
+	if s.Port != 6123 || s.PortPinNote {
+		t.Errorf("after set: Port = %d, PortPinNote = %v — want 6123, false", s.Port, s.PortPinNote)
+	}
+	if got := serialize(s); strings.Contains(got, PortPinComment) {
+		t.Errorf("serialize after set = %q, want no pin comment", got)
+	}
+
+	s = parse(PortPinComment + "\nport: 3000\n")
+	if err := ApplyValue(&s, "port", json.RawMessage(`null`)); err != nil {
+		t.Fatalf("apply port null: %v", err)
+	}
+	if s.Port != 0 || s.PortPinNote {
+		t.Errorf("after null: Port = %d, PortPinNote = %v — want 0, false", s.Port, s.PortPinNote)
+	}
+
+	s = parse(PortPinComment + "\nport: 3000\n")
+	if err := ApplyValue(&s, "port", json.RawMessage(`70000`)); err == nil {
+		t.Fatal("apply port 70000 succeeded, want error")
+	}
+	if s.Port != 3000 || !s.PortPinNote {
+		t.Errorf("after rejection: Port = %d, PortPinNote = %v — want unchanged 3000, true", s.Port, s.PortPinNote)
 	}
 }
 

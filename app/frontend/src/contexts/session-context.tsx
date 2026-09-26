@@ -15,13 +15,13 @@ import { StateSocket } from "@/lib/state-socket";
 import { computeUpdateKey } from "@/lib/palette/update";
 import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
 
-const SERVER_STORAGE_KEY = "runkit-server";
+const SERVER_STORAGE_KEY = "hexokit-server";
 // localStorage key for composite update-notice dismissal. The value is the
 // dismissed composite `key` — the sorted `tool@latest` pairs (e.g.
 // "fab-kit@2.17.0,run-kit@3.9.0"); any change to the matched set (a newer latest
 // or a newly-matching tool) changes the key and re-shows the chip. No server
 // state (Constitution II).
-const UPDATE_DISMISSED_KEY = "runkit-update-dismissed";
+const UPDATE_DISMISSED_KEY = "hexokit-update-dismissed";
 // Sentinel running version for local (non-ldflags) builds — the update chip and
 // palette actions are suppressed for it.
 const DEV_VERSION = "dev";
@@ -218,7 +218,7 @@ export type SessionContextType = {
    *  clean re-check must not leave a lying chip lit. */
   applyManualCheckResult: (tools: UpdateTool[], source: string) => void;
   /** The composite `key` the user dismissed the update notice for (localStorage
-   *  `runkit-update-dismissed`), or `null` when none. The chip hides when this
+   *  `hexokit-update-dismissed`), or `null` when none. The chip hides when this
    *  equals the EFFECTIVE displayed key (the ambient `updateAvailable.key`, or
    *  the client-computed manual key when the manual feed is the lit one); the
    *  palette action ignores it. */

@@ -19,7 +19,7 @@
 
 ## Base Configuration
 
-The override order is `code default < config.yaml < env < CLI flag`. Env forms exist only for the deployment-bootstrap keys below; per-instance preference keys (the settings registry) resolve `defaults → ~/.config/run-kit/config.yaml` only — no env form, no CLI flag — with one exception: the daemon port is also a config.yaml key (`port` in the settings registry, `ui: false`) that keeps its `RK_PORT` env form, so an install can pin the port durably while env still wins. The config root `~/.config/run-kit/` is fixed: it is built from `$HOME` alone and never consults `XDG_CONFIG_HOME`.
+The override order is `code default < config.yaml < env < CLI flag`. Env forms exist only for the deployment-bootstrap keys below; per-instance preference keys (the settings registry) resolve `defaults → ~/.config/hexokit/config.yaml` only — no env form, no CLI flag — with one exception: the daemon port is also a config.yaml key (`port` in the settings registry, `ui: false`) that keeps its `RK_PORT` env form, so an install can pin the port durably while env still wins. The config root `~/.config/hexokit/` is fixed: it is built from `$HOME` alone and never consults `XDG_CONFIG_HOME`.
 
 | Setting | Default | Override order |
 |---------|---------|----------------|

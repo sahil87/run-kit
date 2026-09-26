@@ -79,8 +79,8 @@ import { stubProxyPorts } from "./_web-tile";
  *   `holdWorkspaceFetch(page)` route-holds the frontend's GET so the
  *   pending → iframe transition is observable regardless of box load.
  * - The first-boot-rescue tests write fake pid-alive bridge registry files —
- *   a host record into `${XDG_STATE_HOME}/run-kit/cb/hosts/` (the negative
- *   arm) and an empty-boot marker into `${XDG_STATE_HOME}/run-kit/cb/boots/`
+ *   a host record into `${XDG_STATE_HOME}/hexokit/cb/hosts/` (the negative
+ *   arm) and an empty-boot marker into `${XDG_STATE_HOME}/hexokit/cb/boots/`
  *   (the positive arm) — after the tile's baseline status read, using the
  *   harness's per-run state home (forwarded from the harness, so the backend
  *   reads the SAME dir), and count `Code editor` iframe loads via an
@@ -619,7 +619,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
    *    compare stale.
    * 3. Write the fake host record `{hostId, folder, pid: process.pid, sock,
    *    extVersion, startedAt: <now>, tab: <window id>, server: <E2E tmux
-   *    server>}` into `${XDG_STATE_HOME}/run-kit/cb/hosts/` (read from
+   *    server>}` into `${XDG_STATE_HOME}/hexokit/cb/hosts/` (read from
    *    process.env, never hardcoded) and register it for afterEach cleanup.
    * 4. Wait CODE_BOOT_RESCUE_WAIT_MS + 2 s, then assert the load counter is
    *    exactly 1 (a rescue reload would have fired a second `load`).
@@ -665,7 +665,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
 
     // Step 3: the confirming record — pid-alive (this process), tab-keyed to
     // the window under test, stamped now (newer than the empty baseline).
-    const hostsDir = join(stateHome, "run-kit", "cb", "hosts");
+    const hostsDir = join(stateHome, "hexokit", "cb", "hosts");
     mkdirSync(hostsDir, { recursive: true });
     const hostId = `e2e-rescue-${id.slice(1)}`;
     const recordPath = join(hostsDir, `${hostId}.json`);
@@ -675,7 +675,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
         hostId,
         folder: GIT_ROOT,
         pid: process.pid,
-        sock: join(stateHome, "run-kit", "cb", `${hostId}.sock`),
+        sock: join(stateHome, "hexokit", "cb", `${hostId}.sock`),
         extVersion: "0.0.0-e2e",
         startedAt: new Date().toISOString(),
         tab: id,
@@ -711,7 +711,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
    *    exist before the baseline read, or it would BE the baseline.
    * 3. Write the fake marker `{hostId, workspaceFile, tab: <window id>,
    *    server: <E2E tmux server>, pid: process.pid, extVersion, startedAt:
-   *    <now>}` into `${XDG_STATE_HOME}/run-kit/cb/boots/` and register it for
+   *    <now>}` into `${XDG_STATE_HOME}/hexokit/cb/boots/` and register it for
    *    afterEach cleanup.
    * 4. Wait out the verdict AND re-check windows (WAIT + RECHECK + slack),
    *    then assert the load counter is exactly 2: the initial mount and the
@@ -756,7 +756,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     // The positive empty-boot signal: pid-alive (this process), tab-keyed to
     // the window under test, stamped now — newer than the empty baseline.
     const ws = await fetchWorkspace(page, id);
-    const bootsDir = join(stateHome, "run-kit", "cb", "boots");
+    const bootsDir = join(stateHome, "hexokit", "cb", "boots");
     mkdirSync(bootsDir, { recursive: true });
     const hostId = `e2e-boot-${id.slice(1)}`;
     const markerPath = join(bootsDir, `${hostId}.json`);

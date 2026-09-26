@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 // PWA identity assets (`/manifest.json`, `/generated-icons/*`) served
 // dynamically by the Go backend through the Vite dev proxy. All assertions
 // are tint-agnostic: the box running the e2e suite may or may not have an
-// instance accent in its real ~/.config/run-kit/config.yaml, so the tests pin
+// instance accent in its real ~/.config/hexokit/config.yaml, so the tests pin
 // the serving pipeline (proxy → Go handler → valid asset), never the tint
 // state (the tint itself is golden-pixel tested in Go: api/pwa_test.go,
 // internal/icontint).

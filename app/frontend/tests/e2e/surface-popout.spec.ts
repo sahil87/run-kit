@@ -578,7 +578,7 @@ test.describe("Surface popout", () => {
    *
    * Steps:
    * 1. Create A; register an init script pinning the shared
-   *    `runkit-sidebar-open` preference to "true" (the popout reads it at
+   *    `hexokit-sidebar-open` preference to "true" (the popout reads it at
    *    load), then navigate DIRECTLY to A's popout route (`?pop=tty` — the
    *    posture is URL-driven, no window.open needed).
    * 2. Assert the popout posture engaged: the chrome-less tty tile renders
@@ -593,7 +593,7 @@ test.describe("Surface popout", () => {
   }) => {
     test.setTimeout(60_000);
     const a = await makeWindow(page, `pop-stage-${Date.now()}`);
-    await page.addInitScript(() => localStorage.setItem("runkit-sidebar-open", "true"));
+    await page.addInitScript(() => localStorage.setItem("hexokit-sidebar-open", "true"));
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(a)}?pop=tty`);
     const popTile = page.getByTestId("surface-tile-tty");
     await expect(popTile).toBeVisible({ timeout: 15_000 });

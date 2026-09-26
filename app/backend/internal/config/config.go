@@ -4,6 +4,7 @@ import (
 	"os"
 	"strconv"
 
+	"rk/internal/apphome"
 	"rk/internal/portpolicy"
 	"rk/internal/settings"
 )
@@ -53,8 +54,22 @@ func (c Config) ResolvedCodeServerPort() int {
 }
 
 var defaults = Config{
-	Port: portpolicy.DaemonDefault,
 	Host: "127.0.0.1",
+}
+
+// daemonDefaultPort resolves the code-default port rung at Load time (never
+// captured at init, so portpolicy's embedded values are read fresh). An
+// unmigrated existing install (apphome.UnmigratedExistingInstall — the same
+// predicate the home migration's pin decision uses) is virtually pinned at
+// portpolicy.DaemonLegacy: it keeps the port the still-running old daemon
+// binds until the migration writes the real pin, and the two pins can never
+// disagree. The RK_CONFIG_DIR test override suppresses the pin — an isolated
+// run must behave like a fresh install.
+func daemonDefaultPort() int {
+	if !settings.ConfigRootOverridden() && apphome.UnmigratedExistingInstall() {
+		return portpolicy.DaemonLegacy
+	}
+	return portpolicy.DaemonDefault
 }
 
 // validPort returns true if the port is in the valid range 1-65535.
@@ -69,6 +84,7 @@ func validPort(p int) bool {
 // env-only.
 func Load() Config {
 	cfg := defaults
+	cfg.Port = daemonDefaultPort()
 
 	if p := settings.Load().Port; validPort(p) {
 		cfg.Port = p

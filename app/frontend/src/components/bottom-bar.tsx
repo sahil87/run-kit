@@ -83,7 +83,7 @@ const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
   const { focused } = useFocusedTerminal();
   // Scroll-lock is a persisted chrome preference (ChromeContext,
-  // `runkit-scroll-lock`) so it survives remounts, route changes, and mobile
+  // `hexokit-scroll-lock`) so it survives remounts, route changes, and mobile
   // tab reloads — a per-mount useState here silently reset the lock on every
   // one of those, which is how the keyboard kept coming back mid-read.
   const { composeStripEnabled, scrollLocked } = useChromeState();

@@ -21,7 +21,7 @@ open http://localhost:3000      # open the dashboard in your browser
 run-kit riff                    # spawn an agent workspace (--skill /name picks the slash-command)
 ```
 
-The daemon listens on port **3000** by default. To move it durably, set `port: 4000` in `~/.config/run-kit/config.yaml` and run `run-kit daemon restart` — `RK_PORT` still wins when set (precedence: default 3000 < config.yaml < `RK_PORT`). Re-point any Tailscale Serve mapping or bookmarks after a move.
+The daemon listens on port **3000** by default. To move it durably, set `port: 4000` in `~/.config/hexokit/config.yaml` and run `run-kit daemon restart` — `RK_PORT` still wins when set (precedence: default 3000 < config.yaml < `RK_PORT`). Re-point any Tailscale Serve mapping or bookmarks after a move.
 
 On macOS and Linux, the [desktop app](#desktop-app) is an alternative front door: `run-kit desktop install`, then open the app — its welcome page starts the daemon for you (one **Start & connect** click) and can also connect to HexoKit on other machines over SSH or a URL, so the `daemon start` and `open` steps above collapse into opening the app.
 

@@ -33,7 +33,7 @@ unioned with every live `@rk_srv_ephemeral`-marked server under `--ephemeral`;
 full contract in [tmux-sessions](/run-kit/tmux-sessions.md) § `rk mux reap`), `rk mux snapshot list|show|restore`
 (layout recovery, [layout-snapshots](/run-kit/layout-snapshots.md)),
 `rk mux init-conf` (scaffolds the rk-managed tmux.conf and the
-`tmux.d/user.conf` override starter under `~/.config/run-kit/`), `rk mux adopt` (converts an
+`tmux.d/user.conf` override starter under `~/.config/hexokit/`), `rk mux adopt` (converts an
 external tmux server to rk-managed — stamps `@rk_srv_managed` then sources the
 managed conf, rolling the stamp back on a failed reload; idempotent, and the
 bulk-migration path for rk-born servers that predate the stamp), and `rk mux guard` (fronts the real
@@ -796,7 +796,7 @@ HTTP twin `POST /api/servers/adopt` ([tmux-sessions](/run-kit/tmux-sessions.md)
 
 ### Requirement: `rk mux init-conf` — managed tmux.conf scaffold
 `rk mux init-conf [--force]` SHALL write the rk-managed tmux.conf to
-`~/.config/run-kit/tmux.conf` through the shared managed write path
+`~/.config/hexokit/tmux.conf` through the shared managed write path
 (`tmux.ForceWriteConfig` — the hash-stamped header + embed body; see
 [configuration](/run-kit/configuration.md) § Managed tmux.conf), ensure the
 `tmux.d/` drop-in dir, and scaffold `tmux.d/user.conf` as a commented starter

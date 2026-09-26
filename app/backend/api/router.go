@@ -786,7 +786,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger, cfg config.Con
 	pc.SetViewerPRSink(prstatus.DefaultBranchRefresher.StoreViewerIndex)
 
 	// Disk seed: pre-fill both pollers' last-good state from
-	// $XDG_STATE_HOME/run-kit/prstatus.json and attach the write hooks, BEFORE either
+	// $XDG_STATE_HOME/hexokit/prstatus.json and attach the write hooks, BEFORE either
 	// Start — the cold-start machinery above is network-gated, so a restart while
 	// gh is slow/offline/rate-limited would otherwise start blank. The seed is
 	// never authoritative (the immediate first fetch replaces it wholesale,

@@ -2351,8 +2351,9 @@ func TestForceWriteConfigCreatesDropInDir(t *testing.T) {
 
 func TestDefaultConfigContainsSourceDirective(t *testing.T) {
 	content := string(DefaultConfigBytes())
-	if !strings.Contains(content, "source-file -q ~/.config/run-kit/tmux.d/*.conf") {
-		t.Error("embedded default config missing source-file directive for tmux.d/")
+	want := `if-shell '[ -d "$HOME/.config/hexokit" ] || [ ! -d "$HOME/.config/run-kit" ]' 'source-file -q ~/.config/hexokit/tmux.d/*.conf' 'source-file -q ~/.config/run-kit/tmux.d/*.conf'`
+	if !strings.Contains(content, want) {
+		t.Error("embedded default config missing the if-shell dual-source directive for tmux.d/")
 	}
 }
 
@@ -2386,7 +2387,7 @@ func TestResolveConfigPathPrecedence(t *testing.T) {
 	defer func() { DefaultConfigPath = origDefault }()
 	DefaultConfigPath = filepath.Join(home, ".rk", "tmux.conf")
 
-	confDir := filepath.Join(home, ".config", "run-kit")
+	confDir := filepath.Join(home, ".config", "hexokit")
 	if err := os.MkdirAll(confDir, 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -4772,4 +4773,78 @@ func TestSanitizeEnvReappliesUTF8Locale(t *testing.T) {
 	if slices.Contains(got, "LC_CTYPE=C.UTF-8") || !slices.Contains(got, "LANG=en_IN.UTF-8") {
 		t.Fatalf("surviving UTF-8 LANG must leave the env alone: %v", got)
 	}
+}
+
+// TestRefreshDefaultConfigPath covers the serve-time re-resolution: package
+// init resolves DefaultConfigPath before the home migration can publish the
+// new config home, so the first post-upgrade boot must re-resolve or the
+// managed-conf refresh would rewrite the legacy file. A legacy-only home is
+// a no-op; once the new home exists the managed resolution follows it, while
+// a user-owned configPath (tmux_conf key / RK_TMUX_CONF) stays put.
+func TestRefreshDefaultConfigPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	legacyDir := filepath.Join(home, ".config", "run-kit")
+	newDir := filepath.Join(home, ".config", "hexokit")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origDefault, origConfig, origManaged := DefaultConfigPath, configPath, managedConfigPath
+	t.Cleanup(func() {
+		DefaultConfigPath, configPath, managedConfigPath = origDefault, origConfig, origManaged
+	})
+
+	t.Run("legacy-only home is a no-op", func(t *testing.T) {
+		DefaultConfigPath = filepath.Join(legacyDir, "tmux.conf")
+		configPath = DefaultConfigPath
+		managedConfigPath = true
+
+		RefreshDefaultConfigPath()
+
+		if DefaultConfigPath != filepath.Join(legacyDir, "tmux.conf") {
+			t.Errorf("DefaultConfigPath = %q, want unchanged legacy path", DefaultConfigPath)
+		}
+	})
+
+	t.Run("managed resolution follows the published home", func(t *testing.T) {
+		DefaultConfigPath = filepath.Join(legacyDir, "tmux.conf")
+		configPath = DefaultConfigPath
+		managedConfigPath = true
+		if err := os.MkdirAll(newDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		RefreshDefaultConfigPath()
+
+		want := filepath.Join(newDir, "tmux.conf")
+		if DefaultConfigPath != want {
+			t.Errorf("DefaultConfigPath = %q, want %q", DefaultConfigPath, want)
+		}
+		if configPath != want {
+			t.Errorf("configPath = %q, want %q (managed path follows)", configPath, want)
+		}
+		if !managedConfigPath {
+			t.Error("managedConfigPath flipped; want still managed")
+		}
+	})
+
+	t.Run("user-owned config path stays put", func(t *testing.T) {
+		DefaultConfigPath = filepath.Join(legacyDir, "tmux.conf")
+		userPath := filepath.Join(home, "my-tmux.conf")
+		configPath = userPath
+		managedConfigPath = false
+
+		RefreshDefaultConfigPath()
+
+		if DefaultConfigPath != filepath.Join(newDir, "tmux.conf") {
+			t.Errorf("DefaultConfigPath = %q, want the new home's path", DefaultConfigPath)
+		}
+		if configPath != userPath {
+			t.Errorf("configPath = %q, want user-owned %q", configPath, userPath)
+		}
+		if managedConfigPath {
+			t.Error("managedConfigPath flipped; want still user-owned")
+		}
+	})
 }

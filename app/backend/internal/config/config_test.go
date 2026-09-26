@@ -49,11 +49,13 @@ func TestValidPort(t *testing.T) {
 }
 
 func TestDefaults(t *testing.T) {
-	if defaults.Port != portpolicy.DaemonDefault {
-		t.Errorf("default port = %d, want portpolicy.DaemonDefault %d", defaults.Port, portpolicy.DaemonDefault)
-	}
 	if defaults.Host != "127.0.0.1" {
 		t.Errorf("default host = %q, want 127.0.0.1", defaults.Host)
+	}
+	// The port default is resolved per-Load (daemonDefaultPort), never
+	// captured in the defaults var.
+	if defaults.Port != 0 {
+		t.Errorf("defaults.Port = %d, want 0 (resolved per Load)", defaults.Port)
 	}
 }
 
@@ -77,8 +79,8 @@ func TestLoad(t *testing.T) {
 		t.Setenv(PortEnvVar, "notanumber")
 
 		cfg := Load()
-		if cfg.Port != defaults.Port {
-			t.Errorf("port = %d, want default %d", cfg.Port, defaults.Port)
+		if cfg.Port != portpolicy.DaemonDefault {
+			t.Errorf("port = %d, want default %d", cfg.Port, portpolicy.DaemonDefault)
 		}
 	})
 
@@ -87,8 +89,8 @@ func TestLoad(t *testing.T) {
 		t.Setenv(PortEnvVar, "99999")
 
 		cfg := Load()
-		if cfg.Port != defaults.Port {
-			t.Errorf("port = %d, want default %d", cfg.Port, defaults.Port)
+		if cfg.Port != portpolicy.DaemonDefault {
+			t.Errorf("port = %d, want default %d", cfg.Port, portpolicy.DaemonDefault)
 		}
 	})
 
@@ -98,8 +100,8 @@ func TestLoad(t *testing.T) {
 		os.Unsetenv(HostEnvVar)
 
 		cfg := Load()
-		if cfg.Port != defaults.Port {
-			t.Errorf("port = %d, want default %d", cfg.Port, defaults.Port)
+		if cfg.Port != portpolicy.DaemonDefault {
+			t.Errorf("port = %d, want default %d", cfg.Port, portpolicy.DaemonDefault)
 		}
 		if cfg.Host != defaults.Host {
 			t.Errorf("host = %q, want default %q", cfg.Host, defaults.Host)
@@ -231,5 +233,166 @@ func TestResolvedCodeServerPort(t *testing.T) {
 		if got := Load().ResolvedCodeServerPort(); got != 0 {
 			t.Errorf("ResolvedCodeServerPort = %d, want 0 (RK_PORT+2 out of range)", got)
 		}
+	})
+}
+
+// TestDaemonDefaultPortVirtualPin pins R8: an install whose config home still
+// resolves to the legacy pre-rename dir gets portpolicy.DaemonLegacy as the
+// code-default rung, while fresh and migrated installs keep
+// portpolicy.DaemonDefault. RK_CONFIG_DIR suppresses the pin (isolated runs
+// behave as fresh installs); config.yaml and RK_PORT still win above it.
+func TestDaemonDefaultPortVirtualPin(t *testing.T) {
+	// isolateHomes points HOME and XDG_STATE_HOME at a temp root so apphome
+	// resolution and settings.Load see only what the test seeds. RK_PORT and
+	// RK_CONFIG_DIR start unset.
+	isolateHomes := func(t *testing.T) (configRoot, stateRoot string) {
+		t.Helper()
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		stateRoot = filepath.Join(home, "xdg-state")
+		t.Setenv("XDG_STATE_HOME", stateRoot)
+		t.Setenv(PortEnvVar, "")
+		return filepath.Join(home, ".config"), stateRoot
+	}
+	mkLegacyConfigHome := func(t *testing.T, configRoot, configYAML string) {
+		t.Helper()
+		dir := filepath.Join(configRoot, "run-kit")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir legacy config home: %v", err)
+		}
+		if configYAML != "" {
+			if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(configYAML), 0o644); err != nil {
+				t.Fatalf("writing legacy config.yaml: %v", err)
+			}
+		}
+	}
+
+	t.Run("legacy-only home resolves the legacy default", func(t *testing.T) {
+		configRoot, _ := isolateHomes(t)
+		mkLegacyConfigHome(t, configRoot, "theme: dark\n")
+
+		if cfg := Load(); cfg.Port != portpolicy.DaemonLegacy {
+			t.Errorf("port = %d, want portpolicy.DaemonLegacy %d", cfg.Port, portpolicy.DaemonLegacy)
+		}
+	})
+
+	// State-only legacy install: the migration will pin 3000 (its
+	// existing-install test counts the legacy state dir), so the virtual pin
+	// must match or the first `rk daemon restart` would pass
+	// `-e RK_PORT=<DaemonDefault>` and beat the later pin.
+	t.Run("state-only legacy install resolves the legacy default", func(t *testing.T) {
+		_, stateRoot := isolateHomes(t)
+		if err := os.MkdirAll(filepath.Join(stateRoot, "run-kit", "cron"), 0o700); err != nil {
+			t.Fatalf("mkdir legacy state home: %v", err)
+		}
+
+		if cfg := Load(); cfg.Port != portpolicy.DaemonLegacy {
+			t.Errorf("port = %d, want portpolicy.DaemonLegacy %d", cfg.Port, portpolicy.DaemonLegacy)
+		}
+	})
+
+	// A migrated config home (new dir present) with the legacy state dir
+	// still lying around is NOT an unmigrated install: the pin is already
+	// written into the new home's config.yaml.
+	t.Run("migrated config home with leftover legacy state resolves the default", func(t *testing.T) {
+		configRoot, stateRoot := isolateHomes(t)
+		if err := os.MkdirAll(filepath.Join(configRoot, "hexokit"), 0o755); err != nil {
+			t.Fatalf("mkdir new config home: %v", err)
+		}
+		if err := os.MkdirAll(filepath.Join(stateRoot, "run-kit"), 0o755); err != nil {
+			t.Fatalf("mkdir legacy state home: %v", err)
+		}
+
+		if cfg := Load(); cfg.Port != portpolicy.DaemonDefault {
+			t.Errorf("port = %d, want portpolicy.DaemonDefault %d", cfg.Port, portpolicy.DaemonDefault)
+		}
+	})
+
+	t.Run("fresh home resolves the default", func(t *testing.T) {
+		isolateHomes(t)
+
+		if cfg := Load(); cfg.Port != portpolicy.DaemonDefault {
+			t.Errorf("port = %d, want portpolicy.DaemonDefault %d", cfg.Port, portpolicy.DaemonDefault)
+		}
+	})
+
+	t.Run("migrated home (new dir present) resolves the default", func(t *testing.T) {
+		configRoot, _ := isolateHomes(t)
+		mkLegacyConfigHome(t, configRoot, "")
+		if err := os.MkdirAll(filepath.Join(configRoot, "hexokit"), 0o755); err != nil {
+			t.Fatalf("mkdir new config home: %v", err)
+		}
+
+		if cfg := Load(); cfg.Port != portpolicy.DaemonDefault {
+			t.Errorf("port = %d, want portpolicy.DaemonDefault %d", cfg.Port, portpolicy.DaemonDefault)
+		}
+	})
+
+	t.Run("RK_CONFIG_DIR suppresses the virtual pin", func(t *testing.T) {
+		configRoot, _ := isolateHomes(t)
+		mkLegacyConfigHome(t, configRoot, "")
+		t.Setenv(settings.ConfigDirEnv, t.TempDir())
+
+		if cfg := Load(); cfg.Port != portpolicy.DaemonDefault {
+			t.Errorf("port = %d, want portpolicy.DaemonDefault %d (isolated run)", cfg.Port, portpolicy.DaemonDefault)
+		}
+	})
+
+	t.Run("config.yaml port wins over the virtual pin", func(t *testing.T) {
+		configRoot, _ := isolateHomes(t)
+		mkLegacyConfigHome(t, configRoot, "port: 4100\n")
+
+		if cfg := Load(); cfg.Port != 4100 {
+			t.Errorf("port = %d, want 4100 (config.yaml)", cfg.Port)
+		}
+	})
+
+	t.Run("RK_PORT wins over the virtual pin", func(t *testing.T) {
+		configRoot, _ := isolateHomes(t)
+		mkLegacyConfigHome(t, configRoot, "")
+		t.Setenv(PortEnvVar, "5050")
+
+		if cfg := Load(); cfg.Port != 5050 {
+			t.Errorf("port = %d, want 5050 (RK_PORT)", cfg.Port)
+		}
+	})
+
+	// The C5 flip simulation: with DaemonDefault moved off the legacy port,
+	// the legacy home must STILL resolve the legacy port and a fresh home the
+	// new default. portpolicy's embedded values are plain package vars, so the
+	// test swaps them directly.
+	t.Run("post-C5 default keeps legacy homes pinned", func(t *testing.T) {
+		origDefault := portpolicy.DaemonDefault
+		portpolicy.DaemonDefault = 6123
+		t.Cleanup(func() { portpolicy.DaemonDefault = origDefault })
+		if portpolicy.DaemonLegacy == 6123 {
+			t.Skip("DaemonLegacy == simulated default; nothing to distinguish")
+		}
+
+		t.Run("legacy home", func(t *testing.T) {
+			configRoot, _ := isolateHomes(t)
+			mkLegacyConfigHome(t, configRoot, "")
+
+			if cfg := Load(); cfg.Port != portpolicy.DaemonLegacy {
+				t.Errorf("port = %d, want portpolicy.DaemonLegacy %d", cfg.Port, portpolicy.DaemonLegacy)
+			}
+		})
+		t.Run("state-only legacy home", func(t *testing.T) {
+			_, stateRoot := isolateHomes(t)
+			if err := os.MkdirAll(filepath.Join(stateRoot, "run-kit"), 0o755); err != nil {
+				t.Fatalf("mkdir legacy state home: %v", err)
+			}
+
+			if cfg := Load(); cfg.Port != portpolicy.DaemonLegacy {
+				t.Errorf("port = %d, want portpolicy.DaemonLegacy %d", cfg.Port, portpolicy.DaemonLegacy)
+			}
+		})
+		t.Run("fresh home", func(t *testing.T) {
+			isolateHomes(t)
+
+			if cfg := Load(); cfg.Port != 6123 {
+				t.Errorf("port = %d, want simulated DaemonDefault 6123", cfg.Port)
+			}
+		})
 	})
 }

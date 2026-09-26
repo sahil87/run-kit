@@ -1204,7 +1204,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
     const first = renderIframe({ tabs: ["/proxy/3000/"] });
     fireEvent.click(screen.getByLabelText("Zoom in"));
     fireEvent.click(screen.getByLabelText("Zoom in"));
-    expect(localStorage.getItem("runkit-web-zoom")).toBe('{"proxy:3000":1.25}');
+    expect(localStorage.getItem("hexokit-web-zoom")).toBe('{"proxy:3000":1.25}');
     first.unmount();
     renderIframe({ tabs: ["http://localhost:3000/app"] });
     expect(readout().textContent).toBe("125%");
@@ -1226,11 +1226,11 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
 
   it("reset at 100% writes nothing; returning to 100% removes the entry", () => {
     renderIframe({ tabs: ["/proxy/3000/"] });
-    expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
+    expect(localStorage.getItem("hexokit-web-zoom")).toBeNull();
     fireEvent.click(screen.getByLabelText("Zoom in"));
-    expect(localStorage.getItem("runkit-web-zoom")).toBe('{"proxy:3000":1.1}');
+    expect(localStorage.getItem("hexokit-web-zoom")).toBe('{"proxy:3000":1.1}');
     fireEvent.click(readout());
-    expect(localStorage.getItem("runkit-web-zoom")).toBe("{}");
+    expect(localStorage.getItem("hexokit-web-zoom")).toBe("{}");
   });
 
   it("the web-zoom document event steps and resets the tile", () => {
@@ -1248,7 +1248,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
     expect(() =>
       fireEvent(document, new CustomEvent("web-zoom", { detail: { direction: "in" } })),
     ).not.toThrow();
-    expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
+    expect(localStorage.getItem("hexokit-web-zoom")).toBeNull();
   });
 
   it("ctrl-wheel on the wrapper zooms CONTINUOUSLY and is prevented; plain wheel passes through (260824-iafo R3)", () => {
@@ -1309,11 +1309,11 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
         wrapper,
         new WheelEvent("wheel", { deltaY: -60, ctrlKey: true, bubbles: true, cancelable: true }),
       );
-      expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
+      expect(localStorage.getItem("hexokit-web-zoom")).toBeNull();
       // The address moves to a different bucket while the write is pending —
       // the flush belongs to the OLD bucket, and the new bucket seeds fresh.
       view.rerender(iframeElement({ tabs: ["/proxy/4000/"] }, "runkit"));
-      expect(JSON.parse(localStorage.getItem("runkit-web-zoom")!)).toEqual({ "proxy:3000": 1.82 });
+      expect(JSON.parse(localStorage.getItem("hexokit-web-zoom")!)).toEqual({ "proxy:3000": 1.82 });
       expect(readout().textContent).toBe("100%");
     } finally {
       vi.useRealTimers();
@@ -1333,14 +1333,14 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
       wheel();
       wheel();
       // Mid-gesture: nothing persisted yet.
-      expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
+      expect(localStorage.getItem("hexokit-web-zoom")).toBeNull();
       vi.advanceTimersByTime(300);
       // One trailing write with the final compounded value: exp(0.6) ≈ 1.82.
-      expect(JSON.parse(localStorage.getItem("runkit-web-zoom")!)).toEqual({ "proxy:3000": 1.82 });
+      expect(JSON.parse(localStorage.getItem("hexokit-web-zoom")!)).toEqual({ "proxy:3000": 1.82 });
       // A pending write flushes (not drops) on unmount.
       wheel();
       view.unmount();
-      expect(JSON.parse(localStorage.getItem("runkit-web-zoom")!)).toEqual({ "proxy:3000": 2.46 });
+      expect(JSON.parse(localStorage.getItem("hexokit-web-zoom")!)).toEqual({ "proxy:3000": 2.46 });
     } finally {
       vi.useRealTimers();
     }

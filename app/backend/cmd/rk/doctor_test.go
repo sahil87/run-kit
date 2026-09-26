@@ -1066,7 +1066,7 @@ func TestRemovedEnvCheckRKSSHHost(t *testing.T) {
 		if c.OK {
 			t.Error("check OK = true, want false (set-but-ignored is a failure)")
 		}
-		want := "RK_SSH_HOST is no longer read — set the ssh_host key in ~/.config/run-kit/config.yaml"
+		want := "RK_SSH_HOST is no longer read — set the ssh_host key in ~/.config/hexokit/config.yaml"
 		if c.Hint != want {
 			t.Errorf("hint = %q, want %q", c.Hint, want)
 		}
@@ -1666,7 +1666,7 @@ func TestCronTickerCheck(t *testing.T) {
 		if !c.OK {
 			t.Errorf("row must always be OK-shaped, got %+v", c)
 		}
-		wantDir := filepath.Join(stateHome, "run-kit", "cron")
+		wantDir := filepath.Join(stateHome, "hexokit", "cron")
 		if !strings.Contains(c.Note, "cron_ticker on") || !strings.Contains(c.Note, wantDir) {
 			t.Errorf("note = %q, want the setting state and the state dir %s", c.Note, wantDir)
 		}
@@ -2193,7 +2193,7 @@ func TestRiffPresetsBlockCheck(t *testing.T) {
 		if c.Name != "riff presets" {
 			t.Errorf("name = %q, want %q", c.Name, "riff presets")
 		}
-		want := "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/run-kit/config.yaml"
+		want := "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/hexokit/config.yaml"
 		if c.Note != want {
 			t.Errorf("note = %q, want %q", c.Note, want)
 		}
@@ -2383,5 +2383,74 @@ func TestRiffPresetsBlockRowNeverFlipsVerdict(t *testing.T) {
 	}
 	if _, found := doctorHasRiffPresetsRow(with); !found {
 		t.Error("riff presets row should be present after adding the riff: key")
+	}
+}
+
+// TestPortPinCheck pins the advisory `port pin` row's gate and shape: it fires
+// only when config.yaml's port equals the legacy default, the current default
+// has moved off it, and RK_PORT is not overriding — and it is always OK-shaped
+// with a Note, never a verdict flipper.
+func TestPortPinCheck(t *testing.T) {
+	cases := []struct {
+		name        string
+		pinned      int
+		def         int
+		legacy      int
+		envOverride bool
+		wantRow     bool
+	}{
+		{"dormant while default equals legacy (today)", 3000, 3000, 3000, false, false},
+		{"fires when pinned at legacy and default moved", 3000, 6123, 3000, false, true},
+		{"RK_PORT override suppresses", 3000, 6123, 3000, true, false},
+		{"unpinned port suppresses", 4100, 6123, 3000, false, false},
+		{"no port in config.yaml suppresses", 0, 6123, 3000, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, present := portPinCheck(tc.pinned, tc.def, tc.legacy, tc.envOverride)
+			if present != tc.wantRow {
+				t.Fatalf("portPinCheck(%d, %d, %d, %v) present = %v, want %v", tc.pinned, tc.def, tc.legacy, tc.envOverride, present, tc.wantRow)
+			}
+			if !present {
+				return
+			}
+			if c.Name != "port pin" {
+				t.Errorf("name = %q, want %q", c.Name, "port pin")
+			}
+			if !c.OK {
+				t.Error("the pin row must stay OK-shaped (advisory)")
+			}
+			pinnedFrag := fmt.Sprintf("pinned at :%d", tc.pinned)
+			defFrag := fmt.Sprintf(":%d", tc.def)
+			if !strings.Contains(c.Note, pinnedFrag) || !strings.Contains(c.Note, defFrag) {
+				t.Errorf("note %q must name the pinned port and the new default", c.Note)
+			}
+			if !strings.Contains(c.Note, "rk daemon restart") {
+				t.Errorf("note %q must carry the move recipe", c.Note)
+			}
+		})
+	}
+}
+
+// TestRKPortOverride pins the valid-port rule behind the pin row's env gate:
+// only a parseable in-range RK_PORT counts as an override.
+func TestRKPortOverride(t *testing.T) {
+	cases := []struct {
+		value string
+		want  bool
+	}{
+		{"", false},
+		{"6123", true},
+		{"abc", false},
+		{"0", false},
+		{"65536", false},
+	}
+	for _, tc := range cases {
+		t.Run("RK_PORT="+tc.value, func(t *testing.T) {
+			t.Setenv("RK_PORT", tc.value)
+			if got := rkPortOverride(); got != tc.want {
+				t.Errorf("rkPortOverride() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

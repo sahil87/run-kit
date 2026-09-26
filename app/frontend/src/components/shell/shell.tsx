@@ -44,7 +44,7 @@ export { STAGE_PADDING_PX, STAGE_COLUMN_GAP_PX };
  * listener registers once per mount.
  *
  * The chord is inert when the Shell renders no sidebar children (the popout
- * posture): `setSidebarOpen` writes the shared `runkit-sidebar-open`
+ * posture): `setSidebarOpen` writes the shared `hexokit-sidebar-open`
  * preference, which a sidebar-less window must never flip.
  */
 function useSidebarKeyboardToggle(
@@ -188,7 +188,7 @@ export function Shell({
    * Zen mode (260820-o8cr R3): the terminal route's transient render-time
    * sidebar hide. Composes `sidebarOpen && !zenActive` for the desktop stage
    * columns, the aside, and the resize handle — the persisted preference
-   * (`runkit-sidebar-open`) is NEVER written on a zen path, so exiting zen
+   * (`hexokit-sidebar-open`) is NEVER written on a zen path, so exiting zen
    * restores exactly what the preference says. The column-gap collapses with
    * the column for free (the existing hidden-sidebar geometry), and the 150ms
    * ease-out transition animates the zen collapse like any sidebar toggle.

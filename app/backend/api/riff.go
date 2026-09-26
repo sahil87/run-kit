@@ -230,7 +230,7 @@ var loadRiffPresets = settings.LoadRiffPresets
 //	GET /api/riff/presets?server=<name>&session=<name>
 //	200: {"presets":[{"name","layout","paneCount"}], "tiers":[...]}
 //	     (presets come from run-kit's riff_presets — the built-ins plus user
-//	     entries in ~/.config/run-kit/config.yaml — never empty; every row is
+//	     entries in ~/.config/hexokit/config.yaml — never empty; every row is
 //	     one skill pane: layout "", paneCount 1; tiers gated on
 //	     fabconfig.IsFabProject — fab-kit built-ins ∪ the repo's agent.tiers
 //	     ("default" first) for a fab project, [] for a non-fab repo)

@@ -22,7 +22,7 @@ describe("codeServerSrc", () => {
 
 describe("codeServerWorkspaceSrc", () => {
   it("builds the stable relative /code/?workspace=<path> URL", () => {
-    const path = "/home/u/.local/state/run-kit/code/default/@7-3fa1c9.code-workspace";
+    const path = "/home/u/.local/state/hexokit/code/default/@7-3fa1c9.code-workspace";
     expect(codeServerWorkspaceSrc(path)).toBe(`/code/?workspace=${encodeURIComponent(path)}`);
   });
 

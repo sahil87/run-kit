@@ -70,7 +70,7 @@ function renderPanel(overrides: {
 // The panel defaults open (defaultOpen=true) — tests that need a collapsed
 // start seed the persisted key before rendering.
 function seedCollapsed() {
-  localStorage.setItem("runkit-panel-server", "false");
+  localStorage.setItem("hexokit-panel-server", "false");
 }
 
 beforeEach(() => {

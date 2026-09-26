@@ -6,6 +6,9 @@ func TestCommittedValues(t *testing.T) {
 	if DaemonDefault != 3000 {
 		t.Errorf("DaemonDefault = %d, want 3000", DaemonDefault)
 	}
+	if DaemonLegacy != 3000 {
+		t.Errorf("DaemonLegacy = %d, want 3000", DaemonLegacy)
+	}
 	if Rig != (Block{Name: "rig", Start: 21000, End: 21299}) {
 		t.Errorf("Rig = %+v, want {rig 21000 21299}", Rig)
 	}

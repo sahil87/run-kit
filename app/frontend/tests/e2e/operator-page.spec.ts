@@ -8,7 +8,7 @@ import { mockStateSocket, emitSessions } from "./_state-socket-mock";
 // live segment state (non-terminal tabs hide-never-unmount the terminal
 // column and swap the body), and the route's compose strip FORCED on and
 // footer-docked (visible under a non-terminal tab) regardless of the
-// `runkit-compose-strip` preference. The operator-less shapes: the drawer's
+// `hexokit-compose-strip` preference. The operator-less shapes: the drawer's
 // Start operator button (pending → the SSE-equivalent sessions event carries
 // the new operator window and the embed mounts; failures surface inline) and
 // the sidebar's placeholder row (the pinned slot's operator-less form —
@@ -138,7 +138,7 @@ test.describe("operator page (desktop)", () => {
   /**
    * Proves: the desktop operator route renders the segment strip above the
    * tty tile and the route's compose strip even with the
-   * `runkit-compose-strip` preference off — the operator page has an input by
+   * `hexokit-compose-strip` preference off — the operator page has an input by
    * definition.
    *
    * Steps:

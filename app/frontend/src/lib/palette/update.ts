@@ -36,7 +36,7 @@ export function updateChipToolSummary(tools: UpdateActionTool[]): string {
  * composes the `key` the ambient `update-available` payload carries. The MANUAL
  * check feed has no server-computed key of its own (the github source is a
  * side channel the daemon deliberately never caches), so the manual-fed chip
- * derives its key here — which is what lets the existing `runkit-update-dismissed`
+ * derives its key here — which is what lets the existing `hexokit-update-dismissed`
  * localStorage dismissal machinery work unchanged against it (§ Update
  * Notification). An empty set composes `""` (the cleared-key sentinel the
  * dismissal path already no-ops on). Context-free, so it stays unit-testable

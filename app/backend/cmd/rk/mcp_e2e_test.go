@@ -96,8 +96,8 @@ func TestMCPEndToEnd(t *testing.T) {
 	serverCmd.Env = append(env, "XDG_STATE_HOME="+xdgState, "RK_HOST=127.0.0.1", "RK_PORT=1")
 
 	// Seed one snapshot in the isolated store so snapshot_list round-trips a
-	// real entry (the store API writes under XDG_STATE_HOME/run-kit/snapshots).
-	store := snapshot.NewStore(filepath.Join(xdgState, "run-kit", "snapshots"))
+	// real entry (the store API writes under XDG_STATE_HOME/hexokit/snapshots).
+	store := snapshot.NewStore(filepath.Join(xdgState, "hexokit", "snapshots"))
 	written, err := store.Write(&snapshot.Snapshot{
 		Server:  "e2esnap",
 		TakenAt: time.Now().UTC(),

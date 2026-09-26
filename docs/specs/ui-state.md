@@ -345,7 +345,7 @@ terminal never moves it.
 
 The option also drives the tile's URL. `GET /api/windows/{windowId}/code-workspace`
 reads the live root and derives one `.code-workspace` file per (server, tab,
-root) — `$XDG_STATE_HOME/run-kit/code/<server>/<@N>-<hash6>.code-workspace`,
+root) — `$XDG_STATE_HOME/hexokit/code/<server>/<@N>-<hash6>.code-workspace`,
 its `settings` carrying `rk.tab`/`rk.server` — and the code tile mounts its
 iframe at `/code/?workspace=<file>`. The `?folder=<root>` form survives only
 as the degrade path (GET failure) and as the editor's own File > Open Folder

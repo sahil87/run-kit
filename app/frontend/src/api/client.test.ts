@@ -1594,7 +1594,7 @@ describe("fetchCodeWorkspace (tab-keyed workspace derivation)", () => {
       http.get("/api/windows/:windowId/code-workspace", ({ request }) => {
         capturedUrl = request.url;
         return HttpResponse.json({
-          path: "/home/u/.local/state/run-kit/code/default/@7-3fa1c9.code-workspace",
+          path: "/home/u/.local/state/hexokit/code/default/@7-3fa1c9.code-workspace",
           root: "/home/u/code/x",
         });
       }),
@@ -1604,7 +1604,7 @@ describe("fetchCodeWorkspace (tab-keyed workspace derivation)", () => {
     expect(capturedUrl).toContain("server=default");
     expect(result).toEqual({
       status: "ok",
-      path: "/home/u/.local/state/run-kit/code/default/@7-3fa1c9.code-workspace",
+      path: "/home/u/.local/state/hexokit/code/default/@7-3fa1c9.code-workspace",
       root: "/home/u/code/x",
     });
   });

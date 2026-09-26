@@ -85,9 +85,9 @@ function arraysEqual(a: string[], b: string[]): boolean {
  *
  *  One map key rather than one key per session: per-session keys would sprawl
  *  unboundedly across killed sessions and could not be enumerated for cleanup.
- *  The sibling per-SERVER section keys (`runkit-panel-sessions-{server}`) are
+ *  The sibling per-SERVER section keys (`hexokit-panel-sessions-{server}`) are
  *  scalars only because their value is a single boolean per server. */
-export const SESSION_COLLAPSED_STORAGE_KEY = "runkit-session-collapsed";
+export const SESSION_COLLAPSED_STORAGE_KEY = "hexokit-session-collapsed";
 
 /** Tolerant read of the persisted collapse map. Malformed JSON, a non-object
  *  root (an array included), a throwing `localStorage` (privacy mode,
@@ -258,7 +258,7 @@ export function Sidebar({
   const navigate = useNavigate();
   const { addToast } = useToast();
 
-  // Sessions-pane scope — explicit persisted state (`runkit-panel-sessions-scope`),
+  // Sessions-pane scope — explicit persisted state (`hexokit-panel-sessions-scope`),
   // fully decoupled from the SERVER panel's expansion. `current` filters the
   // tree to the resolved current server (falling back to all servers when none
   // resolves); `all` (default) lists every server's group. The header chip,
@@ -312,7 +312,7 @@ export function Sidebar({
   );
 
   // Sessions section collapse state — per-server, persisted in localStorage
-  // under `runkit-panel-sessions-{server}`. Default-open for `currentServer`,
+  // under `hexokit-panel-sessions-{server}`. Default-open for `currentServer`,
   // collapsed for everyone else. Includes a one-time migration of the legacy
   // `runkit-panel-sessions` key to the current server's namespaced key.
   const [serverSectionsOpen, setServerSectionsOpen] = useState<Record<string, boolean>>(() => {
@@ -324,7 +324,7 @@ export function Sidebar({
       try {
         const legacy = localStorage.getItem("runkit-panel-sessions");
         if (legacy != null) {
-          const k = `runkit-panel-sessions-${currentServer}`;
+          const k = `hexokit-panel-sessions-${currentServer}`;
           if (localStorage.getItem(k) == null) {
             localStorage.setItem(k, legacy);
           }
@@ -345,7 +345,7 @@ export function Sidebar({
       const cached = serverSectionsOpen[server];
       if (cached !== undefined) return cached;
       try {
-        const v = localStorage.getItem(`runkit-panel-sessions-${server}`);
+        const v = localStorage.getItem(`hexokit-panel-sessions-${server}`);
         if (v === "false") return false;
         if (v === "true") return true;
       } catch {
@@ -381,7 +381,7 @@ export function Sidebar({
     const current = readServerOpen(server);
     const next = !current;
     try {
-      localStorage.setItem(`runkit-panel-sessions-${server}`, String(next));
+      localStorage.setItem(`hexokit-panel-sessions-${server}`, String(next));
     } catch {
       // localStorage unavailable
     }
@@ -403,7 +403,7 @@ export function Sidebar({
   }, [currentServer, attachServer, readServerOpen]);
 
   // Per-session window-list collapse, keyed by `${server}:${session.name}` and
-  // persisted as collapsed exceptions in `runkit-session-collapsed` (kddk).
+  // persisted as collapsed exceptions in `hexokit-session-collapsed` (kddk).
   // Seeded lazily from storage so a collapsed session paints collapsed on the
   // first frame; read sites keep their `?? false` default, so an unknown key
   // (a new session, a cleared browser) stays expanded exactly as before.

@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"rk/internal/apphome"
 	"rk/internal/settings"
 	"rk/internal/validate"
 )
@@ -285,13 +286,12 @@ func init() {
 	// instead of the default socket without this.
 	os.Unsetenv("TMUX")
 
-	home, err := os.UserHomeDir()
-	if err == nil {
-		// Fixed root under $HOME only (no XDG env) — the same construction
-		// rule as settings.Dir()'s default, computed independently: the
-		// RK_CONFIG_DIR test override deliberately does not move this path
-		// (only the settings file needs per-run isolation).
-		DefaultConfigPath = filepath.Join(home, ".config", "run-kit", "tmux.conf")
+	if dir, err := apphome.ConfigDir(); err == nil {
+		// The resolved config home (apphome's dual-read rule) — the same root
+		// as settings.Dir()'s default: the RK_CONFIG_DIR test override
+		// deliberately does not move this path (only the settings file needs
+		// per-run isolation).
+		DefaultConfigPath = filepath.Join(dir, "tmux.conf")
 	}
 
 	configPath = resolveConfigPath()
@@ -301,6 +301,28 @@ func init() {
 		}
 	}
 	managedConfigPath = configPath == DefaultConfigPath
+}
+
+// RefreshDefaultConfigPath re-resolves DefaultConfigPath against the current
+// config home. The init-time resolution runs before the serve-time home
+// migration can publish the new home, so the first post-migration boot would
+// otherwise keep managing (and force-refreshing) the LEGACY tmux.conf while
+// every other resolver has moved on. When the resolved config path is the
+// managed default (no tmux_conf key, no RK_TMUX_CONF), configPath follows; in
+// "you own everything" mode only the default moves.
+func RefreshDefaultConfigPath() {
+	dir, err := apphome.ConfigDir()
+	if err != nil {
+		return
+	}
+	resolved := filepath.Join(dir, "tmux.conf")
+	if resolved == DefaultConfigPath {
+		return
+	}
+	DefaultConfigPath = resolved
+	if managedConfigPath {
+		configPath = resolved
+	}
 }
 
 // resolveConfigPath resolves the tmux config path once at package init:
@@ -409,7 +431,7 @@ func ensureDropInDir() error {
 // Returns an error if no config path is set or the source-file command fails.
 func ReloadConfig(server string) error {
 	if configPath == "" {
-		return fmt.Errorf("no tmux config path (run 'rk mux init-conf' or set the tmux_conf key in ~/.config/run-kit/config.yaml)")
+		return fmt.Errorf("no tmux config path (run 'rk mux init-conf' or set the tmux_conf key in ~/.config/hexokit/config.yaml)")
 	}
 	ctx, cancel := withTimeout()
 	defer cancel()

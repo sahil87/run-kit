@@ -18,7 +18,7 @@ function renderShell(opts: { open?: boolean; mobile?: boolean; sidebarChildren?:
   // viewport-dependent (collapsed on mobile), so relying on "absent ⇒ open"
   // would make the mobile-open scenario unreachable. An explicit value pins the
   // state regardless of the mocked viewport.
-  localStorage.setItem("runkit-sidebar-open", open ? "true" : "false");
+  localStorage.setItem("hexokit-sidebar-open", open ? "true" : "false");
   stubMatchMedia((q) =>
     mobile
       ? q.includes("max-width") // mobile width matches
@@ -140,7 +140,7 @@ describe("Shell", () => {
       expect(screen.queryByTestId("resize-handle")).not.toBeInTheDocument();
     });
 
-    it("the sidebar chord leaves runkit-sidebar-open untouched without sidebar children", () => {
+    it("the sidebar chord leaves hexokit-sidebar-open untouched without sidebar children", () => {
       // jsdom's UA resolves to platform "other", so the registry default for
       // `sidebar-toggle` is the shifted tier: Shift+Ctrl+KeyB.
       const pressSidebarChord = () =>
@@ -148,7 +148,7 @@ describe("Shell", () => {
 
       renderShell({ open: true, mobile: false, sidebarChildren: null });
       pressSidebarChord();
-      expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
+      expect(localStorage.getItem("hexokit-sidebar-open")).toBe("true");
 
       // The closed-preference posture is the destructive one: an unguarded
       // chord would flip the shared preference open from the popout.
@@ -156,7 +156,7 @@ describe("Shell", () => {
       localStorage.clear();
       renderShell({ open: false, mobile: false, sidebarChildren: null });
       pressSidebarChord();
-      expect(localStorage.getItem("runkit-sidebar-open")).toBe("false");
+      expect(localStorage.getItem("hexokit-sidebar-open")).toBe("false");
 
       // Control: with sidebar children the same chord writes the preference
       // (proving the chord matched above and the no-op is the children gate).
@@ -164,7 +164,7 @@ describe("Shell", () => {
       localStorage.clear();
       renderShell({ open: false, mobile: false });
       pressSidebarChord();
-      expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
+      expect(localStorage.getItem("hexokit-sidebar-open")).toBe("true");
     });
   });
 
@@ -193,7 +193,7 @@ describe("Shell", () => {
     });
 
     it("renders a passed sidebarResizeHandle beside the aside, straddling the stage gap", () => {
-      localStorage.setItem("runkit-sidebar-open", "true");
+      localStorage.setItem("hexokit-sidebar-open", "true");
       stubMatchMedia(() => false); // desktop
       render(
         <ChromeProvider>
@@ -218,7 +218,7 @@ describe("Shell", () => {
     });
 
     it("drops the stage column transition while sidebarResizing, restoring it after", () => {
-      localStorage.setItem("runkit-sidebar-open", "true");
+      localStorage.setItem("hexokit-sidebar-open", "true");
       stubMatchMedia(() => false); // desktop
       const tree = (resizing: boolean) => (
         <ChromeProvider>
@@ -241,7 +241,7 @@ describe("Shell", () => {
 
     it("does not render sidebarResizeHandle in the mobile overlay", () => {
       // ChromeProvider reads the stored preference; pin open, mock mobile viewport.
-      localStorage.setItem("runkit-sidebar-open", "true");
+      localStorage.setItem("hexokit-sidebar-open", "true");
       stubMatchMedia((q) => q.includes("max-width"));
       render(
         <ChromeProvider>

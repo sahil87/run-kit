@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Per-server tmux layout snapshots (`internal/snapshot`): capture set + the $XDG_STATE_HOME/run-kit/snapshots store (atomic latest, 10-entry history, content-dedup, zero-session guard, .died-{ts} tombstones), Snapshotter cadence + ephemeral opt-out, the per-window recently-closed ring ({server}.closed/, ClosedRingCap 10; consumers: closed-window api routes + cron session respawn by AgentRef), restore/reopen engines + rk mux snapshot CLI (no relaunch), recovery reader."
+description: "Per-server tmux layout snapshots (`internal/snapshot`): capture set + the hexokit state-home snapshots store (apphome dual-read, one-release legacy window; atomic latest, 10-entry history, content-dedup, zero-session guard, .died-{ts} tombstones), Snapshotter cadence + ephemeral opt-out, the per-window recently-closed ring ({server}.closed/, ClosedRingCap 10; consumers: closed-window routes + cron respawn by AgentRef), restore/reopen engines + rk mux snapshot CLI (no relaunch), recovery reader."
 ---
 # Layout Snapshots & Restore
 
@@ -63,7 +63,7 @@ The window capture format (`layoutWindowFormat`) carries the rk-owned presentati
 
 ### Requirement: Store layout and retention
 
-`snapshot.Store` roots at `DefaultDir()` — `$XDG_STATE_HOME/run-kit/snapshots` when set, else `~/.local/state/run-kit/snapshots` on every platform. State dir, not cache: recovery artifacts must not be droppable by contract. On store first use, when the resolved dir is absent and a legacy `$XDG_STATE_HOME/rk/snapshots` exists, the legacy dir is moved into place (`os.Rename`, best-effort, one-time — preserving recovery backups) and a `MOVED-to-run-kit` breadcrumb file is left in the legacy state dir naming the new path; a failed move degrades to cold-start behavior (empty store), never an error. (li54)
+`snapshot.Store` roots at `DefaultDir()` — `<state home>/snapshots`, where the state home resolves through `internal/apphome.StateDir()` under the dual-read rule: `${XDG_STATE_HOME:-~/.local/state}/hexokit` when the hexokit dir exists or neither home exists, else the legacy `run-kit` dir — the legacy read is a one-release window, dropped next release. State dir, not cache: recovery artifacts must not be droppable by contract. `snapshots/` is in the state home's must-move copy set: `internal/homemigrate.Migrate()`, called at release-build `serve` start only, copies the legacy `run-kit/snapshots/` tree (recursive, file modes preserved) into a temp sibling and publishes it onto the new home with one atomic `os.Rename` — best-effort and non-fatal, the race loser discards its copy, and the legacy tree is left byte-unchanged (downgrade-safe). On store first use, when the resolved dir is absent and a legacy `$XDG_STATE_HOME/rk/snapshots` exists, the legacy dir is moved into place (`os.Rename`, best-effort, one-time — preserving recovery backups) and a `MOVED-to-run-kit` breadcrumb file is left in the legacy state dir naming the new path; a failed move degrades to cold-start behavior (empty store), never an error. The breadcrumb keeps the `MOVED-to-run-kit` name — an on-disk artifact name written by prior releases (§ Design Decisions). (li54)
 
 ```
 {server}.json                 — latest snapshot (live server)
@@ -184,7 +184,7 @@ The other api-side touchpoint is the write-path annotation: `api.Server.SetServe
 ## Design Decisions
 
 ### Recently-closed ring lives server-side under `internal/snapshot`
-**Decision**: The per-server recently-closed stack is a `{server}.closed/{unix-nanos}.json` ring (cap `ClosedRingCap = 10`, `fsatomic.WriteFile`, newest-first listing) on the same `$XDG_STATE_HOME/run-kit/snapshots` root as the server snapshots, with `PushClosed`/`ListClosed`/`LoadClosed`/`DeleteClosed` as the store methods and `closedSuffix = ".closed"` as the filename-grammar owner.
+**Decision**: The per-server recently-closed stack is a `{server}.closed/{unix-nanos}.json` ring (cap `ClosedRingCap = 10`, `fsatomic.WriteFile`, newest-first listing) on the same state-home `snapshots/` root as the server snapshots, with `PushClosed`/`ListClosed`/`LoadClosed`/`DeleteClosed` as the store methods and `closedSuffix = ".closed"` as the filename-grammar owner.
 **Why**: A client-side (Zustand-only) stack cannot capture `@rk_win_web_<n>_root` (omitted from `ListWindows`) and dies on reload — the ring keeps capture cheap (one window's layout read at the kill seam), survives reload and daemon restart, and reuses the recovery-backup carve-out the server snapshots already occupy.
 **Rejected**: a client-only stack — loses state and dies on reload; a per-window record inside the same `{server}.json` latest snapshot — conflates a per-window capture with a server-capture cadence.
 *Introduced by*: 260829-11t0-reopen-closed-tab-recently-closed-stack
@@ -214,7 +214,7 @@ The other api-side touchpoint is the write-path annotation: `api.Server.SetServe
 *Introduced by*: 260805-htmy-daemon-layout-snapshots-restore
 
 ### Storage under `$XDG_STATE_HOME`, uniform across platforms
-**Decision**: `DefaultDir()` honors `$XDG_STATE_HOME`, defaulting to `~/.local/state/run-kit/snapshots` on every platform including macOS. A legacy `$XDG_STATE_HOME/rk/snapshots` is moved into the resolved root once (best-effort `os.Rename` into an absent target, never a merge), leaving a `MOVED-to-run-kit` breadcrumb in the legacy dir.
+**Decision**: `DefaultDir()` resolves through `internal/apphome` — `${XDG_STATE_HOME:-~/.local/state}/hexokit/snapshots` on every platform including macOS, dual-reading the legacy `run-kit` state home for one release. A legacy `$XDG_STATE_HOME/rk/snapshots` is moved into the resolved root once (best-effort `os.Rename` into an absent target, never a merge), leaving a `MOVED-to-run-kit` breadcrumb in the legacy dir.
 **Why**: Recovery artifacts must not live in a cache dir, which is droppable by contract; Go offers no `UserStateDir`, and a uniform path keeps the `rk mux snapshot` docs single-shaped. The move preserves backups users may still need to restore from; a failed move degrades to cold-start behavior, never an error.
 **Rejected**: A per-platform path (`~/Library/Application Support` on darwin) — two shapes to document for an artifact users mostly reach through the CLI; copying instead of renaming (duplicates backups, no atomicity); leaving the legacy dir in place (silent fork between two snapshot roots).
 *Introduced by*: 260805-htmy-daemon-layout-snapshots-restore; state-root move 260823-li54-config-root-registry-core
@@ -284,3 +284,9 @@ The other api-side touchpoint is the write-path annotation: `api.Server.SetServe
 **Why**: Cheap, and it preserves resume affordances across the upgrade — a record written with the legacy keys still answers "what agent session did this window carry".
 **Rejected**: Dropping read-compat — constitution-permissible (the ring is a non-authoritative recovery artifact) but loses working resume affordances for no savings.
 *Introduced by*: 260904-bf1l-agent-session-identity-rename
+
+### `MOVED-to-run-kit` breadcrumb name kept
+**Decision**: The one-time legacy-move breadcrumb written into `<state-root>/rk/` keeps the name `MOVED-to-run-kit` even though the resolved snapshot root now lives under the `hexokit` state home.
+**Why**: It is an on-disk artifact name already written by prior releases; renaming the constant changes nothing a user can observe and buys no cleanup.
+**Rejected**: Renaming to a hexokit-flavored breadcrumb — the constant would stop matching artifacts already on disk, for no gain.
+*Introduced by*: 260926-qm4d-hexokit-home-migration

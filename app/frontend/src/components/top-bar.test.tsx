@@ -504,10 +504,10 @@ describe("TopBar", () => {
       );
     beforeEach(() => {
       stubDesktop();
-      localStorage.setItem("runkit-sidebar-width", "220");
+      localStorage.setItem("hexokit-sidebar-width", "220");
     });
     afterEach(() => {
-      localStorage.removeItem("runkit-sidebar-width");
+      localStorage.removeItem("hexokit-sidebar-width");
     });
 
     /** The head is the header's direct absolutely-positioned child. */
@@ -778,7 +778,7 @@ describe("TopBar", () => {
     // popover form was deleted outright (260814-6b0j — reset lives in the
     // settings dialog and the palette's Increase/Decrease/Reset actions). The
     // chevron menu's stepper row (TerminalFontMenuRow) is the top-bar surface.
-    const FONT_KEY = "runkit-terminal-font-size";
+    const FONT_KEY = "hexokit-terminal-font-size";
 
     afterEach(() => {
       localStorage.clear();
@@ -1326,7 +1326,7 @@ describe("TopBar", () => {
       });
 
       it("omits a row's keycap when its binding is disabled — a dead chord would lie (board)", () => {
-        localStorage.setItem("runkit-keybindings", JSON.stringify({ "split-vertical": null }));
+        localStorage.setItem("hexokit-keybindings", JSON.stringify({ "split-vertical": null }));
         renderBoardSplit();
         act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
         const rows = Array.from(splitDirectionMenu()!.querySelectorAll('[role="menuitem"]'));

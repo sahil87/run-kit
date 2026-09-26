@@ -2821,7 +2821,7 @@ function RefreshButton() {
  * button hover vocabulary). Clicking the chip body triggers POST /api/update and
  * enters a disabled `updating…` state; the daemon restart then drops SSE, and
  * the reconnect's differing `version` drives the reload guard (session-context).
- * A small `✕` dismisses per-version (localStorage `runkit-update-dismissed`).
+ * A small `✕` dismisses per-version (localStorage `hexokit-update-dismissed`).
  * Renders nothing unless a qualifying, un-dismissed update is pending and the
  * daemon is not the `dev` version.
  */

@@ -37,6 +37,10 @@ var (
 	// DaemonDefault is the default daemon (Vite/serve) port. Dev backend is
 	// +1, code-server +2 by convention.
 	DaemonDefault int
+	// DaemonLegacy is the pre-rename daemon default. Existing installs are
+	// pinned here through the HexoKit rename; only fresh installs take
+	// DaemonDefault once it moves.
+	DaemonLegacy int
 	// Rig is the e2e rig block, allocated in triples (Vite, Go backend,
 	// code-server stub).
 	Rig Block
@@ -54,6 +58,7 @@ func init() {
 		panic(fmt.Sprintf("portpolicy: %v", err))
 	}
 	DaemonDefault = vals["PORTPOLICY_DAEMON_DEFAULT"]
+	DaemonLegacy = vals["PORTPOLICY_DAEMON_LEGACY"]
 	Rig = Block{Name: "rig", Start: vals["PORTPOLICY_RIG_START"], End: vals["PORTPOLICY_RIG_END"]}
 	Tunnel = Block{Name: "tunnel", Start: vals["PORTPOLICY_TUNNEL_START"], End: vals["PORTPOLICY_TUNNEL_END"]}
 	Sentinel = vals["PORTPOLICY_SENTINEL"]
@@ -81,6 +86,7 @@ func parse(data string) (map[string]int, error) {
 	}
 	for _, key := range []string{
 		"PORTPOLICY_DAEMON_DEFAULT",
+		"PORTPOLICY_DAEMON_LEGACY",
 		"PORTPOLICY_RIG_START",
 		"PORTPOLICY_RIG_END",
 		"PORTPOLICY_TUNNEL_START",

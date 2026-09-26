@@ -102,11 +102,11 @@ without_lock_fd() {
 
 # Hermetic per-run state: the backend's disk carve-outs (layout snapshots, the
 # PR-status seed cache) land under this temp dir instead of the developer's
-# real $XDG_STATE_HOME/run-kit, and the EXIT trap removes it. The config root
+# real $XDG_STATE_HOME/hexokit, and the EXIT trap removes it. The config root
 # is isolated too: RK_CONFIG_DIR (exported to the backend launch and the
 # playwright run below) points settings reads/writes at the per-run
 # $E2E_STATE_HOME/config instead of the developer's real
-# ~/.config/run-kit/config.yaml, so parallel worktree runs cannot race on it.
+# ~/.config/hexokit/config.yaml, so parallel worktree runs cannot race on it.
 # Specs that touch the file keep their snapshot/restore pattern as the
 # fallback for the interactive `just pw` lane, which sets no RK_CONFIG_DIR.
 E2E_STATE_HOME="$(mktemp -d)"

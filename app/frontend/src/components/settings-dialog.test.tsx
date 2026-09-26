@@ -277,9 +277,9 @@ beforeEach(() => {
   // Belt-and-braces: the theme context's storage keys must never leak between
   // tests (a stored named-theme preference changes what the real provider
   // resolves before the API preference lands).
-  localStorage.removeItem("runkit-theme");
-  localStorage.removeItem("runkit-theme-dark");
-  localStorage.removeItem("runkit-theme-light");
+  localStorage.removeItem("hexokit-theme");
+  localStorage.removeItem("hexokit-theme-dark");
+  localStorage.removeItem("hexokit-theme-light");
   mockMatchMedia();
   vi.mocked(getSettingsEntries).mockReset();
   vi.mocked(getSettingsEntries).mockResolvedValue([]);
@@ -356,7 +356,7 @@ describe("SettingsDialog", () => {
     expect(slider).toHaveAttribute("max", "1");
 
     fireEvent.change(slider, { target: { value: "0.8" } });
-    expect(localStorage.getItem("runkit-quake-terminal-opacity")).toBe("0.8");
+    expect(localStorage.getItem("hexokit-quake-terminal-opacity")).toBe("0.8");
     // Per-viewer resident: nothing rides the registry seam.
     expect(postSettings).not.toHaveBeenCalled();
   });
@@ -415,8 +415,8 @@ describe("SettingsDialog", () => {
       openAppearance();
       const list = screen.getByRole("listbox", { name: "Themes" });
       fireEvent.click(within(list).getByText("Dracula"));
-      expect(localStorage.getItem("runkit-theme")).toBe("dracula");
-      expect(localStorage.getItem("runkit-theme-dark")).toBe("dracula");
+      expect(localStorage.getItem("hexokit-theme")).toBe("dracula");
+      expect(localStorage.getItem("hexokit-theme-dark")).toBe("dracula");
       // The dialog stays open; the commit closes the popover and the trigger
       // now names the committed theme.
       expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
@@ -455,7 +455,7 @@ describe("SettingsDialog", () => {
       const input = openAppearance();
       fireEvent.change(input, { target: { value: "drac" } });
       fireEvent.keyDown(input, { key: "Enter" });
-      expect(localStorage.getItem("runkit-theme")).toBe("dracula");
+      expect(localStorage.getItem("hexokit-theme")).toBe("dracula");
     });
   });
 
@@ -716,7 +716,7 @@ describe("SettingsDialog", () => {
         configurable: true,
         writable: true,
       });
-      localStorage.setItem("runkit-shell-notifications", "on");
+      localStorage.setItem("hexokit-shell-notifications", "on");
       renderDialog();
       expect(await screen.findByText("Enabled on this device")).toBeInTheDocument();
     });
@@ -782,7 +782,7 @@ describe("SettingsDialog", () => {
       ]);
       // The escape-hatch footer carries the constant config path + copy button.
       expect(screen.getByTestId("settings-config-path-footer")).toHaveTextContent(
-        "~/.config/run-kit/config.yaml",
+        "~/.config/hexokit/config.yaml",
       );
     });
 
@@ -997,7 +997,7 @@ describe("SettingsDialog", () => {
       const button = screen.getByRole("button", { name: "Copy config path" });
       fireEvent.click(button);
       await waitFor(() =>
-        expect(copyToClipboard).toHaveBeenCalledWith("~/.config/run-kit/config.yaml"),
+        expect(copyToClipboard).toHaveBeenCalledWith("~/.config/hexokit/config.yaml"),
       );
       await waitFor(() => expect(button).toHaveTextContent("Copied"));
     });

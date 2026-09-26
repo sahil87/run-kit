@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Cron scheduling substrate — the `rk cron` CLI family (add/edit/list/rm/mute/pin/tick) over per-server intent files under $XDG_STATE_HOME/run-kit/cron/; stateless evaluator (every / backoff anchor-join / cron exprs + catch_up / wake_on; muted flag/lease); daemon Ticker; three-policy deliver axis (immediate / when-idle / skip-if-busy); any-role + session targets; if_absent dispositions; orphan TTL GC; circuit breakers; HTTP API; operator-state reader (watchlist join + whole tracked list)."
+description: "Cron scheduling substrate — the `rk cron` CLI family (add/edit/list/rm/mute/pin/tick) over per-server intent files under ${XDG_STATE_HOME:-~/.local/state}/hexokit/cron/; stateless evaluator (every/backoff/cron + catch_up + wake_on; muted flag/lease); daemon Ticker; three-policy deliver axis (immediate/when-idle/skip-if-busy); any-role + session targets; if_absent dispositions; orphan TTL GC; circuit breakers; HTTP API; operator-state reader (watchlist join + tracked list)."
 ---
 # Cron
 
@@ -88,7 +88,7 @@ Every mutation wakes the SSE hub explicitly on success (`s.initSSEHub(); s.sseHu
 
 ## State Files
 
-All cron state lives under `$XDG_STATE_HOME/run-kit/cron/` (`DefaultDir` — XDG-honoring with the `~/.local/state` fallback, the `snapshot.DefaultDir` resolution; dir 0700, files 0600). Server slugs are tmux socket names validated against `^[A-Za-z0-9_-]+$` (the snapshot-store rule) before any path is built — a validated slug can never traverse or split a path.
+All cron state lives under `${XDG_STATE_HOME:-~/.local/state}/hexokit/cron/` (`DefaultDir`, resolved through `internal/apphome` — the `hexokit` state dir when it exists, else the legacy `run-kit` state dir when it exists, else the `hexokit` dir; XDG-honoring with the `~/.local/state` fallback; dir 0700, files 0600). For one release the legacy `$XDG_STATE_HOME/run-kit/cron/` tree stays active through that dual-read rule: `internal/homemigrate` copies `cron/` (entry files, delivery logs, and wake cursors) into the new state home at release-build serve start while leaving the legacy tree byte-unchanged, so a pre-migration process keeps reading and writing the legacy dir. The legacy read arm and the legacy tree are dropped next release. Server slugs are tmux socket names validated against `^[A-Za-z0-9_-]+$` (the snapshot-store rule) before any path is built — a validated slug can never traverse or split a path.
 
 | Path | Content | Class |
 |---|---|---|

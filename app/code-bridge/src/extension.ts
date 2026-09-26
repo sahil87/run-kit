@@ -2,13 +2,13 @@ import * as vscode from 'vscode';
 import * as net from 'node:net';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { startBridge, BridgeDeps } from './bridge';
 import { readTabIdentity, TabIdentity } from './tab';
 import { identityFromWorkspaceFile } from './workspace-file';
 import { ownsFile, buildBootMarker } from './ownership';
 import { resolveRkPath, runRk, RunRkResult } from './rk';
+import { stateDir } from './state-dir';
 import {
   WEB_ADD_TIMEOUT_MS,
   NOTIFY_TIMEOUT_MS,
@@ -356,12 +356,6 @@ function registerActions(
     ),
     vscode.commands.registerCommand('rk.openPortInWebTile', () => openPortInWebTile()),
   );
-}
-
-function stateDir(): string {
-  const xdg = process.env.XDG_STATE_HOME;
-  const base = typeof xdg === 'string' && xdg.length > 0 ? xdg : path.join(os.homedir(), '.local', 'state');
-  return path.join(base, 'run-kit', 'cb');
 }
 
 // The socket dir gates who can reach the bridge; group/other access means refusing to start.

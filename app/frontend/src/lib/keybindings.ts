@@ -8,7 +8,7 @@
  * unchanged), the
  * claimed-key map (shell menu accelerators, OS keys, browser-reserved keys —
  * per tier), the per-device override layer
- * (`localStorage["runkit-keybindings"]`, diffs
+ * (`localStorage["hexokit-keybindings"]`, diffs
  * only), conflict detection, chord capture, and per-platform formatting.
  *
  * Everything here is pure and DOM-light (the localStorage read/write are thin
@@ -147,7 +147,7 @@ export type BindingOverride = BindingCombo | null;
 /** The persisted shape: diffs only, keyed by actionId. */
 export type BindingOverrides = Record<string, BindingOverride>;
 
-export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
+export const KEYBINDINGS_STORAGE_KEY = "hexokit-keybindings";
 
 /**
  * The default registry. Order is display order within each overlay group.

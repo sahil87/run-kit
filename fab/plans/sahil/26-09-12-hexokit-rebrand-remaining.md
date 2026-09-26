@@ -9,19 +9,37 @@
 **Where we are**: hexokit.com is live and is the canonical site. shll.ai is a
 permanent redirect host (meta-refresh + canonical to the mapped hexokit.com
 page; `/install` and `/versions.json` are byte copies, verified). The product
-README, docs, specs, and every companion README already say HexoKit. **Nothing
-installed on a user's machine has changed its name yet** — `brew list` says
-`run-kit`, the desktop app says "Run Kit", the command is `run-kit`/`rk`, config
-lives in `~/.config/run-kit/`, and the GitHub repo is `sahil87/run-kit`. That is
-deliberate: the disruptive renames are all in Phase 3, which runs when Sahil
-calls it.
+README, docs, specs, and every companion README already say HexoKit. R0
+renamed the app identity itself: the command is `hexokit` (with `xk`/`rk`
+completions) and the desktop app is "HexoKit". Still on the old name: the
+on-disk homes (`~/.config/run-kit/`, `$XDG_STATE_HOME/run-kit/` — C4, in
+progress), the daemon port default (C5), and the GitHub repo
+`sahil87/run-kit` (R2).
 
 **Status (2026-09-26)**: **everything before Phase 3 is done except the
 announce.** A1 (shll v0.1.33) and A2 done; P1, P2, P3 merged and shipped in
-rk v3.20.20. A3 (announce hexokit.com) is Sahil's call. Phase 3 started 2026-09-26:
-R0 (#950) rebuilt onto main and back in review. Decisions:
-repos stay under `sahil87`, R2 → `sahil87/hexokit` (D15); binary `rk` + alias
-`xk` (D16); port config key (D17, now shipped).
+rk v3.20.20. A3 (announce hexokit.com) is Sahil's call. **Phase 3 in
+progress**: R0 **merged** 2026-09-26 ([run-kit#950](https://github.com/sahil87/run-kit/pull/950),
+`3d7afba1`); C4 in progress on fab change `260926-qm4d-hexokit-home-migration`;
+C5 next. Decisions: repos stay under `sahil87`, R2 → `sahil87/hexokit` (D15);
+binary `rk` + alias `xk` (D16); port config key (D17, now shipped).
+
+## Rules that bind every row here (from the master decision log)
+
+| # | Rule |
+|---|------|
+| D2 | **Binary stays `rk`.** `hexokit` replaces `run-kit` as the long command name; **`rk` stays the canonical short name** and **`xk` is added as a second alias** (D16). Docs, skills, help text, and examples use `rk` only; `xk` is mentioned once, as an alias. `hk` is rejected: homebrew-core ships `hk` (jdx's git-hook manager), so installing both is a `bin/hk` link conflict. Every `RK_*` env var, `@rk_*` tmux option, `rk-*` socket/session name, the Go module path `rk`, `rk-code-bridge` and its `rk.*` settings keys, and all `rk-*` CSS classes are **untouched**. If a change appears to need one renamed, stop and add a row |
+| D8 | **Electron**: `productName` "Run Kit" → "HexoKit", `artifactName` → `hexokit-desktop-…`, **`appId` `ai.shll.run-kit` kept** so installed apps keep their identity. `rk desktop` stays the CLI verb |
+| D9 | **On-disk homes migrate once, silently**: `~/.config/run-kit/` → `~/.config/hexokit/`, `$XDG_STATE_HOME/run-kit/` → `…/hexokit/`, `runkit-*` localStorage → `hexokit-*`. Read-old-then-write-new on first run, old left in place one release, then dropped |
+| D11 | **History is not renamed.** `fab/` archives, `docs/memory/` narrative, git history, old PR titles keep "run-kit". Only present-tense live surfaces change |
+| D14 | **Standards are not renamed.** `shll standards`, file names, the shll repo home all stay. Content already swept (C1, X4) |
+| D15 | **Every repo stays under `sahil87`; the product repo becomes `sahil87/hexokit` at R2.** Fixed 2026-09-25 by Sahil — the `hexokit` GitHub handle is not available (the account is flagged by GitHub abuse review and hidden; rename/org path blocked, tickets pending), so nothing in this plan waits for it or targets it. If the org materialises later, moving repos into it is a separate, later piece of work: a GitHub transfer after a rename keeps the redirect chain, so `sahil87/run-kit` → `sahil87/hexokit` → `hexokit/hexokit` all resolve |
+| P | **Ports fold into the rebrand — without moving anyone.** Daemon default 3000 → **6123** (the 6 is the hexagon; only known tenant is Apache Flink's JobManager; not on any browser unsafe-port list) with the +1/+2 arithmetic kept (6124 Go dev backend, 6125 code-server). Machine-only ports move to a 5-digit block humans never type: e2e rig triples 21000–21299, remote tunnels 21500–21599, Playwright sentinel 21999. GUI ports unchanged. **Existing installs are pinned, not moved**: P3 adds a `port` key to config.yaml (env still wins), then C4's config migration writes the current effective port into the migrated config.yaml, so nobody's Tailscale serve, bookmark, or phone shortcut breaks; a doctor row nudges toward 6123. **Env vars are not renamed** — `RK_PORT`/`RK_HOST`/`RK_CODE_SERVER_PORT` are substrate (D2) and stay the only keys with env forms (constitution IV). **Moving is a documented config edit**: set `port: 6123` in `~/.config/hexokit/config.yaml`, restart the daemon, re-point Tailscale Serve, update bookmarks / phone shortcuts / MCP clients at `…:3000/mcp` (D17) |
+
+Roster coupling (why the order below is strict): shll's roster `Name` /
+`Formula` / `Repo` are read at runtime by `shll install`, `doctor`, and
+`check-updates`. Each field flips **with** its rename in the same sitting,
+never ahead of it.
 
 ---
 
@@ -46,21 +64,25 @@ formula/release bundle (R1), and C4 rides that same release.
 
 | # | Repo(s) | Slug (suggested) | Depends on | Size | Scope | PR | Status |
 |---|---------|------------------|-----------|------|-------|----|--------|
-| R0 | run-kit | `hexokit-app-identity` | A3 (or Sahil's call) | M | **The app rename.** Cobra root command name `hexokit` (`run-kit` kept as hidden alias one release), **`xk` added as an alias (D16)** + shell completions under all four names (`hexokit`, `rk`, `xk`, `run-kit`); **the parked code registers three — add `xk` during the rebuild**; help-dump / upgrade strings; Electron `productName` "Run Kit" → "HexoKit", `artifactName` → `hexokit-desktop-…`, `appId` kept (D8), the userData carry-forward of `hosts.json`/`windows.json`; `rk desktop` bundle name + release-asset prefix (`internal/desktop/*`); `fab/project/config.yaml` project name | [run-kit#950](https://github.com/sahil87/run-kit/pull/950) | **in progress** — rebuilt 2026-09-26 fresh from main `1a43927b` by `git apply -3` of the old app-identity diff (`8a0f0d8c..6193071d`); `xk` completion added (four names); the rename extended to main's Linux AppImage arm (desktop entry `Name`/`StartupWMClass` → HexoKit, uninstall strings, AppImage legacy-prefix fallback). Full suite green; re-review running on fab change `mvuv` |
-| C4 | run-kit | `hexokit-home-migration` | R0, P3 | M | D9: `~/.config/run-kit` → `~/.config/hexokit` (one-time move, dual-read one release); `$XDG_STATE_HOME/run-kit` → `hexokit` (cron entries + snapshots **must** move; droppable caches may cold-start); `runkit-*` localStorage → `hexokit-*` read-old/write-new. Add an e2e that seeds old keys/dirs and asserts pickup. **Port pin (rule P):** while migrating config.yaml, write the current effective daemon port into P3's `port` key (with a one-line comment: pinned during the rename so remote access kept working) so existing installs stay on 3000 and only fresh installs get the new default; doctor row nudges toward 6123. **Tunnel range:** persisted `remotes.yaml` 3100–3199 → 21500–21599 as a one-shot reassignment (lowest free) in the same load path *only if trivial*; otherwise leave the range alone and record it in the policy. Ships in the same release as R0 | | not started |
+| R0 | run-kit | `hexokit-app-identity` | A3 (or Sahil's call) | M | **The app rename.** Cobra root command name `hexokit` (`run-kit` kept as hidden alias one release), **`xk` added as an alias (D16)** + shell completions under all four names (`hexokit`, `rk`, `xk`, `run-kit`); **the parked code registers three — add `xk` during the rebuild**; help-dump / upgrade strings; Electron `productName` "Run Kit" → "HexoKit", `artifactName` → `hexokit-desktop-…`, `appId` kept (D8), the userData carry-forward of `hosts.json`/`windows.json`; `rk desktop` bundle name + release-asset prefix (`internal/desktop/*`); `fab/project/config.yaml` project name | [run-kit#950](https://github.com/sahil87/run-kit/pull/950) | **merged** 2026-09-26 (`3d7afba1`) — shipped: `hexokit` command + `xk`/`rk`/`run-kit` completions (four names), Electron productName → "HexoKit" / artifactName → `hexokit-desktop-…`, Linux AppImage arm (desktop entry, uninstall strings, legacy-prefix fallback), `appId` kept |
+| C4 | run-kit | `hexokit-home-migration` | R0, P3 | M | D9: `~/.config/run-kit` → `~/.config/hexokit` (one-time move, dual-read one release); `$XDG_STATE_HOME/run-kit` → `hexokit` (cron entries + snapshots **must** move; droppable caches may cold-start); `runkit-*` localStorage → `hexokit-*` read-old/write-new. Add an e2e that seeds old keys/dirs and asserts pickup. **Port pin (rule P):** while migrating config.yaml, write the current effective daemon port into P3's `port` key (with a one-line comment: pinned during the rename so remote access kept working) so existing installs stay on 3000 and only fresh installs get the new default; doctor row nudges toward 6123. **Tunnel range:** persisted `remotes.yaml` 3100–3199 → 21500–21599 as a one-shot reassignment (lowest free) in the same load path *only if trivial*; otherwise leave the range alone and record it in the policy. Ships in the same release as R0 | | **in progress** — fab change `260926-qm4d-hexokit-home-migration`. **Tunnel range deferred**: 3100–3199 kept; the rule P target 21500–21599 is deferred — `local_port` is immutable by design (keys per-origin browser state + desktop view identity), live `ssh -L` tunnels would orphan on the old port, and `remote.Load` range-checks every persisted entry. The doctor `port pin` nudge is **dormant until C5** flips the daemon default. Follow-up: `remotes.yaml` stays at `~/.config/rk/remotes.yaml`, outside both homes |
 | C5 | run-kit | `hexokit-daemon-port` | C4 | S | **Daemon default 3000 → 6123** (+1/+2 kept: 6124 dev backend, 6125 code-server; code-server override semantics unchanged — an explicit code-server port still means externally managed). Nothing forces existing users off 3000 (C4 pins them). Same change updates every place that states the default: README, hexokit.com install page, `serve` help text, `justfile` comments, MCP allowed-origins docs, `docs/specs/architecture.md`, `api.md`, `rk url` prints the current one. Release notes: new installs land on :6123; existing installs keep their pinned port; how to move (config edit, restart, Tailscale Serve, bookmarks, MCP clients — rule P). Doctor row nudges pinned-at-3000 installs toward 6123. Ships in the same release as R0 + C4 | | not started |
 | R1 | homebrew-tap → run-kit → shll → hexokit-site | `hexokit-formula-bundle` | R0, C4, C5 merged | M | In order, one sitting: **(a)** tap: `Formula/hexokit.rb` (installs `hexokit` + `rk` and `xk` symlinks), `formula_renames.json` adds `run-kit → hexokit` (precedent `rk → run-kit`), README banner + drop stale `ai.shll.in`; **(b)** run-kit: `.github/workflows/release.yml` writes `Formula/hexokit.rb`, `.github/formula-template.rb` name; **cut the release** (carries R0 + C4 + C5); **(c)** shll: roster `Name`+`Formula` → `hexokit`, `LegacyName` gains `run-kit`, `versions.json` row → `hexokit` (retire the S3 `envelope` carry-over), release shll; **(d)** hexokit-site: landing shows `brew install sahil87/tap/hexokit`, install-script default → `hexokit`. **Gate before (c):** `brew upgrade` on a box with the old formula follows the rename cleanly | | not started |
 | R2 | run-kit → shll → hexokit-site → satellites | `hexokit-repo-bundle` | A3 (any time; independent of R1) | S | One sitting: **(a)** GitHub rename `sahil87/run-kit` → `sahil87/hexokit` (`gh auth switch --user sahil87`, switch back after; **never recreate `run-kit`** or the redirect dies); **(b)** shll roster `Repo` → `hexokit`, release; **(c)** hexokit-site slug-table source → `sahil87/hexokit`, run both Refresh crons once; **(d)** run-kit badges / `homepage` fields / formula-template URLs, sahil87 profile + the six C7 repo links. GitHub redirects web, clone, releases, and raw URLs between (a) and (d). **Target is `sahil87/hexokit`, fixed (D15)** — no org dependency, no "decide at R2" | | not started |
 | X3 | run-kit | `hexokit-memory-hydrate` | R1, R2 | S | Memory + specs identity sweep for present-truth lines only (D11); competitive-landscape one-liner; `context.md`; close both plan docs (Status → Done) | | not started |
 
-Order: ~~(P1 ∥ P2 ∥ P3)~~ done · A1 → (A2) → A3 → *[Sahil's call]* → R0 → C4 → C5 → R1 · R2 (any time after A3) → X3.
+Order: ~~(P1 ∥ P2 ∥ P3)~~ done · A1 → (A2) → A3 → *[Sahil's call]* → ~~R0~~ → C4 → C5 → R1 · R2 (any time after A3) → X3.
 
 ---
 
 ## Risks still live
 
-- **Silent state loss** (C4). Mitigation is in the row: dual-read one release
-  plus an e2e that seeds the old locations.
+- **Silent state loss** (C4). Shipped mitigation: copy + atomic publish
+  (rename) at daemon start; dual-read resolution (new-if-exists, else
+  legacy-if-exists, else new); the port pin at the legacy default; a
+  marker-guarded localStorage boot copy; and the pickup e2e tests that seed
+  the old dirs/keys and assert pickup. Legacy homes and keys stay in place
+  for one release.
 - **Formula rename edge cases** (R1). `formula_renames.json` has worked once
   (`rk → run-kit`); still verify on a box with the old formula before the
   roster flips, because a broken rename strands `shll install`.

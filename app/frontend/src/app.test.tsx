@@ -1430,9 +1430,9 @@ describe("operator page — the operator window's route wears the quake surface 
 
     await waitFor(() => screen.getByTestId("mock-surface-layout"));
     expect(screen.getByTestId("terminal-activity-tabs")).toBeInTheDocument();
-    // The strip is the page's input by definition — the `runkit-compose-strip`
+    // The strip is the page's input by definition — the `hexokit-compose-strip`
     // preference (absent here) does not gate it on the operator page.
-    expect(localStorage.getItem("runkit-compose-strip")).toBeNull();
+    expect(localStorage.getItem("hexokit-compose-strip")).toBeNull();
     expect(screen.getByTestId("compose-strip-input")).toBeInTheDocument();
   });
 
@@ -1791,15 +1791,15 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
     });
 
     it("yields the window cluster while the PANE section is on and the sidebar open; the host cluster stays", async () => {
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
       await renderTerminalRoute();
       expect(screen.queryByTestId("status-bar-window")).toBeNull();
       expect(screen.getByTestId("status-bar-host")).toBeInTheDocument();
     });
 
     it("keeps the window cluster when the PANE section is on but the sidebar is collapsed", async () => {
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
-      localStorage.setItem("runkit-sidebar-open", "false");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-sidebar-open", "false");
       await renderTerminalRoute();
       expect(screen.getByTestId("status-bar-window")).toBeInTheDocument();
     });
@@ -1808,15 +1808,15 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
       // A collapsed panel header shows no registers, so the panel is not "on
       // screen" — the bar must keep the cluster exactly as when the section
       // is off. Seeds the panel's own persisted open state.
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
-      localStorage.setItem("runkit-panel-window", "false");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-panel-window", "false");
       await renderTerminalRoute();
       expect(screen.getByTestId("status-bar-window")).toBeInTheDocument();
       expect(screen.getByTestId("status-bar-host")).toBeInTheDocument();
     });
 
     it("flips live with the PANE header chevron — collapse hands the cluster back, expand yields it", async () => {
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
       await renderTerminalRoute();
       expect(screen.queryByTestId("status-bar-window")).toBeNull();
       const header = screen.getByRole("button", { name: /^Pane/ });
@@ -1846,13 +1846,13 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
       // Zen hides the sidebar without touching the section preference, so the
       // panel is off screen: the bar must show the cluster (host cluster too)
       // or zen would be the one desktop state with no register view.
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
       await renderTerminalRoute();
       expect(screen.queryByTestId("status-bar-window")).toBeNull();
       act(() => zenDispatchRef.current?.(true));
       await waitFor(() => expect(screen.getByTestId("status-bar-window")).toBeInTheDocument());
       expect(screen.getByTestId("status-bar-host")).toBeInTheDocument();
-      expect(localStorage.getItem("runkit-sidebar-section-pane")).toBe("true");
+      expect(localStorage.getItem("hexokit-sidebar-section-pane")).toBe("true");
       act(() => zenDispatchRef.current?.(false));
       await waitFor(() => expect(screen.queryByTestId("status-bar-window")).toBeNull());
     });

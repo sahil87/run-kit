@@ -450,14 +450,14 @@ describe("Sidebar", () => {
   it("no-sessions hint names the derived create-session chord", () => {
     stubPointer(false);
     localStorage.setItem(
-      "runkit-keybindings",
+      "hexokit-keybindings",
       JSON.stringify({ "create-session": { code: "Comma", tier: "shifted" } }),
     );
     renderSidebar({ sessions: [], onCreateSession: vi.fn() });
     expect(
       screen.getByText("(no sessions — a session groups tabs; + new, or Shift+Ctrl+,)"),
     ).toBeInTheDocument();
-    localStorage.removeItem("runkit-keybindings");
+    localStorage.removeItem("hexokit-keybindings");
   });
 
   it("no-sessions hint drops the chord clause on a coarse pointer", () => {
@@ -465,20 +465,20 @@ describe("Sidebar", () => {
     // even when the binding is live — the `+ new` row is the touch path.
     stubPointer(true);
     localStorage.setItem(
-      "runkit-keybindings",
+      "hexokit-keybindings",
       JSON.stringify({ "create-session": { code: "Comma", tier: "shifted" } }),
     );
     renderSidebar({ sessions: [], onCreateSession: vi.fn() });
     expect(screen.getByText("(no sessions — a session groups tabs; + new)")).toBeInTheDocument();
-    localStorage.removeItem("runkit-keybindings");
+    localStorage.removeItem("hexokit-keybindings");
   });
 
   it("no-sessions hint drops the chord clause when create-session is unbound", () => {
-    localStorage.setItem("runkit-keybindings", JSON.stringify({ "create-session": null }));
+    localStorage.setItem("hexokit-keybindings", JSON.stringify({ "create-session": null }));
     renderSidebar({ sessions: [], onCreateSession: vi.fn() });
     expect(screen.getByText("(no sessions — a session groups tabs; + new)")).toBeInTheDocument();
     expect(screen.queryByText(/Shift\+Ctrl\+N/)).not.toBeInTheDocument();
-    localStorage.removeItem("runkit-keybindings");
+    localStorage.removeItem("hexokit-keybindings");
   });
 
   it("empty-state hint click calls onCreateSession directly (no dialog)", () => {

@@ -1244,7 +1244,7 @@ describe("SessionProvider — tab-local manual-check feed (260807-s6zs)", () => 
     ).toBe(false);
     // The only update-related key the surface writes is the shared dismissal one,
     // and dismissal was not invoked here.
-    expect(setItem).not.toHaveBeenCalledWith("runkit-update-dismissed", expect.anything());
+    expect(setItem).not.toHaveBeenCalledWith("hexokit-update-dismissed", expect.anything());
     setItem.mockRestore();
   });
 
@@ -1409,7 +1409,7 @@ describe("SessionProvider — dismissUpdate writes the EFFECTIVE key (260807-s6z
     await act(async () => {
       result.current.dismissUpdate();
     });
-    expect(setItem).toHaveBeenCalledWith("runkit-update-dismissed", "run-kit@3.9.1");
+    expect(setItem).toHaveBeenCalledWith("hexokit-update-dismissed", "run-kit@3.9.1");
     expect(result.current.updateDismissedKey).toBe("run-kit@3.9.1");
     setItem.mockRestore();
   });
@@ -1435,21 +1435,21 @@ describe("SessionProvider — dismissUpdate writes the EFFECTIVE key (260807-s6z
     await act(async () => {
       result.current.dismissUpdate();
     });
-    expect(setItem).toHaveBeenCalledWith("runkit-update-dismissed", "run-kit@3.9.0");
+    expect(setItem).toHaveBeenCalledWith("hexokit-update-dismissed", "run-kit@3.9.0");
     setItem.mockRestore();
   });
 
   it("is a no-op when neither feed has anything to dismiss", async () => {
     // The dismissal key is localStorage-backed and read lazily on mount, so a
     // prior test's write would otherwise seed this provider.
-    localStorage.removeItem("runkit-update-dismissed");
+    localStorage.removeItem("hexokit-update-dismissed");
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
     await settle();
     await act(async () => {
       result.current.dismissUpdate();
     });
-    expect(setItem).not.toHaveBeenCalledWith("runkit-update-dismissed", expect.anything());
+    expect(setItem).not.toHaveBeenCalledWith("hexokit-update-dismissed", expect.anything());
     expect(result.current.updateDismissedKey).toBeNull();
     setItem.mockRestore();
   });

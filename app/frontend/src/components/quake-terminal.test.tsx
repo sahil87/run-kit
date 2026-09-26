@@ -1162,7 +1162,7 @@ describe("QuakeTerminal", () => {
     expect(el.style.backgroundColor).toContain("100%");
   });
 
-  const storedGeometry = () => JSON.parse(localStorage.getItem("runkit-quake-terminal-geometry")!);
+  const storedGeometry = () => JSON.parse(localStorage.getItem("hexokit-quake-terminal-geometry")!);
 
   it("dragging the bottom grip resizes only the height and persists the geometry on release", async () => {
     renderQuake();
@@ -1320,7 +1320,7 @@ describe("QuakeTerminal", () => {
     expect(el.style.width).toBe("760px");
     fireEvent.pointerUp(grip, { pointerId: 2 });
     expect(el.className).toContain("rk-quake-dragging");
-    expect(localStorage.getItem("runkit-quake-terminal-geometry")).toBeNull();
+    expect(localStorage.getItem("hexokit-quake-terminal-geometry")).toBeNull();
 
     // The first pointer still owns the drag.
     fireEvent.pointerMove(grip, { clientX: 540, clientY: 100, pointerId: 1 });
@@ -1347,7 +1347,7 @@ describe("QuakeTerminal", () => {
 
   it("double-clicking any grip resets the geometry to the defaults", async () => {
     localStorage.setItem(
-      "runkit-quake-terminal-geometry",
+      "hexokit-quake-terminal-geometry",
       JSON.stringify({ heightVh: 70, widthPx: 900, centerOffsetPx: 40 }),
     );
     renderQuake();
@@ -1366,7 +1366,7 @@ describe("QuakeTerminal", () => {
 
   it("a viewport resize re-clamps the displayed offset without writing the store", async () => {
     localStorage.setItem(
-      "runkit-quake-terminal-geometry",
+      "hexokit-quake-terminal-geometry",
       JSON.stringify({ heightVh: 55, widthPx: 760, centerOffsetPx: 100 }),
     );
     const originalWidth = window.innerWidth;

@@ -70,7 +70,7 @@ describe("usePushSubscription", () => {
     });
 
     expect(result.current.state).toBe("subscribed");
-    expect(localStorage.getItem("runkit-shell-notifications")).toBe("on");
+    expect(localStorage.getItem("hexokit-shell-notifications")).toBe("on");
     expect(enablePushSubscription).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent("Notifications enabled");
   });

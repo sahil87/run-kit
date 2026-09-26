@@ -123,7 +123,7 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 
 	// Verify file was created at the fixed config root
-	p := filepath.Join(tmp, ".config", "run-kit", "config.yaml")
+	p := filepath.Join(tmp, ".config", "hexokit", "config.yaml")
 	data, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -150,10 +150,10 @@ func TestSaveCreatesDir(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	// .config/run-kit/ does not exist yet
-	configDir := filepath.Join(tmp, ".config", "run-kit")
+	// .config/hexokit/ does not exist yet
+	configDir := filepath.Join(tmp, ".config", "hexokit")
 	if _, err := os.Stat(configDir); !os.IsNotExist(err) {
-		t.Fatal("expected .config/run-kit/ to not exist initially")
+		t.Fatal("expected .config/hexokit/ to not exist initially")
 	}
 
 	if err := Save(Settings{Theme: "nord", ThemeDark: "default-dark", ThemeLight: "default-light", CronTicker: true}); err != nil {
@@ -162,10 +162,10 @@ func TestSaveCreatesDir(t *testing.T) {
 
 	info, err := os.Stat(configDir)
 	if err != nil {
-		t.Fatalf("Stat .config/run-kit: %v", err)
+		t.Fatalf("Stat .config/hexokit: %v", err)
 	}
 	if !info.IsDir() {
-		t.Error(".config/run-kit should be a directory")
+		t.Error(".config/hexokit should be a directory")
 	}
 }
 
@@ -595,7 +595,7 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 		if err := SetServerFlair("default", nil); err != nil {
 			t.Fatalf("SetServerFlair clear: %v", err)
 		}
-		data, err := os.ReadFile(filepath.Join(tmp, ".config", "run-kit", "config.yaml"))
+		data, err := os.ReadFile(filepath.Join(tmp, ".config", "hexokit", "config.yaml"))
 		if err != nil {
 			t.Fatalf("ReadFile: %v", err)
 		}
@@ -948,7 +948,7 @@ func TestConfigRootIsFixedAndEnvImmune(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dir: %v", err)
 	}
-	if want := filepath.Join(tmp, ".config", "run-kit"); dir != want {
+	if want := filepath.Join(tmp, ".config", "hexokit"); dir != want {
 		t.Errorf("Dir() = %q, want %q (XDG_CONFIG_HOME must not move the root)", dir, want)
 	}
 
@@ -956,7 +956,7 @@ func TestConfigRootIsFixedAndEnvImmune(t *testing.T) {
 	if err != nil {
 		t.Fatalf("configPath: %v", err)
 	}
-	want := filepath.Join(tmp, ".config", "run-kit", "config.yaml")
+	want := filepath.Join(tmp, ".config", "hexokit", "config.yaml")
 	if p != want {
 		t.Errorf("configPath() = %q, want %q", p, want)
 	}
@@ -975,7 +975,7 @@ func TestConfigDirEnvOverride(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Dir: %v", err)
 		}
-		if want := filepath.Join(tmp, ".config", "run-kit"); dir != want {
+		if want := filepath.Join(tmp, ".config", "hexokit"); dir != want {
 			t.Errorf("Dir() = %q, want %q (whitespace-only override must behave as unset)", dir, want)
 		}
 	})
@@ -1048,7 +1048,7 @@ func TestConfigDirEnvOverrideSaveCreatesDir(t *testing.T) {
 	if got := Load().InstanceName; got != "override-box" {
 		t.Errorf("Load().InstanceName = %q, want %q (load must read the override root)", got, "override-box")
 	}
-	if _, err := os.Stat(filepath.Join(tmp, ".config", "run-kit")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(tmp, ".config", "hexokit")); !os.IsNotExist(err) {
 		t.Errorf("fixed $HOME root was touched despite the override (stat err = %v)", err)
 	}
 }
@@ -1073,7 +1073,7 @@ func TestRoundTripByteIdentical(t *testing.T) {
 	}
 }
 
-// --- migration 1: ~/.rk/settings.yaml → ~/.config/run-kit/config.yaml (R3, R4) ---
+// --- migration 1: ~/.rk/settings.yaml → ~/.config/hexokit/config.yaml (R3, R4) ---
 
 func TestLoadFallsBackToLegacyPath(t *testing.T) {
 	tmp := t.TempDir()
@@ -1119,7 +1119,7 @@ func TestSaveMigratesAndRenamesLegacyFile(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(tmp, ".config", "run-kit", "config.yaml"))
+	data, err := os.ReadFile(filepath.Join(tmp, ".config", "hexokit", "config.yaml"))
 	if err != nil {
 		t.Fatalf("ReadFile new path: %v", err)
 	}
@@ -1152,7 +1152,7 @@ func TestLoadNewPathWinsWhenBothExist(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(legacyDir, "settings.yaml"), []byte("theme: dracula\n"), 0644); err != nil {
 		t.Fatalf("WriteFile legacy: %v", err)
 	}
-	newPath := filepath.Join(tmp, ".config", "run-kit", "config.yaml")
+	newPath := filepath.Join(tmp, ".config", "hexokit", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(newPath), 0755); err != nil {
 		t.Fatalf("MkdirAll new: %v", err)
 	}
@@ -1184,7 +1184,7 @@ func TestSaveWithoutLegacyFileSucceeds(t *testing.T) {
 	if err := Save(Default()); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(tmp, ".config", "run-kit", "config.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(tmp, ".config", "hexokit", "config.yaml")); err != nil {
 		t.Fatalf("new path not written: %v", err)
 	}
 }
@@ -1429,5 +1429,202 @@ func TestPortApplyValue(t *testing.T) {
 		if s.Port != 4000 {
 			t.Errorf("ApplyValue(port, %s) mutated Port to %d, want unchanged 4000", patch, s.Port)
 		}
+	}
+}
+
+// --- config-home dual-read (R2) ---
+
+// TestLegacyConfigDirDualRead proves the pre-migration window: when only the
+// legacy ~/.config/run-kit dir exists, Dir resolves to it, Load reads it, and
+// Save writes back to it — no hexokit dir is created.
+func TestLegacyConfigDirDualRead(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv(ConfigDirEnv, "")
+
+	legacyDir := filepath.Join(tmp, ".config", "run-kit")
+	if err := os.MkdirAll(legacyDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	legacyFile := filepath.Join(legacyDir, "config.yaml")
+	if err := os.WriteFile(legacyFile, []byte("theme: dracula\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("Dir: %v", err)
+	}
+	if dir != legacyDir {
+		t.Errorf("Dir() = %q, want the legacy dir %q", dir, legacyDir)
+	}
+	if got := Load().Theme; got != "dracula" {
+		t.Errorf("Load().Theme = %q, want %q (read from the legacy file)", got, "dracula")
+	}
+
+	s := Load()
+	s.Theme = "nord"
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(legacyFile)
+	if err != nil {
+		t.Fatalf("ReadFile legacy: %v", err)
+	}
+	if !strings.Contains(string(data), "theme: nord\n") {
+		t.Errorf("legacy file after Save = %q, want the write to land there", data)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, ".config", "hexokit")); !os.IsNotExist(err) {
+		t.Errorf("the hexokit dir was created while the legacy home was active (stat err = %v)", err)
+	}
+}
+
+// TestNewConfigDirWinsOverLegacy: once both homes exist (migrated), the new
+// dir is authoritative.
+func TestNewConfigDirWinsOverLegacy(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv(ConfigDirEnv, "")
+
+	legacyDir := filepath.Join(tmp, ".config", "run-kit")
+	newDir := filepath.Join(tmp, ".config", "hexokit")
+	for _, d := range []string{legacyDir, newDir} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatalf("MkdirAll %s: %v", d, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "config.yaml"), []byte("theme: dracula\n"), 0644); err != nil {
+		t.Fatalf("WriteFile legacy: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(newDir, "config.yaml"), []byte("theme: nord\n"), 0644); err != nil {
+		t.Fatalf("WriteFile new: %v", err)
+	}
+
+	if dir, err := Dir(); err != nil || dir != newDir {
+		t.Errorf("Dir() = %q, %v — want the new dir %q", dir, err, newDir)
+	}
+	if got := Load().Theme; got != "nord" {
+		t.Errorf("Load().Theme = %q, want %q (the new home wins)", got, "nord")
+	}
+}
+
+// --- port pin comment round-trip (R7) ---
+
+// TestPortPinCommentParse pins detection of the exact marker line: only the
+// verbatim comment sets PortPinNote — other comments and near-misses do not.
+func TestPortPinCommentParse(t *testing.T) {
+	s := parse(PortPinComment + "\nport: 3000\n")
+	if !s.PortPinNote {
+		t.Error("PortPinNote = false, want true for the exact pin comment")
+	}
+	if s.Port != 3000 {
+		t.Errorf("Port = %d, want 3000", s.Port)
+	}
+
+	for _, input := range []string{
+		"# some other comment\nport: 3000\n",
+		PortPinComment + " (edited)\nport: 3000\n",
+		"port: 3000\n",
+	} {
+		if s := parse(input); s.PortPinNote {
+			t.Errorf("parse(%q): PortPinNote = true, want false", input)
+		}
+	}
+}
+
+// TestPortPinCommentSerialize pins the emit rule: the comment line goes
+// directly above `port: N` when the note holds and a port is set; an unset
+// port emits neither (no dangling comment), and a cleared note emits the bare
+// key.
+func TestPortPinCommentSerialize(t *testing.T) {
+	s := Default()
+	s.Port = 3000
+	s.PortPinNote = true
+	want := PortPinComment + "\nport: 3000\n"
+	if got := serialize(s); !strings.Contains(got, want) {
+		t.Errorf("serialize = %q, want it to contain %q", got, want)
+	}
+
+	s.Port = 0
+	if got := serialize(s); strings.Contains(got, "port") {
+		t.Errorf("serialize (Port unset) = %q, want no port line or comment", got)
+	}
+
+	s.Port = 3000
+	s.PortPinNote = false
+	got := serialize(s)
+	if strings.Contains(got, PortPinComment) || !strings.Contains(got, "port: 3000\n") {
+		t.Errorf("serialize (note cleared) = %q, want the bare port line", got)
+	}
+}
+
+// TestPortPinCommentSurvivesUnrelatedSave proves the round-trip end to end: a
+// Load → mutate-an-unrelated-key → Save cycle keeps the comment directly
+// above the pinned port.
+func TestPortPinCommentSurvivesUnrelatedSave(t *testing.T) {
+	t.Setenv(ConfigDirEnv, t.TempDir())
+
+	p, err := configPath()
+	if err != nil {
+		t.Fatalf("configPath: %v", err)
+	}
+	content := "theme: dark\n" + PortPinComment + "\nport: 3000\n"
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := Load()
+	if !s.PortPinNote || s.Port != 3000 {
+		t.Fatalf("Load: PortPinNote = %v, Port = %d — want true, 3000", s.PortPinNote, s.Port)
+	}
+	s.Theme = "nord"
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), PortPinComment+"\nport: 3000\n") {
+		t.Errorf("saved file = %q, want the pin comment directly above port: 3000", data)
+	}
+	if !strings.Contains(string(data), "theme: nord\n") {
+		t.Errorf("saved file = %q, want the unrelated theme write", data)
+	}
+}
+
+// TestPortPinCommentDroppedByRegistryPortWrite proves a registry write to the
+// port key (set or null) drops the comment from the saved file.
+func TestPortPinCommentDroppedByRegistryPortWrite(t *testing.T) {
+	t.Setenv(ConfigDirEnv, t.TempDir())
+
+	p, err := configPath()
+	if err != nil {
+		t.Fatalf("configPath: %v", err)
+	}
+	if err := os.WriteFile(p, []byte(PortPinComment+"\nport: 3000\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := Load()
+	if err := ApplyValue(&s, "port", json.RawMessage(`6123`)); err != nil {
+		t.Fatalf("ApplyValue port: %v", err)
+	}
+	if s.PortPinNote {
+		t.Fatal("PortPinNote still set after a registry port write")
+	}
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(data), PortPinComment) {
+		t.Errorf("saved file = %q, want the pin comment gone after the port write", data)
+	}
+	if !strings.Contains(string(data), "port: 6123\n") {
+		t.Errorf("saved file = %q, want port: 6123", data)
 	}
 }

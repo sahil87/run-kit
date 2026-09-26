@@ -151,6 +151,16 @@ func isRunningCtx(ctx context.Context) bool {
 	return runningSessionCtx(ctx) != ""
 }
 
+// LegacyRunning reports whether a daemon session under the PRE-RENAME name
+// still exists on the daemon socket — a daemon started by an old binary is
+// alive. Unlike IsRunning it ignores the current-name session, so a new
+// binary's own daemonized serve never counts itself.
+func LegacyRunning() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	return sessionExistsCtx(ctx, LegacySessionName)
+}
+
 // IsRunning returns true if the daemon tmux session exists (under the current
 // or legacy name).
 func IsRunning() bool {

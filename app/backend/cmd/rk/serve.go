@@ -181,6 +181,10 @@ func setupSlog(level slog.Level) *slog.Logger {
 // migrateHomes is the homemigrate.Migrate seam for the dev-gate test.
 var migrateHomes = homemigrate.Migrate
 
+// legacyDaemonRunningFn probes for a live PRE-RENAME daemon session — the
+// migration-deferral guard's seam (tests stub it).
+var legacyDaemonRunningFn = daemon.LegacyRunning
+
 // migrateHomesUnlessDev runs the one-time run-kit → hexokit home migration at
 // daemon start — before config.Load and tmux.EnsureConfig read anything — and
 // then re-resolves the tmux managed-conf path: tmux.DefaultConfigPath was
@@ -190,8 +194,18 @@ var migrateHomes = homemigrate.Migrate
 // migration entirely — a worktree rig shares the developer's real legacy home
 // with the live brew daemon, so a rig must never freeze a stale copy of it
 // for the real upgrade (the same gate reserved.go uses).
+//
+// The publish is also DEFERRED while a pre-rename daemon session survives:
+// that daemon keeps reading and writing the legacy home, which a publish
+// would hide (the new home wins resolution) while this serve goes on to lose
+// the port race against it and exit. Deferral is safe — the dual-read rule
+// keeps the legacy home authoritative, and the next clean start migrates.
 func migrateHomesUnlessDev() {
 	if version == "dev" {
+		return
+	}
+	if legacyDaemonRunningFn() {
+		slog.Warn("home migration deferred: a pre-rename daemon is still running — stop it (rk daemon stop) and start again to migrate")
 		return
 	}
 	migrateHomes(slog.Default())

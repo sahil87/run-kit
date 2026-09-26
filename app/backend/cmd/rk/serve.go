@@ -181,9 +181,9 @@ func setupSlog(level slog.Level) *slog.Logger {
 // migrateHomes is the homemigrate.Migrate seam for the dev-gate test.
 var migrateHomes = homemigrate.Migrate
 
-// legacyDaemonRunningFn probes for a live PRE-RENAME daemon session — the
-// migration-deferral guard's seam (tests stub it).
-var legacyDaemonRunningFn = daemon.LegacyRunning
+// daemonPortBusyFn probes whether something already listens on the resolved
+// daemon port — the migration-deferral guard's seam (tests stub it).
+var daemonPortBusyFn = daemon.PortBusy
 
 // migrateHomesUnlessDev runs the one-time run-kit → hexokit home migration at
 // daemon start — before config.Load and tmux.EnsureConfig read anything — and
@@ -195,17 +195,20 @@ var legacyDaemonRunningFn = daemon.LegacyRunning
 // with the live brew daemon, so a rig must never freeze a stale copy of it
 // for the real upgrade (the same gate reserved.go uses).
 //
-// The publish is also DEFERRED while a pre-rename daemon session survives:
-// that daemon keeps reading and writing the legacy home, which a publish
-// would hide (the new home wins resolution) while this serve goes on to lose
-// the port race against it and exit. Deferral is safe — the dual-read rule
-// keeps the legacy home authoritative, and the next clean start migrates.
+// The publish is also DEFERRED while the daemon port is already bound: that
+// listener is a live daemon (after a brew upgrade, typically the old binary,
+// which runs in the same rk-daemon session) that keeps reading and writing
+// the legacy home — a publish would hide it behind the new home's win in the
+// dual-read rule, and this serve would then lose the bind and exit anyway.
+// `rk daemon restart` stops the old serve before starting the new one, so the
+// normal upgrade path finds the port free. Deferral is safe: the legacy home
+// stays authoritative and the next clean start migrates.
 func migrateHomesUnlessDev() {
 	if version == "dev" {
 		return
 	}
-	if legacyDaemonRunningFn() {
-		slog.Warn("home migration deferred: a pre-rename daemon is still running — stop it (rk daemon stop) and start again to migrate")
+	if daemonPortBusyFn() {
+		slog.Warn("home migration deferred: the daemon port is already in use — restart the daemon (rk daemon restart) to migrate")
 		return
 	}
 	migrateHomes(slog.Default())

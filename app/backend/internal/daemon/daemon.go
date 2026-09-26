@@ -151,16 +151,6 @@ func isRunningCtx(ctx context.Context) bool {
 	return runningSessionCtx(ctx) != ""
 }
 
-// LegacyRunning reports whether a daemon session under the PRE-RENAME name
-// still exists on the daemon socket — a daemon started by an old binary is
-// alive. Unlike IsRunning it ignores the current-name session, so a new
-// binary's own daemonized serve never counts itself.
-func LegacyRunning() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
-	defer cancel()
-	return sessionExistsCtx(ctx, LegacySessionName)
-}
-
 // IsRunning returns true if the daemon tmux session exists (under the current
 // or legacy name).
 func IsRunning() bool {
@@ -196,6 +186,15 @@ func portInUse(host string, port int) bool {
 	}
 	_ = conn.Close()
 	return true
+}
+
+// PortBusy reports whether the resolved daemon RK_HOST:RK_PORT already has a
+// listener — the serve-start home migration's live-daemon guard. Before the
+// migration, config.Load resolves an existing install's virtually pinned
+// port, which is exactly the port a still-running old-binary daemon holds.
+func PortBusy() bool {
+	cfg := config.Load()
+	return portInUse(cfg.Host, cfg.Port)
 }
 
 // guardPortAvailable refuses daemon startup when the configured RK_HOST:RK_PORT

@@ -77,10 +77,19 @@ convention plus the per-command rows):
   authorized) it is **chatter**, so `--yes --quiet` is fully silent on success
   while `--yes` non-quiet still shows the context on stderr. The interactive
   prompt itself and the non-TTY refusal are never gated (the refusal is an error).
-- **A brew-stderr-in-error nuance in `update`**: under `--quiet`
-  the suppressed brew subprocess stderr is **buffered** (not discarded) and, on a
-  non-zero exit, wrapped into the returned error, so a failing `rk update --quiet`
-  keeps its diagnostic detail rather than surfacing a bare `exit status 1`.
+- **A brew-stderr-in-error nuance in `update`**: brew's stderr is never
+  destroyed on failure — a shared `withBrewDetail` helper wraps the trimmed,
+  captured stderr into the returned error, so a failing run keeps its diagnostic
+  detail rather than surfacing a bare `exit status 1`. Two paths feed it: under
+  `--quiet` the suppressed update/upgrade stderr is **buffered** (not discarded)
+  and wrapped on a non-zero exit, and the `info` version lookup's stderr —
+  captured by `cmd.Output()` into `exec.ExitError.Stderr` — is wrapped on every
+  run, quiet or not (non-quiet update/upgrade streams stderr live and returns
+  the bare exit error). When the captured stderr contains `untrusted tap`
+  (Homebrew's refusal to load a formula from a tap the user has not trusted),
+  the wrapped detail gains a trailing `hint: run: brew trust sahil87/tap` line,
+  the tap derived from `selfpath.BrewFormula` via `path.Dir` so it tracks the
+  formula constant.
 - **`mux reap` gets a display cap, not a quiet conversion** (`reaper.go`): everything
   the reaper prints is data (a dry-run's candidate list is the requested result; an act
   summary is the record of a destructive mutation), so `--quiet` legitimately

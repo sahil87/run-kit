@@ -423,6 +423,27 @@ func TestRunBrewFn_QuietFailureSurfacesStderrDetail(t *testing.T) {
 	}
 }
 
+// TestRunBrewFn_InfoFailureSurfacesStderrDetail: `info` captures stdout via
+// .Output(), so its stderr sits in exec.ExitError.Stderr — it must be wrapped
+// into the error, and an untrusted-tap refusal must carry the trust hint.
+func TestRunBrewFn_InfoFailureSurfacesStderrDetail(t *testing.T) {
+	const detail = "Error: Refusing to load formula sahil87/tap/hexokit from untrusted tap"
+	withFakeBrew(t, detail, 1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := runBrewFn(ctx, "info", "--json=v2", "sahil87/tap/hexokit")
+	if err == nil {
+		t.Fatal("failing brew info must return an error")
+	}
+	for _, want := range []string{detail, "brew trust sahil87/tap"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("info failure error missing %q, got: %v", want, err)
+		}
+	}
+}
+
 // withFakeBrew installs a fake `brew` executable on PATH (prepended) for the
 // test's duration. The fake writes stderrText to stderr and exits with exitCode,
 // so runBrewFn's real exec.CommandContext path is exercised without a real brew.

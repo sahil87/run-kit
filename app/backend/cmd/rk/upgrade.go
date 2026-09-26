@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"strings"
 	"syscall"
 	"time"
@@ -74,7 +75,8 @@ var skipBrewUpdate bool
 // PersistentFlags BoolVar), keeping the seam signature unchanged so tests still
 // observe calls without a real brew. The `info` path is unaffected — it captures
 // stdout via .Output() rather than streaming, and its bytes are data (the
-// version lookup), not chatter.
+// version lookup), not chatter. Its stderr lands in exec.ExitError.Stderr and is
+// wrapped into the error on failure (same rule as the quiet path below).
 //
 // Under --quiet the suppressed brew stderr is BUFFERED rather than discarded and,
 // on a non-zero exit, its captured detail is wrapped into the returned error
@@ -85,7 +87,12 @@ var skipBrewUpdate bool
 var runBrewFn = func(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := newBrewCmd(ctx, args...)
 	if len(args) > 0 && args[0] == "info" {
-		return cmd.Output()
+		out, err := cmd.Output()
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			err = withBrewDetail(err, string(ee.Stderr))
+		}
+		return out, err
 	}
 	stdout, stderr, errBuf := brewStreams(quiet)
 	cmd.Stderr = stderr
@@ -94,11 +101,23 @@ var runBrewFn = func(ctx context.Context, args ...string) ([]byte, error) {
 	}
 	err := cmd.Run()
 	if err != nil && errBuf != nil {
-		if detail := strings.TrimSpace(errBuf.String()); detail != "" {
-			return nil, fmt.Errorf("%w: %s", err, detail)
-		}
+		return nil, withBrewDetail(err, errBuf.String())
 	}
 	return nil, err
+}
+
+// withBrewDetail wraps brew's captured stderr into err so a failure reads as
+// more than "exit status 1". Homebrew refuses formulae from untrusted taps, so
+// that case gets an actionable hint naming the tap to trust.
+func withBrewDetail(err error, stderr string) error {
+	detail := strings.TrimSpace(stderr)
+	if detail == "" {
+		return err
+	}
+	if strings.Contains(detail, "untrusted tap") {
+		detail += "\nhint: run: brew trust " + path.Dir(selfpath.BrewFormula)
+	}
+	return fmt.Errorf("%w: %s", err, detail)
 }
 
 // newBrewCmd constructs the *exec.Cmd for a brew invocation. Mutating
